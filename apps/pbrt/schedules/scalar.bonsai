@@ -28,4 +28,7 @@ schedule {
     trace_any.loopify(64);
 
     render.bind(p, CPUThread);
+    // The pixel's finalization (pbrt's GetImage), a pass of its own after
+    // the sampling nest, across the cores too.
+    render.bind(q, CPUThread);
 }

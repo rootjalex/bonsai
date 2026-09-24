@@ -5895,6 +5895,113 @@ arenas. A heap allocation freed at the function's return is the default
 for programs no driver stages (the tests). Until (2a) and (2b) are built,
 `wavefront-frame.bonsai` stays uncommitted.
 
+*Steps (2a) and (2b), built 2026-09-24, and what changed on the way.*
+`reorder(inner, outer)` is a schedule directive (include/SSA/ReorderLoops.h
+has the semantics and the citations; grammar_schedule.tex the grammar):
+loop distribution of the outer loop at its inner loop, then interchange of
+the perfect nest that leaves. What the pixel loop did before its sample
+loop is a loop of its own, `p!prologue`, before the passes (the zeroing
+stores); pure arithmetic on the pixel index (`i`, `j`) is recomputed in the
+new inner body; a read of memory or a draw that the body needs would be
+computed once per pixel in the prologue loop and scalar-expanded into an
+array of one entry per pixel (Allen and Kennedy's scalar expansion; none
+in render); a `mut` local of the pixel's iteration that the samples use is
+privatized the same way (the specialized integrator's slot is one such:
+`integrator!VolPath!expanded`, a copy of the integrator per pixel, which a
+later hoist of an invariant slot could make one copy -- noted below); an
+epilogue would be a loop of its own after the nest (render has none, the
+finalization being a pass already). The one thing moved before the loop is
+a load of a slot of the function nothing in the loop writes -- the sample
+count's result slot, which the sample loop's bound reads -- since it is
+the same on every iteration and reads memory that is there whether or not
+the loop runs; the design refused speculation otherwise after review found
+that hoisting invariant arithmetic would run a division the original never
+ran when the pixel range is empty, and that an array read is `extract_idx`
+in this SSA, not `load`, so a classifier keyed on `load` would have
+recomputed `w = weight_out[p]` inside the samples that accumulate into it.
+The distributed loops are variants of `p` (`p!VolPath!prologue`), so
+`render.bind(p, CPUThread)` binds them too. `render[VolPath].reorder(p, s)`
+interchanges the VolPath copy alone; `render.reorder(p, s)` would do every
+integrator's.
+
+The storage is two generic passes after every directive and the promotion
+of allocas. `hoist_invariant_allocations` (include/SSA/HoistAllocations.h;
+Halide's `hoist_storage` and LICM cited) moves an allocation out of the
+loops around it while its size is available there, nothing reads what it
+held when an iteration began (the `scratch` mark every deferral puts on
+its queues and record, or a store of the whole slot ahead of every use),
+and the loop crossed is sequential -- a `while`, a loopified recursion, an
+unbound parfor; a bound parfor is never crossed, Halide's "stored outside
+the parallel loop but computed within it" race. For the frame schedule
+that moves a pass's family out of the sample loop to the block that holds
+it, once per render call. `heap_arrays` (include/SSA/HeapArrays.h) then
+puts every run-time-sized array of a function's once-per-call blocks on
+the heap, freed at every exit of the block's dominance region (a return in
+it, or an edge out of it, split when the block leaving has edges staying
+too -- the specialized render's storage sits in the VolPath arm, which
+does not dominate the function's one return), when no reference into the
+array leaves the call (returned, or stored into memory the function did
+not allocate; the addresses of record slots stored in queue entries are
+into storage freed at the same exits, traced through the arguments that
+thread them with SSA/Definitions.h). `--no-heap` admits an allocation the
+function frees, which is not the leak it exists to refuse. The SSA has a
+`Free` instruction for it, lowered to LLVM's free. This is Halide's model
+-- a pipeline's internal buffers are heap allocations made per call and
+freed before it returns -- and it reverses (2b)'s first answer, the
+caller-owned buffer: measured on camera-medium (below), the per-call
+allocation and its first-touch faults are not visible next to the render,
+and a device schedule will need the storage in device memory in any case,
+which is step (3)'s work; if the faults ever show in a comparison, the
+caller-owned form is the refinement. Two more things fell out: the record
+no longer stores the producer loop's index -- the pass recomputes it from
+its own index, the inverse of the linearization (`p` for one loop), so the
+film's accumulates are subscripted by the pass's index and demoted to
+plain adds as pbrt's UpdateFilm has them, and a `u32` per pixel per pass is
+gone; and the pixel finalization loop is named `q` and bound in every CPU
+schedule, since `bind(p, ...)` never covered the second `p`.
+
+`schedules/wavefront-frame.bonsai` is now `render[VolPath].reorder(p, s)`,
+a queue family per pass (`render[VolPath].queue(s)`), the drains and the
+film pass bound to threads. camera-medium renders bit for bit against the
+scalar schedule (gbuffer, albedo and radiance) with the same agreement
+against pbrt as every schedule -- and takes 15.2 s where the per-pixel
+wavefront takes 0.40 s. perf says where: the bound loops' kernels' own
+prologues (`_pfkernel14`, `_pfkernel16`: 40% of the time, spread over
+argument spills and pushes, no atomics), not the work in them. The runtime
+calls a kernel once per iteration (`bonsai_parallel_for(n, context,
+body)`, runtime/bonsai_parallel.h) and the kernel takes its sixty-odd
+captures as arguments; per pixel that is 120 000 calls, per entry of every
+drain of every round of every pass it is on the order of a hundred
+million. The fix, built the same day at the user's request, is the device
+kernels' shape on the CPU too: `bonsai_parallel_for(n, context, body)` now
+means `body(context, begin, end)` runs a range, and the kernel a bound
+loop compiles to takes the range and loops inside it, the captures read
+once (runtime/bonsai_parallel.h; `emit_cpu_parfor` in src/CodeGen/
+CodeGen_LLVM_SSA.cpp). TBB's blocked_range is what the runtime already
+iterated, so a thread pays one call per range it steals. An iteration
+that makes a run-time-sized stack allocation in place -- the per-pixel
+wavefront's spp-sized queues inside the pixel kernel -- has the stack
+saved before it and restored after, as a C compiler does around a
+variable-length array in a loop. Measured: camera-medium 15.4 s, from
+15.2 s -- nothing. The attribution to the kernels' prologues was the
+stall on their first loads, not the calls. perf with cache-misses says
+what it is: 153 billion misses over the render (2.6 trillion cycles),
+in the drain kernels and `vol_path_step` alike, twenty thousand per path.
+A pass's family is 1390 arrays of 120 000 entries, 660 MB; a round
+touches some fifty of them per path, the threads' pushes take consecutive
+slots of one queue so neighbouring slots' lines bounce between cores, and
+the per-pixel wavefront, whose queues are one thread's and fit its cache,
+does the same work in 0.4 s. The frame-wide struct-of-arrays queue is the
+device's layout -- coalesced warps writing consecutive slots at a
+terabyte a second are what it is for -- and on the CPU it is bound by the
+memory system, not by instructions. So the frame schedule stays what it
+was built to be, the structure step (3) binds to the device, correct and
+checked; the CPU keeps the per-pixel wavefront (1.3x pbrt), and a CPU
+wavefront over more than a pixel would be MoonRay's shape -- a queue per
+thread, drained in cache-sized batches -- which is a `queue` owned by a
+thread's chunk of the pixel loop rather than by a pass, a schedule to
+write when the CPU wavefront is the goal rather than the check.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,

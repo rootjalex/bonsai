@@ -37,4 +37,5 @@ schedule {
           .vectorize(s_lane);
 
     render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
 }

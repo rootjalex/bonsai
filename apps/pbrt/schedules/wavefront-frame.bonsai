@@ -1,0 +1,84 @@
+// pbrt's wavefront for volpath with a pass's queues, on the CPU: the same
+// kernel list as wavefront-volpath.bonsai (see there for what each queue
+// is), but every queue is the frame's for one sample per pixel -- pbrt's
+// pass over a band of scanlines -- rather than a pixel's for all of its
+// samples.
+//
+// The program is pixel-outer, sample-inner, as pbrt's CPU integrator is;
+// pbrt's wavefront is sample-outer (the passes), pixel-inner (the band). So
+// the schedule interchanges the two loops of the VolPath copy of `render`:
+// `reorder(p, s)` names them innermost first, as Halide does. The pixel
+// loop's prologue -- the zeroing of the pixel's sums -- becomes a loop of
+// its own before the passes (`p!prologue`), and the pixel's index
+// arithmetic is recomputed inside the new inner loop; nothing follows the
+// sample loop in the pixel's body, the finalization being a pass of its
+// own already (see include/SSA/ReorderLoops.h for the rules). Each queue
+// is then owned by one iteration of the sample loop -- one pass -- with
+// the pixel loop as its producer (pbrt's GenerateCameraRays over the band),
+// sized by the pixels, its record one slot per pixel (pbrt's
+// pixelSampleState, indexed by pixelIndex). The storage is hoisted out of
+// the sample loop and made once per render call, on the heap, freed at the
+// return (SSA/HoistAllocations.h, SSA/HeapArrays.h), as pbrt allocates its
+// queues once. Each drain is a loop over every path in flight, which the
+// schedule binds to the CPU's threads as pbrt launches it over the device;
+// the round loop runs on the calling thread; the passes run in sample
+// order, so a pixel's samples are still summed in pbrt's order and the
+// image agrees with the scalar schedule bit for bit. This is the structure
+// the device schedule binds to GPUThread instead.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+    render[VolPath].reorder(p, s);
+
+    rays = render[VolPath].queue(s);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+
+    medium_samples = render[VolPath].queue(s);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(s);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(s);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(s);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(s);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(s);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+
+    trace.sort(primitives.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, r : Ray, axis : u8|
+               select((1.0 / r.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.loopify(64);
+
+    // The camera rays over the pixels of a pass, then each drain over the
+    // pass's paths, then the film pass and the finalization: pbrt's
+    // launches, as threads. `p` covers the pixel loop in every variant,
+    // and its prologue loop in the one that was reordered.
+    render.bind(p, CPUThread);
+    render.bind(rays, CPUThread);
+    render.bind(medium_samples, CPUThread);
+    render.bind(medium_scatters, CPUThread);
+    render.bind(escaped, CPUThread);
+    render.bind(emissive, CPUThread);
+    render.bind(hits, CPUThread);
+    render.bind(shadow, CPUThread);
+    render.bind(rays_rest, CPUThread);
+    render.bind(q, CPUThread);
+}

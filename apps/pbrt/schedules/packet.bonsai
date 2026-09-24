@@ -124,6 +124,7 @@ schedule {
     // a match whose arms are pure arithmetic, and the way to know is to count
     // (item 7's list).
 
-    // The pixels across the machine's cores.
+    // The pixels across the machine's cores, and their finalization too.
     render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
 }

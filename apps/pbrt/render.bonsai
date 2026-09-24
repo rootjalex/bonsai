@@ -2935,21 +2935,25 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
     // The two were the same thing while the jitter was off, since every
     // sample of a pixel then found the same surface and the sum was one
     // normal repeated. They are not the same thing now.
-    parfor p in 0u:(width * height) {
-        if sqlen_(normal_out[p]) > 0.0 {
-            normal_out[p] = unit_vector_(normal_out[p]);
+    //
+    // Named `q` rather than `p` so that a schedule can bind it on its own:
+    // a schedule names a loop by its index, and pbrt runs this pass in
+    // parallel as it does the others.
+    parfor q in 0u:(width * height) {
+        if sqlen_(normal_out[q]) > 0.0 {
+            normal_out[q] = unit_vector_(normal_out[q]);
         } else {
-            normal_out[p] = vec3f{0.0, 0.0, 0.0};
+            normal_out[q] = vec3f{0.0, 0.0, 0.0};
         }
-        if sqlen_(shading_out[p]) > 0.0 {
-            shading_out[p] = unit_vector_(shading_out[p]);
+        if sqlen_(shading_out[q]) > 0.0 {
+            shading_out[q] = unit_vector_(shading_out[q]);
         } else {
-            shading_out[p] = vec3f{0.0, 0.0, 0.0};
+            shading_out[q] = vec3f{0.0, 0.0, 0.0};
         }
-        w = weight_out[p];
+        w = weight_out[q];
         if w != 0.0 {
-            albedo_out[p] = albedo_out[p] / w;
-            radiance_out[p] = radiance_out[p] / w;
+            albedo_out[q] = albedo_out[q] / w;
+            radiance_out[q] = radiance_out[q] / w;
         }
     }
     return;

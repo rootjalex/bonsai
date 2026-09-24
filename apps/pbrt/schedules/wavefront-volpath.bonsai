@@ -94,4 +94,5 @@ schedule {
     trace_any.loopify(64);
 
     render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
 }
