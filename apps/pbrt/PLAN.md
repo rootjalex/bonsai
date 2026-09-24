@@ -5609,30 +5609,111 @@ pbrt's trace kernel sends a ray in a medium to `mediumSampleQueue`;
 the escaped, emissive and material queues -- the same three the trace
 kernel feeds -- and the scattering events to `mediumScatterQueue`, whose
 kernel samples the light and the phase function and pushes the next ray.
-Here the walk runs at the head of the rays drain for a ray in a medium
-(the `if medium >= 0` block of `vol_path_step`) and the scattering's
-shadow ray and next ray are pushed from there. As a program it is two
-more functions at tail-call boundaries: `vol_medium_sample(isect, ...)`
-holding the walk and the routing, tail-called by `vol_path_step` for a
-ray in a medium, and `vol_medium_scatter(...)` holding the light sample
-and the phase sample, tail-called by it on a scattering event. As a
-schedule, `vol_path_step.defer(vol_medium_sample, medium_samples)` and
-`vol_medium_sample.defer(vol_medium_scatter, medium_scatters)`, with two
-things the deferral does not take yet: a spawned queue pushed from two
-functions (`escaped` from `vol_path_step` and from `vol_medium_sample`;
-Defer.cpp refuses "the calls are spawned, and another function's .defer
-names it as a pusher too") and a tail-deferred queue with two producer
-drains (`hits` from the rays drain and the medium-sample drain; "one
-producer call per queue"). The first is the smaller: a spawned call runs
-no continuation, so a second pusher function is a second set of sites
-with the same entry. The second is the join made universal: a producer's
-continuation after its call into the chain is what the drain has to run
-per producer today, and if every such continuation is queued the way a
-reducer-reading one already is (`_done`), a drain needs none, and any
-number of drains may feed one queue. Both are the next compiler work.
-The three scenes measured against `pbrt --gpu` have no medium, so this
-changes nothing for them; it is what makes the CPU wavefront pbrt's
-wavefront queue for queue on a medium scene.
+
+*The program half, built 2026-09-24.* `vol_path_step` is now the trace
+alone: `if medium >= 0 { vol_medium_sample(isect, ...); return; }
+vol_route(isect, ...)`. `vol_medium_sample` (SampleMediumInteraction)
+holds the walk and hands a scattering event to `vol_medium_scatter`
+(SampleMediumScattering: the light sample with its spawned shadow ray,
+the phase sample, the turned ray's tail call of `vol_path_step`) and a
+survivor to `vol_route`; `vol_route` is the routing pbrt writes twice
+(EnqueueWorkAfterIntersection, and again at the end of the medium kernel,
+"this is all basically duplicate code"): the escaped and emissive spawns
+and the `vol_surface` tail call. The hit travels as `isect : option[(
+Primitive, Geometric)]`, a tuple type the parser already had. (pbrt's
+wavefront also applies Russian roulette at a medium scattering, which its
+CPU integrator's `continue` skips; the program follows the CPU integrator
+it is checked against, and the note is in `vol_medium_scatter`.) The
+scalar schedule renders all three scenes bit for bit against the previous
+program. The wavefront schedule's sites moved with the code: `escaped`,
+`emissive` and `hits` are deferred from `vol_route`, and `rays` is pushed
+by `li_vol_path`, `vol_medium_scatter` and `vol_surface` -- none of them
+the callee, since the trace kernel no longer calls itself. That needed one
+generalization: every `f.defer(callee, q)` on one queue and callee is one
+deferral (a queue's entries are calls of one function; who pushes them is
+whichever functions the schedule names), applied at the callee's own
+directive where there is one and at the first written otherwise, the
+owner's being the initial push and the rest the other pushers
+(QueueSpec::also_from); the chain is then every function on a call path
+from the owner to a push, and the drain runs in rounds when the callee
+reaches a pusher (tests/bonsai/correctness/llvm/defer-primary-pusher:
+pbrt's two kernels with no self-call in the trace). The medium walk still
+runs inside the rays drain, so the round is unchanged, and the wavefront
+renders the three scenes as before: bit for bit on gbuffer and albedo
+against scalar, radiance within the summation order, killeroo 33.2%.
+
+*The schedule half, and what it needs.* `vol_path_step.defer(
+vol_medium_sample, medium_samples)` and `vol_medium_sample.defer(
+vol_medium_scatter, medium_scatters)`, with `medium_samples` drained
+after `rays` and before `escaped`, `medium_scatters` after it, as pbrt's
+Render loop has them. `escaped`, `emissive` and `hits` are then pushed
+from `vol_route` under two drains -- the rays drain, through
+`vol_path_step`, and the medium-sample drain, through `vol_medium_sample`
+-- which for the two spawned queues is allowed already (several
+producers, the drain after the last of them) and for `hits` is refused:
+"one producer call per queue is what is supported. Each would need its
+own continuation in the drain." The refusal is honest about the design:
+today a drain, when an entry's callee returns without pushing, runs *the
+producer's continuation* -- the rest of the iteration that made the first
+call, copied into the drain -- and with two producer drains there are two
+of them. The way out is not two continuations but none, which is what
+pbrt has.
+
+**The universal join, designed (2026-09-24): the per-path record.** pbrt
+keeps every path's per-sample state in one place, `pixelSampleState`,
+written by GenerateCameraRays and read by UpdateFilm, and every work item
+carries only `pixelIndex`; no kernel runs "the rest of the iteration",
+because there is none -- the film write is a pass over all samples after
+the last bounce. The deferral is to do the same. For a deferral whose
+producer is the program's own call (the root of a queue family), one
+record per producer iteration is made beside the queues, sized as they
+are (the trip count), holding: the values of the iteration that the
+continuation after the call still needs (today the frame fields, copied
+into every entry of the path); the iteration's mutable locals the chain
+is handed (`visible`, the sampler state; today Where::Relocated, their
+contents copied into every entry and back out); the iteration's reducer
+locals (today already slots beside the queue, Function::reducer_slots);
+and the call's value, when the continuation uses it, written by the entry
+that ends the path. Every entry of every queue in the family carries the
+record's index -- pbrt's `pixelIndex` -- and nothing else of the frame;
+the chain functions take it as a hidden parameter beside the queue
+handle, as GenerateCameraRays hands the index down; a drain derives a
+slot's address from the index (`&record.visible[i]`), as the reducer
+slot's address is handed today. The continuation leaves the producer for
+good: the pass over the records after the rounds (the `_done` drain the
+join builds today, now over every record rather than the paths that
+pushed) runs it once per iteration with the record's fields, which is
+also exactly the original program's count -- a continuation that is a
+loop, refused today because the drain would run it per entry, runs once
+per iteration there. And no chain function returns a flag: the whole
+`saved_t` plumbing -- the dispatch after the producer's call, the skip,
+the frame write on saved, the drain's `ran` dispatch and its frame write
+into the next entry, the pass-through returns -- goes, because nothing
+waits on whether an entry pushed. A drain runs its callee and yields; any
+number of drains may then feed one queue, since none of them owes anyone
+a continuation. What stays: the queue handle down the chain, the tail-
+call rule on the chain, the entry as the callee's arguments, the rounds
+and the round order. In the literature this is the standard move from a
+CPS program to a first-order one with an explicit store (Reynolds 1972's
+defunctionalized continuation reduced to an index into a store of frames;
+the "pixel state" of every wavefront renderer since Laine et al. 2013).
+The old form -- run the continuation in the producer when the callee did
+not push -- is a special case that only saves the pass for a path that
+ends in its first step; pbrt does not have it and it is what stands in
+the way, so it is replaced rather than kept beside. Every `defer-*` test's
+golden will move (analyzed one by one); their printed results must not.
+
+The order of that work: (1) the record and its index in defer(): fields,
+allocation at the queue's point, the index parameter threaded down the
+chain and stored in the entry, slots for reducers and mutable locals
+derived from it; (2) the continuation moved to the pass over the records
+and the flag plumbing removed, `join_continuations` becoming that pass;
+(3) a queue with several producer drains, now trivially allowed, and the
+medium queues in `wavefront-volpath.bonsai`, checked on the two media
+scenes bit for bit on gbuffer and albedo against scalar and at pbrt's
+figures. The three scenes measured against `pbrt --gpu` have no medium,
+so this changes nothing for them; it is what makes the CPU wavefront
+pbrt's wavefront queue for queue on a medium scene.
 
 **Order.** (1) `stage(g, q)`: the split at a call and its tests -- done;
 (2) the initial push and the round over the cycle -- done; (3)

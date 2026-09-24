@@ -2202,94 +2202,154 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
                    visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
     isect = trace(ray);
 
-    // pbrt: `if (ray.medium)` -- sample the medium the ray is in, up to the
-    // surface it hit or forever. The RNG for the majorant sampling is seeded
-    // from two of the sampler's draws, and its first step from a third.
-    beta : mut vec4f = beta_in;
-    r_u : mut vec4f = r_u_in;
-    r_l : mut vec4f = r_l_in;
-    depth : mut i32 = depth_in;
+    // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
+    // (the trace kernel's EnqueueWorkAfterIntersection and
+    // EnqueueWorkAfterMiss push it onto mediumSampleQueue, hit or miss); a
+    // ray in no medium is routed by what the trace found.
     if medium >= 0 {
-        t_hit : mut Float = inf;
-        if isect {
-            ahead = *isect;
-            t_hit = distmin(ray, transform(ahead[0], ahead[1]));
-        }
-        hash0 = hash_float1(get_1d(sampler, state));
-        hash1 = hash_float1(get_1d(sampler, state));
-        rng : mut RNG = set_sequence(hash0, hash1);
-        u = get_1d(sampler, state);
-        // pbrt: SampleT_maj normalizes the ray and scales tMax by its length.
-        d_len = sqrt(sqlen_(ray.d));
-        dn = ray.d / d_len;
-        m = media[medium];
-        sigma_maj = medium_sigma_maj(m, lambda);
-        ones = vec4f{1.0, 1.0, 1.0, 1.0};
-        zero3 = vec3f{0.0, 0.0, 0.0};
-        event : mut MediumEvent = {0, ones, beta, r_u, r_l, depth, zero3, 0.0};
-        if sigma_maj.x == 0.0 {
-            // pbrt: a zero majorant -- the whole segment transmitted by it.
-            dt_raw = t_hit * d_len;
-            dt = select(dt_raw == inf, float_max(), dt_raw);
-            event = MediumEvent{0, fast_exp4(-dt * sigma_maj), beta, r_u, r_l,
-                                depth, zero3, 0.0};
-        } else {
-            event = vol_medium_step(ray.o, ray.d, dn, 0.0, t_hit * d_len, m,
-                                    sigma_maj, u, rng, ones, beta, r_u, r_l, l,
-                                    depth, max_depth, lambda);
-        }
-        if event.kind == 2 {
-            return;
-        }
-        if event.kind == 1 {
-            // pbrt: a real scattering event, the rest of the callback.
-            // `MediumInteraction intr(p, -ray.d, ...)` -- wo normalized by
-            // Interaction's constructor -- and direct lighting from it; then
-            // `intr.phase.Sample_p(-ray.d, u)`, the phase function sampled
-            // about the ray's own direction, unnormalized as it is; `beta *=
-            // ps->p / ps->pdf; r_l = r_u / ps->pdf`; the light-sampling
-            // context of a medium point, with no normal; and `if (scattered)
-            // continue` -- the ray turned at the scattering point, its
-            // differentials left as they were, since pbrt overwrites only
-            // `o` and `d`. Here rather than in the walk, as pbrt's wavefront
-            // has it (SampleMediumScattering, a kernel of its own after
-            // SampleMediumInteraction): the walk is a walk, and each step
-            // spawns its shadow ray from one place or the other.
-            wo = unit_vector_(-ray.d);
-            pt : ScatterPoint = {event.p, zero3, zero3, zero3, medium, medium,
-                                 medium};
-            none : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
-            no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
-            vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, event.g,
-                          event.beta, event.r_u, lambda, sampler, state, ls,
-                          seed, l);
-            u2 = get_2d(sampler, state);
-            ps = sample_hg(-ray.d, event.g, u2);
-            if ps.pdf == 0.0 {
-                return;
-            }
-            ctx : ShapeSampleContext = {event.p, zero3, zero3, zero3};
-            turned : Ray = {event.p, ps.wi, inf};
-            vol_path_step(turned, medium, ray_diff, camera, spp_scale,
-                          event.beta * (ps.p / ps.pdf), event.r_u,
-                          event.r_u / ps.pdf, event.depth, false, true,
-                          eta_scale, ctx, lambda, sampler, state, ls, set, seed,
-                          max_depth, regularize, want_visible, visible, l);
-            return;
-        }
-        // pbrt: `beta *= T_maj / T_maj[0]`, and the probabilities with it.
-        beta = event.beta * event.t_maj / event.t_maj.x;
-        r_u = event.r_u * event.t_maj / event.t_maj.x;
-        r_l = event.r_l * event.t_maj / event.t_maj.x;
+        vol_medium_sample(isect, ray, medium, ray_diff, camera, spp_scale,
+                          beta_in, r_u_in, r_l_in, depth_in, specular_bounce,
+                          any_non_specular, eta_scale, prev_ctx, lambda, sampler,
+                          state, ls, set, seed, max_depth, regularize,
+                          want_visible, visible, l);
+        return;
     }
+    vol_route(isect, ray, medium, ray_diff, camera, spp_scale, beta_in, r_u_in,
+              r_l_in, depth_in, specular_bounce, any_non_specular, eta_scale,
+              prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
+              regularize, want_visible, visible, l);
+    return;
+}
 
-    // pbrt's wavefront routes what the trace found from its trace kernel
-    // (EnqueueWorkAfterIntersection): an escaped ray to the escaped queue,
-    // an emissive hit to the area-light queue -- and, the same hit, to its
-    // material's queue. The two radiance terms are spawned calls: their
-    // values go into `l` and nowhere else, so a schedule may queue them
-    // (HandleEscapedRays, HandleEmissiveIntersection), and the surface goes
-    // on to `vol_surface`, the material kernel.
+// pbrt: SampleMediumInteraction -- the medium kernel. The medium the ray is
+// in is sampled up to the surface it hit or forever (SampleT_maj with
+// VolPathIntegrator::Li's callback; the RNG for the majorant sampling is
+// seeded from two of the sampler's draws, and its first step from a third),
+// and what is left is routed as pbrt's kernel routes it: a scattering event
+// to the scatter kernel (`mediumScatterQueue`), a terminated path nowhere, a
+// survivor -- `beta *= T_maj / T_maj[0]`, and the probabilities with it --
+// to the same three places the trace kernel sends a ray in no medium. pbrt
+// writes that routing twice ("this is all basically duplicate code"); here
+// it is `vol_route`, once.
+func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
+                       medium : i32, ray_diff : RayDifferential,
+                       camera : PerspectiveCamera, spp_scale : Float,
+                       beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
+                       specular_bounce : bool, any_non_specular : bool,
+                       eta_scale : Float, prev_ctx : ShapeSampleContext,
+                       lambda : SampledWavelengths, sampler : Sampler,
+                       state : mut SamplerState, ls : LightSampler,
+                       set : LightSet, seed : i32, max_depth : i32,
+                       regularize : bool, want_visible : bool,
+                       visible : mut VisibleSurface,
+                       l : reduce(+) vec4f) -> void {
+    t_hit : mut Float = inf;
+    if isect {
+        ahead = *isect;
+        t_hit = distmin(ray, transform(ahead[0], ahead[1]));
+    }
+    hash0 = hash_float1(get_1d(sampler, state));
+    hash1 = hash_float1(get_1d(sampler, state));
+    rng : mut RNG = set_sequence(hash0, hash1);
+    u = get_1d(sampler, state);
+    // pbrt: SampleT_maj normalizes the ray and scales tMax by its length.
+    d_len = sqrt(sqlen_(ray.d));
+    dn = ray.d / d_len;
+    m = media[medium];
+    sigma_maj = medium_sigma_maj(m, lambda);
+    ones = vec4f{1.0, 1.0, 1.0, 1.0};
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    event : mut MediumEvent = {0, ones, beta, r_u, r_l, depth, zero3, 0.0};
+    if sigma_maj.x == 0.0 {
+        // pbrt: a zero majorant -- the whole segment transmitted by it.
+        dt_raw = t_hit * d_len;
+        dt = select(dt_raw == inf, float_max(), dt_raw);
+        event = MediumEvent{0, fast_exp4(-dt * sigma_maj), beta, r_u, r_l,
+                            depth, zero3, 0.0};
+    } else {
+        event = vol_medium_step(ray.o, ray.d, dn, 0.0, t_hit * d_len, m,
+                                sigma_maj, u, rng, ones, beta, r_u, r_l, l,
+                                depth, max_depth, lambda);
+    }
+    if event.kind == 2 {
+        return;
+    }
+    if event.kind == 1 {
+        vol_medium_scatter(event, ray, medium, ray_diff, camera, spp_scale,
+                           eta_scale, lambda, sampler, state, ls, set, seed,
+                           max_depth, regularize, want_visible, visible, l);
+        return;
+    }
+    vol_route(isect, ray, medium, ray_diff, camera, spp_scale,
+              event.beta * event.t_maj / event.t_maj.x,
+              event.r_u * event.t_maj / event.t_maj.x,
+              event.r_l * event.t_maj / event.t_maj.x, depth, specular_bounce,
+              any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
+              set, seed, max_depth, regularize, want_visible, visible, l);
+    return;
+}
+
+// pbrt: SampleMediumScattering -- the scatter kernel, which is the rest of
+// the CPU integrator's scattering callback. `MediumInteraction intr(p,
+// -ray.d, ...)` -- wo normalized by Interaction's constructor -- and direct
+// lighting from it, whose shadow ray is spawned inside `vol_sample_ld`; then
+// `intr.phase.Sample_p(-ray.d, u)`, the phase function sampled about the
+// ray's own direction, unnormalized as it is; `beta *= ps->p / ps->pdf; r_l
+// = r_u / ps->pdf`; the light-sampling context of a medium point, with no
+// normal; and `if (scattered) continue` -- the ray turned at the scattering
+// point, its differentials left as they were, since pbrt overwrites only `o`
+// and `d`, traced next. (pbrt's wavefront kernel also applies Russian
+// roulette here, which its CPU integrator's `continue` skips; the CPU
+// integrator is what this program follows and what it is checked against.)
+func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
+                        ray_diff : RayDifferential, camera : PerspectiveCamera,
+                        spp_scale : Float, eta_scale : Float,
+                        lambda : SampledWavelengths, sampler : Sampler,
+                        state : mut SamplerState, ls : LightSampler,
+                        set : LightSet, seed : i32, max_depth : i32,
+                        regularize : bool, want_visible : bool,
+                        visible : mut VisibleSurface,
+                        l : reduce(+) vec4f) -> void {
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    wo = unit_vector_(-ray.d);
+    pt : ScatterPoint = {event.p, zero3, zero3, zero3, medium, medium, medium};
+    none : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
+    no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
+    vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, event.g,
+                  event.beta, event.r_u, lambda, sampler, state, ls, seed, l);
+    u2 = get_2d(sampler, state);
+    ps = sample_hg(-ray.d, event.g, u2);
+    if ps.pdf == 0.0 {
+        return;
+    }
+    ctx : ShapeSampleContext = {event.p, zero3, zero3, zero3};
+    turned : Ray = {event.p, ps.wi, inf};
+    vol_path_step(turned, medium, ray_diff, camera, spp_scale,
+                  event.beta * (ps.p / ps.pdf), event.r_u, event.r_u / ps.pdf,
+                  event.depth, false, true, eta_scale, ctx, lambda, sampler,
+                  state, ls, set, seed, max_depth, regularize, want_visible,
+                  visible, l);
+    return;
+}
+
+// pbrt's wavefront routes what the trace found (EnqueueWorkAfterIntersection
+// and EnqueueWorkAfterMiss in the trace kernel, and the same again at the end
+// of SampleMediumInteraction for a ray that came through a medium): an
+// escaped ray to the escaped queue, an emissive hit to the area-light queue
+// -- and, the same hit, to its material's queue. The two radiance terms are
+// spawned calls: their values go into `l` and nowhere else, so a schedule
+// may queue them (HandleEscapedRays, HandleEmissiveIntersection), and the
+// surface goes on to `vol_surface`, the material kernel.
+func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
+               ray_diff : RayDifferential, camera : PerspectiveCamera,
+               spp_scale : Float, beta : vec4f, r_u : vec4f, r_l : vec4f,
+               depth : i32, specular_bounce : bool, any_non_specular : bool,
+               eta_scale : Float, prev_ctx : ShapeSampleContext,
+               lambda : SampledWavelengths, sampler : Sampler,
+               state : mut SamplerState, ls : LightSampler, set : LightSet,
+               seed : i32, max_depth : i32, regularize : bool,
+               want_visible : bool, visible : mut VisibleSurface,
+               l : reduce(+) vec4f) -> void {
     if !isect {
         spawn l += escaped_contribution(ray.d, beta, r_u, r_l, depth,
                                         specular_bounce, prev_ctx, ls, set,
