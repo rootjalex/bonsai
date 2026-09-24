@@ -1,9 +1,9 @@
-type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; _result_rays : (f32*) }
-type Entry_rays = struct Entry_rays{ x : f32; n : i32; _result : (f32*) }
+type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; _slot : i32 }
+type Entry_rays = struct Entry_rays{ x : f32; n : i32; _slot : i32 }
 type Float = f32
 type Half = f16
-type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; _result_rays : (f32*)[] }
-type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; _result : (f32*)[] }
+type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; _slot : i32[] }
+type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; _slot : i32[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -14,54 +14,54 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   rays_result : mut f32[8]
   rays_x : mut f32[8]
   rays_n : mut i32[8]
-  rays__result : mut (f32*)[8]
+  rays__slot : mut i32[8]
   rays_queue : mut Queue_rays
-  let @4 = build<Queue_rays>(0u, rays_x, rays_n, rays__result) in
-  rays_queue = @4
+  let @5 = build<Queue_rays>(0u, rays_x, rays_n, rays__slot) in
+  rays_queue = @5
   hits_@0 : mut f32[8]
   hits_n : mut i32[8]
-  hits__result_rays : mut (f32*)[8]
+  hits__slot : mut i32[8]
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @25 = i >> 31 in
-    let @26 = reinterpret_cast<u32>(@25) in
-    let @27 = @26 >> 30u in
-    let @28 = reinterpret_cast<i32>(@27) in
-    let @29 = i + @28 in
-    let @30 = @29 >> 2 in
-    let @31 = @30 * 4 in
-    let @1 = i - @31 in
-    let @6 = build<Entry_rays>(@0, @1, (&rays_result[i])) in
-    let @33 = atomic_add((&(*rays_queue).count), 1u) in
-    let @35 = (*rays_queue).x in
-    @35[@33] = @0
-    let @38 = (*rays_queue).n in
-    @38[@33] = @1
-    let @41 = (*rays_queue)._result in
-    @41[@33] = (&rays_result[i])
+    let @27 = i >> 31 in
+    let @28 = reinterpret_cast<u32>(@27) in
+    let @29 = @28 >> 30u in
+    let @30 = reinterpret_cast<i32>(@29) in
+    let @31 = i + @30 in
+    let @32 = @31 >> 2 in
+    let @33 = @32 * 4 in
+    let @1 = i - @33 in
+    let @6 = build<Entry_rays>(@0, @1, i) in
+    let @35 = atomic_add((&(*rays_queue).count), 1u) in
+    let @37 = (*rays_queue).x in
+    @37[@35] = @0
+    let @40 = (*rays_queue).n in
+    @40[@35] = @1
+    let @43 = (*rays_queue)._slot in
+    @43[@35] = i
     continue
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
     let @10 = (*rays_queue).count in
     rays_queue.count = 0u
-    let @18 = build<Queue_hits>(0u, hits_@0, hits_n, hits__result_rays) in
-    hits_queue = @18
+    let @19 = build<Queue_hits>(0u, hits_@0, hits_n, hits__slot) in
+    hits_queue = @19
     parfor rays in [0u:@10:1u] {
       let @13 = rays_x[rays] in
       let @14 = rays_n[rays] in
-      let @15 = rays__result[rays] in
-      step(@13, @14, k, rays_queue, @15, hits_queue)
+      let @15 = rays__slot[rays] in
+      step(@13, @14, k, rays_queue, (&rays_result[@15]), @15, hits_queue, @15)
       continue
     }
-    let @19 = (*hits_queue) in
-    let @20 = @19.count in
-    parfor hits in [0u:@20:1u] {
-      let @21 = hits_@0[hits] in
-      let @22 = hits_n[hits] in
-      let @23 = hits__result_rays[hits] in
-      step!after(@21, @22, k, @23, rays_queue)
+    let @20 = (*hits_queue) in
+    let @21 = @20.count in
+    parfor hits in [0u:@21:1u] {
+      let @22 = hits_@0[hits] in
+      let @23 = hits_n[hits] in
+      let @24 = hits__slot[hits] in
+      step!after(@22, @23, k, (&rays_result[@24]), @24, rays_queue)
       continue
     }
     hits_queue.count = 0u
@@ -69,8 +69,8 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
     rays!round = @8
   }
   parfor rays_rest in [0:8:1] {
-    let @17 = rays_result[rays_rest] in
-    let @2 = @17 in
+    let @18 = rays_result[rays_rest] in
+    let @2 = @18 in
     let i = rays_rest in
     out[i] = @2
     continue
@@ -78,20 +78,20 @@ func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _queue_hits : mut (Queue_hits*)) -> void {
+func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32, _queue_hits : mut (Queue_hits*), _slot_hits : i32) -> void {
   let @0 = work(x) in
-  let @7 = build<Entry_hits>(@0, n, _result_rays) in
+  let @7 = build<Entry_hits>(@0, n, _slot_hits) in
   let @10 = atomic_add((&(*_queue_hits).count), 1u) in
   let @12 = (*_queue_hits).@0 in
   @12[@10] = @0
   let @15 = (*_queue_hits).n in
   @15[@10] = n
-  let @18 = (*_queue_hits)._result_rays in
-  @18[@10] = _result_rays
+  let @18 = (*_queue_hits)._slot in
+  @18[@10] = _slot_hits
   return
 }
 
-func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _result_rays : mut (f32*), _queue_rays : mut (Queue_rays*)) -> void {
+func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _result_rays : mut (f32*), _slot_rays : i32, _queue_rays : mut (Queue_rays*)) -> void {
   let r = @0 in
   let @1 = n == 0 in
   if (@1) {
@@ -100,14 +100,14 @@ func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _result_rays : mut (f32
     return
   } else {
     let @3 = n - 1 in
-    let @5 = build<Entry_rays>(r, @3, _result_rays) in
+    let @5 = build<Entry_rays>(r, @3, _slot_rays) in
     let @8 = atomic_add((&(*_queue_rays).count), 1u) in
     let @10 = (*_queue_rays).x in
     @10[@8] = r
     let @13 = (*_queue_rays).n in
     @13[@8] = @3
-    let @16 = (*_queue_rays)._result in
-    @16[@8] = _result_rays
+    let @16 = (*_queue_rays)._slot in
+    @16[@8] = _slot_rays
     return
   }
 }

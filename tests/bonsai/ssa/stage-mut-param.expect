@@ -1,7 +1,7 @@
-type Entry_q = struct Entry_q{ @0 : f32; seen : (f32*); _result : (f32*) }
+type Entry_q = struct Entry_q{ @0 : f32; _slot : i32 }
 type Float = f32
 type Half = f16
-type Queue_q = struct Queue_q{ count : u32; @0 : f32[]; seen : (f32*)[]; _result : (f32*)[] }
+type Queue_q = struct Queue_q{ count : u32; @0 : f32[]; _slot : i32[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -11,31 +11,30 @@ func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void
   q_seen_slots : mut f32[8]
   q_result : mut f32[8]
   q_@0 : mut f32[8]
-  q_seen : mut (f32*)[8]
-  q__result : mut (f32*)[8]
+  q__slot : mut i32[8]
   q_queue : mut Queue_q
-  let @6 = build<Queue_q>(0u, q_@0, q_seen, q__result) in
-  q_queue = @6
+  let @7 = build<Queue_q>(0u, q_@0, q__slot) in
+  q_queue = @7
   parfor i in [0:8:1] {
     q_seen_slots[i] = -1f
     let @0 = values[i] in
-    step(@0, k, (&q_seen_slots[i]), q_queue, (&q_result[i]))
+    step(@0, k, (&q_seen_slots[i]), q_queue, (&q_result[i]), i)
     continue
   }
   let @8 = (*q_queue) in
   let @9 = @8.count in
   parfor q in [0u:@9:1u] {
     let @10 = q_@0[q] in
-    let @11 = q_seen[q] in
-    let @13 = q__result[q] in
-    let @12 = step!after(@10, @11, k) in
-    @13 = @12
+    let @11 = q__slot[q] in
+    let @13 = step!after(@10, (&q_seen_slots[@11]), k) in
+    let @14 = (&q_result[@11]) in
+    @14 = @13
     continue
   }
   q_queue.count = 0u
   parfor q_rest in [0:8:1] {
-    let @16 = q_result[q_rest] in
-    let @1 = @16 in
+    let @17 = q_result[q_rest] in
+    let @1 = @17 in
     let i = q_rest in
     let seen = (&q_seen_slots[q_rest]) in
     out[i] = @1
@@ -46,16 +45,14 @@ func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void
   return
 }
 
-func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*), _result_q : mut (f32*)) -> void {
+func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : i32) -> void {
   let @0 = work(x) in
-  let @2 = build<Entry_q>(@0, seen, _result_q) in
+  let @2 = build<Entry_q>(@0, _slot_q) in
   let @5 = atomic_add((&(*_queue_q).count), 1u) in
   let @7 = (*_queue_q).@0 in
   @7[@5] = @0
-  let @10 = (*_queue_q).seen in
-  @10[@5] = seen
-  let @13 = (*_queue_q)._result in
-  @13[@5] = _result_q
+  let @10 = (*_queue_q)._slot in
+  @10[@5] = _slot_q
   return
 }
 

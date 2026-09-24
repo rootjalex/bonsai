@@ -1,7 +1,7 @@
 type Deep = struct Deep{ max_depth : i32 }
-type Entry_sums = struct Entry_sums{ n : i32; acc : i32; _result : (i32*) }
+type Entry_sums = struct Entry_sums{ n : i32; acc : i32; _slot : i32 }
 type Limits = struct Limits{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
-type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _result : (i32*)[] }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _slot : i32[] }
 type Shallow = struct Shallow{ max_depth : i32 }
 
 func [[export]] Limits_Deep(_ret0 : mut (Limits*), max_depth : i32) -> void {
@@ -35,15 +35,15 @@ func [[export]] run(out : mut i32[8], limits : (Limits*)) -> void {
     sums_result : mut i32[8]
     sums_n_0 : mut i32[8]
     sums_acc_0 : mut i32[8]
-    sums__result_0 : mut (i32*)[8]
+    sums__slot_0 : mut i32[8]
     sums_n_1 : mut i32[8]
     sums_acc_1 : mut i32[8]
-    sums__result_1 : mut (i32*)[8]
+    sums__slot_1 : mut i32[8]
     sums_queue : mut Queue_sums[2]
-    let @57 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__result_0) in
-    sums_queue[0u] = @57
-    let @59 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__result_1) in
-    sums_queue[1u] = @59
+    let @58 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0) in
+    sums_queue[0u] = @58
+    let @60 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1) in
+    sums_queue[1u] = @60
     parfor i!Shallow in [0:8:1] {
       let @44 = (*limits) in
       let @45 = @44._pad in
@@ -52,7 +52,7 @@ func [[export]] run(out : mut i32[8], limits : (Limits*)) -> void {
       let @25 = (&sums_@25_slots[i!Shallow]) in
       let @16 = @46[0u] in
       let @17 = reinterpret_cast<i32>(@16) in
-      tally(i!Shallow, 0, @17, (&sums_queue[0u]), (&sums_result[i!Shallow]))
+      tally(i!Shallow, 0, @17, (&sums_queue[0u]), (&sums_result[i!Shallow]), i!Shallow)
       continue
     }
     sums!round = 0u
@@ -67,17 +67,17 @@ func [[export]] run(out : mut i32[8], limits : (Limits*)) -> void {
         let @74 = @73[sums] in
         let @76 = sums_queue[@64].acc in
         let @77 = @76[sums] in
-        let @79 = sums_queue[@64]._result in
+        let @79 = sums_queue[@64]._slot in
         let @80 = @79[sums] in
-        tally(@74, @77, @55, @69, @80)
+        tally(@74, @77, @55, @69, (&sums_result[@80]), @80)
         continue
       }
       let @63 = (*sums!round) + 1u in
       sums!round = @63
     }
     parfor sums_rest in [0:8:1] {
-      let @82 = sums_result[sums_rest] in
-      let @6 = @82 in
+      let @83 = sums_result[sums_rest] in
+      let @6 = @83 in
       let @25 = (&sums_@25_slots[sums_rest]) in
       let i!Shallow = sums_rest in
       @25 = @6
@@ -103,7 +103,7 @@ func [[export]] run(out : mut i32[8], limits : (Limits*)) -> void {
   return
 }
 
-func [[noinline]] tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*)) -> void {
+func [[noinline]] tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
   let @0 = max_depth <= n in
   if (@0) {
     _result_sums = acc
@@ -111,14 +111,14 @@ func [[noinline]] tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (
   } else {
     let @1 = n + 1 in
     let @2 = acc + n in
-    let @4 = build<Entry_sums>(@1, @2, _result_sums) in
+    let @4 = build<Entry_sums>(@1, @2, _slot_sums) in
     let @7 = atomic_add((&(*_queue_sums).count), 1u) in
     let @9 = (*_queue_sums).n in
     @9[@7] = @1
     let @12 = (*_queue_sums).acc in
     @12[@7] = @2
-    let @15 = (*_queue_sums)._result in
-    @15[@7] = _result_sums
+    let @15 = (*_queue_sums)._slot in
+    @15[@7] = _slot_sums
     return
   }
 }

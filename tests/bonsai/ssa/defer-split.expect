@@ -1,9 +1,9 @@
-type Entry_hits = struct Entry_hits{ @0 : struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; _result : (f32*) }
+type Entry_hits = struct Entry_hits{ @0 : struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; _slot : i32 }
 type Float = f32
 type Half = f16
 type Kind = struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type Large = struct Large{ x : f32 }
-type Queue_hits = struct Queue_hits{ count : u32; @0_tag : u8[]; @0_payload_x : u32[]; _result : (f32*)[] }
+type Queue_hits = struct Queue_hits{ count : u32; @0_tag : u8[]; @0_payload_x : u32[]; _slot : i32[] }
 type Small = struct Small{ x : f32 }
 type vec2f = f32x2
 type vec3f = f32x3
@@ -31,18 +31,18 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   hits_result : mut f32[8]
   hits!Small_@0_tag : mut u8[8]
   hits!Small_@0_payload_x : mut u32[8]
-  hits!Small__result : mut (f32*)[8]
+  hits!Small__slot : mut i32[8]
   hits!Large_@0_tag : mut u8[8]
   hits!Large_@0_payload_x : mut u32[8]
-  hits!Large__result : mut (f32*)[8]
+  hits!Large__slot : mut i32[8]
   hits_queue : mut Queue_hits[2]
-  let @3 = build<Queue_hits>(0u, hits!Small_@0_tag, hits!Small_@0_payload_x, hits!Small__result) in
-  hits_queue[0u] = @3
-  let @5 = build<Queue_hits>(0u, hits!Large_@0_tag, hits!Large_@0_payload_x, hits!Large__result) in
-  hits_queue[1u] = @5
+  let @4 = build<Queue_hits>(0u, hits!Small_@0_tag, hits!Small_@0_payload_x, hits!Small__slot) in
+  hits_queue[0u] = @4
+  let @6 = build<Queue_hits>(0u, hits!Large_@0_tag, hits!Large_@0_payload_x, hits!Large__slot) in
+  hits_queue[1u] = @6
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    step(@0, k, hits_queue, (&hits_result[i]))
+    step(@0, k, hits_queue, (&hits_result[i]), i)
     continue
   }
   let @9 = hits_queue[0u] in
@@ -55,33 +55,35 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
     let @18 = @17[hits!Small] in
     let @19 = build<[[packed]] u32x1>(@18) in
     let @20 = build<Kind>(@14, @15, @19) in
-    let @23 = hits_queue[0u]._result in
+    let @23 = hits_queue[0u]._slot in
     let @24 = @23[hits!Small] in
     let @21 = step!after!Small(@20, k) in
-    @24 = @21
+    let @25 = (&hits_result[@24]) in
+    @25 = @21
     continue
   }
-  let @26 = hits_queue[1u] in
-  let @27 = @26.count in
-  parfor hits!Large in [0u:@27:1u] {
-    let @30 = hits_queue[1u].@0_tag in
-    let @31 = @30[hits!Large] in
-    let @32 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @34 = hits_queue[1u].@0_payload_x in
-    let @35 = @34[hits!Large] in
-    let @36 = build<[[packed]] u32x1>(@35) in
-    let @37 = build<Kind>(@31, @32, @36) in
-    let @40 = hits_queue[1u]._result in
-    let @41 = @40[hits!Large] in
-    let @38 = step!after!Large(@37, k) in
-    @41 = @38
+  let @27 = hits_queue[1u] in
+  let @28 = @27.count in
+  parfor hits!Large in [0u:@28:1u] {
+    let @31 = hits_queue[1u].@0_tag in
+    let @32 = @31[hits!Large] in
+    let @33 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @35 = hits_queue[1u].@0_payload_x in
+    let @36 = @35[hits!Large] in
+    let @37 = build<[[packed]] u32x1>(@36) in
+    let @38 = build<Kind>(@32, @33, @37) in
+    let @41 = hits_queue[1u]._slot in
+    let @42 = @41[hits!Large] in
+    let @39 = step!after!Large(@38, k) in
+    let @43 = (&hits_result[@42]) in
+    @43 = @39
     continue
   }
   hits_queue[0u].count = 0u
   hits_queue[1u].count = 0u
   parfor hits_rest in [0:8:1] {
-    let @47 = hits_result[hits_rest] in
-    let @1 = @47 in
+    let @49 = hits_result[hits_rest] in
+    let @1 = @49 in
     let i = hits_rest in
     out[i] = @1
     continue
@@ -89,9 +91,9 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*)) -> void {
+func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*), _slot_hits : i32) -> void {
   let @0 = classify(x) in
-  let @10 = build<Entry_hits>(@0, _result_hits) in
+  let @10 = build<Entry_hits>(@0, _slot_hits) in
   let @11 = @0.tag in
   switch (@11) {
   case 0: {
@@ -103,8 +105,8 @@ func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _resul
     @28[@17] = @19
     let @31 = _queue_hits[0u].@0_payload_x in
     @31[@17] = @25
-    let @34 = _queue_hits[0u]._result in
-    @34[@17] = _result_hits
+    let @34 = _queue_hits[0u]._slot in
+    @34[@17] = _slot_hits
     return
   } break;
   default: {
@@ -116,8 +118,8 @@ func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _resul
     @48[@37] = @39
     let @51 = _queue_hits[1u].@0_payload_x in
     @51[@37] = @45
-    let @54 = _queue_hits[1u]._result in
-    @54[@37] = _result_hits
+    let @54 = _queue_hits[1u]._slot in
+    @54[@37] = _slot_hits
     return
   }
   }

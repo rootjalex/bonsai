@@ -552,6 +552,14 @@ struct Field {
     // The owner's definition of what the field holds, when it is one value
     // throughout.
     Definition origin;
+    // A slot's address that the entry does not store: the slot is
+    // `gep(slot_array, index)` for an index the entry holds in field
+    // `index_field` -- one index for every slot of the record that a path
+    // is handed, pbrt's pixelIndex -- and the drain rebuilds the address
+    // from the two. Such a field is not in the entry struct (`in_entry`).
+    bool in_entry = true;
+    shared_ptr<Value> slot_array;
+    optional<size_t> index_field;
 };
 
 // One scalar of an entry (see QueueLayout in SSA/Defer.h).
@@ -1841,15 +1849,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
-    // Whether every route from the owner hands parameter `j` of `g` an
-    // address that outlives the frames: a slot of the record
-    // (Function::record_slots) or a parameter of the owner's own. Followed
-    // up the chain call by call, for a parameter the calls disagree about --
-    // the same function reached from two drains, each handing on what its
-    // entry held -- which is not one value but may be one kind of value.
-    // `why` names the route that fails, when one does.
-    const auto handed_slots = [&](const string &g0, size_t j0, string &why) {
+    // What the owner hands parameter `j0` of chain function `g0`, route by
+    // route: followed up the chain call by call -- each caller handing on a
+    // parameter of its own -- to the owner's calls into the chain, and for
+    // each of those (by its block) the owner's values at it, as `defs_here`
+    // resolves them. Nothing when a route hands the parameter something
+    // other than a parameter of the caller's, which `why` names. For a
+    // parameter the calls disagree about -- the same function reached from
+    // two drains, each handing on what its entry held -- which is not one
+    // value but may be one kind of value.
+    using OwnerArgs = map<string, vector<Definition>>;
+    const auto routes_to = [&](const string &g0, size_t j0, Definitions &defs_here,
+                               string &why) -> optional<OwnerArgs> {
         set<std::pair<string, size_t>> seen;
+        OwnerArgs found;
         bool ok = true;
         const std::function<void(const string &, size_t)> check =
             [&](const string &g, size_t j) {
@@ -1862,17 +1875,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     }
                     const shared_ptr<Value> &arg = cs.call()->call.args[j];
                     if (cs.caller == queue.owner) {
-                        const Definition d = odefs.of(cs.block->name, arg);
-                        const auto *di = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data) : nullptr;
-                        const auto *da = d.value ? std::get_if<Argument>(&d.value->data) : nullptr;
-                        const bool slot = di != nullptr && O->record_slots.contains(di->get());
-                        const bool handed = da != nullptr && d.block == oentry;
-                        if (!slot && !handed) {
-                            ok = false;
-                            why = "the call in " + cs.block->name + " of " + queue.owner +
-                                  " hands the chain storage that is not a record "
-                                  "slot's or the owner's own parameter";
-                        }
+                        found[cs.block->name].push_back(defs_here.of(cs.block->name, arg));
                         continue;
                     }
                     const Argument *up = defs.at(cs.caller).parameter(cs.block->name, arg);
@@ -1894,7 +1897,35 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
             };
         check(g0, j0);
-        return ok;
+        if (!ok) {
+            return std::nullopt;
+        }
+        return found;
+    };
+    // Whether every route from the owner hands parameter `j` of `g` an
+    // address that outlives the frames: a slot of the record
+    // (Function::record_slots) or a parameter of the owner's own. `why`
+    // names the route that fails, when one does.
+    const auto handed_slots = [&](const string &g0, size_t j0, string &why) {
+        const optional<OwnerArgs> routes = routes_to(g0, j0, odefs, why);
+        if (!routes.has_value()) {
+            return false;
+        }
+        for (const auto &[site, ds] : *routes) {
+            for (const Definition &d : ds) {
+                const auto *di = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data) : nullptr;
+                const auto *da = d.value ? std::get_if<Argument>(&d.value->data) : nullptr;
+                const bool slot = di != nullptr && O->record_slots.contains(di->get());
+                const bool handed = da != nullptr && d.block == oentry;
+                if (!slot && !handed) {
+                    why = "the call in " + site + " of " + queue.owner +
+                          " hands the chain storage that is not a record "
+                          "slot's or the owner's own parameter";
+                    return false;
+                }
+            }
+        }
+        return true;
     };
 
     // The entry's fields. First the callee's parameters, in order, as the
@@ -2189,71 +2220,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // spawned calls inside it wait -- and stores it itself.
     const bool keeps_result = k0_entry != nullptr && result_args == 1;
     const bool result_via_chain = keeps_result && !spawned;
-
-    // BONSAI_EXPLAIN_DEFER=1 prints the entry's plan: which arguments are
-    // left out and why, which are stored, and what the record keeps for the
-    // continuation -- the question to ask when an entry is bigger than it
-    // should be.
-    if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
-        std::cerr << "; " << what << ": the entry holds";
-        for (const Field &f : fields) {
-            std::cerr << " " << f.name << " : " << f.type << ";";
-        }
-        std::cerr << "\n";
-        for (size_t j = 0; j < nparams; j++) {
-            const Argument &param = centry.args[j];
-            std::cerr << ";   " << param.name << " : " << param.type << " -- ";
-            switch (params[j].where) {
-            case Where::Elided:
-                std::cerr << "in scope at the drain";
-                break;
-            case Where::Stored:
-                if (fields[params[j].field].slot_address) {
-                    std::cerr << "the address of a slot of the record";
-                } else if (invariant.at(callee_name)[j]) {
-                    std::cerr << "stored: one value down the chain, but computed "
-                                 "inside the producer's iteration";
-                    if (const Definition &org = fields[params[j].field].origin;
-                        org.value) {
-                        std::cerr << " (" << why_stuck(queue.owner, org) << ")";
-                    }
-                } else {
-                    std::cerr << "stored: differs between calls";
-                    if (disagreement[callee_name].contains(j)) {
-                        std::cerr << " (" << disagreement[callee_name][j] << ")";
-                    }
-                }
-                break;
-            }
-            std::cerr << "\n";
-        }
-        for (size_t i = 0; i < carried.size(); i++) {
-            const Argument &arg = k0_entry->args[i + result_args];
-            std::cerr << ";   continuation uses " << arg.name << " : "
-                      << arg.type << " -- ";
-            switch (carried[i].from) {
-            case From::Available:
-                std::cerr << "in scope at the pass";
-                break;
-            case From::Slot:
-                std::cerr << "a mutable local of the iteration, given a slot "
-                             "of the record";
-                break;
-            case From::Index:
-                std::cerr << "the index of a producer loop, recomputed from "
-                             "the pass's index";
-                break;
-            case From::Record:
-                std::cerr << "a value of the iteration, kept in the record";
-                break;
-            }
-            std::cerr << "\n";
-        }
-        if (keeps_result) {
-            std::cerr << ";   continuation uses the call's value, kept in the "
-                         "record\n";
-        }
-    }
 
     //===----------------------------------------------------------------===//
     // The size of the queue
@@ -2608,11 +2574,25 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                        Array_t::make(rv.type, as_expr(size)),
                                        queue.name + "_rest_" + rv.name));
     }
+    // The iteration's index into the record, at the producer's call, and the
+    // path's result slot there: the value the producer's continuation reads
+    // back in the pass goes into the iteration's slot of `<q>_result`.
     shared_ptr<Value> result_array;
+    shared_ptr<Value> producer_index;
+    shared_ptr<Value> result_slot;
+    if (producers.size() == 1) {
+        size_t at = producer.block->instrs.size();
+        producer_index = slot_index_at(producer.block, at);
+    }
     if (keeps_result) {
         result_array = scratch(make_alloca(*O, alloc_point,
                                            Array_t::make(ret_type, as_expr(size)),
                                            queue.name + "_result"));
+        result_slot = producer.block->make_instruction(
+            Ptr_t::make(ret_type), Instruction::Op::GEP,
+            {reach(producer.block, result_array), producer_index});
+        O->record_slots.insert(
+            std::get<shared_ptr<Instruction>>(result_slot->data).get());
     }
     // The address of the path's result slot travels with the path: a chain
     // function takes it as a parameter (below), and an entry carries what
@@ -2623,8 +2603,279 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         f.name = field_named("_result");
         f.type = Ptr_t::make(ret_type);
         f.slot_address = true;
+        f.origin = Definition{result_slot, producer.block->name};
         result_field = fields.size();
         fields.push_back(std::move(f));
+    }
+
+    // A slot's address is not stored; the record's index is. Every slot a
+    // path is handed -- the sampler's state, the surface record, the
+    // radiance it adds into, its result slot -- is `gep(array, i)` for the
+    // one index `i` of the iteration (or, for a path that came out of an
+    // earlier queue's drain, the index that entry held), so the entry keeps
+    // `i` once, in the loop's index type, and the drain rebuilds each
+    // address from the array, which is the owner's, and the index read back:
+    // pbrt's work items carry `pixelIndex` and the kernels index
+    // pixelSampleState with it. The index reaches the pusher as a parameter
+    // of every chain function (`_slot_<q>`, below), as the queue does. Slots
+    // whose indices differ -- a path handed slots of two records -- are as
+    // many indices, each a field and a parameter. A slot field whose address
+    // is not `gep(array, i)` of one array at every call of the owner into
+    // the chain is stored as the address it is, which is still one that
+    // outlives every frame.
+    struct SlotGroup {
+        size_t field = 0;               // the entry field holding the index
+        string param;                   // the chain's parameter for it
+        map<string, Definition> index;  // at each producer's call, by block
+    };
+    vector<SlotGroup> slot_groups;
+    {
+        Definitions sdefs(*O);
+        // The array and index a record slot's address is made of, as the
+        // owner's `block` refers to it: `gep(array, index)` made by a
+        // deferral (Function::record_slots).
+        const auto slot_parts = [&](const Definition &d)
+            -> optional<std::pair<Definition, Definition>> {
+            const auto *di = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data)
+                                     : nullptr;
+            if (di == nullptr || !O->record_slots.contains(di->get())) {
+                return std::nullopt;
+            }
+            const Instruction &gep = **di;
+            if (gep.op != Instruction::Op::GEP || gep.operands.size() != 2) {
+                return std::nullopt;
+            }
+            return std::make_pair(sdefs.of(d.block, gep.operands[0]),
+                                  sdefs.of(d.block, gep.operands[1]));
+        };
+        for (size_t f = 0; f < fields.size(); f++) {
+            Field &field = fields[f];
+            if (!field.slot_address) {
+                continue;
+            }
+            // What the owner hands for this field at each of its calls into
+            // the chain: the one origin, or each route's value.
+            OwnerArgs at_sites;
+            if (field.origin.value) {
+                for (const CallSite &pc : producers) {
+                    at_sites[pc.block->name] = {field.origin};
+                }
+            } else {
+                const string g = acc_field.has_value() && f == *acc_field ? func_name : callee_name;
+                size_t j = 0;
+                if (field.param.has_value()) {
+                    j = *field.param;
+                } else {
+                    const Block &fentry = *F->blocks.front();
+                    for (size_t i = 0; i < fentry.args.size(); i++) {
+                        if (fentry.args[i].name == field.name) {
+                            j = i;
+                        }
+                    }
+                }
+                string why;
+                const optional<OwnerArgs> routes = routes_to(g, j, sdefs, why);
+                internal_assert(routes.has_value()) << what << ": " << why;
+                at_sites = *routes;
+            }
+            optional<Definition> array;
+            map<string, Definition> index_at;
+            bool one_array = true;
+            for (const auto &[site, ds] : at_sites) {
+                for (const Definition &d : ds) {
+                    const auto parts = slot_parts(d);
+                    if (!parts.has_value()) {
+                        one_array = false;
+                        break;
+                    }
+                    if (array.has_value() && !same_definition(*array, parts->first)) {
+                        one_array = false;
+                        break;
+                    }
+                    array = parts->first;
+                    if (const auto it = index_at.find(site);
+                        it != index_at.end() && !same_definition(it->second, parts->second)) {
+                        one_array = false;
+                        break;
+                    }
+                    index_at[site] = parts->second;
+                }
+                if (!one_array) {
+                    break;
+                }
+            }
+            if (!one_array || !array.has_value() || index_at.size() != producers.size()) {
+                continue; // stored as the address
+            }
+            size_t k = slot_groups.size();
+            for (size_t g = 0; g < slot_groups.size(); g++) {
+                bool same = true;
+                for (const auto &[site, d] : index_at) {
+                    same = same && same_definition(slot_groups[g].index.at(site), d);
+                }
+                if (same) {
+                    k = g;
+                    break;
+                }
+            }
+            if (k == slot_groups.size()) {
+                SlotGroup group;
+                group.index = index_at;
+                group.field = fields.size();
+                group.param = "_slot" + (k == 0 ? string() : std::to_string(k)) +
+                              "_" + queue.name;
+                Field index_field;
+                index_field.name = field_named(k == 0 ? "_slot" : "_slot" + std::to_string(k));
+                index_field.type = index_at.begin()->second.value->get_type();
+                fields.push_back(std::move(index_field)); // `field` is dead now
+                slot_groups.push_back(std::move(group));
+            }
+            fields[f].in_entry = false;
+            fields[f].slot_array = array->value;
+            fields[f].index_field = slot_groups[k].field;
+        }
+        // A value the owner hands the chain that *is* a record's index at
+        // every call -- an earlier queue's `_slot_<q>` parameter, handed on
+        // by a function on both chains -- is the index field again, not a
+        // field of its own.
+        for (size_t f = 0; f < fields.size(); f++) {
+            const Field &field = fields[f];
+            if (!field.in_entry || field.slot_address || !field.param.has_value()) {
+                continue;
+            }
+            bool is_group = false;
+            for (const SlotGroup &group : slot_groups) {
+                is_group = is_group || group.field == f;
+            }
+            if (is_group) {
+                continue;
+            }
+            OwnerArgs at_sites;
+            if (field.origin.value) {
+                for (const CallSite &pc : producers) {
+                    at_sites[pc.block->name] = {field.origin};
+                }
+            } else {
+                string why;
+                const optional<OwnerArgs> routes = routes_to(callee_name, *field.param, sdefs, why);
+                if (!routes.has_value() || routes->size() != producers.size()) {
+                    continue;
+                }
+                at_sites = *routes;
+            }
+            for (size_t k = 0; k < slot_groups.size(); k++) {
+                const SlotGroup &group = slot_groups[k];
+                if (!equals(fields[group.field].type, field.type)) {
+                    continue;
+                }
+                bool same = true;
+                for (const auto &[site, ds] : at_sites) {
+                    for (const Definition &d : ds) {
+                        same = same && same_definition(group.index.at(site), d);
+                    }
+                }
+                if (same) {
+                    fields[f].in_entry = false;
+                    fields[f].index_field = group.field;
+                    break;
+                }
+            }
+        }
+    }
+
+    // BONSAI_EXPLAIN_DEFER=1 prints the entry's plan: which arguments are
+    // left out and why, which are stored, and what the record keeps for the
+    // continuation -- the question to ask when an entry is bigger than it
+    // should be.
+    if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+        std::cerr << "; " << what << ": the entry holds";
+        for (const Field &f : fields) {
+            if (f.in_entry) {
+                std::cerr << " " << f.name << " : " << f.type << ";";
+            }
+        }
+        std::cerr << "\n";
+        const auto slot_field = [&](const Field &f) {
+            if (f.index_field.has_value()) {
+                std::cerr << "the address of a slot of the record, rebuilt from "
+                          << fields[*f.index_field].name;
+            } else {
+                std::cerr << "the address of a slot of the record, stored as the "
+                             "address: not one array's slot at the record's index "
+                             "at every call into the chain";
+            }
+        };
+        for (size_t j = 0; j < nparams; j++) {
+            const Argument &param = centry.args[j];
+            std::cerr << ";   " << param.name << " : " << param.type << " -- ";
+            switch (params[j].where) {
+            case Where::Elided:
+                std::cerr << "in scope at the drain";
+                break;
+            case Where::Stored:
+                if (fields[params[j].field].slot_address) {
+                    slot_field(fields[params[j].field]);
+                } else if (fields[params[j].field].index_field.has_value()) {
+                    std::cerr << "the record's index, "
+                              << fields[*fields[params[j].field].index_field].name;
+                } else if (invariant.at(callee_name)[j]) {
+                    std::cerr << "stored: one value down the chain, but computed "
+                                 "inside the producer's iteration";
+                    if (const Definition &org = fields[params[j].field].origin;
+                        org.value) {
+                        std::cerr << " (" << why_stuck(queue.owner, org) << ")";
+                    }
+                } else {
+                    std::cerr << "stored: differs between calls";
+                    if (disagreement[callee_name].contains(j)) {
+                        std::cerr << " (" << disagreement[callee_name][j] << ")";
+                    }
+                }
+                break;
+            }
+            std::cerr << "\n";
+        }
+        if (acc_field.has_value()) {
+            std::cerr << ";   the reducer " << fields[*acc_field].name << " -- ";
+            slot_field(fields[*acc_field]);
+            std::cerr << "\n";
+        }
+        if (result_field.has_value()) {
+            std::cerr << ";   the path's result slot -- ";
+            slot_field(fields[*result_field]);
+            std::cerr << "\n";
+        }
+        for (const SlotGroup &group : slot_groups) {
+            std::cerr << ";   " << fields[group.field].name << " : "
+                      << fields[group.field].type << " -- the record's index, "
+                      << "handed down the chain as " << group.param << "\n";
+        }
+        for (size_t i = 0; i < carried.size(); i++) {
+            const Argument &arg = k0_entry->args[i + result_args];
+            std::cerr << ";   continuation uses " << arg.name << " : "
+                      << arg.type << " -- ";
+            switch (carried[i].from) {
+            case From::Available:
+                std::cerr << "in scope at the pass";
+                break;
+            case From::Slot:
+                std::cerr << "a mutable local of the iteration, given a slot "
+                             "of the record";
+                break;
+            case From::Index:
+                std::cerr << "the index of a producer loop, recomputed from "
+                             "the pass's index";
+                break;
+            case From::Record:
+                std::cerr << "a value of the iteration, kept in the record";
+                break;
+            }
+            std::cerr << "\n";
+        }
+        if (keeps_result) {
+            std::cerr << ";   continuation uses the call's value, kept in the "
+                         "record\n";
+        }
     }
 
     //===----------------------------------------------------------------===//
@@ -2636,14 +2887,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // (see Leaf), behind the count.
     Struct_t::Map entry_fields;
     for (const Field &f : fields) {
-        entry_fields.emplace_back(f.name, f.type);
+        if (f.in_entry) {
+            entry_fields.emplace_back(f.name, f.type);
+        }
     }
     const Type entry_t = Struct_t::make("Entry_" + queue.name, entry_fields);
     vector<Leaf> leaves;
     vector<std::pair<size_t, size_t>> field_leaves; // each field's [first, last)
     for (const Field &f : fields) {
         const size_t first = leaves.size();
-        leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, leaves);
+        if (f.in_entry) {
+            leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, leaves);
+        }
         field_leaves.emplace_back(first, leaves.size());
     }
     // The queue's arrays: one per stored leaf, in leaf order.
@@ -2781,6 +3036,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const string rparam = "_result_" + queue.name;
     map<string, shared_ptr<Value>> queue_of;  // each chain function's parameter
     map<string, shared_ptr<Value>> result_of; // and its result slot's
+    // and its record indices' (SlotGroup), one per group
+    vector<map<string, shared_ptr<Value>>> index_of(slot_groups.size());
     for (const string &g : chain) {
         Function &gf = *funcs.at(g);
         Block &entry = *gf.blocks.front();
@@ -2788,12 +3045,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             internal_assert(arg.name != qparam && arg.name != rparam)
                 << what << ": " << g << " already has a parameter named "
                 << arg.name;
+            for (const SlotGroup &group : slot_groups) {
+                internal_assert(arg.name != group.param)
+                    << what << ": " << g << " already has a parameter named "
+                    << arg.name;
+            }
         }
         queue_of[g] = entry.add_argument(
             Argument{queue_ptr_t, qparam, /*mutating=*/true});
         if (result_via_chain) {
             result_of[g] = entry.add_argument(
                 Argument{Ptr_t::make(ret_type), rparam, /*mutating=*/true});
+        }
+        for (size_t k = 0; k < slot_groups.size(); k++) {
+            index_of[k][g] = entry.add_argument(
+                Argument{fields[slot_groups[k].field].type, slot_groups[k].param});
         }
         if (!spawned) {
             gf.ret_type = Void_t::make();
@@ -2819,6 +3085,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             call.call.args.push_back(reach(cs.block, queue_of.at(cs.caller)));
             if (result_via_chain) {
                 call.call.args.push_back(reach(cs.block, result_of.at(cs.caller)));
+            }
+            for (size_t k = 0; k < slot_groups.size(); k++) {
+                call.call.args.push_back(reach(cs.block, index_of[k].at(cs.caller)));
             }
             if (spawned) {
                 continue; // the queue goes down; the value comes up as it did
@@ -2963,6 +3232,19 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         vector<shared_ptr<Value>> values;
         for (size_t f = 0; f < fields.size(); f++) {
             const Field &field = fields[f];
+            if (!field.in_entry) {
+                continue;
+            }
+            bool is_index = false;
+            for (size_t k = 0; k < slot_groups.size(); k++) {
+                if (slot_groups[k].field == f) {
+                    values.push_back(reach(site, index_of[k].at(site_function[s])));
+                    is_index = true;
+                }
+            }
+            if (is_index) {
+                continue;
+            }
             if (acc_field.has_value() && f == *acc_field) {
                 values.push_back(reach(site, spawns[s].target));
                 continue;
@@ -3136,30 +3418,28 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             pc.call()->call.args.push_back(
                 split ? reach(pc.block, queues)
                       : queue_at(pc.block, constant_u32(0)));
+            for (const SlotGroup &group : slot_groups) {
+                pc.call()->call.args.push_back(
+                    reach(pc.block, group.index.at(pc.block->name).value));
+            }
         }
     } else {
-        size_t at = producer.block->instrs.size();
-        const shared_ptr<Value> index = slot_index_at(producer.block, at);
         for (const RecordValue &rv : record_values) {
             auto place = producer.block->make_instruction(
                 Ptr_t::make(rv.type), Instruction::Op::GEP,
-                {reach(producer.block, rv.array), index});
+                {reach(producer.block, rv.array), producer_index});
             producer.block->make_side_effect(
                 Instruction::Op::Store,
                 {place, reach(producer.block, rv.def.value)});
-        }
-        shared_ptr<Value> result_slot;
-        if (keeps_result) {
-            result_slot = producer.block->make_instruction(
-                Ptr_t::make(ret_type), Instruction::Op::GEP,
-                {reach(producer.block, result_array), index});
-            O->record_slots.insert(
-                std::get<shared_ptr<Instruction>>(result_slot->data).get());
         }
         pcall.call.args.push_back(split ? reach(producer.block, queues)
                                         : queue_at(producer.block, constant_u32(0)));
         if (result_via_chain) {
             pcall.call.args.push_back(result_slot);
+        }
+        for (const SlotGroup &group : slot_groups) {
+            pcall.call.args.push_back(
+                reach(producer.block, group.index.at(producer.block->name).value));
         }
         // `end` ends the iteration: a yield of the producer loop's body, or
         // -- for a lone call -- a jump to the drain, set below once it
@@ -3188,6 +3468,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             vector<shared_ptr<Value>> values;
             for (size_t f = 0; f < fields.size(); f++) {
                 const Field &field = fields[f];
+                if (!field.in_entry) {
+                    continue;
+                }
+                bool is_index = false;
+                for (const SlotGroup &group : slot_groups) {
+                    if (group.field == f) {
+                        values.push_back(reach(
+                            producer.block, group.index.at(producer.block->name).value));
+                        is_index = true;
+                    }
+                }
+                if (is_index) {
+                    continue;
+                }
                 if (result_field.has_value() && f == *result_field) {
                     values.push_back(result_slot);
                     continue;
@@ -3383,9 +3677,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         const auto run_storage = storage_of(
             body, double_buffered ? reach(body, cur) : constant_u32(q));
         map<size_t, shared_ptr<Value>> field_values;
-        const auto entry_field = [&](const shared_ptr<Block> &block,
-                                     size_t f) -> shared_ptr<Value> {
+        std::function<shared_ptr<Value>(const shared_ptr<Block> &, size_t)> entry_field;
+        entry_field = [&](const shared_ptr<Block> &block, size_t f) -> shared_ptr<Value> {
             auto it = field_values.find(f);
+            if (it == field_values.end() && fields[f].index_field.has_value()) {
+                if (fields[f].slot_array == nullptr) {
+                    // The record's index itself.
+                    it = field_values.emplace(f, entry_field(body, *fields[f].index_field)).first;
+                } else {
+                    // A slot's address, from the record's array and the
+                    // index the entry holds; a slot still, for the
+                    // deferrals after.
+                    auto slot = body->make_instruction(
+                        fields[f].type, Instruction::Op::GEP,
+                        {reach(body, fields[f].slot_array),
+                         entry_field(body, *fields[f].index_field)});
+                    O->record_slots.insert(
+                        std::get<shared_ptr<Instruction>>(slot->data).get());
+                    it = field_values.emplace(f, std::move(slot)).first;
+                }
+            }
             if (it == field_values.end()) {
                 size_t l = field_leaves[f].first;
                 const Emit emit = [&](const Type &t, Instruction::Op op,
@@ -3436,6 +3747,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 args.push_back(reach(body, next_queue));
                 if (keeps_result) {
                     args.push_back(entry_field(body, *result_field));
+                }
+                for (const SlotGroup &group : slot_groups) {
+                    args.push_back(entry_field(body, group.field));
                 }
             }
             // A chain function returns nothing now; a callee off the chain
