@@ -12,7 +12,9 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <set>
@@ -45,28 +47,6 @@ shared_ptr<Block> loop_block(const Function &f, const string &index) {
     return found;
 }
 
-// Whether an instruction reads memory: a load through a pointer, a field
-// read through one, or an element read from an array -- which this form
-// writes as extract_idx of the array handle (or of the struct a dynamic
-// array is lowered to), the same instruction that takes a lane of a vector
-// value.
-bool reads_memory(const Instruction &in) {
-    switch (in.op) {
-    case Instruction::Op::Load:
-    case Instruction::Op::LoadField:
-        return true;
-    case Instruction::Op::ExtractIdx: {
-        if (in.operands.empty()) {
-            return false;
-        }
-        const Type &container = in.operands[0]->get_type();
-        return container.is_reference() || is_dynamic_array_struct_type(container);
-    }
-    default:
-        return false;
-    }
-}
-
 // Whether an instruction may be computed again somewhere else in the program
 // with the same result: pure, and not a read of memory, which a store
 // between the two places could change (see SSA/ReorderLoops.h).
@@ -87,26 +67,6 @@ bool traps(const Instruction &in) {
     }
     const auto divisor = in.operands.size() == 2 ? as_int(in.operands[1]) : std::nullopt;
     return !(divisor.has_value() && *divisor != 0);
-}
-
-// The pointer-typed allocation a value is, as the block named `block` refers
-// to it -- through the arguments that thread it in, which is how a block
-// inside the loop names a slot of the function -- or null when it is
-// anything else: an address computed from one, a parameter, a load.
-const Instruction *slot_of(Definitions &defs, const string &block,
-                           const shared_ptr<Value> &v) {
-    const Definition d = defs.of(block, v);
-    if (!d.value) {
-        return nullptr;
-    }
-    const auto *held = std::get_if<shared_ptr<Instruction>>(&d.value->data);
-    if (held == nullptr) {
-        return nullptr;
-    }
-    const Instruction &slot = **held;
-    const bool allocation = slot.op == Instruction::Op::Alloca ||
-                            slot.op == Instruction::Op::Alloc;
-    return allocation && slot.type.is<Ptr_t>() ? &slot : nullptr;
 }
 
 // What becomes of an instruction of the prologue (SSA/ReorderLoops.h).
@@ -311,18 +271,389 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
         return array;
     };
 
+    // The region the outer loop runs, and what in it writes what: for each
+    // slot of the function (an allocation) and each pointer parameter, the
+    // instructions that write it -- a store or an accumulate through an
+    // address rooted at it, a push of it, a store of its address as a value,
+    // or handing it to a callee's `mut` parameter; a callee's other
+    // parameters are read-only, as the language has them. A read of memory
+    // nothing in the region writes is the same on every iteration. A writer
+    // recorded as null is one that is not a whole store of the slot in the
+    // prologue, which is what keeps a slot from being hoisted below.
+    Definitions defs(*f, /*lenient=*/true);
+    set<string> in_p;
+    struct Root {
+        const Instruction *slot = nullptr; // an allocation of the function
+        string param;                       // or a parameter of it, by name
+        bool whole = true;                  // the base itself, not an address into it
+    };
+    const string entry_name = f->blocks.front()->name;
+    const bool explain = std::getenv("BONSAI_EXPLAIN_REORDER") != nullptr;
+    // A merge of addresses -- a block argument its predecessors pass
+    // different values -- is rooted where every incoming address is, when
+    // they agree; each is followed in its predecessor.
+    std::function<Root(string, shared_ptr<Value>, int)> root_of_impl =
+        [&](string block, shared_ptr<Value> v, int depth) -> Root {
+        Root root;
+        for (size_t hops = 0; hops < 64; hops++) {
+            const Definition d = defs.of(block, v);
+            if (!d.value) {
+                return {};
+            }
+            if (const auto *a = std::get_if<Argument>(&d.value->data)) {
+                if (d.block == entry_name) {
+                    root.param = a->name;
+                    return root;
+                }
+                if (depth > 8) {
+                    return {};
+                }
+                const auto merge = blocks.find(d.block);
+                if (merge == blocks.end()) {
+                    return {};
+                }
+                size_t k = merge->second->args.size();
+                for (size_t i = 0; i < merge->second->args.size(); i++) {
+                    if (merge->second->args[i].name == a->name) {
+                        k = i;
+                    }
+                }
+                if (k == merge->second->args.size()) {
+                    return {};
+                }
+                std::optional<Root> agreed;
+                for (const auto &weak : merge->second->preds) {
+                    const shared_ptr<Block> pred = weak.lock();
+                    const shared_ptr<Value> in = pred ? passed_to(*pred, *merge->second, k)
+                                                      : nullptr;
+                    if (!in) {
+                        return {}; // an index, a call's value: no address
+                    }
+                    const Root r = root_of_impl(pred->name, in, depth + 1);
+                    if (r.slot == nullptr && r.param.empty()) {
+                        return {};
+                    }
+                    if (!agreed.has_value()) {
+                        agreed = r;
+                    } else if (agreed->slot != r.slot || agreed->param != r.param) {
+                        return {};
+                    }
+                    agreed->whole = agreed->whole && r.whole;
+                }
+                if (!agreed.has_value()) {
+                    return {};
+                }
+                agreed->whole = agreed->whole && root.whole;
+                return *agreed;
+            }
+            const auto *held = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+            if (held == nullptr) {
+                return {};
+            }
+            const Instruction &in = **held;
+            switch (in.op) {
+            case Instruction::Op::Alloca:
+            case Instruction::Op::Alloc:
+                root.slot = &in;
+                return root;
+            case Instruction::Op::GEP:
+            case Instruction::Op::FieldPtr:
+                root.whole = false;
+                [[fallthrough]];
+            case Instruction::Op::Set:
+            case Instruction::Op::Cast:
+            case Instruction::Op::Reinterpret: {
+                if (in.operands.empty() || !in.owner.lock()) {
+                    return {};
+                }
+                block = in.owner.lock()->name;
+                v = in.operands[0];
+                continue;
+            }
+            default:
+                return {};
+            }
+        }
+        return {};
+    };
+    const auto root_of = [&](const string &block, const shared_ptr<Value> &v) {
+        return root_of_impl(block, v, 0);
+    };
+    map<const Instruction *, vector<const Instruction *>> slot_writers;
+    set<string> written_params;
+    bool unknown_write = false;
+    const auto note_write = [&](const string &block, const shared_ptr<Value> &addr,
+                                const Instruction *whole_store) {
+        const Root r = root_of(block, addr);
+        if (r.slot != nullptr) {
+            slot_writers[r.slot].push_back(r.whole ? whole_store : nullptr);
+        } else if (!r.param.empty()) {
+            written_params.insert(r.param);
+        } else {
+            if (explain && !unknown_write) {
+                std::cerr << "; " << what << ": a write in " << block
+                          << " goes through an address rooted at nothing known (";
+                addr->dump(std::cerr);
+                std::cerr << "), so no read of memory in the prologue is taken "
+                             "as invariant\n";
+            }
+            unknown_write = true;
+        }
+    };
+    // Every allocation a value holds an address into -- the value itself, or
+    // an aggregate made of such -- which a store of the value lets escape.
+    std::function<void(const string &, const shared_ptr<Value> &)> escapes =
+        [&](const string &block, const shared_ptr<Value> &v) {
+            if (!v->get_type().carries_reference()) {
+                return;
+            }
+            const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+            if (held != nullptr && ((*held)->op == Instruction::Op::MakeStruct ||
+                                    (*held)->op == Instruction::Op::Select)) {
+                const string home = (*held)->owner.lock() ? (*held)->owner.lock()->name : block;
+                for (const auto &operand : (*held)->operands) {
+                    escapes(home, operand);
+                }
+                return;
+            }
+            note_write(block, v, nullptr);
+        };
+    {
+        const Cfg region(*f, B0->name);
+        for (const auto &block : region.blocks()) {
+            in_p.insert(block->name);
+            for (const auto &instr : block->instrs) {
+                switch (instr->op) {
+                case Instruction::Op::Store:
+                    if (instr->operands.size() >= 2) {
+                        note_write(block->name, instr->operands[0],
+                                   block == B0 ? instr.get() : nullptr);
+                        escapes(block->name, instr->operands[1]);
+                    }
+                    break;
+                case Instruction::Op::AccAdd:
+                case Instruction::Op::AccMul:
+                case Instruction::Op::AccSub:
+                case Instruction::Op::AccMin:
+                case Instruction::Op::AccMax:
+                case Instruction::Op::AccArgmin:
+                case Instruction::Op::AccArgmax:
+                case Instruction::Op::AtomicAdd:
+                    if (!instr->operands.empty()) {
+                        note_write(block->name, instr->operands[0], nullptr);
+                    }
+                    break;
+                case Instruction::Op::Push:
+                    for (const auto &operand : instr->operands) {
+                        escapes(block->name, operand);
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+            // Handed to a callee: written when the callee's parameter is
+            // `mut`, read otherwise. A jump's argument only carries the
+            // address to another block of the region, looked at in turn.
+            const auto handed = [&](const Terminator::Jump &call) {
+                const auto callee = funcs.find(call.name);
+                for (size_t k = 0; k < call.args.size(); k++) {
+                    const auto &arg = call.args[k];
+                    if (!arg->get_type().carries_reference()) {
+                        continue;
+                    }
+                    bool mutating = true; // an unknown callee may write
+                    if (callee != funcs.end() && !callee->second->blocks.empty()) {
+                        const auto &params = callee->second->blocks.front()->args;
+                        mutating = k >= params.size() || params[k].mutating;
+                    }
+                    if (mutating) {
+                        escapes(block->name, arg);
+                    }
+                }
+            };
+            if (const auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
+                handed(c->call);
+            } else if (const auto *m = std::get_if<Terminator::MultiCall>(
+                           &block->terminator.data)) {
+                handed(m->call);
+            }
+        }
+    }
+
+    // What becomes of each instruction of the prologue, by what it is rather
+    // than by whether it varies with the index. Three things are the same on
+    // every iteration and safe to run once, before the loop, and are hoisted:
+    // a read of memory nothing in the region writes -- a slot of the function
+    // (the inliner's result slot for a value computed before the loop, the
+    // sample count a match on the sampler settled) or a read-only parameter
+    // (the scene); pure arithmetic that cannot trap on such values, on the
+    // header's values and on constants; and a `mut` local of the prologue
+    // whose every write is a whole store of such a value in the prologue and
+    // whose address escapes to nothing that writes -- which is then one slot
+    // before the loop rather than one per iteration (specialize()'s copy of
+    // the integrator, whose address every kernel is handed). Everything else
+    // is recomputed where it is used if it is pure arithmetic, computed once
+    // per iteration in the prologue loop and expanded if it makes a value
+    // some other way, and left in the prologue loop if it is an effect --
+    // LLVM hoists what it can out of the loops the copies end up in, under
+    // its own rules about what may run speculatively. To a fixed point, since
+    // a hoisted slot makes its loads invariant and those may make more so.
+    map<const Instruction *, Fate> fate;
+    const auto invariant_operand = [&](const shared_ptr<Value> &v) {
+        if (std::holds_alternative<Constant>(v->data)) {
+            return true;
+        }
+        if (const auto *a = std::get_if<Argument>(&v->data)) {
+            return a->name != p_arg.name; // the header's values, not the index
+        }
+        const auto it = fate.find(std::get<shared_ptr<Instruction>>(v->data).get());
+        return it == fate.end() || it->second == Fate::Hoist;
+    };
+    // Whether a read of memory in the prologue reads what was there before
+    // the loop, on every iteration.
+    const auto invariant_read = [&](const Instruction &in) {
+        if (in.operands.empty() || unknown_write) {
+            return false;
+        }
+        // The address itself has to be the same on every iteration: an
+        // element's index, an address computed from the base.
+        if (!std::all_of(in.operands.begin(), in.operands.end(), invariant_operand)) {
+            return false;
+        }
+        const Root r = root_of(B0->name, in.operands[0]);
+        if (r.slot != nullptr) {
+            const shared_ptr<Block> home = r.slot->owner.lock();
+            const bool of_prologue = home && home.get() == B0.get();
+            const bool hoisted =
+                of_prologue && fate.contains(r.slot) && fate.at(r.slot) == Fate::Hoist;
+            if (!hoisted && (!home || in_p.contains(home->name))) {
+                return false; // a slot of the iteration
+            }
+            const auto writers = slot_writers.find(r.slot);
+            if (writers == slot_writers.end()) {
+                return true;
+            }
+            // A hoisted slot's writers are the hoisted whole stores, which
+            // precede the read in the prologue's order as they did.
+            return hoisted && std::all_of(writers->second.begin(), writers->second.end(),
+                                          [&](const Instruction *w) {
+                                              return w != nullptr && fate.contains(w) &&
+                                                     fate.at(w) == Fate::Hoist;
+                                          });
+        }
+        if (!r.param.empty()) {
+            for (const Argument &param : f->blocks.front()->args) {
+                if (param.name == r.param) {
+                    return !param.mutating &&
+                           (param.type.is<Ptr_t>() || param.type.is_reference()) &&
+                           !written_params.contains(r.param);
+                }
+            }
+        }
+        return false;
+    };
+    for (bool changed = true; changed;) {
+        changed = false;
+        const auto assign = [&](const Instruction *in, Fate now) {
+            const auto it = fate.find(in);
+            if (it == fate.end() || it->second != now) {
+                fate[in] = now;
+                changed = true;
+            }
+        };
+        for (const auto &instr : B0->instrs) {
+            const Instruction *in = instr.get();
+            const bool decided = fate.contains(in) && fate.at(in) == Fate::Hoist &&
+                                 (in->op == Instruction::Op::Alloca ||
+                                  in->op == Instruction::Op::Alloc ||
+                                  in->op == Instruction::Op::Store);
+            if (decided) {
+                continue; // a hoisted slot and its stores, settled below
+            }
+            if (in->op == Instruction::Op::Alloca || in->op == Instruction::Op::Alloc) {
+                assign(in, Fate::Effect);
+            } else if (reads_memory(*in) && in->op != Instruction::Op::LoadField) {
+                assign(in, invariant_read(*in) ? Fate::Hoist
+                                               : (in->name.empty() ? Fate::Effect : Fate::Expand));
+            } else if (recomputable(*in)) {
+                const bool lift = !traps(*in) &&
+                                  std::all_of(in->operands.begin(), in->operands.end(),
+                                              invariant_operand);
+                assign(in, lift ? Fate::Hoist : Fate::Recompute);
+            } else if (!in->name.empty()) {
+                assign(in, Fate::Expand);
+            } else {
+                assign(in, Fate::Effect);
+            }
+        }
+        // A slot of the prologue whose writes are whole stores of invariant
+        // values in the prologue, and nothing else, is hoisted with them.
+        for (const auto &instr : B0->instrs) {
+            const Instruction *in = instr.get();
+            if ((in->op != Instruction::Op::Alloca && in->op != Instruction::Op::Alloc) ||
+                fate.at(in) == Fate::Hoist || in->type.is_reference() || unknown_write) {
+                continue;
+            }
+            const auto writers = slot_writers.find(in);
+            bool hoistable = true;
+            if (writers != slot_writers.end()) {
+                for (const Instruction *w : writers->second) {
+                    const shared_ptr<Block> home = w ? w->owner.lock() : nullptr;
+                    if (w == nullptr || w->op != Instruction::Op::Store ||
+                        !home || home.get() != B0.get() || w->operands.size() < 2 ||
+                        !invariant_operand(w->operands[1])) {
+                        hoistable = false;
+                        break;
+                    }
+                }
+            }
+            if (!hoistable) {
+                continue;
+            }
+            assign(in, Fate::Hoist);
+            if (writers != slot_writers.end()) {
+                for (const Instruction *w : writers->second) {
+                    assign(w, Fate::Hoist);
+                }
+            }
+        }
+    }
+    if (explain) {
+        for (const auto &instr : B0->instrs) {
+            const char *name = nullptr;
+            switch (fate.at(instr.get())) {
+            case Fate::Hoist:
+                name = "hoisted";
+                break;
+            case Fate::Recompute:
+                name = "recomputed";
+                break;
+            case Fate::Expand:
+                name = "expanded";
+                break;
+            case Fate::Effect:
+                name = "prologue";
+                break;
+            }
+            std::cerr << "; " << what << ": " << name << ": ";
+            instr->dump(std::cerr);
+            std::cerr << "\n";
+        }
+    }
+
     // A `mut` local of the outer iteration that the inner loop or the
-    // epilogue uses becomes one slot per iteration: its allocation is
-    // replaced, in place, by the address of the slot, which is index
-    // arithmetic and goes on to be recomputed wherever the local is used.
-    // Done before the classification below so that the address and the index
-    // arithmetic it needs are classified like any other instruction. A local
-    // only the prologue uses stays a local of the prologue loop.
+    // epilogue uses, and that was not hoisted, becomes one slot per
+    // iteration: its allocation is replaced, in place, by the address of the
+    // slot, which is index arithmetic and is recomputed wherever the local
+    // is used. A local only the prologue uses stays a local of the prologue
+    // loop.
     {
         vector<shared_ptr<Instruction>> before = B0->instrs;
         for (const auto &instr : before) {
-            if (instr->op != Instruction::Op::Alloca &&
-                instr->op != Instruction::Op::Alloc) {
+            if ((instr->op != Instruction::Op::Alloca &&
+                 instr->op != Instruction::Op::Alloc) ||
+                fate.at(instr.get()) == Fate::Hoist) {
                 continue;
             }
             if (!read_outside(*f, *B0, instr.get())) {
@@ -353,6 +684,7 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
                 B0->instrs.insert(B0->instrs.begin() + at++, made);
                 auto value = std::make_shared<Value>(made);
                 B0->lookups[made->name] = value;
+                fate[made.get()] = Fate::Recompute;
                 return value;
             };
             if (!(as_int(p_start).has_value() && *as_int(p_start) == 0)) {
@@ -363,6 +695,7 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
             }
             auto slot = place(Instruction::Op::GEP, {reach(B0, array), index},
                               instr->type);
+            fate.erase(instr.get());
             replace_uses(*f, instr.get(), slot);
         }
     }
@@ -382,88 +715,6 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
         << " arguments and its loop passes " << P.body.args.size();
     for (size_t k = 1; k < B0->args.size(); k++) {
         header_value[B0->args[k].name] = P.body.args[k - 1];
-    }
-
-    // The slots of the function that something in the outer loop's region
-    // may write: the address of a store or an accumulate, or an address
-    // handed to anything at all -- a call, a store of the address itself, a
-    // push. A load of any other slot reads what was there before the loop.
-    set<const Instruction *> written;
-    set<string> in_p;
-    Definitions defs(*f, /*lenient=*/true);
-    {
-        const Cfg region(*f, B0->name);
-        for (const auto &block : region.blocks()) {
-            in_p.insert(block->name);
-            for (const auto &instr : block->instrs) {
-                for (size_t k = 0; k < instr->operands.size(); k++) {
-                    if (!instr->operands[k]->get_type().is<Ptr_t>()) {
-                        continue;
-                    }
-                    const Instruction *slot = slot_of(defs, block->name, instr->operands[k]);
-                    if (slot == nullptr) {
-                        continue;
-                    }
-                    const bool read = instr->op == Instruction::Op::Load && k == 0;
-                    if (!read) {
-                        written.insert(slot);
-                    }
-                }
-            }
-            // Handed to a callee, which may write through it. A jump's
-            // argument only carries the address to another block of the
-            // region, whose own instructions are looked at above.
-            const auto handed = [&](const Terminator::Jump &call) {
-                for (const auto &v : call.args) {
-                    if (v->get_type().is<Ptr_t>()) {
-                        if (const Instruction *slot = slot_of(defs, block->name, v)) {
-                            written.insert(slot);
-                        }
-                    }
-                }
-            };
-            if (const auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
-                handed(c->call);
-            } else if (const auto *m = std::get_if<Terminator::MultiCall>(
-                           &block->terminator.data)) {
-                handed(m->call);
-            }
-        }
-    }
-
-    // What becomes of each instruction of the prologue, by what it is rather
-    // than by whether it varies with the index: a read of memory or a draw
-    // that happens not to depend on the index is still made once per
-    // iteration where the program made it, and pure arithmetic that does not
-    // depend on it is still recomputed where it is used -- LLVM hoists that
-    // out of the loops it ends up in, under its own rules about what may run
-    // speculatively. The exception is a load of a slot of the function that
-    // nothing in the loop writes: the same value on every iteration, from
-    // memory that is there whether or not the loop runs, so it is read once
-    // before the loop -- which is where the inner loop's range, when the
-    // program computed it before the outer loop into such a slot, gets read
-    // from. A local the prologue alone uses is an effect of the prologue
-    // loop, its stores and loads with it.
-    map<const Instruction *, Fate> fate;
-    for (const auto &instr : B0->instrs) {
-        const Instruction *slot =
-            instr->op == Instruction::Op::Load && instr->operands.size() == 1
-                ? slot_of(defs, B0->name, instr->operands[0])
-                : nullptr;
-        const shared_ptr<Block> slot_home = slot ? slot->owner.lock() : nullptr;
-        if (instr->op == Instruction::Op::Alloca ||
-            instr->op == Instruction::Op::Alloc) {
-            fate[instr.get()] = Fate::Effect;
-        } else if (slot != nullptr && slot_home && !in_p.contains(slot_home->name) &&
-                   !written.contains(slot)) {
-            fate[instr.get()] = Fate::Hoist;
-        } else if (recomputable(*instr)) {
-            fate[instr.get()] = Fate::Recompute;
-        } else if (!instr->name.empty()) {
-            fate[instr.get()] = Fate::Expand;
-        } else {
-            fate[instr.get()] = Fate::Effect;
-        }
     }
 
     // The inner loop's range has to be there before the outer loop starts.
@@ -600,10 +851,14 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
                 operand = reach(hp, hv->second);
             }
         }
-        B0->lookups.erase(instr->name);
+        if (!instr->name.empty()) {
+            B0->lookups.erase(instr->name);
+        }
         instr->owner = hp;
         hp->instrs.push_back(instr);
-        hp->lookups[instr->name] = std::make_shared<Value>(instr);
+        if (!instr->name.empty()) {
+            hp->lookups[instr->name] = std::make_shared<Value>(instr);
+        }
     }
     // The arrays of the expanded values, and the stores into them at the end
     // of the prologue loop's iteration.

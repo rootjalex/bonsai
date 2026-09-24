@@ -26,35 +26,6 @@ using std::shared_ptr;
 using std::string;
 using std::vector;
 
-// Whether a value of `type` holds a reference to storage: a pointer, an
-// array handle, or an aggregate with one inside.
-bool carries_reference(const Type &type) {
-    if (type.is<Ptr_t>() || type.is_reference()) {
-        return true;
-    }
-    if (const auto *s = type.as<Struct_t>()) {
-        for (const auto &field : s->fields) {
-            if (carries_reference(field.type)) {
-                return true;
-            }
-        }
-    }
-    if (const auto *t = type.as<Tuple_t>()) {
-        for (const auto &etype : t->etypes) {
-            if (carries_reference(etype)) {
-                return true;
-            }
-        }
-    }
-    if (const auto *o = type.as<Option_t>()) {
-        return carries_reference(o->etype);
-    }
-    if (const auto *v = type.as<Vector_t>()) {
-        return carries_reference(v->etype);
-    }
-    return false;
-}
-
 // The instruction a value is, as the block named `block` refers to it: the
 // instruction itself, or the one an argument is threaded from
 // (SSA/Definitions.h). Null for a constant, a parameter of the function, or
@@ -113,7 +84,7 @@ const Instruction *storage_of(Definitions &defs, const string &block,
 void storages_in(Definitions &defs, const Function &func, const string &block,
                  const shared_ptr<Value> &v, std::set<const Instruction *> &out,
                  bool &unknown, std::set<const Instruction *> &seen) {
-    if (!carries_reference(v->get_type())) {
+    if (!v->get_type().carries_reference()) {
         return;
     }
     const Instruction *in = instruction_of(defs, block, v);
@@ -175,7 +146,7 @@ size_t heap_arrays(Function &func, bool in_loop) {
     for (const auto &block : func.blocks) {
         for (const auto &instr : block->instrs) {
             if (instr->op != Instruction::Op::Store || instr->operands.size() < 2 ||
-                !carries_reference(instr->operands[1]->get_type())) {
+                !instr->operands[1]->get_type().carries_reference()) {
                 continue;
             }
             if (storage_of(defs, block->name, instr->operands[0]) != nullptr) {
@@ -195,7 +166,7 @@ size_t heap_arrays(Function &func, bool in_loop) {
         if (const auto *ret =
                 std::get_if<Terminator::Return>(&block->terminator.data);
             ret != nullptr && ret->value != nullptr &&
-            carries_reference(ret->value->get_type())) {
+            ret->value->get_type().carries_reference()) {
             std::set<const Instruction *> seen;
             storages_in(defs, func, block->name, ret->value, escaped, any, seen);
         }

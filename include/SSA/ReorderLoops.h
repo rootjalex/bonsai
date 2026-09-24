@@ -56,21 +56,36 @@ namespace ssa {
 //   * An effect -- a store, an accumulate, a print, a push -- stays in the
 //     prologue loop, once per `p`, before every `Body(p, .)`, as it was. So
 //     does a `mut` local only the prologue uses, with its stores and loads.
-//   * The one thing moved before the loop: a load of a slot of the function
-//     that nothing in the loop writes -- the inliner's result slot for a
-//     value the program computed before the loop, the sample count a match
-//     on the sampler settled -- is the same on every iteration and reads
-//     memory that is there whether or not the loop runs, so it is read once,
-//     in the block that held the `p` loop. Arithmetic on such loads and on
-//     the header's values that cannot trap is moved with them when the
-//     bounds of `s` need it.
+//   * What is moved before the loop, *hoisted*: a read of memory that
+//     nothing in the whole region of `p` writes, at an address that is the
+//     same on every iteration -- a load of a slot of the function (the
+//     inliner's result slot for a value the program computed before the
+//     loop, the sample count a match on the sampler settled), an element of
+//     a parameter the function does not write through (the scene) at an
+//     invariant index -- is the same on every iteration and reads memory
+//     that is there whether or not the loop runs, so it is read once, in the
+//     block that held the `p` loop. Arithmetic that cannot trap on such
+//     reads, on the header's values and on constants is hoisted with them
+//     (a division that may be by zero is not: nothing that could fault runs
+//     when the original would not have run it). So is a `mut` local of the
+//     prologue whose every write is a whole store of a hoisted value in the
+//     prologue and whose address escapes to nothing that writes it (a
+//     callee's non-`mut` parameter is a read): specialize()'s copy of the
+//     integrator, stored once and handed to every kernel, is one slot
+//     before the loop rather than one per iteration. What writes what is
+//     found over the region -- stores and accumulates by their address's
+//     root, pushes, stored addresses, `mut` parameters of callees -- and the
+//     classification runs to a fixed point, since a hoisted slot makes its
+//     loads invariant and those may make more so. BONSAI_EXPLAIN_REORDER=1
+//     prints each instruction's fate.
 //
 // A `mut` local of the outer iteration that the inner loop or the epilogue
-// uses -- storage `Pro` allocates and `Body` or `Epi` writes through -- is
-// privatized: one slot per iteration of `p` in an array, the local becoming
-// the address of its slot, which is index arithmetic and recomputed where
-// used. An array-typed local is refused; it would need a two-dimensional
-// expansion the SSA form has no handle type for.
+// uses -- storage `Pro` allocates and `Body` or `Epi` writes through -- and
+// that was not hoisted is privatized: one slot per iteration of `p` in an
+// array, the local becoming the address of its slot, which is index
+// arithmetic and recomputed where used. An array-typed local is refused; it
+// would need a two-dimensional expansion the SSA form has no handle type
+// for.
 //
 // The epilogue is the region from the inner loop's continuation to the outer
 // body's yields, moved whole into the epilogue loop's body; what it reads of

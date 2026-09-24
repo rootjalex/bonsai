@@ -37,6 +37,16 @@ void simplify(Function &func);
 // is a question of what is stored in between (see SSA/ReorderLoops.h).
 bool pure(const Instruction &in);
 
+// Whether an instruction reads memory: a load through a pointer, or an
+// element read from an array -- which this form writes as extract_idx of the
+// array handle (or of the struct a dynamic array is lowered to), the same
+// instruction that takes a lane of a vector value, which reads no memory. A
+// load_field reads a field of a struct *value*, a register; a field read
+// through a pointer is a field.ptr and a load. What a read of memory gives
+// depends on the stores before it, so it may be recomputed elsewhere only
+// where the same stores have happened (see SSA/ReorderLoops.h).
+bool reads_memory(const Instruction &in);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

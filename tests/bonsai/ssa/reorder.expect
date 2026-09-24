@@ -47,6 +47,22 @@ func grid(out : mut i32[12], sums : mut i32[3]) -> void {
   return
 }
 
+func limit(scale : i32[3], out : mut i32[12]) -> void {
+  let @0 = scale[2] in
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let @2 = y * x in
+      let @3 = @0 + @2 in
+      let @4 = y << 2 in
+      let @5 = @4 + x in
+      out[@5] = @3
+      continue
+    }
+    continue
+  }
+  return
+}
+
 func rows(out : mut i32[12], total : mut i32[3]) -> void {
   parfor x in [0:4:1] {
     parfor y in [0:3:1] {
@@ -93,11 +109,29 @@ func scaled(scale : i32[3], out : mut i32[12]) -> void {
   return
 }
 
+func uniform(scale : i32[3], out : mut i32[12]) -> void {
+  let k = scale[1] in
+  parfor x in [0:4:1] {
+    parfor y in [0:3:1] {
+      let @1 = y + x in
+      let @2 = k * @1 in
+      let @3 = y << 2 in
+      let @4 = @3 + x in
+      out[@4] = @2
+      continue
+    }
+    continue
+  }
+  return
+}
+
 
 schedule host {
     counted.reorder(y, x)
     grid.reorder(y, x)
+    limit.reorder(y, x)
     rows.reorder(y, x)
     scaled.reorder(y, x)
+    uniform.reorder(y, x)
 
 }

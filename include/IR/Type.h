@@ -91,6 +91,10 @@ struct Type : public IRHandle<IRTypeNode> {
     // elements, so making one mutable adds no indirection, and wrapping it
     // in a Ptr_t would mean a pointer to a pointer.
     bool is_reference() const;
+    // Whether a value of this type holds a reference to storage: a pointer,
+    // an array handle, or an aggregate with one inside. What a store of the
+    // value lets escape, and what a call may write through.
+    bool carries_reference() const;
 
     // Type casts
     // Rewrites (through vectors) to boolean base.

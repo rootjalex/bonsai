@@ -6,6 +6,7 @@
 #include "SSA/Storage.h"
 
 #include "Error.h"
+#include "Utils.h"
 
 #include <algorithm>
 #include <map>
@@ -194,6 +195,22 @@ bool pure(const Instruction &in) {
         return true;
     case Instruction::Op::Intrinsic:
         return in.intrinsic != ir::Intrinsic::rand;
+    default:
+        return false;
+    }
+}
+
+bool reads_memory(const Instruction &in) {
+    switch (in.op) {
+    case Instruction::Op::Load:
+        return true;
+    case Instruction::Op::ExtractIdx: {
+        if (in.operands.empty()) {
+            return false;
+        }
+        const Type &container = in.operands[0]->get_type();
+        return container.is_reference() || is_dynamic_array_struct_type(container);
+    }
     default:
         return false;
     }

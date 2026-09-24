@@ -11,6 +11,10 @@
 //            and added back after: sums[y] starts at 10y, gains 0+1+2+3,
 //            then gains the 10y read before: 20y + 6 -- 6, 26, 46. A read
 //            recomputed inside the nest, or after it, would see the sum.
+//   uniform: out[4y + x] = scale[1] * (y + x) = 10(y + x), the read of
+//            `scale[1]` hoisted before the nest.
+//   limit:   out[4y + x] = scale[2] + yx = 100 + yx, the row's `mut` local
+//            one slot for the nest.
 
 func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
     parfor y in 0:3 {
@@ -66,6 +70,26 @@ func held(sums : mut array[i32, 3]) -> void {
     return;
 }
 
+func uniform(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        k = scale[1];
+        parfor x in 0:4 {
+            out[y * 4 + x] = k * (y + x);
+        }
+    }
+    return;
+}
+
+func limit(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        lim : mut i32 = scale[2];
+        parfor x in 0:4 {
+            out[y * 4 + x] = lim + y * x;
+        }
+    }
+    return;
+}
+
 func main() -> i32 {
     out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     sums : mut array[i32, 3] = {-1, -1, -1};
@@ -90,6 +114,12 @@ func main() -> i32 {
     sums2 : mut array[i32, 3] = {0, 10, 20};
     held(sums2);
     print(sums2);
+
+    uniform(scale, out);
+    print(out);
+
+    limit(scale, out);
+    print(out);
     return 0;
 }
 
@@ -99,4 +129,6 @@ schedule {
     scaled.reorder(y, x);
     counted.reorder(y, x);
     held.reorder(y, x);
+    uniform.reorder(y, x);
+    limit.reorder(y, x);
 }

@@ -138,6 +138,27 @@ bool Type::is_vector() const {
 
 bool Type::is_reference() const { return this->is<Array_t, DynArray_t>(); }
 
+bool Type::carries_reference() const {
+    if (is<Ptr_t>() || is_reference()) {
+        return true;
+    }
+    if (const auto *s = as<Struct_t>()) {
+        return std::any_of(s->fields.begin(), s->fields.end(),
+                           [](const auto &f) { return f.type.carries_reference(); });
+    }
+    if (const auto *t = as<Tuple_t>()) {
+        return std::any_of(t->etypes.begin(), t->etypes.end(),
+                           [](const Type &e) { return e.carries_reference(); });
+    }
+    if (const auto *o = as<Option_t>()) {
+        return o->etype.carries_reference();
+    }
+    if (const auto *v = as<Vector_t>()) {
+        return v->etype.carries_reference();
+    }
+    return false;
+}
+
 bool Type::is_numeric() const {
     // scalar + vector of numbers
     // TODO: let Struct_ts overload their numeric operators.

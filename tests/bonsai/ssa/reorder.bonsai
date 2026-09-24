@@ -26,6 +26,13 @@
 // `k!expanded[y]` and read back in the inner body. `counted` declares a
 // `mut` local of the row, written before the nest and read inside and after
 // it: one slot per row, `n!expanded[y]`.
+//
+// `uniform` reads `scale[1]`: memory too, but through a parameter nothing
+// in the function writes, at an index that does not vary with the row --
+// the same value for every row, so it is hoisted before the nest, not
+// expanded. `limit` gives a `mut` local of the row that value once, before
+// the nest: the local is one slot for the whole nest, hoisted with its
+// store, not a slot per row.
 
 func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
     parfor y in 0:3 {
@@ -70,9 +77,31 @@ func counted(out : mut array[i32, 12], seen : mut array[i32, 3]) -> void {
     return;
 }
 
+func uniform(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        k = scale[1];
+        parfor x in 0:4 {
+            out[y * 4 + x] = k * (y + x);
+        }
+    }
+    return;
+}
+
+func limit(scale : array[i32, 3], out : mut array[i32, 12]) -> void {
+    parfor y in 0:3 {
+        lim : mut i32 = scale[2];
+        parfor x in 0:4 {
+            out[y * 4 + x] = lim + y * x;
+        }
+    }
+    return;
+}
+
 schedule {
     grid.reorder(y, x);
     rows.reorder(y, x);
     scaled.reorder(y, x);
     counted.reorder(y, x);
+    uniform.reorder(y, x);
+    limit.reorder(y, x);
 }
