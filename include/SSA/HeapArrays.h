@@ -36,18 +36,25 @@ namespace ssa {
 // into it stored in another array of the same function -- a record slot's
 // address in a queue entry -- is fine, both being freed at the same return.
 //
-// `--no-heap` (CompilerOptions::no_heap) exists because an allocation
-// nothing frees is a leak the moment it is reached twice, and a renderer's
-// loop reaches everything twice. An allocation this pass makes is freed on
-// every return, so the LLVM backend admits it under the flag and goes on
-// refusing every other heap allocation (see create_malloc). The cost that
-// remains is the allocation itself, once per call, and the page faults of
-// first touch inside the call -- pbrt pays the same faults in its first
-// pass, having allocated before its timer.
+// `--no-heap` (CompilerOptions::no_heap) means that nothing allocates on
+// the heap inside a loop: not in a loop's body, and not in a function a
+// loop calls, since a renderer's loops reach everything, and an allocation
+// there is made per iteration whether or not it is ever freed. What this
+// pass makes is the other thing, an allocation made once per call of the
+// program, at the top of a function no loop calls -- `in_loop` says whether
+// this function is one a loop calls (SSA/Analysis.h, called_inside_loops),
+// and in that case the pass leaves the arrays where they are, since a heap
+// allocation per iteration is not something to make at all. The LLVM
+// backend admits the once-per-call allocation under the flag by the same
+// placement test, and refuses every other heap allocation (see
+// create_malloc). The free at the return is a matter of not leaking, not of
+// what the flag admits. The cost that remains is the allocation itself, once
+// per call, and the page faults of first touch inside the call -- pbrt pays
+// the same faults in its first pass, having allocated before its timer.
 //
 // Runs after the hoist and before the parfor bodies are closed; returns how
 // many arrays were moved to the heap.
-size_t heap_arrays(Function &func);
+size_t heap_arrays(Function &func, bool in_loop);
 
 } // namespace ssa
 } // namespace ir

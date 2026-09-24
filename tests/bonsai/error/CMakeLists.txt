@@ -34,6 +34,7 @@ add_bonsai_tests(
     set-literal-empty.bonsai
     loopify-nested-needs-ssa.bonsai
     loopify-queue-not-tail.bonsai
+    no-heap-in-loop.bonsai
     reorder-already.bonsai
     reorder-array-local.bonsai
     reorder-triangular.bonsai

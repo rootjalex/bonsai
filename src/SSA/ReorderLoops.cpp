@@ -47,15 +47,21 @@ shared_ptr<Block> loop_block(const Function &f, const string &index) {
 
 // Whether an instruction reads memory: a load through a pointer, a field
 // read through one, or an element read from an array -- which this form
-// writes as extract_idx of the array handle, the same instruction that takes
-// a lane of a vector value.
+// writes as extract_idx of the array handle (or of the struct a dynamic
+// array is lowered to), the same instruction that takes a lane of a vector
+// value.
 bool reads_memory(const Instruction &in) {
     switch (in.op) {
     case Instruction::Op::Load:
     case Instruction::Op::LoadField:
         return true;
-    case Instruction::Op::ExtractIdx:
-        return !in.operands.empty() && in.operands[0]->get_type().is_reference();
+    case Instruction::Op::ExtractIdx: {
+        if (in.operands.empty()) {
+            return false;
+        }
+        const Type &container = in.operands[0]->get_type();
+        return container.is_reference() || is_dynamic_array_struct_type(container);
+    }
     default:
         return false;
     }

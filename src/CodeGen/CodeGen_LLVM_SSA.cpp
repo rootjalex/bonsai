@@ -108,27 +108,9 @@ struct CodeGen_LLVM::SSALowering {
     // parfor's kernel, where the iteration is a function call that returns.
     std::vector<llvm::BasicBlock *> yield_targets;
 
-    // The allocations some Free of the function releases: heap allocations
-    // the function owns for the length of a call (SSA/HeapArrays.h), which
-    // `--no-heap` admits where it refuses every other heap allocation.
-    std::set<const Instruction *> freed;
-
     SSALowering(CodeGen_LLVM &cg, const ir::ssa::Function &func,
                 llvm::Function *function)
-        : cg(cg), func(func), function(function) {
-        for (const auto &block : func.blocks) {
-            for (const auto &instr : block->instrs) {
-                if (instr->op != Instruction::Op::Free) {
-                    continue;
-                }
-                internal_assert(instr->operands.size() == 1) << instr->operands.size();
-                if (const auto *held = std::get_if<std::shared_ptr<Instruction>>(
-                        &instr->operands[0]->data)) {
-                    freed.insert(held->get());
-                }
-            }
-        }
-    }
+        : cg(cg), func(func), function(function) {}
 
     const std::string &entry() const { return func.blocks.front()->name; }
 
@@ -608,14 +590,10 @@ struct CodeGen_LLVM::SSALowering {
             const bool once = home && once_blocks.contains(home->name);
             const bool was = cg.alloca_where_defined;
             cg.alloca_where_defined = once;
-            // A heap allocation the function frees before it returns is
-            // admitted under --no-heap (see SSA/HeapArrays.h and
-            // CodeGen_LLVM::create_malloc).
-            const bool was_freed = cg.heap_freed_in_call;
-            cg.heap_freed_in_call = freed.contains(instr.get());
+            // Whether --no-heap admits a heap allocation here is the block's
+            // business, settled where the block is emitted (emit_region).
             cg.codegen_stmt(
                 Allocate::make(WriteLoc(instr->name, allocated), memory));
-            cg.heap_freed_in_call = was_freed;
             cg.alloca_where_defined = was;
             return;
         }
@@ -994,10 +972,21 @@ struct CodeGen_LLVM::SSALowering {
                 const Block &block = *by_name.at(name);
                 cg.builder->SetInsertPoint(blocks.at(name));
                 bind_arguments(block);
+                // Whatever this block allocates on the heap -- storage the
+                // passes placed here, or a temporary an expression builds --
+                // is made once per call of the program when the block runs
+                // once per call of a function no loop calls: the one heap
+                // allocation --no-heap admits (CodeGen_LLVM::create_malloc).
+                const bool was_once = cg.heap_once_per_call;
+                cg.heap_once_per_call =
+                    own_function && cg.current_function == function &&
+                    once_blocks.contains(name) &&
+                    !cg.loop_called_functions.contains(entry());
                 for (const auto &instr : block.instrs) {
                     emit_instruction(instr);
                 }
                 emit_terminator(block);
+                cg.heap_once_per_call = was_once;
                 for (ir::ssa::BlockId child : dom.children(b)) {
                     emit(child);
                 }

@@ -842,6 +842,9 @@ CodeGen_LLVM::compile_program(const Program &program,
                         ? llvm::sys::getDefaultTargetTriple()
                         : options.target_triple;
     no_heap = options.no_heap;
+    // Which functions run per iteration of some loop, for the one heap
+    // allocation --no-heap admits (see heap_once_per_call).
+    loop_called_functions = ir::ssa::called_inside_loops(program.ssa_funcs);
     // Made up front rather than after the code is generated: generating it
     // needs to know how the target lays a struct out, and what a parallel
     // loop is called there. For the backends that want them, this also puts
@@ -5727,19 +5730,22 @@ llvm::Value *CodeGen_LLVM::create_malloc(llvm::Type *etype, llvm::Value *size,
                                          const std::string &name) {
     // Every heap allocation the backend makes comes through here, which is
     // what makes this the place to refuse one. See CompilerOptions::no_heap:
-    // nothing frees these, so an allocation reached repeatedly is a leak, and
-    // a program that wants the guarantee should be told at compile time rather
-    // than discovering it as a growing resident set. The exception is storage
-    // a function makes once per call and frees before it returns (SSA/
-    // HeapArrays.h; heap_freed_in_call), which is no leak.
-    if (no_heap && !heap_freed_in_call) {
+    // a renderer's loops reach everything, and an allocation inside one is
+    // made per iteration -- a leak when nothing frees it, and a cost per
+    // sample even when something does -- so a program that wants the
+    // guarantee is told at compile time rather than discovering it as a
+    // growing resident set. What the flag does not refuse is an allocation
+    // made once per call of the program, at the top of a function no loop
+    // calls (heap_once_per_call, set by the SSA lowering; SSA/HeapArrays.h
+    // makes those and frees them at the function's exits).
+    if (no_heap && !heap_once_per_call) {
         internal_error
-            << "--no-heap: this program allocates on the heap"
+            << "--no-heap: this program allocates on the heap inside a loop"
             << (name.empty() ? std::string() : " for `" + name + "`")
-            << ". Nothing frees it, so an allocation reached more than once is"
-               " a leak. An array whose size is known should be a local or an"
-               " extern the caller owns; a result that is returned should be"
-               " written into storage the caller passes in.";
+            << ", once per iteration of whatever loop runs it. An array whose"
+               " size is known should be a local; storage a loop's iterations"
+               " share should be made before the loop; a result that is"
+               " returned should be written into storage the caller passes in.";
     }
 
     int align = native_vector_bits() / 8;

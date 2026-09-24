@@ -934,12 +934,19 @@ struct CodeGen_LLVM : public ir::Visitor {
     // outside every loop of a function-level region, since only it knows
     // the loops (CodeGen_LLVM_SSA.cpp, SSALowering::once_blocks).
     bool alloca_where_defined = false;
-    // Whether the heap allocation being emitted is one the function frees
-    // before it returns (SSA/HeapArrays.h): storage a call owns and gives
-    // back, which is not the leak `--no-heap` exists to refuse. Set by the
-    // SSA lowering around such an allocation, as alloca_where_defined is.
-    bool heap_freed_in_call = false;
-    // `--no-heap`: refuse to emit a heap allocation nothing frees. See
+    // Whether the heap allocation being emitted is made once per call of the
+    // program: it sits in a block outside every loop of its function's top
+    // region, and its function is not one a loop calls (see
+    // loop_called_functions). The one heap allocation `--no-heap` admits,
+    // since what the flag refuses is an allocation made per iteration of
+    // anything. Set by the SSA lowering around such an allocation, as
+    // alloca_where_defined is.
+    bool heap_once_per_call = false;
+    // The functions some loop calls, directly or through another call
+    // (ir::ssa::called_inside_loops): an allocation at the top of one of
+    // these is made per iteration of that loop.
+    std::set<std::string> loop_called_functions;
+    // `--no-heap`: refuse to emit a heap allocation inside a loop. See
     // CompilerOptions and create_malloc.
     bool no_heap = false;
 };

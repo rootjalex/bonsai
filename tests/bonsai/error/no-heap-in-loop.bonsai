@@ -1,0 +1,27 @@
+//! flags: -p ssa -b llvm --no-heap
+
+// `--no-heap` refuses a heap allocation inside a loop: here the array a
+// `map` builds, made by a function the parfor calls once per iteration.
+// That the function frees nothing is not the point; an allocation per
+// iteration is what a renderer's loop must not make. Storage made once per
+// call of the program, at the top of a function no loop calls, is admitted
+// (see tests/bonsai/correctness/llvm/hoist-allocations.bonsai).
+
+func scaled(i : i32) -> array[i32, 4] {
+    return map(|x : i32| x * i, iter(4));
+}
+
+func run(out : mut array[i32, 4]) -> void {
+    parfor i in 0:4 {
+        row = scaled(i);
+        out[i] = row[2];
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}

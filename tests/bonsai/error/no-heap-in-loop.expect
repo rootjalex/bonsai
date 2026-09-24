@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/CodeGen/CodeGen_LLVM.cpp:5742
+--no-heap: this program allocates on the heap inside a loop for `_alloc0`, once per iteration of whatever loop runs it. An array whose size is known should be a local; storage a loop's iterations share should be made before the loop; a result that is returned should be written into storage the caller passes in.

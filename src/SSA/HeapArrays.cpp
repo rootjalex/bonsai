@@ -153,8 +153,8 @@ void storages_in(Definitions &defs, const Function &func, const string &block,
 
 } // namespace
 
-size_t heap_arrays(Function &func) {
-    if (func.blocks.empty()) {
+size_t heap_arrays(Function &func, bool in_loop) {
+    if (func.blocks.empty() || in_loop) {
         return 0;
     }
 

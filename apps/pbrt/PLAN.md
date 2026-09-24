@@ -5943,9 +5943,15 @@ does not dominate the function's one return), when no reference into the
 array leaves the call (returned, or stored into memory the function did
 not allocate; the addresses of record slots stored in queue entries are
 into storage freed at the same exits, traced through the arguments that
-thread them with SSA/Definitions.h). `--no-heap` admits an allocation the
-function frees, which is not the leak it exists to refuse. The SSA has a
-`Free` instruction for it, lowered to LLVM's free. This is Halide's model
+thread them with SSA/Definitions.h). `--no-heap` means nothing allocates
+on the heap inside a loop -- in a loop's body or in a function a loop
+calls, where an allocation is made per iteration whether or not it is
+freed -- and that is still what it refuses; what it admits is the one
+allocation made once per call of the program, at the top of a function
+no loop calls (`called_inside_loops` in SSA/Analysis.h decides which those
+are, for the pass and the backend alike). The pass frees what it makes at
+the function's exits so as not to leak; the SSA has a `Free` instruction
+for it, lowered to LLVM's free. This is Halide's model
 -- a pipeline's internal buffers are heap allocations made per call and
 freed before it returns -- and it reverses (2b)'s first answer, the
 caller-owned buffer: measured on camera-medium (below), the per-call

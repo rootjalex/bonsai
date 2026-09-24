@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -545,6 +546,16 @@ std::vector<Lattice> solve_dataflow(
 
     return in;
 }
+
+// The functions that may run more than once per call of the program: those
+// called from inside a loop -- a natural loop or a parfor body -- of some
+// function, and everything those call in turn. What is not in the set runs
+// at most once per call of the function that a program's entry is, so
+// storage its top-level blocks make is made once per call of the program;
+// the heap allocation `--no-heap` refuses is one that could be made per
+// iteration of something (SSA/HeapArrays.h, CodeGen_LLVM::create_malloc).
+std::set<std::string>
+called_inside_loops(const std::map<std::string, std::shared_ptr<Function>> &funcs);
 
 // Whether some parfor of `func` is bound to the GPU (GPUBlock or GPUThread).
 // What makes a program need the GPU host and a device module, and every

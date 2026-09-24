@@ -1181,6 +1181,58 @@ BlockIndex compute_block_index(const Graph &g, const DomTree &dom,
     return index;
 }
 
+std::set<string> called_inside_loops(
+    const std::map<string, shared_ptr<Function>> &funcs) {
+    // The calls each function makes, and those it makes from inside a loop:
+    // a block in a natural loop of the function, or in a parfor's body.
+    std::map<string, std::set<string>> calls, calls_in_loops;
+    for (const auto &[name, func] : funcs) {
+        if (func->blocks.empty()) {
+            continue;
+        }
+        const Cfg cfg(*func);
+        const DomTree dom = compute_dominator_tree(cfg);
+        const LoopForest loops = compute_loop_forest(cfg, dom);
+        BlockSet in_body(cfg.size());
+        for (BlockId b : cfg.rpo) {
+            if (const auto *p = std::get_if<Terminator::ParFor>(&cfg[b].terminator.data)) {
+                for (BlockId inside : reachable_from(cfg, cfg.id(p->body.name))) {
+                    in_body.insert(inside);
+                }
+            }
+        }
+        for (BlockId b : cfg.rpo) {
+            const Terminator::Jump *call = cfg[b].terminator.callee();
+            if (call == nullptr) {
+                continue;
+            }
+            calls[name].insert(call->name);
+            if (in_body.contains(b) || loops.innermost(b) != nullptr) {
+                calls_in_loops[name].insert(call->name);
+            }
+        }
+    }
+    // A function called from a loop, and everything it calls, runs per
+    // iteration; to a fixed point over the call graph.
+    std::set<string> looped;
+    for (const auto &[_, callees] : calls_in_loops) {
+        looped.insert(callees.begin(), callees.end());
+    }
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (const string &f : std::vector<string>(looped.begin(), looped.end())) {
+            const auto it = calls.find(f);
+            if (it == calls.end()) {
+                continue;
+            }
+            for (const string &g : it->second) {
+                grew = looped.insert(g).second || grew;
+            }
+        }
+    }
+    return looped;
+}
+
 bool binds_to_gpu(const Function &func) {
     for (const auto &block : func.blocks) {
         const auto *loop =

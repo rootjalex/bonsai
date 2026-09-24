@@ -7,6 +7,10 @@
 //   rows:    out[4y + x] = x + y; total[y] = out[4y] + out[4y + 3] = 2y + 3.
 //   scaled:  out[4y + x] = scale[y] * x with scale = {1, 10, 100}.
 //   counted: out[4y + x] = 2y + x; seen[y] = 2y.
+//   held:    the row's sum is read before the columns accumulate into it
+//            and added back after: sums[y] starts at 10y, gains 0+1+2+3,
+//            then gains the 10y read before: 20y + 6 -- 6, 26, 46. A read
+//            recomputed inside the nest, or after it, would see the sum.
 
 func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
     parfor y in 0:3 {
@@ -51,6 +55,17 @@ func counted(out : mut array[i32, 12], seen : mut array[i32, 3]) -> void {
     return;
 }
 
+func held(sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        before = sums[y];
+        parfor x in 0:4 {
+            atomic sums[y] += x;
+        }
+        sums[y] = sums[y] + before;
+    }
+    return;
+}
+
 func main() -> i32 {
     out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     sums : mut array[i32, 3] = {-1, -1, -1};
@@ -71,6 +86,10 @@ func main() -> i32 {
     counted(out, seen);
     print(out);
     print(seen);
+
+    sums2 : mut array[i32, 3] = {0, 10, 20};
+    held(sums2);
+    print(sums2);
     return 0;
 }
 
@@ -79,4 +98,5 @@ schedule {
     rows.reorder(y, x);
     scaled.reorder(y, x);
     counted.reorder(y, x);
+    held.reorder(y, x);
 }

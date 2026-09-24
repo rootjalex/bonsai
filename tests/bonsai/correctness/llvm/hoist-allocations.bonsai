@@ -1,11 +1,13 @@
-//! flags: -p ssa -b llvm -e
+//! flags: -p ssa -b llvm -e --no-heap
 
 // The pass-owned queue of tests/bonsai/ssa/hoist-allocations.bonsai, run:
 // its storage hoisted out of the pass loop and onto the heap, freed at the
-// return. (`--no-heap` admits that storage too, but not `main`'s array
-// local, so the flag is exercised by the renderer rather than here.) Pass r
-// adds tally(i, r) = r + i(i+1)/2 to out[i]; two passes give 1 + i(i+1):
-// 1, 3, 7, 13, 21, 31, 43, 57.
+// return -- under `--no-heap`, which admits an allocation made once per
+// call of the program (`run` is called once, from no loop; so is `main`,
+// whose array local is one too) and refuses one inside a loop (see
+// tests/bonsai/error/no-heap-in-loop.bonsai). Pass r adds tally(i, r) =
+// r + i(i+1)/2 to out[i]; two passes give 1 + i(i+1): 1, 3, 7, 13, 21, 31,
+// 43, 57.
 
 func tally(n : i32, acc : i32) -> i32 {
     if (n <= 0) {

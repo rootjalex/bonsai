@@ -2326,11 +2326,15 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // once, before the loop (SSA/HoistAllocations.h): a pass's queues before
     // the loop over passes. After the binds, which decide which loops may be
     // crossed, and after the promotion, which decides what is storage at
-    // all. Then what is a run-time-sized array at a function's top goes to
-    // the heap, freed at the function's returns (SSA/HeapArrays.h).
-    for (const auto &[name, f] : fmap) {
-        hoist_invariant_allocations(*f);
-        heap_arrays(*f);
+    // all. Then what is a run-time-sized array at the top of a function no
+    // loop calls goes to the heap, freed at the function's exits
+    // (SSA/HeapArrays.h): once per call of the program, never per iteration.
+    {
+        const std::set<std::string> in_loops = called_inside_loops(fmap);
+        for (const auto &[name, f] : fmap) {
+            hoist_invariant_allocations(*f);
+            heap_arrays(*f, in_loops.contains(name));
+        }
     }
     phase("hoist allocations");
     // Every parfor body's arguments are its captures again, whatever the
