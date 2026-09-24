@@ -30,6 +30,7 @@ add_bonsai_tests(
     match-expr.bonsai
     mixed-tlas.bonsai
     multiple-options.bonsai
+    mutual-recursion-extern.bonsai
     negation.bonsai
     nested-exported-function.bonsai
     nested-tree-layout.bonsai

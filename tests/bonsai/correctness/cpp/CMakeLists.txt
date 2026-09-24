@@ -16,6 +16,7 @@ add_bonsai_tests(
     mixed-tlas-per-arm.bonsai
     mixed-tlas-sorted.bonsai
     mut-dynamic-array.bonsai
+    mutual_recursion_extern.bonsai
     setops.bonsai
     shading-frame.bonsai
     simple.bonsai

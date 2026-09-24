@@ -224,16 +224,16 @@ CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
     return call_graph;
 }
 
-std::set<std::string> recursive_functions(const ir::FuncMap &funcs) {
+std::vector<std::vector<std::string>> func_scc_order(const ir::FuncMap &funcs) {
     const CallGraph graph = build_call_graph(funcs);
 
-    // Tarjan's strongly connected components:
+    // Tarjan's strongly connected components, which come out callees first:
     //   Robert Tarjan. "Depth-First Search and Linear Graph Algorithms."
     //   SIAM Journal on Computing 1(2), 1972.
     std::map<std::string, size_t> index, low;
     std::set<std::string> on_stack;
     std::vector<std::string> stack;
-    std::set<std::string> recursive;
+    std::vector<std::vector<std::string>> components;
     size_t next = 0;
 
     std::function<void(const std::string &)> connect =
@@ -265,16 +265,26 @@ std::set<std::string> recursive_functions(const ir::FuncMap &funcs) {
                     break;
                 }
             }
-            const bool calls_itself =
-                edges != graph.end() && edges->second.contains(v);
-            if (component.size() > 1 || calls_itself) {
-                recursive.insert(component.begin(), component.end());
-            }
+            components.push_back(std::move(component));
         };
 
     for (const auto &[name, _] : graph) {
         if (!index.contains(name)) {
             connect(name);
+        }
+    }
+    return components;
+}
+
+std::set<std::string> recursive_functions(const ir::FuncMap &funcs) {
+    const CallGraph graph = build_call_graph(funcs);
+    std::set<std::string> recursive;
+    for (const std::vector<std::string> &component : func_scc_order(funcs)) {
+        const auto edges = graph.find(component.front());
+        const bool calls_itself =
+            edges != graph.end() && edges->second.contains(component.front());
+        if (component.size() > 1 || calls_itself) {
+            recursive.insert(component.begin(), component.end());
         }
     }
     return recursive;

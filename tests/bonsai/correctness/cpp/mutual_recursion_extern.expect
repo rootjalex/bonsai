@@ -1,0 +1,6 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_mutual_recursion_extern.cpp -I. -o tests/bonsai/correctness/cpp/main_mutual_recursion_extern.o
+[test] clang++ tests/bonsai/correctness/cpp/main_mutual_recursion_extern.o tests/bonsai/correctness/cpp/mutual_recursion_extern.o -o tests/bonsai/correctness/cpp/mutual_recursion_extern
+[test] ./tests/bonsai/correctness/cpp/mutual_recursion_extern
+9
+130
+0

@@ -1,0 +1,25 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern weights : i32[]
+
+func even_step(n : i32, total : i32, weights : i32[]) -> i32 {
+  if (n <= 0) {
+    return total
+  }
+  return odd_step(n - 1, total, weights)
+}
+
+func odd_step(n : i32, total : i32, weights : i32[]) -> i32 {
+  return even_step(n - 1, total + weights[n], weights)
+}
+
+func [[export]] weighted_sum(n : i32, weights : i32[]) -> i32 {
+  return even_step(n, 0, weights)
+}
+
+

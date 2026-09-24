@@ -1,0 +1,28 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/mutual_recursion_extern
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_mutual_recursion_extern.cpp -I. -o tests/bonsai/correctness/cpp/main_mutual_recursion_extern.o, clang++ tests/bonsai/correctness/cpp/main_mutual_recursion_extern.o tests/bonsai/correctness/cpp/mutual_recursion_extern.o -o tests/bonsai/correctness/cpp/mutual_recursion_extern, ./tests/bonsai/correctness/cpp/mutual_recursion_extern, rm tests/bonsai/correctness/cpp/mutual_recursion_extern, rm tests/bonsai/correctness/cpp/main_mutual_recursion_extern.o, rm tests/bonsai/correctness/cpp/mutual_recursion_extern.h, rm tests/bonsai/correctness/cpp/mutual_recursion_extern.o
+
+// An extern read inside a mutual recursion, run (tests/bonsai/lower/
+// mutual-recursion-extern.bonsai is the same program's lowering). `weights`
+// is read only in `odd_step`, so it has to travel through `even_step` to get
+// there; the driver hands it to `weighted_sum`, which hands it on. The answer is the
+// odd-indexed weights below n summed -- the thing that comes out wrong if one
+// of the two functions is left without the parameter, or a call between them
+// without the argument.
+import stdlib/numerics;
+
+extern weights : array[i32];
+
+func even_step(n : i32, total : i32) -> i32 {
+    if n <= 0 {
+        return total;
+    }
+    return odd_step(n - 1, total);
+}
+
+func odd_step(n : i32, total : i32) -> i32 {
+    return even_step(n - 1, total + weights[n]);
+}
+
+func [[export]] weighted_sum(n : i32) -> i32 {
+    return even_step(n, 0);
+}

@@ -1297,9 +1297,12 @@ struct LowerMatches : public ir::Mutator {
     };
 
     MutatedArgSig mutate_call(const ir::Function_t *func_t,
-                              const std::vector<ir::Expr> &args) {
+                              const std::vector<ir::Expr> &args,
+                              const ir::Expr &callee) {
         const size_t n = args.size();
-        internal_assert(n == func_t->arg_types.size());
+        internal_assert(n == func_t->arg_types.size())
+            << "a call of " << callee << " passes " << n << " arguments where "
+            << "its type takes " << func_t->arg_types.size();
 
         bool changed = false;
         std::vector<ir::Expr> ret_args(n);
@@ -1328,7 +1331,7 @@ struct LowerMatches : public ir::Mutator {
         const ir::Function_t *func_t =
             node->func.type().template as<ir::Function_t>();
         internal_assert(func_t);
-        auto check = mutate_call(func_t, node->args);
+        auto check = mutate_call(func_t, node->args, node->func);
         if (!check.changed) {
             return node;
         }

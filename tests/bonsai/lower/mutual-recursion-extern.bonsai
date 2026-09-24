@@ -1,0 +1,33 @@
+//! flags: -p canonicalize -p lower-externs
+
+// An extern threaded through a mutual recursion (Lower/Externs.cpp).
+//
+// An extern becomes a parameter of every function that reads it and of every
+// function that calls one, callee-first. Two functions that call each other
+// have no callee-first order: they are one strongly connected component of
+// the call graph, and the pass takes the component as a unit -- `weights` is
+// read only in `odd_step`, but `even_step` must carry it to hand it on, so
+// both take it and both calls between them pass it. The renderer's shape:
+// the material kernel that hands the next ray back to the trace kernel.
+//
+// What to read for in the golden: `weights` as the last parameter of
+// `even_step`, `odd_step` and `weighted_sum`, and as the last argument of every call
+// among them, `weighted_sum`'s of `even_step` included.
+import stdlib/numerics;
+
+extern weights : array[i32];
+
+func even_step(n : i32, total : i32) -> i32 {
+    if n <= 0 {
+        return total;
+    }
+    return odd_step(n - 1, total);
+}
+
+func odd_step(n : i32, total : i32) -> i32 {
+    return even_step(n - 1, total + weights[n]);
+}
+
+func [[export]] weighted_sum(n : i32) -> i32 {
+    return even_step(n, 0);
+}

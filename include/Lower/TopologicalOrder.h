@@ -31,6 +31,15 @@ std::ostream &operator<<(std::ostream &, const CallGraph &);
 CallGraph build_call_graph(const ir::FuncMap &funcs,
                            const bool undef_calls = false);
 
+// The strongly connected components of the call graph, callees first: a
+// component's callees outside it are all in earlier components. A component
+// of one function that does not call itself is the common case; a component
+// of several is a mutual recursion -- the material kernel that hands the
+// next ray back to the trace kernel -- which a pass that works callee-first
+// has to take as one unit (Lower/Externs.cpp threads a component's externs
+// into every member).
+std::vector<std::vector<std::string>> func_scc_order(const ir::FuncMap &funcs);
+
 // The functions on a cycle of the call graph: every member of a strongly
 // connected component of more than one function, and every function that
 // calls itself.

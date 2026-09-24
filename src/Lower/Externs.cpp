@@ -109,28 +109,34 @@ ir::Program LowerExterns::run(ir::Program program,
         return program;
     }
 
-    // Iterate in topological order, because callees that require explicit
-    // extern arguments propagate that requirement to the caller.
-
-    const std::vector<std::string> topo_order =
-        lower::func_topological_order(program.funcs, /*undef_calls=*/false);
+    // Callees first, because a callee that takes explicit extern arguments
+    // passes that requirement to its callers -- and a strongly connected
+    // component of the call graph at a time, because a mutual recursion (the
+    // material kernel handing the next ray back to the trace kernel) has no
+    // callee-first order inside it. Each member of a component reaches every
+    // other, so the component's externs are the union of its members', every
+    // member takes them all, and the calls among the members pass them on. A
+    // function that calls itself is the component of one, the same way.
 
     std::map<std::string, VarList> funcs_with_externs;
     // Which of a function's extern parameters it writes to, directly or
-    // through something it calls. Filled in topological order, so a callee's
-    // answer is known by the time a caller needs it.
+    // through something it calls. Filled callee-first, so a callee's answer
+    // is known by the time a caller needs it.
     std::map<std::string, std::set<std::string>> writes_externs;
 
-    for (const std::string &f : topo_order) {
-        auto &func = program.funcs[f];
-        func->body = InsertExternsIntoCalls(funcs_with_externs, program.funcs)
-                         .mutate(func->body);
-
-        // Find free_vars AKA externs in the new body.
-        const VarList free_vars = ir::gather_free_vars(*func);
-        if (free_vars.empty()) {
-            continue;
+    for (const std::vector<std::string> &component :
+         lower::func_scc_order(program.funcs)) {
+        // Calls out of the component pass what their callees take now.
+        for (const std::string &f : component) {
+            auto &func = program.funcs[f];
+            func->body =
+                InsertExternsIntoCalls(funcs_with_externs, program.funcs)
+                    .mutate(func->body);
         }
+
+        // Find free_vars AKA externs in the new bodies: over the component,
+        // each name once.
+        VarList free_vars;
         // An extern this function writes to arrives as a mutating parameter.
         // Storing through one that says it does not mutate leaves the write
         // with nowhere to land: what a non-mutating parameter names is a copy,
@@ -140,15 +146,35 @@ ir::Program LowerExterns::run(ir::Program program,
         //
         // Writing to one includes handing it to something that writes to it.
         // A function that only forwards an extern still has to take it
-        // mutably, or the call it forwards to will not type-check.
-        std::set<std::string> written = ir::mutated_variables(func->body);
-        for (const std::string &callee : ir::called_functions(func->body)) {
-            const auto found = writes_externs.find(callee);
-            if (found != writes_externs.end()) {
-                written.insert(found->second.begin(), found->second.end());
+        // mutably, or the call it forwards to will not type-check. Over a
+        // component that is one answer for every member, since each can reach
+        // the write through the others.
+        std::set<std::string> written;
+        for (const std::string &f : component) {
+            auto &func = program.funcs[f];
+            for (const auto &var : ir::gather_free_vars(*func)) {
+                const bool seen = std::any_of(
+                    free_vars.cbegin(), free_vars.cend(),
+                    [&](const auto &v) { return v.name == var.name; });
+                if (!seen) {
+                    free_vars.push_back(var);
+                }
+            }
+            const std::set<std::string> own = ir::mutated_variables(func->body);
+            written.insert(own.begin(), own.end());
+            for (const std::string &callee : ir::called_functions(func->body)) {
+                const auto found = writes_externs.find(callee);
+                if (found != writes_externs.end()) {
+                    written.insert(found->second.begin(), found->second.end());
+                }
             }
         }
-        writes_externs[f] = written;
+        if (free_vars.empty()) {
+            continue;
+        }
+        for (const std::string &f : component) {
+            writes_externs[f] = written;
+        }
 
         std::vector<ir::Function::Argument> new_args(free_vars.size());
         // The same externs in the same order, to hand to the callers.
@@ -201,28 +227,30 @@ ir::Program LowerExterns::run(ir::Program program,
             internal_error << "Free vars: " << free_vars.size()
                            << " but added: " << counter
                            << " args. Not declared as externs:" << missing.str()
-                           << "\nin: " << *func;
+                           << "\nin: " << *program.funcs[component.front()];
         }
-        // append new arguments to function call, and store this dependency for
-        // calls to this func.
-        func->args.insert(func->args.end(),
-                          std::make_move_iterator(new_args.begin()),
-                          std::make_move_iterator(new_args.end()));
-
-        funcs_with_externs[f] = ordered;
-
-        // Handle recursive case.
+        // Every member takes the component's externs as parameters, and the
+        // calls of the members -- from outside, later, and among themselves,
+        // a function's of itself included, now -- pass them along.
         //
         // `ordered`, not `free_vars`: the parameters were appended in the order
-        // the externs were declared, so a self-call passing them in the order
-        // they were discovered lines the arguments up wrongly. The same reason
-        // the comment above gives, and the same thing it warns is invisible
-        // with a single extern.
-        std::map<std::string, VarList> singleton;
-        singleton[f] = std::move(ordered);
-
-        func->body =
-            InsertExternsIntoCalls(singleton, program.funcs).mutate(func->body);
+        // the externs were declared, so a call passing them in the order they
+        // were discovered lines the arguments up wrongly. The same reason the
+        // comment above gives, and the same thing it warns is invisible with a
+        // single extern.
+        std::map<std::string, VarList> within;
+        for (const std::string &f : component) {
+            auto &func = program.funcs[f];
+            func->args.insert(func->args.end(), new_args.begin(),
+                              new_args.end());
+            funcs_with_externs[f] = ordered;
+            within[f] = ordered;
+        }
+        for (const std::string &f : component) {
+            auto &func = program.funcs[f];
+            func->body =
+                InsertExternsIntoCalls(within, program.funcs).mutate(func->body);
+        }
     }
 
     // TODO(ajr): would be ideal to clear here, but this breaks layout lowering.
