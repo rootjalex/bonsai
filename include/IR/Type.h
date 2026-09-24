@@ -391,6 +391,15 @@ std::string component_field(uint32_t k);
 // How many words a union is comes from layout_bytes below.
 Type widen(const Type &type, uint32_t lanes);
 
+// What a write through a value of `type` writes: the pointee of a pointer;
+// for one pointer per lane -- a vector of pointers, an address a gang carries
+// as a value, such as a queue entry's slot of the per-path record
+// (SSA/Defer.cpp) -- the gang's value of the pointee (widen), since each lane
+// writes one lane's worth of it at its own address, which is what the
+// backends' scatter takes. The same rule WriteLoc::add_index_access applies
+// to an index per lane. Undefined for anything else.
+Type pointee_of(const Type &type);
+
 // The inverse of widen: the type a lane holds one of, from its gang-wide
 // form. Read off the shape widen() makes -- a vector as wide as the gang, a
 // struct named with the `$v<lanes>` suffix, a struct of one gang vector per

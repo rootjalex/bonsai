@@ -2,13 +2,13 @@
 
 // The gang drain with a `mut` local of the producer's iteration that the
 // callee is never handed: `w` is written before the deferred call and read
-// after it, so the entry carries its contents and the drain gives each entry
-// a local of its own to run the rest of the iteration with. In the gang that
-// local has one slot per lane, is written from the gathered entry and read
-// back by the film write and, for an entry that saves again, by the frame's
-// write into the next round's queue. This is apps/pbrt's shape: the sampled
-// wavelengths are a `mut` local the integrator is not handed but the film
-// write needs. Forty entries, n = i % 7.
+// after it, so the local is given a slot of the record, and the rest of the
+// iteration -- the film write -- runs in the pass over the record after the
+// rounds, reading the slot. The gang's entries carry the record's result
+// addresses, one per lane, and a lane's write of its value is a scatter.
+// This is apps/pbrt's shape: the sampled wavelengths are a `mut` local the
+// integrator is not handed but the film write needs. Forty entries, n = i %
+// 7.
 func tally(n : i32, acc : i32) -> i32 {
     if (n <= 0) {
         return acc;

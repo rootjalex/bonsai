@@ -1,10 +1,9 @@
-type Entry_hits = struct Entry_hits{ @0 : struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; i : i32 }
+type Entry_hits = struct Entry_hits{ @0 : struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; _result : (f32*) }
 type Float = f32
 type Half = f16
 type Kind = struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type Large = struct Large{ x : f32 }
-type Queue_hits = struct Queue_hits{ count : u32; @0_tag : u8[]; @0__pad_x : u8[]; @0__pad_y : u8[]; @0__pad_z : u8[]; @0_payload_x : u32[]; i : i32[] }
-type Saved_step!after = struct Saved_step!after{ saved : bool; slot : u32; queue : u32; value : f32 }
+type Queue_hits = struct Queue_hits{ count : u32; @0_tag : u8[]; @0__pad_x : u8[]; @0__pad_y : u8[]; @0__pad_z : u8[]; @0_payload_x : u32[]; _result : (f32*)[] }
 type Small = struct Small{ x : f32 }
 type vec2f = f32x2
 type vec3f = f32x3
@@ -29,145 +28,138 @@ func [[noinline]] classify(x : f32) -> Kind {
 }
 
 func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
+  hits_rest_i : mut i32[8]
+  hits_result : mut f32[8]
   hits!Small_@0_tag : mut u8[8]
   hits!Small_@0__pad_x : mut u8[8]
   hits!Small_@0__pad_y : mut u8[8]
   hits!Small_@0__pad_z : mut u8[8]
   hits!Small_@0_payload_x : mut u32[8]
-  hits!Small_i : mut i32[8]
+  hits!Small__result : mut (f32*)[8]
   hits!Large_@0_tag : mut u8[8]
   hits!Large_@0__pad_x : mut u8[8]
   hits!Large_@0__pad_y : mut u8[8]
   hits!Large_@0__pad_z : mut u8[8]
   hits!Large_@0_payload_x : mut u32[8]
-  hits!Large_i : mut i32[8]
+  hits!Large__result : mut (f32*)[8]
   hits_queue : mut Queue_hits[2]
-  let @3 = build<Queue_hits>(0u, hits!Small_@0_tag, hits!Small_@0__pad_x, hits!Small_@0__pad_y, hits!Small_@0__pad_z, hits!Small_@0_payload_x, hits!Small_i) in
+  let @3 = build<Queue_hits>(0u, hits!Small_@0_tag, hits!Small_@0__pad_x, hits!Small_@0__pad_y, hits!Small_@0__pad_z, hits!Small_@0_payload_x, hits!Small__result) in
   hits_queue[0u] = @3
-  let @5 = build<Queue_hits>(0u, hits!Large_@0_tag, hits!Large_@0__pad_x, hits!Large_@0__pad_y, hits!Large_@0__pad_z, hits!Large_@0_payload_x, hits!Large_i) in
+  let @5 = build<Queue_hits>(0u, hits!Large_@0_tag, hits!Large_@0__pad_x, hits!Large_@0__pad_y, hits!Large_@0__pad_z, hits!Large_@0_payload_x, hits!Large__result) in
   hits_queue[1u] = @5
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @7 = step(@0, k, hits_queue) in
-    let @8 = @7.saved in
-    let @9 = @7.value in
-    if (@8) {
-      let @10 = @7.slot in
-      let @11 = @7.queue in
-      let @14 = hits_queue[@11].i in
-      @14[@10] = i
-      continue
-    } else {
-      let @1 = @9 in
-      out[i] = @1
-      continue
-    }
-  }
-  let @19 = hits_queue[0u] in
-  let @20 = @19.count in
-  parfor hits!Small in [0u:@20:1u] {
-    let @23 = hits_queue[0u].@0_tag in
-    let @24 = @23[hits!Small] in
-    let @26 = hits_queue[0u].@0__pad_x in
-    let @27 = @26[hits!Small] in
-    let @29 = hits_queue[0u].@0__pad_y in
-    let @30 = @29[hits!Small] in
-    let @32 = hits_queue[0u].@0__pad_z in
-    let @33 = @32[hits!Small] in
-    let @34 = build<[[packed]] u8x3>(@27, @30, @33) in
-    let @36 = hits_queue[0u].@0_payload_x in
-    let @37 = @36[hits!Small] in
-    let @38 = build<[[packed]] u32x1>(@37) in
-    let @39 = build<Kind>(@24, @34, @38) in
-    let @42 = hits_queue[0u].i in
-    let @43 = @42[hits!Small] in
-    let @40 = step!after!Small(@39, k) in
-    let @1 = @40 in
-    let i = @43 in
-    out[i] = @1
+    hits_rest_i[i] = i
+    step(@0, k, hits_queue, (&hits_result[i]))
     continue
   }
-  let @45 = hits_queue[1u] in
-  let @46 = @45.count in
-  parfor hits!Large in [0u:@46:1u] {
-    let @49 = hits_queue[1u].@0_tag in
+  let @10 = hits_queue[0u] in
+  let @11 = @10.count in
+  parfor hits!Small in [0u:@11:1u] {
+    let @14 = hits_queue[0u].@0_tag in
+    let @15 = @14[hits!Small] in
+    let @17 = hits_queue[0u].@0__pad_x in
+    let @18 = @17[hits!Small] in
+    let @20 = hits_queue[0u].@0__pad_y in
+    let @21 = @20[hits!Small] in
+    let @23 = hits_queue[0u].@0__pad_z in
+    let @24 = @23[hits!Small] in
+    let @25 = build<[[packed]] u8x3>(@18, @21, @24) in
+    let @27 = hits_queue[0u].@0_payload_x in
+    let @28 = @27[hits!Small] in
+    let @29 = build<[[packed]] u32x1>(@28) in
+    let @30 = build<Kind>(@15, @25, @29) in
+    let @33 = hits_queue[0u]._result in
+    let @34 = @33[hits!Small] in
+    let @31 = step!after!Small(@30, k) in
+    @34 = @31
+    continue
+  }
+  let @36 = hits_queue[1u] in
+  let @37 = @36.count in
+  parfor hits!Large in [0u:@37:1u] {
+    let @40 = hits_queue[1u].@0_tag in
+    let @41 = @40[hits!Large] in
+    let @43 = hits_queue[1u].@0__pad_x in
+    let @44 = @43[hits!Large] in
+    let @46 = hits_queue[1u].@0__pad_y in
+    let @47 = @46[hits!Large] in
+    let @49 = hits_queue[1u].@0__pad_z in
     let @50 = @49[hits!Large] in
-    let @52 = hits_queue[1u].@0__pad_x in
-    let @53 = @52[hits!Large] in
-    let @55 = hits_queue[1u].@0__pad_y in
-    let @56 = @55[hits!Large] in
-    let @58 = hits_queue[1u].@0__pad_z in
-    let @59 = @58[hits!Large] in
-    let @60 = build<[[packed]] u8x3>(@53, @56, @59) in
-    let @62 = hits_queue[1u].@0_payload_x in
-    let @63 = @62[hits!Large] in
-    let @64 = build<[[packed]] u32x1>(@63) in
-    let @65 = build<Kind>(@50, @60, @64) in
-    let @68 = hits_queue[1u].i in
-    let @69 = @68[hits!Large] in
-    let @66 = step!after!Large(@65, k) in
-    let @1 = @66 in
-    let i = @69 in
-    out[i] = @1
+    let @51 = build<[[packed]] u8x3>(@44, @47, @50) in
+    let @53 = hits_queue[1u].@0_payload_x in
+    let @54 = @53[hits!Large] in
+    let @55 = build<[[packed]] u32x1>(@54) in
+    let @56 = build<Kind>(@41, @51, @55) in
+    let @59 = hits_queue[1u]._result in
+    let @60 = @59[hits!Large] in
+    let @57 = step!after!Large(@56, k) in
+    @60 = @57
     continue
   }
   hits_queue[0u].count = 0u
   hits_queue[1u].count = 0u
+  parfor hits_rest in [0:8:1] {
+    let @66 = hits_result[hits_rest] in
+    let @68 = hits_rest_i[hits_rest] in
+    let @1 = @66 in
+    let i = @68 in
+    out[i] = @1
+    continue
+  }
   return
 }
 
-func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2]) -> Saved_step!after {
+func [[noinline]] step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*)) -> void {
   let @0 = classify(x) in
-  let @10 = build<Entry_hits>(@0, undef) in
+  let @10 = build<Entry_hits>(@0, _result_hits) in
   let @11 = @0.tag in
   switch (@11) {
   case 0: {
-    let @19 = atomic_add((&_queue_hits[0u].count), 1u) in
-    let @21 = @0.tag in
-    let @22 = @0._pad in
-    let @23 = @22[0u] in
-    let @24 = @22[1u] in
-    let @25 = @22[2u] in
-    let @26 = @0.payload in
-    let @27 = @26[0u] in
-    let @30 = _queue_hits[0u].@0_tag in
-    @30[@19] = @21
-    let @33 = _queue_hits[0u].@0__pad_x in
-    @33[@19] = @23
-    let @36 = _queue_hits[0u].@0__pad_y in
-    @36[@19] = @24
-    let @39 = _queue_hits[0u].@0__pad_z in
-    @39[@19] = @25
-    let @42 = _queue_hits[0u].@0_payload_x in
-    @42[@19] = @27
-    let @45 = _queue_hits[0u].i in
-    @45[@19] = undef
-    let @14 = build<Saved_step!after>(true, @19, 0u, undef) in
-    return @14
+    let @17 = atomic_add((&_queue_hits[0u].count), 1u) in
+    let @19 = @0.tag in
+    let @20 = @0._pad in
+    let @21 = @20[0u] in
+    let @22 = @20[1u] in
+    let @23 = @20[2u] in
+    let @24 = @0.payload in
+    let @25 = @24[0u] in
+    let @28 = _queue_hits[0u].@0_tag in
+    @28[@17] = @19
+    let @31 = _queue_hits[0u].@0__pad_x in
+    @31[@17] = @21
+    let @34 = _queue_hits[0u].@0__pad_y in
+    @34[@17] = @22
+    let @37 = _queue_hits[0u].@0__pad_z in
+    @37[@17] = @23
+    let @40 = _queue_hits[0u].@0_payload_x in
+    @40[@17] = @25
+    let @43 = _queue_hits[0u]._result in
+    @43[@17] = _result_hits
+    return
   } break;
   default: {
-    let @48 = atomic_add((&_queue_hits[1u].count), 1u) in
-    let @50 = @0.tag in
-    let @51 = @0._pad in
-    let @52 = @51[0u] in
-    let @53 = @51[1u] in
-    let @54 = @51[2u] in
-    let @55 = @0.payload in
-    let @56 = @55[0u] in
-    let @59 = _queue_hits[1u].@0_tag in
-    @59[@48] = @50
-    let @62 = _queue_hits[1u].@0__pad_x in
-    @62[@48] = @52
-    let @65 = _queue_hits[1u].@0__pad_y in
-    @65[@48] = @53
-    let @68 = _queue_hits[1u].@0__pad_z in
-    @68[@48] = @54
-    let @71 = _queue_hits[1u].@0_payload_x in
-    @71[@48] = @56
-    let @74 = _queue_hits[1u].i in
-    @74[@48] = undef
-    let @17 = build<Saved_step!after>(true, @48, 1u, undef) in
-    return @17
+    let @46 = atomic_add((&_queue_hits[1u].count), 1u) in
+    let @48 = @0.tag in
+    let @49 = @0._pad in
+    let @50 = @49[0u] in
+    let @51 = @49[1u] in
+    let @52 = @49[2u] in
+    let @53 = @0.payload in
+    let @54 = @53[0u] in
+    let @57 = _queue_hits[1u].@0_tag in
+    @57[@46] = @48
+    let @60 = _queue_hits[1u].@0__pad_x in
+    @60[@46] = @50
+    let @63 = _queue_hits[1u].@0__pad_y in
+    @63[@46] = @51
+    let @66 = _queue_hits[1u].@0__pad_z in
+    @66[@46] = @52
+    let @69 = _queue_hits[1u].@0_payload_x in
+    @69[@46] = @54
+    let @72 = _queue_hits[1u]._result in
+    @72[@46] = _result_hits
+    return
   }
   }
 }

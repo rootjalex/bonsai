@@ -3,11 +3,11 @@
 // A mutable local of the producer's iteration, handed to the deferred callee
 // and read after the call: the shape of a sampler's state, or the visible
 // surface a path fills in for the film. `best` lives on the iteration's
-// stack, so a pointer to it cannot wait in the queue; the entry carries its
-// contents instead -- stored by the callee at the push, since the callee has
-// the pointer -- and the drain runs the entry with a local of its own, which
-// the copy of `out[i] = best` then reads. `i` is the producer's own state,
-// written by the producer once the call says it saved.
+// stack, so a pointer to it cannot wait in the queue; the local is given a
+// slot of the record instead, whose address outlives every frame -- the
+// callee is handed it, the entry carries it, and the rest of the iteration,
+// `out[i] = best`, reads it in the pass over the record after the rounds.
+// `i` is the producer's own state, written into the record before the call.
 func walk(n : i32, acc : i32, best : mut i32) -> void {
     if (n <= 0) {
         best = acc;

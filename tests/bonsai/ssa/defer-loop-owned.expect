@@ -16,49 +16,41 @@ func render(out : mut i32[16]) -> void {
     let @2 = build<Queue_paths>(0u, paths_s_1, paths_depth_1, paths_acc_1) in
     paths_queue[1u] = @2
     parfor s in [0:4:1] {
-      let @5 = walk(p, s, s, 0, out, (&paths_queue[0u])) in
-      if (@5) {
-        continue
-      } else {
-        continue
-      }
+      walk(p, s, s, 0, out, (&paths_queue[0u]))
+      continue
     }
     paths!round = 0u
     while (!(paths_queue[(*paths!round) & 1u].count == 0u)) {
-      let @7 = (*paths!round) & 1u in
-      let @9 = paths_queue[(*paths!round) & 1u].count in
-      let @11 = @7 ^ 1u in
-      paths_queue[@11].count = 0u
-      parfor paths in [0u:@9:1u] {
-        let @12 = (&paths_queue[@11]) in
-        let @16 = paths_queue[@7].s in
-        let @17 = @16[paths] in
-        let @19 = paths_queue[@7].depth in
-        let @20 = @19[paths] in
-        let @22 = paths_queue[@7].acc in
-        let @23 = @22[paths] in
-        let @24 = walk(p, @17, @20, @23, out, @12) in
-        if (@24) {
-          continue
-        } else {
-          continue
-        }
+      let @6 = (*paths!round) & 1u in
+      let @8 = paths_queue[(*paths!round) & 1u].count in
+      let @10 = @6 ^ 1u in
+      paths_queue[@10].count = 0u
+      parfor paths in [0u:@8:1u] {
+        let @11 = (&paths_queue[@10]) in
+        let @15 = paths_queue[@6].s in
+        let @16 = @15[paths] in
+        let @18 = paths_queue[@6].depth in
+        let @19 = @18[paths] in
+        let @21 = paths_queue[@6].acc in
+        let @22 = @21[paths] in
+        walk(p, @16, @19, @22, out, @11)
+        continue
       }
-      let @6 = (*paths!round) + 1u in
-      paths!round = @6
+      let @5 = (*paths!round) + 1u in
+      paths!round = @5
     }
     continue
   }
   return
 }
 
-func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_paths : mut (Queue_paths*)) -> bool {
+func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_paths : mut (Queue_paths*)) -> void {
   let @0 = depth == 0 in
   if (@0) {
     let @1 = p << 2 in
     let @2 = @1 + s in
     out[@2] = acc
-    return false
+    return
   } else {
     let @4 = depth - 1 in
     let @5 = acc + depth in
@@ -70,7 +62,7 @@ func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[1
     @14[@9] = @4
     let @17 = (*_queue_paths).acc in
     @17[@9] = @5
-    return true
+    return
   }
 }
 

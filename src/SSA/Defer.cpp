@@ -58,10 +58,6 @@ Type value_type(const Value &v) {
         v.data);
 }
 
-shared_ptr<Value> constant_bool(bool b) {
-    return std::make_shared<Value>(Constant{Bool_t::make(), b});
-}
-
 // A constant of the index type `type` -- an unsigned index makes an unsigned
 // constant, which is the arm its type is read back out of (see split()).
 shared_ptr<Value> index_constant(const Type &type, int64_t v) {
@@ -250,12 +246,6 @@ void edit_argument(Block &block, const string &name,
                    },
                },
                block.terminator.data);
-}
-
-// Changes the type of the argument `name` of `block`, wherever the block
-// holds a copy of it.
-void retype_argument(Block &block, const string &name, const Type &type) {
-    edit_argument(block, name, [&](Argument &a) { a.type = type; });
 }
 
 // Renames the argument `from` of `block` to `to`, wherever the block holds a
@@ -632,30 +622,23 @@ Expr as_expr(const shared_ptr<Value> &v) {
 struct Field {
     string name;
     Type type;
-    // The callee parameter whose value -- or, for a pointer, whose pointee --
-    // the callee stores here when it pushes. None for a field only the frame
-    // writes.
+    // The callee parameter whose value the callee stores here when it
+    // pushes. None for the address of the path's result slot, or for a
+    // spawned call's reducer.
     optional<size_t> param;
-    bool pointee = false;
-    // The owner's mutable local this field relocates, if any: the field holds
-    // its contents while the entry waits, and the drain gives the entry a
-    // local of its own to run with.
-    const Instruction *local = nullptr;
-    // The owner's reducer local this field holds the address of, if any:
-    // given a slot of its own beside the queues once the queue's size is
-    // known, whose address the field then stores (see the hoist below).
-    const Instruction *reducer_local = nullptr;
-    // Whether the field holds a reducer's address at all -- a slot's, or
-    // one handed down -- so that a drain's read of it counts as one too
-    // (Function::reducer_slots) for the deferrals that come after.
-    bool reducer_address = false;
+    // The owner's mutable local this field holds the address of, if any -- a
+    // reducer local, or one the callee is handed to write -- given a slot of
+    // its own in the record once the queue's size is known, whose address
+    // the field then stores (see the hoist below).
+    const Instruction *slot_local = nullptr;
+    // Whether the field holds an address that outlives every frame -- a slot
+    // of the record, or a reducer handed down -- so that a drain's read of
+    // it counts as one too (Function::record_slots) for the deferrals that
+    // come after.
+    bool slot_address = false;
     // The owner's definition of what the field holds, when it is one value
-    // throughout -- for an argument and a frame value that are the same value
-    // to share the field.
+    // throughout.
     Definition origin;
-    // Whether the frame writes it after a saved return, rather than the
-    // callee at the push.
-    bool frame_writes = false;
 };
 
 // One scalar of an entry, which the queue keeps in an array of its own: a
@@ -840,7 +823,7 @@ void join_continuations(const shared_ptr<Function> &O, const string &what,
             return false;
         }
         if (const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data)) {
-            return F.reducer_slots.contains(di->get());
+            return F.record_slots.contains(di->get());
         }
         if (const auto *da = std::get_if<Argument>(&d.value->data);
             da != nullptr && d.block == oentry.name) {
@@ -1653,19 +1636,43 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
     internal_assert(!producers.empty())
         << what << ": " << queue.owner << " never calls into the chain";
-    // Several producers only for a spawned call: the drain runs no
-    // continuation of theirs, so each is only a call that hands the queue
-    // down, and the drain goes after the last of them.
-    internal_assert(spawned || producers.size() == 1)
-        << what << ": " << queue.owner << " calls into the chain from "
-        << producers.size() << " places; one producer call per queue is what "
-        << "is supported. Each would need its own continuation in the drain.";
     const CallSite producer = producers.front();
     Terminator::Call &pcall = *producer.call();
 
     const Cfg ocfg(*O);
     const DomTree odom = compute_dominator_tree(ocfg);
     const BlockMap omap = make_block_map(O);
+
+    // Several producers when none of them has anything left to do after its
+    // call: a spawned call's producer goes on by the program's word, and a
+    // drain's iteration ends at its call (its rest, if it had one, is in a
+    // record's pass), so each is only a call that hands the queue down, and
+    // the drain goes after the last of them -- pbrt's material queues, fed
+    // by the trace kernel and the medium kernel alike. A producer that goes
+    // on after its call keeps its rest in the record and would need a record
+    // of its own; one such producer per queue.
+    const auto ends_at_call = [&](const CallSite &pc) {
+        const Terminator::Call &call = *pc.call();
+        const shared_ptr<Block> cont = omap.at(call.cont.name);
+        return call.drop && cont->args.empty() && cont->instrs.empty() &&
+               (std::holds_alternative<Terminator::Yield>(cont->terminator.data) ||
+                (std::holds_alternative<Terminator::Return>(cont->terminator.data) &&
+                 std::get<Terminator::Return>(cont->terminator.data).value == nullptr));
+    };
+    if (!spawned && producers.size() > 1) {
+        for (const CallSite &pc : producers) {
+            internal_assert(ends_at_call(pc))
+                << what << ": " << queue.owner << " calls into the chain from "
+                << producers.size() << " places, and the call in "
+                << pc.block->name << " goes on afterwards. With several "
+                << "producers each has to end its iteration at its call, as a "
+                << "drain does; a producer with a rest to run keeps it in the "
+                << "record, and there is one record per queue.";
+        }
+        internal_assert(!queue.initial_push)
+            << what << ": an initial push is one producer's call; " << queue.owner
+            << " calls into the chain from " << producers.size() << " places.";
+    }
 
     // The owner's region: its whole body for `root`, or one iteration of the
     // named loop.
@@ -1836,12 +1843,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << producer.block->name << ", " << queue.owner << " calls "
             << callee->name << " again, in " << block->name
             << ". Two producer calls per iteration are not supported.";
-        internal_assert(
-            spawned ||
-            !std::holds_alternative<Terminator::ParFor>(block->terminator.data))
-            << what << ": the continuation of the call to " << pcall.call.name
-            << " runs a parfor (" << block->name << "), which the drain would "
-            << "run once per entry. Not supported.";
         if (root) {
             const auto *r = std::get_if<Terminator::Return>(&block->terminator.data);
             internal_assert(r == nullptr || r->value == nullptr)
@@ -2119,11 +2120,68 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // Whether every route from the owner hands parameter `j` of `g` an
+    // address that outlives the frames: a slot of the record
+    // (Function::record_slots) or a parameter of the owner's own. Followed
+    // up the chain call by call, for a parameter the calls disagree about --
+    // the same function reached from two drains, each handing on what its
+    // entry held -- which is not one value but may be one kind of value.
+    // `why` names the route that fails, when one does.
+    const auto handed_slots = [&](const string &g0, size_t j0, string &why) {
+        set<std::pair<string, size_t>> seen;
+        bool ok = true;
+        const std::function<void(const string &, size_t)> check =
+            [&](const string &g, size_t j) {
+                if (!ok || !seen.insert({g, j}).second) {
+                    return;
+                }
+                for (const CallSite &cs : calls_into[g]) {
+                    if (!ok) {
+                        return;
+                    }
+                    const shared_ptr<Value> &arg = cs.call()->call.args[j];
+                    if (cs.caller == queue.owner) {
+                        const Definition d = odefs.of(cs.block->name, arg);
+                        const auto *di = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data) : nullptr;
+                        const auto *da = d.value ? std::get_if<Argument>(&d.value->data) : nullptr;
+                        const bool slot = di != nullptr && O->record_slots.contains(di->get());
+                        const bool handed = da != nullptr && d.block == oentry;
+                        if (!slot && !handed) {
+                            ok = false;
+                            why = "the call in " + cs.block->name + " of " + queue.owner +
+                                  " hands the chain storage that is not a record "
+                                  "slot's or the owner's own parameter";
+                        }
+                        continue;
+                    }
+                    const Argument *up = defs.at(cs.caller).parameter(cs.block->name, arg);
+                    if (up == nullptr) {
+                        ok = false;
+                        why = cs.caller + " hands " + g + " storage that is not one of "
+                              "its parameters, in " + cs.block->name;
+                        return;
+                    }
+                    const Block &uentry = *funcs.at(cs.caller)->blocks.front();
+                    size_t uk = uentry.args.size();
+                    for (size_t i = 0; i < uentry.args.size(); i++) {
+                        if (uentry.args[i].name == up->name) {
+                            uk = i;
+                        }
+                    }
+                    internal_assert(uk < uentry.args.size()) << up->name;
+                    check(cs.caller, uk);
+                }
+            };
+        check(g0, j0);
+        return ok;
+    };
+
     // The entry's fields. First the callee's parameters, in order, as the
-    // program wrote them (the chain gains one below): left out when the
-    // drain has the value in scope; the contents of a mutable local of the
-    // producer's iteration, when that is what a pointer argument points at;
-    // the value itself otherwise.
+    // program wrote them (the chain gains its own below): left out when the
+    // drain has the value in scope; the address of a slot of the record,
+    // when a pointer argument points at a mutable local of the producer's
+    // iteration (the local is given the slot below) or is a slot's address
+    // on every route from the owner; the value itself otherwise.
     vector<Field> fields;
     const auto field_named = [&](string name) {
         for (bool clash = true; clash;) {
@@ -2137,7 +2195,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         return name;
     };
-    enum class Where { Elided, Stored, Relocated };
+    enum class Where { Elided, Stored };
     struct ParamPlan {
         Where where = Where::Elided;
         size_t field = 0;
@@ -2161,22 +2219,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // A reducer is storage every continuation of the iteration adds
             // into, in this queue and any other: its address is stored,
             // never its contents. A local of the producer's iteration is
-            // given a slot in an array made beside the queues (below, once
-            // the queue's size is known) and the field holds that slot's
-            // address; a reducer the producer was itself handed is the
-            // address it was given. Either outlives every frame, which is
-            // what makes the address safe to store.
-            internal_assert(inv)
+            // given a slot of the record (below, once the queue's size is
+            // known) and the field holds that slot's address; a reducer the
+            // producer was itself handed is the address it was given. Either
+            // outlives every frame, which is what makes the address safe to
+            // store.
+            // The calls may hand different slots -- the callee reached from
+            // two drains, each handing on the slot its entry held -- so long
+            // as every route hands a slot.
+            string route;
+            internal_assert(inv || handed_slots(callee_name, j, route))
                 << what << ": the reducer " << param.name << " of "
                 << callee_name << " is given different storage at different "
-                << "calls; a reducer is one place for the whole iteration";
+                << "calls, and " << route << "; a reducer is one place for the "
+                << "whole iteration, which outlives the frames";
             Field f;
             f.name = field_named(param.name);
             f.type = param.type;
             f.param = j;
-            f.origin = org;
-            f.reducer_local = as_local(org);
-            f.reducer_address = true;
+            if (inv) {
+                f.origin = org;
+                f.slot_local = as_local(org);
+            }
+            f.slot_address = true;
             params[j] = {Where::Stored, fields.size()};
             fields.push_back(std::move(f));
             continue;
@@ -2188,15 +2253,36 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << what << ": the spawned " << callee_name << " takes " << param.name
             << " as `mut`; the call runs later, and what it wrote would reach "
             << "no one.";
-        if (const Instruction *local = inv ? as_local(org) : nullptr) {
+        // A mutable local of the producer's iteration the callee is handed
+        // -- the sampler's state, the surface record it fills in -- is given
+        // a slot of the record, and the field holds the slot's address: the
+        // callee writes where the iteration's continuation reads, as pbrt's
+        // kernels write pixelSampleState. The same for an address that is a
+        // slot already, read out of an earlier deferral's entry.
+        const Instruction *slot_local = inv ? as_local(org) : nullptr;
+        bool slot_address = slot_local != nullptr;
+        if (const auto *oi = inv ? std::get_if<shared_ptr<Instruction>>(&org.value->data)
+                                 : nullptr;
+            oi != nullptr && O->record_slots.contains(oi->get())) {
+            slot_address = true;
+        }
+        // An address the calls disagree about -- the callee reached from two
+        // drains, each handing on the slot its entry held -- is one kind of
+        // value when every route hands a slot.
+        string route;
+        if (!slot_address && !inv && holds_address(param.type) &&
+            handed_slots(callee_name, j, route)) {
+            slot_address = true;
+        }
+        if (slot_address) {
             Field f;
             f.name = field_named(param.name);
-            f.type = local->type.as<Ptr_t>()->etype;
+            f.type = param.type;
             f.param = j;
-            f.pointee = true;
-            f.local = local;
             f.origin = org;
-            params[j] = {Where::Relocated, fields.size()};
+            f.slot_local = slot_local;
+            f.slot_address = true;
+            params[j] = {Where::Stored, fields.size()};
             fields.push_back(std::move(f));
             continue;
         }
@@ -2227,9 +2313,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // A spawned call's accumulate: the reducer's address goes in the entry
     // beside the arguments, for the drain to add the value into. A reducer
     // is one place for the whole iteration, so the address is one of: a
-    // local of the owner's iteration, given a slot beside the queues like
-    // any reducer local (the hoist below); a slot an earlier deferral made,
-    // read out of its entry (Function::reducer_slots); or a reducer the
+    // local of the owner's iteration, given a slot of the record like any
+    // reducer local (the hoist below); a slot an earlier deferral made,
+    // read out of its entry (Function::record_slots); or a reducer the
     // owner was itself handed. The first is found when every call down the
     // chain hands the same local on; when the calls disagree -- the spawned
     // function is reached from two drains, each handing on what its entry
@@ -2255,155 +2341,106 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         Field f;
         f.name = field_named(reducer->name);
         f.type = reducer->type;
-        f.reducer_address = true;
+        f.slot_address = true;
         const bool inv = invariant.at(func_name)[k] &&
                          origin.at(func_name)[k].value != nullptr;
         if (inv) {
             f.origin = settle(origin.at(func_name)[k]);
-            f.reducer_local = as_local(f.origin);
+            f.slot_local = as_local(f.origin);
         } else {
             // Every route from the owner: what it hands the parameter.
-            set<std::pair<string, size_t>> seen;
-            const std::function<void(const string &, size_t)> check =
-                [&](const string &g, size_t j) {
-                    if (!seen.insert({g, j}).second) {
-                        return;
-                    }
-                    for (const CallSite &cs : calls_into[g]) {
-                        const shared_ptr<Value> &arg = cs.call()->call.args[j];
-                        if (cs.caller == queue.owner) {
-                            const Definition d = odefs.of(cs.block->name, arg);
-                            const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
-                            const auto *da = std::get_if<Argument>(&d.value->data);
-                            const bool slot = di != nullptr && O->reducer_slots.contains(di->get());
-                            const bool handed = da != nullptr && d.block == oentry;
-                            internal_assert(slot || handed)
-                                << what << ": the reducer " << reducer->name
-                                << " of " << func_name << " is given different "
-                                << "storage by different calls, and the call in "
-                                << cs.block->name << " of " << queue.owner
-                                << " hands the chain storage that is not a "
-                                << "reducer slot's or the owner's own parameter; "
-                                << "the address would be stored in the queue and "
-                                << "might not outlive the frame.";
-                            continue;
-                        }
-                        const Argument *up = defs.at(cs.caller).parameter(cs.block->name, arg);
-                        internal_assert(up != nullptr)
-                            << what << ": " << cs.caller << " hands " << g
-                            << " a reducer that is not one of its parameters, in "
-                            << cs.block->name;
-                        const Block &uentry = *funcs.at(cs.caller)->blocks.front();
-                        size_t uk = uentry.args.size();
-                        for (size_t i = 0; i < uentry.args.size(); i++) {
-                            if (uentry.args[i].name == up->name) {
-                                uk = i;
-                            }
-                        }
-                        internal_assert(uk < uentry.args.size()) << up->name;
-                        check(cs.caller, uk);
-                    }
-                };
-            check(func_name, k);
+            string route;
+            internal_assert(handed_slots(func_name, k, route))
+                << what << ": the reducer " << reducer->name << " of "
+                << func_name << " is given different storage by different "
+                << "calls, and " << route << "; the address would be stored in "
+                << "the queue and might not outlive the frame.";
         }
         acc_field = fields.size();
         fields.push_back(std::move(f));
     }
 
     // Then what the rest of the producer's iteration -- its continuation,
-    // which the drain runs for every entry that finishes -- needs of the
+    // which runs once per iteration in the pass over the record after the
+    // drain (pbrt's UpdateFilm over pixelSampleState) -- needs of the
     // iteration: each value the continuation takes from before the call is
-    // available where the drain runs, or a mutable local of the iteration
-    // whose contents the entry carries, or a value of the iteration that
-    // the frame writes into the entry once it learns the call was saved.
-    // The user's rule: "if the return says we saved state, save this data
-    // in the queue location, otherwise act as normal."
-    enum class From { Available, Field, Relocated };
+    // in scope where the pass runs; or a mutable local of the iteration,
+    // given a slot of the record whose address the pass hands it; or a
+    // value of the iteration, which the producer writes into the record
+    // before the call and the pass reads back. (The user's rule, given for
+    // the frame the entry once carried: "if the return says we saved state,
+    // save this data in the queue location, otherwise act as normal." The
+    // record saves it for every iteration, once, before the call, so that
+    // nothing has to say anything.)
+    enum class From { Available, Slot, Record };
     struct CarriedPlan {
         From from = From::Available;
-        size_t field = 0;
+        const Instruction *local = nullptr; // Slot: the local given the slot
+        size_t record = 0;                  // Record: which record value
         Definition def;
     };
+    // A value of the iteration the record keeps: an array of it, sized as
+    // the queue is, written by the producer and read by the pass.
+    struct RecordValue {
+        string name;
+        Type type;
+        Definition def;
+        shared_ptr<Value> array;
+    };
     vector<CarriedPlan> carried;
+    vector<RecordValue> record_values;
     for (size_t i = 0; !spawned && i < pcall.cont.args.size(); i++) {
         const Definition d =
             settle(odefs.of(producer.block->name, pcall.cont.args[i]));
         const Argument &arg = k0_entry->args[i + result_args];
         if (available(d)) {
-            carried.push_back({From::Available, 0, d});
+            carried.push_back({From::Available, nullptr, 0, d});
             continue;
         }
-        // A reducer's address is stored as the address it is: the slot the
-        // callee's parameter field holds, when the callee is handed the same
-        // local; or a slot an earlier deferral made, which outlives every
-        // frame (Function::reducer_slots).
-        bool reducer_address = false;
         if (const Instruction *local = as_local(d)) {
-            size_t f = fields.size();
-            for (size_t k = 0; k < fields.size(); k++) {
-                if (fields[k].reducer_local == local) {
-                    f = k;
-                }
-            }
-            if (f != fields.size()) {
-                carried.push_back({From::Field, f, d});
-                continue;
-            }
-        } else if (const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
-                   di != nullptr && O->reducer_slots.contains(di->get())) {
-            reducer_address = true;
-        }
-        if (const Instruction *local = as_local(d)) {
-            size_t f = fields.size();
-            for (size_t k = 0; k < fields.size(); k++) {
-                if (fields[k].local == local) {
-                    f = k; // the callee is handed it too, and stores it
-                }
-            }
-            if (f == fields.size()) {
-                Field field;
-                field.name = field_named(arg.name);
-                field.type = local->type.as<Ptr_t>()->etype;
-                field.pointee = true;
-                field.local = local;
-                field.origin = d;
-                field.frame_writes = true;
-                fields.push_back(std::move(field));
-            }
-            carried.push_back({From::Relocated, f, d});
+            carried.push_back({From::Slot, local, 0, d});
             continue;
         }
-        internal_assert(!holds_address(arg.type) || reducer_address)
+        // An address is kept only when it outlives the frame: a slot of the
+        // record, read out of an earlier deferral's entry.
+        const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+        const bool slot_address =
+            di != nullptr && O->record_slots.contains(di->get());
+        internal_assert(!holds_address(arg.type) || slot_address)
             << what << ": after the call to " << pcall.call.name << " in "
             << producer.block->name << ", " << queue.owner << " goes on to use "
             << arg.name << ", an address (" << arg.type << ") computed inside "
             << "the producer's iteration that is not one of its mutable "
-            << "locals. The drain runs that continuation later, when the "
+            << "locals. The pass runs that continuation later, when the "
             << "iteration is gone. Not supported.";
-        size_t f = fields.size();
-        for (size_t k = 0; k < fields.size(); k++) {
-            if (!fields[k].pointee && same_definition(fields[k].origin, d)) {
-                f = k; // one value, already stored by the callee
+        size_t r = record_values.size();
+        for (size_t k = 0; k < record_values.size(); k++) {
+            if (same_definition(record_values[k].def, d)) {
+                r = k; // one value, kept once
             }
         }
-        if (f == fields.size()) {
-            Field field;
-            field.name = field_named(arg.name);
-            field.type = arg.type;
-            field.origin = d;
-            field.frame_writes = true;
-            field.reducer_address = reducer_address;
-            fields.push_back(std::move(field));
+        if (r == record_values.size()) {
+            string name = arg.name;
+            for (bool clash = true; clash;) {
+                clash = false;
+                for (const RecordValue &rv : record_values) {
+                    if (rv.name == name) {
+                        name += "_";
+                        clash = true;
+                    }
+                }
+            }
+            record_values.push_back(RecordValue{name, arg.type, d, nullptr});
         }
-        carried.push_back({From::Field, f, d});
+        carried.push_back({From::Record, nullptr, r, d});
     }
-    const bool frame_saves =
-        std::any_of(fields.begin(), fields.end(),
-                    [](const Field &f) { return f.frame_writes; });
+    // The path's value, when the producer's continuation uses it: a slot of
+    // the record as well, written where the path ends (below).
+    const bool keeps_result = !spawned && result_args == 1;
 
     // BONSAI_EXPLAIN_DEFER=1 prints the entry's plan: which arguments are
-    // left out and why, which are stored, which relocated, and what the
-    // frame adds -- the question to ask when an entry is bigger than it
+    // left out and why, which are stored, and what the record keeps for the
+    // continuation -- the question to ask when an entry is bigger than it
     // should be.
     if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
         std::cerr << "; " << what << ": the entry holds";
@@ -2418,16 +2455,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             case Where::Elided:
                 std::cerr << "in scope at the drain";
                 break;
-            case Where::Relocated:
-                std::cerr << "a mutable local of the producer's iteration, "
-                             "stored as its contents";
-                break;
             case Where::Stored:
-                std::cerr << "stored: "
-                          << (invariant.at(callee_name)[j]
-                                  ? "one value down the chain, but computed "
-                                    "inside the producer's iteration"
-                                  : "differs between calls");
+                if (fields[params[j].field].slot_address) {
+                    std::cerr << "the address of a slot of the record";
+                } else {
+                    std::cerr << "stored: "
+                              << (invariant.at(callee_name)[j]
+                                      ? "one value down the chain, but computed "
+                                        "inside the producer's iteration"
+                                      : "differs between calls");
+                }
                 break;
             }
             std::cerr << "\n";
@@ -2438,17 +2475,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                       << arg.type << " -- ";
             switch (carried[i].from) {
             case From::Available:
-                std::cerr << "in scope at the drain";
+                std::cerr << "in scope at the pass";
                 break;
-            case From::Field:
-                std::cerr << "a value of the iteration, written by the frame";
+            case From::Slot:
+                std::cerr << "a mutable local of the iteration, given a slot "
+                             "of the record";
                 break;
-            case From::Relocated:
-                std::cerr << "a mutable local of the iteration, stored as its "
-                             "contents";
+            case From::Record:
+                std::cerr << "a value of the iteration, kept in the record";
                 break;
             }
             std::cerr << "\n";
+        }
+        if (keeps_result) {
+            std::cerr << ";   continuation uses the call's value, kept in the "
+                         "record\n";
         }
     }
 
@@ -2468,7 +2509,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     bool producer_is_drain = false;
     string after_rounds;
     {
-        const size_t at = point->instrs.size();
         const auto *producer_loop =
             producer_loop_block
                 ? &std::get<Terminator::ParFor>(producer_loop_block->terminator.data)
@@ -2590,34 +2630,55 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     O->queue_sizes[queue.name].pushers.insert(site_function.begin(),
                                               site_function.end());
 
-    // A reducer local of the producer's iteration: a slot per iteration in
-    // an array made where the queue's storage is, and the slot's address in
-    // place of the local, so that every continuation of the iteration -- in
-    // this queue and in any other -- adds into the one place (pbrt's
-    // pixelSampleState.L). The local's initializing store becomes the
-    // slot's; the field stores the address.
-    for (Field &f : fields) {
-        if (f.reducer_local == nullptr) {
-            continue;
+    // The record: pbrt's pixelSampleState. One slot per producer iteration
+    // in an array per value, made where the queue's storage is and sized as
+    // it is, for three things. A local of the iteration handed to the chain
+    // -- a reducer's, so that every continuation of the iteration, in this
+    // queue and in any other, adds into the one place (pixelSampleState.L);
+    // or a mutable local the callee writes, the surface record or the
+    // sampler's state -- has the slot's address put in place of the local,
+    // its initializing store now the slot's. A value of the iteration the
+    // continuation needs after the call is written by the producer before
+    // it. The deferred call's value is written where the path ends. The
+    // iteration's slot is its index in the producer loop, taken from the
+    // loop's start and stride; a lone call has slot 0.
+    const auto slot_index_at = [&](const shared_ptr<Block> &block,
+                                   size_t &at) -> shared_ptr<Value> {
+        if (!producer_loop_block) {
+            return constant_u32(0);
         }
-        const Instruction *local = f.reducer_local;
+        const auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
+        const shared_ptr<Block> pbody = omap.at(p.body.name);
+        internal_assert(!pbody->args.empty())
+            << what << ": " << pbody->name << " has no index";
+        shared_ptr<Value> index =
+            reach(block, std::make_shared<Value>(pbody->args.front()));
+        const Type itype = index->get_type();
+        const auto start = constant_of(p.start);
+        const auto stride = constant_of(p.stride);
+        if (!(start.has_value() && *start == 0)) {
+            index = insert_instruction(*O, block, at++, itype, Instruction::Op::Sub,
+                                       {index, reach(block, p.start)});
+        }
+        if (!(stride.has_value() && *stride == 1)) {
+            index = insert_instruction(*O, block, at++, itype, Instruction::Op::Div,
+                                       {index, reach(block, p.stride)});
+        }
+        return index;
+    };
+    // The slot arrays, by the local each replaces.
+    map<const Instruction *, shared_ptr<Value>> slot_arrays;
+    const auto give_slot = [&](const Instruction *local, const string &named) {
+        if (slot_arrays.contains(local)) {
+            return;
+        }
         const shared_ptr<Block> home = local->owner.lock();
-        internal_assert(home) << what << ": the reducer " << f.name
+        internal_assert(home) << what << ": the local " << named
                               << " outlived its block";
         const Type etype = local->type.as<Ptr_t>()->etype;
         auto slots = make_alloca(*O, alloc_point,
                                  Array_t::make(etype, as_expr(size)),
-                                 queue.name + "_" + f.name + "_slots");
-        shared_ptr<Value> index = constant_u32(0);
-        if (producer_loop_block) {
-            // The iteration's slot is its index in the producer loop, the
-            // loop body's first argument.
-            const auto &p = std::get<Terminator::ParFor>(producer_loop_block->terminator.data);
-            const shared_ptr<Block> pbody = omap.at(p.body.name);
-            internal_assert(!pbody->args.empty()) << what << ": " << pbody->name
-                                                  << " has no index";
-            index = reach(home, std::make_shared<Value>(pbody->args.front()));
-        }
+                                 queue.name + "_" + named + "_slots");
         size_t at = home->instrs.size();
         for (size_t i = 0; i < home->instrs.size(); i++) {
             if (home->instrs[i].get() == local) {
@@ -2625,7 +2686,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
         internal_assert(at <= home->instrs.size())
-            << what << ": " << f.name << " is not in " << home->name;
+            << what << ": " << named << " is not in " << home->name;
+        const shared_ptr<Value> index = slot_index_at(home, at);
         auto slot = std::make_shared<Instruction>(
             O->get_unique_name(), local->type, Instruction::Op::GEP,
             vector<shared_ptr<Value>>{reach(home, slots), index}, home);
@@ -2633,9 +2695,46 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         auto slot_value = std::make_shared<Value>(slot);
         home->lookups[slot->name] = slot_value;
         replace_uses(*O, local, slot_value);
-        O->reducer_slots.insert(slot.get());
-        f.origin = Definition{slot_value, home->name};
-        f.reducer_local = nullptr;
+        O->record_slots.insert(slot.get());
+        slot_arrays[local] = slots;
+        for (Field &f : fields) {
+            if (f.slot_local == local) {
+                f.origin = Definition{slot_value, home->name};
+            }
+        }
+    };
+    for (const Field &f : fields) {
+        if (f.slot_local != nullptr) {
+            give_slot(f.slot_local, f.name);
+        }
+    }
+    for (size_t i = 0; i < carried.size(); i++) {
+        if (carried[i].from == From::Slot) {
+            give_slot(carried[i].local, k0_entry->args[i + result_args].name);
+        }
+    }
+    for (RecordValue &rv : record_values) {
+        rv.array = make_alloca(*O, alloc_point,
+                               Array_t::make(rv.type, as_expr(size)),
+                               queue.name + "_rest_" + rv.name);
+    }
+    shared_ptr<Value> result_array;
+    if (keeps_result) {
+        result_array = make_alloca(*O, alloc_point,
+                                   Array_t::make(ret_type, as_expr(size)),
+                                   queue.name + "_result");
+    }
+    // The address of the path's result slot travels with the path: a chain
+    // function takes it as a parameter (below), and an entry carries what
+    // the push was handed, for the drain to hand on.
+    optional<size_t> result_field;
+    if (keeps_result) {
+        Field f;
+        f.name = field_named("_result");
+        f.type = Ptr_t::make(ret_type);
+        f.slot_address = true;
+        result_field = fields.size();
+        fields.push_back(std::move(f));
     }
 
     //===----------------------------------------------------------------===//
@@ -2763,104 +2862,43 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const Type queue_addr_t = Ptr_t::make(queue_t);
     vector<Type> made = {entry_t, queue_t};
 
-    // What a chain function returns now: whether it saved its state; which
-    // slot it saved it in, when the frame has state of its own to add there;
-    // and the value it would have returned.
-    Struct_t::Map saved_fields = {TypedVar("saved", Bool_t::make())};
-    const size_t slot_index = frame_saves ? saved_fields.size() : 0;
-    if (frame_saves) {
-        saved_fields.emplace_back("slot", u32());
-    }
-    // Which queue of a split the slot is in, for the frame to write its
-    // part there.
-    const bool saved_names_queue = frame_saves && split;
-    const size_t queue_index = saved_names_queue ? saved_fields.size() : 0;
-    if (saved_names_queue) {
-        saved_fields.emplace_back("queue", u32());
-    }
-    const size_t value_index = returns_value ? saved_fields.size() : 0;
-    if (returns_value) {
-        saved_fields.emplace_back("value", ret_type);
-    }
-    const bool saved_is_struct = saved_fields.size() > 1;
-    const Type saved_t = saved_is_struct
-                             ? Struct_t::make("Saved_" + callee_name, saved_fields)
-                             : Bool_t::make();
-    if (saved_is_struct && !spawned) {
-        made.push_back(saved_t);
-    }
-    const auto make_saved = [&](const shared_ptr<Block> &block, bool saved,
-                                shared_ptr<Value> slot, shared_ptr<Value> value,
-                                shared_ptr<Value> which = nullptr) -> shared_ptr<Value> {
-        if (!saved_is_struct) {
-            return constant_bool(saved);
-        }
-        vector<shared_ptr<Value>> parts = {constant_bool(saved)};
-        if (frame_saves) {
-            parts.push_back(slot ? std::move(slot) : undef_value(u32()));
-        }
-        if (saved_names_queue) {
-            parts.push_back(which ? std::move(which) : undef_value(u32()));
-        }
-        if (returns_value) {
-            parts.push_back(value ? std::move(value) : undef_value(ret_type));
-        }
-        return block->make_instruction(saved_t, Instruction::Op::MakeStruct,
-                                       std::move(parts));
-    };
-    const auto saved_of = [&](const shared_ptr<Block> &block,
-                              const shared_ptr<Value> &s) -> shared_ptr<Value> {
-        if (!saved_is_struct) {
-            return s;
-        }
-        return block->make_instruction(Bool_t::make(), Instruction::Op::LoadField,
-                                       {s, constant_u32(0)});
-    };
-    const auto slot_of = [&](const shared_ptr<Block> &block,
-                             const shared_ptr<Value> &s) -> shared_ptr<Value> {
-        internal_assert(frame_saves);
-        return block->make_instruction(u32(), Instruction::Op::LoadField,
-                                       {s, constant_u32(slot_index)});
-    };
-    // The queue the slot is in: the split's, or the one there is.
-    const auto queue_of_saved = [&](const shared_ptr<Block> &block,
-                                    const shared_ptr<Value> &s) -> shared_ptr<Value> {
-        if (!saved_names_queue) {
-            return constant_u32(0);
-        }
-        return block->make_instruction(u32(), Instruction::Op::LoadField,
-                                       {s, constant_u32(queue_index)});
-    };
-    const auto value_of = [&](const shared_ptr<Block> &block,
-                              const shared_ptr<Value> &s) -> shared_ptr<Value> {
-        internal_assert(returns_value);
-        return block->make_instruction(ret_type, Instruction::Op::LoadField,
-                                       {s, constant_u32(value_index)});
-    };
-
     //===----------------------------------------------------------------===//
-    // The chain: take the queue, return the flag, push at the deferred calls
+    // The chain: take the queue and the result slot, push at the deferred
+    // calls, return nothing
     //===----------------------------------------------------------------===//
 
+    // Nothing comes back up the chain: an entry that pushes has handed its
+    // path on, and an entry that ends its path has written the path's value
+    // into the record, so a chain function returns nothing (a spawned
+    // call's chain returns what it returned; the drain accumulates the
+    // value). What goes down is the queue's address and, when the producer's
+    // continuation uses the call's value, the path's result slot.
     const string qparam = "_queue_" + queue.name;
-    map<string, shared_ptr<Value>> queue_of; // each chain function's parameter
+    const string rparam = "_result_" + queue.name;
+    map<string, shared_ptr<Value>> queue_of;  // each chain function's parameter
+    map<string, shared_ptr<Value>> result_of; // and its result slot's
     for (const string &g : chain) {
         Function &gf = *funcs.at(g);
         Block &entry = *gf.blocks.front();
         for (const Argument &arg : entry.args) {
-            internal_assert(arg.name != qparam)
+            internal_assert(arg.name != qparam && arg.name != rparam)
                 << what << ": " << g << " already has a parameter named "
-                << qparam;
+                << arg.name;
         }
         queue_of[g] = entry.add_argument(
             Argument{queue_ptr_t, qparam, /*mutating=*/true});
+        if (keeps_result) {
+            result_of[g] = entry.add_argument(
+                Argument{Ptr_t::make(ret_type), rparam, /*mutating=*/true});
+        }
         if (!spawned) {
-            gf.ret_type = saved_t;
+            gf.ret_type = Void_t::make();
         }
     }
 
-    // Every call from one chain function to another passes the queue on, and
-    // its tail return passes the flag on.
+    // Every call from one chain function to another passes the queue and
+    // the result slot on, and gives up the value it passed back: `return
+    // g(...)` becomes `g(...); return;`.
     set<const Block *> passthrough_returns;
     for (const auto &[callee, calls] : calls_into) {
         for (const CallSite &cs : calls) {
@@ -2875,25 +2913,25 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const BlockMap gmap = make_block_map(gf);
             const shared_ptr<Block> cont = gmap.at(call.cont.name);
             call.call.args.push_back(reach(cs.block, queue_of.at(cs.caller)));
+            if (keeps_result) {
+                call.call.args.push_back(reach(cs.block, result_of.at(cs.caller)));
+            }
             if (spawned) {
-                continue; // the queue goes down; nothing comes up
+                continue; // the queue goes down; the value comes up as it did
             }
-            if (call.drop) {
-                // `g(); return;` becomes `s = g(); return s;`
-                call.drop = false;
-                const string result = gf->get_unique_name();
-                cont->args.insert(cont->args.begin(), Argument{saved_t, result});
-                auto value = std::make_shared<Value>(cont->args.front());
-                cont->lookups[result] = value;
-                cont->terminator.data = Terminator::Return{value};
-            } else {
-                retype_argument(*cont, cont->args.front().name, saved_t);
+            if (!call.drop) {
+                call.drop = true;
+                cont->lookups.erase(cont->args.front().name);
+                cont->args.erase(cont->args.begin());
             }
+            cont->terminator.data = Terminator::Return{};
             passthrough_returns.insert(cont.get());
         }
     }
 
-    // Every other return of a chain function says it did not save.
+    // Every other return of a chain function ends a path: the value, when
+    // the producer's continuation uses it, goes into the path's slot of the
+    // record for the pass to read, and nothing comes back up.
     for (const string &g : chain) {
         if (spawned) {
             break; // the chain returns what it returned
@@ -2917,9 +2955,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 << g << " returns " << (ret->value ? "a value" : "nothing")
                 << " in " << block->name << " but is declared to return "
                 << ret_type;
-            shared_ptr<Value> value = returns_value ? reach(block, ret->value)
-                                                    : nullptr;
-            ret->value = make_saved(block, false, nullptr, value);
+            if (keeps_result) {
+                block->make_side_effect(
+                    Instruction::Op::Store,
+                    {reach(block, result_of.at(g)), reach(block, ret->value)});
+            }
+            ret->value = nullptr;
         }
     }
 
@@ -3009,9 +3050,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         return params;
     };
 
-    // The deferred calls: push the entry, return saved. The callee writes
-    // the fields that are its arguments -- a pointer argument's pointee --
-    // and leaves the frame's to the frame.
+    // The deferred calls: push the entry and return. The entry is the call's
+    // arguments that are not in scope at the drain, and the path's result
+    // slot when there is one.
     for (size_t s = 0; s < sites.size(); s++) {
         const auto &site = sites[s];
         const auto call = std::get<Terminator::Call>(site->terminator.data);
@@ -3022,15 +3063,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 values.push_back(reach(site, spawns[s].target));
                 continue;
             }
+            if (result_field.has_value() && f == *result_field) {
+                values.push_back(reach(site, result_of.at(site_function[s])));
+                continue;
+            }
             if (!field.param.has_value()) {
                 values.push_back(undef_value(field.type));
                 continue;
             }
-            shared_ptr<Value> v = reach(site, call.call.args[*field.param]);
-            if (field.pointee) {
-                v = site->make_instruction(field.type, Instruction::Op::Load, {v});
-            }
-            values.push_back(std::move(v));
+            values.push_back(reach(site, call.call.args[*field.param]));
         }
         auto entry = site->make_instruction(entry_t, Instruction::Op::MakeStruct,
                                             std::move(values));
@@ -3047,16 +3088,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         push_entry(funcs.at(site_function[s]), site,
                    queue_of.at(site_function[s]), entry,
                    params_at(site, call.call.args),
-                   [&](const shared_ptr<Block> &at, const shared_ptr<Value> &slot,
-                       const shared_ptr<Value> &which) {
+                   [&](const shared_ptr<Block> &at, const shared_ptr<Value> &,
+                       const shared_ptr<Value> &) {
                        if (spawned) {
                            at->terminator.data = Terminator::Jump{
                                spawn_cont->name, reach_all(at, call.cont.args)};
                            spawn_cont->preds = {at};
                            return;
                        }
-                       at->terminator.data = Terminator::Return{
-                           make_saved(at, true, slot, nullptr, which)};
+                       at->terminator.data = Terminator::Return{};
                    });
     }
     remove_unreachable_blocks(*F);
@@ -3168,198 +3208,88 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     };
     const string prefix = queue.name + "!";
 
-    // The frame's part of an entry, written into the slot the callee saved in
-    // queue `which`: the iteration's values the continuation needs, and the
-    // contents of the iteration's mutable locals the callee was not handed.
-    // A scalar at a time, into each one's array.
-    const auto write_frame = [&](const shared_ptr<Block> &block,
-                                 const shared_ptr<Value> &which,
-                                 const shared_ptr<Value> &slot,
-                                 const std::function<shared_ptr<Value>(const Field &)> &value_of_field) {
-        const auto storage = storage_of(block, which);
-        const Emit emit = [&](const Type &t, Instruction::Op op,
-                              vector<shared_ptr<Value>> ops) {
-            return block->make_instruction(t, op, std::move(ops));
-        };
-        for (size_t f = 0; f < fields.size(); f++) {
-            if (!fields[f].frame_writes) {
-                continue;
-            }
-            vector<shared_ptr<Value>> parts;
-            size_t l = field_leaves[f].first;
-            take_apart(value_of_field(fields[f]), leaves, l, 1, emit, parts);
-            internal_assert(l == field_leaves[f].second &&
-                            parts.size() == l - field_leaves[f].first)
-                << what << ": the frame's " << fields[f].name << " came apart "
-                << "into " << parts.size() << " scalars, not "
-                << field_leaves[f].second - field_leaves[f].first;
-            for (size_t k = 0; k < parts.size(); k++) {
-                const size_t leaf = field_leaves[f].first + k;
-                auto place = block->make_instruction(
-                    Ptr_t::make(leaves[leaf].type), Instruction::Op::GEP,
-                    {storage(leaf), slot});
-                block->make_side_effect(Instruction::Op::Store,
-                                        {place, parts[k]});
-            }
-        }
-    };
-
-    // The producer passes the first queue and acts on the flag: a saved return
-    // skips the rest of the iteration, which the drain runs later, after
-    // the frame has put its own state into the entry.
-    shared_ptr<Block> skip;
-    if (spawned) {
+    // The producer passes the queue -- and the path's result slot, when its
+    // continuation uses the call's value -- and its iteration ends at the
+    // call: the rest of it runs in the pass over the record, once per
+    // iteration, after the drain (pbrt: GenerateCameraRays pushes, and
+    // UpdateFilm reads pixelSampleState after the last bounce). What that
+    // rest needs of the iteration is written into the record first.
+    shared_ptr<Block> end; // where the producer's iteration ends now
+    if (spawned || producers.size() > 1) {
         // Each producer hands the queue down and goes on; nothing comes back
-        // for it to act on.
+        // for it to act on: a spawned call's producer by the program's word,
+        // several producers because each is a drain whose iteration ends at
+        // its call (checked above).
         for (const CallSite &pc : producers) {
-            pc.call()->call.args.push_back(queue_at(pc.block, constant_u32(0)));
+            pc.call()->call.args.push_back(
+                split ? reach(pc.block, queues)
+                      : queue_at(pc.block, constant_u32(0)));
         }
     } else {
+        size_t at = producer.block->instrs.size();
+        const shared_ptr<Value> index = slot_index_at(producer.block, at);
+        for (const RecordValue &rv : record_values) {
+            auto place = producer.block->make_instruction(
+                Ptr_t::make(rv.type), Instruction::Op::GEP,
+                {reach(producer.block, rv.array), index});
+            producer.block->make_side_effect(
+                Instruction::Op::Store,
+                {place, reach(producer.block, rv.def.value)});
+        }
+        shared_ptr<Value> result_slot;
+        if (keeps_result) {
+            result_slot = producer.block->make_instruction(
+                Ptr_t::make(ret_type), Instruction::Op::GEP,
+                {reach(producer.block, result_array), index});
+            O->record_slots.insert(
+                std::get<shared_ptr<Instruction>>(result_slot->data).get());
+        }
         pcall.call.args.push_back(split ? reach(producer.block, queues)
                                         : queue_at(producer.block, constant_u32(0)));
-        const bool dropped = pcall.drop;
-        pcall.drop = false;
+        if (keeps_result) {
+            pcall.call.args.push_back(result_slot);
+        }
+        pcall.drop = true;
+        // `end` ends the iteration: a yield of the producer loop's body, or
+        // -- for a lone call -- a jump to the drain, set below once it
+        // exists. The continuation the call had is the pass's now.
+        end = fresh_block(prefix + "end");
+        end->preds = {producer.block};
+        end->terminator.data = Terminator::Yield{};
+        pcall.cont = Terminator::Jump{end->name, {}};
+        k0_entry->preds.clear();
 
-        auto dispatch = fresh_block(prefix + "saved");
-        skip = fresh_block(prefix + "skip");
-        auto flag = dispatch->add_argument(
-            Argument{saved_t, O->get_unique_name()});
-        // The continuation's other arguments, threaded through.
-        vector<shared_ptr<Value>> onwards;
-        vector<shared_ptr<Value>> carried_here; // as the dispatch refers to them
-        if (!dropped) {
-            onwards.push_back(nullptr); // the value, below
-        }
-        for (size_t i = result_args; i < k0_entry->args.size(); i++) {
-            auto v = dispatch->add_argument(k0_entry->args[i]);
-            onwards.push_back(v);
-            carried_here.push_back(v);
-        }
-        // Wired in before anything below asks the dispatch for a value it
-        // does not have: what it is asked for has to be threaded on from the
-        // producer's block, through the call's continuation edge.
-        dispatch->preds = {producer.block};
-        pcall.cont = Terminator::Jump{dispatch->name, pcall.cont.args};
-        k0_entry->preds = {dispatch};
-        auto saved = saved_of(dispatch, flag);
-        if (!dropped) {
-            onwards[0] = value_of(dispatch, flag);
-        }
-        shared_ptr<Block> on_saved = skip;
-        if (frame_saves) {
-            on_saved = fresh_block(prefix + "save");
-            on_saved->preds = {dispatch};
-            dispatch->terminator.data = Terminator::Dispatch{
-                saved,
-                {Terminator::Jump{k0_entry->name, std::move(onwards)},
-                 Terminator::Jump{on_saved->name}}};
-            auto slot = slot_of(on_saved, reach(on_saved, flag));
-            write_frame(on_saved, queue_of_saved(on_saved, reach(on_saved, flag)),
-                        slot, [&](const Field &f) -> shared_ptr<Value> {
-                if (f.local != nullptr) {
-                    return on_saved->make_instruction(
-                        f.type, Instruction::Op::Load,
-                        {reach(on_saved, f.origin.value)});
-                }
-                for (size_t i = 0; i < carried.size(); i++) {
-                    if (carried[i].from == From::Field &&
-                        &fields[carried[i].field] == &f) {
-                        return reach(on_saved, carried_here[i]);
-                    }
-                }
-                internal_error << "no value for the frame's field " << f.name;
-                return nullptr;
-            });
-            on_saved->terminator.data = Terminator::Jump{skip->name};
-            skip->preds = {on_saved};
-        } else {
-            dispatch->terminator.data = Terminator::Dispatch{
-                saved,
-                {Terminator::Jump{k0_entry->name, std::move(onwards)},
-                 Terminator::Jump{skip->name}}};
-            skip->preds = {dispatch};
-        }
-        // `skip` ends the iteration: a yield of the producer loop's body, or
-        // -- for a lone call -- a jump to the drain, set below once it exists.
-        skip->terminator.data = Terminator::Yield{};
-
-        // The initial push: the owner's call itself pushes the first entry
-        // and says saved, so that every step runs from the drain -- pbrt's
-        // camera rays go through the ray queue and are traced by nothing
-        // else. The call's arguments become the entry as a deferred call's
-        // do; the frame's part is written by the save path above, which the
-        // constant flag now always takes.
+        // The initial push: the owner's call itself pushes the first entry,
+        // so that every step runs from the drain -- pbrt's camera rays go
+        // through the ray queue and are traced by nothing else. The call's
+        // arguments become the entry as a deferred call's do.
         if (queue.initial_push) {
             const Terminator::Call was = pcall;
             vector<shared_ptr<Value>> values;
-            for (const Field &f : fields) {
-                if (!f.param.has_value()) {
-                    values.push_back(undef_value(f.type));
+            for (size_t f = 0; f < fields.size(); f++) {
+                const Field &field = fields[f];
+                if (result_field.has_value() && f == *result_field) {
+                    values.push_back(result_slot);
                     continue;
                 }
-                shared_ptr<Value> v = reach(producer.block, was.call.args[*f.param]);
-                if (f.pointee) {
-                    v = producer.block->make_instruction(f.type, Instruction::Op::Load,
-                                                         {v});
+                if (!field.param.has_value()) {
+                    values.push_back(undef_value(field.type));
+                    continue;
                 }
-                values.push_back(std::move(v));
+                values.push_back(reach(producer.block, was.call.args[*field.param]));
             }
             auto entry = producer.block->make_instruction(
                 entry_t, Instruction::Op::MakeStruct, std::move(values));
             push_entry(O, producer.block,
                        split ? queues : queue_at(producer.block, constant_u32(0)),
                        entry, params_at(producer.block, was.call.args),
-                       [&](const shared_ptr<Block> &at, const shared_ptr<Value> &slot,
-                           const shared_ptr<Value> &which) {
-                           auto flag = make_saved(at, true, slot, nullptr, which);
-                           vector<shared_ptr<Value>> onwards{flag};
-                           for (const auto &a : was.cont.args) {
-                               onwards.push_back(reach(at, a));
-                           }
+                       [&](const shared_ptr<Block> &at, const shared_ptr<Value> &,
+                           const shared_ptr<Value> &) {
                            if (at != producer.block) {
-                               dispatch->preds.push_back(at);
+                               end->preds.push_back(at);
                            }
-                           at->terminator.data =
-                               Terminator::Jump{dispatch->name, std::move(onwards)};
+                           at->terminator.data = Terminator::Jump{end->name};
                        });
-        }
-    }
-
-    // The rest of the producer's iteration, copied for the drain to run per
-    // entry -- a copy per queue of a split, since each drain runs it with
-    // its own storage. Copied now, before the drain is built: building it
-    // threads values through the blocks between the producer and the drain,
-    // which for a lone call are these, and the copy is of the continuation
-    // as the program has it -- taking the call's value and what it carried,
-    // and no more.
-    vector<map<string, shared_ptr<Block>>> copies_of;
-    for (const SubQueue &sq : subqueues) {
-        if (spawned) {
-            break; // the drain runs no continuation
-        }
-        copies_of.push_back(clone_region(*O, k0, "!" + sq.path));
-    }
-    // Where the owner now runs the rest of a producer's iteration, for a
-    // spawned deferral's join to find (Function::continuation_entries): the
-    // program's own continuation and each drain's copy of it, when the
-    // producer is the program's call; when the producer is another drain,
-    // its continuation is that drain's -- a flag dispatch and then the
-    // program's, already recorded -- so what is recorded is the copies of
-    // what was recorded inside it.
-    if (!spawned) {
-        const set<string> recorded = O->continuation_entries;
-        if (!producer_is_drain) {
-            O->continuation_entries.insert(k0_entry->name);
-        }
-        for (const auto &copies : copies_of) {
-            if (!producer_is_drain) {
-                O->continuation_entries.insert(copies.at(k0_entry->name)->name);
-            }
-            for (const string &r : recorded) {
-                if (const auto it = copies.find(r); it != copies.end()) {
-                    O->continuation_entries.insert(it->second->name);
-                }
-            }
         }
     }
 
@@ -3448,10 +3378,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             return w.lock().get() == link_block.get();
         });
         old_cont->preds.push_back(exit);
-    } else {
+    } else if (spawned) {
         // The rest of the iteration ends by yielding (a loop's) or returning
-        // (the function's); both now go through the drain, and so does the
-        // skip.
+        // (the function's); both now go through the drain.
         for (const auto &block : k0) {
             const bool ends =
                 std::holds_alternative<Terminator::Yield>(block->terminator.data) ||
@@ -3462,10 +3391,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             block->terminator.data = Terminator::Jump{drain_entry->name};
             drain_entry->preds.push_back(block);
         }
-        if (skip) {
-            skip->terminator.data = Terminator::Jump{drain_entry->name};
-            drain_entry->preds.push_back(skip);
-        }
+    } else {
+        // The iteration ends at the call, and the drain follows.
+        end->terminator.data = Terminator::Jump{drain_entry->name};
+        drain_entry->preds.push_back(end);
     }
     shared_ptr<Value> cur, nxt; // which queue is read, and which pushed to
     shared_ptr<Value> next_queue; // the address of the one pushed to
@@ -3543,12 +3472,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     const auto build_pass = [&](size_t q, const shared_ptr<Block> &body,
                                 const shared_ptr<Block> &after) {
         const string &qpath = subqueues[q].path;
-        // The producer's continuation, copied for this drain: none for a
-        // spawned call, whose drain only accumulates.
-        const map<string, shared_ptr<Block>> *copies =
-            spawned ? nullptr : &copies_of[q];
-        const shared_ptr<Block> k_entry =
-            spawned ? nullptr : copies->at(k0_entry->name);
 
         // run(i): the entry, and the call it stands for. The entry's fields
         // are read as they are asked for, each put back together from its
@@ -3578,55 +3501,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 internal_assert(l == field_leaves[f].second)
                     << what << ": " << fields[f].name << " has fewer scalars "
                     << "than the queue stores for it";
-                if (fields[f].reducer_address) {
+                if (fields[f].slot_address) {
                     // Read back out of the entry, the address is still a
-                    // reducer's: a later deferral may store it too.
+                    // slot's: a later deferral may store it too.
                     if (const auto *vi = std::get_if<shared_ptr<Instruction>>(&value->data)) {
-                        O->reducer_slots.insert(vi->get());
+                        O->record_slots.insert(vi->get());
                     }
                 }
                 it = field_values.emplace(f, std::move(value)).first;
             }
             return reach(block, it->second);
         };
-        // A relocated local: the entry's copy of its contents, given a local
-        // of the drain's own to be run with.
-        map<size_t, shared_ptr<Value>> locals;
-        for (size_t f = 0; f < fields.size(); f++) {
-            if (fields[f].local == nullptr) {
-                continue;
-            }
-            auto local = make_alloca(*O, body, fields[f].type);
-            body->make_side_effect(Instruction::Op::Store,
-                                   {local, entry_field(body, f)});
-            locals[f] = local;
-        }
-        // The copy of the continuation takes a relocated local as a
-        // parameter named after the producer's storage for it, and the drain
-        // hands it its own storage instead. A value threaded through blocks
-        // keeps its name in this form (Block::get_value), and a pass that
-        // unwinds the threading -- promote_allocas, which turns a local
-        // written once and read after into a value -- finds the pointer's
-        // loads by that name; so the copy's parameter is renamed after the
-        // drain's storage, throughout the copy.
-        if (!spawned) {
-            internal_assert(k_entry->args.size() == result_args + carried.size())
-                << what << ": the continuation " << k_entry->name << " takes "
-                << k_entry->args.size() << " arguments, not " << result_args
-                << " + " << carried.size();
-        }
-        for (size_t i = 0; i < carried.size(); i++) {
-            if (carried[i].from != From::Relocated) {
-                continue;
-            }
-            const string from = k_entry->args[result_args + i].name;
-            const string to = std::get<shared_ptr<Instruction>>(
-                                  locals.at(carried[i].field)->data)
-                                  ->name;
-            for (const auto &[name, copy] : *copies) {
-                rename_argument(*copy, from, to);
-            }
-        }
         {
             vector<shared_ptr<Value>> args;
             for (size_t j = 0; j < nparams; j++) {
@@ -3637,23 +3522,31 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 case Where::Stored:
                     args.push_back(entry_field(body, params[j].field));
                     break;
-                case Where::Relocated:
-                    args.push_back(locals.at(params[j].field));
-                    break;
                 }
             }
             if (callee_in_chain) {
                 args.push_back(reach(body, next_queue));
+                if (keeps_result) {
+                    args.push_back(entry_field(body, *result_field));
+                }
             }
+            // A chain function returns nothing now; a callee off the chain
+            // returns what it did, taken only where the path's result slot
+            // wants it (a spawned call's value is always taken, to
+            // accumulate).
+            const bool takes_value =
+                spawned || (!callee_in_chain && returns_value && keeps_result);
             body->terminator.data = Terminator::Call{
                 Terminator::Jump{subqueues[q].callee, std::move(args)},
                 Terminator::Jump{after->name},
-                /*drop=*/!callee_in_chain && !returns_value};
+                /*drop=*/!takes_value};
         }
 
-        // ran(r): a saved return is an entry for the next round, with the
-        // frame's part written; any other is the rest of the producer's
-        // iteration, copied here.
+        // ran(r): the entry has run. A spawned call's value is accumulated;
+        // the value of a callee off the chain goes into the path's result
+        // slot; and the drain's iteration ends. Nothing else waits on the
+        // entry: the rest of the producer's iteration runs in the pass over
+        // the record.
         after->preds = {body};
         if (spawned) {
             // The accumulate the call site gave up: the value, into the
@@ -3664,83 +3557,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             after->make_side_effect(spawns.front().op,
                                     {entry_field(after, *acc_field), value},
                                     spawns.front().atomic);
-            after->terminator.data = Terminator::Yield{};
-        } else {
-            // The value goes to the copy only where the producer kept it.
-            vector<shared_ptr<Value>> onwards;
-            shared_ptr<Value> flag;
-            shared_ptr<Value> saved;
-            if (callee_in_chain) {
-                flag = after->add_argument(Argument{saved_t, O->get_unique_name()});
-                saved = saved_of(after, flag);
-                if (result_args == 1) {
-                    onwards.push_back(value_of(after, flag));
-                }
-            } else if (returns_value) {
-                auto value =
-                    after->add_argument(Argument{ret_type, O->get_unique_name()});
-                if (result_args == 1) {
-                    onwards.push_back(value);
-                }
-            }
-            for (const CarriedPlan &c : carried) {
-                switch (c.from) {
-                case From::Available:
-                    onwards.push_back(reach(after, c.def.value));
-                    break;
-                case From::Field:
-                    onwards.push_back(entry_field(after, c.field));
-                    break;
-                case From::Relocated:
-                    onwards.push_back(reach(after, locals.at(c.field)));
-                    break;
-                }
-            }
-            if (saved) {
-                auto done = fresh_block(qpath + "!done");
-                done->preds = {after};
-                after->terminator.data = Terminator::Dispatch{
-                    saved,
-                    {Terminator::Jump{k_entry->name, std::move(onwards)},
-                     Terminator::Jump{done->name}}};
-                if (frame_saves) {
-                    auto slot = slot_of(done, reach(done, flag));
-                    write_frame(done, reach(done, nxt), slot,
-                                [&](const Field &f) -> shared_ptr<Value> {
-                        for (size_t k = 0; k < fields.size(); k++) {
-                            if (&fields[k] != &f) {
-                                continue;
-                            }
-                            if (f.local != nullptr) {
-                                return done->make_instruction(
-                                    f.type, Instruction::Op::Load,
-                                    {reach(done, locals.at(k))});
-                            }
-                            // The frame's value is what the entry carried in.
-                            return entry_field(done, k);
-                        }
-                        internal_error << "no value for the frame's field "
-                                       << f.name;
-                        return nullptr;
-                    });
-                }
-                done->terminator.data = Terminator::Yield{};
-            } else {
-                after->terminator.data =
-                    Terminator::Jump{k_entry->name, std::move(onwards)};
-            }
+        } else if (!callee_in_chain && returns_value && keeps_result) {
+            auto value = after->add_argument(Argument{ret_type, O->get_unique_name()});
+            after->make_side_effect(Instruction::Op::Store,
+                                    {entry_field(after, *result_field), value});
         }
-        // The copy ends the drain's iteration where the original ended the
-        // producer's; a return of the function's becomes a yield of the
-        // loop's.
-        if (copies != nullptr) {
-            for (const auto &[name, copy] : *copies) {
-                if (std::holds_alternative<Terminator::Return>(copy->terminator.data)) {
-                    copy->terminator.data = Terminator::Yield{};
-                }
-                O->blocks.push_back(copy);
-            }
-        }
+        after->terminator.data = Terminator::Yield{};
     };
 
     shared_ptr<Block> exit_from = drain_entry; // the block before `exit`
@@ -3796,6 +3618,86 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         exit->terminator.data = Terminator::Return{};
     } else {
         exit->terminator.data = Terminator::Yield{};
+    }
+
+    // The rest of the producer's iteration: the pass over the record once
+    // every round is over (pbrt's UpdateFilm), running the continuation the
+    // producer gave up, once per iteration, with what the record kept for it
+    // -- the call's value, the values written before the call, the slots'
+    // addresses -- and what is in scope. Nothing when the continuation is
+    // empty: an iteration that ended at the call.
+    if (!spawned) {
+        const bool trivial =
+            k0.size() == 1 && k0_entry->instrs.empty() &&
+            (std::holds_alternative<Terminator::Yield>(k0_entry->terminator.data) ||
+             (std::holds_alternative<Terminator::Return>(k0_entry->terminator.data) &&
+              std::get<Terminator::Return>(k0_entry->terminator.data).value == nullptr));
+        if (!trivial) {
+            // Named with an underscore, as the join's `_done` is: a name
+            // with `!` reads as a variant of the drain loop, and a later
+            // directive on the drain would find this loop too.
+            const string rest_name = queue.name + "_rest";
+            auto pass = fresh_block(rest_name);
+            auto run = fresh_block(rest_name + "!run");
+            auto pass_exit = fresh_block(rest_name + "!exit");
+            pass_exit->terminator.data = std::move(exit->terminator.data);
+            exit->terminator.data = Terminator::Jump{pass->name};
+            pass->preds = {exit};
+            // One iteration per record: the producer's count, in its type.
+            const Type itype = count->get_type();
+            pass->terminator.data = Terminator::ParFor{rest_name,
+                                                       index_constant(itype, 0),
+                                                       reach(pass, count),
+                                                       index_constant(itype, 1),
+                                                       Terminator::Jump{run->name},
+                                                       Terminator::Jump{pass_exit->name}};
+            run->preds = {pass};
+            pass_exit->preds = {pass};
+            auto i = run->add_argument(Argument{itype, rest_name});
+            vector<shared_ptr<Value>> onwards;
+            if (keeps_result) {
+                auto place = run->make_instruction(
+                    Ptr_t::make(ret_type), Instruction::Op::GEP,
+                    {reach(run, result_array), i});
+                onwards.push_back(
+                    run->make_instruction(ret_type, Instruction::Op::Load, {place}));
+            }
+            for (const CarriedPlan &c : carried) {
+                switch (c.from) {
+                case From::Available:
+                    onwards.push_back(reach(run, c.def.value));
+                    break;
+                case From::Slot: {
+                    auto slot = run->make_instruction(
+                        c.local->type, Instruction::Op::GEP,
+                        {reach(run, slot_arrays.at(c.local)), i});
+                    O->record_slots.insert(
+                        std::get<shared_ptr<Instruction>>(slot->data).get());
+                    onwards.push_back(slot);
+                    break;
+                }
+                case From::Record: {
+                    const RecordValue &rv = record_values[c.record];
+                    auto place = run->make_instruction(
+                        Ptr_t::make(rv.type), Instruction::Op::GEP,
+                        {reach(run, rv.array), i});
+                    onwards.push_back(
+                        run->make_instruction(rv.type, Instruction::Op::Load, {place}));
+                    break;
+                }
+                }
+            }
+            run->terminator.data = Terminator::Jump{k0_entry->name, std::move(onwards)};
+            k0_entry->preds = {run};
+            // The rest ends the pass's iteration where it ended the
+            // producer's; a return of the function's becomes a yield of the
+            // loop's.
+            for (const auto &block : k0) {
+                if (std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+                    block->terminator.data = Terminator::Yield{};
+                }
+            }
+        }
     }
 
     // The join a spawned call leaves implicit: a continuation that reads a

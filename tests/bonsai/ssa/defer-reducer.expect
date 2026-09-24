@@ -1,8 +1,7 @@
-type Entry_q = struct Entry_q{ x : f32; n : i32; total : (f32*); i : i32 }
+type Entry_q = struct Entry_q{ x : f32; n : i32; total : (f32*) }
 type Float = f32
 type Half = f16
-type Queue_q = struct Queue_q{ count : u32; x : f32[]; n : i32[]; total : (f32*)[]; i : i32[] }
-type Saved_step = struct Saved_step{ saved : bool; slot : u32 }
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; n : i32[]; total : (f32*)[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -11,100 +10,81 @@ type vec4f = f32x4
 func run(values : f32[8], out : mut f32[8]) -> void {
   q!round : mut u32
   q_total_slots : mut f32[8]
+  q_rest_i : mut i32[8]
   q_x_0 : mut f32[8]
   q_n_0 : mut i32[8]
   q_total_0 : mut (f32*)[8]
-  q_i_0 : mut i32[8]
   q_x_1 : mut f32[8]
   q_n_1 : mut i32[8]
   q_total_1 : mut (f32*)[8]
-  q_i_1 : mut i32[8]
   q_queue : mut Queue_q[2]
-  let @5 = build<Queue_q>(0u, q_x_0, q_n_0, q_total_0, q_i_0) in
+  let @5 = build<Queue_q>(0u, q_x_0, q_n_0, q_total_0) in
   q_queue[0u] = @5
-  let @7 = build<Queue_q>(0u, q_x_1, q_n_1, q_total_1, q_i_1) in
+  let @7 = build<Queue_q>(0u, q_x_1, q_n_1, q_total_1) in
   q_queue[1u] = @7
   parfor i in [0:8:1] {
     q_total_slots[i] = 0f
     let @0 = values[i] in
-    let @47 = i >> 31 in
-    let @48 = reinterpret_cast<u32>(@47) in
-    let @49 = @48 >> 30u in
-    let @50 = reinterpret_cast<i32>(@49) in
-    let @51 = i + @50 in
-    let @52 = @51 >> 2 in
-    let @53 = @52 * 4 in
-    let @1 = i - @53 in
-    let @10 = step(@0, @1, (&q_total_slots[i]), (&q_queue[0u])) in
-    let total = (&q_total_slots[i]) in
-    let @11 = @10.saved in
-    if (@11) {
-      let @12 = @10.slot in
-      let @15 = q_queue[0u].i in
-      @15[@12] = i
-      continue
-    } else {
-      let @2 = (*total) in
-      out[i] = @2
-      continue
-    }
+    let @32 = i >> 31 in
+    let @33 = reinterpret_cast<u32>(@32) in
+    let @34 = @33 >> 30u in
+    let @35 = reinterpret_cast<i32>(@34) in
+    let @36 = i + @35 in
+    let @37 = @36 >> 2 in
+    let @38 = @37 * 4 in
+    let @1 = i - @38 in
+    q_rest_i[i] = i
+    step(@0, @1, (&q_total_slots[i]), (&q_queue[0u]))
+    continue
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @20 = (*q!round) & 1u in
-    let @22 = q_queue[(*q!round) & 1u].count in
-    let @24 = @20 ^ 1u in
-    q_queue[@24].count = 0u
-    parfor q in [0u:@22:1u] {
-      let @25 = (&q_queue[@24]) in
-      let @29 = q_queue[@20].x in
-      let @30 = @29[q] in
-      let @32 = q_queue[@20].n in
-      let @33 = @32[q] in
-      let @35 = q_queue[@20].total in
-      let @36 = @35[q] in
-      let @40 = q_queue[@20].i in
-      let @41 = @40[q] in
-      let @37 = step(@30, @33, @36, @25) in
-      let @38 = @37.saved in
-      if (@38) {
-        let @42 = @37.slot in
-        let @45 = q_queue[@24].i in
-        @45[@42] = @41
-        continue
-      } else {
-        let total = @36 in
-        let i = @41 in
-        let @17 = (*total) in
-        out[i] = @17
-        continue
-      }
+    let @12 = (*q!round) & 1u in
+    let @14 = q_queue[(*q!round) & 1u].count in
+    let @16 = @12 ^ 1u in
+    q_queue[@16].count = 0u
+    parfor q in [0u:@14:1u] {
+      let @17 = (&q_queue[@16]) in
+      let @21 = q_queue[@12].x in
+      let @22 = @21[q] in
+      let @24 = q_queue[@12].n in
+      let @25 = @24[q] in
+      let @27 = q_queue[@12].total in
+      let @28 = @27[q] in
+      step(@22, @25, @28, @17)
+      continue
     }
-    let @19 = (*q!round) + 1u in
-    q!round = @19
+    let @11 = (*q!round) + 1u in
+    q!round = @11
+  }
+  parfor q_rest in [0:8:1] {
+    let @31 = q_rest_i[q_rest] in
+    let total = (&q_total_slots[q_rest]) in
+    let i = @31 in
+    let @2 = (*total) in
+    out[i] = @2
+    continue
   }
   return
 }
 
-func [[noinline]] step(x : f32, n : i32, total : mut (f32*), _queue_q : mut (Queue_q*)) -> Saved_step {
+func [[noinline]] step(x : f32, n : i32, total : mut (f32*), _queue_q : mut (Queue_q*)) -> void {
   total += x
   let @0 = n == 0 in
   if (@0) {
-    let @3 = build<Saved_step>(false, undef) in
-    return @3
+    return
   } else {
     let @1 = x * 0.5f in
     let @2 = n - 1 in
-    let @4 = build<Entry_q>(@1, @2, total, undef) in
-    let @8 = atomic_add((&(*_queue_q).count), 1u) in
-    let @10 = (*_queue_q).x in
-    @10[@8] = @1
-    let @13 = (*_queue_q).n in
-    @13[@8] = @2
-    let @16 = (*_queue_q).total in
-    @16[@8] = total
-    let @6 = build<Saved_step>(true, @8) in
-    return @6
+    let @3 = build<Entry_q>(@1, @2, total) in
+    let @6 = atomic_add((&(*_queue_q).count), 1u) in
+    let @8 = (*_queue_q).x in
+    @8[@6] = @1
+    let @11 = (*_queue_q).n in
+    @11[@6] = @2
+    let @14 = (*_queue_q).total in
+    @14[@6] = total
+    return
   }
 }
 

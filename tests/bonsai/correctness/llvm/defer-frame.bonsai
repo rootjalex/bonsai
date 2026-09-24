@@ -1,12 +1,15 @@
 //! flags: -p ssa -b llvm -e
 
-// The producer's own state in the entry. The result of the deferred recursion
-// is written to `out[i]` *by the caller*, after the call, and `i` is the
-// parfor's index: gone by the time the drain runs the entry. So the entry
-// carries it -- the callee returns which slot it saved to, and the producer
-// writes `i` there -- and the drain hands it to the copy of the store when
-// the entry finishes. The user's rule: "if the return says we saved state,
-// save this data in the queue location, otherwise act as normal."
+// The producer's own state in the record. The result of the deferred
+// recursion is written to `out[i]` *by the caller*, after the call, and `i`
+// is the parfor's index: gone by the time the drain runs the entry. So the
+// record keeps it -- the producer writes `i` into its iteration's slot before
+// the call -- and the recursion writes its value into the iteration's result
+// slot where it ends; the store runs in the pass over the record after the
+// rounds, once per iteration, with both (pbrt's pixelSampleState and
+// UpdateFilm). The user's rule, which the record answers for every
+// iteration at once: "if the return says we saved state, save this data in
+// the queue location, otherwise act as normal."
 func tally(n : i32, acc : i32) -> i32 {
     if (n <= 0) {
         return acc;

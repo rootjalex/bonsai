@@ -15,57 +15,53 @@ func run(out : mut i32[40]) -> void {
   let @3 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums_i_1) in
   sums_queue[1u] = @3
   parfor i in [0:40:1] {
-    let @29 = mulhi(i, -1840700269) in
-    let @30 = @29 + i in
-    let @31 = @30 >> 2 in
-    let @32 = @31 >> 31 in
-    let @33 = reinterpret_cast<u32>(@32) in
-    let @34 = @33 >> 31u in
-    let @35 = reinterpret_cast<i32>(@34) in
-    let @36 = @31 + @35 in
-    let @37 = @36 * 7 in
-    let @0 = i - @37 in
-    let @6 = walk(@0, 0, out, i, (&sums_queue[0u])) in
-    if (@6) {
-      continue
-    } else {
-      continue
-    }
+    let @27 = mulhi(i, -1840700269) in
+    let @28 = @27 + i in
+    let @29 = @28 >> 2 in
+    let @30 = @29 >> 31 in
+    let @31 = reinterpret_cast<u32>(@30) in
+    let @32 = @31 >> 31u in
+    let @33 = reinterpret_cast<i32>(@32) in
+    let @34 = @29 + @33 in
+    let @35 = @34 * 7 in
+    let @0 = i - @35 in
+    walk(@0, 0, out, i, (&sums_queue[0u]))
+    continue
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @8 = (*sums!round) & 1u in
-    let @10 = sums_queue[(*sums!round) & 1u].count in
-    let @12 = @8 ^ 1u in
-    sums_queue[@12].count = 0u
-    parfor sums_gang in [0u:@10:16u] {
-      let @13 = (&sums_queue[@12]) in
-      let @26 = sums_queue[(*sums!round) & 1u].count in
-      let @45 = u32x16(@26) in
-      let @28 = ramp(sums_gang, 1u, 16) < @45 in
-      let @42 = reduce<any>(@28) in
-      if (@42) {
-        let @17 = sums_queue[@8].n in
-        let @18 = masked_extract(@17[ramp(sums_gang, 1u, 16)], @28) in
-        let @20 = sums_queue[@8].acc in
-        let @21 = masked_extract(@20[ramp(sums_gang, 1u, 16)], @28) in
-        let @23 = sums_queue[@8].i in
-        let @24 = masked_extract(@23[ramp(sums_gang, 1u, 16)], @28) in
-        let @25 = walk$gang16_v0_v1_v3$masked(@18, @21, out, @24, @13, @28) in
+    let @7 = (*sums!round) & 1u in
+    let @9 = sums_queue[(*sums!round) & 1u].count in
+    let @11 = @7 ^ 1u in
+    sums_queue[@11].count = 0u
+    parfor sums_gang in [0u:@9:16u] {
+      let @12 = (&sums_queue[@11]) in
+      let @24 = sums_queue[(*sums!round) & 1u].count in
+      let @40 = u32x16(@24) in
+      let @26 = ramp(sums_gang, 1u, 16) < @40 in
+      let @37 = reduce<any>(@26) in
+      if (@37) {
+        let @16 = sums_queue[@7].n in
+        let @17 = masked_extract(@16[ramp(sums_gang, 1u, 16)], @26) in
+        let @19 = sums_queue[@7].acc in
+        let @20 = masked_extract(@19[ramp(sums_gang, 1u, 16)], @26) in
+        let @22 = sums_queue[@7].i in
+        let @23 = masked_extract(@22[ramp(sums_gang, 1u, 16)], @26) in
+        walk$gang16_v0_v1_v3$masked(@17, @20, out, @23, @12, @26)
       }
       continue
     }
-    let @7 = (*sums!round) + 1u in
-    sums!round = @7
+    let @6 = (*sums!round) + 1u in
+    sums!round = @6
   }
   return
 }
 
-func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> bool {
+func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
   let @0 = n <= 0 in
   if (@0) {
     out[i] = acc
-    return false
+    return
   } else {
     let @2 = n - 1 in
     let @3 = acc + n in
@@ -77,17 +73,16 @@ func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_su
     @12[@7] = @3
     let @15 = (*_queue_sums).i in
     @15[@7] = i
-    return true
+    return
   }
 }
 
-func [[noinline]] walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> boolx16 {
-  !ret!skip : mut boolx16
-  let @12 = i32x16(0) in
-  let @0 = n <= @12 in
-  let @13 = boolx16(false) in
-  let @14 = boolx16(true) in
-  let @6 = select(@0, @13, @14) in
+func [[noinline]] walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
+  let @11 = i32x16(0) in
+  let @0 = n <= @11 in
+  let @12 = boolx16(false) in
+  let @13 = boolx16(true) in
+  let @6 = select(@0, @12, @13) in
   let @7 = !mask && @6 in
   let @8 = !mask && @0 in
   let @10 = reduce<any>(@8) in
@@ -95,28 +90,21 @@ func [[noinline]] walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mu
     masked_store(out[i], acc, @8)
   }
   let @9 = reduce<any>(@7) in
-  let @18 = boolx16(false) in
   if (@9) {
-    let @15 = i32x16(1) in
-    let @2 = n - @15 in
+    let @14 = i32x16(1) in
+    let @2 = n - @14 in
     let @3 = acc + n in
     let @4 = build<Entry_sums$v16>(@2, @3, i) in
-    let @20 = reduce<+>(cast<u32x16>(@7)) in
-    let @21 = atomic_add((&(*_queue_sums).count), @20) in
-    let @23 = (*_queue_sums).n in
-    compress_store(@23[@21], @2, @7)
-    let @26 = (*_queue_sums).acc in
-    compress_store(@26[@21], @3, @7)
-    let @29 = (*_queue_sums).i in
-    compress_store(@29[@21], i, @7)
-    let @16 = boolx16(true) in
-    let @17 = boolx16(false) in
-    let @11 = select(@7, @16, @17) in
-    !ret!skip = @11
-  } else {
-    !ret!skip = @18
+    let @16 = reduce<+>(cast<u32x16>(@7)) in
+    let @17 = atomic_add((&(*_queue_sums).count), @16) in
+    let @19 = (*_queue_sums).n in
+    compress_store(@19[@17], @2, @7)
+    let @22 = (*_queue_sums).acc in
+    compress_store(@22[@17], @3, @7)
+    let @25 = (*_queue_sums).i in
+    compress_store(@25[@17], i, @7)
   }
-  return (*!ret!skip)
+  return
 }
 
 

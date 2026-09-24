@@ -41,9 +41,7 @@ struct QueueSpec {
     // back to it (`vol_surface.defer(vol_path_step, rays)`). The two are a
     // recursion between two functions, and deferring both of its ends is
     // what breaks it: once the calls back are pushes, the chain from the
-    // owner to the callee has no recursion in it but the callee's own. A
-    // push there returns saved up the chain to the producer, which saves its
-    // frame and skips, as it does for a deferred self-call.
+    // owner to the callee has no recursion in it but the callee's own.
     std::vector<std::string> also_from;
     // Whether running an entry can push onto this queue: a deferred
     // self-recursion whose recursive calls the drain's callee still makes.
@@ -128,27 +126,39 @@ struct QueueSpec {
 // untouched by every recursive call, is in scope where the drain runs and is
 // not stored. A pointer argument that points at a mutable local of the
 // producer's iteration -- a sampler's state, a surface record the callee
-// fills in -- is stored as what it points at: the callee stores the contents
-// when it pushes, and the drain gives the entry a local of its own to run
-// with. Everything else is stored as itself. Then the producer's own part:
-// the values of its iteration that the rest of the iteration, after the
-// call, still needs -- a sample's filter weight, its wavelengths, the record
-// the callee filled -- which the producer writes into the entry once the call
-// returns saying it saved, and which the drain hands the copy of that rest
-// when the entry finishes. Each field is named by the parameter or the value
-// it holds, and a frame value that is the same value as a stored argument
-// shares the argument's field. This is a plain analysis, not an optimal one:
-// a value is left out when it can be seen to be one value at every call on
-// the way down, and stored otherwise.
+// fills in -- is stored as the address of the local's slot in the record
+// (below). Everything else is stored as itself. Each field is named by the
+// parameter it holds. This is a plain analysis, not an optimal one: a value
+// is left out when it can be seen to be one value at every call on the way
+// down, and stored otherwise.
+//
+// The record is pbrt's `pixelSampleState`: one slot per producer iteration,
+// in an array per value beside the queues, for what the iteration owns and
+// the path reads or writes -- its reducer locals (`L`), the mutable locals it
+// hands the chain (the sampler's state, the visible surface), the values the
+// rest of the iteration after the call still needs (a sample's filter weight,
+// its wavelengths), and the deferred call's value when that rest uses it.
+// The locals are given their slots' addresses in place; the values are
+// written before the call; the call's value is written where the path ends.
+// An entry then carries a slot's address and nothing of the frame, as pbrt's
+// work items carry `pixelIndex`. And the rest of the producer's iteration --
+// the film write -- leaves the producer for good: it runs once per iteration
+// in a pass over the record after the drain (`<queue>_rest`, pbrt's
+// UpdateFilm), with the record's values and the slots' addresses, and what
+// is in scope. So no drain runs any continuation, and nothing comes back up
+// the chain: a chain function returns nothing.
 //
 // The push is made by the callee -- the function that has the arguments in
 // hand -- at the deferred call site, onto the queue it is handed as an extra
-// parameter, threaded down the chain of calls from the owner. The call site
-// becomes the push and a return that says "saved", with the slot it saved to
-// when the frame has something to add there, in place of a value; every
-// function on the chain returns that beside its value, and the owner acts on
-// it: "if the return says we saved state, save this data in the queue
-// location, otherwise act as normal".
+// parameter, threaded down the chain of calls from the owner, with the path's
+// result slot beside it when the rest uses the call's value. The call site
+// becomes the push and a return; a return that ends the path writes the
+// path's value into its slot and returns; a tail call of one chain function
+// by another drops the value it passed back. In the literature the entry is
+// a defunctionalized continuation reduced to a reference into a store of
+// frames (Reynolds 1972; the "pixel state" of every wavefront renderer since
+// Laine et al. 2013), and the pass is the apply of the one continuation
+// every path shares.
 //
 // The owner runs the drain right after the loop that produced the entries --
 // the producer loop, a parfor between the owner's loop and the call -- and
@@ -159,16 +169,19 @@ struct QueueSpec {
 // is what makes the deferral legal, and a `for` between the owner and the
 // call is refused. For a self-recursion the drain is
 //
+//     parfor i in <the producer loop>:
+//         <the record's values of iteration i> = <the values the rest needs>
+//         callee(<the call's arguments>, &queue[0], &result[i])
 //     round = 0
 //     while queue[round & 1].count > 0:
 //         cur = round & 1; nxt = cur ^ 1
 //         queue[nxt].count = 0
 //         parfor <queue name> in 0 : queue[cur].count:
 //             e = <each field of the entry, from queue[cur].<scalar>[<queue name>]>
-//             r = callee(<e's fields, and the arguments in scope>, &queue[nxt])
-//             if r.saved: <the frame's scalars of queue[nxt].<scalar>[r.slot]> = <e's>
-//             else:       <the rest of the producer's iteration, with r.value>
+//             callee(<e's fields, and the arguments in scope>, &queue[nxt], e._result)
 //         round = round + 1
+//     parfor <queue name>_rest in 0 : <the producer's count>:
+//         <the rest of the producer's iteration, with result[i] and the record's values>
 //
 // a round per bounce. Each queue holds the number of entries an owner
 // iteration can push, one per iteration of the producer loop, since a
@@ -195,7 +208,7 @@ struct QueueSpec {
 //   * A deferred call that is not in tail position, or a frame between it and
 //     the owner that does more than return the callee's value: the work after
 //     the call is state on the call stack that would have to be saved, and
-//     only the producer's own frame saves any.
+//     only the producer's own rest is kept, in the record.
 //   * A branching recursion, where a step makes several deferred calls (a tree
 //     traversal): the number of entries in flight would grow, and the queue
 //     could not be sized by the producer count. Linear deferral only.
@@ -219,8 +232,8 @@ struct QueueSpec {
 //
 // `func` is the function the calls are in, `callee` the function they call
 // (the same function, for a recursion), and `queue` the queue. Returns the
-// struct types it made -- the entry, the queue, the flag -- for the program
-// to declare.
+// struct types it made -- the entry and the queue -- for the program to
+// declare.
 std::vector<Type> defer(FuncMap &funcs, const std::string &func,
                         const std::string &callee, const QueueSpec &queue);
 

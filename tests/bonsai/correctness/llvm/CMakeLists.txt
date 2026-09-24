@@ -42,6 +42,7 @@ add_bonsai_tests(
     defer-drain-order.bonsai
     defer-mutual-producers.bonsai
     defer-primary-pusher.bonsai
+    defer-two-drains.bonsai
     mutual-recursion.bonsai
     defer-split.bonsai
     defer-split-nested.bonsai

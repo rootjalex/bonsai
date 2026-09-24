@@ -1,11 +1,11 @@
 type Entry_sums = struct Entry_sums{ n : i32; acc : i32; i : i32 }
 type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; i : i32[] }
 
-func [[noinline]] fill(n : i32, acc : i32, out : mut i32[8], i : i32, _queue_sums : mut (Queue_sums*)) -> bool {
+func [[noinline]] fill(n : i32, acc : i32, out : mut i32[8], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
   let @0 = n <= 0 in
   if (@0) {
     out[i] = acc
-    return false
+    return
   } else {
     let @2 = n - 1 in
     let @3 = acc + n in
@@ -17,7 +17,7 @@ func [[noinline]] fill(n : i32, acc : i32, out : mut i32[8], i : i32, _queue_sum
     @12[@7] = @3
     let @15 = (*_queue_sums).i in
     @15[@7] = i
-    return true
+    return
   }
 }
 
@@ -35,36 +35,28 @@ func run(out : mut i32[8]) -> void {
   let @2 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums_i_1) in
   sums_queue[1u] = @2
   parfor i in [0:8:1] {
-    let @5 = fill(i, 0, out, i, (&sums_queue[0u])) in
-    if (@5) {
-      continue
-    } else {
-      continue
-    }
+    fill(i, 0, out, i, (&sums_queue[0u]))
+    continue
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @7 = (*sums!round) & 1u in
-    let @9 = sums_queue[(*sums!round) & 1u].count in
-    let @11 = @7 ^ 1u in
-    sums_queue[@11].count = 0u
-    parfor sums in [0u:@9:1u] {
-      let @12 = (&sums_queue[@11]) in
-      let @16 = sums_queue[@7].n in
-      let @17 = @16[sums] in
-      let @19 = sums_queue[@7].acc in
-      let @20 = @19[sums] in
-      let @22 = sums_queue[@7].i in
-      let @23 = @22[sums] in
-      let @24 = fill(@17, @20, out, @23, @12) in
-      if (@24) {
-        continue
-      } else {
-        continue
-      }
+    let @6 = (*sums!round) & 1u in
+    let @8 = sums_queue[(*sums!round) & 1u].count in
+    let @10 = @6 ^ 1u in
+    sums_queue[@10].count = 0u
+    parfor sums in [0u:@8:1u] {
+      let @11 = (&sums_queue[@10]) in
+      let @15 = sums_queue[@6].n in
+      let @16 = @15[sums] in
+      let @18 = sums_queue[@6].acc in
+      let @19 = @18[sums] in
+      let @21 = sums_queue[@6].i in
+      let @22 = @21[sums] in
+      fill(@16, @19, out, @22, @11)
+      continue
     }
-    let @6 = (*sums!round) + 1u in
-    sums!round = @6
+    let @5 = (*sums!round) + 1u in
+    sums!round = @5
   }
   return
 }

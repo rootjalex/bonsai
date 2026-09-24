@@ -6,8 +6,8 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @fill(i32 noundef %n, i32 noundef %acc, ptr nofree noundef writeonly captures(none) %out, i32 noundef %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #0 {
 fill:
-  %0 = icmp sgt i32 %n, 0
-  br i1 %0, label %"!merge_1", label %"!then_0"
+  %0 = icmp slt i32 %n, 1
+  br i1 %0, label %"!then_0", label %"!merge_1"
 
 common.ret:                                       ; preds = %"!merge_1", %"!then_0"
   ret void
@@ -72,15 +72,15 @@ run:
   call fastcc void @fill(i32 5, i32 0, ptr %out, i32 5, ptr %sums_queue1129)
   call fastcc void @fill(i32 6, i32 0, ptr %out, i32 6, ptr %sums_queue1129)
   call fastcc void @fill(i32 7, i32 0, ptr %out, i32 7, ptr %sums_queue1129)
-  %"@8.count46" = load i32, ptr %sums_queue1129, align 16
-  %0 = icmp eq i32 %"@8.count46", 0
+  %"@7.count46" = load i32, ptr %sums_queue1129, align 16
+  %0 = icmp eq i32 %"@7.count46", 0
   br i1 %0, label %"!par_cont_1", label %"sums!batch"
 
 "!par_cont_1":                                    ; preds = %sums1_pf_exit, %run
   ret void
 
 "sums!batch":                                     ; preds = %run, %sums1_pf_exit
-  %"@8.count49" = phi i32 [ %"@8.count", %sums1_pf_exit ], [ %"@8.count46", %run ]
+  %"@7.count49" = phi i32 [ %"@7.count", %sums1_pf_exit ], [ %"@7.count46", %run ]
   %extract_ptr48 = phi ptr [ %extract_ptr, %sums1_pf_exit ], [ %sums_queue1129, %run ]
   %1 = phi i32 [ %7, %sums1_pf_exit ], [ 0, %run ]
   %"sums!round247" = phi i32 [ %6, %sums1_pf_exit ], [ 0, %run ]
@@ -107,7 +107,7 @@ run:
   %extract28 = load i32, ptr %extract_ptr27, align 4
   call fastcc void @fill(i32 %extract19, i32 %extract23, ptr %out, i32 %extract28, ptr %sums_queue14)
   %5 = add nuw i32 %sums45, 1
-  %exitcond.not = icmp eq i32 %5, %"@8.count49"
+  %exitcond.not = icmp eq i32 %5, %"@7.count49"
   br i1 %exitcond.not, label %sums1_pf_exit, label %"sums!run", !prof !5
 
 sums1_pf_exit:                                    ; preds = %"sums!run"
@@ -115,8 +115,8 @@ sums1_pf_exit:                                    ; preds = %"sums!run"
   %7 = and i32 %6, 1
   %8 = zext nneg i32 %7 to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1129, i64 %8
-  %"@8.count" = load i32, ptr %extract_ptr, align 16
-  %9 = icmp eq i32 %"@8.count", 0
+  %"@7.count" = load i32, ptr %extract_ptr, align 16
+  %9 = icmp eq i32 %"@7.count", 0
   br i1 %9, label %"!par_cont_1", label %"sums!batch"
 }
 

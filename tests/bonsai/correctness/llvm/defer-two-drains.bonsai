@@ -1,0 +1,83 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue two drains feed: pbrt's material queues, pushed by the trace
+// kernel for a ray in no medium and by the medium kernel for a ray that came
+// through one. `trace_step` is the trace: a ray in a medium (x a multiple of
+// three) goes to `medium_step`, deferred onto `media`; any other goes to
+// `shade_step`, deferred onto `hits`. `medium_step` walks (adds x) and hands
+// the survivor to `shade_step` too -- so `hits` is pushed from the `rays`
+// drain and from the `media` drain, and each drain's iteration ends at its
+// call, which is what lets several drains feed one queue. `shade_step` spawns
+// a shadow ray and traces the next ray. A round is rays, media, hits,
+// shadows, as pbrt's Render loop runs TraceClosest,
+// SampleMediumInteraction, EvaluateMaterialsAndBSDFs, TraceShadowRays.
+//
+// Depth 3 from 1, 2, 3, 4. A trace adds x; a multiple of three adds x again
+// in the medium; the shade adds 2x for its shadow ray and traces 2x (x
+// even) or x + 1 (x odd) next; a depth of zero ends the ray.
+//   1: 1 +2, 2 +4, 4 +8 = 21          2: 2 +4, 4 +8, 8 +16 = 42
+//   3: 3 +3 +6, 4 +8, 8 +16 = 48      4: 4 +8, 8 +16, 16 +32 = 84
+// 21 + 42 + 48 + 84 = 195, which is also what the un-deferred program
+// prints.
+import stdlib/numerics;
+
+func shadow(x : i32) -> i32 {
+    return 2 * x;
+}
+
+func shade_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    spawn total += shadow(x);
+    if x % 2 == 0 {
+        trace_step(x * 2, depth - 1, total);
+        return;
+    }
+    trace_step(x + 1, depth - 1, total);
+    return;
+}
+
+func medium_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    total += x;
+    shade_step(x, depth, total);
+    return;
+}
+
+func trace_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    if depth == 0 {
+        return;
+    }
+    total += x;
+    if x % 3 == 0 {
+        medium_step(x, depth, total);
+        return;
+    }
+    shade_step(x, depth, total);
+    return;
+}
+
+func run(a : array[i32, 4], total : reduce(+) i32) -> void {
+    parfor i in 0:4 {
+        trace_step(a[i], 3, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[i32, 4] = {1, 2, 3, 4};
+    total : reduce(+) i32 = 0;
+    run(a, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(trace_step, rays);
+    shade_step.defer(trace_step, rays);
+    media = run.queue(root);
+    trace_step.defer(medium_step, media);
+    hits = run.queue(root);
+    trace_step.defer(shade_step, hits);
+    medium_step.defer(shade_step, hits);
+    shadows = run.queue(root);
+    shade_step.defer(shadow, shadows);
+}

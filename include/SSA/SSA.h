@@ -485,11 +485,13 @@ struct Function {
     // once every add is in, so that the read sees the whole sum: the join
     // `spawn` leaves implicit, pbrt's film pass after the last bounce.
     std::set<std::string> continuation_entries;
-    // The addresses of the reducer slots deferrals of this function have
-    // made (SSA/Defer.cpp): a per-iteration slot in place of a reducer local
-    // of the producer's iteration, which outlives every frame and so may be
-    // stored in a queue entry as the address it is.
-    std::set<const Instruction *> reducer_slots;
+    // The addresses of the record slots deferrals of this function have made
+    // (SSA/Defer.cpp): a per-iteration slot in place of a local of the
+    // producer's iteration -- a reducer's, or a mutable local the deferred
+    // call is handed -- and the slot for the deferred call's value. The
+    // record is pbrt's pixelSampleState: it outlives every frame, so its
+    // addresses may be stored in a queue entry as the addresses they are.
+    std::set<const Instruction *> record_slots;
 
     void dump(std::ostream &os) const;
 

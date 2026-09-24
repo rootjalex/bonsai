@@ -5,12 +5,13 @@
 // the caller, after the call, and `i` is the parfor's index, gone by the time
 // the drain runs the entry.
 //
-// What to read for: the entry has a field `i` beside the callee's `n` and
-// `acc`, which the callee leaves alone; `tally` returns a `Saved_` of flag,
-// slot and value; after its call the producer tests the flag and, when it
-// saved, writes `i` into the slot's entry before ending the iteration; and
-// the drain does the same for an entry that saves again, copying the `i` it
-// carried in, and otherwise runs `out[i] = value` with the entry's `i`.
+// What to read for: the record -- `sums_rest_i`, the iteration's `i`,
+// written by the producer before its call; `sums_result`, the recursion's
+// value, written by `tally` where it ends through the `_result_sums` slot
+// address it is handed and the entry carries -- and the pass `sums_rest`
+// after the rounds, which runs `out[i] = value` once per iteration with
+// both. The producer's iteration ends at the call, `tally` returns nothing,
+// and the drain runs an entry and goes on.
 func tally(n : i32, acc : i32) -> i32 {
   if (n <= 0) {
     return acc;

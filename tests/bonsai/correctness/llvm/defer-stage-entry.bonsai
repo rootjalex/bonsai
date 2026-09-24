@@ -4,9 +4,9 @@
 // `vol_path_step` through `integrator_li` and `li_vol_path`: the owner calls
 // `enter`, which makes the recursion's first call. `enter.defer(step, rays)`
 // beside `step.defer(step, rays)` pushes that first call onto rays (the
-// saved flag returns up the chain to the producer, which saves its frame
-// and skips), so the rays drain is the one place the chain is entered and
-// the staged `hits` has one producer (SSA/Defer.h, QueueSpec::also_from).
+// producer's iteration ends at its call, its rest waiting in the record's
+// pass), so the rays drain is the one place the chain is entered and the
+// staged `hits` has one producer (SSA/Defer.h, QueueSpec::also_from).
 import stdlib/numerics;
 
 func work(x : Float) -> Float {

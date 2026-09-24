@@ -3,12 +3,13 @@
 // `hits.specialize(kind)` in the SSA: the queue is two, `hits!Small` and
 // `hits!Large`, one array of queues the callee is handed whole; the push
 // in `step` reads the tag of what `classify` returned and dispatches to a
-// block per variant, each pushing onto its queue and returning saved with
-// the slot and the queue it is in, which is where the producer's frame
-// writes its `i`; the drain is one pass per queue in order, `hits!Small`
+// block per variant, each pushing onto its queue the entry with the path's
+// result slot; the drain is one pass per queue in order, `hits!Small`
 // calling `step!after!Small` -- the rest of `step` with `kind`'s tag set to
-// Small, its match folded to the one arm -- and `hits!Large` its own
-// (SSA/Defer.h, QueueSpec::split; SSA/Specialize.h).
+// Small, its match folded to the one arm -- and `hits!Large` its own, each
+// writing the value into the slot; and the pass `hits_rest` runs `out[i] =
+// value` with the record's `i` (SSA/Defer.h, QueueSpec::split;
+// SSA/Specialize.h).
 import stdlib/numerics;
 
 element Kind =

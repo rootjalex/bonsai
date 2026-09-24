@@ -258,6 +258,18 @@ bool is_side_effecty(Instruction::Op op) {
     }
 }
 
+// The base a store's chain of accesses bottoms out at: what a write through
+// it writes (ir::pointee_of) -- a pointer's pointee, or the gang's value of
+// it for one pointer per lane, which the backends store as a scatter
+// (CodeGen_LLVM::visit(const Store *)).
+Type base_pointee(const Type &type, const std::string &what) {
+    const Type pointee = pointee_of(type);
+    internal_assert(pointee.defined())
+        << what << ": expected to be pointer-typed, or a pointer per lane, "
+        << "got: " << type;
+    return pointee;
+}
+
 WriteLoc codegen_gep(const std::shared_ptr<Value> &v) {
     // Check if this is an instruction
     if (auto instr = std::get_if<std::shared_ptr<Instruction>>(&v->data)) {
@@ -312,12 +324,7 @@ WriteLoc codegen_gep(const std::shared_ptr<Value> &v) {
         if (i->type.is_reference()) {
             return WriteLoc(i->name, i->type);
         }
-        const Ptr_t *ptr_t = i->type.as<Ptr_t>();
-        internal_assert(ptr_t)
-            << "GEP base instruction: " << i->name
-            << " expected to be pointer-typed, got: " << i->type;
-
-        return WriteLoc(i->name, ptr_t->etype);
+        return WriteLoc(i->name, base_pointee(i->type, "GEP base instruction " + i->name));
     }
 
     // Argument base case: same pointer-typed assumption as above, since
@@ -327,12 +334,8 @@ WriteLoc codegen_gep(const std::shared_ptr<Value> &v) {
         if (arg->type.is_reference()) {
             return WriteLoc(arg->name, arg->type);
         }
-        const Ptr_t *ptr_t = arg->type.as<Ptr_t>();
-        internal_assert(ptr_t)
-            << "GEP base argument: " << arg->name
-            << " expected to be pointer-typed, got: " << arg->type;
-
-        return WriteLoc(arg->name, ptr_t->etype);
+        return WriteLoc(arg->name,
+                        base_pointee(arg->type, "GEP base argument " + arg->name));
     }
 
     v->dump(std::cerr);

@@ -6,10 +6,11 @@
 // does with it -- store it to `res`, a parameter of its own -- is the
 // continuation the drain runs for the entry that finishes.
 //
-// What to read for: the recursion returns a `Saved_` struct of flag and value;
-// `compute` tests the flag after its own call and runs the store only when the
-// value came back, and its drain does the same for every entry; the queue is
-// of one entry.
+// What to read for: the recursion returns nothing and writes its value into
+// the one slot of `queue_result` where it ends; `compute`'s call goes
+// straight to the drain, and the store to `res` runs in the pass
+// `queue_rest` over the one record after the rounds; the queue is of one
+// entry.
 func stupid_sum(i : i32, n : i32, a : array[f32, n], acc : f32) -> f32 {
     if i == n {
         return acc;

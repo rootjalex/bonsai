@@ -35,7 +35,7 @@ run:
   ret void
 
 "sums!batch":                                     ; preds = %"sums!round.preheader", %sums_gang1_pf_exit
-  %"@9.count54" = phi i32 [ %"@9.count", %sums_gang1_pf_exit ], [ %"@9.count51", %"sums!round.preheader" ]
+  %"@8.count54" = phi i32 [ %"@8.count", %sums_gang1_pf_exit ], [ %"@8.count51", %"sums!round.preheader" ]
   %extract_ptr53 = phi ptr [ %extract_ptr, %sums_gang1_pf_exit ], [ %sums_queue1134, %"sums!round.preheader" ]
   %0 = phi i32 [ %11, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
   %"sums!round252" = phi i32 [ %10, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
@@ -43,7 +43,7 @@ run:
   %2 = zext nneg i32 %1 to i64
   %sums_queue14 = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1134, i64 %2
   store i32 0, ptr %sums_queue14, align 16, !tbaa !0
-  %.splatinsert = insertelement <16 x i32> poison, i32 %"@9.count54", i64 0
+  %.splatinsert = insertelement <16 x i32> poison, i32 %"@8.count54", i64 0
   %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
   %extract23.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr53, i64 8
   %extract23.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr53, i64 16
@@ -51,8 +51,8 @@ run:
   br label %"sums!run_step_sums_lane"
 
 "sums!round.preheader":                           ; preds = %"!par_body_0"
-  %"@9.count51" = load i32, ptr %sums_queue1134, align 16
-  %3 = icmp eq i32 %"@9.count51", 0
+  %"@8.count51" = load i32, ptr %sums_queue1134, align 16
+  %3 = icmp eq i32 %"@8.count51", 0
   br i1 %3, label %"!par_cont_1", label %"sums!batch"
 
 "!par_body_0":                                    ; preds = %run, %"!par_body_0"
@@ -77,8 +77,8 @@ sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sum
   %11 = and i32 %10, 1
   %12 = zext nneg i32 %11 to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1134, i64 %12
-  %"@9.count" = load i32, ptr %extract_ptr, align 16
-  %13 = icmp eq i32 %"@9.count", 0
+  %"@8.count" = load i32, ptr %extract_ptr, align 16
+  %13 = icmp eq i32 %"@8.count", 0
   br i1 %13, label %"!par_cont_1", label %"sums!batch"
 
 "sums!run_step_sums_lane":                        ; preds = %"sums!batch", %"sums!run_yield_sums_gang"
@@ -107,15 +107,15 @@ sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sum
 
 "sums!run_yield_sums_gang":                       ; preds = %"sums!run", %"sums!run_step_sums_lane"
   %18 = add i32 %sums_gang50, 16
-  %19 = icmp ult i32 %18, %"@9.count54"
+  %19 = icmp ult i32 %18, %"@8.count54"
   br i1 %19, label %"sums!run_step_sums_lane", label %sums_gang1_pf_exit, !prof !4
 }
 
 ; Function Attrs: mustprogress noinline norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @walk(i32 noundef %n, ptr nofree noundef writeonly captures(none) %out, i32 noundef range(i32 -2147483648, 40) %i, ptr nofree noundef nonnull captures(none) %_queue_sums) unnamed_addr #0 {
 walk:
-  %0 = icmp sgt i32 %n, 0
-  br i1 %0, label %"!merge_1", label %"!then_0"
+  %0 = icmp slt i32 %n, 1
+  br i1 %0, label %"!then_0", label %"!merge_1"
 
 common.ret:                                       ; preds = %"!merge_1", %"!then_0"
   ret void
@@ -176,16 +176,16 @@ define internal fastcc void @"walk$gang16_v0_v1_v3$masked"(<16 x i32> noundef %n
   %11 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 8
   %n1 = load ptr, ptr %11, align 8
   %12 = sext i32 %10 to i64
-  %"@23" = getelementptr inbounds [4 x i8], ptr %n1, i64 %12
-  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %6, ptr align 4 %"@23", <16 x i1> %1)
+  %"@19" = getelementptr inbounds [4 x i8], ptr %n1, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %6, ptr align 4 %"@19", <16 x i1> %1)
   %13 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 16
   %acc3 = load ptr, ptr %13, align 8
-  %"@26" = getelementptr inbounds [4 x i8], ptr %acc3, i64 %12
-  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %7, ptr align 4 %"@26", <16 x i1> %1)
+  %"@22" = getelementptr inbounds [4 x i8], ptr %acc3, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %7, ptr align 4 %"@22", <16 x i1> %1)
   %14 = getelementptr inbounds nuw i8, ptr %_queue_sums, i64 24
   %i5 = load ptr, ptr %14, align 8
-  %"@29" = getelementptr inbounds [4 x i8], ptr %i5, i64 %12
-  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %i, ptr align 4 %"@29", <16 x i1> %1)
+  %"@25" = getelementptr inbounds [4 x i8], ptr %i5, i64 %12
+  tail call void @llvm.masked.compressstore.v16i32.p0(<16 x i32> %i, ptr align 4 %"@25", <16 x i1> %1)
   br label %"!return"
 
 "!return":                                        ; preds = %"!merge_1", %"!merge_1!any"

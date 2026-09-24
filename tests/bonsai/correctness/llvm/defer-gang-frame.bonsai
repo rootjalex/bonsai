@@ -1,15 +1,15 @@
 //! flags: -p ssa -b llvm -e
 
-// The gang drain with the producer's own state in the entry (see
+// The gang drain with the producer's own state in the record (see
 // correctness/llvm/defer-frame for the scalar version). `tally` returns its
 // sum and the producer adds a value of its own iteration to it and writes
 // the result at its own index, both gone by the time the drain runs the
-// entry; so the callee's push returns the slot it took, the producer writes
-// its part there, and in the gang the slot is one per lane -- the frame's
-// write into a lane's own entry is a scatter, and so is the drain's when an
-// entry saves again. Forty entries, n = i % 7, so the batches thin out round
-// by round through the compacting push and the last round is a partial
-// gang.
+// entry; so the record keeps the iteration's value, written before the
+// call, and the gang's entries carry the record's result addresses, one per
+// lane -- a lane's write of its sum where its path ends is a scatter -- and
+// the pass over the record does the add and the store once per iteration.
+// Forty entries, n = i % 7, so the batches thin out round by round through
+// the compacting push and the last round is a partial gang.
 func tally(n : i32, acc : i32) -> i32 {
     if (n <= 0) {
         return acc;

@@ -758,6 +758,18 @@ std::optional<uint32_t> widened_lanes(const Type &type) {
     return lanes == 0 ? std::nullopt : std::optional<uint32_t>(lanes);
 }
 
+Type pointee_of(const Type &type) {
+    if (const Ptr_t *ptr_t = type.as<Ptr_t>()) {
+        return ptr_t->etype;
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        if (const Ptr_t *ptr_t = v->etype.as<Ptr_t>()) {
+            return widen(ptr_t->etype, v->lanes);
+        }
+    }
+    return Type();
+}
+
 Type narrow(const Type &type, uint32_t lanes) {
     if (const Vector_t *v = type.as<Vector_t>()) {
         internal_assert(v->lanes == lanes)

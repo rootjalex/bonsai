@@ -1,11 +1,9 @@
-type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; @24 : i32 }
-type Entry_rays = struct Entry_rays{ x : f32; n : i32; i : i32 }
+type Entry_hits = struct Entry_hits{ @0 : f32; n : i32; _result_rays : (f32*) }
+type Entry_rays = struct Entry_rays{ x : f32; n : i32; _result : (f32*) }
 type Float = f32
 type Half = f16
-type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; @24 : i32[] }
-type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; i : i32[] }
-type Saved_step = struct Saved_step{ saved : bool; slot : u32; value : f32 }
-type Saved_step!after = struct Saved_step!after{ saved : bool; slot : u32; value : struct Saved_step{ saved : bool; slot : u32; value : f32 } }
+type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; n : i32[]; _result_rays : (f32*)[] }
+type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; _result : (f32*)[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -13,128 +11,107 @@ type vec4f = f32x4
 
 func [[noinline]] run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   rays!round : mut u32
+  rays_rest_i : mut i32[8]
+  rays_result : mut f32[8]
   rays_x : mut f32[8]
   rays_n : mut i32[8]
-  rays_i : mut i32[8]
+  rays__result : mut (f32*)[8]
   rays_queue : mut Queue_rays
-  let @4 = build<Queue_rays>(0u, rays_x, rays_n, rays_i) in
+  let @4 = build<Queue_rays>(0u, rays_x, rays_n, rays__result) in
   rays_queue = @4
   hits_@0 : mut f32[8]
   hits_n : mut i32[8]
-  hits_@24 : mut i32[8]
+  hits__result_rays : mut (f32*)[8]
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @45 = i >> 31 in
-    let @46 = reinterpret_cast<u32>(@45) in
-    let @47 = @46 >> 30u in
-    let @48 = reinterpret_cast<i32>(@47) in
-    let @49 = i + @48 in
-    let @50 = @49 >> 2 in
-    let @51 = @50 * 4 in
-    let @1 = i - @51 in
-    let @10 = build<Entry_rays>(@0, @1, undef) in
-    let @53 = atomic_add((&(*rays_queue).count), 1u) in
-    let @55 = (*rays_queue).x in
-    @55[@53] = @0
-    let @58 = (*rays_queue).n in
-    @58[@53] = @1
-    let @12 = build<Saved_step>(true, @53, undef) in
-    let @5 = @12 in
-    rays_i[@53] = i
+    let @28 = i >> 31 in
+    let @29 = reinterpret_cast<u32>(@28) in
+    let @30 = @29 >> 30u in
+    let @31 = reinterpret_cast<i32>(@30) in
+    let @32 = i + @31 in
+    let @33 = @32 >> 2 in
+    let @34 = @33 * 4 in
+    let @1 = i - @34 in
+    rays_rest_i[i] = i
+    let @7 = build<Entry_rays>(@0, @1, (&rays_result[i])) in
+    let @36 = atomic_add((&(*rays_queue).count), 1u) in
+    let @38 = (*rays_queue).x in
+    @38[@36] = @0
+    let @41 = (*rays_queue).n in
+    @41[@36] = @1
+    let @44 = (*rays_queue)._result in
+    @44[@36] = (&rays_result[i])
     continue
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @16 = (*rays_queue).count in
+    let @11 = (*rays_queue).count in
     rays_queue.count = 0u
-    let @27 = build<Queue_hits>(0u, hits_@0, hits_n, hits_@24) in
-    hits_queue = @27
-    parfor rays in [0u:@16:1u] {
-      let @19 = rays_x[rays] in
-      let @20 = rays_n[rays] in
-      let @24 = rays_i[rays] in
-      let @28 = step(@19, @20, k, rays_queue, hits_queue) in
-      let @29 = @28.saved in
-      let @30 = @28.value in
-      if (@29) {
-        let @31 = @28.slot in
-        hits_@24[@31] = @24
-        continue
-      } else {
-        let @21 = @30 in
-        let @22 = @21.saved in
-        let @23 = @21.value in
-        if (@22) {
-          let @25 = @21.slot in
-          rays_i[@25] = @24
-          continue
-        } else {
-          let @2 = @23 in
-          let i = @24 in
-          out[i] = @2
-          continue
-        }
-      }
+    let @21 = build<Queue_hits>(0u, hits_@0, hits_n, hits__result_rays) in
+    hits_queue = @21
+    parfor rays in [0u:@11:1u] {
+      let @14 = rays_x[rays] in
+      let @15 = rays_n[rays] in
+      let @16 = rays__result[rays] in
+      step(@14, @15, k, rays_queue, @16, hits_queue)
+      continue
     }
-    let @38 = (*hits_queue) in
-    let @39 = @38.count in
-    parfor hits in [0u:@39:1u] {
-      let @40 = hits_@0[hits] in
-      let @41 = hits_n[hits] in
-      let @43 = hits_@24[hits] in
-      let @42 = step!after(@40, @41, k, rays_queue) in
-      let @21 = @42 in
-      let @24 = @43 in
-      let @33 = @21.saved in
-      let @34 = @21.value in
-      if (@33) {
-        let @35 = @21.slot in
-        rays_i[@35] = @24
-        continue
-      } else {
-        let @2 = @34 in
-        let i = @43 in
-        out[i] = @2
-        continue
-      }
+    let @22 = (*hits_queue) in
+    let @23 = @22.count in
+    parfor hits in [0u:@23:1u] {
+      let @24 = hits_@0[hits] in
+      let @25 = hits_n[hits] in
+      let @26 = hits__result_rays[hits] in
+      step!after(@24, @25, k, @26, rays_queue)
+      continue
     }
     hits_queue.count = 0u
-    let @14 = (*rays!round) + 1u in
-    rays!round = @14
+    let @9 = (*rays!round) + 1u in
+    rays!round = @9
+  }
+  parfor rays_rest in [0:8:1] {
+    let @18 = rays_result[rays_rest] in
+    let @20 = rays_rest_i[rays_rest] in
+    let @2 = @18 in
+    let i = @20 in
+    out[i] = @2
+    continue
   }
   return
 }
 
-func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _queue_hits : mut (Queue_hits*)) -> Saved_step!after {
+func [[noinline]] step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _queue_hits : mut (Queue_hits*)) -> void {
   let @0 = work(x) in
-  let @9 = build<Entry_hits>(@0, n, undef) in
-  let @13 = atomic_add((&(*_queue_hits).count), 1u) in
-  let @15 = (*_queue_hits).@0 in
-  @15[@13] = @0
-  let @18 = (*_queue_hits).n in
-  @18[@13] = n
-  let @11 = build<Saved_step!after>(true, @13, undef) in
-  return @11
+  let @7 = build<Entry_hits>(@0, n, _result_rays) in
+  let @10 = atomic_add((&(*_queue_hits).count), 1u) in
+  let @12 = (*_queue_hits).@0 in
+  @12[@10] = @0
+  let @15 = (*_queue_hits).n in
+  @15[@10] = n
+  let @18 = (*_queue_hits)._result_rays in
+  @18[@10] = _result_rays
+  return
 }
 
-func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*)) -> Saved_step {
+func [[noinline]] step!after(@0 : f32, n : i32, k : f32, _result_rays : mut (f32*), _queue_rays : mut (Queue_rays*)) -> void {
   let r = @0 in
   let @1 = n == 0 in
   if (@1) {
     let @2 = r + k in
-    let @5 = build<Saved_step>(false, undef, @2) in
-    return @5
+    _result_rays = @2
+    return
   } else {
     let @3 = n - 1 in
-    let @6 = build<Entry_rays>(r, @3, undef) in
-    let @10 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @12 = (*_queue_rays).x in
-    @12[@10] = r
-    let @15 = (*_queue_rays).n in
-    @15[@10] = @3
-    let @8 = build<Saved_step>(true, @10, undef) in
-    return @8
+    let @5 = build<Entry_rays>(r, @3, _result_rays) in
+    let @8 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @10 = (*_queue_rays).x in
+    @10[@8] = r
+    let @13 = (*_queue_rays).n in
+    @13[@8] = @3
+    let @16 = (*_queue_rays)._result in
+    @16[@8] = _result_rays
+    return
   }
 }
 

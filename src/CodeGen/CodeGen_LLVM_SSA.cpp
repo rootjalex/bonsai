@@ -243,26 +243,30 @@ struct CodeGen_LLVM::SSALowering {
                 return loc;
             }
             // The base a chain of accesses bottoms out at: an array handle is
-            // its own address, anything else is a pointer whose pointee is what
-            // a store's location records (see the relooper's codegen_gep).
+            // its own address, anything else is a pointer -- or one pointer
+            // per lane, written as a scatter -- whose pointee is what a
+            // store's location records (ir::pointee_of; see the relooper's
+            // codegen_gep).
             internal_assert(!instr->name.empty())
                 << "cannot form a store location from an unnamed instruction";
             if (instr->type.is_reference()) {
                 return WriteLoc(instr->name, instr->type);
             }
-            const Ptr_t *ptr_t = instr->type.as<Ptr_t>();
-            internal_assert(ptr_t) << "a store's base " << instr->name
-                                   << " is not pointer-typed: " << instr->type;
-            return WriteLoc(instr->name, ptr_t->etype);
+            const Type pointee = pointee_of(instr->type);
+            internal_assert(pointee.defined())
+                << "a store's base " << instr->name
+                << " is not pointer-typed, nor a pointer per lane: " << instr->type;
+            return WriteLoc(instr->name, pointee);
         }
         if (const auto *a = std::get_if<Argument>(&v->data)) {
             if (a->type.is_reference()) {
                 return WriteLoc(a->name, a->type);
             }
-            const Ptr_t *ptr_t = a->type.as<Ptr_t>();
-            internal_assert(ptr_t) << "a store's base argument " << a->name
-                                   << " is not pointer-typed: " << a->type;
-            return WriteLoc(a->name, ptr_t->etype);
+            const Type pointee = pointee_of(a->type);
+            internal_assert(pointee.defined())
+                << "a store's base argument " << a->name
+                << " is not pointer-typed, nor a pointer per lane: " << a->type;
+            return WriteLoc(a->name, pointee);
         }
         internal_error << "A constant is not somewhere a store can go";
         return WriteLoc();

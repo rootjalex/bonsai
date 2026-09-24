@@ -15,33 +15,29 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   q_queue = @1
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @2 = step(@0, out, i, q_queue) in
-    if (@2) {
-      continue
-    } else {
-      continue
-    }
+    step(@0, out, i, q_queue)
+    continue
   }
-  let @3 = (*q_queue) in
-  let @4 = @3.count in
-  parfor q in [0u:@4:1u] {
-    let @5 = q_x[q] in
-    let @6 = q_i[q] in
-    step!work!k(@5, out, @6)
+  let @2 = (*q_queue) in
+  let @3 = @2.count in
+  parfor q in [0u:@3:1u] {
+    let @4 = q_x[q] in
+    let @5 = q_i[q] in
+    step!work!k(@4, out, @5)
     continue
   }
   q_queue.count = 0u
   return
 }
 
-func [[noinline]] step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> bool {
+func [[noinline]] step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> void {
   let @3 = build<Entry_q>(x, i) in
   let @6 = atomic_add((&(*_queue_q).count), 1u) in
   let @8 = (*_queue_q).x in
   @8[@6] = x
   let @11 = (*_queue_q).i in
   @11[@6] = i
-  return true
+  return
 }
 
 func [[noinline]] step!after(@0 : f32, out : mut f32[8], i : i32) -> void {
