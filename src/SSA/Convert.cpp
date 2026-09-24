@@ -1951,11 +1951,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             << "schedule block declares. Declare it: `"
                             << d.queue << " = <func>.queue(<loop>);`";
                         const std::string &callee = d.callee.names.back();
-                        // The owner deferring its own call onto the queue its
-                        // callee's deferral makes (`render.defer(step, rays)`
-                        // beside `step.defer(step, rays)`) is the initial
-                        // push, applied as part of the callee's deferral:
-                        // skipped here, and looked for there.
+                        // Every `f.defer(callee, q)` on one queue and one
+                        // callee is one deferral: a queue's entries are calls
+                        // of one function, and the functions that push them
+                        // are whichever the schedule named -- the trace
+                        // kernel's call of itself, the camera ray's, the
+                        // material kernel's call back. It is applied once, at
+                        // the callee's own directive (`callee.defer(callee,
+                        // q)`, a recursion's step) where there is one, else
+                        // at the first written; the owner's directive is the
+                        // initial push (`render.defer(step, rays)`,
+                        // QueueSpec::initial_push) and the other functions'
+                        // are the other pushers (QueueSpec::also_from). A
+                        // lone directive on a function off the chain is a
+                        // deferral of its own, queued where the call is made
+                        // (test correctness/llvm/defer-off-chain).
                         const auto directive_on = [&](const std::string &f) {
                             const auto ts = transforms.find(f);
                             if (ts == transforms.end()) {
@@ -1971,15 +1981,31 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                             return false;
                         };
-                        if (name != callee && directive_on(callee)) {
-                            // Another function's calls to the callee, pushed
-                            // onto the queue the callee's own deferral makes:
-                            // part of that deferral, which the chain analysis
-                            // would otherwise meet twice on one queue. With
-                            // no such deferral this is one of its own -- a
-                            // call to a function off the chain, queued where
-                            // it is made (test correctness/llvm/defer-off-chain).
-                            return;
+                        // The pushers other than the owner, in the order
+                        // written.
+                        std::vector<std::string> pushers;
+                        for (const auto &[f, i] : ordered) {
+                            if (f == q->second.owner || !fmap.contains(f) ||
+                                std::find(pushers.begin(), pushers.end(), f) !=
+                                    pushers.end()) {
+                                continue;
+                            }
+                            const auto *other =
+                                std::get_if<ir::Defer>(&transforms.at(f).at(i));
+                            if (other != nullptr && other->queue == d.queue &&
+                                !other->callee.names.empty() &&
+                                other->callee.names.back() == callee) {
+                                pushers.push_back(f);
+                            }
+                        }
+                        const std::string primary =
+                            pushers.empty() ? name
+                            : std::find(pushers.begin(), pushers.end(), callee) !=
+                                    pushers.end()
+                                ? callee
+                                : pushers.front();
+                        if (name != primary) {
+                            return; // part of the primary's deferral
                         }
                         QueueSpec spec;
                         spec.name = d.queue;
@@ -2012,13 +2038,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 }
                             }
                         }
-                        // The other functions' directives on this queue and
-                        // callee: not this one's own, which for a deferral
-                        // off the chain is another function's than the
-                        // callee's.
-                        for (const auto &[f, ts] : transforms) {
-                            if (f != name && f != callee &&
-                                f != q->second.owner && directive_on(f)) {
+                        // The other pushers: every function with a directive
+                        // on this queue and callee but the primary and the
+                        // owner.
+                        for (const std::string &f : pushers) {
+                            if (f != primary) {
                                 spec.also_from.push_back(f);
                             }
                         }

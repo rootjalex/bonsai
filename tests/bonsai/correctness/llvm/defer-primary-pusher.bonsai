@@ -1,0 +1,67 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue whose deferred function never calls itself: pbrt's trace kernel
+// as it is, which hands every hit to the material kernel and gets the next
+// ray back from it. The ray queue's pushers are the owner's first call and
+// the material kernel's call back; there is no `trace_step.defer(trace_step,
+// rays)` to hang the deferral on, so it is applied at the first pusher
+// written (`shade_step.defer(trace_step, rays)`), with the owner's directive
+// the initial push. The drain still runs in rounds, since the trace reaches
+// a pusher -- the material kernel -- and so an entry can produce an entry.
+//
+// Depth 3 from 1, 2, 3, 4. A trace adds x; the shade adds 2x for its shadow
+// ray and traces 2x (x even) or x + 1 (x odd) next; a depth of zero ends
+// the ray.
+//   1: 1 +2, 2 +4, 4 +8 = 21     2: 2 +4, 4 +8, 8 +16 = 42
+//   3: 3 +6, 4 +8, 8 +16 = 45    4: 4 +8, 8 +16, 16 +32 = 84
+// 21 + 42 + 45 + 84 = 192, which is also what the un-deferred program
+// prints.
+import stdlib/numerics;
+
+func shadow(x : i32) -> i32 {
+    return 2 * x;
+}
+
+func shade_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    spawn total += shadow(x);
+    if x % 2 == 0 {
+        trace_step(x * 2, depth - 1, total);
+        return;
+    }
+    trace_step(x + 1, depth - 1, total);
+    return;
+}
+
+func trace_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
+    if depth == 0 {
+        return;
+    }
+    total += x;
+    shade_step(x, depth, total);
+    return;
+}
+
+func run(a : array[i32, 4], total : reduce(+) i32) -> void {
+    parfor i in 0:4 {
+        trace_step(a[i], 3, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[i32, 4] = {1, 2, 3, 4};
+    total : reduce(+) i32 = 0;
+    run(a, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(trace_step, rays);
+    shade_step.defer(trace_step, rays);
+    hits = run.queue(root);
+    trace_step.defer(shade_step, hits);
+    shadows = run.queue(root);
+    shade_step.defer(shadow, shadows);
+}

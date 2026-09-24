@@ -1171,10 +1171,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                f.attributes.end();
     };
     for (const auto &[name, f] : funcs) {
+        const auto involved = [&](const string &g) {
+            return g == func_name || g == callee_name ||
+                   std::find(queue.also_from.begin(), queue.also_from.end(),
+                             g) != queue.also_from.end();
+        };
         internal_assert(!(has_attribute(*f, ir::Function::Attribute::vectorized) &&
-                          (name == func_name || name == callee_name ||
-                           f->specialized_from == func_name ||
-                           f->specialized_from == callee_name)))
+                          (involved(name) || involved(f->specialized_from))))
             << what << ": " << name << " is a vectorized gang's copy. A push "
             << "inside a gang has to compact the lanes that push, which is not "
             << "built; write the defer before the vectorize, and vectorize the "
@@ -1393,15 +1396,27 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
-    // The chain: every function on a call path from the owner to `func`.
+    // The pushers: the deferred function and the other pushers the schedule
+    // named. The chain: every function on a call path from the owner to a
+    // push -- the functions that hand the queue down and pass the flag back
+    // up.
+    const set<string> pushers(site_function.begin(), site_function.end());
     const set<string> from_owner = reachable_functions(funcs, queue.owner);
-    internal_assert(from_owner.contains(func_name))
-        << what << ": " << queue.owner << " never calls " << func_name
-        << ", directly or through other functions, so nothing it runs would "
-        << "push onto " << queue.name;
+    for (const string &g : pushers) {
+        internal_assert(from_owner.contains(g))
+            << what << ": " << queue.owner << " never calls " << g
+            << ", directly or through other functions, so nothing it runs "
+            << "would push onto " << queue.name;
+    }
     set<string> chain;
     for (const string &g : from_owner) {
-        if (g == func_name || reachable_functions(funcs, g).contains(func_name)) {
+        if (pushers.contains(g)) {
+            chain.insert(g);
+            continue;
+        }
+        const set<string> below = reachable_functions(funcs, g);
+        if (std::any_of(pushers.begin(), pushers.end(),
+                        [&](const string &p) { return below.contains(p); })) {
             chain.insert(g);
         }
     }
@@ -1543,7 +1558,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 if (cs.caller == queue.owner) {
                     continue;
                 }
-                if (cs.caller == func_name && callee == callee_name) {
+                if (pushers.contains(cs.caller) && callee == callee_name) {
                     continue; // a deferred call, checked above
                 }
                 const BlockMap cmap = make_block_map(funcs.at(cs.caller));
@@ -1863,8 +1878,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         invariant[callee_name].assign(C->blocks.front()->args.size(), true);
         origin[callee_name].resize(C->blocks.front()->args.size());
         // The deferred calls are calls of the callee whatever the chain holds.
-        for (const auto &site : sites) {
-            calls_into[callee_name].push_back(CallSite{func_name, site});
+        for (size_t s = 0; s < sites.size(); s++) {
+            calls_into[callee_name].push_back(CallSite{site_function[s], sites[s]});
         }
     }
     defs.emplace(queue.owner, Definitions(*O));
@@ -2852,7 +2867,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (cs.caller == queue.owner) {
                 continue;
             }
-            if (cs.caller == func_name && callee == callee_name) {
+            if (pushers.contains(cs.caller) && callee == callee_name) {
                 continue; // the deferred call: rewritten below
             }
             Terminator::Call &call = *cs.call();
@@ -2888,13 +2903,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (ret == nullptr || passthrough_returns.contains(block.get())) {
                 continue;
             }
-            if (g == func_name &&
-                std::any_of(sites.begin(), sites.end(),
-                            [&](const shared_ptr<Block> &site) {
-                                const auto &call = std::get<Terminator::Call>(
-                                    site->terminator.data);
-                                return call.cont.name == block->name;
-                            })) {
+            bool site_continuation = false;
+            for (size_t s = 0; s < sites.size() && !site_continuation; s++) {
+                const auto &call =
+                    std::get<Terminator::Call>(sites[s]->terminator.data);
+                site_continuation =
+                    site_function[s] == g && call.cont.name == block->name;
+            }
+            if (site_continuation) {
                 continue; // a deferred call's continuation: about to go
             }
             internal_assert(returns_value == (ret->value != nullptr))
