@@ -171,6 +171,17 @@ struct TokenStream {
 
     bool empty() const { return tokens.empty(); }
 
+    // How many tokens are left to consume: a position in the stream, which
+    // `truncate` returns a copy of the stream to (the tokens are held in
+    // reverse and consumed from the back, so the ones left are a prefix of
+    // the vector).
+    size_t remaining() const { return tokens.size(); }
+    void truncate(size_t left) {
+        if (left < tokens.size()) {
+            tokens.erase(tokens.begin() + left, tokens.end());
+        }
+    }
+
     // Applies any necessary changes required for consumption. Note: this
     // method is *not* idempotent.
     void finalize_for_consumption() {

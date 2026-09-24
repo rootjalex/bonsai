@@ -543,9 +543,134 @@ struct Parser {
     }
 
     void parse_program_stream() {
+        originals.push_back(tokens());
+        headers.emplace_back();
+        index_functions();
         while (!tokens().empty()) {
             parse_program_element();
         }
+        headers.pop_back();
+        originals.pop_back();
+    }
+
+    // A function may call one declared after it -- two that call each other
+    // in particular, which a program written as a ring of kernels is: the
+    // material kernel hands the next ray back to the trace kernel. Before a
+    // file's bodies are parsed, where each of its `func` headers begins is
+    // indexed; when a call names a function not yet declared, its signature
+    // is read from there and then, so that the types it names -- the file's
+    // own elements and aliases, declared above it -- are known by the time
+    // they are needed (declare_ahead). Only a function with a stated return
+    // type can be declared ahead: a call to one without is refused by name,
+    // since the type of the call is the body's to infer and the body has
+    // not been read. The stream is held in reverse and consumed from the
+    // back, so a copy of the file's stream truncated to what was left at the
+    // header is the header and what follows it.
+    std::vector<TokenStream> originals;             // one per file being parsed
+    std::vector<std::map<std::string, size_t>> headers; // name -> tokens left at `func`
+    std::set<std::string> predeclared;
+    std::set<std::string> declared_without_type;
+
+    void index_functions() {
+        TokenStream copy = tokens();
+        while (!copy.empty()) {
+            const size_t at = copy.remaining();
+            if (!copy.consume(Token::Type::FUNC)) {
+                copy.skip();
+                continue;
+            }
+            // Past the attributes to the name.
+            if (copy.consume(Token::Type::LBRACKET)) {
+                while (!copy.empty() && !copy.consume(Token::Type::RBRACKET)) {
+                    copy.skip();
+                }
+                copy.consume(Token::Type::RBRACKET);
+            }
+            const Token name = copy.peek(0);
+            if (name.type == Token::Type::IDENTIFIER) {
+                headers.back().emplace(std::get<std::string>(name.value), at);
+            }
+        }
+    }
+
+    // Declares `name` from its header later in the file, if there is one;
+    // whether the name is a function after this.
+    bool ensure_declared(const std::string &name) {
+        if (program.funcs.contains(name)) {
+            return true;
+        }
+        // A builtin, and a geometric intrinsic the file defines under a
+        // builtin's name (`func transform(...)`), are not functions of the
+        // program's; parse_function treats them apart.
+        if (headers.empty() || is_builtin(name) || is_geometric_intrinsic(name)) {
+            return false;
+        }
+        const auto it = headers.back().find(name);
+        if (it == headers.back().end() || declared_without_type.contains(name)) {
+            return false;
+        }
+        // The header, read in a stream of its own, with the function being
+        // parsed set aside and restored: its frames give way to an empty
+        // stack (a declaration may not repeat a name in any open frame, and
+        // the header's parameters may well repeat the body's), and what the
+        // header declares -- argument names, generics -- is dropped with it;
+        // parse_function reads the header again for real.
+        TokenStream at = originals.back();
+        at.truncate(it->second);
+        context.push_back(std::move(at));
+        const auto saved_used = used_names;
+        const auto saved_generics = current_generics;
+        const bool saved_renaming = renaming_declarations;
+        auto saved_frames = std::move(frames);
+        frames = ir::MapStack<std::string, FunctionVariable>{};
+
+        expect(Token::Type::FUNC);
+        std::vector<ir::Function::Attribute> attributes;
+        if (context.size() > 2) { // the file itself is an import
+            attributes.push_back(ir::Function::Attribute::imported);
+        }
+        if (consume(Token::Type::LBRACKET) && consume(Token::Type::LBRACKET)) {
+            const std::string attribute = get_id();
+            if (attribute == "export") {
+                attributes.push_back(ir::Function::Attribute::exported);
+            } else if (attribute == "kernel") {
+                attributes.push_back(ir::Function::Attribute::kernel);
+            } else if (attribute == "inline") {
+                attributes.push_back(ir::Function::Attribute::always_inlined);
+            } else if (attribute == "noinline") {
+                attributes.push_back(ir::Function::Attribute::noinline);
+            }
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::RBRACKET);
+        }
+        const std::string found = get_id();
+        internal_assert(found == name) << found << " where " << name << " was indexed";
+        ir::Function::InterfaceList interfaces = parse_func_interfaces();
+        push_frame();
+        used_names.clear();
+        renaming_declarations = true;
+        std::vector<ir::Function::Argument> args = parse_func_args();
+        ir::Type ret_type;
+        if (consume(Token::Type::RARROW)) {
+            ret_type = parse_type();
+        }
+        pop_frame();
+
+        frames = std::move(saved_frames);
+        used_names = saved_used;
+        current_generics = saved_generics;
+        renaming_declarations = saved_renaming;
+        context.pop_back();
+
+        if (!ret_type.defined()) {
+            declared_without_type.insert(name);
+            return false;
+        }
+        program.funcs[name] = std::make_shared<ir::Function>(
+            name, std::move(args), std::move(ret_type), ir::Stmt(),
+            std::move(interfaces), std::move(attributes));
+        predeclared.insert(name);
+        return true;
     }
 
     void parse_program_element() {
@@ -1108,7 +1233,9 @@ struct Parser {
                 << " is a builtin function or intrinsic, cannot redefine.";
         }
 
-        if (program.funcs.contains(name)) {
+        // Declared ahead by predeclare_functions: the body is what is new.
+        const bool ahead = predeclared.erase(name) > 0;
+        if (program.funcs.contains(name) && !ahead) {
             report_error() << "Redefinition of func: " << name;
         }
 
@@ -1200,7 +1327,10 @@ struct Parser {
     // TODO(cgyurgyik): Need to eventually extend this to support struct methods
     // as well, e.g., `a.foo(1)`.
     std::optional<ir::Stmt> parse_call_statement(std::string id) {
-        if (!program.funcs.contains(id)) {
+        // A function declared later in the file counts, when the next token
+        // opens a call: a write to a variable of that name is not one.
+        const bool calls = peek().type == Token::Type::LPAREN && ensure_declared(id);
+        if (!calls && !program.funcs.contains(id)) {
             // Not a call at all -- a write to something, for whoever asked.
             return {};
         }
@@ -2293,7 +2423,7 @@ struct Parser {
         // ordinary identifier in another, and whichever it turns out to be
         // depends on what follows it -- which is exactly the confusion worth
         // not having. A layout that wants this field calls it `nCount`.
-        if (program.funcs.contains(name) || is_builtin(name) ||
+        if (ensure_declared(name) || is_builtin(name) ||
             variant_owners.contains(name)) {
             return parse_function_call(name);
         }
@@ -2352,6 +2482,13 @@ struct Parser {
             }
 
             // TODO: could be a ctor of a type?
+            if (declared_without_type.contains(name)) {
+                report_error()
+                    << "Unknown function call " << name << ": it is declared "
+                    << "later in the file without a return type, and a call "
+                    << "before its body is read has no type to take. Give "
+                    << name << " a return type (`-> T`), or declare it first.";
+            }
             report_error() << "Unknown function call " << name;
         } else if (peek().type == Token::Type::LSQUIGGLE &&
                    program.types.contains(name)) {

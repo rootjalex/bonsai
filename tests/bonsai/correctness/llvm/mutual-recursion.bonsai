@@ -1,0 +1,44 @@
+//! flags: -p ssa -b llvm -e
+
+// Two functions that call each other, the callee declared after its caller:
+// the parser reads every function's signature in the file before any body,
+// so a call may name a function declared later (predeclare_functions in
+// src/Parser/Parser.cpp). A program written as a ring of kernels -- the
+// material kernel handing the next ray back to the trace kernel -- is this
+// shape. is_even(7) is 0, is_even(10) is 1, hailstone steps from 6: 8.
+import stdlib/numerics;
+
+func is_even(n : i32) -> i32 {
+    if n == 0 {
+        return 1;
+    }
+    return is_odd(n - 1);
+}
+
+func is_odd(n : i32) -> i32 {
+    if n == 0 {
+        return 0;
+    }
+    return is_even(n - 1);
+}
+
+func steps_from(n : i32, steps : i32) -> i32 {
+    if n == 1 {
+        return steps;
+    }
+    if n % 2 == 0 {
+        return steps_from(n / 2, steps + 1);
+    }
+    return steps_from_odd(n, steps);
+}
+
+func steps_from_odd(n : i32, steps : i32) -> i32 {
+    return steps_from(3 * n + 1, steps + 1);
+}
+
+func main() -> i32 {
+    print(is_even(7));
+    print(is_even(10));
+    print(steps_from(6, 0));
+    return 0;
+}
