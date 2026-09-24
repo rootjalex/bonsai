@@ -248,17 +248,6 @@ void edit_argument(Block &block, const string &name,
                block.terminator.data);
 }
 
-// Renames the argument `from` of `block` to `to`, wherever the block holds a
-// copy of it, its lookup included.
-void rename_argument(Block &block, const string &from, const string &to) {
-    edit_argument(block, from, [&](Argument &a) { a.name = to; });
-    if (const auto it = block.lookups.find(from); it != block.lookups.end()) {
-        auto value = it->second;
-        block.lookups.erase(it);
-        block.lookups[to] = std::move(value);
-    }
-}
-
 // Whether an operation computes its result from its operands alone, so that
 // a copy of it elsewhere, given the same operands, gives the same value. A
 // read of memory is not one -- except through a pointer nothing writes,
@@ -758,372 +747,6 @@ shared_ptr<Value> rebuild(
         return next_leaf(type);
     }
     return emit(type, Instruction::Op::MakeStruct, std::move(parts));
-}
-
-// Points every edge of `block`'s terminator that goes to `from` at `to`
-// instead, the arguments as they were.
-void retarget(Block &block, const string &from, const string &to) {
-    const auto fix = [&](Terminator::Jump &j) {
-        if (j.name == from) {
-            j.name = to;
-        }
-    };
-    std::visit(overloads{
-                   [&](std::monostate &) {},
-                   [&](Terminator::Jump &j) { fix(j); },
-                   [&](Terminator::Dispatch &d) {
-                       for (auto &t : d.targets) {
-                           fix(t);
-                       }
-                   },
-                   [&](Terminator::Return &) {},
-                   [&](Terminator::ParFor &p) {
-                       fix(p.body);
-                       fix(p.cont);
-                   },
-                   [&](Terminator::Yield &) {},
-                   [&](Terminator::Call &c) { fix(c.cont); },
-                   [&](Terminator::MultiCall &c) { fix(c.cont); },
-               },
-               block.terminator.data);
-}
-
-// The join a spawned deferral leaves implicit. `spawn acc += f(...)` says
-// the value goes into the reducer and nothing waits for it; what does wait,
-// by the rules of a reducer, is whoever reads the reducer -- the producer's
-// continuation, which reads the path's radiance to write the film. Deferred,
-// the spawned calls run in a drain that comes after the continuation would
-// have: a path that ends in a round has its shadow ray traced at the end of
-// that round, after the material drain that ended the path ran the
-// continuation. So every place the owner runs a continuation that reads a
-// reducer (Function::continuation_entries) becomes a push of the
-// continuation's arguments onto a queue of its own, `<queue>_done`, and one
-// pass over that queue runs the continuation from `at` on -- the block that
-// comes after every round of the drains, or after the spawned drain when
-// there are no rounds. pbrt has the same two things by construction: its
-// per-sample state (`pixelSampleState`) outlives the bounces, and its film
-// write is a pass of its own after the last of them (`UpdateFilm`). What the
-// entry carries is what the continuation took: a value of the drain's
-// iteration as itself; a mutable local of the iteration as its contents,
-// given a local of the pass's own to run with; a reducer's address as the
-// address; and nothing for a value in scope where the pass runs.
-void join_continuations(const shared_ptr<Function> &O, const string &what,
-                        const string &qname, const shared_ptr<Value> &size,
-                        const shared_ptr<Block> &alloc_point,
-                        const shared_ptr<Block> &at, vector<Type> &made) {
-    Function &F = *O;
-    const BlockMap omap = make_block_map(O);
-    Definitions defs(F);
-    const Block &oentry = *F.blocks.front();
-
-    // Whether a definition is a reducer's address: a slot a deferral made,
-    // or a reducer the owner was handed.
-    const auto reducer_address = [&](const Definition &d) {
-        if (!d.value) {
-            return false;
-        }
-        if (const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data)) {
-            return F.record_slots.contains(di->get());
-        }
-        if (const auto *da = std::get_if<Argument>(&d.value->data);
-            da != nullptr && d.block == oentry.name) {
-            for (const Argument &p : oentry.args) {
-                if (p.name == da->name) {
-                    return p.reducer;
-                }
-            }
-        }
-        return false;
-    };
-
-    // The continuations still there, and whether any reads a reducer.
-    vector<shared_ptr<Block>> entries;
-    bool reads = false;
-    for (const string &name : F.continuation_entries) {
-        const auto it = omap.find(name);
-        if (it == omap.end()) {
-            continue;
-        }
-        entries.push_back(it->second);
-        for (const auto &block : region_from(F, name)) {
-            for (const auto &in : block->instrs) {
-                if (in->op != Instruction::Op::Load || in->operands.size() != 1) {
-                    continue;
-                }
-                const Definition d = defs.of(block->name, in->operands[0]);
-                if (reducer_address(d)) {
-                    reads = true;
-                }
-                // A pointer this form cannot trace to its definition -- a
-                // merge -- might be one; taken to be, rather than the read
-                // left where it is.
-                const auto *da = d.value ? std::get_if<Argument>(&d.value->data) : nullptr;
-                if (da != nullptr && d.block != oentry.name && holds_address(da->type)) {
-                    reads = true;
-                }
-            }
-        }
-    }
-    if (!reads || entries.empty()) {
-        return;
-    }
-    for (const auto &K : entries) {
-        for (const auto &block : region_from(F, K->name)) {
-            internal_assert(
-                !std::holds_alternative<Terminator::Return>(block->terminator.data))
-                << "[unimplemented] " << what << ": the continuation at "
-                << K->name << " reads a reducer the spawned calls add into, "
-                << "and returns from " << F.blocks.front()->name << " (in "
-                << block->name << "): it has to run after the drain, which is "
-                << "built for a continuation that ends a loop iteration.";
-        }
-    }
-
-    // One signature: the continuations are copies of one another. A copy of
-    // the arguments, since the first continuation's own are renamed below
-    // and the names are needed as they were.
-    const vector<Argument> sig = entries.front()->args;
-    for (const auto &K : entries) {
-        internal_assert(K->args.size() == sig.size())
-            << what << ": the continuations " << entries.front()->name << " and "
-            << K->name << " take " << sig.size() << " and " << K->args.size()
-            << " arguments";
-        for (size_t i = 0; i < sig.size(); i++) {
-            internal_assert(equals(K->args[i].type, sig[i].type))
-                << what << ": argument " << i << " of " << K->name << " is a "
-                << K->args[i].type << ", of " << entries.front()->name << " a "
-                << sig[i].type;
-        }
-    }
-
-    // What each argument is, at every edge into every continuation.
-    enum class Kind { Elided, Value, Address, Contents };
-    struct Plan {
-        Kind kind = Kind::Value;
-        Type type;
-        Definition def; // for Elided: what the pass reaches instead
-    };
-    const Cfg cfg(F);
-    const DomTree dom = compute_dominator_tree(cfg);
-    const BlockId at_id = cfg.id(at->name);
-    const auto available = [&](const Definition &d) {
-        if (!d.value) {
-            return false;
-        }
-        if (d.block.empty()) {
-            return true;
-        }
-        const BlockId b = cfg.find(d.block);
-        return b != NO_BLOCK && dom.dominates(b, at_id);
-    };
-    vector<Plan> plans(sig.size());
-    for (size_t i = 0; i < sig.size(); i++) {
-        optional<Plan> plan;
-        for (const auto &K : entries) {
-            for (const auto &wp : K->preds) {
-                const shared_ptr<Block> P = wp.lock();
-                if (!P) {
-                    continue;
-                }
-                const shared_ptr<Value> v = passed_to(*P, *K, i);
-                internal_assert(v) << what << ": " << P->name << " reaches "
-                                   << K->name << " without its argument " << i;
-                const Definition d = defs.of(P->name, v);
-                Plan here;
-                here.type = sig[i].type;
-                if (available(d)) {
-                    here.kind = Kind::Elided;
-                    here.def = d;
-                } else if (const Instruction *local = as_local(d)) {
-                    here.kind = Kind::Contents;
-                    here.type = local->type.as<Ptr_t>()->etype;
-                } else if (reducer_address(d)) {
-                    here.kind = Kind::Address;
-                } else {
-                    internal_assert(!holds_address(sig[i].type))
-                        << what << ": the continuation at " << K->name
-                        << " takes " << sig[i].name << ", an address ("
-                        << sig[i].type << ") that is neither in scope after the "
-                        << "drains nor a mutable local of the iteration nor a "
-                        << "reducer's; it would be stored, and might not "
-                        << "outlive the frame.";
-                    here.kind = Kind::Value;
-                }
-                if (!plan.has_value()) {
-                    plan = here;
-                } else if (plan->kind != here.kind ||
-                           (plan->kind == Kind::Elided &&
-                            !same_definition(plan->def, here.def))) {
-                    // The edges disagree: stored, as a value or an address.
-                    const bool addresses =
-                        holds_address(sig[i].type) &&
-                        plan->kind != Kind::Contents && here.kind != Kind::Contents;
-                    internal_assert(!holds_address(sig[i].type) || addresses)
-                        << what << ": the continuations take " << sig[i].name
-                        << " as a mutable local's address at one place and not "
-                        << "at another";
-                    plan = Plan{addresses ? Kind::Address : Kind::Value, sig[i].type, {}};
-                }
-            }
-        }
-        internal_assert(plan.has_value())
-            << what << ": nothing reaches the continuations";
-        plans[i] = *plan;
-    }
-
-    // The entry and the queue, as any queue's: a struct of arrays behind a
-    // count, sized as the queues this joins are, made where they were made.
-    Struct_t::Map entry_fields;
-    vector<Leaf> leaves;
-    vector<std::pair<size_t, size_t>> field_leaves;
-    vector<size_t> stored; // the arguments that have a field, in field order
-    for (size_t i = 0; i < sig.size(); i++) {
-        if (plans[i].kind == Kind::Elided) {
-            continue;
-        }
-        string name = sig[i].name;
-        for (bool clash = true; clash;) {
-            clash = false;
-            for (const TypedVar &f : entry_fields) {
-                if (f.name == name) {
-                    name += "_";
-                    clash = true;
-                }
-            }
-        }
-        entry_fields.emplace_back(name, plans[i].type);
-        const size_t first = leaves.size();
-        leaves_of(name, plans[i].type, leaves);
-        field_leaves.emplace_back(first, leaves.size());
-        stored.push_back(i);
-    }
-    const Type entry_t = Struct_t::make("Entry_" + qname, entry_fields);
-    Struct_t::Map queue_fields = {TypedVar("count", u32())};
-    for (const Leaf &leaf : leaves) {
-        queue_fields.emplace_back(leaf.name, Array_t::make(leaf.type, Expr()));
-    }
-    const Type queue_t = Struct_t::make("Queue_" + qname, queue_fields);
-    made.push_back(entry_t);
-    made.push_back(queue_t);
-    vector<shared_ptr<Value>> stores;
-    for (const Leaf &leaf : leaves) {
-        stores.push_back(make_alloca(F, alloc_point,
-                                     Array_t::make(leaf.type, as_expr(size)),
-                                     qname + "_" + leaf.name));
-    }
-    const shared_ptr<Value> queue = make_alloca(F, alloc_point, queue_t, qname + "_queue");
-    {
-        vector<shared_ptr<Value>> parts = {constant_u32(0)};
-        parts.insert(parts.end(), stores.begin(), stores.end());
-        auto initial = alloc_point->make_instruction(queue_t, Instruction::Op::MakeStruct,
-                                                     std::move(parts));
-        alloc_point->make_side_effect(Instruction::Op::Store, {queue, initial});
-    }
-
-    // Each continuation's entry becomes a push of what it was handed, and
-    // the end of the iteration that reached it.
-    for (const auto &K : entries) {
-        auto push = std::make_shared<Block>();
-        push->name = K->name + "!push";
-        push->owner = O;
-        F.blocks.push_back(push);
-        vector<shared_ptr<Value>> args;
-        for (const Argument &a : K->args) {
-            args.push_back(push->add_argument(a));
-        }
-        for (const auto &wp : K->preds) {
-            if (const shared_ptr<Block> P = wp.lock()) {
-                retarget(*P, K->name, push->name);
-                push->preds.push_back(P);
-            }
-        }
-        K->preds.clear();
-        vector<shared_ptr<Value>> values;
-        for (size_t i : stored) {
-            values.push_back(plans[i].kind == Kind::Contents
-                                 ? push->make_instruction(plans[i].type,
-                                                          Instruction::Op::Load, {args[i]})
-                                 : args[i]);
-        }
-        auto entry = push->make_instruction(entry_t, Instruction::Op::MakeStruct,
-                                            std::move(values));
-        auto slot = push->make_instruction(u32(), Instruction::Op::Push,
-                                           {reach(push, queue), entry});
-        std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
-        push->terminator.data = Terminator::Yield{};
-    }
-
-    // The pass: from `at`, whose terminator moves to the pass's exit, over
-    // every entry, running the first continuation (the others, now reached
-    // by nothing, go); a relocated local is the pass's own, named so that
-    // the continuation's loads find it (see the drain, which does the same).
-    const shared_ptr<Block> K0 = entries.front();
-    const auto fresh = [&](const string &name) {
-        auto block = std::make_shared<Block>();
-        block->name = name;
-        for (const auto &other : F.blocks) {
-            internal_assert(other->name != name)
-                << what << ": " << F.blocks.front()->name
-                << " already has a block named " << name;
-        }
-        block->owner = O;
-        F.blocks.push_back(block);
-        return block;
-    };
-    auto drain = fresh(qname + "!drain");
-    auto body = fresh(qname + "!run");
-    auto exit = fresh(qname + "!exit");
-    exit->terminator.data = std::move(at->terminator.data);
-    at->terminator.data = Terminator::Jump{drain->name};
-    drain->preds = {at};
-    {
-        auto whole = drain->make_instruction(queue_t, Instruction::Op::Load,
-                                             {reach(drain, queue)});
-        auto pending = drain->make_instruction(u32(), Instruction::Op::LoadField,
-                                               {whole, constant_u32(0)});
-        drain->terminator.data = Terminator::ParFor{qname,
-                                                    constant_u32(0),
-                                                    pending,
-                                                    constant_u32(1),
-                                                    Terminator::Jump{body->name},
-                                                    Terminator::Jump{exit->name}};
-    }
-    body->preds = {drain};
-    exit->preds = {drain};
-    auto index = body->add_argument(Argument{u32(), qname});
-    const Emit emit = [&](const Type &t, Instruction::Op op,
-                          vector<shared_ptr<Value>> ops) {
-        return body->make_instruction(t, op, std::move(ops));
-    };
-    vector<shared_ptr<Value>> onwards(sig.size());
-    for (size_t k = 0; k < stored.size(); k++) {
-        const size_t i = stored[k];
-        size_t l = field_leaves[k].first;
-        auto value = rebuild(plans[i].type, emit, [&](const Type &t) {
-            internal_assert(l < field_leaves[k].second)
-                << what << ": " << sig[i].name << " has more scalars than "
-                << qname << " stores for it";
-            return body->make_instruction(t, Instruction::Op::ExtractIdx,
-                                          {reach(body, stores[l++]), index});
-        });
-        if (plans[i].kind == Kind::Contents) {
-            auto local = make_alloca(F, body, plans[i].type);
-            body->make_side_effect(Instruction::Op::Store, {local, value});
-            const string to = std::get<shared_ptr<Instruction>>(local->data)->name;
-            for (const auto &block : region_from(F, K0->name)) {
-                rename_argument(*block, sig[i].name, to);
-            }
-            value = local;
-        }
-        onwards[i] = value;
-    }
-    for (size_t i = 0; i < sig.size(); i++) {
-        if (plans[i].kind == Kind::Elided) {
-            onwards[i] = reach(body, plans[i].def.value);
-        }
-    }
-    body->terminator.data = Terminator::Jump{K0->name, std::move(onwards)};
-    K0->preds = {body};
 }
 
 } // namespace
@@ -1825,7 +1448,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     shared_ptr<Block> k0_entry;
     vector<shared_ptr<Block>> k0;
     const size_t result_args = pcall.drop ? 0 : 1;
-    if (!spawned || !producer_loop_block) {
+    if (producers.size() == 1) {
         k0_entry = omap.at(pcall.cont.name);
         internal_assert(k0_entry->preds.size() == 1)
             << what << ": the continuation " << k0_entry->name << " of the call in "
@@ -2389,7 +2012,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     };
     vector<CarriedPlan> carried;
     vector<RecordValue> record_values;
-    for (size_t i = 0; !spawned && i < pcall.cont.args.size(); i++) {
+    for (size_t i = 0; k0_entry && i < pcall.cont.args.size(); i++) {
         const Definition d =
             settle(odefs.of(producer.block->name, pcall.cont.args[i]));
         const Argument &arg = k0_entry->args[i + result_args];
@@ -2435,8 +2058,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         carried.push_back({From::Record, nullptr, r, d});
     }
     // The path's value, when the producer's continuation uses it: a slot of
-    // the record as well, written where the path ends (below).
-    const bool keeps_result = !spawned && result_args == 1;
+    // the record as well. A deferred call's is written where the path ends,
+    // through a parameter the chain carries (below); a spawned call's
+    // producer has its value back at once -- the call ran, and only the
+    // spawned calls inside it wait -- and stores it itself.
+    const bool keeps_result = k0_entry != nullptr && result_args == 1;
+    const bool result_via_chain = keeps_result && !spawned;
 
     // BONSAI_EXPLAIN_DEFER=1 prints the entry's plan: which arguments are
     // left out and why, which are stored, and what the record keeps for the
@@ -2506,8 +2133,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     shared_ptr<Block> alloc_point = point;
     // Whether the producer loop is another queue's drain, and if so the
     // block after that queue's rounds (Function::OwnedQueue::after).
-    bool producer_is_drain = false;
-    string after_rounds;
     {
         const auto *producer_loop =
             producer_loop_block
@@ -2526,8 +2151,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // are one queue's, parted by a key, each pushing at most once.
             count = drained->second.size;
             alloc_point = omap.at(drained->second.point);
-            producer_is_drain = true;
-            after_rounds = drained->second.after;
             for (const auto &loop : producer_loops) {
                 const auto &q = std::get<Terminator::ParFor>(loop->terminator.data);
                 const auto other = O->queue_sizes.find(q.index);
@@ -2625,8 +2248,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << "to hold them all.";
         size = constant_u32(*queue.capacity);
     }
-    O->queue_sizes[queue.name] =
-        Function::OwnedQueue{size, alloc_point->name, after_rounds};
+    O->queue_sizes[queue.name] = Function::OwnedQueue{size, alloc_point->name};
     O->queue_sizes[queue.name].pushers.insert(site_function.begin(),
                                               site_function.end());
 
@@ -2728,7 +2350,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // function takes it as a parameter (below), and an entry carries what
     // the push was handed, for the drain to hand on.
     optional<size_t> result_field;
-    if (keeps_result) {
+    if (result_via_chain) {
         Field f;
         f.name = field_named("_result");
         f.type = Ptr_t::make(ret_type);
@@ -2887,7 +2509,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         queue_of[g] = entry.add_argument(
             Argument{queue_ptr_t, qparam, /*mutating=*/true});
-        if (keeps_result) {
+        if (result_via_chain) {
             result_of[g] = entry.add_argument(
                 Argument{Ptr_t::make(ret_type), rparam, /*mutating=*/true});
         }
@@ -2913,7 +2535,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const BlockMap gmap = make_block_map(gf);
             const shared_ptr<Block> cont = gmap.at(call.cont.name);
             call.call.args.push_back(reach(cs.block, queue_of.at(cs.caller)));
-            if (keeps_result) {
+            if (result_via_chain) {
                 call.call.args.push_back(reach(cs.block, result_of.at(cs.caller)));
             }
             if (spawned) {
@@ -2955,7 +2577,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 << g << " returns " << (ret->value ? "a value" : "nothing")
                 << " in " << block->name << " but is declared to return "
                 << ret_type;
-            if (keeps_result) {
+            if (result_via_chain) {
                 block->make_side_effect(
                     Instruction::Op::Store,
                     {reach(block, result_of.at(g)), reach(block, ret->value)});
@@ -3215,11 +2837,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // UpdateFilm reads pixelSampleState after the last bounce). What that
     // rest needs of the iteration is written into the record first.
     shared_ptr<Block> end; // where the producer's iteration ends now
-    if (spawned || producers.size() > 1) {
+    if (producers.size() > 1) {
         // Each producer hands the queue down and goes on; nothing comes back
-        // for it to act on: a spawned call's producer by the program's word,
-        // several producers because each is a drain whose iteration ends at
-        // its call (checked above).
+        // for it to act on: each is a drain whose iteration ends at its call
+        // (checked above).
         for (const CallSite &pc : producers) {
             pc.call()->call.args.push_back(
                 split ? reach(pc.block, queues)
@@ -3246,15 +2867,23 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         pcall.call.args.push_back(split ? reach(producer.block, queues)
                                         : queue_at(producer.block, constant_u32(0)));
-        if (keeps_result) {
+        if (result_via_chain) {
             pcall.call.args.push_back(result_slot);
         }
-        pcall.drop = true;
         // `end` ends the iteration: a yield of the producer loop's body, or
         // -- for a lone call -- a jump to the drain, set below once it
-        // exists. The continuation the call had is the pass's now.
+        // exists. The continuation the call had is the pass's now. A spawned
+        // call's producer still has the call's value at once, and puts it
+        // in the record for the pass.
         end = fresh_block(prefix + "end");
         end->preds = {producer.block};
+        if (spawned && keeps_result) {
+            auto value = end->add_argument(Argument{ret_type, O->get_unique_name()});
+            end->make_side_effect(Instruction::Op::Store,
+                                  {reach(end, result_slot), value});
+        } else {
+            pcall.drop = true;
+        }
         end->terminator.data = Terminator::Yield{};
         pcall.cont = Terminator::Jump{end->name, {}};
         k0_entry->preds.clear();
@@ -3310,12 +2939,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         header = fresh_block(prefix + "round");
         pre = fresh_block(prefix + "batch");
         latch = fresh_block(prefix + "next");
-        // What has to wait for every round runs from the exit
-        // (Function::OwnedQueue::after).
-        O->queue_sizes[queue.name].after = exit->name;
-        for (const SubQueue &sq : subqueues) {
-            O->queue_sizes[sq.path].after = exit->name;
-        }
     }
     // The drain's ends, for the deferrals that come after this one
     // (Function::OwnedQueue::entry, exit).
@@ -3378,19 +3001,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             return w.lock().get() == link_block.get();
         });
         old_cont->preds.push_back(exit);
-    } else if (spawned) {
-        // The rest of the iteration ends by yielding (a loop's) or returning
-        // (the function's); both now go through the drain.
-        for (const auto &block : k0) {
-            const bool ends =
-                std::holds_alternative<Terminator::Yield>(block->terminator.data) ||
-                std::holds_alternative<Terminator::Return>(block->terminator.data);
-            if (!ends) {
-                continue;
-            }
-            block->terminator.data = Terminator::Jump{drain_entry->name};
-            drain_entry->preds.push_back(block);
-        }
     } else {
         // The iteration ends at the call, and the drain follows.
         end->terminator.data = Terminator::Jump{drain_entry->name};
@@ -3535,7 +3145,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // wants it (a spawned call's value is always taken, to
             // accumulate).
             const bool takes_value =
-                spawned || (!callee_in_chain && returns_value && keeps_result);
+                spawned || (!callee_in_chain && returns_value && result_via_chain);
             body->terminator.data = Terminator::Call{
                 Terminator::Jump{subqueues[q].callee, std::move(args)},
                 Terminator::Jump{after->name},
@@ -3557,7 +3167,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             after->make_side_effect(spawns.front().op,
                                     {entry_field(after, *acc_field), value},
                                     spawns.front().atomic);
-        } else if (!callee_in_chain && returns_value && keeps_result) {
+        } else if (!callee_in_chain && returns_value && result_via_chain) {
             auto value = after->add_argument(Argument{ret_type, O->get_unique_name()});
             after->make_side_effect(Instruction::Op::Store,
                                     {entry_field(after, *result_field), value});
@@ -3625,17 +3235,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // producer gave up, once per iteration, with what the record kept for it
     // -- the call's value, the values written before the call, the slots'
     // addresses -- and what is in scope. Nothing when the continuation is
-    // empty: an iteration that ended at the call.
-    if (!spawned) {
+    // empty: an iteration that ended at the call. A spawned call's producer
+    // waits the same way: what it goes on to do may read the reducer the
+    // spawned calls add into (the film write reading L), which is whole
+    // only after the drain -- the join `spawn` leaves implicit, pbrt's
+    // UpdateFilm after the last bounce.
+    if (k0_entry) {
         const bool trivial =
             k0.size() == 1 && k0_entry->instrs.empty() &&
             (std::holds_alternative<Terminator::Yield>(k0_entry->terminator.data) ||
              (std::holds_alternative<Terminator::Return>(k0_entry->terminator.data) &&
               std::get<Terminator::Return>(k0_entry->terminator.data).value == nullptr));
         if (!trivial) {
-            // Named with an underscore, as the join's `_done` is: a name
-            // with `!` reads as a variant of the drain loop, and a later
-            // directive on the drain would find this loop too.
+            // Named with an underscore: a name with `!` reads as a variant
+            // of the drain loop, and a later directive on the drain would
+            // find this loop too.
             const string rest_name = queue.name + "_rest";
             auto pass = fresh_block(rest_name);
             auto run = fresh_block(rest_name + "!run");
@@ -3698,21 +3312,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
             }
         }
-    }
-
-    // The join a spawned call leaves implicit: a continuation that reads a
-    // reducer runs once every add is in -- after every round when the
-    // drain is inside another queue's rounds, after the drain otherwise.
-    if (spawned) {
-        if (!producer_is_drain) {
-            // The producer is the program's own call, so its continuation
-            // has not been recorded by an earlier deferral's drain.
-            O->continuation_entries.insert(pcall.cont.name);
-        }
-        const shared_ptr<Block> after_all =
-            after_rounds.empty() ? exit : omap.at(after_rounds);
-        join_continuations(O, what, queue.name + "_done", size, alloc_point,
-                           after_all, made);
     }
 
     refresh_preds(*O);

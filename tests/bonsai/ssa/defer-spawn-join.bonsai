@@ -3,11 +3,11 @@
 // The join a spawned call leaves implicit. The producer's continuation,
 // `out[i] = total`, reads the reducer the spawned calls add into, and the
 // drain that runs them comes after the producer loop -- so the continuation
-// cannot run where it was. It becomes a push of what it took (`total`'s
-// address; `out` and `i` are in scope) onto `q_done`, and a pass over
-// `q_done` after the drain runs it, when every add is in
-// (join_continuations in SSA/Defer.cpp). pbrt's per-sample state and its
-// film pass after the last bounce.
+// cannot run where it was. As for any deferral, it runs in the pass over
+// the record after the drain (`q_rest`), once per iteration, with the
+// reducer's slot (`q_total_slots`) and the iteration's `i` the producer
+// wrote into the record before its call (`out` is in scope): pbrt's
+// per-sample state and its film pass after the last bounce.
 import stdlib/numerics;
 
 func shade(x : Float) -> Float {

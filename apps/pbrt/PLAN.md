@@ -5774,9 +5774,14 @@ defer_continuation boundaries only; with the medium scatter deferred,
 nothing in the rays drain pushes onto rays, so its double buffer is
 unneeded -- a reachability question over the directives yet to be
 applied, since when the ray deferral runs, the scatter's call is still
-a call); and the join for a spawned queue whose producer is a plain loop
-(`join_continuations`, `_done`), which is the same pass over a record
-with a pushed count and could become the record pass proper.
+a call). The join for a spawned queue whose producer is a plain loop
+(`join_continuations`, `_done`) *is* now the record pass: a spawned
+call's producer keeps the call's value itself -- the call ran; only the
+spawned calls inside it wait -- and its rest goes to `<queue>_rest` like
+any other, so `continuation_entries`, `OwnedQueue::after` and four
+hundred lines of the join are gone, and the deferral is one mechanism
+(tests/bonsai/ssa/defer-spawn-join: the pushed `q_done` becomes
+`q_rest_i` written before the call and the pass over eight records).
 
 The three scenes measured against `pbrt --gpu` have no medium, so the
 medium queues change nothing for them; it is what makes the CPU

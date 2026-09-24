@@ -2,8 +2,9 @@
 
 // The join a spawned call leaves implicit, run: `out[i] = total` reads the
 // reducer after the spawned shade calls have added into it, though those
-// run in a drain after the loop -- the continuation is pushed and run in a
-// pass of its own after the drain. Each out[i] is x + 2x.
+// run in a drain after the loop -- the continuation runs in the pass over
+// the record after the drain, as any deferral's does. Each out[i] is x +
+// 2x.
 import stdlib/numerics;
 
 func shade(x : Float) -> Float {
