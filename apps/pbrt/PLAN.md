@@ -6592,20 +6592,205 @@ but a hoist would be free); `__udivti3` at 0.7% is the invariant-division
 pass computing a 64-bit divisor's multiplier through an i128 divide, one
 `divq` when the quotient is known to fit.
 
-*Next: staged pushes.* One pass still makes 5 G far fills at 32 threads
-against 4 M on one, so most of the traversal's locality is still lost to
-slot interleaving, and every push still claims its slot with a contended
-locked add. The fix is MoonRay's per-thread queue (Lee et al. 2017),
-here per range of the drain's parfor: the body pushes into a range-local
-`Queue_<q>` of K slots that the callee cannot tell from the real one --
-the same struct, its count plain -- and a flush moves K entries to the
-real queue with one fetch-and-add and K contiguous stores per array, at
-the K-th push and once more at the range's end. Same kernels, same
-entries, exact counts, bit-identical output; each consumer thread then
-sees runs of K coherent rays from one producer. Needs of the compiler a
-per-range allocation with a finalizer (allocated and zeroed once per
-kernel range, its flush called at the range's exit), which the CPU kernel
-already has the blocks for (emit_cpu_parfor's entry and done).
+*Later: staged pushes, as a schedule.* One pass still makes 5 G far fills
+at 32 threads against 4 M on one, so most of the traversal's locality is
+still lost to slot interleaving, and every push still claims its slot
+with a contended locked add. MoonRay's per-thread queue (Lee et al.
+2017) is the fix, and the user's ruling on how it may exist here is the
+important part: it is one *point in the scheduling space*, composed from
+the primitives that exist -- split the drain's loop, bind the outer
+piece to the threads, declare a queue at the inner loop so that it is
+that chunk's -- never the default lowering of a queue, and never a
+decision the runtime makes (the only runtime scheduling is the parfor's,
+as Halide's is). pbrt's shared-counter wavefront must stay expressible
+as it is written now. A first attempt that lowered every queue through a
+per-range staging buffer, and then a `flush` directive, were both
+rejected and removed; any new or widened scheduling construct is asked
+about before it is written.
+
+**The pass's band, and the interface hop (2026-09-25, cf0c4229,
+f0ccdb02).** Two more places the iteration pattern was not pbrt's, both
+fixed without a new directive.
+
+*The band.* pbrt's pass is not the frame: `scanlinesPerPass = max(1,
+2^20 / xres)`, evened across the passes, and every queue is sized to one
+band (`maxQueueSize`), so a pass at 1400x1400 is two bands of 700 rows
+and the queues hold a million entries at most however large the image.
+The frame schedule ran the whole frame as one pass, which is the same
+thing at 700x700 and a hack above a million pixels. Now `render`
+computes `pass_pixels` as pbrt does and the schedule cuts the pixel loop
+with it: `render[VolPath].split(p, p_band, p_in, pass_pixels, true)`,
+the band loop serial as pbrt's is, `p_in` on the threads, every queue
+declared at `p_band`. The chunk is a *value of the program* rather than
+a constant -- the user's call: "a uniform program value accessible at the
+scope of the loop being split", as two overloads of `split` (SSA/
+Rewrite.h: an `int`, and an `Expr` over the function's values that is
+one value for the whole loop). What it took in the compiler: the parser
+records the name (`ir::Split::factor_name`) since it cannot type it
+there; the SSA split emits the chunk as the inner loop's end and the
+outer's stride; and the value has to *survive* to the split although
+nothing in the program reads it -- the schedule is a use the body does
+not show. That is `ir::Function::schedule_uses`, stamped by the parser
+on the function the directive is written on (as `held` is for defer),
+read as a root by every dead-code sweep before SSA (Opt/DCE.cpp, the one
+CSE runs between its steps, and Inline's CSE rounds through it) and by
+the SSA simplifier's `remove_dead`, and carried by every pass that
+rebuilds a function from its parts (TypeInference was the one that
+dropped it; ReturnToOutParameter, Options, ADTs, Generics, and
+`replace_body` copy it too). Tests: ssa/split-program-chunk (the loops,
+the queue sized by the chunk) and correctness/llvm/split-program-chunk
+(n = 10 in bands of 8, the tail guarded).
+
+*The hop.* pbrt's trace kernel pushes a hit on a medium boundary
+straight onto the next ray queue (`EnqueueWorkAfterIntersection`); the
+program pushed it to the material queue and let the Interface material
+kernel push it on -- one hop, one round, and an Interface kernel pbrt
+does not have. Since defer already lets several places push onto one
+queue when the continuation is the same (`also_from`), the fix was
+placement: `vol_route` handles the interface hit itself (the depth check
+pbrt does there, `spawn_ray`, the medium by the side crossed, and the
+recursive `vol_path_step` call that `vol_route.defer(vol_path_step,
+rays)` turns into the push), and `vol_surface` no longer has the branch.
+`rays` is pushed from four places now and drained by one, so it is
+double-buffered (pbrt's `rayQueues[2]`, `depth & 1`), as before.
+
+Killeroo 32 spp, camera-medium and homogeneous-medium are bit for bit
+the images from before (one band at 700x700, so the band changed no
+arithmetic; the hop's continuation carries the same values). The band
+exercised: killeroo at 1400x1400, 32 spp -- two bands of 700 rows, the
+queues sized to 980,000 -- through compare.sh against `pbrt
+--wavefront`, best of three each side: pbrt 48.5 s, ours 25.2 s, 1.92x
+faster, the image matching pbrt's as the 700x700 one does (58% of
+pixels within 1e-3 relative, the same level as before the band). What
+was left over: the `hits!Interface` queue still existed -- its drain ran
+on a count that was always zero and its 26 arrays were allocated once
+per render, ~240 B a slot -- because the compiler cannot know that
+`vol_route` returns before pushing an interface hit. pbrt has no such
+type: `Material::Create` returns *no material* for `interface`
+(materials.cpp), the primitive holds that null, and the trace kernel
+tests `!material` before the material queue's push. So the program now
+says the same: `Primitive.material` is -1 for such a shape (the driver
+maps the scene file's Interface record to no `Material` and its shapes
+to -1), every integrator tests `prim.material < 0` where pbrt tests
+`!material` or `!bsdf`, and `Material` has no `Interface` arm and no
+`material_is_interface`. The hits are split seven ways, as pbrt's
+material queue is; 25 fewer allocations per render; killeroo,
+camera-medium, homogeneous-medium and interface-boundary bit for bit.
+
+*Noted, not done (the user's list).* (1) pbrt draws each round's sampler
+dimensions in a separate `GenerateRaySamples` kernel and stores them in
+the pixel state; the program draws them in the shading kernels through
+the 40 B sampler state record -- one fewer launch per round. The user:
+"We should profile this choice at some point, PBRT might have done that
+to decrease register pressure or something." For this ablation the
+kernels stay pbrt's; the drop is a later, measured optimization. (2)
+The BxDF's variant is dispatched at run time inside each
+material-specialized kernel where pbrt's is a template parameter. (3)
+`__udivti3` in the invariant-division pass.
+
+**Each stage's generated code against pbrt's kernel (2026-09-25).** The
+user's ask: "search the code of each generated stage of the wavefront
+versus PBRT and find where the discrepancies lie." Done as a fan-out:
+one reader per stage (camera, trace, material, the rest) over the
+perf annotations of both binaries on killeroo 32 spp (ours ~201
+thread-seconds, pbrt ~316), each candidate then checked by two
+adversarial verifiers, one arguing from our side's code and one from
+pbrt's. Only what both verifiers confirmed is listed as real, with the
+costs the verifiers corrected to; a candidate either verifier refuted is
+listed as such. The camera stage's verifications were cut short (the
+session's context ran out), so its items beyond the first are one-sided
+or unverified.
+
+Confirmed, ranked by cycles, with where the fix belongs:
+
+1. *`vol_sample_ld` marshaled as a 98-scalar out-of-line call from every
+   material kernel*, the 144 B BxDF union flattened into it -- 44% of
+   the material kernel's samples. The verifiers' correction: the region
+   is a full store queue (the machine-wide `store_queue_rsrc_stall` is
+   57-76% of cycles), so ~22 thread-s is an upper bound, and pbrt's own
+   direct lighting also goes out of line (`LightSampler::Sample`,
+   `Light::SampleLi`) for ~6 thread-s; the gap is ~16 thread-s, 8% of
+   the program. Compiler: fold the callee into each material-specialized
+   kernel as the drained callee is folded (Defer.cpp's rule), or pass a
+   wide ADT by pointer rather than as its leaves.
+2. *Queue pushes cost 3x pbrt's push symbols* (4.9% of the render against
+   pbrt's ~1.6%). The reader blamed the array handles reloaded from the
+   queue header per push; the verifiers refuted that -- pbrt's
+   `PushIndirectRay` reloads every SoA base from `this` too and still
+   costs a third -- so the cause is not the instruction count; the
+   contended slot claim is the remaining candidate (the per-thread
+   staging above, a schedule to ask about).
+3. *After the traversal the winning element is reloaded twice and passed
+   to `vol_route` a field at a time* -- the reload ~3 thread-s, the
+   by-value pass ~10 more. The reader's larger claim, that `vol_route`'s
+   78-argument marshaling is 49% of the trace kernel, was refuted:
+   pbrt's kernel has the same by-value burst at 0.23% of its program,
+   and the fold was tried (6425 above) and bought nothing -- the samples
+   are store-queue stall skid. Re-measure before investing.
+4. *The filter table's binary search compiles to branches.*
+   `filter_sample`'s two `find_interval` searches are written with
+   `select`; LLVM's cmov conversion undoes it (7.8% of the camera
+   kernel, ~2.9 thread-s). Compiler: keep the select a select on this
+   path (CodeGen_PTX has the precedent).
+5. *`triangle_hit` runs up to three times per accepted hit* (the
+   filter's `intersects`, the argmin's `distmin`, `surface_geometry`'s
+   re-intersection): 25-36% of its 12.2 thread-s. But pbrt spends ~66
+   thread-s in its triangle path against our ~12, so not where we lose.
+   Query lowering: CSE the filter and the key; carry the hit's payload
+   out of the argmin.
+6. *`dir_is_neg` re-materialized to the stack at every interior node*
+   (~1 thread-s) and *the traversal count stored and reloaded on the pop
+   path* where pbrt keeps `toVisitOffset` in a callee-saved register
+   (~1.2 thread-s). LLVM codegen: a variable-index extract from a bool
+   vector; register allocation.
+7. *`light_sample_li` takes the 208 B `Light` union by value* (~1.2-1.7
+   thread-s). Layout, not compiler: `layout Light = tagged_index;` as
+   `Shape` already has (render.bonsai's layout block).
+8. *The film pass's accumulates are CAS loops*: DemoteAtomics compares
+   block-parameter names and loses the value through the deferred
+   loop's rename (Contention.cpp). ~0.4 thread-s recoverable -- pbrt's
+   non-atomic version of the pass costs 1.6 itself.
+9. *`trace_any` has no near-child-first order* -- the schedule sorts
+   `trace` and not `trace_any`; ~0.2 thread-s at most here. Schedule:
+   the same `.sort(...)` before its `.loopify(64)`.
+10. *The 64 B `VisibleSurface` is zeroed per camera ray* where pbrt
+    guards on `initializeVisibleSurface` (false for an RGB film): ~0.08
+    thread-s; the slot is read by the film pass, so it is not dead, and
+    the guard wants an uninitialized `mut` in the frontend (Parser.cpp
+    requires an initializer).
+11. *`any` does not return at the first hit*: `find_monotone_accumulator`
+    (QueueRecursion.cpp) marks the accumulator escaped because it is
+    passed to the nested traversal of an instance arm this scene never
+    runs. A defect under the any/all rule, a few tenths of a percent.
+    And *`alpha_accepts` runs for every shadow candidate*: value-context
+    `&&` is never short-circuited (SSA/Convert.cpp's `// TODO: SHORT
+    CIRCUITING!!!`), ~0.07%.
+12. *`wave` is stored per entry* although it equals the round counter, in
+    the rays, medium_samples, medium_scatters and every hits queue
+    (0.02%); *`prev_ctx` is pushed as constants from the camera site*
+    because the indirect push varies it and the elision needs one recipe
+    at every push site (0.09%).
+
+Where the readers found us ahead, confirmed with corrected magnitudes:
+the node loop is ~2x cheaper than pbrt's (not 3.7x), the per-hit surface
+geometry ~3x (not 8x, since half of `Triangle::Intersect`'s samples are
+its per-tested-triangle prologue), `Approximate_dp_dxy` and the uv
+derivatives cost pbrt 18-22 thread-s against our ~6, and the sampler tag
+dispatched per ray with two dead arms (~0.9 thread-s) is less than pbrt's
+whole `GenerateRaySamples` pass (~7). The "fix" for the last --
+specializing the render loop on the sampler -- was tried (6469 above)
+and breaks the defer directives' names. Refuted outright: the BxDF
+dispatched five times with dead arms (LLVM folds every in-kernel
+dispatch in the binary; the cost is the union's by-value pass, item 1);
+the sampler draws as a difference (pbrt's `RaySamples` read is two
+lines); the light sampler choice (the reader had the two renderers'
+samplers backwards); the sensor conversion and the serial per-round
+queue rebuild (unmeasurable); the "equivalent, fix: none" verdicts on
+the material entries and the shadow entries (each hid a small real
+difference: the union marshaling; an occluded shadow ray's zero-add).
+Unverified, camera stage: the queue count sharing a line with the array
+pointers (the reader's top item), the sampler state stored per ray,
+`__udivti3` per radical inverse, and the 329 B against 228 B record.
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
