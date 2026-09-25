@@ -1,0 +1,38 @@
+//! flags: -p ssa -b llvm -e
+
+// A point and a spectrum carried down a deferred recursion, stored whole in
+// the queue as packed vectors (tests/bonsai/ssa/defer-vector-leaves.bonsai
+// reads the layout), come back out right: after i steps the point is
+// (2i, 2i, 3i), whose sum is 7i, and the spectrum is 2^i in every band,
+// whose sum is 4 * 2^i.
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+
+func walk(n : i32, p : f32x3, s : f32x4) -> f32 {
+    if (n <= 0) {
+        return p[0] + p[1] + p[2] + s[0] + s[1] + s[2] + s[3];
+    }
+    return walk(n - 1, p + f32x3{1.0, 2.0, 3.0}, s * 2.0);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](walk(i, f32x3{cast[[f32]](i), 0.0, 0.0},
+                                  f32x4{1.0, 1.0, 1.0, 1.0}));
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {4, 15, 30, 53, 92, 163, 298, 561}
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

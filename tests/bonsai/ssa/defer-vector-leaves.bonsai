@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// A queue that no gang pushes onto or drains keeps the entry's short
+// vectors whole: `walk` carries a point and a spectrum down its recursion,
+// and the queue stores one array of packed `f32x3` for the point and one of
+// packed `f32x4` for the spectrum, not three and four arrays of floats
+// (QueueSpec::vector_leaves, SSA/Defer.h). A push then writes each with one
+// store to one cache line, and the drain reads it back with one load and a
+// cast to the vector the program computes with. What to read for:
+// `Queue_sums` with `p : [[packed]] f32x3[]` and `s : [[packed]] f32x4[]`,
+// no `p_x` or `s_w`; the push's `cast<[[packed]] f32x3>` and the drain's
+// `cast<f32x3>`. tests/bonsai/ssa/defer-gang-vector.bonsai is the same
+// program under a vectorized drain, where the components are taken apart.
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+
+func walk(n : i32, p : f32x3, s : f32x4) -> f32 {
+    if (n <= 0) {
+        return p[0] + p[1] + p[2] + s[0] + s[1] + s[2] + s[3];
+    }
+    return walk(n - 1, p + f32x3{1.0, 2.0, 3.0}, s * 2.0);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](walk(i, f32x3{cast[[f32]](i), 0.0, 0.0},
+                                  f32x4{1.0, 1.0, 1.0, 1.0}));
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

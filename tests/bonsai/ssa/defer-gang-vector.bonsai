@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// The same program as tests/bonsai/ssa/defer-vector-leaves.bonsai, with the
+// drain vectorized: the entry's point and spectrum are then a scalar per
+// array -- `p_x`, `p_y`, `p_z`, `s_x` .. `s_w` -- because a gang of sixteen
+// entries reads each scalar of its continuations as one dense vector load
+// and pushes each with one compress-store, which an array of packed vectors
+// does not give it (QueueSpec::vector_leaves, SSA/Defer.h). The vectorize
+// directive comes after the deferral, and the layout is made at the
+// deferral, so the decision is read off the whole schedule before either is
+// applied. What to read for: `Queue_sums` with seven `f32[]` arrays for the
+// two vectors and no `[[packed]]` array.
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+
+func walk(n : i32, p : f32x3, s : f32x4, out : mut array[i32, 40], i : i32) -> void {
+    if (n <= 0) {
+        out[i] = cast[[i32]](p[0] + p[1] + p[2] + s[0] + s[1] + s[2] + s[3]);
+        return;
+    }
+    walk(n - 1, p + f32x3{1.0, 2.0, 3.0}, s * 2.0, out, i);
+    return;
+}
+
+func run(out : mut array[i32, 40]) -> void {
+    parfor i in 0:40 {
+        walk(i % 7, f32x3{cast[[f32]](i), 0.0, 0.0}, f32x4{1.0, 1.0, 1.0, 1.0},
+             out, i);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.split(sums, sums_gang, sums_lane, 16, true).vectorize(sums_lane);
+}

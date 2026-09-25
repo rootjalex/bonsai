@@ -9,6 +9,7 @@ add_bonsai_tests(
     defer-frame.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai
+    defer-gang-vector.bonsai
     defer-lone-call.bonsai
     ffp-contract.bonsai
     defer-loop-owned.bonsai
@@ -27,6 +28,7 @@ add_bonsai_tests(
     defer-tail.bonsai
     defer-uniform-payload.bonsai
     defer-unread-field.bonsai
+    defer-vector-leaves.bonsai
     divide-by-constant.bonsai
     divergence.bonsai
     forall.bonsai

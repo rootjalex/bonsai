@@ -633,14 +633,27 @@ string component_name(uint32_t k, uint32_t lanes) {
     return lanes <= 4 ? string(1, "xyzw"[k]) : std::to_string(k);
 }
 
+// Whether a short vector of the entry is kept whole as one leaf where the
+// queue's layout keeps vectors (QueueSpec::vector_leaves): a vector of two
+// to four numbers -- a point, a direction, a spectrum -- and not a vector
+// of bools, whose components go to the packed bits like any other bool.
+bool whole_vector(const Vector_t &v) {
+    return v.lanes >= 2 && v.lanes <= 4 && !v.packed && !v.etype.is_bool() &&
+           (v.etype.is_float() || v.etype.is_int() || v.etype.is_uint());
+}
+
 // The leaves of a value of `type` named `name`, appended to `out` in the
 // order take_apart() reads them and rebuild() puts them back. A struct that
 // is an ADT's inline storage (Program::AdtStorage, by the struct's name) has
 // its padding field's leaves marked Pad, and so does everything under a
 // padding field (`in_pad`): zero at every construction, read by nothing.
+// With `vector_leaves`, a short vector is one leaf whose type is the packed
+// vector -- its components back to back, as an array of them stores them --
+// rather than a leaf per component.
 void leaves_of(const string &name, const Type &type,
                const std::map<string, ir::Program::AdtStorage> *adts,
-               bool in_pad, const vector<unsigned> &path, vector<Leaf> &out) {
+               bool in_pad, bool vector_leaves, const vector<unsigned> &path,
+               vector<Leaf> &out) {
     if (const Struct_t *s = type.as<Struct_t>()) {
         string pad_field;
         if (adts != nullptr) {
@@ -654,16 +667,26 @@ void leaves_of(const string &name, const Type &type,
             vector<unsigned> below = path;
             below.push_back(k);
             leaves_of(name + "_" + f.name, f.type, adts,
-                      in_pad || (!pad_field.empty() && f.name == pad_field), below, out);
+                      in_pad || (!pad_field.empty() && f.name == pad_field),
+                      vector_leaves, below, out);
         }
         return;
     }
     if (const Vector_t *v = type.as<Vector_t>()) {
+        if (vector_leaves && whole_vector(*v)) {
+            Leaf leaf;
+            leaf.name = name;
+            leaf.type = Vector_t::make(v->etype, v->lanes, /*packed=*/true);
+            leaf.kind = in_pad ? Leaf::Kind::Pad : Leaf::Kind::Stored;
+            leaf.path = path;
+            out.push_back(std::move(leaf));
+            return;
+        }
         for (uint32_t k = 0; k < v->lanes; k++) {
             vector<unsigned> below = path;
             below.push_back(k);
             leaves_of(name + "_" + component_name(k, v->lanes), v->etype, adts,
-                      in_pad, below, out);
+                      in_pad, vector_leaves, below, out);
         }
         return;
     }
@@ -679,11 +702,12 @@ void leaves_of(const string &name, const Type &type,
 }
 
 // Whether a read of `read` -- a path into a parameter, the empty path the
-// whole of it -- covers the leaf at `leaf`: the read is a prefix of the way
-// down to the leaf.
+// whole of it -- touches the leaf at `leaf`: the read is a prefix of the
+// way down to the leaf, or goes on below it -- a read of one component of
+// a vector the queue stores whole reads the leaf that is the vector.
 bool covers(const vector<unsigned> &read, const vector<unsigned> &leaf) {
-    return read.size() <= leaf.size() &&
-           std::equal(read.begin(), read.end(), leaf.begin());
+    const size_t n = std::min(read.size(), leaf.size());
+    return std::equal(read.begin(), read.begin() + n, leaf.begin());
 }
 
 // Makes an instruction where the caller wants it, and hands back its value.
@@ -707,6 +731,21 @@ void take_apart(const shared_ptr<Value> &value, const vector<Leaf> &leaves,
         out.push_back(is_undef(value) ? nullptr : value);
         l++;
         return;
+    }
+    // A vector the queue stores whole (QueueSpec::vector_leaves): the leaf
+    // is the packed vector, and the value the entry holds is the vector the
+    // program computes with; the store wants the packed one.
+    if (l < leaves.size() && lanes == 1) {
+        const auto *stored = leaves[l].type.as<Vector_t>();
+        const auto *held = type.as<Vector_t>();
+        if (stored != nullptr && held != nullptr && stored->packed && !held->packed &&
+            stored->lanes == held->lanes && equals(stored->etype, held->etype)) {
+            out.push_back(is_undef(value)
+                              ? nullptr
+                              : emit(leaves[l].type, Instruction::Op::Cast, {value}));
+            l++;
+            return;
+        }
     }
     // Part `k` of the value: the operand a value built in place was built
     // from, where there is one to read off, and a read of the part otherwise.
@@ -742,25 +781,41 @@ void take_apart(const shared_ptr<Value> &value, const vector<Leaf> &leaves,
 }
 
 // A value of `type` put back together from its leaves, `next_leaf` giving
-// each in leaf order: take_apart() inverted, for one entry.
+// each in leaf order: take_apart() inverted, for one entry. `stored_whole`
+// says whether the next leaf is a vector of `type` kept whole
+// (QueueSpec::vector_leaves), which is then one leaf and not one per
+// component; `next_leaf` hands it back as the type asked for.
 shared_ptr<Value> rebuild(
     const Type &type, const Emit &emit,
-    const std::function<shared_ptr<Value>(const Type &)> &next_leaf) {
+    const std::function<shared_ptr<Value>(const Type &)> &next_leaf,
+    const std::function<bool(const Type &)> &stored_whole) {
     vector<shared_ptr<Value>> parts;
     if (const Struct_t *s = type.as<Struct_t>()) {
         for (const TypedVar &f : s->fields) {
-            parts.push_back(rebuild(f.type, emit, next_leaf));
+            parts.push_back(rebuild(f.type, emit, next_leaf, stored_whole));
         }
     } else if (const Vector_t *v = type.as<Vector_t>()) {
+        if (stored_whole(type)) {
+            return next_leaf(type);
+        }
         // A vector built from its components is a MakeStruct of the vector's
         // type, as a vector literal is (see Build in SSA/Convert.cpp).
         for (uint32_t k = 0; k < v->lanes; k++) {
-            parts.push_back(rebuild(v->etype, emit, next_leaf));
+            parts.push_back(rebuild(v->etype, emit, next_leaf, stored_whole));
         }
     } else {
         return next_leaf(type);
     }
     return emit(type, Instruction::Op::MakeStruct, std::move(parts));
+}
+
+// Whether `leaf` is a vector stored whole and packed whose value in the
+// program is `type` (the same lanes and element, unpacked).
+bool packs(const Leaf &leaf, const Type &type) {
+    const auto *stored = leaf.type.as<Vector_t>();
+    const auto *held = type.as<Vector_t>();
+    return stored != nullptr && held != nullptr && stored->packed && !held->packed &&
+           stored->lanes == held->lanes && equals(stored->etype, held->etype);
 }
 
 } // namespace
@@ -3108,7 +3163,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (const Field &f : fields) {
         const size_t first = leaves.size();
         if (f.in_entry) {
-            leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false, {}, leaves);
+            leaves_of(f.name, f.type, queue.adt_storages, /*in_pad=*/false,
+                      queue.vector_leaves, {}, leaves);
         }
         field_leaves.emplace_back(first, leaves.size());
     }
@@ -4123,6 +4179,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                       vector<shared_ptr<Value>> ops) {
                     return body->make_instruction(t, op, std::move(ops));
                 };
+                const auto stored_whole = [&](const Type &t) {
+                    return l < field_leaves[f].second && packs(leaves[l], t);
+                };
                 auto value = rebuild(fields[f].type, emit, [&](const Type &t) {
                     internal_assert(l < field_leaves[f].second)
                         << what << ": " << fields[f].name << " has more scalars "
@@ -4156,9 +4215,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     case Leaf::Kind::Stored:
                         break;
                     }
+                    if (packs(leaf, t)) {
+                        // Stored whole and packed; the program wants the
+                        // vector it computes with.
+                        auto stored = body->make_instruction(
+                            leaf.type, Instruction::Op::ExtractIdx,
+                            {run_storage(l - 1), index});
+                        return body->make_instruction(t, Instruction::Op::Cast,
+                                                      {stored});
+                    }
                     return body->make_instruction(t, Instruction::Op::ExtractIdx,
                                                   {run_storage(l - 1), index});
-                });
+                }, stored_whole);
                 internal_assert(l == field_leaves[f].second)
                     << what << ": " << fields[f].name << " has fewer scalars "
                     << "than the queue stores for it";

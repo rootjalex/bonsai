@@ -1814,6 +1814,28 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
     }
 
+    // Whether any directive of the schedule vectorizes a loop of one of
+    // `fs`. A queue whose owner, drained callee and pushers are none of them
+    // vectorized keeps its entries' short vectors whole
+    // (QueueSpec::vector_leaves); one a gang will push onto or drain takes
+    // them apart into a scalar per array. Read off the whole schedule here,
+    // since the deferral makes the layout before the vectorize directive
+    // that would need the scalars is applied.
+    const auto vectorizes = [&](const std::vector<std::string> &fs) {
+        for (const std::string &f : fs) {
+            const auto ts = transforms.find(f);
+            if (ts == transforms.end()) {
+                continue;
+            }
+            for (const ir::Transform &t : ts->second) {
+                if (std::holds_alternative<ir::Vectorize>(t)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
     // The time each transform takes (BONSAI_TIME_PASSES, above).
     phase("before the directives");
     // The functions a directive has been applied to so far: `specialize`
@@ -1917,6 +1939,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         spec.owner = q->second.owner;
                         spec.layouts = &layouts;
                         attach_splits(spec, queue_splits, adt_storages);
+                        spec.vector_leaves =
+                            !vectorizes({spec.owner, name, s.callee.names.back()});
                         internal_assert(!q->second.loop.names.empty())
                             << s.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();
@@ -2026,6 +2050,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         spec.layouts = &layouts;
                         attach_splits(spec, queue_splits, adt_storages);
                         spec.initial_push = directive_on(q->second.owner);
+                        {
+                            std::vector<std::string> chain = {spec.owner, name, callee};
+                            chain.insert(chain.end(), pushers.begin(), pushers.end());
+                            spec.vector_leaves = !vectorizes(chain);
+                        }
                         // Whether running an entry can push onto this queue,
                         // which is what asks for a second buffer (SSA/
                         // Defer.h): whether the callee reaches one of the

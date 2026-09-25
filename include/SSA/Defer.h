@@ -28,6 +28,21 @@ namespace ssa {
 // after the entry's field and the path down to it, in the order the push
 // takes an entry apart and the drain puts one back together.
 //
+// A short vector is taken apart only where a gang will read or write the
+// queue (QueueSpec::vector_leaves). Where every push and every drain of
+// the queue is one entry at a time, a `vec3f` or `vec4f` of the entry is
+// one leaf, stored in one array of packed vectors -- the twelve or sixteen
+// bytes the value is, back to back (Vector_t::packed) -- so that a push
+// writes it with one store to one cache line and a drain reads it back
+// with one load. Taken apart, a spectrum is four arrays and a push of it
+// four lines; pbrt's `SOA<SampledSpectrum>` keeps a `Float4` per entry
+// for the same reason. That is the difference between a push of a ray
+// touching forty-five cache lines and seventeen, and on a machine whose
+// cores each claim the lines their pushes write, it was measured as most
+// of what the whole-frame wavefront lost to pbrt's (apps/pbrt/PLAN.md, the
+// frame schedule's stall profile). The per-entry bytes are the same either
+// way; what changes is how many lines they are spread over.
+//
 // A leaf that is not stored is one the drain can supply without reading
 // it back: the padding an ADT's storage puts between its tag and its
 // payload, which is zero at every construction (Lower/ADTs.cpp) and read by
@@ -84,6 +99,17 @@ struct QueueSpec {
     // A constant capacity the schedule gave, if any. Without one the size is
     // inferred (see below).
     std::optional<uint64_t> capacity;
+    // Whether a short vector of the entry is one leaf, stored packed in one
+    // array (QueueLayout), rather than a leaf per component. True when no
+    // directive of the schedule vectorizes a loop of the owner or of any
+    // function on the chain that pushes onto or drains this queue: a gang's
+    // push and drain want a scalar per array (a dense vector load, a
+    // compress-store per scalar), and a lone entry's want as few arrays as
+    // the entry has fields. Decided by the Convert pass from the whole
+    // schedule before the deferral is applied, since the layout is made
+    // here and the vectorize directive that would need the scalars comes
+    // after.
+    bool vector_leaves = false;
     // Whether the owner's own call into the chain -- the producer's -- is a
     // push of the initial entry rather than a call that runs the first step:
     // the schedule wrote `owner.defer(callee, q)` beside `callee.defer(callee,

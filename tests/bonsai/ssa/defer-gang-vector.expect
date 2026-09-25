@@ -1,0 +1,225 @@
+type Entry_sums = struct Entry_sums{ n : i32; p : f32x3; s : f32x4; i : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; p_x : f32[]; p_y : f32[]; p_z : f32[]; s_x : f32[]; s_y : f32[]; s_z : f32[]; s_w : f32[]; i : i32[] }
+type f32x3 = f32x3
+type f32x4 = f32x4
+
+func run(out : mut i32[40]) -> void {
+  sums!round : mut u32
+  sums_n_0 : mut i32[40]
+  sums_p_x_0 : mut f32[40]
+  sums_p_y_0 : mut f32[40]
+  sums_p_z_0 : mut f32[40]
+  sums_s_x_0 : mut f32[40]
+  sums_s_y_0 : mut f32[40]
+  sums_s_z_0 : mut f32[40]
+  sums_s_w_0 : mut f32[40]
+  sums_i_0 : mut i32[40]
+  sums_n_1 : mut i32[40]
+  sums_p_x_1 : mut f32[40]
+  sums_p_y_1 : mut f32[40]
+  sums_p_z_1 : mut f32[40]
+  sums_s_x_1 : mut f32[40]
+  sums_s_y_1 : mut f32[40]
+  sums_s_z_1 : mut f32[40]
+  sums_s_w_1 : mut f32[40]
+  sums_i_1 : mut i32[40]
+  sums_queue : mut Queue_sums[2]
+  let @5 = build<Queue_sums>(0u, sums_n_0, sums_p_x_0, sums_p_y_0, sums_p_z_0, sums_s_x_0, sums_s_y_0, sums_s_z_0, sums_s_w_0, sums_i_0) in
+  sums_queue[0u] = @5
+  let @7 = build<Queue_sums>(0u, sums_n_1, sums_p_x_1, sums_p_y_1, sums_p_z_1, sums_s_x_1, sums_s_y_1, sums_s_z_1, sums_s_w_1, sums_i_1) in
+  sums_queue[1u] = @7
+  parfor i in [0:40:1] {
+    let @51 = mulhi(i, -1840700269) in
+    let @52 = @51 + i in
+    let @53 = @52 >> 2 in
+    let @54 = @53 >> 31 in
+    let @55 = reinterpret_cast<u32>(@54) in
+    let @56 = @55 >> 31u in
+    let @57 = reinterpret_cast<i32>(@56) in
+    let @58 = @53 + @57 in
+    let @59 = @58 * 7 in
+    let @0 = i - @59 in
+    let @1 = cast<f32>(i) in
+    let @2 = build<f32x3>(@1, 0f, 0f) in
+    let @3 = build<f32x4>(1f, 1f, 1f, 1f) in
+    walk(@0, @2, @3, out, i, (&sums_queue[0u]))
+    continue
+  }
+  sums!round = 0u
+  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+    let @11 = (*sums!round) & 1u in
+    let @13 = sums_queue[(*sums!round) & 1u].count in
+    let @15 = @11 ^ 1u in
+    sums_queue[@15].count = 0u
+    parfor sums_gang in [0u:@13:16u] {
+      let @16 = (&sums_queue[@15]) in
+      let @48 = sums_queue[(*sums!round) & 1u].count in
+      let @64 = u32x16(@48) in
+      let @50 = ramp(sums_gang, 1u, 16) < @64 in
+      let @61 = reduce<any>(@50) in
+      if (@61) {
+        let @20 = sums_queue[@11].n in
+        let @21 = masked_extract(@20[ramp(sums_gang, 1u, 16)], @50) in
+        let @23 = sums_queue[@11].p_x in
+        let @24 = masked_extract(@23[ramp(sums_gang, 1u, 16)], @50) in
+        let @26 = sums_queue[@11].p_y in
+        let @27 = masked_extract(@26[ramp(sums_gang, 1u, 16)], @50) in
+        let @29 = sums_queue[@11].p_z in
+        let @30 = masked_extract(@29[ramp(sums_gang, 1u, 16)], @50) in
+        let @33 = sums_queue[@11].s_x in
+        let @34 = masked_extract(@33[ramp(sums_gang, 1u, 16)], @50) in
+        let @36 = sums_queue[@11].s_y in
+        let @37 = masked_extract(@36[ramp(sums_gang, 1u, 16)], @50) in
+        let @39 = sums_queue[@11].s_z in
+        let @40 = masked_extract(@39[ramp(sums_gang, 1u, 16)], @50) in
+        let @42 = sums_queue[@11].s_w in
+        let @43 = masked_extract(@42[ramp(sums_gang, 1u, 16)], @50) in
+        let @46 = sums_queue[@11].i in
+        let @47 = masked_extract(@46[ramp(sums_gang, 1u, 16)], @50) in
+        walk$gang16_v0_v1_v2_v4$masked(@21, @24, @27, @30, @34, @37, @40, @43, out, @47, @16, @50)
+      }
+      continue
+    }
+    let @10 = (*sums!round) + 1u in
+    sums!round = @10
+  }
+  return
+}
+
+func walk(n : i32, p : f32x3, s : f32x4, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
+  let @0 = n <= 0 in
+  if (@0) {
+    let @1 = p[0] in
+    let @2 = p[1] in
+    let @3 = @1 + @2 in
+    let @4 = p[2] in
+    let @5 = @3 + @4 in
+    let @6 = s[0] in
+    let @7 = @5 + @6 in
+    let @8 = s[1] in
+    let @9 = @7 + @8 in
+    let @10 = s[2] in
+    let @11 = @9 + @10 in
+    let @12 = s[3] in
+    let @13 = @11 + @12 in
+    let @14 = cast<i32>(@13) in
+    out[i] = @14
+    return
+  } else {
+    let @16 = n - 1 in
+    let @17 = build<f32x3>(1f, 2f, 3f) in
+    let @18 = p + @17 in
+    let @19 = f32x4(2f) in
+    let @20 = s * @19 in
+    let @21 = build<Entry_sums>(@16, @18, @20, i) in
+    let @24 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @25 = @18[0u] in
+    let @26 = @18[1u] in
+    let @27 = @18[2u] in
+    let @28 = @20[0u] in
+    let @29 = @20[1u] in
+    let @30 = @20[2u] in
+    let @31 = @20[3u] in
+    let @33 = (*_queue_sums).n in
+    @33[@24] = @16
+    let @36 = (*_queue_sums).p_x in
+    @36[@24] = @25
+    let @39 = (*_queue_sums).p_y in
+    @39[@24] = @26
+    let @42 = (*_queue_sums).p_z in
+    @42[@24] = @27
+    let @45 = (*_queue_sums).s_x in
+    @45[@24] = @28
+    let @48 = (*_queue_sums).s_y in
+    @48[@24] = @29
+    let @51 = (*_queue_sums).s_z in
+    @51[@24] = @30
+    let @54 = (*_queue_sums).s_w in
+    @54[@24] = @31
+    let @57 = (*_queue_sums).i in
+    @57[@24] = i
+    return
+  }
+}
+
+func walk$gang16_v0_v1_v2_v4$masked(n : i32x16, p!0 : f32x16, p!1 : f32x16, p!2 : f32x16, s!0 : f32x16, s!1 : f32x16, s!2 : f32x16, s!3 : f32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
+  let @44 = i32x16(0) in
+  let @0 = n <= @44 in
+  let @45 = boolx16(false) in
+  let @46 = boolx16(true) in
+  let @23 = select(@0, @45, @46) in
+  let @24 = !mask && @23 in
+  let @25 = !mask && @0 in
+  let @27 = reduce<any>(@25) in
+  if (@27) {
+    let @3 = p!0 + p!1 in
+    let @5 = @3 + p!2 in
+    let @7 = @5 + s!0 in
+    let @9 = @7 + s!1 in
+    let @11 = @9 + s!2 in
+    let @13 = @11 + s!3 in
+    let @14 = cast<i32x16>(@13) in
+    masked_store(out[i], @14, @25)
+  }
+  let @26 = reduce<any>(@24) in
+  if (@26) {
+    let @47 = i32x16(1) in
+    let @16 = n - @47 in
+    let @17 = build<f32x3>(1f, 2f, 3f) in
+    let @28 = @17[0u] in
+    let @48 = f32x16(@28) in
+    let @29 = p!0 + @48 in
+    let @30 = @17[1u] in
+    let @49 = f32x16(@30) in
+    let @31 = p!1 + @49 in
+    let @32 = @17[2u] in
+    let @50 = f32x16(@32) in
+    let @33 = p!2 + @50 in
+    let @19 = f32x4(2f) in
+    let @34 = @19[0u] in
+    let @51 = f32x16(@34) in
+    let @35 = s!0 * @51 in
+    let @36 = @19[1u] in
+    let @52 = f32x16(@36) in
+    let @37 = s!1 * @52 in
+    let @38 = @19[2u] in
+    let @53 = f32x16(@38) in
+    let @39 = s!2 * @53 in
+    let @40 = @19[3u] in
+    let @54 = f32x16(@40) in
+    let @41 = s!3 * @54 in
+    let @42 = build<f32x3$v16>(@29, @31, @33) in
+    let @43 = build<f32x4$v16>(@35, @37, @39, @41) in
+    let @21 = build<Entry_sums$v16>(@16, @42, @43, i) in
+    let @56 = reduce<+>(cast<u32x16>(@24)) in
+    let @57 = atomic_add((&(*_queue_sums).count), @56) in
+    let @59 = (*_queue_sums).n in
+    compress_store(@59[@57], @16, @24)
+    let @62 = (*_queue_sums).p_x in
+    compress_store(@62[@57], @29, @24)
+    let @65 = (*_queue_sums).p_y in
+    compress_store(@65[@57], @31, @24)
+    let @68 = (*_queue_sums).p_z in
+    compress_store(@68[@57], @33, @24)
+    let @71 = (*_queue_sums).s_x in
+    compress_store(@71[@57], @35, @24)
+    let @74 = (*_queue_sums).s_y in
+    compress_store(@74[@57], @37, @24)
+    let @77 = (*_queue_sums).s_z in
+    compress_store(@77[@57], @39, @24)
+    let @80 = (*_queue_sums).s_w in
+    compress_store(@80[@57], @41, @24)
+    let @83 = (*_queue_sums).i in
+    compress_store(@83[@57], i, @24)
+  }
+  return
+}
+
+
+schedule host {
+    sums = run.queue(root);
+    run.split(sums, sums_gang, sums_lane, (i32)16, 1)
+       .vectorize(sums_lane)
+    walk.defer(walk, sums)
+
+}
