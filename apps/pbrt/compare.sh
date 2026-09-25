@@ -48,12 +48,28 @@ PREFIX="apps/pbrt"
 # `--schedule <name>` picks how this renderer runs the program: one of the
 # files in schedules/, compiled alongside render.bonsai (see
 # schedules/packet.bonsai, the default).
+#
+# `--pbrt-wavefront` renders pbrt's reference with its wavefront integrator
+# (`pbrt --wavefront`, the CPU run of what `pbrt --gpu` runs) rather than its
+# CPU integrator. The program follows the wavefront where pbrt's two differ
+# -- the footprint at every hit by the camera approximation, no ray
+# differentials carried, the shadow ray re-spawned as TraceTransmittance does
+# (PLAN.md, "Where pbrt's own CPU volpath and its wavefront differ") -- so
+# this is the reference it is the same algorithm as, and the one a timing of
+# the wavefront schedules is fair against. Without it pbrt runs its CPU
+# integrator, which is what the geometry checks were written against and what
+# the two still agree on to the pixel where no texture is filtered.
 DUMP_OPTS=()
 MAXDEPTH=""
 SCHEDULE="${SCHEDULE:-packet}"
+PBRT_WAVEFRONT=0
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --pbrt-wavefront)
+      PBRT_WAVEFRONT=1
+      shift
+      ;;
     --spp)
       if [[ $# -lt 2 ]]; then
         echo "--spp needs a sample count" >&2
@@ -221,6 +237,13 @@ PBRT_FLAGS=()
 for opt in ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"}; do
   PBRT_FLAGS+=("$opt")
 done
+# pbrt's `--wavefront`: the same option pbrt's own command line takes, and
+# the only difference between its two integrators' runs (cmd/pbrt.cpp routes
+# to RenderWavefront on it).
+if [[ "$PBRT_WAVEFRONT" == 1 ]]; then
+  PBRT_FLAGS+=(--wavefront)
+  echo "pbrt's reference is its wavefront integrator (pbrt --wavefront)."
+fi
 
 # Which channels pbrt can give, which takes *two* things and not one.
 #

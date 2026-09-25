@@ -12,12 +12,25 @@ import apps/pbrt/interval;
 import apps/pbrt/sampling;
 import apps/pbrt/transform;
 
-// pbrt: Ray. Its tMax lives on the Ray in bonsai the way pbrt passes it
-// alongside; the tree lowering needs a bound to prune against.
+// pbrt: Ray -- the origin and the direction. pbrt's carries a time and a
+// medium too; this program has no motion blur, and the medium travels beside
+// the ray as an index. The far bound is not a field of the ray, as it is not
+// in pbrt: every Intersect takes `(ray, tMax)`, and the bound travels beside
+// the ray -- infinity for a path's, `1 - ShadowEpsilon` for a shadow ray's --
+// so that a ray in a queue is what pbrt's RayWorkItem holds and no more.
 element Ray {
     o : vec3f;
     d : vec3f;
-    tmax : Float = inf;
+}
+
+// pbrt: the `(Ray, Float tMax)` that Intersect and IntersectP take, as the
+// one object a tree query prunes with: the ray, and how far along it a hit
+// counts. A spatial relation is between two objects, so the bound has to ride
+// with the ray for the query's length; it is built where the query is asked
+// and lives no longer.
+element RaySegment {
+    ray : Ray;
+    tmax : Float;
 }
 
 // pbrt: Sphere. pbrt keeps a transform and a radius and works in object space,
@@ -164,19 +177,19 @@ func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
 // than on the interval's value: a root is only rejected when it is certainly
 // out of range, so a hit is never dropped because rounding pushed it a few ulp
 // past the boundary. This is the test for a sphere the ray is trying to *hit*.
-func sphere_t(r : Ray, s : Sphere) -> option[Float] {
+func sphere_t(r : Ray, tmax : Float, s : Sphere) -> option[Float] {
     found = sphere_roots(r, s);
     if !found {
         return {};
     }
     roots = *found;
-    if (roots.t0.high > r.tmax) | (roots.t1.low <= 0.0) {
+    if (roots.t0.high > tmax) | (roots.t1.low <= 0.0) {
         return {};
     }
     if roots.t0.low <= 0.0 {
         // The near root is behind the ray, so the far one is the hit -- if it
         // is in range at all.
-        if roots.t1.high > r.tmax {
+        if roots.t1.high > tmax {
             return {};
         }
         return mid(roots.t1);
@@ -244,8 +257,8 @@ func aabb_span(r : Ray, b : AABB) -> option[Span] {
 // What the tree lowering prunes with. `intersects` is pbrt's return value from
 // IntersectP; the two distances are the ends of the span, and a miss reports
 // an empty interval the wrong way round so that nothing selects it.
-func distmin(r : Ray, b : AABB) -> Float {
-    found = aabb_span(r, b);
+func distmin(q : RaySegment, b : AABB) -> Float {
+    found = aabb_span(q.ray, b);
     if found {
         span = *found;
         return span.lo;
@@ -253,8 +266,8 @@ func distmin(r : Ray, b : AABB) -> Float {
     return -inf;
 }
 
-func distmax(r : Ray, b : AABB) -> Float {
-    found = aabb_span(r, b);
+func distmax(q : RaySegment, b : AABB) -> Float {
+    found = aabb_span(q.ray, b);
     if found {
         span = *found;
         return span.hi;
@@ -262,11 +275,11 @@ func distmax(r : Ray, b : AABB) -> Float {
     return inf;
 }
 
-func intersects(r : Ray, b : AABB) -> bool {
-    found = aabb_span(r, b);
+func intersects(q : RaySegment, b : AABB) -> bool {
+    found = aabb_span(q.ray, b);
     if found {
         span = *found;
-        return (span.lo < r.tmax) & (span.hi > 0.0);
+        return (span.lo < q.tmax) & (span.hi > 0.0);
     }
     return false;
 }
@@ -291,7 +304,7 @@ func intersects(r : Ray, b : AABB) -> bool {
 // contains a box" is a fact about geometry and this is where this app keeps
 // those. A `contains` that guessed `true` would prune away real occluders and
 // light the scene through walls.
-func contains(r : Ray, b : AABB) -> bool = false;
+func contains(q : RaySegment, b : AABB) -> bool = false;
 
 // pbrt: TriangleIntersection, which is where a ray met a triangle: how far
 // along, and where in the triangle. The barycentrics are what the shading
@@ -307,7 +320,7 @@ element TriangleHit {
 // is permuted into z, and the vertices are sheared so that the edge tests are
 // exact in sign. The error bounds at the end are pbrt's, and they are what
 // keeps a ray from slipping between two triangles that share an edge.
-func triangle_hit(ray : Ray, tri : Triangle) -> option[TriangleHit] {
+func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit] {
     p0 = triangle_p(tri, 0u);
     p1 = triangle_p(tri, 1u);
     p2 = triangle_p(tri, 2u);
@@ -365,9 +378,9 @@ func triangle_hit(ray : Ray, tri : Triangle) -> option[TriangleHit] {
     p2t.z *= Sz;
 
     tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
-    if (det < 0 && (tScaled >= 0 || tScaled < ray.tmax * det))
+    if (det < 0 && (tScaled >= 0 || tScaled < tmax * det))
         return {};
-    else if (det > 0 && (tScaled <= 0 || tScaled > ray.tmax * det))
+    else if (det > 0 && (tScaled <= 0 || tScaled > tmax * det))
         return {};
 
     invDet = 1 / det;
@@ -392,8 +405,8 @@ func triangle_hit(ray : Ray, tri : Triangle) -> option[TriangleHit] {
 }
 
 // The distance alone, which is all the tree query needs.
-func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
-    hit = triangle_hit(ray, tri);
+func triangle_t(ray : Ray, tmax : Float, tri : Triangle) -> option[Float] {
+    hit = triangle_hit(ray, tmax, tri);
     if hit {
         return (*hit).t;
     }
@@ -401,24 +414,24 @@ func triangle_t(ray : Ray, tri : Triangle) -> option[Float] {
 }
 
 // A triangle is flat, so the near and far distance to it are the same one.
-func distmin(r : Ray, tri : Triangle) -> Float {
-    t = triangle_t(r, tri);
+func distmin(q : RaySegment, tri : Triangle) -> Float {
+    t = triangle_t(q.ray, q.tmax, tri);
     if t {
         return *t;
     }
     return inf;
 }
 
-func distmax(r : Ray, tri : Triangle) -> Float {
-    t = triangle_t(r, tri);
+func distmax(q : RaySegment, tri : Triangle) -> Float {
+    t = triangle_t(q.ray, q.tmax, tri);
     if t {
         return *t;
     }
     return -inf;
 }
 
-func intersects(r : Ray, tri : Triangle) -> bool {
-    return cast[[bool]](triangle_t(r, tri));
+func intersects(q : RaySegment, tri : Triangle) -> bool {
+    return cast[[bool]](triangle_t(q.ray, q.tmax, tri));
 }
 
 // pbrt: Disk -- a flat annulus, or a sector of one, in the plane z = height of
@@ -489,7 +502,7 @@ func pull_ray(inv : Transform, r : Ray) -> Ray {
               fma(inv.r1.y, r.o.y, inv.r1.x * r.o.x) + fma(inv.r1.z, r.o.z, inv.r1.w),
               fma(inv.r2.y, r.o.y, inv.r2.x * r.o.x) + fma(inv.r2.z, r.o.z, inv.r2.w)};
     wp = fma(inv.r3.y, r.o.y, inv.r3.x * r.o.x) + fma(inv.r3.z, r.o.z, inv.r3.w);
-    out : Ray = {select(wp == 1.0, o, o / wp), apply_vector(inv, r.d), r.tmax};
+    out : Ray = {select(wp == 1.0, o, o / wp), apply_vector(inv, r.d)};
     return out;
 }
 
@@ -497,7 +510,7 @@ func pull_ray(inv : Transform, r : Ray) -> Ray {
 // plane z = height: the distance to the plane, the point there, and whether
 // it lies between the radii and within phi_max. A ray parallel to the plane
 // misses, whatever its origin.
-func disk_hit(r : Ray, d : Disk) -> option[DiskHit] {
+func disk_hit(r : Ray, tmax : Float, d : Disk) -> option[DiskHit] {
     pulled = pull_ray(d.object_from_render, r);
     oi = pulled.o;
     di = pulled.d;
@@ -505,7 +518,7 @@ func disk_hit(r : Ray, d : Disk) -> option[DiskHit] {
         return {};
     }
     t = (d.height - oi.z) / di.z;
-    if (t <= 0.0) | (t >= r.tmax) {
+    if (t <= 0.0) | (t >= tmax) {
         return {};
     }
     p = oi + t * di;
@@ -543,18 +556,18 @@ element Shape =
 // hit. The bounding-volume overloads above answer for AABB and are a separate
 // question -- the node a shape is in, not the shape. A shape that is not hit
 // is infinitely far, the same answer the triangle gives.
-func distmin(r : Ray, sh : Shape) -> Float {
+func distmin(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
-            hit = sphere_t(r, s);
+            hit = sphere_t(q.ray, q.tmax, s);
             if hit {
                 return *hit;
             }
             return inf;
         }
-        Tri(t) => return distmin(r, t);
+        Tri(t) => return distmin(q, t);
         Dsk(d) => {
-            hit = disk_hit(r, d);
+            hit = disk_hit(q.ray, q.tmax, d);
             if hit {
                 return (*hit).t;
             }
@@ -563,18 +576,18 @@ func distmin(r : Ray, sh : Shape) -> Float {
     }
 }
 
-func distmax(r : Ray, sh : Shape) -> Float {
+func distmax(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
-            hit = sphere_t(r, s);
+            hit = sphere_t(q.ray, q.tmax, s);
             if hit {
                 return *hit;
             }
             return -inf;
         }
-        Tri(t) => return distmax(r, t);
+        Tri(t) => return distmax(q, t);
         Dsk(d) => {
-            hit = disk_hit(r, d);
+            hit = disk_hit(q.ray, q.tmax, d);
             if hit {
                 return (*hit).t;
             }
@@ -583,11 +596,11 @@ func distmax(r : Ray, sh : Shape) -> Float {
     }
 }
 
-func intersects(r : Ray, sh : Shape) -> bool {
+func intersects(q : RaySegment, sh : Shape) -> bool {
     match sh {
-        Sph(s) => return cast[[bool]](sphere_t(r, s));
-        Tri(t) => return intersects(r, t);
-        Dsk(d) => return cast[[bool]](disk_hit(r, d));
+        Sph(s) => return cast[[bool]](sphere_t(q.ray, q.tmax, s));
+        Tri(t) => return intersects(q, t);
+        Dsk(d) => return cast[[bool]](disk_hit(q.ray, q.tmax, d));
     }
 }
 
@@ -1006,7 +1019,7 @@ func offset_ray_origin(p : vec3f, p_error : vec3f, n : vec3f,
 // pbrt: Interaction::SpawnRay. The geometric normal rather than the shading
 // one, because what the offset has to clear is where the surface actually is.
 func spawn_ray(g : SurfaceGeometry, d : vec3f) -> Ray {
-    r : Ray = {offset_ray_origin(g.p, g.p_error, g.n, d), d, inf};
+    r : Ray = {offset_ray_origin(g.p, g.p_error, g.n, d), d};
     return r;
 }
 
@@ -1016,16 +1029,32 @@ func spawn_ray(g : SurfaceGeometry, d : vec3f) -> Ray {
 // stops exactly on the light would find the light, and one that stops exactly
 // on the surface it left would find that. The direction is deliberately *not*
 // normalized, so `t` runs from zero at one end to one at the other and the
-// `tmax` below is a fraction rather than a distance -- which is what lets one
-// epsilon work for a light a metre away and one a kilometre away.
+// bound a shadow ray is traced with, `shadow_tmax`, is a fraction rather than
+// a distance -- which is what lets one epsilon work for a light a metre away
+// and one a kilometre away.
 func spawn_ray_to(from_p : vec3f, from_error : vec3f, from_n : vec3f,
                   to_p : vec3f, to_error : vec3f, to_n : vec3f) -> Ray {
     pf = offset_ray_origin(from_p, from_error, from_n, to_p - from_p);
     pt = offset_ray_origin(to_p, to_error, to_n, pf - to_p);
-    // pbrt: ShadowEpsilon, which stops the ray just short of the far surface.
-    r : Ray = {pf, pt - pf, 0.9999};
+    r : Ray = {pf, pt - pf};
     return r;
 }
+
+// pbrt: the other SpawnRayTo, toward a point rather than a surface -- the
+// origin is pushed off its surface and the far end is the point itself. The
+// wavefront's TraceTransmittance re-spawns a shadow ray this way at every
+// medium boundary it crosses, toward where the first segment ended.
+func spawn_ray_to_point(from_p : vec3f, from_error : vec3f, from_n : vec3f,
+                        to_p : vec3f) -> Ray {
+    d = to_p - from_p;
+    r : Ray = {offset_ray_origin(from_p, from_error, from_n, d), d};
+    return r;
+}
+
+// pbrt: `1 - ShadowEpsilon`, how far along a shadow ray -- `t` from zero at
+// one end to one at the other -- a hit still counts as occlusion: the far
+// surface itself, a sliver short of `t = 1`, does not.
+func shadow_tmax() -> Float = 1.0 - 0.0001;
 
 // pbrt: ShapeSampleContext, the point a shape is being sampled *from*.
 //
@@ -1247,8 +1276,8 @@ func disk_sample(d : Disk, ctx : ShapeSampleContext,
 // density converted at the hit. Zero for a miss, and zero where the
 // conversion overflows.
 func disk_pdf(d : Disk, ctx : ShapeSampleContext, wi : vec3f) -> Float {
-    r : Ray = {offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi), wi, inf};
-    hit = disk_hit(r, d);
+    r : Ray = {offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi), wi};
+    hit = disk_hit(r, inf, d);
     if !hit {
         return 0.0;
     }
@@ -1592,8 +1621,8 @@ func triangle_pdf(t : Triangle, ctx : ShapeSampleContext, wi : vec3f) -> Float {
                                     unit_vector_(p2 - ctx.p));
     if (solid < 0.0003) || (solid > 6.22) {
         o = offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi);
-        ray : Ray = {o, wi, inf};
-        hit = triangle_hit(ray, t);
+        ray : Ray = {o, wi};
+        hit = triangle_hit(ray, inf, t);
         if !hit {
             return 0.0;
         }
@@ -1652,23 +1681,25 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
                                 vec3f{1.0, 0.0, 0.0}, vec3f{0.0, 1.0, 0.0},
                                 vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                 r.o, vec3f{0.0, 0.0, 0.0}};
+    // Unbounded: the ray was found to hit this shape within the query's
+    // bound, and the nearest hit ahead of the ray is that one.
     match sh {
         Sph(s) => {
-            t = sphere_t(r, s);
+            t = sphere_t(r, inf, s);
             if t {
                 return sphere_geometry(s, r, *t);
             }
             return missed;
         }
         Tri(tri) => {
-            hit = triangle_hit(r, tri);
+            hit = triangle_hit(r, inf, tri);
             if hit {
                 return triangle_geometry(tri, (*hit).b);
             }
             return missed;
         }
         Dsk(d) => {
-            hit = disk_hit(r, d);
+            hit = disk_hit(r, inf, d);
             if hit {
                 return disk_geometry(d, *hit);
             }

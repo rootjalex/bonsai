@@ -192,10 +192,31 @@ func generate_ray_differential(camera : PerspectiveCamera,
                          true}};
 }
 
-// pbrt: PerspectiveCamera::GenerateRay, for the places that want a ray and no
-// differentials -- there is nothing to filter along a shadow ray.
+// pbrt: PerspectiveCamera::GenerateRay -- the ray alone, no companions. What
+// the wavefront's camera kernel generates (wavefront/camera.cpp:
+// `camera.GenerateRay`), and so what this program's paths start from: nothing
+// downstream has a differential to carry, and every hit's footprint is the
+// camera approximation (approximate_differentials). The main ray of
+// `generate_ray_differential` above, operation for operation.
 func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
-    return generate_ray_differential(camera, sample).ray;
+    p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
+    p_camera = apply_point(camera.camera_from_raster, p_film);
+    d_camera = unit_vector_(p_camera);
+    zero = vec3f{0.0, 0.0, 0.0};
+
+    o : mut vec3f = zero;
+    d : mut vec3f = d_camera;
+    if camera.lens_radius > 0.0 {
+        p_lens = camera.lens_radius *
+                 sample_uniform_disk_concentric(sample.p_lens);
+        o = vec3f{p_lens.x, p_lens.y, 0.0};
+        // pbrt: `pFocus = ray(ft)`, `o + d * ft` from the origin -- fused, as
+        // the differential version says.
+        ft = camera.focal_distance / d_camera.z;
+        p_focus = fma3(ft, d_camera, zero);
+        d = unit_vector_(p_focus - o);
+    }
+    return transform_ray(camera.render_from_camera, o, d);
 }
 
 // pbrt: RayDifferential::ScaleDifferentials, which RenderCPU applies to every

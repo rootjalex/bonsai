@@ -85,16 +85,17 @@ schedule {
     //
     // The same rule inside an instance's tree, where pbrt applies it to the
     // ray *after* `ApplyInverse`: the split axis is an axis of the instance's
-    // frame. The key is written over the query's ray here too, and the
-    // compiler carries it into the pulled-back one along with every other
-    // test in that walk (Opt/PullQueries.h).
+    // frame. The key is written over the query's object here too -- the ray
+    // with its bound, `RaySegment`, of which the direction is what the key
+    // reads -- and the compiler carries it into the pulled-back one along
+    // with every other test in that walk (Opt/PullQueries.h).
     trace.sort(primitives.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .sort(Inst.blas.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .loopify(64);
     // The occlusion test gets its own stack, and it is the same 64 pbrt's

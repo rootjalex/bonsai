@@ -814,18 +814,6 @@ func get_medium(prim : Geometric, n : vec3f, w : vec3f,
     return ray_medium;
 }
 
-// pbrt: the differentials' half of SurfaceInteraction::SkipIntersection -- the
-// companion rays' origins advanced to where the surface was crossed, their
-// directions kept, since a surface that scatters nothing bends nothing.
-func skip_differentials(d : RayDifferential, t : Float) -> RayDifferential {
-    if !d.has_differentials {
-        return d;
-    }
-    return RayDifferential{d.rx_origin + t * d.rx_direction,
-                           d.ry_origin + t * d.ry_direction,
-                           d.rx_direction, d.ry_direction, true};
-}
-
 // pbrt: Primitive, the TaggedPointer the top-level BVHAggregate is built over.
 // Two of its kinds are here: a GeometricPrimitive standing on its own, and a
 // TransformedPrimitive -- an `ObjectInstance`, which is a transform and a whole
@@ -911,6 +899,14 @@ func untransform(p : Primitive, r : Ray) -> Ray {
     }
 }
 
+// The query's object is the ray with its bound; the bound is a parameter
+// along the ray, which an affine motion preserves (pull_ray does not
+// renormalise), so it comes through unchanged.
+func untransform(p : Primitive, q : RaySegment) -> RaySegment {
+    pulled : RaySegment = {untransform(p, q.ray), q.tmax};
+    return pulled;
+}
+
 func transform(p : Primitive, s : SurfaceGeometry) -> SurfaceGeometry {
     match p {
         Geom(g) => return s;
@@ -985,9 +981,9 @@ extern rho_uy : array[Float];
 
 // The ray queries pass straight through to the geometry: which primitive a ray
 // hits is a question about its shape alone.
-func distmin(r : Ray, p : Geometric) -> Float = distmin(r, p.shape);
-func distmax(r : Ray, p : Geometric) -> Float = distmax(r, p.shape);
-func intersects(r : Ray, p : Geometric) -> bool = intersects(r, p.shape);
+func distmin(q : RaySegment, p : Geometric) -> Float = distmin(q, p.shape);
+func distmax(q : RaySegment, p : Geometric) -> Float = distmax(q, p.shape);
+func intersects(q : RaySegment, p : Geometric) -> bool = intersects(q, p.shape);
 
 extern primitives : set[Primitive];
 
@@ -1017,11 +1013,13 @@ extern primitives : set[Primitive];
 // thousandth of it was six centimetres on the pavilion's pool -- through which
 // the wall a bump-mapped normal had aimed the shadow ray into was invisible,
 // and the wall came out several times as bright as pbrt's.
-func trace(r : Ray) =
-    argmin(|p : Primitive, g : Geometric| distmin(r, transform(p, g)),
+// `q` is pbrt's `(ray, tMax)`: the ray, and how far along it a hit counts --
+// infinity for a path's ray, `shadow_tmax()` for a shadow ray's.
+func trace(q : RaySegment) =
+    argmin(|p : Primitive, g : Geometric| distmin(q, transform(p, g)),
            filter(|p : Primitive, g : Geometric|
-                      intersects(r, transform(p, g)) &&
-                      alpha_accepts(untransform(p, r), g),
+                      intersects(q, transform(p, g)) &&
+                      alpha_accepts(untransform(p, q.ray), g),
                   flatten(|p : Primitive| geometry(p), primitives)));
 
 // pbrt: Primitive::IntersectP -- is there *anything* along this ray?
@@ -1040,10 +1038,10 @@ func trace(r : Ray) =
 // IntersectP` answers `Intersect(...).has_value()` where there is an alpha
 // texture, rather than the shape's cheaper occlusion test. A leaf that a camera
 // ray passes through must not cast a shadow.
-func trace_any(r : Ray) =
+func trace_any(q : RaySegment) =
     any(|p : Primitive, g : Geometric|
-            intersects(r, transform(p, g)) &&
-            alpha_accepts(untransform(p, r), g),
+            intersects(q, transform(p, g)) &&
+            alpha_accepts(untransform(p, q.ray), g),
         flatten(|p : Primitive| geometry(p), primitives));
 
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
@@ -1131,13 +1129,12 @@ element Integrator =
 // called it, so a random walk over a textured scene filters its textures the
 // same way a path does -- it just never has a ray carrying differentials of its
 // own past the first vertex, so every lookup uses the camera approximation.
-func walk_step(ray : Ray, ray_diff : RayDifferential,
-               camera : PerspectiveCamera, spp_scale : Float,
+func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                beta : vec4f, l : vec4f,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSet, seed : i32,
                depth : i32, max_depth : i32) -> vec4f {
-    isect = trace(ray);
+    isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt sums `light.Le(ray)` over the infinite lights. A random walk
         // never samples a light, so there is no weight to apply and nothing to
@@ -1190,7 +1187,7 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
 
     // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
-    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    diffs = approximate_differentials(surf, camera, spp_scale);
     hit = displaced(surf, material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
@@ -1207,12 +1204,8 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
     // pbrt: SurfaceInteraction::SpawnRay, which offsets the origin off the
     // surface by the hit point's own error bound. Without it the next ray finds
     // the surface it just left, at a distance of nearly zero.
-    // A uniformly sampled direction is not a specular bounce, so pbrt's
-    // SpawnRay carries no differentials past here and every later lookup falls
-    // to the camera approximation.
     next_ray = spawn_ray(surf, wp);
-    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo, wp, 0, 1.0);
-    return walk_step(next_ray, next_diff, camera, spp_scale,
+    return walk_step(next_ray, camera, spp_scale,
                      beta * fcos / uniform_sphere_pdf(),
                      found, lambda, sampler, state, ls, seed, depth + 1,
                      max_depth);
@@ -1221,12 +1214,11 @@ func walk_step(ray : Ray, ray_diff : RayDifferential,
 // The entry point, which is where the walk's initial state is named rather than
 // passed in by a caller that should not have to know it: a full throughput and
 // no radiance yet.
-func li_random_walk(r0 : Ray, d0 : RayDifferential,
-                    camera : PerspectiveCamera, spp_scale : Float,
+func li_random_walk(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSet, seed : i32,
                     max_depth : i32) -> vec4f =
-    walk_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
+    walk_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
               vec4f{0.0, 0.0, 0.0, 0.0}, lambda, sampler, state, ls, seed, 0,
               max_depth);
 
@@ -1240,7 +1232,7 @@ func li_random_walk(r0 : Ray, d0 : RayDifferential,
 func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
                 to_p : vec3f, to_error : vec3f, to_n : vec3f) -> bool {
     shadow = spawn_ray_to(from_p, from_error, from_n, to_p, to_error, to_n);
-    return !trace_any(shadow);
+    return !trace_any(RaySegment{shadow, shadow_tmax()});
 }
 
 // pbrt: SimplePathIntegrator::Li, with `sampleLights` and `sampleBSDF` both on.
@@ -1258,13 +1250,12 @@ func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
 //
 // Tail-recursive, as `walk_step` is: what the schedule does with the path is
 // the schedule's to decide.
-func path_step(ray : Ray, ray_diff : RayDifferential,
-               camera : PerspectiveCamera, spp_scale : Float,
+func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                beta : vec4f, l : vec4f, specular_bounce : bool,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
                seed : i32, depth : i32, max_depth : i32) -> vec4f {
-    isect = trace(ray);
+    isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt: `if (!sampleLights || specularBounce)` around the sum over the
         // infinite lights, and `sampleLights` is on here. The same
@@ -1312,17 +1303,14 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
         // of the vertex before this one stopped at the boundary (an any-hit
         // test knows nothing of interfaces), so a light found beyond it
         // could not have been sampled and counts in full.
-        return path_step(spawn_ray(surf, ray.d),
-                         skip_differentials(ray_diff,
-                                            distmin(ray, transform(via, prim))),
-                         camera, spp_scale, beta, found, true,
-                         lambda, sampler, state, ls, set, seed, depth,
-                         max_depth);
+        return path_step(spawn_ray(surf, ray.d), camera, spp_scale, beta,
+                         found, true, lambda, sampler, state, ls, set, seed,
+                         depth, max_depth);
     }
 
     // pbrt: GetBSDF, once, before anything is asked of it -- differentials,
     // then the displacement, then the material.
-    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    diffs = approximate_differentials(surf, camera, spp_scale);
     hit = displaced(surf, material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
@@ -1369,9 +1357,7 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
     wi = frame_from_local(shading, sample.wi);
     next_beta = beta * sample.f * abs(dot(wi, hit.ns)) / sample.pdf;
     next_ray = spawn_ray(surf, wi);
-    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo, wi,
-                                       sample.flags, sample.eta);
-    return path_step(next_ray, next_diff, camera, spp_scale, next_beta, found,
+    return path_step(next_ray, camera, spp_scale, next_beta, found,
                      is_specular(sample.flags), lambda, sampler, state, ls, set,
                      seed, depth + 1, max_depth);
 }
@@ -1379,12 +1365,11 @@ func path_step(ray : Ray, ray_diff : RayDifferential,
 // The entry point, which names the state a path starts with. `specular_bounce`
 // starts true because the camera ray has sampled no light, so a light it lands
 // on directly must be counted.
-func li_simple_path(r0 : Ray, d0 : RayDifferential,
-                    camera : PerspectiveCamera, spp_scale : Float,
+func li_simple_path(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32) -> vec4f =
-    path_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
+    path_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
               vec4f{0.0, 0.0, 0.0, 0.0}, true, lambda, sampler, state, ls, set,
               seed, 0, max_depth);
 
@@ -1507,8 +1492,7 @@ func path_sample_ld(bsdf : BxDF, surf : SurfaceGeometry, shading : Frame,
 //
 // Tail-recursive, as `walk_step` and `path_step` are, and for the same reason:
 // what the schedule does with a path is the schedule's to decide.
-func full_path_step(ray : Ray, ray_diff : RayDifferential,
-                    camera : PerspectiveCamera, spp_scale : Float,
+func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     beta : vec4f, l : vec4f, depth : i32,
                     specular_bounce : bool, any_non_specular : bool,
                     eta_scale : Float, p_b : Float,
@@ -1518,7 +1502,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
                     seed : i32, max_depth : i32, regularize : bool,
                     want_visible : bool,
                     visible : mut VisibleSurface) -> vec4f {
-    isect = trace(ray);
+    isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt weighs each infinite light's emission exactly the way the
         // surface emission below is weighed, and for the same reason: a ray
@@ -1608,9 +1592,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
         // previous vertex's shadow rays, so what lies beyond it is reached
         // by the BSDF sample alone.
         return full_path_step(
-            spawn_ray(surf, ray.d),
-            skip_differentials(ray_diff, distmin(ray, transform(via, prim))),
-            camera, spp_scale, beta, found, depth, true,
+            spawn_ray(surf, ray.d), camera, spp_scale, beta, found, depth, true,
             any_non_specular, eta_scale, p_b, prev_ctx, lambda, sampler, state,
             ls, set, seed, max_depth, regularize, want_visible, visible);
     }
@@ -1618,7 +1600,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     // pbrt's `GetBSDF`, in its order: the differentials first, then the
     // displacement -- which tilts the shading frame and so has to happen before
     // the frame is built -- and only then the material.
-    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    diffs = approximate_differentials(surf, camera, spp_scale);
     hit = displaced(surf, material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
@@ -1711,10 +1693,6 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
     // of glass sends the two companion rays somewhere predictable; a rough
     // surface does not, and the next hit falls back on the camera's minimum
     // footprint.
-    // The bumped hit: pbrt's SpawnRay reads `shading.n` and the shading normal
-    // derivatives, which is what the bump changed.
-    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo_unit, wi,
-                                       sample.flags, sample.eta);
 
     // pbrt: Russian roulette, after the ray is spawned and never at the first
     // vertex -- `depth > 1` on the already-incremented depth. Killing a camera
@@ -1729,7 +1707,7 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
         survived = next_beta / (1.0 - q);
     }
 
-    return full_path_step(next_ray, next_diff, camera, spp_scale, survived,
+    return full_path_step(next_ray, camera, spp_scale, survived,
                           found, next_depth, next_specular, next_any_ns,
                           next_eta_scale, next_p_b, next_ctx, lambda, sampler,
                           state, ls, set, seed, max_depth, regularize,
@@ -1740,14 +1718,14 @@ func full_path_step(ray : Ray, ray_diff : RayDifferential,
 // no radiance, no scattering yet, and a previous vertex that does not exist --
 // `depth == 0` is what stops `prev_ctx` and `p_b` ever being read before one
 // does.
-func li_path(r0 : Ray, d0 : RayDifferential, camera : PerspectiveCamera,
+func li_path(r0 : Ray, camera : PerspectiveCamera,
              spp_scale : Float, lambda : SampledWavelengths, sampler : Sampler,
              state : mut SamplerState, ls : LightSampler, set : LightSet,
              seed : i32, max_depth : i32, regularize : bool,
              want_visible : bool, visible : mut VisibleSurface) -> vec4f {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
-    return full_path_step(r0, d0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
+    return full_path_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
                           vec4f{0.0, 0.0, 0.0, 0.0}, 0, false, false, 1.0, 0.0,
                           origin, lambda, sampler, state, ls, set, seed,
                           max_depth, regularize, want_visible, visible);
@@ -1869,103 +1847,113 @@ func vol_shadow_track(o : vec3f, dn : vec3f, t_min : Float, t_max : Float,
                             vec4f{1.0, 1.0, 1.0, 1.0}, lambda);
 }
 
-// pbrt: the transmittance loop of VolPathIntegrator::SampleLd -- the shadow
-// ray traced with the closest-hit `Intersect` rather than `IntersectP`: a hit
-// on a surface with a material is occlusion, a hit on a medium boundary is a
-// change of medium to continue through, and each segment inside a medium
-// multiplies in the ratio-tracking estimate above. Tail-recursive over the
-// boundaries crossed. `rng` is pbrt's, seeded from the first segment's ray.
+// pbrt: one segment of TraceTransmittance -- `if (ray.medium)`: the medium
+// the segment runs through, sampled up to `t_hit` along the ray (the ray
+// itself or the boundary it stops at; SampleT_maj normalizes the direction
+// and scales the bound by its length), and `T_ray *= T_maj / T_maj[0]`, the
+// probabilities likewise. What comes in is what goes out where there is no
+// medium.
+func vol_shadow_segment(light_ray : Ray, medium : i32, t_hit : Float,
+                        tr : Transmittance, rng : mut RNG,
+                        lambda : SampledWavelengths) -> Transmittance {
+    if medium < 0 {
+        return tr;
+    }
+    d_len = sqrt(sqlen_(light_ray.d));
+    dn = light_ray.d / d_len;
+    m = media[medium];
+    sigma_maj = medium_sigma_maj(m, lambda);
+    u = next_float(rng);
+    ones = vec4f{1.0, 1.0, 1.0, 1.0};
+    tail : mut MajorantTail = {tr, ones};
+    if sigma_maj.x == 0.0 {
+        // pbrt: a zero majorant -- the segment is transmitted by it whole
+        // (which for a homogeneous medium is a transmittance of one), and
+        // the ratio-tracking loop never runs.
+        dt_raw = t_hit * d_len;
+        dt = select(dt_raw == inf, float_max(), dt_raw);
+        tail = MajorantTail{tr, fast_exp4(-dt * sigma_maj)};
+    } else {
+        tail = vol_shadow_track(light_ray.o, dn, 0.0, t_hit * d_len, m,
+                                sigma_maj, u, rng, tr, ones, lambda);
+    }
+    return Transmittance{tail.tr.t_ray * tail.t_maj / tail.t_maj.x,
+                         tail.tr.r_l * tail.t_maj / tail.t_maj.x,
+                         tail.tr.r_u * tail.t_maj / tail.t_maj.x};
+}
+
+// pbrt: TraceTransmittance, the wavefront's shadow-ray kernel (wavefront/
+// intersect.h) -- the ray traced with the closest-hit `Intersect` rather
+// than `IntersectP`: a hit on a surface with a material is occlusion, a hit
+// on a medium boundary is a change of medium to continue through, and each
+// segment inside a medium multiplies in the ratio-tracking estimate above.
+// Tail-recursive over the boundaries crossed. `p_light` is `ray(tMax)` of
+// the first segment, which every re-spawn aims at (`spawnTo(pLight)`: the
+// origin pushed off the boundary, the far end the point itself), and `tmax`
+// stays `1 - ShadowEpsilon` for every segment, as pbrt never updates it; a
+// segment that stops at a boundary is sampled up to `Distance(ray.o, pHit) /
+// Length(ray.d)`. `rng` is pbrt's, seeded from the first segment's ray.
 // Returns the transmittance and its probabilities, all zero when blocked.
-func vol_shadow_step(light_ray : Ray, medium : i32, to_p : vec3f,
-                     to_error : vec3f, to_n : vec3f, tr : Transmittance,
-                     rng : mut RNG, lambda : SampledWavelengths)
-    -> Transmittance {
+// (The CPU integrator's SampleLd re-spawns toward the light's own interaction
+// with both ends pushed off, and stops a segment at the hit's `t`; this
+// program follows the wavefront here -- PLAN.md, the differences catalogue.)
+func vol_shadow_step(light_ray : Ray, tmax : Float, medium : i32,
+                     p_light : vec3f, tr : Transmittance, rng : mut RNG,
+                     lambda : SampledWavelengths) -> Transmittance {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     blocked : Transmittance = {zero, zero, zero};
-    // pbrt: `while (lightRay.d != Vector3f(0, 0, 0))` -- a ray of no length
-    // is one whose two ends coincide, and there is nothing to trace.
+    // pbrt: `while (ray.d != Vector3f(0, 0, 0))` -- a ray of no length is
+    // one whose two ends coincide, and there is nothing to trace.
     if !any(light_ray.d != 0.0) {
         return tr;
     }
-    isect = trace(light_ray);
-    if isect {
-        blocker = *isect;
-        if !material_is_interface(materials[blocker[1].material]) {
-            return blocked;
-        }
-    }
-    tracked : mut Transmittance = tr;
-    if medium >= 0 {
-        // pbrt: `tMax = si ? si->tHit : 1 - ShadowEpsilon`, then SampleT_maj
-        // normalizes the direction and scales tMax by its length.
-        t_hit : mut Float = light_ray.tmax;
-        if isect {
-            crossed = *isect;
-            t_hit = distmin(light_ray, transform(crossed[0], crossed[1]));
-        }
-        d_len = sqrt(sqlen_(light_ray.d));
-        dn = light_ray.d / d_len;
-        m = media[medium];
-        sigma_maj = medium_sigma_maj(m, lambda);
-        u = next_float(rng);
-        ones = vec4f{1.0, 1.0, 1.0, 1.0};
-        tail : mut MajorantTail = {tr, ones};
-        if sigma_maj.x == 0.0 {
-            // pbrt: a zero majorant -- the segment is transmitted by it whole
-            // (which for a homogeneous medium is a transmittance of one), and
-            // the ratio-tracking loop never runs.
-            dt_raw = t_hit * d_len;
-            dt = select(dt_raw == inf, float_max(), dt_raw);
-            tail = MajorantTail{tr, fast_exp4(-dt * sigma_maj)};
-        } else {
-            tail = vol_shadow_track(light_ray.o, dn, 0.0, t_hit * d_len, m,
-                                    sigma_maj, u, rng, tr, ones, lambda);
-        }
-        // pbrt: `T_ray *= T_maj / T_maj[0]`, and likewise the probabilities.
-        tracked = Transmittance{tail.tr.t_ray * tail.t_maj / tail.t_maj.x,
-                                tail.tr.r_l * tail.t_maj / tail.t_maj.x,
-                                tail.tr.r_u * tail.t_maj / tail.t_maj.x};
-    }
-    if !nonzero(tracked.t_ray) {
-        return blocked;
-    }
+    isect = trace(RaySegment{light_ray, tmax});
     if !isect {
-        return tracked;
+        return vol_shadow_segment(light_ray, medium, tmax, tr, rng, lambda);
     }
-    // pbrt: `lightRay = si->intr.SpawnRayTo(ls->pLight)` -- from the boundary
-    // just crossed, in the medium on its far side.
     reached = *isect;
     via = reached[0];
     prim = reached[1];
+    if !material_is_interface(materials[prim.material]) {
+        return blocked;
+    }
+    // The boundary crossed: where this segment ends, and where the next one
+    // starts from.
     surf = transform(via, surface_geometry(prim.shape,
                                            untransform(via, light_ray)));
-    next_ray = spawn_ray_to(surf.p, surf.p_error, surf.n, to_p, to_error, to_n);
+    t_hit = sqrt(sqlen_(light_ray.o - surf.p)) / sqrt(sqlen_(light_ray.d));
+    tracked = vol_shadow_segment(light_ray, medium, t_hit, tr, rng, lambda);
+    if !nonzero(tracked.t_ray) {
+        return blocked;
+    }
+    // pbrt: `ray = spawnTo(pLight)`, which is `si->intr.SpawnRayTo(pLight)`
+    // -- from the boundary just crossed, in the medium on its far side.
+    next_ray = spawn_ray_to_point(surf.p, surf.p_error, surf.n, p_light);
     next_medium = get_medium(prim, surf.n, next_ray.d, medium);
-    return vol_shadow_step(next_ray, next_medium, to_p, to_error, to_n, tracked,
-                           rng, lambda);
+    return vol_shadow_step(next_ray, tmax, next_medium, p_light, tracked, rng,
+                           lambda);
 }
 
-// pbrt: the shadow ray of VolPathIntegrator::SampleLd, from the light sample
-// on. Its transmittance and the two probabilities are walked through the
-// media it crosses (`vol_shadow_step`; pbrt's wavefront TraceTransmittance,
-// with the RNG seeded from the ray), and the tentative contribution is scaled
-// by the transmittance and divided by the average of the rescaled
-// probabilities (pbrt's RecordShadowRayResult: `Ld / (r_u + r_l).Average()`,
-// each probability the light sample's times the walk's). Zero when blocked.
-// `to_*` is the light sample's point, for the walk to aim at again across a
-// medium boundary, as pbrt's `SpawnRayTo(pLight)` does. What pbrt's
-// ShadowRayWorkItem holds is what this takes: the ray, the wavelengths, Ld,
-// r_u, r_l.
-func shadow_contribution(light_ray : Ray, medium : i32, to_p : vec3f,
-                         to_error : vec3f, to_n : vec3f, ld : vec4f,
-                         r_u : vec4f, r_l : vec4f,
+// pbrt: TraceTransmittance from the shadow ray on -- its transmittance and
+// the two probabilities walked through the media it crosses
+// (`vol_shadow_step`, the RNG seeded from the ray: `Hash(ray.o),
+// Hash(ray.d)`), and the tentative contribution scaled by the transmittance
+// and divided by the average of the rescaled probabilities (`Ld * T_ray /
+// (sr.r_u * r_u + sr.r_l * r_l).Average()`, each probability the light
+// sample's times the walk's). Zero when blocked. What pbrt's
+// ShadowRayWorkItem holds is what this takes: the ray and its tMax, the
+// wavelengths, Ld, r_u, r_l -- and the medium the ray is in, which pbrt's
+// Ray carries.
+func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
+                         ld : vec4f, r_u : vec4f, r_l : vec4f,
                          lambda : SampledWavelengths) -> vec4f {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    // pbrt: `pLight = ray(tMax)`, where every re-spawn aims.
+    p_light = light_ray.o + light_ray.d * tmax;
     rng : mut RNG = set_sequence(hash_vec3(light_ray.o), hash_vec3(light_ray.d));
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
     start : Transmittance = {ones, ones, ones};
-    tr = vol_shadow_step(light_ray, medium, to_p, to_error, to_n, start, rng,
-                         lambda);
+    tr = vol_shadow_step(light_ray, tmax, medium, p_light, start, rng, lambda);
     if !nonzero(tr.t_ray) {
         return zero;
     }
@@ -2041,11 +2029,17 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
         return;
     }
 
-    // pbrt: `intr.SpawnRayTo(ls->pLight)`, both ends pushed off their
-    // surfaces (a medium point has no surface to push off, and a zero normal
-    // pushes nothing), in the medium the ray leaves into.
-    light_ray = spawn_ray_to(pt.p, pt.p_error, pt.n, lsample.p_light,
-                             lsample.p_light_error, lsample.n_light);
+    // pbrt's wavefront: at a surface, `SpawnRayTo(w.pi, w.n, w.time,
+    // ls->pLight.pi, ls->pLight.n)`, both ends pushed off their surfaces
+    // (wavefront/surfscatter.cpp); at a medium point, `Ray(w.p, ls->pLight.p()
+    // - w.p, ...)`, neither end pushed (wavefront/media.cpp). In the medium
+    // the ray leaves into. The bound is `1 - ShadowEpsilon`, beside the ray
+    // as pbrt's ShadowRayWorkItem has it.
+    light_ray : mut Ray = {pt.p, lsample.p_light - pt.p};
+    if is_surface {
+        light_ray = spawn_ray_to(pt.p, pt.p_error, pt.n, lsample.p_light,
+                                 lsample.p_light_error, lsample.n_light);
+    }
     light_medium = scatter_medium(pt, light_ray.d);
 
     // pbrt: the tentative contribution and the two probabilities the shadow
@@ -2060,8 +2054,7 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
     if light_is_delta(lights[picked.light]) {
         r_u = zero;
     }
-    spawn l += shadow_contribution(light_ray, light_medium, lsample.p_light,
-                                   lsample.p_light_error, lsample.n_light, ld,
+    spawn l += shadow_contribution(light_ray, shadow_tmax(), light_medium, ld,
                                    r_u, r_l, lambda);
     return;
 }
@@ -2190,7 +2183,7 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
 // adds into (the emission found, the light sampled, the medium's own) and
 // the film reads once the path is done, so that a schedule may add those
 // terms from any drain and in any order -- a deferred shadow ray adds late.
-func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
+func vol_path_step(ray : Ray, medium : i32,
                    camera : PerspectiveCamera, spp_scale : Float,
                    beta_in : vec4f, r_u_in : vec4f,
                    r_l_in : vec4f, depth_in : i32, specular_bounce : bool,
@@ -2200,21 +2193,21 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
                    ls : LightSampler, set : LightSet, seed : i32,
                    max_depth : i32, regularize : bool, want_visible : bool,
                    visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
-    isect = trace(ray);
+    isect = trace(RaySegment{ray, inf});
 
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
     // (the trace kernel's EnqueueWorkAfterIntersection and
     // EnqueueWorkAfterMiss push it onto mediumSampleQueue, hit or miss); a
     // ray in no medium is routed by what the trace found.
     if medium >= 0 {
-        vol_medium_sample(isect, ray, medium, ray_diff, camera, spp_scale,
+        vol_medium_sample(isect, ray, medium, camera, spp_scale,
                           beta_in, r_u_in, r_l_in, depth_in, specular_bounce,
                           any_non_specular, eta_scale, prev_ctx, lambda, sampler,
                           state, ls, set, seed, max_depth, regularize,
                           want_visible, visible, l);
         return;
     }
-    vol_route(isect, ray, medium, ray_diff, camera, spp_scale, beta_in, r_u_in,
+    vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
               r_l_in, depth_in, specular_bounce, any_non_specular, eta_scale,
               prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
               regularize, want_visible, visible, l);
@@ -2232,7 +2225,7 @@ func vol_path_step(ray : Ray, medium : i32, ray_diff : RayDifferential,
 // writes that routing twice ("this is all basically duplicate code"); here
 // it is `vol_route`, once.
 func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
-                       medium : i32, ray_diff : RayDifferential,
+                       medium : i32,
                        camera : PerspectiveCamera, spp_scale : Float,
                        beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
                        specular_bounce : bool, any_non_specular : bool,
@@ -2246,7 +2239,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
     t_hit : mut Float = inf;
     if isect {
         ahead = *isect;
-        t_hit = distmin(ray, transform(ahead[0], ahead[1]));
+        t_hit = distmin(RaySegment{ray, inf}, transform(ahead[0], ahead[1]));
     }
     hash0 = hash_float1(get_1d(sampler, state));
     hash1 = hash_float1(get_1d(sampler, state));
@@ -2275,12 +2268,12 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
         return;
     }
     if event.kind == 1 {
-        vol_medium_scatter(event, ray, medium, ray_diff, camera, spp_scale,
+        vol_medium_scatter(event, ray, medium, camera, spp_scale,
                            eta_scale, lambda, sampler, state, ls, set, seed,
                            max_depth, regularize, want_visible, visible, l);
         return;
     }
-    vol_route(isect, ray, medium, ray_diff, camera, spp_scale,
+    vol_route(isect, ray, medium, camera, spp_scale,
               event.beta * event.t_maj / event.t_maj.x,
               event.r_u * event.t_maj / event.t_maj.x,
               event.r_l * event.t_maj / event.t_maj.x, depth, specular_bounce,
@@ -2297,12 +2290,12 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
 // ray's own direction, unnormalized as it is; `beta *= ps->p / ps->pdf; r_l
 // = r_u / ps->pdf`; the light-sampling context of a medium point, with no
 // normal; and `if (scattered) continue` -- the ray turned at the scattering
-// point, its differentials left as they were, since pbrt overwrites only `o`
-// and `d`, traced next. (pbrt's wavefront kernel also applies Russian
-// roulette here, which its CPU integrator's `continue` skips; the CPU
-// integrator is what this program follows and what it is checked against.)
+// point, traced next. (pbrt's wavefront kernel also applies Russian roulette
+// here, media.cpp:330-339, which its CPU integrator's `continue` skips; the
+// CPU's step is kept for now -- PLAN.md, the differences catalogue, lists it
+// with what else still separates the two.)
 func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
-                        ray_diff : RayDifferential, camera : PerspectiveCamera,
+                        camera : PerspectiveCamera,
                         spp_scale : Float, eta_scale : Float,
                         lambda : SampledWavelengths, sampler : Sampler,
                         state : mut SamplerState, ls : LightSampler,
@@ -2323,8 +2316,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
         return;
     }
     ctx : ShapeSampleContext = {event.p, zero3, zero3, zero3};
-    turned : Ray = {event.p, ps.wi, inf};
-    vol_path_step(turned, medium, ray_diff, camera, spp_scale,
+    turned : Ray = {event.p, ps.wi};
+    vol_path_step(turned, medium, camera, spp_scale,
                   event.beta * (ps.p / ps.pdf), event.r_u, event.r_u / ps.pdf,
                   event.depth, false, true, eta_scale, ctx, lambda, sampler,
                   state, ls, set, seed, max_depth, regularize, want_visible,
@@ -2341,7 +2334,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
 // may queue them (HandleEscapedRays, HandleEmissiveIntersection), and the
 // surface goes on to `vol_surface`, the material kernel.
 func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
-               ray_diff : RayDifferential, camera : PerspectiveCamera,
+               camera : PerspectiveCamera,
                spp_scale : Float, beta : vec4f, r_u : vec4f, r_l : vec4f,
                depth : i32, specular_bounce : bool, any_non_specular : bool,
                eta_scale : Float, prev_ctx : ShapeSampleContext,
@@ -2365,7 +2358,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
                                          r_u, r_l, depth, specular_bounce,
                                          prev_ctx, ls, lambda);
     }
-    vol_surface(ray, medium, ray_diff, camera, spp_scale, via, prim, surf, beta,
+    vol_surface(ray, medium, camera, spp_scale, via, prim, surf, beta,
                 r_u, r_l, depth, specular_bounce, any_non_specular, eta_scale,
                 prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
                 regularize, want_visible, visible, l);
@@ -2426,7 +2419,7 @@ func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
 // the BSDF sample, roulette, and the next ray, which `vol_path_step` traces.
 // `via` places the primitive `prim`, and `surf` is the hit's geometry in
 // render space (pbrt's MaterialEvalWorkItem holds the hit and the path).
-func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
+func vol_surface(ray : Ray, medium : i32,
                  camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
                  prim : Geometric, surf : SurfaceGeometry, beta : vec4f,
                  r_u : vec4f, r_l : vec4f, depth : i32, specular_bounce : bool,
@@ -2449,16 +2442,15 @@ func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
     if material_is_interface(material) {
         skip_ray = spawn_ray(surf, ray.d);
         vol_path_step(
-            skip_ray, get_medium(prim, surf.n, ray.d, medium),
-            skip_differentials(ray_diff, distmin(ray, transform(via, prim))),
-            camera, spp_scale, beta, r_u, r_l, depth, specular_bounce,
-            any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
-            set, seed, max_depth, regularize, want_visible, visible, l);
+            skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
+            spp_scale, beta, r_u, r_l, depth, specular_bounce, any_non_specular,
+            eta_scale, prev_ctx, lambda, sampler, state, ls, set, seed,
+            max_depth, regularize, want_visible, visible, l);
         return;
     }
 
     do_regularize = regularize && any_non_specular;
-    diffs = compute_differentials(surf, ray_diff, camera, spp_scale);
+    diffs = approximate_differentials(surf, camera, spp_scale);
     hit = displaced(surf, material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(material, lambda, do_regularize, hit.uv, diffs.dudx,
@@ -2520,8 +2512,6 @@ func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
                             eta_scale * sqr(sample.eta), eta_scale);
     next_ray = spawn_ray(surf, wi);
     next_medium = get_medium(prim, surf.n, wi, medium);
-    next_diff = spawn_ray_differential(hit, diffs, ray_diff, wo_unit, wi,
-                                       sample.flags, sample.eta);
 
     // pbrt: Russian roulette on `beta * etaScale / r_u.Average()`. The draw
     // is taken before the test -- `Float uRR = sampler.Get1D()` -- which is
@@ -2540,7 +2530,7 @@ func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
         survived = next_beta / (1.0 - q);
     }
 
-    vol_path_step(next_ray, next_medium, next_diff, camera, spp_scale, survived,
+    vol_path_step(next_ray, next_medium, camera, spp_scale, survived,
                   r_u, next_r_l, next_depth, next_specular, next_any_ns,
                   next_eta_scale, next_ctx, lambda, sampler, state, ls, set,
                   seed, max_depth, regularize, want_visible, visible, l);
@@ -2549,7 +2539,7 @@ func vol_surface(ray : Ray, medium : i32, ray_diff : RayDifferential,
 
 // The entry point: full throughput, no radiance, both rescaled probabilities
 // one, no scattering yet, and the camera's medium.
-func li_vol_path(r0 : Ray, medium0 : i32, d0 : RayDifferential,
+func li_vol_path(r0 : Ray, medium0 : i32,
                  camera : PerspectiveCamera, spp_scale : Float,
                  lambda : SampledWavelengths, sampler : Sampler,
                  state : mut SamplerState, ls : LightSampler, set : LightSet,
@@ -2559,7 +2549,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, d0 : RayDifferential,
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
-    vol_path_step(r0, medium0, d0, camera, spp_scale, ones, ones, ones, 0,
+    vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0,
                   false, false, 1.0, origin, lambda, sampler, state, ls, set,
                   seed, max_depth, regularize, want_visible, visible, l);
     return;
@@ -2567,10 +2557,9 @@ func li_vol_path(r0 : Ray, medium0 : i32, d0 : RayDifferential,
 
 // pbrt: Integrator::Li, the dispatch itself -- one arm per integrator, which is
 // what pbrt's TaggedPointer does at a call site.
-// The differentials reach only the `path` arm, which is the only one that
-// takes them in pbrt either: RandomWalkIntegrator and SimplePathIntegrator
-// declare a `RayDifferential` parameter and never look at its differentials,
-// because neither has a texture to filter.
+// No ray differentials come this way: the camera generates a plain ray, as
+// pbrt's wavefront camera kernel does, and every hit's footprint is the
+// camera approximation (approximate_differentials), whichever integrator.
 // `want_visible` and `visible` are pbrt's `VisibleSurface *` argument, as a
 // flag and the place to write: the path integrator fills it at its first vertex
 // when the film asked, and the random walk and simple path never do -- pbrt's
@@ -2582,30 +2571,30 @@ func li_vol_path(r0 : Ray, medium0 : i32, d0 : RayDifferential,
 // keeps L per pixel sample and every kernel adds to it), the others return
 // theirs and it is added here.
 func integrator_li(integrator : Integrator, r : Ray, medium : i32,
-                   dr : RayDifferential, camera : PerspectiveCamera,
+                   camera : PerspectiveCamera,
                    spp_scale : Float, lambda : SampledWavelengths,
                    sampler : Sampler, state : mut SamplerState, seed : i32,
                    want_visible : bool, visible : mut VisibleSurface,
                    l : reduce(+) vec4f) -> void {
     match integrator {
         RandomWalk(max_depth, set) => {
-            l += li_random_walk(r, dr, camera, spp_scale, lambda, sampler,
+            l += li_random_walk(r, camera, spp_scale, lambda, sampler,
                                 state, set, seed, max_depth);
             return;
         }
         SimplePath(max_depth, ls, set) => {
-            l += li_simple_path(r, dr, camera, spp_scale, lambda, sampler,
+            l += li_simple_path(r, camera, spp_scale, lambda, sampler,
                                 state, ls, set, seed, max_depth);
             return;
         }
         Path(max_depth, ls, set, regularize) => {
-            l += li_path(r, dr, camera, spp_scale, lambda, sampler, state, ls,
+            l += li_path(r, camera, spp_scale, lambda, sampler, state, ls,
                          set, seed, max_depth, regularize, want_visible,
                          visible);
             return;
         }
         VolPath(max_depth, ls, set, regularize) => {
-            li_vol_path(r, medium, dr, camera, spp_scale, lambda, sampler,
+            li_vol_path(r, medium, camera, spp_scale, lambda, sampler,
                         state, ls, set, seed, max_depth, regularize,
                         want_visible, visible, l);
             return;
@@ -2861,21 +2850,13 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
                                         cast[[Float]](j) + 0.5} + jitter,
                                   lens, time, weight};
-            // pbrt: `camera.GenerateRayDifferential(cameraSample, lambda)`,
-            // then `cameraRay->ray.ScaleDifferentials(rayDiffScale)` in
-            // RenderCPU before anything is traced with it. The scale narrows
-            // the one-pixel footprint the camera produced to the one a single
-            // sample of `spp` covers. Not applied at all under the option --
-            // pbrt's `if (!Options->disablePixelJitter)` -- rather than
-            // applied with a scale of one, because `o + (rx - o) * 1` is not
-            // `rx` in floating point.
-            camera_ray = generate_ray_differential(camera, sample);
-            ray = camera_ray.ray;
-            ray_diff : mut RayDifferential = camera_ray.diff;
-            if !disable_pixel_jitter {
-                ray_diff = scale_differentials(
-                    ray, camera_ray.diff, ray_differential_scale(spp, false));
-            }
+            // pbrt's wavefront: `camera.GenerateRay(cameraSample, lambda)`
+            // (wavefront/camera.cpp) -- a ray with no companions, where the
+            // CPU integrator generates a RayDifferential and scales it. The
+            // footprint at every hit is then the camera approximation, scaled
+            // by `max(1/8, 1/sqrt(spp))` inside it (Approximate_dp_dxy), which
+            // is what `spp_scale` carries down.
+            ray = generate_ray(camera, sample);
 
             // The radiance, which is the render -- and, for a gbuffer film,
             // the visible surface, which pbrt's `Li` fills at the path's first
@@ -2891,7 +2872,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // add to it): what lets a schedule run the path's stages on
             // separate drains, and add a deferred shadow ray's term late.
             radiance : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
-            integrator_li(integrator, ray, camera_medium, ray_diff, camera,
+            integrator_li(integrator, ray, camera_medium, camera,
                           ray_differential_scale(spp, disable_pixel_jitter),
                           lambda, sampler, state, seed, film_visible_surface,
                           visible, radiance);

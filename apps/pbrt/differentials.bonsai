@@ -305,7 +305,28 @@ func compute_differentials(g : SurfaceGeometry, dr : RayDifferential,
         // every hit that did not need it.
         dp = approximate_dp_dxy(camera, g.p, g.n, spp_scale);
     }
+    return uv_derivatives(g, dp);
+}
 
+// pbrt's wavefront integrator: the footprint of every hit, at every depth, by
+// the camera approximation alone -- `camera.Approximate_dp_dxy(...)` and the
+// (u, v) solve after it in EvaluateMaterialAndBSDF (wavefront/
+// surfscatter.cpp). Its rays carry no differentials: the camera generates a
+// plain Ray and no work item has a companion in it, so a first hit gets the
+// approximation where the CPU integrator has the camera's true differentials,
+// and a mirror or a pane of glass does not carry the footprint through. This
+// program follows the wavefront here (PLAN.md, "Where pbrt's own CPU volpath
+// and its wavefront differ"), which is what a comparison against it is worth;
+// `compute_differentials` above is the CPU integrator's rule, kept for
+// `differentials_at` to check against pbrt's own numbers.
+func approximate_differentials(g : SurfaceGeometry, camera : PerspectiveCamera,
+                               spp_scale : Float) -> Differentials =
+    uv_derivatives(g, approximate_dp_dxy(camera, g.p, g.n, spp_scale));
+
+// pbrt: the second half of ComputeDifferentials -- `dudx`, `dvdx`, `dudy`,
+// `dvdy` from `dpdx`, `dpdy` by least squares against the surface's `dpdu`,
+// `dpdv`, clamped. The same solve in both integrators.
+func uv_derivatives(g : SurfaceGeometry, dp : Differentials) -> Differentials {
     ata00 = dot_(g.dpdu, g.dpdu);
     ata01 = dot_(g.dpdu, g.dpdv);
     ata11 = dot_(g.dpdv, g.dpdv);

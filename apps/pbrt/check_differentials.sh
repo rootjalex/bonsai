@@ -54,7 +54,10 @@ if [[ -f "$TBB_PREFIX/include/tbb/parallel_for.h" ]]; then
 fi
 
 bash "$PREFIX/build_scene_dump.sh" "$WORK/scene_dump"
-./build/compiler -p ssa --no-heap --ffp-contract \
+# The compiler from the build directory compare.sh uses, and for the same
+# reason: a machine with more than one build has one that is current.
+BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
     -i "$PREFIX/render.bonsai" -b cpp -o "$PREFIX/render"
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" "$PREFIX/render_hook.cpp" \
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"

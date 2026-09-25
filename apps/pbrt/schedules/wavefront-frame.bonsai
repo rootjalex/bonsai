@@ -57,12 +57,12 @@ schedule {
     vol_sample_ld.defer(shadow_contribution, shadow);
 
     trace.sort(primitives.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .sort(Inst.blas.Interior,
-               |i : u8, r : Ray, axis : u8|
-               select((1.0 / r.d)[axis] < 0.0,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .loopify(64);
     trace_any.loopify(64);
