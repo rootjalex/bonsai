@@ -1,0 +1,20 @@
+//! flags: -p ssa -b llvm -e
+
+// `ite(c, a, b)` is C's `c ? a : b`: only the arm taken is evaluated, so
+// the division below never runs on a zero. `select(c, a, b)` evaluates both
+// and picks one, which is what a branchless search wants and what an arm
+// that can trap cannot have.
+
+func pick(y : i32) -> i32 {
+    return ite(y != 0, 100 / y, -1);
+}
+
+func main() -> i32 {
+    out : mut array[i32, 3] = {0, 0, 0};
+    out[0] = pick(0);
+    out[1] = pick(4);
+    out[2] = select(out[1] > 20, 7, 9);
+    // {-1, 25, 7}
+    print(out);
+    return 0;
+}

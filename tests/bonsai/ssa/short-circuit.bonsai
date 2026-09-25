@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// `a && b` and `a || b` short-circuit when `b` has work in it: the call in
+// `b` runs only when `a` leaves the answer open. What to read for: in
+// `both`, `costly` is called in a block of its own (`!and_rhs_N`) reached
+// only when `cheap` held, and the result is a parameter of `!and_merge_N`;
+// in `either`, the call sits behind `cheap` being false. In `plain`, an
+// `&&` of two values already computed stays one `land` instruction -- a
+// branch would spare nothing there.
+
+func [[noinline]] costly(x : i32) -> bool {
+    return x * x > 10;
+}
+
+func both(x : i32) -> bool {
+    return x > 0 && costly(x);
+}
+
+func either(x : i32) -> bool {
+    return x > 100 || costly(x);
+}
+
+func plain(x : i32, a : bool, b : bool) -> bool {
+    return a && b && x > 0;
+}
+
+func run(out : mut array[i32, 3], x : i32, a : bool, b : bool) -> void {
+    out[0] = cast[[i32]](both(x));
+    out[1] = cast[[i32]](either(x));
+    out[2] = cast[[i32]](plain(x, a, b));
+    return;
+}

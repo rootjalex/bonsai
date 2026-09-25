@@ -1,0 +1,20 @@
+//! flags: -p ssa
+
+// `ite(c, a, b)` lowers to control flow -- `!ite_then_N`, `!ite_else_N`, the
+// value a parameter of `!ite_merge_N` -- while `select(c, a, b)` stays one
+// `select` instruction. What to read for: `lazy` has a dispatch and a
+// division in one arm only; `eager` has a `select` and no blocks.
+
+func lazy(y : i32) -> i32 {
+    return ite(y != 0, 100 / y, -1);
+}
+
+func eager(y : i32, a : i32, b : i32) -> i32 {
+    return select(y != 0, a, b);
+}
+
+func run(out : mut array[i32, 2], y : i32, a : i32, b : i32) -> void {
+    out[0] = lazy(y);
+    out[1] = eager(y, a, b);
+    return;
+}

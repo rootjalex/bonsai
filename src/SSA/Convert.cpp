@@ -120,6 +120,13 @@ struct FunctionBuilder : Visitor {
     std::string get_block_name(const std::string &prefix) {
         return "!" + prefix + "_" + std::to_string(block_counter++);
     }
+    // Names for the results of `&&`, `||` and `ite` lowered as control flow
+    // (see short_circuit): a `!` in the name, as a block's has, so that no
+    // name the program wrote can be the same.
+    uint64_t conditional_counter = 0;
+    std::string conditional_name(const std::string &prefix) {
+        return "!" + prefix + "_" + std::to_string(conditional_counter++);
+    }
 
     std::shared_ptr<Block> make_block(const std::string &prefix) {
         std::shared_ptr<Block> new_block = std::make_shared<Block>();
@@ -932,7 +939,71 @@ struct FunctionBuilder : Visitor {
         }
     }
 
+    // Whether evaluating `e` does work that a condition may spare: a call of
+    // any kind, or the unwrapping of an option, which is not defined when
+    // the option is empty.
+    static bool has_work(const Expr &e) {
+        struct Finder : public Visitor {
+            using Visitor::visit;
+            bool found = false;
+            void visit(const Call *) override { found = true; }
+            void visit(const GeomOp *) override { found = true; }
+            void visit(const SetOp *) override { found = true; }
+            void visit(const AggOp *) override { found = true; }
+            void visit(const MatchExpr *) override { found = true; }
+            void visit(const Unwrap *) override { found = true; }
+        };
+        Finder finder;
+        e.accept(&finder);
+        return finder.found;
+    }
+
+    // `a && b` and `a || b` short-circuit: `b` is evaluated only when `a`
+    // leaves the answer open, as C's do. Lowered as control flow -- `a`
+    // decides between a block that evaluates `b` and the merge, where the
+    // result is a block parameter -- only when `b` has work in it to spare
+    // (has_work); `&&` of two values already computed stays one
+    // instruction, which is what the branch would have been made into
+    // anyway. What this is for: a traversal's filter written `intersects(q,
+    // g) && alpha_accepts(r, g)` ran the alpha test on every candidate,
+    // missed or not.
+    void short_circuit(const BinOp *node) {
+        const bool is_and = node->op == BinOp::LAnd;
+        auto a = get_value(node->a);
+        internal_assert(!block->terminator.defined());
+        const std::string result = conditional_name(is_and ? "and" : "or");
+        // The answer `a` settles on its own, defined here so that the merge
+        // finds it along the edge that skips `b`.
+        block->make_instruction(result, node->type,
+                                make_constant(node->type, !is_and));
+        std::shared_ptr<Block> rhs = make_block(is_and ? "and_rhs" : "or_rhs");
+        std::shared_ptr<Block> merge = make_block(is_and ? "and_merge" : "or_merge");
+        block->terminator.data = Terminator::Dispatch{
+            .cond = std::move(a),
+            // a == 0 first, a != 0 second, as an if's: `&&` wants `b` when
+            // `a` holds, `||` when it does not.
+            .targets = {Terminator::Jump{.name = is_and ? merge->name : rhs->name,
+                                         .args = {}},
+                        Terminator::Jump{.name = is_and ? rhs->name : merge->name,
+                                         .args = {}}}};
+        std::shared_ptr<Block> from = std::move(block);
+        rhs->preds.push_back(from);
+        merge->preds.push_back(from);
+        block = rhs;
+        auto b = get_value(node->b);
+        block->make_instruction(result, node->type, std::move(b));
+        merge->preds.push_back(block);
+        set_block_jump(merge->name);
+        block = merge;
+        value = block->get_value(result, node->type);
+    }
+
     void visit(const BinOp *node) override {
+        if ((node->op == BinOp::LAnd || node->op == BinOp::LOr) &&
+            has_work(node->b)) {
+            short_circuit(node);
+            return;
+        }
         auto a = get_value(node->a);
         auto b = get_value(node->b);
         auto op = get_binop(node->op);
@@ -1339,7 +1410,38 @@ struct FunctionBuilder : Visitor {
         std::get<std::shared_ptr<Instruction>>(value->data)->reduce = node->op;
     }
 
+    // `select(c, a, b)` evaluates both arms and is one instruction, the
+    // conditional move the program asked for by writing it. `ite(c, a, b)`
+    // (Select::lazy) evaluates the arm it takes, as C's `c ? a : b` does:
+    // control flow, each arm in a block of its own, the value a parameter
+    // of the merge.
     void visit(const Select *node) override {
+        if (node->lazy) {
+            auto cond = get_value(node->cond);
+            internal_assert(!block->terminator.defined());
+            const std::string result = conditional_name("ite");
+            std::shared_ptr<Block> then_case = make_block("ite_then");
+            std::shared_ptr<Block> else_case = make_block("ite_else");
+            std::shared_ptr<Block> merge = make_block("ite_merge");
+            block->terminator.data = Terminator::Dispatch{
+                .cond = std::move(cond),
+                .targets = {Terminator::Jump{.name = else_case->name, .args = {}},
+                            Terminator::Jump{.name = then_case->name, .args = {}}}};
+            std::shared_ptr<Block> from = std::move(block);
+            then_case->preds.push_back(from);
+            else_case->preds.push_back(from);
+            block = then_case;
+            block->make_instruction(result, node->type, get_value(node->tvalue));
+            merge->preds.push_back(block);
+            set_block_jump(merge->name);
+            block = else_case;
+            block->make_instruction(result, node->type, get_value(node->fvalue));
+            merge->preds.push_back(block);
+            set_block_jump(merge->name);
+            block = merge;
+            value = block->get_value(result, node->type);
+            return;
+        }
         auto cond = get_value(node->cond);
         auto true_val = get_value(node->tvalue);
         auto false_val = get_value(node->fvalue);

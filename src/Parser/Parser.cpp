@@ -171,6 +171,7 @@ struct Parser {
             "eps",
             "permute",
             "select",
+            "ite",
             "range",
             "iter",
         };
@@ -2687,6 +2688,13 @@ struct Parser {
                     << "select takes 3 arguments, received: " << args.size();
                 return ir::Select::make(std::move(args[0]), std::move(args[1]),
                                         std::move(args[2]));
+            } else if (name == "ite") {
+                // C's `c ? a : b`: one arm evaluated, where `select`
+                // evaluates both and picks (see ir::Select::lazy).
+                internal_assert(args.size() == 3)
+                    << "ite takes 3 arguments, received: " << args.size();
+                return ir::Select::make(std::move(args[0]), std::move(args[1]),
+                                        std::move(args[2]), /*lazy=*/true);
             } else if (name == "range") {
                 return ir::Generator::make(ir::Generator::range,
                                            std::move(args));

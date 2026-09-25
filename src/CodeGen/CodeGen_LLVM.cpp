@@ -38,6 +38,7 @@
 #include <llvm/Transforms/Scalar/Reassociate.h>
 #include <llvm/Transforms/Scalar/SimplifyCFG.h>
 
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
@@ -317,6 +318,29 @@ void CodeGen_LLVM::init_llvm() {
         llvm::InitializeAllTargetMCs();
         llvm::InitializeAllAsmPrinters();
         llvm::InitializeAllAsmParsers();
+
+        // LLVM's own command-line options, for measuring one of its
+        // decisions against another without a rebuild:
+        // `BONSAI_LLVM_ARGS="-x86-cmov-converter=false"` is what showed the
+        // filter table's branchless binary search being turned back into
+        // branches. Halide reads HL_LLVM_ARGS the same way. Whitespace
+        // separates the options; nothing here is read by the compiler
+        // itself.
+        if (const char *env = std::getenv("BONSAI_LLVM_ARGS")) {
+            std::vector<std::string> options;
+            std::istringstream in(env);
+            for (std::string option; in >> option;) {
+                options.push_back(option);
+            }
+            if (!options.empty()) {
+                std::vector<const char *> argv{"bonsai"};
+                for (const std::string &option : options) {
+                    argv.push_back(option.c_str());
+                }
+                llvm::cl::ParseCommandLineOptions(static_cast<int>(argv.size()),
+                                                  argv.data());
+            }
+        }
     });
 }
 
@@ -452,7 +476,16 @@ llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
     // linkage is what lets the original then be dropped. One asked not to be
     // stays a call, which with internal linkage it would otherwise not: the
     // inliner folds an internal function into its only caller for free.
-    if (internal && func.is_always_inlined()) {
+    //
+    // The program's own `[[inline]]` counts too. The frontend copies such a
+    // function to its call sites where it can (Opt/Inline.cpp), and cannot
+    // where the function takes a `mut` argument -- a sampler's `get_1d(s,
+    // st)` advances the state it is handed -- or has a loop; what reaches
+    // here under the hint is what the frontend left, and the hint means the
+    // same thing at this level: a copy whatever the size, where LLVM's own
+    // cost model would decline a three-armed match and leave every draw a
+    // call with the Sampler marshalled through the stack.
+    if (internal && (func.is_always_inlined() || func.is_inlined())) {
         fn->addFnAttr(llvm::Attribute::AlwaysInline);
     }
     if (func.is_noinline()) {

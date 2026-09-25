@@ -77,6 +77,7 @@ add_bonsai_tests(
     jump-threading.bonsai
     int64.bonsai
     invariant-division.bonsai
+    ite.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai
     split-program-chunk.bonsai
@@ -94,6 +95,7 @@ add_bonsai_tests(
     mut-nested-call-argument.bonsai
     print-float.bonsai
     shadowed-mutable.bonsai
+    short-circuit.bonsai
     print.bonsai
     reinterpret.bonsai
     round.bonsai

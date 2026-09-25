@@ -36,6 +36,7 @@ add_bonsai_tests(
     invariant-division.bonsai
     known-limitation-two-parfors.bonsai
     linearize.bonsai
+    ite.bonsai
     loopify.bonsai
     loopify-nested.bonsai
     loopify-queue.bonsai
@@ -48,6 +49,7 @@ add_bonsai_tests(
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
     reorder.bonsai
+    short-circuit.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
     specialize.bonsai

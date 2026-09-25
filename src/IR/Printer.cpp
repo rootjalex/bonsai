@@ -959,7 +959,7 @@ void Printer::visit(const UnOp *node) {
 }
 
 void Printer::visit(const Select *node) {
-    os << "select(";
+    os << (node->lazy ? "ite(" : "select(");
     print_no_parens(node->cond);
     os << ", ";
     print_no_parens(node->tvalue);

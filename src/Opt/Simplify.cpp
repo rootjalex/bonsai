@@ -525,19 +525,66 @@ struct Simplifier : ir::Mutator {
             }
             return make(node, std::move(a), std::move(b));
         }
+        case ir::BinOp::OpType::Neq: {
+            // Two constants compare at compile time, as they do for `==` and
+            // `<` above; `ite(y != 0, 100 / y, -1)` with `y` a constant is
+            // decided by this, and the arm not taken is then never looked at.
+            if (ir::Expr e = constant_fold_integral(std::not_equal_to<>{}, a, b,
+                                                    node->type);
+                e.defined()) {
+                return e;
+            }
+            if ((a.same_as(b) || ir::equals(a, b)) && integral_operands(a)) {
+                // x != x, for an integer; a float that is NaN differs from
+                // itself, and `x != x` is how a program asks.
+                return make_zero(node->type);
+            }
+            return make(node, std::move(a), std::move(b));
+        }
+        case ir::BinOp::OpType::Le: {
+            if (ir::Expr e = constant_fold_integral(std::less_equal<>{}, a, b,
+                                                    node->type);
+                e.defined()) {
+                return e;
+            }
+            if ((a.same_as(b) || ir::equals(a, b)) && integral_operands(a)) {
+                // x <= x, for an integer (a NaN is not <= itself).
+                return make_one(node->type);
+            }
+            return make(node, std::move(a), std::move(b));
+        }
         default:
             return make(node, std::move(a), std::move(b));
         }
     }
 
+    // Whether `e` is an integer or a vector of them: the operands a
+    // comparison's identities (`x != x`, `x <= x`) hold for. They do not
+    // hold for floats, where a NaN compares unequal to itself.
+    static bool integral_operands(const ir::Expr &e) {
+        const ir::Type t = e.type();
+        return (t.is_vector() ? t.element_of() : t).is_int_or_uint();
+    }
+
     ir::Expr visit(const ir::Select *node) override {
         ir::Expr cond = mutate(node->cond);
-        if (std::optional<bool> value = ir::decided(facts, cond)) {
+        // Decided by a fact learned on the way here, or a constant outright
+        // -- settled before either arm is touched, since an arm an `ite`
+        // does not take is not to be simplified at all.
+        std::optional<bool> value = ir::decided(facts, cond);
+        if (const ir::BoolImm *b = cond.as<ir::BoolImm>();
+            b != nullptr && !value.has_value()) {
+            value = b->value;
+        }
+        if (value.has_value()) {
             // A select evaluates both of its arms, so the one not taken can
             // go only if nothing happens in it: a draw from a sampler there
-            // still advanced the sampler.
+            // still advanced the sampler. An `ite` never evaluates the arm
+            // it does not take, so that arm goes whatever is in it -- and
+            // is not simplified first, since `100 / y` with `y` now zero is
+            // exactly what the condition was guarding.
             const ir::Expr &dropped = *value ? node->fvalue : node->tvalue;
-            if (!effectful(dropped)) {
+            if (node->lazy || !effectful(dropped)) {
                 return mutate(*value ? node->tvalue : node->fvalue);
             }
         }
@@ -568,7 +615,7 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::Select::make(std::move(cond), std::move(tvalue),
-                                std::move(fvalue));
+                                std::move(fvalue), node->lazy);
     }
 
     ir::Expr visit(const ir::Cast *node) override {

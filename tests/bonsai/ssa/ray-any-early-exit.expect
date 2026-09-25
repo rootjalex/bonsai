@@ -71,11 +71,11 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         let @29 = _t118$i51$i66 / @28 in
         let @31 = 2f * @29 in
         let @32 = 1f + @31 in
-        let @202 = @24 * f32x3(@32) in
-        let @34 = @202[1u] in
+        let @198 = @24 * f32x3(@32) in
+        let @34 = @198[1u] in
         let @36 = @22[0u] in
         let @37 = @34 < @36 in
-        let @39 = @202[0u] in
+        let @39 = @198[0u] in
         let @41 = @22[1u] in
         let @42 = @39 < @41 in
         let @43 = @37 || @42 in
@@ -86,10 +86,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @46 = @22[0u] in
           let @48 = @22[1u] in
           let @49 = max(@46, @48) in
-          let @51 = @202[0u] in
-          let @53 = @202[1u] in
+          let @51 = @198[0u] in
+          let @53 = @198[1u] in
           let @54 = min(@51, @53) in
-          let @56 = @202[2u] in
+          let @56 = @198[2u] in
           let @58 = @56 < @49 in
           let @61 = @22[2u] in
           let @62 = @54 < @61 in
@@ -102,7 +102,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           } else {
             let @67 = @22[2u] in
             let @68 = max(@49, @67) in
-            let @71 = @202[2u] in
+            let @71 = @198[2u] in
             let @72 = min(@54, @71) in
             let @75 = build<FInterval>(@68, @72) in
             let @76 = build<_option0>(@75, true) in
@@ -131,10 +131,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @91 = @90.offset in
           let @92 = (*tris_index!top) + @91 in
           !stack[(*!count)] = @92
-          let @201 = (*!count) + 1u in
+          let @197 = (*!count) + 1u in
           tris_index!top = @88
           !live = true
-          !count = @201
+          !count = @197
           continue
         }
       } else {
@@ -161,11 +161,11 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         let @116 = _t118$i51$i67 / @115 in
         let @118 = 2f * @116 in
         let @119 = 1f + @118 in
-        let @203 = @111 * f32x3(@119) in
-        let @121 = @203[1u] in
+        let @199 = @111 * f32x3(@119) in
+        let @121 = @199[1u] in
         let @123 = @109[0u] in
         let @124 = @121 < @123 in
-        let @126 = @203[0u] in
+        let @126 = @199[0u] in
         let @128 = @109[1u] in
         let @129 = @126 < @128 in
         let @130 = @124 || @129 in
@@ -176,10 +176,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @133 = @109[0u] in
           let @135 = @109[1u] in
           let @136 = max(@133, @135) in
-          let @138 = @203[0u] in
-          let @140 = @203[1u] in
+          let @138 = @199[0u] in
+          let @140 = @199[1u] in
           let @141 = min(@138, @140) in
-          let @143 = @203[2u] in
+          let @143 = @199[2u] in
           let @145 = @143 < @136 in
           let @148 = @109[2u] in
           let @149 = @141 < @148 in
@@ -192,7 +192,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           } else {
             let @154 = @109[2u] in
             let @155 = max(@136, @154) in
-            let @158 = @203[2u] in
+            let @158 = @199[2u] in
             let @159 = min(@141, @158) in
             let @162 = build<FInterval>(@155, @159) in
             let @163 = build<_option0>(@162, true) in
@@ -222,35 +222,34 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @178 = !@177 in
             if (@178) {
               let @179 = (*_holds0) in
-              let @180 = tris.prims in
-              let @181 = tris.group0_index in
-              let @182 = @181[(*tris_index!top)] in
-              let @183 = @182.split0on_nPrims in
-              let @184 = reinterpret_cast<_tree_layout3>(@183) in
-              let @185 = @184.pOffset in
-              let @186 = @185 + (*_idx0) in
-              let @187 = @180[@186] in
-              let @188 = intersectsp_ray_tri(r, @187) in
-              let @189 = @188.set in
-              let @190 = @179 || @189 in
-              _holds0 = @190
+              let !or_0 = true in
+              if (!@179) {
+                let @180 = tris.prims in
+                let @181 = tris.group0_index in
+                let @182 = @181[(*tris_index!top)] in
+                let @183 = @182.split0on_nPrims in
+                let @184 = reinterpret_cast<_tree_layout3>(@183) in
+                let @185 = @184.pOffset in
+                let @186 = @185 + (*_idx0) in
+                let @187 = @180[@186] in
+                let @188 = intersectsp_ray_tri(r, @187) in
+                let !or_0 = @188.set in
+              }
+              _holds0 = !or_0
             }
-            let @191 = (*_idx0) + 1u in
-            _idx0 = @191
+            let @190 = (*_idx0) + 1u in
+            _idx0 = @190
           }
         }
       }
     }
-    let @193 = (*!count) != 0u in
-    let @194 = (*_holds0) in
-    let @195 = !@194 in
-    let @196 = @193 && @195 in
-    if (@196) {
-      let @197 = (*!count) - 1u in
-      let @198 = !stack[@197] in
-      tris_index!top = @198
+    let @192 = (*!count) != 0u in
+    if (@192) {
+      let @193 = (*!count) - 1u in
+      let @194 = !stack[@193] in
+      tris_index!top = @194
       !live = true
-      !count = @197
+      !count = @193
     } else {
       !live = false
     }

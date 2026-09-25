@@ -1,0 +1,59 @@
+func both(x : i32) -> bool {
+  let @0 = 0 < x in
+  let !and_0 = false in
+  if (@0) {
+    let @1 = costly(x) in
+    let !and_0 = @1 in
+  }
+  return !and_0
+}
+
+func [[noinline]] costly(x : i32) -> bool {
+  let @0 = x * x in
+  let @1 = 10 < @0 in
+  return @1
+}
+
+func either(x : i32) -> bool {
+  let @0 = 100 < x in
+  let !or_0 = true in
+  if (!@0) {
+    let @1 = costly(x) in
+    let !or_0 = @1 in
+  }
+  return !or_0
+}
+
+func plain(x : i32, a : bool, b : bool) -> bool {
+  let @0 = a && b in
+  let @1 = 0 < x in
+  let @2 = @0 && @1 in
+  return @2
+}
+
+func run(out : mut i32[3], x : i32, a : bool, b : bool) -> void {
+  let @0 = 0 < x in
+  let !and_0 = false in
+  if (@0) {
+    let @1 = costly(x) in
+    let !and_0 = @1 in
+  }
+  let @2 = cast<i32>(!and_0) in
+  out[0] = @2
+  let @4 = 100 < x in
+  let !or_1 = true in
+  if (!@4) {
+    let @5 = costly(x) in
+    let !or_1 = @5 in
+  }
+  let @6 = cast<i32>(!or_1) in
+  out[1] = @6
+  let @8 = a && b in
+  let @9 = 0 < x in
+  let @10 = @8 && @9 in
+  let @11 = cast<i32>(@10) in
+  out[2] = @11
+  return
+}
+
+

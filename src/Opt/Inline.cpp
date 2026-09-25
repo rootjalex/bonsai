@@ -529,7 +529,7 @@ class Inliner : public ir::Mutator {
         ir::Expr tvalue = mutate(node->tvalue);
         ir::Expr fvalue = mutate(node->fvalue);
         hoistable = saved;
-        return ir::Select::make(cond, tvalue, fvalue);
+        return ir::Select::make(cond, tvalue, fvalue, node->lazy);
     }
     ir::Expr visit(const ir::BinOp *node) override {
         if (node->op != ir::BinOp::LAnd && node->op != ir::BinOp::LOr) {

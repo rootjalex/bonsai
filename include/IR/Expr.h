@@ -256,10 +256,19 @@ struct UnOp : ExprNode<UnOp> {
     static const IRExprEnum node_type = IRExprEnum::UnOp;
 };
 
+// `select(cond, tvalue, fvalue)`: both arms are evaluated and one is chosen,
+// a conditional move -- the branchless form a program writes on purpose,
+// which the backends keep branchless. With `lazy`, `ite(cond, tvalue,
+// fvalue)`: C's `cond ? tvalue : fvalue`, evaluating only the arm it takes,
+// which the SSA conversion lowers as control flow. The two are different
+// operations: an arm with a call, an unwrap or a division in it may only
+// run under its condition, and an arm that is a value already computed is
+// cheaper picked than branched to.
 struct Select : ExprNode<Select> {
     Expr cond, tvalue, fvalue;
+    bool lazy = false;
 
-    static Expr make(Expr cond, Expr tvalue, Expr fvalue);
+    static Expr make(Expr cond, Expr tvalue, Expr fvalue, bool lazy = false);
 
     static const IRExprEnum node_type = IRExprEnum::Select;
 };

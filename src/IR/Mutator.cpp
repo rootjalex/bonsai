@@ -328,7 +328,8 @@ Expr Mutator::visit(const Select *node) {
         fvalue.same_as(node->fvalue)) {
         return node;
     }
-    return Select::make(std::move(cond), std::move(tvalue), std::move(fvalue));
+    return Select::make(std::move(cond), std::move(tvalue), std::move(fvalue),
+                        node->lazy);
 }
 
 Expr Mutator::visit(const Cast *node) {

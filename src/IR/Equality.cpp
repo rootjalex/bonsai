@@ -586,6 +586,9 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
     case IRExprEnum::Select: {
         const Select *s0 = e0.as<Select>();
         const Select *s1 = e1.as<Select>();
+        if (s0->lazy != s1->lazy) {
+            return s0->lazy ? Cmp::Greater : Cmp::Less;
+        }
         if (const Cmp op = compare_exprs(s0->cond, s1->cond);
             op != Cmp::Equals) {
             return op;
@@ -1223,6 +1226,7 @@ uint64_t hash_of(const Expr &e) {
     }
     case IRExprEnum::Select: {
         const Select *s = e.as<Select>();
+        h = h * 31 + (s->lazy ? 1 : 0);
         h = hash_exprs(h, s->cond);
         h = hash_exprs(h, s->tvalue);
         h = hash_exprs(h, s->fvalue);

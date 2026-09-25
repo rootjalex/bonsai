@@ -434,7 +434,7 @@ Expr UnOp::make(UnOp::OpType op, Expr a) {
     return node;
 }
 
-Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
+Expr Select::make(Expr cond, Expr tvalue, Expr fvalue, bool lazy) {
     internal_assert(cond.defined()) << "Select with undefined condition";
     // TODO: if we allow Select in the frontend then we need to be able to not
     // perform this check?
@@ -445,6 +445,7 @@ Expr Select::make(Expr cond, Expr tvalue, Expr fvalue) {
         << fvalue;
 
     Select *node = new Select;
+    node->lazy = lazy;
 
     try_match_types(tvalue, fvalue);
 
