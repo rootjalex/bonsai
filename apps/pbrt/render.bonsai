@@ -782,8 +782,12 @@ element Geometric {
     // because a scene has a handful of materials and thousands of shapes. Here
     // it is an index into `materials` for the same reason: killeroo-simple has
     // four materials and 66,533 triangles, and a material carried by value
-    // would be four megabytes of the same sixty-four bytes.
-    material : u32;
+    // would be four megabytes of the same sixty-four bytes. Or -1 where pbrt's
+    // pointer is null: a shape declared `Material "interface"` (or none),
+    // which has no BSDF and only bounds a medium; the integrators test
+    // `prim.material < 0` where pbrt tests `!material` (see bxdf.bonsai,
+    // after `Material`).
+    material : i32;
     // pbrt: GeometricPrimitive's `alpha` texture, or -1 where the shape has
     // none -- which is almost all of them, so PBRT keeps such a shape in a
     // `SimplePrimitive` with no alpha field at all.
@@ -1181,7 +1185,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through a medium boundary: a surface with no BSDF ends it, with
     // whatever the walk had found (integrators.h, LiRandomWalk). The other
     // integrators skip such a hit; this one is written as pbrt wrote it.
-    if material_is_interface(materials[prim.material]) {
+    if prim.material < 0 {
         return found;
     }
 
@@ -1298,7 +1302,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
     // -- a medium boundary, stepped through at the same depth with the same
     // flag, since nothing scattered.
-    if material_is_interface(materials[prim.material]) {
+    if prim.material < 0 {
         // pbrt: `specularBounce = true` before the skip -- the shadow rays
         // of the vertex before this one stopped at the boundary (an any-hit
         // test knows nothing of interfaces), so a light found beyond it
@@ -1586,7 +1590,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through it: the same depth, the same flags, the same previous vertex,
     // since nothing scattered. The path integrator knows nothing of the
     // medium on the other side; volpath does.
-    if material_is_interface(materials[prim.material]) {
+    if prim.material < 0 {
         // pbrt: `specularBounce = true; // disable MIS if the indirect ray
         // hits a light` -- as in `path_step`: the boundary blocked the
         // previous vertex's shadow rays, so what lies beyond it is reached
@@ -1914,7 +1918,7 @@ func vol_shadow_step(light_ray : Ray, tmax : Float, medium : i32,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
-    if !material_is_interface(materials[prim.material]) {
+    if prim.material >= 0 {
         return blocked;
     }
     // The boundary crossed: where this segment ends, and where the next one
@@ -2450,7 +2454,6 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     via = reached[0];
     prim = reached[1];
     surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
-    material = materials[prim.material];
     // pbrt's wavefront, in the trace kernel's epilogue
     // (EnqueueWorkAfterIntersection, wavefront/intersect.h, and media.cpp
     // after a medium): `if (!material) { ... nextRayQueue->PushIndirectRay(
@@ -2463,7 +2466,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     // (wavefrontDepth == maxDepth) break`, so nothing is pushed. A schedule
     // makes this push the trace kernel's (`vol_route.defer(vol_path_step,
     // rays)`), as pbrt's is.
-    if material_is_interface(material) {
+    if prim.material < 0 {
         if wave == max_depth {
             return;
         }

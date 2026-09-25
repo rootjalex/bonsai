@@ -1168,7 +1168,21 @@ int main(int argc, char **argv) {
     std::vector<int32_t> material_displacement;
     materials.reserve(loaded.materials.size());
     material_displacement.reserve(loaded.materials.size());
+    // PBRT: Material::Create returns no material for `interface` (and for
+    // `none` and `""`), and the GeometricPrimitive holds that null. The scene
+    // file keeps such a material as a record (MaterialTag::Interface) so
+    // that its shapes can name it; the renderer has no such kind of material
+    // (bxdf.bonsai, `Material`), so the record makes no `Material` and a
+    // shape declared under it gets material -1 (render.bonsai, Primitive).
+    // `material_slot` maps the file's material index to the renderer's.
+    std::vector<int32_t> material_slot;
+    material_slot.reserve(loaded.materials.size());
     for (const bonsai_scene::Material &m : loaded.materials) {
+        if (m.tag == bonsai_scene::MaterialTag::Interface) {
+            material_slot.push_back(-1);
+            continue;
+        }
+        material_slot.push_back(static_cast<int32_t>(materials.size()));
         material_displacement.push_back(m.displacement_texture);
         Material material;
         Reflectance reflectance;
@@ -1239,8 +1253,6 @@ int main(int argc, char **argv) {
             leaf.transmittance.texture = m.transmittance_texture;
             leaf.scale = m.scale;
             Material_DiffuseTransmission(material, leaf);
-        } else if (m.tag == bonsai_scene::MaterialTag::Interface) {
-            Material_Interface(material);
         } else {
             Material_Diffuse(material, reflectance);
         }
@@ -1364,7 +1376,8 @@ int main(int argc, char **argv) {
             // when every emitter has its own emission; a mesh's triangles share
             // one, so they differ, and it is the ordinal the renderer needs (its
             // `lights[]` index and its bit-trail index are both the ordinal).
-            out.push_back(Geometric{shape, s.light_ordinal, s.material, s.alpha,
+            out.push_back(Geometric{shape, s.light_ordinal,
+                                    material_slot.at(s.material), s.alpha,
                                     s.medium_inside, s.medium_outside});
         }
         return out;
