@@ -45,7 +45,7 @@ func run(values : f32[8], k : f32, out : mut f32[8], marks : mut f32[8]) -> void
   return
 }
 
-func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : i32) -> void {
+func step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : i32) -> void {
   let @0 = work(x) in
   let @2 = build<Entry_q>(@0, _slot_q) in
   let @5 = atomic_add((&(*_queue_q).count), 1u) in
@@ -56,14 +56,14 @@ func [[noinline]] step(x : f32, k : f32, seen : mut (f32*), _queue_q : mut (Queu
   return
 }
 
-func [[noinline]] step!after(@0 : f32, seen : mut (f32*), k : f32) -> f32 {
+func step!after(@0 : f32, seen : mut (f32*), k : f32) -> f32 {
   let r = @0 in
   seen = r
   let @1 = r + k in
   return @1
 }
 
-func [[noinline]] work(x : f32) -> f32 {
+func work(x : f32) -> f32 {
   let @0 = x * 2f in
   return @0
 }

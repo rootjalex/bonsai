@@ -30,7 +30,7 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> void {
+func step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> void {
   let @3 = build<Entry_q>(x, i) in
   let @6 = atomic_add((&(*_queue_q).count), 1u) in
   let @8 = (*_queue_q).x in
@@ -40,20 +40,20 @@ func [[noinline]] step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue
   return
 }
 
-func [[noinline]] step!after(@0 : f32, out : mut f32[8], i : i32) -> void {
+func step!after(@0 : f32, out : mut f32[8], i : i32) -> void {
   let r = @0 in
   let @1 = r + 1f in
   out[i] = @1
   return
 }
 
-func [[noinline]] step!work!k(x : f32, out : mut f32[8], i : i32) -> void {
+func step!work!k(x : f32, out : mut f32[8], i : i32) -> void {
   let $work = work(x) in
   step!after($work, out, i)
   return
 }
 
-func [[noinline]] work(x : f32) -> f32 {
+func work(x : f32) -> f32 {
   let @0 = x * 0.5f in
   return @0
 }

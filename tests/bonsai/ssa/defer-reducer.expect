@@ -65,7 +65,7 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] step(x : f32, n : i32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+func step(x : f32, n : i32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
   total += x
   let @0 = n == 0 in
   if (@0) {

@@ -252,9 +252,11 @@ Split split_at_call(FuncMap &funcs, const string &func_name,
             A->attributes.push_back(attr);
         }
     }
+    // Held as a function -- it is what a drain runs -- until that drain
+    // folds it in (SSA/Defer.cpp).
     if (std::find(A->attributes.begin(), A->attributes.end(),
-                  ir::Function::Attribute::noinline) == A->attributes.end()) {
-        A->attributes.push_back(ir::Function::Attribute::noinline);
+                  ir::Function::Attribute::held) == A->attributes.end()) {
+        A->attributes.push_back(ir::Function::Attribute::held);
     }
     // The rest is a function of its own, so its values keep the program's
     // names for them: a queue's specialize names one (`hits.specialize(
@@ -488,8 +490,8 @@ vector<Type> defer_continuation(FuncMap &funcs, const string &func_name,
         }
     }
     if (std::find(K->attributes.begin(), K->attributes.end(),
-                  ir::Function::Attribute::noinline) == K->attributes.end()) {
-        K->attributes.push_back(ir::Function::Attribute::noinline);
+                  ir::Function::Attribute::held) == K->attributes.end()) {
+        K->attributes.push_back(ir::Function::Attribute::held);
     }
     auto kentry = std::make_shared<Block>();
     kentry->name = k_name;

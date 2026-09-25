@@ -41,12 +41,12 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] shade(x : f32) -> f32 {
+func shade(x : f32) -> f32 {
   let @0 = x * 2f in
   return @0
 }
 
-func [[noinline]] step(x : f32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+func step(x : f32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
   let @1 = build<Entry_q>(x, _slot_q) in
   let @4 = atomic_add((&(*_queue_q).count), 1u) in
   let @6 = (*_queue_q).x in

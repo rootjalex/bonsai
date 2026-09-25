@@ -53,7 +53,7 @@ func run(out : mut i32[8]) -> void {
   return
 }
 
-func [[noinline]] run2(out : mut i32[8]) -> void {
+func run2(out : mut i32[8]) -> void {
   q!round : mut u32
   q_result : mut i32[8]
   q_n_0 : mut i32[8]
@@ -120,7 +120,7 @@ func [[noinline]] run2(out : mut i32[8]) -> void {
   return
 }
 
-func [[noinline]] tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
   let @0 = n <= 0 in
   if (@0) {
     let @1 = acc + neg in
@@ -144,7 +144,7 @@ func [[noinline]] tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums 
   }
 }
 
-func [[noinline]] walk(n : i32, acc : i32, neg : i32, twice : i32, _queue_q : mut (Queue_q*), _result_q : mut (i32*), _slot_q : i32) -> void {
+func walk(n : i32, acc : i32, neg : i32, twice : i32, _queue_q : mut (Queue_q*), _result_q : mut (i32*), _slot_q : i32) -> void {
   let @0 = n <= 0 in
   if (@0) {
     let @1 = acc + neg in

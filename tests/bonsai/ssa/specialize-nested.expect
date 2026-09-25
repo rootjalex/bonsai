@@ -1,0 +1,221 @@
+type Clamp = struct Clamp{ floor : f32 }
+type Down = struct Down{ by : f32 }
+type Float = f32
+type Half = f16
+type Mode = struct Mode{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Shift = struct Shift{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Sum = struct Sum{ scale : f32 }
+type Up = struct Up{ by : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] Mode_Clamp(_ret0 : mut (Mode*), floor : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(floor) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Mode>(1u, @0, @2) in
+  _ret0 = @3
+  return
+}
+
+func [[export]] Mode_Sum(_ret1 : mut (Mode*), scale : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(scale) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Mode>(0u, @0, @2) in
+  _ret1 = @3
+  return
+}
+
+func [[export]] Shift_Down(_ret2 : mut (Shift*), by : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(by) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Shift>(0u, @0, @2) in
+  _ret2 = @3
+  return
+}
+
+func [[export]] Shift_Up(_ret3 : mut (Shift*), by : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(by) in
+  let @2 = build<[[packed]] u32x1>(@1) in
+  let @3 = build<Shift>(1u, @0, @2) in
+  _ret3 = @3
+  return
+}
+
+func apply(mode : Mode, s : Shift, x : f32) -> f32 {
+  shifted$r0 : mut f32
+  shifted$r1 : mut f32
+  let @0 = mode.tag in
+  switch (@0) {
+  case 0: { // Mode.Sum of apply
+    let @1 = mode.payload in
+    let @2 = @1[0u] in
+    let scale = reinterpret_cast<f32>(@2) in
+    let x$i0 = x * scale in
+    let @5 = s.tag in
+    switch (@5) {
+    case 0: { // Shift.Down of shifted
+      let @6 = s.payload in
+      let @7 = @6[0u] in
+      let by$i0 = reinterpret_cast<f32>(@7) in
+      let @9 = x$i0 - by$i0 in
+      shifted$r0 = @9
+    } break;
+    default: { // Shift.Up of shifted
+      let @10 = s.payload in
+      let @11 = @10[0u] in
+      let by$1$i0 = reinterpret_cast<f32>(@11) in
+      let @13 = x$i0 + by$1$i0 in
+      shifted$r0 = @13
+    }
+    }
+    return (*shifted$r0)
+  } break;
+  default: { // Mode.Clamp of apply
+    let @15 = mode.payload in
+    let @16 = @15[0u] in
+    let floor = reinterpret_cast<f32>(@16) in
+    let x$i1 = max(x, floor) in
+    let @19 = s.tag in
+    switch (@19) {
+    case 0: { // Shift.Down of shifted
+      let @20 = s.payload in
+      let @21 = @20[0u] in
+      let by$i1 = reinterpret_cast<f32>(@21) in
+      let @23 = x$i1 - by$i1 in
+      shifted$r1 = @23
+    } break;
+    default: { // Shift.Up of shifted
+      let @24 = s.payload in
+      let @25 = @24[0u] in
+      let by$1$i1 = reinterpret_cast<f32>(@25) in
+      let @27 = x$i1 + by$1$i1 in
+      shifted$r1 = @27
+    }
+    }
+    return (*shifted$r1)
+  }
+  }
+}
+
+func [[export]] run(mode : (Mode*), shift : (Shift*), values : f32[8], out : mut f32[8]) -> void {
+  let @130 = (*mode).tag in
+  switch (@130) {
+  case 0: {
+    let @192 = (*shift).tag in
+    switch (@192) {
+    case 0: {
+      parfor i!Sum!Down in [0:8:1] {
+        let @193 = (*shift) in
+        let @194 = @193._pad in
+        let @195 = @193.payload in
+        let @196 = build<Shift>(0u, @194, @195) in
+        let @158 = (*mode) in
+        let @159 = @158._pad in
+        let @160 = @158.payload in
+        let @161 = build<Mode>(0u, @159, @160) in
+        let @163 = values[i!Sum!Down] in
+        let @139 = @160[0u] in
+        let @140 = reinterpret_cast<f32>(@139) in
+        let @141 = @163 * @140 in
+        let @147 = @195[0u] in
+        let @148 = reinterpret_cast<f32>(@147) in
+        let @149 = @141 - @148 in
+        out[i!Sum!Down] = @149
+        continue
+      }
+    } break;
+    default: {
+      parfor i!Sum!Up in [0:8:1] {
+        let @197 = (*shift) in
+        let @198 = @197._pad in
+        let @199 = @197.payload in
+        let @200 = build<Shift>(1u, @198, @199) in
+        let @184 = (*mode) in
+        let @185 = @184._pad in
+        let @186 = @184.payload in
+        let @187 = build<Mode>(0u, @185, @186) in
+        let @189 = values[i!Sum!Up] in
+        let @165 = @186[0u] in
+        let @166 = reinterpret_cast<f32>(@165) in
+        let @167 = @189 * @166 in
+        let @178 = @199[0u] in
+        let @179 = reinterpret_cast<f32>(@178) in
+        let @180 = @167 + @179 in
+        out[i!Sum!Up] = @180
+        continue
+      }
+    }
+    }
+  } break;
+  default: {
+    parfor i!Clamp in [0:8:1] {
+      @103 : mut f32
+      let @135 = (*mode) in
+      let @136 = @135._pad in
+      let @137 = @135.payload in
+      let @138 = build<Mode>(1u, @136, @137) in
+      let @125 = values[i!Clamp] in
+      let @100 = @137[0u] in
+      let @101 = reinterpret_cast<f32>(@100) in
+      let @102 = max(@125, @101) in
+      let @104 = (*shift) in
+      let @105 = @104.tag in
+      switch (@105) {
+      case 0: { // Shift.Down of shifted
+        let @116 = (*shift) in
+        let @117 = @116.payload in
+        let @118 = @117[0u] in
+        let @119 = reinterpret_cast<f32>(@118) in
+        let @120 = @102 - @119 in
+        @103 = @120
+      } break;
+      default: { // Shift.Up of shifted
+        let @85 = (*shift) in
+        let @86 = @85.payload in
+        let @87 = @86[0u] in
+        let @88 = reinterpret_cast<f32>(@87) in
+        let @89 = @102 + @88 in
+        @103 = @89
+      }
+      }
+      out[i!Clamp] = (*@103)
+      continue
+    }
+  }
+  }
+  return
+}
+
+func shifted(s : Shift, x : f32) -> f32 {
+  let @0 = s.tag in
+  switch (@0) {
+  case 0: { // Shift.Down of shifted
+    let @1 = s.payload in
+    let @2 = @1[0u] in
+    let by = reinterpret_cast<f32>(@2) in
+    let @4 = x - by in
+    return @4
+  } break;
+  default: { // Shift.Up of shifted
+    let @5 = s.payload in
+    let @6 = @5[0u] in
+    let by$1 = reinterpret_cast<f32>(@6) in
+    let @8 = x + by$1 in
+    return @8
+  }
+  }
+}
+
+
+schedule host {
+    run.specialize(mode)
+       .specialize(shift)
+       .bind(i, CPUThread)
+
+}

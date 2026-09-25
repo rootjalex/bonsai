@@ -70,7 +70,7 @@ func run(out : mut i32[8]) -> void {
   return
 }
 
-func [[noinline]] walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
   r : mut i32
   let @0 = n <= 0 in
   if (@0) {

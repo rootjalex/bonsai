@@ -61,7 +61,7 @@ func run(out : mut i32[8]) -> void {
   return
 }
 
-func [[noinline]] walk(n : i32, acc : i32, span : Span, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func walk(n : i32, acc : i32, span : Span, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
   let _t0 = span.hi in
   let @1 = _t0 <= n in
   if (@1) {

@@ -4261,6 +4261,46 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // The drained callee is folded into its drain. The drain is the only
+    // place it is called from now -- the call the program wrote is a push --
+    // and its body is what the drain's iteration *is*: pbrt's kernels are
+    // lambdas whose body is the work, with the work item's fields read
+    // straight into it. Left as a call, LLVM's inliner declines a callee
+    // this size even with one caller and internal linkage, and the drain
+    // spends its time marshalling the callee's arguments -- a material's
+    // shading is called with the ray, the hit, the camera, the light
+    // sampler and the path's state, a kilobyte of by-value operands per
+    // entry; perf put 18% of the frame schedule's killeroo render in those
+    // moves alone. `always_inlined` is what the LLVM backend turns into
+    // alwaysinline (CodeGen_LLVM.cpp). The parser's `held`, which kept the
+    // callee a function for this directive to find its call, has done its
+    // work and comes off. Not for a callee that still calls itself: a
+    // self-feeding queue's callee has its recursive call turned into a push
+    // here, so this is the guard, not the case. And not for one the program
+    // marked `[[noinline]]`, which asked for the call and which LLVM would
+    // refuse both attributes on.
+    for (const SubQueue &sub : subqueues) {
+        const shared_ptr<Function> drained = funcs.at(sub.callee);
+        std::erase(drained->attributes, ir::Function::Attribute::held);
+        const bool folded =
+            !is_recursive(*drained) &&
+            !has_attribute(*drained, ir::Function::Attribute::noinline) &&
+            !has_attribute(*drained, ir::Function::Attribute::always_inlined);
+        if (folded) {
+            drained->attributes.push_back(ir::Function::Attribute::always_inlined);
+        }
+        if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+            std::cerr << "; " << queue.name << ": " << sub.callee
+                      << (folded ? " is folded into its drain"
+                                 : " stays a call from its drain")
+                      << (is_recursive(*drained) ? " (it calls itself)" : "")
+                      << (has_attribute(*drained, ir::Function::Attribute::noinline)
+                              ? " ([[noinline]])"
+                              : "")
+                      << "\n";
+        }
+    }
+
     // exit: on to whatever followed the producer.
     exit->preds = {rounds ? header : exit_from};
     if (!rounds) {

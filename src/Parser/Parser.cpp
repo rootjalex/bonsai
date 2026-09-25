@@ -3727,13 +3727,17 @@ struct Parser {
                 std::string queue = get_id();
                 // The directive is about a call, so the function making it
                 // and the function it calls both have to survive as
-                // functions: inlined away, there would be no call to queue
-                // and no callee to run from the drain.
+                // functions until it runs: inlined away, there would be no
+                // call to queue and no callee to run from the drain. `held`
+                // rather than `noinline`: the drain folds the callee in once
+                // the call is a push (SSA/Defer.cpp), which a `noinline` the
+                // program did not write would forbid.
                 for (const std::string &kept : {func, callee.names.back()}) {
                     if (const auto f = program.funcs.find(kept);
-                        f != program.funcs.end() && !f->second->is_noinline()) {
+                        f != program.funcs.end() && !f->second->is_noinline() &&
+                        !f->second->is_held()) {
                         f->second->attributes.push_back(
-                            ir::Function::Attribute::noinline);
+                            ir::Function::Attribute::held);
                     }
                 }
                 add(ir::Defer{std::move(callee), std::move(queue)});
@@ -3745,9 +3749,10 @@ struct Parser {
                 std::string queue = get_id();
                 for (const std::string &kept : {func, callee.names.back()}) {
                     if (const auto f = program.funcs.find(kept);
-                        f != program.funcs.end() && !f->second->is_noinline()) {
+                        f != program.funcs.end() && !f->second->is_noinline() &&
+                        !f->second->is_held()) {
                         f->second->attributes.push_back(
-                            ir::Function::Attribute::noinline);
+                            ir::Function::Attribute::held);
                     }
                 }
                 add(ir::Stage{std::move(callee), std::move(queue)});
@@ -3794,7 +3799,9 @@ struct Parser {
                 internal_assert(param.names.size() == 1)
                     << "specialize() names one parameter of the function, "
                        "not a path";
-                add(ir::Specialize{param.names.front()});
+                // `render[VolPath].specialize(sampler)`: that variant's
+                // loops alone are copied per variant of `sampler`.
+                add(ir::Specialize{param.names.front(), variant});
             } else if (rewrite == "skip") {
                 // Not a transform: which arms of the function's branches get
                 // a test of whether any lane is in them, when the function

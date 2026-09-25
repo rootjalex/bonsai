@@ -674,7 +674,8 @@ ir::FuncMap Inline::run(ir::FuncMap funcs,
         StatementFunctions statement_functions;
         for (const auto &[name, func] : funcs) {
             if (recursive.contains(name) || func->is_kernel() ||
-                func->is_vectorized() || func->is_noinline()) {
+                func->is_vectorized() || func->is_noinline() ||
+                func->is_held()) {
                 continue;
             }
             if (!func->ret_type.is<ir::Void_t>()) {

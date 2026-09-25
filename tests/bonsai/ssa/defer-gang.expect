@@ -57,7 +57,7 @@ func run(out : mut i32[40]) -> void {
   return
 }
 
-func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
+func walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_sums : mut (Queue_sums*)) -> void {
   let @0 = n <= 0 in
   if (@0) {
     out[i] = acc
@@ -77,7 +77,7 @@ func [[noinline]] walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_su
   }
 }
 
-func [[noinline]] walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
+func walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
   let @11 = i32x16(0) in
   let @0 = n <= @11 in
   let @12 = boolx16(false) in

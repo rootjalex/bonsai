@@ -95,6 +95,15 @@ struct Function {
         // about calls says of the functions it calls, and what a program
         // says of a function it wants one copy of.
         noinline,
+        // Held as a function for a schedule directive that is about a call
+        // to it or from it -- `f.defer(g, q)`, `f.stage(g, q)` -- so that
+        // the frontend inliner does not copy the call away before the
+        // directive finds it (Parser.cpp sets it on both; SSA/Stage.cpp on
+        // the continuations it cuts out). Bookkeeping, not a request: once
+        // the directive has run and the call is a push, the drain that runs
+        // the callee drops this and folds the callee in (SSA/Defer.cpp),
+        // where `noinline` would keep it a call to the end.
+        held,
     };
 
     std::vector<Attribute> attributes;
@@ -195,6 +204,11 @@ struct Function {
     bool is_noinline() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::noinline) != attributes.cend();
+    }
+
+    bool is_held() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::held) != attributes.cend();
     }
 
     bool is_kernel() const {

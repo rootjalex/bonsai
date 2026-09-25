@@ -103,7 +103,7 @@ func [[export]] run(out : mut i32[8], limits : (Limits*)) -> void {
   return
 }
 
-func [[noinline]] tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
   let @0 = max_depth <= n in
   if (@0) {
     _result_sums = acc

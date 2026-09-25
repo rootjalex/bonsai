@@ -10,7 +10,7 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-func [[noinline]] classify(x : f32) -> Kind {
+func classify(x : f32) -> Kind {
   let @0 = x < 10f in
   if (@0) {
     let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
@@ -96,7 +96,7 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   return
 }
 
-func [[noinline]] step(x : f32, k : f32, extra : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*), _slot_hits : i32) -> void {
+func step(x : f32, k : f32, extra : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*), _slot_hits : i32) -> void {
   let @0 = classify(x) in
   let @11 = build<Entry_hits>(@0, extra, _slot_hits) in
   let @12 = @0.tag in
@@ -132,7 +132,7 @@ func [[noinline]] step(x : f32, k : f32, extra : f32, _queue_hits : mut Queue_hi
   }
 }
 
-func [[noinline]] step!after(@0 : Kind, k : f32, extra : f32) -> f32 {
+func step!after(@0 : Kind, k : f32, extra : f32) -> f32 {
   let kind = @0 in
   let @1 = kind.tag in
   switch (@1) {
@@ -154,7 +154,7 @@ func [[noinline]] step!after(@0 : Kind, k : f32, extra : f32) -> f32 {
   }
 }
 
-func [[noinline]] step!after!Large(@0 : Kind, k : f32, extra : f32) -> f32 {
+func step!after!Large(@0 : Kind, k : f32, extra : f32) -> f32 {
   let kind = @0 in
   let @11 = kind._pad in
   let @12 = kind.payload in
@@ -166,7 +166,7 @@ func [[noinline]] step!after!Large(@0 : Kind, k : f32, extra : f32) -> f32 {
   return @10
 }
 
-func [[noinline]] step!after!Small(@0 : Kind, k : f32, extra : f32) -> f32 {
+func step!after!Small(@0 : Kind, k : f32, extra : f32) -> f32 {
   let kind = @0 in
   let @11 = kind._pad in
   let @12 = kind.payload in

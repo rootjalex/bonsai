@@ -44,7 +44,7 @@ func render(out : mut i32[16]) -> void {
   return
 }
 
-func [[noinline]] walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_paths : mut (Queue_paths*)) -> void {
+func walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_paths : mut (Queue_paths*)) -> void {
   let @0 = depth == 0 in
   if (@0) {
     let @1 = p << 2 in
