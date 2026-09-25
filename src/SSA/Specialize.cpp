@@ -145,12 +145,19 @@ shared_ptr<Value> constant_u32(uint64_t v) {
 } // namespace
 
 void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
+                      const string &variant,
                       const map<string, ir::Program::AdtStorage> &storages) {
     const auto fit = fmap.find(fname);
     internal_assert(fit != fmap.end())
         << fname << ".specialize(" << param << "): no function " << fname;
     Function &f = *fit->second;
-    const string where = fname + ".specialize(" + param + ")";
+    string spelled = fname;
+    for (size_t at = 0; at < variant.size();) {
+        const size_t next = variant.find('!', at + 1);
+        spelled += "[" + variant.substr(at + 1, next - at - 1) + "]";
+        at = next == string::npos ? variant.size() : next;
+    }
+    const string where = spelled + ".specialize(" + param + ")";
 
     // The parameter, and what its variant type is stored as. A variant
     // parameter arrives as its storage struct, or as a pointer to one
@@ -216,14 +223,24 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                 break;
             }
         }
-        if (!inside) {
+        // One variant's loops only, when the directive named one: an earlier
+        // specialize left them as the selectors it made, `p!VolPath`, whose
+        // names end in the variant's suffix (or carry it, once specialized
+        // again: `p!VolPath!Halton`).
+        const bool of_variant =
+            variant.empty() || block->name.ends_with(variant) ||
+            block->name.find(variant + "!") != string::npos;
+        if (!inside && of_variant) {
             outermost.push_back(block);
         }
     }
     internal_assert(!outermost.empty())
         << where << ": " << fname
-        << " has no parallel loop; specialize() copies a parfor's body per "
-        << "variant";
+        << (variant.empty()
+                ? " has no parallel loop; specialize() copies a parfor's body per "
+                  "variant"
+                : " has no loop of that variant; `" + spelled +
+                      "` names a copy an earlier specialize made");
 
     for (const shared_ptr<Block> &at : outermost) {
         const Terminator::ParFor loop =

@@ -1,0 +1,47 @@
+//! flags: -p ssa
+
+// A specialize on one variant of an earlier specialize: `run.specialize(mode)`
+// makes `i!Sum` and `i!Clamp`; `run[Sum].specialize(shift)` then copies the
+// Sum loop alone per variant of `shift`, `i!Sum!Down` and `i!Sum!Up`, each
+// entered from `i!Sum`'s dispatch on the shift's tag, while `i!Clamp` keeps
+// its match on `shift` and dispatches at run time (SSA/Specialize.h). What
+// pbrt's wavefront does with its sampler: the volpath integrator is
+// instantiated per sampler type, the others are not. The bind after both,
+// naming `i`, binds every copy.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+element Shift =
+    | Down(by : Float)
+    | Up(by : Float);
+
+func shifted(s : Shift, x : Float) -> Float {
+    match s {
+        Down(by) => return x - by;
+        Up(by) => return x + by;
+    }
+}
+
+func apply(mode : Mode, s : Shift, x : Float) -> Float {
+    match mode {
+        Sum(scale) => return shifted(s, x * scale);
+        Clamp(floor) => return shifted(s, max(x, floor));
+    }
+}
+
+func [[export]] run(mode : Mode, shift : Shift, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, shift, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(shift);
+    run.bind(i, CPUThread);
+}

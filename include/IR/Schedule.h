@@ -210,10 +210,20 @@ struct Vectorize {
 // on it folds to one arm in the copy, and under a GPU bind each copy is its
 // own kernel, allocated registers for the arm it runs and not for all of
 // them (pbrt's GPU build is one integrator by construction). The copies
-// are the function as scheduled up to this directive; it goes last among
-// the function's directives. Applied at the SSA level (SSA/Specialize.h).
+// are the function as scheduled up to this directive; it goes first among
+// the function's directives, after other specializes only. Applied at the
+// SSA level (SSA/Specialize.h).
+//
+// Written on one variant of an earlier specialize -- `render[VolPath].
+// specialize(sampler)` -- it copies that variant's loops alone, per
+// variant of the second parameter (`p!VolPath!Halton`, ...), and leaves the
+// other variants dispatching on it at run time: pbrt's wavefront is the
+// volpath integrator per sampler type (`ForEachType(..., Sampler::Types())`
+// on ConcreteSampler), and its other integrators are not templated on it.
+// `variant` is that suffix, `!VolPath`, or empty for every loop.
 struct Specialize {
     std::string param;
+    std::string variant;
 };
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Reorder, Split,

@@ -1827,6 +1827,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
         const ir::Transform &t = transforms.at(name).at(index);
         if (std::holds_alternative<ir::Specialize>(t)) {
+            // After another specialize is fine: `render.specialize(
+            // integrator); render[VolPath].specialize(sampler)` copies a
+            // copy, and the directives after both schedule the copies.
             internal_assert(!scheduled.contains(name))
                 << name << ".specialize(" << std::get<ir::Specialize>(t).param
                 << ") comes after another directive on " << name
@@ -1836,6 +1839,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 << "every variant's (`" << name << ".bind(...)`).";
         }
         const bool counts = !std::holds_alternative<ir::Sort>(t) &&
+                            !std::holds_alternative<ir::Specialize>(t) &&
                             !(std::holds_alternative<ir::Bind>(t) &&
                               std::get<ir::Bind>(t).lambda.defined());
         if (counts) {
@@ -1896,7 +1900,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         }
                     },
                     [&](const ir::Specialize &s) {
-                        specialize_loops(fmap, name, s.param, adt_storages);
+                        specialize_loops(fmap, name, s.param, s.variant,
+                                         adt_storages);
                     },
                     [&](const ir::Stage &s) {
                         internal_assert(!s.callee.names.empty())

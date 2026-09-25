@@ -101,6 +101,7 @@ add_bonsai_tests(
     simplify-facts.bonsai
     specialize.bonsai
     specialize-callee.bonsai
+    specialize-nested.bonsai
     sret.bonsai
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai

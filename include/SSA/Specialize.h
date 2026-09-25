@@ -48,8 +48,12 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
+// `variant` is the suffix of the copies whose loops are to be specialized
+// -- `!VolPath` for `render[VolPath].specialize(sampler)`, the loops named
+// `p!VolPath` an earlier specialize made -- or empty for every outermost
+// loop of the function (ir::Specialize).
 void specialize_loops(FuncMap &fmap, const std::string &fname,
-                      const std::string &param,
+                      const std::string &param, const std::string &variant,
                       const std::map<std::string, ir::Program::AdtStorage>
                           &storages);
 
