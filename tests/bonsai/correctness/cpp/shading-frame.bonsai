@@ -44,7 +44,9 @@ func [[export]] probe(mesh : u32, tri : u32, d : vec3f,
     r : Ray = {o, d};
     t : Triangle = {mesh, tri};
 
-    hit = triangle_hit(r, t);
+    // pbrt: `Intersect(ray, tMax = Infinity)`; the bound is the test's
+    // argument, as it is pbrt's, since a Ray carries none.
+    hit = triangle_hit(r, inf, t);
     if !hit {
         return false;
     }
