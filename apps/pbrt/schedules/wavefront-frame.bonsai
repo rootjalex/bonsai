@@ -1,8 +1,8 @@
 // pbrt's wavefront for volpath with a pass's queues, on the CPU: the same
 // kernel list as wavefront-volpath.bonsai (see there for what each queue
-// is), but every queue is the frame's for one sample per pixel -- pbrt's
-// pass over a band of scanlines -- rather than a pixel's for all of its
-// samples.
+// is), but every queue is a band's for one sample per pixel -- pbrt's pass
+// over a band of scanlines, sized as pbrt sizes it -- rather than a pixel's
+// for all of its samples.
 //
 // The program is pixel-outer, sample-inner, as pbrt's CPU integrator is;
 // pbrt's wavefront is sample-outer (the passes), pixel-inner (the band). So
@@ -35,25 +35,36 @@ schedule {
 
     render.specialize(integrator);
     render[VolPath].reorder(p, s);
+    // pbrt's pass is a band of scanlines, not the frame: `for (y0 = ...; y0
+    // += scanlinesPerPass)` inside the sample loop, a million pixels' worth
+    // at most, evened across the passes, with every queue sized to one band
+    // (`maxQueueSize`). The band is `pass_pixels`, which render.bonsai
+    // computes as pbrt does; the pixel loop is cut into bands of it, the
+    // band loop serial as pbrt's is, the pixels of a band the threads'.
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
 
-    rays = render[VolPath].queue(s);
+    rays = render[VolPath].queue(p_band);
     li_vol_path.defer(vol_path_step, rays);
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
+    // pbrt's trace kernel pushes a hit on a medium boundary straight onto the
+    // next ray queue (EnqueueWorkAfterIntersection); the routing after a
+    // trace does the same here.
+    vol_route.defer(vol_path_step, rays);
 
-    medium_samples = render[VolPath].queue(s);
+    medium_samples = render[VolPath].queue(p_band);
     vol_path_step.defer(vol_medium_sample, medium_samples);
-    medium_scatters = render[VolPath].queue(s);
+    medium_scatters = render[VolPath].queue(p_band);
     vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
 
-    escaped = render[VolPath].queue(s);
+    escaped = render[VolPath].queue(p_band);
     vol_route.defer(escaped_contribution, escaped);
-    emissive = render[VolPath].queue(s);
+    emissive = render[VolPath].queue(p_band);
     vol_route.defer(emissive_contribution, emissive);
-    hits = render[VolPath].queue(s);
+    hits = render[VolPath].queue(p_band);
     vol_route.defer(vol_surface, hits);
     hits.specialize(material);
-    shadow = render[VolPath].queue(s);
+    shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
 
     trace.sort(primitives.Interior,
@@ -67,11 +78,12 @@ schedule {
          .loopify(64);
     trace_any.loopify(64);
 
-    // The camera rays over the pixels of a pass, then each drain over the
-    // pass's paths, then the film pass and the finalization: pbrt's
-    // launches, as threads. `p` covers the pixel loop in every variant,
-    // and its prologue loop in the one that was reordered.
-    render.bind(p, CPUThread);
+    // The camera rays over the pixels of a band, then each drain over the
+    // band's paths, then the film pass and the finalization: pbrt's
+    // launches, as threads. `p_in` covers the pixels of a band in every
+    // variant, and the prologue loop's in the one that was reordered; the
+    // band loop `p_band` itself is serial, as pbrt's is.
+    render.bind(p_in, CPUThread);
     render.bind(rays, CPUThread);
     render.bind(medium_samples, CPUThread);
     render.bind(medium_scatters, CPUThread);

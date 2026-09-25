@@ -2450,12 +2450,34 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     via = reached[0];
     prim = reached[1];
     surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
-    // pbrt's wavefront: `if (!material) { ... PushIndirectRay ...; return; }
-    // if (intr.areaLight) hitAreaLightQueue->Push(...)` (wavefront/
-    // intersect.h, and media.cpp after a medium) -- a medium boundary's
-    // emission, if it has any, is not counted; the CPU integrator's `Le`
-    // comes before its `if (!bsdf)`.
-    if (prim.light >= 0) && !material_is_interface(materials[prim.material]) {
+    material = materials[prim.material];
+    // pbrt's wavefront, in the trace kernel's epilogue
+    // (EnqueueWorkAfterIntersection, wavefront/intersect.h, and media.cpp
+    // after a medium): `if (!material) { ... nextRayQueue->PushIndirectRay(
+    // ...); return; }` -- a hit on a medium boundary goes straight onto the
+    // next ray queue, through the boundary into the medium on its far side,
+    // the path's state as it was: no material queue, and no emission (a
+    // boundary's emission, if it has any, is not counted; the CPU
+    // integrator's `Le` comes before its `if (!bsdf)`). At the depth limit
+    // the queue it would go onto is the one pbrt drops with `if
+    // (wavefrontDepth == maxDepth) break`, so nothing is pushed. A schedule
+    // makes this push the trace kernel's (`vol_route.defer(vol_path_step,
+    // rays)`), as pbrt's is.
+    if material_is_interface(material) {
+        if wave == max_depth {
+            return;
+        }
+        skip_ray = spawn_ray(surf, ray.d);
+        vol_path_step(
+            skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
+            spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
+            any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
+            set, have_media, seed, max_depth, regularize, want_visible, visible,
+            l);
+        return;
+    }
+    // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
+    if prim.light >= 0 {
         spawn l += emissive_contribution(prim.light, surf.n, -ray.d, ray.d, beta,
                                          r_u, r_l, depth, specular_bounce,
                                          prev_ctx, ls, lambda);
@@ -2548,23 +2570,12 @@ func vol_surface(ray : Ray, medium : i32,
     wo = -ray.d;
     wo_unit = unit_vector_(wo);
 
-    // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
-    // -- through the boundary, into the medium on its far side, the path's
-    // state as it was (the wavefront's `PushIndirectRay` of the same ray).
     // The hit's material has a name here so that a schedule can split the
     // hits by it (`hits.specialize(material)`, pbrt's queue per material
-    // type).
+    // type). Never an interface: a hit on a medium boundary was sent on to
+    // the next ray by vol_route, as pbrt's trace kernel sends it, and no
+    // material kernel sees it.
     material = materials[prim.material];
-    if material_is_interface(material) {
-        skip_ray = spawn_ray(surf, ray.d);
-        vol_path_step(
-            skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
-            spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
-            any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
-            set, have_media, seed, max_depth, regularize, want_visible, visible,
-            l);
-        return;
-    }
 
     do_regularize = regularize && any_non_specular;
     diffs = approximate_differentials(surf, camera, spp_scale);
@@ -2974,6 +2985,19 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                        radiance_out : mut array[vec3f],
                        weight_out : mut array[Float]) -> void {
     spp = samples_per_pixel(sampler);
+    // pbrt: the WavefrontPathIntegrator's pass is a band of scanlines -- at
+    // most a million pixels' worth, `maxSamples / resolution.x`, evened so
+    // that every pass is the same height -- and `maxQueueSize` is the pixels
+    // of one band (wavefront/integrator.cpp, the constructor). Computed here
+    // as pbrt computes it, and named for the schedule that tiles the pixel
+    // loop into pbrt's passes: `split(p, p_band, p_in, pass_pixels, true)`
+    // in schedules/wavefront-frame.bonsai, whose queues are then one band's.
+    // The algorithm does not read it; how the frame is cut into passes is
+    // the schedule's to say.
+    scanlines_at_most = max(1u, 1048576u / width);
+    n_passes = (height + scanlines_at_most - 1u) / scanlines_at_most;
+    scanlines_per_pass = (height + n_passes - 1u) / n_passes;
+    pass_pixels = width * scanlines_per_pass;
     parfor p in 0u:(width * height) {
         i = p % width;
         j = p / width;
