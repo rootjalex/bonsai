@@ -6697,9 +6697,8 @@ thread-seconds, pbrt ~316), each candidate then checked by two
 adversarial verifiers, one arguing from our side's code and one from
 pbrt's. Only what both verifiers confirmed is listed as real, with the
 costs the verifiers corrected to; a candidate either verifier refuted is
-listed as such. The camera stage's verifications were cut short (the
-session's context ran out), so its items beyond the first are one-sided
-or unverified.
+listed as such. (The camera stage's verifications finished after the
+first reading of the journal; their corrections are folded in below.)
 
 Confirmed, ranked by cycles, with where the fix belongs:
 
@@ -6729,9 +6728,14 @@ Confirmed, ranked by cycles, with where the fix belongs:
    are store-queue stall skid. Re-measure before investing.
 4. *The filter table's binary search compiles to branches.*
    `filter_sample`'s two `find_interval` searches are written with
-   `select`; LLVM's cmov conversion undoes it (7.8% of the camera
-   kernel, ~2.9 thread-s). Compiler: keep the select a select on this
-   path (CodeGen_PTX has the precedent).
+   `select`; LLVM's cmov conversion undoes it, and 7.8% of the camera
+   kernel's samples sit on those two loops. But the pbrt-side verifier
+   bounded what is recoverable by the hardware counters: the whole
+   render's branch mispredicts are 0.45-0.67% of its cycles, and the
+   two searches can hold at most ~94 M of the 649 M, so ~0.4 thread-s
+   at most; the rest of the samples are the CDF table's load latency,
+   which a cmov form would serialize behind the compare rather than
+   remove. Compiler, if at all, and measured first.
 5. *`triangle_hit` runs up to three times per accepted hit* (the
    filter's `intersects`, the argmin's `distmin`, `surface_geometry`'s
    re-intersection): 25-36% of its 12.2 thread-s. But pbrt spends ~66
@@ -6766,10 +6770,15 @@ Confirmed, ranked by cycles, with where the fix belongs:
     `&&` is never short-circuited (SSA/Convert.cpp's `// TODO: SHORT
     CIRCUITING!!!`), ~0.07%.
 12. *`wave` is stored per entry* although it equals the round counter, in
-    the rays, medium_samples, medium_scatters and every hits queue
-    (0.02%); *`prev_ctx` is pushed as constants from the camera site*
-    because the indirect push varies it and the elision needs one recipe
-    at every push site (0.09%).
+    eleven arrays across the rays, medium_samples, medium_scatters and
+    hits queues (0.02%). Compiler only: Defer.cpp's `From::Index` family
+    (2308-2316), which already derives an entry field from the drain's
+    index, extended to the round counter. *`prev_ctx` is pushed as
+    constants from the camera site* (0.09%): ten push sites disagree on
+    its value, so the one-recipe elision cannot apply; what would is a
+    dead-store analysis across queue hops (the camera's constants are
+    read only after a bounce has overwritten them), which Defer.cpp's
+    entry analysis does not have.
 
 Where the readers found us ahead, confirmed with corrected magnitudes:
 the node loop is ~2x cheaper than pbrt's (not 3.7x), the per-hit surface
@@ -6788,9 +6797,31 @@ samplers backwards); the sensor conversion and the serial per-round
 queue rebuild (unmeasurable); the "equivalent, fix: none" verdicts on
 the material entries and the shadow entries (each hid a small real
 difference: the union marshaling; an occluded shadow ray's zero-add).
-Unverified, camera stage: the queue count sharing a line with the array
-pointers (the reader's top item), the sampler state stored per ray,
-`__udivti3` per radical inverse, and the 329 B against 228 B record.
+The camera stage, once its verifiers finished. The reader's top item --
+the queue's count sharing a cache line with the array handles the push
+reloads right after the fetch-and-add -- was partly refuted: the handles
+are not in the producer's closure (only `rays_queue` is, at 0x260;
+passing them would be seventeen new parameters), the struct's 8 B
+alignment puts anywhere from none to seven of them on the count's line,
+and pbrt's `WorkQueue` has the same pattern (none to three of its SoA
+pointers on `size`'s line) at far lower cost. The push region is 60% of
+the camera kernel (~22 thread-s), but the handle reloads' own footprint
+is ~2 thread-s; the contended atomic itself is the likelier driver, and
+"only a measurement can settle it." The 40 B sampler state stored per
+ray has no pbrt counterpart and is a wash: both sides recompute
+`StartPixelSample` per bounce. `__udivti3` favors us: at most ~1.1
+thread-s program-wide against pbrt's own `divq` hot spot in
+`RadicalInverse`. The record is 329 B against pbrt's 212 B (not 228):
++117 B a ray, of which the `VisibleSurface` is 64 (program: pbrt guards
+its write and its read on `initializeVisibleSurface`), `prev_ctx` 48 and
+`wave` 4 (compiler, item 12), the sampler state 40. The sampler's kind
+is dispatched five times per ray, not once (each inlined `get_1d`,
+`get_2d`, `get_pixel_2d` dispatches again), ~0.3% of the program;
+`render[VolPath].specialize(sampler)` was tried (6469 above) and broke
+the defer directives' names, so this is compiler work on name
+resolution first. Wavelength sampling costs pbrt ~10 thread-s (its
+`atanhf`/`coshf` reach glibc's `log1pf`/`expm1f`/`expf`) against our
+~2.2 inline.
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
