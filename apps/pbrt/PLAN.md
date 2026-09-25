@@ -6510,6 +6510,103 @@ avoids by indexing on pixel?), and the Halton sampler's tables
 is a flat per-dimension table; ours is indexed through
 `digit_permutation_offsets`, one more dependent load per digit).
 
+**What stalls (2026-09-24, the frame schedule against `pbrt --wavefront`
+on killeroo, `perf stat` one at a time).** Neither candidate above. The
+counters for the whole render, ours 136.8 s against pbrt's 97.7 s:
+
+    cycles            23.4 T   15.1 T      instructions     3.02 T   3.96 T
+    IPC               0.13     0.26        L1D load misses  294 G    833 G
+    last-level misses 237 G    672 G       threads busy     31.7     29.1
+
+Fewer instructions, a third of the cache misses, and 1.55x the cycles:
+whatever stalled us was not a load miss and not more work. The AMD
+retire and dispatch counters at 32 spp (17.0 s against 12.2 s) said what:
+retire-queue-empty cycles 1.53 T against 0.67 T, dispatch stalled on a
+full store queue 2.23 T against 1.32 T, and demand fills served from the
+L3 or another core's L2 20.9 G against 7.2 G -- three times pbrt's --
+while loads, stores, branch misses, resyncs, microcode ops, divider busy
+cycles and instruction-fetch stalls were all at or below pbrt's. The
+signature of stores waiting on cache lines another core owns, the store
+queue filling behind them, dispatch stopping, the pipeline draining.
+`perf record` on the fill event put 59% of the camera kernel's fills on
+the instruction after `lock xaddl` on the queue count -- the skid of the
+locked add itself -- and the trace kernel's on its node loads.
+
+The single-thread run is what settled it. One core, one sample per
+pixel, killeroo:
+
+    ours 1.02 s, 6.8 G cycles, 14.9 G instructions, 3.9 M far fills
+    pbrt 1.30 s, 8.1 G cycles, 17.5 G instructions, 3.2 M far fills
+
+Alone on a core our generated code is 1.28x faster than pbrt's at the
+same IPC (2.2), and one pass makes 4 M far fills on one thread and 650 M
+on thirty-two. The whole loss at 32 threads was the push: a slot claimed
+by a fetch-and-add on one count shared by every thread, so consecutive
+slots come from different threads, so each of the ~45 four-byte stores of
+an entry lands on a line the previous slot's thread just wrote -- a
+read-for-ownership each, from another core -- and the next push's locked
+add drains the store queue behind them. pbrt has the same design and
+scales nearly as badly (3.4x on 16 cores, ours 1.9x); it lost less
+because its `SOA<SampledSpectrum>` keeps a `Float4` per entry, one line
+for a spectrum where ours took four. The tree is not it (pbrt's own BVH
+via `--pbrt-tree`: the same time, the same fills).
+
+*Vector leaves (0f2eaf2b).* A queue no gang pushes onto or drains stores
+a `vec3f`/`vec4f` of its entry as one packed array element instead of a
+scalar per array (QueueSpec::vector_leaves, decided from the whole
+schedule before the deferral since the vectorize directive comes after):
+the same bytes per entry, a third as many lines per push (rays 17 for
+44; pbrt 30). Killeroo 32 spp went from 17.0 s to 6.76 s -- cycles 2.95 T
+to 1.16 T, far fills 20.9 G to 5.6 G (below pbrt's 7.2 G), store-queue
+stalls 2.23 T to 0.68 T -- and camera-medium from 7.72 s to 3.29 s, both
+bit for bit the images from before. With one atomic per push, exactly
+pbrt's design, the same schedule is now 1.8x faster than `pbrt
+--wavefront` on killeroo and 2x on camera-medium.
+
+*The program, checked kernel for kernel against pbrt's (b5a3a3ba).* The
+structural read of the post-schedule IR against pbrt's `Render()` found
+the schedule right -- pbrt's kernels in pbrt's order, the round loop,
+one atomic per push, nothing serial per pass beyond constant resets, the
+single `rays` buffer race-free because nothing reachable from its drain
+pushes onto it -- and three places the *program* did work pbrt's
+wavefront does not: (1) shadow rays traced closest-hit with the interface
+walk in every scene, where pbrt without media uses `IntersectP` --
+`shadow_contribution` now takes `have_media` (pbrt's `haveMedia`, from
+the driver: the scene names a medium) and does the `any` query without;
+(2) hits pushed to the material queues in the last round and every BSDF
+built before the `wave == max_depth` test, where pbrt breaks before
+launching the material kernels -- `vol_route` now returns there, which
+also drops the boundary-crossing continuation pbrt drops with its next
+ray queue (homogeneous-medium moves 8.5% of its pixels, toward pbrt);
+(3) every miss pushed to `escaped` in a scene with no infinite light,
+where pbrt's queue is null -- pushed only when `set.first_infinite <
+set.count`. Killeroo 6.76 s to 6.28 s and camera-medium 3.29 to 3.19 s,
+both bit for bit; homogeneous-medium 2.67 to 2.47 s (pbrt 5.01 s).
+Found and left for now: the BxDF's variant is still dispatched at run
+time inside each material-specialized kernel (pbrt's is a template
+parameter); the sampler's draws happen in the shading kernels through
+the 40 B state record rather than in a GenerateRaySamples kernel; the
+split drains reload every array handle from the queue header per entry
+(pbrt's `operator[]` does the same through `this`, so not a difference,
+but a hoist would be free); `__udivti3` at 0.7% is the invariant-division
+pass computing a 64-bit divisor's multiplier through an i128 divide, one
+`divq` when the quotient is known to fit.
+
+*Next: staged pushes.* One pass still makes 5 G far fills at 32 threads
+against 4 M on one, so most of the traversal's locality is still lost to
+slot interleaving, and every push still claims its slot with a contended
+locked add. The fix is MoonRay's per-thread queue (Lee et al. 2017),
+here per range of the drain's parfor: the body pushes into a range-local
+`Queue_<q>` of K slots that the callee cannot tell from the real one --
+the same struct, its count plain -- and a flush moves K entries to the
+real queue with one fetch-and-add and K contiguous stores per array, at
+the K-th push and once more at the range's end. Same kernels, same
+entries, exact counts, bit-identical output; each consumer thread then
+sees runs of K coherent rays from one producer. Needs of the compiler a
+per-range allocation with a finalizer (allocated and zeroed once per
+kernel range, its flush called at the range's exit), which the CPU kernel
+already has the blocks for (emit_cpu_parfor's entry and done).
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
