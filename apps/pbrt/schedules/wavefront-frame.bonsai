@@ -76,7 +76,18 @@ schedule {
                select((1.0 / q.ray.d)[axis] < 0.0,
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .loopify(64);
-    trace_any.loopify(64);
+    // pbrt's IntersectP walks the near child first exactly as Intersect
+    // does (BVHAggregate::IntersectP, dirIsNeg), so the any-hit traversal
+    // takes the same order.
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
 
     // The camera rays over the pixels of a band, then each drain over the
     // band's paths, then the film pass and the finalization: pbrt's

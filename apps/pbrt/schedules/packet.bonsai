@@ -99,8 +99,18 @@ schedule {
                       1.0 - cast[[Float]](i), cast[[Float]](i)))
          .loopify(64);
     // The occlusion test gets its own stack, and it is the same 64 pbrt's
-    // IntersectP uses.
-    trace_any.loopify(64);
+    // IntersectP uses; and pbrt's IntersectP walks the near child first
+    // exactly as Intersect does (BVHAggregate::IntersectP, dirIsNeg), so
+    // the any-hit traversal takes the same order.
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
 
     // Which arms the gang skips. A vectorized `match` or `if` computes every
     // arm under a mask of the lanes in it; an arm no lane is in is paid for
