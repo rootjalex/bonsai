@@ -6286,12 +6286,141 @@ streams it reproduces; matching the wavefront's would mean seeding the
 medium RNG from the ray as it does. On killeroo, with no medium, radiance
 agrees and there is no gbuffer.
 
-Still the CPU's, on purpose, until decided otherwise: Russian roulette
-after a medium scatter (item 5; pbrt's own comment doubts it), interface
+Still the CPU's at that point (switched later the same day, next
+paragraph): Russian roulette after a medium scatter (item 5), interface
 crossings not counting against the depth (item 3), emission at max depth
 inside a medium (item 4), the sampler's sequential dimensions and the
-medium RNG's seed (item 6), NaN samples zeroed (item 7). Each is a line or
-two to switch; none changes a queue entry.
+medium RNG's seed (item 6), NaN samples zeroed (item 7).
+
+**The rest of the wavefront, and the bits that were not pbrt's
+(2026-09-25, later).** "Make sure we are a faithful translation" -- so
+items 3 to 7 went the wavefront's way too, and a probe was built to find
+the bits that still differed. What the program now does, per item of the
+catalogue above, with the wavefront's lines:
+
+- *(3) The round.* `vol_path_step` carries `wave`, pbrt's
+  `wavefrontDepth`: 0 for the camera ray, one more for every ray pushed
+  for the next round -- a bounce, a scattering, *or an interface
+  crossing*, which leaves `depth` alone. The material kernel does not run
+  in the last round (`if wave == max_depth return` at the top of
+  `vol_surface`'s shading, integrator.cpp:423 `if (wavefrontDepth ==
+  maxDepth) break`), so a path spends a round on each boundary it
+  crosses; the scatter kernel does not either (`vol_medium_sample`,
+  media.cpp:252). Depth-first, the count is the path's own, and the same.
+- *(4) Emission at the depth limit inside a medium.* `vol_medium_sample`
+  scales by `T_maj / T_maj[0]` only when `beta` is nonzero (`if
+  (!scattered && beta)`) and then returns at `!beta || !r_u || depth ==
+  max_depth` before routing (media.cpp:141-163): a ray at its limit that
+  came through a medium is done, its area light or escape uncounted. A
+  ray in no medium is routed by the trace as before. The wavefront also
+  routes an interface hit before it pushes the area light
+  (intersect.h:95-105, media.cpp:196-208), so a medium boundary's
+  emission is not counted; `vol_route` tests the material first.
+- *(5) Roulette after a scattering.* `vol_medium_scatter` does pbrt's
+  media.cpp:330-339: `rr_beta = max(beta * eta_scale / r_u.Average())`,
+  the draw taken whether or not the test runs, `depth >= 1` on the ray's
+  depth before the scattering, `beta = w.beta * p / pdf` left to right.
+  It draws `indirect.uc` and leaves it unused, as the kernel does.
+- *(6) The dimensions, and the medium's stream.* Every ray of a round
+  starts its sampler again at `6 + 7 * depth` (`start_pixel_sample_at`
+  in sampler.bonsai, pbrt's StartPixelSample(p, index, dim):
+  Independent and Stratified re-seed and advance by `index * 65536 +
+  dim`, Halton takes `max(2, dim)`), and the seven draws of a bounce are
+  taken in GenerateRaySamples' order -- the light's `uc` and `u`, the
+  BSDF's or phase function's `uc` and `u`, roulette's -- *whether or not
+  they are used*: `vol_surface` draws the light's two before the
+  `is_non_specular` test and hands them to `vol_sample_ld`, which no
+  longer draws. A re-traced boundary crossing draws the same values
+  again, as pbrt's does. The medium RNG is `set_sequence(Hash(ray.o,
+  tMax), Hash(ray.d))` (`hash_vec3_float`, media.bonsai; media.cpp:44),
+  `u_dist` and `u_mode` its first two uniforms, `u_mode` redrawn at the
+  end of every null collision (media.cpp:136); the sampler draws nothing
+  in the medium kernel. Emission is the kernel's `beta * sigma_a * T_maj
+  * Le / (pr * r_e.Average())`.
+- *(7) NaN samples.* Never zeroed here; the wavefront does not.
+
+Two of the wavefront's behaviours were already ours (the material
+kernel's visible surface at `w.depth == 0`, roulette at `w.depth >= 1`),
+and the nudge typo (item 2) stays the book's.
+
+*The probe.* `check_hits.sh` prints, for every eighth pixel each way and
+the first four samples of each, the camera ray pbrt's own sampler and
+camera make and the distance its aggregate finds along it -- from
+`scene_dump --print-hits`, which builds pbrt's media, textures, lights,
+materials and aggregate the way pbrt's own render does -- and the same
+from `hit_at` (render.bonsai) through the driver's `--print-hits`, and
+wants them identical: `RNG rng(Hash(ray.o, tMax), Hash(ray.d))` is
+seeded from exactly these three, so a last bit in any is a different
+random stream for that ray. It also compares the pixel filter's tables
+against pbrt's real ones, read out of `Filter::ToString()` (every float
+in its shortest round-trip form; the CDFs inside print to six digits and
+are not compared -- they follow from the values and the integrals). The
+first run found 1.3% of camera rays a bit or two off in direction, all
+traced to the filter's sampled position in the pixel, and from there:
+
+- *`--ffp-contract` fused adds only.* gcc's convert_mult_to_fma fuses a
+  product into a subtraction and through a negation as well, and pbrt's
+  Gaussian filter is `Gaussian(p) - expX` with Gaussian ending in a
+  product: one rounding there, two here. The pass now does `a*b - c`,
+  `c - a*b`, `-(a*b) + c` and their combinations as `fma` with an exact
+  `-0.0 - x` negation, absorbs a product from a dominating block in the
+  same loops (the builder had put the Gaussian's product after the
+  first FastExp's branches and its subtraction after the second's, where
+  gcc's GIMPLE has them side by side), and runs after the allocas are
+  promoted, since the inliner's result slot made the product a load
+  until then (SSA/Contract.h; goldens at the SSA, LLVM and execution
+  levels; `BONSAI_EXPLAIN_CONTRACT=1` says why an add stays one).
+- *The filter CDF.* pbrt's `cdf[i-1] + func[i-1] * (max - min) / n`,
+  the product and then the quotient -- `(f * 3) / 48` and `f * 0.0625`
+  differ in the last bit for a third of all `f` -- not a cell width
+  computed once.
+- *gcc's fusion of the cell coordinates differs by axis.* In
+  FilterSampler's constructor as built, the y coordinate of a cell is
+  `fma(1 - t, min, t * max)` and the x coordinate `fma(t, max, (1 - t)
+  * min)`: the same `Lerp`, scheduled differently in the two loops, a bit
+  apart for a third of the columns. Read off the disassembly and written
+  out as pbrt's binary has it; without this the filter table matched a
+  *rebuild* of pbrt's tables inside scene_dump and not pbrt's own, and
+  two builds of that rebuild disagreed with each other, which is why the
+  probe reads the real ones out of ToString.
+- *The film point's association.* pbrt adds `(pixel + jitter) + 0.5`;
+  the render added `(pixel + 0.5) + jitter`, a bit apart at pixel
+  coordinates in the hundreds.
+
+With those, every camera ray, hit distance and filter table entry is
+pbrt's to the bit on camera-medium, homogeneous-medium and killeroo
+(7600, 7600 and 30976 rays; the last with the Halton sampler). The
+shading-frame test, which called `triangle_hit` with the old signature
+since the program change, is fixed with it.
+
+*What the compares say now* (`compare.sh --pbrt-wavefront`, scalar):
+camera-medium's shading normals agree on every pixel (55 disagreed), its
+albedo to 3.2e-4 in the mean with 1.5% of pixels over 5e-3 (1.6e-3 and
+11.8% before), radiance 1.00021x; homogeneous-medium's albedo is where it
+was (4.9e-3, 9.3%, the fog sphere), radiance 1.0019x (1.0053x before
+items 3 and 4); killeroo 0.99999x. The three wavefront schedules were
+bit for bit with the scalar one before this and are checked again below.
+What the albedo still measures is the medium's decisions, and where they
+still differ is now known: every camera-medium pixel over the threshold
+is on one of the two spheres and none on the floor, and all of
+homogeneous-medium's are behind the fog sphere's boundary -- so the hit
+distance of a *sphere* differs from pbrt's for a fraction of a percent of
+rays (rarer than the probe's four samples of every eighth pixel catch),
+and the ray *re-spawned at a boundary* differs for most. The second has
+three known causes to take up next, all in how a hit leaves the shape:
+pbrt's sphere hit is `Point3f(oi) + t * Vector3f(di)` with `oi` and `di`
+the *midpoints of the object-space intervals*, not `o - c` and `d`; its
+error bounds grow through `renderFromObject` (`(1 + gamma(3)) * err +
+gamma(3) * (|x| + |c|)`, Transform::operator()(Point3fi)) where
+`sphere_geometry` hands back the object-space `gamma(5) * |p|`; and
+OffsetRayOrigin's `Dot(Abs(n), pi.Error())` is pbrt's Dot, `FMA(x, x',
+SumOfProducts(y, y', z, z'))`, where `offset_ray_origin` uses `dot`. The
+probe's next row is the spawned ray of the first hit, which will hold
+those; the triangle's `pHit`/`pError` are to be checked the same way.
+killeroo's per-pixel agreement (33% within 1e-3, with a Halton sampler
+and camera rays now identical) says the bounce's draws or light samples
+still differ somewhere after the first hit -- the same hit-point bounds
+feed the light-sampling context -- and is the same investigation.
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
