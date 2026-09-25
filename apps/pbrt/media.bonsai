@@ -130,3 +130,14 @@ func hash_float1(a : Float) -> u64 {
 func hash_vec3(v : vec3f) -> u64 =
     hash3(reinterpret[[i32]](v.x), reinterpret[[i32]](v.y),
           reinterpret[[i32]](v.z));
+
+// pbrt: Hash(Point3f, Float) -- sixteen bytes, the point's three floats and
+// then the one, as two eight-byte words. The wavefront's medium kernel seeds
+// its RNG from the ray's origin and tMax this way (`Hash(ray.o, tMax)`), and
+// from the direction with `hash_vec3`.
+func hash_vec3_float(v : vec3f, t : Float) -> u64 {
+    h0 = murmur_block(16u * murmur_m(),
+                      packed(reinterpret[[i32]](v.x), reinterpret[[i32]](v.y)));
+    return murmur_finish(murmur_block(
+        h0, packed(reinterpret[[i32]](v.z), reinterpret[[i32]](t))));
+}

@@ -624,6 +624,10 @@ int main(int argc, char **argv) {
     // `scene_dump --print-differentials` uses, printed in the same format so a
     // plain diff is the comparison.
     bool print_differentials = false;
+    // The same grid of pixel samples `scene_dump --print-hits` walks, the
+    // camera ray and hit distance of each printed in the same format;
+    // check_hits.sh wants the rows identical.
+    bool print_hits = false;
     // The scene's own sample count and depth unless these say otherwise: the
     // scene is converted once and rendered at every setting the eval wants,
     // rather than converted (and its geometry written and read back) once per
@@ -636,6 +640,10 @@ int main(int argc, char **argv) {
         const std::string option = argv[arg++];
         if (option == "--print-differentials") {
             print_differentials = true;
+            continue;
+        }
+        if (option == "--print-hits") {
+            print_hits = true;
             continue;
         }
         if (option == "--no-implicit-copies") {
@@ -904,6 +912,28 @@ int main(int argc, char **argv) {
         build_filter_table(pixel_filter, filter_f.data(),
                            filter_cond_cdf.data(), filter_marg_func.data(),
                            filter_marg_cdf.data());
+    if (print_hits) {
+        // The filter sampler's tables, for the same rows `scene_dump
+        // --print-hits` prints from pbrt's: the tabulated filter, each row's
+        // conditional CDF, and the marginal over the rows. A sample's
+        // position in the pixel is read off these, so a last bit here is a
+        // last bit there.
+        for (int y = 0; y < pixel_filter.ny; y++) {
+            for (int x = 0; x < pixel_filter.nx; x++) {
+                printf("filtf %d %d: %.9g\n", x, y,
+                       double(filter_f[size_t(y) * pixel_filter.nx + x]));
+            }
+            for (int x = 0; x <= pixel_filter.nx; x++) {
+                printf("condcdf %d %d: %.9g\n", x, y,
+                       double(filter_cond_cdf[size_t(y) * (pixel_filter.nx + 1)
+                                              + x]));
+            }
+            printf("margfunc %d: %.9g\n", y, double(filter_marg_func[y]));
+        }
+        for (int y = 0; y <= pixel_filter.ny; y++) {
+            printf("margcdf %d: %.9g\n", y, double(filter_marg_cdf[y]));
+        }
+    }
 
     // pbrt: the path integrator's fixed sample points for a reflectance
     // estimate, which are file-scope constants there and reach the renderer as
@@ -2117,7 +2147,43 @@ int main(int argc, char **argv) {
     };
 
     int status = 0;
-    if (cells.empty()) {
+    if (print_hits) {
+        // Every eighth pixel each way, the first four samples of each: the
+        // camera ray the scene's sampler and camera make for it and the
+        // distance the trace finds along it. What pbrt's wavefront seeds a
+        // medium's RNG from, so it has to agree to the bit; see `hit_at`.
+        for (int py = 0; py < height; py += 8) {
+            for (int px = 0; px < width; px += 8) {
+                for (uint32_t s = 0; s < 4; s++) {
+                    float out[14] = {};
+                    bonsai_buffer b_out = bonsai_buffer_wrap(
+                        static_cast<void *>(out), BONSAI_BUFFER_UNSIZED);
+                    hit_at(camera, sampler, pixel_filter, px, py, s, &b_out,
+                           &b_textures,
+#if BONSAI_hit_at_HAS_texture_levels
+                           &b_texture_levels, &b_texture_texels,
+#endif
+#if BONSAI_hit_at_HAS_texture_handles
+                           &b_texture_handles,
+#endif
+                           &b_meshes, &b_mesh_indices, &b_mesh_positions,
+                           &b_mesh_normals, &b_mesh_uvs, &b_filter_f,
+                           &b_filter_cond_cdf, &b_filter_marg_func,
+                           &b_filter_marg_cdf, &b_primes,
+                           &b_digit_permutations,
+                           &b_digit_permutation_offsets, tree, &b_inst_pool,
+                           &b_sphere_pool, &b_triangle_pool, &b_disk_pool);
+                    printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                           "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",
+                           px, py, s, double(out[0]), double(out[1]),
+                           double(out[2]), double(out[3]), double(out[4]),
+                           double(out[5]), double(out[6]), double(out[7]),
+                           double(out[8]), double(out[9]), double(out[10]),
+                           double(out[11]), double(out[12]), double(out[13]));
+                }
+            }
+        }
+    } else if (cells.empty()) {
         const std::optional<double> seconds =
             render_and_write(sampler, integrator, output);
         // Parsed by compare.sh. Kept to a line of its own so that it stays

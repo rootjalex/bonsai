@@ -157,12 +157,27 @@ func [[export]] build_filter_table(f : Filter, f_out : mut array[Float],
     // of zero in both axes.
     for y in 0:f.ny {
         for x in 0:f.nx {
-            // pbrt: domain.Lerp of the cell centre. Written as pbrt's Lerp is,
-            // `(1 - t) * lo + t * hi`.
+            // pbrt: `domain.Lerp(Point2f((x + 0.5f) / f.XSize(), (y + 0.5f) /
+            // f.YSize()))`, Lerp being `(1 - t) * min + t * max`. Which of
+            // the two products gcc fuses into the add is not the same for
+            // the two axes in pbrt's binary: in FilterSampler's constructor
+            // as built (filters.cpp), the y coordinate, computed once per
+            // row, is `fma(1 - t, min, t * max)`, and the x coordinate,
+            // computed per cell in the inner loop, is `fma(t, max, (1 - t)
+            // * min)` -- convert_mult_to_fma fuses the first multiplication
+            // in its statement order, and the two loops were scheduled
+            // differently. A column's x differs by a bit between the two
+            // forms for a third of the columns, and the Gaussian's value
+            // with it, and from there every sample's place in the pixel; so
+            // each axis is written as pbrt's binary has it, the fma explicit
+            // where the contraction pass's own rule (the add's first operand)
+            // would fuse the other product. Read off the disassembly of
+            // pbrt::FilterSampler::FilterSampler, and held to by
+            // check_hits.sh's `filtf` rows.
             tx = (cast[[Float]](x) + 0.5) / cast[[Float]](f.nx);
             ty = (cast[[Float]](y) + 0.5) / cast[[Float]](f.ny);
-            px = (1.0 - tx) * -f.radius.x + tx * f.radius.x;
-            py = (1.0 - ty) * -f.radius.y + ty * f.radius.y;
+            px = fma(tx, f.radius.x, (1.0 - tx) * -f.radius.x);
+            py = fma(1.0 - ty, -f.radius.y, ty * f.radius.y);
             f_out[y * f.nx + x] = filter_evaluate(f, vec2f{px, py});
         }
     }
@@ -172,13 +187,24 @@ func [[export]] build_filter_table(f : Filter, f_out : mut array[Float],
     // and where that total is zero the CDF is the uniform one instead, so that
     // a row the filter never reaches is still sampleable rather than a
     // division by zero.
-    dx = 2.0 * f.radius.x / cast[[Float]](f.nx);
+    //
+    // Each step is pbrt's `func[i - 1] * (max - min) / n`, the product and
+    // then the quotient, and not the value times a cell width computed once:
+    // `(f * 3) / 48` and `f * 0.0625` differ in the last bit for a third of
+    // all `f` (the product's rounding is up to an ulp of `3f`, which is more
+    // than half an ulp of `f / 16` when `f`'s mantissa is 4/3 or above), and
+    // a CDF a bit off puts a sample a bit off in the pixel. The quotient
+    // also keeps the sum a plain add, as gcc leaves it: a fused multiply-add
+    // needs a product, and this operand is a division.
+    width_x = f.radius.x - (-f.radius.x);
+    n_x = cast[[Float]](f.nx);
     for y in 0:f.ny {
         base = y * (f.nx + 1);
         cond_cdf_out[base] = 0.0;
         for x in 0:f.nx {
             cond_cdf_out[base + x + 1] =
-                cond_cdf_out[base + x] + abs(f_out[y * f.nx + x]) * dx;
+                cond_cdf_out[base + x] +
+                abs(f_out[y * f.nx + x]) * width_x / n_x;
         }
         row_int = cond_cdf_out[base + f.nx];
         if row_int == 0.0 {
@@ -195,10 +221,12 @@ func [[export]] build_filter_table(f : Filter, f_out : mut array[Float],
     }
 
     // And the same construction over the rows' integrals, which is the marginal.
-    dy = 2.0 * f.radius.y / cast[[Float]](f.ny);
+    width_y = f.radius.y - (-f.radius.y);
+    n_y = cast[[Float]](f.ny);
     marg_cdf_out[0] = 0.0;
     for y in 0:f.ny {
-        marg_cdf_out[y + 1] = marg_cdf_out[y] + abs(marg_func_out[y]) * dy;
+        marg_cdf_out[y + 1] =
+            marg_cdf_out[y] + abs(marg_func_out[y]) * width_y / n_y;
     }
     marg_int = marg_cdf_out[f.ny];
     if marg_int == 0.0 {

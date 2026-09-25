@@ -379,6 +379,39 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
     }
 }
 
+// pbrt: StartPixelSample(pPixel, sampleIndex, dimension) -- the same pixel
+// and sample started again at `dimension`. The wavefront's GenerateRaySamples
+// draws each bounce's values at a fixed place in the sequence, `6 + 7 *
+// depth` (wavefront/samples.cpp), rather than wherever the path's draws so
+// far have got to. Independent and Stratified re-seed and advance by
+// `sampleIndex * 65536 + dimension`, as pbrt's do; Halton keeps its index in
+// the sequence and takes the dimension, no lower than two.
+func start_pixel_sample_at(s : Sampler, st : SamplerState,
+                           dimension : i32) -> SamplerState {
+    fresh = start_pixel_sample(s, st.px, st.py, st.sample);
+    match s {
+        Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
+            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
+                                 max(2, dimension), fresh.halton_index};
+            return at;
+        }
+        Independent(spp, seed) => {
+            r : mut RNG = fresh.rng;
+            advance(r, cast[[u64]](dimension));
+            at : SamplerState = {r, st.px, st.py, st.sample, dimension,
+                                 fresh.halton_index};
+            return at;
+        }
+        Stratified(x_samples, y_samples, seed, jitter) => {
+            r : mut RNG = fresh.rng;
+            advance(r, cast[[u64]](dimension));
+            at : SamplerState = {r, st.px, st.py, st.sample, dimension,
+                                 fresh.halton_index};
+            return at;
+        }
+    }
+}
+
 // pbrt: HaltonSampler::SampleDimension, which of the three randomizations the
 // scene asked for. `permutedigits` is the default and so the usual answer.
 //

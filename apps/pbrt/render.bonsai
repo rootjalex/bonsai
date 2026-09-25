@@ -1970,10 +1970,13 @@ func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
 // so a schedule may queue the shadow rays and trace them together, as pbrt's
 // wavefront integrator does (its shadowRayQueue, traced after the material
 // kernels).
+// `uc` and `u_light` are the bounce's `raySamples.direct.uc` and `.u`, drawn
+// by the caller as the wavefront draws them for every ray of a round,
+// whether or not its surface has a density to sample lights with.
 func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
                    shading : Frame, wo : vec3f, flags : i32, g : Float,
                    beta : vec4f, r_p : vec4f, lambda : SampledWavelengths,
-                   sampler : Sampler, state : mut SamplerState,
+                   uc : Float, u_light : vec2f,
                    ls : LightSampler, seed : i32, l : reduce(+) vec4f) -> void {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     // pbrt: the LightSampleContext -- a surface's point nudged to the side
@@ -1993,9 +1996,7 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
     }
     ctx : ShapeSampleContext = {ctx_p, ctx_error, pt.n, pt.ns};
 
-    u = get_1d(sampler, state);
-    chosen = light_sampler_sample(ls, ctx, u);
-    u_light = get_2d(sampler, state);
+    chosen = light_sampler_sample(ls, ctx, uc);
     if !chosen {
         return;
     }
@@ -2079,18 +2080,25 @@ element MediumEvent {
     g : Float;
 }
 
-// pbrt: SampleT_maj with VolPathIntegrator::Li's callback, over the one
-// majorant segment a homogeneous medium has: exponential steps along the
-// normalized ray from `t_min`, and at each tentative collision the callback
-// -- emission, then absorb / scatter / null by the coefficients' share of
-// the majorant. Tail-recursive on a null collision, as the loop continues.
-// `ray_d` is the ray's direction as it is, not normalized: pbrt's callback
-// reads the outer ray's `d` for the phase function, and so does this.
+// pbrt: SampleT_maj with the medium kernel's callback (wavefront/media.cpp,
+// SampleMediumInteraction; the CPU integrator's is the same but for its
+// draws), over the one majorant segment a homogeneous medium has:
+// exponential steps along the normalized ray from `t_min`, and at each
+// tentative collision the callback -- emission, then absorb / scatter / null
+// by the coefficients' share of the majorant. Tail-recursive on a null
+// collision, as the loop continues. `u` is the step's exponential sample and
+// `u_mode` the event's, both drawn before the walk as the wavefront draws
+// `uDist` and `uMode` (media.cpp:58-59); the next step's `u` is drawn right
+// after the step, as SampleT_maj draws it, and a null collision draws the
+// next `u_mode` at its end (media.cpp:136). `ray_d` is the ray's direction
+// as it is, not normalized: the callback reads the outer ray's `d` for the
+// phase function, and so does this.
 func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
                      t_max : Float, m : Medium, sigma_maj : vec4f, u : Float,
-                     rng : mut RNG, t_maj_in : vec4f, beta : vec4f,
-                     r_u : vec4f, r_l : vec4f, l : reduce(+) vec4f, depth : i32,
-                     max_depth : i32, lambda : SampledWavelengths) -> MediumEvent {
+                     u_mode : Float, rng : mut RNG, t_maj_in : vec4f,
+                     beta : vec4f, r_u : vec4f, r_l : vec4f, l : reduce(+) vec4f,
+                     depth : i32, max_depth : i32,
+                     lambda : SampledWavelengths) -> MediumEvent {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     zero3 = vec3f{0.0, 0.0, 0.0};
     t = t_min + sample_exponential(u, sigma_maj.x);
@@ -2114,33 +2122,32 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
     }
     // pbrt: emission at the tentative collision, weighed by the probability
     // of absorption there -- added to the path's radiance, whatever the
-    // event that follows.
+    // event that follows. The wavefront's arithmetic (media.cpp:74-83):
+    // `L += beta * mp.sigma_a * T_maj * mp.Le / (pr * r_e.Average())`, where
+    // the CPU integrator forms `betap = beta * T_maj / pdf` first.
     if (depth < max_depth) && nonzero(mp.le) {
         pdf_e = sigma_maj.x * t_maj.x;
-        betap = beta * t_maj / pdf_e;
         r_e = r_u * sigma_maj * t_maj / pdf_e;
         if nonzero(r_e) {
-            l += betap * mp.sigma_a * mp.le / average4(r_e);
+            l += beta * mp.sigma_a * t_maj * mp.le / (pdf_e * average4(r_e));
         }
     }
     // pbrt: which event, by the first wavelength's coefficients.
     p_absorb = mp.sigma_a.x / sigma_maj.x;
     p_scatter = mp.sigma_s.x / sigma_maj.x;
     p_null = max(0.0, 1.0 - p_absorb - p_scatter);
-    um = next_float(rng);
-    mode = sample_discrete3(p_absorb, p_scatter, p_null, um);
+    mode = sample_discrete3(p_absorb, p_scatter, p_null, u_mode);
     if mode == 0 {
         // Absorbed.
         ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
         return ended;
     }
     if mode == 1 {
-        // pbrt: a real scattering event. `if (depth++ >= maxDepth)` -- the
-        // path's depth limit counts it.
-        if depth >= max_depth {
-            ended : MediumEvent = {2, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
-            return ended;
-        }
+        // pbrt: a real scattering event, queued for the scatter kernel at
+        // the ray's depth plus one. The wavefront's callback has no depth
+        // test here (the CPU integrator's `depth++ >= maxDepth` ends the
+        // path); what stops a scattering in the last round is that the
+        // scatter kernel does not run in it (vol_medium_sample).
         next_depth = depth + 1;
         pdf_s = t_maj.x * mp.sigma_s.x;
         beta_s = beta * t_maj * mp.sigma_s / pdf_s;
@@ -2168,13 +2175,16 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
     beta_n = select(pdf_n == 0.0, zero, beta * t_maj * sigma_n / pdf_n);
     r_u_n = r_u * t_maj * sigma_n / pdf_n;
     r_l_n = r_l * t_maj * sigma_maj / pdf_n;
+    // pbrt: `uMode = rng.Uniform<Float>()` at the end of the null branch,
+    // drawn whether or not the walk goes on.
+    u_mode_next = next_float(rng);
     if !nonzero(beta_n) || !nonzero(r_u_n) {
         ended : MediumEvent = {2, t_maj, beta_n, r_u_n, r_l_n, depth, zero3, 0.0};
         return ended;
     }
     return vol_medium_step(ray_o, ray_d, dn, t, t_max, m, sigma_maj, u_next,
-                           rng, vec4f{1.0, 1.0, 1.0, 1.0}, beta_n, r_u_n, r_l_n,
-                           l, depth, max_depth, lambda);
+                           u_mode_next, rng, vec4f{1.0, 1.0, 1.0, 1.0}, beta_n,
+                           r_u_n, r_l_n, l, depth, max_depth, lambda);
 }
 
 // pbrt: VolPathIntegrator::Li, one vertex of it -- what `full_path_step` is to
@@ -2183,16 +2193,33 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
 // adds into (the emission found, the light sampled, the medium's own) and
 // the film reads once the path is done, so that a schedule may add those
 // terms from any drain and in any order -- a deferred shadow ray adds late.
+// `wave` is pbrt's `wavefrontDepth`: which round of the wavefront this ray
+// is traced in, one more than the last whatever happened to the path in it
+// -- a bounce, a scattering, or the crossing of a medium boundary, which
+// leaves `depth` alone. The wavefront ends its loop by the round
+// (integrator.cpp: `if (wavefrontDepth == maxDepth) break`), so a path spends
+// a bounce on each boundary it crosses; a depth-first schedule of this
+// program does the same, since the count is the path's own.
 func vol_path_step(ray : Ray, medium : i32,
                    camera : PerspectiveCamera, spp_scale : Float,
                    beta_in : vec4f, r_u_in : vec4f,
-                   r_l_in : vec4f, depth_in : i32, specular_bounce : bool,
+                   r_l_in : vec4f, depth_in : i32, wave : i32,
+                   specular_bounce : bool,
                    any_non_specular : bool, eta_scale : Float,
                    prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
                    sampler : Sampler, state : mut SamplerState,
                    ls : LightSampler, set : LightSet, seed : i32,
                    max_depth : i32, regularize : bool, want_visible : bool,
                    visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+    // pbrt: GenerateRaySamples -- the sampler started again at the bounce's
+    // own dimensions, `6 + 7 * depth` (wavefront/samples.cpp:39-61), for
+    // every ray of the round; the kernels after draw from there in a fixed
+    // order (the light's `uc` and `u`, the BSDF's or the phase function's
+    // `uc` and `u`, roulette's), so a path's draws do not run on from
+    // wherever its last bounce left them as the CPU integrator's do. A ray
+    // re-traced at the same depth after a boundary crossing draws the same
+    // values again, as pbrt's does.
+    state = start_pixel_sample_at(sampler, state, 6 + 7 * depth_in);
     isect = trace(RaySegment{ray, inf});
 
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
@@ -2201,16 +2228,16 @@ func vol_path_step(ray : Ray, medium : i32,
     // ray in no medium is routed by what the trace found.
     if medium >= 0 {
         vol_medium_sample(isect, ray, medium, camera, spp_scale,
-                          beta_in, r_u_in, r_l_in, depth_in, specular_bounce,
-                          any_non_specular, eta_scale, prev_ctx, lambda, sampler,
-                          state, ls, set, seed, max_depth, regularize,
-                          want_visible, visible, l);
+                          beta_in, r_u_in, r_l_in, depth_in, wave,
+                          specular_bounce, any_non_specular, eta_scale,
+                          prev_ctx, lambda, sampler, state, ls, set, seed,
+                          max_depth, regularize, want_visible, visible, l);
         return;
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
-              r_l_in, depth_in, specular_bounce, any_non_specular, eta_scale,
-              prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
-              regularize, want_visible, visible, l);
+              r_l_in, depth_in, wave, specular_bounce, any_non_specular,
+              eta_scale, prev_ctx, lambda, sampler, state, ls, set, seed,
+              max_depth, regularize, want_visible, visible, l);
     return;
 }
 
@@ -2228,8 +2255,9 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
                        medium : i32,
                        camera : PerspectiveCamera, spp_scale : Float,
                        beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
-                       specular_bounce : bool, any_non_specular : bool,
-                       eta_scale : Float, prev_ctx : ShapeSampleContext,
+                       wave : i32, specular_bounce : bool,
+                       any_non_specular : bool, eta_scale : Float,
+                       prev_ctx : ShapeSampleContext,
                        lambda : SampledWavelengths, sampler : Sampler,
                        state : mut SamplerState, ls : LightSampler,
                        set : LightSet, seed : i32, max_depth : i32,
@@ -2241,10 +2269,15 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
         ahead = *isect;
         t_hit = distmin(RaySegment{ray, inf}, transform(ahead[0], ahead[1]));
     }
-    hash0 = hash_float1(get_1d(sampler, state));
-    hash1 = hash_float1(get_1d(sampler, state));
-    rng : mut RNG = set_sequence(hash0, hash1);
-    u = get_1d(sampler, state);
+    // pbrt's wavefront: `RNG rng(Hash(ray.o, tMax), Hash(ray.d))` -- seeded
+    // from the ray and the hit's distance (infinity for a miss), media.cpp:44
+    // -- and `uDist`, `uMode` its first two uniforms (:58-59). The CPU
+    // integrator seeds from three of the sampler's draws instead; the
+    // sampler draws nothing here, so a bounce's dimensions are the kernels'
+    // alone (vol_path_step).
+    rng : mut RNG = set_sequence(hash_vec3_float(ray.o, t_hit), hash_vec3(ray.d));
+    u_dist = next_float(rng);
+    u_mode = next_float(rng);
     // pbrt: SampleT_maj normalizes the ray and scales tMax by its length.
     d_len = sqrt(sqlen_(ray.d));
     dn = ray.d / d_len;
@@ -2261,42 +2294,59 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
                             depth, zero3, 0.0};
     } else {
         event = vol_medium_step(ray.o, ray.d, dn, 0.0, t_hit * d_len, m,
-                                sigma_maj, u, rng, ones, beta, r_u, r_l, l,
-                                depth, max_depth, lambda);
+                                sigma_maj, u_dist, u_mode, rng, ones, beta, r_u,
+                                r_l, l, depth, max_depth, lambda);
     }
     if event.kind == 2 {
         return;
     }
     if event.kind == 1 {
+        // pbrt: SampleMediumScattering does not run in the last round
+        // (`if (wavefrontDepth == maxDepth) return`, media.cpp:252), so a
+        // scattering event there ends its path.
+        if wave == max_depth {
+            return;
+        }
         vol_medium_scatter(event, ray, medium, camera, spp_scale,
-                           eta_scale, lambda, sampler, state, ls, set, seed,
-                           max_depth, regularize, want_visible, visible, l);
+                           eta_scale, wave, lambda, sampler, state, ls, set,
+                           seed, max_depth, regularize, want_visible, visible,
+                           l);
         return;
     }
-    vol_route(isect, ray, medium, camera, spp_scale,
-              event.beta * event.t_maj / event.t_maj.x,
-              event.r_u * event.t_maj / event.t_maj.x,
-              event.r_l * event.t_maj / event.t_maj.x, depth, specular_bounce,
-              any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
-              set, seed, max_depth, regularize, want_visible, visible, l);
+    // pbrt: `if (!scattered && beta) { beta *= T_maj / T_maj[0]; ... }`, the
+    // probabilities likewise, and then `if (scattered || !beta || !r_u ||
+    // w.depth == maxDepth) return` (media.cpp:141-163): a ray at its depth
+    // limit that came through the medium is done, its emission uncounted --
+    // where the trace kernel's routing of a ray in no medium counts it.
+    if !nonzero(event.beta) {
+        return;
+    }
+    beta_out = event.beta * event.t_maj / event.t_maj.x;
+    r_u_out = event.r_u * event.t_maj / event.t_maj.x;
+    r_l_out = event.r_l * event.t_maj / event.t_maj.x;
+    if !nonzero(beta_out) || !nonzero(r_u_out) || (depth == max_depth) {
+        return;
+    }
+    vol_route(isect, ray, medium, camera, spp_scale, beta_out, r_u_out, r_l_out,
+              depth, wave, specular_bounce, any_non_specular, eta_scale,
+              prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
+              regularize, want_visible, visible, l);
     return;
 }
 
-// pbrt: SampleMediumScattering -- the scatter kernel, which is the rest of
-// the CPU integrator's scattering callback. `MediumInteraction intr(p,
-// -ray.d, ...)` -- wo normalized by Interaction's constructor -- and direct
-// lighting from it, whose shadow ray is spawned inside `vol_sample_ld`; then
-// `intr.phase.Sample_p(-ray.d, u)`, the phase function sampled about the
-// ray's own direction, unnormalized as it is; `beta *= ps->p / ps->pdf; r_l
-// = r_u / ps->pdf`; the light-sampling context of a medium point, with no
-// normal; and `if (scattered) continue` -- the ray turned at the scattering
-// point, traced next. (pbrt's wavefront kernel also applies Russian roulette
-// here, media.cpp:330-339, which its CPU integrator's `continue` skips; the
-// CPU's step is kept for now -- PLAN.md, the differences catalogue, lists it
-// with what else still separates the two.)
+// pbrt: SampleMediumScattering -- the scatter kernel (wavefront/media.cpp:
+// 259-352). `wo = w.wo`, the medium kernel's `-ray.d` as it is (the CPU
+// integrator's MediumInteraction normalizes it); direct lighting from the
+// point, whose shadow ray is spawned inside `vol_sample_ld`, with the
+// bounce's `direct` samples; the phase function sampled about `wo` with
+// `indirect.u` -- `indirect.uc` goes unused, one dimension skipped --
+// `beta = w.beta * p / pdf; r_l = w.r_u / pdf`; Russian roulette with
+// `indirect.rr`, which the CPU integrator's `continue` skips; the
+// light-sampling context of a medium point, with no normal; and the turned
+// ray pushed at the ray's depth plus one, for the next round.
 func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         camera : PerspectiveCamera,
-                        spp_scale : Float, eta_scale : Float,
+                        spp_scale : Float, eta_scale : Float, wave : i32,
                         lambda : SampledWavelengths, sampler : Sampler,
                         state : mut SamplerState, ls : LightSampler,
                         set : LightSet, seed : i32, max_depth : i32,
@@ -2304,24 +2354,45 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         visible : mut VisibleSurface,
                         l : reduce(+) vec4f) -> void {
     zero3 = vec3f{0.0, 0.0, 0.0};
-    wo = unit_vector_(-ray.d);
+    wo = -ray.d;
     pt : ScatterPoint = {event.p, zero3, zero3, zero3, medium, medium, medium};
     none : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
     no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
+    direct_uc = get_1d(sampler, state);
+    direct_u = get_2d(sampler, state);
     vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, event.g,
-                  event.beta, event.r_u, lambda, sampler, state, ls, seed, l);
+                  event.beta, event.r_u, lambda, direct_uc, direct_u, ls, seed,
+                  l);
+    // pbrt: `raySamples.indirect.uc`, drawn for the bounce and not read here.
+    unused_uc = get_1d(sampler, state);
     u2 = get_2d(sampler, state);
-    ps = sample_hg(-ray.d, event.g, u2);
+    ps = sample_hg(wo, event.g, u2);
     if ps.pdf == 0.0 {
         return;
     }
+    // pbrt: `beta = w.beta * phaseSample->p / phaseSample->pdf`, left to
+    // right (the CPU integrator's `beta *= ps->p / ps->pdf` divides first).
+    next_beta = event.beta * ps.p / ps.pdf;
+    // pbrt: Russian roulette on `beta * etaScale / r_u.Average()`, for a
+    // ray of depth one or more -- `w.depth` is the ray's depth before this
+    // scattering, which the event carries incremented -- with the draw
+    // taken from the bounce's samples whether or not the test runs.
+    rr_beta = max_component(next_beta * eta_scale / average4(event.r_u));
+    u_rr = get_1d(sampler, state);
+    survived : mut vec4f = next_beta;
+    if (rr_beta < 1.0) && (event.depth - 1 >= 1) {
+        q = max(0.0, 1.0 - rr_beta);
+        if u_rr < q {
+            return;
+        }
+        survived = next_beta / (1.0 - q);
+    }
     ctx : ShapeSampleContext = {event.p, zero3, zero3, zero3};
     turned : Ray = {event.p, ps.wi};
-    vol_path_step(turned, medium, camera, spp_scale,
-                  event.beta * (ps.p / ps.pdf), event.r_u, event.r_u / ps.pdf,
-                  event.depth, false, true, eta_scale, ctx, lambda, sampler,
-                  state, ls, set, seed, max_depth, regularize, want_visible,
-                  visible, l);
+    vol_path_step(turned, medium, camera, spp_scale, survived, event.r_u,
+                  event.r_u / ps.pdf, event.depth, wave + 1, false, true,
+                  eta_scale, ctx, lambda, sampler, state, ls, set, seed,
+                  max_depth, regularize, want_visible, visible, l);
     return;
 }
 
@@ -2336,7 +2407,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
 func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
                camera : PerspectiveCamera,
                spp_scale : Float, beta : vec4f, r_u : vec4f, r_l : vec4f,
-               depth : i32, specular_bounce : bool, any_non_specular : bool,
+               depth : i32, wave : i32, specular_bounce : bool,
+               any_non_specular : bool,
                eta_scale : Float, prev_ctx : ShapeSampleContext,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
@@ -2353,15 +2425,20 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     via = reached[0];
     prim = reached[1];
     surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
-    if prim.light >= 0 {
+    // pbrt's wavefront: `if (!material) { ... PushIndirectRay ...; return; }
+    // if (intr.areaLight) hitAreaLightQueue->Push(...)` (wavefront/
+    // intersect.h, and media.cpp after a medium) -- a medium boundary's
+    // emission, if it has any, is not counted; the CPU integrator's `Le`
+    // comes before its `if (!bsdf)`.
+    if (prim.light >= 0) && !material_is_interface(materials[prim.material]) {
         spawn l += emissive_contribution(prim.light, surf.n, -ray.d, ray.d, beta,
                                          r_u, r_l, depth, specular_bounce,
                                          prev_ctx, ls, lambda);
     }
     vol_surface(ray, medium, camera, spp_scale, via, prim, surf, beta,
-                r_u, r_l, depth, specular_bounce, any_non_specular, eta_scale,
-                prev_ctx, lambda, sampler, state, ls, set, seed, max_depth,
-                regularize, want_visible, visible, l);
+                r_u, r_l, depth, wave, specular_bounce, any_non_specular,
+                eta_scale, prev_ctx, lambda, sampler, state, ls, set, seed,
+                max_depth, regularize, want_visible, visible, l);
     return;
 }
 
@@ -2422,7 +2499,8 @@ func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
 func vol_surface(ray : Ray, medium : i32,
                  camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
                  prim : Geometric, surf : SurfaceGeometry, beta : vec4f,
-                 r_u : vec4f, r_l : vec4f, depth : i32, specular_bounce : bool,
+                 r_u : vec4f, r_l : vec4f, depth : i32, wave : i32,
+                 specular_bounce : bool,
                  any_non_specular : bool, eta_scale : Float,
                  prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
                  sampler : Sampler, state : mut SamplerState, ls : LightSampler,
@@ -2443,9 +2521,9 @@ func vol_surface(ray : Ray, medium : i32,
         skip_ray = spawn_ray(surf, ray.d);
         vol_path_step(
             skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
-            spp_scale, beta, r_u, r_l, depth, specular_bounce, any_non_specular,
-            eta_scale, prev_ctx, lambda, sampler, state, ls, set, seed,
-            max_depth, regularize, want_visible, visible, l);
+            spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
+            any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
+            set, seed, max_depth, regularize, want_visible, visible, l);
         return;
     }
 
@@ -2458,6 +2536,14 @@ func vol_surface(ray : Ray, medium : i32,
     flags = bxdf_flags(bsdf);
 
     // pbrt: the visible surface at the first vertex, as in `full_path_step`.
+    // pbrt's wavefront: `if (wavefrontDepth == maxDepth) break` before
+    // EvaluateMaterialsAndBSDFs -- by the round, not the ray's depth, which a
+    // boundary crossing does not advance; so the material kernel does not
+    // run in the last round, its visible surface included. (The CPU
+    // integrator's `depth++ >= maxDepth` counts only scatterings.)
+    if wave == max_depth {
+        return;
+    }
     if want_visible && (depth == 0) {
         rho = bxdf_rho(bsdf, frame_to_local(shading, wo_unit), seed, rho_uc,
                        rho_ux, rho_uy);
@@ -2468,20 +2554,20 @@ func vol_surface(ray : Ray, medium : i32,
                                  true};
         visible = seen;
     }
-
-    // pbrt: `if (depth++ >= maxDepth) return L`.
-    if depth == max_depth {
-        return;
-    }
     next_depth = depth + 1;
 
     // pbrt: direct lighting where the BSDF has a density to weigh it with,
-    // through whatever media the shadow ray crosses.
+    // through whatever media the shadow ray crosses. Its two samples are the
+    // bounce's first three dimensions whether or not it is taken, as the
+    // wavefront's GenerateRaySamples draws them (the CPU integrator draws
+    // them only inside the test).
+    direct_uc = get_1d(sampler, state);
+    direct_u = get_2d(sampler, state);
     if is_non_specular(flags) {
         pt : ScatterPoint = {surf.p, surf.p_error, surf.n, hit.ns, medium,
                              prim.medium_inside, prim.medium_outside};
         vol_sample_ld(pt, true, bsdf, shading, wo_unit, flags, 0.0, beta, r_u,
-                      lambda, sampler, state, ls, seed, l);
+                      lambda, direct_uc, direct_u, ls, seed, l);
     }
     next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
@@ -2531,7 +2617,8 @@ func vol_surface(ray : Ray, medium : i32,
     }
 
     vol_path_step(next_ray, next_medium, camera, spp_scale, survived,
-                  r_u, next_r_l, next_depth, next_specular, next_any_ns,
+                  r_u, next_r_l, next_depth, wave + 1, next_specular,
+                  next_any_ns,
                   next_eta_scale, next_ctx, lambda, sampler, state, ls, set,
                   seed, max_depth, regularize, want_visible, visible, l);
     return;
@@ -2549,7 +2636,7 @@ func li_vol_path(r0 : Ray, medium0 : i32,
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
-    vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0,
+    vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0, 0,
                   false, false, 1.0, origin, lambda, sampler, state, ls, set,
                   seed, max_depth, regularize, want_visible, visible, l);
     return;
@@ -2757,6 +2844,60 @@ func [[export]] texture_at(index : u32, uv : vec2f, dudx : Float, dudy : Float,
     out[11u] = rgb.z;
 }
 
+// One pixel sample's camera ray and the distance to what it hits, for
+// `scene_dump --print-hits` to check against pbrt's own sampler, camera and
+// aggregate, bit for bit.
+//
+// Exported because these three numbers are what pbrt's wavefront seeds a
+// medium's RNG from -- `RNG rng(Hash(ray.o, tMax), Hash(ray.d))`
+// (wavefront/media.cpp) -- so a last bit's difference in any of them is a
+// different random stream for that ray, and a scattering decision made the
+// other way. No image comparison says which bit it was; this does. The ray is
+// the render's own: the sampler started on the pixel and sample, the
+// wavelength's draw taken first, then the filter's, the time's and the lens's
+// as `render` takes them, with the pixel jitter left in.
+//
+// Fourteen floats out: the ray's origin, its direction, the hit's distance
+// along it (infinity for a miss), the camera sample the ray came from -- its
+// film point, its lens point and its time -- and the pixel draw the filter
+// was sampled with, so that a direction that differs can be laid at the
+// sampler's door, the filter's or the camera's.
+func [[export]] hit_at(camera : PerspectiveCamera, sampler : Sampler,
+                       pixel_filter : Filter, px : i32, py : i32,
+                       sample : u32, out : mut array[Float]) -> void {
+    state : mut SamplerState = start_pixel_sample(sampler, px, py, sample);
+    lu = get_1d(sampler, state);
+    pixel_u = get_pixel_2d(sampler, state);
+    fs = filter_sample(pixel_filter, pixel_u);
+    time = get_1d(sampler, state);
+    lens = get_2d(sampler, state);
+    // pbrt: `pPixel + fs.p + Vector2f(0.5, 0.5)`, in that order (see render).
+    cs = CameraSample{(vec2f{cast[[Float]](px), cast[[Float]](py)} + fs.p) +
+                          vec2f{0.5, 0.5},
+                      lens, time, fs.weight};
+    ray = generate_ray(camera, cs);
+    isect = trace(RaySegment{ray, inf});
+    t_hit : mut Float = inf;
+    if isect {
+        ahead = *isect;
+        t_hit = distmin(RaySegment{ray, inf}, transform(ahead[0], ahead[1]));
+    }
+    out[0u] = ray.o.x;
+    out[1u] = ray.o.y;
+    out[2u] = ray.o.z;
+    out[3u] = ray.d.x;
+    out[4u] = ray.d.y;
+    out[5u] = ray.d.z;
+    out[6u] = t_hit;
+    out[7u] = cs.p_film.x;
+    out[8u] = cs.p_film.y;
+    out[9u] = cs.p_lens.x;
+    out[10u] = cs.p_lens.y;
+    out[11u] = cs.time;
+    out[12u] = pixel_u.x;
+    out[13u] = pixel_u.y;
+}
+
 // An RGB fitted to a spectrum by table lookup and sampled at four
 // wavelengths, for check_differentials.sh's `sig` rows -- what a spectrum
 // texture does with its filtered colour, against pbrt's RGBAlbedoSpectrum.
@@ -2838,17 +2979,20 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             weight = select(disable_pixel_jitter, 1.0, fs.weight);
             time_u = get_1d(sampler, state);
             lens_u = get_2d(sampler, state);
-            // pbrt: `cs.pFilm = pPixel + Vector2f(0.5, 0.5) + fs.p`, and the
-            // time and lens as drawn -- except under the option, which
-            // overwrites all four after the draws: `cs.time = 0.5f; cs.pLens =
-            // Point2f(0.5f, 0.5f)`, the lens sample at its centre, which puts
-            // the ray's origin at the lens's. A camera with a lens is what
-            // makes this visible: with the lens point left as drawn, every
-            // pixel's one ray started somewhere else on the lens than pbrt's.
+            // pbrt: `cs.pFilm = pPixel + fs.p + Vector2f(0.5, 0.5)` -- the
+            // jitter added to the pixel first and the half after, which at a
+            // pixel coordinate in the hundreds is a bit away from the other
+            // order once in a while -- and the time and lens as drawn --
+            // except under the option, which overwrites all four after the
+            // draws: `cs.time = 0.5f; cs.pLens = Point2f(0.5f, 0.5f)`, the
+            // lens sample at its centre, which puts the ray's origin at the
+            // lens's. A camera with a lens is what makes this visible: with
+            // the lens point left as drawn, every pixel's one ray started
+            // somewhere else on the lens than pbrt's.
             time = select(disable_pixel_jitter, 0.5, time_u);
             lens = select(disable_pixel_jitter, vec2f{0.5, 0.5}, lens_u);
-            sample = CameraSample{vec2f{cast[[Float]](i) + 0.5,
-                                        cast[[Float]](j) + 0.5} + jitter,
+            sample = CameraSample{(vec2f{cast[[Float]](i), cast[[Float]](j)} +
+                                   jitter) + vec2f{0.5, 0.5},
                                   lens, time, weight};
             // pbrt's wavefront: `camera.GenerateRay(cameraSample, lambda)`
             // (wavefront/camera.cpp) -- a ray with no companions, where the

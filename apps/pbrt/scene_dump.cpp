@@ -106,6 +106,10 @@ namespace {
 // parsed scene and PBRT's own camera are both in scope; see the block there.
 bool g_print_differentials = false;
 
+// Set by `--print-hits`. Read at the end of `load` too: PBRT's own camera ray
+// for a grid of pixel samples, and the distance its aggregate finds along it.
+bool g_print_hits = false;
+
 // Set by `--maxdepth`: the path depth the renderer is given in place of the
 // scene's, for timing the primary hits alone or a depth of one's choosing.
 // Zero for "the scene decides". Only the dump sees it -- PBRT reads its depth
@@ -4494,6 +4498,97 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                    double(s[1]), double(s[2]), double(s[3]));
         }
     }
+
+    // `--print-hits`: for every eighth pixel each way and the first four
+    // samples of each, the camera ray PBRT's own sampler and camera make and
+    // the distance PBRT's own aggregate finds along it -- infinity for a
+    // miss. These three are what PBRT's wavefront seeds a medium's RNG from
+    // (`RNG rng(Hash(ray.o, tMax), Hash(ray.d))`, wavefront/media.cpp), so a
+    // last bit's difference in any of them is a different scattering
+    // decision for that ray, which no image comparison can attribute. The
+    // renderer prints the same rows from `hit_at` (render.bonsai), and
+    // check_hits.sh wants them identical.
+    //
+    // The aggregate is built the way pbrt's own render builds it
+    // (cpu/render.cpp): media, textures, lights, materials, then the
+    // primitives over them.
+    if (g_print_hits) {
+        std::map<std::string, pbrt::Medium> media = scene.CreateMedia();
+        pbrt::NamedTextures textures = scene.CreateTextures();
+        std::map<int, pstd::vector<pbrt::Light> *> shape_area_lights;
+        std::vector<pbrt::Light> lights =
+            scene.CreateLights(textures, &shape_area_lights);
+        std::map<std::string, pbrt::Material> named_materials;
+        std::vector<pbrt::Material> materials;
+        scene.CreateMaterials(textures, &named_materials, &materials);
+        const pbrt::Primitive aggregate = scene.CreateAggregate(
+            textures, shape_area_lights, media, named_materials, materials);
+
+        const pbrt::Camera camera = scene.GetCamera();
+        pbrt::Sampler sampler = scene.GetSampler();
+        const pbrt::Film film = camera.GetFilm();
+        const pbrt::Filter filter = film.GetFilter();
+        const pbrt::Point2i resolution = film.FullResolution();
+
+        // The filter's sampling tables -- the filter tabulated over a `32 *
+        // radius` grid, a PiecewiseConstant1D over each row, one over the
+        // rows' integrals -- as PBRT's own FilterSampler holds them, through
+        // `ToString`, which prints every float in its shortest round-trip
+        // form (util/print.cpp, FloatToString). The tables are private, and
+        // rebuilding them here from the same source is not the same thing:
+        // `filter.Evaluate` inlined into a loop of this file contracts its
+        // multiply-adds as gcc sees fit for *that* loop, and two builds of
+        // this program disagreed with each other in a sixth of the cells.
+        // check_hits.sh reads the rows out of this line; the renderer's
+        // `build_filter_table` prints them as rows.
+        printf("filtertables: %s\n", filter.ToString().c_str());
+
+        for (int py = 0; py < resolution.y; py += 8) {
+            for (int px = 0; px < resolution.x; px += 8) {
+                for (int s = 0; s < 4; s++) {
+                    // pbrt: RayIntegrator::EvaluatePixelSample, and the
+                    // wavefront's GenerateCameraRays -- the wavelength's draw
+                    // first, then GetCameraSample's three.
+                    const pbrt::Point2i pixel(px, py);
+                    sampler.StartPixelSample(pixel, s, 0);
+                    const pbrt::Float lu = sampler.Get1D();
+                    // Not const: GenerateRay may terminate the secondary
+                    // wavelengths of a dispersive camera's ray.
+                    pbrt::SampledWavelengths lambda = film.SampleWavelengths(lu);
+                    // pbrt: GetCameraSample (samplers.h), written out so the
+                    // filter's draw can be printed beside what it became.
+                    const pbrt::Point2f u = sampler.GetPixel2D();
+                    const pbrt::FilterSample fs = filter.Sample(u);
+                    pbrt::CameraSample cs;
+                    cs.pFilm = pbrt::Point2f(pixel) + fs.p +
+                               pbrt::Vector2f(0.5f, 0.5f);
+                    cs.time = sampler.Get1D();
+                    cs.pLens = sampler.Get2D();
+                    cs.filterWeight = fs.weight;
+                    const pstd::optional<pbrt::CameraRay> cr =
+                        camera.GenerateRay(cs, lambda);
+                    if (!cr) {
+                        printf("hit %d %d %d: none\n", px, py, s);
+                        continue;
+                    }
+                    const pstd::optional<pbrt::ShapeIntersection> si =
+                        aggregate.Intersect(cr->ray, pbrt::Infinity);
+                    const pbrt::Float t = si ? si->tHit : pbrt::Infinity;
+                    // The camera sample and the filter's draw after the ray,
+                    // so that a direction that differs can be laid at the
+                    // sampler's door, the filter's or the camera's.
+                    printf("hit %d %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
+                           "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",
+                           px, py, s, double(cr->ray.o.x), double(cr->ray.o.y),
+                           double(cr->ray.o.z), double(cr->ray.d.x),
+                           double(cr->ray.d.y), double(cr->ray.d.z), double(t),
+                           double(cs.pFilm.x), double(cs.pFilm.y),
+                           double(cs.pLens.x), double(cs.pLens.y),
+                           double(cs.time), double(u.x), double(u.y));
+                }
+            }
+        }
+    }
 }
 
 // PBRT's shapes for a list of this file's, as `Shape::Create` would have made
@@ -4799,6 +4894,9 @@ int main(int argc, char **argv) {
             // Not a `*_only` mode: it needs a parsed scene, so it rides along
             // with a normal conversion and prints from inside `load`.
             g_print_differentials = true;
+        } else if (arg == "--print-hits") {
+            // Likewise: PBRT's aggregate is built from the parsed scene.
+            g_print_hits = true;
         } else if (arg == "--disable-pixel-jitter") {
             disable_pixel_jitter = true;
         } else if (arg == "--spp") {
