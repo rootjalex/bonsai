@@ -6422,6 +6422,94 @@ and camera rays now identical) says the bounce's draws or light samples
 still differ somewhere after the first hit -- the same hit-point bounds
 feed the light-sampling context -- and is the same investigation.
 
+**Where the frame schedule's time went, against pbrt's (2026-09-25,
+perf on killeroo, both wavefronts).** `-b cpp` is the SSA->LLVM backend
+(to_cpp in CPP.cpp emits render.o through LLVM and only the driver's
+header as C++), so the profile is of our code generation. Self time by
+kernel, ours 135 s against pbrt's 87.5 s:
+
+    ours (before the fixes below)                     pbrt --wavefront
+    trace: vol_path_step 22% + its drain 16%  = 38%   IntersectClosest + BVH + Triangle + enqueue = 46%
+    material: vol_surface!Diffuse 5% + drain 18% = 23% EvaluateMaterialAndBSDF + lights + BSDF sampling = 30%
+    camera + sampler: drain 12%, scrambled_radical_inverse 8%,
+      get_1d/get_2d/get_pixel_2d 8%              = 27%   GenerateCameraRays<Halton> 10% incl. SampleWavelengths 7%,
+                                                        GenerateRaySamples 3%          = ~12%
+
+In seconds that is trace 51 vs 40, material 31 vs 26, sampling 36 vs 10:
+the sampler was three quarters of the gap. `perf annotate` said what the
+drains' self time was: in `_pfkernel26` (the Diffuse material drain)
+nothing but `mov`s from the entry's fields into the outgoing-argument
+area -- a kilobyte of by-value operands per entry for a call to
+`vol_surface!Diffuse`, which LLVM's inliner declined to fold in despite
+internal linkage and one caller (7.5 KB of code); in `_pfkernel14` (the
+camera rays) `pushq` sequences around calls to `get_1d`, `get_2d` and
+`get_pixel_2d`, each handed the Sampler's nine words and the state's
+address. pbrt has neither: its kernels are lambdas whose body is the
+work, and its sampler is a template type whose Get1D is inline code.
+
+Why the callee stayed a call: the parser had marked every deferred
+function `noinline` so that the frontend inliner would keep the call for
+the directive to find -- and that attribute reached LLVM. Two fixes,
+both compiler:
+
+- *`held` (fb29b4f8).* The parser's marking is its own attribute, which
+  the frontend inliner honours and the backends never see; the drain
+  drops it and marks the drained callee `always_inlined` once the call is
+  a push (not one that still calls itself, not one the program marked
+  `[[noinline]]`). Stage's continuations the same. Every `vol_surface!X`,
+  `vol_path_step`, `vol_medium_*`, `escaped/emissive/shadow_contribution`
+  is now the body of its kernel; `BONSAI_EXPLAIN_DEFER` says so per queue.
+- *`[[inline]]` reaches the backend.* The frontend cannot copy a function
+  that takes a `mut` argument, which every sampler getter does (it
+  advances the state); the hint now also means `alwaysinline` in the
+  LLVM backend for what the frontend left, and `get_1d`, `get_2d`,
+  `get_pixel_2d` ask for it. The PTX backend always-inlined everything
+  on the device already.
+
+Tried and put aside: `render[VolPath].specialize(sampler)`, pbrt's
+`ForEachType(..., Sampler::Types())` -- the nested specialize is built
+and tested (21d7e631), but in this program the sampler is a parameter of
+every function on the path (the state travels in the queue entries and
+the draws happen in the kernels), so specializing the render loop clones
+the whole chain per sampler and the defer directives no longer find
+`li_vol_path` by name. pbrt avoids this by construction: GenerateRaySamples
+draws a bounce's seven values into `RaySamples` in the per-pixel record and
+the kernels read those. Restructuring the program that way -- a
+`draw_ray_samples` at the top of `vol_path_step` and no sampler below it
+-- would let the specialize apply to that one function, and would take the
+SamplerState out of every entry (16 B of RNG and the dimension) for 28 B
+of draws in the record. Worth doing when the sampler shows again.
+
+*What the fixes bought: nothing measurable.* With both in (the drained
+callees folded into their kernels, the sampler's getters `[[inline]]`),
+the frame schedule is bit for bit with the scalar one on camera-medium
+and killeroo, and best of three against `pbrt --wavefront`:
+
+    camera-medium   pbrt 6.50 s   frame 7.72 s (1.19x slower)   was 7.77 s
+    killeroo        pbrt 87.5 s   frame 136.0 s (1.55x slower)  was 135 s
+
+So the profile was read wrong in the way that matters. The `mov`s in the
+material drain and the `pushq`s around the sampler calls were where the
+stalls landed -- the loads of an entry's fields from the queue arrays and
+of the sampler's tables, attributed by skid to the instructions after
+them -- not the cost of the copies and calls themselves; removing the
+instructions removed nothing the machine was waiting on. The changes
+stay as structure (a kernel is its work, as pbrt's lambdas are; the
+producer kernel grew from 30 KB to 44 KB with the getters in it), but the
+1.55x is elsewhere, and the next profile has to be of *what stalls*: `perf
+record -e cycles,cache-misses,L1-dcache-load-misses` on the frame
+schedule and on pbrt, or `perf stat` of both, one at a time, with the
+kernels' self time split by instruction class rather than read off the
+symbol table. Two candidates worth checking first, because they are
+where the two renderers differ in what they touch per entry: the entry
+loads (our entries are smaller than pbrt's, but are they read in the
+same order the SoA arrays are laid out, and is the record -- the per-path
+slots -- a second random access per entry that pbrt's PixelSampleState
+avoids by indexing on pixel?), and the Halton sampler's tables
+(scrambled_radical_inverse's digit permutations: pbrt's `DigitPermutation`
+is a flat per-dimension table; ours is indexed through
+`digit_permutation_offsets`, one more dependent load per digit).
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
