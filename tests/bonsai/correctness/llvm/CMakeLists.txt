@@ -79,6 +79,7 @@ add_bonsai_tests(
     invariant-division.bonsai
     literal-widening.bonsai
     loop-transforms.bonsai
+    split-program-chunk.bonsai
     split-tail.bonsai
     loopify.bonsai
     loopify-queue.bonsai

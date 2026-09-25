@@ -698,7 +698,9 @@ void remove_dead(Function &func) {
         std::set<const Instruction *> dead;
         for (const auto &block : func.blocks) {
             for (const auto &instr : block->instrs) {
-                if (pure(*instr) && uses.count(instr.get()) == 0) {
+                // A value the schedule reads is read (Function::schedule_uses).
+                if (pure(*instr) && uses.count(instr.get()) == 0 &&
+                    !func.schedule_uses.contains(instr->name)) {
                     dead.insert(instr.get());
                 }
             }

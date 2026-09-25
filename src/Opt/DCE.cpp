@@ -224,9 +224,13 @@ struct ComputeUseCounts : ir::Visitor {
     // Which function this is counting in, for the messages below.
     std::string context;
 
+    // Lets that are read from outside the body -- by a schedule directive
+    // that names them (ir::Split::factor_name) -- and so count as used.
+    std::set<std::string> kept;
+
     ComputeUseCounts(const std::set<std::string> &mutable_func_args,
-                     std::string context = "")
-        : context(std::move(context)) {
+                     std::set<std::string> kept = {}, std::string context = "")
+        : context(std::move(context)), kept(std::move(kept)) {
         for (const auto &arg : mutable_func_args) {
             // Conservatively set to 1, so Store statements are not removed.
             use_counts[arg] = 1;
@@ -276,7 +280,8 @@ struct ComputeUseCounts : ir::Visitor {
             << node->loc << " bound to " << node->value
             << (context.empty() ? "" : " in " + context);
 
-        use_counts[node->loc.base] = 0;
+        // Read by the schedule, if kept: a use the body does not show.
+        use_counts[node->loc.base] = kept.contains(node->loc.base) ? 1 : 0;
         dependent_use_counts[node->loc.base] = {};
 
         curr_var = node->loc.base;
@@ -593,9 +598,9 @@ void visit(const std::string &name, const lower::CallGraph &call_graph,
 // are never used.
 ir::Stmt dce(ir::Stmt stmt, const std::set<std::string> &mutable_func_args,
              const std::set<std::string> &se_functions,
-             const std::string &context) {
+             const std::string &context, const std::set<std::string> &kept) {
     stmt = NameHygiene().mutate(std::move(stmt));
-    ComputeUseCounts analyzer(mutable_func_args, context);
+    ComputeUseCounts analyzer(mutable_func_args, kept, context);
     stmt.accept(&analyzer);
     DeadCodeElimination optimizer(std::move(analyzer.use_counts),
                                   std::move(analyzer.dependent_use_counts),
@@ -608,12 +613,13 @@ ir::FuncMap DCE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     // TODO(ajr): We should also erase unused arguments to Lambdas and
     // Functions. This requires mutating the definitions and all calls,
     // which can get tricky.
-
     std::set<std::string> se_functions = find_side_effects(funcs);
     for (auto &[name, func] : funcs) {
-        std::set<std::string> mutable_func_args = func->mutable_args();
-        func->body =
-            dce(std::move(func->body), mutable_func_args, se_functions, name);
+        // A value the schedule reads by name is a use the body does not
+        // show (ir::Function::schedule_uses): kept as a root, as a store
+        // to a mutable argument is.
+        func->body = dce(std::move(func->body), func->mutable_args(),
+                         se_functions, name, func->schedule_uses);
     }
     return funcs;
 }

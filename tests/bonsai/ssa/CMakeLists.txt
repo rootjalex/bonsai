@@ -54,6 +54,7 @@ add_bonsai_tests(
     specialize-first.bonsai
     specialize-nested.bonsai
     split.bonsai
+    split-program-chunk.bonsai
     split-tail.bonsai
     split-unsigned.bonsai
     stage.bonsai

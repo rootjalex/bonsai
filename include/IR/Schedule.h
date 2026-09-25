@@ -185,12 +185,23 @@ struct Sort {
 // of chunks runs exactly its own iterations and no more; if it is not set,
 // the range is asserted to divide by the factor and no guard is made. Written
 // `f.split(i, io, ii, factor, true)` for the guard and `false` for none.
+//
+// The chunk is a constant, or the name of a value of the function -- a
+// parameter, or a value computed before the loop -- that is one value for
+// the whole loop: `render.split(p, p_band, p_in, pass_pixels, true)` tiles
+// the pixel loop into pbrt's passes, whose band the program computes from
+// the resolution as pbrt does. A name goes in `factor_name`, since the
+// schedule's scope has no types for a function's values; the pass that
+// applies the split types it from the function (see the two overloads of
+// split in SSA/Rewrite.h). `factor` is defined only when the chunk is an
+// expression of constants.
 struct Split {
     Location i;
     Location io;
     Location ii;
     Expr factor;
     bool generate_tail;
+    std::string factor_name;
 };
 
 // Vectorize for-loop `i`, which must have a constant extent, turning it into

@@ -516,6 +516,7 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
         << " does not return in all code paths.";
 
     ftypes->interfaces = fnotypes->interfaces;
+    ftypes->schedule_uses = fnotypes->schedule_uses;
 
     // TODO: is there more that we can do?
 

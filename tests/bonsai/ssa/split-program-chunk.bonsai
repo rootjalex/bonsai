@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// A split whose chunk the program sizes: `band` is a value of `run` computed
+// before the loop from its parameter, and the schedule names it where a
+// constant would go (the Expr overload of split, SSA/Rewrite.h). pbrt tiles a
+// wavefront pass as a band of scanlines sized from the resolution, and this
+// is how a schedule states that tiling. What to read for: `i_band` stepping
+// by `band` and `i_in` running `0:band`, with the tail's guard
+// `i_band + i_in < n`, and the queue sized by `band` -- one band's worth --
+// rather than by `n`. `band` itself survives as a value the loop's block
+// reads, although the algorithm never does.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32], n : u32) -> void {
+    band = max(1u, 8u / max(1u, n / 4u)) * 2u;
+    parfor i in 0u:n {
+        out[i] = walk(cast[[i32]](i), 0);
+    }
+    return;
+}
+
+schedule {
+    run.split(i, i_band, i_in, band, true);
+    sums = run.queue(i_band);
+    walk.defer(walk, sums);
+}

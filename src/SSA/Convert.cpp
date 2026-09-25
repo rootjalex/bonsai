@@ -1737,6 +1737,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     for (const auto &[name, func] : funcs) {
         func_type_map[name] = func->call_type();
         auto f = build(func);
+        // The values the schedule reads by name -- a split's chunk -- are
+        // uses the body does not show, carried over from the function the
+        // parser stamped (ir::Function::schedule_uses) so that nothing here
+        // removes them before the split reads them.
+        f->schedule_uses = func->schedule_uses;
         fmap[name] = std::move(f);
     }
     phase("build");
@@ -2176,11 +2181,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                         !s.io.names.empty() &&
                                         !s.ii.names.empty())
                             << "split() requires loop names for: " << name;
-                        const auto factor =
-                            get_constant_value<int64_t>(s.factor);
-                        internal_assert(factor.has_value() && *factor > 0)
-                            << "split(" << s.factor << ") on " << name
-                            << " needs a constant, positive factor";
+                        // The chunk: a constant, or an expression over the
+                        // function's values that is one value for the whole
+                        // loop (the two overloads of split, SSA/Rewrite.h).
                         // Every variant's loop, each split into pieces named
                         // for that variant (`s_gang!VolPath`), so that a
                         // later directive naming `s_gang` finds them all.
@@ -2188,7 +2191,36 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                  fmap, name, s.i.names.back(), "split")) {
                             const std::string suffix =
                                 variant_suffix(s.i.names.back(), at.index);
-                            split(fmap, at.func, at.index, int(*factor),
+                            Expr factor = s.factor;
+                            if (!s.factor_name.empty()) {
+                                // The named value's type, from the function
+                                // the loop is in: a parameter's or an
+                                // instruction's.
+                                std::optional<Type> type;
+                                const Function &f = *fmap.at(at.func);
+                                for (const ir::ssa::Argument &a : f.blocks.front()->args) {
+                                    if (a.name == s.factor_name) {
+                                        type = a.type;
+                                    }
+                                }
+                                for (const auto &b : f.blocks) {
+                                    for (const auto &in : b->instrs) {
+                                        if (in->name == s.factor_name) {
+                                            type = in->type;
+                                        }
+                                    }
+                                }
+                                internal_assert(type.has_value())
+                                    << "split(" << s.i.names.back() << ", "
+                                    << s.factor_name << ") on " << name << ": "
+                                    << at.func << " has no value named "
+                                    << s.factor_name
+                                    << ". The chunk names a parameter, or a value "
+                                    << "computed before the loop that the program "
+                                    << "keeps.";
+                                factor = Var::make(*type, s.factor_name);
+                            }
+                            split(fmap, at.func, at.index, factor,
                                   s.io.names.back() + suffix,
                                   s.ii.names.back() + suffix, !s.generate_tail);
                         }

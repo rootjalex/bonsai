@@ -4,9 +4,11 @@
 #include "SSA/InsertPreheader.h"
 #include "SSA/QueueRecursion.h"
 #include "SSA/Rewrite.h"
+#include "SSA/LoopArithmetic.h"
 #include "SSA/SSA.h"
 
 #include "IR/Analysis.h"
+#include "IR/Equality.h"
 #include "IR/Printer.h"
 #include "IR/Visitor.h"
 
@@ -19,6 +21,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <sstream>
 
 namespace bonsai {
 namespace ir {
@@ -32,11 +35,29 @@ using std::string;
 using std::tuple;
 using std::vector;
 
-void split(FuncMap &funcs, string func, string idx, int factor, string outer,
-           string inner, bool exact) {
+namespace {
+
+// The split, with the chunk either a constant `factor_n` or the value of
+// `func` named `factor_name` (see the two overloads in SSA/Rewrite.h).
+void split_impl(FuncMap &funcs, string func, string idx,
+                std::optional<int> factor_n, std::optional<Expr> factor_e,
+                string outer, string inner, bool exact) {
     internal_assert(funcs.contains(func))
         << "split applied to unknown func:" << func;
     auto f = funcs[func];
+    internal_assert(factor_n.has_value() != factor_e.has_value())
+        << "split(" << idx << ") on " << func
+        << ": a constant chunk or one the program sizes";
+    // How the chunk is written in a message.
+    const string factor_text = [&] {
+        std::ostringstream os;
+        if (factor_n.has_value()) {
+            os << *factor_n;
+        } else {
+            os << *factor_e;
+        }
+        return os.str();
+    }();
 
     vector<shared_ptr<Block>> blocks;
 
@@ -88,10 +109,18 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
             << "split(" << idx << ") on " << func
             << " needs a constant stride to know that its chunks line up with "
                "the steps the loop takes";
-        internal_assert(*stride_n > 0 && factor % *stride_n == 0)
-            << "split(" << idx << ", " << factor << ") on " << func
-            << " does not divide the loop's stride of " << *stride_n
-            << ", so a chunk would start part way through a step";
+        if (factor_n.has_value()) {
+            internal_assert(*stride_n > 0 && *factor_n % *stride_n == 0)
+                << "split(" << idx << ", " << *factor_n << ") on " << func
+                << " does not divide the loop's stride of " << *stride_n
+                << ", so a chunk would start part way through a step";
+        } else {
+            internal_assert(*stride_n == 1)
+                << "split(" << idx << ", " << factor_text << ") on " << func
+                << ": a chunk the program sizes cannot be checked against a "
+                << "stride of " << *stride_n << "; only a loop of stride one "
+                << "is split by a run-time chunk";
+        }
 
         // Whether the range is a whole number of chunks, known when both its
         // ends are constants. Without a tail, a range known only at run time
@@ -99,14 +128,15 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         // tail means -- and one known here is checked.
         const auto start_n = as_int(parfor.start);
         const auto end_n = as_int(parfor.end);
-        const bool divisible = start_n.has_value() && end_n.has_value() &&
-                               (*end_n - *start_n) % factor == 0;
-        if (exact && start_n.has_value() && end_n.has_value()) {
+        const bool divisible = factor_n.has_value() && start_n.has_value() &&
+                               end_n.has_value() &&
+                               (*end_n - *start_n) % *factor_n == 0;
+        if (exact && factor_n.has_value() && start_n.has_value() && end_n.has_value()) {
             internal_assert(divisible)
-                << "split(" << idx << ", " << factor << ") on " << func
+                << "split(" << idx << ", " << *factor_n << ") on " << func
                 << " does not divide the loop's range of [" << *start_n << ":"
                 << *end_n << "), so without a tail it would run "
-                << (factor - (*end_n - *start_n) % factor)
+                << (*factor_n - (*end_n - *start_n) % *factor_n)
                 << " iterations past the end";
         }
         // The tail, asked for and needed: the outer loop's last chunk runs
@@ -145,7 +175,86 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
                        ? std::make_shared<Value>(Constant{itype, uint64_t(v)})
                        : std::make_shared<Value>(Constant{itype, v});
         };
-        auto split_factor = index_constant(factor);
+        // The chunk: the constant, or the program's value, threaded to this
+        // block as any value is and made the index's type. A named chunk is
+        // handed to the inner loop's block as an argument of its own, the way
+        // the end of the range is below.
+        shared_ptr<Value> split_factor;
+        std::optional<Argument> factor_arg;
+        if (factor_n.has_value()) {
+            split_factor = index_constant(*factor_n);
+        } else {
+            // The expression, emitted in this block: a name is the program's
+            // value of that name, threaded here from where it is defined; a
+            // constant is one of the index's type; arithmetic is an
+            // instruction, folded where its operands are constants (arith
+            // in SSA/LoopArithmetic.h).
+            const auto type_of_name = [&](const string &name) -> std::optional<Type> {
+                std::optional<Type> found;
+                for (const Argument &a : f->blocks.front()->args) {
+                    if (a.name == name) {
+                        found = a.type;
+                    }
+                }
+                for (const auto &b : f->blocks) {
+                    for (const auto &in : b->instrs) {
+                        if (in->name == name) {
+                            found = in->type;
+                        }
+                    }
+                }
+                return found;
+            };
+            std::function<shared_ptr<Value>(const Expr &)> emit =
+                [&](const Expr &e) -> shared_ptr<Value> {
+                if (const auto *i = e.as<IntImm>()) {
+                    return index_constant(i->value);
+                }
+                if (const auto *u = e.as<UIntImm>()) {
+                    return index_constant(int64_t(u->value));
+                }
+                if (const auto *v = e.as<Var>()) {
+                    const auto named_type = type_of_name(v->name);
+                    internal_assert(named_type.has_value())
+                        << "split(" << idx << ", " << factor_text << ") on " << func
+                        << ": no value of the function is named " << v->name
+                        << ". The chunk names parameters, or values computed "
+                        << "before the loop.";
+                    internal_assert(named_type->is_int_or_uint())
+                        << "split(" << idx << ", " << factor_text << ") on " << func
+                        << ": " << v->name << " is a " << *named_type
+                        << ", not an integer";
+                    shared_ptr<Value> value = block->get_value(v->name, *named_type);
+                    if (!equals(*named_type, itype)) {
+                        value = block->make_instruction(itype, Instruction::Op::Cast,
+                                                        {value});
+                    }
+                    return value;
+                }
+                if (const auto *b = e.as<BinOp>()) {
+                    Instruction::Op op;
+                    switch (b->op) {
+                    case BinOp::Add: op = Instruction::Op::Add; break;
+                    case BinOp::Sub: op = Instruction::Op::Sub; break;
+                    case BinOp::Mul: op = Instruction::Op::Mul; break;
+                    case BinOp::Div: op = Instruction::Op::Div; break;
+                    case BinOp::Mod: op = Instruction::Op::Mod; break;
+                    default:
+                        internal_error
+                            << "split(" << idx << ", " << factor_text << ") on "
+                            << func << ": [unimplemented] the chunk's expression "
+                            << "uses an operation other than + - * / %";
+                    }
+                    return arith(*block, itype, op, emit(b->a), emit(b->b));
+                }
+                internal_error << "split(" << idx << ", " << factor_text << ") on "
+                               << func << ": [unimplemented] the chunk is an "
+                               << "expression of a kind not handled: " << e;
+                return nullptr;
+            };
+            split_factor = emit(*factor_e);
+            factor_arg = Argument{itype, f->get_unique_name()};
+        }
         auto zero = index_constant(0);
 
         // TODO: truly unique name generation?
@@ -244,6 +353,12 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         if (end_arg) {
             inner_loop->add_argument(*end_arg);
         }
+        // A chunk the program sizes reaches the inner loop as an argument
+        // too; a constant is written where it is used.
+        shared_ptr<Value> inner_factor = split_factor;
+        if (factor_arg) {
+            inner_factor = inner_loop->add_argument(*factor_arg);
+        }
 
         std::vector<shared_ptr<Value>> to_step = {v_outer_arg};
         for (const Argument &arg : carried) {
@@ -255,7 +370,7 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         inner_loop->terminator.data =
             Terminator::ParFor{inner,
                                zero,
-                               split_factor,
+                               inner_factor,
                                parfor.stride,
                                Terminator::Jump{step->name, std::move(to_step)},
                                Terminator::Jump{outer_yield->name}};
@@ -270,6 +385,9 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
         std::vector<shared_ptr<Value>> to_inner = parfor.body.args;
         if (end_arg) {
             to_inner.push_back(parfor.end);
+        }
+        if (factor_arg) {
+            to_inner.push_back(split_factor);
         }
         block->terminator.data = Terminator::ParFor{
             outer,
@@ -287,6 +405,29 @@ void split(FuncMap &funcs, string func, string idx, int factor, string outer,
     // The new blocks' predecessors, and the body's, which now has the step
     // rather than the loop before it.
     refresh_preds(*f);
+}
+
+} // namespace
+
+void split(FuncMap &funcs, string func, string idx, int factor, string outer,
+           string inner, bool exact) {
+    split_impl(funcs, std::move(func), std::move(idx), factor, std::nullopt,
+               std::move(outer), std::move(inner), exact);
+}
+
+void split(FuncMap &funcs, string func, string idx, const Expr &factor,
+           string outer, string inner, bool exact) {
+    // A constant expression is the constant split, checks and all.
+    if (const auto n = get_constant_value<int64_t>(factor)) {
+        internal_assert(*n > 0 && *n <= std::numeric_limits<int>::max())
+            << "split(" << idx << ", " << factor << ") on " << func
+            << " needs a positive chunk";
+        split_impl(funcs, std::move(func), std::move(idx), int(*n), std::nullopt,
+                   std::move(outer), std::move(inner), exact);
+        return;
+    }
+    split_impl(funcs, std::move(func), std::move(idx), std::nullopt, factor,
+               std::move(outer), std::move(inner), exact);
 }
 
 namespace {

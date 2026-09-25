@@ -458,6 +458,15 @@ struct Function {
     // `render.vectorize(s)` puts the gang's traversal on a stack.
     std::string specialized_from;
 
+    // The names of values a schedule directive reads -- a split's chunk
+    // (ir::Split::factor_name, `split(p, p_band, p_in, pass_pixels, true)`)
+    // -- which the function's own body may never read. Kept by the
+    // simplifier's dead-code removal as an export is, since the directive
+    // that reads them runs after it (see remove_dead in SSA/Simplify.cpp).
+    // Set from the schedule when the function is built (SSA/Convert.cpp) and
+    // copied with the function (SSA/CloneFunction.cpp).
+    std::set<std::string> schedule_uses;
+
     // The queues this function owns (defer(), SSA/Defer.h), by name: the
     // value each one's storage was sized by -- the capacity every round of
     // its drain is bounded by -- and the block the storage was made in. A

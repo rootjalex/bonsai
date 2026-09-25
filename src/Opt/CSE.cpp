@@ -1336,9 +1336,10 @@ ir::FuncMap CSE::run(ir::FuncMap funcs, const CompilerOptions &options) const {
 
         // Temporaries that appear once should be rewritten to their respective
         // value. We perform dead code elimination first to get rid of unused
-        // references to a temporary variable.
+        // references to a temporary variable. A value the schedule reads by
+        // name stays (ir::Function::schedule_uses), as it does in DCE.
         func->body = opt::dce(std::move(func->body), mutable_arguments,
-                              side_effect_functions, name);
+                              side_effect_functions, name, func->schedule_uses);
         func->body = substitute_temporaries(std::move(func->body));
     }
     return funcs;

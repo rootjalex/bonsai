@@ -211,9 +211,11 @@ ir::Program LowerOptions::run(ir::Program program,
         ir::Type ret_type = rewriter.mutate(func->ret_type);
         ir::Stmt body = rewriter.mutate(func->body);
 
-        func = std::make_shared<ir::Function>(
+        auto rewritten = std::make_shared<ir::Function>(
             func->name, std::move(args), std::move(ret_type), std::move(body),
             func->interfaces, func->attributes);
+        rewritten->schedule_uses = func->schedule_uses;
+        func = std::move(rewritten);
     }
 
     for (auto &[_, type] : rewriter.rewrite_map) {

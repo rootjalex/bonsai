@@ -126,6 +126,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
                     unexported, function->args, function->ret_type,
                     function->body, function->interfaces,
                     std::vector<ir::Function::Attribute>{});
+                new_functions[unexported]->schedule_uses =
+                    function->schedule_uses;
             }
             continue;
         }
@@ -147,12 +149,14 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
         new_functions[name] = std::make_shared<ir::Function>(
             name, arguments, ir::Void_t::make(), function->body,
             function->interfaces, function->attributes);
+        new_functions[name]->schedule_uses = function->schedule_uses;
         // Keep the original function around for other functions that call it.
         if (called) {
             new_functions[unexported] = std::make_shared<ir::Function>(
                 unexported, function->args, function->ret_type,
                 function->body, function->interfaces,
                 std::vector<ir::Function::Attribute>{});
+            new_functions[unexported]->schedule_uses = function->schedule_uses;
         }
     }
 

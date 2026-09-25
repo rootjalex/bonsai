@@ -108,13 +108,26 @@ struct Function {
 
     std::vector<Attribute> attributes;
 
+    // The names of values of this function a schedule directive reads -- a
+    // split's chunk (ir::Split::factor_name, `render.split(p, p_band, p_in,
+    // pass_pixels, true)`) -- which the body itself may never read. A use
+    // the body does not show: dead-code removal keeps a `let` of one of
+    // these as it keeps a store to a mutable argument (Opt/DCE.cpp, and the
+    // sweep CSE runs; SSA/Simplify.cpp's remove_dead once the function is
+    // SSA), since the directive that reads it runs after them. Set by the
+    // parser on the function the directive is written on, as `held` is; a
+    // pass that rebuilds a function from its parts carries it over.
+    std::set<std::string> schedule_uses;
+
     Function() {}
 
     // Creates a new function with the provided body.
     std::shared_ptr<Function> replace_body(Stmt body) {
-        return std::make_shared<Function>(
+        auto f = std::make_shared<Function>(
             std::move(name), std::move(args), std::move(ret_type),
             std::move(body), std::move(interfaces), std::move(attributes));
+        f->schedule_uses = std::move(schedule_uses);
+        return f;
     }
 
     Function(std::string name, std::vector<Argument> args, Type ret_type,

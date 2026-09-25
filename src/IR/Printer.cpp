@@ -368,7 +368,14 @@ void Printer::print(const Schedule &schedule) {
                                       os << ", ";
                                       print(split.ii);
                                       os << ", ";
-                                      print(split.factor);
+                                      // The chunk: a constant expression, or
+                                      // the name of a value of the function
+                                      // (ir::Split::factor_name).
+                                      if (!split.factor_name.empty()) {
+                                          os << split.factor_name;
+                                      } else {
+                                          print(split.factor);
+                                      }
                                       os << ", " << split.generate_tail << ")";
                                   },
                                   [&](const Collapse &collapse) {

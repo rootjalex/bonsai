@@ -815,9 +815,11 @@ ir::Program LowerADTs::run(ir::Program program,
                                        arg.mutating, arg.unaliased,
                                        arg.reducer};
         }
-        func = std::make_shared<ir::Function>(
+        auto rewritten = std::make_shared<ir::Function>(
             func->name, std::move(args), rewriter.mutate(func->ret_type),
             rewriter.mutate(func->body), func->interfaces, func->attributes);
+        rewritten->schedule_uses = func->schedule_uses;
+        func = std::move(rewritten);
     }
 
     for (auto &extern_var : program.externs) {

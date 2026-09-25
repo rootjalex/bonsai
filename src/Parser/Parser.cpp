@@ -3780,7 +3780,24 @@ struct Parser {
                 expect(Token::Type::COMMA);
                 ir::Location ii = loop_cursor();
                 expect(Token::Type::COMMA);
-                ir::Expr factor = parse_expr();
+                // The chunk: a constant expression, or the name of a value of
+                // the function (ir::Split::factor_name), which the schedule
+                // cannot type here and the pass types where it applies the
+                // split.
+                ir::Expr factor;
+                std::string factor_name;
+                if (peek().type == Token::Type::IDENTIFIER) {
+                    factor_name = get_id();
+                    // A use of that value the body does not show, said on
+                    // the function so that nothing removes the value before
+                    // the split reads it (ir::Function::schedule_uses).
+                    if (const auto f = program.funcs.find(func);
+                        f != program.funcs.end()) {
+                        f->second->schedule_uses.insert(factor_name);
+                    }
+                } else {
+                    factor = parse_expr();
+                }
                 expect(Token::Type::COMMA);
                 bool generate_tail = consume(Token::Type::TRUE).has_value();
                 if (!generate_tail) {
@@ -3788,7 +3805,8 @@ struct Parser {
                 }
                 add(
                     ir::Split{std::move(i), std::move(io), std::move(ii),
-                              std::move(factor), generate_tail});
+                              std::move(factor), generate_tail,
+                              std::move(factor_name)});
             } else if (rewrite == "vectorize") {
                 ir::Location i = loop_cursor();
                 add(

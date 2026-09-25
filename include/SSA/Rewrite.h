@@ -25,6 +25,21 @@ using FuncMap = std::map<std::string, std::shared_ptr<ssa::Function>>;
 void split(FuncMap &funcs, std::string func, std::string idx, int factor,
            std::string outer, std::string inner, bool exact);
 
+// The same with a chunk the program sizes: `factor` is an expression over
+// values of `func` -- parameters, or instructions in blocks that dominate the
+// loop, named as the program names them -- and integer constants, one value
+// for the whole loop, and the chunk is that many iterations. pbrt tiles a
+// pass of its wavefront as a band of scanlines sized from the resolution
+// (`maxQueueSize`, wavefront/integrator.cpp), so the split that makes our
+// pass a band names the value the program computes the way pbrt does. The
+// expression is emitted in the loop's block, its values threaded there as
+// any value is; the stride has to be one, since whether a run-time chunk is
+// a whole number of strides cannot be checked; and without a tail the range
+// is the caller's assertion, as a run-time range already is. A constant
+// expression is the overload above.
+void split(FuncMap &funcs, std::string func, std::string idx, const Expr &factor,
+           std::string outer, std::string inner, bool exact);
+
 // Records that the parfor `index` runs on `resource`, and checks that this
 // agrees with whatever the loops around it are already bound to. Nothing about
 // the graph changes: a bind is a tag, and code generation is where it becomes
