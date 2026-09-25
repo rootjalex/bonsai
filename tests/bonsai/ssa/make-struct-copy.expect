@@ -1,0 +1,38 @@
+type Point = struct Point{ x : f32; y : f32; z : f32 }
+type f32x3 = f32x3
+
+func lanes(v : f32x3) -> f32x3 {
+  return v
+}
+
+func partial(p : Point, z : f32) -> Point {
+  let @0 = p.x in
+  let @1 = p.y in
+  let q = build<Point>(@0, @1, z) in
+  return q
+}
+
+func run(out : mut f32[4], p : Point, v : f32x3, z : f32) -> void {
+  let _t1 = p.y in
+  let @5 = p.x in
+  out[0] = @5
+  out[1] = _t1
+  out[2] = z
+  let @19 = v[1] in
+  out[3] = @19
+  return
+}
+
+func same(p : Point) -> Point {
+  return p
+}
+
+func swapped(p : Point) -> Point {
+  let @0 = p.y in
+  let @1 = p.x in
+  let @2 = p.z in
+  let q = build<Point>(@0, @1, @2) in
+  return q
+}
+
+

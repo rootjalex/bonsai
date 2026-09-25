@@ -86,14 +86,9 @@ func march(a : f32[8], out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
   let @1 = direction$gang8_v0(@0) in
   let i = ramp(0, 1, 8) in
-  let @11 = @1.!0 in
-  let @12 = @1.!1 in
-  let @13 = @1.!2 in
   alloc r : mut Ray$v8
-  let @14 = build<f32x3$v8>(@11, @12, @13) in
-  let @15 = build<f32x3$v8>(@11, @12, @13) in
   let @19 = f32x8(10f) in
-  let @2 = build<Ray$v8>(@14, @15, @19) in
+  let @2 = build<Ray$v8>(@1, @1, @19) in
   r = @2
   advance$gang8_p0(r, 0.5f)
   let @3 = (*r) in

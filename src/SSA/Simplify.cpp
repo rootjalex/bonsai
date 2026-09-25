@@ -454,6 +454,70 @@ struct Simplifier {
             }
             break;
         }
+        case Instruction::Op::MakeStruct: {
+            // A struct built from every field of one value of its own type,
+            // in order, is that value -- `make_struct<T>(load_field(v, 0),
+            // ..., load_field(v, n-1))` is a copy of `v` -- and a vector
+            // built from every lane of one vector the same. A traversal's
+            // hit is taken apart and put back together this way at each
+            // level of the option it travels in; folded, it is handed on as
+            // it was rather than rebuilt a field at a time.
+            if (ops.empty()) {
+                break;
+            }
+            const Instruction::Op part = type.is_vector()
+                                             ? Instruction::Op::ExtractIdx
+                                             : Instruction::Op::LoadField;
+            size_t count = 0;
+            if (type.is_vector()) {
+                count = type.lanes();
+            } else if (const Struct_t *s = type.as<Struct_t>()) {
+                count = s->fields.size();
+            } else {
+                break;
+            }
+            if (count != ops.size()) {
+                break;
+            }
+            const Instruction *first = defined_by(ops[0]);
+            if (first == nullptr || first->op != part ||
+                first->operands.size() != 2) {
+                break;
+            }
+            const ValuePtr &whole = first->operands[0];
+            if (!equals(whole->get_type(), type)) {
+                break;
+            }
+            const auto position = [](const ValuePtr &v) -> std::optional<uint64_t> {
+                const Constant *c = constant_of(v);
+                if (c == nullptr) {
+                    return std::nullopt;
+                }
+                return std::visit(
+                    overloads{
+                        [](int64_t i) -> std::optional<uint64_t> {
+                            return i < 0 ? std::nullopt
+                                         : std::optional<uint64_t>(i);
+                        },
+                        [](uint64_t u) -> std::optional<uint64_t> { return u; },
+                        [](const auto &) -> std::optional<uint64_t> {
+                            return std::nullopt;
+                        },
+                    },
+                    c->data);
+            };
+            bool copy = true;
+            for (size_t i = 0; copy && i < ops.size(); i++) {
+                const Instruction *d = defined_by(ops[i]);
+                copy = d != nullptr && d->op == part && d->operands.size() == 2 &&
+                       same_value(d->operands[0], whole) &&
+                       position(d->operands[1]) == std::optional<uint64_t>(i);
+            }
+            if (copy) {
+                return whole;
+            }
+            break;
+        }
         case Instruction::Op::LoadField: {
             // A field of a struct just made is what it was made from. A
             // variant given its tag as a constant (a specialized copy, SSA/

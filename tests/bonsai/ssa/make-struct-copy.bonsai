@@ -1,0 +1,41 @@
+//! flags: -p ssa
+
+// A struct rebuilt from every field of a value of its own type is that
+// value (SSA/Simplify.cpp, MakeStruct). What to read for: `same` returns
+// `p` with no `make_struct` and no `load_field` in it; `swapped` keeps its
+// `make_struct`, since the fields are out of order; `partial` keeps its,
+// since one field is new. The same for a vector rebuilt lane by lane.
+
+element Point {
+    x : f32;
+    y : f32;
+    z : f32;
+}
+element f32x3 = vector[f32, 3];
+
+func same(p : Point) -> Point {
+    q : Point = {p.x, p.y, p.z};
+    return q;
+}
+
+func swapped(p : Point) -> Point {
+    q : Point = {p.y, p.x, p.z};
+    return q;
+}
+
+func partial(p : Point, z : f32) -> Point {
+    q : Point = {p.x, p.y, z};
+    return q;
+}
+
+func lanes(v : f32x3) -> f32x3 {
+    return f32x3{v[0], v[1], v[2]};
+}
+
+func run(out : mut array[f32, 4], p : Point, v : f32x3, z : f32) -> void {
+    out[0] = same(p).x;
+    out[1] = swapped(p).x;
+    out[2] = partial(p, z).z;
+    out[3] = lanes(v)[1];
+    return;
+}

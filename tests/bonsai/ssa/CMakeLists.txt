@@ -40,6 +40,7 @@ add_bonsai_tests(
     loopify.bonsai
     loopify-nested.bonsai
     loopify-queue.bonsai
+    make-struct-copy.bonsai
     mut-local.bonsai
     paper_example.bonsai
     parfor.bonsai
