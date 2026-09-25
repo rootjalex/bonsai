@@ -22,7 +22,23 @@
 // say nothing about what it emits. It is built with `-ffp-contract=off` for the
 // mirror-image reason: clang contracting the generated C++ would produce the
 // fused answer whatever this flag did.
+//
+// The subtractions are the same arithmetic with a sign in it, and the same
+// test: with c = 1, `a * b - c` is 2^-11 + 2^-24 fused and 2^-11 unfused, so
+// 8193 or 8192 again; `c - a * b` and `-(a * b) + c` are their negatives.
+// gcc fuses all three (its MINUS_EXPR and NEGATE_EXPR cases), and pbrt's
+// Gaussian filter is `Gaussian(p) - expX`, a product less a value, whose
+// second rounding put a sample a bit or two from pbrt's in the pixel.
 element Float = f32;
 
 func [[export]] scaled(a : Float, b : Float, c : Float) -> Float =
     (a * b + c) * 16777216.0;
+
+func [[export]] scaled_sub(a : Float, b : Float, c : Float) -> Float =
+    (a * b - c) * 16777216.0;
+
+func [[export]] scaled_rsub(a : Float, b : Float, c : Float) -> Float =
+    (c - a * b) * 16777216.0;
+
+func [[export]] scaled_neg(a : Float, b : Float, c : Float) -> Float =
+    (-(a * b) + c) * 16777216.0;

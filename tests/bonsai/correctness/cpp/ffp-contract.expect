@@ -3,3 +3,6 @@
 [test] ./tests/bonsai/correctness/cpp/ffp-contract
 8193.0
 8388608.0
+8193.0
+-8193.0
+-8193.0

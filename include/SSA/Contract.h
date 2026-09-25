@@ -29,6 +29,29 @@ namespace ssa {
 // and they get the same arithmetic by construction rather than by two
 // implementations agreeing.
 //
+// A subtraction fuses too, as gcc's does (tree-ssa-math-opts.cc,
+// convert_mult_to_fma, which converts a product's use whether it is a
+// PLUS_EXPR, a MINUS_EXPR or a NEGATE_EXPR): `a*b - c` is `fma(a, b, -c)` and
+// `c - a*b` is `fma(-a, b, c)`, and a product that reaches its add or subtract
+// through a negation, `-(a*b) + c`, is `fma(-a, b, c)`. The negations are
+// exact -- a sign flipped, no rounding -- so each of these still rounds once
+// where the unfused form rounds twice. The negation is written as `-0.0 - x`,
+// which is -x for every x including both zeroes, and which LLVM reads as
+// `fneg`. What made this matter is pbrt's Gaussian filter: `Evaluate` is
+// `Gaussian(p.x) - expX`, and Gaussian ends in a product, so gcc rounds the
+// difference once; a filter table with the difference rounded twice puts a
+// sample's position in the pixel a bit or two from pbrt's, and from there
+// every camera ray of that sample is a different ray.
+//
+// A product is absorbed from its consumer's block, or from a block that
+// dominates it within the same loops (natural loops and parfor bodies both):
+// gcc fuses within a basic block, but its blocks hold the program's order,
+// where the SSA builder here puts an expression where its operands are ready
+// -- the Gaussian's product lands after the first FastExp's branches and its
+// subtraction after the second's -- so the block boundary is not the line
+// gcc's is. What the rule still refuses is a product hoisted out of a loop,
+// which fusing would drag back in.
+//
 // What it does not do is match gcc's *choice*. `(a*b + c*d)` has two legal
 // contractions and gcc does not pick consistently -- `Sqr(x)+Sqr(y)+Sqr(z)`
 // fuses the first product and `b0*n0+b1*n1+b2*n2` fuses the second. This fuses

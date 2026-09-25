@@ -1,0 +1,105 @@
+type Float = f32
+type vec4f = f32x4
+
+func [[export]] across(x : f32, y : f32, k : f32, c : f32) -> f32 {
+  step$r0 : mut f32
+  step$r1 : mut f32
+  let @0 = x < 0f in
+  if (@0) {
+    step$r0 = 0f
+  } else {
+    let @1 = x * 0.5f in
+    step$r0 = @1
+  }
+  let @2 = y < 0f in
+  if (@2) {
+    step$r1 = 0f
+  } else {
+    let @3 = y * 0.5f in
+    step$r1 = @3
+  }
+  let @13 = -0f - c in
+  let @6 = fma(k, (*step$r0), @13) in
+  let @7 = max(0f, @6) in
+  let @14 = -0f - c in
+  let @10 = fma(k, (*step$r1), @14) in
+  let @11 = max(0f, @10) in
+  let @12 = @7 * @11 in
+  return @12
+}
+
+func [[export]] dot3(ax : f32, ay : f32, az : f32, bx : f32, by : f32, bz : f32) -> f32 {
+  let @1 = ay * by in
+  let @2 = fma(ax, bx, @1) in
+  let @4 = fma(az, bz, @2) in
+  return @4
+}
+
+func [[export]] fms(a : f32, b : f32, c : f32) -> f32 {
+  let @2 = -0f - c in
+  let @1 = fma(a, b, @2) in
+  return @1
+}
+
+func [[export]] fms4(a : f32x4, b : f32x4, c : f32x4) -> f32x4 {
+  let @2 = f32x4(-0f) in
+  let @3 = @2 - c in
+  let @1 = fma(a, b, @3) in
+  return @1
+}
+
+func [[export]] fnma(a : f32, b : f32, c : f32) -> f32 {
+  let @2 = -0f - a in
+  let @1 = fma(@2, b, c) in
+  return @1
+}
+
+func [[export]] hoisted(a : f32, b : f32, n : i32, out : mut f32[]) -> void {
+  i : mut i32
+  let p = a * b in
+  i = 0
+  while ((*i) < n) {
+    let @2 = cast<f32>((*i)) in
+    let @3 = p + @2 in
+    out[(*i)] = @3
+    let @5 = (*i) + 1 in
+    i = @5
+  }
+  return
+}
+
+func [[export]] neg_add(a : f32, b : f32, c : f32) -> f32 {
+  let @3 = -0f - a in
+  let @2 = fma(@3, b, c) in
+  return @2
+}
+
+func [[export]] neg_only(a : f32, b : f32) -> f32 {
+  let @0 = a * b in
+  let @1 = 0f - @0 in
+  return @1
+}
+
+func [[export]] neg_sub(a : f32, b : f32, c : f32) -> f32 {
+  let @3 = -0f - a in
+  let @4 = -0f - c in
+  let @2 = fma(@3, b, @4) in
+  return @2
+}
+
+func step(x : f32) -> f32 {
+  let @0 = x < 0f in
+  if (@0) {
+    return 0f
+  } else {
+    let @1 = x * 0.5f in
+    return @1
+  }
+}
+
+func [[export]] sub_neg(a : f32, b : f32, c : f32) -> f32 {
+  let @2 = fma(a, b, c) in
+  return @2
+}
+
+

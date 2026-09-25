@@ -11,11 +11,50 @@ dot3:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @fms(float noundef %a, float noundef %b, float noundef %c) local_unnamed_addr #0 {
+fms:
+  %0 = fneg float %c
+  %1 = tail call float @llvm.fma.f32(float %a, float %b, float %0)
+  ret float %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @fnma(float noundef %a, float noundef %b, float noundef %c) local_unnamed_addr #0 {
+fnma:
+  %0 = fneg float %a
+  %1 = tail call float @llvm.fma.f32(float %0, float %b, float %c)
+  ret float %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @neg_add(float noundef %a, float noundef %b, float noundef %c) local_unnamed_addr #0 {
+neg_add:
+  %0 = fneg float %a
+  %1 = tail call float @llvm.fma.f32(float %0, float %b, float %c)
+  ret float %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @neg_only(float noundef %a, float noundef %b) local_unnamed_addr #0 {
+neg_only:
+  %0 = fmul float %a, %b
+  %1 = fsub float 0.000000e+00, %0
+  ret float %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @no_pair(float noundef %a, float noundef %b) local_unnamed_addr #0 {
 no_pair:
   %0 = fmul float %a, %b
   %1 = tail call float @llvm.sqrt.f32(float %0)
   ret float %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @sub_neg(float noundef %a, float noundef %b, float noundef %c) local_unnamed_addr #0 {
+sub_neg:
+  %0 = tail call float @llvm.fma.f32(float %a, float %b, float %c)
+  ret float %0
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)

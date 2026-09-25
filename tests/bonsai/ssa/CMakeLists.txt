@@ -10,6 +10,7 @@ add_bonsai_tests(
     defer-gang.bonsai
     defer-gang-bools.bonsai
     defer-lone-call.bonsai
+    ffp-contract.bonsai
     defer-loop-owned.bonsai
     defer-reducer.bonsai
     defer-remat.bonsai

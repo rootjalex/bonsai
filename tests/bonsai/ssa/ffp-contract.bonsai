@@ -1,0 +1,66 @@
+//! flags: -p ssa --ffp-contract
+
+// What `--ffp-contract` makes of the graph (SSA/Contract.h): an add or a
+// subtract that consumes a product becomes one `fma`, and the product is
+// gone.
+//
+// `dot3` fuses the add's first operand when both are products, so `ay * by`
+// is the multiply that survives. The subtractions are gcc's MINUS_EXPR and
+// NEGATE_EXPR cases: `a*b - c` is `fma(a, b, -c)`, `c - a*b` is
+// `fma(-a, b, c)`, and a product that arrives through a negation, `-(a*b) +
+// c`, is `fma(-a, b, c)` with the negation absorbed too. Each negation is
+// `-0f - x`, which is exact and which the LLVM backend reads as `fneg`.
+//
+// `neg_only` is the control: a negated product that nothing adds to is left
+// as the builder wrote it, a multiply and a `0f - x`.
+//
+// `across` has its product and its subtraction in different blocks: the
+// builder puts `k * step(x)` after `step`'s branches and `- c` after the
+// second `step`'s, as pbrt's Gaussian filter comes out. The product's block
+// dominates the subtraction's and no loop lies between, so it fuses, with
+// the product's operands threaded to the subtraction's block. `hoisted` is
+// the control for that: its product is computed once before the loop and
+// consumed inside it, and a fusion would drag it into the loop, so it stays
+// a multiply.
+element Float = f32;
+element vec4f = vector[f32, 4];
+
+func step(x : Float) -> Float {
+    if x < 0.0 {
+        return 0.0;
+    }
+    return x * 0.5;
+}
+
+func [[export]] across(x : Float, y : Float, k : Float, c : Float) -> Float =
+    max(0.0, k * step(x) - c) * max(0.0, k * step(y) - c);
+
+func [[export]] hoisted(a : Float, b : Float, n : i32,
+                        out : mut array[Float]) -> void {
+    p = a * b;
+    for i in 0:n {
+        out[i] = p + cast[[Float]](i);
+    }
+}
+
+func [[export]] dot3(ax : Float, ay : Float, az : Float,
+                     bx : Float, by : Float, bz : Float) -> Float =
+    ax * bx + ay * by + az * bz;
+
+func [[export]] fms(a : Float, b : Float, c : Float) -> Float = a * b - c;
+
+func [[export]] fnma(a : Float, b : Float, c : Float) -> Float = c - a * b;
+
+func [[export]] neg_add(a : Float, b : Float, c : Float) -> Float =
+    -(a * b) + c;
+
+func [[export]] neg_sub(a : Float, b : Float, c : Float) -> Float =
+    -(a * b) - c;
+
+func [[export]] sub_neg(a : Float, b : Float, c : Float) -> Float =
+    c - (-(a * b));
+
+func [[export]] neg_only(a : Float, b : Float) -> Float = -(a * b);
+
+// A gang's lanes: the negation is a broadcast zero minus the vector.
+func [[export]] fms4(a : vec4f, b : vec4f, c : vec4f) -> vec4f = a * b - c;

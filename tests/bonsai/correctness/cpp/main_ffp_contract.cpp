@@ -17,4 +17,10 @@ int main() {
     // printed the interesting case could not tell "contraction happened" from
     // "this function returns 8193".
     printf("%.1f\n", scaled(2.0f, 0.5f, -0.5f));
+
+    // The subtractions: 8193 fused and 8192 unfused for `a * b - 1`, and the
+    // negatives of those for `1 - a * b` and `-(a * b) + 1`.
+    printf("%.1f\n", scaled_sub(a, b, 1.0f));
+    printf("%.1f\n", scaled_rsub(a, b, 1.0f));
+    printf("%.1f\n", scaled_neg(a, b, 1.0f));
 }

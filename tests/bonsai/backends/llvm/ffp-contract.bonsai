@@ -17,6 +17,12 @@
 // `no_pair` is the control. Its multiply feeds a call and not an add, so
 // nothing fuses, and a pass that turned every multiply into an fma would show
 // up here rather than in the arithmetic.
+//
+// The subtractions are gcc's MINUS_EXPR and NEGATE_EXPR cases, each one fma
+// with an `fneg` on the operand the subtraction negates: `a*b - c` on the
+// addend, `c - a*b` on the product, `-(a*b) + c` on the product through the
+// negation, and `c - (-(a*b))` on neither. `neg_only` is their control: a
+// negated product that no add consumes stays a multiply and a negation.
 element Float = f32;
 
 func [[export]] dot3(ax : Float, ay : Float, az : Float,
@@ -24,3 +30,15 @@ func [[export]] dot3(ax : Float, ay : Float, az : Float,
     ax * bx + ay * by + az * bz;
 
 func [[export]] no_pair(a : Float, b : Float) -> Float = sqrt(a * b);
+
+func [[export]] fms(a : Float, b : Float, c : Float) -> Float = a * b - c;
+
+func [[export]] fnma(a : Float, b : Float, c : Float) -> Float = c - a * b;
+
+func [[export]] neg_add(a : Float, b : Float, c : Float) -> Float =
+    -(a * b) + c;
+
+func [[export]] sub_neg(a : Float, b : Float, c : Float) -> Float =
+    c - (-(a * b));
+
+func [[export]] neg_only(a : Float, b : Float) -> Float = -(a * b);

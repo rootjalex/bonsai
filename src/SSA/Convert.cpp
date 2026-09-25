@@ -2261,16 +2261,6 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
     phase("simplify after the directives");
 
-    // Contraction after the schedule as well, and for a related reason: what a
-    // transform produces is arithmetic too. A vectorized gang's widened
-    // multiply and add are as fusible as the scalar pair they came from, and a
-    // pass that ran before the schedule would have missed them.
-    if (options.ffp_contract) {
-        for (const auto &[name, f] : fmap) {
-            contract_fp(*f);
-        }
-    }
-
     // A transform may have added functions -- vectorize() specializes the
     // callees of a gang -- whose types nothing has recorded yet, or changed
     // a function's shape -- defer() hands a chain of functions the queue and
@@ -2327,6 +2317,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         simplify(*f);
     }
     phase("simplify after promotion");
+
+    // Contraction after the schedule, and after the promotion: what a
+    // transform produces is arithmetic too -- a vectorized gang's widened
+    // multiply and add are as fusible as the scalar pair they came from --
+    // and a product the program kept in a `mut` local is a value only now.
+    // The inliner hands a callee's result back through such a local, so
+    // `gaussian(x) - expX`, with `gaussian` ending in a product, is a load
+    // minus a value until the slots are promoted; contracted earlier, the
+    // subtraction stayed two roundings where gcc's (and pbrt's) is one.
+    if (options.ffp_contract) {
+        for (const auto &[name, f] : fmap) {
+            contract_fp(*f);
+        }
+    }
+    phase("contraction");
     // Storage made inside a loop that every iteration could share is made
     // once, before the loop (SSA/HoistAllocations.h): a pass's queues before
     // the loop over passes. After the binds, which decide which loops may be
