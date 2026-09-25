@@ -2069,6 +2069,11 @@ int main(int argc, char **argv) {
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
                loaded.max_component_value, loaded.camera_medium,
+               // pbrt's `haveMedia`: whether any shape or the camera names a
+               // medium -- which is exactly when the scene's media table has
+               // an entry, since scene_dump enters a medium the first time
+               // something names it (medium_index in scene_dump.cpp).
+               !loaded.media.empty(),
                &b_normal_out, &b_shading_out,
                &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
 #if BONSAI_render_HAS_texture_levels
