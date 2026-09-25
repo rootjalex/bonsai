@@ -6224,6 +6224,75 @@ the film's accumulation and clamp, the per-event medium arithmetic
 shadow-ray transmittance loop including its 0.05/0.75 roulette and RNG
 seed, `regularize` on surfaces, albedo estimation.
 
+**The program follows the wavefront (2026-09-25).** The user's decision,
+given the table and the catalogue: a faithful reimplementation of pbrt's
+wavefront renderer is what a fair comparison against it takes, so where
+pbrt's two integrators differ this program does what the wavefront does
+-- except the light-sampling nudge (item 2), where the CPU and the book
+are right and the wavefront's is a typo. Three changes to the program,
+none to the compiler:
+
+- *No ray differentials.* The camera generates a plain ray
+  (`generate_ray`, pbrt's PerspectiveCamera::GenerateRay), nothing on a
+  path carries a `RayDifferential`, and every hit's footprint is
+  `approximate_differentials`: `Approximate_dp_dxy` and the (u, v) solve,
+  as wavefront/surfscatter.cpp:74-104. The exact machinery
+  (`compute_differentials`, `spawn_ray_differential`,
+  `generate_ray_differential`) stays for `differentials_at`, which
+  check_differentials.sh still checks against pbrt's own numbers.
+- *`Ray` is `o, d`.* pbrt's Ray has no tMax; every Intersect takes `(ray,
+  tMax)` beside it. The bound is now `RaySegment{ray, tmax}`, built where
+  a query is asked -- `trace(RaySegment{ray, inf})`, `shadow_tmax()` for a
+  shadow ray -- and the shapes take `tmax` as a parameter. The queues
+  carry pbrt's ray and no more.
+- *The shadow ray as TraceTransmittance.* `shadow_contribution(light_ray,
+  tmax, medium, ld, r_u, r_l, lambda)` is pbrt's ShadowRayWorkItem;
+  `p_light = ray(tMax)` once, every re-spawn `spawn_ray_to_point` toward
+  it (the origin pushed off the boundary, the far end the point itself),
+  `tmax` never updated, a segment that stops at a boundary sampled up to
+  `Distance(o, pHit) / Length(d)`; at a medium point the shadow ray is
+  `Ray(p, pLight - p)` with neither end pushed (wavefront/media.cpp:300).
+
+Every queue is now at or under pbrt's work item, differentials and all:
+
+    rays 169 (RayWorkItem 184)   hits 233 per material (MaterialEvalWorkItem 252), 205 Interface
+    medium_samples 230 (364)     medium_scatters 108 (120)     escaped 133 (164)
+    emissive 165 (192)           shadow 112 (124; its tMax is a constant, and so not stored)
+
+The reference is `pbrt --wavefront` from here on (`compare.sh
+--pbrt-wavefront`); the three schedules agree with each other bit for bit
+as before. Radiance agrees with pbrt's wavefront in the mean (camera-medium
+1.00015x, killeroo 0.99999x; homogeneous-medium 1.0053x, which is items 3
+and 4 below: the wavefront drops emission at max depth inside a medium and
+counts interface crossings against the depth, both darkening it). Time,
+best of three on both sides, `pbrt --wavefront` against the two wavefront
+schedules on the same program:
+
+    camera-medium   pbrt --wavefront 6.51 s   frame 7.77 s (1.19x slower)   per-pixel 0.358 s (18x faster)
+    killeroo        pbrt --wavefront 87.5 s   frame 135 s (1.54x slower)    per-pixel 11.0 s (8x faster)
+
+The frame schedule was 2.4x and 2.6x slower than pbrt's wavefront before
+the entries were slimmed and the program made the same algorithm; what is
+left is not in the entries (every queue is under pbrt's now) and is to be
+found with perf. The gbuffer channels on a
+medium scene do not, and cannot: a pixel's albedo and normal are the sum
+over the samples whose camera ray reached a surface at depth 0 divided by
+every sample's weight, so on camera-medium they scale with the fraction of
+samples the medium did not scatter first -- a Monte Carlo estimate, and
+pbrt's own CPU and wavefront disagree on it by the same amount (mean
+0.024 in albedo, 63% of pixels; normals on 7%) because their medium random
+streams differ (item 6). Ours matches the CPU's there (mean 9e-5), whose
+streams it reproduces; matching the wavefront's would mean seeding the
+medium RNG from the ray as it does. On killeroo, with no medium, radiance
+agrees and there is no gbuffer.
+
+Still the CPU's, on purpose, until decided otherwise: Russian roulette
+after a medium scatter (item 5; pbrt's own comment doubts it), interface
+crossings not counting against the depth (item 3), emission at max depth
+inside a medium (item 4), the sampler's sequential dimensions and the
+medium RNG's seed (item 6), NaN samples zeroed (item 7). Each is a line or
+two to switch; none changes a queue entry.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
