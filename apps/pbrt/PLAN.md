@@ -7135,6 +7135,96 @@ two binds -- and the driver's acceleration structure; the table against
 `pbrt --gpu`. Shader execution reordering (`optixReorder`, the reason for
 9.1) comes after, as a schedule directive to propose.
 
+*Phase C, done (2026-09-26).* The order above was followed: the raygen-only
+program and its tests (correctness/gpu/raygen, backends/ptx/raygen), the
+two-level scene on the hardware against the CPU tree's answers
+(correctness/gpu/rtcore-tlas), then `schedules/gpu-optix.bonsai` --
+gpu-wavefront.bonsai with `trace.bind(RTCore); trace_any.bind(RTCore);
+render.bind(rays, OptixThread); render.bind(shadow, OptixThread)` and the
+software traversal's sort and loopify directives gone -- and the driver's
+acceleration structure. The driver does what pbrt's OptiXAggregate does:
+one geometry acceleration structure per kind of shape in each set of
+shapes (a build input per mesh over the mesh's own vertex and index
+buffers; the spheres and disks as custom primitives by their bounds; OptiX
+takes one input type per structure, so a set with both has two), and one
+instance acceleration structure placing the scene's own structures by the
+identity and each ObjectInstance's definition's by its `renderFromInstance`,
+one OptixInstance per structure. The instance id is the contract the hit
+programs read by: 0 for the scene's own shapes, `k + 1` for the instance
+that is `prims[k]`; a build input's `base` (its shader binding table
+record) plus the primitive index is the element's index in `prims` or
+`geoms`, so the driver orders each set for the hardware -- a mesh's
+triangles together and in the mesh's order (`rt_order`) -- and adopts no
+tree of pbrt's. The generated header includes runtime/bonsai_optix.h under
+`BONSAI_HAS_OPTIX`, and compare.sh adds the SDK's and CUDA's include paths
+when it does.
+
+What the renderer found that the two tests had not. (a) The hit programs
+read their data -- the tree, the pools, the meshes, the textures -- out of
+the launch parameters, and were finding it by *name*; in the renderer the
+tree arrives under a compiler-made name (`@3134`, the struct rebuilt from
+the layout's parts). Now every trace of a query carries the query's whole
+list of reads as operands in one order, written on each program
+(`OptixProgram::reads`), and CodeGen_OptiX follows each operand -- through
+the trace function's parameter, the calls that pass it, the loop body's
+arguments, and a load of a struct the launch holds by value -- to the
+capture it came from (`find_read_slots`, on SSA/Definitions.h). (b) The
+externs those reads made free reached `hit_at` in a third run of
+LowerExterns and were appended after the externs it already had, so the
+exported signature was no longer in declaration order and the driver's
+call did not match; a function's extern parameters are now one tail
+merged in declaration order however many runs found them, and the calls
+follow (`ExternTail`). (c) A ray traced to infinity is an invalid ray to
+OptiX (validation mode: `[INVALID_RAY] ... tmax inf`); the trace's extent
+is `min(q.tmax, 1e30)`, pbrt's `1e30f` (optix.cu, __raygen__findClosest).
+(d) The launch found the tree's `traversable` only in a struct captured by
+its address; the renderer captures it by value. (e) In the driver, the
+first geometry's id is 0, which a zero-means-none convention lost. Plus
+runtime/bonsai_optix.h gained `BONSAI_OPTIX_VALIDATION` (OptiX's
+validation mode and full debug information, which is what named (c)), a
+launch that traces against no scene fails with a message rather than an
+illegal address, and a structure of mixed input kinds is refused with
+OptiX's rule. rtcore-tlas gained an extern only the hit programs read,
+declared first, for (b).
+
+Against `pbrt --gpu`, best of three each side, images checked (scratch
+`bench.sh`, MODE=gpu):
+
+    scene            spp   pbrt --gpu   ours     speedup   agree
+    killeroo-simple   16     0.11 s     0.051 s   2.16x    60.9%
+    killeroo-simple   64     0.27 s     0.192 s   1.40x    35.2%
+    killeroo-gold     16     0.22 s     0.122 s   1.80x    96.3%
+    killeroo-gold     64     0.72 s     0.460 s   1.57x    95.6%
+    book              16     0.23 s     0.185 s   1.25x    80.0%
+    book              64     0.73 s     0.726 s   1.01x    77.3%
+
+Faster than pbrt on every cell, from 0.5-0.9x with the software traversal
+(the table above). The per-pixel agreement on killeroo-simple moved (66.5%
+to 60.9% at 16 spp, 47.1% to 35.2% at 64): the hardware's triangle test is
+not the watertight test the software traversal runs, so which of two
+nearly coincident candidates wins can differ, and the paths diverge from
+there; the images match by the comparison's measure, as pbrt's own GPU
+build differs from its CPU build for the same reason. Not yet pbrt's:
+shadow rays run the closest-hit program where pbrt disables it
+(`OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT` with a miss program that sets the
+flag -- the `any` query's early exit is TERMINATE_ON_FIRST_HIT, as pbrt's
+is); pbrt sets OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT on meshes with no alpha
+texture where our any-hit program runs and returns at once; both are
+small and measurable. The `hit_at` probe and the host arms of the other
+integrators trap under this schedule, since a query on the RT cores has
+no host answer. Shader execution reordering is next, as a directive to
+propose (below).
+
+*To propose: `optixReorder` as a schedule directive.* OptiX 9.1's shader
+execution reordering (the reason for the SDK) sorts the threads of a
+launch by a key at a point the program names -- pbrt's GPU build does not
+use it; it is the first schedule that could beat pbrt's pattern by
+construction rather than by codegen. Where it would go: after the trace
+in the rays drain, keyed on the hit's material (the `hits.specialize
+(material)` tag) or on the queue an entry is about to be pushed to. What
+it would need: a directive naming a loop and a key expression, lowered to
+`_optix_reorder` on a loop bound to OptixThread. Not built until asked.
+
 *To ask the user: pbrt's launch shape.* Matching pbrt's asynchronous
 pass needs two things the language does not say today: a drain launched
 over its queue's capacity with `k < count` tested on the device, and the

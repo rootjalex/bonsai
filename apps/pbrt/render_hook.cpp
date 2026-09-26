@@ -34,11 +34,27 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
 
 constexpr uint32_t MaxTreeDepth = 64;
+
+// Whether the compiled renderer answers its ray queries on the RT cores
+// (`trace.bind(RTCore)`, schedules/gpu-optix.bonsai). Then the trees are the
+// hardware's -- built below through runtime/bonsai_optix.h, which the
+// generated header includes exactly when a schedule launches through OptiX
+// -- and the tree's layout carries their handle (`traversable`,
+// Lower/Layouts.cpp) in place of nodes of its own.
+#ifdef BONSAI_HAS_OPTIX
+constexpr bool kRTCore = true;
+static_assert(requires(_tree_layout0 t) { t.traversable; },
+              "a schedule that launches through OptiX without a query on the "
+              "RT cores: the tree has no traversable to fill");
+#else
+constexpr bool kRTCore = false;
+#endif
 
 // The renderer's arrays reach it as buffer descriptors
 // (runtime/bonsai_buffer.h): where the bytes are on the host and on the
@@ -534,6 +550,209 @@ Transform to_bonsai(const float *m) {
     t.r3 = float4{m[12], m[13], m[14], m[15]};
     return t;
 }
+
+// The order the hardware's build inputs want the primitives in: a mesh's
+// triangles together and in the mesh's own order, so that each mesh is one
+// input over its own index buffer -- pbrt's OptiXAggregate builds one build
+// input per mesh too (buildBVHForTriangles) -- and after them, together, the
+// shapes the hardware does not intersect itself, which go in as one input of
+// bounding boxes (pbrt's buildBVHForQuadrics). What a leaf's order is to the
+// software tree (compact_pools above), this is to the hardware's: the driver's
+// to decide, since the layout only says where a shape's fields live.
+void rt_order(std::vector<Geometric>::iterator begin,
+              std::vector<Geometric>::iterator end, const Shapes &shapes) {
+    const auto key = [&](const Geometric &g) {
+        if (Shapes::tag_of(g.shape) == Shapes::kTriangle) {
+            const Triangle &t = shapes.triangle(g.shape);
+            return std::tuple<uint64_t, uint64_t, uint64_t>{0, t.mesh, t.tri};
+        }
+        return std::tuple<uint64_t, uint64_t, uint64_t>{
+            1, Shapes::tag_of(g.shape), Shapes::index_of(g.shape)};
+    };
+    std::stable_sort(begin, end, [&](const Geometric &a, const Geometric &b) {
+        return key(a) < key(b);
+    });
+}
+
+#ifdef BONSAI_HAS_OPTIX
+// pbrt: OptiXAggregate's constructor -- a geometry acceleration structure
+// per kind of shape in each set of shapes (buildBVHForTriangles: a build
+// input per mesh, over the mesh's own vertex and index buffers;
+// buildBVHForQuadrics: the spheres and disks as custom primitives by their
+// bounds, tested by the intersection program; OptiX builds a structure over
+// inputs of one type, so a set with both has two) and one instance
+// acceleration structure over them all: the scene's own structures placed
+// once by the identity, and each ObjectInstance's definition's placed by its
+// `renderFromInstance` -- one OptixInstance per structure the definition has,
+// as pbrt's loop over `Instance::handles` makes them.
+//
+// The instance id is the contract the compiled hit programs read a hit by
+// (Lower/Trees.cpp): 0 says the scene's own shapes, whose primitive index
+// plus the build input's `base` is an index into `prims`; k + 1 says the
+// instance that is `prims[k]`, whose hits index `geoms` the same way. So a
+// build input is a run of consecutive elements of that storage, and `base`
+// is where the run starts -- which rt_order arranged: a mesh's triangles in
+// the mesh's order, so that the input is the mesh's own index buffer from
+// the run's first triangle on.
+struct Acceleration {
+    const Meshes &meshes;
+    const Shapes &shapes;
+
+    // The structures over one set of shapes: its triangles' and its other
+    // shapes'; none where the set has none of that kind. (An id, not a
+    // handle: the first structure built is 0.)
+    struct Built {
+        std::optional<uint64_t> triangles;
+        std::optional<uint64_t> boxes;
+    };
+
+    // The structures over `count` elements at `elems`, which are the
+    // elements `base` onward of their storage.
+    Built geometry(const Geometric *elems, size_t count, uint32_t base) {
+        std::vector<bonsai_optix_triangles> triangles;
+        // Every box of every box input, then the inputs over runs of it.
+        std::vector<float> box_floats;
+        std::vector<std::pair<size_t, uint32_t>> box_runs; // (first box, base)
+        size_t i = 0;
+        while (i < count) {
+            const Geometric &g = elems[i];
+            if (Shapes::tag_of(g.shape) == Shapes::kTriangle) {
+                const Triangle first = shapes.triangle(g.shape);
+                const TriangleMesh &m = meshes.meshes[first.mesh];
+                // The run: the same mesh's triangles, each the next one.
+                size_t n = 1;
+                while (i + n < count) {
+                    const Geometric &next = elems[i + n];
+                    if (Shapes::tag_of(next.shape) != Shapes::kTriangle) {
+                        break;
+                    }
+                    const Triangle t = shapes.triangle(next.shape);
+                    if (t.mesh != first.mesh || t.tri != first.tri + n) {
+                        break;
+                    }
+                    n++;
+                }
+                const uint32_t *indices =
+                    meshes.indices + m.first_index + 3 * first.tri;
+                // The vertex buffer is the mesh's run of the positions, and
+                // the input reaches as far into it as its indices do.
+                uint32_t vertex_count = 0;
+                for (size_t k = 0; k < 3 * n; k++) {
+                    vertex_count = std::max(vertex_count, indices[k] + 1);
+                }
+                static_assert(sizeof(std::array<float, 3>) == 3 * sizeof(float));
+                triangles.push_back(bonsai_optix_triangles{
+                    reinterpret_cast<const float *>(meshes.positions +
+                                                    m.first_vertex),
+                    vertex_count, indices, uint32_t(n), base + uint32_t(i)});
+                i += n;
+            } else {
+                size_t n = 1;
+                while (i + n < count &&
+                       Shapes::tag_of(elems[i + n].shape) != Shapes::kTriangle) {
+                    n++;
+                }
+                box_runs.emplace_back(box_floats.size() / 6, base + uint32_t(i));
+                for (size_t k = 0; k < n; k++) {
+                    const Bounds3f b = bounds_of(elems[i + k], meshes, shapes);
+                    for (int c = 0; c < 3; c++) {
+                        box_floats.push_back(b.pMin[c]);
+                    }
+                    for (int c = 0; c < 3; c++) {
+                        box_floats.push_back(b.pMax[c]);
+                    }
+                }
+                i += n;
+            }
+        }
+        std::vector<bonsai_optix_boxes> boxes;
+        for (size_t r = 0; r < box_runs.size(); r++) {
+            const size_t first = box_runs[r].first;
+            const size_t next = r + 1 < box_runs.size() ? box_runs[r + 1].first
+                                                        : box_floats.size() / 6;
+            boxes.push_back(bonsai_optix_boxes{box_floats.data() + 6 * first,
+                                               uint32_t(next - first),
+                                               box_runs[r].second});
+        }
+        Built built;
+        if (!triangles.empty()) {
+            built.triangles = bonsai_optix_geometry(
+                triangles.data(), int64_t(triangles.size()), nullptr, 0);
+        }
+        if (!boxes.empty()) {
+            built.boxes = bonsai_optix_geometry(nullptr, 0, boxes.data(),
+                                                int64_t(boxes.size()));
+        }
+        return built;
+    }
+
+    // The scene: the structure over the scene's own shapes -- `prims[0]` to
+    // `prims[own)`, which is where the top-level order below puts them --
+    // and one per instance definition, over its run of `instanced`
+    // (`geoms`), placed once per instance. Returns the traversable handle.
+    uint64_t scene(const std::vector<Geometric> &own_shapes,
+                   const std::vector<Geometric> &instanced,
+                   const std::vector<TopLevel> &top,
+                   const std::vector<bonsai_scene::Definition> &definitions,
+                   const std::vector<bonsai_scene::Instance> &placed) {
+        std::vector<Built> of_definition(definitions.size());
+        for (size_t d = 0; d < definitions.size(); d++) {
+            const bonsai_scene::Definition &def = definitions[d];
+            if (def.shape_count == 0) {
+                continue; // pbrt: a null primitive, never instanced.
+            }
+            of_definition[d] = geometry(instanced.data() + def.first_shape,
+                                        def.shape_count, def.first_shape);
+        }
+        // Each structure of a set, placed by one transform under one id.
+        std::vector<bonsai_optix_instance> instances;
+        const auto place = [&](const Built &built, const float transform[12],
+                               uint32_t id) {
+            for (const std::optional<uint64_t> &g : {built.triangles, built.boxes}) {
+                if (!g.has_value()) {
+                    continue;
+                }
+                bonsai_optix_instance inst = {};
+                std::copy(transform, transform + 12, inst.transform);
+                inst.geometry = *g;
+                inst.id = id;
+                instances.push_back(inst);
+            }
+        };
+        size_t own = 0;
+        while (own < top.size() && !top[own].instance) {
+            own++;
+        }
+        for (size_t i = own; i < top.size(); i++) {
+            if (!top[i].instance) {
+                fprintf(stderr, "the hardware's order puts a shape after an "
+                                "instance at primitive %zu\n",
+                        i);
+                exit(1);
+            }
+        }
+        if (own != own_shapes.size()) {
+            fprintf(stderr, "the top level names %zu shapes of %zu\n", own,
+                    own_shapes.size());
+            exit(1);
+        }
+        const float identity[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f,
+                                    0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
+        place(geometry(own_shapes.data(), own, 0), identity, 0);
+        for (size_t i = own; i < top.size(); i++) {
+            const bonsai_scene::Instance &inst = placed[top[i].index];
+            // OptiX's transform is the top three rows of the matrix, row
+            // major -- the first twelve of the sixteen scene_dump wrote.
+            place(of_definition[inst.definition], inst.render_from_instance,
+                  uint32_t(i) + 1);
+        }
+        if (instances.empty()) {
+            return 0;
+        }
+        return bonsai_optix_scene(instances.data(), int64_t(instances.size()));
+    }
+};
+#endif
 
 } // namespace
 
@@ -1426,11 +1645,31 @@ int main(int argc, char **argv) {
     // top-level one over the scene's own shapes and its instances together.
     setup.reset();
 
-    const bool pbrt_trees = !loaded.nodes.empty();
+#ifdef BONSAI_HAS_GPU
+    // The kernels, loaded before anything is timed -- and before the trees:
+    // on the RT cores the load declares the program's ray types, which the
+    // acceleration structure's shader binding table is laid out by
+    // (runtime/bonsai_optix.h).
+    bonsai_gpu_prepare();
+#endif
+
+    // On the RT cores the trees are the hardware's, built once the
+    // primitives are assembled (Acceleration, below), and pbrt's are not
+    // adopted: what its nodes say about the order of the primitives is
+    // replaced by the order the hardware's build inputs want.
+    const bool pbrt_trees = !kRTCore && !loaded.nodes.empty();
     std::vector<_tree_layout1> instance_nodes;
     // The row each definition's tree is rooted at.
     std::vector<uint32_t> roots(loaded.definitions.size(), 0);
-    {
+    if (kRTCore) {
+        Stage stage("order primitives for the hardware");
+        rt_order(shapes.begin(), shapes.end(), shape_pools);
+        for (const bonsai_scene::Definition &def : loaded.definitions) {
+            rt_order(instanced.begin() + def.first_shape,
+                     instanced.begin() + def.first_shape + def.shape_count,
+                     shape_pools);
+        }
+    } else {
         Stage stage(pbrt_trees ? "adopt pbrt's instance trees"
                                : "build instance trees");
         if (pbrt_trees) {
@@ -1468,7 +1707,17 @@ int main(int argc, char **argv) {
                                 Bounds3f{low, high});
     };
     std::vector<_tree_layout4> nodes;
-    {
+    if (kRTCore) {
+        // The hardware's structure is built over the primitives in this
+        // order: the scene's own shapes as rt_order left them, then the
+        // instances (Acceleration::scene).
+        for (uint32_t i = 0; i < shapes.size(); i++) {
+            top.push_back(TopLevel{false, i, Bounds3f{}});
+        }
+        for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+            top.push_back(TopLevel{true, i, Bounds3f{}});
+        }
+    } else {
         Stage stage(pbrt_trees ? "adopt pbrt's bvh" : "build bvh");
         if (pbrt_trees) {
             nodes = adopt_nodes<_tree_layout4>(loaded.nodes);
@@ -1666,6 +1915,21 @@ int main(int argc, char **argv) {
     tree.prims = &b_prims;
     tree.nCount = uint32_t(nodes.size());
     tree.group1_index = &b_group1_index;
+#ifdef BONSAI_HAS_OPTIX
+    {
+        Stage stage("build acceleration structures");
+        // The pools as compacted: compact_pools moved them, so the view made
+        // before it is stale.
+        const Shapes compacted{sphere_pool.data(), triangle_pool.data(),
+                               disk_pool.data()};
+        tree.traversable = Acceleration{pool, compacted}.scene(
+            shapes, instanced, top, loaded.definitions, loaded.instances);
+        if (tree.traversable == 0) {
+            fprintf(stderr, "the scene has nothing for the hardware to trace\n");
+            return 1;
+        }
+    }
+#endif
 
     // And the lights that are not shapes, appended after the area ones --
     // which is the order pbrt builds its own list in, area lights from
@@ -2059,10 +2323,6 @@ int main(int argc, char **argv) {
     static_assert(render_buffer_count == sizeof(render_sides),
                   "render_hook.cpp lists a different number of buffers than "
                   "render.h declares for render");
-#ifdef BONSAI_HAS_GPU
-    // The kernels, loaded before anything is timed.
-    bonsai_gpu_prepare();
-#endif
     bonsai_buffer *const film_buffers[] = {&b_normal_out, &b_shading_out,
                                            &b_albedo_out, &b_radiance_out,
                                            &b_weight_out};

@@ -431,15 +431,31 @@ fi
 GPU_FLAGS=()
 # The directives, not the comments: a CPU schedule may well talk about the
 # device schedule it stands in for.
-if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread"; then
+if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread\|OptixThread"; then
   GPU_FLAGS=(--fast-math --gpu-max-registers 128)
   echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
 fi
 "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${GPU_FLAGS[@]}" \
     -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o $PREFIX/render
+# A schedule on the RT cores: the generated header includes
+# runtime/bonsai_optix.h, which declares the acceleration structure's build
+# against the OptiX SDK's headers and CUDA's -- the same ones the compiler's
+# own build found (CMakeLists.txt, BONSAI_OPTIX_SDK), so the same places.
+OPTIX_FLAGS=()
+if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
+  OPTIX_SDK="${BONSAI_OPTIX_SDK:-$HOME/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64}"
+  CUDA_DIR="${CUDA_HOME:-/usr/local/cuda}"
+  if [[ ! -f "$OPTIX_SDK/include/optix.h" || ! -f "$CUDA_DIR/include/cuda.h" ]]; then
+    echo "the schedule launches through OptiX, and the OptiX SDK ($OPTIX_SDK)" >&2
+    echo "or CUDA ($CUDA_DIR) headers were not found. Set BONSAI_OPTIX_SDK" >&2
+    echo "and CUDA_HOME." >&2
+    exit 1
+  fi
+  OPTIX_FLAGS=(-isystem "$OPTIX_SDK/include" -isystem "$CUDA_DIR/include")
+fi
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
-    $PREFIX/render.o "${TBB_FLAGS[@]}" -o "$WORK/render.out"
+    $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$WORK/render.out"
 # --no-implicit-copies: the driver stages every buffer before its timer
 # starts, and a copy the compiled render would make inside the timed region
 # is an error rather than a number (see runtime/bonsai_buffer.h).

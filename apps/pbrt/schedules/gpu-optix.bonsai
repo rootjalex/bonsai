@@ -1,0 +1,116 @@
+// pbrt's GPU wavefront (`pbrt --gpu`) for volpath, on the RT cores: gpu-
+// wavefront.bonsai with the two ray queries answered by the ray tracing
+// hardware and the two kernels that trace launched as OptiX raygen programs
+// -- pbrt's `__raygen__findClosest` over its ray queue and `__raygen__shadow`
+// (or `__raygen__shadow_Tr` in a scene with media) over its shadow-ray queue,
+// each an `optixLaunch` over the queue (wavefront/aggregate.cpp,
+// OptiXAggregate::IntersectClosest and ::IntersectShadow). Every other kernel
+// is the CUDA launch gpu-wavefront.bonsai makes of it, as pbrt's are.
+//
+// `trace.bind(RTCore)` says the acceleration structure answers `trace`: the
+// query becomes an `optixTrace` from the raygen program, with the query's
+// filter split between the hardware's triangle test and an anyhit program
+// (the alpha test, pbrt's `__anyhit__triangle`), a closest-hit program that
+// records which primitive was hit (pbrt's `__closesthit__triangle`, the
+// ClosestHitContext idea: the result is written through a pointer the two
+// payload words carry), and an intersection program for the shapes the
+// hardware does not test itself (spheres and disks, pbrt's
+// `__intersection__quadric`). `trace_any` is the same with `any`'s early
+// exit as OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT (pbrt's shadow trace). The
+// scene's acceleration structure is the driver's to build -- pbrt's
+// OptiXAggregate builds one GAS of triangles per mesh and an IAS over them
+// and the instances, and render_hook.cpp does the same -- and reaches the
+// program as the `traversable` word of the tree's layout (Lower/Layouts.cpp).
+//
+// The two queries no longer name a traversal of their own, so the sort and
+// loopify directives that shaped the software traversal are gone: the
+// hardware orders its own visits.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+    render[VolPath].reorder(p, s);
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
+
+    rays = render[VolPath].queue(p_band);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+
+    medium_samples = render[VolPath].queue(p_band);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_band);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(p_band);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_band);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_band);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p_band);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+
+    // The two kernels that trace are raygen launches over their queue's
+    // count: the ray drain (pbrt's IntersectClosest, whose continuation is
+    // the medium sampling and the routing of the hit) and the shadow drain
+    // (pbrt's IntersectShadow / IntersectShadowTr). OptiX chooses their
+    // block shape.
+    render.bind(rays, OptixThread);
+    render.bind(shadow, OptixThread);
+
+    // Every other kernel over blocks of 256 threads, as gpu-wavefront.bonsai
+    // has them: the camera rays over a band's pixels (and the prologue's
+    // zeroing), each drain that does not trace over its count, the film pass
+    // and the finalization.
+    render.split(p_in, p_blk, p_thr, 256, true);
+    render.bind(p_blk, GPUBlock);
+    render.bind(p_thr, GPUThread);
+    render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
+    render.bind(medium_samples_blk, GPUBlock);
+    render.bind(medium_samples_thr, GPUThread);
+    render.split(medium_scatters, medium_scatters_blk, medium_scatters_thr, 256, true);
+    render.bind(medium_scatters_blk, GPUBlock);
+    render.bind(medium_scatters_thr, GPUThread);
+    render.split(escaped, escaped_blk, escaped_thr, 256, true);
+    render.bind(escaped_blk, GPUBlock);
+    render.bind(escaped_thr, GPUThread);
+    render.split(emissive, emissive_blk, emissive_thr, 256, true);
+    render.bind(emissive_blk, GPUBlock);
+    render.bind(emissive_thr, GPUThread);
+    render.split(hits, hits_blk, hits_thr, 256, true);
+    render.bind(hits_blk, GPUBlock);
+    render.bind(hits_thr, GPUThread);
+    render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
+    render.bind(rays_rest_blk, GPUBlock);
+    render.bind(rays_rest_thr, GPUThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    // pbrt's image textures on the GPU are CUDA texture objects
+    // (`cudaTextureObject_t`, gpu/textures.cpp), filtered by the texture
+    // units; as gpu.bonsai has it.
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}
