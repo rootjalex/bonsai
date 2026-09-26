@@ -123,12 +123,18 @@ struct Function {
     // as an entry point rather than a function the program calls: the
     // closest-hit, any-hit, miss or intersection program of the query
     // function `of`. Its parameters are what it reads of the program's
-    // data, supplied from the launch's parameters by name. Carried over,
-    // as `schedule_uses` is, by every pass that rebuilds a function.
+    // data, supplied from the launch's parameters. `reads` is the query's
+    // list of everything its programs read, in the order the query's
+    // `rt_trace` carries them as its operands after the seven that say what
+    // to trace (Lower/RTCoreReads.h): a parameter's place in it is which
+    // operand of the trace is that parameter's value, which is how the
+    // code generator finds the launch parameter that holds it. Carried
+    // over, as `schedule_uses` is, by every pass that rebuilds a function.
     struct OptixProgram {
         enum class Kind { ClosestHit, AnyHit, Miss, Intersection };
         Kind kind;
         std::string of;
+        std::vector<std::string> reads;
     };
     std::optional<OptixProgram> optix_program;
 

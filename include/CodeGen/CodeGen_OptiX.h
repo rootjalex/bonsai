@@ -24,7 +24,9 @@ namespace bonsai {
 // `__anyhit__<query>` when the query has one, `__intersection__<query>` and
 // `__miss__<query>`, each an entry point whose parameters the prologue
 // supplies: the context from the two payload words, everything else from
-// `params` by the name the raygen's captures go by. The queries are numbered
+// `params` -- the slot found by following the operand of the query's
+// `rt_trace` that carries that parameter (Lower/RTCoreReads.h) back to the
+// capture it came from (find_read_slots). The queries are numbered
 // alphabetically, and that number is the ray type the trace names -- the
 // offset into the shader binding table's hit and miss records -- which
 // runtime/bonsai_optix.h lays out in the same order from the module's
@@ -87,8 +89,22 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     // Compiles the program `func` (its SSA `ssa`) as an entry point whose
     // parameters the prologue supplies.
     void add_program(const ir::Function &func, const ir::ssa::Function &ssa);
-    // The launch parameters' field a name is, or -1.
-    int slot_of(const std::string &name) const;
+    // Which launch parameter each read of each query the body of `loop`
+    // traces comes from (`read_slots`): every `rt_trace` in the body or in
+    // what it calls carries its query's reads as its operands after the
+    // seventh, and each is followed to a capture of the body -- to the
+    // definition of one of `body_head`'s arguments at `captures`, through
+    // the parameter of the function the trace is in and every call that
+    // passes it. A struct the launch holds by value (`by_value`, per
+    // capture) is read where the body loads it through the captured
+    // address. A read that is no capture (computed inside the launch, or
+    // an argument that varies along a run of calls) is an error, as is a
+    // query traced with two different values of one read.
+    void find_read_slots(const ir::ssa::Function &host,
+                         const ir::ssa::Terminator::ParFor &loop,
+                         const ir::ssa::Block &body_head,
+                         const std::vector<size_t> &captures,
+                         const std::vector<bool> &by_value);
 
     // The launch parameters: their struct, the variable, and the name of
     // each slot (begin, stride, then the captures).
@@ -96,6 +112,9 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     llvm::GlobalVariable *params = nullptr;
     std::vector<std::string> slot_names;
     std::vector<llvm::Type *> slot_types;
+    // Per traced query, the slot of each read at its place in the query's
+    // list (ir::Function::OptixProgram::reads).
+    std::map<std::string, std::vector<int>> read_slots;
     // The queries this module holds programs for, alphabetical: the ray
     // types.
     std::vector<std::string> ray_types;

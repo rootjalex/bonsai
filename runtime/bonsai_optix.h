@@ -96,8 +96,12 @@ struct bonsai_optix_boxes {
     uint32_t base;
 };
 
-// Builds a geometry acceleration structure over the inputs; the id it returns
-// names it to bonsai_optix_scene. Aborts with OptiX's reason on failure.
+// Builds a geometry acceleration structure over the inputs -- of one kind:
+// triangles or boxes, since OptiX builds a structure over inputs of one type
+// (a scene with both builds two and places both at each instance, as pbrt's
+// OptiXAggregate places its triangle and quadric structures side by side).
+// The id it returns names it to bonsai_optix_scene. Aborts with OptiX's
+// reason on failure.
 uint64_t bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
                                int64_t triangle_inputs,
                                const bonsai_optix_boxes *boxes,
@@ -161,10 +165,19 @@ struct Api {
     std::string why;
 };
 
+// Whether BONSAI_OPTIX_VALIDATION is set: validation mode, and the modules
+// compiled unoptimized with full debug information, so that what it reports
+// names a line.
+inline bool validating() {
+    static const bool on = std::getenv("BONSAI_OPTIX_VALIDATION") != nullptr;
+    return on;
+}
+
 inline void log_callback(unsigned int level, const char *tag,
                          const char *message, void *) {
-    // Errors and warnings only; 3 and 4 are prints and verbose.
-    if (level <= 2) {
+    // Errors and warnings only; 3 and 4 are prints and verbose -- and
+    // validation mode's findings, which are wanted when it is on.
+    if (level <= 2 || validating()) {
         std::fprintf(stderr, "bonsai_optix: [%s] %s\n", tag, message);
     }
 }
@@ -200,6 +213,14 @@ inline Api &api() {
         OptixDeviceContextOptions options = {};
         options.logCallbackFunction = log_callback;
         options.logCallbackLevel = 2;
+        // For finding a fault: OptiX's validation mode checks every launch
+        // and names what went wrong -- a stack overflow, a handle that is no
+        // traversable, a record past the table -- where the launch alone
+        // says "illegal address". Slow, so only when asked.
+        if (validating()) {
+            options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+            options.logCallbackLevel = 4;
+        }
         const OptixResult made = a.table.optixDeviceContextCreate(
             reinterpret_cast<CUcontext>(d.context), &options, &a.context);
         if (made != OPTIX_SUCCESS) {
@@ -399,8 +420,10 @@ inline Module &module_of(Api &a, State &s, const char *ptx) {
     Module m;
     OptixModuleCompileOptions module_options = {};
     module_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-    module_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
-    module_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
+    module_options.optLevel = validating() ? OPTIX_COMPILE_OPTIMIZATION_LEVEL_0
+                                           : OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
+    module_options.debugLevel = validating() ? OPTIX_COMPILE_DEBUG_LEVEL_FULL
+                                             : OPTIX_COMPILE_DEBUG_LEVEL_NONE;
     const OptixPipelineCompileOptions pipeline = pipeline_options();
     char log[4096];
     size_t log_size = sizeof(log);
@@ -631,6 +654,11 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
     Api &a = ready("build a geometry acceleration structure");
     State &s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
+    if (triangle_inputs > 0 && box_inputs > 0) {
+        fail("a geometry acceleration structure is over inputs of one kind, "
+             "triangles or boxes, not both: OptiX's rule. Build one of each "
+             "and place both.");
+    }
     Geometry geometry;
     std::vector<OptixBuildInput> inputs;
     std::vector<CUdeviceptr> uploaded;
@@ -797,6 +825,15 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
     }
     Module &m = module_of(a, s, ptx);
     Pipeline &p = pipeline_of(a, s, ptx, raygen);
+    if (traversable == 0 && !m.ray_types.empty()) {
+        // The launch would trace against nothing, with a shader binding
+        // table of no hit records, and fault: the driver did not fill the
+        // tree's `traversable`, or built no scene.
+        fail(std::string("`") + raygen +
+             "` traces, and the tree it was handed names no acceleration "
+             "structure (traversable 0): fill the tree's `traversable` with "
+             "what bonsai_optix_scene returns before the call");
+    }
     const OptixShaderBindingTable &sbt = table_of(a, s, m, p, traversable);
     // The buffers: to the device, and their slots repointed, as the CUDA
     // launch does it.
@@ -827,6 +864,14 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
     }
     if (bytes != 0) {
         bonsai_cuda_copy_to_device(reinterpret_cast<void *>(p.params), params, bytes);
+    }
+    if (validating()) {
+        std::fprintf(stderr,
+                     "bonsai_optix: launch %s over %lld threads, %zu parameter "
+                     "bytes, traversable %llx, %u hit records\n",
+                     raygen, static_cast<long long>(count), bytes,
+                     static_cast<unsigned long long>(traversable),
+                     sbt.hitgroupRecordCount);
     }
     check(a,
           a.table.optixLaunch(p.pipeline, /*stream=*/nullptr, p.params, bytes,

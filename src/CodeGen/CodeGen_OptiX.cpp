@@ -2,13 +2,19 @@
 
 #include "IR/Printer.h"
 #include "SSA/Analysis.h"
+#include "SSA/Definitions.h"
 #include "Error.h"
 
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/InlineAsm.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <memory>
 #include <set>
+#include <sstream>
 
 namespace bonsai {
 
@@ -77,13 +83,286 @@ llvm::Value *CodeGen_OptiX::payload(unsigned k) {
                     {llvm::ConstantInt::get(i32_t, k)}, /*side_effects=*/true);
 }
 
-int CodeGen_OptiX::slot_of(const std::string &name) const {
-    for (size_t i = 0; i < slot_names.size(); i++) {
-        if (slot_names[i] == name) {
-            return int(i);
+void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
+                                    const Terminator::ParFor &loop,
+                                    const Block &body_head,
+                                    const std::vector<size_t> &captures,
+                                    const std::vector<bool> &by_value) {
+    using ir::ssa::Definition;
+    using ir::ssa::Definitions;
+    read_slots.clear();
+
+    // The body's region and every function it reaches: where the traces
+    // are, and who calls each function, from which block, with what.
+    struct Site {
+        const ir::ssa::Function *caller; // &host for the body's region
+        std::string block;
+        std::vector<std::shared_ptr<Value>> args;
+        std::vector<size_t> varying; // a run's positions, which no slot is
+    };
+    struct Trace {
+        const ir::ssa::Function *in;
+        std::string block;
+        const Instruction *instr;
+    };
+    std::map<std::string, std::vector<Site>> sites;
+    std::map<const ir::ssa::Function *, std::string> names;
+    std::vector<Trace> traces;
+    const auto scan = [&](const ir::ssa::Function *in,
+                          const std::vector<std::shared_ptr<Block>> &blocks) {
+        for (const auto &block : blocks) {
+            for (const auto &instr : block->instrs) {
+                if (instr->op == Instruction::Op::Intrinsic &&
+                    instr->intrinsic == Intrinsic::rt_trace) {
+                    traces.push_back({in, block->name, instr.get()});
+                }
+            }
+            std::visit(ir::ssa::overloads{
+                           [&](const Terminator::Call &c) {
+                               sites[c.call.name].push_back(
+                                   {in, block->name, c.call.args, {}});
+                           },
+                           [&](const Terminator::MultiCall &c) {
+                               sites[c.call.name].push_back(
+                                   {in, block->name, c.call.args, c.varying_at});
+                           },
+                           [](const auto &) {},
+                       },
+                       block->terminator.data);
+        }
+    };
+    const std::vector<std::shared_ptr<Block>> region =
+        ir::ssa::Cfg(host, loop.body.name).blocks();
+    scan(&host, region);
+    {
+        std::set<std::string> seen;
+        std::vector<std::string> work = callees(region);
+        while (!work.empty()) {
+            const std::string name = work.back();
+            work.pop_back();
+            if (!seen.insert(name).second) {
+                continue;
+            }
+            const auto f = program->ssa_funcs.find(name);
+            internal_assert(f != program->ssa_funcs.end())
+                << "`" << name << "` has no SSA form";
+            names[f->second.get()] = name;
+            scan(f->second.get(), f->second->blocks);
+            for (std::string &callee : callees(f->second->blocks)) {
+                work.push_back(std::move(callee));
+            }
         }
     }
-    return -1;
+    if (traces.empty()) {
+        return;
+    }
+
+    // Where a value is defined. Lenient, since a block refers to a value of
+    // a block above it by name as often as it takes it as an argument, and
+    // the strict form refuses the first; what the lenient form answers for
+    // such a name is the block that asked, and `resolve` below reads the
+    // name instead: a function's parameters and the launched body's head
+    // arguments are in scope throughout, and names are unique within a
+    // function, so the name says which it is.
+    std::map<const ir::ssa::Function *, std::unique_ptr<Definitions>> defs;
+    std::map<const ir::ssa::Function *, ir::ssa::BlockMap> blocks_of;
+    const auto definitions = [&](const ir::ssa::Function *f) -> Definitions & {
+        auto &d = defs[f];
+        if (!d) {
+            d = std::make_unique<Definitions>(*f, /*lenient=*/true);
+            blocks_of[f] = ir::ssa::make_block_map(*f);
+        }
+        return *d;
+    };
+    const auto is_own_argument = [&](const ir::ssa::Function *f,
+                                     const std::string &block,
+                                     const ir::ssa::Argument &a) {
+        definitions(f);
+        const auto b = blocks_of.at(f).find(block);
+        internal_assert(b != blocks_of.at(f).end());
+        for (const ir::ssa::Argument &arg : b->second->args) {
+            if (arg.name == a.name) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // The definition of `v` as `block` of `in` refers to it, a name reached
+    // from above resolved to the parameter (or, under the launched loop,
+    // the body's head argument) of that name.
+    const auto resolve = [&](const ir::ssa::Function *in, const std::string &block,
+                             const std::shared_ptr<Value> &v) -> Definition {
+        const Definition d = definitions(in).of(block, v);
+        const auto *a = std::get_if<ir::ssa::Argument>(&d.value->data);
+        if (a == nullptr || d.block.empty() || is_own_argument(in, d.block, *a)) {
+            return d;
+        }
+        if (in == &host) {
+            for (const size_t c : captures) {
+                if (body_head.args[c].name == a->name) {
+                    return Definition{std::make_shared<Value>(body_head.args[c]),
+                                      body_head.name};
+                }
+            }
+        }
+        for (const ir::ssa::Argument &param : in->blocks.front()->args) {
+            if (param.name == a->name) {
+                return Definition{std::make_shared<Value>(param),
+                                  in->blocks.front()->name};
+            }
+        }
+        return d;
+    };
+    // What each capture is: as the body's head has it, and as the loop was
+    // handed it -- what a read has to turn out to be, either way.
+    std::vector<Definition> captured_here;
+    std::vector<Definition> captured_outside;
+    for (const size_t c : captures) {
+        const auto value = std::make_shared<Value>(body_head.args[c]);
+        captured_here.push_back(Definition{value, body_head.name});
+        captured_outside.push_back(definitions(&host).of(body_head.name, value));
+    }
+
+    // The slot of `v` as `block` of `in` refers to it: a capture's, or -1
+    // with the reason in `why`.
+    std::string why;
+    std::set<const ir::ssa::Function *> visiting;
+    std::function<int(const ir::ssa::Function *, const std::string &,
+                      const std::shared_ptr<Value> &)>
+        slot_of_value;
+    slot_of_value = [&](const ir::ssa::Function *in, const std::string &block,
+                        const std::shared_ptr<Value> &v) -> int {
+        const Definition d = resolve(in, block, v);
+        if (in == &host) {
+            for (size_t k = 0; k < captures.size(); k++) {
+                if (same_definition(d, captured_here[k]) ||
+                    same_definition(d, captured_outside[k])) {
+                    return int(k) + 2;
+                }
+            }
+            // A struct the launch holds by value: the body has its address
+            // and loads it to pass it on, and the load is the slot's
+            // contents.
+            if (const auto *load = std::get_if<std::shared_ptr<Instruction>>(&d.value->data);
+                load != nullptr && (*load)->op == Instruction::Op::Load &&
+                !(*load)->operands.empty()) {
+                const int slot = slot_of_value(&host, d.block, (*load)->operands[0]);
+                if (slot >= 2 && by_value[size_t(slot) - 2]) {
+                    return slot;
+                }
+            }
+            why = "it is computed inside the launch rather than captured";
+            return -1;
+        }
+        const std::string &name = names.at(in);
+        const auto *param = std::get_if<ir::ssa::Argument>(&d.value->data);
+        if (param == nullptr || d.block != in->blocks.front()->name) {
+            why = "`" + name + "` computes it rather than taking it as a parameter";
+            return -1;
+        }
+        const std::vector<ir::ssa::Argument> &params = in->blocks.front()->args;
+        size_t j = params.size();
+        for (size_t i = 0; i < params.size(); i++) {
+            if (params[i].name == param->name) {
+                j = i;
+            }
+        }
+        internal_assert(j < params.size());
+        if (!visiting.insert(in).second) {
+            why = "`" + name + "` passes it to itself";
+            return -1;
+        }
+        int found = -1;
+        bool any = false;
+        for (const Site &site : sites[name]) {
+            if (std::find(site.varying.begin(), site.varying.end(), j) !=
+                site.varying.end()) {
+                why = "`" + name + "` is called with a different one per call";
+                visiting.erase(in);
+                return -1;
+            }
+            internal_assert(j < site.args.size())
+                << "a call of `" << name << "` passes " << site.args.size()
+                << " arguments for " << params.size() << " parameters";
+            const int slot = slot_of_value(site.caller, site.block, site.args[j]);
+            if (slot < 0) {
+                visiting.erase(in);
+                return -1;
+            }
+            if (any && slot != found) {
+                why = "two calls of `" + name + "` pass different ones";
+                visiting.erase(in);
+                return -1;
+            }
+            found = slot;
+            any = true;
+        }
+        visiting.erase(in);
+        if (!any) {
+            why = "nothing in the launch calls `" + name + "`";
+            return -1;
+        }
+        return found;
+    };
+
+    for (const Trace &t : traces) {
+        internal_assert(t.instr->operands.size() >= 7);
+        const std::string query =
+            query_of_context(t.instr->operands[6]->get_type());
+        std::vector<std::string> reads;
+        for (const auto &[_, func] : program->funcs) {
+            if (func->optix_program && func->optix_program->of == query) {
+                reads = func->optix_program->reads;
+                break;
+            }
+        }
+        const size_t n = t.instr->operands.size() - 7;
+        internal_assert(reads.size() == n)
+            << "the trace of `" << query << "` carries " << n
+            << " reads and its programs list " << reads.size()
+            << " (Lower/RTCoreReads.h)";
+        std::vector<int> &slots = read_slots[query];
+        if (slots.empty()) {
+            slots.assign(n, -1);
+        }
+        const std::string where =
+            t.in == &host ? "the launched loop's body" : "`" + names.at(t.in) + "`";
+        for (size_t k = 0; k < n; k++) {
+            why.clear();
+            const int slot = slot_of_value(t.in, t.block, t.instr->operands[7 + k]);
+            std::ostringstream carried;
+            t.instr->operands[7 + k]->dump(carried);
+            internal_assert(slot >= 0)
+                << "the programs of `" << query << "` read `" << reads[k]
+                << "`, which the trace in " << where << " carries as "
+                << carried.str() << ", and that is not one of the launch's "
+                << "parameters: " << why << ". The hit programs read what the "
+                << "launch was handed (Lower/RTCoreReads.h).";
+            internal_assert(slots[k] < 0 || slots[k] == slot)
+                << "`" << query << "` is traced with two different values of `"
+                << reads[k] << "` under one launch: launch parameters "
+                << slots[k] << " and " << slot << ".";
+            slots[k] = slot;
+        }
+    }
+    if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+        for (const auto &[query, slots] : read_slots) {
+            std::vector<std::string> reads;
+            for (const auto &[_, func] : program->funcs) {
+                if (func->optix_program && func->optix_program->of == query) {
+                    reads = func->optix_program->reads;
+                    break;
+                }
+            }
+            std::cerr << "raygen over " << loop.index << ": the programs of `"
+                      << query << "` read\n";
+            for (size_t k = 0; k < slots.size(); k++) {
+                std::cerr << "  " << reads[k] << " from launch parameter "
+                          << slots[k] << " (" << slot_names[size_t(slots[k])]
+                          << ")\n";
+            }
+        }
+    }
 }
 
 std::vector<std::string>
@@ -190,7 +469,26 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
     for (llvm::Type *t : slot_types) {
         kernel.param_bytes.push_back(dl.getTypeAllocSize(t));
     }
+    // Which slot each of the traced queries' reads is in, for the programs.
+    find_read_slots(host, loop, *body_head, captures, by_value);
     params_ty = llvm::StructType::create(*context, slot_types, "_params");
+    {
+        const llvm::StructLayout *layout = dl.getStructLayout(params_ty);
+        for (size_t i = 0; i < slot_types.size(); i++) {
+            kernel.param_offsets.push_back(layout->getElementOffset(unsigned(i)));
+        }
+        kernel.param_struct_bytes = layout->getSizeInBytes();
+        if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+            std::cerr << "raygen over " << loop.index << ": "
+                      << slot_types.size() << " launch parameters in "
+                      << kernel.param_struct_bytes << " bytes\n";
+            for (size_t i = 0; i < slot_types.size(); i++) {
+                std::cerr << "  " << i << ": " << slot_names[i] << " at byte "
+                          << kernel.param_offsets[i] << ", "
+                          << kernel.param_bytes[i] << " bytes\n";
+            }
+        }
+    }
     // `.const .b8 params[...]`, filled by the launch: what OptiX calls the
     // pipeline's launch parameters (pipelineLaunchParamsVariableName).
     // Defined, zero, and not constant, so that no load from it is folded.
@@ -282,18 +580,21 @@ void CodeGen_OptiX::add_program(const ir::Function &func,
                 lo, builder->CreateShl(hi, 32), declared.name + "_address");
             return builder->CreateIntToPtr(address, type, declared.name);
         }
-        const int i = slot_of(declared.name);
-        if (i < 0) {
-            std::string captured;
-            for (const std::string &slot : slot_names) {
-                captured += (captured.empty() ? "" : ", ") + slot;
-            }
-            internal_error
-                << func.name << " reads `" << declared.name << "`, which the "
-                << "raygen program it runs under does not capture: the hit "
-                << "programs read what the launch was handed, by name, and "
-                << "the launch was handed " << captured << ".";
-        }
+        // The slot: the parameter's place in the query's list of reads is
+        // which operand of the trace carried it, and find_read_slots
+        // followed that operand to the capture.
+        const std::vector<std::string> &reads = func.optix_program->reads;
+        const auto place = std::find(reads.begin(), reads.end(), declared.name);
+        internal_assert(place != reads.end())
+            << func.name << " reads `" << declared.name << "`, which is not in "
+            << "its query's list of reads (Lower/RTCoreReads.h)";
+        const auto slots = read_slots.find(func.optix_program->of);
+        internal_assert(slots != read_slots.end() &&
+                        size_t(place - reads.begin()) < slots->second.size())
+            << func.name << ": the slots of `" << func.optix_program->of
+            << "`'s reads were not found under this raygen program";
+        const int i = slots->second[size_t(place - reads.begin())];
+        internal_assert(i >= 0);
         llvm::Value *at = builder->CreateStructGEP(params_ty, params, unsigned(i));
         llvm::Value *value = builder->CreateLoad(slot_types[i], at, declared.name);
         if (value->getType() == type) {

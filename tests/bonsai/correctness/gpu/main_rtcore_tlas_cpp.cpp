@@ -221,16 +221,21 @@ int main() {
         solo_pool.data(), solo_pool.size() * sizeof(solo_pool[0]));
     bonsai_buffer inst_buffer = bonsai_buffer_wrap(
         inst_pool.data(), inst_pool.size() * sizeof(inst_pool[0]));
+    // The externs in the order they were declared, `near` first: it is read
+    // by the hit programs alone and reached `trace_all` last, and the
+    // signature has to put it where the declaration did.
+    float near[1] = {0.001f};
+    bonsai_buffer near_buffer = bonsai_buffer_wrap(near, sizeof(near));
     bonsai_buffer *buffers[] = {&rays_buffer, &p0_buffer,   &kind_buffer,
-                                &any_buffer,  &tris_buffer, &blas_buffer,
-                                &elems_buffer, &tlas_buffer, &solo_buffer,
-                                &inst_buffer};
+                                &any_buffer,  &near_buffer, &tris_buffer,
+                                &blas_buffer, &elems_buffer, &tlas_buffer,
+                                &solo_buffer, &inst_buffer};
     static_assert(sizeof(buffers) / sizeof(buffers[0]) == sizeof(trace_all_sides));
     bonsai_buffer_stage_all(buffers, trace_all_sides, sizeof(trace_all_sides));
     bonsai_buffer_implicit_copies(0);
 
-    trace_all(n, &rays_buffer, &p0_buffer, &kind_buffer, &any_buffer, scene,
-              &solo_buffer, &inst_buffer);
+    trace_all(n, &rays_buffer, &p0_buffer, &kind_buffer, &any_buffer,
+              &near_buffer, scene, &solo_buffer, &inst_buffer);
 
     bonsai_buffer_stage(&p0_buffer, BONSAI_HOST);
     bonsai_buffer_stage(&kind_buffer, BONSAI_HOST);

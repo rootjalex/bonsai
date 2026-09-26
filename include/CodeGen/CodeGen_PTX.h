@@ -61,6 +61,14 @@ struct CodeGen_PTX : public CodeGen_LLVM {
         // in order: begin, stride, then the captures. The host checks its
         // own layout of each against this before it hands the driver a slot.
         std::vector<uint64_t> param_bytes;
+        // For a raygen program, whose parameters cross as one struct (the
+        // module's `params`) rather than one slot at a time: where the
+        // device's layout of that struct puts each, and how long it is. The
+        // host lays the same struct out with its own machine's rules and
+        // checks that the two agree, field for field, before it copies its
+        // bytes over.
+        std::vector<uint64_t> param_offsets;
+        uint64_t param_struct_bytes = 0;
         // For a loop bound to GPUBlock: the loop bound to GPUThread inside
         // its body, whose iteration count is the block's size; null when
         // there is none, and the block is one thread.

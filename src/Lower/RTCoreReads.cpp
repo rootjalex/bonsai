@@ -46,21 +46,14 @@ struct CarryReads : public ir::Mutator {
         const auto found = reads.find(query);
         internal_assert(found != reads.end())
             << "rt_trace of the query `" << query << "`, which has no programs";
-        // What the trace refers to already, so nothing is carried twice.
-        std::set<std::string> named;
-        for (const ir::Expr &arg : node->args) {
-            for (const ir::TypedVar &var : ir::gather_free_vars(arg)) {
-                named.insert(var.name);
-            }
-        }
+        internal_assert(node->args.size() == 7)
+            << "rt_trace already carries its programs' reads: " << ir::Expr(node);
+        // The whole list, in its order, whether or not the seven refer to
+        // some of it already (the tree is the traversable's too): the
+        // position is what the code generator goes by.
         std::vector<ir::Expr> args = node->args;
         for (const auto &[name, type] : found->second) {
-            if (named.insert(name).second) {
-                args.push_back(ir::Var::make(type, name));
-            }
-        }
-        if (args.size() == node->args.size()) {
-            return node;
+            args.push_back(ir::Var::make(type, name));
         }
         return ir::Intrinsic::make(node->op, std::move(args));
     }
@@ -84,6 +77,18 @@ ir::Program LowerRTCoreReads::run(ir::Program program,
     }
     if (reads.empty()) {
         return program;
+    }
+    // The list, on every program of the query, so that a program's
+    // parameter finds its place in it.
+    for (auto &[_, func] : program.funcs) {
+        if (!func->optix_program.has_value()) {
+            continue;
+        }
+        std::vector<std::string> &list = func->optix_program->reads;
+        list.clear();
+        for (const auto &[name, _type] : reads.at(func->optix_program->of)) {
+            list.push_back(name);
+        }
     }
     CarryReads carry(reads);
     for (auto &[_, func] : program.funcs) {

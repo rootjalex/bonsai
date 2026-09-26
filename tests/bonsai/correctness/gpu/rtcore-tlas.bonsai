@@ -99,6 +99,14 @@ func is_instance(p : Prim) -> bool {
     }
 }
 
+// How near a hit may be: what the rest of the filter compares against, read
+// by the hit programs alone. Declared before `prims` so that the exported
+// signature's order is the declaration's however an extern reached
+// `trace_all`: `prims` reaches it as the trace's traversable, this one only
+// as a read the trace carries for its programs (Lower/RTCoreReads.h), a run
+// of LowerExterns later -- and the driver passes it first all the same.
+extern near : array[f32, 1];
+
 extern prims : set[Prim];
 
 // pbrt: Primitive::Intersect over the scene.
@@ -106,14 +114,14 @@ func trace(r : Ray) =
     argmin(|p : Prim, tri : Triangle| distmin(r, transform(p, tri)),
            filter(|p : Prim, tri : Triangle|
                       intersects(r, transform(p, tri)) &&
-                      distmin(r, transform(p, tri)) > 0.001,
+                      distmin(r, transform(p, tri)) > near[0],
                   flatten(|p : Prim| geometry(p), prims)));
 
 // pbrt: Primitive::IntersectP.
 func trace_any(r : Ray) =
     any(|p : Prim, tri : Triangle|
             intersects(r, transform(p, tri)) &&
-            distmin(r, transform(p, tri)) > 0.001,
+            distmin(r, transform(p, tri)) > near[0],
         flatten(|p : Prim| geometry(p), prims));
 
 // Every ray traced, and what it found written out: the hit triangle placed,

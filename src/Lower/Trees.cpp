@@ -3073,6 +3073,15 @@ struct LowerBVH : public ir::Mutator {
         // OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT for `any`: the first hit the
         // any-hit program accepts ends the traversal (see optix_types.h).
         const ir::Expr flags = ir::UIntImm::make(u32, rq.nearest ? 0 : 4);
+        // The extent the hardware is given is finite: a ray traced to
+        // infinity -- a path's, `RaySegment{ray, inf}` -- is an invalid ray
+        // to OptiX (its validation mode: "[INVALID_RAY] ... tmax inf"), and
+        // pbrt traces its closest hits to `1e30f` (gpu/optix/optix.cu,
+        // __raygen__findClosest) for that reason. The same number here, and
+        // a bounded ray's own extent, which is finite.
+        const ir::Expr tmax =
+            ir::min(ir::Access::make(parts.tmax_field, rq.q),
+                    ir::FloatImm::make(f32, 1e30));
         // What the programs read of the program's data joins these operands
         // once every pool exists (Lower/RTCoreReads.h), so that it reaches
         // the raygen program's launch as a capture.
@@ -3082,8 +3091,7 @@ struct LowerBVH : public ir::Mutator {
                 ir::Intrinsic::rt_trace,
                 {ir::Intrinsic::make(ir::Intrinsic::rt_traversable, {rq.tree}),
                  origin(rq.q), direction(rq.q), ir::FloatImm::make(f32, 0.0),
-                 ir::Access::make(parts.tmax_field, rq.q), flags,
-                 ir::PtrTo::make(local)})));
+                 tmax, flags, ir::PtrTo::make(local)})));
         body.push_back(ir::Return::make(ir::Access::make("result", local)));
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
 

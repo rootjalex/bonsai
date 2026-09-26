@@ -419,6 +419,26 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             << " on the device";
     }
     auto *args_ty = llvm::StructType::get(*context, slot_types);
+    if (optix) {
+        // The raygen's parameters cross as this whole struct, so the two
+        // machines' layouts of it have to agree field for field, not only
+        // slot by slot.
+        const llvm::StructLayout *layout = dl.getStructLayout(args_ty);
+        internal_assert(kernel.param_offsets.size() == n);
+        for (size_t i = 0; i < n; i++) {
+            internal_assert(layout->getElementOffset(unsigned(i)) ==
+                            kernel.param_offsets[i])
+                << "launch parameter `" << arg_names[i] << "` of type "
+                << arg_types[i] << " sits at byte "
+                << layout->getElementOffset(unsigned(i))
+                << " of the launch parameters on the host and at byte "
+                << kernel.param_offsets[i] << " on the device";
+        }
+        internal_assert(layout->getSizeInBytes() == kernel.param_struct_bytes)
+            << "the launch parameters are " << layout->getSizeInBytes()
+            << " bytes on the host and " << kernel.param_struct_bytes
+            << " on the device";
+    }
     llvm::Value *args = create_alloca_at_entry(args_ty, "_launch_args");
     auto *params_ty = llvm::ArrayType::get(ptr_t, n);
     llvm::Value *params = create_alloca_at_entry(params_ty, "_launch_params");
@@ -627,7 +647,9 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     // The launch parameters are the slots, as one struct; the acceleration
     // structure it traces is the `traversable` word of the tree captured,
     // read out of the slot the tree's layout struct travels in (see
-    // Lower/Layouts.cpp), or none when the raygen program traces nothing.
+    // Lower/Layouts.cpp) -- whether the body captured the struct by its
+    // address (a by-value slot) or as a value -- or none when the raygen
+    // program traces nothing.
     llvm::FunctionCallee optix_launch = module->getOrInsertFunction(
         "bonsai_optix_launch",
         llvm::FunctionType::get(void_t,
@@ -641,7 +663,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             const Ptr_t *pointed = arg_types[i].as<Ptr_t>();
             const Struct_t *s =
                 by_value[i - 2] && pointed != nullptr ? pointed->etype.as<Struct_t>()
-                                                      : nullptr;
+                                                      : arg_types[i].as<Struct_t>();
             if (s == nullptr) {
                 continue;
             }
