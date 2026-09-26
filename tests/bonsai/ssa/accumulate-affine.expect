@@ -1,0 +1,26 @@
+func run(out : mut f32[], hist : mut f32[], perm : u32[], x : f32[], n : u32, off : u32) -> void {
+  parfor i in [0u:n:1u] {
+    let @0 = i + off in
+    out[@0] += 1f
+    let @2 = i << 1u in
+    out[@2] += 2f
+    let @4 = perm[i] in
+    atomic hist[@4] += 1f
+    let @6 = i + off in
+    let k = @6 + 1u in
+    let _t1 = x[i] in
+    let @9 = 0f < _t1 in
+    if (@9) {
+      hist[i] += _t1
+    }
+    out[k] += 3f
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    run.bind(i, CPUThread)
+
+}

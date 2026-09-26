@@ -1565,6 +1565,33 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << " arguments but its call passes " << pcall.cont.args.size();
         k0 = region_from(*O, k0_entry->name);
     }
+    // Whether the pass over the record has anything to run per slot, and
+    // whether every iteration of the producer's loop reaches the call. When
+    // one does not -- the call sits under a test, a split's tail guard --
+    // the iterations that skip it have no rest (the continuation has one
+    // predecessor, checked above, so a path around the call ends the
+    // iteration), and the pass must not run their slots: what it would
+    // read there is another band's, or nothing. Then each slot gets a byte
+    // (`<q>_ran`), cleared as its iteration starts and set at the call, and
+    // the pass tests it. The test is dominance in the loop's body: the
+    // call's block over every block that ends an iteration.
+    const bool rest_pass =
+        k0_entry &&
+        !(k0.size() == 1 && k0_entry->instrs.empty() &&
+          (std::holds_alternative<Terminator::Yield>(k0_entry->terminator.data) ||
+           (std::holds_alternative<Terminator::Return>(k0_entry->terminator.data) &&
+            std::get<Terminator::Return>(k0_entry->terminator.data).value == nullptr)));
+    bool call_on_every_iteration = true;
+    if (rest_pass && producer_loop_block) {
+        const auto &innermost = std::get<Terminator::ParFor>(nest.back()->terminator.data);
+        const BlockId call_id = ocfg.id(producer.block->name);
+        for (const shared_ptr<Block> &b : region_from(*O, innermost.body.name)) {
+            if (std::holds_alternative<Terminator::Yield>(b->terminator.data) &&
+                !odom.dominates(call_id, ocfg.id(b->name))) {
+                call_on_every_iteration = false;
+            }
+        }
+    }
     for (const auto &block : k0) {
         const auto *callee = block->terminator.callee();
         internal_assert(spawned || callee == nullptr || !chain.contains(callee->name))
@@ -2259,12 +2286,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // save this data in the queue location, otherwise act as normal." The
     // record saves it for every iteration, once, before the call, so that
     // nothing has to say anything.)
-    enum class From { Available, Slot, Index, Record };
+    enum class From { Available, Slot, Index, Remat, Record };
     struct CarriedPlan {
         From from = From::Available;
         const Instruction *local = nullptr; // Slot: the local given the slot
         size_t record = 0; // Record: which record value; Index: which loop
-        Definition def;
+        Definition def;    // Remat: the root of what is recomputed
     };
     // The producer loop whose index a definition is, if it is one: the
     // argument the loop's body takes first, defined by the loop's edge.
@@ -2282,6 +2309,44 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
         return std::nullopt;
+    };
+    // Whether a definition is arithmetic over the loops' indices and values
+    // in scope at the pass, and so can be recomputed there (From::Remat):
+    // the index itself or such a value, or a sum, difference, product,
+    // shift or cast of ones that are. A few levels deep, which is what an
+    // index expression is; a load or a call is not arithmetic and stops it.
+    const std::function<bool(const Definition &, int)> rematerializable =
+        [&](const Definition &d, int depth) -> bool {
+        if (!d.value) {
+            return false;
+        }
+        if (available(d) || nest_index_of(d).has_value()) {
+            return true;
+        }
+        if (depth >= 4) {
+            return false;
+        }
+        const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+        if (di == nullptr) {
+            return false;
+        }
+        const Instruction &in = **di;
+        switch (in.op) {
+        case Instruction::Op::Add:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Shl:
+        case Instruction::Op::Cast:
+            break;
+        default:
+            return false;
+        }
+        for (const auto &operand : in.operands) {
+            if (!rematerializable(settle(odefs.of(d.block, operand)), depth + 1)) {
+                return false;
+            }
+        }
+        return true;
     };
     // A value of the iteration the record keeps: an array of it, sized as
     // the queue is, written by the producer and read by the pass.
@@ -2313,6 +2378,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // film write is plain adds.
         if (const optional<size_t> k = nest_index_of(d)) {
             carried.push_back({From::Index, nullptr, *k, d});
+            continue;
+        }
+        // So is a value computed from the loops' indices and what is in
+        // scope at the pass by arithmetic alone -- the pixel `p_band + p_in`
+        // of a band's continuation, an index widened or scaled: recomputed
+        // there rather than kept, for the same two reasons. (An index kept
+        // in the record and loaded back is a subscript the contention
+        // analysis cannot see through; recomputed, it is affine in the
+        // pass's index.)
+        if (rematerializable(d, 0)) {
+            carried.push_back({From::Remat, nullptr, 0, d});
             continue;
         }
         // An address is kept only when it outlives the frame: a slot of the
@@ -2708,6 +2784,24 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         rv.array = scratch(make_alloca(*O, alloc_point,
                                        Array_t::make(rv.type, as_expr(size)),
                                        queue.name + "_rest_" + rv.name));
+    }
+    // Whether each slot's iteration reached the call (see
+    // call_on_every_iteration): a byte per slot, cleared where the innermost
+    // producer loop's iteration begins and set beside the record's stores at
+    // the call.
+    shared_ptr<Value> ran_array;
+    if (rest_pass && !call_on_every_iteration) {
+        ran_array = scratch(make_alloca(*O, alloc_point,
+                                        Array_t::make(u8(), as_expr(size)),
+                                        queue.name + "_ran"));
+        const auto &innermost = std::get<Terminator::ParFor>(nest.back()->terminator.data);
+        const shared_ptr<Block> body = omap.at(innermost.body.name);
+        size_t at = body->instrs.size();
+        const shared_ptr<Value> index = slot_index_at(body, at);
+        auto place = body->make_instruction(Ptr_t::make(u8()), Instruction::Op::GEP,
+                                            {reach(body, ran_array), index});
+        body->make_side_effect(Instruction::Op::Store,
+                               {place, index_constant(u8(), 0)});
     }
     // The iteration's index into the record, at the producer's call, and the
     // path's result slot there: the value the producer's continuation reads
@@ -3131,6 +3225,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             case From::Index:
                 std::cerr << "the index of a producer loop, recomputed from "
                              "the pass's index";
+                break;
+            case From::Remat:
+                std::cerr << "arithmetic over the producer loops' indices, "
+                             "recomputed from the pass's index";
                 break;
             case From::Record:
                 std::cerr << "a value of the iteration, kept in the record";
@@ -3882,6 +3980,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 Instruction::Op::Store,
                 {place, reach(producer.block, rv.def.value)});
         }
+        if (ran_array) {
+            auto place = producer.block->make_instruction(
+                Ptr_t::make(u8()), Instruction::Op::GEP,
+                {reach(producer.block, ran_array), producer_index});
+            producer.block->make_side_effect(Instruction::Op::Store,
+                                             {place, index_constant(u8(), 1)});
+        }
         pcall.call.args.push_back(split ? reach(producer.block, queues)
                                         : queue_at(producer.block, constant_u32(0)));
         if (result_via_chain) {
@@ -4368,7 +4473,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                       << "\n";
         }
     }
-
     // exit: on to whatever followed the producer.
     exit->preds = {rounds ? header : exit_from};
     if (!rounds) {
@@ -4460,6 +4564,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
                 return own;
             };
+            // A value rematerializable (above) is rebuilt here from the
+            // pass's index: the same instructions over the producer loops'
+            // indices recomputed and the values in scope reached.
+            const std::function<shared_ptr<Value>(const Definition &)> rematerialize =
+                [&](const Definition &d) -> shared_ptr<Value> {
+                if (const optional<size_t> k = nest_index_of(d)) {
+                    return nest_index_at(*k);
+                }
+                if (available(d)) {
+                    return reach(run, d.value);
+                }
+                const Instruction &in =
+                    *std::get<shared_ptr<Instruction>>(d.value->data);
+                vector<shared_ptr<Value>> operands;
+                operands.reserve(in.operands.size());
+                for (const auto &operand : in.operands) {
+                    operands.push_back(rematerialize(settle(odefs.of(d.block, operand))));
+                }
+                return run->make_instruction(in.type, in.op, std::move(operands));
+            };
             vector<shared_ptr<Value>> onwards;
             if (keeps_result) {
                 auto place = run->make_instruction(
@@ -4485,6 +4609,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 case From::Index:
                     onwards.push_back(nest_index_at(c.record));
                     break;
+                case From::Remat:
+                    onwards.push_back(rematerialize(c.def));
+                    break;
                 case From::Record: {
                     const RecordValue &rv = record_values[c.record];
                     auto place = run->make_instruction(
@@ -4496,7 +4623,24 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
                 }
             }
-            run->terminator.data = Terminator::Jump{k0_entry->name, std::move(onwards)};
+            if (ran_array) {
+                // Only a slot whose iteration reached the call has a rest to
+                // run (call_on_every_iteration).
+                auto place = run->make_instruction(
+                    Ptr_t::make(u8()), Instruction::Op::GEP,
+                    {reach(run, ran_array), i});
+                auto ran = run->make_instruction(u8(), Instruction::Op::Load, {place});
+                auto skip = fresh_block(rest_name + "!skip");
+                skip->terminator.data = Terminator::Yield{};
+                skip->preds = {run};
+                run->terminator.data = Terminator::Dispatch{
+                    std::move(ran),
+                    {Terminator::Jump{skip->name},
+                     Terminator::Jump{k0_entry->name, std::move(onwards)}}};
+            } else {
+                run->terminator.data =
+                    Terminator::Jump{k0_entry->name, std::move(onwards)};
+            }
             k0_entry->preds = {run};
             // The rest ends the pass's iteration where it ended the
             // producer's; a return of the function's becomes a yield of the

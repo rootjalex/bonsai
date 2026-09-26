@@ -7,7 +7,7 @@ func run(out : mut i32[], n : u32) -> void {
   let @2 = 8u / @1 in
   let @3 = max(1u, @2) in
   let band = @3 << 1u in
-  alloc sums_rest_i : mut u32[band]
+  alloc sums_ran : mut u8[band]
   alloc sums_result : mut i32[band]
   alloc sums_k_0 : mut i32[band]
   alloc sums_acc_0 : mut i32[band]
@@ -20,17 +20,18 @@ func run(out : mut i32[], n : u32) -> void {
     sums!round : mut u32
     let @9 = n in
     let @8 = band in
-    let @13 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
-    sums_queue[0u] = @13
-    let @15 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
-    sums_queue[1u] = @15
+    let @14 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
+    sums_queue[0u] = @14
+    let @16 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
+    sums_queue[1u] = @16
     parfor i_in in [0u:@8:1u] {
       let @10 = i_band + i_in in
       let @11 = @10 < @9 in
+      sums_ran[i_in] = 0u
       if (@11) {
         let i = @10 in
         let @5 = cast<i32>(i) in
-        sums_rest_i[i_in] = @10
+        sums_ran[i_in] = 1u
         walk(@5, 0, (&sums_queue[0u]), (&sums_result[i_in]), i_in)
         continue
       } else {
@@ -39,35 +40,43 @@ func run(out : mut i32[], n : u32) -> void {
     }
     sums!round = 0u
     while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-      let @20 = (*sums!round) & 1u in
-      let @22 = sums_queue[(*sums!round) & 1u].count in
-      let @24 = @20 ^ 1u in
-      sums_queue[@24].count = 0u
-      parfor sums in [0u:@22:1u] {
-        let @25 = (&sums_queue[@24]) in
-        let @29 = sums_queue[@20].k in
-        let @30 = @29[sums] in
-        let @32 = sums_queue[@20].acc in
-        let @33 = @32[sums] in
-        let @35 = sums_queue[@20]._slot in
-        let @36 = @35[sums] in
-        walk(@30, @33, @25, (&sums_result[@36]), @36)
+      let @21 = (*sums!round) & 1u in
+      let @23 = sums_queue[(*sums!round) & 1u].count in
+      let @25 = @21 ^ 1u in
+      sums_queue[@25].count = 0u
+      parfor sums in [0u:@23:1u] {
+        let @26 = (&sums_queue[@25]) in
+        let @30 = sums_queue[@21].k in
+        let @31 = @30[sums] in
+        let @33 = sums_queue[@21].acc in
+        let @34 = @33[sums] in
+        let @36 = sums_queue[@21]._slot in
+        let @37 = @36[sums] in
+        walk(@31, @34, @26, (&sums_result[@37]), @37)
         continue
       }
-      let @19 = (*sums!round) + 1u in
-      sums!round = @19
+      let @20 = (*sums!round) + 1u in
+      sums!round = @20
     }
     parfor sums_rest in [0u:@8:1u] {
-      let @39 = sums_result[sums_rest] in
-      let @41 = sums_rest_i[sums_rest] in
-      let @6 = @39 in
-      let i = @41 in
-      out[i] = @6
-      continue
+      let @40 = sums_result[sums_rest] in
+      let @41 = i_band + sums_rest in
+      let @43 = sums_ran[sums_rest] in
+      switch (@43) {
+      case 0: {
+        continue
+      } break;
+      default: {
+        let @6 = @40 in
+        let i = @41 in
+        out[i] = @6
+        continue
+      }
+      }
     }
     continue
   }
-  free(sums_rest_i)
+  free(sums_ran)
   free(sums_result)
   free(sums_k_0)
   free(sums_acc_0)

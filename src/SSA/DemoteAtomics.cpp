@@ -28,6 +28,10 @@ bool is_accumulate(Instruction::Op op) {
 void DemoteAtomics::run(Function &f) {
     const std::map<std::string, std::vector<ParallelLoop>> enclosing =
         parallel_loops_by_block(f);
+    // For following a subscript that arrives as a block parameter back to
+    // what computed it (the pixel of a pass's rest, threaded through the
+    // blocks between the call and the film's add).
+    Origins origins(f);
 
     for (const auto &block : f.blocks) {
         const auto loops = enclosing.find(block->name);
@@ -44,8 +48,8 @@ void DemoteAtomics::run(Function &f) {
             // could not be shown either way, and an atomic that might be
             // needed has to stay -- being wrong here is a race, where being
             // cautious is only slow.
-            if (contention_of(instr->operands[0], loops->second) ==
-                Contention::Disjoint) {
+            if (contention_of(instr->operands[0], loops->second, &origins,
+                              block->name) == Contention::Disjoint) {
                 instr->atomic = false;
             }
         }

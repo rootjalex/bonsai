@@ -1,5 +1,14 @@
 #pragma once
 
+#include "SSA/Definitions.h"
+#include "SSA/SSA.h"
+
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
 // Whether two iterations that run at the same time can write the same place.
 //
 // This is the question an atomic accumulate exists to answer. A `parfor`
@@ -70,12 +79,33 @@ struct ParallelLoop {
 std::map<std::string, std::vector<ParallelLoop>>
 parallel_loops_by_block(const Function &f);
 
+// Where a subscript that reaches the analysis as a block parameter came from.
+// A pixel computed before a call and used after it arrives at the accumulate
+// as an argument threaded through every block between, and an argument by
+// itself says nothing; followed back through the jumps that pass it
+// (SSA/Definitions.h) it is the instruction that computed it, or a loop's
+// index, or a parameter of the function -- and the last two are independent
+// of any loop but their own. Built once per function by a caller that wants
+// the affine tier to see through parameters; without it a parameter is
+// opaque, which is the answer that keeps the atomic.
+struct Origins {
+    explicit Origins(const Function &f);
+    const Function &func;
+    Definitions defs;
+    // The first parameter of every parfor's body: the loops' indices.
+    std::set<std::string> loop_indices;
+};
+
 // Whether the address `ptr` is written by at most one concurrent iteration.
 //
 // `ptr` is the pointer operand of an accumulate: a chain of GEPs from some
-// base. `enclosing` is what the map above holds for the block it lives in.
+// base. `enclosing` is what the map above holds for the block it lives in;
+// `block` names that block and `origins` the function's, for following a
+// parameter of it back to its definition (both optional).
 Contention contention_of(const std::shared_ptr<Value> &ptr,
-                         const std::vector<ParallelLoop> &enclosing);
+                         const std::vector<ParallelLoop> &enclosing,
+                         Origins *origins = nullptr,
+                         const std::string &block = "");
 
 // The common case as a predicate, for callers that only want to know whether
 // they may drop the atomic. Unknown counts as unsafe.

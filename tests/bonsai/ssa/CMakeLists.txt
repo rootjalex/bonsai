@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS ssa
     FILES
+    accumulate-affine.bonsai
     address-across-call.bonsai
     alias-edges.bonsai
     calls.bonsai

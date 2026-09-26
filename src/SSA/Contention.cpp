@@ -54,9 +54,35 @@ bool same_value(const std::shared_ptr<Value> &a,
 // in every iteration, which settles contention in the other direction. Walking
 // def chains backwards is a graph traversal here where in a dataflow IR it
 // would be a fixed point.
+// The value `v` stands for as `block` refers to it, followed back through the
+// block parameters that pass it along (Origins), and the block that defines
+// it there. Without origins a parameter is itself.
+struct Resolved {
+    std::shared_ptr<Value> value;
+    std::string block;
+};
+
+Resolved resolve(const std::shared_ptr<Value> &v, const std::string &block,
+                 Origins *origins) {
+    if (origins == nullptr || !v || block.empty() ||
+        !std::holds_alternative<Argument>(v->data)) {
+        return {v, block};
+    }
+    const Definition d = origins->defs.of(block, v);
+    return {d.value ? d.value : v, d.value ? d.block : block};
+}
+
+std::string block_of(const Instruction *instr, const std::string &fallback) {
+    if (const auto owner = instr->owner.lock()) {
+        return owner->name;
+    }
+    return fallback;
+}
+
 bool depends_on(const std::shared_ptr<Value> &v,
                 const std::shared_ptr<Value> &target,
-                std::set<const void *> &seen) {
+                std::set<const void *> &seen, const std::string &block = "",
+                Origins *origins = nullptr) {
     if (!v) {
         return false;
     }
@@ -65,21 +91,155 @@ bool depends_on(const std::shared_ptr<Value> &v,
     }
     const Instruction *instr = as_instruction(v);
     if (instr == nullptr) {
-        // An argument that is not the target, or a constant. A block parameter
-        // could in principle carry the index in from a predecessor; treating
-        // that as independent is the unsafe direction, so callers only use
-        // this to *keep* an atomic, never to drop one.
+        // An argument that is not the target, or a constant. A block
+        // parameter may carry the index in from a predecessor: followed back
+        // to what it was threaded from when the caller gave the means
+        // (Origins); left as independent otherwise, which is the unsafe
+        // direction, so callers without origins only use this to *keep* an
+        // atomic, never to drop one.
+        const Resolved r = resolve(v, block, origins);
+        if (r.value != v) {
+            if (same_value(r.value, target)) {
+                return true;
+            }
+            if (as_instruction(r.value) != nullptr) {
+                return depends_on(r.value, target, seen, r.block, origins);
+            }
+        }
         return false;
     }
     if (!seen.insert(instr).second) {
         return false;
     }
+    const std::string here = block_of(instr, block);
     for (const auto &operand : instr->operands) {
-        if (depends_on(operand, target, seen)) {
+        if (depends_on(operand, target, seen, here, origins)) {
             return true;
         }
     }
     return false;
+}
+
+// Whether `v`, as `block` refers to it, is independent of `target`: a
+// constant; an instruction over independent operands; a parameter that
+// resolves to one of those, to another loop's index, or to a parameter of
+// the function. A parameter that resolves to a merge of different values is
+// not shown independent, which is the direction that keeps the atomic.
+bool free_of(const std::shared_ptr<Value> &v, const std::shared_ptr<Value> &target,
+             const std::string &block, Origins *origins,
+             std::set<const void *> &seen) {
+    if (!v || same_value(v, target)) {
+        return false;
+    }
+    if (std::holds_alternative<Constant>(v->data)) {
+        return true;
+    }
+    if (const Instruction *instr = as_instruction(v)) {
+        if (!seen.insert(instr).second) {
+            return true;
+        }
+        const std::string here = block_of(instr, block);
+        for (const auto &operand : instr->operands) {
+            if (!free_of(operand, target, here, origins, seen)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // A block parameter.
+    if (origins == nullptr) {
+        return false;
+    }
+    const Resolved r = resolve(v, block, origins);
+    if (r.value != v && as_instruction(r.value) != nullptr) {
+        return free_of(r.value, target, r.block, origins, seen);
+    }
+    if (std::holds_alternative<Constant>(r.value->data)) {
+        return true;
+    }
+    const auto *a = std::get_if<Argument>(&r.value->data);
+    if (a == nullptr || same_value(r.value, target)) {
+        return false;
+    }
+    if (origins->loop_indices.contains(a->name)) {
+        return true; // another loop's index
+    }
+    return r.block == origins->func.blocks.front()->name; // a parameter
+}
+
+// A non-zero integer constant, if `v` is one.
+bool nonzero_constant(const std::shared_ptr<Value> &v) {
+    if (!v) {
+        return false;
+    }
+    const auto *c = std::get_if<Constant>(&v->data);
+    if (c == nullptr) {
+        return false;
+    }
+    if (const auto *i = std::get_if<int64_t>(&c->data)) {
+        return *i != 0;
+    }
+    if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+        return *u != 0;
+    }
+    return false;
+}
+
+// Whether `v` is an injective function of `target` over the integers: the
+// index itself; a sum with, or difference by, something the index does not
+// reach (`p_band + p_in`, `i - start`); a product or left shift by a
+// non-zero constant (`i * 4`, `i << 2`); a cast of one to a type at least as
+// wide. Distinct iterations of the loop then give distinct values, which is
+// what makes the elements they subscript distinct. Wrapping is not
+// considered: an index that overflows its type addresses nothing sensible.
+bool injective_in(const std::shared_ptr<Value> &v,
+                  const std::shared_ptr<Value> &target, const std::string &block,
+                  Origins *origins) {
+    if (same_value(v, target)) {
+        return true;
+    }
+    const Instruction *instr = as_instruction(v);
+    if (instr == nullptr) {
+        // A block parameter: what it was threaded from, if that can be found.
+        const Resolved r = resolve(v, block, origins);
+        if (r.value != v && as_instruction(r.value) != nullptr) {
+            return injective_in(r.value, target, r.block, origins);
+        }
+        return false;
+    }
+    if (instr->operands.empty()) {
+        return false;
+    }
+    const std::string here = block_of(instr, block);
+    const auto independent = [&](const std::shared_ptr<Value> &x) {
+        std::set<const void *> seen;
+        return free_of(x, target, here, origins, seen);
+    };
+    const auto injective = [&](const std::shared_ptr<Value> &x) {
+        return injective_in(x, target, here, origins);
+    };
+    const auto &ops = instr->operands;
+    switch (instr->op) {
+    case Instruction::Op::Add:
+        return ops.size() == 2 && ((injective(ops[0]) && independent(ops[1])) ||
+                                   (independent(ops[0]) && injective(ops[1])));
+    case Instruction::Op::Sub:
+        return ops.size() == 2 && injective(ops[0]) && independent(ops[1]);
+    case Instruction::Op::Mul:
+        return ops.size() == 2 && ((injective(ops[0]) && nonzero_constant(ops[1])) ||
+                                   (nonzero_constant(ops[0]) && injective(ops[1])));
+    case Instruction::Op::Shl:
+        return ops.size() == 2 && injective(ops[0]) &&
+               std::get_if<Constant>(&ops[1]->data) != nullptr;
+    case Instruction::Op::Cast: {
+        const Type from = ops[0]->get_type();
+        const Type to = instr->type;
+        return ops.size() == 1 && from.is_int() && to.is_int() &&
+               to.bytes() >= from.bytes() && injective(ops[0]);
+    }
+    default:
+        return false;
+    }
 }
 
 // The index operands of the GEP chain that produced `ptr`, outermost first,
@@ -199,8 +359,26 @@ parallel_loops_by_block(const Function &f) {
     return enclosing;
 }
 
+Origins::Origins(const Function &f) : func(f), defs(f, /*lenient=*/true) {
+    std::map<std::string, std::shared_ptr<Block>> by_name;
+    for (const auto &block : f.blocks) {
+        by_name[block->name] = block;
+    }
+    for (const auto &block : f.blocks) {
+        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (p == nullptr) {
+            continue;
+        }
+        const auto body = by_name.find(p->body.name);
+        if (body != by_name.end() && !body->second->args.empty()) {
+            loop_indices.insert(body->second->args.front().name);
+        }
+    }
+}
+
 Contention contention_of(const std::shared_ptr<Value> &ptr,
-                         const std::vector<ParallelLoop> &enclosing) {
+                         const std::vector<ParallelLoop> &enclosing,
+                         Origins *origins, const std::string &block) {
     if (enclosing.empty()) {
         // Nothing runs concurrently, so nothing collides.
         return Contention::Disjoint;
@@ -237,13 +415,14 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
         // it is the case where an accumulate without `atomic` is a race rather
         // than merely unproven.
         std::set<const void *> seen;
-        bool mentions = depends_on(address.base, loop.index_value, seen);
+        bool mentions =
+            depends_on(address.base, loop.index_value, seen, block, origins);
         for (const auto &index : address.indices) {
             if (mentions) {
                 break;
             }
             seen.clear();
-            mentions = depends_on(index, loop.index_value, seen);
+            mentions = depends_on(index, loop.index_value, seen, block, origins);
         }
         if (!mentions) {
             // Every iteration of this loop lands on the same address. Note
@@ -255,13 +434,23 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
             continue;
         }
 
-        // Tier three: derived from the index by arithmetic -- `out[i / 2]`,
-        // `out[permutation[i]]`. Whether that is injective over the loop's
-        // iteration space is an arithmetic question this does not attempt.
-        // An affine test would slot in here, using the bounds the loop carries
-        // and the def chain reaching the subscript; anything non-affine stays
-        // Unknown, which is the answer that costs speed rather than
-        // correctness.
+        // Tier three, affine: a subscript that is the index moved by
+        // something the index does not reach -- `p_band + p_in`, the pixel
+        // of a band's continuation; `i * 4 + c` -- takes distinct values on
+        // distinct iterations, so the elements are distinct too (see
+        // injective_in). What else is derived from the index by arithmetic
+        // -- `out[i / 2]`, `out[permutation[i]]` -- stays Unknown, which is
+        // the answer that costs speed rather than correctness.
+        bool affine = false;
+        for (const auto &index : address.indices) {
+            if (injective_in(index, loop.index_value, block, origins)) {
+                affine = true;
+                break;
+            }
+        }
+        if (affine) {
+            continue;
+        }
         all_disjoint = false;
     }
 

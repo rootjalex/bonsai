@@ -1,0 +1,29 @@
+//! flags: -p ssa
+
+// An atomic accumulate under a bound parfor keeps its lock only when two
+// iterations may land on the same element (SSA/Contention.h). A subscript
+// that is the index moved or scaled -- `i + off`, `i * 2` -- takes distinct
+// values on distinct iterations, so those two are plain adds; `perm[i]` may
+// repeat, so that one stays atomic. `k` is `i + off` computed before a
+// branch and used after it, so it reaches the accumulate as a parameter of
+// the merge block, which the analysis follows back to the add. What to read
+// for: four `+=` without `atomic` and one with.
+
+func run(out : mut array[f32], hist : mut array[f32], perm : array[u32],
+         x : array[f32], n : u32, off : u32) -> void {
+    parfor i in 0u:n {
+        atomic out[i + off] += 1.0;
+        atomic out[i * 2u] += 2.0;
+        atomic hist[perm[i]] += 1.0;
+        k = i + off + 1u;
+        if x[i] > 0.0 {
+            atomic hist[i] += x[i];
+        }
+        atomic out[k] += 3.0;
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, CPUThread);
+}
