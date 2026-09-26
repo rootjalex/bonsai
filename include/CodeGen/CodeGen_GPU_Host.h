@@ -63,6 +63,7 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     using CodeGen_CPU::codegen_type;
     using CodeGen_CPU::context;
     using CodeGen_CPU::create_alloca_at_entry;
+    using CodeGen_CPU::device_resident;
     using CodeGen_CPU::exported_buffers;
     using CodeGen_CPU::i64_t;
     using CodeGen_CPU::layout_descriptors;
@@ -75,8 +76,15 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     // How many bytes the memory a kernel capture points at occupies: what
     // the launch hands the runtime to copy. An error for a pointee that
     // itself holds pointers, which is a structure the layout language owns
-    // and will place on the device itself.
-    llvm::Value *capture_bytes(const ir::Type &type, const std::string &name);
+    // and will place on the device itself -- unless those pointers are
+    // device allocations' already (`pointers_are_device`), a queue's header.
+    llvm::Value *capture_bytes(const ir::Type &type, const std::string &name,
+                               bool pointers_are_device = false);
+    // Whether every address stored into the allocation `captured` names is
+    // a device-resident allocation's (CodeGen_LLVM::device_resident), so the
+    // allocation may cross to the device as it is.
+    bool pointers_stored_are_device(const ir::ssa::Function &func,
+                                    const std::shared_ptr<ir::ssa::Value> &captured);
 
     // The program and options being compiled, for the device module, which
     // is opened on the first bound loop part-way through compile_program.

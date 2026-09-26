@@ -52,6 +52,10 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         };
         define("bonsai_cuda_launch", &bonsai_cuda_launch);
         define("bonsai_cuda_load", &bonsai_cuda_load);
+        // Device memory for the allocations only kernels touch (see
+        // CodeGen_LLVM::device_resident).
+        define("bonsai_cuda_malloc", &bonsai_cuda_malloc);
+        define("bonsai_cuda_free", &bonsai_cuda_free);
         // An exported function's prologue calls these; under the JIT nothing
         // calls the exported entry (main calls its internal twin), but the
         // entry is in the module and has to link.

@@ -1,0 +1,37 @@
+//! flags: -p ssa -b ptx
+
+// A queue whose producer and drains are kernels (correctness/gpu/defer-device
+// runs it). What to read for: three kernels -- the producer over `i`, the
+// drain over `sums`, the pass over `sums_rest` -- each reading the queue's
+// arrays through the header it is handed and the record's arrays directly,
+// with no copy of either around the launches: the arrays live on the device
+// (CodeGen_LLVM::device_resident), and the host holds the header alone.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

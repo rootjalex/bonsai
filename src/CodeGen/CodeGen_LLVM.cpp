@@ -4580,9 +4580,27 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
 
-        rhs = (node->memory == Allocate::Memory::Stack)
-                  ? create_alloca_at_entry(etype, name, size)
-                  : create_malloc(etype, size, /*zero_initialize=*/false, name);
+        if (node->memory == Allocate::Memory::Device) {
+            // Device memory (see device_resident): `bonsai_cuda_malloc(bytes)`
+            // from runtime/bonsai_cuda.h, whose return is the device address,
+            // held by the host as a pointer it never dereferences.
+            llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
+            llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+            llvm::Value *bytes = builder->CreateMul(
+                builder->CreateIntCast(size, i64, array_t->size.type().is_int()),
+                llvm::ConstantInt::get(
+                    i64, module->getDataLayout().getTypeAllocSize(etype)),
+                name + "_bytes");
+            llvm::FunctionCallee device_malloc = module->getOrInsertFunction(
+                "bonsai_cuda_malloc",
+                llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
+            rhs = builder->CreateCall(device_malloc, {bytes}, name);
+        } else {
+            rhs = (node->memory == Allocate::Memory::Stack)
+                      ? create_alloca_at_entry(etype, name, size)
+                      : create_malloc(etype, size, /*zero_initialize=*/false,
+                                      name);
+        }
     }
     // Anything else with no initial value just declares storage, which is
     // left uninitialized until something stores to it. The SSA pipeline
@@ -4621,7 +4639,48 @@ void CodeGen_LLVM::visit(const Free *node) {
     llvm::Value *storage = codegen_expr(node->value);
     internal_assert(storage->getType()->isPointerTy())
         << "free of a value that is not storage: " << Stmt(node);
+    // Storage the Allocate visitor made on the device (device_resident) goes
+    // back through the CUDA runtime.
+    const Var *named = node->value.as<Var>();
+    if (named != nullptr && device_resident.contains(named->name)) {
+        llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+        llvm::FunctionCallee device_free = module->getOrInsertFunction(
+            "bonsai_cuda_free",
+            llvm::FunctionType::get(void_t, {ptr}, /*isVarArg=*/false));
+        builder->CreateCall(device_free, {storage});
+        return;
+    }
     builder->CreateFree(storage);
+}
+
+std::optional<std::string>
+CodeGen_LLVM::allocation_of(const std::shared_ptr<ir::ssa::Value> &v,
+                            const std::set<std::string> &allocations) {
+    using ir::ssa::Instruction;
+    std::shared_ptr<ir::ssa::Value> cursor = v;
+    for (int depth = 0; cursor && depth < 64; depth++) {
+        if (const auto *a = std::get_if<ir::ssa::Argument>(&cursor->data)) {
+            return allocations.contains(a->name) ? std::optional<std::string>(a->name)
+                                                 : std::nullopt;
+        }
+        const auto *instr = std::get_if<std::shared_ptr<Instruction>>(&cursor->data);
+        if (instr == nullptr) {
+            return std::nullopt;
+        }
+        const Instruction &in = **instr;
+        if (in.op == Instruction::Op::Alloc || in.op == Instruction::Op::Alloca) {
+            return allocations.contains(in.name) ? std::optional<std::string>(in.name)
+                                                 : std::nullopt;
+        }
+        if ((in.op == Instruction::Op::GEP || in.op == Instruction::Op::FieldPtr ||
+             in.op == Instruction::Op::AddressOf || in.op == Instruction::Op::Cast) &&
+            !in.operands.empty()) {
+            cursor = in.operands[0];
+            continue;
+        }
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 void CodeGen_LLVM::visit(const Store *node) {

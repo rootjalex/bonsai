@@ -151,10 +151,67 @@ bool holds_pointers(const Type &type) {
 
 } // namespace
 
+// Whether every address stored into the allocation `captured` names -- as
+// the value of a store into it, or a field of a struct stored into it -- is
+// a device-resident allocation's (CodeGen_LLVM::device_resident), so that
+// a copy of it on the device points at device memory. A queue's header is
+// the case: `make_struct<Queue_q>(0, arrays...)` stored into it, every
+// array device-resident. A constant (an undefined handle for an array the
+// drain never reads) passes. False for anything that is not an allocation
+// of the function, or has no store into it, or is filled from something
+// else.
+template <typename CodeGen_CPU>
+bool CodeGen_GPU_Host<CodeGen_CPU>::pointers_stored_are_device(
+    const ir::ssa::Function &func, const std::shared_ptr<Value> &captured) {
+    std::set<std::string> allocations;
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op == Instruction::Op::Alloc ||
+                instr->op == Instruction::Op::Alloca) {
+                allocations.insert(instr->name);
+            }
+        }
+    }
+    const std::optional<std::string> header =
+        CodeGen_LLVM::allocation_of(captured, allocations);
+    if (!header.has_value()) {
+        return false;
+    }
+    const auto device_address = [&](const std::shared_ptr<Value> &v) {
+        if (std::holds_alternative<ir::ssa::Constant>(v->data)) {
+            return true; // undefined, or null
+        }
+        return CodeGen_LLVM::allocation_of(v, device_resident).has_value();
+    };
+    bool any = false;
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op != Instruction::Op::Store || instr->operands.size() != 2 ||
+                CodeGen_LLVM::allocation_of(instr->operands[0], allocations) != header) {
+                continue;
+            }
+            any = true;
+            const std::shared_ptr<Value> &stored = instr->operands[1];
+            const auto *made = std::get_if<std::shared_ptr<Instruction>>(&stored->data);
+            if (made != nullptr && (*made)->op == Instruction::Op::MakeStruct) {
+                for (const auto &field : (*made)->operands) {
+                    if (holds_pointers(field->get_type()) && !device_address(field)) {
+                        return false;
+                    }
+                }
+            } else if (holds_pointers(stored->get_type()) && !device_address(stored)) {
+                return false;
+            }
+        }
+    }
+    return any;
+}
+
 template <typename CodeGen_CPU>
 llvm::Value *
 CodeGen_GPU_Host<CodeGen_CPU>::capture_bytes(const Type &type,
-                                             const std::string &name) {
+                                             const std::string &name,
+                                             bool pointers_are_device) {
     const llvm::DataLayout &dl = module->getDataLayout();
     Type pointee;
     llvm::Value *count = nullptr;
@@ -185,16 +242,21 @@ CodeGen_GPU_Host<CodeGen_CPU>::capture_bytes(const Type &type,
                        << " is not something a kernel is handed by address";
     }
     // A pointee with addresses in it -- a tree's layout, whose node arrays
-    // its struct points at; a queue's arrays -- is a structure the layout
-    // language owns, and moving it to the device means moving what it points
-    // at too. That placement is the layout's to make (see apps/pbrt/PLAN.md,
-    // "Where the data lives"); a copy of the top-level struct would be a
-    // device pointer to host memory.
-    internal_assert(!holds_pointers(pointee))
+    // its struct points at; a queue's header, holding its arrays' handles
+    // -- is a structure the layout language owns, and moving it to the
+    // device means moving what it points at too. That placement is the
+    // layout's to make (see apps/pbrt/PLAN.md, "Where the data lives"),
+    // unless the addresses in it are already the device's: a header whose
+    // every stored handle is a device-resident allocation's
+    // (pointers_stored_are_device) crosses as it is, and its copy on the
+    // device points at device memory. Otherwise a copy of the top-level
+    // struct would be a device pointer to host memory.
+    internal_assert(!holds_pointers(pointee) || pointers_are_device)
         << "[unimplemented] the loop bound to the GPU reads `" << name
         << "` of type " << type << ", whose elements hold pointers of their "
-        << "own. Only the top level of it would reach the device; placing "
-        << "what it points at is the layout's job and is not built yet.";
+        << "own that are not device allocations. Only the top level of it "
+        << "would reach the device; placing what it points at is the "
+        << "layout's job and is not built yet.";
     const uint64_t element_bytes = dl.getTypeAllocSize(codegen_type(pointee));
     return builder->CreateMul(count,
                               llvm::ConstantInt::get(i64_t, element_bytes),
@@ -373,10 +435,25 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
                 slot_types[i], codegen_expr(arg_exprs[i]), arg_names[i]);
         } else {
             slot_values[i] = codegen_expr(arg_exprs[i]);
-            if (i >= 2 && arg_types[i].template is<Array_t, Ptr_t>()) {
-                copies.push_back({i, slot_values[i],
-                                  capture_bytes(arg_types[i], arg_names[i])});
+            if (i < 2 || !arg_types[i].template is<Array_t, Ptr_t>()) {
+                continue;
             }
+            const std::shared_ptr<Value> &captured = p.body.args[slot_arg[i] - 1];
+            // An allocation that lives on the device (see
+            // CodeGen_LLVM::device_resident) is handed over as the device
+            // address it already is; nothing to copy.
+            if (CodeGen_LLVM::allocation_of(captured, device_resident).has_value()) {
+                continue;
+            }
+            // A struct with addresses in it -- a queue's header, holding its
+            // arrays' handles -- may cross when every address stored into it
+            // is a device allocation's: the copy on the device then points
+            // at device memory. Checked at the stores that fill it.
+            const bool device_pointers_inside =
+                pointers_stored_are_device(loop.func, captured);
+            copies.push_back({i, slot_values[i],
+                              capture_bytes(arg_types[i], arg_names[i],
+                                            device_pointers_inside)});
         }
     }
     auto *buffers_ty = llvm::ArrayType::get(buffer_ty, copies.size());

@@ -34,6 +34,7 @@ add_bonsai_tests(
     blocks.bonsai
     blocks-threads.bonsai
     buffers-cpp.bonsai
+    defer-device.bonsai
     device-function.bonsai
     dynamic-size.bonsai
     math.bonsai

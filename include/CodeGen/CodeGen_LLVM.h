@@ -214,6 +214,27 @@ struct CodeGen_LLVM : public ir::Visitor {
     };
     // By parameter name, for the function being compiled.
     std::map<std::string, ExportedBuffer> exported_buffers;
+    // The allocations of the function being compiled that live on the
+    // device: the host never reads or writes through them -- every load,
+    // store, accumulate and atomic on them, and every call handed them, is
+    // inside a loop bound to the GPU -- and some kernel does. What the host
+    // does with one is pass its address along: into a struct it builds (a
+    // queue's header), to a launch, to `free`. A queue's arrays are the
+    // case (SSA/Defer.cpp): the drains that fill and empty them are
+    // kernels, and the host owns the header and reads its count. Made with
+    // bonsai_cuda_malloc rather than malloc (the Allocate visitor), freed
+    // with bonsai_cuda_free, and handed to a kernel as the device address
+    // they are, never copied around a launch (CodeGen_GPU_Host). Computed by
+    // the SSA lowering before it emits the function
+    // (SSALowering::device_resident_allocations); by instruction name, which
+    // a value keeps when it is threaded to another block as an argument.
+    std::set<std::string> device_resident;
+    // The allocation an address is of -- through address arithmetic (GEP,
+    // a field's pointer, address-of, a cast) and the name a threaded block
+    // argument keeps -- if it is one of `allocations`; none otherwise.
+    static std::optional<std::string>
+    allocation_of(const std::shared_ptr<ir::ssa::Value> &v,
+                  const std::set<std::string> &allocations);
     // `bonsai_buffer_require(descriptor, side)`: the pointer for that side.
     llvm::Value *buffer_require(llvm::Value *descriptor, bool device);
     // `bonsai_buffer_mark_dirty(descriptor, side)`.

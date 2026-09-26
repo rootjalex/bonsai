@@ -581,9 +581,12 @@ struct CodeGen_LLVM::SSALowering {
                     << "Alloc(a) must have pointer type: " << instr->type;
                 allocated = ptr_t->etype;
             }
+            // On the device when only kernels read or write it (see
+            // CodeGen_LLVM::device_resident).
             const Allocate::Memory memory =
-                instr->op == Instruction::Op::Alloca ? Allocate::Stack
-                                                     : Allocate::Heap;
+                cg.device_resident.contains(instr->name)  ? Allocate::Device
+                : instr->op == Instruction::Op::Alloca ? Allocate::Stack
+                                                       : Allocate::Heap;
             // In a block that runs once per call, a run-time size computed
             // there may size the allocation in place (see once_blocks).
             const std::shared_ptr<Block> home = instr->owner.lock();
@@ -1256,6 +1259,175 @@ struct CodeGen_LLVM::SSALowering {
         return uses;
     }
 
+    // The function's allocations that live on the device (see
+    // CodeGen_LLVM::device_resident): the ones some loop bound to the GPU
+    // reads or writes through, and the host never does. A read or write is a
+    // load, a store, an accumulate, an atomic, an element read of an array,
+    // an intrinsic or a print handed the address, a call handed it, a return
+    // of it -- in the block it sits in, which is the device's inside a bound
+    // loop's body and the host's anywhere else. Storing the address itself
+    // into another allocation, building a struct with it, address
+    // arithmetic on it and freeing it are not reads of what it points at,
+    // and are what the host does with a queue's arrays.
+    std::set<std::string> device_resident_allocations() {
+        std::set<std::string> allocations;
+        for (const auto &block : func.blocks) {
+            for (const auto &instr : block->instrs) {
+                if (instr->op == Instruction::Op::Alloc ||
+                    instr->op == Instruction::Op::Alloca) {
+                    allocations.insert(instr->name);
+                }
+            }
+        }
+        std::set<std::string> device_blocks;
+        for (const auto &block : func.blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p != nullptr && p->binding.has_value() &&
+                (*p->binding == Resource::GPUBlock ||
+                 *p->binding == Resource::GPUThread)) {
+                for (const std::string &b : region_of(p->body.name)) {
+                    device_blocks.insert(b);
+                }
+            }
+        }
+        if (allocations.empty() || device_blocks.empty()) {
+            return {};
+        }
+        std::set<std::string> host_touched, device_touched;
+        const auto note = [&](const std::shared_ptr<Value> &v, bool device) {
+            if (const auto name = CodeGen_LLVM::allocation_of(v, allocations)) {
+                (device ? device_touched : host_touched).insert(*name);
+            }
+        };
+        for (const auto &block : func.blocks) {
+            const bool device = device_blocks.contains(block->name);
+            for (const auto &instr : block->instrs) {
+                switch (instr->op) {
+                case Instruction::Op::Load:
+                case Instruction::Op::Store:
+                case Instruction::Op::AtomicAdd:
+                case Instruction::Op::Append:
+                case Instruction::Op::AccAdd:
+                case Instruction::Op::AccMul:
+                case Instruction::Op::AccSub:
+                case Instruction::Op::AccMin:
+                case Instruction::Op::AccMax:
+                case Instruction::Op::AccArgmin:
+                case Instruction::Op::AccArgmax:
+                    if (!instr->operands.empty()) {
+                        note(instr->operands[0], device);
+                    }
+                    break;
+                case Instruction::Op::ExtractIdx:
+                    if (!instr->operands.empty() &&
+                        instr->operands[0]->get_type().is_reference()) {
+                        note(instr->operands[0], device);
+                    }
+                    break;
+                case Instruction::Op::Intrinsic:
+                case Instruction::Op::Print:
+                    for (const auto &operand : instr->operands) {
+                        note(operand, device);
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+            std::visit(
+                ir::ssa::overloads{
+                    [&](const Terminator::Call &c) {
+                        for (const auto &a : c.call.args) {
+                            note(a, device);
+                        }
+                    },
+                    [&](const Terminator::MultiCall &c) {
+                        for (const auto &a : c.call.args) {
+                            note(a, device);
+                        }
+                        for (const auto &one : c.varying) {
+                            for (const auto &a : one) {
+                                note(a, device);
+                            }
+                        }
+                    },
+                    [&](const Terminator::Return &r) {
+                        if (r.value) {
+                            note(r.value, device);
+                        }
+                    },
+                    [](const auto &) {},
+                },
+                block->terminator.data);
+        }
+        // What a kernel is handed reaches the device, and so does every
+        // address stored into it: a queue's arrays are read through the
+        // header the kernel is handed, whose handles it loads from its copy
+        // there, so the arrays are touched by the device though no kernel
+        // names them. A fixed point over the stores, since a structure may
+        // hold a structure.
+        std::set<std::string> reachable;
+        for (const auto &block : func.blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p == nullptr || !device_blocks.contains(p->body.name)) {
+                continue;
+            }
+            for (const auto &a : p->body.args) {
+                if (const auto name = CodeGen_LLVM::allocation_of(a, allocations)) {
+                    reachable.insert(*name);
+                }
+            }
+        }
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (const auto &block : func.blocks) {
+                for (const auto &instr : block->instrs) {
+                    if (instr->op != Instruction::Op::Store ||
+                        instr->operands.size() != 2) {
+                        continue;
+                    }
+                    const auto into =
+                        CodeGen_LLVM::allocation_of(instr->operands[0], allocations);
+                    if (!into.has_value() || !reachable.contains(*into)) {
+                        continue;
+                    }
+                    std::vector<std::shared_ptr<Value>> stored{instr->operands[1]};
+                    const auto *made =
+                        std::get_if<std::shared_ptr<Instruction>>(&stored[0]->data);
+                    if (made != nullptr && (*made)->op == Instruction::Op::MakeStruct) {
+                        stored = (*made)->operands;
+                    }
+                    for (const auto &v : stored) {
+                        if (const auto name = CodeGen_LLVM::allocation_of(v, allocations)) {
+                            grew = reachable.insert(*name).second || grew;
+                        }
+                    }
+                }
+            }
+        }
+        for (const std::string &name : reachable) {
+            device_touched.insert(name);
+        }
+        std::set<std::string> resident;
+        for (const std::string &name : device_touched) {
+            if (!host_touched.contains(name)) {
+                resident.insert(name);
+            }
+        }
+        if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+            std::cerr << "; " << entry() << ": device-resident allocations:";
+            for (const std::string &name : resident) {
+                std::cerr << " " << name;
+            }
+            std::cerr << "; host-touched:";
+            for (const std::string &name : host_touched) {
+                std::cerr << " " << name;
+            }
+            std::cerr << "\n";
+        }
+        return resident;
+    }
+
     void run() {
         // Only what the entry can reach, in dominance order: a definition
         // dominates its uses, so reverse postorder binds a value before it is
@@ -1265,6 +1437,7 @@ struct CodeGen_LLVM::SSALowering {
         for (const auto &block : func.blocks) {
             by_name[block->name] = block.get();
         }
+        cg.device_resident = device_resident_allocations();
 
         cg.frames.push_frame();
         llvm::BasicBlock *entry_bb =

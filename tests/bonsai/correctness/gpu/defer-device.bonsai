@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue whose producer and drains are kernels: the queue's arrays and the
+// record's live on the device (CodeGen_LLVM::device_resident) -- allocated
+// once with bonsai_cuda_malloc, handed to each launch as the device address
+// they are, never copied -- while the queue's header, which the host reads
+// the count from between rounds, travels with each launch and comes back.
+// The same program as correctness/llvm/defer-frame on the CPU: walk(i) sums
+// 1..i, deferred through the queue, the result written into out[i] by the
+// pass after the rounds.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {0, 1, 3, 6, 10, 15, 21, 28}
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}
