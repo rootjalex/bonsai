@@ -2074,9 +2074,15 @@ int main(int argc, char **argv) {
     const auto render_and_write =
         [&](const Sampler &sampler, const Integrator &integrator,
             const std::string &output) -> std::optional<double> {
-    bonsai_buffer_stage_all(render_buffers, render_sides, render_buffer_count);
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
+        // Before each repeat, not once before them all: a repeat's kernels
+        // leave the film current on the device only, and the next call
+        // asks for it on the host as it starts (the host may touch it: an
+        // integrator this scene does not use zeroes it there), which under
+        // --no-implicit-copies is a fault rather than a copy.
+        bonsai_buffer_stage_all(render_buffers, render_sides,
+                                render_buffer_count);
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,

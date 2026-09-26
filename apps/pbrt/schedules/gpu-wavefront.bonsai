@@ -1,0 +1,120 @@
+// pbrt's GPU wavefront (`pbrt --gpu`) for volpath, without the RT cores
+// yet: the same kernels, queues and passes as wavefront-frame.bonsai -- pbrt's
+// order, pbrt's band of scanlines, one shared queue per stage with one
+// atomic per push -- with every kernel a GPU launch. Each kernel's loop is
+// cut into blocks of 256 threads (pbrt's GPUParallelFor launches
+// `blockSize` threads per block, from the occupancy calculator, over
+// `maxQueueSize`), the band loop and the round loop stay on the host and
+// launch, as pbrt's `WavefrontPathIntegrator::Render` does, and the
+// traversal is the loop over a stack of 64 in each thread's local memory
+// (gpu.bonsai) until `bind(trace, RTCore)` puts it on the RT cores.
+//
+// What the queues become: the storage the schedule hoists out of the
+// sample loop (SSA/HoistAllocations.h) is device memory, allocated once per
+// render call, since every loop that touches it is a kernel; the queue
+// headers -- the count, the array handles -- travel with each launch and
+// come back, so the host's round loop reads a count the device wrote (see
+// CodeGen_LLVM::device_resident). A drain whose queue is empty this round
+// launches nothing.
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+    render[VolPath].reorder(p, s);
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
+
+    rays = render[VolPath].queue(p_band);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+
+    medium_samples = render[VolPath].queue(p_band);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_band);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(p_band);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_band);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_band);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p_band);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+
+    // Every kernel over blocks of 256 threads: the camera rays over a band's
+    // pixels (and the prologue's zeroing), each drain over its count, the
+    // film pass and the finalization. The loops named are the ones
+    // wavefront-frame.bonsai binds to CPUThread.
+    render.split(p_in, p_blk, p_thr, 256, true);
+    render.bind(p_blk, GPUBlock);
+    render.bind(p_thr, GPUThread);
+    render.split(rays, rays_blk, rays_thr, 256, true);
+    render.bind(rays_blk, GPUBlock);
+    render.bind(rays_thr, GPUThread);
+    render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
+    render.bind(medium_samples_blk, GPUBlock);
+    render.bind(medium_samples_thr, GPUThread);
+    render.split(medium_scatters, medium_scatters_blk, medium_scatters_thr, 256, true);
+    render.bind(medium_scatters_blk, GPUBlock);
+    render.bind(medium_scatters_thr, GPUThread);
+    render.split(escaped, escaped_blk, escaped_thr, 256, true);
+    render.bind(escaped_blk, GPUBlock);
+    render.bind(escaped_thr, GPUThread);
+    render.split(emissive, emissive_blk, emissive_thr, 256, true);
+    render.bind(emissive_blk, GPUBlock);
+    render.bind(emissive_thr, GPUThread);
+    render.split(hits, hits_blk, hits_thr, 256, true);
+    render.bind(hits_blk, GPUBlock);
+    render.bind(hits_thr, GPUThread);
+    render.split(shadow, shadow_blk, shadow_thr, 256, true);
+    render.bind(shadow_blk, GPUBlock);
+    render.bind(shadow_thr, GPUThread);
+    render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
+    render.bind(rays_rest_blk, GPUBlock);
+    render.bind(rays_rest_thr, GPUThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    // pbrt's image textures on the GPU are CUDA texture objects
+    // (`cudaTextureObject_t`, gpu/textures.cpp), filtered by the texture
+    // units; as gpu.bonsai has it.
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

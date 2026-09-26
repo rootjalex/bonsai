@@ -6823,6 +6823,326 @@ resolution first. Wavelength sampling costs pbrt ~10 thread-s (its
 `atanhf`/`coshf` reach glibc's `log1pf`/`expm1f`/`expf`) against our
 ~2.2 inline.
 
+**The push, measured without skid (2026-09-25, later).** The user's
+questions on the "3x push cost": is it more time or more *relative* time,
+and is pbrt not contending on the same counter with the same 32 threads?
+Answered with AMD's instruction-based sampling (`perf record -e ibs_op//`),
+which tags the op itself rather than the one retiring behind a stall, on
+killeroo 32 spp, both binaries:
+
+    ours  camera kernel 12.9% of samples: 57% of it on the two instructions
+          after `lock xaddl` on the ray queue's count (2.7% on the lock)
+          material kernel 27.9%: 14% on the instruction after its xadd
+          trace kernel 39.5%: its xadd 0.00%
+    pbrt  PushCameraRay 0.43%, PushIndirectRay 0.52%, EnqueueWorkAfter-
+          Intersection 1.45%; its camera lambda 1.5% (the 88% `divq` of
+          the cycles profile was skid), nothing after its xadds
+
+So in absolute terms: ours ~15 thread-s at the camera push and ~8 at the
+material kernel's, pbrt ~5 thread-s across all its pushes -- more time,
+not only a larger share, for the same number of pushes onto the same kind
+of counter. pbrt's push code is the same shape as ours (its
+`PushCameraRay` is `lock xadd` then ~20 pointer loads from `this` and ~20
+stores; ours is the xadd, 17 handle loads and ~24 stores). What differs
+is the *rate*: a shared counter serializes at one increment per
+cross-die line transfer, and 32 threads each pushing every ~2 µs saturate
+it, while pbrt's threads arrive at a third of the rate because everything
+else in its camera and material kernels is slower. Our trace kernel,
+whose per-entry work is long, shows the same counter at zero cost. The
+8-core run confirmed it: on one CCD the material kernel's post-xadd
+share fell from 14% to 5.7%, and the whole render was *faster* --
+
+    threads (taskset)   ours     pbrt --wavefront
+    8   cores 0-7       5.46 s   12.0 s
+    16  cores 0-15      8.15 s   15.0 s   (both dies, no SMT)
+    16  cores 0-7,16-23 4.76 s      --    (one die, SMT)
+    32  all             6.54 s   11.5 s
+
+-- one die with SMT beats all 32 threads by 1.4x for us, and both
+renderers are slowest on 16 cores spread across the two dies. The
+queues' cache lines bounce between the dies: the counter, and the
+slot-interleaved entry stores. This is the cost that per-thread staging
+of pushes (above) removes, and the reason it is worth a schedule. It is
+also a note for the comparison: both sides are measured on all 32 threads,
+their default, where both leave time on the table.
+
+**The fixes, one at a time (2026-09-25, later).** The user's list from
+the per-stage comparison, each built on its own, checked bit for bit
+against the images before it, and measured against `pbrt --wavefront` on
+killeroo-simple, killeroo-gold and book at 16 and 64 spp (the user's
+protocol; scratchpad bench.sh: pbrt best of three once per cell, ours
+best of three per build, the image checked against pbrt's every time).
+The baseline, before any of them, at (16, 64) spp:
+
+    killeroo-simple 1.71x 1.72x   killeroo-gold 1.67x 1.65x   book 1.61x 1.65x
+
+pbrt's times: killeroo-simple 5.50 / 22.0 s, killeroo-gold 16.5 / 64.5 s,
+book 20.0 / 80.5 s.
+
+1. *The any-hit traversal in pbrt's order* (b66758c6). Every schedule's
+   `trace_any` gets the same two `sort`s `trace` has, since
+   `BVHAggregate::IntersectP` walks the near child first as `Intersect`
+   does. Neutral: every cell within 1-2% of the baseline (1.72 1.73 /
+   1.70 1.66 / 1.63 1.64), images unchanged.
+2. *`&&` and `||` short-circuit, and `ite`* (e392829c). In SSA
+   conversion a logical operator whose right side has a call in it (or
+   an unwrap) becomes control flow: the right side's block is entered
+   only when the left side leaves the answer open, the result a
+   parameter of the merge; a `&&` of two computed values stays one
+   instruction. The traversal's filter `intersects(q, g) &&
+   alpha_accepts(r, g)` had run the alpha test on every candidate,
+   missed or not; now it sits behind the intersection. `any`'s
+   accumulator `holds || test(candidate)` is short-circuited the same
+   way (ray-any-early-exit's golden), so the test is skipped once a hit
+   is found. `ite(c, a, b)` is the language's C ternary -- evaluates the
+   arm it takes, lowered as a diamond -- beside `select`, which evaluates
+   both and stays a conditional move (ir::Select::lazy); `100 / y` under
+   `ite(y != 0, ...)` no longer trips the simplifier when `y` is a
+   constant zero (the untaken arm of an `ite` is dropped before it is
+   simplified, and `!=`/`<=` of two constants now fold like `==`/`<`).
+   Also `BONSAI_LLVM_ARGS`, LLVM's own options from the environment, for
+   the cmov experiment below. Images bit for bit; neutral on the table
+   (1.73 1.74 / 1.70 1.66 / 1.64 1.64) -- killeroo has no alpha textures,
+   so the alpha test it spares was a cheap call returning at once.
+3. *A struct rebuilt from every field of a value of its type is that
+   value* (fce6169d; SSA/Simplify.cpp, `make_struct<T>(load_field(v, 0),
+   ..., load_field(v, n-1))` -> `v`, and a vector from its lanes the
+   same). The user's suggestion for the hit handed on field by field.
+   Fires in the gang code (a `Ray$v8` rebuilt from its own lanes) and in
+   the traversals' vector arithmetic; images bit for bit. Neutral on the
+   table (1.72 1.73 / 1.70 1.67 / 1.62 1.64).
+4. *No compare-and-swap loops* (the user: "we should never generate cas
+   loops!!"). The film's adds were `atomic radiance_out[p] += ...` in the
+   ray queue's rest pass, and an atomic float add has no x86 instruction,
+   so LLVM made each a `lock cmpxchg` loop -- thirteen in the renderer.
+   Three things, one commit: (a) *Rematerialization in the pass*
+   (Defer.cpp, From::Remat, after Briggs, Cooper and Torczon): a value
+   the continuation needs that is arithmetic over the producer loops'
+   indices and what is in scope at the pass -- the pixel `p_band + p_in`
+   -- is recomputed from the pass's index instead of stored per slot and
+   loaded back; the `rays_rest_p` array is gone. (b) *The pass runs only
+   the iterations that called* (Defer.cpp, `<q>_ran`): with the index no
+   longer read from a record, a split's tail slots -- iterations the
+   guard skipped -- would have run the rest with an index past the end
+   (the program-chunk split test aborted in `free`); before, they reread
+   the previous band's slot and wrote the same value again, harmless by
+   luck. When the call does not dominate every exit of the innermost
+   producer loop's body, a byte per slot is cleared as the iteration
+   starts, set at the call, and tested by the pass. (c) *The affine tier
+   of the contention analysis* (Contention.cpp): a subscript that is the
+   loop's index moved by something the index does not reach, or scaled
+   by a non-zero constant, takes distinct values on distinct iterations,
+   so the accumulate is not atomic; and the analysis now follows a block
+   parameter back to what it was threaded from (SSA/Definitions.h), an
+   enclosing loop's index or a function parameter counting as
+   independent, since the film's `p` arrives at its add as a parameter
+   threaded through a dozen blocks. `objdump | grep -c cmpxchg` is 0;
+   the four scenes bit for bit; tests/bonsai/ssa/accumulate-affine.
+   Neutral on the table (1.73 1.73 / 1.69 1.65 / 1.62 1.63): the loops
+   were a few tenths of a percent, as the verifiers had said. A plainer
+   telling of all three parts is in apps/pbrt/explanation.md (temporary).
+5. *The pushers folded into their callers* (f54ca01b, Defer.cpp, after
+   the drained callee's fold). A function the schedule held for a
+   deferral -- the one `f.defer(g, q)` was written on, and the others
+   named beside it -- was kept a call to the end, so `vol_sample_ld`
+   (direct lighting) was a call from every material kernel with the
+   shading point, the BSDF's union, the light sampler and the path's
+   state marshalled through the stack: the largest confirmed item of the
+   stage comparison. Once the deferral has run and the call is a push,
+   the hold comes off and the function is marked `always_inlined`,
+   exactly as the drained callee is; pbrt's direct lighting is code of
+   the material kernel. Folded: `vol_sample_ld` into the seven material
+   kernels and the medium scatter; `li_vol_path`, `vol_route`,
+   `vol_medium_scatter`, `vol_surface` into theirs (most already were, as
+   drained callees). No `vol_sample_ld` symbol remains; images bit for
+   bit. The first fix with a measurable gain: 1.74 1.75 / 1.71 1.67 /
+   1.63 1.65, one to two percent.
+6. *The Shape overloads of `intersects`, `distmin`, `distmax` are
+   `[[inline]]`* (e0a8f652). The traversal's filter and key were two calls
+   into two functions with a `triangle_hit` each; copied into the
+   traversal they are two matches on the shape in one function. The two
+   `triangle_hit` calls are still two -- the pre-SSA CSE does not reach
+   across the two `match` statements they sit in, and the SSA-level CSE
+   does not merge calls -- so the count per candidate is unchanged for
+   now; neutral (1.73 1.75 / 1.70 1.66 / 1.63 1.64), images bit for bit.
+   The merge of the two matches (Opt/JumpThreading.h) and a CSE of pure
+   calls across them is the compiler work left here; carrying the hit's
+   payload out of the argmin, for the third test in `surface_geometry`,
+   is the lowering question still open (the user's rule on query objects
+   being immutable, above).
+
+Not done from the list, the code written and set aside as patches in the
+scratchpad (`patches/s8-byval.patch`): passing a struct parameter above
+64 bytes as a pointer to a copy (LLVM `byval`) rather than a first-class
+aggregate the x86 backend splits into sixty scalars -- the camera through
+every call -- in CodeGen_LLVM's declaration, prologue, call emission and
+function types; `layout Light = tagged_index;` with the driver's pools per
+light variant (the header's constructors change shape, so it is done
+against a compile); the cmov experiment (`BONSAI_LLVM_ARGS=
+"-x86-cmov-converter=false"`, bounded at 0.4 thread-s). Set aside when the
+user turned the work to the GPU (below); each is a measured step to come
+back to.
+
+**pbrt --gpu: the GPU wavefront (2026-09-26).** The user: "if volpath is
+complete, and accurate, we need to work on matching PBRT's GPU schedule!
+This requires Optix support... use the updated version of Optix that has
+SER." The bar, measured: `pbrt --gpu` renders killeroo at 32 spp in **0.16
+s** (best of three), against 3.2 s for our best CPU wavefront and 5.5 s for
+pbrt's CPU wavefront. The plan of 2026-09-21 above stands (phases: A0
+buffers and A kernels done, B device queues, C RT cores); the OptiX to use
+is 9.1.0 at `~/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64` (shader
+execution reordering), pbrt's own build being 7.7. The existing megakernel
+schedule (`schedules/gpu.bonsai`) hung on killeroo when tried as a baseline
+-- 0% GPU utilization, one host core at 100% for five minutes -- and was
+killed; not investigated yet, since it is not the target's shape.
+
+*Phase B, step 1: queues on the device (built, tests green, renderer not
+yet compiled).* `schedules/gpu-wavefront.bonsai` is wavefront-frame with
+every kernel's loop split into blocks of 256 threads and bound
+(`split(rays, rays_blk, rays_thr, 256, true); bind(rays_blk, GPUBlock);
+bind(rays_thr, GPUThread)` and so on for the camera loop, each drain, the
+film pass and the finalization), the band and round loops on the host
+launching as pbrt's `Render()` does. What the compiler needed: a queue's
+arrays and the record's must live on the device across launches rather
+than be copied around each one (CodeGen_GPU_Host copied every captured
+address to the device and back per launch, and refused a capture holding
+pointers). Now (CodeGen_LLVM::device_resident, computed in the SSA
+lowering): an allocation of the function that only kernels read or write
+through -- every load, store, accumulate, atomic, array read, call handed
+it, in a block inside a GPU-bound loop -- and that the device reaches,
+directly as a capture or through an address stored into something a
+kernel is handed (the queue's header, filled by `make_struct<Queue_q>(0,
+arrays...)`), is made with `bonsai_cuda_malloc`, freed with
+`bonsai_cuda_free`, and passed to a launch as the device address it is.
+The header, which the host reads the count from between rounds, stays a
+host alloca and travels with each launch and back (a few hundred bytes),
+allowed now that every handle in it is a device allocation's. Tests:
+correctness/gpu/defer-device (a deferred recursion whose producer, drain
+and rest pass are all kernels, run on the GPU, the CPU program's answer)
+and backends/ptx/defer-device (the three kernels). The 80 GPU and PTX
+tests pass.
+
+*Phase B, step 2: the renderer as GPU launches (done, 2026-09-26).* Three
+things stood between the schedule and a render. (a) A capture the launch
+could not name: the drain's kernel is handed `gep(rays_queue, k)`, and by
+the time the launch reads it the value is a block argument threaded
+through the band loop; `CodeGen_LLVM::allocation_of` now follows a
+threaded argument back through SSA/Definitions.h to the instruction that
+computed it. (b) The film marked host-dirty before the first kernel: the
+exported `render` holds an arm per integrator (`specialize(integrator)`),
+and the arms this scene never runs -- RandomWalk, SimplePath, Path -- zero
+the film on the host, so the film was "host-used" and the prologue marked
+it written at entry; the first kernel then met a copy `--no-implicit-
+copies` forbids. Now the marks and the copies back sit where the host
+touches a buffer -- at the outermost host loop, or block, that reads or
+writes it, and never across a loop with a launch inside -- which is the
+placement of Halide's InjectHostDevBufferCopies (`classify_buffers` in
+CodeGen_LLVM_SSA.cpp); a launch marks a buffer device-dirty only when the
+kernel writes it, and brings nothing back on its own. (c) A drain over an
+empty queue: killeroo has no media, so the medium-sample kernel asked the
+device for a grid of zero blocks; a loop with no iterations now launches
+nothing. Plus the driver staging its buffers before each repeat rather
+than once. Tests: correctness/gpu/dirty-where-touched (an exported
+function with a host arm and a GPU arm, driven with implicit copies off)
+and correctness/gpu/empty-launch; the launch golden gained the guard. The
+schedule (`schedules/gpu-wavefront.bonsai`, with the texture units bound
+as gpu.bonsai binds them) against `pbrt --gpu`, best of three, images
+checked:
+
+    scene            spp   pbrt --gpu   ours    speedup   agree
+    killeroo-simple   16     0.11 s     0.119 s   0.92x    66.5%
+    killeroo-simple   64     0.27 s     0.480 s   0.56x    47.1%
+    killeroo-gold     16     0.22 s     0.358 s   0.62x    96.3%
+    killeroo-gold     64     0.72 s     1.416 s   0.51x    95.6%
+    book              16     0.23 s     0.308 s   0.75x    80.0%
+    book              64     0.73 s     1.198 s   0.61x    77.3%
+
+The two known differences from pbrt's GPU pattern, both in the trace: the
+traversal is software on the SM (pbrt's is the RT cores through OptiX,
+phase C below), and every drain is launched over the count the host reads
+back from the queue's header -- a synchronization per kernel, where pbrt
+launches every kernel over `maxQueueSize` threads with `if (index >=
+q->Size()) return;` inside and never waits on the host until the pass is
+done, and runs exactly `maxDepth + 1` rounds rather than until the ray
+queue is empty. Expressing pbrt's launch shape is a scheduling-language
+question for the user (below, "to ask").
+
+**Phase C: the RT cores (design, 2026-09-26).** The constructs are the ones
+the language already parses -- `trace.bind(RTCore)`, `trace_any.bind(RTCore)`
+and `render.bind(rays, OptixThread)` -- refused until now with "that backend
+is not built yet"; building them adds no scheduling construct.
+
+*What `f.bind(RTCore)` means.* `f`'s body must be a ray query the hardware
+answers: `argmin(|es| distmin(q, G(es)), filter(|es| intersects(q, G(es))
+&& REST(es), S))`, the nearest hit, or `any(|es| intersects(q, G(es)) &&
+REST(es), S)`, whether anything is hit -- with `q` a RaySegment parameter
+of `f`, `G(es)` the geometry of the element (`transform(p, g)`), and `S`
+a tree the schedule laid out, either directly or as `flatten(|p|
+geometry(p), tree)` whose lambda is a match with arms that are one element
+(`Geom(g) => {g}`) or a tree held by the element (`Inst(..) => blas`):
+pbrt's two levels, the scene's primitives and the instances' objects. The
+lowering (Lower/Trees.cpp, where every other query becomes a traversal)
+replaces the traversal with a trace: a context struct on the stack holding
+`q` and the result, `rt_trace(traversable(tree), q.ray.o, q.ray.d, 0,
+q.tmax, flags, &ctx)` -- the OptiX `_optix_trace_typed_32` with the two
+payload words carrying the context's address, as pbrt's ClosestHitContext
+does -- and the result read back out of the context. Beside it the
+programs OptiX runs at the hits, as functions with an `optix_program`
+mark: `__closesthit__f`, which builds the record (the hardware's `t` as
+the key, the elements by value, read from the tree's storage at the index
+the hit gives) into the context, or sets the `any`'s flag;
+`__anyhit__f`, when REST is not empty, which evaluates REST on the
+candidate and ignores the hit when it is false (pbrt's alpha test);
+`__intersection__f`, for the elements that are not hardware triangles,
+which reports `distmin(q, G(es))` when finite (pbrt's quadrics); and
+`__miss__f`, empty. The contract that makes the hardware's traversal
+answer the query's question: the metric is the ray parameter, the
+geometric conjunct is the hardware's intersection test (built-in triangles,
+or our `distmin` in the intersection program), and everything else the
+filter says runs in the any-hit program. Where an element lives: the
+layout's -- `StoredElement(tree, i)` is the i-th element of the array the
+tree's leaves are ranges of (`prims[i]`, `geoms[i]`), which
+Lower/Layouts.cpp spells; the hit gives `i` as the build input's base
+(the shader binding table record) plus the primitive index, and the
+instance id says which arm of the flatten's match the hit came through.
+The acceleration structure is the driver's to build, as the BVH nodes are
+today, through runtime/bonsai_optix.h: build inputs of triangles (a mesh
+each) and of bounding boxes (the custom shapes), a geometry acceleration
+structure per object, an instance acceleration structure over them with
+the instance id encoding the top-level element; the layout struct gains a
+`traversable` field beside its element arrays. No mapping tables: the
+driver lays out `prims` and `geoms` so that each build input's elements
+are a contiguous run.
+
+*What `render.bind(rays, OptixThread)` means.* The drain's body is a
+`__raygen__` program launched over the count -- `optixGetLaunchIndex` is
+the iteration -- with the body's captures in the launch parameters
+(`__constant__ params`, filled by the host from the same slot struct the
+CUDA launches build) and the hit programs of every RTCore query the body
+reaches compiled into the same module, one pipeline per raygen, one ray
+type per query. CodeGen_OptiX is CodeGen_PTX with the program entry points
+and the `_optix_*` inline assembly; CodeGen_GPU_Host launches through
+`bonsai_optix_launch`; the runtime loads `libnvoptix.so.1` through the SDK's
+own stubs (OptiX 9.1.0 headers under `BONSAI_OPTIX_SDK`), caches module,
+program groups, pipeline and shader binding table per raygen, and builds
+acceleration structures from what the driver hands it.
+
+*Order.* Runtime and CodeGen_OptiX with a raygen-only program (a loop bound
+to OptixThread, no trace) and its test; the query lowering with a
+C++-driven test of a few triangles and one instance against the same
+program on the CPU; `schedules/gpu-optix.bonsai` -- gpu-wavefront with the
+two binds -- and the driver's acceleration structure; the table against
+`pbrt --gpu`. Shader execution reordering (`optixReorder`, the reason for
+9.1) comes after, as a schedule directive to propose.
+
+*To ask the user: pbrt's launch shape.* Matching pbrt's asynchronous
+pass needs two things the language does not say today: a drain launched
+over its queue's capacity with `k < count` tested on the device, and the
+round loop running a fixed `max_depth + 1` times. Both are Halide-style
+`bound` promises on a loop (an extent the loop is launched over; a trip
+count the loop is given), and neither is a new primitive so much as a
+widening of what a loop's bounds may be told. Not built until asked.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
