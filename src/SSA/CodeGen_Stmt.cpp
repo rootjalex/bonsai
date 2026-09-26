@@ -2201,9 +2201,12 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
 
     ir::Function::InterfaceList ilist; // always empty at this stage.
 
-    return std::make_shared<ir::Function>(std::move(name), std::move(args),
-                                          std::move(ret_type), std::move(body),
-                                          std::move(ilist), func.attributes);
+    auto out = std::make_shared<ir::Function>(std::move(name), std::move(args),
+                                              std::move(ret_type), std::move(body),
+                                              std::move(ilist), func.attributes);
+    out->schedule_uses = func.schedule_uses;
+    out->optix_program = func.optix_program;
+    return out;
 }
 
 } // namespace ssa

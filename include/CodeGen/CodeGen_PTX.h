@@ -50,8 +50,9 @@ struct CodeGen_PTX : public CodeGen_LLVM {
 
     // Opens the device module for `program`: the module, the NVPTX machine
     // for the GPU `options` name (or this machine's own), the struct types.
-    // Once per host module, on its first GPU-bound loop.
-    void begin(const ir::Program &program, const CompilerOptions &options);
+    // Once per host module, on its first GPU-bound loop. Virtual for
+    // CodeGen_OptiX, which sets the backend's options around it.
+    virtual void begin(const ir::Program &program, const CompilerOptions &options);
 
     // What the host has to know about a kernel to launch it.
     struct Kernel {
@@ -82,8 +83,9 @@ struct CodeGen_PTX : public CodeGen_LLVM {
                       const std::vector<bool> &by_value);
 
     // Links libdevice for whatever maths the module calls, optimizes, and
-    // emits the PTX. Nothing may be added after.
-    void finish();
+    // emits the PTX. Nothing may be added after. Virtual for CodeGen_OptiX,
+    // which sets the backend's options around it.
+    virtual void finish();
 
     // After finish(): the PTX text, and the optimized LLVM IR it was made
     // from (printed before the PTX backend's own passes rewrite the module).
@@ -156,7 +158,13 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     llvm::FunctionCallee get_pthread_unlock() override;
     llvm::FunctionCallee get_pthread_init() override;
 
-  private:
+  protected:
+    // Protected rather than private: CodeGen_OptiX, the subclass whose
+    // module OptiX runs, compiles its programs with the same machinery.
+    // One of LLVM's own command-line options, set as if given on a tool's
+    // command line: what the NVPTX backend reads some of its choices from
+    // and nothing else. Process-wide.
+    static void llvm_option(const char *name, const char *value);
     // Every function `roots` reach, declared and then compiled into the
     // module, once each; the kernel's body is compiled after them so that
     // its calls find their callees.

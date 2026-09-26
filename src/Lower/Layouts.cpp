@@ -1283,6 +1283,120 @@ struct LowerMatches : public ir::Mutator {
         return mutate(body);
     }
 
+    // The array a tree's leaves are ranges of -- what `data =
+    // range(prims, pOffset, nPrims)` in the leaf arm names -- by its field
+    // name, found by walking the tree's own nodes: the direct groups and
+    // the arms of their switches, not the indirect groups, which hold some
+    // other tree's nodes. Empty when the leaves are not ranges of one
+    // array.
+    static std::string leaf_storage_of(const ir::Layout &layout) {
+        if (const ir::Chain *chain = layout.as<ir::Chain>()) {
+            for (const ir::Layout &l : chain->layouts) {
+                switch (l.node_type()) {
+                case ir::IRLayoutEnum::Group: {
+                    const ir::Group *group = l.as<ir::Group>();
+                    if (group->type != ir::Group::Type::Direct) {
+                        break;
+                    }
+                    if (std::string found = leaf_storage_of(group->inner);
+                        !found.empty()) {
+                        return found;
+                    }
+                    break;
+                }
+                case ir::IRLayoutEnum::Switch: {
+                    for (const auto &arm : l.as<ir::Switch>()->arms) {
+                        if (std::string found = leaf_storage_of(arm.layout);
+                            !found.empty()) {
+                            return found;
+                        }
+                    }
+                    break;
+                }
+                case ir::IRLayoutEnum::Materialize: {
+                    const ir::Generator *range =
+                        l.as<ir::Materialize>()->value.as<ir::Generator>();
+                    if (range != nullptr && range->op == ir::Generator::range &&
+                        !range->args.empty()) {
+                        if (const auto *var = range->args[0].as<ir::Var>()) {
+                            return var->name;
+                        }
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
+        }
+        return "";
+    }
+
+    // The `index`-th element of a tree's leaf storage (see ir::StoredElement):
+    // the read of the layout's array it is. The tree is a variable the
+    // schedule laid out, whose leaves range over a field of its own struct,
+    // or an element's field the schedule bound to a group, whose leaves
+    // range over a field of the struct that owns the group -- the same
+    // storage a walk of the nested tree reads through (see nested_bases).
+    ir::Expr visit(const ir::StoredElement *node) override {
+        ir::Expr index = mutate(node->index);
+        std::string owner, array;
+        ir::Type owner_t;
+        if (const auto *var = node->tree.as<ir::Var>()) {
+            const auto layout = layouts.find(var->name);
+            internal_assert(layout != layouts.cend() && structs.contains(var->name))
+                << "stored_element of " << var->name
+                << ", which no layout lays out: " << ir::Expr(node);
+            owner = var->name;
+            owner_t = structs.at(var->name);
+            array = leaf_storage_of(layout->second);
+        } else if (const auto *access = node->tree.as<ir::Access>()) {
+            const auto *element = access->value.type().as<ir::Struct_t>();
+            internal_assert(element != nullptr)
+                << "stored_element of a field of something that is not an "
+                << "element: " << ir::Expr(node);
+            const std::string path = element->name + "." + access->field;
+            const auto group = tree_field_groups.find(path);
+            internal_assert(group != tree_field_groups.cend())
+                << "stored_element of " << path
+                << ", which the schedule binds to no tree: " << ir::Expr(node);
+            const auto named = ltmap.groups.find(group->second);
+            internal_assert(named != ltmap.groups.cend() &&
+                            !named->second.owner_name.empty())
+                << path << " is stored in group " << group->second
+                << ", which is not a field of anything the program can name.";
+            owner = named->second.owner_name;
+            owner_t = named->second.owner;
+            array = leaf_storage_of(named->second.inner);
+        } else {
+            internal_error << "stored_element of " << node->tree
+                           << ", which is neither a tree the schedule laid "
+                           << "out nor an element's field bound to one";
+        }
+        internal_assert(!array.empty())
+            << "The RT cores search a tree whose leaves are ranges of one "
+            << "array (`data = range(prims, ...)`), and the layout of "
+            << owner << " for " << ir::Expr(node) << " keeps its leaves "
+            << "some other way.";
+        return ir::Extract::make(
+            ir::Access::make(array, ir::Var::make(owner_t, owner)),
+            std::move(index));
+    }
+
+    // `rt_traversable(tree)`: the acceleration structure's handle, the
+    // `traversable` word the tree's layout gained (see LowerLayouts::run).
+    ir::Expr visit(const ir::Intrinsic *node) override {
+        if (node->op != ir::Intrinsic::rt_traversable) {
+            return ir::Mutator::visit(node);
+        }
+        const auto *var = node->args[0].as<ir::Var>();
+        internal_assert(var != nullptr && structs.contains(var->name))
+            << "rt_traversable of " << node->args[0]
+            << ", which is not a tree the schedule laid out";
+        return ir::Access::make("traversable",
+                                ir::Var::make(structs.at(var->name), var->name));
+    }
+
     ir::Expr visit(const ir::Var *node) override {
         if (structs.contains(node->name)) {
             return ir::Var::make(structs.at(node->name), node->name);
@@ -1580,6 +1694,43 @@ ir::Program LowerLayouts::run(ir::Program program,
 
     if (tree_layouts.empty()) {
         return program;
+    }
+
+    // A tree the RT cores search (Lower/Trees.cpp, RTCore) carries the
+    // acceleration structure's handle beside its element arrays: its layout
+    // gains a `traversable` word, first, which the driver fills when it
+    // builds the structure (runtime/bonsai_optix.h) and `rt_traversable`
+    // reads.
+    {
+        struct FindTraced : public ir::Visitor {
+            std::set<std::string> trees;
+            void visit(const ir::Intrinsic *node) override {
+                if (node->op == ir::Intrinsic::rt_traversable &&
+                    node->args.size() == 1) {
+                    if (const auto *var = node->args[0].as<ir::Var>()) {
+                        trees.insert(var->name);
+                    }
+                }
+                ir::Visitor::visit(node);
+            }
+        } traced;
+        for (const auto &[_, func] : program.funcs) {
+            func->body.accept(&traced);
+        }
+        for (const std::string &name : traced.trees) {
+            const auto found = tree_layouts.find(name);
+            internal_assert(found != tree_layouts.end())
+                << "The RT cores search " << name
+                << ", which the schedule gives no layout.";
+            const ir::Chain *chain = found->second.as<ir::Chain>();
+            internal_assert(chain != nullptr)
+                << "The layout of " << name << " is not a chain of fields.";
+            std::vector<ir::Layout> members{
+                ir::Name::make("traversable", ir::UInt_t::make(64))};
+            members.insert(members.end(), chain->layouts.begin(),
+                           chain->layouts.end());
+            found->second = ir::Chain::make(std::move(members));
+        }
     }
 
     ir::TypeMap types;

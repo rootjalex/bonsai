@@ -152,6 +152,7 @@ struct Printer : public Visitor {
     void visit(const RefTo *) override;
     void visit(const Deref *) override;
     void visit(const AtomicAdd *) override;
+    void visit(const StoredElement *) override;
     // Stmts
     void visit(const CallStmt *) override;
     void visit(const MultiRecurse *) override;

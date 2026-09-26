@@ -4,8 +4,8 @@ source_filename = "bonsai_module"
 define void @sum_to(i32 noundef %n, i32 noundef %acc, ptr noundef %out_buffer, i32 noundef %i) local_unnamed_addr {
 sum_to:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %0 = icmp slt i32 %n, 1
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   br i1 %0, label %common.ret, label %"!merge_1"
 
 common.ret:                                       ; preds = %"!merge_1.preheader.i", %"!merge_1", %sum_to

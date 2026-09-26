@@ -406,7 +406,7 @@ struct HasSideEffects : ir::Visitor {
         if (found) {
             return;
         }
-        if (node->op == ir::Intrinsic::rand) {
+        if (ir::Intrinsic::has_effects(node->op)) {
             found = true;
             return;
         }

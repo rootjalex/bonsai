@@ -5,7 +5,6 @@ define void @sum_some(ptr noundef %a_buffer, ptr noundef %sums_buffer) local_unn
 sum_some:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %sums = tail call ptr @bonsai_buffer_require(ptr %sums_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %sums_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, zeroinitializer
   %1 = bitcast <8 x i1> %0 to i8
@@ -15,6 +14,7 @@ sum_some:
 "!then_2":                                        ; preds = %sum_some
   %2 = fmul <8 x float> %extract, splat (float 3.000000e+00)
   %3 = fmul <8 x float> %extract, splat (float 2.000000e+00)
+  tail call void @bonsai_buffer_mark_dirty(ptr %sums_buffer, i32 1)
   %4 = select <8 x i1> %0, <8 x float> %extract, <8 x float> zeroinitializer
   %5 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %4)
   %6 = select <8 x i1> %0, <8 x float> %3, <8 x float> zeroinitializer

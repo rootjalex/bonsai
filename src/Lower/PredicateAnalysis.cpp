@@ -921,6 +921,7 @@ struct PredicateAnalysis : public ir::Visitor {
     RESTRICT_VISITOR(ir::Instantiate);
     RESTRICT_VISITOR(ir::PtrTo);
     RESTRICT_VISITOR(ir::RefTo);
+    RESTRICT_VISITOR(ir::StoredElement);
     RESTRICT_VISITOR(ir::Deref);
     RESTRICT_VISITOR(ir::AtomicAdd);
 };

@@ -224,6 +224,11 @@ void Visitor::visit(const Instantiate *node) {
 void Visitor::visit(const PtrTo *node) { node->expr.accept(this); }
 void Visitor::visit(const RefTo *node) { node->place.accept(this); }
 
+void Visitor::visit(const StoredElement *node) {
+    node->tree.accept(this);
+    node->index.accept(this);
+}
+
 void Visitor::visit(const Deref *node) {
     node->expr.accept(this);
     if (node->mask.defined()) {

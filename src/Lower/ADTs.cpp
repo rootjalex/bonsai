@@ -819,6 +819,7 @@ ir::Program LowerADTs::run(ir::Program program,
             func->name, std::move(args), rewriter.mutate(func->ret_type),
             rewriter.mutate(func->body), func->interfaces, func->attributes);
         rewritten->schedule_uses = func->schedule_uses;
+        rewritten->optix_program = func->optix_program;
         func = std::move(rewritten);
     }
 

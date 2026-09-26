@@ -398,6 +398,20 @@ void CodeGen_LLVM::init_module() {
     module = std::make_unique<llvm::Module>("bonsai_module", *context);
 }
 
+llvm::Value *CodeGen_LLVM::codegen_rt_intrinsic(const Intrinsic *node) {
+    // No ray tracing hardware here: as with the texture units below, the
+    // host module compiles every function of the program, a query bound to
+    // RTCore included, and the host's copy of one is dead code the module's
+    // dead-function removal drops -- a loop bound to OptixThread is where
+    // the query runs (CodeGen_OptiX). So a trap, which is what tracing on
+    // the RT cores from a CPU would be, and never runs.
+    for (const Expr &arg : node->args) {
+        codegen_expr(arg);
+    }
+    builder->CreateIntrinsic(llvm::Intrinsic::trap, {});
+    return llvm::UndefValue::get(codegen_type(node->type));
+}
+
 llvm::Value *CodeGen_LLVM::codegen_texture_sample(const Intrinsic *node) {
     // No texture units here. The host module compiles every function of
     // the program, the ones only a kernel calls included -- a lookup bound
@@ -892,9 +906,17 @@ CodeGen_LLVM::compile_program(const Program &program,
     // TODO: add program.externs to the global frame.
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
+        // A program the ray tracing hardware runs is the OptiX module's
+        // (CodeGen_OptiX), not this one's: the host never calls it.
+        if (func->optix_program.has_value()) {
+            continue;
+        }
         func_map[fname] = this->declare_function(*func);
     }
     for (const auto &[fname, func] : program.funcs) {
+        if (func->optix_program.has_value()) {
+            continue;
+        }
         // A function whose SSA form was kept is generated from that, rather
         // than from the statements the relooper rebuilt out of it. Both exist
         // -- the statements are what `-p ssa` prints -- and this picks which
@@ -1190,6 +1212,13 @@ void CodeGen_LLVM::visit(const ElementRef_t *node) {
                    << "generation unresolved: " << ir::Type(node)
                    << ". Lower/ElementReferences.cpp lowers these to the "
                    << "index the layout gives them.";
+}
+
+void CodeGen_LLVM::visit(const StoredElement *node) {
+    internal_error << "An element of a tree's storage reached code generation "
+                   << "unresolved: " << ir::Expr(node)
+                   << ". Lower/Layouts.cpp spells these as the read of the "
+                   << "layout's array they are.";
 }
 
 void CodeGen_LLVM::visit(const RefTo *node) {
@@ -3499,6 +3528,17 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     }
     case Intrinsic::tex_sample_grad_2d: {
         value = codegen_texture_sample(node);
+        return;
+    }
+    case Intrinsic::rt_trace:
+    case Intrinsic::rt_hit_t:
+    case Intrinsic::rt_primitive_index:
+    case Intrinsic::rt_instance_id:
+    case Intrinsic::rt_sbt_base:
+    case Intrinsic::rt_report_hit:
+    case Intrinsic::rt_ignore_hit:
+    case Intrinsic::rt_traversable: {
+        value = codegen_rt_intrinsic(node);
         return;
     }
     case Intrinsic::block_reduce_add:

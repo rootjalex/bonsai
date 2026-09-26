@@ -119,6 +119,37 @@ target_link_libraries(bonsai_library PUBLIC ModernLLVM::LLVM)
 # them.
 target_include_directories(bonsai_library PRIVATE runtime)
 
+# The OptiX SDK's headers and CUDA's, for the ray tracing runtime linked into
+# the compiler (runtime/bonsai_optix.cpp; the JIT runs programs whose ray
+# queries launch through it). The SDK is named by BONSAI_OPTIX_SDK -- the
+# environment, or the cache -- and otherwise looked for where it is installed
+# here; CUDA's headers, which the SDK's include, under CUDA_HOME or the
+# toolkit's default place. Without either the runtime is built as a stub that
+# says so when a program reaches it, so the compiler builds everywhere.
+if (DEFINED ENV{BONSAI_OPTIX_SDK}
+    AND EXISTS "$ENV{BONSAI_OPTIX_SDK}/include/optix_function_table.h")
+    set(BONSAI_OPTIX_SDK "$ENV{BONSAI_OPTIX_SDK}" CACHE PATH
+        "The OptiX SDK, for the ray tracing runtime")
+else ()
+    find_path(BONSAI_OPTIX_SDK include/optix_function_table.h
+              PATHS "$ENV{HOME}/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64"
+              NO_DEFAULT_PATH
+              DOC "The OptiX SDK, for the ray tracing runtime")
+endif ()
+find_path(BONSAI_CUDA_INCLUDE cuda.h
+          PATHS ENV CUDA_HOME ENV CUDA_PATH /usr/local/cuda /opt/cuda
+          PATH_SUFFIXES include
+          NO_DEFAULT_PATH
+          DOC "CUDA's headers, which the OptiX SDK's include")
+if (BONSAI_OPTIX_SDK AND BONSAI_CUDA_INCLUDE)
+    target_include_directories(bonsai_library SYSTEM PRIVATE
+                               "${BONSAI_OPTIX_SDK}/include"
+                               "${BONSAI_CUDA_INCLUDE}")
+else ()
+    message(STATUS "OptiX SDK (BONSAI_OPTIX_SDK) or CUDA headers not found: "
+                   "the ray tracing runtime is a stub in this build.")
+endif ()
+
 target_sources(
     bonsai_library
     PRIVATE
@@ -126,6 +157,7 @@ target_sources(
     src/CodeGen/ASM.cpp
     src/CodeGen/CodeGen_GPU_Host.cpp
     src/CodeGen/CodeGen_LLVM.cpp
+    src/CodeGen/CodeGen_OptiX.cpp
     src/CodeGen/CodeGen_LLVM_SSA.cpp
     src/CodeGen/CodeGen_PTX.cpp
     src/CodeGen/CodeGen_X86.cpp
@@ -134,6 +166,7 @@ target_sources(
     # this machine has. It loads the driver with dlopen, so this depends on
     # no CUDA library at build time.
     runtime/bonsai_cuda.cpp
+    runtime/bonsai_optix.cpp
     src/CodeGen/ExpandVectorMulHigh.cpp
     src/CodeGen/MarkDeviceMemory.cpp
     src/CodeGen/VectorMath.cpp
@@ -179,6 +212,7 @@ target_sources(
     src/Lower/PassManager.cpp
     src/Lower/PredicateAnalysis.cpp
     src/Lower/Random.cpp
+    src/Lower/RTCoreReads.cpp
     src/Lower/RecLoops.cpp
     src/Lower/RenamePointerToExpr.cpp
     src/Lower/ReturnToOutParameter.cpp

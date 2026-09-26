@@ -53,19 +53,31 @@ void to_ptx(const Program &program, const CompilerOptions &options) {
     std::unique_ptr<llvm::Module> host = codegen->compile_program(program, options);
     auto *gpu_host = dynamic_cast<CodeGen_GPU_Host_Interface *>(codegen.get());
     CodeGen_PTX *device = gpu_host ? gpu_host->device_codegen() : nullptr;
-    internal_assert(device)
+    const std::vector<const CodeGen_OptiX *> optix =
+        gpu_host ? gpu_host->optix_codegens()
+                 : std::vector<const CodeGen_OptiX *>{};
+    internal_assert(device || !optix.empty())
         << "-b ptx: no loop of this program is bound to the GPU, so there is "
-        << "no device code. Bind one in the schedule with `f.bind(i, GPUBlock)` "
-        << "or `f.bind(i, GPUThread)`.";
+        << "no device code. Bind one in the schedule with `f.bind(i, GPUBlock)`, "
+        << "`f.bind(i, GPUThread)` or `f.bind(i, OptixThread)`.";
     std::unique_ptr<llvm::raw_fd_ostream> file;
     llvm::raw_ostream *os = &llvm::outs();
     if (!options.output_file.empty()) {
         file = make_raw_fd_ostream(options.output_file);
         os = file.get();
     }
-    *os << "; ---- device module: LLVM IR ----\n"
-        << device->optimized_ir() << "\n; ---- device module: PTX ----\n"
-        << device->ptx();
+    if (device) {
+        *os << "; ---- device module: LLVM IR ----\n"
+            << device->optimized_ir() << "\n; ---- device module: PTX ----\n"
+            << device->ptx();
+    }
+    // The OptiX modules after it, one per raygen program.
+    for (size_t i = 0; i < optix.size(); i++) {
+        *os << "\n; ---- OptiX module " << i << ": LLVM IR ----\n"
+            << optix[i]->optimized_ir() << "\n; ---- OptiX module " << i
+            << ": PTX ----\n"
+            << optix[i]->ptx();
+    }
     // llvm::outs() is buffered and flushes on exit, which is after the test
     // runner has stopped capturing it.
     os->flush();
@@ -174,6 +186,10 @@ bool has_effect(Instruction::Op op) {
 } // namespace
 
 CodeGen_PTX::CodeGen_PTX() = default;
+
+void CodeGen_PTX::llvm_option(const char *name, const char *value) {
+    set_llvm_option(name, value);
+}
 
 void CodeGen_PTX::init_module() {
     CodeGen_LLVM::init_module();

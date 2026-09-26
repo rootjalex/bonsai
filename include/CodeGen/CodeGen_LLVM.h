@@ -287,6 +287,14 @@ struct CodeGen_LLVM : public ir::Visitor {
     // there is one lowering of an add or a gather, not two.
     void compile_function(const ir::ssa::Function &func,
                           llvm::Function *function);
+    // The same, for a `function` that takes no parameters of its own:
+    // `supply_argument` gives the value each declared parameter is bound
+    // to, in the entry block. An OptiX program is one (CodeGen_OptiX):
+    // its parameters come from the launch parameters and the payload.
+    void compile_function(
+        const ir::ssa::Function &func, llvm::Function *function,
+        const std::function<llvm::Value *(const ir::ssa::Argument &)>
+            &supply_argument);
     struct SSALowering;
     friend struct SSALowering;
 
@@ -425,6 +433,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Instantiate *) override;
     virtual void visit(const ir::PtrTo *) override;
     virtual void visit(const ir::RefTo *) override;
+    virtual void visit(const ir::StoredElement *) override;
     virtual void visit(const ir::Deref *) override;
     virtual void visit(const ir::AtomicAdd *) override;
     // Stmts
@@ -701,6 +710,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     // schedule that does so for code this generator runs has bound it to
     // hardware this machine lacks.
     virtual llvm::Value *codegen_texture_sample(const ir::Intrinsic *node);
+    // The ray tracing hardware's intrinsics (`rt_*`, see IR/Expr.h): only
+    // CodeGen_OptiX lowers them, and anywhere else one is an error.
+    virtual llvm::Value *codegen_rt_intrinsic(const ir::Intrinsic *node);
 
     // A call to the libm function `name`, for the maths LLVM has no intrinsic
     // for. Single-precision goes to the `f`-suffixed entry point, as C's

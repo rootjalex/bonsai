@@ -80,6 +80,7 @@ struct Mutator {
     virtual Expr visit(const RefTo *);
     virtual Expr visit(const Deref *);
     virtual Expr visit(const AtomicAdd *);
+    virtual Expr visit(const StoredElement *);
     // Stmts
     virtual Stmt visit(const CallStmt *);
     virtual Stmt visit(const MultiRecurse *);

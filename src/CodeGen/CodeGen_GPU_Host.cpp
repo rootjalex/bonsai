@@ -10,6 +10,7 @@
 #include <llvm/IR/GlobalVariable.h>
 
 #include <algorithm>
+#include <set>
 
 namespace bonsai {
 
@@ -34,6 +35,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_bound_parfor(
     switch (*loop.loop.binding) {
     case Resource::GPUBlock:
     case Resource::GPUThread:
+    case Resource::OptixThread:
         emit_gpu_launch(loop);
         return;
     default:
@@ -314,15 +316,35 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     CodeGen_LLVM::BoundLoop &loop) {
     internal_assert(program && options) << "a GPU launch outside compile_program";
     llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
-    if (!device) {
-        device = std::make_unique<CodeGen_PTX>();
-        device->begin(*program, *options);
-        ptx_source = new llvm::GlobalVariable(
+    const Terminator::ParFor &p = loop.loop;
+    // A loop bound to OptixThread is the raygen program of an OptiX module
+    // of its own (CodeGen_OptiX); every other GPU-bound loop is a kernel of
+    // the one device module. Either way the module's PTX is a string
+    // embedded once the module is finished (end_functions), and the launch
+    // loads its address from a global filled in then.
+    const bool optix = *p.binding == Resource::OptixThread;
+    CodeGen_OptiX *raygen_module = nullptr;
+    llvm::GlobalVariable *ptx_global = nullptr;
+    if (optix) {
+        auto made = std::make_unique<CodeGen_OptiX>();
+        made->begin(*program, *options);
+        ptx_global = new llvm::GlobalVariable(
             *module, ptr_t, /*isConstant=*/true,
             llvm::GlobalValue::InternalLinkage,
-            llvm::ConstantPointerNull::get(ptr_t), "_bonsai_ptx");
+            llvm::ConstantPointerNull::get(ptr_t), "_bonsai_optix_ptx");
+        raygen_module = made.get();
+        optix_modules.emplace_back(std::move(made), ptx_global);
+    } else {
+        if (!device) {
+            device = std::make_unique<CodeGen_PTX>();
+            device->begin(*program, *options);
+            ptx_source = new llvm::GlobalVariable(
+                *module, ptr_t, /*isConstant=*/true,
+                llvm::GlobalValue::InternalLinkage,
+                llvm::ConstantPointerNull::get(ptr_t), "_bonsai_ptx");
+        }
+        ptx_global = ptx_source;
     }
-    const Terminator::ParFor &p = loop.loop;
     const Block &body_head = loop.body_head;
     const Expr begin_e = loop.operand(p.start), end_e = loop.operand(p.end),
                stride_e = loop.operand(p.stride);
@@ -373,7 +395,8 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
                           !capture_written(*program, loop.func, p, argument->name);
     }
     const CodeGen_PTX::Kernel kernel =
-        device->add_kernel(loop.func, loop.loop, by_value);
+        optix ? raygen_module->add_raygen(loop.func, p, by_value)
+              : device->add_kernel(loop.func, loop.loop, by_value);
 
     std::vector<llvm::Type *> slot_types(n);
     for (size_t i = 0; i < n; i++) {
@@ -585,17 +608,59 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         }
     }
 
+    llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_global, "_ptx");
+    llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
     // void bonsai_cuda_launch(const char *ptx, const char *kernel,
     //                         int64_t grid_x, int64_t block_x, void **params,
     //                         int64_t nparams, bonsai_cuda_buffer *buffers,
     //                         int64_t nbuffers);
-    llvm::FunctionType *launch_ty = llvm::FunctionType::get(
-        void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t},
-        false);
-    llvm::FunctionCallee launch =
-        module->getOrInsertFunction("bonsai_cuda_launch", launch_ty);
-    llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_source, "_ptx");
-    llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
+    llvm::FunctionCallee launch = module->getOrInsertFunction(
+        "bonsai_cuda_launch",
+        llvm::FunctionType::get(
+            void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t},
+            false));
+    // void bonsai_optix_launch(const char *ptx, const char *raygen,
+    //                          int64_t count, void *params,
+    //                          int64_t param_bytes, void **slots,
+    //                          int64_t nslots, bonsai_cuda_buffer *buffers,
+    //                          int64_t nbuffers, uint64_t traversable);
+    // The launch parameters are the slots, as one struct; the acceleration
+    // structure it traces is the `traversable` word of the tree captured,
+    // read out of the slot the tree's layout struct travels in (see
+    // Lower/Layouts.cpp), or none when the raygen program traces nothing.
+    llvm::FunctionCallee optix_launch = module->getOrInsertFunction(
+        "bonsai_optix_launch",
+        llvm::FunctionType::get(void_t,
+                                {ptr_t, ptr_t, i64_t, ptr_t, i64_t, ptr_t, i64_t,
+                                 ptr_t, i64_t, i64_t},
+                                false));
+    llvm::Value *traversable = llvm::ConstantInt::get(i64_t, 0);
+    if (optix) {
+        bool found = false;
+        for (size_t i = 2; i < n; i++) {
+            const Ptr_t *pointed = arg_types[i].as<Ptr_t>();
+            const Struct_t *s =
+                by_value[i - 2] && pointed != nullptr ? pointed->etype.as<Struct_t>()
+                                                      : nullptr;
+            if (s == nullptr) {
+                continue;
+            }
+            for (size_t f = 0; f < s->fields.size(); f++) {
+                if (s->fields[f].name != "traversable") {
+                    continue;
+                }
+                internal_assert(!found)
+                    << "the loop over " << p.index << " captures two trees "
+                    << "the ray tracing hardware searches; a launch traces "
+                    << "one acceleration structure.";
+                llvm::Value *slot = builder->CreateStructGEP(args_ty, args, i);
+                llvm::Value *field = builder->CreateStructGEP(
+                    llvm::cast<llvm::StructType>(slot_types[i]), slot, unsigned(f));
+                traversable = builder->CreateLoad(i64_t, field, "_traversable");
+                found = true;
+            }
+        }
+    }
 
     // A loop with no iterations launches nothing: a drain over a queue
     // that is empty this round -- the medium queue of a scene with no
@@ -613,9 +678,20 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         builder->GetInsertBlock()->getParent());
     builder->CreateCondBr(runs, launch_bb, after_bb);
     builder->SetInsertPoint(launch_bb);
-    builder->CreateCall(launch, {ptx, name, grid, block, params,
-                                 llvm::ConstantInt::get(i64_t, n), buffers,
-                                 llvm::ConstantInt::get(i64_t, copies.size())});
+    if (optix) {
+        const llvm::DataLayout &layout = module->getDataLayout();
+        builder->CreateCall(
+            optix_launch,
+            {ptx, name, count, args,
+             llvm::ConstantInt::get(i64_t, layout.getTypeAllocSize(args_ty)),
+             params, llvm::ConstantInt::get(i64_t, n), buffers,
+             llvm::ConstantInt::get(i64_t, copies.size()), traversable});
+    } else {
+        builder->CreateCall(launch,
+                            {ptx, name, grid, block, params,
+                             llvm::ConstantInt::get(i64_t, n), buffers,
+                             llvm::ConstantInt::get(i64_t, copies.size())});
+    }
 
     // What the kernel may have written is current on the device now and
     // stale on the host. It stays where it is: a host block that touches it
@@ -643,21 +719,33 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
 template <typename CodeGen_CPU>
 void CodeGen_GPU_Host<CodeGen_CPU>::end_functions() {
     CodeGen_CPU::end_functions();
-    if (!device) {
+    if (!device && optix_modules.empty()) {
         return;
     }
-    device->finish();
-    llvm::Constant *text = llvm::ConstantDataArray::getString(
-        *context, device->ptx(), /*AddNull=*/true);
-    auto *holder = new llvm::GlobalVariable(
-        *module, text->getType(), /*isConstant=*/true,
-        llvm::GlobalValue::PrivateLinkage, text, "_bonsai_ptx_text");
-    holder->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
-    ptx_source->setInitializer(holder);
+    // Each module finished and its PTX embedded where its launches look.
+    const auto embed = [&](CodeGen_PTX &generator, llvm::GlobalVariable *source,
+                           const char *name) {
+        generator.finish();
+        llvm::Constant *text = llvm::ConstantDataArray::getString(
+            *context, generator.ptx(), /*AddNull=*/true);
+        auto *holder = new llvm::GlobalVariable(
+            *module, text->getType(), /*isConstant=*/true,
+            llvm::GlobalValue::PrivateLinkage, text, name);
+        holder->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+        source->setInitializer(holder);
+        return holder;
+    };
+    llvm::GlobalVariable *cuda_text =
+        device ? embed(*device, ptx_source, "_bonsai_ptx_text") : nullptr;
+    std::vector<llvm::GlobalVariable *> optix_texts;
+    for (auto &[generator, source] : optix_modules) {
+        optix_texts.push_back(embed(*generator, source, "_bonsai_optix_ptx_text"));
+    }
 
-    // `void bonsai_gpu_prepare(void)`: loads the module, so that a driver
-    // can take the load out of its first timed call. Declared in the
-    // generated header when a program has device code.
+    // `void bonsai_gpu_prepare(void)`: loads the modules -- and compiles the
+    // OptiX ones' pipelines -- so that a driver can take that out of its
+    // first timed call. Declared in the generated header when a program has
+    // device code.
     llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
     llvm::Function *prepare = llvm::Function::Create(
         llvm::FunctionType::get(void_t, {}, /*isVarArg=*/false),
@@ -665,10 +753,43 @@ void CodeGen_GPU_Host<CodeGen_CPU>::end_functions() {
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
     builder->SetInsertPoint(
         llvm::BasicBlock::Create(*context, "prepare", prepare));
-    llvm::FunctionCallee load = module->getOrInsertFunction(
-        "bonsai_cuda_load",
-        llvm::FunctionType::get(void_t, {ptr_t}, /*isVarArg=*/false));
-    builder->CreateCall(load, {holder});
+    if (cuda_text != nullptr) {
+        llvm::FunctionCallee load = module->getOrInsertFunction(
+            "bonsai_cuda_load",
+            llvm::FunctionType::get(void_t, {ptr_t}, /*isVarArg=*/false));
+        builder->CreateCall(load, {cuda_text});
+    }
+    // The program's ray types, declared before any OptiX module is loaded
+    // or scene built: every RTCore query, alphabetical, the order
+    // CodeGen_OptiX numbers them in (see runtime/bonsai_optix.h).
+    std::set<std::string> queries;
+    for (const auto &[_, func] : program->funcs) {
+        if (func->optix_program.has_value()) {
+            queries.insert(func->optix_program->of);
+        }
+    }
+    if (!optix_texts.empty() && !queries.empty()) {
+        std::vector<llvm::Constant *> names;
+        for (const std::string &query : queries) {
+            names.push_back(builder->CreateGlobalString(query, "_ray_type"));
+        }
+        auto *names_ty = llvm::ArrayType::get(ptr_t, names.size());
+        auto *table = new llvm::GlobalVariable(
+            *module, names_ty, /*isConstant=*/true,
+            llvm::GlobalValue::PrivateLinkage,
+            llvm::ConstantArray::get(names_ty, names), "_bonsai_ray_types");
+        llvm::FunctionCallee declare = module->getOrInsertFunction(
+            "bonsai_optix_ray_types",
+            llvm::FunctionType::get(void_t, {ptr_t, i64_t}, /*isVarArg=*/false));
+        builder->CreateCall(
+            declare, {table, llvm::ConstantInt::get(i64_t, names.size())});
+    }
+    for (llvm::GlobalVariable *text : optix_texts) {
+        llvm::FunctionCallee load = module->getOrInsertFunction(
+            "bonsai_optix_load",
+            llvm::FunctionType::get(void_t, {ptr_t}, /*isVarArg=*/false));
+        builder->CreateCall(load, {text});
+    }
     builder->CreateRetVoid();
     builder->restoreIP(here);
 }

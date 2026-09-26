@@ -87,11 +87,13 @@ struct RewriteOptions : public ir::Mutator {
         } else if (ir::contains<ir::Option_t>(node->type)) {
             ir::Type type = mutate(node->type);
             return ir::Build::make(std::move(type), std::move(values));
-        } else {
-            internal_assert(not_changed)
-                << "Lowering options rewrote a Build value but not the type: "
-                << ir::Expr(node);
+        } else if (not_changed) {
             return node;
+        } else {
+            // A value read out of something that held an option -- a
+            // field of a struct with one -- is rewritten while the struct
+            // built here, with no option in it, keeps its type.
+            return ir::Build::make(node->type, std::move(values));
         }
     }
 
@@ -215,6 +217,7 @@ ir::Program LowerOptions::run(ir::Program program,
             func->name, std::move(args), std::move(ret_type), std::move(body),
             func->interfaces, func->attributes);
         rewritten->schedule_uses = func->schedule_uses;
+        rewritten->optix_program = func->optix_program;
         func = std::move(rewritten);
     }
 

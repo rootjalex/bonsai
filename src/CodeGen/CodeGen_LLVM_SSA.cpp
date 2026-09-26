@@ -107,6 +107,10 @@ struct CodeGen_LLVM::SSALowering {
     // the latch of the loop a serial parfor became, or null in a parallel
     // parfor's kernel, where the iteration is a function call that returns.
     std::vector<llvm::BasicBlock *> yield_targets;
+    // For a function whose LLVM form takes no parameters of its own (an
+    // OptiX program): what each declared parameter is bound to, in the
+    // entry block, in place of an argument.
+    std::function<llvm::Value *(const Argument &)> supply_argument;
 
     SSALowering(CodeGen_LLVM &cg, const ir::ssa::Function &func,
                 llvm::Function *function)
@@ -1340,7 +1344,8 @@ struct CodeGen_LLVM::SSALowering {
 
     static bool is_gpu_bound(const Terminator::ParFor &p) {
         return p.binding.has_value() && (*p.binding == Resource::GPUBlock ||
-                                         *p.binding == Resource::GPUThread);
+                                         *p.binding == Resource::GPUThread ||
+                                         *p.binding == Resource::OptixThread);
     }
 
     // See BufferSides. `mutating` is the buffers: parameter name to whether
@@ -1509,9 +1514,7 @@ struct CodeGen_LLVM::SSALowering {
         std::set<std::string> device_blocks;
         for (const auto &block : func.blocks) {
             const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
-            if (p != nullptr && p->binding.has_value() &&
-                (*p->binding == Resource::GPUBlock ||
-                 *p->binding == Resource::GPUThread)) {
+            if (p != nullptr && is_gpu_bound(*p)) {
                 for (const std::string &b : region_of(p->body.name)) {
                     device_blocks.insert(b);
                 }
@@ -1709,6 +1712,14 @@ struct CodeGen_LLVM::SSALowering {
         buffer_sides = exported ? classify_buffers(buffers) : BufferSides{};
         std::vector<uint8_t> sides;
         cg.exported_buffers.clear();
+        if (supply_argument) {
+            internal_assert(!exported && function->arg_empty())
+                << function->getName().str() << ": a function whose "
+                << "parameters are supplied takes none of its own";
+            for (const Argument &declared : head.args) {
+                bind(declared.name, supply_argument(declared));
+            }
+        }
         uint32_t i = 0;
         for (auto &arg : function->args()) {
             if (&arg == cg.current_sret) {
@@ -1914,6 +1925,13 @@ struct CodeGen_LLVM::SSALowering {
 
 void CodeGen_LLVM::compile_function(const ir::ssa::Function &func,
                                     llvm::Function *function) {
+    compile_function(func, function, nullptr);
+}
+
+void CodeGen_LLVM::compile_function(
+    const ir::ssa::Function &func, llvm::Function *function,
+    const std::function<llvm::Value *(const ir::ssa::Argument &)>
+        &supply_argument) {
     internal_assert(current_function == nullptr);
     internal_assert(function);
     internal_assert(!func.blocks.empty())
@@ -1922,7 +1940,9 @@ void CodeGen_LLVM::compile_function(const ir::ssa::Function &func,
     lowering_from_ssa = true;
 
     llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
-    SSALowering(*this, func, function).run();
+    SSALowering lowering(*this, func, function);
+    lowering.supply_argument = supply_argument;
+    lowering.run();
     builder->restoreIP(here);
 
     lowering_from_ssa = false;
@@ -1972,11 +1992,16 @@ void CodeGen_LLVM::emit_bound_parfor(BoundLoop &loop) {
                        << to_string(*loop.loop.binding)
                        << "): this code generator has no GPU to place the "
                        << "loop on.";
-    case Resource::RTCore:
     case Resource::OptixThread:
-        internal_error << "bind(" << loop.loop.index << ", "
-                       << to_string(*loop.loop.binding)
-                       << "): the OptiX backend is not built yet.";
+        // As for the GPU: a program with a loop on the ray tracing hardware
+        // is compiled by CodeGen_GPU_Host, which launches it through OptiX.
+        internal_error << "bind(" << loop.loop.index << ", OptixThread): "
+                       << "this code generator has no ray tracing hardware "
+                       << "to place the loop on.";
+    case Resource::RTCore:
+        internal_error << "bind(" << loop.loop.index << ", RTCore): RTCore "
+                       << "binds a function's query, not a loop (see "
+                       << "Lower/Trees.cpp).";
     case Resource::TextureUnit:
         internal_error << "bind(" << loop.loop.index << ", TextureUnit): a "
                        << "texture unit runs a function, not a loop (see "

@@ -194,7 +194,7 @@ bool pure(const Instruction &in) {
     case Instruction::Op::Xor:
         return true;
     case Instruction::Op::Intrinsic:
-        return in.intrinsic != ir::Intrinsic::rand;
+        return !ir::Intrinsic::has_effects(in.intrinsic);
     default:
         return false;
     }

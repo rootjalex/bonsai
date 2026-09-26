@@ -25,8 +25,8 @@ divide:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
   %q = tail call ptr @bonsai_buffer_require(ptr %q_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %q_buffer, i32 1)
   %r = tail call ptr @bonsai_buffer_require(ptr %r_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %q_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %r_buffer, i32 1)
   %extract = load <8 x i32>, ptr %a, align 4
   %extract6 = load <8 x i32>, ptr %b, align 4

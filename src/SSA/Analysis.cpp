@@ -1426,7 +1426,8 @@ bool binds_to_gpu(const Function &func) {
             std::get_if<Terminator::ParFor>(&block->terminator.data);
         if (loop != nullptr && loop->binding.has_value() &&
             (*loop->binding == Resource::GPUBlock ||
-             *loop->binding == Resource::GPUThread)) {
+             *loop->binding == Resource::GPUThread ||
+             *loop->binding == Resource::OptixThread)) {
             return true;
         }
     }

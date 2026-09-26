@@ -43,6 +43,8 @@ add_bonsai_tests(
     mut-bound.bonsai
     print.bonsai
     rand.bonsai
+    raygen.bonsai
+    rtcore-tlas.bonsai
     struct-capture.bonsai
     texture-cpp.bonsai
     threads.bonsai

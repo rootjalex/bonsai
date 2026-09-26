@@ -47,6 +47,7 @@ add_bonsai_tests(
     mut-bound.bonsai
     print.bonsai
     rand.bonsai
+    raygen.bonsai
     rtiow-primer.bonsai
     specialize.bonsai
     struct-capture.bonsai

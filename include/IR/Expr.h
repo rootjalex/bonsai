@@ -58,6 +58,7 @@ enum class IRExprEnum {
     RefTo,
     Deref,
     AtomicAdd,
+    StoredElement,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -589,6 +590,40 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // unit's (x, y) gradient pairs are what is passed, whatever the
         // caller means by them.
         tex_sample_grad_2d,
+        // The ray tracing hardware, through OptiX: what a query a schedule
+        // bound to RTCore lowers to (Lower/Trees.cpp), and what the programs
+        // it makes for the hits read. Only CodeGen_OptiX lowers them, each
+        // to the `_optix_*` call the OptiX device headers spell as inline
+        // PTX; no program writes one.
+        //
+        // `rt_trace(traversable : u64, o : vec3f, d : vec3f, tmin : f32,
+        // tmax : f32, flags : u32, context : ptr) -> u32`: traces the ray
+        // through the acceleration structure, running the hit programs of
+        // the query the context's type names, with the context's address in
+        // the two payload words; the result is nothing, and the call has an
+        // effect (the programs write the context).
+        rt_trace,
+        // In a hit program: the hit's ray parameter (`optixGetRayTmax`).
+        rt_hit_t,
+        // In a hit program: the primitive's index within its build input
+        // (`optixGetPrimitiveIndex`), and the instance id of the instance
+        // the hit is in (`optixGetInstanceId`).
+        rt_primitive_index,
+        rt_instance_id,
+        // In a hit program: the 32-bit base the build input's shader binding
+        // table record carries -- where the input's elements start in the
+        // tree's storage.
+        rt_sbt_base,
+        // In an intersection program: reports a hit at `t : f32`; true when
+        // it was accepted. An effect.
+        rt_report_hit,
+        // In an any-hit program: rejects the candidate. An effect; the result
+        // is nothing.
+        rt_ignore_hit,
+        // The acceleration structure handle of a tree whose layout is the
+        // hardware's (`rt_traversable(tree) -> u64`); lowered to the layout
+        // struct's field by Lower/Layouts.cpp.
+        rt_traversable,
         // A value reduced across the threads of a GPU block -- the fold of
         // every thread's argument under the operation, in every thread:
         // `block_reduce_add(v)`, `_mul`, `_min`, `_max`, over a 32-bit float
@@ -608,6 +643,10 @@ struct Intrinsic : ExprNode<Intrinsic> {
     std::vector<Expr> args;
 
     static Expr make(OpType op, std::vector<Expr> args);
+    // Whether an intrinsic does something besides compute its value --
+    // advances the random generator, traces a ray, reports or rejects a
+    // hit -- so that a call whose value goes unread is kept.
+    static bool has_effects(OpType op);
 
     static const IRExprEnum node_type = IRExprEnum::Intrinsic;
 };
@@ -810,6 +849,29 @@ struct RefTo : ExprNode<RefTo> {
     static Expr make(Expr place, std::string tree);
 
     static const IRExprEnum node_type = IRExprEnum::RefTo;
+};
+
+// The `index`-th element of the storage a tree's leaves are ranges of: the
+// element itself, by value. A traversal never needs this -- it reaches an
+// element through the leaf that holds it -- but a query the ray tracing
+// hardware answers (see Lower/Trees.cpp, RTCore) is told which element it
+// hit as an index into that storage, and this is how the program names it
+// before the layout has said where the storage is. Lower/Layouts.cpp spells
+// it as the read it is (`prims[i]`, `geoms[i]`) for a layout whose leaves
+// hold ranges of one array, which is the layout the hardware's acceleration
+// structure is built over. `tree` is the tree, as the program names it: a
+// variable, or an element's field holding a tree.
+struct StoredElement : ExprNode<StoredElement> {
+    Expr tree;
+    Expr index;
+
+    // The element's type is the tree's element type; given outright when
+    // the tree has already been retyped to its stored form (a field holding
+    // a tree becomes the index of the tree's root, Lower/Layouts.cpp).
+    static Expr make(Expr tree, Expr index);
+    static Expr make(Expr tree, Expr index, Type element_type);
+
+    static const IRExprEnum node_type = IRExprEnum::StoredElement;
 };
 
 struct Deref : ExprNode<Deref> {

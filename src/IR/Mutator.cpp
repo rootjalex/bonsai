@@ -544,6 +544,15 @@ Expr Mutator::visit(const RefTo *node) {
     return RefTo::make(std::move(place), node->tree);
 }
 
+Expr Mutator::visit(const StoredElement *node) {
+    Expr tree = mutate(node->tree);
+    Expr index = mutate(node->index);
+    if (tree.same_as(node->tree) && index.same_as(node->index)) {
+        return node;
+    }
+    return StoredElement::make(std::move(tree), std::move(index), node->type);
+}
+
 Expr Mutator::visit(const Deref *node) {
     Expr expr = mutate(node->expr);
     Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;

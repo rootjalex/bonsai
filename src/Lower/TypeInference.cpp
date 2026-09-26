@@ -517,6 +517,7 @@ infer_types(const std::shared_ptr<ir::Function> &fnotypes,
 
     ftypes->interfaces = fnotypes->interfaces;
     ftypes->schedule_uses = fnotypes->schedule_uses;
+    ftypes->optix_program = fnotypes->optix_program;
 
     // TODO: is there more that we can do?
 

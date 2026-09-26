@@ -71,6 +71,7 @@ struct Visitor {
     virtual void visit(const RefTo *);
     virtual void visit(const Deref *);
     virtual void visit(const AtomicAdd *);
+    virtual void visit(const StoredElement *);
     // Stmts
     virtual void visit(const CallStmt *);
     virtual void visit(const MultiRecurse *);

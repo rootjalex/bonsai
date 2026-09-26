@@ -21,7 +21,6 @@ tally_some:
   %t = alloca %"struct.Tally$v8", align 32
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store <8 x float> splat (float 1.000000e+00), ptr %t, align 32
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %t, i64 32
   store <8 x i32> zeroinitializer, ptr %.fca.1.gep, align 32
@@ -41,8 +40,9 @@ tally_some:
   br label %"!merge_3"
 
 "!merge_3":                                       ; preds = %"!then_2", %tally_some
-  %5 = phi <8 x float> [ %4, %"!then_2" ], [ splat (float 1.000000e+01), %tally_some ]
-  store <8 x float> %5, ptr %out, align 4
+  %deref_temp.fca.0.load = phi <8 x float> [ %4, %"!then_2" ], [ splat (float 1.000000e+01), %tally_some ]
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store <8 x float> %deref_temp.fca.0.load, ptr %out, align 4
   ret void
 }
 

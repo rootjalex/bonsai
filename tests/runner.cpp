@@ -280,7 +280,27 @@ std::string environment_flags(const std::string &command) {
                                has_token(command, "-S") ||
                                has_token(command, "-fsyntax-only");
     if (compiles_only) {
-        return " -isystem " + prefix + "/include";
+        std::string flags = " -isystem " + prefix + "/include";
+        // A driver of a program that traces on the ray tracing hardware
+        // includes runtime/bonsai_optix.h, which needs the OptiX SDK's
+        // headers and CUDA's: found as the compiler's build finds them
+        // (CMakeLists.txt, BONSAI_OPTIX_SDK), and added for every compile
+        // when they are there, since a header not included costs nothing.
+        const char *sdk_env = std::getenv("BONSAI_OPTIX_SDK");
+        const char *home = std::getenv("HOME");
+        const std::string sdk =
+            sdk_env ? sdk_env
+                    : (home ? std::string(home) +
+                                  "/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64"
+                            : "");
+        const char *cuda_env = std::getenv("CUDA_HOME");
+        const std::string cuda = cuda_env ? cuda_env : "/usr/local/cuda";
+        if (!sdk.empty() &&
+            fs::exists(fs::path(sdk) / "include" / "optix_function_table.h") &&
+            fs::exists(fs::path(cuda) / "include" / "cuda.h")) {
+            flags += " -isystem " + sdk + "/include -isystem " + cuda + "/include";
+        }
+        return flags;
     }
     return " -L" + prefix + "/lib -Wl,-rpath," + prefix + "/lib -ltbb";
 }

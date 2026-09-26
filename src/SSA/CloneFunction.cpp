@@ -63,6 +63,7 @@ shared_ptr<Function> clone_function(const Function &func) {
     clone->ret_type = func.ret_type;
     clone->attributes = func.attributes;
     clone->schedule_uses = func.schedule_uses;
+    clone->optix_program = func.optix_program;
 
     // First pass: the blocks and their instructions, so that an operand can
     // be remapped no matter which block defines it.

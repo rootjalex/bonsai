@@ -1,0 +1,27 @@
+//! flags: -p ssa -b llvm -e
+
+// A loop bound to OptixThread that traces nothing: its body is a raygen
+// program of an OptiX module of its own (CodeGen_OptiX), the launch index
+// is the iteration, and the array it writes is a launch parameter the
+// runtime moves to the device and back (runtime/bonsai_optix.h), as a CUDA
+// launch moves a kernel's. The CPU program's answer, from the RT cores'
+// front door.
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {0, 1, 4, 9, 16, 25, 36, 49}
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, OptixThread);
+}

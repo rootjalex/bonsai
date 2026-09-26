@@ -128,6 +128,8 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
                     std::vector<ir::Function::Attribute>{});
                 new_functions[unexported]->schedule_uses =
                     function->schedule_uses;
+                new_functions[unexported]->optix_program =
+                    function->optix_program;
             }
             continue;
         }
@@ -150,6 +152,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
             name, arguments, ir::Void_t::make(), function->body,
             function->interfaces, function->attributes);
         new_functions[name]->schedule_uses = function->schedule_uses;
+        new_functions[name]->optix_program = function->optix_program;
         // Keep the original function around for other functions that call it.
         if (called) {
             new_functions[unexported] = std::make_shared<ir::Function>(
@@ -157,6 +160,7 @@ ir::FuncMap ReturnToOutParameter::run(ir::FuncMap functions,
                 function->body, function->interfaces,
                 std::vector<ir::Function::Attribute>{});
             new_functions[unexported]->schedule_uses = function->schedule_uses;
+            new_functions[unexported]->optix_program = function->optix_program;
         }
     }
 

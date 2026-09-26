@@ -118,6 +118,19 @@ struct Function {
     // parser on the function the directive is written on, as `held` is; a
     // pass that rebuilds a function from its parts carries it over.
     std::set<std::string> schedule_uses;
+    // A program the ray tracing hardware runs (OptiX), made by Lower/Trees.cpp
+    // for a query a schedule bound to RTCore and compiled by CodeGen_OptiX
+    // as an entry point rather than a function the program calls: the
+    // closest-hit, any-hit, miss or intersection program of the query
+    // function `of`. Its parameters are what it reads of the program's
+    // data, supplied from the launch's parameters by name. Carried over,
+    // as `schedule_uses` is, by every pass that rebuilds a function.
+    struct OptixProgram {
+        enum class Kind { ClosestHit, AnyHit, Miss, Intersection };
+        Kind kind;
+        std::string of;
+    };
+    std::optional<OptixProgram> optix_program;
 
     Function() {}
 
@@ -127,6 +140,7 @@ struct Function {
             std::move(name), std::move(args), std::move(ret_type),
             std::move(body), std::move(interfaces), std::move(attributes));
         f->schedule_uses = std::move(schedule_uses);
+        f->optix_program = optix_program;
         return f;
     }
 

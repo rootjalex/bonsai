@@ -5,7 +5,6 @@ define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unn
 weigh_all:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp olt <8 x float> %extract, zeroinitializer
   %1 = fsub <8 x float> zeroinitializer, %extract
@@ -94,6 +93,7 @@ weigh_all:
   %44 = select <8 x i1> %7, <8 x float> %"a$i13!skip", <8 x float> %43
   %45 = fmul <8 x float> %26, splat (float 3.000000e+00)
   %46 = select <8 x i1> %0, <8 x float> %45, <8 x float> %44
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %47 = fadd <8 x float> %42, %46
   store <8 x float> %47, ptr %out, align 4
   ret void

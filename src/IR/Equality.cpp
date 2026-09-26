@@ -823,6 +823,13 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return tree != Cmp::Equals ? tree
                                    : compare_exprs(v0->place, v1->place);
     }
+    case IRExprEnum::StoredElement: {
+        const StoredElement *v0 = e0.as<StoredElement>();
+        const StoredElement *v1 = e1.as<StoredElement>();
+        const Cmp tree = compare_exprs(v0->tree, v1->tree);
+        return tree != Cmp::Equals ? tree
+                                   : compare_exprs(v0->index, v1->index);
+    }
     case IRExprEnum::Deref: {
         const Deref *v0 = e0.as<Deref>();
         const Deref *v1 = e1.as<Deref>();
@@ -1366,6 +1373,12 @@ uint64_t hash_of(const Expr &e) {
     case IRExprEnum::PtrTo:
         h = hash_exprs(h, e.as<PtrTo>()->expr);
         break;
+    case IRExprEnum::StoredElement: {
+        const StoredElement *v = e.as<StoredElement>();
+        h = hash_exprs(h, v->tree);
+        h = hash_exprs(h, v->index);
+        break;
+    }
     case IRExprEnum::RefTo: {
         const RefTo *v = e.as<RefTo>();
         h = hash_value(h, v->tree);

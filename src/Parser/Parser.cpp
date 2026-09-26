@@ -3705,6 +3705,23 @@ struct Parser {
                 });
             } else if (rewrite == "bind") {
                 ir::Location i = parse_location();
+                if (i.names.size() == 1 && i.names[0] == "RTCore" &&
+                    peek().type == Token::Type::RPAREN) {
+                    // `f.bind(RTCore)`: the function itself, not a loop of
+                    // it, on the ray tracing hardware -- its query answered
+                    // by the acceleration structure's traversal rather than
+                    // by one the compiler builds (Lower/Trees.cpp). Held as
+                    // a function until then, since the lowering finds the
+                    // query by the function's name.
+                    if (const auto f = program.funcs.find(func);
+                        f != program.funcs.end() && !f->second->is_noinline() &&
+                        !f->second->is_held()) {
+                        f->second->attributes.push_back(
+                            ir::Function::Attribute::held);
+                    }
+                    add(ir::Bind{ir::Location{}, ir::Resource::RTCore,
+                                 ir::Expr()});
+                } else {
                 expect(Token::Type::COMMA);
                 if (!variant.empty() &&
                     !(i.names.size() == 1 && i.names[0] == "TextureUnit")) {
@@ -3724,6 +3741,7 @@ struct Parser {
                     const std::string resource = get_id();
                     add(ir::Bind{std::move(i), parse_resource(resource),
                                  ir::Expr()});
+                }
                 }
             } else if (rewrite == "defer") {
                 // `f.defer(callee, queue)`: the queue is one this or an

@@ -5,6 +5,7 @@
 
 #include "bonsai_buffer.h"
 #include "bonsai_cuda.h"
+#include "bonsai_optix.h"
 
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
@@ -56,6 +57,14 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         // CodeGen_LLVM::device_resident).
         define("bonsai_cuda_malloc", &bonsai_cuda_malloc);
         define("bonsai_cuda_free", &bonsai_cuda_free);
+        // The ray tracing hardware (runtime/bonsai_optix.h): the launches a
+        // loop bound to OptixThread makes, and the module load ahead of
+        // them; a program's driver builds the acceleration structures.
+        define("bonsai_optix_launch", &bonsai_optix_launch);
+        define("bonsai_optix_load", &bonsai_optix_load);
+        define("bonsai_optix_ray_types", &bonsai_optix_ray_types);
+        define("bonsai_optix_geometry", &bonsai_optix_geometry);
+        define("bonsai_optix_scene", &bonsai_optix_scene);
         // An exported function's prologue calls these; under the JIT nothing
         // calls the exported entry (main calls its internal twin), but the
         // entry is in the module and has to link.

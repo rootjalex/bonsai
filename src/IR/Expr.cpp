@@ -1248,7 +1248,14 @@ Expr MatchExpr::make(Expr value, std::vector<Arm> arms) {
 }
 
 Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
-    internal_assert(op == OpType::rand ||
+    // Those that take no arguments: `rand()`, and what a ray tracing
+    // program reads of its hit.
+    const bool nullary = op == OpType::rand || op == OpType::rt_hit_t ||
+                         op == OpType::rt_primitive_index ||
+                         op == OpType::rt_instance_id ||
+                         op == OpType::rt_sbt_base ||
+                         op == OpType::rt_ignore_hit;
+    internal_assert(nullary ||
                     (!args.empty() && std::all_of(args.cbegin(), args.cend(),
                                                   [](const auto &arg) {
                                                       return arg.defined();
@@ -1349,6 +1356,62 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                     << "derivatives, not " << t;
             }
             node->type = Vector_t::make(Float_t::make_f32(), 4);
+            break;
+        }
+        case Intrinsic::rt_trace: {
+            // Seven, and then whatever the query's hit programs read of
+            // the program's data, as operands so that it reaches the
+            // launch (see Lower/Trees.cpp).
+            internal_assert(args.size() >= 7)
+                << "rt_trace takes the traversable, the ray's origin and "
+                << "direction, tmin, tmax, the flags and the context, not "
+                << args.size() << " arguments";
+            internal_assert(args[0].type().is<UInt_t>() &&
+                            args[0].type().bits() == 64)
+                << "rt_trace takes the traversable as a u64 handle, not "
+                << args[0].type();
+            for (size_t k = 1; k < 3; k++) {
+                const Type &t = args[k].type();
+                internal_assert(t.is<Vector_t>() && t.lanes() == 3 &&
+                                t.element_of().is_float())
+                    << "rt_trace takes a vec3f origin and direction, not "
+                    << t;
+            }
+            internal_assert(args[3].type().is_float() &&
+                            args[4].type().is_float())
+                << "rt_trace takes float tmin and tmax";
+            internal_assert(args[5].type().is<UInt_t>())
+                << "rt_trace takes the ray flags as an unsigned integer";
+            internal_assert(args[6].type().is<Ptr_t>())
+                << "rt_trace takes the context by address, not "
+                << args[6].type();
+            node->type = UInt_t::make(32);
+            break;
+        }
+        case Intrinsic::rt_primitive_index:
+        case Intrinsic::rt_instance_id:
+        case Intrinsic::rt_sbt_base:
+        case Intrinsic::rt_ignore_hit: {
+            internal_assert(args.empty())
+                << Intrinsic::make(op, {}) << " takes no arguments";
+            node->type = UInt_t::make(32);
+            break;
+        }
+        case Intrinsic::rt_hit_t: {
+            internal_assert(args.empty()) << "rt_hit_t takes no arguments";
+            node->type = Float_t::make_f32();
+            break;
+        }
+        case Intrinsic::rt_report_hit: {
+            internal_assert(args.size() == 1 && args[0].type().is_float())
+                << "rt_report_hit takes the hit's ray parameter, a float";
+            node->type = Bool_t::make();
+            break;
+        }
+        case Intrinsic::rt_traversable: {
+            internal_assert(args.size() == 1)
+                << "rt_traversable takes the tree";
+            node->type = UInt_t::make(64);
             break;
         }
         case Intrinsic::rand: {
@@ -1885,6 +1948,48 @@ Expr PtrTo::make(Expr expr) {
                                       expr.type().lanes())
                      : Ptr_t::make(expr.type());
     node->expr = std::move(expr);
+    return node;
+}
+
+bool Intrinsic::has_effects(OpType op) {
+    switch (op) {
+    case Intrinsic::rand:
+    case Intrinsic::rt_trace:
+    case Intrinsic::rt_report_hit:
+    case Intrinsic::rt_ignore_hit:
+        return true;
+    default:
+        return false;
+    }
+}
+
+Expr StoredElement::make(Expr tree, Expr index) {
+    internal_assert(tree.defined() && tree.type().defined())
+        << "StoredElement::make received an undefined or untyped tree";
+    Type element_type;
+    if (const BVH_t *bvh = tree.type().as<BVH_t>()) {
+        element_type = bvh->primitive;
+    } else {
+        internal_assert(tree.type().is<Set_t>())
+            << "StoredElement::make of " << tree << ", which is a "
+            << tree.type() << " rather than a tree or a set";
+        element_type = tree.type().element_of();
+    }
+    return make(std::move(tree), std::move(index), std::move(element_type));
+}
+
+Expr StoredElement::make(Expr tree, Expr index, Type element_type) {
+    internal_assert(tree.defined() && tree.type().defined())
+        << "StoredElement::make received an undefined or untyped tree";
+    internal_assert(index.defined() && index.type().defined() &&
+                    index.type().is_int_or_uint())
+        << "StoredElement::make takes an integer index, not " << index;
+    internal_assert(element_type.defined())
+        << "StoredElement::make received an undefined element type";
+    StoredElement *node = new StoredElement;
+    node->type = std::move(element_type);
+    node->tree = std::move(tree);
+    node->index = std::move(index);
     return node;
 }
 

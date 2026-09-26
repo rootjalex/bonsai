@@ -466,6 +466,11 @@ struct Function {
     // Set from the schedule when the function is built (SSA/Convert.cpp) and
     // copied with the function (SSA/CloneFunction.cpp).
     std::set<std::string> schedule_uses;
+    // Which OptiX program this function is, if one (ir::Function::
+    // OptixProgram): carried with the function through SSA and back, so
+    // that the code generators know it is the ray tracing hardware's entry
+    // point and not the host's function.
+    std::optional<ir::Function::OptixProgram> optix_program;
 
     // The queues this function owns (defer(), SSA/Defer.h), by name: the
     // value each one's storage was sized by -- the capacity every round of

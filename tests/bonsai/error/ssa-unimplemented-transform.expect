@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:1262
+[internal] Error: src/SSA/Convert.cpp:2396
 
---> b.resource != ir::Resource::RTCore && b.resource != ir::Resource::OptixThread
-bind(i, RTCore) on process: that backend is not built yet.
+--> b.i.names.empty()
+bind(i, RTCore) on process: RTCore binds a function's query, not a loop; write `process.bind(RTCore)`.

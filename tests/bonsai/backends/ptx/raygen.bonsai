@@ -1,0 +1,27 @@
+//! flags: -p ssa -b ptx
+
+// The OptiX module a loop bound to OptixThread becomes (correctness/gpu/
+// raygen runs it): a `__raygen__` entry point with no parameters of its
+// own, reading the loop's begin and stride and its one capture out of the
+// launch parameters -- `params`, in constant memory, the struct the host
+// packs the slots into -- and the launch index from
+// `_optix_get_launch_index_x`. No query is traced, so the module holds no
+// hit or miss programs.
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, OptixThread);
+}

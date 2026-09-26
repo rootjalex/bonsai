@@ -5,7 +5,6 @@ define void @clamp_negative(ptr noundef %a_buffer, ptr noundef %out_buffer) loca
 clamp_negative:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp olt <8 x float> %extract, zeroinitializer
   %not. = xor <8 x i1> %0, splat (i1 true)
@@ -14,6 +13,7 @@ clamp_negative:
   br i1 %.not, label %"!else_3!any", label %"!then_2"
 
 "!then_2":                                        ; preds = %clamp_negative
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> zeroinitializer, ptr align 4 %out, <8 x i1> %0)
   br label %"!else_3!any"
 
@@ -23,6 +23,7 @@ clamp_negative:
   br i1 %.not4, label %"!par_cont_1", label %"!else_3"
 
 "!else_3":                                        ; preds = %"!else_3!any"
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> %extract, ptr align 4 %out, <8 x i1> %not.)
   br label %"!par_cont_1"
 
@@ -34,11 +35,11 @@ define void @uniform_outer(ptr noundef %a_buffer, float noundef %flag, ptr nound
 uniform_outer:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %0 = fcmp olt float %flag, 0.000000e+00
   br i1 %0, label %"!then_2", label %"!else_3"
 
 "!then_2":                                        ; preds = %uniform_outer
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store <8 x float> zeroinitializer, ptr %out, align 4
   br label %"!par_cont_1"
 
@@ -51,6 +52,7 @@ uniform_outer:
   br i1 %.not, label %"!else_6!any", label %"!then_5"
 
 "!then_5":                                        ; preds = %"!else_3"
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> splat (float 1.000000e+00), ptr align 4 %out, <8 x i1> %1)
   br label %"!else_6!any"
 
@@ -60,6 +62,7 @@ uniform_outer:
   br i1 %.not6, label %"!par_cont_1", label %"!else_6"
 
 "!else_6":                                        ; preds = %"!else_6!any"
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> splat (float 2.000000e+00), ptr align 4 %out, <8 x i1> %not.)
   br label %"!par_cont_1"
 

@@ -73,6 +73,7 @@ struct PtrTo;
 struct RefTo;
 struct Deref;
 struct AtomicAdd;
+struct StoredElement;
 
 // Stmts
 struct Stmt;

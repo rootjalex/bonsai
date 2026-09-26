@@ -230,6 +230,7 @@ FuncMap handle_instantiations(const FuncMap &funcs) {
                 new_name, std::move(args), std::move(ret_type), std::move(body),
                 std::move(interfaces), func->attributes);
             new_funcs[new_name]->schedule_uses = func->schedule_uses;
+            new_funcs[new_name]->optix_program = func->optix_program;
         }
     }
 

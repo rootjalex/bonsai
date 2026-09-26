@@ -1390,6 +1390,13 @@ struct FunctionBuilder : Visitor {
                                         {std::move(ptr), std::move(amount)});
     }
 
+    void visit(const StoredElement *node) override {
+        internal_error << "An element of a tree's storage reached the SSA "
+                       << "conversion unresolved: " << ir::Expr(node)
+                       << ". Lower/Layouts.cpp spells these as reads of the "
+                       << "layout's array.";
+    }
+
     void visit(const Deref *node) override {
         // `node->expr` is a pointer (e.g. a `mut` argument/local, wrapped by
         // Lower/Mutability.cpp); Load reads through it to produce a value of
@@ -1844,6 +1851,9 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         // parser stamped (ir::Function::schedule_uses) so that nothing here
         // removes them before the split reads them.
         f->schedule_uses = func->schedule_uses;
+        // And which OptiX program the function is, if one, for the code
+        // generator that compiles it as an entry point (CodeGen_OptiX).
+        f->optix_program = func->optix_program;
         fmap[name] = std::move(f);
     }
     phase("build");
@@ -2379,16 +2389,19 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             // function's body is the unit's already.
                             return;
                         }
+                        if (b.resource == ir::Resource::RTCore) {
+                            // `f.bind(RTCore)`: the function's query on
+                            // the ray tracing hardware, applied where the
+                            // query is lowered (Lower/Trees.cpp).
+                            internal_assert(b.i.names.empty())
+                                << "bind(" << b.i.names.back()
+                                << ", RTCore) on " << name << ": RTCore "
+                                << "binds a function's query, not a loop; "
+                                << "write `" << name << ".bind(RTCore)`.";
+                            return;
+                        }
                         internal_assert(!b.i.names.empty())
                             << "bind() requires a cursor for: " << name;
-                        // Not finished, and a bind that silently did
-                        // nothing would be a program that runs
-                        // somewhere other than it was told to.
-                        internal_assert(b.resource != ir::Resource::RTCore &&
-                                        b.resource != ir::Resource::OptixThread)
-                            << "bind(" << b.i.names.back() << ", "
-                            << to_string(b.resource) << ") on " << name
-                            << ": that backend is not built yet.";
                         for (const LoopSite &at : resolve_loops(
                                  fmap, name, b.i.names.back(), "bind")) {
                             bind(fmap, at.func, at.index, b.resource);

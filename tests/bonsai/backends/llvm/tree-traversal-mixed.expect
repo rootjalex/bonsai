@@ -17,9 +17,9 @@ source_filename = "bonsai_module"
 define range(i64 72057594037927936, 0) i64 @Prim_Inst(ptr noundef nonnull readonly captures(none) %render_from_instance, i32 noundef %blas, ptr noundef %Prim_Inst_pool_buffer, ptr noundef %Prim_Inst_fill_buffer) local_unnamed_addr {
 Prim_Inst:
   %Prim_Inst_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Inst_pool_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Inst_pool_buffer, i32 1)
   %Prim_Inst_fill = tail call ptr @bonsai_buffer_require(ptr %Prim_Inst_fill_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Inst_fill_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Inst_pool_buffer, i32 1)
   %deref_temp.unpack = load <3 x float>, ptr %render_from_instance, align 16
   %0 = insertvalue %struct.Transform poison, <3 x float> %deref_temp.unpack, 0
   %deref_temp.elt1 = getelementptr inbounds nuw i8, ptr %render_from_instance, i64 16
@@ -55,9 +55,9 @@ Prim_Inst:
 define i64 @Prim_Solo(ptr noundef nonnull readonly captures(none) %tri, ptr noundef %Prim_Solo_pool_buffer, ptr noundef %Prim_Solo_fill_buffer) local_unnamed_addr {
 Prim_Solo:
   %Prim_Solo_pool = tail call ptr @bonsai_buffer_require(ptr %Prim_Solo_pool_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Solo_pool_buffer, i32 1)
   %Prim_Solo_fill = tail call ptr @bonsai_buffer_require(ptr %Prim_Solo_fill_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Solo_fill_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %Prim_Solo_pool_buffer, i32 1)
   %deref_temp.unpack = load <3 x float>, ptr %tri, align 16
   %deref_temp.elt1 = getelementptr inbounds nuw i8, ptr %tri, i64 16
   %deref_temp.unpack2 = load <3 x float>, ptr %deref_temp.elt1, align 16
@@ -740,31 +740,31 @@ trace:
   br i1 %cond, label %"!case_4", label %"!case_5"
 
 "!case_5":                                        ; preds = %"!then_1"
-  %extract_ptr36 = getelementptr inbounds [48 x i8], ptr %tris1, i64 %8
+  %extract_ptr44 = getelementptr inbounds [48 x i8], ptr %tris1, i64 %8
   br label %"!merge_3"
 
 "!case_4":                                        ; preds = %"!then_1"
   %extract_ptr = getelementptr inbounds [8 x i8], ptr %elems3, i64 %8
   %extract = load i64, ptr %extract_ptr, align 8
   %9 = and i64 %extract, 72057594037927935
-  %extract_ptr32 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool, i64 %9
+  %extract_ptr36 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool, i64 %9
   br label %"!merge_3"
 
 "!merge_3":                                       ; preds = %"!case_5", %"!case_4"
-  %"_match0$r47.0.in" = phi ptr [ %extract_ptr32, %"!case_4" ], [ %extract_ptr36, %"!case_5" ]
+  %"_match0$r47.0.in" = phi ptr [ %extract_ptr36, %"!case_4" ], [ %extract_ptr44, %"!case_5" ]
   %"_match0$r47.2.in" = getelementptr inbounds nuw i8, ptr %"_match0$r47.0.in", i64 32
   %"_match0$r47.2" = load <3 x float>, ptr %"_match0$r47.2.in", align 16
   %"_match0$r47.1.in" = getelementptr inbounds nuw i8, ptr %"_match0$r47.0.in", i64 16
   %"_match0$r47.1" = load <3 x float>, ptr %"_match0$r47.1.in", align 16
   %"_match0$r47.0" = load <3 x float>, ptr %"_match0$r47.0.in", align 16
-  %deref_temp39.fca.1.0.load = load i32, ptr %.fca.1.0.gep, align 4
-  %10 = sext i32 %deref_temp39.fca.1.0.load to i64
-  %extract_ptr40 = getelementptr inbounds [8 x i8], ptr %elems3, i64 %10
-  %extract41 = load i64, ptr %extract_ptr40, align 8
+  %deref_temp51.fca.1.0.load = load i32, ptr %.fca.1.0.gep, align 4
+  %10 = sext i32 %deref_temp51.fca.1.0.load to i64
+  %extract_ptr52 = getelementptr inbounds [8 x i8], ptr %elems3, i64 %10
+  %extract53 = load i64, ptr %extract_ptr52, align 8
   br label %"!merge_2"
 
 "!merge_2":                                       ; preds = %"!merge_3", %trace
-  %"_best0_result$i33.0.0" = phi i64 [ 0, %trace ], [ %extract41, %"!merge_3" ]
+  %"_best0_result$i33.0.0" = phi i64 [ 0, %trace ], [ %extract53, %"!merge_3" ]
   %"_best0_result$i33.0.1.0" = phi <3 x float> [ zeroinitializer, %trace ], [ %"_match0$r47.0", %"!merge_3" ]
   %"_best0_result$i33.0.1.1" = phi <3 x float> [ zeroinitializer, %trace ], [ %"_match0$r47.1", %"!merge_3" ]
   %"_best0_result$i33.0.1.2" = phi <3 x float> [ zeroinitializer, %trace ], [ %"_match0$r47.2", %"!merge_3" ]

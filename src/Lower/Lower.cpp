@@ -19,6 +19,7 @@
 #include "Lower/Maps.h"
 #include "Lower/Mutability.h"
 #include "Lower/Options.h"
+#include "Lower/RTCoreReads.h"
 #include "Lower/Random.h"
 #include "Lower/RecLoops.h"
 #include "Lower/RenamePointerToExpr.h"
@@ -290,6 +291,12 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerADTs>());
     // See the core pipeline: a `tagged_index` layout names externs that did
     // not exist when LowerExterns ran.
+    ssa.push_back(std::make_unique<LowerExterns>());
+    // What a ray query's hit programs read -- their parameters, once the
+    // externs have reached them through everything they call -- given to
+    // its trace, and threaded up to the loop that launches by one more run
+    // of LowerExterns (see Lower/RTCoreReads.h).
+    ssa.push_back(std::make_unique<LowerRTCoreReads>());
     ssa.push_back(std::make_unique<LowerExterns>());
     ssa.push_back(std::make_unique<LowerOptions>());
     ssa.push_back(std::make_unique<LowerTuples>());

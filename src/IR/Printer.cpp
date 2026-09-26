@@ -1185,6 +1185,22 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "sqrt";
     case Intrinsic::tex_sample_grad_2d:
         return "tex_sample_grad_2d";
+    case Intrinsic::rt_trace:
+        return "rt_trace";
+    case Intrinsic::rt_hit_t:
+        return "rt_hit_t";
+    case Intrinsic::rt_primitive_index:
+        return "rt_primitive_index";
+    case Intrinsic::rt_instance_id:
+        return "rt_instance_id";
+    case Intrinsic::rt_sbt_base:
+        return "rt_sbt_base";
+    case Intrinsic::rt_report_hit:
+        return "rt_report_hit";
+    case Intrinsic::rt_ignore_hit:
+        return "rt_ignore_hit";
+    case Intrinsic::rt_traversable:
+        return "rt_traversable";
     case Intrinsic::block_reduce_add:
         return "block_reduce_add";
     case Intrinsic::block_reduce_max:
@@ -1362,6 +1378,14 @@ void Printer::visit(const PtrTo *node) {
 void Printer::visit(const RefTo *node) {
     os << "ref(";
     print_no_parens(node->place);
+    os << ")";
+}
+
+void Printer::visit(const StoredElement *node) {
+    os << "stored_element(";
+    print_no_parens(node->tree);
+    os << ", ";
+    print_no_parens(node->index);
     os << ")";
 }
 

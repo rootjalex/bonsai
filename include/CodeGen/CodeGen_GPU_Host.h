@@ -1,10 +1,13 @@
 #pragma once
 
 #include "CodeGen/CodeGen_LLVM.h"
+#include "CodeGen/CodeGen_OptiX.h"
 #include "CodeGen/CodeGen_PTX.h"
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace bonsai {
 
@@ -15,6 +18,9 @@ struct CodeGen_GPU_Host_Interface {
     // The device code generator the program's GPU-bound loops were compiled
     // through, once compile_program has run; null when there were none.
     virtual CodeGen_PTX *device_codegen() const = 0;
+    // The OptiX modules, one per loop bound to OptixThread, once
+    // compile_program has run; empty when there were none.
+    virtual std::vector<const CodeGen_OptiX *> optix_codegens() const = 0;
 };
 
 // The host side of a program with loops on the GPU: Halide's
@@ -47,6 +53,13 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
                     const CompilerOptions &options) override;
 
     CodeGen_PTX *device_codegen() const override { return device.get(); }
+    std::vector<const CodeGen_OptiX *> optix_codegens() const override {
+        std::vector<const CodeGen_OptiX *> out;
+        for (const auto &[module, _] : optix_modules) {
+            out.push_back(module.get());
+        }
+        return out;
+    }
 
   protected:
     // The GPU bindings become a kernel and a launch; everything else is the
@@ -97,6 +110,11 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     // exist until the device module is finished, so a launch loads it from
     // here and the initializer is filled in at the end.
     llvm::GlobalVariable *ptx_source = nullptr;
+    // The OptiX modules: one per loop bound to OptixThread (CodeGen_OptiX
+    // holds one raygen program each), with the global its launch loads the
+    // PTX's address from, filled in as `ptx_source` is.
+    std::vector<std::pair<std::unique_ptr<CodeGen_OptiX>, llvm::GlobalVariable *>>
+        optix_modules;
 };
 
 } // namespace bonsai

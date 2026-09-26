@@ -394,16 +394,16 @@ trace:
   %4 = sext i32 %deref_temp11.fca.1.0.load to i64
   %extract_ptr = getelementptr inbounds [48 x i8], ptr %prims1, i64 %4
   %extract.unpack = load <3 x float>, ptr %extract_ptr, align 16
-  %extract.elt16 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %extract.unpack17 = load <3 x float>, ptr %extract.elt16, align 16
-  %extract.elt18 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %extract.elt18 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %extract.unpack19 = load <3 x float>, ptr %extract.elt18, align 16
+  %extract.elt20 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %extract.unpack21 = load <3 x float>, ptr %extract.elt20, align 16
   br label %"!merge_2"
 
 "!merge_2":                                       ; preds = %"!then_1", %trace
   %"_best0_result$i25.0.0" = phi <3 x float> [ zeroinitializer, %trace ], [ %extract.unpack, %"!then_1" ]
-  %"_best0_result$i25.0.1" = phi <3 x float> [ zeroinitializer, %trace ], [ %extract.unpack17, %"!then_1" ]
-  %"_best0_result$i25.0.2" = phi <3 x float> [ zeroinitializer, %trace ], [ %extract.unpack19, %"!then_1" ]
+  %"_best0_result$i25.0.1" = phi <3 x float> [ zeroinitializer, %trace ], [ %extract.unpack19, %"!then_1" ]
+  %"_best0_result$i25.0.2" = phi <3 x float> [ zeroinitializer, %trace ], [ %extract.unpack21, %"!then_1" ]
   %5 = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i25.0.0", 0, 0
   %6 = insertvalue %struct._option0 %5, <3 x float> %"_best0_result$i25.0.1", 0, 1
   %7 = insertvalue %struct._option0 %6, <3 x float> %"_best0_result$i25.0.2", 0, 2

@@ -15,7 +15,6 @@ run:
   %sums_acc_048 = alloca [40 x i32], align 4
   %sums_n_049 = alloca [40 x i32], align 4
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store i32 0, ptr %sums_queue1141, align 16
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 8
   store ptr %sums_n_049, ptr %.fca.1.gep, align 8
@@ -35,6 +34,7 @@ run:
   store ptr %sums_i_143, ptr %.fca.3.gep61, align 16
   %.fca.4.gep63 = getelementptr inbounds nuw i8, ptr %sums_queue1141, i64 72
   store ptr %sums__bits0_142, ptr %.fca.4.gep63, align 8
+  call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   br label %"!par_body_0"
 
 "!par_cont_1":                                    ; preds = %sums_gang1_pf_exit, %"sums!round.preheader"
@@ -49,6 +49,7 @@ run:
   %2 = zext nneg i32 %1 to i64
   %sums_queue17 = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1141, i64 %2
   store i32 0, ptr %sums_queue17, align 8, !tbaa !0
+  call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %.splatinsert = insertelement <16 x i32> poison, i32 %"@13.count69", i64 0
   %.splat = shufflevector <16 x i32> %.splatinsert, <16 x i32> poison, <16 x i32> zeroinitializer
   %extract26.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr68, i64 8

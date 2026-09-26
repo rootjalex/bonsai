@@ -80,7 +80,6 @@ hit_z_all:
   %"_best0$i33$i44" = alloca %"struct.__tuple_1$v8", align 32
   %rs = tail call ptr @bonsai_buffer_require(ptr %rs_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %0 = getelementptr inbounds nuw i8, ptr %shapes_buffer, i64 4
   %prims = load ptr, ptr %0, align 1
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
@@ -362,8 +361,8 @@ hit_z_all:
   %.fca.1.load.i = load <8 x i1>, ptr %.fca.1.gep.i, align 32
   %142 = and <8 x i1> %63, %.fca.1.load.i
   %143 = bitcast <8 x i1> %142 to i8
-  %.not234.i13 = icmp eq i8 %143, 0
-  br i1 %.not234.i13, label %"!merge_36.i", label %"!case_39.i"
+  %.not234.i15 = icmp eq i8 %143, 0
+  br i1 %.not234.i15, label %"!merge_36.i", label %"!case_39.i"
 
 "!case_39.i":                                     ; preds = %"!merge_25.i.thread"
   call fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias %_ret124.i, %"struct.Ray$v8" %10, %struct.Triangle %141, <8 x i1> %142)
@@ -454,6 +453,7 @@ hit_z_all:
 
 "!merge_4":                                       ; preds = %"!then_3", %"_recloop_func0$gang8_v2_p3$masked.exit"
   %"_best0_result$i33$i44!skip.1" = phi <8 x float> [ splat (float -1.000000e+00), %"_recloop_func0$gang8_v2_p3$masked.exit" ], [ %163, %"!then_3" ]
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store <8 x float> %"_best0_result$i33$i44!skip.1", ptr %out, align 4
   ret void
 }
@@ -820,10 +820,10 @@ declare void @llvm.masked.store.v8i16.p0(<8 x i16>, ptr captures(none), <8 x i1>
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
-declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
-
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
 declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #4
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
 declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #4

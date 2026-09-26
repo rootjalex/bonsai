@@ -384,7 +384,7 @@ class BonsaiToCpp : ir::Printer {
     create_header(const Program &program, bool allow_mangling,
                   const std::map<std::string, std::vector<uint8_t>> &sides =
                       {},
-                  bool gpu = false) {
+                  bool gpu = false, bool optix = false) {
         sides_of_exported = sides;
         find_boundary_layouts(program);
         emit_prologue(allow_mangling);
@@ -399,6 +399,18 @@ class BonsaiToCpp : ir::Printer {
                   "void bonsai_gpu_prepare(void);\n";
         }
         emit_epilogue(allow_mangling);
+        if (optix) {
+            // The program traces on the ray tracing hardware: the driver
+            // builds the acceleration structures through the OptiX runtime,
+            // whose header needs the OptiX SDK's and CUDA's on the include
+            // path (see runtime/bonsai_optix.h). After the epilogue: the
+            // runtime is C++, and the declarations above have C linkage.
+            ss << "\n// The program's ray queries run on the ray tracing "
+                  "hardware: the acceleration\n// structures are built through "
+                  "runtime/bonsai_optix.h.\n"
+                  "#define BONSAI_HAS_OPTIX 1\n"
+                  "#include \"runtime/bonsai_optix.h\"\n";
+        }
         emit_buffer_helpers(program);
         return ss.str();
     }
@@ -908,6 +920,11 @@ class BonsaiToCpp : ir::Printer {
             const auto &it = funcs.find(name);
             internal_assert(it != funcs.end());
             const auto &func = it->second;
+            // A program the ray tracing hardware runs is device code the
+            // OptiX module holds (CodeGen_OptiX), not something C++ prints.
+            if (func->optix_program.has_value()) {
+                continue;
+            }
 
             ss << get_indent();
             if (func->is_inlined()) {
@@ -1366,6 +1383,7 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const Instantiate *) override;
     // void visit(const PtrTo *) override;
     RESTRICT_VISITOR(RefTo);
+    RESTRICT_VISITOR(StoredElement);
     void visit(const Deref *node) override {
         internal_assert(!node->mask.defined())
             << "[unimplemented] masked load in C++ codegen: " << Expr(node);
@@ -1623,10 +1641,19 @@ class BonsaiToCpp : ir::Printer {
 } // namespace
 
 // Whether the program compiled into a device module as well: a GPU host with
-// a device generator that saw a kernel.
+// a device generator that saw a kernel, or an OptiX module.
 static bool has_device(const CodeGen_LLVM &codegen) {
     const auto *host = dynamic_cast<const CodeGen_GPU_Host_Interface *>(&codegen);
-    return host != nullptr && host->device_codegen() != nullptr;
+    return host != nullptr && (host->device_codegen() != nullptr ||
+                               !host->optix_codegens().empty());
+}
+
+// Whether the program compiled into OptiX modules: a loop bound to
+// OptixThread, whose driver builds the acceleration structures through
+// runtime/bonsai_optix.h.
+static bool has_optix(const CodeGen_LLVM &codegen) {
+    const auto *host = dynamic_cast<const CodeGen_GPU_Host_Interface *>(&codegen);
+    return host != nullptr && !host->optix_codegens().empty();
 }
 
 void to_cpp(const ir::Program &program, const CompilerOptions &options) {
@@ -1646,7 +1673,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
         llvm::outs() << "// Bonsai Header" << '\n';
         llvm::outs() << BonsaiToCpp().create_header(
                             program, /*allow_mangling=*/false,
-                            codegen->exported_sides(), has_device(*codegen))
+                            codegen->exported_sides(), has_device(*codegen),
+                            has_optix(*codegen))
                      << '\n';
         llvm::outs() << std::string(42, '-') << '\n';
         llvm::outs() << '\n' << "; LLVM Module" << '\n';
@@ -1680,7 +1708,8 @@ void to_cpp(const ir::Program &program, const CompilerOptions &options) {
     file << BonsaiToCpp().create_header(program,
                                         /*allow_mangling=*/false,
                                         codegen->exported_sides(),
-                                        has_device(*codegen));
+                                        has_device(*codegen),
+                                        has_optix(*codegen));
     file.close();
 }
 

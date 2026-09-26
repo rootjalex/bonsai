@@ -2619,8 +2619,492 @@ struct LowerBVH : public ir::Mutator {
                               call_args);
     }
 
-    ir::Expr visit(const ir::SetOp *op) override { return build_func(op); }
+    ir::Expr visit(const ir::SetOp *op) override {
+        if (bound_to_rtcore()) {
+            return build_rtcore(op);
+        }
+        return build_func(op);
+    }
     ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
+
+    //===----------------------------------------------------------------===//
+    // The RT cores: a query a schedule bound to RTCore.
+    //
+    // `f.bind(RTCore)` says the ray tracing hardware answers `f`'s query.
+    // The hardware answers two questions about a ray and a set of geometry:
+    // the nearest hit, and whether there is any hit. So `f`'s body has to
+    // be one of
+    //
+    //     argmin(|es| distmin(q, G(es)),
+    //            filter(|es| intersects(q, G(es)) && REST(es), S))
+    //     any(|es| intersects(q, G(es)) && REST(es), S)
+    //
+    // with `q` a ray segment parameter of `f`, `G(es)` the geometry of the
+    // element -- placed where its primitive puts it, `transform(p, g)` --
+    // and `S` a tree the schedule laid out: the tree itself, or
+    // `flatten(|p| geometry(p), tree)` whose lambda is a match on the
+    // element with arms that are one element (`Geom(g) => set{g}`) or a
+    // tree the element holds (`Inst(..) => blas`), which is pbrt's two
+    // levels, the scene's primitives and the instances' objects.
+    //
+    // The traversal every other query becomes (build_func) is replaced by a
+    // trace: a context on the stack holding `q` and the result, the
+    // `rt_trace` intrinsic -- OptiX's `optixTrace`, with the context's
+    // address in the payload, as pbrt's ClosestHitContext travels -- and
+    // the result read back. What the hardware runs at the hits are
+    // programs, made here as functions marked `optix_program` and compiled
+    // by CodeGen_OptiX as entry points: the closest-hit program builds the
+    // record into the context (the elements the hit names, by value, read
+    // from the tree's storage at the index the hit gives); the any-hit
+    // program evaluates REST on a candidate and rejects it when it fails,
+    // which is pbrt's alpha test; the intersection program, for elements
+    // that are not the hardware's triangles, reports `distmin(q, G(es))`
+    // when it is finite, which is pbrt's quadric intersection program; and
+    // the miss program does nothing. The contract that makes the hardware's
+    // traversal answer the query's question: the metric is the ray
+    // parameter, the geometric conjunct is the hardware's test (its
+    // built-in triangles, or our own `distmin` in the intersection
+    // program), and the rest of the filter runs at every candidate.
+    //
+    // Which element a hit names, as the driver builds the acceleration
+    // structure (runtime/bonsai_optix.h, apps/pbrt/render_hook.cpp): the
+    // build input's shader binding table record carries where its elements
+    // start in the tree's storage, and the hit's primitive index counts
+    // from there; the instance id is zero for the scene's own elements and
+    // one more than the index of the element that holds the instance's
+    // tree otherwise. So the top-level element is `stored(tree, inst == 0
+    // ? base + prim : inst - 1)`, and the element within it is the arm of
+    // the flatten's match: the one element the arm names, or
+    // `stored(that tree, base + prim)`.
+    //===----------------------------------------------------------------===//
+
+    const ir::TransformMap *transforms = nullptr;
+    std::string current_function;
+    ir::TypeMap new_types;
+    size_t rt_counter = 0;
+
+    bool bound_to_rtcore() const {
+        if (transforms == nullptr) {
+            return false;
+        }
+        const auto found = transforms->find(current_function);
+        if (found == transforms->end()) {
+            return false;
+        }
+        for (const ir::Transform &t : found->second) {
+            const auto *bind = std::get_if<ir::Bind>(&t);
+            if (bind != nullptr && bind->resource == ir::Resource::RTCore &&
+                bind->i.names.empty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The conjuncts of `e`, `a && b && c` taken apart.
+    static void conjuncts(const ir::Expr &e, std::vector<ir::Expr> &out) {
+        const ir::BinOp *b = e.as<ir::BinOp>();
+        if (b != nullptr && b->op == ir::BinOp::LAnd) {
+            conjuncts(b->a, out);
+            conjuncts(b->b, out);
+            return;
+        }
+        out.push_back(e);
+    }
+
+    static ir::Expr conjunction(const std::vector<ir::Expr> &es) {
+        ir::Expr all;
+        for (const ir::Expr &e : es) {
+            all = all.defined() ? (all && e) : e;
+        }
+        return all;
+    }
+
+    // The query taken apart, with the elements named `_rt_e0`, `_rt_e1`...
+    struct RayQuery {
+        bool nearest = false;
+        std::vector<ir::TypedVar> elements; // as the lambdas bind them
+        ir::Expr element;                   // the tuple of them, or the one
+        ir::Expr q;                         // the ray segment, a Var
+        ir::Expr geometry;                  // G(es)
+        std::vector<ir::Expr> rest;         // REST(es)'s conjuncts
+        ir::Expr set;                       // S
+        ir::Expr tree;                      // the tree S is over, a Var
+        // For a flatten: the match on the top-level element, applied.
+        const ir::MatchExpr *arms = nullptr;
+    };
+
+    RayQuery take_apart(const ir::SetOp *query) {
+        const std::string where =
+            current_function + ".bind(RTCore): the RT cores answer the "
+            "nearest hit along a ray -- `argmin(|es| distmin(q, G), "
+            "filter(|es| intersects(q, G) && ..., S))` -- and whether a ray "
+            "hits anything -- `any(|es| intersects(q, G) && ..., S)` -- ";
+        RayQuery rq;
+        ir::Expr metric, predicate;
+        if (query->op == ir::SetOp::argmin) {
+            rq.nearest = true;
+            metric = query->a;
+            const ir::SetOp *inner = query->b.as<ir::SetOp>();
+            internal_assert(inner != nullptr && inner->op == ir::SetOp::filter)
+                << where << "and the argmin here is not over a filter: "
+                << ir::Expr(query);
+            predicate = inner->a;
+            rq.set = inner->b;
+        } else if (query->op == ir::SetOp::any) {
+            predicate = query->a;
+            rq.set = query->b;
+        } else {
+            internal_error << where << "and this query is neither: "
+                           << ir::Expr(query);
+        }
+        const ir::Lambda *pred = predicate.as<ir::Lambda>();
+        internal_assert(pred != nullptr)
+            << where << "and the predicate is not a lambda: " << predicate;
+        std::vector<ir::Expr> parts;
+        for (size_t i = 0; i < pred->args.size(); i++) {
+            rq.elements.emplace_back("_rt_e" + std::to_string(i),
+                                     pred->args[i].type);
+            parts.push_back(ir::Var::make(rq.elements.back().type,
+                                          rq.elements.back().name));
+        }
+        rq.element = parts.size() == 1 ? parts[0] : make_tuple(parts);
+        std::vector<ir::Expr> all;
+        conjuncts(apply_lambda(predicate, rq.element), all);
+        for (const ir::Expr &c : all) {
+            const ir::GeomOp *g = c.as<ir::GeomOp>();
+            if (g != nullptr && g->op == ir::GeomOp::intersects &&
+                g->a.is<ir::Var>() && !rq.geometry.defined()) {
+                rq.q = g->a;
+                rq.geometry = g->b;
+            } else {
+                rq.rest.push_back(c);
+            }
+        }
+        internal_assert(rq.geometry.defined())
+            << where << "and the filter here has no `intersects(q, G)` with "
+            << "`q` a parameter: " << ir::Expr(query);
+        if (rq.nearest) {
+            const ir::Expr m = apply_lambda(metric, rq.element);
+            const ir::GeomOp *d = m.as<ir::GeomOp>();
+            internal_assert(d != nullptr && d->op == ir::GeomOp::distmin &&
+                            ir::equals(d->a, rq.q) &&
+                            ir::equals(d->b, rq.geometry))
+                << where << "and the metric here is not `distmin(q, G)` for "
+                << "the filter's `q` and `G`: " << m;
+        }
+        // The set: a tree, or a flatten over one.
+        ir::Expr over = rq.set;
+        if (const ir::SetOp *flat = over.as<ir::SetOp>();
+            flat != nullptr && flat->op == ir::SetOp::flatten) {
+            internal_assert(rq.elements.size() == 2)
+                << where << "and a flatten yields pairs, where the lambdas "
+                << "here take " << rq.elements.size() << " element(s)";
+            over = flat->b;
+            const ir::Expr applied = apply_lambda(flat->a, parts[0]);
+            rq.arms = applied.as<ir::MatchExpr>();
+            internal_assert(rq.arms != nullptr)
+                << where << "and the flatten's lambda is not a match on the "
+                << "element, with arms that are one element or a tree the "
+                << "element holds: " << applied;
+            keep_alive.push_back(applied);
+        } else {
+            internal_assert(rq.elements.size() == 1)
+                << where << "and the set yields one element where the "
+                << "lambdas here take " << rq.elements.size();
+        }
+        const ir::Var *tree = over.as<ir::Var>();
+        internal_assert(tree != nullptr && tree_types.contains(tree->name))
+            << where << "and the set is not a tree the schedule laid out: "
+            << over;
+        rq.tree = ir::Var::make(tree_types.at(tree->name), tree->name);
+        return rq;
+    }
+    // The applied matches `RayQuery::arms` point into.
+    std::vector<ir::Expr> keep_alive;
+
+    // Where the ray's origin, direction and extent are in the query's ray
+    // type: fields `o` and `d` (vec3f) and `tmax` (float) of the type itself
+    // -- stdlib's Ray -- or `o` and `d` of a field holding the ray with
+    // `tmax` beside it -- pbrt's RaySegment {ray : Ray; tmax}.
+    struct RayParts {
+        std::string ray_field; // empty when `o` and `d` are the type's own
+        std::string tmax_field;
+    };
+    RayParts ray_parts(const ir::Type &q_t) const {
+        const ir::Struct_t *s = q_t.as<ir::Struct_t>();
+        internal_assert(s != nullptr)
+            << current_function << ".bind(RTCore): the ray `q` of the query "
+            << "is a " << q_t << ", not a struct with an origin, a direction "
+            << "and an extent";
+        const auto field_named = [](const ir::Struct_t *in, const std::string &name)
+            -> const ir::TypedVar * {
+            for (const ir::TypedVar &f : in->fields) {
+                if (f.name == name) {
+                    return &f;
+                }
+            }
+            return nullptr;
+        };
+        const auto has_ray = [&](const ir::Struct_t *in) {
+            const ir::TypedVar *o = field_named(in, "o");
+            const ir::TypedVar *d = field_named(in, "d");
+            return o != nullptr && d != nullptr && o->type.is<ir::Vector_t>() &&
+                   o->type.lanes() == 3 && ir::equals(o->type, d->type);
+        };
+        RayParts parts;
+        const ir::TypedVar *tmax = field_named(s, "tmax");
+        internal_assert(tmax != nullptr && tmax->type.is_float())
+            << current_function << ".bind(RTCore): the ray type " << q_t
+            << " has no float `tmax`, which the RT cores need for how far "
+            << "along the ray a hit counts";
+        parts.tmax_field = "tmax";
+        if (has_ray(s)) {
+            return parts;
+        }
+        for (const ir::TypedVar &f : s->fields) {
+            const ir::Struct_t *inner = f.type.as<ir::Struct_t>();
+            if (inner != nullptr && has_ray(inner)) {
+                parts.ray_field = f.name;
+                return parts;
+            }
+        }
+        internal_error << current_function << ".bind(RTCore): the ray type "
+                       << q_t << " has no `o` and `d` (vec3f) of its own or "
+                       << "in a field holding the ray";
+        return parts;
+    }
+
+    // The statements that bind the query's elements from a hit:
+    // `_rt_e0 = stored(tree, ...)`, and for a flatten `_rt_e1 = match _rt_e0
+    // { one element => it, a tree => stored(it, base + prim) }`.
+    std::vector<ir::Stmt> bind_elements(const RayQuery &rq) {
+        static const ir::Type u32 = ir::UInt_t::make(32);
+        std::vector<ir::Stmt> stmts;
+        ir::Expr idx = ir::Intrinsic::make(ir::Intrinsic::rt_sbt_base, {}) +
+                       ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
+        stmts.push_back(ir::LetStmt::make(ir::WriteLoc("_rt_idx", u32), idx));
+        idx = ir::Var::make(u32, "_rt_idx");
+        ir::Expr top = idx;
+        if (rq.arms != nullptr) {
+            ir::Expr inst =
+                ir::Intrinsic::make(ir::Intrinsic::rt_instance_id, {});
+            stmts.push_back(
+                ir::LetStmt::make(ir::WriteLoc("_rt_inst", u32), inst));
+            inst = ir::Var::make(u32, "_rt_inst");
+            top = ir::Select::make(inst == make_zero(u32), idx,
+                                   inst - ir::UIntImm::make(u32, 1));
+        }
+        const ir::TypedVar &e0 = rq.elements[0];
+        stmts.push_back(ir::LetStmt::make(ir::WriteLoc(e0.name, e0.type),
+                                          ir::StoredElement::make(rq.tree, top)));
+        if (rq.arms != nullptr) {
+            std::vector<ir::MatchExpr::Arm> arms;
+            for (const ir::MatchExpr::Arm &arm : rq.arms->arms) {
+                ir::Expr in_arm;
+                if (const ir::Build *one = arm.value.as<ir::Build>();
+                    one != nullptr && one->type.is<ir::Set_t>()) {
+                    internal_assert(one->values.size() == 1)
+                        << current_function
+                        << ".bind(RTCore): the arm " << arm.variant
+                        << " of the flatten's match names "
+                        << one->values.size() << " elements; the RT cores "
+                        << "take one element or one tree per arm";
+                    in_arm = one->values[0];
+                } else {
+                    in_arm = ir::StoredElement::make(arm.value, idx);
+                }
+                arms.push_back(ir::MatchExpr::Arm{arm.variant, in_arm});
+            }
+            const ir::TypedVar &e1 = rq.elements[1];
+            stmts.push_back(ir::LetStmt::make(
+                ir::WriteLoc(e1.name, e1.type),
+                ir::MatchExpr::make(ir::Var::make(e0.type, e0.name),
+                                    std::move(arms))));
+        }
+        return stmts;
+    }
+
+    // A program of the query: `ctx : mut Context` and then whatever else
+    // the body reads, marked as the OptiX program it is.
+    // What the program reads of the program's data -- the tree, the pools
+    // an element lives in, the textures an alpha test samples -- reaches
+    // the trace later, once every pool exists (Lower/RTCoreReads.h).
+    void add_program(const std::string &of, ir::Function::OptixProgram::Kind kind,
+                     const char *prefix, const ir::Type &ctx_t,
+                     std::vector<ir::Stmt> body) {
+        std::vector<ir::Function::Argument> args;
+        args.emplace_back("ctx", ctx_t, ir::Expr(), /*mutating=*/true);
+        ir::Stmt stmt = ir::Sequence::make(std::move(body));
+        for (const ir::TypedVar &var : ir::gather_free_vars(stmt)) {
+            if (var.name == "ctx") {
+                continue;
+            }
+            const auto tree = tree_types.find(var.name);
+            args.emplace_back(var.name, tree != tree_types.cend()
+                                            ? tree->second
+                                            : var.type);
+        }
+        const std::string name = std::string(prefix) + of;
+        auto f = std::make_shared<ir::Function>(
+            name, std::move(args), ir::Void_t::make(), std::move(stmt),
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
+        f->optix_program = ir::Function::OptixProgram{kind, of};
+        internal_assert(!new_funcs.contains(name))
+            << "two RT-core queries named " << of;
+        new_funcs[name] = std::move(f);
+    }
+
+    ir::Expr build_rtcore(const ir::SetOp *query) {
+        using Kind = ir::Function::OptixProgram::Kind;
+        static const ir::Type u32 = ir::UInt_t::make(32);
+        static const ir::Type f32 = ir::Float_t::make_f32();
+        const RayQuery rq = take_apart(query);
+        const std::string &of = current_function;
+        const ir::Type result_t =
+            rq.nearest ? query->type : ir::Bool_t::make();
+        const ir::Type q_t = rq.q.type();
+        const std::string q_name = rq.q.as<ir::Var>()->name;
+        const RayParts parts = ray_parts(q_t);
+        // The ray `q`'s origin and direction, and `q` with its extent
+        // replaced.
+        const auto origin = [&](const ir::Expr &q) {
+            return ir::Access::make(
+                "o", parts.ray_field.empty()
+                         ? q
+                         : ir::Access::make(parts.ray_field, q));
+        };
+        const auto direction = [&](const ir::Expr &q) {
+            return ir::Access::make(
+                "d", parts.ray_field.empty()
+                         ? q
+                         : ir::Access::make(parts.ray_field, q));
+        };
+        const auto with_tmax = [&](const ir::Expr &q, const ir::Expr &tmax) {
+            std::vector<ir::Expr> fields;
+            for (const ir::TypedVar &f : q_t.as<ir::Struct_t>()->fields) {
+                fields.push_back(f.name == parts.tmax_field
+                                     ? tmax
+                                     : ir::Access::make(f.name, q));
+            }
+            return ir::Build::make(q_t, std::move(fields));
+        };
+
+        // The context: the ray, and the answer.
+        const ir::Type ctx_t = ir::Struct_t::make(
+            "_RTContext_" + of,
+            ir::Struct_t::Map{ir::TypedVar{"q", q_t},
+                              ir::TypedVar{"result", result_t}});
+        new_types[ctx_t.as<ir::Struct_t>()->name] = ctx_t;
+        const ir::Expr ctx = ir::Var::make(ctx_t, "ctx");
+        const auto bind_q = [&](ir::Expr value) {
+            return ir::LetStmt::make(ir::WriteLoc(q_name, q_t), std::move(value));
+        };
+        const ir::Expr none = rq.nearest ? ir::Build::make(result_t)
+                                         : ir::BoolImm::make(false);
+
+        // Closest hit: the record, or the flag.
+        {
+            std::vector<ir::Stmt> body = bind_elements(rq);
+            ir::WriteLoc result("ctx", ctx_t);
+            result.add_struct_access("result");
+            ir::Expr found =
+                rq.nearest ? ir::Build::make(result_t,
+                                             std::vector<ir::Expr>{rq.element})
+                           : ir::BoolImm::make(true);
+            body.push_back(ir::Store::make(result, std::move(found)));
+            add_program(of, Kind::ClosestHit, "__closesthit__", ctx_t,
+                        std::move(body));
+        }
+        // Any hit: the rest of the filter, on the candidate.
+        if (!rq.rest.empty()) {
+            std::vector<ir::Stmt> body = bind_elements(rq);
+            body.push_back(bind_q(ir::Access::make("q", ctx)));
+            ir::Expr accepted = conjunction(rq.rest);
+            body.push_back(ir::IfElse::make(
+                ir::UnOp::make(ir::UnOp::Not, std::move(accepted)),
+                ir::LetStmt::make(
+                    ir::WriteLoc("_rt_ignored", u32),
+                    ir::Intrinsic::make(ir::Intrinsic::rt_ignore_hit, {}))));
+            add_program(of, Kind::AnyHit, "__anyhit__", ctx_t, std::move(body));
+        }
+        // Intersection, for the elements the hardware does not intersect
+        // itself: the metric at the ray as far as the hit so far, reported
+        // when finite. The motion the query applies to the geometry is
+        // pulled onto the ray (Opt/PullQueries.h's identity), since it is
+        // the ray that the program's own implementation moves.
+        {
+            std::vector<ir::Stmt> body = bind_elements(rq);
+            body.push_back(bind_q(with_tmax(
+                ir::Access::make("q", ctx),
+                ir::Intrinsic::make(ir::Intrinsic::rt_hit_t, {}))));
+            ir::Expr q = ir::Var::make(q_t, q_name);
+            ir::Expr geometry = rq.geometry;
+            if (const ir::GeomOp *moved = geometry.as<ir::GeomOp>();
+                moved != nullptr && moved->op == ir::GeomOp::transform) {
+                q = ir::GeomOp::make(ir::GeomOp::untransform, moved->a, q);
+                geometry = moved->b;
+            }
+            ir::Expr t = ir::GeomOp::make(ir::GeomOp::distmin, q, geometry);
+            body.push_back(ir::LetStmt::make(ir::WriteLoc("_rt_t", f32), t));
+            t = ir::Var::make(f32, "_rt_t");
+            body.push_back(ir::IfElse::make(
+                t != extremum_identity(f32, Extremum::Min),
+                ir::LetStmt::make(
+                    ir::WriteLoc("_rt_reported", ir::Bool_t::make()),
+                    ir::Intrinsic::make(ir::Intrinsic::rt_report_hit, {t}))));
+            add_program(of, Kind::Intersection, "__intersection__", ctx_t,
+                        std::move(body));
+        }
+        // Miss: nothing; the context says so already.
+        add_program(of, Kind::Miss, "__miss__", ctx_t, {ir::Return::make()});
+
+        // The trace itself, as a function the query's expression becomes a
+        // call to (as build_func does): the context made, the ray traced,
+        // the answer read back.
+        const std::string func = "_rt_trace" + std::to_string(rt_counter++);
+        std::vector<ir::Stmt> body;
+        body.push_back(ir::Allocate::make(
+            ir::WriteLoc("_ctx", ctx_t),
+            ir::Build::make(ctx_t, std::vector<ir::Expr>{rq.q, none}),
+            ir::Allocate::Memory::Stack));
+        const ir::Expr local = ir::Var::make(ctx_t, "_ctx");
+        // OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT for `any`: the first hit the
+        // any-hit program accepts ends the traversal (see optix_types.h).
+        const ir::Expr flags = ir::UIntImm::make(u32, rq.nearest ? 0 : 4);
+        // What the programs read of the program's data joins these operands
+        // once every pool exists (Lower/RTCoreReads.h), so that it reaches
+        // the raygen program's launch as a capture.
+        body.push_back(ir::LetStmt::make(
+            ir::WriteLoc("_rt_traced", u32),
+            ir::Intrinsic::make(
+                ir::Intrinsic::rt_trace,
+                {ir::Intrinsic::make(ir::Intrinsic::rt_traversable, {rq.tree}),
+                 origin(rq.q), direction(rq.q), ir::FloatImm::make(f32, 0.0),
+                 ir::Access::make(parts.tmax_field, rq.q), flags,
+                 ir::PtrTo::make(local)})));
+        body.push_back(ir::Return::make(ir::Access::make("result", local)));
+        ir::Stmt stmt = ir::Sequence::make(std::move(body));
+
+        std::vector<ir::Function::Argument> func_args;
+        std::vector<ir::Expr> call_args;
+        for (const ir::TypedVar &var : ir::gather_free_vars(stmt)) {
+            const auto tree = tree_types.find(var.name);
+            const ir::Type type =
+                tree != tree_types.cend() ? tree->second : var.type;
+            func_args.emplace_back(var.name, type);
+            call_args.push_back(ir::Var::make(type, var.name));
+        }
+        auto f = std::make_shared<ir::Function>(
+            func, std::move(func_args), query->type, std::move(stmt),
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{});
+        ir::Type call_type = f->call_type();
+        new_funcs[func] = std::move(f);
+        return ir::Call::make(ir::Var::make(std::move(call_type), func),
+                              call_args);
+    }
 };
 
 } // namespace
@@ -2697,6 +3181,8 @@ ir::Program LowerTrees::run(ir::Program program,
         std::move(program.schedules[ir::Target::Host].tree_types);
 
     LowerBVH converter(tree_types, program.extents);
+    converter.transforms =
+        &program.schedules[ir::Target::Host].func_transforms;
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {
@@ -2706,7 +3192,8 @@ ir::Program LowerTrees::run(ir::Program program,
         }
     }
 
-    for (auto &[_, f] : program.funcs) {
+    for (auto &[name, f] : program.funcs) {
+        converter.current_function = name;
         f->body = converter.mutate(f->body);
     }
 
@@ -2714,6 +3201,10 @@ ir::Program LowerTrees::run(ir::Program program,
         auto [_, inserted] =
             program.funcs.try_emplace(std::move(name), std::move(f));
         internal_assert(inserted);
+    }
+    for (auto &[name, type] : converter.new_types) {
+        auto [_, inserted] = program.types.try_emplace(name, type);
+        internal_assert(inserted) << "a type is already named " << name;
     }
 
     return program;
