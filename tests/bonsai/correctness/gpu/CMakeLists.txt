@@ -36,7 +36,9 @@ add_bonsai_tests(
     buffers-cpp.bonsai
     defer-device.bonsai
     device-function.bonsai
+    dirty-where-touched.bonsai
     dynamic-size.bonsai
+    empty-launch.bonsai
     math.bonsai
     mut-bound.bonsai
     print.bonsai

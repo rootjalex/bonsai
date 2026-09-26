@@ -31,9 +31,16 @@ run:
   store ptr %device1, ptr %6, align 8
   %7 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 32
   store ptr %6, ptr %7, align 16
+  %.not = icmp eq i32 %n, 0
+  br i1 %.not, label %_kernel_i_0_launched, label %_kernel_i_0_launch
+
+_kernel_i_0_launch:                               ; preds = %run
   %8 = sext i32 %n to i64
   call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name, i64 1, i64 %8, ptr nonnull %_launch_params, i64 5, ptr null, i64 0)
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 2)
+  br label %_kernel_i_0_launched
+
+_kernel_i_0_launched:                             ; preds = %_kernel_i_0_launch, %run
   ret void
 }
 

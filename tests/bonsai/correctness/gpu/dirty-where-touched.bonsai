@@ -1,0 +1,30 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/dirty-where-touched
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_dirty_where_touched_cpp.cpp -I. -o $<>/main_dirty_where_touched_cpp.o, clang++ $<>/main_dirty_where_touched_cpp.o $<>/dirty-where-touched.o -o $<>/dirty-where-touched, ./$<>/dirty-where-touched, rm $<>/dirty-where-touched, rm $<>/main_dirty_where_touched_cpp.o, rm $<>/dirty-where-touched.h, rm $<>/dirty-where-touched.o
+
+// An exported function with two arms, chosen by a parameter: one writes
+// `out` on the host, the other from a loop on the GPU. Driven with implicit
+// copies off, the GPU arm first: the launch must not find `out` marked
+// written by the host, since the host's arm did not run -- the mark belongs
+// where the host touches the buffer, before the loop that writes it, not at
+// the function's entry (SSALowering::classify_buffers) -- and afterwards
+// `out` is current on the device alone. The host's arm, run once the driver
+// has fetched `out`, marks it written on the host and nowhere else. A render
+// specialized on its integrator has this shape: an arm per integrator, and
+// the film zeroed on the host by the arms that do not run.
+func [[export]] run(on_host : bool, n : i32, a : array[i32, n],
+                    out : mut array[i32]) -> void {
+    if (on_host) {
+        parfor i in 0:n {
+            out[i] = a[i] + 100;
+        }
+        return;
+    }
+    parfor j in 0:n {
+        out[j] = a[j] * 2;
+    }
+    return;
+}
+
+schedule {
+    run.bind(j, GPUThread);
+}

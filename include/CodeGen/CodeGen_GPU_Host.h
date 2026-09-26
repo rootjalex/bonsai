@@ -84,7 +84,9 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     // a device-resident allocation's (CodeGen_LLVM::device_resident), so the
     // allocation may cross to the device as it is.
     bool pointers_stored_are_device(const ir::ssa::Function &func,
-                                    const std::shared_ptr<ir::ssa::Value> &captured);
+                                    const std::shared_ptr<ir::ssa::Value> &captured,
+                                    ir::ssa::Definitions &defs,
+                                    const std::string &launch_block);
 
     // The program and options being compiled, for the device module, which
     // is opened on the first bound loop part-way through compile_program.

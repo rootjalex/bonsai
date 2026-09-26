@@ -162,7 +162,8 @@ bool holds_pointers(const Type &type) {
 // else.
 template <typename CodeGen_CPU>
 bool CodeGen_GPU_Host<CodeGen_CPU>::pointers_stored_are_device(
-    const ir::ssa::Function &func, const std::shared_ptr<Value> &captured) {
+    const ir::ssa::Function &func, const std::shared_ptr<Value> &captured,
+    ir::ssa::Definitions &defs, const std::string &launch_block) {
     std::set<std::string> allocations;
     for (const auto &block : func.blocks) {
         for (const auto &instr : block->instrs) {
@@ -173,21 +174,50 @@ bool CodeGen_GPU_Host<CodeGen_CPU>::pointers_stored_are_device(
         }
     }
     const std::optional<std::string> header =
-        CodeGen_LLVM::allocation_of(captured, allocations);
+        CodeGen_LLVM::allocation_of(captured, allocations, &defs, launch_block);
+    const bool explain = std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr;
     if (!header.has_value()) {
+        if (explain) {
+            std::cerr << "; capture is not an allocation of the function: ";
+            captured->dump(std::cerr);
+            std::shared_ptr<Value> cursor = captured;
+            for (int depth = 0; cursor && depth < 8; depth++) {
+                const auto *in =
+                    std::get_if<std::shared_ptr<Instruction>>(&cursor->data);
+                if (in == nullptr) {
+                    const auto *a = std::get_if<ir::ssa::Argument>(&cursor->data);
+                    std::cerr << (a ? " <- argument " + a->name : " <- constant");
+                    break;
+                }
+                std::cerr << " <- " << (*in)->name << " = " << op_name((*in)->op);
+                if ((*in)->operands.empty()) {
+                    break;
+                }
+                cursor = (*in)->operands[0];
+            }
+            std::cerr << "; allocations:";
+            for (const std::string &a : allocations) {
+                std::cerr << " " << a;
+            }
+            std::cerr << "\n";
+        }
         return false;
     }
+    std::string here;
     const auto device_address = [&](const std::shared_ptr<Value> &v) {
         if (std::holds_alternative<ir::ssa::Constant>(v->data)) {
             return true; // undefined, or null
         }
-        return CodeGen_LLVM::allocation_of(v, device_resident).has_value();
+        return CodeGen_LLVM::allocation_of(v, device_resident, &defs, here)
+            .has_value();
     };
     bool any = false;
     for (const auto &block : func.blocks) {
+        here = block->name;
         for (const auto &instr : block->instrs) {
             if (instr->op != Instruction::Op::Store || instr->operands.size() != 2 ||
-                CodeGen_LLVM::allocation_of(instr->operands[0], allocations) != header) {
+                CodeGen_LLVM::allocation_of(instr->operands[0], allocations, &defs,
+                                            here) != header) {
                 continue;
             }
             any = true;
@@ -196,13 +226,29 @@ bool CodeGen_GPU_Host<CodeGen_CPU>::pointers_stored_are_device(
             if (made != nullptr && (*made)->op == Instruction::Op::MakeStruct) {
                 for (const auto &field : (*made)->operands) {
                     if (holds_pointers(field->get_type()) && !device_address(field)) {
+                        if (explain) {
+                            std::cerr << "; " << *header << ": a handle stored into "
+                                      << "it is not a device allocation's: ";
+                            field->dump(std::cerr);
+                            std::cerr << "\n";
+                        }
                         return false;
                     }
                 }
             } else if (holds_pointers(stored->get_type()) && !device_address(stored)) {
+                if (explain) {
+                    std::cerr << "; " << *header << ": a value stored into it "
+                              << "holds pointers that are not a device "
+                              << "allocation's: ";
+                    stored->dump(std::cerr);
+                    std::cerr << "\n";
+                }
                 return false;
             }
         }
+    }
+    if (explain && !any) {
+        std::cerr << "; " << *header << ": nothing is stored into it\n";
     }
     return any;
 }
@@ -413,6 +459,16 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     std::vector<Copy> copies;
     std::vector<std::pair<size_t, const CodeGen_LLVM::ExportedBuffer *>>
         descriptor_params;
+    // The captures as the launching block refers to them, for following one
+    // that is a threaded argument back to the address it was computed from
+    // (CodeGen_LLVM::allocation_of).
+    ir::ssa::Definitions defs(loop.func, /*lenient=*/true);
+    std::string launch_block;
+    for (const auto &block : loop.func.blocks) {
+        if (std::get_if<Terminator::ParFor>(&block->terminator.data) == &p) {
+            launch_block = block->name;
+        }
+    }
     // The slot values: computed first, since building a layout's device
     // struct asks for its buffers on the device.
     std::vector<llvm::Value *> slot_values(n, nullptr);
@@ -442,7 +498,9 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             // An allocation that lives on the device (see
             // CodeGen_LLVM::device_resident) is handed over as the device
             // address it already is; nothing to copy.
-            if (CodeGen_LLVM::allocation_of(captured, device_resident).has_value()) {
+            if (CodeGen_LLVM::allocation_of(captured, device_resident, &defs,
+                                            launch_block)
+                    .has_value()) {
                 continue;
             }
             // A struct with addresses in it -- a queue's header, holding its
@@ -450,7 +508,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             // is a device allocation's: the copy on the device then points
             // at device memory. Checked at the stores that fill it.
             const bool device_pointers_inside =
-                pointers_stored_are_device(loop.func, captured);
+                pointers_stored_are_device(loop.func, captured, defs, launch_block);
             copies.push_back({i, slot_values[i],
                               capture_bytes(arg_types[i], arg_names[i],
                                             device_pointers_inside)});
@@ -538,30 +596,48 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         module->getOrInsertFunction("bonsai_cuda_launch", launch_ty);
     llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_source, "_ptx");
     llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
+
+    // A loop with no iterations launches nothing: a drain over a queue
+    // that is empty this round -- the medium queue of a scene with no
+    // media, the shadow queue of a bounce that lit nothing -- has a count
+    // of zero, and a grid of zero blocks is not a launch the device
+    // accepts. Nothing ran, so nothing is marked written.
+    llvm::Value *zero = llvm::ConstantInt::get(i64_t, 0);
+    llvm::Value *runs = builder->CreateAnd(
+        builder->CreateICmpNE(grid, zero), builder->CreateICmpNE(block, zero),
+        "_launch_runs");
+    llvm::BasicBlock *launch_bb = llvm::BasicBlock::Create(
+        *context, kernel.name + "_launch", builder->GetInsertBlock()->getParent());
+    llvm::BasicBlock *after_bb = llvm::BasicBlock::Create(
+        *context, kernel.name + "_launched",
+        builder->GetInsertBlock()->getParent());
+    builder->CreateCondBr(runs, launch_bb, after_bb);
+    builder->SetInsertPoint(launch_bb);
     builder->CreateCall(launch, {ptx, name, grid, block, params,
                                  llvm::ConstantInt::get(i64_t, n), buffers,
                                  llvm::ConstantInt::get(i64_t, copies.size())});
 
-    // What the kernel may have written is current on the device now; and a
-    // buffer the rest of this function reads on the host is brought back
-    // here, since the host pointer it was bound to at entry names the same
-    // memory. A buffer the host never touches is left where it is, for the
-    // driver to ask for when it wants it (outside its timer). A layout is
-    // each of its arrays.
+    // What the kernel may have written is current on the device now and
+    // stale on the host. It stays where it is: a host block that touches it
+    // later asks for it back where it does (SSALowering::classify_buffers),
+    // and a buffer the host never touches is left for the driver to ask for
+    // when it wants it, outside its timer. A buffer the kernel only reads
+    // is as it was. A layout is each of its arrays.
     for (const auto &[i, buffer] : descriptor_params) {
+        if (!buffer->mutating ||
+            !capture_written(*program, loop.func, p, arg_names[i])) {
+            continue;
+        }
         std::vector<llvm::Value *> descriptors{buffer->descriptor};
         if (buffer->layout != nullptr) {
             descriptors = layout_descriptors(buffer->descriptor, buffer->layout);
         }
         for (llvm::Value *descriptor : descriptors) {
-            if (buffer->mutating) {
-                buffer_mark_dirty(descriptor, /*device=*/true);
-            }
-            if (buffer->host_used) {
-                buffer_require(descriptor, /*device=*/false);
-            }
+            buffer_mark_dirty(descriptor, /*device=*/true);
         }
     }
+    builder->CreateBr(after_bb);
+    builder->SetInsertPoint(after_bb);
 }
 
 template <typename CodeGen_CPU>

@@ -37,6 +37,7 @@
 #include "IR/Program.h"
 #include "IR/Visitor.h"
 #include "LLVMIncl.h"
+#include "SSA/Definitions.h"
 #include "SSA/SSA.h"
 #include "Scope.h"
 
@@ -230,11 +231,16 @@ struct CodeGen_LLVM : public ir::Visitor {
     // a value keeps when it is threaded to another block as an argument.
     std::set<std::string> device_resident;
     // The allocation an address is of -- through address arithmetic (GEP,
-    // a field's pointer, address-of, a cast) and the name a threaded block
-    // argument keeps -- if it is one of `allocations`; none otherwise.
+    // a field's pointer, address-of, a cast), and through the block
+    // arguments that pass it along when `defs` is given (SSA/Definitions.h,
+    // with `block` the block `v` is referred to in) or by the name a
+    // threaded argument keeps when not -- if it is one of `allocations`;
+    // none otherwise.
     static std::optional<std::string>
     allocation_of(const std::shared_ptr<ir::ssa::Value> &v,
-                  const std::set<std::string> &allocations);
+                  const std::set<std::string> &allocations,
+                  ir::ssa::Definitions *defs = nullptr,
+                  const std::string &block = "");
     // `bonsai_buffer_require(descriptor, side)`: the pointer for that side.
     llvm::Value *buffer_require(llvm::Value *descriptor, bool device);
     // `bonsai_buffer_mark_dirty(descriptor, side)`.

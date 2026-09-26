@@ -4655,11 +4655,24 @@ void CodeGen_LLVM::visit(const Free *node) {
 
 std::optional<std::string>
 CodeGen_LLVM::allocation_of(const std::shared_ptr<ir::ssa::Value> &v,
-                            const std::set<std::string> &allocations) {
+                            const std::set<std::string> &allocations,
+                            ir::ssa::Definitions *defs, const std::string &block) {
     using ir::ssa::Instruction;
     std::shared_ptr<ir::ssa::Value> cursor = v;
+    std::string here = block;
     for (int depth = 0; cursor && depth < 64; depth++) {
         if (const auto *a = std::get_if<ir::ssa::Argument>(&cursor->data)) {
+            // Threaded from an instruction of another block, when that can
+            // be found; otherwise the name is the value.
+            if (defs != nullptr && !here.empty()) {
+                const ir::ssa::Definition d = defs->of(here, cursor);
+                if (d.value && d.value != cursor &&
+                    std::holds_alternative<std::shared_ptr<Instruction>>(d.value->data)) {
+                    cursor = d.value;
+                    here = d.block;
+                    continue;
+                }
+            }
             return allocations.contains(a->name) ? std::optional<std::string>(a->name)
                                                  : std::nullopt;
         }
@@ -4675,6 +4688,9 @@ CodeGen_LLVM::allocation_of(const std::shared_ptr<ir::ssa::Value> &v,
         if ((in.op == Instruction::Op::GEP || in.op == Instruction::Op::FieldPtr ||
              in.op == Instruction::Op::AddressOf || in.op == Instruction::Op::Cast) &&
             !in.operands.empty()) {
+            if (const auto owner = in.owner.lock()) {
+                here = owner->name;
+            }
             cursor = in.operands[0];
             continue;
         }

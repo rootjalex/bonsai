@@ -1,0 +1,28 @@
+//! flags: -p ssa -b llvm -e
+
+// A loop bound to the GPU whose range is empty at run time launches
+// nothing. The renderer's drains are such loops: a queue with nothing in
+// it this round -- the medium queue of a scene without media -- is a loop
+// of zero iterations, and the device refuses a grid of zero blocks, so the
+// launch is guarded by the trip count (CodeGen_GPU_Host::emit_gpu_launch).
+// Run over nothing, then over the whole array.
+
+func run(n : i32, out : mut array[i32, 8]) -> void {
+    parfor i in 0:n {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(0, out);
+    print(out);
+    run(8, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

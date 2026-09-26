@@ -975,6 +975,13 @@ struct CodeGen_LLVM::SSALowering {
                 const Block &block = *by_name.at(name);
                 cg.builder->SetInsertPoint(blocks.at(name));
                 bind_arguments(block);
+                // The buffers this block, or a loop it launches, touches on
+                // the host: made current here, and marked written (see
+                // classify_buffers).
+                if (const auto at = buffer_sides.before_instrs.find(name);
+                    at != buffer_sides.before_instrs.end()) {
+                    emit_host_coherence(at->second, name);
+                }
                 // Whatever this block allocates on the heap -- storage the
                 // passes placed here, or a temporary an expression builds --
                 // is made once per call of the program when the block runs
@@ -987,6 +994,10 @@ struct CodeGen_LLVM::SSALowering {
                     !cg.loop_called_functions.contains(entry());
                 for (const auto &instr : block.instrs) {
                     emit_instruction(instr);
+                }
+                if (const auto at = buffer_sides.before_terminator.find(name);
+                    at != buffer_sides.before_terminator.end()) {
+                    emit_host_coherence(at->second, name);
                 }
                 emit_terminator(block);
                 cg.heap_once_per_call = was_once;
@@ -1129,55 +1140,233 @@ struct CodeGen_LLVM::SSALowering {
         cg.frames.pop_frame();
     }
 
-    // Where the function's parameters are used: on the host -- in any block
-    // that is not inside a loop bound to the GPU -- or on the device, as a
-    // capture of such a loop's body. By name: a parameter threaded onwards
-    // as a block argument keeps its name, so the name is the value. A
-    // parameter may be in both sets; one in neither is unused.
-    struct Uses {
+    // Where the function's buffers -- an exported function's arrays and
+    // layout structs, which arrive as descriptors (see
+    // CodeGen_LLVM::ExportedBuffer) -- are touched, and where the host's
+    // copy of each is made current and marked written, so that it and the
+    // device's copy agree.
+    //
+    // `host` and `device` are the sides a buffer may be needed on, for the
+    // header's `_sides` table and the entry's binding: the host, in any
+    // block outside every loop bound to the GPU; the device, as a capture of
+    // such a loop. By name: a parameter threaded onwards as a block argument
+    // keeps its name, so the name is the value. A buffer may be on both
+    // sides; one on neither is unused.
+    //
+    // The placements are where the host's copy is asked for -- brought back
+    // from the device, if a kernel wrote it since -- and, if the host may
+    // write it from there, marked dirty, so that the next launch to need it
+    // copies it over. Each sits as far out as it can go without crossing a
+    // launch: at the outermost host loop that touches the buffer and holds
+    // no loop bound to the GPU -- before the terminator that launches it --
+    // or, when the block that touches it is not inside such a loop, at the
+    // block itself, before its instructions. That is the granularity
+    // Halide's InjectHostDevBufferCopies places its copies at -- the loop
+    // nest of a producer or consumer -- and it keeps the marks off the paths
+    // that never touch the buffer. A function specialized on a parameter
+    // holds an arm per variant, and the film one integrator's arm zeroes on
+    // the host must not be made stale on the path where another's kernels
+    // write it. Marking every writable buffer dirty at entry did exactly
+    // that, and the first kernel to need the film met a copy it was
+    // forbidden to make. A loop with a launch inside it is not crossed
+    // because the host's copy goes stale each time round, and the block
+    // after the launch has to ask for it again.
+    struct BufferSides {
         std::set<std::string> host;
         std::set<std::string> device;
+        // Block name to the buffers made current on the host there, each to
+        // whether the host may write it from there on.
+        std::map<std::string, std::map<std::string, bool>> before_instrs;
+        std::map<std::string, std::map<std::string, bool>> before_terminator;
+        // Whether the function launches anything: when it does not, no
+        // host copy is ever stale, and a placement only marks.
+        bool any_launch = false;
     };
-    Uses classify_uses() {
-        Uses uses;
-        const auto note_host = [&](const std::shared_ptr<Value> &v) {
-            if (const auto *a = std::get_if<Argument>(&v->data)) {
-                uses.host.insert(a->name);
+
+    // The parameter an address is of, by name -- an argument, or address
+    // arithmetic over one: an element's address, a field's, address-of, a
+    // cast -- or empty when it is neither.
+    static std::string parameter_of(const std::shared_ptr<Value> &v) {
+        const std::shared_ptr<Value> *cursor = &v;
+        for (int depth = 0; depth < 64; depth++) {
+            if (const auto *a = std::get_if<Argument>(&(*cursor)->data)) {
+                return a->name;
+            }
+            const auto *instr =
+                std::get_if<std::shared_ptr<Instruction>>(&(*cursor)->data);
+            if (instr == nullptr || (*instr)->operands.empty()) {
+                return "";
+            }
+            const Instruction::Op op = (*instr)->op;
+            if (op != Instruction::Op::GEP && op != Instruction::Op::FieldPtr &&
+                op != Instruction::Op::AddressOf && op != Instruction::Op::Cast) {
+                return "";
+            }
+            cursor = &(*instr)->operands[0];
+        }
+        return "";
+    }
+
+    // How `block` touches the buffers in `mutating` (parameter name to
+    // whether this function may write it): each buffer touched, to whether
+    // the block may write it. A store, accumulate or fetch-and-add through
+    // an address of a buffer writes it; any other instruction reading such
+    // an address reads it. A buffer handed to a call, stored away, or passed
+    // to a block under another name is out of sight from then on, so it
+    // counts as whatever the function may do with it: a write if it is
+    // `mut`, a read otherwise. Handed to a block under its own name it is
+    // threaded -- the value flowing past a branch or a join, which the
+    // builder does for every value the code beyond needs -- and not
+    // touched. A loop bound to the GPU takes its captures to the device;
+    // the launch accounts for those, not this.
+    void note_block_accesses(const Block &block,
+                             const std::map<std::string, bool> &mutating,
+                             std::map<std::string, bool> &accesses) {
+        const auto note = [&](const std::shared_ptr<Value> &v, bool writes) {
+            const std::string name = parameter_of(v);
+            const auto found = mutating.find(name);
+            if (found == mutating.end()) {
+                return;
+            }
+            bool &written = accesses.emplace(name, false).first->second;
+            written = written || writes;
+        };
+        // Out of sight: as much as the function may do.
+        const auto escapes = [&](const std::shared_ptr<Value> &v) {
+            const std::string name = parameter_of(v);
+            const auto found = mutating.find(name);
+            if (found != mutating.end()) {
+                note(v, found->second);
             }
         };
-        // A jump's arguments: a parameter handed to the target under its own
-        // name is threading -- the value flowing past a branch or a join,
-        // which the builder does for every value the code beyond needs --
-        // and not a read of it on the host. Counting it as one made every
-        // buffer of a function with a branch before its launch "both", and
-        // so marked the kernel's outputs host-dirty on every call. Handed
-        // under another name it is a use like any other, since the reads
-        // beyond go by that name. `first` is where the target's argument
-        // list the jump's own values start (a call continuation is handed
-        // the returned value before them); a jump to a block this function
-        // does not have -- a call's jump to its callee -- is all uses.
+        // `first` is where in the target's argument list the jump's own
+        // values start: a call's continuation is handed the returned value
+        // before them.
         const auto note_jump = [&](const Terminator::Jump &j, size_t first) {
             const auto target = by_name.find(j.name);
             for (size_t k = 0; k < j.args.size(); k++) {
                 const auto *a = std::get_if<Argument>(&j.args[k]->data);
-                if (a == nullptr) {
-                    continue;
-                }
                 const size_t at = k + first;
-                const bool threaded = target != by_name.end() &&
+                const bool threaded = a != nullptr && target != by_name.end() &&
                                       at < target->second->args.size() &&
                                       target->second->args[at].name == a->name;
                 if (!threaded) {
-                    uses.host.insert(a->name);
+                    escapes(j.args[k]);
                 }
             }
         };
-        std::set<std::string> seen;
-        std::vector<std::string> work{entry()};
+        for (const auto &instr : block.instrs) {
+            bool stores = false;
+            switch (instr->op) {
+            case Instruction::Op::Store:
+            case Instruction::Op::AccAdd:
+            case Instruction::Op::AccMul:
+            case Instruction::Op::AccSub:
+            case Instruction::Op::AccMin:
+            case Instruction::Op::AccMax:
+            case Instruction::Op::AccArgmin:
+            case Instruction::Op::AccArgmax:
+            case Instruction::Op::AtomicAdd:
+            case Instruction::Op::Append:
+                stores = true;
+                break;
+            // Address arithmetic is no access; what is done through its
+            // result is.
+            case Instruction::Op::GEP:
+            case Instruction::Op::FieldPtr:
+            case Instruction::Op::AddressOf:
+            case Instruction::Op::Cast:
+                continue;
+            default:
+                break;
+            }
+            for (size_t k = 0; k < instr->operands.size(); k++) {
+                if (stores && k == 0) {
+                    note(instr->operands[k], true);
+                } else if (stores || instr->op == Instruction::Op::MakeStruct) {
+                    // The value stored, or built into a struct: an address
+                    // among them is kept somewhere this cannot follow.
+                    escapes(instr->operands[k]);
+                } else {
+                    note(instr->operands[k], false);
+                }
+            }
+        }
+        std::visit(
+            ir::ssa::overloads{
+                [](const std::monostate &) {},
+                [&](const Terminator::Jump &j) { note_jump(j, 0); },
+                [&](const Terminator::Dispatch &d) {
+                    note(d.cond, false);
+                    for (const auto &t : d.targets) {
+                        note_jump(t, 0);
+                    }
+                },
+                [&](const Terminator::Return &r) {
+                    if (r.value) {
+                        escapes(r.value);
+                    }
+                },
+                [&](const Terminator::Call &c) {
+                    for (const auto &a : c.call.args) {
+                        escapes(a);
+                    }
+                    note_jump(c.cont, c.drop ? 0 : 1);
+                },
+                [&](const Terminator::MultiCall &c) {
+                    for (const auto &a : c.call.args) {
+                        escapes(a);
+                    }
+                    for (const auto &one : c.varying) {
+                        for (const auto &a : one) {
+                            escapes(a);
+                        }
+                    }
+                    note_jump(c.cont, c.drop ? 0 : 1);
+                },
+                [&](const Terminator::ParFor &p) {
+                    note(p.start, false);
+                    note(p.end, false);
+                    note(p.stride, false);
+                    note_jump(p.cont, 0);
+                    if (!is_gpu_bound(p)) {
+                        note_jump(p.body, 1);
+                    }
+                },
+                [](const Terminator::Yield &) {},
+            },
+            block.terminator.data);
+    }
+
+    static bool is_gpu_bound(const Terminator::ParFor &p) {
+        return p.binding.has_value() && (*p.binding == Resource::GPUBlock ||
+                                         *p.binding == Resource::GPUThread);
+    }
+
+    // See BufferSides. `mutating` is the buffers: parameter name to whether
+    // this function may write it.
+    BufferSides classify_buffers(const std::map<std::string, bool> &mutating) {
+        BufferSides sides;
+        // A host loop, by the block that launches it.
+        struct Loop {
+            std::string launched_in;
+            bool cpu_threads = false;
+            // Whether a loop bound to the GPU is launched inside it.
+            bool holds_launch = false;
+        };
+        std::vector<Loop> loops;
+        // Each host block with the host loops it is inside, outermost
+        // first, as indices into `loops`: a loop's body is a region of its
+        // own, entered only through the loop, so a block is inside one
+        // nest and this is the same along every path to it.
+        std::map<std::string, std::vector<size_t>> nest_of;
+        std::map<std::string, std::map<std::string, bool>> accesses_of;
+        std::vector<std::pair<std::string, std::vector<size_t>>> work{
+            {entry(), {}}};
         while (!work.empty()) {
-            const std::string name = work.back();
+            const auto [name, nest] = work.back();
             work.pop_back();
-            if (!seen.insert(name).second) {
+            if (!nest_of.emplace(name, nest).second) {
                 continue;
             }
             const auto found = by_name.find(name);
@@ -1185,79 +1374,117 @@ struct CodeGen_LLVM::SSALowering {
                 continue;
             }
             const Block &block = *found->second;
-            for (const auto &instr : block.instrs) {
-                for (const auto &operand : instr->operands) {
-                    note_host(operand);
+            for (const std::string &s : level_successors(name)) {
+                work.emplace_back(s, nest);
+            }
+            if (const auto *p =
+                    std::get_if<Terminator::ParFor>(&block.terminator.data)) {
+                if (is_gpu_bound(*p)) {
+                    sides.any_launch = true;
+                    for (const size_t l : nest) {
+                        loops[l].holds_launch = true;
+                    }
+                    // The body is a kernel; what it is handed is read on
+                    // the device, by the launch.
+                    for (const auto &a : p->body.args) {
+                        if (const auto *arg = std::get_if<Argument>(&a->data);
+                            arg != nullptr && mutating.contains(arg->name)) {
+                            sides.device.insert(arg->name);
+                        }
+                    }
+                } else {
+                    std::vector<size_t> inner = nest;
+                    inner.push_back(loops.size());
+                    loops.push_back(Loop{
+                        name,
+                        p->binding.has_value() &&
+                            *p->binding == Resource::CPUThread,
+                        false});
+                    work.emplace_back(p->body.name, std::move(inner));
                 }
             }
-            std::visit(
-                ir::ssa::overloads{
-                    [](const std::monostate &) {},
-                    [&](const Terminator::Jump &j) {
-                        note_jump(j, 0);
-                        work.push_back(j.name);
-                    },
-                    [&](const Terminator::Dispatch &d) {
-                        note_host(d.cond);
-                        for (const auto &t : d.targets) {
-                            note_jump(t, 0);
-                            work.push_back(t.name);
-                        }
-                    },
-                    [&](const Terminator::Return &r) {
-                        if (r.value) {
-                            note_host(r.value);
-                        }
-                    },
-                    [&](const Terminator::Call &c) {
-                        for (const auto &a : c.call.args) {
-                            note_host(a);
-                        }
-                        note_jump(c.cont, c.drop ? 0 : 1);
-                        work.push_back(c.cont.name);
-                    },
-                    [&](const Terminator::MultiCall &c) {
-                        for (const auto &a : c.call.args) {
-                            note_host(a);
-                        }
-                        for (const auto &one : c.varying) {
-                            for (const auto &a : one) {
-                                note_host(a);
-                            }
-                        }
-                        note_jump(c.cont, c.drop ? 0 : 1);
-                        work.push_back(c.cont.name);
-                    },
-                    [&](const Terminator::ParFor &p) {
-                        note_host(p.start);
-                        note_host(p.end);
-                        note_host(p.stride);
-                        note_jump(p.cont, 0);
-                        work.push_back(p.cont.name);
-                        const bool gpu =
-                            p.binding.has_value() &&
-                            (*p.binding == Resource::GPUBlock ||
-                             *p.binding == Resource::GPUThread);
-                        if (gpu) {
-                            // The body is a kernel; what it is handed is
-                            // read on the device, by the launch.
-                            for (const auto &a : p.body.args) {
-                                if (const auto *arg =
-                                        std::get_if<Argument>(&a->data)) {
-                                    uses.device.insert(arg->name);
-                                }
-                            }
-                            return;
-                        }
-                        note_jump(p.body, 1);
-                        work.push_back(p.body.name);
-                    },
-                    [](const Terminator::Yield &) {},
-                },
-                block.terminator.data);
+            note_block_accesses(block, mutating, accesses_of[name]);
         }
-        return uses;
+        for (const auto &[name, accesses] : accesses_of) {
+            const std::vector<size_t> &nest = nest_of.at(name);
+            // Out of every loop that holds no launch: the outermost one
+            // past the innermost that does.
+            size_t from = 0;
+            for (size_t k = 0; k < nest.size(); k++) {
+                if (loops[nest[k]].holds_launch) {
+                    from = k + 1;
+                }
+            }
+            for (size_t k = 0; k < from; k++) {
+                internal_assert(!loops[nest[k]].cpu_threads)
+                    << "[unimplemented] the loop "
+                    << loops[nest[k]].launched_in
+                    << " launches, bound to CPU threads, is launched inside "
+                    << "on the GPU, while " << name << " touches an "
+                    << "exported buffer on the host between them: the "
+                    << "host's copy would have to be brought back inside "
+                    << "the threads' loop, which is not built.";
+            }
+            std::map<std::string, bool> &placed =
+                from < nest.size()
+                    ? sides.before_terminator[loops[nest[from]].launched_in]
+                    : sides.before_instrs[name];
+            for (const auto &[buffer, writes] : accesses) {
+                sides.host.insert(buffer);
+                placed[buffer] = placed[buffer] || writes;
+            }
+        }
+        if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+            for (const auto &[block, marks] : sides.before_instrs) {
+                for (const auto &[buffer, writes] : marks) {
+                    std::cerr << "; " << function->getName().str() << ": the host "
+                              << (writes ? "writes" : "reads") << " `" << buffer
+                              << "` from block " << block << "\n";
+                }
+            }
+            for (const auto &[block, marks] : sides.before_terminator) {
+                for (const auto &[buffer, writes] : marks) {
+                    std::cerr << "; " << function->getName().str() << ": the host "
+                              << (writes ? "writes" : "reads") << " `" << buffer
+                              << "` inside the loop block " << block
+                              << " launches\n";
+                }
+            }
+        }
+        return sides;
     }
+
+    // The host's copy of each buffer in `marks` made current, and marked
+    // written when the host may write it from here: a placement of
+    // classify_buffers. A layout struct is each of its arrays. Asking for
+    // the copy is skipped when nothing can have made it stale: the function
+    // launches nothing, or this is the entry block, whose binding just
+    // asked (see run).
+    void emit_host_coherence(const std::map<std::string, bool> &marks,
+                             const std::string &block) {
+        const bool require = buffer_sides.any_launch && block != entry();
+        for (const auto &[name, writes] : marks) {
+            const auto found = cg.exported_buffers.find(name);
+            if (found == cg.exported_buffers.end()) {
+                continue;
+            }
+            const CodeGen_LLVM::ExportedBuffer &buffer = found->second;
+            std::vector<llvm::Value *> descriptors{buffer.descriptor};
+            if (buffer.layout != nullptr) {
+                descriptors =
+                    cg.layout_descriptors(buffer.descriptor, buffer.layout);
+            }
+            for (llvm::Value *descriptor : descriptors) {
+                if (require) {
+                    cg.buffer_require(descriptor, /*device=*/false);
+                }
+                if (writes) {
+                    cg.buffer_mark_dirty(descriptor, /*device=*/false);
+                }
+            }
+        }
+    }
+    BufferSides buffer_sides;
 
     // The function's allocations that live on the device (see
     // CodeGen_LLVM::device_resident): the ones some loop bound to the GPU
@@ -1293,14 +1520,20 @@ struct CodeGen_LLVM::SSALowering {
         if (allocations.empty() || device_blocks.empty()) {
             return {};
         }
+        // Addresses reach a block as arguments threaded from where they were
+        // computed; followed back (SSA/Definitions.h).
+        ir::ssa::Definitions defs(func, /*lenient=*/true);
         std::set<std::string> host_touched, device_touched;
+        std::string here;
         const auto note = [&](const std::shared_ptr<Value> &v, bool device) {
-            if (const auto name = CodeGen_LLVM::allocation_of(v, allocations)) {
+            if (const auto name =
+                    CodeGen_LLVM::allocation_of(v, allocations, &defs, here)) {
                 (device ? device_touched : host_touched).insert(*name);
             }
         };
         for (const auto &block : func.blocks) {
             const bool device = device_blocks.contains(block->name);
+            here = block->name;
             for (const auto &instr : block->instrs) {
                 switch (instr->op) {
                 case Instruction::Op::Load:
@@ -1373,7 +1606,8 @@ struct CodeGen_LLVM::SSALowering {
                 continue;
             }
             for (const auto &a : p->body.args) {
-                if (const auto name = CodeGen_LLVM::allocation_of(a, allocations)) {
+                if (const auto name = CodeGen_LLVM::allocation_of(
+                        a, allocations, &defs, block->name)) {
                     reachable.insert(*name);
                 }
             }
@@ -1386,8 +1620,8 @@ struct CodeGen_LLVM::SSALowering {
                         instr->operands.size() != 2) {
                         continue;
                     }
-                    const auto into =
-                        CodeGen_LLVM::allocation_of(instr->operands[0], allocations);
+                    const auto into = CodeGen_LLVM::allocation_of(
+                        instr->operands[0], allocations, &defs, block->name);
                     if (!into.has_value() || !reachable.contains(*into)) {
                         continue;
                     }
@@ -1398,7 +1632,8 @@ struct CodeGen_LLVM::SSALowering {
                         stored = (*made)->operands;
                     }
                     for (const auto &v : stored) {
-                        if (const auto name = CodeGen_LLVM::allocation_of(v, allocations)) {
+                        if (const auto name = CodeGen_LLVM::allocation_of(
+                                v, allocations, &defs, block->name)) {
                             grew = reachable.insert(*name).second || grew;
                         }
                     }
@@ -1464,7 +1699,14 @@ struct CodeGen_LLVM::SSALowering {
             std::find(func.attributes.begin(), func.attributes.end(),
                       ir::Function::Attribute::exported) !=
             func.attributes.end();
-        const Uses uses = exported ? classify_uses() : Uses{};
+        std::map<std::string, bool> buffers;
+        for (const Argument &declared : head.args) {
+            if (declared.type.is<Array_t>() ||
+                CodeGen_LLVM::layout_struct_of(declared.type) != nullptr) {
+                buffers[declared.name] = declared.mutating;
+            }
+        }
+        buffer_sides = exported ? classify_buffers(buffers) : BufferSides{};
         std::vector<uint8_t> sides;
         cg.exported_buffers.clear();
         uint32_t i = 0;
@@ -1491,9 +1733,10 @@ struct CodeGen_LLVM::SSALowering {
             buffer.descriptor = &arg;
             buffer.type = declared.type;
             buffer.mutating = declared.mutating;
-            buffer.host_used = uses.host.count(declared.name) != 0;
+            buffer.host_used = buffer_sides.host.count(declared.name) != 0;
             buffer.layout = layout;
-            const bool device_used = uses.device.count(declared.name) != 0;
+            const bool device_used =
+                buffer_sides.device.count(declared.name) != 0;
             const uint8_t side =
                 (buffer.host_used ? 1 : 0) | (device_used ? 2 : 0);
             // A layout struct is as many buffers as it has array fields, all
@@ -1501,18 +1744,17 @@ struct CodeGen_LLVM::SSALowering {
             sides.insert(sides.end(),
                          layout ? CodeGen_LLVM::layout_buffer_count(layout) : 1,
                          side);
+            // The host's pointer, bound once: it names the same memory for
+            // the whole call. Whether the host's copy is current, and
+            // whether the host is about to write it, is settled where the
+            // host touches it (emit_host_coherence), not here.
             llvm::Value *bound = nullptr;
             if (buffer.host_used && layout != nullptr) {
                 bound = cg.unwrap_layout(&arg, layout, /*device=*/false,
-                                         buffer.mutating, declared.name);
+                                         /*mark_dirty=*/false, declared.name);
             } else if (buffer.host_used) {
                 bound = cg.buffer_require(&arg, /*device=*/false);
                 bound->setName(declared.name);
-                if (buffer.mutating) {
-                    // The host may write it from here on; a device copy, if
-                    // one exists, is stale until the next require there.
-                    cg.buffer_mark_dirty(&arg, /*device=*/false);
-                }
             } else {
                 bound = llvm::PoisonValue::get(arg.getType());
             }
