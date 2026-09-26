@@ -4473,6 +4473,43 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                       << "\n";
         }
     }
+    // The functions whose calls this deferral turned into pushes -- the one
+    // the directive was written on, and the others the schedule named
+    // (QueueSpec::also_from) -- were held as functions for the same reason
+    // and come off the hold the same way, folded into their callers: pbrt's
+    // direct lighting is code of the material kernel, not a call from it.
+    // Left a call, `vol_sample_ld` was reached from every material kernel
+    // with a hundred operands marshalled through the stack -- the shading
+    // point, the BSDF's whole union, the light sampler, the path's state --
+    // and those moves were 44% of the material kernel's samples on
+    // killeroo. The same guards as above: not a function that calls
+    // itself, not one the program marked `[[noinline]]`.
+    {
+        vector<string> pushers(queue.also_from.begin(), queue.also_from.end());
+        pushers.push_back(func_name);
+        for (const string &g : pushers) {
+            const auto it = funcs.find(g);
+            if (it == funcs.end() || g == callee_name) {
+                continue;
+            }
+            const shared_ptr<Function> pusher = it->second;
+            std::erase(pusher->attributes, ir::Function::Attribute::held);
+            const bool folded =
+                !is_recursive(*pusher) &&
+                !has_attribute(*pusher, ir::Function::Attribute::noinline) &&
+                !has_attribute(*pusher, ir::Function::Attribute::always_inlined);
+            if (folded) {
+                pusher->attributes.push_back(ir::Function::Attribute::always_inlined);
+            }
+            if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+                std::cerr << "; " << queue.name << ": " << g
+                          << (folded ? " pushes, and is folded into its callers"
+                                     : " pushes, and stays a call")
+                          << "\n";
+            }
+        }
+    }
+
     // exit: on to whatever followed the producer.
     exit->preds = {rounds ? header : exit_from};
     if (!rounds) {
