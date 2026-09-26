@@ -556,7 +556,15 @@ element Shape =
 // hit. The bounding-volume overloads above answer for AABB and are a separate
 // question -- the node a shape is in, not the shape. A shape that is not hit
 // is infinitely far, the same answer the triangle gives.
-func distmin(q : RaySegment, sh : Shape) -> Float {
+//
+// `[[inline]]` on the three, because a traversal asks two of them of every
+// candidate -- `intersects` as the filter, `distmin` as the argmin's key --
+// and each is a `match` on the shape around one triangle test. As calls
+// they are two functions with a `triangle_hit` apiece, and the tests stay
+// two; copied into the traversal the two matches are one (Opt/
+// JumpThreading.h) and the two tests one call (Opt/CSE.h), which is pbrt's
+// count: `Triangle::Intersect` once per candidate, the closest kept.
+func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
             hit = sphere_t(q.ray, q.tmax, s);
@@ -576,7 +584,7 @@ func distmin(q : RaySegment, sh : Shape) -> Float {
     }
 }
 
-func distmax(q : RaySegment, sh : Shape) -> Float {
+func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
             hit = sphere_t(q.ray, q.tmax, s);
@@ -596,7 +604,7 @@ func distmax(q : RaySegment, sh : Shape) -> Float {
     }
 }
 
-func intersects(q : RaySegment, sh : Shape) -> bool {
+func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
     match sh {
         Sph(s) => return cast[[bool]](sphere_t(q.ray, q.tmax, s));
         Tri(t) => return intersects(q, t);
