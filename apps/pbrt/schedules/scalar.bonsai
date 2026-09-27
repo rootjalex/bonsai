@@ -4,6 +4,8 @@
 // vectorized schedules beside it are measured against, and the closest in
 // shape to pbrt's own loop. See packet.bonsai for what each directive is
 // doing.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

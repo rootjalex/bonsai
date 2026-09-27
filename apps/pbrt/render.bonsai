@@ -3188,68 +3188,14 @@ schedule {
         Inst = tagged_index;
     }
 
-    // pbrt: the BVHAggregate an instance definition's shapes are built into,
-    // shared by every instance of the object. Same node, same packing; a leaf
-    // names a run of `geoms` below.
-    tree[[Geometric]] InstanceBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : InstanceBVH, right : InstanceBVH, axis : u8)
-    | Leaf(data : array[Geometric]) with data = data;
-
-    // pbrt: BVHAggregate. Everything about how the scene is searched lives
-    // here -- that it is a BVH at all, that its nodes are bounded by boxes,
-    // how a node is packed, and that traversal is a loop over a stack of 64
-    // rather than recursion. None of it appears in `trace` above.
-    tree[[Primitive]] PrimitiveBVH(low high : vec3f) with AABB(low, high) =
-    | Interior(left : PrimitiveBVH, right : PrimitiveBVH, axis : u8)
-    | Leaf(data : array[Primitive]) with data = data;
-
-    primitives : PrimitiveBVH;
-    // An instance's tree has no layout of its own: its nodes are rows of the
-    // group below, in the layout of the object that holds every tree, and the
-    // instance stores which row it starts at. Two instances of one object name
-    // the same row, which is how the object is stored once however often it
-    // is placed -- pbrt's forty-three trees over one BVHAggregate.
-    Inst.blas : InstanceBVH from InstanceNodes;
-
-    // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
-    // discriminated on nPrims is pbrt's union of primitivesOffset and
-    // secondChildOffset; the left child is the next node, so only the right
-    // one needs saying. Twice: once for the pool every instance's tree is rows
-    // of, once for the top-level tree.
-    layout primitives {
-        // Every instanced GeometricPrimitive in the scene, in the order the
-        // instance trees' leaves name them.
-        gCount : u32;
-        geoms : array[Geometric, gCount];
-
-        bCount : u32;
-        indirect group InstanceNodes[bCount] bnode : u32 {
-            low : vec3f;
-            high : vec3f;
-            nPrims : u16;
-            axis : u8;
-            8; // pad bits.
-            switch nPrims {
-                0 => Interior { offset : u32; left = bnode + 1; right = bnode + offset; };
-                _ => Leaf { pOffset : u32; data = range(geoms, pOffset, cast[[u32]](nPrims)); };
-            };
-        };
-
-        pCount : u32;
-        prims : array[Primitive, pCount];
-        nCount : u32;
-        group[nCount] index : u32 {
-            low : vec3f;
-            high : vec3f;
-            nPrims : u16;
-            axis : u8;
-            8; // pad bits.
-            switch nPrims {
-                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
-                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
-            };
-        };
-    };
+    // The scene's trees -- pbrt's BVHAggregate over the primitives and over
+    // each instance's object, or the ray tracing hardware's structures --
+    // are the schedule's: every schedule file imports schedules/trees/
+    // bvh.bonsai or schedules/trees/optix.bonsai, which bind `primitives`
+    // and `Inst.blas` to a tree and lay it out. Whether a set is searched
+    // by a traversal the compiler builds or by the RT cores is a decision
+    // about how the program runs, not about what it computes, which is why
+    // it is not made here.
 
     // pbrt's `Point3f *p` and `Normal3f *n` are three floats each, twelve
     // bytes, and so are these: a vertex is stored as exactly its three

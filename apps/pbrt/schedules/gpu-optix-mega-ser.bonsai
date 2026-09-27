@@ -1,0 +1,52 @@
+// The megakernel on the RT cores with shader execution reordering:
+// gpu-optix-mega.bonsai, and before the material stage the launch's threads
+// are gathered by the material their hit has. A megakernel's material stage
+// is a switch over the material kinds, and the threads of a wave arrive at
+// it with whatever mix of kinds their paths happened to hit, so the wave
+// runs every kind's branch in turn with most threads idle in each; sorted
+// first, a wave arrives holding one kind and runs one branch. OptiX 8's
+// `optixReorder`, which pbrt does not use -- this is the schedule meant to
+// beat pbrt by construction rather than by code generation.
+//
+// The directive is the sort on a call: `vol_route.sort(vol_surface, |prim|
+// key)` orders the threads by `key` just before `vol_route` calls the
+// material stage `vol_surface`, and the key is which variant the hit's
+// material is -- `materials[prim.material]`, a Material, sorted by its arm
+// (Lower/Sorts.cpp). Everything else is gpu-optix-mega.bonsai's.
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+
+    // Before the material stage, the threads sorted by the material's kind.
+    vol_route.sort(vol_surface,
+                   |prim : Geometric| materials[cast[[u32]](prim.material)]);
+
+    render.bind(p, OptixThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

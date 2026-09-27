@@ -7215,15 +7215,261 @@ integrators trap under this schedule, since a query on the RT cores has
 no host answer. Shader execution reordering is next, as a directive to
 propose (below).
 
-*To propose: `optixReorder` as a schedule directive.* OptiX 9.1's shader
-execution reordering (the reason for the SDK) sorts the threads of a
-launch by a key at a point the program names -- pbrt's GPU build does not
-use it; it is the first schedule that could beat pbrt's pattern by
-construction rather than by codegen. Where it would go: after the trace
-in the rays drain, keyed on the hit's material (the `hits.specialize
-(material)` tag) or on the queue an entry is about to be pushed to. What
-it would need: a directive naming a loop and a key expression, lowered to
-`_optix_reorder` on a loop bound to OptixThread. Not built until asked.
+**Where the RT-core wavefront's speed comes from (profiled 2026-09-26).**
+Two profiles, one per side: pbrt's own `--stats` kernel profile (its
+"Wavefront Kernel Profile", GPU time per kernel over the render) and, for
+us, Nsight Systems' trace of every launch plus a new kernel profile of our
+own, `BONSAI_KERNEL_STATS=1` (runtime/bonsai_cuda.h, an event either side
+of each launch, printed at exit like pbrt's). pbrt does not survive under
+Nsight Systems (it faults on start), so its per-kernel numbers are its
+own profile's. On book at 64 spp:
+
+    kernel time, ms              pbrt --gpu    ours (gpu-optix)
+    camera rays                      41.0          48.3
+    ray samples (Halton)             46.6          --   (drawn inside the kernels that need them)
+    trace closest hit               220.7         357   (both raygens: rays and shadow)
+    trace shadow rays                51.9
+    emitters hit                     13.6           2.3
+    materials (Diffuse+Coated)      244.2         177.9
+    update film                      16.0          10.4
+    queue resets and stats            9.6          --
+    total                           643.5         596.3
+    wall (pbrt's timer / ours)       730 ms        726 ms
+    GPU idle inside the wall          ~90 ms       163 ms
+
+The reading, in plain terms. First, the fixed cost: pbrt's render timer
+starts before it prefetches every managed allocation to the GPU
+(`PrefetchGPUAllocations()` in WavefrontPathIntegrator::Render) and takes
+in the first launch of every kernel, and that comes to about sixty
+milliseconds on this machine whatever the scene -- a 1-spp render of
+killeroo takes pbrt 60-70 ms for 3.3 ms of kernels. Our timer wraps a
+warm repeat and excludes setup. On killeroo-simple at 16 spp pbrt's kernels
+total 53 ms and our whole render is 51 ms, so the 2.16x in the table above
+is mostly pbrt's fixed cost, and kernel for kernel the two are even. Second,
+where we are faster: the material kernels (178 against 244 ms -- ours read
+a smaller work item and generate their own sample dimensions where pbrt
+runs a separate GenerateRaySamples kernel, another 47 ms) and the film. Third,
+where we are slower: the tracing kernels (357 against 273 ms), because our
+raygen program carries the work after the hit -- the medium sampling, the
+routing to the queues -- where pbrt's raygen only records the hit and
+pushes, because our shadow rays run a closest-hit program where pbrt
+disables it, and because our any-hit program runs at every hit where pbrt
+turns it off for meshes with no alpha texture. And fourth, the launch shape
+(next paragraph): 163 ms of the 726 are the GPU waiting for the host.
+Nsight Systems slows our OptiX launches by 15-40% while it watches, so the
+split above is indicative and the totals are from unprofiled runs.
+
+**What our launch shape is, and how it differs from pbrt's.** Both
+renderers run the same kernels in the same order over the same queues, a
+band of scanlines at a time. The difference is how each kernel is launched
+and when the host waits. pbrt launches every kernel over `maxQueueSize`
+threads -- the band's pixel count, the most the queue could hold -- with
+`if (index >= queue->Size()) return;` as the first line of the kernel, so
+the host never reads a queue's count: it issues the whole band's kernels
+asynchronously, one after another into the stream, and waits once at the
+end of the band. It also runs exactly `maxDepth + 1` rounds per band,
+whether or not any ray is still alive. Ours launches every kernel over the
+queue's *actual* count, which the host has to read back from the device
+before each launch (one device-to-host copy of a u32) and then wait for the
+launch to finish before it can read the next count; the round loop runs
+until the ray queue is empty. On book at 64 spp that is 3513 launches,
+3513 waits and 8581 copies, and the GPU sits idle between kernels for 163
+ms of the 726 -- 46 microseconds a launch. pbrt pays about 90 ms of the
+same kind in its 730 (its per-band wait, its progress reporting, its
+per-launch parameter copies), so the gap is some 70 ms, or a tenth of the
+render, on this scene. Closing it needs the two `bound` promises described
+below, which are the user's to decide; nothing in the current language
+lets a drain be launched over a capacity with the count tested on the
+device.
+
+**Shader execution reordering as `sort` on a call (built 2026-09-26).**
+The user's design, given rather than proposed: "SER as a scheduling
+directive as a sort() command on a cursor like defer, which takes a lambda
+as a sort key and SER is applied before that stage." So `vol_route.sort(
+vol_surface, |prim : Geometric| materials[cast[[u32]](prim.material)])`:
+written on the caller, naming the callee as `defer` does, with a lambda
+whose parameters name the callee's parameters and whose value is the key.
+Lower/Sorts.cpp (`apply_reorder`) replaces the lambda's parameters with
+what the call passes and puts `rt_reorder(key, bits)` before the statement
+that makes the call -- whichever simple statement it is. A key that is an
+ADT value sorts by which variant it is (a match with one arm per variant
+gives the variant's index, in as many bits as the variants need: a
+material's kind, seven arms, three bits); a bool is one bit; an integer
+its low bits, at most sixteen. The intrinsic is OptiX's `optixReorder`
+(`_optix_hitobject_reorder`) in a raygen program and nothing anywhere else
+-- a coherence hint changes which threads run together and nothing about
+what each computes -- and it is the same word as the sort on a traversal's
+children because it is the same idea, an ordering of what comes next.
+Tests: lower/sort-call (the hint's placement and keys), backends/ptx/
+reorder (the call in the module), correctness/gpu/reorder (run on the GPU,
+the CPU's answers).
+
+**`OptixTree` (built 2026-09-26).** The user: "to use optix, the extern set
+used for trace/trace_any must be labelled OptixTree, I think, for validity
+checking." A set the RT cores search is declared `primitives : OptixTree;`
+and a tree held in a field `Inst.blas : OptixTree from geoms;` -- the
+hardware's tree (ir::BVH_t::hardware): no nodes of the schedule's, a layout
+that is the element arrays alone (`geoms`, `prims`) plus the handle the
+layout gains (`traversable`), and for a field, the array `from` names, of
+which the field's elements are a run, the field storing where the run
+starts. The checks: a query over an OptixTree that is not bound to RTCore
+is refused ("the ray tracing hardware's tree, which has no traversal the
+compiler can build"), and `bind(RTCore)` over any other kind of tree is
+refused ("a tree of its own nodes"); tests error/optixtree-software-query
+and error/rtcore-software-tree. The scene's tree declarations moved out of
+render.bonsai's schedule block into schedules/trees/bvh.bonsai (pbrt's BVH,
+imported by every schedule that walks the tree) and schedules/trees/
+optix.bonsai (imported by the three OptiX schedules): whether a set is
+searched by a traversal the compiler builds or by the RT cores is a
+schedule's decision, so it is no longer made in the program. The driver
+builds no software tree under an OptixTree and stores each instance's run
+start in place of its root. LowerTrees used to move the schedule's tree
+bindings out ("no longer necessary"); it copies them now, since the layout
+lowering after it needs them, and every `-p core`/`-p ssa` golden gained
+the lines that print them (51 goldens, each checked to differ by those
+lines alone).
+
+**A recursion through other functions, as a loop (built 2026-09-26).** The
+OptiX megakernel was the first schedule to need it: OptiX refuses a module
+whose call graph has a cycle ("Found call graph recursion involving
+vol_route, vol_medium_scatter"), and volpath's next bounce is a call of
+`vol_path_step` from `vol_route` and from `vol_medium_scatter`, which
+`vol_path_step.loopify()` left alone -- a loop was made of the direct
+self-calls only, and the CUDA megakernel (gpu.bonsai) ran the rest as
+recursion, which CUDA allows. Now `loopify` first copies into the function
+every callee on a path back to it -- `inline_call` (SSA/Rewrite.cpp), the
+callee's blocks cloned into the caller with fresh names for everything they
+define, the call become a jump into the copy and the copy's returns jumps
+to the call's continuation -- unless the schedule holds the callee as a
+function of its own (`held`: a deferral's or a stage's callee, which is how
+the wavefront schedules keep their pushes), and then the recursion is
+direct and the existing tail-call-to-back-edge rewrite applies. Tests:
+ssa/loopify-mutual, correctness/llvm/loopify-mutual.
+
+**The three OptiX schedules.** `gpu-optix.bonsai`, pbrt's wavefront on the
+RT cores (above). `gpu-optix-mega.bonsai`, a megakernel: every path in one
+raygen thread, a thread per pixel with its samples in turn (the pixel loop
+does work of its own before its samples -- the sampler's per-pixel state
+-- so the two loops cannot be collapsed into a thread per sample), the
+film pass a kernel of its own. `gpu-optix-mega-ser.bonsai`, the same with
+`vol_route.sort(vol_surface, |prim| materials[...])` before the material
+stage. The table from `gpu_compare.sh` (2026-09-26): pbrt's wall is the
+least of three runs by its own timer, ours the mean of three cold
+processes each; the kernel time beside each is the device's busy time
+(pbrt's `--stats`, our BONSAI_KERNEL_STATS); every image matched pbrt's.
+
+    scene            spp  side                wall s   kernel ms  speedup
+    killeroo-simple   16  pbrt --gpu          0.12       52.9     1.00x
+    killeroo-simple   16  gpu-optix           0.0745     44.1     1.61x
+    killeroo-simple   16  gpu-optix-mega      0.1107    111.0     1.08x
+    killeroo-simple   16  gpu-optix-mega-ser  0.0645     65.1     1.86x
+    killeroo-gold     16  pbrt --gpu          0.22      156.5     1.00x
+    killeroo-gold     16  gpu-optix           0.1901    127.4     1.16x
+    killeroo-gold     16  gpu-optix-mega      0.2753    276.5     0.80x
+    killeroo-gold     16  gpu-optix-mega-ser  0.1898    189.6     1.16x
+    book              16  pbrt --gpu          0.23      162.6     1.00x
+    book              16  gpu-optix           0.1737    166.7     1.32x
+    book              16  gpu-optix-mega      0.3164    314.9     0.73x
+    book              16  gpu-optix-mega-ser  0.2624    260.1     0.88x
+    killeroo-simple   64  pbrt --gpu          0.27      210.7     1.00x
+    killeroo-simple   64  gpu-optix           0.2005    141.9     1.35x
+    killeroo-simple   64  gpu-optix-mega      0.4350    425.1     0.62x
+    killeroo-simple   64  gpu-optix-mega-ser  0.2570    260.2     1.05x
+    killeroo-gold     64  pbrt --gpu          0.72      620.4     1.00x
+    killeroo-gold     64  gpu-optix           0.4826    446.6     1.49x
+    killeroo-gold     64  gpu-optix-mega      1.0409   1045.7     0.69x
+    killeroo-gold     64  gpu-optix-mega-ser  0.7550    757.2     0.95x
+    book              64  pbrt --gpu          0.73      644.6     1.00x
+    book              64  gpu-optix           0.7126    631.0     1.02x
+    book              64  gpu-optix-mega      1.1998   1184.3     0.61x
+    book              64  gpu-optix-mega-ser  0.9638    965.5     0.76x
+
+The reading. The wavefront on the RT cores is ahead of pbrt on every cell,
+by 1.02x to 1.61x -- less than the 1.0-2.2x of the warm best-of-three
+table above, because a cold process pays its own first launches as pbrt
+does, which is the fairer measure. Its kernel time is below pbrt's on the
+killeroos (44 against 53 ms, 447 against 620) and level on book (631
+against 645), so the lead is real on the killeroos and the launch shape's
+idle is what keeps book level. The megakernel, one thread per pixel
+running its samples in turn, is the slowest schedule everywhere -- about
+twice the wavefront's kernel time -- which is the case for the wavefront
+that pbrt made and this measures: a thread that walks a whole path meets
+every material and every path length its neighbours do not. The
+reordering before the material stage takes 30-40% off the megakernel's
+kernel time on every cell (111 to 65 ms, 1046 to 757, 1184 to 965): on
+killeroo-simple at 16 spp that makes it the fastest schedule of all, 1.86x
+over pbrt, and on killeroo-gold at 16 it is level with the wavefront; on
+the 64-spp cells and on book it stays behind the wavefront, whose sorting
+by kernel is the finer one. The images, one PNG per cell and side, are
+under the run's output directory (`--out`), named `<scene>-s<spp>.<side>.
+png`.
+
+**The comparison command: `apps/pbrt/gpu_compare.sh`.** One command for the
+GPU table, as the user asked: every GPU schedule on every scene, pbrt
+`--gpu` three times (its own timer, the least), each schedule three times
+as separate cold processes (the mean), each beside its kernel time (pbrt's
+`--stats`, our `BONSAI_KERNEL_STATS`), every image checked against pbrt's
+and written as a PNG the table names; the machine checked idle before every
+timed run; every option checked before the first. apps/pbrt/README.md
+describes it beside the other scripts.
+
+**The scene set (surveyed 2026-09-26).** scene_dump was run on every
+top-level scene of ~/projects/pbrt-v4-scenes (99 files). It converts 21:
+killeroo-simple, killeroo-gold, killeroo-coated-gold, killeroo-moving,
+book, ganesha (4.3M triangles), lte-orb-simple-ball, barcelona-pavilion's
+pavilion-day (glass, an environment map), the nine zero-day frames (each
+about 900 MB converted), and the five landscape views (24M triangles stored
+and 3.1 billion instanced; each converts to 5 GB in a minute or two). The
+other 78 fail for these reasons, largest first:
+
+- 22 (kroken's 7 cameras, watercolor's 15): the `infinite` light with a
+  `portal` -- pbrt's PortalImageInfiniteLight, a sampling distribution over
+  the portal's rectangle. Not implemented.
+- 15 (the 11 hair scenes, head, the 3 sssdragons, bmw-m6): materials --
+  `hair` (pbrt's HairBxDF), `subsurface` (a BSSRDF and pbrt's separate
+  subsurface pass), and `mix` (a stochastic choice between two materials
+  at the hit, the smallest of the three).
+- 12 (bistro's 3, sanmiguel's 7, sportscar-sky, villa-daylight): an
+  environment map in a colour space other than sRGB (`sky.exr`), which
+  needs the colour space's own RGB-to-spectrum table, or a conversion of
+  the texels to sRGB primaries on load.
+- 8 (crown, dambreak's 2, transparent-machines' 5): a dielectric with a
+  named spectrum for its index of refraction, which needs the secondary
+  wavelengths terminated as pbrt's `TerminateSecondary` does.
+- 5 (bunny-cloud, disney-cloud, explosion, clouds, smoke-plume): media
+  other than homogeneous -- nanovdb grids, pbrt's `cloud`, `uniformgrid`
+  -- the majorant grid and delta tracking already listed as volpath's next
+  phases.
+- 3 (bunny-fur, sportscar-area-lights, hair-coated-diffuse): shapes --
+  `bilinearmesh` (a patch intersection, and a custom primitive on the RT
+  cores) and `curve`.
+- 3 (the lte-orbs): the `sobol` and `pmj02bn` samplers, tables pbrt ships.
+- 2 (pavilion-night, contemporary-bathroom): the `bdpt` and `sppm`
+  integrators, which `pbrt --gpu` cannot run either; it replaces the
+  scene's integrator with the wavefront's, and scene_dump could take the
+  same `--integrator volpath` override for a fair table.
+- 2 (villa-lights-on, sanmiguel-realistic-courtyard): a `spot` light (small)
+  and the `realistic` camera (a lens system; large).
+- 3 (sanmiguel-upstairs-corner, watercolor camera-8 and camera-10):
+  scene_dump crashes (a fault, not a message) -- a bug to find, likely on
+  the portal or colour-space path before its check.
+
+For the GPU table the scenes to add now are the converted heavy ones --
+ganesha, pavilion-day, a zero-day frame, an lte-orb, and landscape if the
+GPU's memory takes its 24M-triangle arrays -- and each must render
+correctly against pbrt before it is timed. The features above are the
+work to support the rest, in roughly the order of scenes they unlock:
+the portal light, the environment-map colour space, `mix`, the
+integrator override, the spectral IOR, the samplers, the media, the
+shapes, hair, subsurface, the realistic camera.
+
+*To propose: what remains of SER.* The directive built is the key-only
+form (`optixReorder(hint, bits)` after the trace has returned). OptiX's
+fuller form -- `optixTraverse` to find the hit, `optixReorder` on the hit
+object and a hint, then `optixInvoke` to run the hit program -- sorts by
+the hit itself as well, and is what the wavefront's shadow and material
+routing could use; it would mean the trace lowering splitting `rt_trace`
+into traverse and invoke around a reorder. Not built until asked.
 
 *To ask the user: pbrt's launch shape.* Matching pbrt's asynchronous
 pass needs two things the language does not say today: a drain launched

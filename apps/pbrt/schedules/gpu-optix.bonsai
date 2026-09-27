@@ -24,7 +24,10 @@
 //
 // The two queries no longer name a traversal of their own, so the sort and
 // loopify directives that shaped the software traversal are gone: the
-// hardware orders its own visits.
+// hardware orders its own visits. The sets they search are the hardware's
+// trees (trees/optix.bonsai: `primitives : OptixTree`).
+import apps/pbrt/schedules/trees/optix;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

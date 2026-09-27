@@ -1,0 +1,29 @@
+// The scene's trees as the ray tracing hardware holds them: pbrt's
+// OptiXAggregate, an acceleration structure over the scene's own primitives
+// and one per instance definition, built by the driver (render_hook.cpp,
+// through runtime/bonsai_optix.h) and searched by `trace.bind(RTCore)`. What
+// every schedule on the RT cores imports; a schedule that walks the trees
+// itself imports trees/bvh.bonsai instead.
+//
+// An OptixTree has no nodes of the schedule's. Its layout is its elements --
+// the arrays the hit programs read a hit's element out of, at the index the
+// hardware reports plus the build input's base -- and the handle of the
+// structure (`traversable`), which the layout gains on its own. The
+// instances' objects are runs of `geoms`, as `from` says, and an instance
+// stores where its object's run starts. The compiler refuses a software
+// traversal over either set, and refuses `bind(RTCore)` over any other kind
+// of tree (Lower/Trees.cpp).
+schedule {
+    primitives : OptixTree;
+    Inst.blas : OptixTree from geoms;
+
+    layout primitives {
+        // Every instanced GeometricPrimitive in the scene, each definition's
+        // together, in the order the driver's build inputs want them.
+        gCount : u32;
+        geoms : array[Geometric, gCount];
+        // The scene's own primitives, and then its instances.
+        pCount : u32;
+        prims : array[Primitive, pCount];
+    };
+}

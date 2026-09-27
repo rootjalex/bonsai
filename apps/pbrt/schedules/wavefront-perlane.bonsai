@@ -10,6 +10,8 @@
 //
 // See wavefront.bonsai for what the queue and its drain are, and
 // perlane.bonsai for what a per-lane traversal is and why it gathers.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

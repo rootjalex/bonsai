@@ -23,6 +23,8 @@
 // summed in: by bounce rather than by sample, so the film differs by float
 // reassociation and no more. compare.sh checks it within a tolerance for
 // that reason.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

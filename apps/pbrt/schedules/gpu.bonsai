@@ -4,7 +4,9 @@
 // over a stack that scalar.bonsai makes of them, in each thread's local
 // memory, as pbrt's own megakernel keeps its stack. This is the software
 // path (phase A of apps/pbrt/PLAN.md, "NVIDIA GPU support"); the RT cores
-// come with `bind(trace, RTCore)`, which is not built yet.
+// are gpu-optix-mega.bonsai's, which traces through OptiX.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();
@@ -47,6 +49,11 @@ schedule {
     render.specialize(integrator);
     render.bind(p, GPUBlock);
     render.bind(s, GPUThread);
+    // The film pass over the frame after the paths -- pbrt's UpdateFilm --
+    // as a kernel of its own, so that the film stays on the device.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
 
     // The image textures on the texture units, as pbrt --gpu samples them
     // (GPUSpectrumImageTexture::Evaluate, tex2DGrad on a mipmapped texture

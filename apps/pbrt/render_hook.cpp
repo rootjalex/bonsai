@@ -1657,11 +1657,10 @@ int main(int argc, char **argv) {
     // primitives are assembled (Acceleration, below), and pbrt's are not
     // adopted: what its nodes say about the order of the primitives is
     // replaced by the order the hardware's build inputs want.
-    const bool pbrt_trees = !kRTCore && !loaded.nodes.empty();
-    std::vector<_tree_layout1> instance_nodes;
-    // The row each definition's tree is rooted at.
+    // The row each definition's tree is rooted at (the software trees').
     std::vector<uint32_t> roots(loaded.definitions.size(), 0);
-    if (kRTCore) {
+#ifdef BONSAI_HAS_OPTIX
+    {
         Stage stage("order primitives for the hardware");
         rt_order(shapes.begin(), shapes.end(), shape_pools);
         for (const bonsai_scene::Definition &def : loaded.definitions) {
@@ -1669,7 +1668,11 @@ int main(int argc, char **argv) {
                      instanced.begin() + def.first_shape + def.shape_count,
                      shape_pools);
         }
-    } else {
+    }
+#else
+    const bool pbrt_trees = !loaded.nodes.empty();
+    std::vector<_tree_layout1> instance_nodes;
+    {
         Stage stage(pbrt_trees ? "adopt pbrt's instance trees"
                                : "build instance trees");
         if (pbrt_trees) {
@@ -1693,10 +1696,22 @@ int main(int argc, char **argv) {
             }
         }
     }
+#endif
 
     // The top-level tree's primitives, in the order its leaves name them.
     std::vector<TopLevel> top;
     top.reserve(shapes.size() + loaded.instances.size());
+#ifdef BONSAI_HAS_OPTIX
+    // The hardware's structure is built over the primitives in this order:
+    // the scene's own shapes as rt_order left them, then the instances
+    // (Acceleration::scene).
+    for (uint32_t i = 0; i < shapes.size(); i++) {
+        top.push_back(TopLevel{false, i, Bounds3f{}});
+    }
+    for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+        top.push_back(TopLevel{true, i, Bounds3f{}});
+    }
+#else
     const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
         const _tree_layout1 &root = instance_nodes[roots[inst.definition]];
         // A node stores its bounds as three floats each -- the layout's
@@ -1707,17 +1722,7 @@ int main(int argc, char **argv) {
                                 Bounds3f{low, high});
     };
     std::vector<_tree_layout4> nodes;
-    if (kRTCore) {
-        // The hardware's structure is built over the primitives in this
-        // order: the scene's own shapes as rt_order left them, then the
-        // instances (Acceleration::scene).
-        for (uint32_t i = 0; i < shapes.size(); i++) {
-            top.push_back(TopLevel{false, i, Bounds3f{}});
-        }
-        for (uint32_t i = 0; i < loaded.instances.size(); i++) {
-            top.push_back(TopLevel{true, i, Bounds3f{}});
-        }
-    } else {
+    {
         Stage stage(pbrt_trees ? "adopt pbrt's bvh" : "build bvh");
         if (pbrt_trees) {
             nodes = adopt_nodes<_tree_layout4>(loaded.nodes);
@@ -1739,6 +1744,7 @@ int main(int argc, char **argv) {
                 [](const TopLevel &t) { return t.bounds; }, nodes);
         }
     }
+#endif
 
     // The top-level shapes in the order the tree's leaves reach them, so that
     // the pools below can be laid out to match. The instanced ones are already
@@ -1883,10 +1889,16 @@ int main(int argc, char **argv) {
             const TopLevel &t = top[i];
             if (t.instance) {
                 const bonsai_scene::Instance &inst = loaded.instances[t.index];
+                // What the instance stores of its object's tree: the row of
+                // the node pool its tree is rooted at -- or, on the RT cores,
+                // where the object's run of `geoms` starts (`Inst.blas :
+                // OptixTree from geoms`).
+                const uint32_t blas =
+                    kRTCore ? loaded.definitions[inst.definition].first_shape
+                            : roots[inst.definition];
                 Primitive_Inst(prims[i], to_bonsai(inst.render_from_instance),
-                               to_bonsai(inst.instance_from_render),
-                               roots[inst.definition], inst_pool.data(),
-                               &inst_fill);
+                               to_bonsai(inst.instance_from_render), blas,
+                               inst_pool.data(), &inst_fill);
             } else {
                 Primitive_Geom(prims[i], shapes[next_shape++]);
             }
@@ -1903,19 +1915,21 @@ int main(int argc, char **argv) {
     // other array (see the buffers below), so that a GPU schedule finds them
     // resident on the device once staged.
     bonsai_buffer b_geoms = buffer_of(instanced);
-    bonsai_buffer b_group0_bnode = buffer_of(instance_nodes);
     bonsai_buffer b_prims = buffer_of(prims);
-    bonsai_buffer b_group1_index = buffer_of(nodes);
     _tree_layout0 tree;
     tree.gCount = uint32_t(instanced.size());
     tree.geoms = &b_geoms;
-    tree.bCount = uint32_t(instance_nodes.size());
-    tree.group0_bnode = &b_group0_bnode;
     tree.pCount = uint32_t(prims.size());
     tree.prims = &b_prims;
+#ifndef BONSAI_HAS_OPTIX
+    // The software trees' nodes; an OptixTree's layout has none.
+    bonsai_buffer b_group0_bnode = buffer_of(instance_nodes);
+    bonsai_buffer b_group1_index = buffer_of(nodes);
+    tree.bCount = uint32_t(instance_nodes.size());
+    tree.group0_bnode = &b_group0_bnode;
     tree.nCount = uint32_t(nodes.size());
     tree.group1_index = &b_group1_index;
-#ifdef BONSAI_HAS_OPTIX
+#else
     {
         Stage stage("build acceleration structures");
         // The pools as compacted: compact_pools moved them, so the view made
@@ -2316,7 +2330,11 @@ int main(int argc, char **argv) {
         &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
         &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
+#ifdef BONSAI_HAS_OPTIX
+        &b_geoms, &b_prims,
+#else
         &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
+#endif
         &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool};
     constexpr size_t render_buffer_count =
         sizeof(render_buffers) / sizeof(render_buffers[0]);

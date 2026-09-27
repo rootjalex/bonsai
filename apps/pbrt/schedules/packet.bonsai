@@ -13,7 +13,11 @@
 // stored as, how a node is packed -- stay with the program, in the `schedule`
 // block at the end of render.bonsai. What is here is the transforms, and
 // above all their order, which is the whole of the difference between the
-// three files.
+// three files. The scene's trees -- pbrt's BVH over the primitives, laid out
+// as its LinearBVHNode -- are trees/bvh.bonsai's, which every schedule that
+// walks them imports.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     // The random walk is a tail recursion, so this turns it into a loop. Said
     // here rather than written as one: what the source says is that a path's

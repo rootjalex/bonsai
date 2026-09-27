@@ -16,6 +16,8 @@
 // come back, so the host's round loop reads a count the device wrote (see
 // CodeGen_LLVM::device_resident). A drain whose queue is empty this round
 // launches nothing.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

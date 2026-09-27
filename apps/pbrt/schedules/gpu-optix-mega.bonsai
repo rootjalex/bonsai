@@ -1,0 +1,57 @@
+// The megakernel on the RT cores: gpu.bonsai's shape -- every path from its
+// camera ray to its end in one thread, no queues -- with the two ray queries
+// answered by the hardware through OptiX. One raygen program, launched over
+// the pixels of the frame: the pixel loop bound to OptixThread, so that each
+// thread takes a pixel and runs its samples in turn, walking each path to its
+// end and tracing with `optixTrace` where gpu.bonsai walked the tree on the
+// SM. (gpu.bonsai gives a pixel a block and a sample a thread; a raygen
+// launch has no blocks, and the pixel loop does work of its own before its
+// samples -- the sampler's per-pixel state -- so the two loops cannot be
+// collapsed into one thread per sample.)
+//
+// Not pbrt's pattern -- pbrt's GPU renderer is the wavefront (gpu-optix.
+// bonsai) -- but the schedule the wavefront is measured against: what the
+// queues buy, once the tracing is the hardware's on both sides. The sets the
+// queries search are the hardware's trees (trees/optix.bonsai).
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+
+    // One thread per pixel, its samples in turn: the raygen launch. Every
+    // variant's, as gpu.bonsai's binds are: a directive naming `p` names
+    // each `p!<Integrator>` (see specialize).
+    render.bind(p, OptixThread);
+    // The film pass over the frame after the paths -- pbrt's UpdateFilm --
+    // as a kernel of its own, so that the film stays on the device.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    // pbrt's image textures on the GPU are CUDA texture objects
+    // (`cudaTextureObject_t`, gpu/textures.cpp), filtered by the texture
+    // units; as gpu.bonsai has it.
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

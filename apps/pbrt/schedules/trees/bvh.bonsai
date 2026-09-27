@@ -1,0 +1,76 @@
+// The scene's trees as the compiler builds and walks them: pbrt's
+// BVHAggregate, one over the scene's primitives and one per instance
+// definition, with the node layout of pbrt's LinearBVHNode. What every
+// schedule that traverses in software imports -- the CPU schedules, and the
+// GPU schedules that walk the tree on the SMs. A schedule on the RT cores
+// imports trees/optix.bonsai instead, where the same two sets are the
+// hardware's trees and the layout keeps only their elements.
+//
+// The tree language owns the pruning (`with AABB(low, high)`), the layout
+// language owns the bytes, and which of the two files a schedule imports is
+// the schedule's decision: the program (render.bonsai) says only that
+// `primitives` is a set and that an instance holds one.
+schedule {
+    // pbrt: the BVHAggregate an instance definition's shapes are built into,
+    // shared by every instance of the object. Same node, same packing; a leaf
+    // names a run of `geoms` below.
+    tree[[Geometric]] InstanceBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : InstanceBVH, right : InstanceBVH, axis : u8)
+    | Leaf(data : array[Geometric]) with data = data;
+
+    // pbrt: BVHAggregate. Everything about how the scene is searched lives
+    // here -- that it is a BVH at all, that its nodes are bounded by boxes,
+    // how a node is packed, and that traversal is a loop over a stack of 64
+    // rather than recursion. None of it appears in `trace` in render.bonsai.
+    tree[[Primitive]] PrimitiveBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : PrimitiveBVH, right : PrimitiveBVH, axis : u8)
+    | Leaf(data : array[Primitive]) with data = data;
+
+    primitives : PrimitiveBVH;
+    // An instance's tree has no layout of its own: its nodes are rows of the
+    // group below, in the layout of the object that holds every tree, and the
+    // instance stores which row it starts at. Two instances of one object name
+    // the same row, which is how the object is stored once however often it
+    // is placed -- pbrt's forty-three trees over one BVHAggregate.
+    Inst.blas : InstanceBVH from InstanceNodes;
+
+    // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
+    // discriminated on nPrims is pbrt's union of primitivesOffset and
+    // secondChildOffset; the left child is the next node, so only the right
+    // one needs saying. Twice: once for the pool every instance's tree is rows
+    // of, once for the top-level tree.
+    layout primitives {
+        // Every instanced GeometricPrimitive in the scene, in the order the
+        // instance trees' leaves name them.
+        gCount : u32;
+        geoms : array[Geometric, gCount];
+
+        bCount : u32;
+        indirect group InstanceNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1; right = bnode + offset; };
+                _ => Leaf { pOffset : u32; data = range(geoms, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        pCount : u32;
+        prims : array[Primitive, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

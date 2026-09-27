@@ -25,6 +25,8 @@
 // order, so a pixel's samples are still summed in pbrt's order and the
 // image agrees with the scalar schedule bit for bit. This is the structure
 // the device schedule binds to GPUThread instead.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

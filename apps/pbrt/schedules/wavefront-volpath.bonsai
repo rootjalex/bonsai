@@ -15,6 +15,8 @@
 // vectorized or put on the device. Every scene runs volpath under this
 // schedule as under pbrt --gpu; a scene that names another integrator runs
 // it un-deferred.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();

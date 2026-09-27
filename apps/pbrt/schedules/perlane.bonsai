@@ -7,6 +7,8 @@
 // a loop the lanes take different trips round, and gathers sixteen nodes at
 // every step. See packet.bonsai for the schedule this is the ablation of, and
 // for what each directive is doing; this file repeats only what it changes.
+import apps/pbrt/schedules/trees/bvh;
+
 schedule {
     walk_step.loopify();
     path_step.loopify();
