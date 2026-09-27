@@ -86,6 +86,13 @@ struct bonsai_optix_triangles {
     uint32_t triangle_count;
     // Where the input's elements start in the tree's storage.
     uint32_t base;
+    // Whether a query's any-hit program can reject a hit on one of these
+    // elements. The compiler exports the answer for each query as
+    // `<query>_anyhit_matters(element)` (Lower/Trees.cpp); false, for every
+    // query, lets the hardware skip the programs over this input
+    // (OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT, which pbrt sets for a mesh with no
+    // alpha texture), so that a ray through it costs no program at all.
+    bool any_hit;
 };
 
 // A build input of shapes the hardware does not intersect itself, by their
@@ -94,6 +101,7 @@ struct bonsai_optix_boxes {
     const float *boxes;
     uint32_t count;
     uint32_t base;
+    bool any_hit; // as bonsai_optix_triangles::any_hit
 };
 
 // Builds a geometry acceleration structure over the inputs -- of one kind:
@@ -302,9 +310,14 @@ struct Module {
     OptixModule module = nullptr;
     // The program's RTCore queries, in the order the compiler numbers the
     // ray types (alphabetical by the query's name); which of them this
-    // module holds programs for, and which of those have an any-hit program.
+    // module holds programs for, and which of those have a closest-hit
+    // program (the nearest-hit queries; an `any` is answered by whether the
+    // traversal ended at a hit, and its rays disable the closest hit) and an
+    // any-hit program (the queries whose filter says more than what the
+    // hardware tests).
     std::vector<std::string> ray_types;
     std::vector<bool> has_programs;
+    std::vector<bool> has_closesthit;
     std::vector<bool> has_anyhit;
 };
 
@@ -456,13 +469,18 @@ inline Module &module_of(Api &a, State &s, const char *ptx) {
     } else {
         m.ray_types = held;
     }
+    const std::vector<std::string> closesthits =
+        entries_with_prefix(ptx, "__closesthit__");
     const std::vector<std::string> anyhits =
         entries_with_prefix(ptx, "__anyhit__");
+    const auto has = [](const std::vector<std::string> &names,
+                        const std::string &name) {
+        return std::find(names.begin(), names.end(), name) != names.end();
+    };
     for (const std::string &query : m.ray_types) {
-        m.has_programs.push_back(std::find(held.begin(), held.end(), query) !=
-                                 held.end());
-        m.has_anyhit.push_back(std::find(anyhits.begin(), anyhits.end(),
-                                         "__anyhit__" + query) != anyhits.end());
+        m.has_programs.push_back(has(held, query));
+        m.has_closesthit.push_back(has(closesthits, "__closesthit__" + query));
+        m.has_anyhit.push_back(has(anyhits, "__anyhit__" + query));
     }
     return s.modules.emplace(ptx, std::move(m)).first->second;
 }
@@ -508,8 +526,10 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
         if (m.has_programs[t]) {
             miss.miss.module = m.module;
             miss.miss.entryFunctionName = keep("__miss__" + query);
-            hit.hitgroup.moduleCH = m.module;
-            hit.hitgroup.entryFunctionNameCH = keep("__closesthit__" + query);
+            if (m.has_closesthit[t]) {
+                hit.hitgroup.moduleCH = m.module;
+                hit.hitgroup.entryFunctionNameCH = keep("__closesthit__" + query);
+            }
             if (m.has_anyhit[t]) {
                 hit.hitgroup.moduleAH = m.module;
                 hit.hitgroup.entryFunctionNameAH = keep("__anyhit__" + query);
@@ -666,9 +686,17 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
     // into.
     std::vector<CUdeviceptr> vertex_buffers(static_cast<size_t>(triangle_inputs));
     std::vector<CUdeviceptr> box_buffers(static_cast<size_t>(box_inputs));
-    static const unsigned flags = OPTIX_GEOMETRY_FLAG_NONE;
+    // Each input's geometry flags, at a stable place the descriptors point
+    // into: whether the hardware runs the any-hit programs over it, which is
+    // the input's word (bonsai_optix_triangles::any_hit).
+    std::vector<unsigned> flags(static_cast<size_t>(triangle_inputs + box_inputs));
+    const auto flags_of = [](bool any_hit) -> unsigned {
+        return any_hit ? OPTIX_GEOMETRY_FLAG_NONE
+                       : OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
+    };
     for (int64_t i = 0; i < triangle_inputs; i++) {
         const bonsai_optix_triangles &t = triangles[i];
+        flags[i] = flags_of(t.any_hit);
         vertex_buffers[i] = upload(t.positions, size_t(t.vertex_count) * 3 * sizeof(float));
         const CUdeviceptr index_buffer =
             upload(t.indices, size_t(t.triangle_count) * 3 * sizeof(uint32_t));
@@ -684,13 +712,14 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.triangleArray.numIndexTriplets = t.triangle_count;
         input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
         input.triangleArray.indexStrideInBytes = 3 * sizeof(uint32_t);
-        input.triangleArray.flags = &flags;
+        input.triangleArray.flags = &flags[i];
         input.triangleArray.numSbtRecords = 1;
         inputs.push_back(input);
         geometry.inputs.push_back(Input{true, t.base});
     }
     for (int64_t i = 0; i < box_inputs; i++) {
         const bonsai_optix_boxes &b = boxes[i];
+        flags[triangle_inputs + i] = flags_of(b.any_hit);
         box_buffers[i] = upload(b.boxes, size_t(b.count) * 6 * sizeof(float));
         uploaded.push_back(box_buffers[i]);
         OptixBuildInput input = {};
@@ -698,7 +727,7 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.customPrimitiveArray.aabbBuffers = &box_buffers[i];
         input.customPrimitiveArray.numPrimitives = b.count;
         input.customPrimitiveArray.strideInBytes = 6 * sizeof(float);
-        input.customPrimitiveArray.flags = &flags;
+        input.customPrimitiveArray.flags = &flags[triangle_inputs + i];
         input.customPrimitiveArray.numSbtRecords = 1;
         inputs.push_back(input);
         geometry.inputs.push_back(Input{false, b.base});

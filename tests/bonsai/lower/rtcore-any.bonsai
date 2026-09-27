@@ -1,0 +1,82 @@
+//! flags: -p canonicalize -p lower-hardware-binds -p lower-set-functions -p lower-trees
+
+// An `any` query on the ray tracing hardware beside the nearest-hit query
+// over the same filter -- correctness/gpu/rtcore-alpha.bonsai's program --
+// lowered to its programs (Lower/Trees.cpp, LowerBVH), printed right after
+// that pass. What to look for:
+//
+// - `trace`, the nearest hit, traces with flags 0 and has a closest-hit
+//   program that records the element; `trace_any` traces with flags 12 --
+//   OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT (4) and
+//   OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT (8) -- and has no closest-hit program
+//   at all: its context starts out `true`, an accepted hit ends the
+//   traversal without a word, and only `__miss__trace_any` reports,
+//   storing `false`. pbrt's shadow rays exactly: a hit group with no
+//   closest-hit program and a miss program that clears the flag.
+//
+// - Both queries have an any-hit program for the rest of the filter,
+//   `accepts(r, t)`, and beside it the compiler exports what that rest says
+//   about a triangle alone: `trace_anyhit_matters(t)` and
+//   `trace_any_anyhit_matters(t)`, `!(t.alpha < 0.0)` -- read off `accepts`,
+//   whose body opens with `if t.alpha < 0.0 { return true; }`, a condition
+//   of the element that settles the conjunct before the ray is looked at.
+//   The driver asks it of each build input's elements and builds the ones
+//   the programs can never reject with the any-hit programs disabled.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+func accepts(r : Ray, t : Tri) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    return r.o.y < t.alpha;
+}
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris));
+
+func trace_any(r : Ray) =
+    any(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris);
+
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_x : mut array[f32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_x[i] = hit.tri.p0.x;
+        } else {
+            hit_x[i] = -1.0;
+        }
+        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}

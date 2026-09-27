@@ -49,6 +49,7 @@ add_bonsai_tests(
     rand.bonsai
     raygen.bonsai
     reorder.bonsai
+    rtcore-any.bonsai
     rtiow-primer.bonsai
     specialize.bonsai
     struct-capture.bonsai

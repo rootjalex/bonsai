@@ -609,10 +609,33 @@ struct Acceleration {
     // The structures over `count` elements at `elems`, which are the
     // elements `base` onward of their storage.
     Built geometry(const Geometric *elems, size_t count, uint32_t base) {
+        // Whether a query's any-hit program can reject a hit on one of a
+        // run's elements: the compiler's word (Lower/Trees.cpp's
+        // `<query>_anyhit_matters`, derived from each query's filter -- here
+        // the alpha test, which accepts every hit on a shape with no alpha
+        // texture before it looks at the ray), asked of each element and
+        // combined over the run. A run no program can reject is built with
+        // the any-hit programs disabled, as pbrt's getOptixGeometryFlags
+        // builds a mesh without an alpha texture, and a ray through it runs
+        // no program at all.
+        const auto any_hit_over = [&](size_t first, size_t n) {
+            for (size_t k = first; k < first + n; k++) {
+                if (trace_anyhit_matters(elems[k]) ||
+                    trace_any_anyhit_matters(elems[k])) {
+                    return true;
+                }
+            }
+            return false;
+        };
         std::vector<bonsai_optix_triangles> triangles;
         // Every box of every box input, then the inputs over runs of it.
         std::vector<float> box_floats;
-        std::vector<std::pair<size_t, uint32_t>> box_runs; // (first box, base)
+        struct BoxRun {
+            size_t first; // the run's first box
+            uint32_t base;
+            bool any_hit;
+        };
+        std::vector<BoxRun> box_runs;
         size_t i = 0;
         while (i < count) {
             const Geometric &g = elems[i];
@@ -644,7 +667,8 @@ struct Acceleration {
                 triangles.push_back(bonsai_optix_triangles{
                     reinterpret_cast<const float *>(meshes.positions +
                                                     m.first_vertex),
-                    vertex_count, indices, uint32_t(n), base + uint32_t(i)});
+                    vertex_count, indices, uint32_t(n), base + uint32_t(i),
+                    any_hit_over(i, n)});
                 i += n;
             } else {
                 size_t n = 1;
@@ -652,7 +676,8 @@ struct Acceleration {
                        Shapes::tag_of(elems[i + n].shape) != Shapes::kTriangle) {
                     n++;
                 }
-                box_runs.emplace_back(box_floats.size() / 6, base + uint32_t(i));
+                box_runs.push_back(BoxRun{box_floats.size() / 6, base + uint32_t(i),
+                                          any_hit_over(i, n)});
                 for (size_t k = 0; k < n; k++) {
                     const Bounds3f b = bounds_of(elems[i + k], meshes, shapes);
                     for (int c = 0; c < 3; c++) {
@@ -672,7 +697,8 @@ struct Acceleration {
                                                         : box_floats.size() / 6;
             boxes.push_back(bonsai_optix_boxes{box_floats.data() + 6 * first,
                                                uint32_t(next - first),
-                                               box_runs[r].second});
+                                               box_runs[r].base,
+                                               box_runs[r].any_hit});
         }
         Built built;
         if (!triangles.empty()) {

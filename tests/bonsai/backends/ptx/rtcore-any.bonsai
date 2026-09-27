@@ -1,0 +1,69 @@
+//! flags: -p ssa -b ptx
+
+// lower/rtcore-any.bonsai's program compiled to its OptiX module (CodeGen_
+// OptiX). What to look for: the module defines `__closesthit__trace`,
+// `__anyhit__trace`, `__intersection__trace` and `__miss__trace` for the
+// nearest-hit query, but for the `any` query no `__closesthit__trace_any`
+// -- `__miss__trace_any` stores the answer, `false`, through the context
+// the raygen program hands it, and the raygen's second trace call passes
+// the ray flags 12 (terminate on the first hit, no closest-hit program)
+// where the first passes 0. The exported `trace_anyhit_matters` and
+// `trace_any_anyhit_matters` are host functions and not in the module.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+func accepts(r : Ray, t : Tri) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    return r.o.y < t.alpha;
+}
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris));
+
+func trace_any(r : Ray) =
+    any(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris);
+
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_x : mut array[f32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_x[i] = hit.tri.p0.x;
+        } else {
+            hit_x[i] = -1.0;
+        }
+        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}

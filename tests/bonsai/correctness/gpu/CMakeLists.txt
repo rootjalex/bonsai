@@ -45,6 +45,7 @@ add_bonsai_tests(
     rand.bonsai
     raygen.bonsai
     reorder.bonsai
+    rtcore-alpha.bonsai
     rtcore-tlas.bonsai
     struct-capture.bonsai
     texture-cpp.bonsai

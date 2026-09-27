@@ -1,0 +1,1790 @@
+
+; ---- OptiX module 0: LLVM IR ----
+; ModuleID = 'bonsai_ptx'
+source_filename = "bonsai_module"
+target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
+target triple = "nvptx64-nvidia-cuda"
+
+%_params = type { i32, i32, ptr, %struct._tree_layout0, ptr, ptr }
+%struct._tree_layout0 = type <{ i64, i32, ptr }>
+%struct._RTContext_trace_any = type { %struct.Ray, i1 }
+%struct.Ray = type { <3 x float>, <3 x float>, float }
+%struct._RTContext_trace = type { %struct.Ray, %struct._option0 }
+%struct._option0 = type { %struct.Tri, i1 }
+%struct.Tri = type { %struct.Triangle, float }
+%struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
+%struct.TriangleIntersection = type { float, float, float, float }
+%struct._option2 = type { %struct.TriangleIntersection, i1 }
+
+@params = local_unnamed_addr addrspace(4) global %_params zeroinitializer
+
+; Function Attrs: nounwind
+define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
+"!par_body_0":
+  %"_ctx$i66.i" = alloca %struct._RTContext_trace_any, align 16
+  %"_ctx$i65.i" = alloca %struct._RTContext_trace, align 16
+  %_begin = load i32, ptr addrspace(4) @params, align 16
+  %_stride = load i32, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 4), align 4
+  %0 = tail call i32 asm "call ($0), _optix_get_launch_index_x, ();", "=r"() #0
+  %1 = mul i32 %0, %_stride
+  %i = add i32 %1, %_begin
+  %rays = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 8), align 8
+  %tris.unpack = load i64, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 16), align 16
+  %hit_x = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 40), align 8
+  %hit_any = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 48), align 16
+  %2 = sext i32 %i to i64
+  %extract_ptr = getelementptr inbounds [48 x i8], ptr %rays, i64 %2
+  %extract = load %struct.Ray, ptr %extract_ptr, align 16
+  call void @llvm.lifetime.start.p0(ptr nonnull %"_ctx$i65.i")
+  %.fca.0.0.extract.i = extractvalue %struct.Ray %extract, 0
+  store <3 x float> %.fca.0.0.extract.i, ptr %"_ctx$i65.i", align 16
+  %.fca.0.1.extract.i = extractvalue %struct.Ray %extract, 1
+  %.fca.0.1.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 16
+  store <3 x float> %.fca.0.1.extract.i, ptr %.fca.0.1.gep.i, align 16
+  %.fca.0.2.extract.i = extractvalue %struct.Ray %extract, 2
+  %.fca.0.2.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 32
+  store float %.fca.0.2.extract.i, ptr %.fca.0.2.gep.i, align 16
+  %.fca.1.0.0.0.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 48
+  store <3 x float> zeroinitializer, ptr %.fca.1.0.0.0.gep.i, align 16
+  %.fca.1.0.0.1.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 64
+  store <3 x float> zeroinitializer, ptr %.fca.1.0.0.1.gep.i, align 16
+  %.fca.1.0.0.2.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 80
+  store <3 x float> zeroinitializer, ptr %.fca.1.0.0.2.gep.i, align 16
+  %.fca.1.0.1.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 96
+  store float 0.000000e+00, ptr %.fca.1.0.1.gep.i, align 16
+  %.fca.1.1.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i65.i", i64 112
+  store i1 false, ptr %.fca.1.1.gep.i, align 16
+  %min_lt.i = fcmp ogt float %.fca.0.2.extract.i, 1.000000e+30
+  %_ctx_address.i = ptrtoint ptr %"_ctx$i65.i" to i64
+  %bc.i = bitcast <3 x float> %.fca.0.0.extract.i to <3 x i32>
+  %3 = extractelement <3 x i32> %bc.i, i64 0
+  %4 = extractelement <3 x i32> %bc.i, i64 1
+  %5 = extractelement <3 x i32> %bc.i, i64 2
+  %bc3.i = bitcast <3 x float> %.fca.0.1.extract.i to <3 x i32>
+  %6 = extractelement <3 x i32> %bc3.i, i64 0
+  %7 = extractelement <3 x i32> %bc3.i, i64 1
+  %8 = extractelement <3 x i32> %bc3.i, i64 2
+  %9 = bitcast float %.fca.0.2.extract.i to i32
+  %10 = select i1 %min_lt.i, i32 1900671690, i32 %9
+  %11 = trunc i64 %_ctx_address.i to i32
+  %12 = lshr i64 %_ctx_address.i, 32
+  %13 = trunc nuw i64 %12 to i32
+  %14 = call { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } asm sideeffect "{ .reg .f32 %fr<9>; mov.b32 %fr0, $34; mov.b32 %fr1, $35; mov.b32 %fr2, $36; mov.b32 %fr3, $37; mov.b32 %fr4, $38; mov.b32 %fr5, $39; mov.b32 %fr6, $40; mov.b32 %fr7, $41; mov.b32 %fr8, $42; call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_trace_typed_32, ($32,$33,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80); }", "=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,r,l,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r"(i32 0, i64 %tris.unpack, i32 %3, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8, i32 0, i32 %10, i32 0, i32 255, i32 0, i32 0, i32 2, i32 0, i32 2, i32 %11, i32 %13, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0) #0
+  %deref_temp.fca.1.0.0.0.load.i = load <3 x float>, ptr %.fca.1.0.0.0.gep.i, align 16
+  %deref_temp.fca.1.1.load.i = load i1, ptr %.fca.1.1.gep.i, align 16
+  call void @llvm.lifetime.end.p0(ptr nonnull %"_ctx$i65.i")
+  %15 = extractelement <3 x float> %deref_temp.fca.1.0.0.0.load.i, i64 0
+  %.sink = select i1 %deref_temp.fca.1.1.load.i, float %15, float -1.000000e+00
+  %16 = getelementptr inbounds [4 x i8], ptr %hit_x, i64 %2
+  store float %.sink, ptr %16, align 4, !tbaa !1
+  call void @llvm.lifetime.start.p0(ptr nonnull %"_ctx$i66.i")
+  store <3 x float> %.fca.0.0.extract.i, ptr %"_ctx$i66.i", align 16
+  %.fca.0.1.gep.i40 = getelementptr inbounds nuw i8, ptr %"_ctx$i66.i", i64 16
+  store <3 x float> %.fca.0.1.extract.i, ptr %.fca.0.1.gep.i40, align 16
+  %.fca.0.2.gep.i42 = getelementptr inbounds nuw i8, ptr %"_ctx$i66.i", i64 32
+  store float %.fca.0.2.extract.i, ptr %.fca.0.2.gep.i42, align 16
+  %.fca.1.gep.i = getelementptr inbounds nuw i8, ptr %"_ctx$i66.i", i64 48
+  store i1 true, ptr %.fca.1.gep.i, align 16
+  %_ctx_address.i47 = ptrtoint ptr %"_ctx$i66.i" to i64
+  %17 = trunc i64 %_ctx_address.i47 to i32
+  %18 = lshr i64 %_ctx_address.i47, 32
+  %19 = trunc nuw i64 %18 to i32
+  %20 = call { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } asm sideeffect "{ .reg .f32 %fr<9>; mov.b32 %fr0, $34; mov.b32 %fr1, $35; mov.b32 %fr2, $36; mov.b32 %fr3, $37; mov.b32 %fr4, $38; mov.b32 %fr5, $39; mov.b32 %fr6, $40; mov.b32 %fr7, $41; mov.b32 %fr8, $42; call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_trace_typed_32, ($32,$33,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80); }", "=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,r,l,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r"(i32 0, i64 %tris.unpack, i32 %3, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8, i32 0, i32 %10, i32 0, i32 255, i32 12, i32 1, i32 2, i32 1, i32 2, i32 %17, i32 %19, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0) #0
+  %deref_temp.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 16
+  call void @llvm.lifetime.end.p0(ptr nonnull %"_ctx$i66.i")
+  %21 = zext i1 %deref_temp.fca.1.load.i to i32
+  %hit_any33 = getelementptr inbounds [4 x i8], ptr %hit_any, i64 %2
+  store i32 %21, ptr %hit_any33, align 4, !tbaa !4
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__anyhit__trace() local_unnamed_addr #0 {
+__anyhit__trace:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %tris.unpack2 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %2 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
+  %_sbt_data = inttoptr i64 %2 to ptr
+  %_sbt_base = load i32, ptr %_sbt_data, align 4
+  %3 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
+  %4 = add i32 %3, %_sbt_base
+  %5 = sext i32 %4 to i64
+  %extract_ptr = getelementptr inbounds [64 x i8], ptr %tris.unpack2, i64 %5
+  %6 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
+  %_rt_e0.alpha = load float, ptr %6, align 4
+  %7 = fcmp olt float %_rt_e0.alpha, 0.000000e+00
+  br i1 %7, label %"!merge_4", label %"!else_1"
+
+"!else_1":                                        ; preds = %__anyhit__trace
+  %8 = zext i32 %1 to i64
+  %9 = shl nuw i64 %8, 32
+  %10 = zext i32 %0 to i64
+  %ctx_address = or disjoint i64 %9, %10
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %11 = getelementptr inbounds nuw i8, ptr %ctx, i64 4
+  %12 = load float, ptr %11, align 4
+  %13 = fcmp uge float %12, %_rt_e0.alpha
+  br i1 %13, label %"!then_3", label %"!merge_4"
+
+"!then_3":                                        ; preds = %"!else_1"
+  tail call void asm sideeffect "call _optix_ignore_intersection, ();", ""() #0
+  br label %"!merge_4"
+
+"!merge_4":                                       ; preds = %__anyhit__trace, %"!then_3", %"!else_1"
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
+__closesthit__trace:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = zext i32 %0 to i64
+  %2 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %3 = zext i32 %2 to i64
+  %4 = shl nuw i64 %3, 32
+  %ctx_address = or disjoint i64 %4, %1
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %tris.unpack2 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %5 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
+  %_sbt_data = inttoptr i64 %5 to ptr
+  %_sbt_base = load i32, ptr %_sbt_data, align 4
+  %6 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
+  %7 = add i32 %6, %_sbt_base
+  %8 = sext i32 %7 to i64
+  %extract_ptr = getelementptr inbounds [64 x i8], ptr %tris.unpack2, i64 %8
+  %extract = load %struct.Tri, ptr %extract_ptr, align 16
+  %9 = insertvalue %struct._option0 undef, %struct.Tri %extract, 0
+  %10 = insertvalue %struct._option0 %9, i1 true, 1
+  %ctx_result = getelementptr inbounds nuw i8, ptr %ctx, i64 48
+  store %struct._option0 %10, ptr %ctx_result, align 16
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fma.f32(float, float, float) #1
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #1
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.vector.reduce.fmax.v3f32(<3 x float>) #1
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.fabs.f32(float) #1
+
+; Function Attrs: nounwind
+define ptx_kernel void @__intersection__trace() local_unnamed_addr #0 {
+__intersection__trace:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = zext i32 %0 to i64
+  %2 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %3 = zext i32 %2 to i64
+  %4 = shl nuw i64 %3, 32
+  %ctx_address = or disjoint i64 %4, %1
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %tris.unpack3 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %5 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
+  %_sbt_data = inttoptr i64 %5 to ptr
+  %_sbt_base = load i32, ptr %_sbt_data, align 4
+  %6 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
+  %7 = add i32 %6, %_sbt_base
+  %8 = sext i32 %7 to i64
+  %extract_ptr = getelementptr inbounds [64 x i8], ptr %tris.unpack3, i64 %8
+  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16
+  %_rt_e0.tri.elt8 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %_rt_e0.tri.unpack9 = load <3 x float>, ptr %_rt_e0.tri.elt8, align 16
+  %_rt_e0.tri.elt10 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %_rt_e0.tri.unpack11 = load <3 x float>, ptr %_rt_e0.tri.elt10, align 16
+  %deref_temp.unpack = load %struct.Ray, ptr %ctx, align 16
+  %9 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #0
+  %_hit_t = bitcast i32 %9 to float
+  %10 = fsub <3 x float> %_rt_e0.tri.unpack11, %_rt_e0.tri.unpack
+  %11 = fsub <3 x float> %_rt_e0.tri.unpack9, %_rt_e0.tri.unpack
+  %12 = extractelement <3 x float> %10, i64 1
+  %13 = extractelement <3 x float> %11, i64 2
+  %14 = extractelement <3 x float> %10, i64 2
+  %15 = extractelement <3 x float> %11, i64 1
+  %16 = extractelement <3 x float> %11, i64 0
+  %17 = extractelement <3 x float> %10, i64 0
+  %18 = fmul float %15, %14
+  %19 = fsub float 0.000000e+00, %18
+  %20 = tail call float @llvm.fma.f32(float %12, float %13, float %19)
+  %21 = fsub float 0.000000e+00, %14
+  %22 = tail call float @llvm.fma.f32(float %21, float %15, float %18)
+  %23 = fadd float %22, %20
+  %24 = fmul float %13, %17
+  %25 = fsub float 0.000000e+00, %24
+  %26 = tail call float @llvm.fma.f32(float %14, float %16, float %25)
+  %27 = fsub float 0.000000e+00, %17
+  %28 = tail call float @llvm.fma.f32(float %27, float %13, float %24)
+  %29 = fadd float %28, %26
+  %30 = fmul float %16, %12
+  %31 = fsub float 0.000000e+00, %30
+  %32 = tail call float @llvm.fma.f32(float %17, float %15, float %31)
+  %33 = fsub float 0.000000e+00, %12
+  %34 = tail call float @llvm.fma.f32(float %33, float %16, float %30)
+  %35 = fadd float %34, %32
+  %36 = insertelement <3 x float> poison, float %23, i64 0
+  %37 = insertelement <3 x float> %36, float %29, i64 1
+  %38 = insertelement <3 x float> %37, float %35, i64 2
+  %39 = fmul <3 x float> %38, %38
+  %40 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %39)
+  %41 = fcmp oeq float %40, 0.000000e+00
+  br i1 %41, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %__intersection__trace
+  %"@9.d" = extractvalue %struct.Ray %deref_temp.unpack, 1
+  %"@6.o" = extractvalue %struct.Ray %deref_temp.unpack, 0
+  %42 = fsub <3 x float> %_rt_e0.tri.unpack, %"@6.o"
+  %43 = fsub <3 x float> %_rt_e0.tri.unpack9, %"@6.o"
+  %44 = fsub <3 x float> %_rt_e0.tri.unpack11, %"@6.o"
+  %45 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@9.d")
+  %46 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %45)
+  %47 = extractelement <3 x float> %45, i64 0
+  %48 = fcmp oeq float %46, %47
+  %49 = extractelement <3 x float> %45, i64 1
+  %50 = fcmp oeq float %46, %49
+  %51 = select i1 %50, i32 1, i32 2
+  %52 = select i1 %48, i32 0, i32 %51
+  %53 = or i1 %48, %50
+  %.v.i = select i1 %53, i32 1, i32 -2
+  %54 = add nsw i32 %52, %.v.i
+  %55 = add nsw i32 %54, 1
+  %56 = icmp ult i32 %55, 3
+  %57 = add nsw i32 %54, -2
+  %58 = select i1 %56, i32 %55, i32 %57
+  %59 = extractelement <3 x float> %"@9.d", i64 0
+  %lane_is.i = icmp eq i32 %54, 1
+  %60 = extractelement <3 x float> %"@9.d", i64 1
+  %lane.i = select i1 %lane_is.i, float %60, float %59
+  %lane_is51.i = icmp eq i32 %54, 2
+  %61 = extractelement <3 x float> %"@9.d", i64 2
+  %lane52.i = select i1 %lane_is51.i, float %61, float %lane.i
+  %lane_is53.i = icmp eq i32 %58, 1
+  %lane54.i = select i1 %lane_is53.i, float %60, float %59
+  %lane_is55.i = icmp eq i32 %58, 2
+  %lane56.i = select i1 %lane_is55.i, float %61, float %lane54.i
+  %not..i = xor i1 %48, true
+  %lane_is57.i = and i1 %50, %not..i
+  %lane58.i = select i1 %lane_is57.i, float %60, float %59
+  %lane_is59.i = icmp eq i32 %52, 2
+  %lane60.i = select i1 %lane_is59.i, float %61, float %lane58.i
+  %62 = extractelement <3 x float> %42, i64 0
+  %63 = extractelement <3 x float> %42, i64 1
+  %lane62.i = select i1 %lane_is.i, float %63, float %62
+  %64 = extractelement <3 x float> %42, i64 2
+  %lane64.i = select i1 %lane_is51.i, float %64, float %lane62.i
+  %lane66.i = select i1 %lane_is53.i, float %63, float %62
+  %lane68.i = select i1 %lane_is55.i, float %64, float %lane66.i
+  %lane70.i = select i1 %lane_is57.i, float %63, float %62
+  %lane72.i = select i1 %lane_is59.i, float %64, float %lane70.i
+  %65 = insertelement <3 x float> poison, float %lane64.i, i64 0
+  %66 = insertelement <3 x float> %65, float %lane68.i, i64 1
+  %67 = insertelement <3 x float> %66, float %lane72.i, i64 2
+  %68 = extractelement <3 x float> %43, i64 0
+  %69 = extractelement <3 x float> %43, i64 1
+  %lane75.i = select i1 %lane_is.i, float %69, float %68
+  %70 = extractelement <3 x float> %43, i64 2
+  %lane77.i = select i1 %lane_is51.i, float %70, float %lane75.i
+  %lane79.i = select i1 %lane_is53.i, float %69, float %68
+  %lane81.i = select i1 %lane_is55.i, float %70, float %lane79.i
+  %lane83.i = select i1 %lane_is57.i, float %69, float %68
+  %lane85.i = select i1 %lane_is59.i, float %70, float %lane83.i
+  %71 = insertelement <3 x float> poison, float %lane77.i, i64 0
+  %72 = insertelement <3 x float> %71, float %lane81.i, i64 1
+  %73 = insertelement <3 x float> %72, float %lane85.i, i64 2
+  %74 = extractelement <3 x float> %44, i64 0
+  %75 = extractelement <3 x float> %44, i64 1
+  %lane88.i = select i1 %lane_is.i, float %75, float %74
+  %76 = extractelement <3 x float> %44, i64 2
+  %lane90.i = select i1 %lane_is51.i, float %76, float %lane88.i
+  %lane92.i = select i1 %lane_is53.i, float %75, float %74
+  %lane94.i = select i1 %lane_is55.i, float %76, float %lane92.i
+  %lane96.i = select i1 %lane_is57.i, float %75, float %74
+  %lane98.i = select i1 %lane_is59.i, float %76, float %lane96.i
+  %77 = insertelement <3 x float> poison, float %lane90.i, i64 0
+  %78 = insertelement <3 x float> %77, float %lane94.i, i64 1
+  %79 = insertelement <3 x float> %78, float %lane98.i, i64 2
+  %80 = fsub float 0.000000e+00, %lane52.i
+  %81 = fdiv float %80, %lane60.i
+  %82 = fsub float 0.000000e+00, %lane56.i
+  %83 = fdiv float %82, %lane60.i
+  %84 = fdiv float 1.000000e+00, %lane60.i
+  %85 = fmul float %lane72.i, %81
+  %.splatinsert.i = insertelement <3 x float> poison, float %85, i64 0
+  %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %86 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %87 = fadd <3 x float> %67, %86
+  %88 = extractelement <3 x float> %87, i64 2
+  %89 = fmul float %83, %88
+  %.splatinsert103.i = insertelement <3 x float> poison, float %89, i64 0
+  %.splat104.i = shufflevector <3 x float> %.splatinsert103.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %90 = fmul <3 x float> %.splat104.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %91 = fadd <3 x float> %87, %90
+  %92 = fmul float %lane85.i, %81
+  %.splatinsert107.i = insertelement <3 x float> poison, float %92, i64 0
+  %.splat108.i = shufflevector <3 x float> %.splatinsert107.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %93 = fmul <3 x float> %.splat108.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %94 = fadd <3 x float> %73, %93
+  %95 = extractelement <3 x float> %94, i64 2
+  %96 = fmul float %83, %95
+  %.splatinsert111.i = insertelement <3 x float> poison, float %96, i64 0
+  %.splat112.i = shufflevector <3 x float> %.splatinsert111.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %97 = fmul <3 x float> %.splat112.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %98 = fadd <3 x float> %94, %97
+  %99 = fmul float %lane98.i, %81
+  %.splatinsert115.i = insertelement <3 x float> poison, float %99, i64 0
+  %.splat116.i = shufflevector <3 x float> %.splatinsert115.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %100 = fmul <3 x float> %.splat116.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %101 = fadd <3 x float> %79, %100
+  %102 = extractelement <3 x float> %101, i64 2
+  %103 = fmul float %83, %102
+  %.splatinsert119.i = insertelement <3 x float> poison, float %103, i64 0
+  %.splat120.i = shufflevector <3 x float> %.splatinsert119.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %104 = fmul <3 x float> %.splat120.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %105 = fadd <3 x float> %101, %104
+  %106 = extractelement <3 x float> %98, i64 0
+  %107 = extractelement <3 x float> %105, i64 1
+  %108 = extractelement <3 x float> %98, i64 1
+  %109 = extractelement <3 x float> %105, i64 0
+  %110 = fmul float %108, %109
+  %111 = fsub float 0.000000e+00, %110
+  %112 = tail call float @llvm.fma.f32(float %106, float %107, float %111)
+  %113 = fsub float 0.000000e+00, %108
+  %114 = tail call float @llvm.fma.f32(float %113, float %109, float %110)
+  %115 = fadd float %114, %112
+  %116 = extractelement <3 x float> %91, i64 1
+  %117 = extractelement <3 x float> %91, i64 0
+  %118 = fmul float %107, %117
+  %119 = fsub float 0.000000e+00, %118
+  %120 = tail call float @llvm.fma.f32(float %109, float %116, float %119)
+  %121 = fsub float 0.000000e+00, %107
+  %122 = tail call float @llvm.fma.f32(float %121, float %117, float %118)
+  %123 = fadd float %122, %120
+  %124 = fmul float %116, %106
+  %125 = fsub float 0.000000e+00, %124
+  %126 = tail call float @llvm.fma.f32(float %117, float %108, float %125)
+  %127 = fsub float 0.000000e+00, %116
+  %128 = tail call float @llvm.fma.f32(float %127, float %106, float %124)
+  %129 = fadd float %128, %126
+  %130 = fcmp olt float %115, 0.000000e+00
+  %131 = fcmp olt float %123, 0.000000e+00
+  %132 = or i1 %130, %131
+  %133 = fcmp olt float %129, 0.000000e+00
+  %134 = or i1 %133, %132
+  br i1 %134, label %"!then_2.i", label %"!merge_3.i"
+
+"!then_2.i":                                      ; preds = %"!merge_1.i"
+  %135 = fcmp ogt float %115, 0.000000e+00
+  %136 = fcmp ogt float %123, 0.000000e+00
+  %137 = or i1 %135, %136
+  %138 = fcmp ogt float %129, 0.000000e+00
+  %139 = or i1 %138, %137
+  br i1 %139, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
+
+"!merge_3.i":                                     ; preds = %"!then_2.i", %"!merge_1.i"
+  %140 = fadd float %115, %123
+  %141 = fadd float %129, %140
+  %142 = fcmp oeq float %141, 0.000000e+00
+  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
+
+"!merge_7.i":                                     ; preds = %"!merge_3.i"
+  %.splatinsert134.i = insertelement <3 x float> poison, float %84, i64 0
+  %.splat135.i = shufflevector <3 x float> %.splatinsert134.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %143 = fmul <3 x float> %.splat135.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %144 = fadd <3 x float> %143, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %145 = fmul <3 x float> %144, %91
+  %146 = fmul <3 x float> %144, %98
+  %147 = fmul <3 x float> %144, %105
+  %148 = extractelement <3 x float> %145, i64 2
+  %149 = fmul float %148, %115
+  %150 = extractelement <3 x float> %146, i64 2
+  %151 = fmul float %150, %123
+  %152 = fadd float %149, %151
+  %153 = extractelement <3 x float> %147, i64 2
+  %154 = fmul float %153, %129
+  %155 = fadd float %154, %152
+  %156 = fcmp olt float %141, 0.000000e+00
+  %157 = fcmp oge float %155, 0.000000e+00
+  %158 = fmul float %141, %_hit_t
+  %159 = fcmp olt float %155, %158
+  %160 = or i1 %157, %159
+  %161 = and i1 %156, %160
+  br i1 %161, label %intersectsp_ray_tri.exit, label %"!else_9.i"
+
+"!else_9.i":                                      ; preds = %"!merge_7.i"
+  %162 = fcmp ogt float %141, 0.000000e+00
+  %163 = fcmp ole float %155, 0.000000e+00
+  %164 = fcmp olt float %158, %155
+  %165 = or i1 %163, %164
+  %166 = and i1 %162, %165
+  br i1 %166, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
+
+"!merge_10.i":                                    ; preds = %"!else_9.i"
+  %167 = fdiv float 1.000000e+00, %141
+  %168 = fmul float %155, %167
+  %169 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 2, i32 5, i32 poison>
+  %170 = shufflevector <3 x float> %169, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 5>
+  %171 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %170)
+  %172 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %171)
+  %173 = fmul float %172, f0x34400002
+  %174 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 0, i32 3, i32 poison>
+  %175 = shufflevector <3 x float> %174, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 3>
+  %176 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %175)
+  %177 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %176)
+  %178 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 1, i32 4, i32 poison>
+  %179 = shufflevector <3 x float> %178, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 4>
+  %180 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %179)
+  %181 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %180)
+  %182 = fadd float %177, %172
+  %183 = fmul float %182, f0x34A00003
+  %184 = fadd float %181, %172
+  %185 = fmul float %184, f0x34A00003
+  %186 = fmul float %177, f0x34000001
+  %187 = fmul float %186, %181
+  %188 = fmul float %177, %185
+  %189 = fadd float %187, %188
+  %190 = fmul float %181, %183
+  %191 = fadd float %190, %189
+  %192 = fmul float %191, 2.000000e+00
+  %193 = insertelement <3 x float> poison, float %115, i64 0
+  %194 = insertelement <3 x float> %193, float %123, i64 1
+  %195 = insertelement <3 x float> %194, float %129, i64 2
+  %196 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %195)
+  %197 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %196)
+  %198 = fmul float %197, f0x34400002
+  %199 = fmul float %172, %198
+  %200 = fmul float %172, %192
+  %201 = fadd float %199, %200
+  %202 = fmul float %173, %197
+  %203 = fadd float %202, %201
+  %204 = fmul float %203, 3.000000e+00
+  %205 = tail call float @llvm.fabs.f32(float %167)
+  %206 = fmul float %205, %204
+  %207 = fcmp ugt float %168, %206
+  br i1 %207, label %"!merge_14.i", label %intersectsp_ray_tri.exit
+
+"!merge_14.i":                                    ; preds = %"!merge_10.i"
+  %208 = fmul float %129, %167
+  %209 = fmul float %123, %167
+  %210 = fmul float %115, %167
+  %211 = insertvalue %struct.TriangleIntersection undef, float %210, 0
+  %212 = insertvalue %struct.TriangleIntersection %211, float %209, 1
+  %213 = insertvalue %struct.TriangleIntersection %212, float %208, 2
+  %214 = insertvalue %struct.TriangleIntersection %213, float %168, 3
+  %215 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %214, 0
+  %216 = insertvalue %struct._option2 %215, i1 true, 1
+  br label %intersectsp_ray_tri.exit
+
+intersectsp_ray_tri.exit:                         ; preds = %__intersection__trace, %"!then_2.i", %"!merge_3.i", %"!merge_7.i", %"!else_9.i", %"!merge_10.i", %"!merge_14.i"
+  %common.ret.op.i = phi %struct._option2 [ %216, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
+  %217 = extractvalue %struct._option2 %common.ret.op.i, 1
+  %"isect$i2.value" = extractvalue %struct._option2 %common.ret.op.i, 0
+  %"isect_$i2.t" = extractvalue %struct.TriangleIntersection %"isect$i2.value", 3
+  %"distmin_Ray_Triangle$r2" = select i1 %217, float %"isect_$i2.t", float +inf
+  %218 = fcmp une float %"distmin_Ray_Triangle$r2", +inf
+  br i1 %218, label %"!then_4", label %"!merge_5"
+
+"!then_4":                                        ; preds = %intersectsp_ray_tri.exit
+  %219 = bitcast float %"distmin_Ray_Triangle$r2" to i32
+  %220 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %219, i32 0) #0
+  br label %"!merge_5"
+
+"!merge_5":                                       ; preds = %"!then_4", %intersectsp_ray_tri.exit
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__miss__trace() local_unnamed_addr #0 {
+__miss__trace:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__anyhit__trace_any() local_unnamed_addr #0 {
+__anyhit__trace_any:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %tris.unpack2 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %2 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
+  %_sbt_data = inttoptr i64 %2 to ptr
+  %_sbt_base = load i32, ptr %_sbt_data, align 4
+  %3 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
+  %4 = add i32 %3, %_sbt_base
+  %5 = sext i32 %4 to i64
+  %extract_ptr = getelementptr inbounds [64 x i8], ptr %tris.unpack2, i64 %5
+  %6 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
+  %_rt_e0.alpha = load float, ptr %6, align 4
+  %7 = fcmp olt float %_rt_e0.alpha, 0.000000e+00
+  br i1 %7, label %"!merge_4", label %"!else_1"
+
+"!else_1":                                        ; preds = %__anyhit__trace_any
+  %8 = zext i32 %1 to i64
+  %9 = shl nuw i64 %8, 32
+  %10 = zext i32 %0 to i64
+  %ctx_address = or disjoint i64 %9, %10
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %11 = getelementptr inbounds nuw i8, ptr %ctx, i64 4
+  %12 = load float, ptr %11, align 4
+  %13 = fcmp uge float %12, %_rt_e0.alpha
+  br i1 %13, label %"!then_3", label %"!merge_4"
+
+"!then_3":                                        ; preds = %"!else_1"
+  tail call void asm sideeffect "call _optix_ignore_intersection, ();", ""() #0
+  br label %"!merge_4"
+
+"!merge_4":                                       ; preds = %__anyhit__trace_any, %"!then_3", %"!else_1"
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__intersection__trace_any() local_unnamed_addr #0 {
+__intersection__trace_any:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = zext i32 %0 to i64
+  %2 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %3 = zext i32 %2 to i64
+  %4 = shl nuw i64 %3, 32
+  %ctx_address = or disjoint i64 %4, %1
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %tris.unpack3 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %5 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
+  %_sbt_data = inttoptr i64 %5 to ptr
+  %_sbt_base = load i32, ptr %_sbt_data, align 4
+  %6 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
+  %7 = add i32 %6, %_sbt_base
+  %8 = sext i32 %7 to i64
+  %extract_ptr = getelementptr inbounds [64 x i8], ptr %tris.unpack3, i64 %8
+  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16
+  %_rt_e0.tri.elt5 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %_rt_e0.tri.unpack6 = load <3 x float>, ptr %_rt_e0.tri.elt5, align 16
+  %_rt_e0.tri.elt7 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %_rt_e0.tri.unpack8 = load <3 x float>, ptr %_rt_e0.tri.elt7, align 16
+  %"@5.q" = load %struct.Ray, ptr %ctx, align 16
+  %9 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #0
+  %_hit_t = bitcast i32 %9 to float
+  %10 = fsub <3 x float> %_rt_e0.tri.unpack8, %_rt_e0.tri.unpack
+  %11 = fsub <3 x float> %_rt_e0.tri.unpack6, %_rt_e0.tri.unpack
+  %12 = extractelement <3 x float> %10, i64 1
+  %13 = extractelement <3 x float> %11, i64 2
+  %14 = extractelement <3 x float> %10, i64 2
+  %15 = extractelement <3 x float> %11, i64 1
+  %16 = extractelement <3 x float> %11, i64 0
+  %17 = extractelement <3 x float> %10, i64 0
+  %18 = fmul float %15, %14
+  %19 = fsub float 0.000000e+00, %18
+  %20 = tail call float @llvm.fma.f32(float %12, float %13, float %19)
+  %21 = fsub float 0.000000e+00, %14
+  %22 = tail call float @llvm.fma.f32(float %21, float %15, float %18)
+  %23 = fadd float %22, %20
+  %24 = fmul float %13, %17
+  %25 = fsub float 0.000000e+00, %24
+  %26 = tail call float @llvm.fma.f32(float %14, float %16, float %25)
+  %27 = fsub float 0.000000e+00, %17
+  %28 = tail call float @llvm.fma.f32(float %27, float %13, float %24)
+  %29 = fadd float %28, %26
+  %30 = fmul float %16, %12
+  %31 = fsub float 0.000000e+00, %30
+  %32 = tail call float @llvm.fma.f32(float %17, float %15, float %31)
+  %33 = fsub float 0.000000e+00, %12
+  %34 = tail call float @llvm.fma.f32(float %33, float %16, float %30)
+  %35 = fadd float %34, %32
+  %36 = insertelement <3 x float> poison, float %23, i64 0
+  %37 = insertelement <3 x float> %36, float %29, i64 1
+  %38 = insertelement <3 x float> %37, float %35, i64 2
+  %39 = fmul <3 x float> %38, %38
+  %40 = tail call float @llvm.vector.reduce.fadd.v3f32(float 0.000000e+00, <3 x float> %39)
+  %41 = fcmp oeq float %40, 0.000000e+00
+  br i1 %41, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %__intersection__trace_any
+  %"@9.d" = extractvalue %struct.Ray %"@5.q", 1
+  %"@6.o" = extractvalue %struct.Ray %"@5.q", 0
+  %42 = fsub <3 x float> %_rt_e0.tri.unpack, %"@6.o"
+  %43 = fsub <3 x float> %_rt_e0.tri.unpack6, %"@6.o"
+  %44 = fsub <3 x float> %_rt_e0.tri.unpack8, %"@6.o"
+  %45 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@9.d")
+  %46 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %45)
+  %47 = extractelement <3 x float> %45, i64 0
+  %48 = fcmp oeq float %46, %47
+  %49 = extractelement <3 x float> %45, i64 1
+  %50 = fcmp oeq float %46, %49
+  %51 = select i1 %50, i32 1, i32 2
+  %52 = select i1 %48, i32 0, i32 %51
+  %53 = or i1 %48, %50
+  %.v.i = select i1 %53, i32 1, i32 -2
+  %54 = add nsw i32 %52, %.v.i
+  %55 = add nsw i32 %54, 1
+  %56 = icmp ult i32 %55, 3
+  %57 = add nsw i32 %54, -2
+  %58 = select i1 %56, i32 %55, i32 %57
+  %59 = extractelement <3 x float> %"@9.d", i64 0
+  %lane_is.i = icmp eq i32 %54, 1
+  %60 = extractelement <3 x float> %"@9.d", i64 1
+  %lane.i = select i1 %lane_is.i, float %60, float %59
+  %lane_is51.i = icmp eq i32 %54, 2
+  %61 = extractelement <3 x float> %"@9.d", i64 2
+  %lane52.i = select i1 %lane_is51.i, float %61, float %lane.i
+  %lane_is53.i = icmp eq i32 %58, 1
+  %lane54.i = select i1 %lane_is53.i, float %60, float %59
+  %lane_is55.i = icmp eq i32 %58, 2
+  %lane56.i = select i1 %lane_is55.i, float %61, float %lane54.i
+  %not..i = xor i1 %48, true
+  %lane_is57.i = and i1 %50, %not..i
+  %lane58.i = select i1 %lane_is57.i, float %60, float %59
+  %lane_is59.i = icmp eq i32 %52, 2
+  %lane60.i = select i1 %lane_is59.i, float %61, float %lane58.i
+  %62 = extractelement <3 x float> %42, i64 0
+  %63 = extractelement <3 x float> %42, i64 1
+  %lane62.i = select i1 %lane_is.i, float %63, float %62
+  %64 = extractelement <3 x float> %42, i64 2
+  %lane64.i = select i1 %lane_is51.i, float %64, float %lane62.i
+  %lane66.i = select i1 %lane_is53.i, float %63, float %62
+  %lane68.i = select i1 %lane_is55.i, float %64, float %lane66.i
+  %lane70.i = select i1 %lane_is57.i, float %63, float %62
+  %lane72.i = select i1 %lane_is59.i, float %64, float %lane70.i
+  %65 = insertelement <3 x float> poison, float %lane64.i, i64 0
+  %66 = insertelement <3 x float> %65, float %lane68.i, i64 1
+  %67 = insertelement <3 x float> %66, float %lane72.i, i64 2
+  %68 = extractelement <3 x float> %43, i64 0
+  %69 = extractelement <3 x float> %43, i64 1
+  %lane75.i = select i1 %lane_is.i, float %69, float %68
+  %70 = extractelement <3 x float> %43, i64 2
+  %lane77.i = select i1 %lane_is51.i, float %70, float %lane75.i
+  %lane79.i = select i1 %lane_is53.i, float %69, float %68
+  %lane81.i = select i1 %lane_is55.i, float %70, float %lane79.i
+  %lane83.i = select i1 %lane_is57.i, float %69, float %68
+  %lane85.i = select i1 %lane_is59.i, float %70, float %lane83.i
+  %71 = insertelement <3 x float> poison, float %lane77.i, i64 0
+  %72 = insertelement <3 x float> %71, float %lane81.i, i64 1
+  %73 = insertelement <3 x float> %72, float %lane85.i, i64 2
+  %74 = extractelement <3 x float> %44, i64 0
+  %75 = extractelement <3 x float> %44, i64 1
+  %lane88.i = select i1 %lane_is.i, float %75, float %74
+  %76 = extractelement <3 x float> %44, i64 2
+  %lane90.i = select i1 %lane_is51.i, float %76, float %lane88.i
+  %lane92.i = select i1 %lane_is53.i, float %75, float %74
+  %lane94.i = select i1 %lane_is55.i, float %76, float %lane92.i
+  %lane96.i = select i1 %lane_is57.i, float %75, float %74
+  %lane98.i = select i1 %lane_is59.i, float %76, float %lane96.i
+  %77 = insertelement <3 x float> poison, float %lane90.i, i64 0
+  %78 = insertelement <3 x float> %77, float %lane94.i, i64 1
+  %79 = insertelement <3 x float> %78, float %lane98.i, i64 2
+  %80 = fsub float 0.000000e+00, %lane52.i
+  %81 = fdiv float %80, %lane60.i
+  %82 = fsub float 0.000000e+00, %lane56.i
+  %83 = fdiv float %82, %lane60.i
+  %84 = fdiv float 1.000000e+00, %lane60.i
+  %85 = fmul float %lane72.i, %81
+  %.splatinsert.i = insertelement <3 x float> poison, float %85, i64 0
+  %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %86 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %87 = fadd <3 x float> %67, %86
+  %88 = extractelement <3 x float> %87, i64 2
+  %89 = fmul float %83, %88
+  %.splatinsert103.i = insertelement <3 x float> poison, float %89, i64 0
+  %.splat104.i = shufflevector <3 x float> %.splatinsert103.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %90 = fmul <3 x float> %.splat104.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %91 = fadd <3 x float> %87, %90
+  %92 = fmul float %lane85.i, %81
+  %.splatinsert107.i = insertelement <3 x float> poison, float %92, i64 0
+  %.splat108.i = shufflevector <3 x float> %.splatinsert107.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %93 = fmul <3 x float> %.splat108.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %94 = fadd <3 x float> %73, %93
+  %95 = extractelement <3 x float> %94, i64 2
+  %96 = fmul float %83, %95
+  %.splatinsert111.i = insertelement <3 x float> poison, float %96, i64 0
+  %.splat112.i = shufflevector <3 x float> %.splatinsert111.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %97 = fmul <3 x float> %.splat112.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %98 = fadd <3 x float> %94, %97
+  %99 = fmul float %lane98.i, %81
+  %.splatinsert115.i = insertelement <3 x float> poison, float %99, i64 0
+  %.splat116.i = shufflevector <3 x float> %.splatinsert115.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %100 = fmul <3 x float> %.splat116.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %101 = fadd <3 x float> %79, %100
+  %102 = extractelement <3 x float> %101, i64 2
+  %103 = fmul float %83, %102
+  %.splatinsert119.i = insertelement <3 x float> poison, float %103, i64 0
+  %.splat120.i = shufflevector <3 x float> %.splatinsert119.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %104 = fmul <3 x float> %.splat120.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %105 = fadd <3 x float> %101, %104
+  %106 = extractelement <3 x float> %98, i64 0
+  %107 = extractelement <3 x float> %105, i64 1
+  %108 = extractelement <3 x float> %98, i64 1
+  %109 = extractelement <3 x float> %105, i64 0
+  %110 = fmul float %108, %109
+  %111 = fsub float 0.000000e+00, %110
+  %112 = tail call float @llvm.fma.f32(float %106, float %107, float %111)
+  %113 = fsub float 0.000000e+00, %108
+  %114 = tail call float @llvm.fma.f32(float %113, float %109, float %110)
+  %115 = fadd float %114, %112
+  %116 = extractelement <3 x float> %91, i64 1
+  %117 = extractelement <3 x float> %91, i64 0
+  %118 = fmul float %107, %117
+  %119 = fsub float 0.000000e+00, %118
+  %120 = tail call float @llvm.fma.f32(float %109, float %116, float %119)
+  %121 = fsub float 0.000000e+00, %107
+  %122 = tail call float @llvm.fma.f32(float %121, float %117, float %118)
+  %123 = fadd float %122, %120
+  %124 = fmul float %116, %106
+  %125 = fsub float 0.000000e+00, %124
+  %126 = tail call float @llvm.fma.f32(float %117, float %108, float %125)
+  %127 = fsub float 0.000000e+00, %116
+  %128 = tail call float @llvm.fma.f32(float %127, float %106, float %124)
+  %129 = fadd float %128, %126
+  %130 = fcmp olt float %115, 0.000000e+00
+  %131 = fcmp olt float %123, 0.000000e+00
+  %132 = or i1 %130, %131
+  %133 = fcmp olt float %129, 0.000000e+00
+  %134 = or i1 %133, %132
+  br i1 %134, label %"!then_2.i", label %"!merge_3.i"
+
+"!then_2.i":                                      ; preds = %"!merge_1.i"
+  %135 = fcmp ogt float %115, 0.000000e+00
+  %136 = fcmp ogt float %123, 0.000000e+00
+  %137 = or i1 %135, %136
+  %138 = fcmp ogt float %129, 0.000000e+00
+  %139 = or i1 %138, %137
+  br i1 %139, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
+
+"!merge_3.i":                                     ; preds = %"!then_2.i", %"!merge_1.i"
+  %140 = fadd float %115, %123
+  %141 = fadd float %129, %140
+  %142 = fcmp oeq float %141, 0.000000e+00
+  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
+
+"!merge_7.i":                                     ; preds = %"!merge_3.i"
+  %.splatinsert134.i = insertelement <3 x float> poison, float %84, i64 0
+  %.splat135.i = shufflevector <3 x float> %.splatinsert134.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %143 = fmul <3 x float> %.splat135.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %144 = fadd <3 x float> %143, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %145 = fmul <3 x float> %144, %91
+  %146 = fmul <3 x float> %144, %98
+  %147 = fmul <3 x float> %144, %105
+  %148 = extractelement <3 x float> %145, i64 2
+  %149 = fmul float %148, %115
+  %150 = extractelement <3 x float> %146, i64 2
+  %151 = fmul float %150, %123
+  %152 = fadd float %149, %151
+  %153 = extractelement <3 x float> %147, i64 2
+  %154 = fmul float %153, %129
+  %155 = fadd float %154, %152
+  %156 = fcmp olt float %141, 0.000000e+00
+  %157 = fcmp oge float %155, 0.000000e+00
+  %158 = fmul float %141, %_hit_t
+  %159 = fcmp olt float %155, %158
+  %160 = or i1 %157, %159
+  %161 = and i1 %156, %160
+  br i1 %161, label %intersectsp_ray_tri.exit, label %"!else_9.i"
+
+"!else_9.i":                                      ; preds = %"!merge_7.i"
+  %162 = fcmp ogt float %141, 0.000000e+00
+  %163 = fcmp ole float %155, 0.000000e+00
+  %164 = fcmp olt float %158, %155
+  %165 = or i1 %163, %164
+  %166 = and i1 %162, %165
+  br i1 %166, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
+
+"!merge_10.i":                                    ; preds = %"!else_9.i"
+  %167 = fdiv float 1.000000e+00, %141
+  %168 = fmul float %155, %167
+  %169 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 2, i32 5, i32 poison>
+  %170 = shufflevector <3 x float> %169, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 5>
+  %171 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %170)
+  %172 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %171)
+  %173 = fmul float %172, f0x34400002
+  %174 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 0, i32 3, i32 poison>
+  %175 = shufflevector <3 x float> %174, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 3>
+  %176 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %175)
+  %177 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %176)
+  %178 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 1, i32 4, i32 poison>
+  %179 = shufflevector <3 x float> %178, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 4>
+  %180 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %179)
+  %181 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %180)
+  %182 = fadd float %177, %172
+  %183 = fmul float %182, f0x34A00003
+  %184 = fadd float %181, %172
+  %185 = fmul float %184, f0x34A00003
+  %186 = fmul float %177, f0x34000001
+  %187 = fmul float %186, %181
+  %188 = fmul float %177, %185
+  %189 = fadd float %187, %188
+  %190 = fmul float %181, %183
+  %191 = fadd float %190, %189
+  %192 = fmul float %191, 2.000000e+00
+  %193 = insertelement <3 x float> poison, float %115, i64 0
+  %194 = insertelement <3 x float> %193, float %123, i64 1
+  %195 = insertelement <3 x float> %194, float %129, i64 2
+  %196 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %195)
+  %197 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %196)
+  %198 = fmul float %197, f0x34400002
+  %199 = fmul float %172, %198
+  %200 = fmul float %172, %192
+  %201 = fadd float %199, %200
+  %202 = fmul float %173, %197
+  %203 = fadd float %202, %201
+  %204 = fmul float %203, 3.000000e+00
+  %205 = tail call float @llvm.fabs.f32(float %167)
+  %206 = fmul float %205, %204
+  %207 = fcmp ugt float %168, %206
+  br i1 %207, label %"!merge_14.i", label %intersectsp_ray_tri.exit
+
+"!merge_14.i":                                    ; preds = %"!merge_10.i"
+  %208 = fmul float %129, %167
+  %209 = fmul float %123, %167
+  %210 = fmul float %115, %167
+  %211 = insertvalue %struct.TriangleIntersection undef, float %210, 0
+  %212 = insertvalue %struct.TriangleIntersection %211, float %209, 1
+  %213 = insertvalue %struct.TriangleIntersection %212, float %208, 2
+  %214 = insertvalue %struct.TriangleIntersection %213, float %168, 3
+  %215 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %214, 0
+  %216 = insertvalue %struct._option2 %215, i1 true, 1
+  br label %intersectsp_ray_tri.exit
+
+intersectsp_ray_tri.exit:                         ; preds = %__intersection__trace_any, %"!then_2.i", %"!merge_3.i", %"!merge_7.i", %"!else_9.i", %"!merge_10.i", %"!merge_14.i"
+  %common.ret.op.i = phi %struct._option2 [ %216, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace_any ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
+  %217 = extractvalue %struct._option2 %common.ret.op.i, 1
+  %"isect$i3.value" = extractvalue %struct._option2 %common.ret.op.i, 0
+  %"isect_$i3.t" = extractvalue %struct.TriangleIntersection %"isect$i3.value", 3
+  %"distmin_Ray_Triangle$r3" = select i1 %217, float %"isect_$i3.t", float +inf
+  %218 = fcmp une float %"distmin_Ray_Triangle$r3", +inf
+  br i1 %218, label %"!then_4", label %"!merge_5"
+
+"!then_4":                                        ; preds = %intersectsp_ray_tri.exit
+  %219 = bitcast float %"distmin_Ray_Triangle$r3" to i32
+  %220 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %219, i32 0) #0
+  br label %"!merge_5"
+
+"!merge_5":                                       ; preds = %"!then_4", %intersectsp_ray_tri.exit
+  ret void
+}
+
+; Function Attrs: nounwind
+define ptx_kernel void @__miss__trace_any() local_unnamed_addr #0 {
+__miss__trace_any:
+  %0 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 0) #0
+  %1 = zext i32 %0 to i64
+  %2 = tail call i32 asm sideeffect "call ($0), _optix_get_payload, ($1);", "=r,r"(i32 1) #0
+  %3 = zext i32 %2 to i64
+  %4 = shl nuw i64 %3, 32
+  %ctx_address = or disjoint i64 %4, %1
+  %ctx = inttoptr i64 %ctx_address to ptr
+  %ctx_result = getelementptr inbounds nuw i8, ptr %ctx, i64 48
+  store i1 false, ptr %ctx_result, align 1, !tbaa !6
+  ret void
+}
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #2
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #2
+
+attributes #0 = { nounwind }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+
+!llvm.module.flags = !{!0}
+
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"f32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!5, !5, i64 0}
+!5 = !{!"i32", !3, i64 0}
+!6 = !{!7, !7, i64 0}
+!7 = !{!"bool", !3, i64 0}
+
+; ---- OptiX module 0: PTX ----
+//
+// Generated by LLVM NVPTX Back-End
+//
+
+.version 7.8
+.target sm_90
+.address_size 64
+
+	// .globl	__raygen__i
+.visible .const .align 8 .b8 params[56];
+
+.visible .entry __raygen__i()
+{
+	.local .align 16 .b8 	__local_depot0[128];
+	.reg .b64 	%SP;
+	.reg .b64 	%SPL;
+	.reg .pred 	%p<3>;
+	.reg .b16 	%rs<3>;
+	.reg .b32 	%r<87>;
+	.reg .b64 	%rd<15>;
+
+	mov.b64 	%SPL, __local_depot0;
+	cvta.local.u64 	%SP, %SPL;
+	add.u64 	%rd2, %SP, 0;
+	add.u64 	%rd3, %SPL, 0;
+	add.u64 	%rd4, %SPL, 0;
+	ld.const.v2.b32 	{%r80, %r81}, [params];
+	// begin inline asm
+	call (%r1), _optix_get_launch_index_x, ();
+	// end inline asm
+	mad.lo.s32 	%r82, %r1, %r81, %r80;
+	ld.const.b64 	%rd5, [params+8];
+	ld.const.b64 	%rd1, [params+16];
+	ld.const.b64 	%rd6, [params+40];
+	ld.const.b64 	%rd7, [params+48];
+	mul.wide.s32 	%rd8, %r82, 48;
+	add.s64 	%rd9, %rd5, %rd8;
+	ld.b64 	%rd10, [%rd9];
+	cvt.u32.u64 	%r35, %rd10;
+	mov.b64 	{_, %r36}, %rd10;
+	ld.b64 	%rd11, [%rd9+16];
+	cvt.u32.u64 	%r38, %rd11;
+	mov.b64 	{_, %r39}, %rd11;
+	ld.b32 	%r83, [%rd9+32];
+	ld.b32 	%r40, [%rd9+24];
+	ld.b32 	%r37, [%rd9+8];
+	st.local.b32 	[%rd4+8], %r37;
+	st.local.b64 	[%rd4], %rd10;
+	st.local.b32 	[%rd4+24], %r40;
+	st.local.b64 	[%rd4+16], %rd11;
+	st.local.b32 	[%rd4+32], %r83;
+	st.local.b32 	[%rd4+56], 0;
+	st.local.b64 	[%rd4+48], 0;
+	st.local.b32 	[%rd4+72], 0;
+	st.local.b64 	[%rd4+64], 0;
+	st.local.b32 	[%rd4+88], 0;
+	st.local.b64 	[%rd4+80], 0;
+	st.local.b32 	[%rd4+96], 0;
+	st.local.b8 	[%rd4+112], 0;
+	setp.gt.f32 	%p1, %r83, 0f7149F2CA;
+	selp.b32 	%r41, 1900671690, %r83, %p1;
+	cvt.u32.u64 	%r44, %rd2;
+	mov.b64 	{_, %r45}, %rd2;
+	mov.b32 	%r42, 255;
+	mov.b32 	%r43, 2;
+	mov.b32 	%r34, 0;
+	// begin inline asm
+	{ .reg .f32 %fr<9>; mov.b32 %fr0, %r35; mov.b32 %fr1, %r36; mov.b32 %fr2, %r37; mov.b32 %fr3, %r38; mov.b32 %fr4, %r39; mov.b32 %fr5, %r40; mov.b32 %fr6, %r34; mov.b32 %fr7, %r41; mov.b32 %fr8, %r34; call (%r2,%r3,%r4,%r5,%r6,%r7,%r8,%r9,%r10,%r11,%r12,%r13,%r14,%r15,%r16,%r17,%r18,%r19,%r20,%r21,%r22,%r23,%r24,%r25,%r26,%r27,%r28,%r29,%r30,%r31,%r32,%r33), _optix_trace_typed_32, (%r34,%rd1,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,%r42,%r34,%r34,%r43,%r34,%r43,%r44,%r45,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34); }
+	// end inline asm
+	ld.local.b32 	%r84, [%rd4+48];
+	ld.local.b8 	%rs1, [%rd4+112];
+	and.b16 	%rs2, %rs1, 1;
+	setp.ne.b16 	%p2, %rs2, 0;
+	selp.f32 	%r85, %r84, 0fBF800000, %p2;
+	mul.wide.s32 	%rd12, %r82, 4;
+	add.s64 	%rd13, %rd6, %rd12;
+	st.b32 	[%rd13], %r85;
+	st.local.b32 	[%rd3+8], %r37;
+	st.local.b64 	[%rd3], %rd10;
+	st.local.b32 	[%rd3+24], %r40;
+	st.local.b64 	[%rd3+16], %rd11;
+	st.local.b32 	[%rd3+32], %r83;
+	st.local.b8 	[%rd3+48], 1;
+	mov.b32 	%r78, 12;
+	mov.b32 	%r79, 1;
+	// begin inline asm
+	{ .reg .f32 %fr<9>; mov.b32 %fr0, %r35; mov.b32 %fr1, %r36; mov.b32 %fr2, %r37; mov.b32 %fr3, %r38; mov.b32 %fr4, %r39; mov.b32 %fr5, %r40; mov.b32 %fr6, %r34; mov.b32 %fr7, %r41; mov.b32 %fr8, %r34; call (%r46,%r47,%r48,%r49,%r50,%r51,%r52,%r53,%r54,%r55,%r56,%r57,%r58,%r59,%r60,%r61,%r62,%r63,%r64,%r65,%r66,%r67,%r68,%r69,%r70,%r71,%r72,%r73,%r74,%r75,%r76,%r77), _optix_trace_typed_32, (%r34,%rd1,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,%r42,%r78,%r79,%r43,%r79,%r43,%r44,%r45,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34,%r34); }
+	// end inline asm
+	ld.local.b8 	%r86, [%rd3+48];
+	add.s64 	%rd14, %rd7, %rd12;
+	st.b32 	[%rd14], %r86;
+	ret;
+
+}
+	// .globl	__anyhit__trace
+.visible .entry __anyhit__trace()
+{
+	.reg .pred 	%p<3>;
+	.reg .b32 	%r<10>;
+	.reg .b64 	%rd<12>;
+
+	mov.b32 	%r3, 0;
+	// begin inline asm
+	call (%r2), _optix_get_payload, (%r3);
+	// end inline asm
+	mov.b32 	%r5, 1;
+	// begin inline asm
+	call (%r4), _optix_get_payload, (%r5);
+	// end inline asm
+	ld.const.b32 	%rd2, [params+32];
+	shl.b64 	%rd3, %rd2, 32;
+	ld.const.b32 	%rd4, [params+28];
+	or.b64 	%rd5, %rd3, %rd4;
+	// begin inline asm
+	call (%rd1), _optix_get_sbt_data_ptr_64, ();
+	// end inline asm
+	ld.b32 	%r7, [%rd1];
+	// begin inline asm
+	call (%r6), _optix_read_primitive_idx, ();
+	// end inline asm
+	add.s32 	%r8, %r6, %r7;
+	mul.wide.s32 	%rd6, %r8, 64;
+	add.s64 	%rd7, %rd5, %rd6;
+	ld.b32 	%r1, [%rd7+48];
+	setp.lt.f32 	%p1, %r1, 0f00000000;
+	@%p1 bra 	$L__BB1_3;
+	cvt.u64.u32 	%rd8, %r4;
+	shl.b64 	%rd9, %rd8, 32;
+	cvt.u64.u32 	%rd10, %r2;
+	or.b64 	%rd11, %rd9, %rd10;
+	ld.b32 	%r9, [%rd11+4];
+	setp.lt.f32 	%p2, %r9, %r1;
+	@%p2 bra 	$L__BB1_3;
+	// begin inline asm
+	call _optix_ignore_intersection, ();
+	// end inline asm
+$L__BB1_3:
+	ret;
+
+}
+	// .globl	__closesthit__trace
+.visible .entry __closesthit__trace()
+{
+	.reg .b32 	%r<12>;
+	.reg .b64 	%rd<15>;
+
+	mov.b32 	%r2, 0;
+	// begin inline asm
+	call (%r1), _optix_get_payload, (%r2);
+	// end inline asm
+	cvt.u64.u32 	%rd2, %r1;
+	mov.b32 	%r4, 1;
+	// begin inline asm
+	call (%r3), _optix_get_payload, (%r4);
+	// end inline asm
+	cvt.u64.u32 	%rd3, %r3;
+	shl.b64 	%rd4, %rd3, 32;
+	or.b64 	%rd5, %rd4, %rd2;
+	ld.const.b32 	%rd6, [params+32];
+	shl.b64 	%rd7, %rd6, 32;
+	ld.const.b32 	%rd8, [params+28];
+	or.b64 	%rd9, %rd7, %rd8;
+	// begin inline asm
+	call (%rd1), _optix_get_sbt_data_ptr_64, ();
+	// end inline asm
+	ld.b32 	%r6, [%rd1];
+	// begin inline asm
+	call (%r5), _optix_read_primitive_idx, ();
+	// end inline asm
+	add.s32 	%r7, %r5, %r6;
+	mul.wide.s32 	%rd10, %r7, 64;
+	add.s64 	%rd11, %rd9, %rd10;
+	ld.b32 	%r8, [%rd11+8];
+	ld.b64 	%rd12, [%rd11];
+	ld.b32 	%r9, [%rd11+24];
+	ld.b64 	%rd13, [%rd11+16];
+	ld.b32 	%r10, [%rd11+40];
+	ld.b64 	%rd14, [%rd11+32];
+	ld.b32 	%r11, [%rd11+48];
+	st.b32 	[%rd5+96], %r11;
+	st.b64 	[%rd5+80], %rd14;
+	st.b32 	[%rd5+88], %r10;
+	st.b64 	[%rd5+64], %rd13;
+	st.b32 	[%rd5+72], %r9;
+	st.b64 	[%rd5+48], %rd12;
+	st.b32 	[%rd5+56], %r8;
+	st.b8 	[%rd5+112], 1;
+	ret;
+
+}
+	// .globl	__intersection__trace
+.visible .entry __intersection__trace()
+{
+	.reg .pred 	%p<28>;
+	.reg .b32 	%r<224>;
+	.reg .b64 	%rd<17>;
+
+	mov.b32 	%r44, 0;
+	// begin inline asm
+	call (%r43), _optix_get_payload, (%r44);
+	// end inline asm
+	mov.b32 	%r46, 1;
+	// begin inline asm
+	call (%r45), _optix_get_payload, (%r46);
+	// end inline asm
+	ld.const.b32 	%rd6, [params+32];
+	shl.b64 	%rd7, %rd6, 32;
+	ld.const.b32 	%rd8, [params+28];
+	or.b64 	%rd9, %rd7, %rd8;
+	// begin inline asm
+	call (%rd1), _optix_get_sbt_data_ptr_64, ();
+	// end inline asm
+	ld.b32 	%r49, [%rd1];
+	// begin inline asm
+	call (%r47), _optix_read_primitive_idx, ();
+	// end inline asm
+	add.s32 	%r50, %r47, %r49;
+	mul.wide.s32 	%rd10, %r50, 64;
+	add.s64 	%rd11, %rd9, %rd10;
+	ld.b32 	%r3, [%rd11+8];
+	ld.b64 	%rd12, [%rd11];
+	mov.b64 	{_, %r2}, %rd12;
+	cvt.u32.u64 	%r1, %rd12;
+	ld.b64 	%rd13, [%rd11+16];
+	mov.b64 	{_, %r5}, %rd13;
+	ld.b32 	%r6, [%rd11+24];
+	cvt.u32.u64 	%r4, %rd13;
+	ld.b32 	%r9, [%rd11+40];
+	ld.b64 	%rd14, [%rd11+32];
+	mov.b64 	{_, %r8}, %rd14;
+	cvt.u32.u64 	%r7, %rd14;
+	// begin inline asm
+	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r48, %ft; }
+	// end inline asm
+	sub.rn.f32 	%r51, %r7, %r1;
+	sub.rn.f32 	%r52, %r8, %r2;
+	sub.rn.f32 	%r53, %r9, %r3;
+	sub.rn.f32 	%r54, %r4, %r1;
+	sub.rn.f32 	%r55, %r6, %r3;
+	sub.rn.f32 	%r56, %r5, %r2;
+	mul.rn.f32 	%r57, %r56, %r53;
+	mov.b32 	%r223, 0f00000000;
+	sub.rn.f32 	%r58, %r223, %r57;
+	fma.rn.f32 	%r59, %r52, %r55, %r58;
+	sub.rn.f32 	%r60, %r223, %r53;
+	fma.rn.f32 	%r61, %r60, %r56, %r57;
+	add.rn.f32 	%r62, %r61, %r59;
+	mul.rn.f32 	%r63, %r55, %r51;
+	sub.rn.f32 	%r64, %r223, %r63;
+	fma.rn.f32 	%r65, %r53, %r54, %r64;
+	sub.rn.f32 	%r66, %r223, %r51;
+	fma.rn.f32 	%r67, %r66, %r55, %r63;
+	add.rn.f32 	%r68, %r67, %r65;
+	mul.rn.f32 	%r69, %r54, %r52;
+	sub.rn.f32 	%r70, %r223, %r69;
+	fma.rn.f32 	%r71, %r51, %r56, %r70;
+	sub.rn.f32 	%r72, %r223, %r52;
+	fma.rn.f32 	%r73, %r72, %r54, %r69;
+	add.rn.f32 	%r74, %r73, %r71;
+	mul.rn.f32 	%r75, %r74, %r74;
+	mul.rn.f32 	%r76, %r68, %r68;
+	mul.rn.f32 	%r77, %r62, %r62;
+	add.rn.f32 	%r78, %r77, 0f00000000;
+	add.rn.f32 	%r79, %r78, %r76;
+	add.rn.f32 	%r80, %r79, %r75;
+	setp.eq.f32 	%p1, %r80, 0f00000000;
+	mov.pred 	%p27, 0;
+	@%p1 bra 	$L__BB3_8;
+	cvt.u64.u32 	%rd2, %r43;
+	cvt.u64.u32 	%rd3, %r45;
+	shl.b64 	%rd4, %rd3, 32;
+	or.b64 	%rd5, %rd4, %rd2;
+	ld.b32 	%r15, [%rd5+24];
+	ld.b32 	%r12, [%rd5+8];
+	ld.b64 	%rd15, [%rd5+16];
+	mov.b64 	{_, %r14}, %rd15;
+	cvt.u32.u64 	%r13, %rd15;
+	ld.b64 	%rd16, [%rd5];
+	mov.b64 	{_, %r11}, %rd16;
+	cvt.u32.u64 	%r10, %rd16;
+	sub.rn.f32 	%r81, %r3, %r12;
+	sub.rn.f32 	%r82, %r1, %r10;
+	sub.rn.f32 	%r83, %r2, %r11;
+	sub.rn.f32 	%r84, %r6, %r12;
+	sub.rn.f32 	%r85, %r4, %r10;
+	sub.rn.f32 	%r86, %r5, %r11;
+	sub.rn.f32 	%r87, %r9, %r12;
+	sub.rn.f32 	%r88, %r7, %r10;
+	sub.rn.f32 	%r89, %r8, %r11;
+	abs.f32 	%r90, %r15;
+	abs.f32 	%r91, %r13;
+	abs.f32 	%r92, %r14;
+	max.f32 	%r93, %r91, %r92;
+	max.f32 	%r94, %r93, %r90;
+	setp.neu.f32 	%p2, %r94, %r91;
+	setp.eq.f32 	%p3, %r94, %r91;
+	setp.eq.f32 	%p4, %r94, %r92;
+	selp.b32 	%r95, 1, 2, %p4;
+	selp.b32 	%r96, 0, %r95, %p3;
+	selp.b32 	%r97, 1, -2, %p4;
+	selp.b32 	%r98, 1, %r97, %p3;
+	add.s32 	%r99, %r96, %r98;
+	add.s32 	%r100, %r99, 1;
+	setp.lt.u32 	%p5, %r100, 3;
+	add.s32 	%r101, %r99, -2;
+	selp.b32 	%r102, %r100, %r101, %p5;
+	setp.eq.b32 	%p6, %r99, 1;
+	selp.f32 	%r103, %r14, %r13, %p6;
+	setp.eq.b32 	%p7, %r99, 2;
+	selp.f32 	%r104, %r15, %r103, %p7;
+	setp.eq.b32 	%p8, %r102, 1;
+	selp.f32 	%r105, %r14, %r13, %p8;
+	setp.eq.b32 	%p9, %r102, 2;
+	selp.f32 	%r106, %r15, %r105, %p9;
+	and.pred 	%p10, %p4, %p2;
+	selp.f32 	%r107, %r14, %r13, %p10;
+	setp.eq.b32 	%p11, %r96, 2;
+	selp.f32 	%r108, %r15, %r107, %p11;
+	selp.f32 	%r109, %r83, %r82, %p6;
+	selp.f32 	%r110, %r81, %r109, %p7;
+	selp.f32 	%r111, %r83, %r82, %p8;
+	selp.f32 	%r112, %r81, %r111, %p9;
+	selp.f32 	%r113, %r83, %r82, %p10;
+	selp.f32 	%r114, %r81, %r113, %p11;
+	selp.f32 	%r115, %r86, %r85, %p6;
+	selp.f32 	%r116, %r84, %r115, %p7;
+	selp.f32 	%r117, %r86, %r85, %p8;
+	selp.f32 	%r118, %r84, %r117, %p9;
+	selp.f32 	%r119, %r86, %r85, %p10;
+	selp.f32 	%r120, %r84, %r119, %p11;
+	selp.f32 	%r121, %r89, %r88, %p6;
+	selp.f32 	%r122, %r87, %r121, %p7;
+	selp.f32 	%r123, %r89, %r88, %p8;
+	selp.f32 	%r124, %r87, %r123, %p9;
+	selp.f32 	%r125, %r89, %r88, %p10;
+	selp.f32 	%r126, %r87, %r125, %p11;
+	sub.rn.f32 	%r127, %r223, %r104;
+	div.rn.f32 	%r128, %r127, %r108;
+	sub.rn.f32 	%r129, %r223, %r106;
+	div.rn.f32 	%r130, %r129, %r108;
+	mul.rn.f32 	%r131, %r114, %r128;
+	mul.rn.f32 	%r132, %r131, 0f00000000;
+	add.rn.f32 	%r133, %r112, %r132;
+	add.rn.f32 	%r134, %r110, %r131;
+	add.rn.f32 	%r135, %r114, %r132;
+	mul.rn.f32 	%r136, %r130, %r135;
+	mul.rn.f32 	%r137, %r136, 0f00000000;
+	add.rn.f32 	%r18, %r133, %r136;
+	add.rn.f32 	%r17, %r134, %r137;
+	mul.rn.f32 	%r138, %r120, %r128;
+	mul.rn.f32 	%r139, %r138, 0f00000000;
+	add.rn.f32 	%r140, %r118, %r139;
+	add.rn.f32 	%r141, %r116, %r138;
+	add.rn.f32 	%r142, %r120, %r139;
+	mul.rn.f32 	%r143, %r130, %r142;
+	mul.rn.f32 	%r144, %r143, 0f00000000;
+	add.rn.f32 	%r21, %r140, %r143;
+	add.rn.f32 	%r20, %r141, %r144;
+	mul.rn.f32 	%r145, %r126, %r128;
+	mul.rn.f32 	%r146, %r145, 0f00000000;
+	add.rn.f32 	%r147, %r124, %r146;
+	add.rn.f32 	%r148, %r122, %r145;
+	add.rn.f32 	%r149, %r126, %r146;
+	mul.rn.f32 	%r150, %r130, %r149;
+	mul.rn.f32 	%r151, %r150, 0f00000000;
+	add.rn.f32 	%r24, %r147, %r150;
+	add.rn.f32 	%r23, %r148, %r151;
+	mul.rn.f32 	%r152, %r21, %r23;
+	sub.rn.f32 	%r153, %r223, %r152;
+	fma.rn.f32 	%r154, %r20, %r24, %r153;
+	sub.rn.f32 	%r155, %r223, %r21;
+	fma.rn.f32 	%r156, %r155, %r23, %r152;
+	add.rn.f32 	%r26, %r156, %r154;
+	mul.rn.f32 	%r157, %r24, %r17;
+	sub.rn.f32 	%r158, %r223, %r157;
+	fma.rn.f32 	%r159, %r23, %r18, %r158;
+	sub.rn.f32 	%r160, %r223, %r24;
+	fma.rn.f32 	%r161, %r160, %r17, %r157;
+	add.rn.f32 	%r27, %r161, %r159;
+	mul.rn.f32 	%r162, %r18, %r20;
+	sub.rn.f32 	%r163, %r223, %r162;
+	fma.rn.f32 	%r164, %r17, %r21, %r163;
+	sub.rn.f32 	%r165, %r223, %r18;
+	fma.rn.f32 	%r166, %r165, %r20, %r162;
+	add.rn.f32 	%r28, %r166, %r164;
+	min.f32 	%r167, %r26, %r27;
+	min.f32 	%r168, %r28, %r167;
+	setp.geu.f32 	%p12, %r168, 0f00000000;
+	@%p12 bra 	$L__BB3_3;
+	max.f32 	%r169, %r26, %r27;
+	max.f32 	%r170, %r28, %r169;
+	setp.gt.f32 	%p13, %r170, 0f00000000;
+	mov.b32 	%r223, 0f00000000;
+	@%p13 bra 	$L__BB3_8;
+$L__BB3_3:
+	add.rn.f32 	%r171, %r26, %r27;
+	add.rn.f32 	%r29, %r28, %r171;
+	setp.eq.f32 	%p14, %r29, 0f00000000;
+	mov.b32 	%r223, 0f00000000;
+	@%p14 bra 	$L__BB3_8;
+	rcp.rn.f32 	%r16, %r108;
+	add.rn.f32 	%r19, %r135, %r137;
+	add.rn.f32 	%r22, %r142, %r144;
+	add.rn.f32 	%r25, %r149, %r151;
+	add.rn.f32 	%r173, %r16, 0f00000000;
+	mul.rn.f32 	%r32, %r173, %r19;
+	mul.rn.f32 	%r35, %r173, %r22;
+	mul.rn.f32 	%r38, %r173, %r25;
+	mul.rn.f32 	%r175, %r32, %r26;
+	mul.rn.f32 	%r176, %r35, %r27;
+	add.rn.f32 	%r177, %r175, %r176;
+	mul.rn.f32 	%r178, %r38, %r28;
+	add.rn.f32 	%r39, %r178, %r177;
+	setp.lt.f32 	%p15, %r29, 0f00000000;
+	setp.ge.f32 	%p16, %r39, 0f00000000;
+	mul.rn.f32 	%r40, %r29, %r48;
+	setp.lt.f32 	%p17, %r39, %r40;
+	or.pred 	%p18, %p16, %p17;
+	and.pred 	%p19, %p15, %p18;
+	mov.b32 	%r223, 0f00000000;
+	@%p19 bra 	$L__BB3_8;
+	setp.gt.f32 	%p20, %r29, 0f00000000;
+	setp.le.f32 	%p21, %r39, 0f00000000;
+	setp.lt.f32 	%p22, %r40, %r39;
+	or.pred 	%p23, %p21, %p22;
+	and.pred 	%p24, %p20, %p23;
+	mov.b32 	%r223, 0f00000000;
+	@%p24 bra 	$L__BB3_8;
+	mul.rn.f32 	%r172, %r16, 0f00000000;
+	add.rn.f32 	%r174, %r172, 0f3F800000;
+	mul.rn.f32 	%r31, %r174, %r18;
+	mul.rn.f32 	%r30, %r174, %r17;
+	mul.rn.f32 	%r34, %r174, %r21;
+	mul.rn.f32 	%r33, %r174, %r20;
+	mul.rn.f32 	%r37, %r174, %r24;
+	mul.rn.f32 	%r36, %r174, %r23;
+	rcp.rn.f32 	%r41, %r29;
+	mul.rn.f32 	%r42, %r39, %r41;
+	abs.f32 	%r179, %r38;
+	abs.f32 	%r180, %r35;
+	abs.f32 	%r181, %r32;
+	max.f32 	%r182, %r181, %r180;
+	max.f32 	%r183, %r182, %r179;
+	mul.rn.f32 	%r184, %r183, 0f34400002;
+	abs.f32 	%r185, %r36;
+	abs.f32 	%r186, %r33;
+	abs.f32 	%r187, %r30;
+	max.f32 	%r188, %r187, %r186;
+	max.f32 	%r189, %r188, %r185;
+	abs.f32 	%r190, %r37;
+	abs.f32 	%r191, %r34;
+	abs.f32 	%r192, %r31;
+	max.f32 	%r193, %r192, %r191;
+	max.f32 	%r194, %r193, %r190;
+	add.rn.f32 	%r195, %r189, %r183;
+	mul.rn.f32 	%r196, %r195, 0f34A00003;
+	add.rn.f32 	%r197, %r194, %r183;
+	mul.rn.f32 	%r198, %r197, 0f34A00003;
+	mul.rn.f32 	%r199, %r189, 0f34000001;
+	mul.rn.f32 	%r200, %r199, %r194;
+	mul.rn.f32 	%r201, %r189, %r198;
+	add.rn.f32 	%r202, %r200, %r201;
+	mul.rn.f32 	%r203, %r194, %r196;
+	add.rn.f32 	%r204, %r203, %r202;
+	add.rn.f32 	%r205, %r204, %r204;
+	abs.f32 	%r206, %r28;
+	abs.f32 	%r207, %r27;
+	abs.f32 	%r208, %r26;
+	max.f32 	%r209, %r208, %r207;
+	max.f32 	%r210, %r209, %r206;
+	mul.rn.f32 	%r211, %r210, 0f34400002;
+	mul.rn.f32 	%r212, %r183, %r211;
+	mul.rn.f32 	%r213, %r183, %r205;
+	add.rn.f32 	%r214, %r212, %r213;
+	mul.rn.f32 	%r215, %r184, %r210;
+	add.rn.f32 	%r216, %r215, %r214;
+	mul.rn.f32 	%r217, %r216, 0f40400000;
+	abs.f32 	%r218, %r41;
+	mul.rn.f32 	%r219, %r218, %r217;
+	setp.le.f32 	%p25, %r42, %r219;
+	mov.b32 	%r223, 0f00000000;
+	@%p25 bra 	$L__BB3_8;
+	mov.pred 	%p27, -1;
+	mov.b32 	%r223, %r42;
+$L__BB3_8:
+	selp.f32 	%r221, %r223, 0f7F800000, %p27;
+	setp.eq.f32 	%p26, %r221, 0f7F800000;
+	@%p26 bra 	$L__BB3_10;
+	mov.b32 	%r222, 0;
+	// begin inline asm
+	{ .reg .f32 %ft; mov.b32 %ft, %r221; call (%r220), _optix_report_intersection_0, (%ft, %r222); }
+	// end inline asm
+$L__BB3_10:
+	ret;
+
+}
+	// .globl	__miss__trace
+.visible .entry __miss__trace()
+{
+	.reg .b32 	%r<5>;
+
+	mov.b32 	%r2, 0;
+	// begin inline asm
+	call (%r1), _optix_get_payload, (%r2);
+	// end inline asm
+	mov.b32 	%r4, 1;
+	// begin inline asm
+	call (%r3), _optix_get_payload, (%r4);
+	// end inline asm
+	ret;
+
+}
+	// .globl	__anyhit__trace_any
+.visible .entry __anyhit__trace_any()
+{
+	.reg .pred 	%p<3>;
+	.reg .b32 	%r<10>;
+	.reg .b64 	%rd<12>;
+
+	mov.b32 	%r3, 0;
+	// begin inline asm
+	call (%r2), _optix_get_payload, (%r3);
+	// end inline asm
+	mov.b32 	%r5, 1;
+	// begin inline asm
+	call (%r4), _optix_get_payload, (%r5);
+	// end inline asm
+	ld.const.b32 	%rd2, [params+32];
+	shl.b64 	%rd3, %rd2, 32;
+	ld.const.b32 	%rd4, [params+28];
+	or.b64 	%rd5, %rd3, %rd4;
+	// begin inline asm
+	call (%rd1), _optix_get_sbt_data_ptr_64, ();
+	// end inline asm
+	ld.b32 	%r7, [%rd1];
+	// begin inline asm
+	call (%r6), _optix_read_primitive_idx, ();
+	// end inline asm
+	add.s32 	%r8, %r6, %r7;
+	mul.wide.s32 	%rd6, %r8, 64;
+	add.s64 	%rd7, %rd5, %rd6;
+	ld.b32 	%r1, [%rd7+48];
+	setp.lt.f32 	%p1, %r1, 0f00000000;
+	@%p1 bra 	$L__BB5_3;
+	cvt.u64.u32 	%rd8, %r4;
+	shl.b64 	%rd9, %rd8, 32;
+	cvt.u64.u32 	%rd10, %r2;
+	or.b64 	%rd11, %rd9, %rd10;
+	ld.b32 	%r9, [%rd11+4];
+	setp.lt.f32 	%p2, %r9, %r1;
+	@%p2 bra 	$L__BB5_3;
+	// begin inline asm
+	call _optix_ignore_intersection, ();
+	// end inline asm
+$L__BB5_3:
+	ret;
+
+}
+	// .globl	__intersection__trace_any
+.visible .entry __intersection__trace_any()
+{
+	.reg .pred 	%p<28>;
+	.reg .b32 	%r<224>;
+	.reg .b64 	%rd<17>;
+
+	mov.b32 	%r44, 0;
+	// begin inline asm
+	call (%r43), _optix_get_payload, (%r44);
+	// end inline asm
+	mov.b32 	%r46, 1;
+	// begin inline asm
+	call (%r45), _optix_get_payload, (%r46);
+	// end inline asm
+	ld.const.b32 	%rd6, [params+32];
+	shl.b64 	%rd7, %rd6, 32;
+	ld.const.b32 	%rd8, [params+28];
+	or.b64 	%rd9, %rd7, %rd8;
+	// begin inline asm
+	call (%rd1), _optix_get_sbt_data_ptr_64, ();
+	// end inline asm
+	ld.b32 	%r49, [%rd1];
+	// begin inline asm
+	call (%r47), _optix_read_primitive_idx, ();
+	// end inline asm
+	add.s32 	%r50, %r47, %r49;
+	mul.wide.s32 	%rd10, %r50, 64;
+	add.s64 	%rd11, %rd9, %rd10;
+	ld.b32 	%r3, [%rd11+8];
+	ld.b64 	%rd12, [%rd11];
+	mov.b64 	{_, %r2}, %rd12;
+	cvt.u32.u64 	%r1, %rd12;
+	ld.b64 	%rd13, [%rd11+16];
+	mov.b64 	{_, %r5}, %rd13;
+	ld.b32 	%r6, [%rd11+24];
+	cvt.u32.u64 	%r4, %rd13;
+	ld.b32 	%r9, [%rd11+40];
+	ld.b64 	%rd14, [%rd11+32];
+	mov.b64 	{_, %r8}, %rd14;
+	cvt.u32.u64 	%r7, %rd14;
+	// begin inline asm
+	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r48, %ft; }
+	// end inline asm
+	sub.rn.f32 	%r51, %r7, %r1;
+	sub.rn.f32 	%r52, %r8, %r2;
+	sub.rn.f32 	%r53, %r9, %r3;
+	sub.rn.f32 	%r54, %r4, %r1;
+	sub.rn.f32 	%r55, %r6, %r3;
+	sub.rn.f32 	%r56, %r5, %r2;
+	mul.rn.f32 	%r57, %r56, %r53;
+	mov.b32 	%r223, 0f00000000;
+	sub.rn.f32 	%r58, %r223, %r57;
+	fma.rn.f32 	%r59, %r52, %r55, %r58;
+	sub.rn.f32 	%r60, %r223, %r53;
+	fma.rn.f32 	%r61, %r60, %r56, %r57;
+	add.rn.f32 	%r62, %r61, %r59;
+	mul.rn.f32 	%r63, %r55, %r51;
+	sub.rn.f32 	%r64, %r223, %r63;
+	fma.rn.f32 	%r65, %r53, %r54, %r64;
+	sub.rn.f32 	%r66, %r223, %r51;
+	fma.rn.f32 	%r67, %r66, %r55, %r63;
+	add.rn.f32 	%r68, %r67, %r65;
+	mul.rn.f32 	%r69, %r54, %r52;
+	sub.rn.f32 	%r70, %r223, %r69;
+	fma.rn.f32 	%r71, %r51, %r56, %r70;
+	sub.rn.f32 	%r72, %r223, %r52;
+	fma.rn.f32 	%r73, %r72, %r54, %r69;
+	add.rn.f32 	%r74, %r73, %r71;
+	mul.rn.f32 	%r75, %r74, %r74;
+	mul.rn.f32 	%r76, %r68, %r68;
+	mul.rn.f32 	%r77, %r62, %r62;
+	add.rn.f32 	%r78, %r77, 0f00000000;
+	add.rn.f32 	%r79, %r78, %r76;
+	add.rn.f32 	%r80, %r79, %r75;
+	setp.eq.f32 	%p1, %r80, 0f00000000;
+	mov.pred 	%p27, 0;
+	@%p1 bra 	$L__BB6_8;
+	cvt.u64.u32 	%rd2, %r43;
+	cvt.u64.u32 	%rd3, %r45;
+	shl.b64 	%rd4, %rd3, 32;
+	or.b64 	%rd5, %rd4, %rd2;
+	ld.b32 	%r15, [%rd5+24];
+	ld.b32 	%r12, [%rd5+8];
+	ld.b64 	%rd15, [%rd5+16];
+	mov.b64 	{_, %r14}, %rd15;
+	cvt.u32.u64 	%r13, %rd15;
+	ld.b64 	%rd16, [%rd5];
+	mov.b64 	{_, %r11}, %rd16;
+	cvt.u32.u64 	%r10, %rd16;
+	sub.rn.f32 	%r81, %r3, %r12;
+	sub.rn.f32 	%r82, %r1, %r10;
+	sub.rn.f32 	%r83, %r2, %r11;
+	sub.rn.f32 	%r84, %r6, %r12;
+	sub.rn.f32 	%r85, %r4, %r10;
+	sub.rn.f32 	%r86, %r5, %r11;
+	sub.rn.f32 	%r87, %r9, %r12;
+	sub.rn.f32 	%r88, %r7, %r10;
+	sub.rn.f32 	%r89, %r8, %r11;
+	abs.f32 	%r90, %r15;
+	abs.f32 	%r91, %r13;
+	abs.f32 	%r92, %r14;
+	max.f32 	%r93, %r91, %r92;
+	max.f32 	%r94, %r93, %r90;
+	setp.neu.f32 	%p2, %r94, %r91;
+	setp.eq.f32 	%p3, %r94, %r91;
+	setp.eq.f32 	%p4, %r94, %r92;
+	selp.b32 	%r95, 1, 2, %p4;
+	selp.b32 	%r96, 0, %r95, %p3;
+	selp.b32 	%r97, 1, -2, %p4;
+	selp.b32 	%r98, 1, %r97, %p3;
+	add.s32 	%r99, %r96, %r98;
+	add.s32 	%r100, %r99, 1;
+	setp.lt.u32 	%p5, %r100, 3;
+	add.s32 	%r101, %r99, -2;
+	selp.b32 	%r102, %r100, %r101, %p5;
+	setp.eq.b32 	%p6, %r99, 1;
+	selp.f32 	%r103, %r14, %r13, %p6;
+	setp.eq.b32 	%p7, %r99, 2;
+	selp.f32 	%r104, %r15, %r103, %p7;
+	setp.eq.b32 	%p8, %r102, 1;
+	selp.f32 	%r105, %r14, %r13, %p8;
+	setp.eq.b32 	%p9, %r102, 2;
+	selp.f32 	%r106, %r15, %r105, %p9;
+	and.pred 	%p10, %p4, %p2;
+	selp.f32 	%r107, %r14, %r13, %p10;
+	setp.eq.b32 	%p11, %r96, 2;
+	selp.f32 	%r108, %r15, %r107, %p11;
+	selp.f32 	%r109, %r83, %r82, %p6;
+	selp.f32 	%r110, %r81, %r109, %p7;
+	selp.f32 	%r111, %r83, %r82, %p8;
+	selp.f32 	%r112, %r81, %r111, %p9;
+	selp.f32 	%r113, %r83, %r82, %p10;
+	selp.f32 	%r114, %r81, %r113, %p11;
+	selp.f32 	%r115, %r86, %r85, %p6;
+	selp.f32 	%r116, %r84, %r115, %p7;
+	selp.f32 	%r117, %r86, %r85, %p8;
+	selp.f32 	%r118, %r84, %r117, %p9;
+	selp.f32 	%r119, %r86, %r85, %p10;
+	selp.f32 	%r120, %r84, %r119, %p11;
+	selp.f32 	%r121, %r89, %r88, %p6;
+	selp.f32 	%r122, %r87, %r121, %p7;
+	selp.f32 	%r123, %r89, %r88, %p8;
+	selp.f32 	%r124, %r87, %r123, %p9;
+	selp.f32 	%r125, %r89, %r88, %p10;
+	selp.f32 	%r126, %r87, %r125, %p11;
+	sub.rn.f32 	%r127, %r223, %r104;
+	div.rn.f32 	%r128, %r127, %r108;
+	sub.rn.f32 	%r129, %r223, %r106;
+	div.rn.f32 	%r130, %r129, %r108;
+	mul.rn.f32 	%r131, %r114, %r128;
+	mul.rn.f32 	%r132, %r131, 0f00000000;
+	add.rn.f32 	%r133, %r112, %r132;
+	add.rn.f32 	%r134, %r110, %r131;
+	add.rn.f32 	%r135, %r114, %r132;
+	mul.rn.f32 	%r136, %r130, %r135;
+	mul.rn.f32 	%r137, %r136, 0f00000000;
+	add.rn.f32 	%r18, %r133, %r136;
+	add.rn.f32 	%r17, %r134, %r137;
+	mul.rn.f32 	%r138, %r120, %r128;
+	mul.rn.f32 	%r139, %r138, 0f00000000;
+	add.rn.f32 	%r140, %r118, %r139;
+	add.rn.f32 	%r141, %r116, %r138;
+	add.rn.f32 	%r142, %r120, %r139;
+	mul.rn.f32 	%r143, %r130, %r142;
+	mul.rn.f32 	%r144, %r143, 0f00000000;
+	add.rn.f32 	%r21, %r140, %r143;
+	add.rn.f32 	%r20, %r141, %r144;
+	mul.rn.f32 	%r145, %r126, %r128;
+	mul.rn.f32 	%r146, %r145, 0f00000000;
+	add.rn.f32 	%r147, %r124, %r146;
+	add.rn.f32 	%r148, %r122, %r145;
+	add.rn.f32 	%r149, %r126, %r146;
+	mul.rn.f32 	%r150, %r130, %r149;
+	mul.rn.f32 	%r151, %r150, 0f00000000;
+	add.rn.f32 	%r24, %r147, %r150;
+	add.rn.f32 	%r23, %r148, %r151;
+	mul.rn.f32 	%r152, %r21, %r23;
+	sub.rn.f32 	%r153, %r223, %r152;
+	fma.rn.f32 	%r154, %r20, %r24, %r153;
+	sub.rn.f32 	%r155, %r223, %r21;
+	fma.rn.f32 	%r156, %r155, %r23, %r152;
+	add.rn.f32 	%r26, %r156, %r154;
+	mul.rn.f32 	%r157, %r24, %r17;
+	sub.rn.f32 	%r158, %r223, %r157;
+	fma.rn.f32 	%r159, %r23, %r18, %r158;
+	sub.rn.f32 	%r160, %r223, %r24;
+	fma.rn.f32 	%r161, %r160, %r17, %r157;
+	add.rn.f32 	%r27, %r161, %r159;
+	mul.rn.f32 	%r162, %r18, %r20;
+	sub.rn.f32 	%r163, %r223, %r162;
+	fma.rn.f32 	%r164, %r17, %r21, %r163;
+	sub.rn.f32 	%r165, %r223, %r18;
+	fma.rn.f32 	%r166, %r165, %r20, %r162;
+	add.rn.f32 	%r28, %r166, %r164;
+	min.f32 	%r167, %r26, %r27;
+	min.f32 	%r168, %r28, %r167;
+	setp.geu.f32 	%p12, %r168, 0f00000000;
+	@%p12 bra 	$L__BB6_3;
+	max.f32 	%r169, %r26, %r27;
+	max.f32 	%r170, %r28, %r169;
+	setp.gt.f32 	%p13, %r170, 0f00000000;
+	mov.b32 	%r223, 0f00000000;
+	@%p13 bra 	$L__BB6_8;
+$L__BB6_3:
+	add.rn.f32 	%r171, %r26, %r27;
+	add.rn.f32 	%r29, %r28, %r171;
+	setp.eq.f32 	%p14, %r29, 0f00000000;
+	mov.b32 	%r223, 0f00000000;
+	@%p14 bra 	$L__BB6_8;
+	rcp.rn.f32 	%r16, %r108;
+	add.rn.f32 	%r19, %r135, %r137;
+	add.rn.f32 	%r22, %r142, %r144;
+	add.rn.f32 	%r25, %r149, %r151;
+	add.rn.f32 	%r173, %r16, 0f00000000;
+	mul.rn.f32 	%r32, %r173, %r19;
+	mul.rn.f32 	%r35, %r173, %r22;
+	mul.rn.f32 	%r38, %r173, %r25;
+	mul.rn.f32 	%r175, %r32, %r26;
+	mul.rn.f32 	%r176, %r35, %r27;
+	add.rn.f32 	%r177, %r175, %r176;
+	mul.rn.f32 	%r178, %r38, %r28;
+	add.rn.f32 	%r39, %r178, %r177;
+	setp.lt.f32 	%p15, %r29, 0f00000000;
+	setp.ge.f32 	%p16, %r39, 0f00000000;
+	mul.rn.f32 	%r40, %r29, %r48;
+	setp.lt.f32 	%p17, %r39, %r40;
+	or.pred 	%p18, %p16, %p17;
+	and.pred 	%p19, %p15, %p18;
+	mov.b32 	%r223, 0f00000000;
+	@%p19 bra 	$L__BB6_8;
+	setp.gt.f32 	%p20, %r29, 0f00000000;
+	setp.le.f32 	%p21, %r39, 0f00000000;
+	setp.lt.f32 	%p22, %r40, %r39;
+	or.pred 	%p23, %p21, %p22;
+	and.pred 	%p24, %p20, %p23;
+	mov.b32 	%r223, 0f00000000;
+	@%p24 bra 	$L__BB6_8;
+	mul.rn.f32 	%r172, %r16, 0f00000000;
+	add.rn.f32 	%r174, %r172, 0f3F800000;
+	mul.rn.f32 	%r31, %r174, %r18;
+	mul.rn.f32 	%r30, %r174, %r17;
+	mul.rn.f32 	%r34, %r174, %r21;
+	mul.rn.f32 	%r33, %r174, %r20;
+	mul.rn.f32 	%r37, %r174, %r24;
+	mul.rn.f32 	%r36, %r174, %r23;
+	rcp.rn.f32 	%r41, %r29;
+	mul.rn.f32 	%r42, %r39, %r41;
+	abs.f32 	%r179, %r38;
+	abs.f32 	%r180, %r35;
+	abs.f32 	%r181, %r32;
+	max.f32 	%r182, %r181, %r180;
+	max.f32 	%r183, %r182, %r179;
+	mul.rn.f32 	%r184, %r183, 0f34400002;
+	abs.f32 	%r185, %r36;
+	abs.f32 	%r186, %r33;
+	abs.f32 	%r187, %r30;
+	max.f32 	%r188, %r187, %r186;
+	max.f32 	%r189, %r188, %r185;
+	abs.f32 	%r190, %r37;
+	abs.f32 	%r191, %r34;
+	abs.f32 	%r192, %r31;
+	max.f32 	%r193, %r192, %r191;
+	max.f32 	%r194, %r193, %r190;
+	add.rn.f32 	%r195, %r189, %r183;
+	mul.rn.f32 	%r196, %r195, 0f34A00003;
+	add.rn.f32 	%r197, %r194, %r183;
+	mul.rn.f32 	%r198, %r197, 0f34A00003;
+	mul.rn.f32 	%r199, %r189, 0f34000001;
+	mul.rn.f32 	%r200, %r199, %r194;
+	mul.rn.f32 	%r201, %r189, %r198;
+	add.rn.f32 	%r202, %r200, %r201;
+	mul.rn.f32 	%r203, %r194, %r196;
+	add.rn.f32 	%r204, %r203, %r202;
+	add.rn.f32 	%r205, %r204, %r204;
+	abs.f32 	%r206, %r28;
+	abs.f32 	%r207, %r27;
+	abs.f32 	%r208, %r26;
+	max.f32 	%r209, %r208, %r207;
+	max.f32 	%r210, %r209, %r206;
+	mul.rn.f32 	%r211, %r210, 0f34400002;
+	mul.rn.f32 	%r212, %r183, %r211;
+	mul.rn.f32 	%r213, %r183, %r205;
+	add.rn.f32 	%r214, %r212, %r213;
+	mul.rn.f32 	%r215, %r184, %r210;
+	add.rn.f32 	%r216, %r215, %r214;
+	mul.rn.f32 	%r217, %r216, 0f40400000;
+	abs.f32 	%r218, %r41;
+	mul.rn.f32 	%r219, %r218, %r217;
+	setp.le.f32 	%p25, %r42, %r219;
+	mov.b32 	%r223, 0f00000000;
+	@%p25 bra 	$L__BB6_8;
+	mov.pred 	%p27, -1;
+	mov.b32 	%r223, %r42;
+$L__BB6_8:
+	selp.f32 	%r221, %r223, 0f7F800000, %p27;
+	setp.eq.f32 	%p26, %r221, 0f7F800000;
+	@%p26 bra 	$L__BB6_10;
+	mov.b32 	%r222, 0;
+	// begin inline asm
+	{ .reg .f32 %ft; mov.b32 %ft, %r221; call (%r220), _optix_report_intersection_0, (%ft, %r222); }
+	// end inline asm
+$L__BB6_10:
+	ret;
+
+}
+	// .globl	__miss__trace_any
+.visible .entry __miss__trace_any()
+{
+	.reg .b32 	%r<5>;
+	.reg .b64 	%rd<5>;
+
+	mov.b32 	%r2, 0;
+	// begin inline asm
+	call (%r1), _optix_get_payload, (%r2);
+	// end inline asm
+	cvt.u64.u32 	%rd1, %r1;
+	mov.b32 	%r4, 1;
+	// begin inline asm
+	call (%r3), _optix_get_payload, (%r4);
+	// end inline asm
+	cvt.u64.u32 	%rd2, %r3;
+	shl.b64 	%rd3, %rd2, 32;
+	or.b64 	%rd4, %rd3, %rd1;
+	st.b8 	[%rd4+48], 0;
+	ret;
+
+}

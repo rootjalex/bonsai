@@ -44,6 +44,7 @@ add_bonsai_tests(
     parse-str.bonsai
     pull-the-ray-back.bonsai
     rect_contains.bonsai
+    rtcore-any.bonsai
     sort-call.bonsai
     struct_defaults.bonsai
     tight-array.bonsai

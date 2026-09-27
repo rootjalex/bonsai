@@ -91,6 +91,18 @@ Input input_of(const std::vector<Triangle> &tris, uint32_t first, uint32_t count
     in.input.indices = in.indices.data();
     in.input.triangle_count = count;
     in.input.base = base;
+    // Whether either query's any-hit program can reject a hit on one of
+    // these triangles, which is the compiler's word on each query's filter
+    // (Lower/Trees.cpp's `<query>_anyhit_matters`). Here the rest of both
+    // filters compares the hit's distance with `near`, which no triangle
+    // settles on its own, so the programs matter for every one and the
+    // hardware runs them -- the "distmin > 0.001" the goldens depend on.
+    in.input.any_hit = false;
+    for (uint32_t i = first; i < first + count; i++) {
+        in.input.any_hit = in.input.any_hit || trace_anyhit_matters(tris[i]) ||
+                           trace_any_anyhit_matters(tris[i]);
+    }
+    assert(in.input.any_hit);
     return in;
 }
 

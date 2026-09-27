@@ -2548,11 +2548,15 @@ ir::Stmt set_nested_volume_maps(
 struct LowerBVH : public ir::Mutator {
     const ir::TypeMap &tree_types;
     const std::map<std::string, ir::Expr> &extents;
+    // The program's functions, for reading what a filter's conjunct calls
+    // (add_anyhit_matters).
+    const ir::FuncMap &funcs;
     ir::FuncMap new_funcs;
 
     LowerBVH(const ir::TypeMap &tree_types,
-             const std::map<std::string, ir::Expr> &extents)
-        : tree_types(tree_types), extents(extents) {}
+             const std::map<std::string, ir::Expr> &extents,
+             const ir::FuncMap &funcs)
+        : tree_types(tree_types), extents(extents), funcs(funcs) {}
 
     // For unique func names
     size_t counter = 0;
@@ -2952,6 +2956,120 @@ struct LowerBVH : public ir::Mutator {
         return stmts;
     }
 
+    // Which elements the any-hit program can reject, as a function the
+    // driver calls when it builds the hardware's structure: for a build
+    // input none of whose elements it can reject, the driver tells the
+    // hardware not to run it (OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT, which is
+    // what pbrt's aggregate sets for a mesh with no alpha texture), and a
+    // ray through that geometry costs no program at all.
+    //
+    // `<query>_anyhit_matters(element) -> bool` takes the element a build
+    // input stores -- the innermost of the query's, the triangle or shape
+    // itself, since an instance's geometry is one structure however many
+    // times it is placed -- and is derived from the rest of the filter --
+    // what the any-hit program tests -- soundly and syntactically: a
+    // conjunct is certainly true of an element, whatever the ray or the
+    // instance, when it is a call whose body opens with `if <condition of
+    // the element alone> { return true; }` and that condition holds (pbrt's
+    // alpha test, `if p.alpha < 0 { return true; }`), or when the conjunct
+    // itself reads nothing but the element. The program can reject an
+    // element unless every conjunct is certainly true of it; where the
+    // derivation finds no such condition for a conjunct, it says the program
+    // matters for every element, and the hardware runs it as before.
+    void add_anyhit_matters(const std::string &of, const RayQuery &rq) {
+        const ir::TypedVar &leaf = rq.elements.back();
+        std::vector<ir::Function::Argument> args;
+        args.push_back(ir::Function::Argument{leaf.name, leaf.type});
+        const auto element_only = [&](const ir::Expr &e) {
+            for (const ir::TypedVar &var : ir::gather_free_vars(e)) {
+                if (var.name != leaf.name) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        struct ReplaceVars : public ir::Mutator {
+            const std::map<std::string, ir::Expr> &repls;
+            explicit ReplaceVars(const std::map<std::string, ir::Expr> &repls)
+                : repls(repls) {}
+            using ir::Mutator::visit;
+            ir::Expr visit(const ir::Var *node) override {
+                const auto found = repls.find(node->name);
+                return found != repls.end() ? found->second : ir::Expr(node);
+            }
+        };
+        // The conditions of the element alone under which `c` is certainly
+        // true; undefined when none is found.
+        const auto certainly_true = [&](const ir::Expr &c) -> ir::Expr {
+            if (element_only(c)) {
+                return c;
+            }
+            const ir::Call *call = c.as<ir::Call>();
+            const ir::Var *callee = call != nullptr ? call->func.as<ir::Var>() : nullptr;
+            const auto f = callee != nullptr ? funcs.find(callee->name) : funcs.end();
+            if (f == funcs.end() || f->second->args.size() != call->args.size()) {
+                return ir::Expr();
+            }
+            std::map<std::string, ir::Expr> repls;
+            for (size_t i = 0; i < call->args.size(); i++) {
+                repls[f->second->args[i].name] = call->args[i];
+            }
+            std::vector<ir::Stmt> stmts;
+            if (const ir::Sequence *seq = f->second->body.as<ir::Sequence>()) {
+                stmts = seq->stmts;
+            } else {
+                stmts.push_back(f->second->body);
+            }
+            ir::Expr conditions;
+            for (const ir::Stmt &s : stmts) {
+                const ir::IfElse *branch = s.as<ir::IfElse>();
+                if (branch == nullptr || branch->else_body.defined()) {
+                    break;
+                }
+                const ir::Return *ret = branch->then_body.as<ir::Return>();
+                if (ret == nullptr) {
+                    if (const ir::Sequence *one = branch->then_body.as<ir::Sequence>();
+                        one != nullptr && one->stmts.size() == 1) {
+                        ret = one->stmts[0].as<ir::Return>();
+                    }
+                }
+                const ir::BoolImm *value =
+                    ret != nullptr && ret->value.defined() ? ret->value.as<ir::BoolImm>()
+                                                           : nullptr;
+                if (value == nullptr || !value->value) {
+                    break;
+                }
+                ir::Expr cond = ReplaceVars(repls).mutate(branch->cond);
+                if (!element_only(cond)) {
+                    break;
+                }
+                conditions = conditions.defined()
+                                 ? ir::BinOp::make(ir::BinOp::LOr, conditions, cond)
+                                 : cond;
+            }
+            return conditions;
+        };
+        ir::Expr certain;
+        bool every = true;
+        for (const ir::Expr &c : rq.rest) {
+            const ir::Expr sure = certainly_true(c);
+            if (!sure.defined()) {
+                every = false;
+                break;
+            }
+            certain = certain.defined() ? (certain && sure) : sure;
+        }
+        const ir::Expr matters =
+            every ? ir::UnOp::make(ir::UnOp::Not, certain) : ir::BoolImm::make(true);
+        const std::string name = of + "_anyhit_matters";
+        auto f = std::make_shared<ir::Function>(
+            name, std::move(args), ir::Bool_t::make(), ir::Return::make(matters),
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{ir::Function::Attribute::exported});
+        internal_assert(!new_funcs.contains(name)) << "two RT-core queries named " << of;
+        new_funcs[name] = std::move(f);
+    }
+
     // A program of the query: `ctx : mut Context` and then whatever else
     // the body reads, marked as the OptiX program it is.
     // What the program reads of the program's data -- the tree, the pools
@@ -3028,19 +3146,24 @@ struct LowerBVH : public ir::Mutator {
         const auto bind_q = [&](ir::Expr value) {
             return ir::LetStmt::make(ir::WriteLoc(q_name, q_t), std::move(value));
         };
+        // What the context says before the trace: no hit yet for the
+        // nearest; for `any`, that something is hit -- the miss program
+        // says otherwise, and an accepted hit ends the traversal with no
+        // program run at all (below).
         const ir::Expr none = rq.nearest ? ir::Build::make(result_t)
-                                         : ir::BoolImm::make(false);
+                                         : ir::BoolImm::make(true);
+        ir::WriteLoc result("ctx", ctx_t);
+        result.add_struct_access("result");
 
-        // Closest hit: the record, or the flag.
-        {
+        // Closest hit: the record. Only the nearest hit wants one: `any`
+        // is answered by whether the traversal ended at a hit, which the
+        // hardware knows without running a program (pbrt's shadow rays:
+        // a hit group with no closest-hit program, and `__miss__shadow`).
+        if (rq.nearest) {
             std::vector<ir::Stmt> body = bind_elements(rq);
-            ir::WriteLoc result("ctx", ctx_t);
-            result.add_struct_access("result");
-            ir::Expr found =
-                rq.nearest ? ir::Build::make(result_t,
-                                             std::vector<ir::Expr>{rq.element})
-                           : ir::BoolImm::make(true);
-            body.push_back(ir::Store::make(result, std::move(found)));
+            body.push_back(ir::Store::make(
+                result, ir::Build::make(result_t,
+                                        std::vector<ir::Expr>{rq.element})));
             add_program(of, Kind::ClosestHit, "__closesthit__", ctx_t,
                         std::move(body));
         }
@@ -3055,6 +3178,7 @@ struct LowerBVH : public ir::Mutator {
                     ir::WriteLoc("_rt_ignored", u32),
                     ir::Intrinsic::make(ir::Intrinsic::rt_ignore_hit, {}))));
             add_program(of, Kind::AnyHit, "__anyhit__", ctx_t, std::move(body));
+            add_anyhit_matters(of, rq);
         }
         // Intersection, for the elements the hardware does not intersect
         // itself: the metric at the ray as far as the hit so far, reported
@@ -3084,8 +3208,16 @@ struct LowerBVH : public ir::Mutator {
             add_program(of, Kind::Intersection, "__intersection__", ctx_t,
                         std::move(body));
         }
-        // Miss: nothing; the context says so already.
-        add_program(of, Kind::Miss, "__miss__", ctx_t, {ir::Return::make()});
+        // Miss: nothing for the nearest hit, whose context says so already;
+        // for `any`, the answer, since a hit ends the traversal without a
+        // word.
+        if (rq.nearest) {
+            add_program(of, Kind::Miss, "__miss__", ctx_t, {ir::Return::make()});
+        } else {
+            add_program(of, Kind::Miss, "__miss__", ctx_t,
+                        {ir::Store::make(result, ir::BoolImm::make(false)),
+                         ir::Return::make()});
+        }
 
         // The trace itself, as a function the query's expression becomes a
         // call to (as build_func does): the context made, the ray traced,
@@ -3097,9 +3229,12 @@ struct LowerBVH : public ir::Mutator {
             ir::Build::make(ctx_t, std::vector<ir::Expr>{rq.q, none}),
             ir::Allocate::Memory::Stack));
         const ir::Expr local = ir::Var::make(ctx_t, "_ctx");
-        // OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT for `any`: the first hit the
-        // any-hit program accepts ends the traversal (see optix_types.h).
-        const ir::Expr flags = ir::UIntImm::make(u32, rq.nearest ? 0 : 4);
+        // For `any`, OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT (4): the first hit
+        // the any-hit program accepts ends the traversal; and
+        // OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT (8): no program runs at that hit,
+        // the context's `true` standing. What pbrt's shadow rays do (see
+        // optix_types.h).
+        const ir::Expr flags = ir::UIntImm::make(u32, rq.nearest ? 0 : 4 | 8);
         // The extent the hardware is given is finite: a ray traced to
         // infinity -- a path's, `RaySegment{ray, inf}` -- is an invalid ray
         // to OptiX (its validation mode: "[INVALID_RAY] ... tmax inf"), and
@@ -3217,7 +3352,7 @@ ir::Program LowerTrees::run(ir::Program program,
     // trees it lays nodes out for.
     ir::TypeMap tree_types = program.schedules[ir::Target::Host].tree_types;
 
-    LowerBVH converter(tree_types, program.extents);
+    LowerBVH converter(tree_types, program.extents, program.funcs);
     converter.transforms =
         &program.schedules[ir::Target::Host].func_transforms;
 

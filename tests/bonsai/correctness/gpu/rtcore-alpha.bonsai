@@ -1,0 +1,87 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/rtcore-alpha
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_rtcore_alpha_cpp.cpp -I. -o $<>/main_rtcore_alpha_cpp.o, clang++ $<>/main_rtcore_alpha_cpp.o $<>/rtcore-alpha.o -o $<>/rtcore-alpha, ./$<>/rtcore-alpha, rm $<>/rtcore-alpha, rm $<>/main_rtcore_alpha_cpp.o, rm $<>/rtcore-alpha.h, rm $<>/rtcore-alpha.o
+
+// Two triangles on the ray tracing hardware, one with an alpha cutout and
+// one opaque, and the two queries over them: `trace`, the nearest hit, and
+// `trace_any`, whether anything is hit at all (a shadow ray's question).
+//
+// What the rest of the filter costs is the point. `accepts` is pbrt's alpha
+// test: it opens with `if t.alpha < 0.0 { return true; }`, which needs no
+// ray, and only then consults the ray. The compiler exports what that says
+// about each triangle -- `trace_anyhit_matters(t)` and
+// `trace_any_anyhit_matters(t)`, `!(t.alpha < 0.0)` here (Lower/Trees.cpp,
+// add_anyhit_matters) -- and the driver builds the opaque triangle's input
+// with the any-hit programs disabled, as pbrt builds a mesh with no alpha
+// texture. The `any` query itself runs no program at a hit: its rays end the
+// traversal at the first accepted hit with the closest-hit program disabled,
+// and only a miss reports, as pbrt's shadow rays do. The eight answers are
+// the CPU's: a ray through the cutout reaches the opaque triangle behind.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+// A triangle with an alpha cutout: `alpha < 0` is opaque (pbrt's
+// GeometricPrimitive with no alpha texture); otherwise a hit is kept only
+// where the ray's y is below alpha.
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+// pbrt: GeometricPrimitive::Intersect's alpha test, opening with the part
+// that needs no ray.
+func accepts(r : Ray, t : Tri) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    return r.o.y < t.alpha;
+}
+
+extern tris : set[Tri];
+
+// pbrt: Primitive::Intersect.
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris));
+
+// pbrt: Primitive::IntersectP.
+func trace_any(r : Ray) =
+    any(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris);
+
+// Every ray traced: the x of the triangle it hit (-1 for a miss), and
+// whether anything at all is along it.
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_x : mut array[f32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_x[i] = hit.tri.p0.x;
+        } else {
+            hit_x[i] = -1.0;
+        }
+        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    // The hardware's tree over the triangles: the driver builds it, the
+    // layout carries its handle and the elements.
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}

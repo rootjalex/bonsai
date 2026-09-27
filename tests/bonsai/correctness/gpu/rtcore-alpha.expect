@@ -1,0 +1,13 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_rtcore_alpha_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_rtcore_alpha_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_rtcore_alpha_cpp.o tests/bonsai/correctness/gpu/rtcore-alpha.o -o tests/bonsai/correctness/gpu/rtcore-alpha
+[test] ./tests/bonsai/correctness/gpu/rtcore-alpha
+cutout: any-hit matters to trace yes, to trace_any yes
+opaque: any-hit matters to trace no, to trace_any no
+below the cutoff : hit x=0.0 any=yes
+through the cutout: hit x=5.0 any=yes
+off both         : miss any=no
+well below       : hit x=0.0 any=yes
+at the cutoff    : hit x=5.0 any=yes
+cutout, low z    : hit x=5.0 any=yes
+off the front    : miss any=no
+far off          : miss any=no

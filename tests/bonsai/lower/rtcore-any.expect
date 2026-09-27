@@ -1,0 +1,137 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Tri = struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type _RTContext_trace = struct _RTContext_trace{ q : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }; result : option<struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }> }
+type _RTContext_trace_any = struct _RTContext_trace_any{ q : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }; result : bool }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : tree[[struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }]] OptixTree
+  | Leaf(data : Tri[]) with data = data
+
+func __anyhit__trace(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixTree) -> void {
+  let _rt_idx = rt_sbt_base() + rt_primitive_index() in
+  let _rt_e0 = stored_element(tris, _rt_idx) in
+  let r = ctx.q in
+  if (!accepts(r, _rt_e0)) {
+    let _rt_ignored = rt_ignore_hit() in
+  }
+}
+
+func __anyhit__trace_any(ctx : mut _RTContext_trace_any, tris : tree[[Tri]] OptixTree) -> void {
+  let _rt_idx = rt_sbt_base() + rt_primitive_index() in
+  let _rt_e0 = stored_element(tris, _rt_idx) in
+  let r = ctx.q in
+  if (!accepts(r, _rt_e0)) {
+    let _rt_ignored = rt_ignore_hit() in
+  }
+}
+
+func __closesthit__trace(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixTree) -> void {
+  let _rt_idx = rt_sbt_base() + rt_primitive_index() in
+  let _rt_e0 = stored_element(tris, _rt_idx) in
+  ctx.result = build<option<Tri>>(_rt_e0)
+}
+
+func __intersection__trace(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixTree) -> void {
+  let _rt_idx = rt_sbt_base() + rt_primitive_index() in
+  let _rt_e0 = stored_element(tris, _rt_idx) in
+  let r = build<Ray>(ctx.q.o, ctx.q.d, rt_hit_t()) in
+  let _rt_t = distmin(r, _rt_e0.tri) in
+  if (_rt_t != (f32)inf) {
+    let _rt_reported = rt_report_hit(_rt_t) in
+  }
+}
+
+func __intersection__trace_any(ctx : mut _RTContext_trace_any, tris : tree[[Tri]] OptixTree) -> void {
+  let _rt_idx = rt_sbt_base() + rt_primitive_index() in
+  let _rt_e0 = stored_element(tris, _rt_idx) in
+  let r = build<Ray>(ctx.q.o, ctx.q.d, rt_hit_t()) in
+  let _rt_t = distmin(r, _rt_e0.tri) in
+  if (_rt_t != (f32)inf) {
+    let _rt_reported = rt_report_hit(_rt_t) in
+  }
+}
+
+func __miss__trace(ctx : mut _RTContext_trace) -> void {
+  return
+}
+
+func __miss__trace_any(ctx : mut _RTContext_trace_any) -> void {
+  ctx.result = false
+  return
+}
+
+func _rt_trace0(r : Ray, tris : tree[[Tri]] OptixTree) -> option<Tri> {
+  _ctx : mut _RTContext_trace := build<_RTContext_trace>(r, build<option<Tri>>())
+  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 0f, min(r.tmax, 1e+30f), 0u, (&_ctx)) in
+  return _ctx.result
+}
+
+func _rt_trace1(r : Ray, tris : tree[[Tri]] OptixTree) -> bool {
+  _ctx : mut _RTContext_trace_any := build<_RTContext_trace_any>(r, true)
+  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 0f, min(r.tmax, 1e+30f), 12u, (&_ctx)) in
+  return _ctx.result
+}
+
+func accepts(r : Ray, t : Tri) -> bool {
+  if (t.alpha < 0f) {
+    return true
+  }
+  return r.o[1u] < t.alpha
+}
+
+func trace(r : Ray) -> option<Tri> {
+  return _rt_trace0(r, tris)
+}
+
+func [[export]] trace_all(n : i32, rays : Ray[n], hit_x : mut f32[], hit_any : mut i32[]) -> void {
+  parfor i in [0:n:1] {
+    let r = rays[i] in
+    let found = trace(r) in
+    if (cast<bool>(found)) {
+      let hit = cast<Tri>(found) in
+      hit_x[i] = hit.tri.p0[0u]
+    } else {
+      hit_x[i] = -1f
+    }
+    hit_any[i] = select(trace_any(r), 1, 0)
+  }
+  return
+}
+
+func trace_any(r : Ray) -> bool {
+  return _rt_trace1(r, tris)
+}
+
+func [[export]] trace_any_anyhit_matters(_rt_e0 : Tri) -> bool {
+  return !(_rt_e0.alpha < 0f)
+}
+
+func [[export]] trace_anyhit_matters(_rt_e0 : Tri) -> bool {
+  return !(_rt_e0.alpha < 0f)
+}
+
+
+schedule host {
+    tris : tree[[struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }]] OptixTree
+  | Leaf(data : Tri[]) with data = data
+    tris :       {
+        n : u32;
+        elems : struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }[n];
+      };
+
+    trace.bind(, RTCore)
+    trace_all.bind(i, OptixThread)
+    trace_any.bind(, RTCore)
+
+}
