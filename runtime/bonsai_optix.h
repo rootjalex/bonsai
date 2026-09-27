@@ -873,13 +873,17 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
                      static_cast<unsigned long long>(traversable),
                      sbt.hitgroupRecordCount);
     }
+    bonsai_cuda_detail::Driver &d = bonsai_cuda_detail::driver();
+    bonsai_cuda_detail::KernelStats &stats = bonsai_cuda_detail::kernel_stats();
+    stats.begin(d);
     check(a,
           a.table.optixLaunch(p.pipeline, /*stream=*/nullptr, p.params, bytes,
                               &sbt, unsigned(count), 1, 1),
           std::string("optixLaunch(") + raygen + ")");
-    bonsai_cuda_detail::Driver &d = bonsai_cuda_detail::driver();
+    stats.mark(d);
     bonsai_cuda_detail::check(d, d.cuCtxSynchronize(),
                               "cuCtxSynchronize after " + std::string(raygen));
+    stats.account(d, raygen);
     // Back, and the slots as they were.
     for (int64_t b = 0; b < nbuffers; b++) {
         const bonsai_cuda_buffer &buffer = buffers[b];

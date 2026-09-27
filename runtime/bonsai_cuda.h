@@ -4,12 +4,15 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // The CUDA runtime a `bind(i, GPUBlock)` or `bind(i, GPUThread)` schedule
@@ -126,6 +129,7 @@ using CUdeviceptr = unsigned long long;
 using CUarray = struct CUarray_st *;
 using CUmipmappedArray = struct CUmipmappedArray_st *;
 using CUtexObject = unsigned long long;
+using CUevent = struct CUevent_st *;
 
 // The texture objects' descriptors, laid out as cuda.h lays them out
 // (CUDA_ARRAY3D_DESCRIPTOR_v2, CUDA_MEMCPY2D_v2, CUDA_RESOURCE_DESC_v1,
@@ -229,6 +233,10 @@ struct Driver {
                                unsigned, unsigned, unsigned, unsigned,
                                CUstream, void **, void **);
     CUresult (*cuCtxSynchronize)(void);
+    // The kernel profile (KernelStats): an event either side of a launch.
+    CUresult (*cuEventCreate)(CUevent *, unsigned int);
+    CUresult (*cuEventRecord)(CUevent, CUstream);
+    CUresult (*cuEventElapsedTime)(float *, CUevent, CUevent);
     CUresult (*cuGetErrorName)(CUresult, const char **);
     CUresult (*cuGetErrorString)(CUresult, const char **);
     // The texture objects (bonsai_cuda_texture_create).
@@ -288,6 +296,9 @@ inline Driver &driver() {
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
+        load(d.cuEventCreate, "cuEventCreate");
+        load(d.cuEventRecord, "cuEventRecord");
+        load(d.cuEventElapsedTime, "cuEventElapsedTime");
         load(d.cuGetErrorName, "cuGetErrorName");
         load(d.cuGetErrorString, "cuGetErrorString");
         load(d.cuMipmappedArrayCreate, "cuMipmappedArrayCreate");
@@ -389,6 +400,86 @@ inline CUmodule module_of(Driver &d, const char *ptx) {
 // it, so a kernel sees the memory allocated before it and a release waits
 // for the kernel that used the memory.
 constexpr CUstream null_stream = nullptr;
+
+// The kernel profile, when BONSAI_KERNEL_STATS is set: how long the device
+// spent in each kernel and raygen program, by name, over the process --
+// what pbrt's `--stats` prints for its GPU build ("Wavefront Kernel
+// Profile"), so that the two renderers' kernels can be set side by side
+// kernel for kernel, apart from what either one's timer counts around
+// them. Measured with an event recorded before each launch and one after
+// it, read once the launch has been waited for (every launch here is);
+// printed to stderr when the process exits, most time first.
+struct KernelStats {
+    struct Entry {
+        double ms = 0;
+        long long launches = 0;
+    };
+    const bool on = std::getenv("BONSAI_KERNEL_STATS") != nullptr;
+    std::map<std::string, Entry> entries;
+    CUevent start = nullptr;
+    CUevent stop = nullptr;
+
+    // Before the launch: the start event, recorded on the stream ahead of it.
+    void begin(Driver &d) {
+        if (!on) {
+            return;
+        }
+        if (start == nullptr) {
+            check(d, d.cuEventCreate(&start, 0), "cuEventCreate");
+            check(d, d.cuEventCreate(&stop, 0), "cuEventCreate");
+            std::atexit(print);
+        }
+        check(d, d.cuEventRecord(start, null_stream), "cuEventRecord");
+    }
+    // Right after the launch, before waiting for it: the stop event, so that
+    // the wait itself is not counted.
+    void mark(Driver &d) {
+        if (on) {
+            check(d, d.cuEventRecord(stop, null_stream), "cuEventRecord");
+        }
+    }
+    // After the wait: the time between the two, to `name`'s account.
+    void account(Driver &d, const char *name) {
+        if (!on) {
+            return;
+        }
+        float ms = 0;
+        check(d, d.cuEventElapsedTime(&ms, start, stop), "cuEventElapsedTime");
+        Entry &e = entries[name];
+        e.ms += ms;
+        e.launches++;
+    }
+
+    static void print();
+};
+
+inline KernelStats &kernel_stats() {
+    static KernelStats s;
+    return s;
+}
+
+inline void KernelStats::print() {
+    const KernelStats &s = kernel_stats();
+    std::vector<std::pair<std::string, Entry>> rows(s.entries.begin(),
+                                                    s.entries.end());
+    std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
+        return a.second.ms > b.second.ms;
+    });
+    double total = 0;
+    for (const auto &[_, e] : rows) {
+        total += e.ms;
+    }
+    std::fprintf(stderr, "Kernel profile (BONSAI_KERNEL_STATS):\n");
+    for (const auto &[name, e] : rows) {
+        std::fprintf(stderr, "  %-52s %7lld launches %10.2f ms / %5.1f%% (avg %7.3f ms)\n",
+                     name.c_str(), e.launches, e.ms,
+                     total > 0 ? 100.0 * e.ms / total : 0.0,
+                     e.launches > 0 ? e.ms / double(e.launches) : 0.0);
+    }
+    std::fprintf(stderr, "  %-52s %7s          %10.2f ms\n", "total kernel time", "",
+                 total);
+    std::fflush(stderr);
+}
 
 } // namespace bonsai_cuda_detail
 
@@ -583,13 +674,17 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
         *static_cast<CUdeviceptr *>(params[buffer.param]) = device_memory[b];
     }
 
+    KernelStats &stats = kernel_stats();
+    stats.begin(d);
     check(d,
           d.cuLaunchKernel(function, unsigned(grid_x), 1, 1, unsigned(block_x),
                            1, 1, /*sharedMemBytes=*/0, /*stream=*/nullptr,
                            params, nullptr),
           "cuLaunchKernel(" + std::string(kernel) + ")");
+    stats.mark(d);
     check(d, d.cuCtxSynchronize(),
           "cuCtxSynchronize after " + std::string(kernel));
+    stats.account(d, kernel);
 
     // Back, and the slots as they were: the host's own addresses.
     for (int64_t b = 0; b < nbuffers; b++) {
