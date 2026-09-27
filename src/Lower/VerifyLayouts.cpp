@@ -9,6 +9,11 @@ ir::ScheduleMap VerifyLayouts::run(ir::ScheduleMap schedules,
                                    const CompilerOptions &options) const {
     for (const auto &[target, schedule] : schedules) {
         for (const auto &[name, bvh_t] : schedule.tree_types) {
+            // The hardware's tree has no nodes to lay out: its layout is its
+            // element arrays and nothing a node walk would check.
+            if (bvh_t.template as<ir::BVH_t>()->hardware) {
+                continue;
+            }
             const auto &iter = schedule.tree_layouts.find(name);
             // TODO: do we want to check this? Some tests might want to not use
             // layouts but still validate them. internal_assert(iter !=

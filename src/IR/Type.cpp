@@ -942,6 +942,21 @@ Type BVH_t::make(ir::Type primitive, std::string name,
     return node;
 }
 
+Type BVH_t::make_hardware(ir::Type primitive) {
+    internal_assert(primitive.defined())
+        << "BVH_t::make_hardware received undefined prim_t";
+    // One leaf holding the elements: the hardware is the rest of the tree.
+    Type leaf = Struct_t::make(
+        "Leaf", Struct_t::Map{TypedVar{"data", Array_t::make(primitive, Expr())}});
+    BVH_t *node = new BVH_t;
+    node->primitive = std::move(primitive);
+    node->name = "OptixTree";
+    node->nodes.push_back(
+        Node{std::move(leaf), {Annotation{Annotation::Data{"data"}}}});
+    node->hardware = true;
+    return node;
+}
+
 Type BVH_t::make(ir::Type primitive, std::string name,
                  const std::vector<TypedVar> &globals,
                  std::vector<BVH_t::Node> nodes,

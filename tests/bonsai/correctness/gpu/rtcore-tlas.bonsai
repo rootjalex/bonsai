@@ -152,55 +152,21 @@ func [[export]] trace_all(n : i32, rays : array[Ray, n],
 schedule {
     layout Prim = tagged_index;
 
-    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
-    | Interior(left : BLAS, right : BLAS, axis : u8)
-    | Leaf(data : array[Triangle]) with data = data;
+    // The hardware's trees: the scene's primitives, and the object each
+    // instance holds. An OptixTree has no nodes of the schedule's -- the
+    // driver builds the acceleration structure and the layout carries its
+    // handle (`traversable`) -- and its elements are an array the layout
+    // names: the tree's element type's array for `prims`, and for a tree
+    // held in a field, the array `from` names, of which the field's
+    // elements are a run.
+    prims : OptixTree;
+    Inst.blas : OptixTree from tris;
 
-    tree[[Prim]] TLAS(low high : vec3f) with AABB(low, high) =
-    | Interior(left : TLAS, right : TLAS, axis : u8)
-    | Leaf(data : array[Prim]) with data = data;
-
-    prims : TLAS;
-    Inst.blas : BLAS from BlasNodes;
-
-    // The layout the CPU tree has; on the hardware its node groups stay
-    // empty and the structure is the handle the layout gains (`traversable`).
     layout prims {
         tCount : u32;
         tris : array[Triangle, tCount];
-
-        bCount : u32;
-        indirect group BlasNodes[bCount] bnode : u32 {
-            low : vec3f;
-            high : vec3f;
-            nPrims : u16;
-            axis : u8;
-            8;
-            switch nPrims {
-                0 => Interior { offset : u32; left = bnode + 1;
-                                right = bnode + offset; };
-                _ => Leaf { pOffset : u32;
-                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
-            };
-        };
-
         pCount : u32;
         elems : array[Prim, pCount];
-
-        nCount : u32;
-        group[nCount] index : u32 {
-            low : vec3f;
-            high : vec3f;
-            nPrims : u16;
-            axis : u8;
-            8;
-            switch nPrims {
-                0 => Interior { offset : u32; left = index + 1;
-                                right = index + offset; };
-                _ => Leaf { pOffset : u32;
-                            data = range(elems, pOffset, cast[[u32]](nPrims)); };
-            };
-        };
     };
 
     trace.bind(RTCore);

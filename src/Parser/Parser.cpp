@@ -3317,6 +3317,21 @@ struct Parser {
                     }
                     expect(Token::Type::SEMICOL);
 
+                    // `Instance.blas : OptixTree from geoms;` -- the
+                    // hardware's tree held in a field: `from` names the
+                    // array of the enclosing layout the field's elements
+                    // are a run of, and the field stores where the run
+                    // starts.
+                    if (tree_name == "OptixTree") {
+                        schedule.tree_types[name + "." + field] =
+                            ir::BVH_t::make_hardware(
+                                field_iter->type.as<ir::Set_t>()->etype);
+                        schedule.tree_groups[name + "." + field] =
+                            std::move(group);
+                        bound_tree_fields.insert(name + "." + field);
+                        break;
+                    }
+
                     const auto tree_iter = trees.find(tree_name);
                     if (tree_iter == trees.cend()) {
                         report_error() << "Assigning " << name << "." << field
@@ -3345,6 +3360,17 @@ struct Parser {
                     expect(Token::Type::COL);
                     const std::string tree_name = get_id();
                     expect(Token::Type::SEMICOL);
+
+                    // `prims : OptixTree;` -- the ray tracing hardware's
+                    // tree over the set's elements (ir::BVH_t::hardware):
+                    // no nodes of the schedule's, a layout that is the
+                    // element arrays alone, and queries answered only by
+                    // `f.bind(RTCore)`.
+                    if (tree_name == "OptixTree") {
+                        schedule.tree_types[name] = ir::BVH_t::make_hardware(
+                            extern_iter->type.as<ir::Set_t>()->etype);
+                        break;
+                    }
 
                     const auto tree_iter = trees.find(tree_name);
 

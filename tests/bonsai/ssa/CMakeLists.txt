@@ -48,6 +48,7 @@ add_bonsai_tests(
     print.bonsai
     shadowed-let.bonsai
     simple.bonsai
+    loopify-mutual.bonsai
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
     reorder.bonsai

@@ -2623,6 +2623,23 @@ struct LowerBVH : public ir::Mutator {
         if (bound_to_rtcore()) {
             return build_rtcore(op);
         }
+        // A software traversal is built here, and none can be built over
+        // the hardware's tree: a query over an OptixTree is the RT cores'
+        // to answer, so the function has to say so.
+        for (const ir::TypedVar &var : ir::gather_free_vars(ir::Expr(op))) {
+            const auto tree = tree_types.find(var.name);
+            if (tree != tree_types.cend() &&
+                tree->second.as<ir::BVH_t>()->hardware) {
+                internal_error
+                    << current_function << " queries `" << var.name
+                    << "`, which the schedule declares an OptixTree -- the "
+                    << "ray tracing hardware's tree, which has no traversal "
+                    << "the compiler can build. Bind the query to the "
+                    << "hardware, `" << current_function
+                    << ".bind(RTCore);`, or lay the set out as a tree of the "
+                    << "schedule's own.";
+            }
+        }
         return build_func(op);
     }
     ir::Expr visit(const ir::AggOp *op) override { return build_func(op); }
@@ -2818,6 +2835,16 @@ struct LowerBVH : public ir::Mutator {
             << where << "and the set is not a tree the schedule laid out: "
             << over;
         rq.tree = ir::Var::make(tree_types.at(tree->name), tree->name);
+        // The hardware searches its own tree and no other: a set the
+        // schedule gave a software tree has nodes of the schedule's, which
+        // the hardware knows nothing of.
+        internal_assert(rq.tree.type().as<ir::BVH_t>()->hardware)
+            << current_function << ".bind(RTCore): the RT cores search `"
+            << tree->name << "`, which the schedule lays out as a "
+            << rq.tree.type().as<ir::BVH_t>()->name
+            << " -- a tree of its own nodes. A set the hardware searches is "
+            << "declared `" << tree->name << " : OptixTree;` and laid out as "
+            << "its element arrays alone.";
         return rq;
     }
     // The applied matches `RayQuery::arms` point into.
@@ -3184,9 +3211,11 @@ ir::Program LowerTrees::run(ir::Program program,
     internal_assert(program.schedules.size() == 1)
         << "TODO: support selecting a schedule target!\n";
 
-    // Pop tree schedule, no longer necessary.
-    ir::TypeMap tree_types =
-        std::move(program.schedules[ir::Target::Host].tree_types);
+    // The schedule keeps its tree bindings: the layout lowering after this
+    // reads them to tell the hardware's trees (ir::BVH_t::hardware), whose
+    // fields store a run's start and whose layouts carry a handle, from the
+    // trees it lays nodes out for.
+    ir::TypeMap tree_types = program.schedules[ir::Target::Host].tree_types;
 
     LowerBVH converter(tree_types, program.extents);
     converter.transforms =

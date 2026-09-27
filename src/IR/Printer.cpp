@@ -1201,6 +1201,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_ignore_hit";
     case Intrinsic::rt_traversable:
         return "rt_traversable";
+    case Intrinsic::rt_reorder:
+        return "rt_reorder";
     case Intrinsic::block_reduce_add:
         return "block_reduce_add";
     case Intrinsic::block_reduce_max:

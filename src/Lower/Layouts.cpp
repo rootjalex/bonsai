@@ -1056,12 +1056,16 @@ struct LowerMatches : public ir::Mutator {
     const LayoutTypeMap &ltmap;
 
     const std::map<std::string, std::string> &tree_field_groups;
+    // The schedule's trees, by the set or `Element.field` they are bound
+    // to: which of them are the hardware's (ir::BVH_t::hardware).
+    const ir::TypeMap &tree_types;
 
     LowerMatches(const ir::LayoutMap &layouts, const ir::TypeMap &structs,
                  const LayoutTypeMap &ltmap,
-                 const std::map<std::string, std::string> &tree_field_groups)
+                 const std::map<std::string, std::string> &tree_field_groups,
+                 const ir::TypeMap &tree_types)
         : layouts(layouts), structs(structs), ltmap(ltmap),
-          tree_field_groups(tree_field_groups) {}
+          tree_field_groups(tree_field_groups), tree_types(tree_types) {}
 
     std::map<std::string, ir::Type> ref_types;
     IndexTList index_list;
@@ -1289,6 +1293,65 @@ struct LowerMatches : public ir::Mutator {
     // the arms of their switches, not the indirect groups, which hold some
     // other tree's nodes. Empty when the leaves are not ranges of one
     // array.
+    // The array of `layout`'s own fields whose elements are `primitive`:
+    // the hardware's tree's elements, which its layout names as an array
+    // and nothing walks to (`prims : array[Primitive, pCount];`).
+    static std::string element_array_of(const ir::Layout &layout,
+                                        const ir::Type &primitive) {
+        const ir::Chain *chain = layout.as<ir::Chain>();
+        if (chain == nullptr) {
+            return "";
+        }
+        // The same element type, or the same named type: by the time the
+        // stored elements are lowered, one side may have been rewritten
+        // to what the layout stores it as (a tagged index, a struct) and
+        // the other not.
+        const auto name_of = [](const ir::Type &t) -> std::string {
+            if (const auto *s = t.as<ir::Struct_t>()) {
+                return s->name;
+            }
+            if (const auto *a = t.as<ir::ADT_t>()) {
+                return a->name;
+            }
+            if (const auto *r = t.as<ir::Ref_t>()) {
+                return r->name;
+            }
+            return "";
+        };
+        for (const ir::Layout &l : chain->layouts) {
+            const ir::Name *name = l.as<ir::Name>();
+            if (name == nullptr) {
+                continue;
+            }
+            const ir::Array_t *array = name->type.as<ir::Array_t>();
+            if (array == nullptr) {
+                continue;
+            }
+            if (ir::equals(array->etype, primitive) ||
+                (!name_of(primitive).empty() &&
+                 name_of(array->etype) == name_of(primitive))) {
+                return name->name;
+            }
+        }
+        return "";
+    }
+
+    // Whether `layout` names an array field called `array`.
+    static bool declares_array(const ir::Layout &layout, const std::string &array) {
+        const ir::Chain *chain = layout.as<ir::Chain>();
+        if (chain == nullptr) {
+            return false;
+        }
+        for (const ir::Layout &l : chain->layouts) {
+            const ir::Name *name = l.as<ir::Name>();
+            if (name != nullptr && name->name == array &&
+                name->type.is<ir::Array_t>()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static std::string leaf_storage_of(const ir::Layout &layout) {
         if (const ir::Chain *chain = layout.as<ir::Chain>()) {
             for (const ir::Layout &l : chain->layouts) {
@@ -1350,6 +1413,17 @@ struct LowerMatches : public ir::Mutator {
             owner = var->name;
             owner_t = structs.at(var->name);
             array = leaf_storage_of(layout->second);
+            // The hardware's tree has no leaves of the layout's: its
+            // elements are the array of its element type. (The schedule's
+            // binding says which tree it is; the variable's own type may be
+            // the layout's struct by now.)
+            const auto bound = tree_types.find(var->name);
+            const ir::BVH_t *bvh = bound != tree_types.cend()
+                                       ? bound->second.as<ir::BVH_t>()
+                                       : node->tree.type().as<ir::BVH_t>();
+            if (array.empty() && bvh != nullptr && bvh->hardware) {
+                array = element_array_of(layout->second, bvh->primitive);
+            }
         } else if (const auto *access = node->tree.as<ir::Access>()) {
             const auto *element = access->value.type().as<ir::Struct_t>();
             internal_assert(element != nullptr)
@@ -1360,14 +1434,33 @@ struct LowerMatches : public ir::Mutator {
             internal_assert(group != tree_field_groups.cend())
                 << "stored_element of " << path
                 << ", which the schedule binds to no tree: " << ir::Expr(node);
-            const auto named = ltmap.groups.find(group->second);
-            internal_assert(named != ltmap.groups.cend() &&
-                            !named->second.owner_name.empty())
-                << path << " is stored in group " << group->second
-                << ", which is not a field of anything the program can name.";
-            owner = named->second.owner_name;
-            owner_t = named->second.owner;
-            array = leaf_storage_of(named->second.inner);
+            const auto bound = tree_types.find(path);
+            if (bound != tree_types.cend() &&
+                bound->second.as<ir::BVH_t>()->hardware) {
+                // `Element.field : OptixTree from <array>`: the field's
+                // elements are a run of that array of the layout that
+                // declares it.
+                array = group->second;
+                for (const auto &[name, layout] : layouts) {
+                    if (declares_array(layout, array)) {
+                        owner = name;
+                    }
+                }
+                internal_assert(!owner.empty() && structs.contains(owner))
+                    << path << " is a run of the array `" << array
+                    << "`, which no layout declares.";
+                owner_t = structs.at(owner);
+            } else {
+                const auto named = ltmap.groups.find(group->second);
+                internal_assert(named != ltmap.groups.cend() &&
+                                !named->second.owner_name.empty())
+                    << path << " is stored in group " << group->second
+                    << ", which is not a field of anything the program can "
+                       "name.";
+                owner = named->second.owner_name;
+                owner_t = named->second.owner;
+                array = leaf_storage_of(named->second.inner);
+            }
         } else {
             internal_error << "stored_element of " << node->tree
                            << ", which is neither a tree the schedule laid "
@@ -1717,6 +1810,14 @@ ir::Program LowerLayouts::run(ir::Program program,
         for (const auto &[_, func] : program.funcs) {
             func->body.accept(&traced);
         }
+        // And every hardware tree the schedule lays out, traced or not: the
+        // handle is what the tree is.
+        for (const auto &[name, type] :
+             program.schedules[ir::Target::Host].tree_types) {
+            if (type.as<ir::BVH_t>()->hardware && tree_layouts.contains(name)) {
+                traced.trees.insert(name);
+            }
+        }
         for (const std::string &name : traced.trees) {
             const auto found = tree_layouts.find(name);
             internal_assert(found != tree_layouts.end())
@@ -1741,6 +1842,16 @@ ir::Program LowerLayouts::run(ir::Program program,
     for (const auto &[path, group_name] :
          program.schedules[ir::Target::Host].tree_groups) {
         ir::Type index_t;
+        // The hardware's tree in a field (`Element.field : OptixTree from
+        // <array>`): the field stores where its run of the array starts,
+        // an index into it.
+        if (const auto bound =
+                program.schedules[ir::Target::Host].tree_types.find(path);
+            bound != program.schedules[ir::Target::Host].tree_types.cend() &&
+            bound->second.as<ir::BVH_t>()->hardware) {
+            ltmap.field_refs[path] = ir::UInt_t::make(32);
+            continue;
+        }
         for (const auto &[_, layout] : tree_layouts) {
             struct FindGroup : public ir::Visitor {
                 const std::string &wanted;
@@ -1862,7 +1973,8 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
 
         LowerMatches lowerer(tree_layouts, types, ltmap,
-                             program.schedules[ir::Target::Host].tree_groups);
+                             program.schedules[ir::Target::Host].tree_groups,
+                             program.schedules[ir::Target::Host].tree_types);
         func->body = lowerer.mutate(func->body);
     }
 

@@ -57,5 +57,8 @@ func q_farthest(q : Point) -> f32 {
 
 
 schedule host {
+    points : tree[[struct Point{ data : f32x3 }]] PointBVH
+  | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)
 
 }

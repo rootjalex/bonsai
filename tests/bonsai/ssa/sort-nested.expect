@@ -439,6 +439,12 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), instances : (_tree_
 
 
 schedule host {
+    Instance.blas : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BLAS
+  | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high)
+    instances : tree[[struct Instance{ blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }> }]] TLAS
+  | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high)
     trace.sort(instances.Interior, |i : u8, ray : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, axis : u8| select((f32x3((f32)1) / ray.d)[axis] < (f32)0, (f32)1 - cast<f32>(i), cast<f32>(i)))
          .sort(Instance.blas.Interior, |i : u8, ray : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, axis : u8| select((f32x3((f32)1) / ray.d)[axis] < (f32)0, (f32)1 - cast<f32>(i), cast<f32>(i)))
          .loopify((i32)64)

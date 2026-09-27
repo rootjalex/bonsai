@@ -1,0 +1,45 @@
+func route(n : i32, acc : i32) -> i32 {
+  let @0 = 1000 < acc in
+  if (@0) {
+    return acc
+  } else {
+    let @1 = n - 1 in
+    let @2 = step(@1, acc) in
+    return @2
+  }
+}
+
+func [[export]] run(n : i32) -> i32 {
+  let @0 = step(n, 0) in
+  let @1 = route(n, 0) in
+  let @2 = @0 + @1 in
+  return @2
+}
+
+func step(n : i32, acc : i32) -> i32 {
+  n!loop : mut i32
+  acc!loop : mut i32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) == 0)) {
+    let @1 = (*acc!loop) + (*n!loop) in
+    let n!inl0 = @4 in
+    let acc!inl0 = @1 in
+    let @3 = 1000 < acc!inl0 in
+    if (@3) {
+      let @2 = @1 in
+      return @2
+    } else {
+      let @4 = n!inl0 - 1 in
+      n!loop = @4
+      acc!loop = acc!inl0
+    }
+  }
+  return (*acc!loop)
+}
+
+
+schedule host {
+    step.loopify()
+
+}

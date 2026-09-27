@@ -624,6 +624,15 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // hardware's (`rt_traversable(tree) -> u64`); lowered to the layout
         // struct's field by Lower/Layouts.cpp.
         rt_traversable,
+        // In a raygen program: a coherence hint ahead of the stage that
+        // follows. `rt_reorder(key : u32, bits : u32) -> u32` asks the
+        // hardware to reorder the launch's threads so that those whose low
+        // `bits` bits of `key` agree run together from here on (OptiX's
+        // `optixReorder`, shader execution reordering). Made by
+        // Lower/Sorts.cpp for `f.sort(g, |args| key)`, a sort on the call
+        // of `g`. An effect with no result; a hint, so where there is no
+        // reordering hardware -- the host, a CUDA kernel -- it is nothing.
+        rt_reorder,
         // A value reduced across the threads of a GPU block -- the fold of
         // every thread's argument under the operation, in every thread:
         // `block_reduce_add(v)`, `_mul`, `_min`, `_max`, over a 32-bit float

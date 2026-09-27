@@ -47,6 +47,8 @@ add_bonsai_tests(
     gpu-thread-bounds-in-block.bonsai
     gpu-two-thread-loops.bonsai
     ptx-no-gpu-loop.bonsai
+    optixtree-software-query.bonsai
+    rtcore-software-tree.bonsai
     bad_layout_split.bonsai
     bad_path_layout.bonsai
     f42.bonsai

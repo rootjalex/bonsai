@@ -224,7 +224,9 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
     }
 
     // The slot of `v` as `block` of `in` refers to it: a capture's, or -1
-    // with the reason in `why`.
+    // with the reason in `why`, or `carried` for a value a recursion passes
+    // round unchanged, which the calls into the recursion decide.
+    constexpr int carried = -2;
     std::string why;
     std::set<const ir::ssa::Function *> visiting;
     std::function<int(const ir::ssa::Function *, const std::string &,
@@ -268,9 +270,13 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
             }
         }
         internal_assert(j < params.size());
+        // A call reached while its callee's own parameter is being resolved
+        // is a recursion -- a path step calling itself for the next bounce,
+        // passing the pools along unchanged -- and says nothing new about
+        // where the value came from: whatever entered the recursion is what
+        // it is, which the other calls say.
         if (!visiting.insert(in).second) {
-            why = "`" + name + "` passes it to itself";
-            return -1;
+            return carried;
         }
         int found = -1;
         bool any = false;
@@ -285,6 +291,9 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
                 << "a call of `" << name << "` passes " << site.args.size()
                 << " arguments for " << params.size() << " parameters";
             const int slot = slot_of_value(site.caller, site.block, site.args[j]);
+            if (slot == carried) {
+                continue;
+            }
             if (slot < 0) {
                 visiting.erase(in);
                 return -1;
@@ -299,6 +308,13 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
         }
         visiting.erase(in);
         if (!any) {
+            // Every call of it is from inside a recursion still being
+            // resolved -- a mutual recursion's other members -- so its
+            // answer is theirs; only a function nothing calls at all is
+            // unresolved.
+            if (!visiting.empty()) {
+                return carried;
+            }
             why = "nothing in the launch calls `" + name + "`";
             return -1;
         }
@@ -743,6 +759,20 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         std::vector<llvm::Type *> outs(32, i32_t);
         llvm::StructType *out_ty = llvm::StructType::get(*context, outs);
         asm_call(out_ty, text, constraints, args, /*side_effects=*/true);
+        return llvm::ConstantInt::get(i32_t, 0);
+    }
+    case Intrinsic::rt_reorder: {
+        // `optixReorder(coherenceHint, numCoherenceHintBitsFromLSB)`: the
+        // launch's threads sorted so that those agreeing on the key's low
+        // bits run together from here on; with no hit object outstanding
+        // (the trace has returned) the key is all there is to sort by.
+        internal_assert(node->args.size() == 2);
+        llvm::Value *key = builder->CreateIntCast(codegen_expr(node->args[0]),
+                                                  i32_t, false);
+        llvm::Value *bits = builder->CreateIntCast(codegen_expr(node->args[1]),
+                                                   i32_t, false);
+        asm_call(nullptr, "call (), _optix_hitobject_reorder, ($0, $1);", "r,r",
+                 {key, bits}, /*side_effects=*/true);
         return llvm::ConstantInt::get(i32_t, 0);
     }
     case Intrinsic::rt_traversable:

@@ -399,15 +399,22 @@ void CodeGen_LLVM::init_module() {
 }
 
 llvm::Value *CodeGen_LLVM::codegen_rt_intrinsic(const Intrinsic *node) {
+    for (const Expr &arg : node->args) {
+        codegen_expr(arg);
+    }
+    if (node->op == Intrinsic::rt_reorder) {
+        // A hint about which threads should run together: with no threads
+        // to reorder -- the host, or a CUDA kernel, which inherits this --
+        // it asks for nothing, and the program's answers are the same
+        // either way. Only the OptiX module makes something of it.
+        return llvm::ConstantInt::get(codegen_type(node->type), 0);
+    }
     // No ray tracing hardware here: as with the texture units below, the
     // host module compiles every function of the program, a query bound to
     // RTCore included, and the host's copy of one is dead code the module's
     // dead-function removal drops -- a loop bound to OptixThread is where
     // the query runs (CodeGen_OptiX). So a trap, which is what tracing on
     // the RT cores from a CPU would be, and never runs.
-    for (const Expr &arg : node->args) {
-        codegen_expr(arg);
-    }
     builder->CreateIntrinsic(llvm::Intrinsic::trap, {});
     return llvm::UndefValue::get(codegen_type(node->type));
 }
@@ -3537,7 +3544,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::rt_sbt_base:
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:
-    case Intrinsic::rt_traversable: {
+    case Intrinsic::rt_traversable:
+    case Intrinsic::rt_reorder: {
         value = codegen_rt_intrinsic(node);
         return;
     }

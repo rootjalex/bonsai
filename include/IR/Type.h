@@ -577,9 +577,22 @@ struct BVH_t : TypeNode<BVH_t> {
     // BV for every node, unless specified in the Node type.
     // std::optional<Volume> volume;
 
+    // The ray tracing hardware's tree (`OptixTree` in a schedule): its
+    // nodes are the hardware's, built by the program's driver
+    // (runtime/bonsai_optix.h) and never laid out, and its elements are an
+    // array the layout names. A query over one is answered by the RT cores
+    // -- `f.bind(RTCore)` -- and by nothing else: no software traversal is
+    // built over it, and a query bound to RTCore searches no other kind of
+    // tree (Lower/Trees.cpp). The one node it declares, a leaf holding the
+    // elements, is what lets the rest of the compiler treat it as a tree
+    // over its element type.
+    bool hardware = false;
+
     // Each node should have a volume set, or are un-optimized.
     static Type make(ir::Type primitive, std::string name,
                      std::vector<Node> nodes);
+    // The hardware's tree over `primitive`.
+    static Type make_hardware(ir::Type primitive);
     // All nodes share the same annotations + any specified annotations.
     static Type make(ir::Type primitive, std::string name,
                      const std::vector<TypedVar> &globals,

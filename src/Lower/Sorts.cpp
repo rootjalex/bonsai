@@ -12,6 +12,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -232,6 +234,189 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
     return change;
 }
 
+// `f.sort(g, |args| key)`: a sort on the call of `g`, the launch's threads
+// reordered by `key` just before the stage `g` is. Shader execution
+// reordering (OptiX's `optixReorder`, Ada and later): the threads of a raygen
+// launch whose keys agree on their low bits are gathered to run together
+// from that point on, so that a stage which branches on the key -- the
+// material a hit has -- runs each branch over a full wave rather than over
+// the few threads of each wave that happened to take it. The same word as
+// the sort on a traversal's children: an ordering of what comes next, with
+// no change to what is computed.
+//
+// The lambda's parameters name parameters of `g`; the key is the lambda's
+// value with each replaced by what the call passes for that parameter. What
+// counts as the key's bits: an ADT value sorts by which variant it is (the
+// variant's index, in as many bits as the variants need -- a material's
+// kind is the natural key, and the reason an ADT is accepted whole); a bool
+// is one bit; an integer is its low bits, at most sixteen, since the hint's
+// bits are taken from the hardware's own sort key (optix_device.h,
+// optixReorder). The hint, `rt_reorder(key, bits)`, goes before the
+// statement that makes the call, and is nothing anywhere but a raygen
+// program (CodeGen_LLVM::codegen_rt_intrinsic).
+Stmt apply_reorder(const std::string &caller, const std::string &callee,
+                   const Expr &lambda_expr, Stmt body, const FuncMap &funcs) {
+    const Lambda *lambda = lambda_expr.as<Lambda>();
+    internal_assert(lambda != nullptr)
+        << caller << ".sort(" << callee << ", ...) expects a lambda for the key";
+    const auto g = funcs.find(callee);
+    internal_assert(g != funcs.end());
+    // Which parameter of the callee each lambda parameter stands for.
+    std::vector<size_t> positions;
+    for (const TypedVar &arg : lambda->args) {
+        size_t at = g->second->args.size();
+        for (size_t i = 0; i < g->second->args.size(); i++) {
+            if (g->second->args[i].name == arg.name) {
+                at = i;
+            }
+        }
+        internal_assert(at < g->second->args.size())
+            << caller << ".sort(" << callee << ", ...): the key's lambda takes `"
+            << arg.name << "`, which is not a parameter of " << callee
+            << "; the lambda's parameters name the callee's, and the key is "
+            << "computed from what the call passes for them.";
+        internal_assert(equals(arg.type, g->second->args[at].type))
+            << caller << ".sort(" << callee << ", ...): the key's lambda takes `"
+            << arg.name << "` as " << arg.type << ", where " << callee
+            << " takes it as " << g->second->args[at].type;
+        positions.push_back(at);
+    }
+
+    struct ReplaceVars : public Mutator {
+        const std::map<std::string, Expr> &repls;
+        explicit ReplaceVars(const std::map<std::string, Expr> &repls)
+            : repls(repls) {}
+        using Mutator::visit;
+        Expr visit(const Var *node) override {
+            const auto found = repls.find(node->name);
+            return found != repls.end() ? found->second : Expr(node);
+        }
+    };
+
+    // The hint for one call, from its arguments.
+    const auto hint = [&](const std::vector<Expr> &args) -> Stmt {
+        std::map<std::string, Expr> repls;
+        for (size_t i = 0; i < lambda->args.size(); i++) {
+            internal_assert(positions[i] < args.size())
+                << "a call of " << callee << " passes " << args.size()
+                << " arguments";
+            repls[lambda->args[i].name] = args[positions[i]];
+        }
+        Expr key = ReplaceVars(repls).mutate(lambda->value);
+        const Type u32 = UInt_t::make(32);
+        uint32_t bits = 0;
+        if (const ADT_t *adt = key.type().as<ADT_t>()) {
+            std::vector<MatchExpr::Arm> arms;
+            for (size_t v = 0; v < adt->variants.size(); v++) {
+                arms.push_back({adt->variant_name(v), UIntImm::make(u32, v)});
+            }
+            key = MatchExpr::make(std::move(key), std::move(arms));
+            while ((size_t(1) << bits) < adt->variants.size()) {
+                bits++;
+            }
+            bits = std::max<uint32_t>(bits, 1);
+        } else if (key.type().is<Bool_t>()) {
+            key = cast(u32, key);
+            bits = 1;
+        } else if (key.type().is_int() || key.type().is_uint()) {
+            bits = std::min<uint32_t>(key.type().bits(), 16);
+            key = cast(u32, key);
+        } else {
+            internal_error << caller << ".sort(" << callee << ", ...): the key is "
+                           << key << " of type " << key.type()
+                           << "; a key is a variant (an ADT value), a bool, or "
+                           << "an integer.";
+        }
+        return LetStmt::make(WriteLoc("_rt_reordered", u32),
+                             Intrinsic::make(Intrinsic::rt_reorder,
+                                             {key, UIntImm::make(u32, bits)}));
+    };
+
+    // The calls of the callee in a statement (or an expression): each one's
+    // arguments.
+    struct FindCalls : public Visitor {
+        const std::string &callee;
+        std::vector<std::vector<Expr>> found;
+        explicit FindCalls(const std::string &callee) : callee(callee) {}
+        using Visitor::visit;
+        void visit(const Call *node) override {
+            if (const Var *f = node->func.as<Var>(); f && f->name == callee) {
+                found.push_back(node->args);
+            }
+            Visitor::visit(node);
+        }
+        void visit(const CallStmt *node) override {
+            if (const Var *f = node->func.as<Var>(); f && f->name == callee) {
+                found.push_back(node->args);
+            }
+            Visitor::visit(node);
+        }
+    };
+
+    // The hint before the statement that makes the call: whichever simple
+    // statement it is -- a call statement, a binding, a store, a return, an
+    // accumulate -- found by walking down through the compound ones.
+    struct Insert : public Mutator {
+        const std::string &callee;
+        const std::function<Stmt(const std::vector<Expr> &)> &hint;
+        size_t placed = 0;
+        Insert(const std::string &callee,
+               const std::function<Stmt(const std::vector<Expr> &)> &hint)
+            : callee(callee), hint(hint) {}
+        using Mutator::mutate;
+        Stmt mutate(const Stmt &stmt) override {
+            if (!stmt.defined()) {
+                return stmt;
+            }
+            switch (stmt.node_type()) {
+            case IRStmtEnum::Sequence:
+            case IRStmtEnum::IfElse:
+            case IRStmtEnum::SwitchStmt:
+            case IRStmtEnum::DoWhile:
+            case IRStmtEnum::While:
+            case IRStmtEnum::Label:
+            case IRStmtEnum::RecLoop:
+            case IRStmtEnum::Match:
+            case IRStmtEnum::MatchVariant:
+            case IRStmtEnum::Iterate:
+            case IRStmtEnum::Scan:
+            case IRStmtEnum::ForAll:
+            case IRStmtEnum::ForEach:
+            case IRStmtEnum::ParFor:
+            case IRStmtEnum::Launch:
+                return Mutator::mutate(stmt);
+            default:
+                break;
+            }
+            FindCalls finder(callee);
+            stmt.accept(&finder);
+            if (finder.found.size() != 1) {
+                return Mutator::mutate(stmt);
+            }
+            placed++;
+            return Sequence::make({hint(finder.found[0]), Mutator::mutate(stmt)});
+        }
+    };
+    const std::function<Stmt(const std::vector<Expr> &)> hint_fn = hint;
+    Insert inserter(callee, hint_fn);
+    body = inserter.mutate(std::move(body));
+
+    // Every call was given its hint: one the walk above did not reach --
+    // inside a condition, or two in one statement -- is refused rather than
+    // left unsorted.
+    FindCalls counter(callee);
+    body.accept(&counter);
+    internal_assert(counter.found.size() == inserter.placed)
+        << caller << ".sort(" << callee << ", ...): " << caller << " calls "
+        << callee << " " << counter.found.size() << " time(s), and the hint "
+        << "could be placed before " << inserter.placed << " of them; a call "
+        << "in a condition, or two in one statement, has no place for it.";
+    internal_assert(!counter.found.empty())
+        << caller << ".sort(" << callee << ", ...): " << caller
+        << " does not call " << callee;
+    return body;
+}
+
 Program LowerSorts::run(Program program, const CompilerOptions &options) const {
     if (program.schedules.empty()) {
         return program;
@@ -266,6 +451,14 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
                 }
                 counter++;
                 const Sort &sort = std::get<Sort>(t);
+                // A sort on a call, when the location is a function the
+                // program defines: `f.sort(g, |args| key)`.
+                if (sort.loc.names.size() == 1 &&
+                    program.funcs.contains(sort.loc.names[0])) {
+                    body = apply_reorder(name, sort.loc.names[0], sort.lambda,
+                                         std::move(body), program.funcs);
+                    continue;
+                }
                 body = apply_sort(sort.loc, sort.lambda, std::move(body),
                                   program.funcs, get_names_in_scope(*func));
             }

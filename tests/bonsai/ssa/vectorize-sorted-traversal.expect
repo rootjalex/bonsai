@@ -1720,6 +1720,9 @@ func trace(r : Ray, shapes : _tree_layout0) -> _option0 {
 
 
 schedule host {
+    shapes : tree[[| Sph(s : struct Sphere{ center : f32x3; radius : f32 }) | Tri(t : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 })]] ShapeBVH
+  | Interior(center : f32x3, radius : f32, left : (const ShapeBVH&), right : (const ShapeBVH&), axis : u8) with Sphere(center, radius)
+  | Leaf(center : f32x3, radius : f32, data : Shape[]) with data = data with Sphere(center, radius)
     hit_z_all.vectorize(i)
     trace.sort(shapes.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, axis : u8| select((f32x3((f32)1) / r.d)[axis] < (f32)0, (f32)1 - cast<f32>(i), cast<f32>(i)))
          .loopify((i32)64)

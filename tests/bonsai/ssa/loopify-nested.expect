@@ -429,6 +429,12 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), instances : (_tree_la
 
 
 schedule host {
+    Instance.blas : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BLAS
+  | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high)
+    instances : tree[[struct Instance{ blas : set<struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }> }]] TLAS
+  | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&)) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high)
     trace.loopify((i32)64)
 
 }

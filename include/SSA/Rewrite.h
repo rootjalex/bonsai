@@ -68,7 +68,27 @@ bool may_nest(Resource outer, Resource inner);
 void collapse(FuncMap &funcs, std::string func, std::string outer,
               std::string inner, std::string collapsed);
 
+// Turns `func`'s recursion into a loop: every call of itself in tail
+// position becomes a jump back to its entry. A recursion that runs through
+// other functions first -- `f` calls `g`, which calls `f` back, a path step
+// that hands its next bounce to the routing of its hit, which hands it back
+// -- is made direct first: each callee on a path back to `func` that the
+// schedule has not held as a function of its own (`held`, `[[noinline]]`)
+// is copied into `func` at its call (inline_call), until every call back
+// is a call of `func` itself. What a loop needs on hardware that allows no
+// recursion (the RT cores' programs), and what pbrt's megakernel is.
+// `size` puts a branching recursion on a stack instead (SSA/QueueRecursion.h).
 void loopify(FuncMap &funcs, std::string func, int size = 0);
+
+// Copies the callee of the call that ends `site`, a block of `caller`, into
+// `caller` in place of the call: the site jumps to a copy of the callee's
+// entry with the call's arguments, and each return of the copy jumps to the
+// call's continuation with the value the call kept, the continuation's own
+// arguments threaded through the copy under fresh names. The copy's blocks
+// are the callee's with a suffix; the callee itself is left as it was for
+// its other callers. Implemented in SSA/Rewrite.cpp.
+void inline_call(FuncMap &funcs, const std::shared_ptr<Function> &caller,
+                 const std::shared_ptr<Block> &site);
 
 // defer(), the other way of running a recursion's pending calls, is declared
 // in SSA/Defer.h.

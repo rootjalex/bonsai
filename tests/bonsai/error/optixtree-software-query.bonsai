@@ -1,0 +1,30 @@
+//! flags: -p ssa -b llvm
+
+// A set declared an OptixTree is the ray tracing hardware's to search, and
+// a query over it that the schedule does not bind to RTCore has no
+// traversal the compiler could build: refused, naming the fix.
+import stdlib/ray;
+import stdlib/triangle;
+import stdlib/intersects;
+import stdlib/distance;
+
+extern tris : set[Triangle];
+
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] hit(r : Ray) -> i32 {
+    if trace(r) {
+        return 1;
+    }
+    return 0;
+}
+
+schedule {
+    tris : OptixTree;
+    layout tris {
+        tCount : u32;
+        data : array[Triangle, tCount];
+    };
+}

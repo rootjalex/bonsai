@@ -141,10 +141,11 @@ int main() {
     uint64_t inst_fill = 0;
     std::vector<uint64_t> elems;
     std::vector<bonsai_optix_instance> instances;
-    const auto place = [&](const Transform &t, uint64_t geometry) {
-        // The tree the instance holds has no nodes here: the hardware's
-        // structure stands in for it, so its root is nothing.
-        elems.push_back(Prim_Inst(t, /*blas=*/0, inst_pool.data(), &inst_fill));
+    const auto place = [&](const Transform &t, uint64_t geometry, uint32_t base) {
+        // The tree the instance holds is the hardware's (`Inst.blas :
+        // OptixTree from tris`): what the field stores is where the
+        // object's run of `tris` starts, its build input's base.
+        elems.push_back(Prim_Inst(t, base, inst_pool.data(), &inst_fill));
         bonsai_optix_instance inst = {};
         optix_transform(t, inst.transform);
         inst.geometry = geometry;
@@ -153,9 +154,9 @@ int main() {
     };
     // Two placements of object A, one behind the other in both lanes, and
     // object B turned a quarter turn about x.
-    place(translate(float3{0.0f, 0.0f, 0.0f}), geometry_a);
-    place(translate(float3{5.0f, 0.0f, 0.0f}), geometry_a);
-    place(rotate_x_quarter(float3{0.0f, 0.0f, 20.0f}), geometry_b);
+    place(translate(float3{0.0f, 0.0f, 0.0f}), geometry_a, 0);
+    place(translate(float3{5.0f, 0.0f, 0.0f}), geometry_a, 0);
+    place(rotate_x_quarter(float3{0.0f, 0.0f, 20.0f}), geometry_b, 2);
     for (const Triangle &t : solo) {
         elems.push_back(Prim_Solo(t, solo_pool.data(), &solo_fill));
     }
@@ -189,25 +190,17 @@ int main() {
     std::vector<int32_t> hit_kind(n, -2), hit_any(n, -2);
 
     // The layout's arrays reach the program as buffer descriptors; the tree
-    // has no nodes, only the hardware's handle and its elements.
-    std::vector<_tree_layout1> no_blas_nodes;
-    std::vector<_tree_layout4> no_tlas_nodes;
+    // is the hardware's handle and its elements, nothing else.
     bonsai_buffer tris_buffer =
         bonsai_buffer_wrap(tris.data(), tris.size() * sizeof(tris[0]));
-    bonsai_buffer blas_buffer = bonsai_buffer_wrap(no_blas_nodes.data(), 0);
     bonsai_buffer elems_buffer =
         bonsai_buffer_wrap(elems.data(), elems.size() * sizeof(elems[0]));
-    bonsai_buffer tlas_buffer = bonsai_buffer_wrap(no_tlas_nodes.data(), 0);
     _tree_layout0 scene;
     scene.traversable = traversable;
     scene.tCount = uint32_t(tris.size());
     scene.tris = &tris_buffer;
-    scene.bCount = 0;
-    scene.group0_bnode = &blas_buffer;
     scene.pCount = uint32_t(elems.size());
     scene.elems = &elems_buffer;
-    scene.nCount = 0;
-    scene.group1_index = &tlas_buffer;
 
     bonsai_buffer rays_buffer =
         bonsai_buffer_wrap(rays.data(), rays.size() * sizeof(rays[0]));
@@ -226,10 +219,9 @@ int main() {
     // signature has to put it where the declaration did.
     float near[1] = {0.001f};
     bonsai_buffer near_buffer = bonsai_buffer_wrap(near, sizeof(near));
-    bonsai_buffer *buffers[] = {&rays_buffer, &p0_buffer,   &kind_buffer,
-                                &any_buffer,  &near_buffer, &tris_buffer,
-                                &blas_buffer, &elems_buffer, &tlas_buffer,
-                                &solo_buffer, &inst_buffer};
+    bonsai_buffer *buffers[] = {&rays_buffer, &p0_buffer,    &kind_buffer,
+                                &any_buffer,  &near_buffer,  &tris_buffer,
+                                &elems_buffer, &solo_buffer, &inst_buffer};
     static_assert(sizeof(buffers) / sizeof(buffers[0]) == sizeof(trace_all_sides));
     bonsai_buffer_stage_all(buffers, trace_all_sides, sizeof(trace_all_sides));
     bonsai_buffer_implicit_copies(0);

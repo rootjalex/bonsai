@@ -1,0 +1,78 @@
+type Huge = struct Huge{ v : i32 }
+type Kind = struct Kind{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Large = struct Large{ v : i32 }
+type Small = struct Small{ v : i32 }
+
+func _match0(_matched : Kind) -> u32 {
+  switch (_matched.tag) {
+  case 0: { // Kind.Small of _match0
+    return 0u
+  } break;
+  case 1: { // Kind.Large of _match0
+    return 1u
+  } break;
+  default: { // Kind.Huge of _match0
+    return 2u
+  }
+  }
+}
+
+func _match1(_matched : Kind) -> u32 {
+  switch (_matched.tag) {
+  case 0: { // Kind.Small of _match1
+    return 0u
+  } break;
+  case 1: { // Kind.Large of _match1
+    return 1u
+  } break;
+  default: { // Kind.Huge of _match1
+    return 2u
+  }
+  }
+}
+
+func _match2(_matched : Kind, i : i32) -> i32 {
+  switch (_matched.tag) {
+  case 0: { // Kind.Small of _match2
+    return build<Small>(reinterpret_cast<i32>(_matched.payload[0u])).v + i
+  } break;
+  case 1: { // Kind.Large of _match2
+    return build<Large>(reinterpret_cast<i32>(_matched.payload[0u])).v * i
+  } break;
+  default: { // Kind.Huge of _match2
+    return (build<Huge>(reinterpret_cast<i32>(_matched.payload[0u])).v * build<Huge>(reinterpret_cast<i32>(_matched.payload[0u])).v) * i
+  }
+  }
+}
+
+func kind_of(i : i32) -> Kind {
+  if (i < 4) {
+    return build<Kind>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(i)))
+  }
+  return build<Kind>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(i)))
+}
+
+func run(out : mut i32[8]) -> void {
+  parfor i in [0:8:1] {
+    let k = kind_of(i) in
+    let _rt_reordered = rt_reorder(_match0(k), 2u) in
+    let a = weigh(k, i) in
+    let _rt_reordered = rt_reorder(_match1(build<Kind>(2u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(a)))), 2u) in
+    let _rt_reordered = rt_reorder(cast<u32>(i < 2), 1u) in
+    out[i] = weigh(build<Kind>(2u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(a))), 2) + score(a, i < 2)
+  }
+  return
+}
+
+func score(n : i32, flag : bool) -> i32 {
+  return select(flag, n, -n)
+}
+
+func weigh(k : Kind, i : i32) -> i32 {
+  return _match2(k, i)
+}
+
+
+schedule host {
+
+}

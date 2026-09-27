@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm
+
+// A query bound to RTCore searches the hardware's tree and no other: a set
+// the schedule laid out as a tree of its own nodes is refused, naming the
+// declaration the hardware wants.
+import stdlib/aabb;
+import stdlib/ray;
+import stdlib/triangle;
+import stdlib/intersects;
+import stdlib/distance;
+
+extern tris : set[Triangle];
+
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] hit(n : i32, rays : array[Ray, n], out : mut array[i32]) -> void {
+    parfor i in 0:n {
+        out[i] = 0;
+        if trace(rays[i]) {
+            out[i] = 1;
+        }
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] BVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BVH, right : BVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH;
+    layout tris {
+        tCount : u32;
+        prims : array[Triangle, tCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.bind(RTCore);
+    hit.bind(i, OptixThread);
+}

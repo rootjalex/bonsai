@@ -296,6 +296,9 @@ Cmp compare_types(const Type &t0, const Type &t1) {
         if (b0->name != b1->name) {
             return compare_primitives(b0->name, b1->name);
         }
+        if (b0->hardware != b1->hardware) {
+            return compare_primitives(b0->hardware, b1->hardware);
+        }
 
         static const auto compare_annotation = [](const Annotation &annot0,
                                                   const Annotation &annot1) {
@@ -1154,6 +1157,7 @@ uint64_t hash_of(const Type &t) {
     case IRTypeEnum::BVH_t: {
         const BVH_t *b = t.as<BVH_t>();
         h = hash_value(h, b->name);
+        h = hash_value(h, b->hardware);
         h = hash_list(h, b->nodes, [](uint64_t h, const BVH_t::Node &n) {
             h = hash_types(h, n.struct_type);
             return hash_list(h, n.annotations, hash_annotation);

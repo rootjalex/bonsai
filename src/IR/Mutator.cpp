@@ -265,7 +265,11 @@ Type Mutator::visit(const BVH_t *node) {
     if (not_changed) {
         return node;
     } else {
-        return BVH_t::make(std::move(primitive), node->name, std::move(nodes));
+        Type rebuilt =
+            BVH_t::make(std::move(primitive), node->name, std::move(nodes));
+        // Whose tree it is travels with it (ir::BVH_t::hardware).
+        const_cast<BVH_t *>(rebuilt.as<BVH_t>())->hardware = node->hardware;
+        return rebuilt;
     }
 }
 

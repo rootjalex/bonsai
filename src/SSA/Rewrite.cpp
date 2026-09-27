@@ -1,6 +1,7 @@
 #include "SSA/Convert.h"
 
 #include "SSA/Analysis.h"
+#include "SSA/CloneFunction.h"
 #include "SSA/InsertPreheader.h"
 #include "SSA/QueueRecursion.h"
 #include "SSA/Rewrite.h"
@@ -487,6 +488,206 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
 
 } // namespace
 
+namespace {
+
+// Whether `from` calls `to`, directly or through what it calls.
+bool calls_through(const FuncMap &funcs, const string &from, const string &to) {
+    set<string> seen;
+    vector<string> work{from};
+    while (!work.empty()) {
+        const string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second) {
+            continue;
+        }
+        const auto it = funcs.find(name);
+        if (it == funcs.end()) {
+            continue;
+        }
+        for (const auto &block : it->second->blocks) {
+            if (const auto *call = block->terminator.callee()) {
+                if (call->name == to) {
+                    return true;
+                }
+                work.push_back(call->name);
+            }
+        }
+    }
+    return false;
+}
+
+size_t inline_counter = 0;
+
+} // namespace
+
+void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
+                 const shared_ptr<Block> &site) {
+    const auto *at = std::get_if<Terminator::Call>(&site->terminator.data);
+    internal_assert(at != nullptr) << "inline_call of " << site->name
+                                   << ", which does not end in a call";
+    const Terminator::Call call = *at;
+    const auto callee_it = funcs.find(call.call.name);
+    internal_assert(callee_it != funcs.end())
+        << "inline_call of `" << call.call.name << "`, which has no SSA form";
+    const Function &callee = *callee_it->second;
+    internal_assert(!callee.blocks.empty());
+    const size_t n = inline_counter++;
+    const string suffix = "!inl" + std::to_string(n);
+
+    // The callee's blocks, renamed, as blocks of the caller.
+    map<string, shared_ptr<Block>> copies =
+        clone_region(*caller, callee.blocks, suffix);
+    // And every name the callee's blocks take as an argument -- its
+    // parameters first of all -- renamed too: the copy lives beside the
+    // caller's own blocks, where a value is threaded by its name, and a
+    // callee whose parameter is called `acc` like the caller's would have
+    // its `acc` taken for the caller's. The copy is the whole callee, so a
+    // name an argument carries is defined by an argument of the copy.
+    {
+        set<string> defined;
+        for (const auto &block : callee.blocks) {
+            for (const Argument &arg : copies.at(block->name)->args) {
+                defined.insert(arg.name);
+            }
+        }
+        set<const Value *> renamed_values;
+        const auto rename_value = [&](const shared_ptr<Value> &v) {
+            if (!v || !renamed_values.insert(v.get()).second) {
+                return;
+            }
+            if (auto *a = std::get_if<Argument>(&v->data);
+                a != nullptr && defined.contains(a->name)) {
+                a->name += suffix;
+            }
+        };
+        const auto rename_jump = [&](Terminator::Jump &j) {
+            for (auto &v : j.args) {
+                rename_value(v);
+            }
+        };
+        for (const auto &block : callee.blocks) {
+            auto copy = copies.at(block->name);
+            for (Argument &arg : copy->args) {
+                arg.name += suffix;
+            }
+            for (auto &instr : copy->instrs) {
+                for (auto &v : instr->operands) {
+                    rename_value(v);
+                }
+            }
+            std::visit(
+                overloads{
+                    [&](std::monostate &) {},
+                    [&](Terminator::Jump &j) { rename_jump(j); },
+                    [&](Terminator::Dispatch &d) {
+                        rename_value(d.cond);
+                        for (auto &t : d.targets) {
+                            rename_jump(t);
+                        }
+                    },
+                    [&](Terminator::Return &r) { rename_value(r.value); },
+                    [&](Terminator::ParFor &p) {
+                        rename_value(p.start);
+                        rename_value(p.end);
+                        rename_value(p.stride);
+                        rename_jump(p.body);
+                        rename_jump(p.cont);
+                    },
+                    [&](Terminator::Yield &) {},
+                    [&](Terminator::Call &c) {
+                        rename_jump(c.call);
+                        rename_jump(c.cont);
+                    },
+                    [&](Terminator::MultiCall &c) {
+                        rename_jump(c.call);
+                        rename_jump(c.cont);
+                        for (auto &row : c.varying) {
+                            for (auto &v : row) {
+                                rename_value(v);
+                            }
+                        }
+                        for (auto &v : c.keys) {
+                            rename_value(v);
+                        }
+                    },
+                },
+                copy->terminator.data);
+            map<string, shared_ptr<Value>> lookups;
+            for (auto &[name, v] : copy->lookups) {
+                rename_value(v);
+                lookups[defined.contains(name) ? name + suffix : name] = v;
+            }
+            copy->lookups = std::move(lookups);
+        }
+    }
+    for (const auto &block : callee.blocks) {
+        auto copy = copies.at(block->name);
+        copy->owner = caller;
+        caller->blocks.push_back(copy);
+    }
+    BlockMap bmap = make_block_map(*caller);
+    for (const auto &block : callee.blocks) {
+        auto copy = copies.at(block->name);
+        for (const string &succ : successors(*copy)) {
+            const auto target = bmap.find(succ);
+            internal_assert(target != bmap.end())
+                << "the copy of " << block->name << " jumps to " << succ
+                << ", which " << caller->blocks.front()->name << " has no block of";
+            target->second->preds.push_back(copy);
+        }
+    }
+
+    // The continuation's values, aliased under fresh names in the site block,
+    // so that threading them through the copy to each return meets no name
+    // the callee used for something else (a block threads a value by name).
+    vector<pair<string, shared_ptr<Value>>> threaded;
+    for (size_t i = 0; i < call.cont.args.size(); i++) {
+        const shared_ptr<Value> &v = call.cont.args[i];
+        if (std::holds_alternative<Constant>(v->data)) {
+            threaded.emplace_back("", v);
+            continue;
+        }
+        const string fresh =
+            "_inl" + std::to_string(n) + "_" + std::to_string(i);
+        site->lookups[fresh] = v;
+        threaded.emplace_back(fresh, v);
+    }
+
+    // The site jumps into the copy with the call's arguments, and leaves the
+    // continuation, which the copy's returns reach instead.
+    const shared_ptr<Block> entry = copies.at(callee.blocks.front()->name);
+    site->terminator.data = Terminator::Jump{entry->name, call.call.args};
+    entry->preds.push_back(site);
+    const auto cont = bmap.find(call.cont.name);
+    internal_assert(cont != bmap.end())
+        << "the call in " << site->name << " continues at " << call.cont.name
+        << ", which is no block of " << caller->blocks.front()->name;
+    std::erase_if(cont->second->preds, [&](const auto &p) {
+        const auto ptr = p.lock();
+        return ptr && ptr.get() == site.get();
+    });
+    for (const auto &block : callee.blocks) {
+        auto copy = copies.at(block->name);
+        const auto *ret = std::get_if<Terminator::Return>(&copy->terminator.data);
+        if (ret == nullptr) {
+            continue;
+        }
+        vector<shared_ptr<Value>> args;
+        if (!call.drop) {
+            internal_assert(ret->value != nullptr)
+                << "the call in " << site->name << " keeps a value, and `"
+                << call.call.name << "` returns none";
+            args.push_back(ret->value);
+        }
+        for (const auto &[fresh, v] : threaded) {
+            args.push_back(fresh.empty() ? v
+                                         : copy->get_value(fresh, v->get_type()));
+        }
+        copy->terminator.data = Terminator::Jump{call.cont.name, std::move(args)};
+        cont->second->preds.push_back(copy);
+    }
+}
+
 void loopify(FuncMap &funcs, std::string func, int size) {
     internal_assert(funcs.contains(func))
         << "loopify applied to unknown func:" << func;
@@ -523,6 +724,45 @@ void loopify(FuncMap &funcs, std::string func, int size) {
         return;
     }
 
+    // A recursion that runs through other functions is made direct first:
+    // a callee on a path back here, unless the schedule holds it as a
+    // function of its own (a deferral's or a stage's callee, `[[noinline]]`),
+    // is copied in at its call, and again for what the copy calls, until
+    // every path back is a call of this function. Bounded: a cycle that does
+    // not run through this function would be copied without end.
+    const auto marked = [](const Function &fn, ir::Function::Attribute a) {
+        return std::find(fn.attributes.begin(), fn.attributes.end(), a) !=
+               fn.attributes.end();
+    };
+    for (size_t round = 0;; round++) {
+        shared_ptr<Block> site;
+        for (auto &block : f->blocks) {
+            const auto *call =
+                std::get_if<Terminator::Call>(&block->terminator.data);
+            if (call == nullptr || call->call.name == func) {
+                continue;
+            }
+            const auto g = funcs.find(call->call.name);
+            if (g == funcs.end() ||
+                marked(*g->second, ir::Function::Attribute::held) ||
+                marked(*g->second, ir::Function::Attribute::noinline) ||
+                !calls_through(funcs, call->call.name, func)) {
+                continue;
+            }
+            site = block;
+            break;
+        }
+        if (!site) {
+            break;
+        }
+        internal_assert(round < 256)
+            << "loopify(" << func << "): the recursion through `"
+            << std::get<Terminator::Call>(site->terminator.data).call.name
+            << "` does not come back through " << func
+            << " -- a cycle among its callees that copying in never ends.";
+        inline_call(funcs, f, site);
+    }
+
     // Find any tail calls with empty return continuations and convert them into
     // jumps.
 
@@ -544,37 +784,68 @@ void loopify(FuncMap &funcs, std::string func, int size) {
             continue;
         }
 
-        internal_assert(call.cont.args.empty())
-            << "Cannot loopify tail-call in: " << func
-            << ", has continuation arguments to: " << call.cont.name;
-
         internal_assert(bmap.contains(call.cont.name))
             << "BlockMap for " << func
             << " does not contain continutation target: " << call.cont.name;
-
-        const auto cont = bmap.at(call.cont.name);
 
         // The call has to be the last thing the function does, so that going
         // round the loop again is the same as making it. That means a
         // continuation which does nothing but return -- either returning
         // nothing, or returning exactly what the call produced, which is
-        // `return f(...)` and is just as much a tail call.
+        // `return f(...)` and is just as much a tail call -- reached either
+        // at once or through blocks that only forward it (what a copied-in
+        // callee's return became: a jump to its caller's continuation,
+        // carrying the value and nothing else the way).
+        shared_ptr<Block> tail = bmap.at(call.cont.name);
+        std::optional<string> value_name;
+        if (!call.drop) {
+            if (tail->args.empty()) {
+                internal_error << "Cannot loopify the call to " << func << " in "
+                               << block->name << ": its value is kept, and its "
+                               << "continuation " << call.cont.name
+                               << " takes no argument for it";
+            }
+            value_name = tail->args[0].name;
+        }
+        for (int hops = 0; hops < 64 && tail->instrs.empty(); hops++) {
+            const auto *jump = std::get_if<Terminator::Jump>(&tail->terminator.data);
+            if (jump == nullptr) {
+                break;
+            }
+            const auto next = bmap.find(jump->name);
+            internal_assert(next != bmap.end());
+            std::optional<string> forwarded;
+            if (value_name.has_value()) {
+                for (size_t i = 0; i < jump->args.size() && i < next->second->args.size(); i++) {
+                    const auto *a = std::get_if<Argument>(&jump->args[i]->data);
+                    if (a != nullptr && a->name == *value_name) {
+                        forwarded = next->second->args[i].name;
+                    }
+                }
+                if (!forwarded.has_value()) {
+                    break;
+                }
+            }
+            tail = next->second;
+            value_name = forwarded;
+        }
         const auto *returns =
-            std::get_if<Terminator::Return>(&cont->terminator.data);
-        bool is_tail = cont->instrs.empty() && returns != nullptr;
+            std::get_if<Terminator::Return>(&tail->terminator.data);
+        bool is_tail = tail->instrs.empty() && returns != nullptr;
         if (is_tail && !call.drop) {
             // A call whose result is kept hands it to the continuation as a
             // leading argument; returning that argument, and nothing else, is
             // what makes this a tail call rather than a use of the result.
-            is_tail = cont->args.size() == 1 && returns->value != nullptr &&
+            is_tail = value_name.has_value() && returns->value != nullptr &&
                       std::holds_alternative<Argument>(returns->value->data) &&
                       std::get<Argument>(returns->value->data).name ==
-                          cont->args[0].name;
+                          *value_name;
         }
         internal_assert(is_tail)
             << "Cannot loopify the call to " << func << " in " << block->name
             << ": its continuation " << call.cont.name << " does more than "
             << "return, so the call is not in tail position";
+        const auto cont = bmap.at(call.cont.name);
 
         // Replace call terminator with direct jump.
         block->terminator.data = call.call;

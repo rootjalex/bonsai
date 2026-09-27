@@ -44,6 +44,7 @@ add_bonsai_tests(
     defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    loopify-mutual.bonsai
     defer-spawn-two-producers.bonsai
     defer-continuation.bonsai
     defer-drain-order.bonsai

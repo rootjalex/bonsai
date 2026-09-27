@@ -1,0 +1,46 @@
+//! flags: -p ssa -b ptx
+
+// `f.sort(g, |args| key)`: a sort on the call of `g`, which in a loop bound
+// to OptixThread is shader execution reordering -- the launch's threads
+// gathered by the key just before the stage `g` runs (Lower/Sorts.cpp,
+// apply_reorder). The key here is a variant: which arm of `Kind` the thread
+// holds, so the hint is the arm's index in one bit, and the module shows the
+// `_optix_hitobject_reorder` call ahead of the stage's work.
+
+element Kind =
+    | Small(v : i32)
+    | Large(v : i32);
+
+func kind_of(i : i32) -> Kind {
+    if i < 4 {
+        return Small(i);
+    }
+    return Large(i);
+}
+
+func weigh(k : Kind, i : i32) -> i32 {
+    return match k {
+        Small(v) => v + i,
+        Large(v) => v * i
+    };
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        k = kind_of(i);
+        out[i] = weigh(k, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.sort(weigh, |k : Kind| k);
+    run.bind(i, OptixThread);
+}

@@ -398,6 +398,9 @@ func s(lo : i32, hi : i32, items : _tree_layout0) -> _option0 {
 
 
 schedule host {
+    items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh]
+  | Leaf(idl : i32, idh : i32, data : Item[]) with data = data with id in [idl, idh]
     q.loopify((i32)8)
     r.loopify((i32)8)
     s.loopify((i32)8)

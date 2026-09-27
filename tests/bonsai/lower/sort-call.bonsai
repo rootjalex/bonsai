@@ -1,0 +1,49 @@
+//! flags: -p core
+
+// `f.sort(g, |args| key)`: a sort on the call of `g`, the launch's threads
+// reordered by the key before the stage `g` runs (Lower/Sorts.cpp,
+// apply_reorder). What to look for: `rt_reorder(key, bits)` placed before
+// each statement that calls `g`, with the key computed from the call's own
+// arguments -- the lambda's `k` replaced by what `run` passes -- and a
+// variant key spelled as the variant's index (a match with one arm per
+// variant) in as many bits as the variants need; a bool key is one bit. The
+// two calls of `weigh` each get their own hint, since each passes something
+// different.
+
+element Kind =
+    | Small(v : i32)
+    | Large(v : i32)
+    | Huge(v : i32);
+
+func kind_of(i : i32) -> Kind {
+    if i < 4 {
+        return Small(i);
+    }
+    return Large(i);
+}
+
+func weigh(k : Kind, i : i32) -> i32 {
+    return match k {
+        Small(v) => v + i,
+        Large(v) => v * i,
+        Huge(v) => v * v * i
+    };
+}
+
+func score(n : i32, flag : bool) -> i32 {
+    return select(flag, n, -n);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        k = kind_of(i);
+        a = weigh(k, i);
+        out[i] = weigh(Huge(a), 2) + score(a, i < 2);
+    }
+    return;
+}
+
+schedule {
+    run.sort(weigh, |k : Kind| k);
+    run.sort(score, |flag : bool| flag);
+}

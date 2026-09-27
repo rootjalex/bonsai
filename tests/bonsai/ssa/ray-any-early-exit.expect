@@ -275,6 +275,9 @@ func shadow(r : Ray, tris : _tree_layout0) -> bool {
 
 
 schedule host {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriBVH
+  | Interior(low : f32x3, high : f32x3, left : (const TriBVH&), right : (const TriBVH&), axis : u8) with AABB(low, high)
+  | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high)
     shadow.loopify((i32)8)
 
 }

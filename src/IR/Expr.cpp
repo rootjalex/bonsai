@@ -1414,6 +1414,14 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = UInt_t::make(64);
             break;
         }
+        case Intrinsic::rt_reorder: {
+            internal_assert(args.size() == 2 && args[0].type().is_uint() &&
+                            args[1].type().is_uint())
+                << "rt_reorder takes the key and how many of its low bits "
+                << "count, both unsigned";
+            node->type = UInt_t::make(32);
+            break;
+        }
         case Intrinsic::rand: {
             internal_assert(args.size() <= 1);
             if (args.size() == 0) {
@@ -1957,6 +1965,7 @@ bool Intrinsic::has_effects(OpType op) {
     case Intrinsic::rt_trace:
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:
+    case Intrinsic::rt_reorder:
         return true;
     default:
         return false;

@@ -24,5 +24,8 @@ func q() -> i32 {
 
 
 schedule host {
+    items : tree[[struct Item{ id : i32 }]] ItemTree
+  | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] with max(id) = idh
+  | Leaf(idl : i32, idh : i32, data : Item) with data = data with id in [idl, idh] with max(id) = idh
 
 }
