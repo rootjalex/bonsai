@@ -30,12 +30,21 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   (`SCHEDULE=`), both timed, the images checked. `--wavefront` and `--gpu`
   pick which pbrt to compare against.
 - `gpu_compare.sh [--spp N] [--repeats N] [--schedules "..."] [--scenes "..."]
-  [--out DIR]`: the GPU table. pbrt `--gpu` and every GPU schedule on every
-  scene: pbrt's time is the least of its runs, ours the mean of ours, each
-  beside its kernel time (pbrt's `--stats` profile and our
-  `BONSAI_KERNEL_STATS`), every image checked against pbrt's and written as a
-  PNG whose path the table gives. Scenes are `<dir>/<name>` under
-  `~/projects/pbrt-v4-scenes` (`SCENES_DIR=`).
+  [--out DIR] [--resume]`: the GPU table. pbrt `--gpu` and every GPU
+  schedule on every scene: pbrt's time is the least of its runs, ours the
+  mean of ours with the least beside it (`min_s`), each beside its kernel
+  time (pbrt's `--stats` profile and our `BONSAI_KERNEL_STATS`, the least
+  of three profiled runs, whose profile is the one kept), every image
+  checked against pbrt's and written as a PNG whose path the table gives.
+  Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
+  (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
+  watched while it runs (anything else on the GPU, or another user's
+  process at the top of the CPU); a disturbed run is redone, three tries
+  at most, and a set of our runs more than a quarter apart is redone as a
+  set. The table's `note` column says how many runs a cell had redone and
+  how many it kept disturbed. `--resume` continues a run into the same
+  `--out` directory, reusing its binaries and skipping the scenes whose
+  rows are all in the table.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format.
 - `check_hits.sh`, `check_differentials.sh`: per-hit and per-differential
