@@ -16,9 +16,15 @@
 # either side's timer counts around it (pbrt's timer includes its memory
 # prefetch and first launches, some sixty milliseconds on this machine; ours
 # includes the host's launch gaps) -- each the least of REPEATS profiled
-# runs, whose profile is the one kept. Every image is checked against pbrt's
-# as compare.sh checks it, converted to a PNG, and the table says where each
-# is.
+# runs, whose profile is the one kept. Our profile is of the second of two
+# renders in one process: a process starts with the GPU in its idle power
+# state and the first hundred-odd milliseconds of kernels run at a fraction
+# of the clock, which pbrt's kernels escape because its prefetch of every
+# allocation runs ahead of them; the second render's GPU is awake as pbrt's
+# is, and the two profiles measure the same thing. (The wall times stay
+# cold: every timed run is its own process, on both sides.) Every image is
+# checked against pbrt's as compare.sh checks it, converted to a PNG, and
+# the table says where each is.
 #
 # The machine is checked idle before every timed run, and watched during it:
 # another process on the GPU, or someone else's process at the top of the
@@ -115,6 +121,16 @@ bash $PREFIX/build_scene_dump.sh "$OUT/scene_dump"
 # The machine has to be idle of everything before a timed run: the user's
 # own benchmarks share it. Waits while it is not.
 idle_check() {
+  # A file named PAUSE in the output directory holds the run between timed
+  # runs for as long as it exists (`touch DIR/PAUSE`, `rm DIR/PAUSE`): the
+  # way to borrow the machine for a measurement of one's own without
+  # stopping the process -- a stopped child ends a shell's wait, and the
+  # run with it.
+  if [[ -e "$OUT/PAUSE" ]]; then
+    echo "paused: $OUT/PAUSE exists; waiting for it to go" >&2
+    while [[ -e "$OUT/PAUSE" ]]; do sleep 5; done
+    echo "resumed" >&2
+  fi
   for _ in $(seq 90); do
     local busy gpu
     busy=$(ps -eo pcpu,comm --sort=-pcpu | awk 'NR==2{print int($1)}')
@@ -283,7 +299,7 @@ for sc in $SCENES; do
     wall=$(echo $secs | tr ' ' '\n' | mean)
     wall_min=$(echo $secs | tr ' ' '\n' | min)
     least_profile "$cell.$s.stats" \
-      "BONSAI_REPEATS=1 BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
+      "BONSAI_REPEATS=2 BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
       "sed -n 's/.*total kernel time *\([0-9.]*\) ms.*/\1/p' | head -1"
     kernel="$LEAST"
     cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
@@ -296,5 +312,5 @@ for sc in $SCENES; do
   done
 done
 echo
-echo "table: $TABLE (wall in seconds -- pbrt's the least of $REPEATS, ours the mean of $REPEATS cold runs with the least beside it; kernel time in ms, the least of $REPEATS profiled runs; speedup is pbrt's wall over our mean; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
+echo "table: $TABLE (wall in seconds -- pbrt's the least of $REPEATS, ours the mean of $REPEATS cold runs with the least beside it; kernel time in ms, the least of $REPEATS profiled runs, ours of a second render in the process so that the GPU is awake as it is for pbrt's kernels; speedup is pbrt's wall over our mean; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
 column -t -s $'\t' "$TABLE"

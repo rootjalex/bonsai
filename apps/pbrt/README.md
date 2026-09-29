@@ -34,7 +34,10 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   schedule on every scene: pbrt's time is the least of its runs, ours the
   mean of ours with the least beside it (`min_s`), each beside its kernel
   time (pbrt's `--stats` profile and our `BONSAI_KERNEL_STATS`, the least
-  of three profiled runs, whose profile is the one kept), every image
+  of three profiled runs, whose profile is the one kept; ours is of the
+  second of two renders in one process, so that the GPU is awake as it is
+  for pbrt's kernels after its prefetch -- a cold process's first hundred
+  milliseconds of kernels run at idle clocks), every image
   checked against pbrt's and written as a PNG whose path the table gives.
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
@@ -44,7 +47,9 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   set. The table's `note` column says how many runs a cell had redone and
   how many it kept disturbed. `--resume` continues a run into the same
   `--out` directory, reusing its binaries and skipping the scenes whose
-  rows are all in the table.
+  rows are all in the table. A file named `PAUSE` in the output directory
+  holds the run between timed runs for as long as it exists, which is how
+  to borrow the machine for a measurement of one's own.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format.
 - `check_hits.sh`, `check_differentials.sh`: per-hit and per-differential
