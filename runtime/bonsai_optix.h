@@ -373,11 +373,18 @@ inline std::vector<std::string> entries_with_prefix(const char *ptx,
 }
 
 // Builds an acceleration structure from `inputs`; returns its handle and
-// leaves its storage in `storage`. The temporary buffer is released.
+// leaves its storage in `storage`. The temporary buffer is released, and
+// the structure is compacted when compaction shrinks it -- built with
+// OPTIX_BUILD_FLAG_ALLOW_COMPACTION, its compacted size read back, and
+// optixAccelCompact run into a buffer of that size, as pbrt's
+// OptiXAggregate::buildBVH does for every structure it builds. A compacted
+// structure is a smaller one to stream through the caches during traversal,
+// which is where a large scene's trace spends its time.
 inline OptixTraversableHandle build(Api &a, const std::vector<OptixBuildInput> &inputs,
                                     CUdeviceptr *storage, const char *what) {
     OptixAccelBuildOptions options = {};
-    options.buildFlags = OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+    options.buildFlags =
+        OPTIX_BUILD_FLAG_PREFER_FAST_TRACE | OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
     options.operation = OPTIX_BUILD_OPERATION_BUILD;
     OptixAccelBufferSizes sizes = {};
     check(a,
@@ -392,19 +399,47 @@ inline OptixTraversableHandle build(Api &a, const std::vector<OptixBuildInput> &
         round_up(reinterpret_cast<CUdeviceptr>(temp), 128);
     const CUdeviceptr output_aligned =
         round_up(reinterpret_cast<CUdeviceptr>(output), 128);
+    // Where the build writes the compacted size (8 bytes, 8-aligned).
+    void *compacted_size = bonsai_cuda_malloc(sizeof(uint64_t));
+    OptixAccelEmitDesc emitted = {};
+    emitted.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
+    emitted.result = reinterpret_cast<CUdeviceptr>(compacted_size);
     OptixTraversableHandle handle = 0;
     check(a,
           a.table.optixAccelBuild(a.context, /*stream=*/nullptr, &options,
                                   inputs.data(), unsigned(inputs.size()),
                                   temp_aligned, sizes.tempSizeInBytes,
                                   output_aligned, sizes.outputSizeInBytes,
-                                  &handle, nullptr, 0),
+                                  &handle, &emitted, 1),
           std::string("optixAccelBuild for ") + what);
     bonsai_cuda_detail::Driver &d = bonsai_cuda_detail::driver();
     bonsai_cuda_detail::check(d, d.cuCtxSynchronize(),
                               std::string("cuCtxSynchronize after building ") +
                                   what);
     bonsai_cuda_free(temp);
+    uint64_t compacted_bytes = 0;
+    bonsai_cuda_copy_to_host(&compacted_bytes, compacted_size, sizeof(compacted_bytes));
+    bonsai_cuda_free(compacted_size);
+    if (compacted_bytes < sizes.outputSizeInBytes) {
+        void *compacted = bonsai_cuda_malloc(round_up(compacted_bytes, 128) + 128);
+        const CUdeviceptr compacted_aligned =
+            round_up(reinterpret_cast<CUdeviceptr>(compacted), 128);
+        check(a,
+              a.table.optixAccelCompact(a.context, /*stream=*/nullptr, handle,
+                                        compacted_aligned, compacted_bytes,
+                                        &handle),
+              std::string("optixAccelCompact for ") + what);
+        bonsai_cuda_detail::check(
+            d, d.cuCtxSynchronize(),
+            std::string("cuCtxSynchronize after compacting ") + what);
+        bonsai_cuda_free(output);
+        output = compacted;
+    }
+    if (validating()) {
+        std::fprintf(stderr, "bonsai_optix: built %s: %zu bytes, compacted to %llu\n",
+                     what, sizes.outputSizeInBytes,
+                     static_cast<unsigned long long>(compacted_bytes));
+    }
     *storage = reinterpret_cast<CUdeviceptr>(output);
     return handle;
 }
@@ -690,9 +725,16 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
     // into: whether the hardware runs the any-hit programs over it, which is
     // the input's word (bonsai_optix_triangles::any_hit).
     std::vector<unsigned> flags(static_cast<size_t>(triangle_inputs + box_inputs));
+    // BONSAI_OPTIX_ANYHIT=always keeps the any-hit programs on over every
+    // input, whatever the inputs say: for measuring what disabling them is
+    // worth on a scene, and nothing else.
+    static const bool always_anyhit = [] {
+        const char *v = std::getenv("BONSAI_OPTIX_ANYHIT");
+        return v != nullptr && std::strcmp(v, "always") == 0;
+    }();
     const auto flags_of = [](bool any_hit) -> unsigned {
-        return any_hit ? OPTIX_GEOMETRY_FLAG_NONE
-                       : OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
+        return any_hit || always_anyhit ? OPTIX_GEOMETRY_FLAG_NONE
+                                        : OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
     };
     for (int64_t i = 0; i < triangle_inputs; i++) {
         const bonsai_optix_triangles &t = triangles[i];

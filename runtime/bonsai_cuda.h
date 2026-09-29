@@ -108,6 +108,11 @@ uint64_t bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
                                     const float *const *texels, int32_t wrap,
                                     int32_t max_anisotropy);
 void bonsai_cuda_texture_destroy(uint64_t texture);
+// Forgets the kernel profile gathered so far (BONSAI_KERNEL_STATS), so that
+// what is printed at exit is the profile of what runs after this call: a
+// driver that renders more than once calls it before each render, and the
+// profile is the last render's.
+void bonsai_kernel_stats_reset();
 }
 
 // The few entry points of the CUDA driver API this uses, declared here
@@ -538,6 +543,10 @@ bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes) {
           d.cuMemcpyDtoH(host, reinterpret_cast<CUdeviceptr>(device),
                          size_t(bytes)),
           "cuMemcpyDtoH(" + std::to_string(bytes) + ")");
+}
+
+__attribute__((used)) inline void bonsai_kernel_stats_reset() {
+    bonsai_cuda_detail::kernel_stats().entries.clear();
 }
 
 __attribute__((used)) inline uint64_t

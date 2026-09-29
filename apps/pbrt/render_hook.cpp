@@ -2387,6 +2387,13 @@ int main(int argc, char **argv) {
         // --no-implicit-copies is a fault rather than a copy.
         bonsai_buffer_stage_all(render_buffers, render_sides,
                                 render_buffer_count);
+        // The kernel profile (BONSAI_KERNEL_STATS) is of the last repeat
+        // alone. A process starts with the GPU in its idle power state, and
+        // the first hundred-odd milliseconds of its kernels run at a
+        // fraction of the clock; pbrt's first kernels do not, because its
+        // prefetch of every allocation runs ahead of them. With two repeats
+        // the profile is of a render whose GPU is awake, as pbrt's is.
+        bonsai_kernel_stats_reset();
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
