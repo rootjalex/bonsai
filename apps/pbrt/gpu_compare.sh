@@ -5,26 +5,25 @@
 #     apps/pbrt/gpu_compare.sh [--spp N] [--repeats N] [--out DIR] [--resume]
 #                              [--schedules "a b c"] [--scenes "d/s ..."]
 #
-# For each scene, pbrt --gpu is run REPEATS times and its own render timer is
-# read from the image it writes; the least of them is pbrt's time. Each
-# schedule is compiled once, then run REPEATS times as separate processes
-# (each a cold start, as pbrt's is) and the mean of the driver's timer is
-# ours, with the least beside it (`min_s`: the number that survives a run
-# that shared the machine). Beside each time is the kernel time: pbrt's from
-# `--stats` (its "Wavefront Kernel Profile"), ours from BONSAI_KERNEL_STATS
-# (runtime/bonsai_cuda.h) -- the device's busy time, apart from whatever
-# either side's timer counts around it (pbrt's timer includes its memory
-# prefetch and first launches, some sixty milliseconds on this machine; ours
-# includes the host's launch gaps) -- each the least of REPEATS profiled
-# runs, whose profile is the one kept. Our profile is of the second of two
-# renders in one process: a process starts with the GPU in its idle power
-# state and the first hundred-odd milliseconds of kernels run at a fraction
-# of the clock, which pbrt's kernels escape because its prefetch of every
-# allocation runs ahead of them; the second render's GPU is awake as pbrt's
-# is, and the two profiles measure the same thing. (The wall times stay
-# cold: every timed run is its own process, on both sides.) Every image is
-# checked against pbrt's as compare.sh checks it, converted to a PNG, and
-# the table says where each is.
+# A number is never one run's. For each scene, pbrt --gpu is run REPEATS
+# times as separate processes (it cannot repeat a render in one) and its own
+# render timer is read from the image it writes; the least of them is pbrt's
+# time. Each schedule is compiled once and run as one process that renders
+# REPEATS times (BONSAI_REPEATS), and the least of the driver's timer is
+# ours. The first render is the warm-up, and it absorbs what is not the
+# renderer's speed: module loading, OptiX finishing its pipelines, and the
+# GPU's climb from the idle clocks every process starts at (180 MHz on this
+# machine; the first hundred-odd milliseconds of a cold process's kernels
+# run at a fraction of speed), which pbrt's timed render escapes because its
+# prefetch of every allocation runs ahead of its first kernel. Beside each
+# time is the kernel time: pbrt's from `--stats` (its "Wavefront Kernel
+# Profile"), ours from BONSAI_KERNEL_STATS (runtime/bonsai_cuda.h) of the
+# last of REPEATS renders in one process -- the device's busy time, apart
+# from whatever either side's timer counts around it (pbrt's timer includes
+# its prefetch and first launches, some sixty milliseconds on this machine;
+# ours includes the host's launch gaps). Every image is checked against
+# pbrt's as compare.sh checks it, converted to a PNG, and the table says
+# where each is.
 #
 # The machine is checked idle before every timed run, and watched during it:
 # another process on the GPU, or someone else's process at the top of the
@@ -144,12 +143,7 @@ idle_check() {
 pbrt_seconds_of() {
   "$IMGTOOL" info "$1" 2>/dev/null | sed -n 's/.*(total \([0-9.]*\)s).*/\1/p' | head -1
 }
-mean() { awk '{ s += $1; n++ } END { if (n) printf "%.4f", s / n }'; }
 min() { sort -g | head -1; }
-# The largest of a list over the least: how far apart cold runs of one
-# binary came out. The same binary on an idle machine repeats to a few
-# percent; a run that shared the machine with something else is far off.
-spread() { sort -g | awk 'NR == 1 { lo = $1 } { hi = $1 } END { if (lo > 0) printf "%.2f", hi / lo }'; }
 
 # Runs a command while watching the machine: anything else on the GPU
 # (nvidia-smi's list of compute processes, sampled every half second) or
@@ -196,22 +190,17 @@ timed_run() {
   done
   return $rc
 }
-# A profiled run REPEATS times, watched, keeping the profile whose total is
-# the least: a run that shared the machine reads high, and the device's
-# busy time has no mean worth taking. The command writes its profile to
-# `$1.try`; `$2` is the command; `$3` a pipeline reading the total off the
-# profile. Leaves the least profile at `$1` and its total in LEAST.
-least_profile() {
-  local file="$1" cmd="$2" extract="$3" k
-  LEAST=""
-  for _ in $(seq "$REPEATS"); do
-    timed_run "$cmd" || true
-    k=$(eval "$extract" < "$file.try" 2>/dev/null || true)
-    if [[ -n "$k" ]] && { [[ -z "$LEAST" ]] || awk -v a="$k" -v b="$LEAST" 'BEGIN { exit !(a < b) }'; }; then
-      LEAST="$k"; mv "$file.try" "$file"
-    fi
-  done
-  rm -f "$file.try"
+# A profiled run, watched. The command (`$2`) writes its profile to `$1.try`,
+# which becomes `$1`; `$3` is a pipeline reading the total off the profile,
+# left in PROFILE (empty when the run wrote none).
+profile_run() {
+  local file="$1" cmd="$2" extract="$3"
+  PROFILE=""
+  timed_run "$cmd" || true
+  if [[ -f "$file.try" ]]; then
+    PROFILE=$(eval "$extract" < "$file.try" 2>/dev/null || true)
+    mv "$file.try" "$file"
+  fi
 }
 # What the counters say of a side's runs, for the table's note column.
 note_of() {
@@ -243,7 +232,7 @@ TAB=$'\t'
 if [[ "$RESUME" -eq 1 && -f "$TABLE" ]]; then
   echo "resuming $TABLE: a scene with every row is skipped, one begun is redone"
 else
-  printf 'scene\tspp\tside\twall_s\tmin_s\tkernel_ms\tspeedup\tagree\tverdict\tnote\timage\n' > "$TABLE"
+  printf 'scene\tspp\tside\twall_s\tkernel_ms\tspeedup\tagree\tverdict\tnote\timage\n' > "$TABLE"
 fi
 for sc in $SCENES; do
   name=$(basename "$sc"); dir="$SCENES_DIR/$(dirname "$sc")"
@@ -272,45 +261,36 @@ for sc in $SCENES; do
   pbrt_wall=$(echo $pbrt_secs | tr ' ' '\n' | min)
   idle_check
   (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
-  least_profile "$cell.pbrt.stats" \
+  profile_run "$cell.pbrt.stats" \
     "(cd '$dir' && '$PBRT' --gpu --stats --spp '$SPP' --outfile '$cell.pbrt-stats.exr' '$name.pbrt' > '$cell.pbrt.stats.try' 2>&1)" \
     "grep 'Total rendering time' | awk '{print \$4}'"
-  pbrt_kernel="$LEAST"
+  pbrt_kernel="$PROFILE"
   python3 $PREFIX/to_png.py "$cell.pbrt-radiance.pfm" "$cell.pbrt.png" > /dev/null
-  printf '%s\t%s\tpbrt --gpu\t%s\t%s\t%s\t1.00x\t-\t-\t%s\t%s\n' "$name" "$SPP" "$pbrt_wall" "$pbrt_wall" "$pbrt_kernel" "$(note_of)" "$cell.pbrt.png" | tee -a "$TABLE"
-  # Ours: each schedule REPEATS times as its own process (the mean), and once
-  # more with the kernel profile on. The mean is only as good as its worst
-  # run, so a set whose runs came out more than a quarter apart is redone
-  # (twice at most): something ran alongside that the watch did not catch.
+  printf '%s\t%s\tpbrt --gpu\t%s\t%s\t1.00x\t-\t-\t%s\t%s\n' "$name" "$SPP" "$pbrt_wall" "$pbrt_kernel" "$(note_of)" "$cell.pbrt.png" | tee -a "$TABLE"
+  # Ours: each schedule as one process rendering REPEATS times, the least of
+  # them (the first is the warm-up), and once more with the kernel profile
+  # on, which is of the last render.
   for s in $SCHEDULES; do
     REDONE=0; KEPT_DISTURBED=0
-    for set_attempt in 1 2 3; do
-      secs=""
-      for _ in $(seq "$REPEATS"); do
-        timed_run "BONSAI_REPEATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.log' 2>&1" ||
-          { echo "$s failed on $name: see $cell.$s.log" >&2; break; }
-        secs="$secs $(sed -n 's/^render seconds: //p' "$cell.$s.log")"
-      done
-      set_spread=$(echo $secs | tr ' ' '\n' | spread)
-      if awk -v x="${set_spread:-1}" 'BEGIN { exit !(x <= 1.25) }' || [[ "$set_attempt" -eq 3 ]]; then break; fi
-      echo "the $REPEATS runs of $s came out $set_spread apart ($secs); redoing the set" >&2
-      REDONE=$((REDONE + REPEATS))
-    done
-    wall=$(echo $secs | tr ' ' '\n' | mean)
-    wall_min=$(echo $secs | tr ' ' '\n' | min)
-    least_profile "$cell.$s.stats" \
-      "BONSAI_REPEATS=2 BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
+    wall=""
+    if timed_run "BONSAI_REPEATS=$REPEATS '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.log' 2>&1"; then
+      wall=$(sed -n 's/^render seconds: //p' "$cell.$s.log" | head -1)
+    else
+      echo "$s failed on $name: see $cell.$s.log" >&2
+    fi
+    profile_run "$cell.$s.stats" \
+      "BONSAI_REPEATS=$REPEATS BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
       "sed -n 's/.*total kernel time *\([0-9.]*\) ms.*/\1/p' | head -1"
-    kernel="$LEAST"
+    kernel="$PROFILE"
     cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
           --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare")
     agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
     verdict=$(echo "$cmp" | grep -E '^ok|mismatch|differ' | head -1 | cut -c1-40)
     python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${wall_min:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" | tee -a "$TABLE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" | tee -a "$TABLE"
   done
 done
 echo
-echo "table: $TABLE (wall in seconds -- pbrt's the least of $REPEATS, ours the mean of $REPEATS cold runs with the least beside it; kernel time in ms, the least of $REPEATS profiled runs, ours of a second render in the process so that the GPU is awake as it is for pbrt's kernels; speedup is pbrt's wall over our mean; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
+echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the last render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
 column -t -s $'\t' "$TABLE"

@@ -31,14 +31,13 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   pick which pbrt to compare against.
 - `gpu_compare.sh [--spp N] [--repeats N] [--schedules "..."] [--scenes "..."]
   [--out DIR] [--resume]`: the GPU table. pbrt `--gpu` and every GPU
-  schedule on every scene: pbrt's time is the least of its runs, ours the
-  mean of ours with the least beside it (`min_s`), each beside its kernel
-  time (pbrt's `--stats` profile and our `BONSAI_KERNEL_STATS`, the least
-  of three profiled runs, whose profile is the one kept; ours is of the
-  second of two renders in one process, so that the GPU is awake as it is
-  for pbrt's kernels after its prefetch -- a cold process's first hundred
-  milliseconds of kernels run at idle clocks), every image
-  checked against pbrt's and written as a PNG whose path the table gives.
+  schedule on every scene, no number ever one run's: pbrt's time is the
+  least of three processes, ours the least of three renders in one process
+  (the first is the warm-up, absorbing module loading and the GPU's climb
+  from the idle clocks every process starts at), each beside its kernel
+  time (pbrt's `--stats` profile; our `BONSAI_KERNEL_STATS` profile of the
+  last of the three renders), every image checked against pbrt's and
+  written as a PNG whose path the table gives.
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
   watched while it runs (anything else on the GPU, or another user's
