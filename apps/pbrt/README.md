@@ -49,6 +49,10 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   rows are all in the table. A file named `PAUSE` in the output directory
   holds the run between timed runs for as long as it exists, which is how
   to borrow the machine for a measurement of one's own.
+- `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
+  wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
+  side's kernel time, a group of bars per scene and a row of panels per
+  table (sample count); a bar whose image did not match pbrt's is hatched.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format.
 - `check_hits.sh`, `check_differentials.sh`: per-hit and per-differential

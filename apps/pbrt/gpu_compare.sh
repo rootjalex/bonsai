@@ -260,7 +260,17 @@ for sc in $SCENES; do
   done
   pbrt_wall=$(echo $pbrt_secs | tr ' ' '\n' | min)
   idle_check
-  (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
+  # pbrt's radiance as full floats for the comparison: a PFM straight from an
+  # `rgb` film, and from a `gbuffer` film -- which writes EXR and nothing
+  # else -- the R, G, B channels of its EXR, pulled out by imgtool as
+  # compare.sh pulls them.
+  film=$(sed -n 's/^[[:space:]]*Film[[:space:]]*"\([a-z]*\)".*/\1/p' "$dir/$name.pbrt" | head -1)
+  if [[ "$film" == "gbuffer" ]]; then
+    (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.exr" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
+    "$IMGTOOL" convert --channels R,G,B --outfile "$cell.pbrt-radiance.pfm" "$cell.pbrt-radiance.exr" > /dev/null
+  else
+    (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
+  fi
   profile_run "$cell.pbrt.stats" \
     "(cd '$dir' && '$PBRT' --gpu --stats --spp '$SPP' --outfile '$cell.pbrt-stats.exr' '$name.pbrt' > '$cell.pbrt.stats.try' 2>&1)" \
     "grep 'Total rendering time' | awk '{print \$4}'"
@@ -282,10 +292,14 @@ for sc in $SCENES; do
       "BONSAI_REPEATS=$REPEATS BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
       "sed -n 's/.*total kernel time *\([0-9.]*\) ms.*/\1/p' | head -1"
     kernel="$PROFILE"
+    # (`|| true`: a FAILED verdict is an exit status, and a row of the table
+    # rather than the end of the run.)
     cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
-          --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare")
+          --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
     agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
-    verdict=$(echo "$cmp" | grep -E '^ok|mismatch|differ' | head -1 | cut -c1-40)
+    # The verdict line, `ok: ...` or `FAILED: ...` (`|| true`: a grep that
+    # matches nothing is an exit status, and must not end the run).
+    verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-60 || true)
     python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" | tee -a "$TABLE"
