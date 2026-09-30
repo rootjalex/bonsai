@@ -7250,11 +7250,13 @@ where we are faster: the material kernels (178 against 244 ms -- ours read
 a smaller work item and generate their own sample dimensions where pbrt
 runs a separate GenerateRaySamples kernel, another 47 ms) and the film. Third,
 where we are slower: the tracing kernels (357 against 273 ms), because our
-raygen program carries the work after the hit -- the medium sampling, the
-routing to the queues -- where pbrt's raygen only records the hit and
-pushes, because our shadow rays run a closest-hit program where pbrt
-disables it, and because our any-hit program runs at every hit where pbrt
-turns it off for meshes with no alpha texture. And fourth, the launch shape
+shadow rays run a closest-hit program where pbrt disables it, and because
+our any-hit program runs at every hit where pbrt turns it off for meshes
+with no alpha texture. (This paragraph first also blamed our raygen for
+carrying the routing after the hit "where pbrt's raygen only records the
+hit and pushes"; that was wrong -- pbrt routes in its closest-hit program,
+in the same launch -- and is corrected in "The three questions of
+2026-09-27" below.) And fourth, the launch shape
 (next paragraph): 163 ms of the 726 are the GPU waiting for the host.
 Nsight Systems slows our OptiX launches by 15-40% while it watches, so the
 split above is indicative and the totals are from unprofiled runs.
@@ -7478,6 +7480,432 @@ round loop running a fixed `max_depth + 1` times. Both are Halide-style
 `bound` promises on a loop (an extent the loop is launched over; a trip
 count the loop is given), and neither is a new primitive so much as a
 widening of what a loop's bounds may be told. Not built until asked.
+
+**The three questions of 2026-09-27, and the shadow rays fixed.** The
+user asked, of the profile above: what schedule would induce the fuller
+reordering; why our raygen carries the routing after the hit when pbrt's
+does not, and whether that is the schedule or the code generation; and
+the same of the shadow rays, where pbrt runs no closest-hit program and
+we did ("the shadow ray one, at least, sounds like a code generation
+issue"). The launch shape is set aside for now ("a small runtime
+difference ... maybe measure on tougher scenes later"), and five heavier
+scenes join the table.
+
+*(1) The schedule for the fuller reordering.* OptiX's reordering comes
+in two forms. The one built is the key-only form: after the trace has
+returned, `optixReorder(hint, bits)` gathers the launch's threads by a
+key the program computed -- our `f.sort(g, |args| key)`, the hint placed
+before the stage `g`. The fuller form takes the trace apart:
+`optixTraverse` finds the hit but runs no program for it; `optixReorder`
+gathers the threads by *what they hit* -- the hit object: which instance,
+which geometry, which record of the shader table, all of which the
+hardware knows at that point -- with an optional hint of the program's
+beside it; `optixInvoke` then runs the closest-hit program, and everything
+after it runs in the new order. The schedule that would ask for it is the
+same directive written on the query's call rather than on a later stage:
+`render.sort(trace)` in the megakernel -- a sort on the call of a query
+bound to RTCore, with no key, meaning "by the hit" -- and
+`render.sort(trace, |q : RaySegment| ...)` to add a hint computed from
+the query's arguments. What it would mean in the lowering: `rt_trace`
+becomes `rt_traverse`, then `rt_reorder`, then `rt_invoke` (Lower/
+Trees.cpp's build_rtcore emitting three intrinsics where it emits one,
+CodeGen_OptiX mapping them to `_optix_hitobject_traverse`, `_optix_
+hitobject_reorder` and `_optix_hitobject_invoke`). It composes with the
+material sort already built: `render.sort(trace)` gathers by the surface
+hit, `vol_route.sort(vol_surface, |prim| materials[...])` by the material
+about to run, and a program may write both. This is a widening of `sort`
+-- a call with no key, and a directive that changes how the trace itself
+is emitted -- so it is proposed here and not built.
+
+*(2) The routing after the hit: the earlier reading was wrong.* Context:
+when the hardware has found a ray's closest hit, the wavefront turns the
+hit into the next piece of work -- a medium-sampling item if the ray was
+in a medium, a material item otherwise, and an "escaped" item on a miss.
+The profile paragraph above said pbrt's raygen only records the hit and
+pushes, and that ours carries this routing after the trace. pbrt does
+route in the trace launch: its `__closesthit__triangle` calls
+`ProcessClosestIntersection`, which calls `EnqueueWorkAfterIntersection`
+(wavefront/intersect.h), and that is where the medium and material queues
+are pushed -- inside the closest-hit program, which runs as part of the
+same `optixLaunch` as the raygen. Ours does the same work in the same
+launch, one step later: the closest-hit program records which element was
+hit into the context the raygen handed it, `rt_trace` returns, and the
+raygen routes. So the trace kernel does the same work on both sides, and
+the question of whether it is the schedule or the code generation has no
+subject: neither is at fault. The numbers agree. Each side's own event
+timer around its own kernels, in the cold process the table times, at 16
+spp (pbrt's "Trace closest hit rays" against our `__raygen__rays`, in
+milliseconds): killeroo-simple 17.6 against 13.7, killeroo-gold 49.7
+against 51.2, book 55.9 against 39.3 -- level or ahead. On ganesha, one
+mesh of 4.3 million triangles, 51.3 against 98.5: twice as slow, and
+that is not routing (ganesha routes no more than book) but the any-hit
+program, (3b) below, which ran at every candidate hit of a traversal that
+has many more of them.
+
+*(3) The shadow rays: code generation, now fixed.* Context: a shadow ray
+asks whether anything at all lies between a surface point and the light;
+the program writes it as `trace_any`, `any(filter(...))` over the scene,
+and the RT cores answer it as a trace with the filter as hit programs.
+Three things differed from pbrt.
+
+(a) *The closest-hit program.* Before: our `any` lowering gave the query
+a closest-hit program that stored `true` into the ray's context, and
+traced with OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT. pbrt's shadow rays
+(`__raygen__shadow`) trace with flags NONE into a hit group that has no
+closest-hit program at all, and `__miss__shadow` sets a payload bit; so
+pbrt still traverses to the closest hit but runs nothing there. Now
+(Lower/Trees.cpp, build_rtcore): the `any` query's context starts out
+`true`; the ray carries TERMINATE_ON_FIRST_HIT and
+OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT (flags 12); no closest-hit program is
+generated for it, and the runtime builds a hit group without one
+(runtime/bonsai_optix.h, `has_closesthit`); the miss program stores
+`false`. That is pbrt's shape with the traversal also stopped at the
+first accepted hit, which is what `any` asks and strictly less work than
+pbrt's closest-hit traversal.
+
+(b) *The any-hit program.* The rest of the filter -- pbrt's alpha test,
+`alpha_accepts` -- runs as the any-hit program at every candidate hit the
+traversal meets, on both queries. pbrt runs its equivalent
+(`__anyhit__shadowTriangle`, `alphaKilled`) only on meshes that have an
+alpha texture: `getOptixGeometryFlags` builds every other mesh, and every
+non-triangle shape, with OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT, and a ray
+through such geometry runs no program at all. Ours ran the program at
+every candidate hit of every mesh. The fact is the filter's, so the
+compiler now derives it: for each RT-core query with an any-hit program
+it exports `<query>_anyhit_matters(element) -> bool` (Trees.cpp,
+add_anyhit_matters), true when the program could reject a hit on that
+element. The derivation is syntactic and sound: a conjunct of the filter
+is certainly true of an element, whatever the ray, when it is a call
+whose body opens with `if <condition of the element alone> { return
+true; }` and that condition holds -- `alpha_accepts` opens with `if
+p.alpha < 0 { return true; }`, so the exported function is `!(g.alpha <
+0)` -- or when the conjunct reads nothing but the element; where the
+derivation finds no such condition, the function says `true` for every
+element and the program runs as before (rtcore-tlas's `distmin > near`,
+which needs the ray). The driver asks it of every element of a build
+input and builds the input with the any-hit programs disabled when no
+element's hit can be rejected (render_hook.cpp `any_hit_over`;
+bonsai_optix_triangles::any_hit). This is pbrt's rule exactly for pbrt's
+program -- a mesh with no alpha texture -- read off the program rather
+than written into the driver.
+
+(c) *One shadow raygen where pbrt has two.* pbrt compiles
+`__raygen__shadow` for scenes without media and `__raygen__shadow_Tr`
+(the transmittance walk) for scenes with, and launches one or the other
+by `haveMedia`. Ours is one raygen with `have_media` a runtime bool and
+both paths compiled in; the medium path's registers are paid for on
+every scene. That one is the schedule's: a `specialize` on a bool
+parameter of the shadow stage would give pbrt's two programs, and it is
+a widening of `specialize` (today it takes an ADT parameter), so it is
+asked for below rather than built, and only if the numbers after (a) and
+(b) still want it.
+
+Tests: lower/rtcore-any (the lowered programs: flags 12, no closest-hit
+program for the `any`, the miss storing `false`, the exported predicate
+`!(_rt_e0.alpha < 0f)`), backends/ptx/rtcore-any (the OptiX module),
+correctness/gpu/rtcore-alpha (two triangles, one with an alpha cutout
+and one opaque, on the hardware: the predicate says yes for the cutout
+and no for the opaque one, the opaque input is built with the programs
+disabled, and a ray through the cutout reaches the triangle behind).
+
+The shadow raygen before the fix, same method as (2) (pbrt's "Trace
+shadow rays" against our `__raygen__shadow`, 16 spp, ms): killeroo-simple
+4.96 against 4.80, killeroo-gold 10.8 against 9.4, book 13.5 against
+9.75, ganesha 9.7 against 71.7. On the three scenes the table was built
+on, then, the shadow rays were level or ahead in this measure at 16 spp
+(the 1.5-2x behind quoted in conversation was read off 64-spp profiles,
+a different measurement; the 64-spp table below is the one to hold both
+to); ganesha is where the two defects cost, seven times pbrt's shadow
+time, and it is a plain mesh with a `coateddiffuse` material -- the case
+pbrt's flag is for.
+
+*(4) What the first table after the fix said, and what it turned out to
+mean.* On ganesha at 16 spp the fix moved the shadow raygen from 71.7 to
+7.8 ms -- and the closest-hit raygen from 98.5 to 163.9 ms, the total
+unchanged to a millisecond. The user asked that this not be taken for
+noise from the datalog benchmarks that share the machine, so it was run
+down with the old and new binaries alternately, with a switch in the
+runtime that keeps the any-hit programs on whatever the inputs say
+(`BONSAI_OPTIX_ANYHIT=always`, for exactly this measurement), under
+Nsight Systems for the GPU's own duration of every launch, and under
+Nsight Compute for one launch replayed in isolation. Four findings, in
+plain terms.
+
+First, it is not noise: the same pattern came out of eight runs across
+two builds, with other processes seen on the GPU during some runs and
+not others, and the replayed launch agreed with the timeline.
+
+Second, it is not the any-hit flag either. Splitting the timeline by
+band -- the wavefront renders the frame in 32 bands of scanlines, each a
+run of rounds -- bands 3 to 32 cost the same in both modes: the
+closest-hit raygen 34.2 ms with the programs disabled against 33.1 with
+them on, the shadow raygen 5.6 against 6.1. The whole difference between
+the modes is in band 1, where the first launch of a kind costs 50 to 70
+ms -- fifty to a hundred times what the same launch costs in band 3 --
+and *which* launch pays depends on what runs first: with the programs
+on, the first shadow launch (68 ms); with them off, the second
+closest-hit launch (59 ms).
+
+Third, what that one-time cost is: the GPU's idle power state. A process
+starts with the GPU at 180 MHz on the cores and 405 MHz on the memory
+(P8, read off nvidia-smi before each run), and it takes roughly the
+first 130 ms of GPU work to climb to its 2.4 GHz. Eager CUDA module
+loading (`CUDA_MODULE_LOADING=EAGER`) changes nothing, so it is not lazy
+loading of code. The same render done twice in one process shows the
+awake cost directly: ganesha at 16 spp, the second render's kernels take
+108 ms against 269 for the first, its closest-hit raygen 23 ms against
+185, and its wall 0.158 s against 0.285 -- against pbrt's 188 ms of
+kernels, 51 ms of closest-hit trace and 0.23 s of wall. Awake, our
+tracing is not behind pbrt's on this scene; it is ahead, the closest-hit
+trace by 2.2x and the shadow trace by 1.3x (7.6 against 9.7 ms). pbrt's
+kernels do not pay the climb because its `PrefetchGPUAllocations` -- a
+sustained copy of every managed allocation to the device, inside its
+render timer -- runs ahead of its first kernel and carries the GPU up;
+its profile's first launches are no slower than its last (its camera-ray
+kernel: 0.318 ms least, 0.331 most, over 32 launches). Ours pays it in
+the first launches, because the 50 ms of buffer uploads before our timer
+are a run of short copies rather than one sustained transfer, and the
+scene's unpacking before them is 600 ms of host work during which the
+GPU has gone back to sleep.
+
+Fourth, the consequence for the table, and the user's rule. The table
+had compared pbrt's awake kernels with our cold ones, which on a small
+scene costs us a few milliseconds and on ganesha 130 of 248, and the
+investigation itself had quoted single runs. The user: "You should NEVER
+report results as just one run. Benchmarking should, at the very least,
+be the minimum of 3 runs. This implicitly has a warmup run to get rid of
+crap like this, or PTX JIT overheads and such ... for now, min of 3 runs
+in the same process is good enough." So `gpu_compare.sh` now times each
+schedule as one process rendering three times (`BONSAI_REPEATS=3`, the
+driver reporting the least), the first render the warm-up that absorbs
+the climb; pbrt, which cannot repeat a render in one process, stays the
+least of three processes; and our kernel profile is of the last of the
+three renders (the driver calls `bonsai_kernel_stats_reset()` before
+each), which measures what pbrt's profile measures: kernels with the GPU
+awake. The climb itself remains a real cost of a cold process that pbrt
+does not pay -- on ganesha at 16 spp, 0.285 s for the first render
+against 0.158 for the second -- and closing it is a question of what the
+process does before its timer, the launch shape the user set aside (a run
+of asynchronous launches is a sustained load that would carry the GPU up
+as pbrt's prefetch does), and pbrt's own choice to prefetch inside its
+timer; it is left for the launch-shape measurement the user asked for on
+heavier scenes.
+
+Also from this round: the acceleration structures are now compacted
+(`OPTIX_BUILD_FLAG_ALLOW_COMPACTION`, the compacted size read back,
+`optixAccelCompact` into a buffer of that size -- pbrt's buildBVH does
+the same for every structure). Ganesha's geometry goes from 268 MB to 77
+MB. It changed no timing on this machine -- the traversal is not
+limited by the structure's size here -- and is kept because it is what
+pbrt builds and a third of the memory.
+
+**The eight-scene table (2026-09-29), and where the matching schedule
+loses.** The user: "inspect (via profiling) the places where our
+matching schedule is slower than PBRT: give me reasons why, and a plan
+for how to fix them. Our schedule should match, and our codegen should
+be better, so we need to seriously investigate any losses." The table
+below is `gpu_compare.sh` on the eight scenes under the rules set that
+day: every number the least of three (pbrt's of three processes, ours
+of three renders in one process, the first the warm-up), every run
+watched and redone if anything else ran on the machine, every image
+checked. Plot: `apps/pbrt/plot_gpu_table.py` over the two tables, at
+`apps/pbrt/compare-out-gpu-plot.png`; images per cell under
+`apps/pbrt/compare-out-gpu{16,64}/`.
+
+    speedup of gpu-optix (pbrt's wavefront on the RT cores) over pbrt --gpu, wall
+    scene                 16 spp   64 spp     image
+    killeroo-simple       2.17x    1.47x      ok
+    killeroo-gold         1.77x    1.35x      ok
+    book                  1.74x    1.01x      ok
+    ganesha               1.49x    1.42x      ok
+    pavilion-day          0.66x    0.68x      16: FAILED lit-pixel count (below); 64: ok
+    zero-day frame25      1.70x    1.22x      ok
+    lte-orb-simple-ball   0.69x    0.62x      ok   (after the fix below: 1.24x at 64)
+    landscape view-0      1.12x    0.97x      ok
+
+The megakernel (gpu-optix-mega) is behind on every cell, 0.24x-1.03x;
+with the material reordering (gpu-optix-mega-ser) it is level or ahead
+only on the three small scenes at 16 spp (1.81x, 1.21x, 1.03x).
+
+*Where the time goes, kernel by kernel (64 spp, ms, ours / pbrt's).*
+Our tracing kernels are pbrt's `__raygen__findClosest` and
+`__raygen__shadow`; "materials" is every material kernel summed;
+"camera+samples+film" is pbrt's GenerateCameraRays, GenerateRaySamples
+and UpdateFilm against our per-pixel kernel and film pass.
+
+    scene           trace          shadow        materials       camera+samples+film
+    killeroo-simple   39 /   71     14 /   20      65 /   80       15 /  32
+    killeroo-gold    127 /  196     37 /   43     145 /  270       42 /  81
+    book             237 /  218    112 /   52     185 /  247       60 / 103
+    ganesha          147 /  202     30 /   39     221 /  339       60 / 101
+    pavilion-day     186 /  222     83 /   73     484 /  356       41 /  76
+    frame25          163 /  256     37 /   48     428 /  603       48 /  84
+    lte-orb          113 /  171     37 /   44    1364 /  522       49 / 117
+    landscape       1703 / 1714    869 /  968    1299 / 1126      237 / 368
+
+Reading it: the tracing kernels are ahead of pbrt's everywhere but
+book (trace +9%, shadow 2.2x -- see the measurement note below), the
+per-pixel and film kernels are ahead everywhere (we draw the sampler's
+dimensions inside the kernels that use them and have no GenerateRaySamples
+kernel), and every loss is in the material kernels of three scenes, plus
+the host's launch gaps on the heaviest. Each loss, with its reason and
+its fix:
+
+1. *The measured BSDF (lte-orb: 1289 ms against pbrt's 400; pavilion-
+   day's MeasuredMaterial: 191 against 66).* Context: pbrt's
+   MeasuredBxDF evaluates a measured material from tables in the
+   `.bsdf` file -- a 2D distribution of the microfacet normals per
+   incident angle, and a spectrum table of 195 wavelengths -- and finds
+   its way into those tables by searching sorted arrays: which incident
+   angle, which wavelength, which row and column of the distribution.
+   pbrt searches by halving (`FindInterval`, util/math.h), log2(n)
+   steps. Ours, a transcription of the same tables and the same
+   arithmetic (verified table by table: same layout, same call counts
+   per hit, same 4-wavelength evaluation), scanned the arrays from one
+   end: 193 loads to find a wavelength where pbrt makes 8, and 1008
+   loads for a column of the 128-wide distribution where pbrt makes 56.
+   Per hit that was some 4000 table loads against pbrt's 720, six times
+   the traffic. A program defect, in measured.bonsai: the three searches
+   are now pbrt's halving search (the parameter search through
+   sampling.bonsai's `find_interval`, pbrt's FindInterval transcribed;
+   the row and column searches written out with the interpolated lookup
+   as the predicate). lte-orb at 64 spp after the fix: the material
+   kernel 453 ms (was 1289; pbrt 400), the render 0.838 s (was 1.676;
+   pbrt 1.04), 0.62x to 1.24x, image matching. The remaining 13% on that
+   kernel is to be read off a clock-locked profile (item 2's method).
+   The worse case was waiting: `cc_blue_agat_spec.bsdf` (the other
+   lte-orbs, sportscar) has a 512-wide distribution, which would have
+   been 4080 loads a sample.
+
+2. *The textured diffuse materials (landscape: DiffuseTransmission 665
+   against 558, Diffuse 140 against 99; pavilion-day: Diffuse 36 against
+   27, DiffuseTransmission 37 against 29) and the dielectric (pavilion-
+   day: 49 against 27).* On the scenes without image textures (the
+   killeroos, ganesha, book, frame25) the same material kernels are
+   faster than pbrt's; on the two scenes with them they are 20-40%
+   slower, and the dielectric, which pavilion's glass uses with
+   dispersion off, 1.8x. The reason is not yet known: it is being read
+   off Nsight Compute profiles of matched launches (the first launch of
+   each kernel, ours and pbrt's, with the clocks locked to base as ncu
+   does, comparing registers and spills, achieved occupancy, instruction
+   counts, memory throughput and stall reasons) -- the profiles were
+   running as this was written and their reading goes here. The
+   candidates, in order: the texture lookup (our `texture_filter` on a
+   TextureUnit-bound handle against pbrt's `tex2D`; the mip selection
+   and the filter width computed from the approximate differentials),
+   spills under the 128-register cap in a kernel that carries the
+   material's textures, and the dielectric's `sample_f` branch
+   structure.
+
+3. *The host's launch gaps on the heaviest scenes.* On landscape at 64
+   spp our kernels take 4158 ms and the render 4656: 500 ms in which the
+   GPU waits for the host, against pbrt's 134 (4366 of kernels in a
+   4500 render); on book at 64, 127 ms against 86. That is the launch
+   shape the user set aside on 2026-09-27 ("maybe measure on tougher
+   scenes later"): we read each queue's count back to the host and wait
+   after every launch, pbrt launches every kernel over the queue's
+   capacity with the count tested on the device and waits once a band.
+   On the heaviest scene it is now measured at 8% of the render. The
+   fix is the two `bound`-style promises on a loop written up under
+   "To ask the user" below, and it is the user's to decide.
+
+4. *Book's shadow rays at 64 spp, and how reliable a kernel time is.*
+   The table has our shadow raygen at 112 ms against pbrt's 52 on book
+   at 64 spp, where at 16 spp it is 33 against 52 (ours faster, and the
+   per-launch work is the same at both sample counts: a band is one
+   sample of its pixels either way). Three runs of the one binary on the
+   one scene, back to back, gave total kernel times of 446, 717 and 729
+   ms -- the fast one starting from idle clocks, the slow two with
+   another user's GPU job appearing during them (the same run's watch
+   saw it). So a single kernel profile on this machine can be 1.6x off
+   with nothing in the profile to say so, and the book anomaly is not a
+   finding until it repeats under a clean profile. Two things changed to
+   make the profiles trustworthy: the profile printed is now the fastest
+   of the three renders in the process (`bonsai_kernel_stats_render_
+   done`), the same render whose time the table reports, and the
+   matched-launch Nsight Compute profiles of item 2 include book's two
+   raygens on both sides, clocks locked.
+
+5. *pavilion-day at 16 spp: "FAILED: 1199336 pixels received light here
+   against pbrt's 1195831".* The image check bounds how many pixels are
+   lit on one side and not the other at 0.1% of them (compare_gbuffer.py,
+   RADIANCE_LIT_TOLERANCE: a last-bit difference in a shadow ray's
+   direction flips a pixel; observed 6 in 81,000 on a plain scene). On
+   pavilion-day at 16 spp the gap is 0.29%; at 64 spp the same scene
+   passes, and the radiance mean agrees to 0.04%. Pavilion is glass under
+   an environment map, where one differing bit through a dielectric
+   decides whether a path reaches the sky at all, and pbrt's own GPU and
+   CPU renders will differ there too. To be settled by rendering the
+   scene with pbrt's CPU volpath and pbrt --gpu at 16 spp and counting
+   their lit pixels against each other: if pbrt disagrees with itself by
+   as much, the tolerance is too tight for this class of scene; if not,
+   the difference is ours to find.
+
+*The queue entries, against pbrt's work items.* The user asked whether
+we store less in the queues. By the compiler's own account of each entry
+(`BONSAI_EXPLAIN_DEFER`, the leaves it stores), summed with the same
+type sizes as the table of 2026-09-24 above, and pbrt's work items from
+workitems.h:
+
+    queue            ours   pbrt   pbrt's item
+    rays             176    184    RayWorkItem
+    hits (material)  232    252    MaterialEvalWorkItem
+    medium_samples   233    364    MediumSampleWorkItem
+    medium_scatters  108    120    MediumScatterWorkItem
+    escaped          133    164    EscapedRayWorkItem
+    emissive         165    192    HitAreaLightWorkItem
+    shadow           116    124    ShadowRayWorkItem
+
+Yes, less everywhere. The three excesses of the 2026-09-24 table are
+gone: the exact ray differentials (49 B) went when the program took the
+wavefront's `Approximate_dp_dxy` at every hit, and the shadow ray's
+light geometry (36 B) when the transmittance walk took pbrt's re-spawn
+toward `ray(1)`; `ray.tmax` (4 B) stays, and is more than paid for by
+indices where pbrt has pointers, a bit where it has an int, and the
+unread left out.
+
+*The plan, in order.* (1) The measured BSDF's search -- done and
+committed; pavilion-day and lte-orb go back through the table. (2) The
+clock-locked matched profiles of the textured materials, the dielectric
+and book's raygens, ours beside pbrt's; each difference read off them is
+a compiler fix where the code differs for the same program, and a program
+fix where the algorithm does. (3) The tables redone under the
+fastest-render profile, so that the kernel column is as reliable as the
+wall column. (4) The launch shape: proposed to the user as the two
+`bound` promises, with landscape's 8% as the measurement. (5) The
+pavilion-day lit-pixel calibration against pbrt's own two renderers.
+(6) Then, as the user ordered on 2026-09-27, the volpath features the
+scene survey lists, so that the comparison is fair on more of the set;
+the portal light, first on that list, landed this round.
+
+*Also this round: the vectorized CPU schedule and volpath.* The packet
+schedule (the CPU SIMD one, `compare.sh`'s default) could not compile
+the volpath program at all -- since loopify learned to go through
+mutual recursion, as it turned out, and along a path no test had run.
+Four compiler defects stood in the way and are fixed, each with an IR
+and an execution test: an inlined callee's parameter that the call
+binds to a caller value passed by name now keeps the caller's name
+(SSA/Rewrite.cpp), since a value is threaded by its name and both the
+divergence analysis and the loop folding compare definitions by it; a
+loop-header argument every back edge passes unchanged is invariant, not
+loop-defined (SSA/UniformizeLoops.cpp); an address defined before a
+skipped arm and threaded through it by name is not the arm's to hand
+over, so the landing blends no per-lane pointer (SSA/Linearize.cpp,
+definition_block and thread); and the arms the linearizer folds stay
+seeded as masked for the analyses after the fold (SSA/Vectorize.cpp,
+AnalyzeDivergence.cpp's `under_mask_seeds`), which closed a real
+miscompile the new test exposed -- a per-lane local handed to a masked
+call was kept as one shared slot, and every lane received the arm's
+writes. One stop remains: PromoteAllocas refuses the packet build with
+"Jump from !par_body_6_split_s_gang to !par_body_6_step_s_lane passes
+more arguments than the block takes: 76 from argument 0 on, to a block
+of 75" -- after the lane loop is rewritten as a jump into the gang
+body, a count the two sides disagree on by one; to be found next.
+
+*And open, found on the way:* the albedo check (mean 5e-4 allowed)
+fails on environment-lit scenes at 16 spp -- envmap.pbrt 6.65e-4,
+portal.pbrt 8.1e-4 -- identically at the commit before this round's
+work, so not from it; to be looked at with the lit-pixel question.
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
