@@ -7907,6 +7907,74 @@ fails on environment-lit scenes at 16 spp -- envmap.pbrt 6.65e-4,
 portal.pbrt 8.1e-4 -- identically at the commit before this round's
 work, so not from it; to be looked at with the lit-pixel question.
 
+**The launch shape, built (2026-09-29).** The user: "Please alter the
+runtime of a parfor over a queue to perform a guarded launch over
+capacity without the read-and-wait, like PBRT does." A drain -- a
+`parfor` over a wavefront queue -- bound whole to the GPU is now pbrt's
+`ForAllQueued`: launched over the queue's capacity, its kernel testing
+each index against the count read on the device, so the host does not
+read the count back to size the grid, which was a device-to-host copy
+(a wait) per launch.
+
+*What each part does.* In the compiler the drain's loop carries, from
+Defer.cpp, three values that already exist -- the queue's size, the
+header's storage, and the slot drained this round -- so a drain a GPU
+bind never claims costs no new instruction (that was the trap the first
+attempt fell into: a cast and a field pointer materialized on every
+drain, dead on the CPU, that the dead-code pass would not remove because
+it did not count a terminator's new fields as uses; the fix is to store
+existing values and build the cast and pointer only in the bind). A
+bind to GPUThread, GPUBlock or OptixThread of such a loop, when the loop
+is bound *whole* (its body is the work, not an inner loop), sets the
+loop's end to the size, builds the count's address from the header and
+the slot, and puts a guard ahead of the body -- a block that loads the
+count on the device and dispatches on `index < count` to the body or a
+yield, pbrt's `if (index >= queue->Size()) return;` (Bind.cpp). A drain
+that a `split` has turned into an outer and an inner loop keeps the
+count launch for now: extending the capacity launch to the split
+material and medium kernels is the next step, and needs the guard on
+the split's step where the global index is formed. On the CPU nothing
+changes -- the loop runs `0:count`, as pbrt's CPU wavefront does
+(`ParallelFor(0, queue->Size())`) -- and the carried values are cleared
+after the binds so a host drain is byte for byte what it was
+(SSA/Convert.cpp; the full test suite is unchanged by this on every CPU
+program).
+
+*The runtime.* An OptiX launch (the raygens: the camera-ray trace, the
+closest-hit trace, the shadow trace, the biggest kernels and the ones
+whose launch gaps were largest) stages its parameters in a ring of
+pinned buffers and copies them asynchronously, each slot waited for only
+if the launch that used it 32 back has not finished (pbrt's paramsPool);
+it synchronizes only under validation or to copy a host buffer back, so
+a band's raygens go into the stream one after another. A CUDA launch (a
+split material or medium kernel) still synchronizes after itself: its
+output is read by a buffer copy or, for a `print`, flushed by that
+synchronize, and going async lost a print that no host read follows
+(correctness/gpu/print) -- but it too now launches over the count
+without the host reading it for the grid where it is a whole drain, and
+its wait is the one pbrt's per-band wait is. The kernel profile reads
+its timing events at the end rather than after each launch, from a pool,
+so the profile does not itself serialize the launches.
+
+*What is left.* The split kernels' capacity launch (above). The round
+loop's own test -- whether the queue is empty -- still reads the count
+on the host once a round; pbrt runs a fixed `maxDepth + 1` rounds
+instead, a separate decision. Tests: ssa/defer-gpu-launch (the drain
+over the capacity with its device guard, and a split drain that keeps
+the count launch), correctness/gpu/defer-capacity (a queue of 32
+holding 4, plain and split, run on the GPU). The effect on landscape
+and book -- the 500 ms and 127 ms of launch gaps above -- is to be
+measured against pbrt once the machine is clear of the datalog
+benchmarks.
+
+*The queue is a struct of arrays.* The user asked, in the same message,
+to confirm the queue's default layout. It is: a wavefront queue is a
+count and one array per scalar the entry holds (SSA/Defer.h, "keeps it
+as a struct of arrays behind a count, one array per scalar of it"),
+which is pbrt's SOA too (its work items are `SOA<T>`) and what a
+compress-store push writes into densely. Nothing about this round
+changed it.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
