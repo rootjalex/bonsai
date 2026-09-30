@@ -328,10 +328,27 @@ struct Pipeline {
     std::vector<OptixProgramGroup> hit_triangles;    // per ray type
     std::vector<OptixProgramGroup> hit_boxes;        // per ray type
     // The shader binding table per scene, and the launch parameters' device
-    // copy.
+    // copies: a ring of slots, each a device buffer, a pinned host buffer
+    // the parameters are staged in, and an event recorded after the launch
+    // that reads it -- so that a launch's parameters go to the device
+    // without the host waiting, and a slot is reused only once its launch
+    // is done with it (pbrt's paramsPool in wavefront/integrator.cpp). The
+    // ring is deep enough that the wait for a slot is rare: a band's
+    // kernels are a dozen or so.
     std::map<uint64_t, OptixShaderBindingTable> tables;
-    CUdeviceptr params = 0;
-    size_t param_capacity = 0;
+    struct ParamSlot {
+        CUdeviceptr device = 0;
+        size_t device_capacity = 0;
+        void *host = nullptr;
+        size_t host_capacity = 0;
+        // The driver's own CUevent, not the CUDA SDK's: the OptiX headers
+        // pull in cuda.h, whose CUevent is a different type, and the Driver
+        // (bonsai_cuda.h, which includes no cuda.h) declares its own.
+        bonsai_cuda_detail::CUevent done = nullptr;
+    };
+    static constexpr size_t param_slots = 32;
+    std::vector<ParamSlot> params;
+    size_t next_param_slot = 0;
 };
 
 struct State {
@@ -922,19 +939,48 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
         }
         *static_cast<void **>(slots[buffer.param]) = device_memory[b];
     }
-    // The launch parameters, on the device: one buffer per pipeline, grown
-    // as needed.
+    // The launch parameters, on the device: the next slot of the pipeline's
+    // ring, waited for if the launch that last used it is still running,
+    // grown if these parameters are bigger than it has held, staged in its
+    // pinned buffer and copied without the host waiting.
+    bonsai_cuda_detail::Driver &d = bonsai_cuda_detail::driver();
     const size_t bytes = size_t(param_bytes);
-    if (p.param_capacity < bytes) {
-        if (p.params != 0) {
-            bonsai_cuda_free(reinterpret_cast<void *>(p.params));
+    if (p.params.empty()) {
+        p.params.resize(Pipeline::param_slots);
+    }
+    Pipeline::ParamSlot &slot = p.params[p.next_param_slot];
+    p.next_param_slot = (p.next_param_slot + 1) % Pipeline::param_slots;
+    if (slot.done != nullptr) {
+        bonsai_cuda_detail::check(d, d.cuEventSynchronize(slot.done),
+                                  "cuEventSynchronize on a parameter slot");
+    } else {
+        bonsai_cuda_detail::check(d, d.cuEventCreate(&slot.done, 0),
+                                  "cuEventCreate for a parameter slot");
+    }
+    if (slot.device_capacity < bytes) {
+        if (slot.device != 0) {
+            bonsai_cuda_free(reinterpret_cast<void *>(slot.device));
         }
-        p.params = reinterpret_cast<CUdeviceptr>(
+        slot.device = reinterpret_cast<CUdeviceptr>(
             bonsai_cuda_malloc(bytes == 0 ? 1 : bytes));
-        p.param_capacity = bytes;
+        slot.device_capacity = bytes;
+    }
+    if (slot.host_capacity < bytes) {
+        // Pinned, so that the copy below is asynchronous; the old buffer is
+        // kept rather than freed (a launch may still be reading through
+        // it; the ring grows a few times at most, at the first launches).
+        void *pinned = nullptr;
+        bonsai_cuda_detail::check(d, d.cuMemHostAlloc(&pinned, bytes == 0 ? 1 : bytes, 0),
+                                  "cuMemHostAlloc for a parameter slot");
+        slot.host = pinned;
+        slot.host_capacity = bytes;
     }
     if (bytes != 0) {
-        bonsai_cuda_copy_to_device(reinterpret_cast<void *>(p.params), params, bytes);
+        std::memcpy(slot.host, params, bytes);
+        // Through the runtime helper, not d.cuMemcpyHtoDAsync directly: this
+        // file's cuda.h macros would rewrite the member name.
+        bonsai_cuda_copy_to_device_async(reinterpret_cast<void *>(slot.device),
+                                         slot.host, bytes);
     }
     if (validating()) {
         std::fprintf(stderr,
@@ -944,17 +990,25 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
                      static_cast<unsigned long long>(traversable),
                      sbt.hitgroupRecordCount);
     }
-    bonsai_cuda_detail::Driver &d = bonsai_cuda_detail::driver();
     bonsai_cuda_detail::KernelStats &stats = bonsai_cuda_detail::kernel_stats();
     stats.begin(d);
     check(a,
-          a.table.optixLaunch(p.pipeline, /*stream=*/nullptr, p.params, bytes,
+          a.table.optixLaunch(p.pipeline, /*stream=*/nullptr, slot.device, bytes,
                               &sbt, unsigned(count), 1, 1),
           std::string("optixLaunch(") + raygen + ")");
     stats.mark(d);
+    stats.account(d, raygen);
+    bonsai_cuda_detail::check(d, d.cuEventRecord(slot.done, bonsai_cuda_detail::null_stream),
+                              "cuEventRecord after a launch");
+    // Asynchronous, as bonsai_cuda_launch is: the host goes on to the next
+    // launch. Waited for only under validation, whose errors are reported
+    // at the launch they belong to, and for a buffer copied in that has to
+    // come back.
+    if (!validating() && nbuffers == 0) {
+        return;
+    }
     bonsai_cuda_detail::check(d, d.cuCtxSynchronize(),
                               "cuCtxSynchronize after " + std::string(raygen));
-    stats.account(d, raygen);
     // Back, and the slots as they were.
     for (int64_t b = 0; b < nbuffers; b++) {
         const bonsai_cuda_buffer &buffer = buffers[b];

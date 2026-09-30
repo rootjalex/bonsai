@@ -89,6 +89,18 @@ void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
 void bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes);
+// A host-to-device copy on the stream, without the host waiting: OptiX's
+// launch parameters, staged in pinned memory. Here rather than at the call
+// (bonsai_optix.h) because that file includes cuda.h, whose macros rewrite
+// `cuMemcpyHtoDAsync` to a versioned name the driver has no member for;
+// this file includes no cuda.h.
+void bonsai_cuda_copy_to_device_async(void *device, const void *host,
+                                      uint64_t bytes);
+// Writes one 32-bit word into device memory on the stream, without the host
+// waiting: what a host store of a word into a device-resident allocation
+// becomes (CodeGen_LLVM::store_to_device) -- a queue's count zeroed before
+// the round that fills it.
+void bonsai_cuda_store_word_async(void *device, uint32_t value);
 
 // A 2D image texture as the GPU's texture units sample it, for a program
 // whose schedule bound a texture lookup to `TextureUnit`
@@ -242,6 +254,16 @@ struct Driver {
                                unsigned, unsigned, unsigned, unsigned,
                                CUstream, void **, void **);
     CUresult (*cuCtxSynchronize)(void);
+    // Asynchronous launches (bonsai_cuda_launch, bonsai_optix_launch): a
+    // launch's parameters go to the device from pinned memory without the
+    // host waiting, and an event says when a launch is done with them.
+    CUresult (*cuMemHostAlloc)(void **, size_t, unsigned int);
+    CUresult (*cuMemcpyHtoDAsync)(CUdeviceptr, const void *, size_t, CUstream);
+    CUresult (*cuEventSynchronize)(CUevent);
+    // A host store of one word into device memory -- a queue's count zeroed
+    // before its round -- as a memset on the stream, so that it neither
+    // waits for the launches ahead of it nor holds up the one behind.
+    CUresult (*cuMemsetD32Async)(CUdeviceptr, unsigned int, size_t, CUstream);
     // The kernel profile (KernelStats): an event either side of a launch.
     CUresult (*cuEventCreate)(CUevent *, unsigned int);
     CUresult (*cuEventRecord)(CUevent, CUstream);
@@ -305,6 +327,10 @@ inline Driver &driver() {
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
+        load(d.cuMemHostAlloc, "cuMemHostAlloc");
+        load(d.cuMemcpyHtoDAsync, "cuMemcpyHtoDAsync_v2");
+        load(d.cuEventSynchronize, "cuEventSynchronize");
+        load(d.cuMemsetD32Async, "cuMemsetD32Async");
         load(d.cuEventCreate, "cuEventCreate");
         load(d.cuEventRecord, "cuEventRecord");
         load(d.cuEventElapsedTime, "cuEventElapsedTime");
@@ -387,6 +413,13 @@ inline Driver &ready(const char *what) {
     if (d.context == nullptr) {
         check(d, d.cuDevicePrimaryCtxRetain(&d.context, d.device),
               "cuDevicePrimaryCtxRetain");
+        // OptiX launches are asynchronous (bonsai_optix_launch): the host
+        // issues a band's raygens one after another and a host read of the
+        // queue counts between rounds waits on the stream. Their output is
+        // read that way or by a buffer copy, never by device `print`, so no
+        // synchronize at exit is needed to drain them -- and a program that
+        // only printed would go through the synchronous CUDA launch below,
+        // not OptiX.
     }
     check(d, d.cuCtxSetCurrent(d.context), "cuCtxSetCurrent");
     return d;
@@ -432,38 +465,66 @@ struct KernelStats {
     std::map<std::string, Entry> best;
     double best_seconds = 0;
     bool have_best = false;
-    CUevent start = nullptr;
-    CUevent stop = nullptr;
+    // Launches are asynchronous: the events either side of one are read
+    // when the profile is next wanted (flush), not after each launch, since
+    // reading them would mean waiting for the launch. A pool of pairs, so
+    // that a render of thousands of launches creates a few dozen events.
+    struct Pending {
+        const char *name;
+        CUevent start, stop;
+    };
+    std::vector<Pending> pending;
+    std::vector<std::pair<CUevent, CUevent>> pool;
+    std::pair<CUevent, CUevent> current{nullptr, nullptr};
+    bool registered = false;
 
     // Before the launch: the start event, recorded on the stream ahead of it.
     void begin(Driver &d) {
         if (!on) {
             return;
         }
-        if (start == nullptr) {
-            check(d, d.cuEventCreate(&start, 0), "cuEventCreate");
-            check(d, d.cuEventCreate(&stop, 0), "cuEventCreate");
+        if (!registered) {
             std::atexit(print);
+            registered = true;
         }
-        check(d, d.cuEventRecord(start, null_stream), "cuEventRecord");
+        if (pool.empty()) {
+            check(d, d.cuEventCreate(&current.first, 0), "cuEventCreate");
+            check(d, d.cuEventCreate(&current.second, 0), "cuEventCreate");
+        } else {
+            current = pool.back();
+            pool.pop_back();
+        }
+        check(d, d.cuEventRecord(current.first, null_stream), "cuEventRecord");
     }
-    // Right after the launch, before waiting for it: the stop event, so that
-    // the wait itself is not counted.
+    // Right after the launch: the stop event, on the stream behind it.
     void mark(Driver &d) {
         if (on) {
-            check(d, d.cuEventRecord(stop, null_stream), "cuEventRecord");
+            check(d, d.cuEventRecord(current.second, null_stream), "cuEventRecord");
         }
     }
-    // After the wait: the time between the two, to `name`'s account.
-    void account(Driver &d, const char *name) {
+    // The pair, to `name`'s account when the profile is next read. `name`
+    // is a string the launch site keeps alive (a literal of the program).
+    void account(Driver &, const char *name) {
         if (!on) {
             return;
         }
-        float ms = 0;
-        check(d, d.cuEventElapsedTime(&ms, start, stop), "cuEventElapsedTime");
-        Entry &e = entries[name];
-        e.ms += ms;
-        e.launches++;
+        pending.push_back({name, current.first, current.second});
+        current = {nullptr, nullptr};
+    }
+    // Reads every pending pair: waits for the last launch, then each pair's
+    // time to its account, and the pairs back to the pool.
+    void flush(Driver &d) {
+        for (const Pending &p : pending) {
+            check(d, d.cuEventSynchronize(p.stop), "cuEventSynchronize");
+            float ms = 0;
+            check(d, d.cuEventElapsedTime(&ms, p.start, p.stop),
+                  "cuEventElapsedTime");
+            Entry &e = entries[p.name];
+            e.ms += ms;
+            e.launches++;
+            pool.emplace_back(p.start, p.stop);
+        }
+        pending.clear();
     }
 
     static void print();
@@ -475,7 +536,10 @@ inline KernelStats &kernel_stats() {
 }
 
 inline void KernelStats::print() {
-    const KernelStats &s = kernel_stats();
+    KernelStats &s = kernel_stats();
+    if (!s.pending.empty()) {
+        s.flush(driver());
+    }
     const std::map<std::string, Entry> &shown = s.have_best ? s.best : s.entries;
     std::vector<std::pair<std::string, Entry>> rows(shown.begin(), shown.end());
     std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
@@ -563,14 +627,43 @@ bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes) {
           "cuMemcpyDtoH(" + std::to_string(bytes) + ")");
 }
 
+__attribute__((used)) inline void
+bonsai_cuda_copy_to_device_async(void *device, const void *host, uint64_t bytes) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("copy to the device asynchronously");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    check(d,
+          d.cuMemcpyHtoDAsync(reinterpret_cast<CUdeviceptr>(device), host,
+                              size_t(bytes), null_stream),
+          "cuMemcpyHtoDAsync(" + std::to_string(bytes) + ")");
+}
+
+__attribute__((used)) inline void bonsai_cuda_store_word_async(void *device,
+                                                                uint32_t value) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("store a word on the device");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    check(d,
+          d.cuMemsetD32Async(reinterpret_cast<CUdeviceptr>(device), value, 1,
+                             null_stream),
+          "cuMemsetD32Async");
+}
+
 __attribute__((used)) inline void bonsai_kernel_stats_reset() {
-    bonsai_cuda_detail::kernel_stats().entries.clear();
+    bonsai_cuda_detail::KernelStats &s = bonsai_cuda_detail::kernel_stats();
+    if (s.on && !s.pending.empty()) {
+        s.flush(bonsai_cuda_detail::driver());
+    }
+    s.entries.clear();
 }
 
 __attribute__((used)) inline void bonsai_kernel_stats_render_done(double seconds) {
     bonsai_cuda_detail::KernelStats &s = bonsai_cuda_detail::kernel_stats();
     if (!s.on) {
         return;
+    }
+    if (!s.pending.empty()) {
+        s.flush(bonsai_cuda_detail::driver());
     }
     if (!s.have_best || seconds < s.best_seconds) {
         s.best = s.entries;
@@ -722,6 +815,16 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                            params, nullptr),
           "cuLaunchKernel(" + std::string(kernel) + ")");
     stats.mark(d);
+    // A CUDA launch (a material or medium kernel, GPUBlock/GPUThread) waits
+    // here, as it did: unlike the OptiX raygens (bonsai_optix_launch, whose
+    // parameters ride a pinned ring so a band's launches pipeline), a CUDA
+    // kernel's output is read here by a buffer copy or, for a `print`,
+    // flushed by this synchronize -- and going async would lose a print
+    // that no host read follows (correctness/gpu/print). The launch-over-
+    // capacity these kernels can still use (Bind.cpp) saves the host the
+    // per-launch read of the device count for the grid, which is the wait
+    // the launch shape was about; the synchronize that remains is the one
+    // pbrt's per-band wait is too.
     check(d, d.cuCtxSynchronize(),
           "cuCtxSynchronize after " + std::string(kernel));
     stats.account(d, kernel);
