@@ -196,6 +196,9 @@ extern env_dist_values : array[Float];
 extern env_dist_cond_cdf : array[Float];
 extern env_dist_marg_func : array[Float];
 extern env_dist_marg_cdf : array[Float];
+// pbrt: the SummedAreaTable of every portal light's WindowedPiecewiseConstant2D
+// (sampling.bonsai), end to end; its values are in `env_dist_values`.
+extern env_sat : array[Float];
 
 element ImageInfiniteLight {
     // pbrt: `renderFromLight` and its inverse. Both, because both are used:
@@ -249,6 +252,36 @@ element DistantLight {
     scene_radius : Float;
 }
 
+// pbrt: PortalImageInfiniteLight -- an environment map seen through a window.
+// A scene of a room with a view gives the sky's map and the four corners of
+// the opening it is seen through, and the light then knows two things an
+// ImageInfiniteLight does not: which directions can reach the sky from a
+// point at all (those through the portal), and where to send its shadow rays
+// (only there). pbrt does it by resampling the map into the portal's own
+// parameterization -- `u` and `v` are the two angles a direction makes with
+// the portal's normal, in the portal's frame, so the rectangle the portal
+// covers as seen from any point is an axis-aligned rectangle of the image --
+// and sampling that image inside the rectangle with a windowed distribution.
+// The resampling is the converter's (scene_dump), once; the frame, the
+// rectangle and the sampling are here.
+element PortalLight {
+    // pbrt: portalFrame, Frame::FromXY of the normalized edges 0->3 and 0->1;
+    // `z` is the portal's normal, and the sky is on its positive side.
+    frame : Frame;
+    // pbrt: portal[0] and portal[2], the two opposite corners `ImageBounds`
+    // reads; the other two add nothing once the frame is known.
+    p0 : vec3f;
+    p2 : vec3f;
+    scale : Float;
+    // The rectified image: square, its texels in `env_texels` from
+    // `first_texel`, fitted as the environment map's are.
+    resolution : i32;
+    first_texel : i32;
+    scene_radius : Float;
+    // pbrt: `distribution`, over the texel average times d(u,v)/dw.
+    dist : WindowedDist2D;
+}
+
 element Light =
     | DiffuseArea(area : AreaLight, shape : Shape)
     // `sky` rather than the `inf` that reads more naturally: `inf` is the
@@ -256,6 +289,7 @@ element Light =
     // shadows it.
     | UniformInfinite(sky : UniformInfiniteLight)
     | ImageInfinite(img : ImageInfiniteLight)
+    | Portal(door : PortalLight)
     | Distant(sun : DistantLight);
 
 // pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
@@ -276,6 +310,7 @@ func light_l(light : Light, n : vec3f, w : vec3f,
         // on the class at all. Nor is a distant light.
         UniformInfinite(sky) => return vec4f{0.0, 0.0, 0.0, 0.0};
         ImageInfinite(img) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Portal(door) => return vec4f{0.0, 0.0, 0.0, 0.0};
         Distant(sun) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
@@ -347,19 +382,116 @@ func image_infinite_le(img : ImageInfiniteLight, d : vec3f,
     return image_le(img, equal_area_sphere_to_square(w_light), lambda);
 }
 
+// pbrt: PortalImageInfiniteLight::ImageFromRender -- a render-space direction
+// to the portal image's (u, v), with d(u,v)/dw there: the Jacobian that turns
+// a density over the image into one over directions. Nothing when the
+// direction is on or behind the portal's plane, where there is no sky.
+element PortalUV {
+    uv : vec2f;
+    duv_dw : Float;
+}
+
+func portal_image_from_render(frame : Frame, w_render : vec3f) -> option[PortalUV] {
+    w = frame_to_local(frame, w_render);
+    if w.z <= 0.0 {
+        return {};
+    }
+    duv_dw = sqr(pi()) * (1.0 - sqr(w.x)) * (1.0 - sqr(w.y)) / w.z;
+    alpha = atan2(w.x, w.z);
+    beta = atan2(w.y, w.z);
+    out : PortalUV = {vec2f{clamp_f((alpha + pi() / 2.0) / pi(), 0.0, 1.0),
+                            clamp_f((beta + pi() / 2.0) / pi(), 0.0, 1.0)},
+                      duv_dw};
+    return out;
+}
+
+// pbrt: RenderFromImage -- (u, v) back to a render-space direction, with the
+// same Jacobian.
+element PortalDir {
+    w : vec3f;
+    duv_dw : Float;
+}
+
+func portal_render_from_image(frame : Frame, uv : vec2f) -> PortalDir {
+    alpha = -pi() / 2.0 + uv.x * pi();
+    beta = -pi() / 2.0 + uv.y * pi();
+    w = unit_vector_(vec3f{tan(alpha), tan(beta), 1.0});
+    duv_dw = sqr(pi()) * (1.0 - sqr(w.x)) * (1.0 - sqr(w.y)) / w.z;
+    out : PortalDir = {frame_from_local(frame, w), duv_dw};
+    return out;
+}
+
+// pbrt: ImageBounds -- the rectangle of the image the portal covers as seen
+// from `p`: the two opposite corners' (u, v), which bound it because the
+// portal's edges follow the frame's axes and the parameterization keeps
+// straight lines straight. Nothing when a corner is behind the plane.
+func portal_image_bounds(door : PortalLight, p : vec3f) -> option[Bounds2f] {
+    a = portal_image_from_render(door.frame, unit_vector_(door.p0 - p));
+    if !a {
+        return {};
+    }
+    b = portal_image_from_render(door.frame, unit_vector_(door.p2 - p));
+    if !b {
+        return {};
+    }
+    ua = *a;
+    ub = *b;
+    bounds = bounds2f_of(ua.uv, ub.uv);
+    return bounds;
+}
+
+// pbrt: PortalImageInfiniteLight::ImageLookup -- the nearest texel of the
+// rectified image, clamped to it (WrapMode::Clamp, not the octahedral wrap of
+// the map it was made from), as a spectrum at the ray's wavelengths.
+func portal_lookup(door : PortalLight, uv : vec2f,
+                   lambda : SampledWavelengths) -> vec4f {
+    res = cast[[Float]](door.resolution);
+    x = min(max(cast[[i32]](uv.x * res), 0), door.resolution - 1);
+    y = min(max(cast[[i32]](uv.y * res), 0), door.resolution - 1);
+    texel = env_texels[door.first_texel + y * door.resolution + x];
+    fit : SigmoidPolynomial = {texel.x, texel.y, texel.z};
+    return door.scale * texel.w * spectrum_at(fit, lambda) *
+           spectrum_at_dense(illuminant_d65, lambda);
+}
+
+// pbrt: PortalImageInfiniteLight::Le -- the sky along a ray that hit nothing,
+// which is the map's texel in the ray's direction if, and only if, that
+// direction passes through the portal as seen from the ray's origin. So the
+// origin is a parameter here where no other light needs it.
+func portal_le(door : PortalLight, o : vec3f, d : vec3f,
+               lambda : SampledWavelengths) -> vec4f {
+    found = portal_image_from_render(door.frame, unit_vector_(d));
+    if !found {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    b = portal_image_bounds(door, o);
+    if !b {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    at = *found;
+    if !bounds2f_inside(at.uv, *b) {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    return portal_lookup(door, at.uv, lambda);
+}
+
 // pbrt: Light::Le, the radiance a ray that hit nothing carries. Only the
 // infinite lights have one, which is why pbrt keeps them in a list of their own
 // and loops over that rather than over every light in the scene.
 //
 // The ray's direction is a parameter where an area light needed none: an
 // environment map answers differently in every direction, which is the whole
-// difference between it and the uniform light beside it.
-func light_le(light : Light, d : vec3f,
+// difference between it and the uniform light beside it. Its origin is one
+// for the portal light alone, which answers only along rays through its
+// portal; pbrt's `Le(const Ray &)` takes the whole ray for the same reason,
+// and its wavefront's escaped-ray work item carries `rayo` beside `rayd`.
+func light_le(light : Light, o : vec3f, d : vec3f,
               lambda : SampledWavelengths) -> vec4f {
     match light {
         DiffuseArea(area, shape) => return vec4f{0.0, 0.0, 0.0, 0.0};
         UniformInfinite(sky) => return uniform_infinite_le(sky, lambda);
         ImageInfinite(img) => return image_infinite_le(img, d, lambda);
+        Portal(door) => return portal_le(door, o, d, lambda);
         // pbrt: a DistantLight has no `Le` of its own, so the base class's
         // answers -- nothing. A ray that escapes cannot have come from a
         // single direction by chance.
@@ -413,6 +545,33 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
             far = ctx.p + 2.0 * img.scene_radius * wi;
             out : LightLiSample = {image_le(img, s.uv, lambda), wi,
                                    s.pdf / (4.0 * pi()), far,
+                                   vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return out;
+        }
+        // pbrt: PortalImageInfiniteLight::SampleLi. The image is sampled
+        // inside the rectangle the portal covers from `ctx.p`, so every
+        // shadow ray goes through the window, and the density in the image's
+        // measure becomes one over directions by the Jacobian at the sample.
+        // `allow_incomplete_pdf` has no say: pbrt keeps one distribution for
+        // this light, having no compensated one.
+        Portal(door) => {
+            b = portal_image_bounds(door, ctx.p);
+            if !b {
+                return {};
+            }
+            s = windowed_sample(door.dist, door.resolution, door.resolution, u,
+                                *b, env_dist_values, env_sat);
+            if !s {
+                return {};
+            }
+            picked = *s;
+            dir = portal_render_from_image(door.frame, picked.uv);
+            if dir.duv_dw == 0.0 {
+                return {};
+            }
+            far = ctx.p + 2.0 * door.scene_radius * dir.w;
+            out : LightLiSample = {portal_lookup(door, picked.uv, lambda), dir.w,
+                                   picked.pdf / dir.duv_dw, far,
                                    vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
             return out;
         }
@@ -485,6 +644,26 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
             return dist2d_pdf(picked, img.resolution, img.resolution, uv,
                               env_dist_values) / (4.0 * pi());
         }
+        // pbrt: PortalImageInfiniteLight::PDF_Li -- the windowed density at
+        // the direction's (u, v), over the Jacobian there. The direction is
+        // not normalized, as pbrt's is not; zero behind the plane or when the
+        // portal is not in front of `ctx.p`.
+        Portal(door) => {
+            found = portal_image_from_render(door.frame, wi);
+            if !found {
+                return 0.0;
+            }
+            at = *found;
+            if at.duv_dw == 0.0 {
+                return 0.0;
+            }
+            b = portal_image_bounds(door, ctx.p);
+            if !b {
+                return 0.0;
+            }
+            return windowed_pdf(door.dist, door.resolution, door.resolution,
+                                at.uv, *b, env_dist_values, env_sat) / at.duv_dw;
+        }
         // pbrt: DistantLight::PDF_Li is zero -- a delta light has no density
         // over directions for a BSDF sample to be weighed against.
         Distant(sun) => return 0.0;
@@ -526,6 +705,7 @@ func light_is_delta(light : Light) -> bool {
         // arrives from every direction, so a BSDF sample can find it.
         UniformInfinite(sky) => return false;
         ImageInfinite(img) => return false;
+        Portal(door) => return false;
         // pbrt: LightType::DeltaDirection, which it does.
         Distant(sun) => return true;
     }
@@ -1146,7 +1326,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         // left the scene.
         escaped : mut vec4f = l;
         for i in ls.first_infinite:ls.count {
-            escaped = escaped + beta * light_le(lights[i], ray.d, lambda);
+            escaped = escaped + beta * light_le(lights[i], ray.o, ray.d, lambda);
         }
         return escaped;
     }
@@ -1269,7 +1449,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         escaped : mut vec4f = l;
         if specular_bounce {
             for i in set.first_infinite:set.count {
-                escaped = escaped + beta * light_le(lights[i], ray.d, lambda);
+                escaped = escaped +
+                          beta * light_le(lights[i], ray.o, ray.d, lambda);
             }
         }
         return escaped;
@@ -1521,7 +1702,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         // was sampled, which is the point of threading the flag.
         escaped : mut vec4f = l;
         for i in set.first_infinite:set.count {
-            emitted = light_le(lights[i], ray.d, lambda);
+            emitted = light_le(lights[i], ray.o, ray.d, lambda);
             if (depth == 0) || specular_bounce {
                 escaped = escaped + beta * emitted;
             } else {
@@ -2444,7 +2625,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
         // miss ends its path with nothing to add, and no entry is made for
         // it. The infinite lights are the set's last.
         if set.first_infinite < set.count {
-            spawn l += escaped_contribution(ray.d, beta, r_u, r_l, depth,
+            spawn l += escaped_contribution(ray.o, ray.d, beta, r_u, r_l, depth,
                                             specular_bounce, prev_ctx, ls, set,
                                             lambda);
         }
@@ -2510,13 +2691,16 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
 // it. The wavefront's form: each light's `r_l` is the path's `r_l` times that
 // light's probability (the CPU integrator's `r_l *= p_l` accumulates across
 // the lights instead; the two agree for one infinite light).
-func escaped_contribution(ray_d : vec3f, beta : vec4f, r_u : vec4f, r_l : vec4f,
-                          depth : i32, specular_bounce : bool,
-                          prev_ctx : ShapeSampleContext, ls : LightSampler,
-                          set : LightSet, lambda : SampledWavelengths) -> vec4f {
+func escaped_contribution(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
+                          r_u : vec4f, r_l : vec4f, depth : i32,
+                          specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                          ls : LightSampler, set : LightSet,
+                          lambda : SampledWavelengths) -> vec4f {
     found : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
     for i in set.first_infinite:set.count {
-        emitted = light_le(lights[i], ray_d, lambda);
+        // pbrt: `light.Le(Ray(w.rayo, w.rayd), w.lambda)` -- the escaped ray
+        // whole, since a portal light answers by where the ray started.
+        emitted = light_le(lights[i], ray_o, ray_d, lambda);
         if nonzero(emitted) {
             if (depth == 0) || specular_bounce {
                 found += beta * emitted / average4(r_u);

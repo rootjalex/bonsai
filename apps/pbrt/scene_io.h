@@ -392,6 +392,17 @@ struct InfiniteLight {
     // `SampleLi` sends a sampled one the other way.
     float render_from_light[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    // A PortalImageInfiniteLight rather than an ImageInfiniteLight: the sky
+    // is seen only through a rectangle, PBRT's `portal`, whose four corners
+    // are here in render space (PBRT moves them with the camera transform
+    // and not with the light's). `resolution` and `first_texel` then name
+    // the *rectified* image -- the environment map resampled into the
+    // portal's own parameterization, which is what the light reads -- and
+    // its sampling values are the texel average times PBRT's d(u,v)/dw
+    // Jacobian at the texel; the two matrices above are unused, the light's
+    // transform having been baked into the resampling.
+    uint32_t portal = 0;
+    float portal_points[12] = {0.f};
 };
 
 struct Shape {
@@ -1148,6 +1159,7 @@ inline bool write(const char *path, const Scene &scene) {
     for (const InfiniteLight &l : scene.infinite_lights) {
         out << (l.distant != 0     ? "  distant"
                 : l.resolution == 0 ? "  uniform"
+                : l.portal != 0     ? "  portal"
                                     : "  image");
         detail::put(out, l.l, 3);
         detail::put(out, &l.scale, 1);
@@ -1160,11 +1172,16 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, l.direction, 3);
         }
         if (l.resolution != 0) {
-            out << " resolution " << l.resolution << " first " << l.first_texel
-                << " light_from_render";
-            detail::put(out, l.light_from_render, 16);
-            out << " render_from_light";
-            detail::put(out, l.render_from_light, 16);
+            out << " resolution " << l.resolution << " first " << l.first_texel;
+            if (l.portal != 0) {
+                out << " points";
+                detail::put(out, l.portal_points, 12);
+            } else {
+                out << " light_from_render";
+                detail::put(out, l.light_from_render, 16);
+                out << " render_from_light";
+                detail::put(out, l.render_from_light, 16);
+            }
         }
         out << '\n';
     }
@@ -1903,13 +1920,14 @@ inline bool read(const char *path, Scene &scene) {
     in >> scene.scene_radius;
     scene.infinite_lights.clear();
     for (size_t i = 0; i < count; i++) {
-        if (!(in >> word) ||
-            (word != "uniform" && word != "image" && word != "distant")) {
+        if (!(in >> word) || (word != "uniform" && word != "image" &&
+                              word != "distant" && word != "portal")) {
             return false;
         }
-        const bool is_image = word == "image";
+        const bool is_image = word == "image" || word == "portal";
         InfiniteLight l;
         l.distant = word == "distant" ? 1u : 0u;
+        l.portal = word == "portal" ? 1u : 0u;
         floats(l.l, 3);
         floats(&l.scale, 1);
         if (!tagged("hasl")) {
@@ -1937,14 +1955,21 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             in >> l.first_texel;
-            if (!tagged("light_from_render")) {
-                return false;
+            if (l.portal != 0) {
+                if (!tagged("points")) {
+                    return false;
+                }
+                floats(l.portal_points, 12);
+            } else {
+                if (!tagged("light_from_render")) {
+                    return false;
+                }
+                floats(l.light_from_render, 16);
+                if (!tagged("render_from_light")) {
+                    return false;
+                }
+                floats(l.render_from_light, 16);
             }
-            floats(l.light_from_render, 16);
-            if (!tagged("render_from_light")) {
-                return false;
-            }
-            floats(l.render_from_light, 16);
         }
         scene.infinite_lights.push_back(l);
     }

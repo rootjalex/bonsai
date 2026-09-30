@@ -349,3 +349,189 @@ func sample_cosine_hemisphere(u : vec2f) -> vec3f {
 }
 
 func cosine_hemisphere_pdf(cos_theta_ : Float) -> Float = cos_theta_ * inv_pi();
+
+// pbrt: Bounds2f -- a rectangle of the unit square, for the window a portal
+// light samples inside (the part of its image the portal covers as seen from
+// a point).
+element Bounds2f {
+    lo : vec2f;
+    hi : vec2f;
+}
+
+// pbrt: Bounds2(p1, p2), the corners taken componentwise, so the order of the
+// two points does not matter.
+func bounds2f_of(a : vec2f, b : vec2f) -> Bounds2f {
+    out : Bounds2f = {min(a, b), max(a, b)};
+    return out;
+}
+
+// pbrt: Inside(p, b), inclusive on both ends.
+func bounds2f_inside(p : vec2f, b : Bounds2f) -> bool =
+    (p.x >= b.lo.x) && (p.x <= b.hi.x) && (p.y >= b.lo.y) && (p.y <= b.hi.y);
+
+func ceil_f(x : Float) -> Float = -floor_f(-x);
+
+// pbrt: Clamp(val, low, high) on a Float; stdlib's `clamp` is the vec3f one.
+func clamp_f(x : Float, low : Float, high : Float) -> Float =
+    min(max(x, low), high);
+
+// pbrt: WindowedPiecewiseConstant2D -- a piecewise-constant distribution over
+// the unit square that can be sampled inside any rectangle of it, which is
+// what a portal light needs: the part of the sky its portal shows changes
+// with the point being lit. Where PiecewiseConstant2D keeps CDFs, this keeps
+// the function (`values`) and its summed-area table (`sums`: the sum of the
+// function over every rectangle from the origin), from which the integral
+// over any window is four lookups. Both are nx*ny long, laid end to end for
+// every such light in `env_dist_values` and `env_sat` (render.bonsai); this
+// says where the light's start. pbrt sums the table in double and reads it
+// back as a float, and so does the driver that builds it.
+element WindowedDist2D {
+    first_value : i32;
+    first_sum : i32;
+}
+
+// pbrt: SummedAreaTable::LookupInt -- the table one in from the edge, and
+// zero on the edge, a sum over nothing.
+func sat_lookup_int(d : WindowedDist2D, nx : i32, ny : i32, x : i32, y : i32,
+                    sums : array[Float]) -> Float {
+    if (x == 0) || (y == 0) {
+        return 0.0;
+    }
+    xi = min(x - 1, nx - 1);
+    yi = min(y - 1, ny - 1);
+    return sums[d.first_sum + yi * nx + xi];
+}
+
+// pbrt: SummedAreaTable::Lookup -- the table read bilinearly at a point of
+// the unit square, which makes the integral below continuous in its window.
+func sat_lookup(d : WindowedDist2D, nx : i32, ny : i32, x : Float, y : Float,
+                sums : array[Float]) -> Float {
+    xs = x * cast[[Float]](nx);
+    ys = y * cast[[Float]](ny);
+    x0 = cast[[i32]](xs);
+    y0 = cast[[i32]](ys);
+    v00 = sat_lookup_int(d, nx, ny, x0, y0, sums);
+    v10 = sat_lookup_int(d, nx, ny, x0 + 1, y0, sums);
+    v01 = sat_lookup_int(d, nx, ny, x0, y0 + 1, sums);
+    v11 = sat_lookup_int(d, nx, ny, x0 + 1, y0 + 1, sums);
+    dx = xs - cast[[Float]](x0);
+    dy = ys - cast[[Float]](y0);
+    return (1.0 - dx) * (1.0 - dy) * v00 + (1.0 - dx) * dy * v01 +
+           dx * (1.0 - dy) * v10 + dx * dy * v11;
+}
+
+// pbrt: SummedAreaTable::Integral -- the function's integral over a window,
+// as the four corners' lookups combined in double (the table's entries are
+// sums of millions of texels, and the difference of two of them for a small
+// window would lose everything in a float), divided by the texel count,
+// and never below zero.
+func sat_integral(d : WindowedDist2D, nx : i32, ny : i32, b : Bounds2f,
+                  sums : array[Float]) -> Float {
+    s = (cast[[f64]](sat_lookup(d, nx, ny, b.hi.x, b.hi.y, sums)) -
+         cast[[f64]](sat_lookup(d, nx, ny, b.lo.x, b.hi.y, sums))) +
+        (cast[[f64]](sat_lookup(d, nx, ny, b.lo.x, b.lo.y, sums)) -
+         cast[[f64]](sat_lookup(d, nx, ny, b.hi.x, b.lo.y, sums)));
+    return max(cast[[Float]](s / cast[[f64]](nx * ny)), 0.0);
+}
+
+// pbrt: WindowedPiecewiseConstant2D::Eval -- the function at a point.
+func windowed_eval(d : WindowedDist2D, nx : i32, ny : i32, p : vec2f,
+                   values : array[Float]) -> Float {
+    xi = min(cast[[i32]](p.x * cast[[Float]](nx)), nx - 1);
+    yi = min(cast[[i32]](p.y * cast[[Float]](ny)), ny - 1);
+    return values[d.first_value + yi * nx + xi];
+}
+
+// pbrt: WindowedPiecewiseConstant2D::SampleBisection, for the marginal along
+// x: the CDF is the window's integral up to x over the window's whole
+// integral, and the bisection narrows [lo, hi] until it lies within one
+// column, then interpolates the CDF across it. `b_int` is the whole window's
+// integral, passed in because the caller has it.
+func windowed_bisect_x(d : WindowedDist2D, nx : i32, ny : i32, b : Bounds2f,
+                       b_int : Float, u : Float, sums : array[Float]) -> Float {
+    n = cast[[Float]](nx);
+    lo : mut Float = b.lo.x;
+    hi : mut Float = b.hi.x;
+    while ceil_f(n * hi) - floor_f(n * lo) > 1.0 {
+        // (`halfway`, not `mid`: shapes.bonsai has a function of that name,
+        // and a statement opening with a function's name is read as a call.)
+        halfway = (lo + hi) / 2.0;
+        bx : Bounds2f = {b.lo, vec2f{halfway, b.hi.y}};
+        if sat_integral(d, nx, ny, bx, sums) / b_int > u {
+            hi = halfway;
+        } else {
+            lo = halfway;
+        }
+    }
+    b_lo : Bounds2f = {b.lo, vec2f{lo, b.hi.y}};
+    b_hi : Bounds2f = {b.lo, vec2f{hi, b.hi.y}};
+    p_lo = sat_integral(d, nx, ny, b_lo, sums) / b_int;
+    p_hi = sat_integral(d, nx, ny, b_hi, sums) / b_int;
+    t = (u - p_lo) / (p_hi - p_lo);
+    return clamp_f((1.0 - t) * lo + t * hi, lo, hi);
+}
+
+// The same along y, inside the column strip the x sample chose.
+func windowed_bisect_y(d : WindowedDist2D, nx : i32, ny : i32, b : Bounds2f,
+                       b_int : Float, u : Float, sums : array[Float]) -> Float {
+    n = cast[[Float]](ny);
+    lo : mut Float = b.lo.y;
+    hi : mut Float = b.hi.y;
+    while ceil_f(n * hi) - floor_f(n * lo) > 1.0 {
+        halfway = (lo + hi) / 2.0;
+        by : Bounds2f = {b.lo, vec2f{b.hi.x, halfway}};
+        if sat_integral(d, nx, ny, by, sums) / b_int > u {
+            hi = halfway;
+        } else {
+            lo = halfway;
+        }
+    }
+    b_lo : Bounds2f = {b.lo, vec2f{b.hi.x, lo}};
+    b_hi : Bounds2f = {b.lo, vec2f{b.hi.x, hi}};
+    p_lo = sat_integral(d, nx, ny, b_lo, sums) / b_int;
+    p_hi = sat_integral(d, nx, ny, b_hi, sums) / b_int;
+    t = (u - p_lo) / (p_hi - p_lo);
+    return clamp_f((1.0 - t) * lo + t * hi, lo, hi);
+}
+
+// pbrt: WindowedPiecewiseConstant2D::Sample -- a point inside the window `b`
+// with density proportional to the function there: x from the window's
+// marginal, then y from the column strip that x fell in (one texel wide,
+// widened to a texel when x lands on a boundary). Nothing when the window
+// holds no energy. The density is in the unit square's measure.
+func windowed_sample(d : WindowedDist2D, nx : i32, ny : i32, u : vec2f,
+                     b : Bounds2f, values : array[Float],
+                     sums : array[Float]) -> option[Dist2DSample] {
+    b_int = sat_integral(d, nx, ny, b, sums);
+    if b_int == 0.0 {
+        return {};
+    }
+    px = windowed_bisect_x(d, nx, ny, b, b_int, u.x, sums);
+    n = cast[[Float]](nx);
+    c_lo = floor_f(px * n) / n;
+    c_hi : mut Float = ceil_f(px * n) / n;
+    if c_lo == c_hi {
+        c_hi = c_hi + 1.0 / n;
+    }
+    b_cond : Bounds2f = {vec2f{c_lo, b.lo.y}, vec2f{c_hi, b.hi.y}};
+    cond_int = sat_integral(d, nx, ny, b_cond, sums);
+    if cond_int == 0.0 {
+        return {};
+    }
+    py = windowed_bisect_y(d, nx, ny, b_cond, cond_int, u.y, sums);
+    p = vec2f{px, py};
+    s : Dist2DSample = {p, windowed_eval(d, nx, ny, p, values) / b_int};
+    return s;
+}
+
+// pbrt: WindowedPiecewiseConstant2D::PDF -- the function at the point over
+// the window's integral; zero for an empty window.
+func windowed_pdf(d : WindowedDist2D, nx : i32, ny : i32, p : vec2f,
+                  b : Bounds2f, values : array[Float],
+                  sums : array[Float]) -> Float {
+    b_int = sat_integral(d, nx, ny, b, sums);
+    if b_int == 0.0 {
+        return 0.0;
+    }
+    return windowed_eval(d, nx, ny, p, values) / b_int;
+}

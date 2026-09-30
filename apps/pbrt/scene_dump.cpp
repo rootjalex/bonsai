@@ -2938,6 +2938,101 @@ void dump_light_tree(const std::vector<pbrt::Light> &lights,
 // it is destroyed on the way out -- before CleanupPBRT takes the arenas it was
 // allocated from out from under it. Doing this inline in main instead crashes
 // on the way out, because the locals outlive the cleanup call.
+// PBRT: PortalImageInfiniteLight's constructor, the part of it that is a
+// function of the scene alone -- the corners checked, the equal-area map
+// resampled into the portal's own parameterization (each texel of the new
+// image is the direction its (u, v) names, taken back into the light's frame
+// and read bilinearly off the map with the octahedral wrap), and the sampling
+// values, the texel average times the Jacobian d(u,v)/dw at the texel -- done
+// here once with PBRT's own functions, and written as a `portal` light whose
+// texels are fitted spectra exactly as the environment map's are. The frame,
+// the window and the sampling at render time are the renderer's (render.bonsai,
+// sampling.bonsai); the summed-area table over the values is the driver's.
+// `portal` is in render space already, `out_light` carries the scale.
+static void emit_portal_light(const pbrt::Image &equal_area,
+                              const pbrt::Transform &render_from_light,
+                              const std::vector<pbrt::Point3f> &portal,
+                              bonsai_scene::InfiniteLight out_light,
+                              bonsai_scene::Scene &out) {
+    if (portal.size() != 4) {
+        fail("an `infinite` light's portal takes exactly four points, and "
+             "this one has " + std::to_string(portal.size()));
+    }
+    // PBRT: opposite edges the same direction, adjacent ones perpendicular
+    // -- reported with `Error` and rendered anyway, so a warning here.
+    const pbrt::Vector3f p01 = pbrt::Normalize(portal[1] - portal[0]);
+    const pbrt::Vector3f p12 = pbrt::Normalize(portal[2] - portal[1]);
+    const pbrt::Vector3f p32 = pbrt::Normalize(portal[2] - portal[3]);
+    const pbrt::Vector3f p03 = pbrt::Normalize(portal[3] - portal[0]);
+    if (std::abs(pbrt::Dot(p01, p32) - 1) > .001 ||
+        std::abs(pbrt::Dot(p12, p03) - 1) > .001 ||
+        std::abs(pbrt::Dot(p01, p12)) > .001 ||
+        std::abs(pbrt::Dot(p12, p32)) > .001 ||
+        std::abs(pbrt::Dot(p32, p03)) > .001 ||
+        std::abs(pbrt::Dot(p03, p01)) > .001) {
+        std::fprintf(stderr, "scene_dump: the infinite light's portal is not a "
+                             "planar rectangle; PBRT reports that and renders "
+                             "anyway, and so does this\n");
+    }
+    const pbrt::Frame frame = pbrt::Frame::FromXY(p03, p01);
+    const int res = equal_area.Resolution().x;
+    // PBRT: RenderFromImage(uv, &duv_dw).
+    const auto render_from_image = [&](pbrt::Point2f uv, float *duv_dw) {
+        const float alpha = -pbrt::Pi / 2 + uv[0] * pbrt::Pi;
+        const float beta = -pbrt::Pi / 2 + uv[1] * pbrt::Pi;
+        const float x = std::tan(alpha), y = std::tan(beta);
+        const pbrt::Vector3f w = pbrt::Normalize(pbrt::Vector3f(x, y, 1));
+        *duv_dw = pbrt::Sqr(pbrt::Pi) * (1 - pbrt::Sqr(w.x)) *
+                  (1 - pbrt::Sqr(w.y)) / w.z;
+        return frame.FromLocal(w);
+    };
+    out_light.portal = 1;
+    for (int i = 0; i < 4; i++) {
+        for (int c = 0; c < 3; c++) {
+            out_light.portal_points[3 * i + c] = float(portal[i][c]);
+        }
+    }
+    out_light.resolution = uint32_t(res);
+    out_light.first_texel = uint32_t(out.env_sampling.size());
+    out.env_texels.reserve(out.env_texels.size() + size_t(res) * res * 4);
+    out.env_sampling.reserve(out.env_sampling.size() + size_t(res) * res);
+    for (int y = 0; y < res; y++) {
+        for (int x = 0; x < res; x++) {
+            const pbrt::Point2f uv((x + 0.5f) / res, (y + 0.5f) / res);
+            float duv_dw = 0.f;
+            pbrt::Vector3f w = render_from_image(uv, &duv_dw);
+            w = pbrt::Normalize(render_from_light.ApplyInverse(w));
+            const pbrt::Point2f uv_equi = pbrt::EqualAreaSphereToSquare(w);
+            float rgb[3];
+            for (int c = 0; c < 3; c++) {
+                rgb[c] = equal_area.BilerpChannel(
+                    uv_equi, c, pbrt::WrapMode::OctahedralSphere);
+            }
+            // PBRT: GetSamplingDistribution(duv_dw): the channels' average
+            // (unclamped, in float) times the Jacobian at the texel's centre.
+            out.env_sampling.push_back(((rgb[0] + rgb[1] + rgb[2]) / 3.f) *
+                                       duv_dw);
+            // PBRT: ImageLookup's ClampZero and RGBIlluminantSpectrum, as for
+            // the environment map's texels.
+            const float r = std::max(0.f, rgb[0]);
+            const float g = std::max(0.f, rgb[1]);
+            const float b = std::max(0.f, rgb[2]);
+            const float m = std::max({r, g, b});
+            const float texel_scale = 2 * m;
+            const Sigmoid rsp =
+                texel_scale != 0.f
+                    ? srgb_to_sigmoid(r / texel_scale, g / texel_scale,
+                                      b / texel_scale)
+                    : srgb_to_sigmoid(0.f, 0.f, 0.f);
+            out.env_texels.push_back(rsp.c0);
+            out.env_texels.push_back(rsp.c1);
+            out.env_texels.push_back(rsp.c2);
+            out.env_texels.push_back(texel_scale);
+        }
+    }
+    out.infinite_lights.push_back(out_light);
+}
+
 void load(const char *filename, bonsai_scene::Scene &out) {
     std::vector<float> matrices;
     std::vector<bonsai_scene::Shape> &shapes = out.shapes;
@@ -3060,12 +3155,26 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         if (filename == nullptr) {
             filename = light.find("mapname");
         }
-        if (light.find("portal") != nullptr) {
-            fail("an `infinite` light with a portal is a "
-                 "PortalImageInfiniteLight, which is not implemented");
-        }
         if (light.find("illuminance") != nullptr) {
             fail("an `infinite` light with an `illuminance` is not supported");
+        }
+        // PBRT: `portal`, four points in world space, which Light::Create
+        // moves to render space with the camera transform -- not with the
+        // light's own, which reaches the light only through its image.
+        const CapturingBuilder::MaterialInfo::Value *portal_param =
+            light.find("portal");
+        std::vector<pbrt::Point3f> portal;
+        if (portal_param != nullptr) {
+            if (portal_param->floats.size() % 3 != 0) {
+                fail("an `infinite` light's portal is a list of points");
+            }
+            const pbrt::Transform render_from_world =
+                scene.GetCamera().GetCameraTransform().RenderFromWorld();
+            for (size_t i = 0; i + 2 < portal_param->floats.size(); i += 3) {
+                portal.push_back(render_from_world(pbrt::Point3f(
+                    portal_param->floats[i], portal_param->floats[i + 1],
+                    portal_param->floats[i + 2])));
+            }
         }
 
         bonsai_scene::InfiniteLight out_light;
@@ -3076,6 +3185,48 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         // property of the scene rather than of the conversion.
         pbrt::Allocator alloc;
         const float scale = material_float(light, "scale", 1.f);
+        if (portal_param != nullptr && filename == nullptr) {
+            // PBRT: an `L` with a portal is the third branch of Light::Create
+            // too -- the spectrum becomes a one-texel sRGB map (`SpectrumToXYZ`,
+            // then sRGB's `ToRGB`), and the portal light is built over that.
+            if (!light.ctm_is_tracked) {
+                fail("an `infinite` light placed by a named coordinate system "
+                     "is not supported: scene_dump follows the transform stack "
+                     "itself and does not follow that directive");
+            }
+            pbrt::RGB colour;
+            uint32_t blackbody = 0;
+            float temperature = 0.f, normalization = 1.f;
+            float rgb[3];
+            if (read_blackbody(light, "L", &blackbody, &temperature,
+                               &normalization) &&
+                blackbody != 0) {
+                pbrt::BlackbodySpectrum body(temperature);
+                colour = pbrt::RGBColorSpace::sRGB->ToRGB(
+                    pbrt::SpectrumToXYZ(&body));
+            } else if (material_rgb(light, "L", rgb)) {
+                pbrt::RGBIlluminantSpectrum given(
+                    *pbrt::RGBColorSpace::sRGB, pbrt::RGB(rgb[0], rgb[1], rgb[2]));
+                colour = pbrt::RGBColorSpace::sRGB->ToRGB(
+                    pbrt::SpectrumToXYZ(&given));
+            } else {
+                fail("an `infinite` light with a portal needs an `L` or a "
+                     "`filename`");
+            }
+            pbrt::Image one(pbrt::PixelFormat::Float, {1, 1}, {"R", "G", "B"},
+                            nullptr, alloc);
+            for (int c = 0; c < 3; c++) {
+                one.SetChannel({0, 0}, c, colour[c]);
+            }
+            out_light.scale =
+                float(scale / pbrt::SpectrumToPhotometric(
+                                  &pbrt::RGBColorSpace::sRGB->illuminant));
+            emit_portal_light(one,
+                              scene.GetCamera().GetCameraTransform().RenderFromWorld() *
+                                  light.ctm,
+                              portal, out_light, out);
+            continue;
+        }
         if (filename != nullptr) {
             if (filename->strings.empty()) {
                 fail("an `infinite` light's filename is not a string");
@@ -3123,6 +3274,19 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             if (!desc) {
                 fail(resolved + ": an environment map needs R, G and B "
                                 "channels");
+            }
+            if (portal_param != nullptr) {
+                // PBRT: PortalImageInfiniteLight over `image.SelectChannels(
+                // channelDesc)`, the scale divided as for the image light.
+                out_light.scale =
+                    float(scale / pbrt::SpectrumToPhotometric(
+                                      &pbrt::RGBColorSpace::sRGB->illuminant));
+                emit_portal_light(
+                    im.image.SelectChannels(desc, alloc),
+                    scene.GetCamera().GetCameraTransform().RenderFromWorld() *
+                        light.ctm,
+                    portal, out_light, out);
+                continue;
             }
 
             out_light.resolution = uint32_t(res.x);

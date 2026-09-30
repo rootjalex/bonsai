@@ -2023,6 +2023,9 @@ int main(int argc, char **argv) {
     std::vector<float> env_dist_values, env_dist_cond_cdf, env_dist_marg_func,
         env_dist_marg_cdf;
     std::vector<Dist2D> env_dists; // Two per light: plain, then compensated.
+    // The portal lights' summed-area tables (sampling.bonsai's WindowedDist2D),
+    // built in the light loop below; their values go into env_dist_values.
+    std::vector<float> env_sat;
     {
         // One PiecewiseConstant1D over `n` values, appended to the pools. The
         // CDF is the running integral over a unit domain, normalized by its own
@@ -2061,7 +2064,8 @@ int main(int argc, char **argv) {
         };
 
         for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
-            if (l.resolution == 0) {
+            // A portal light's distribution is the windowed one, built below.
+            if (l.resolution == 0 || l.portal != 0) {
                 continue;
             }
             const size_t n = size_t(l.resolution) * l.resolution;
@@ -2107,6 +2111,66 @@ int main(int argc, char **argv) {
             sun.scene_radius = loaded.scene_radius;
             Light light;
             Light_Distant(light, sun);
+            lights.push_back(light);
+            continue;
+        }
+        if (l.portal != 0) {
+            // PBRT: the rest of PortalImageInfiniteLight's constructor -- the
+            // portal's frame from its corners (Frame::FromXY of the normalized
+            // edges 0->3 and 0->1), and the SummedAreaTable over the sampling
+            // values scene_dump wrote, summed in double in PBRT's order and
+            // kept as floats, which is what PBRT's `Lookup` reads (its
+            // `LookupInt` narrows the double to Float).
+            const auto point = [&](int i) {
+                return float3{l.portal_points[3 * i], l.portal_points[3 * i + 1],
+                              l.portal_points[3 * i + 2]};
+            };
+            const auto normalize = [](const float3 &v) {
+                return v / std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            };
+            const auto cross = [](const float3 &a, const float3 &b) {
+                return float3{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                              a[0] * b[1] - a[1] * b[0]};
+            };
+            const float3 p03 = normalize(point(3) - point(0));
+            const float3 p01 = normalize(point(1) - point(0));
+            PortalLight door;
+            door.frame = Frame{p03, p01, cross(p03, p01)};
+            door.p0 = point(0);
+            door.p2 = point(2);
+            door.scale = l.scale;
+            door.resolution = int32_t(l.resolution);
+            door.first_texel = int32_t(l.first_texel);
+            door.scene_radius = loaded.scene_radius;
+            const size_t res = l.resolution;
+            door.dist.first_value = int32_t(env_dist_values.size());
+            door.dist.first_sum = int32_t(env_sat.size());
+            const auto value = [&](size_t x, size_t y) {
+                return double(loaded.env_sampling[size_t(l.first_texel) + y * res + x]);
+            };
+            for (size_t i = 0; i < res * res; i++) {
+                env_dist_values.push_back(loaded.env_sampling[size_t(l.first_texel) + i]);
+            }
+            std::vector<double> sum(res * res);
+            sum[0] = value(0, 0);
+            for (size_t x = 1; x < res; x++) {
+                sum[x] = value(x, 0) + sum[x - 1];
+            }
+            for (size_t y = 1; y < res; y++) {
+                sum[y * res] = value(0, y) + sum[(y - 1) * res];
+            }
+            for (size_t y = 1; y < res; y++) {
+                for (size_t x = 1; x < res; x++) {
+                    sum[y * res + x] = value(x, y) + sum[y * res + x - 1] +
+                                       sum[(y - 1) * res + x] -
+                                       sum[(y - 1) * res + x - 1];
+                }
+            }
+            for (const double s : sum) {
+                env_sat.push_back(float(s));
+            }
+            Light light;
+            Light_Portal(light, door);
             lights.push_back(light);
             continue;
         }
@@ -2316,6 +2380,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_env_dist_cond_cdf = buffer_of(env_dist_cond_cdf);
     bonsai_buffer b_env_dist_marg_func = buffer_of(env_dist_marg_func);
     bonsai_buffer b_env_dist_marg_cdf = buffer_of(env_dist_marg_cdf);
+    bonsai_buffer b_env_sat = buffer_of(env_sat);
     bonsai_buffer b_lights = buffer_of(lights);
     bonsai_buffer b_light_tree = buffer_of(light_tree);
     bonsai_buffer b_light_bit_trails = buffer_of(loaded.light_bit_trails);
@@ -2353,7 +2418,7 @@ int main(int argc, char **argv) {
         &b_media, &b_medium_spectra, &b_primes, &b_digit_permutations,
         &b_digit_permutation_offsets, &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
-        &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
+        &b_env_sat, &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
         &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
 #ifdef BONSAI_HAS_OPTIX
@@ -2423,8 +2488,8 @@ int main(int argc, char **argv) {
                &b_medium_spectra, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
-               &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_lights,
-               &b_light_tree, &b_light_bit_trails, &b_materials,
+               &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_env_sat,
+               &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
                &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool);
