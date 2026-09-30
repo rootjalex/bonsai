@@ -87,14 +87,14 @@ func pl_dim_weight(pl : PL2D, d : u32, value : Float) -> PLDim {
         return PLDim{1.0, 0.0, 0u};
     }
     base = pl.first_param[d];
-    // pbrt: FindInterval, the last index whose value is still at or below the
-    // parameter, leaving room for index + 1.
-    idx : mut u32 = 0u;
-    i : mut u32 = 1u;
-    while i < size - 1u {
-        idx = select(pl_params[base + i] <= value, i, idx);
-        i = i + 1u;
-    }
+    // pbrt: FindInterval over the parameter's values (util/math.h), the last
+    // index whose value is still at or below the parameter, leaving room for
+    // index + 1 -- a binary search, as pbrt's is: log2 of the size steps, not
+    // the size. (A scan of the whole array here was the measured BSDF's
+    // cost: 193 loads a lookup over a 195-wavelength table where pbrt makes
+    // 8, eight lookups a hit.) `find_interval` is pbrt's search transcribed.
+    idx = cast[[u32]](find_interval(cast[[i32]](size), pl_params,
+                                    cast[[i32]](base), value));
     p0 = pl_params[base + idx];
     p1 = pl_params[base + idx + 1u];
     t = min(max((value - p0) / (p1 - p0), 0.0), 1.0);
@@ -191,15 +191,25 @@ func pl_sample(pl : PL2D, sample_in : vec2f, params : vec3f) -> PLSample {
     slice_size = pl.size_x * pl.size_y;
     marg_offset = w.slice_offset * pl.size_y;
 
-    // Sample the row.
-    row : mut u32 = 0u;
-    i : mut u32 = 1u;
-    while i < pl.size_y - 1u {
-        v = pl_lookup(pl_marginal, pl.first_marginal, marg_offset + i,
+    // Sample the row: pbrt's `FindInterval(m_size.y, fetch_marginal(idx) <
+    // sample.y)`, its halving search over `size` and `first` written out
+    // here because the predicate is an interpolated table read rather than
+    // an array element (see find_interval in sampling.bonsai for the shape,
+    // and why it is not a plain bisection). Where the predicate holds
+    // nowhere the answer is row 0, and where it holds everywhere the last
+    // row but one.
+    row_size : mut u32 = pl.size_y - 2u;
+    row_first : mut u32 = 1u;
+    while row_size > 0u {
+        half = row_size >> 1u;
+        middle = row_first + half;
+        v = pl_lookup(pl_marginal, pl.first_marginal, marg_offset + middle,
                       pl.size_y, pl, w);
-        row = select(v < sy, i, row);
-        i = i + 1u;
+        found = v < sy;
+        row_first = select(found, middle + 1u, row_first);
+        row_size = select(found, row_size - (half + 1u), half);
     }
+    row = min(row_first - 1u, pl.size_y - 2u);
     sy = sy - pl_lookup(pl_marginal, pl.first_marginal, marg_offset + row,
                         pl.size_y, pl, w);
 
@@ -214,19 +224,24 @@ func pl_sample(pl : PL2D, sample_in : vec2f, params : vec3f) -> PLSample {
                 r0 - safe_sqrt(r0 * r0 - 2.0 * sy * (r0 - r1)));
     sy = sy / select(row_const, r0 + r1, r0 - r1);
 
-    // Sample the column.
+    // Sample the column: pbrt's `FindInterval(m_size.x, fetch_conditional(
+    // idx) < sample.x)`, the same halving search, its predicate the row's
+    // two conditional rows blended by the row sample.
     sx = sx * ((1.0 - sy) * r0 + sy * r1);
-    col : mut u32 = 0u;
-    j : mut u32 = 1u;
-    while j < pl.size_x - 1u {
-        v0 = pl_lookup(pl_conditional, pl.first_conditional, offset + j,
+    col_size : mut u32 = pl.size_x - 2u;
+    col_first : mut u32 = 1u;
+    while col_size > 0u {
+        half = col_size >> 1u;
+        middle = col_first + half;
+        v0 = pl_lookup(pl_conditional, pl.first_conditional, offset + middle,
                        slice_size, pl, w);
         v1 = pl_lookup(pl_conditional, pl.first_conditional + pl.size_x,
-                       offset + j, slice_size, pl, w);
-        v = (1.0 - sy) * v0 + sy * v1;
-        col = select(v < sx, j, col);
-        j = j + 1u;
+                       offset + middle, slice_size, pl, w);
+        found = (1.0 - sy) * v0 + sy * v1 < sx;
+        col_first = select(found, middle + 1u, col_first);
+        col_size = select(found, col_size - (half + 1u), half);
     }
+    col = min(col_first - 1u, pl.size_x - 2u);
     c_v0 = pl_lookup(pl_conditional, pl.first_conditional, offset + col,
                      slice_size, pl, w);
     c_v1 = pl_lookup(pl_conditional, pl.first_conditional + pl.size_x,
