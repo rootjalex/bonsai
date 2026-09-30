@@ -110,9 +110,13 @@ uint64_t bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
 void bonsai_cuda_texture_destroy(uint64_t texture);
 // Forgets the kernel profile gathered so far (BONSAI_KERNEL_STATS), so that
 // what is printed at exit is the profile of what runs after this call: a
-// driver that renders more than once calls it before each render, and the
-// profile is the last render's.
+// driver that renders more than once calls it before each render.
 void bonsai_kernel_stats_reset();
+// Ends a render that took `seconds`: its profile is kept if it is the
+// fastest render so far, and that is the profile printed at exit. A driver
+// that renders three times and reports the least of them calls this after
+// each, and the profile printed is the same render's as the time reported.
+void bonsai_kernel_stats_render_done(double seconds);
 }
 
 // The few entry points of the CUDA driver API this uses, declared here
@@ -421,6 +425,13 @@ struct KernelStats {
     };
     const bool on = std::getenv("BONSAI_KERNEL_STATS") != nullptr;
     std::map<std::string, Entry> entries;
+    // The profile of the fastest render so far, when the driver renders
+    // more than once and says when each render ends (render_done): what is
+    // printed at exit. A number is never one run's; the fastest of three
+    // renders in a process is the one that shared the GPU with nothing.
+    std::map<std::string, Entry> best;
+    double best_seconds = 0;
+    bool have_best = false;
     CUevent start = nullptr;
     CUevent stop = nullptr;
 
@@ -465,8 +476,8 @@ inline KernelStats &kernel_stats() {
 
 inline void KernelStats::print() {
     const KernelStats &s = kernel_stats();
-    std::vector<std::pair<std::string, Entry>> rows(s.entries.begin(),
-                                                    s.entries.end());
+    const std::map<std::string, Entry> &shown = s.have_best ? s.best : s.entries;
+    std::vector<std::pair<std::string, Entry>> rows(shown.begin(), shown.end());
     std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
         return a.second.ms > b.second.ms;
     });
@@ -474,7 +485,14 @@ inline void KernelStats::print() {
     for (const auto &[_, e] : rows) {
         total += e.ms;
     }
-    std::fprintf(stderr, "Kernel profile (BONSAI_KERNEL_STATS):\n");
+    if (s.have_best) {
+        std::fprintf(stderr,
+                     "Kernel profile (BONSAI_KERNEL_STATS), of the fastest "
+                     "render (%.4f s):\n",
+                     s.best_seconds);
+    } else {
+        std::fprintf(stderr, "Kernel profile (BONSAI_KERNEL_STATS):\n");
+    }
     for (const auto &[name, e] : rows) {
         std::fprintf(stderr, "  %-52s %7lld launches %10.2f ms / %5.1f%% (avg %7.3f ms)\n",
                      name.c_str(), e.launches, e.ms,
@@ -547,6 +565,19 @@ bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes) {
 
 __attribute__((used)) inline void bonsai_kernel_stats_reset() {
     bonsai_cuda_detail::kernel_stats().entries.clear();
+}
+
+__attribute__((used)) inline void bonsai_kernel_stats_render_done(double seconds) {
+    bonsai_cuda_detail::KernelStats &s = bonsai_cuda_detail::kernel_stats();
+    if (!s.on) {
+        return;
+    }
+    if (!s.have_best || seconds < s.best_seconds) {
+        s.best = s.entries;
+        s.best_seconds = seconds;
+        s.have_best = true;
+    }
+    s.entries.clear();
 }
 
 __attribute__((used)) inline uint64_t

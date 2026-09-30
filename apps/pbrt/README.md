@@ -36,7 +36,7 @@ and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
   (the first is the warm-up, absorbing module loading and the GPU's climb
   from the idle clocks every process starts at), each beside its kernel
   time (pbrt's `--stats` profile; our `BONSAI_KERNEL_STATS` profile of the
-  last of the three renders), every image checked against pbrt's and
+  fastest of the three renders), every image checked against pbrt's and
   written as a PNG whose path the table gives.
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is

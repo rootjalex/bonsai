@@ -2452,12 +2452,14 @@ int main(int argc, char **argv) {
         // --no-implicit-copies is a fault rather than a copy.
         bonsai_buffer_stage_all(render_buffers, render_sides,
                                 render_buffer_count);
-        // The kernel profile (BONSAI_KERNEL_STATS) is of the last repeat
-        // alone. A process starts with the GPU in its idle power state, and
-        // the first hundred-odd milliseconds of its kernels run at a
-        // fraction of the clock; pbrt's first kernels do not, because its
-        // prefetch of every allocation runs ahead of them. With two repeats
-        // the profile is of a render whose GPU is awake, as pbrt's is.
+        // The kernel profile (BONSAI_KERNEL_STATS) is of one repeat -- the
+        // fastest, kept by bonsai_kernel_stats_render_done below. A process
+        // starts with the GPU in its idle power state, and the first
+        // hundred-odd milliseconds of its kernels run at a fraction of the
+        // clock; pbrt's first kernels do not, because its prefetch of every
+        // allocation runs ahead of them. With three repeats the fastest is a
+        // render whose GPU is awake, as pbrt's is, and that shared it with
+        // nothing.
         bonsai_kernel_stats_reset();
         const auto started = std::chrono::steady_clock::now();
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
@@ -2494,8 +2496,12 @@ int main(int argc, char **argv) {
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool);
         const auto finished = std::chrono::steady_clock::now();
-        seconds = std::min(
-            seconds, std::chrono::duration<double>(finished - started).count());
+        const double took =
+            std::chrono::duration<double>(finished - started).count();
+        seconds = std::min(seconds, took);
+        // The kernel profile printed at exit is the fastest render's -- the
+        // same render whose time is reported -- not the last's.
+        bonsai_kernel_stats_render_done(took);
     }
     // The film, back on the host for writing: a copy only when the render
     // ran on the device, and outside the timer either way.

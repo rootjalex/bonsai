@@ -18,7 +18,7 @@
 # prefetch of every allocation runs ahead of its first kernel. Beside each
 # time is the kernel time: pbrt's from `--stats` (its "Wavefront Kernel
 # Profile"), ours from BONSAI_KERNEL_STATS (runtime/bonsai_cuda.h) of the
-# last of REPEATS renders in one process -- the device's busy time, apart
+# fastest of REPEATS renders in one process -- the device's busy time, apart
 # from whatever either side's timer counts around it (pbrt's timer includes
 # its prefetch and first launches, some sixty milliseconds on this machine;
 # ours includes the host's launch gaps). Every image is checked against
@@ -306,5 +306,5 @@ for sc in $SCENES; do
   done
 done
 echo
-echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the last render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
+echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
 column -t -s $'\t' "$TABLE"
