@@ -1,0 +1,176 @@
+type Entry_sums = struct Entry_sums{ k : i32; acc : i32; _slot : i32 }
+type Entry_tally = struct Entry_tally{ k : i32; acc : i32; _slot : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
+type Queue_tally = struct Queue_tally{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
+
+func climb(k : i32, acc : i32, _queue_tally : mut (Queue_tally*), _result_tally : mut (i32*), _slot_tally : i32) -> void {
+  let @0 = k <= 0 in
+  if (@0) {
+    _result_tally = acc
+    return
+  } else {
+    let @1 = k - 1 in
+    let @2 = acc + k in
+    let @4 = build<Entry_tally>(@1, @2, _slot_tally) in
+    let @7 = atomic_add((&(*_queue_tally).count), 1u) in
+    let @9 = (*_queue_tally).k in
+    @9[@7] = @1
+    let @12 = (*_queue_tally).acc in
+    @12[@7] = @2
+    let @15 = (*_queue_tally)._slot in
+    @15[@7] = _slot_tally
+    return
+  }
+}
+
+func run(out : mut i32[8]) -> void {
+  sums!round : mut u32
+  sums_result : mut i32[8]
+  sums_k_0 : mut i32[8]
+  sums_acc_0 : mut i32[8]
+  sums__slot_0 : mut i32[8]
+  sums_k_1 : mut i32[8]
+  sums_acc_1 : mut i32[8]
+  sums__slot_1 : mut i32[8]
+  sums_queue : mut Queue_sums[2]
+  let @3 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
+  sums_queue[0u] = @3
+  let @5 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
+  sums_queue[1u] = @5
+  parfor i in [0:8:1] {
+    walk(i, 0, (&sums_queue[0u]), (&sums_result[i]), i)
+    continue
+  }
+  sums!round = 0u
+  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+    let @9 = (*sums!round) & 1u in
+    let @11 = sums_queue[(*sums!round) & 1u].count in
+    let @13 = @9 ^ 1u in
+    sums_queue[@13].count = 0u
+    let @29 = cast<u32>(8) in
+    parfor sums in [0u:@29:1u] {
+      let @14 = (&sums_queue[@13]) in
+      let @32 = (&sums_queue[@9].count) in
+      let @33 = (*@32) in
+      let @34 = sums < @33 in
+      if (@34) {
+        let @18 = sums_queue[@9].k in
+        let @19 = @18[sums] in
+        let @21 = sums_queue[@9].acc in
+        let @22 = @21[sums] in
+        let @24 = sums_queue[@9]._slot in
+        let @25 = @24[sums] in
+        walk(@19, @22, @14, (&sums_result[@25]), @25)
+        continue
+      } else {
+        continue
+      }
+    }
+    let @8 = (*sums!round) + 1u in
+    sums!round = @8
+  }
+  parfor sums_rest in [0:8:1] {
+    let @28 = sums_result[sums_rest] in
+    let @0 = @28 in
+    let i = sums_rest in
+    out[i] = @0
+    continue
+  }
+  return
+}
+
+func split_run(out : mut i32[64]) -> void {
+  tally!round : mut u32
+  tally_result : mut i32[64]
+  tally_k_0 : mut i32[64]
+  tally_acc_0 : mut i32[64]
+  tally__slot_0 : mut i32[64]
+  tally_k_1 : mut i32[64]
+  tally_acc_1 : mut i32[64]
+  tally__slot_1 : mut i32[64]
+  tally_queue : mut Queue_tally[2]
+  let @3 = build<Queue_tally>(0u, tally_k_0, tally_acc_0, tally__slot_0) in
+  tally_queue[0u] = @3
+  let @5 = build<Queue_tally>(0u, tally_k_1, tally_acc_1, tally__slot_1) in
+  tally_queue[1u] = @5
+  parfor i in [0:64:1] {
+    climb(i, 0, (&tally_queue[0u]), (&tally_result[i]), i)
+    continue
+  }
+  tally!round = 0u
+  while (!(tally_queue[(*tally!round) & 1u].count == 0u)) {
+    let @9 = (*tally!round) & 1u in
+    let @11 = tally_queue[(*tally!round) & 1u].count in
+    let @13 = @9 ^ 1u in
+    tally_queue[@13].count = 0u
+    parfor tally_blk in [0u:@11:16u] {
+      let @14 = (&tally_queue[@13]) in
+      let @29 = tally_queue[(*tally!round) & 1u].count in
+      parfor tally_thr in [0u:16u:1u] {
+        let @30 = tally_blk + tally_thr in
+        let @31 = @30 < @29 in
+        if (@31) {
+          let tally = @30 in
+          let @18 = tally_queue[@9].k in
+          let @19 = @18[tally] in
+          let @21 = tally_queue[@9].acc in
+          let @22 = @21[tally] in
+          let @24 = tally_queue[@9]._slot in
+          let @25 = @24[tally] in
+          climb(@19, @22, @14, (&tally_result[@25]), @25)
+          continue
+        } else {
+          continue
+        }
+      }
+      continue
+    }
+    let @8 = (*tally!round) + 1u in
+    tally!round = @8
+  }
+  parfor tally_rest in [0:64:1] {
+    let @28 = tally_result[tally_rest] in
+    let @0 = @28 in
+    let i = tally_rest in
+    out[i] = @0
+    continue
+  }
+  return
+}
+
+func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+  let @0 = k <= 0 in
+  if (@0) {
+    _result_sums = acc
+    return
+  } else {
+    let @1 = k - 1 in
+    let @2 = acc + k in
+    let @4 = build<Entry_sums>(@1, @2, _slot_sums) in
+    let @7 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @9 = (*_queue_sums).k in
+    @9[@7] = @1
+    let @12 = (*_queue_sums).acc in
+    @12[@7] = @2
+    let @15 = (*_queue_sums)._slot in
+    @15[@7] = _slot_sums
+    return
+  }
+}
+
+
+schedule host {
+    sums = run.queue(root);
+    tally = split_run.queue(root);
+    climb.defer(climb, tally)
+    run.bind(i, GPUThread)
+       .bind(sums, GPUThread)
+       .bind(sums_rest, GPUThread)
+    split_run.bind(i, GPUThread)
+             .split(tally, tally_blk, tally_thr, (i32)16, 1)
+             .bind(tally_blk, GPUBlock)
+             .bind(tally_thr, GPUThread)
+             .bind(tally_rest, GPUThread)
+    walk.defer(walk, sums)
+
+}

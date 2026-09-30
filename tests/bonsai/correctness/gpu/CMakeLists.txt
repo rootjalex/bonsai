@@ -34,6 +34,7 @@ add_bonsai_tests(
     blocks.bonsai
     blocks-threads.bonsai
     buffers-cpp.bonsai
+    defer-capacity.bonsai
     defer-device.bonsai
     device-function.bonsai
     dirty-where-touched.bonsai

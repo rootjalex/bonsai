@@ -1,0 +1,69 @@
+//! flags: -p ssa
+
+// A queue's drain put on the GPU: launched over the queue's capacity, with
+// the count tested on the device (Terminator::ParFor::capacity, Bind.cpp).
+// pbrt's ForAllQueued: a launch over maxQueueSize whose kernel begins
+// `if (index >= queue->Size()) return;`, so that the host neither reads the
+// count back before the launch nor waits for the launch before the next.
+//
+// What to read for. In `run`, the drain runs `parfor sums in [0u:<cap>:1u]`
+// -- the queue's capacity, `cast<u32>(8)` here, where the CPU's drain runs
+// to the count -- and its body opens by loading the count through the
+// queue's own address, `(&sums_queue[..].count)`, and testing `sums <
+// count`: the guard the bind put there, which lets a launch go over the
+// capacity with the threads past the count doing nothing (Bind.cpp). The
+// count read that way is a device read, since the body runs on the GPU.
+// The round's own test, whether the queue is empty, and the zeroing of the
+// next queue's count are on the host, once a round (they become copies to
+// and from the device, since the queue's header is device-resident).
+//
+// `split_run`'s drain is split into `tally_blk` and `tally_thr` and keeps
+// the count launch -- `parfor tally_blk in [0u:<count>:16u]`, the queue's
+// count as its bound: the launch-over-capacity is built only for a drain
+// bound whole (the raygens), not yet for a split one (Bind.cpp; the plan
+// records extending it). `climb` is `walk` under another name: a function
+// is deferred into one queue only.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func climb(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return climb(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+func split_run(out : mut array[i32, 64]) -> void {
+    parfor i in 0:64 {
+        out[i] = climb(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+
+    tally = split_run.queue(root);
+    climb.defer(climb, tally);
+    split_run.bind(i, GPUThread);
+    split_run.split(tally, tally_blk, tally_thr, 16, true);
+    split_run.bind(tally_blk, GPUBlock);
+    split_run.bind(tally_thr, GPUThread);
+    split_run.bind(tally_rest, GPUThread);
+}

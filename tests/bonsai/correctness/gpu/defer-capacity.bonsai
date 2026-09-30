@@ -1,0 +1,76 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue drained on the GPU by a launch over its capacity, with far fewer
+// entries than that: only every eighth iteration of the producer pushes,
+// so the queue of 32 holds 4, and the 28 threads past the count have to do
+// nothing (the guard the bind put ahead of the body, Bind.cpp). Then the
+// same with the drain split into blocks of 16 and the guard the split's
+// (Rewrite.cpp). The answers are the CPU's: walk(i, 0) is the sum 1..i for
+// the pushed i -- 0, 36, 136, 300 at 0, 8, 16, 24 -- and -1 everywhere the
+// producer wrote itself.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+// `walk` under another name: a function is deferred into one queue only, so
+// the split producer gets its own callee.
+func climb(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return climb(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 32]) -> void {
+    parfor i in 0:32 {
+        if (i % 8) == 0 {
+            out[i] = walk(i, 0);
+        } else {
+            out[i] = 0 - 1;
+        }
+    }
+    return;
+}
+
+func split_run(out : mut array[i32, 32]) -> void {
+    parfor i in 0:32 {
+        if (i % 8) == 0 {
+            out[i] = climb(i, 0);
+        } else {
+            out[i] = 0 - 1;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 32] = {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+                                9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9};
+    run(out);
+    print(out);
+    again : mut array[i32, 32] = {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+                                  9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9};
+    split_run(again);
+    print(again);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+
+    tally = split_run.queue(root);
+    climb.defer(climb, tally);
+    split_run.bind(i, GPUThread);
+    split_run.split(tally, tally_blk, tally_thr, 16, true);
+    split_run.bind(tally_blk, GPUBlock);
+    split_run.bind(tally_thr, GPUThread);
+    split_run.bind(tally_rest, GPUThread);
+}

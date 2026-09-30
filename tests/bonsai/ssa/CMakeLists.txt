@@ -8,6 +8,7 @@ add_bonsai_tests(
     collapse.bonsai
     defer-bools.bonsai
     defer-frame.bonsai
+    defer-gpu-launch.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai
     defer-gang-vector.bonsai

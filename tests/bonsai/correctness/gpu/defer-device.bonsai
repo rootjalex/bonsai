@@ -1,13 +1,15 @@
 //! flags: -p ssa -b llvm -e
 
-// A queue whose producer and drains are kernels: the queue's arrays and the
-// record's live on the device (CodeGen_LLVM::device_resident) -- allocated
-// once with bonsai_cuda_malloc, handed to each launch as the device address
-// they are, never copied -- while the queue's header, which the host reads
-// the count from between rounds, travels with each launch and comes back.
-// The same program as correctness/llvm/defer-frame on the CPU: walk(i) sums
-// 1..i, deferred through the queue, the result written into out[i] by the
-// pass after the rounds.
+// A queue whose producer and drains are kernels: the queue's arrays, the
+// record's and the queue's header live on the device
+// (CodeGen_LLVM::device_resident) -- allocated once with bonsai_cuda_malloc,
+// handed to each launch as the device address they are, never copied. The
+// host reads the header's count once a round, by a copy back, to know
+// whether to go on; the drain itself is launched over the queue's capacity
+// and reads the count on the device (Bind.cpp), so no launch waits for the
+// one before it. The same program as correctness/llvm/defer-frame on the
+// CPU: walk(i) sums 1..i, deferred through the queue, the result written
+// into out[i] by the pass after the rounds.
 
 func walk(k : i32, acc : i32) -> i32 {
     if (k <= 0) {
