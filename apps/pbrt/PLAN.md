@@ -7975,6 +7975,31 @@ which is pbrt's SOA too (its work items are `SOA<T>`) and what a
 compress-store push writes into densely. Nothing about this round
 changed it.
 
+**Pavilion at 16 spp, calibrated (2026-09-29).** The lit-pixel check
+failed pavilion-day at 16 spp: we lit 0.29% more pixels than
+`pbrt --gpu` against a 0.1% allowance (compare_gbuffer.py's
+RADIANCE_LIT_TOLERANCE, set from area-light-path where six pixels in
+eighty-one thousand flipped). To find whether that gap is ours or the
+scene's, pbrt was rendered against itself -- `pbrt --gpu` and pbrt's CPU
+volpath, both at 16 spp, lit pixels counted:
+
+    pbrt --gpu   276,977 lit of 1,360,000 (20.37%)
+    pbrt CPU     281,948 lit of 1,360,000 (20.73%)
+
+pbrt disagrees with itself by 4,971 pixels, 1.79% of its own lit count
+-- six times our 0.29% against `pbrt --gpu`. So on this scene at this
+sample count we are markedly closer to pbrt's GPU render than pbrt's own
+two renderers are to each other, and the failure is the tolerance being
+too tight for a glass scene under an environment map at low spp, where
+one differing bit through a dielectric decides whether a path reaches the
+sky. The radiance mean agrees to 0.04% (well inside the 2% mean
+tolerance), and at 64 spp the lit-pixel check passes outright. Not a
+transport defect. The tolerance stays 0.1% -- it is right for the simple
+scenes it was set on, and loosening it globally would let a real missed
+draw through there -- so the table's FAILED on pavilion-day-16 is read
+against this calibration; a per-scene or spp-aware tolerance is the
+proper fix if the table is to stop flagging it.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
