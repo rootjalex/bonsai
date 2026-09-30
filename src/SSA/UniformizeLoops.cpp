@@ -33,12 +33,13 @@ namespace {
 // something on the way in, and an undefined value says exactly that: the
 // backend builds nothing for it, and the select that keeps a tracker where
 // its lane has not left has nothing to keep on the first trip.
-shared_ptr<Value> seed_of(const Type &type) {
+shared_ptr<Value> seed_of(const Type &type, const string &where) {
     internal_assert(type.is_bool() || type.is_numeric() ||
                     type.is<Vector_t>() || type.is<Struct_t>())
         << "[unimplemented] a divergent loop carries a value of type " << type
-        << " out to a use after the loop; only values a lane can hold one of "
-        << "can be captured at the iteration it leaves";
+        << " out to a use after the loop (" << where
+        << "); only values a lane can hold one of can be captured at the "
+        << "iteration it leaves";
     return undef_value(type);
 }
 
@@ -309,10 +310,15 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // argument may be called inside the loop is the same value threaded
         // through from outside -- an array it writes through, say -- under a
         // name each block on the way happens to repeat.
+        // A header argument is not automatically one of these: one the loop
+        // never gives a new value to -- an array it writes through, the lane
+        // index -- is the same value on every iteration, threaded round by
+        // its own name, and handing it to an exit as it is (invariant, below)
+        // is both correct and the only thing possible for a value no lane can
+        // hold one of. What makes a header argument loop-defined is a back
+        // edge passing it something other than itself, which the scan below
+        // catches like any other in-loop redefinition.
         set<string> defined_in_loop;
-        for (const Argument &arg : head->args) {
-            defined_in_loop.insert(arg.name);
-        }
         for (const string &name : in_loop) {
             Block &block = *blocks.at(name);
             for (Terminator::Jump *jump : jumps_of(block)) {
@@ -557,10 +563,14 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             added.push_back({t.mask, bool_type, bool_constant(false)});
         }
         for (const ExitTarget &t : targets) {
-            for (const ExitTarget::Slot &slot : t.slots) {
+            for (size_t j = 0; j < t.slots.size(); j++) {
+                const ExitTarget::Slot &slot = t.slots[j];
                 if (!slot.tracker.empty()) {
                     added.push_back(
-                        {slot.tracker, slot.type, seed_of(slot.type)});
+                        {slot.tracker, slot.type,
+                         seed_of(slot.type, "the loop headed by " + head->name +
+                                                " leaving for " + t.block +
+                                                ", argument " + std::to_string(j))});
                 }
             }
         }

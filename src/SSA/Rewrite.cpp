@@ -543,6 +543,19 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
     // callee whose parameter is called `acc` like the caller's would have
     // its `acc` taken for the caller's. The copy is the whole callee, so a
     // name an argument carries is defined by an argument of the copy.
+    //
+    // With one exception, for the same reason. A parameter the call binds
+    // to a value the caller passes by name -- its `out` handed to the
+    // callee's `out`, or to a `buffer` -- is that value: the callee threads
+    // it on under its own name, and the copy has to thread it on under the
+    // caller's, since the name is what says two references are one
+    // definition (the divergence analysis compares definitions by it,
+    // SSA/AnalyzeDivergence.cpp value_key; the loop folding asks whether an
+    // exit hands a header argument back by it, SSA/UniformizeLoops.cpp).
+    // Under a fresh name the same array comes round the back edge as a
+    // different value, and a loop that carries it is read as varying it. A
+    // caller's name that two parameters would take stays with neither.
+    map<string, string> renamed_to;
     {
         set<string> defined;
         for (const auto &block : callee.blocks) {
@@ -550,6 +563,25 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
                 defined.insert(arg.name);
             }
         }
+        {
+            const vector<Argument> &params = callee.blocks.front()->args;
+            map<string, size_t> takers;
+            for (size_t i = 0; i < params.size() && i < call.call.args.size(); i++) {
+                if (const auto *a = std::get_if<Argument>(&call.call.args[i]->data)) {
+                    takers[a->name]++;
+                }
+            }
+            for (size_t i = 0; i < params.size() && i < call.call.args.size(); i++) {
+                const auto *a = std::get_if<Argument>(&call.call.args[i]->data);
+                if (a != nullptr && takers.at(a->name) == 1) {
+                    renamed_to[params[i].name] = a->name;
+                }
+            }
+        }
+        const auto new_name = [&](const string &old) {
+            const auto alias = renamed_to.find(old);
+            return alias != renamed_to.end() ? alias->second : old + suffix;
+        };
         set<const Value *> renamed_values;
         const auto rename_value = [&](const shared_ptr<Value> &v) {
             if (!v || !renamed_values.insert(v.get()).second) {
@@ -557,7 +589,7 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
             }
             if (auto *a = std::get_if<Argument>(&v->data);
                 a != nullptr && defined.contains(a->name)) {
-                a->name += suffix;
+                a->name = new_name(a->name);
             }
         };
         const auto rename_jump = [&](Terminator::Jump &j) {
@@ -568,7 +600,7 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
         for (const auto &block : callee.blocks) {
             auto copy = copies.at(block->name);
             for (Argument &arg : copy->args) {
-                arg.name += suffix;
+                arg.name = new_name(arg.name);
             }
             for (auto &instr : copy->instrs) {
                 for (auto &v : instr->operands) {
@@ -615,7 +647,7 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
             map<string, shared_ptr<Value>> lookups;
             for (auto &[name, v] : copy->lookups) {
                 rename_value(v);
-                lookups[defined.contains(name) ? name + suffix : name] = v;
+                lookups[defined.contains(name) ? new_name(name) : name] = v;
             }
             copy->lookups = std::move(lookups);
         }

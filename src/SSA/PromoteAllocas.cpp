@@ -275,7 +275,9 @@ vector<Candidate> find_candidates(Function &func, const Cfg &region) {
                     const size_t j = k + first_arg;
                     internal_assert(j < target.args.size())
                         << "Jump from " << block->name << " to " << target.name
-                        << " passes more arguments than the block takes";
+                        << " passes more arguments than the block takes: "
+                        << jump->args.size() << " from argument " << first_arg
+                        << " on, to a block of " << target.args.size();
                     for (const Candidate &c : candidates) {
                         if (refers_to(*jump->args[k], c.name) &&
                             target.args[j].name != c.name) {

@@ -1,0 +1,56 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/vectorize-skip-address's program, run: a local passed by address
+// through an arm the gang may skip, read again after it. The answers are the
+// scalar's: 2 below the cut (one bump, acc 1), 15 between 2 and 5 (bumps of
+// 3 and 1, acc 11), 16 above 5 (one more bump). The gang's lanes take every
+// combination of the arm and the inner arm, and a gang that skips the arm
+// entirely -- the last eight, all below the cut -- must still find `c`.
+
+import stdlib/numerics;
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter, by : i32) -> void {
+    c.n = c.n + by;
+    return;
+}
+
+func tally(x : f32) -> i32 {
+    c : mut Counter = {0};
+    acc : mut = 1;
+    if x > 2.0 {
+        bump(c, 3);
+        if x > 5.0 {
+            bump(c, 1);
+        }
+        acc = acc + 10;
+    }
+    bump(c, 1);
+    return c.n + acc;
+}
+
+func tally_all(a : array[f32, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = tally(a[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    mixed : array[f32, 8] = {0.0, 3.0, 6.0, 1.0, 9.0, 2.5, -1.0, 7.0};
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    tally_all(mixed, out);
+    print(out);
+    low : array[f32, 8] = {0.0, 1.0, 0.5, 1.5, 2.0, -3.0, 1.0, 0.0};
+    tally_all(low, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    tally.skip();
+    tally_all.vectorize(i);
+}

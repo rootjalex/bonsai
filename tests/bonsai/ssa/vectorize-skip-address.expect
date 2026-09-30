@@ -1,0 +1,123 @@
+type Counter = struct Counter{ n : i32 }
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func bump(c : mut (Counter*), by : i32) -> void {
+  let @0 = (*c) in
+  let @1 = @0.n in
+  let @2 = @1 + by in
+  c.n = @2
+  return
+}
+
+func bump$gang8_p0(c : mut (Counter$v8*), by : i32) -> void {
+  let @0 = (*c) in
+  let @1 = @0.n in
+  let @4 = i32x8(by) in
+  let @2 = @1 + @4 in
+  c.n = @2
+  return
+}
+
+func bump$gang8_p0$masked(c : mut (Counter$v8*), by : i32, !mask : boolx8) -> void {
+  let @0 = (*c) in
+  let @1 = @0.n in
+  let @4 = i32x8(by) in
+  let @2 = @1 + @4 in
+  masked_store(c.n, @2, !mask)
+  return
+}
+
+func tally(x : f32) -> i32 {
+  acc : mut i32
+  alloc c : mut Counter
+  let @0 = build<Counter>(0) in
+  c = @0
+  let @1 = 2f < x in
+  if (@1) {
+    bump(c, 3)
+    let @2 = 5f < x in
+    if (@2) {
+      bump(c, 1)
+    }
+    let @4 = 1 + 10 in
+    acc = @4
+  } else {
+    acc = 1
+  }
+  bump(c, 1)
+  let @5 = (*c) in
+  let @6 = @5.n in
+  let @8 = @6 + (*acc) in
+  return @8
+}
+
+func [[export]] tally_all(a : f32[8], out : mut i32[8]) -> void {
+  acc$i6!skip : mut i32x8
+  let x$i6 = a[ramp(0, 1, 8)] in
+  alloc c$i6 : mut Counter$v8
+  let @21 = i32x8(0) in
+  let @22 = build<Counter$v8>(@21) in
+  c$i6 = @22
+  let @23 = f32x8(2f) in
+  let @2 = @23 < x$i6 in
+  let @16 = reduce<any>(@2) in
+  let @31 = i32x8(1) in
+  if (@16) {
+    bump$gang8_p0$masked(c$i6, 3, @2)
+    let @26 = f32x8(5f) in
+    let @3 = @26 < x$i6 in
+    let @15 = @2 && @3 in
+    let @17 = reduce<any>(@15) in
+    if (@17) {
+      bump$gang8_p0$masked(c$i6, 1, @15)
+    }
+    let @5 = 1 + 10 in
+    let @29 = i32x8(@5) in
+    let @30 = i32x8(1) in
+    let @18 = select(@2, @29, @30) in
+    acc$i6!skip = @18
+  } else {
+    acc$i6!skip = @31
+  }
+  bump$gang8_p0(c$i6, 1)
+  let @6 = (*c$i6) in
+  let @7 = @6.n in
+  let @9 = @7 + (*acc$i6!skip) in
+  out[ramp(0, 1, 8)] = @9
+  return
+}
+
+func [[export]] tally_one(x : f32) -> i32 {
+  acc$i7 : mut i32
+  alloc c$i7 : mut Counter
+  let @0 = build<Counter>(0) in
+  c$i7 = @0
+  let @1 = 2f < x in
+  if (@1) {
+    bump(c$i7, 3)
+    let @2 = 5f < x in
+    if (@2) {
+      bump(c$i7, 1)
+    }
+    let @4 = 1 + 10 in
+    acc$i7 = @4
+  } else {
+    acc$i7 = 1
+  }
+  bump(c$i7, 1)
+  let @5 = (*c$i7) in
+  let @6 = @5.n in
+  let @8 = @6 + (*acc$i7) in
+  return @8
+}
+
+
+schedule host {
+    tally_all.vectorize(i)
+
+}

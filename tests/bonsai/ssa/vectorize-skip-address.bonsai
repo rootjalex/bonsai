@@ -1,0 +1,59 @@
+//! flags: -p ssa
+
+// A local passed by address through an arm a gang may skip (the BOSCC
+// gadget, SSA/Linearize.h), and read again after it: `c` is a `mut` local
+// whose address `bump` takes, the then arm hands that address through two of
+// its own blocks under `c`'s name, and the `bump` after the `if` reads it
+// again. That is a layered BxDF's random-number state on a path that skips
+// its walk.
+//
+// What to read for in `tally_all`: the arm's landing takes no `c!skip`
+// argument and blends no `c`. The address is defined by the allocation
+// before the arm, not by the arm's blocks that thread it on by its name, so
+// it is in scope along the bypass exactly as along the arm, and the gadget
+// has nothing to hand over (Linearize.cpp, definition_block and thread).
+// Before this, the landing blended the arm's `c` against the bypass's
+// `undef` under the arm's mask -- a per-lane pointer into per-lane memory,
+// which the vectorizer refuses to lay out. What is still handed over is
+// `acc`, computed in the arm, with the value from before it along the
+// bypass.
+import stdlib/numerics;
+
+element Counter {
+    n : i32;
+}
+
+func bump(c : mut Counter, by : i32) -> void {
+    c.n = c.n + by;
+    return;
+}
+
+func tally(x : f32) -> i32 {
+    c : mut Counter = {0};
+    acc : mut = 1;
+    if x > 2.0 {
+        bump(c, 3);
+        if x > 5.0 {
+            bump(c, 1);
+        }
+        acc = acc + 10;
+    }
+    bump(c, 1);
+    return c.n + acc;
+}
+
+func [[export]] tally_one(x : f32) -> i32 {
+    return tally(x);
+}
+
+func [[export]] tally_all(a : array[f32, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = tally(a[i]);
+    }
+    return;
+}
+
+schedule {
+    tally.skip();
+    tally_all.vectorize(i);
+}

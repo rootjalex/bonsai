@@ -124,7 +124,14 @@ Divergence analyze_divergence(
     const std::set<std::pair<std::string, std::string>> &varying_args = {},
     const std::set<std::string> &pointee_seeds = {},
     const std::shared_ptr<Value> &entry_mask = nullptr,
-    const std::set<std::string> &masked_seeds = {});
+    const std::set<std::string> &masked_seeds = {},
+    // Blocks that run under a partial mask the graph no longer shows: the
+    // arms of divergent branches after linearization has folded them.
+    // Seeded as masked, as `masked_seeds` are -- so that a store or a call
+    // in one still makes the memory it writes per lane -- but not taken for
+    // blocks of a folded loop, which is what `masked_seeds` also says of a
+    // latch (see the temporal rule at the loop header).
+    const std::set<std::string> &under_mask_seeds = {});
 
 // Prints to stderr why `v`, as referenced from `block`, is varying: the
 // value, and beneath it the varying operands it is computed from, down to the

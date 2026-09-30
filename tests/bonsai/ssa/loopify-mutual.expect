@@ -23,14 +23,13 @@ func step(n : i32, acc : i32) -> i32 {
   acc!loop = acc
   while (!((*n!loop) == 0)) {
     let @1 = (*acc!loop) + (*n!loop) in
-    let n!inl0 = @4 in
     let acc!inl0 = @1 in
     let @3 = 1000 < acc!inl0 in
     if (@3) {
       let @2 = @1 in
       return @2
     } else {
-      let @4 = n!inl0 - 1 in
+      let @4 = (*n!loop) - 1 in
       n!loop = @4
       acc!loop = acc!inl0
     }

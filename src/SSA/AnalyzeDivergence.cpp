@@ -259,7 +259,8 @@ analyze_divergence(const Function &func, const string &entry,
                    const set<std::pair<string, string>> &varying_args,
                    const set<string> &pointee_seeds,
                    const shared_ptr<Value> &entry_mask,
-                   const set<string> &masked_seeds) {
+                   const set<string> &masked_seeds,
+                   const set<string> &under_mask_seeds) {
     // Is this the mask the whole region runs under? Compared by name, the
     // way this form identifies a definition wherever it is referenced.
     const auto is_entry_mask = [&](const Value &v) {
@@ -364,6 +365,12 @@ analyze_divergence(const Function &func, const string &entry,
     result.instrs.insert(varying_instrs.begin(), varying_instrs.end());
     result.args.insert(varying_args.begin(), varying_args.end());
     for (const string &seed : masked_seeds) {
+        if (cfg.contains(seed)) {
+            result.masked.insert(seed);
+        }
+    }
+    // The folded arms: masked, and nothing more (see the header).
+    for (const string &seed : under_mask_seeds) {
         if (cfg.contains(seed)) {
             result.masked.insert(seed);
         }
@@ -790,12 +797,34 @@ analyze_divergence(const Function &func, const string &entry,
                     mark(result.args,
                          std::pair{cont_block.name, cont_block.args[0].name});
                 }
-                if (varying_call || under_mask) {
-                    for (const shared_ptr<Value> &v : args) {
-                        const string k = classes.key(b, *v);
-                        if (!k.empty() && owned.count(classes.find(k))) {
-                            mark(per_lane, classes.find(k));
-                        }
+                // BONSAI_EXPLAIN_CALLS prints every call the analysis sees,
+                // with what it decided: whether the call varies, whether its
+                // block runs under a mask, and for each argument that
+                // addresses memory, whether that memory is the region's own
+                // and so becomes per lane.
+                static const bool explain_calls =
+                    std::getenv("BONSAI_EXPLAIN_CALLS") != nullptr;
+                if (explain_calls) {
+                    std::cerr << "--- call in " << name << " to " << cont.name
+                              << "'s callee (analyzing "
+                              << func.blocks.front()->name << " from " << entry
+                              << "): varying " << varying_call
+                              << ", under a mask " << under_mask
+                              << ", divergent branches so far "
+                              << result.branches.size() << "\n";
+                }
+                for (const shared_ptr<Value> &v : args) {
+                    const string k = classes.key(b, *v);
+                    const bool own = !k.empty() && owned.count(classes.find(k));
+                    if (explain_calls && !k.empty()) {
+                        std::cerr << "    argument ";
+                        v->dump(std::cerr);
+                        std::cerr << " addresses class " << classes.find(k)
+                                  << (own ? " (the region's own)" : " (not the region's)")
+                                  << "\n";
+                    }
+                    if ((varying_call || under_mask) && own) {
+                        mark(per_lane, classes.find(k));
                     }
                 }
             };

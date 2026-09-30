@@ -1072,6 +1072,30 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 continue;
             }
             const shared_ptr<Block> &landing = cfg.block(hop.landing);
+            // What each way into the landing would hand the argument.
+            map<BlockId, shared_ptr<Value>> from;
+            from[hop.inside] = v;
+            for (const Gadget &g : gadgets) {
+                if (g.landing == hop.landing) {
+                    from[g.guard] = g.region.contains(at) ? skipped(g) : v;
+                }
+            }
+            for (BlockId other : hop.others) {
+                from[other] = elsewhere;
+            }
+            // Every way in handing `v` itself -- a definition above the
+            // region, in scope along the bypass as along the arm -- needs no
+            // argument: the argument would be a merge of one value with
+            // itself, and a blend of it downstream (a per-lane pointer, for
+            // an address) that nothing about the program asked for. `v`
+            // stays in scope at the landing by its name.
+            if (std::all_of(from.begin(), from.end(), [&](const auto &entry) {
+                    return entry.second != nullptr &&
+                           same_value(*entry.second, *v);
+                })) {
+                at = hop.landing;
+                continue;
+            }
             // Unique in the function, so that a name says which landing's
             // argument it is (see definition_block).
             string name = stem + "!skip";
@@ -1080,17 +1104,8 @@ BlockMasks linearize(Function &func, const string &entry_name,
             }
             landing_names.insert(name);
             LandingArg entry_arg{
-                landing->add_argument(Argument{v->get_type(), name}), {}};
-            entry_arg.from[hop.inside] = v;
-            for (const Gadget &g : gadgets) {
-                if (g.landing == hop.landing) {
-                    entry_arg.from[g.guard] =
-                        g.region.contains(at) ? skipped(g) : v;
-                }
-            }
-            for (BlockId other : hop.others) {
-                entry_arg.from[other] = elsewhere;
-            }
+                landing->add_argument(Argument{v->get_type(), name}),
+                std::move(from)};
             v = entry_arg.arg;
             at = hop.landing;
             landing_arg_block[v.get()] = at;
@@ -1102,11 +1117,64 @@ BlockMasks linearize(Function &func, const string &entry_name,
         return v;
     };
 
+    // Does `at` declare `name` only to thread it on -- every edge into it
+    // handing that argument the value of the same name, an argument or an
+    // instruction of a block above? Then the block defines nothing: a value
+    // is threaded by its name, and the same name on the way in is the same
+    // value (SSA/AnalyzeDivergence.cpp value_key; same_value). A block with
+    // an edge this cannot see -- a call's continuation, whose leading
+    // argument is the result -- is taken to define what it declares.
+    auto passed_through = [&](BlockId at, const string &name) {
+        Block &blk = cfg[at];
+        size_t k = 0;
+        while (k < blk.args.size() && blk.args[k].name != name) {
+            k++;
+        }
+        if (k == blk.args.size() || cfg.preds[at].empty()) {
+            return false;
+        }
+        for (BlockId p : cfg.preds[at]) {
+            bool seen = false;
+            for (Terminator::Jump *jump : jumps_of(cfg[p])) {
+                if (jump->name != blk.name) {
+                    continue;
+                }
+                seen = true;
+                const size_t offset = blk.args.size() - jump->args.size();
+                if (k < offset) {
+                    return false;
+                }
+                const Value &passed = *jump->args[k - offset];
+                const auto *a = std::get_if<Argument>(&passed.data);
+                const auto *i = std::get_if<shared_ptr<Instruction>>(&passed.data);
+                if (!((a != nullptr && a->name == name) ||
+                      (i != nullptr && (*i)->name == name))) {
+                    return false;
+                }
+            }
+            if (!seen) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     // Where `v`, as `from` passes it, is defined: the block of an
     // instruction; for an argument, the landing that declared it, or else
-    // the nearest block up `from`'s dominator chain that declares the name.
-    // NO_BLOCK for a constant, or for a parameter -- something in scope
-    // everywhere, which no bypass can put out of reach.
+    // the nearest block up `from`'s dominator chain that gives the name a
+    // value -- declares it as an argument and does not merely thread it
+    // (passed_through), or defines an instruction by it. NO_BLOCK for a
+    // constant, or for a parameter -- something in scope everywhere, which
+    // no bypass can put out of reach.
+    //
+    // Threading is why the walk does not stop at the first declaration. A
+    // region's blocks carry an address defined before the region -- the
+    // random-number state a layered BxDF's walk reads -- as an argument of
+    // their own under its name, and a read after the region would take the
+    // region for its definition: the bypass would then hand it nothing, and
+    // the landing blend a per-lane pointer no lane can hold. Its definition
+    // is the allocation above the region, in scope along the bypass as it
+    // is along the arm.
     auto definition_block = [&](const shared_ptr<Value> &v,
                                 BlockId from) -> BlockId {
         if (std::holds_alternative<shared_ptr<Instruction>>(v->data)) {
@@ -1122,7 +1190,17 @@ BlockMasks linearize(Function &func, const string &entry_name,
         }
         for (BlockId at = from;;) {
             if (declares(cfg[at], arg->name)) {
-                return at == entry ? NO_BLOCK : at;
+                if (at == entry) {
+                    return NO_BLOCK;
+                }
+                if (!passed_through(at, arg->name)) {
+                    return at;
+                }
+            } else if (std::any_of(cfg[at].instrs.begin(), cfg[at].instrs.end(),
+                                   [&](const shared_ptr<Instruction> &i) {
+                                       return i->name == arg->name;
+                                   })) {
+                return at;
             }
             if (!dom.contains(at) || dom.idom[at] == at) {
                 return NO_BLOCK;

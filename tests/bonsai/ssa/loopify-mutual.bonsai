@@ -4,11 +4,14 @@
 // hands its next round to `route`, which hands it back. The loop needs the
 // call back to be `step`'s own, so `route` is copied into `step` at its call
 // first (SSA/Rewrite.cpp, inline_call): what to look for is `route!inl0`,
-// the copy's blocks, inside `step`, with `route`'s parameters renamed with
-// the same suffix so that its `acc` is not taken for `step`'s; the copy's
-// return jumping to the call's continuation with the value; and the tail
-// call of `step` in the copy become the loop's back edge, carrying `n` and
-// `acc` both round. `route` itself stays as it was, for `main`.
+// the copy's blocks, inside `step`, with `route`'s `acc` renamed with the
+// same suffix so that it is not taken for `step`'s -- the call passes it
+// `acc + n`, a value of its own -- while `route`'s `n`, which the call
+// passes `step`'s `n` by name, keeps that name: it is the same value, and
+// a value is threaded by its name; the copy's return jumping to the call's
+// continuation with the value; and the tail call of `step` in the copy
+// become the loop's back edge, carrying `n` and `acc` both round. `route`
+// itself stays as it was, for `main`.
 
 func step(n : i32, acc : i32) -> i32 {
     if n == 0 {

@@ -1563,12 +1563,15 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     unify_returns(*variant);
 
     // The analysis of this region, as its seeds accumulate: the varying
-    // parameters throughout, and what uniformizing its loops adds.
+    // parameters throughout, what uniformizing its loops adds, and, once
+    // the branches are folded, the arms that run under a mask the graph no
+    // longer shows (`folded_arms`, set after linearization).
+    set<string> folded_arms;
     const auto analyze = [&](const set<std::pair<string, string>> &varying_args,
                              const set<string> &masked_blocks) {
         return analyze_divergence(*variant, entry, varying_names, {},
                                   varying_args, pointee_names, mask,
-                                  masked_blocks);
+                                  masked_blocks, folded_arms);
     };
 
     // A loop the lanes leave at different iterations -- which is what a
@@ -1608,6 +1611,17 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // Which also puts a uniform branch around each arm no lane may be on, so
     // that a gang skips the arms none of its lanes take -- where it must, and
     // where the schedule says under the callee's own name.
+    // The blocks the linearizer folds -- the arms of the divergent branches
+    // -- run under a mask afterwards as they did before, only now the mask is
+    // a value rather than a branch, and the analyses below cannot see it in
+    // the graph. They are told: seeded as masked, so that a store or a call
+    // in an arm still makes the memory it writes per lane. (Found through a
+    // local passed by address to a call inside an arm: with the arm no
+    // longer masked in the analysis's eyes, the call was a store into shared
+    // memory that happens if any lane is on, and every lane got the arm's
+    // writes.) Not through `masked_blocks`, which says "a folded loop" too,
+    // and would make every latch inside an arm a divergent one.
+    folded_arms = linearizable.masked;
     BlockMasks masks = linearize(*variant, entry, linearizable, mask,
                                  uniform.loops, policies, key.callee);
     if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
@@ -1784,6 +1798,9 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
         std::cerr << "--- before linearizing " << func << ":\n";
         f->dump(std::cerr);
     }
+    // The folded arms stay masked for the analyses after the fold; see the
+    // same step in the variant path above.
+    const set<string> folded_arms = before.masked;
     BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops,
                                  policies, func);
     if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
@@ -1792,7 +1809,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     }
     lower_votes(*f, entry,
                 analyze_divergence(*f, entry, {idx}, {}, varying_args, {},
-                                   nullptr, masked_blocks),
+                                   nullptr, masked_blocks, folded_arms),
                 masks, nullptr, lanes);
 
     Cfg region(*f, entry);
@@ -1831,7 +1848,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     const SplitResult split = split_aggregates(
         *f, entry,
         analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
-                           nullptr, masked_blocks),
+                           nullptr, masked_blocks, folded_arms),
         {ramp.get()});
 
     // A division the gang makes with operands known small enough goes to
@@ -1839,22 +1856,22 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     // below classifies what it leaves.
     divide_bounded_by_floats(
         *f, analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
-                               nullptr, masked_blocks));
+                               nullptr, masked_blocks, folded_arms));
     divide_by_uniform_divisors(
         *f,
         analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
-                           nullptr, masked_blocks),
+                           nullptr, masked_blocks, folded_arms),
         entry);
     expand_bounded_multipliers(
         *f, analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
-                               nullptr, masked_blocks));
+                               nullptr, masked_blocks, folded_arms));
 
     // Re-run the analysis now that the region is linearized and the index is
     // the ramp: the masks and blends linearization introduced have to be
     // classified too, and the index is no longer a block argument to seed on.
     const Divergence div =
         analyze_divergence(*f, entry, {}, {ramp.get()}, varying_args, {},
-                           nullptr, masked_blocks);
+                           nullptr, masked_blocks, folded_arms);
     internal_assert(div.branches.empty())
         << "Linearization left a divergent branch in " << *div.branches.begin();
 

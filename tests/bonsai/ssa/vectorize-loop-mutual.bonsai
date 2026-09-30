@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// A recursion through another function, made a loop (`step.loopify()`, which
+// copies `route` into `step` at its call -- SSA/Rewrite.cpp, inline_call) and
+// then vectorized (SSA/UniformizeLoops.h). The copy of `route` inside `step`
+// has an early return that writes `out`, so the loop has an exit into one of
+// the copy's blocks with `out` among the values the edge carries -- an array,
+// which no lane can hold one of, so it cannot be tracked per lane the way
+// `acc` is. It does not need to be: the loop's header carries `out` round
+// unchanged on every trip, which makes it invariant, and an invariant is
+// handed to the exit as it is.
+//
+// What to look for: `!track.*` header arguments for `acc` and the count
+// alone, none for `out` or `i`; the jump to the copy's early-return block
+// passing `out` by name; and the two stores after the loop, one under each
+// exit's mask, both to `out`. (Found on apps/pbrt's volpath under the packet
+// schedule, whose path loop reached the escaped-ray code this way with the
+// meshes' array: the analysis had counted every header argument as
+// loop-defined, threaded or not.)
+
+func step(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+    if n <= 0 {
+        out[i] = acc;
+        return;
+    }
+    route(n, acc + n, out, i);
+    return;
+}
+
+func route(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+    if acc > 20 {
+        out[i] = 0 - 1;
+        return;
+    }
+    step(n - 1, acc, out, i);
+    return;
+}
+
+func triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        step(n[i], 0, out, i);
+    }
+    return;
+}
+
+schedule {
+    step.loopify();
+    triangles.vectorize(i);
+}

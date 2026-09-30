@@ -73,10 +73,12 @@ add_bonsai_tests(
     vectorize-bounded-division.bonsai
     vectorize-bounded-multiplier.bonsai
     vectorize-loop.bonsai
+    vectorize-loop-mutual.bonsai
     vectorize-masked-accumulate.bonsai
     vectorize-masked-math-call.bonsai
     vectorize-packet-traversal.bonsai
     vectorize-short-vectors.bonsai
+    vectorize-skip-address.bonsai
     vectorize-skip-arms.bonsai
     vectorize-skip-cursor.bonsai
     vectorize-soa.bonsai

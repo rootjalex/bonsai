@@ -1,0 +1,46 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/vectorize-loop-mutual's program, run: a recursion through another
+// function made a loop and vectorized, with the loop exiting into the copied
+// function's early return, which writes the array every lane shares. The
+// answers are the recursion's: step(n, 0) sums n down to 1 unless the running
+// sum passes 20 on the way, and then writes -1 -- 0, 1, 3, 6, 10, 15 for n up
+// to 5, and -1 for 6 and 7, whose sums reach 21 and 22.
+
+func step(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+    if n <= 0 {
+        out[i] = acc;
+        return;
+    }
+    route(n, acc + n, out, i);
+    return;
+}
+
+func route(n : i32, acc : i32, out : mut array[i32, 8], i : i32) -> void {
+    if acc > 20 {
+        out[i] = 0 - 1;
+        return;
+    }
+    step(n - 1, acc, out, i);
+    return;
+}
+
+func triangles(n : array[i32, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        step(n[i], 0, out, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    n : array[i32, 8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    out : mut array[i32, 8] = {9, 9, 9, 9, 9, 9, 9, 9};
+    triangles(n, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    step.loopify();
+    triangles.vectorize(i);
+}
