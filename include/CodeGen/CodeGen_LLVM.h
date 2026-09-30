@@ -230,6 +230,25 @@ struct CodeGen_LLVM : public ir::Visitor {
     // (SSALowering::device_resident_allocations); by instruction name, which
     // a value keeps when it is threaded to another block as an argument.
     std::set<std::string> device_resident;
+    // Names bound to addresses into a device-resident allocation (a let of
+    // a field's pointer into a queue's header), so that a read or write
+    // through the name is known to cross to the device (device_root_of).
+    std::set<std::string> device_pointer_vars;
+    // The device-resident allocation an address expression is rooted at, if
+    // any: the allocation's name, an access chain down from it, or a name
+    // bound to such an address. Empty on a generator with nothing device-
+    // resident -- every kernel generator -- so the transfers below are the
+    // host's alone.
+    std::optional<std::string> device_root_of(const ir::Expr &address) const;
+    // A host read of `type` at a device address: the bytes copied back into
+    // a temporary and loaded from there (bonsai_cuda_copy_to_host).
+    llvm::Value *load_from_device(llvm::Type *type, llvm::Value *device_address,
+                                  const char *name);
+    // A host write of `rhs` (of `type`) at a device address: one word as a
+    // memset on the stream, with no wait (bonsai_cuda_store_word_async);
+    // anything else copied from a temporary (bonsai_cuda_copy_to_device).
+    void store_to_device(llvm::Value *rhs, llvm::Value *device_address,
+                         const ir::Type &type);
     // The allocation an address is of -- through address arithmetic (GEP,
     // a field's pointer, address-of, a cast), and through the block
     // arguments that pass it along when `defs` is given (SSA/Definitions.h,

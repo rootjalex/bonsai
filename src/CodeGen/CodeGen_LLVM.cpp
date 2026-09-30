@@ -2844,6 +2844,13 @@ void CodeGen_LLVM::visit(const Extract *node) {
         llvm::Type *etype = codegen_type(vec_expr.type().element_of());
         llvm::Value *ptr =
             builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
+        // An element of a device-resident array read on the host -- one of
+        // a queue's two headers, for the round's count -- comes back by a
+        // copy (device_root_of).
+        if (device_root_of(vec_expr).has_value()) {
+            value = load_from_device(etype, ptr, "extract_device");
+            return;
+        }
         llvm::LoadInst *load = create_aligned_load(etype, ptr, "extract");
         value = load;
     } else {
@@ -3828,6 +3835,13 @@ void CodeGen_LLVM::visit(const Deref *node) {
     // Make sure the expression is a pointer
     if (pointer_value->getType()->isPointerTy()) {
         llvm::Type *loaded_type = codegen_type(node->type);
+        // A host read of device memory -- a queue's header, resident on the
+        // device since its drains run there, read for the round's count --
+        // comes back by a copy (device_root_of).
+        if (device_root_of(node->expr).has_value()) {
+            value = load_from_device(loaded_type, pointer_value, "deref_device");
+            return;
+        }
         // Dereference the pointer (load the value at the pointer address)
         llvm::LoadInst *load =
             create_aligned_load(loaded_type, pointer_value, "deref_temp");
@@ -4306,6 +4320,87 @@ void CodeGen_LLVM::visit(const LetStmt *node) {
     internal_assert(node->loc.accesses.empty());
     llvm::Value *v = codegen_expr(node->value);
     frames.add_to_frame(node->loc.base, v);
+    // A name bound to an address into device memory is one to cross through
+    // (device_root_of): the pointer to a queue's count, bound before the
+    // store that zeroes it and the loop that tests it.
+    if (!device_resident.empty() &&
+        (node->value.type().is<Ptr_t>() || node->value.type().is_reference()) &&
+        device_root_of(node->value).has_value()) {
+        device_pointer_vars.insert(node->loc.base);
+    }
+}
+
+std::optional<std::string> CodeGen_LLVM::device_root_of(const Expr &address) const {
+    if (device_resident.empty()) {
+        return std::nullopt;
+    }
+    if (const Var *v = address.as<Var>()) {
+        if (device_resident.contains(v->name) ||
+            device_pointer_vars.contains(v->name)) {
+            return v->name;
+        }
+        return std::nullopt;
+    }
+    // An address chain: the address of a field or element of a place, the
+    // place itself named by a dereference of the pointer to it (see the
+    // PtrTo visitor: a chain rooted at a dereference is an offset, not a
+    // copy). Each step keeps the root.
+    if (const PtrTo *p = address.as<PtrTo>()) {
+        return device_root_of(p->expr);
+    }
+    if (const Access *a = address.as<Access>()) {
+        return device_root_of(a->value);
+    }
+    if (const Deref *d = address.as<Deref>()) {
+        return device_root_of(d->expr);
+    }
+    if (const Extract *x = address.as<Extract>()) {
+        return device_root_of(x->vec);
+    }
+    return std::nullopt;
+}
+
+llvm::Value *CodeGen_LLVM::load_from_device(llvm::Type *type,
+                                            llvm::Value *device_address,
+                                            const char *name) {
+    llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+    llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Value *temporary = create_alloca_at_entry(type, std::string(name) + "_host");
+    llvm::FunctionCallee copy = module->getOrInsertFunction(
+        "bonsai_cuda_copy_to_host",
+        llvm::FunctionType::get(void_t, {ptr, ptr, i64}, /*isVarArg=*/false));
+    builder->CreateCall(
+        copy, {temporary, device_address,
+               llvm::ConstantInt::get(
+                   i64, module->getDataLayout().getTypeAllocSize(type))});
+    return create_aligned_load(type, temporary, name);
+}
+
+void CodeGen_LLVM::store_to_device(llvm::Value *rhs, llvm::Value *device_address,
+                                   const ir::Type &type) {
+    llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+    llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
+    llvm::Type *i32 = llvm::Type::getInt32Ty(*context);
+    const llvm::DataLayout &dl = module->getDataLayout();
+    if (!type.is_vector() && dl.getTypeAllocSize(rhs->getType()) == 4 &&
+        (rhs->getType()->isIntegerTy(32) || rhs->getType()->isFloatTy())) {
+        llvm::Value *word = rhs->getType()->isFloatTy()
+                                ? builder->CreateBitCast(rhs, i32)
+                                : rhs;
+        llvm::FunctionCallee store_word = module->getOrInsertFunction(
+            "bonsai_cuda_store_word_async",
+            llvm::FunctionType::get(void_t, {ptr, i32}, /*isVarArg=*/false));
+        builder->CreateCall(store_word, {device_address, word});
+        return;
+    }
+    llvm::Value *temporary = create_alloca_at_entry(rhs->getType(), "device_store");
+    builder->CreateStore(rhs, temporary);
+    llvm::FunctionCallee copy = module->getOrInsertFunction(
+        "bonsai_cuda_copy_to_device",
+        llvm::FunctionType::get(void_t, {ptr, ptr, i64}, /*isVarArg=*/false));
+    builder->CreateCall(copy, {device_address, temporary,
+                               llvm::ConstantInt::get(
+                                   i64, dl.getTypeAllocSize(rhs->getType()))});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -4854,6 +4949,14 @@ void CodeGen_LLVM::visit(const Store *node) {
         return;
     }
 
+    // A host write into device memory -- a queue's header initialized, its
+    // count zeroed before the round that fills it -- crosses by a memset or
+    // a copy (store_to_device).
+    if (!device_resident.empty() && (device_resident.contains(loc.base) ||
+                                     device_pointer_vars.contains(loc.base))) {
+        store_to_device(rhs, dest, node->value.type());
+        return;
+    }
     llvm::StoreInst *store =
         builder->CreateStore(rhs, dest, /*isVolatile=*/false);
     add_tbaa(store, node->value.type());

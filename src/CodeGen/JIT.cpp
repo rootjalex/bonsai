@@ -57,6 +57,13 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         // CodeGen_LLVM::device_resident).
         define("bonsai_cuda_malloc", &bonsai_cuda_malloc);
         define("bonsai_cuda_free", &bonsai_cuda_free);
+        // Host reads and writes of device-resident memory (a queue's header
+        // drained on the GPU): the count read between rounds, zeroed before
+        // one, and the header filled at the start (CodeGen_LLVM::
+        // load_from_device, store_to_device).
+        define("bonsai_cuda_copy_to_host", &bonsai_cuda_copy_to_host);
+        define("bonsai_cuda_copy_to_device", &bonsai_cuda_copy_to_device);
+        define("bonsai_cuda_store_word_async", &bonsai_cuda_store_word_async);
         // The ray tracing hardware (runtime/bonsai_optix.h): the launches a
         // loop bound to OptixThread makes, and the module load ahead of
         // them; a program's driver builds the acceleration structures.

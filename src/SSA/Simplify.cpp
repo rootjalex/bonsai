@@ -718,6 +718,24 @@ UseCounts use_counts(const Function &func) {
                            count(p.stride, uses);
                            count(p.body, uses);
                            count(p.cont, uses);
+                           // A queue drain launched over its capacity uses
+                           // the queue's size, storage and slot, and (once a
+                           // GPU bind has built it) the address of its count
+                           // (Terminator::ParFor, Bind.cpp); a drain not
+                           // GPU-bound has them cleared and these are null
+                           // (SSA/Convert.cpp).
+                           if (p.capacity) {
+                               count(p.capacity, uses);
+                           }
+                           if (p.queue_base) {
+                               count(p.queue_base, uses);
+                           }
+                           if (p.queue_slot) {
+                               count(p.queue_slot, uses);
+                           }
+                           if (p.count_address) {
+                               count(p.count_address, uses);
+                           }
                        },
                        [](const Terminator::Yield &) {},
                        [&](const Terminator::Call &c) {

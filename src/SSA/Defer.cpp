@@ -4211,8 +4211,19 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             Ptr_t::make(u32()), Instruction::Op::FieldPtr,
             {next_queue, constant_u32(0)});
         pre->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
-        std::get<Terminator::ParFor>(pre->terminator.data).end =
-            reach(pre, pending);
+        {
+            Terminator::ParFor &drain = std::get<Terminator::ParFor>(pre->terminator.data);
+            drain.end = reach(pre, pending);
+            // What a GPU launch of this loop would cover
+            // (Terminator::ParFor::capacity): the queue's size, the header's
+            // storage, and the slot drained this round. All values that
+            // already exist, so a drain a GPU bind never claims costs no new
+            // instruction (Bind.cpp builds the cast, the guard and the count
+            // address from these; SSA/Convert.cpp clears them otherwise).
+            drain.capacity = reach(pre, O->queue_sizes.at(queue.name).size);
+            drain.queue_base = reach(pre, queues);
+            drain.queue_slot = many ? reach(pre, cur) : nullptr;
+        }
         bodies[0]->preds = {pre};
     }
 
@@ -4417,13 +4428,19 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 queue_t, Instruction::Op::Load, {queue_at(from, constant_u32(q))});
             auto pending = from->make_instruction(
                 u32(), Instruction::Op::LoadField, {whole, constant_u32(0)});
-            from->terminator.data =
-                Terminator::ParFor{subqueues[q].path,
-                                   constant_u32(0),
-                                   pending,
-                                   constant_u32(1),
-                                   Terminator::Jump{bodies[q]->name},
-                                   Terminator::Jump{to->name}};
+            Terminator::ParFor pass{subqueues[q].path,
+                                    constant_u32(0),
+                                    pending,
+                                    constant_u32(1),
+                                    Terminator::Jump{bodies[q]->name},
+                                    Terminator::Jump{to->name}};
+            // As for the round's drain above: the queue's size, the header's
+            // storage and this queue's slot, all existing values, for a GPU
+            // bind to launch over the capacity (Bind.cpp).
+            pass.capacity = reach(from, O->queue_sizes.at(queue.name).size);
+            pass.queue_base = reach(from, queues);
+            pass.queue_slot = many ? constant_u32(q) : nullptr;
+            from->terminator.data = std::move(pass);
             bodies[q]->preds = {from};
             if (!last) {
                 to->preds = {from};

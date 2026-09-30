@@ -2433,6 +2433,32 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 
     phase("atomics after the binds");
 
+    // A queue's drain carries the queue's capacity and the address of its
+    // count (Terminator::ParFor::capacity, set in Defer.cpp) for the launch
+    // over the capacity a GPU bind makes of it (Bind.cpp). A drain that is
+    // not GPU-bound -- run on the host, or not bound at all -- has no use
+    // for them: it runs to the count as before. Cleared here so that the
+    // instructions that computed them (the count's field pointer) are dead
+    // and the simplify below removes them, leaving the host's drains exactly
+    // as they were.
+    for (const auto &[name, f] : fmap) {
+        for (const auto &block : f->blocks) {
+            auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p == nullptr || !p->capacity) {
+                continue;
+            }
+            const bool gpu = p->binding == Resource::GPUThread ||
+                             p->binding == Resource::GPUBlock ||
+                             p->binding == Resource::OptixThread;
+            if (!gpu) {
+                p->capacity = nullptr;
+                p->queue_base = nullptr;
+                p->queue_slot = nullptr;
+                p->count_address = nullptr;
+            }
+        }
+    }
+
     // What the transforms built by rule is looked at once more (see
     // SSA/Simplify.h): a vectorized split loop's index is the outer index
     // broadcast plus the ramp of lanes, which is a ramp, and only as a ramp

@@ -414,6 +414,16 @@ void Terminator::dump(std::ostream &os) const {
                        if (p.binding.has_value()) {
                            os << " on " << to_string(*p.binding);
                        }
+                       // A queue's loop: what a GPU launch covers, and where
+                       // the count it tests is.
+                       if (p.capacity) {
+                           os << " capacity ";
+                           p.capacity->dump(os);
+                       }
+                       if (p.count_address) {
+                           os << " counted at ";
+                           p.count_address->dump(os);
+                       }
                    },
                    [&](const Yield &y) { os << "yield"; },
                    [&](const Call &c) {

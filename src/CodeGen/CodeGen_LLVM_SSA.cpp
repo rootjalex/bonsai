@@ -1652,6 +1652,27 @@ struct CodeGen_LLVM::SSALowering {
                 resident.insert(name);
             }
         }
+        // A queue drained by a loop bound to the GPU keeps its header --
+        // its count and its arrays' handles -- on the device too, though
+        // the host touches it: the host reads the count once a round to
+        // know whether to go on, zeroes the next queue's count before the
+        // round, and fills the header once at the start. Each of those
+        // crosses by a copy or a memset (CodeGen_LLVM::load_from_device,
+        // store_to_device), where a header on the host would have crossed
+        // with every launch, there and back, and the launch waited for it
+        // (Terminator::ParFor::count_address; the launch shape,
+        // apps/pbrt/PLAN.md). The header is what the loop's count address
+        // is rooted at.
+        for (const auto &block : func.blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p == nullptr || !is_gpu_bound(*p) || p->count_address == nullptr) {
+                continue;
+            }
+            if (const auto header = CodeGen_LLVM::allocation_of(
+                    p->count_address, allocations, &defs, block->name)) {
+                resident.insert(*header);
+            }
+        }
         if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
             std::cerr << "; " << entry() << ": device-resident allocations:";
             for (const std::string &name : resident) {

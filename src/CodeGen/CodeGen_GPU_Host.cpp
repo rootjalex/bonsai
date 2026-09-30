@@ -582,7 +582,11 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
 
     // The grid and the block: as many blocks as the block loop has
     // iterations, as many threads as the thread loop has, and one of either
-    // that there is no loop for. Exact, so the kernel needs no guard. The
+    // that there is no loop for. Exact for the loop's bounds as they stand,
+    // so the kernel needs no guard of the launch's making: a loop over a
+    // queue has its end set to the queue's capacity and its body guarded by
+    // the count read on the device (Bind.cpp), which is what makes the
+    // launch go without the host reading the count. The
     // thread loop's bounds are values of the block loop's body, so they are
     // read here only if they came into that body from outside it -- as
     // captures, or constants -- which is what makes them the same for every

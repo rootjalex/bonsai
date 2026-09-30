@@ -323,6 +323,31 @@ struct Terminator {
         // only records what the loop is to run on, and code generation is
         // where that becomes a launch.
         std::optional<Resource> binding;
+
+        // For a loop over a queue (a drain, SSA/Defer.h): what a GPU launch
+        // of it covers. A loop on the CPU runs `start:end` with `end` the
+        // count as read before it; a loop bound to the GPU is launched over
+        // the queue's capacity instead, with the count read on the device
+        // and each thread testing its index against it -- pbrt's
+        // `ForAllQueued`: a launch over maxQueueSize whose kernel begins
+        // `if (index >= queue->Size()) return;` -- so that the host neither
+        // reads the count back nor waits for the launch before it (Bind.cpp).
+        //
+        // Set by Defer.cpp to values that already exist -- the queue's size,
+        // the header's storage, and the slot of the queue drained this round
+        // (null when the queue is not double-buffered) -- so that a drain
+        // costs no new instructions until a GPU bind asks for them. The bind
+        // builds the launch's extent (the size as a u32), the guard, and the
+        // count's address (`count_address`, which it fills in and which the
+        // residency analysis then reads, CodeGen_LLVM_SSA.cpp). A split of
+        // such a loop carries the three onward to its outer loop
+        // (Rewrite.cpp). Cleared on a loop no GPU bind claimed
+        // (SSA/Convert.cpp), so a host drain is exactly as it was. Null for
+        // any other loop.
+        std::shared_ptr<Value> capacity;
+        std::shared_ptr<Value> queue_base;
+        std::shared_ptr<Value> queue_slot;
+        std::shared_ptr<Value> count_address;
     };
     struct Yield {
         // Ends a ParFor block
