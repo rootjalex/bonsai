@@ -61,6 +61,13 @@ schedule {
     shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
 
+    // pbrt's `haveMedia` -- the shadow kernel chosen per scene, the plain
+    // occlusion trace or the transmittance walk -- is to be
+    // `render[VolPath].specialize(have_media)`. Not written yet: a
+    // specialize goes first among a function's directives, and the queue
+    // and defer directives do not yet follow the copies it makes
+    // (apps/pbrt/PLAN.md, "`specialize` on a bool").
+
     // The ray tracing hardware answers both queries.
     trace.bind(RTCore);
     trace_any.bind(RTCore);

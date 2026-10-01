@@ -8241,6 +8241,58 @@ found on the way: a `if true { ... return ... }` in a function trips an
 internal assert in the SSA builder (`!block->terminator.defined()`,
 Convert.cpp), a constant-condition bug to fix with a test.
 
+**`specialize` on a bool, and `render[VolPath].specialize(have_media)`
+(2026-10-01).** The user: "Allow specialize to specialize on a boolean."
+A bool parameter is now a key `specialize` takes, beside a variant type
+and an optional (SSA/Specialize.cpp, KeyTag): the value is its own tag,
+with no field to read, and its two variants are `False` and `True`, in
+that order because a dispatch on a bool takes its second target when
+true, and capitalized as a variant's name is because `true` and `false`
+are keywords and a schedule names a copy by its label (`render[True]`).
+The loop's block dispatches on the value itself to the two selectors;
+in each copy the parameter is the constant, so the `if` on it folds,
+and a callee handed it is copied with the constant too
+(specialize_callees, through key_variants), so its branch folds as
+well. This is Halide's `specialize(cond)` exactly, where the variant
+form was its analogue for a tag. Tests: ssa/specialize-bool (the two
+copies `i!False` and `i!True`, each with one arm, under a bind that
+names `i` and binds both) and correctness/llvm/specialize-bool (run
+with each value; the answers differ).
+
+*Applying it to the render is blocked by how `specialize` composes with
+the queues.* `render[VolPath].specialize(have_media)` was tried in both
+places it could go. After the queue and defer directives, before the
+binds -- so that each copy has its drains, and the binds find every
+copy's loops -- the compiler refuses it: a specialize goes first among a
+function's directives (SSA/Convert.cpp; tests/bonsai/error/
+specialize-late), the rule that lets one variant be scheduled
+differently from another. With the rule set aside for an experiment,
+the copy fails anyway: the band loop's region refers to the queues'
+storage, allocated outside it, and the clone cannot resolve the name
+(`rays_queue not in current block`). First among the volpath
+directives, right after `specialize(integrator)`, it goes through, and
+then `li_vol_path.defer(vol_path_step, rays)` refuses: "render calls
+into the chain from 2 places" -- the two copies of the band loop both
+call into the ray chain, and a queue has one owner loop, so the defer
+sees two producers of one queue. That is the gap: after a specialize,
+a directive naming a loop finds every copy's loop (resolve_loops), but
+`queue(p_band)` makes one queue, not one per copy, and
+`f.defer(g, q)` acts on `f`, not on the clones `f!False` and `f!True`
+that the specialize made of a chain function taking the parameter. The
+principled fix is to make names after a specialize mean every copy for
+queues and functions as they already do for loops: `queue(loop)` over
+a loop with copies makes a queue per copy (`rays!False`, `rays!True`),
+`f.defer(g, q)` applies per copy to the clone of `f` and the matching
+queue, a queue's `specialize`, `split` and `bind` to each queue of the
+family. Then the specialize stays first, as the rule wants, and the
+medium drains in the `False` copy -- whose pushes fold away with the
+constant -- become drains of a queue nothing pushes to, which the
+compiler can delete with the queue: the media half of the absent-
+variant question answered without a construct. The alternative, a late
+specialize that clones a scheduled function, reverses the ordering rule
+and still needs the region clone to carry outside storage. To decide
+with the user; the directive is not in the schedule meanwhile.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
