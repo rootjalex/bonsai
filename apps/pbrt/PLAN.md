@@ -8290,8 +8290,48 @@ constant -- become drains of a queue nothing pushes to, which the
 compiler can delete with the queue: the media half of the absent-
 variant question answered without a construct. The alternative, a late
 specialize that clones a scheduled function, reverses the ordering rule
-and still needs the region clone to carry outside storage. To decide
-with the user; the directive is not in the schedule meanwhile.
+and still needs the region clone to carry outside storage.
+
+*What pbrt does, and the loop form (2026-10-01).* The user asked where
+pbrt specializes. It does not, except in one place: `haveMedia` is a
+member of the wavefront integrator settled at scene load and used as a
+run-time switch -- `TraceShadowRays` launches `__raygen__shadow_Tr` or
+`__raygen__shadow`, two programs in the one pipeline, by `if
+(haveMedia)` on the host; `SampleMediumInteraction` returns at once
+without it and the medium queue is allocated only with it; the
+material kernels branch on it at run time (`if (haveMedia) ray.medium =
+...`), and the closest-hit path tests each ray's medium. The user: "If
+the latter, we should apply specialization late in the pipeline, and it
+should only be applied to the region we want the specialization to
+occur in." So the directive has a loop form, `render.specialize(shadow,
+have_media)` (ir::Specialize::loop; the parser takes a loop before the
+parameter): the one loop named, wherever it sits and however scheduled,
+is copied for the two values with the parameter a constant in each and
+the loop's block dispatching on it -- pbrt's host-side `if (haveMedia)`
+-- and nothing else of the function is touched. It comes late, after
+the defer that made the drain and the bind that put it on the hardware,
+and is exempt from the go-first rule, which is for the whole-function
+form (SSA/Convert.cpp). The copies are `shadow!VolPath!False` and
+`!True`; the module has `__raygen__shadow$False`, 116 lines, and
+`__raygen__shadow$True`, 4,242 -- pbrt's two. Tests: ssa/specialize-loop
+(the second of two bound loops copied, the first keeping its run-time
+branch) and correctness/llvm/specialize-loop (run with each value).
+
+*Measured* (gpu_compare, 64 spp, least of three, machine idle):
+
+    book 64 spp              wall      kernels   vs pbrt
+      pbrt --gpu             0.73 s    639 ms    1.00x
+      before (both launch steps, header fixed)   0.719 s   730 ms   1.02x
+      shadow drain specialized on have_media     0.549 s   459 ms   1.33x
+
+The image is bit for bit the one before; killeroo-simple at 16 spp is
+unchanged (0.0506 s, 2.17x) and bit for bit the render of the 29th. In
+the profile the closest-hit raygen fell from 310 ms to 137 and the
+shadow raygen from 138 to 40 (event-timed, so the earlier figures were
+inflated by host latency, but the wall time is the measure). The
+medium drains still launch, empty, in a scene without media: the
+absent-variant question stays open for the materials and the media
+alike.
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,

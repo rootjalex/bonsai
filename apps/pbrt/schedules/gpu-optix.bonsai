@@ -61,13 +61,6 @@ schedule {
     shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
 
-    // pbrt's `haveMedia` -- the shadow kernel chosen per scene, the plain
-    // occlusion trace or the transmittance walk -- is to be
-    // `render[VolPath].specialize(have_media)`. Not written yet: a
-    // specialize goes first among a function's directives, and the queue
-    // and defer directives do not yet follow the copies it makes
-    // (apps/pbrt/PLAN.md, "`specialize` on a bool").
-
     // The ray tracing hardware answers both queries.
     trace.bind(RTCore);
     trace_any.bind(RTCore);
@@ -79,6 +72,17 @@ schedule {
     // block shape.
     render.bind(rays, OptixThread);
     render.bind(shadow, OptixThread);
+    // pbrt's `haveMedia`: TraceShadowRays runs `__raygen__shadow` in a scene
+    // without media and `__raygen__shadow_Tr` in one with them, a host-side
+    // switch per scene, and nothing else of the wavefront is specialized on
+    // it (its medium kernels are skipped, its material kernels branch on it
+    // at run time). The same here: the shadow drain alone is copied for
+    // `have_media` false and true, the launch dispatching on it, so the
+    // kernel of a scene without media is the plain occlusion trace with the
+    // transmittance walk folded away (a 115-line raygen in place of 4,300,
+    // 6-8% of book). After the defer that made the drain and the bind that
+    // put it on the hardware: the loop form of specialize comes late.
+    render.specialize(shadow, have_media);
 
     // Every other kernel over blocks of 256 threads, as gpu-wavefront.bonsai
     // has them: the camera rays over a band's pixels (and the prologue's
