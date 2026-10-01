@@ -463,6 +463,11 @@ struct FunctionBuilder : Visitor {
         for (const auto &key : node->keys) {
             keys.emplace_back(get_value(key));
         }
+        std::vector<std::shared_ptr<Value>> conds;
+        conds.reserve(node->conds.size());
+        for (const auto &cond : node->conds) {
+            conds.emplace_back(get_value(cond));
+        }
 
         // Every value the run uses has to reach this block, including the ones
         // that only one of the calls passes: the run is a single terminator,
@@ -472,6 +477,7 @@ struct FunctionBuilder : Visitor {
             rethread(vs);
         }
         rethread(keys);
+        rethread(conds);
 
         auto call_name = get_call_name(func);
 
@@ -488,6 +494,7 @@ struct FunctionBuilder : Visitor {
             .varying_at = node->varying_at,
             .varying = std::move(varying),
             .keys = std::move(keys),
+            .conds = std::move(conds),
             .drop = true};
 
         block = cont_block;
@@ -1965,10 +1972,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             continue;
         }
         const ir::Transform &t = transforms.at(name).at(index);
-        if (std::holds_alternative<ir::Specialize>(t)) {
+        if (std::holds_alternative<ir::Specialize>(t) &&
+            std::get<ir::Specialize>(t).loop.empty()) {
             // After another specialize is fine: `render.specialize(
             // integrator); render[VolPath].specialize(sampler)` copies a
-            // copy, and the directives after both schedule the copies.
+            // copy, and the directives after both schedule the copies. The
+            // loop form, `render.specialize(shadow, have_media)`, is the
+            // other way round: it copies one loop as scheduled, so it comes
+            // after the directives that made the loop (ir::Specialize).
             internal_assert(!scheduled.contains(name))
                 << name << ".specialize(" << std::get<ir::Specialize>(t).param
                 << ") comes after another directive on " << name
@@ -2039,7 +2050,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         }
                     },
                     [&](const ir::Specialize &s) {
-                        specialize_loops(fmap, name, s.param, s.variant,
+                        specialize_loops(fmap, name, s.param, s.variant, s.loop,
                                          adt_storages);
                     },
                     [&](const ir::Stage &s) {

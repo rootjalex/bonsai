@@ -416,6 +416,9 @@ void for_each_value(Terminator &terminator,
                        for (auto &k : c.keys) {
                            each(k);
                        }
+                       for (auto &k : c.conds) {
+                           each(k);
+                       }
                    },
                },
                terminator.data);
@@ -499,7 +502,8 @@ bool has_uses(const Function &func, const Instruction *of) {
                 },
                 [&](const Terminator::MultiCall &c) {
                     if (in_jump(c.call) || in_jump(c.cont) ||
-                        std::any_of(c.keys.begin(), c.keys.end(), is_of)) {
+                        std::any_of(c.keys.begin(), c.keys.end(), is_of) ||
+                        std::any_of(c.conds.begin(), c.conds.end(), is_of)) {
                         return true;
                     }
                     return std::any_of(
@@ -666,6 +670,9 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
                     }
                     for (const auto &key : c.keys) {
                         read(b, key);
+                    }
+                    for (const auto &cond : c.conds) {
+                        read(b, cond);
                     }
                     thread(b, c.cont, 0);
                 },

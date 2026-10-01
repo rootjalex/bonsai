@@ -1,0 +1,110 @@
+//! flags: -p ssa
+
+// A node that bounds its children rather than itself, sorted and put on a
+// stack: Embree's traversal of a BVH whose nodes hold their children's boxes.
+//
+// lower/child-volumes.bonsai is the tree lowering's half: each branch of the
+// `from` carries the test of its child's box. This is what the schedule
+// makes of it. The sort orders the four children by the distance at which
+// the ray enters each box, a miss counting as infinitely far, so the nearest
+// hit child is descended into first and the misses sort last; the sorting
+// network permutes each branch's condition along with its reference, since
+// the test belongs to the child wherever the order put it. Then loopify puts
+// the run on a stack, and the conditions decide what is written down:
+//
+//     if (!and_3) { !stack[!count] = c3; !count += 1 }
+//     ...
+//     if (!and_1) { !stack[!count] = c1; !count += 1 }
+//     tris_ref!top = c0 ...  under !and_0, and otherwise to the pop
+//
+// a child whose box the ray missed is neither descended into nor pushed. That
+// is Embree's BVHNIntersector1 -- intersect the node's children, sort the
+// hits by distance, push them and continue with the nearest -- as the
+// composition of a tree declaration and two directives.
+//
+// What is not here: Embree also carries each pushed child's entry distance
+// on the stack and drops a popped entry whose distance is beyond the best
+// hit found since (`if (stackPtr->dist > ray.tfar) continue`). A popped child
+// here is visited: its own children are tested against the tightened best
+// and all fail, so the pruning happens, one level later than Embree's.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+// The distance at which the ray enters a box, and infinity where it misses:
+// a sort key that puts the children the ray misses last.
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+// Child i's box, out of the four the node holds. The sort key is written
+// over the arm's fields, and the arm has one pair per child; `i` is a
+// constant in each branch's key, so the selects fold to the one pair meant.
+func [[inline]] child_box(i : u8, l0 : vec3f, l1 : vec3f, l2 : vec3f,
+                          l3 : vec3f, h0 : vec3f, h1 : vec3f, h2 : vec3f,
+                          h3 : vec3f) -> AABB {
+    low = select(i == 0, l0, select(i == 1, l1, select(i == 2, l2, l3)));
+    high = select(i == 0, h0, select(i == 1, h1, select(i == 2, h2, h3)));
+    return AABB{low, high};
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(c0 c1 c2 c3 : BVH4, l0 l1 l2 l3 : vec3f, h0 h1 h2 h3 : vec3f)
+        with AABB(l0, h0) on c0 with AABB(l1, h1) on c1
+        with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            c0 = children[0]; c1 = children[1]; c2 = children[2]; c3 = children[3];
+            l0 = vec3f{lower_x[0], lower_y[0], lower_z[0]}; h0 = vec3f{upper_x[0], upper_y[0], upper_z[0]};
+            l1 = vec3f{lower_x[1], lower_y[1], lower_z[1]}; h1 = vec3f{upper_x[1], upper_y[1], upper_z[1]};
+            l2 = vec3f{lower_x[2], lower_y[2], lower_z[2]}; h2 = vec3f{upper_x[2], upper_y[2], upper_z[2]};
+            l3 = vec3f{lower_x[3], lower_y[3], lower_z[3]}; h3 = vec3f{upper_x[3], upper_y[3], upper_z[3]};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    // Nearest child first: the key is the distance at which the ray enters
+    // child i's box, which the parent holds.
+    trace.sort(tris.Interior,
+               |i : u8, r : Ray, l0 : vec3f, l1 : vec3f, l2 : vec3f, l3 : vec3f,
+                h0 : vec3f, h1 : vec3f, h2 : vec3f, h3 : vec3f|
+               entry(r, child_box(i, l0, l1, l2, l3, h0, h1, h2, h3)))
+         .loopify(64);
+}

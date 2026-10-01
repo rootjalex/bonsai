@@ -424,13 +424,16 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
 struct RecursiveCall {
     string callee;
     vector<vector<shared_ptr<Value>>> args; // one per call, in visit order
+    // Whether each call is made (Terminator::MultiCall::conds): one per
+    // call, or empty when all are. A call that is not made is not pushed.
+    vector<shared_ptr<Value>> conds;
     Terminator::Jump cont;
     bool drop;
 };
 
 std::optional<RecursiveCall> called_by(const Block &block) {
     if (const auto *c = std::get_if<Terminator::Call>(&block.terminator.data)) {
-        return RecursiveCall{c->call.name, {c->call.args}, c->cont, c->drop};
+        return RecursiveCall{c->call.name, {c->call.args}, {}, c->cont, c->drop};
     }
     if (const auto *c =
             std::get_if<Terminator::MultiCall>(&block.terminator.data)) {
@@ -439,9 +442,25 @@ std::optional<RecursiveCall> called_by(const Block &block) {
         for (size_t i = 0; i < c->varying.size(); i++) {
             args.push_back(c->call_args(i));
         }
-        return RecursiveCall{c->call.name, std::move(args), c->cont, c->drop};
+        internal_assert(c->conds.empty() ||
+                        c->conds.size() == c->varying.size())
+            << "The run in " << block.name << " has " << c->conds.size()
+            << " conditions for " << c->varying.size() << " calls";
+        return RecursiveCall{c->call.name, std::move(args), c->conds, c->cont,
+                             c->drop};
     }
     return std::nullopt;
+}
+
+// Whether `v` is the constant true: a branch with no condition of its own in
+// a run where others have one, which needs no test.
+bool always(const shared_ptr<Value> &v) {
+    const auto *c = std::get_if<Constant>(&v->data);
+    if (c == nullptr) {
+        return false;
+    }
+    const bool *b = std::get_if<bool>(&c->data);
+    return b != nullptr && *b;
 }
 
 } // namespace
@@ -873,18 +892,48 @@ void queue_recursion(Function &func, size_t size) {
         // a chain of blocks, so each pushed in turn and the *last* branch came
         // off the stack first -- `from (a, b)` visited b before a, and there
         // was nothing at this level that could have said otherwise.
+        //
+        // A branch with a condition (RecursiveCall::conds) is pushed only
+        // where it holds: the push goes in a block of its own, entered on the
+        // condition and bypassed otherwise, so a child whose box the ray
+        // missed costs the test and nothing more. This is Embree's traversal
+        // of a node whose children's boxes it holds -- test the children,
+        // push the hits -- and it is what pruning *at the parent* has to
+        // mean once the recursion is a stack: a child that is not visited is
+        // one that is never written down.
+        const auto condition = [&](size_t i) -> shared_ptr<Value> {
+            if (call->conds.empty() || always(call->conds[i])) {
+                return nullptr;
+            }
+            return call->conds[i];
+        };
         for (size_t i = call->args.size(); i-- > waiting_from;) {
+            shared_ptr<Block> push = into;
+            shared_ptr<Block> pushed;
+            if (const shared_ptr<Value> cond = condition(i)) {
+                push = new_block(func, name + "!push" + std::to_string(i));
+                pushed = new_block(func, name + "!pushed" + std::to_string(i));
+                func.blocks.push_back(push);
+                func.blocks.push_back(pushed);
+                into->terminator.data = Terminator::Dispatch{
+                    cond,
+                    {Terminator::Jump{pushed->name}, Terminator::Jump{push->name}}};
+            }
             auto top =
-                append(func, into, count_type, Instruction::Op::Load, {count});
+                append(func, push, count_type, Instruction::Op::Load, {count});
             for (const Stack &stack : stacks) {
                 auto slot =
-                    append(func, into, Ptr_t::make(params[stack.param].type),
+                    append(func, push, Ptr_t::make(params[stack.param].type),
                            Instruction::Op::GEP, {stack.storage, top});
-                append_store(into, slot, call->args[i][stack.param]);
+                append_store(push, slot, call->args[i][stack.param]);
             }
-            append_store(into, count,
-                         append(func, into, count_type, Instruction::Op::Add,
+            append_store(push, count,
+                         append(func, push, count_type, Instruction::Op::Add,
                                 {top, count_of(1)}));
+            if (pushed) {
+                push->terminator.data = Terminator::Jump{pushed->name};
+                into = pushed;
+            }
         }
 
         if (!last) {
@@ -905,7 +954,16 @@ void queue_recursion(Function &func, size_t size) {
         for (const Stack &stack : stacks) {
             child.push_back(call->args[0][stack.param]);
         }
-        into->terminator.data = visit(std::move(child), std::move(alive));
+        Terminator::Jump descend = visit(std::move(child), std::move(alive));
+        // A first child under a condition is descended into where the
+        // condition holds, and where it does not the node is done: the next
+        // one comes off the stack, which is where a return went.
+        if (const shared_ptr<Value> cond = condition(0)) {
+            into->terminator.data = Terminator::Dispatch{
+                cond, {Terminator::Jump{pop->name}, std::move(descend)}};
+        } else {
+            into->terminator.data = std::move(descend);
+        }
     }
 
     // Returning from a visit is the end of that node, not of the traversal:

@@ -115,6 +115,9 @@ vector<shared_ptr<Value>> terminator_uses(const Block &block) {
                 for (const auto &k : c.keys) {
                     uses.push_back(k);
                 }
+                for (const auto &k : c.conds) {
+                    uses.push_back(k);
+                }
             },
         },
         block.terminator.data);
@@ -606,6 +609,9 @@ size_t promote_allocas(Function &func, const string &entry) {
                     }
                 }
                 for (auto &k : m->keys) {
+                    substitute(k);
+                }
+                for (auto &k : m->conds) {
                     substitute(k);
                 }
             }

@@ -233,7 +233,15 @@ class RenameAnalysis : public ir::Visitor {
         pop_frame();
     }
 
-    void visit(const ir::YieldFrom *node) override { node->value.accept(this); }
+    void visit(const ir::YieldFrom *node) override {
+        node->value.accept(this);
+        for (const auto &key : node->keys) {
+            key.accept(this);
+        }
+        for (const auto &cond : node->conds) {
+            cond.accept(this);
+        }
+    }
 
     // Yields a set of expressions that have been seen more than 1 time.
     ExprSet post_process() {
@@ -505,9 +513,14 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &key : node->keys) {
             keys.push_back(mutate(key));
         }
+        std::vector<ir::Expr> conds;
+        conds.reserve(node->conds.size());
+        for (const ir::Expr &cond : node->conds) {
+            conds.push_back(mutate(cond));
+        }
         return make(ir::MultiRecurse::make(node->func, std::move(args),
                                            node->varying_at, std::move(varying),
-                                           std::move(keys)));
+                                           std::move(keys), std::move(conds)));
     }
     ir::Stmt visit(const ir::IfElse *node) override {
         ir::Stmt th = mutate(node->then_body);
@@ -595,8 +608,13 @@ struct Rename : public ir::Mutator {
         for (const auto &key : node->keys) {
             keys.push_back(mutate(key));
         }
-        return make(
-            ir::YieldFrom::make(mutate(node->value), std::move(keys)));
+        std::vector<ir::Expr> conds;
+        conds.reserve(node->conds.size());
+        for (const auto &cond : node->conds) {
+            conds.push_back(mutate(cond));
+        }
+        return make(ir::YieldFrom::make(mutate(node->value), std::move(keys),
+                                        std::move(conds)));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {
@@ -894,7 +912,13 @@ class LVN : public ir::Mutator {
         for (const auto &key : node->keys) {
             keys.push_back(mutate(key));
         }
-        return ir::YieldFrom::make(mutate(node->value), std::move(keys));
+        std::vector<ir::Expr> conds;
+        conds.reserve(node->conds.size());
+        for (const auto &cond : node->conds) {
+            conds.push_back(mutate(cond));
+        }
+        return ir::YieldFrom::make(mutate(node->value), std::move(keys),
+                                   std::move(conds));
     }
 
     ir::Expr visit(const ir::Call *node) override {
@@ -933,9 +957,14 @@ class LVN : public ir::Mutator {
         for (const ir::Expr &key : node->keys) {
             keys.push_back(cse(key));
         }
+        std::vector<ir::Expr> conds;
+        conds.reserve(node->conds.size());
+        for (const ir::Expr &cond : node->conds) {
+            conds.push_back(cse(cond));
+        }
         return ir::MultiRecurse::make(node->func, std::move(args),
                                       node->varying_at, std::move(varying),
-                                      std::move(keys));
+                                      std::move(keys), std::move(conds));
     }
 
     ir::Expr visit(const ir::BinOp *node) override {

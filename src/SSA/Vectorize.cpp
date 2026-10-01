@@ -378,6 +378,9 @@ void substitute(Block &block, const string &name,
                        for (auto &k : c.keys) {
                            replace(k);
                        }
+                       for (auto &k : c.conds) {
+                           replace(k);
+                       }
                        for (auto &a : c.cont.args) {
                            replace(a);
                        }
@@ -480,6 +483,9 @@ void widen_argument(const Cfg &region, BlockId owner, const string &name,
                                }
                            }
                            for (auto &k : t.keys) {
+                               retype(k);
+                           }
+                           for (auto &k : t.conds) {
                                retype(k);
                            }
                            for (auto &a : t.cont.args) {
@@ -1336,6 +1342,16 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
         // widest of the run's values for it has.
         const auto *run =
             std::get_if<Terminator::MultiCall>(&block->terminator.data);
+        // A run whose calls each have a condition (Terminator::MultiCall::
+        // conds, a node whose children's boxes it tests) under a gang would
+        // make each call under its own per-lane mask -- the gang's mask and
+        // that child's test -- which is the packet traversal of a wide BVH
+        // and is not built yet.
+        internal_assert(run == nullptr || run->conds.empty())
+            << "[unimplemented] vectorize() over a traversal whose nodes "
+               "bound their children (`with ... on <child>`): the run in "
+            << name << " has a condition per call, and a gang would have to "
+            << "make each call under its own mask.";
         const auto values_at = [&](size_t position) {
             vector<const Value *> values{call->args[position].get()};
             if (run != nullptr) {

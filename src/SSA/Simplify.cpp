@@ -670,6 +670,9 @@ void resolve_uses(Function &func, const Simplifier &s) {
                            for (auto &k : c.keys) {
                                k = s.resolve(k);
                            }
+                           for (auto &k : c.conds) {
+                               k = s.resolve(k);
+                           }
                        },
                    },
                    block->terminator.data);
@@ -751,6 +754,9 @@ UseCounts use_counts(const Function &func) {
                                }
                            }
                            for (const auto &k : c.keys) {
+                               count(k, uses);
+                           }
+                           for (const auto &k : c.conds) {
                                count(k, uses);
                            }
                        },

@@ -90,6 +90,9 @@ UseCounts use_counts(const Function &f) {
                     for (const auto &k : c.keys) {
                         count(k, uses);
                     }
+                    for (const auto &k : c.conds) {
+                        count(k, uses);
+                    }
                 },
             },
             block->terminator.data);

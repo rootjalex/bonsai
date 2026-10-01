@@ -341,7 +341,7 @@ struct HoistPulled : public Mutator {
             if (not_changed) {
                 return node;
             }
-            return YieldFrom::make(node->value, std::move(keys));
+            return YieldFrom::make(node->value, std::move(keys), node->conds);
         }
     };
 };

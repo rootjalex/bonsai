@@ -682,6 +682,69 @@ struct Rewriter : public ir::Mutator {
         return vols;
     }
 
+    // Whether the arm being rewritten states its children's volumes -- `with
+    // AABB(l, h) on child` -- as a node of a BVH whose parent holds its
+    // children's boxes does (Embree's AABBNode). Keyed as `child_volumes` is,
+    // by how the tree was reached.
+    bool has_child_volumes() const {
+        return !locs.empty() &&
+               child_volumes.contains(ir::to_string(locs.back()));
+    }
+
+    // What predicate analysis says about `lambda` over each child of the node
+    // being matched: one interval per branch of `value`, the children a Scan
+    // descends into, in the branches' order. Where a node bounds its own
+    // volume the question is asked once, of the node, on arrival
+    // (`subtree_bounds`); where it bounds its children instead it is asked
+    // here, of each child, before the descent, and the answers become the
+    // conditions the `from` carries (ir::YieldFrom::conds).
+    //
+    // Empty when the arm states no child volumes. Empty, too, for a query
+    // over more levels than the one being matched -- a flatten through an
+    // element's own tree, where the lambda has a parameter per level -- since
+    // what a child's volume says about the levels beneath it is not worked
+    // out here yet; such a query prunes as it did, at the node.
+    //
+    // `existing` is the query's own intervals, as `make_interval_map` takes
+    // them: each rewrite holds its own.
+    std::vector<Interval> child_bounds(const ir::Lambda *lambda,
+                                       const ir::Expr &value,
+                                       const IntervalMap &existing) const {
+        if (!has_child_volumes() || lambda->args.size() != 1 ||
+            volumes.size() != 1) {
+            return {};
+        }
+        std::vector<Interval> bounds;
+        for (const ir::Expr &child : break_tuple(value)) {
+            VolumeMap vols = make_volume_map(lambda->args, child);
+            IntervalMap ints = make_interval_map(lambda->args, existing);
+            bounds.push_back(predicate_analysis(lambda->value, vols, ints));
+        }
+        return bounds;
+    }
+
+    // The conditions a `from` gets from per-child bounds on a predicate: each
+    // branch is taken where the predicate may hold in that child. A child
+    // nothing can be said about is always taken; empty when that is every
+    // child, so a `from` with nothing to test carries nothing.
+    static std::vector<ir::Expr>
+    maybe_conds(const std::vector<Interval> &bounds) {
+        std::vector<ir::Expr> conds;
+        bool any = false;
+        for (const Interval &b : bounds) {
+            if (b.max.defined() && !is_const_one(b.max)) {
+                conds.push_back(b.max);
+                any = true;
+            } else {
+                conds.push_back(ir::BoolImm::make(true));
+            }
+        }
+        if (!any) {
+            conds.clear();
+        }
+        return conds;
+    }
+
     IntervalMap make_interval_map(const std::vector<ir::TypedVar> &args,
                                   const IntervalMap &existing) const {
         IntervalMap ints = existing;
@@ -835,7 +898,13 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             // simplified predicates. This is required for proper predicate
             // analysis of conjunctions/disjunctions. ir::Stmt body =
             // ir::YieldFrom::make(ir::filter(predicate, node->value));
-            ir::Stmt body = ir::YieldFrom::make(node->value);
+            //
+            // Where the node bounds its children rather than itself, each
+            // branch is taken only where the predicate may hold in that
+            // child: the child's test, made here at its parent.
+            ir::Stmt body = ir::YieldFrom::make(
+                node->value, {},
+                maybe_conds(child_bounds(lambda, node->value, intervals)));
             // Add the maybe case -> recursive call. A bound that is trivially
             // true prunes nothing, so skip the guard entirely.
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
@@ -1458,7 +1527,42 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                 stmts.push_back(ir::Accumulate::make(loc, accumulate_op(),
                                                      std::move(reachable)));
             }
-            stmts.push_back(ir::YieldFrom::make(node->value));
+            // And per child, where the node bounds its children rather than
+            // itself: a child is descended into only where its best could
+            // beat the running best, and the accumulator is tightened with
+            // what each child could reach, under the same test.
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            std::vector<Interval> children = child_bounds(lambda, node->value, intervals);
+            std::vector<ir::Expr> conds;
+            bool guarded = false;
+            for (const Interval &child : children) {
+                if (ir::Expr promising = promising_bound(dir, child);
+                    promising.defined()) {
+                    conds.push_back(improves_on(dir, std::move(promising),
+                                                loc.to_expr()));
+                    guarded = true;
+                } else {
+                    conds.push_back(ir::BoolImm::make(true));
+                }
+            }
+            if (!guarded) {
+                conds.clear();
+            }
+            for (size_t i = 0; i < children.size(); i++) {
+                ir::Expr reachable = reachable_bound(dir, children[i]);
+                if (!reachable.defined()) {
+                    continue;
+                }
+                ir::Stmt tighten = ir::Accumulate::make(loc, accumulate_op(),
+                                                        std::move(reachable));
+                if (!conds.empty()) {
+                    tighten = ir::IfElse::make(conds[i], std::move(tighten));
+                }
+                stmts.push_back(std::move(tighten));
+            }
+            stmts.push_back(
+                ir::YieldFrom::make(node->value, {}, std::move(conds)));
             ir::Stmt body = stmts.size() == 1
                                 ? std::move(stmts.front())
                                 : ir::Sequence::make(std::move(stmts));
@@ -1708,7 +1812,36 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
         //            elif <undecided> && maybe(P, tr): from tr
         ir::Stmt visit(const ir::Scan *node) override {
             Interval bounds = subtree_bounds();
-            ir::Stmt recurse = ir::YieldFrom::make(node->value);
+
+            // Where the node bounds its children rather than itself, each
+            // child is descended into only where the predicate may hold in
+            // it, and the two settlements below are made per child before
+            // the descent: a child the predicate cannot hold in settles
+            // `all` false, one it must hold in settles `any` true.
+            const ir::Lambda *lambda = predicate.as<ir::Lambda>();
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
+            std::vector<Interval> children = child_bounds(lambda, node->value, intervals);
+            std::vector<ir::Stmt> stmts;
+            for (const Interval &child : children) {
+                if (!is_any && child.max.defined() &&
+                    !is_const_one(child.max)) {
+                    stmts.push_back(ir::IfElse::make(
+                        ~child.max,
+                        ir::Store::make(loc, ir::BoolImm::make(false))));
+                }
+                if (is_any && child.min.defined() &&
+                    !is_const_zero(child.min)) {
+                    stmts.push_back(ir::IfElse::make(
+                        child.min,
+                        ir::Store::make(loc, ir::BoolImm::make(true))));
+                }
+            }
+            stmts.push_back(
+                ir::YieldFrom::make(node->value, {}, maybe_conds(children)));
+            ir::Stmt recurse = stmts.size() == 1
+                                   ? std::move(stmts.front())
+                                   : ir::Sequence::make(std::move(stmts));
 
             // For `any`, a subtree the predicate can never hold on contributes
             // nothing; for `all` it settles the answer to false.
@@ -1748,7 +1881,26 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
                 cond = cond && bounds.max;
             }
-            return ir::IfElse::make(std::move(cond), node);
+            // A `from` an earlier rewrite made -- a filter's, whose branches
+            // may already carry its conditions -- gets this predicate's test
+            // of each child added to each branch's own.
+            const ir::Lambda *lambda = predicate.as<ir::Lambda>();
+            internal_assert(lambda)
+                << "Predicate is not a lambda: " << predicate;
+            std::vector<ir::Expr> conds =
+                maybe_conds(child_bounds(lambda, node->value, intervals));
+            ir::Stmt from = node;
+            if (!conds.empty()) {
+                if (!node->conds.empty()) {
+                    internal_assert(node->conds.size() == conds.size());
+                    for (size_t i = 0; i < conds.size(); i++) {
+                        conds[i] = node->conds[i] && conds[i];
+                    }
+                }
+                from = ir::YieldFrom::make(node->value, node->keys,
+                                           std::move(conds));
+            }
+            return ir::IfElse::make(std::move(cond), std::move(from));
         }
     };
 

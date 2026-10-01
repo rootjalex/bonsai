@@ -460,6 +460,9 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                                    for (auto &k : t.keys) {
                                        thread(k);
                                    }
+                                   for (auto &k : t.conds) {
+                                       thread(k);
+                                   }
                                    for (auto &a : t.cont.args) {
                                        thread(a);
                                    }

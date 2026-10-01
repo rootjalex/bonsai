@@ -469,6 +469,16 @@ void Terminator::dump(std::ostream &os) const {
                            }
                            os << ") ";
                        }
+                       if (!c.conds.empty()) {
+                           os << "where (";
+                           for (size_t i = 0; i < c.conds.size(); i++) {
+                               if (i) {
+                                   os << ", ";
+                               }
+                               c.conds[i]->dump(os);
+                           }
+                           os << ") ";
+                       }
                        dump_target(os, c.cont);
                    },
                },

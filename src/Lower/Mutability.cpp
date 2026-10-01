@@ -221,6 +221,14 @@ struct RewriteMutables : public ir::Mutator {
             changed = changed || !mutated.same_as(key);
             keys.push_back(std::move(mutated));
         }
+        // And so are the conditions.
+        std::vector<ir::Expr> conds;
+        conds.reserve(node->conds.size());
+        for (const auto &cond : node->conds) {
+            ir::Expr mutated = mutate(cond);
+            changed = changed || !mutated.same_as(cond);
+            conds.push_back(std::move(mutated));
+        }
 
         if (!changed) {
             return node;
@@ -234,7 +242,7 @@ struct RewriteMutables : public ir::Mutator {
         }
         return ir::MultiRecurse::make(std::move(func), std::move(check.args),
                                       node->varying_at, std::move(varying),
-                                      std::move(keys));
+                                      std::move(keys), std::move(conds));
     }
 
     ir::Stmt visit(const ir::Launch *node) override {

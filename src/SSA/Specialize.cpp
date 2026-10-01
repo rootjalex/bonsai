@@ -67,6 +67,7 @@ void for_each_value(Block &block, const F &fn) {
                            all(vs);
                        }
                        all(c.keys);
+                       all(c.conds);
                    },
                },
                block.terminator.data);
@@ -145,7 +146,7 @@ shared_ptr<Value> constant_u32(uint64_t v) {
 } // namespace
 
 void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
-                      const string &variant,
+                      const string &variant, const string &loop_name,
                       const map<string, ir::Program::AdtStorage> &storages) {
     const auto fit = fmap.find(fname);
     internal_assert(fit != fmap.end())
@@ -157,7 +158,8 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
         spelled += "[" + variant.substr(at + 1, next - at - 1) + "]";
         at = next == string::npos ? variant.size() : next;
     }
-    const string where = spelled + ".specialize(" + param + ")";
+    const string where = spelled + ".specialize(" +
+                         (loop_name.empty() ? "" : loop_name + ", ") + param + ")";
 
     // The parameter, and what its variant type is stored as. A variant
     // parameter arrives as its storage struct, or as a pointer to one
@@ -224,6 +226,17 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
     }
     vector<shared_ptr<Block>> outermost;
     for (const auto &block : loop_blocks) {
+        // The loop form: the loop named, wherever it sits, with every copy
+        // an earlier specialize made of it (`shadow!VolPath`), as the
+        // directives that name a loop find them (resolve_loops).
+        if (!loop_name.empty()) {
+            const string &index =
+                std::get<Terminator::ParFor>(block->terminator.data).index;
+            if (index == loop_name || index.rfind(loop_name + "!", 0) == 0) {
+                outermost.push_back(block);
+            }
+            continue;
+        }
         bool inside = false;
         for (const auto &other : loop_blocks) {
             if (other == block) {
@@ -248,11 +261,13 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
     }
     internal_assert(!outermost.empty())
         << where << ": " << fname
-        << (variant.empty()
-                ? " has no parallel loop; specialize() copies a parfor's body per "
-                  "variant"
-                : " has no loop of that variant; `" + spelled +
-                      "` names a copy an earlier specialize made");
+        << (!loop_name.empty()
+                ? " has no loop named " + loop_name
+                : variant.empty()
+                      ? string(" has no parallel loop; specialize() copies a "
+                               "parfor's body per variant")
+                      : " has no loop of that variant; `" + spelled +
+                            "` names a copy an earlier specialize made");
 
     for (const shared_ptr<Block> &at : outermost) {
         const Terminator::ParFor loop =

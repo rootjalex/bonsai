@@ -8,6 +8,7 @@ add_bonsai_tests(
     adt-nested-tagged-index.bonsai
     array.bonsai
     bvh.bonsai
+    child-volumes.bonsai
     collision.bonsai
     element-reference-variant.bonsai
     exported-function.bonsai

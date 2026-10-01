@@ -70,6 +70,9 @@ void terminator_operands(const Block &block,
                        for (const auto &k : c.keys) {
                            operands.push_back(k);
                        }
+                       for (const auto &k : c.conds) {
+                           operands.push_back(k);
+                       }
                }},
                block.terminator.data);
 }

@@ -719,6 +719,10 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                    << "components -- a key is compared, so it "
                                    << "has to stay one value";
                            }
+                           // A condition is a boolean, so it never splits.
+                           for (auto &k : t.conds) {
+                               fix(k);
+                           }
 
                            for (auto &a : t.cont.args) {
                                fix_whole(a);

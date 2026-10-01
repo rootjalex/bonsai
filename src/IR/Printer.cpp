@@ -1453,6 +1453,11 @@ void Printer::visit(const MultiRecurse *node) {
         print_expr_list(node->keys);
         os << ")";
     }
+    if (!node->conds.empty()) {
+        os << " where (";
+        print_expr_list(node->conds);
+        os << ")";
+    }
     end_stmt();
 }
 
@@ -1775,6 +1780,13 @@ void Printer::visit(const YieldFrom *node) {
     if (!node->keys.empty()) {
         os << " sorted by (";
         print_expr_list(node->keys);
+        os << ")";
+    }
+    // One condition per branch, in the branches' order: `from (a, b) where
+    // (p, q)` descends into `a` when `p` holds and into `b` when `q` does.
+    if (!node->conds.empty()) {
+        os << " where (";
+        print_expr_list(node->conds);
         os << ")";
     }
     end_stmt();

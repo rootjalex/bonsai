@@ -1996,8 +1996,16 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         for (auto &arg : c.call_args(i)) {
                             call_args.push_back(codegen_value(arg));
                         }
-                        append(CallStmt::make(Var::make(func_t, c.call.name),
-                                              std::move(call_args)));
+                        Stmt made = CallStmt::make(Var::make(func_t, c.call.name),
+                                                   std::move(call_args));
+                        // A call under its branch's condition
+                        // (Terminator::MultiCall::conds) is made only where
+                        // the parent's test of that child passed.
+                        if (!c.conds.empty()) {
+                            made = IfElse::make(codegen_value(c.conds[i]),
+                                                std::move(made));
+                        }
+                        append(std::move(made));
                     }
 
                     name = c.cont.name;

@@ -53,8 +53,9 @@ const string &name_of(const shared_ptr<Value> &v) {
 // again, so queue_recursion() drops the votes it finds there.
 void compare_and_swap(Function &func, const shared_ptr<Block> &block,
                       vector<shared_ptr<Value>> &keys,
-                      vector<vector<shared_ptr<Value>>> &varying, size_t i,
-                      size_t l, bool ascending) {
+                      vector<vector<shared_ptr<Value>>> &varying,
+                      vector<shared_ptr<Value>> &conds, size_t i, size_t l,
+                      bool ascending) {
     const Type &key_type = keys[i]->get_type();
     internal_assert(equals(key_type, keys[l]->get_type()))
         << "A sort's keys have different types, " << key_type << " and "
@@ -88,6 +89,13 @@ void compare_and_swap(Function &func, const shared_ptr<Block> &block,
         varying[i][k] = pick(vi, vl);
         varying[l][k] = pick(vl, vi);
     }
+    // A branch's condition travels with the branch: the child the parent's
+    // test let through is the one that is made, wherever the order put it.
+    if (!conds.empty()) {
+        const shared_ptr<Value> ci = conds[i], cl = conds[l];
+        conds[i] = pick(ci, cl);
+        conds[l] = pick(cl, ci);
+    }
 }
 
 // https://graphics.stanford.edu/%7Eseander/bithacks.html#RoundUpPowerOf2
@@ -107,7 +115,8 @@ size_t next_pow2(size_t n) {
 // to be at run time.
 void sort_network(Function &func, const shared_ptr<Block> &block,
                   vector<shared_ptr<Value>> &keys,
-                  vector<vector<shared_ptr<Value>>> &varying) {
+                  vector<vector<shared_ptr<Value>>> &varying,
+                  vector<shared_ptr<Value>> &conds) {
     const size_t count = keys.size();
     const size_t n = next_pow2(count);
     for (size_t k = 2; k <= n; k *= 2) {
@@ -115,7 +124,7 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
             for (size_t i = 0; i < n; i++) {
                 const size_t l = i ^ j;
                 if (l > i && l < count) {
-                    compare_and_swap(func, block, keys, varying, i, l,
+                    compare_and_swap(func, block, keys, varying, conds, i, l,
                                      (i & k) == 0);
                 }
             }
@@ -140,8 +149,12 @@ size_t sort_recursion(Function &func) {
         // A run of one is already sorted, and a network over it would emit
         // nothing anyway -- but the keys still have to go, since they are only
         // meaningful to this pass.
+        internal_assert(call->conds.empty() ||
+                        call->conds.size() == call->varying.size())
+            << "The run in " << block->name << " has " << call->conds.size()
+            << " conditions for " << call->varying.size() << " calls";
         if (call->varying.size() > 1) {
-            sort_network(func, block, call->keys, call->varying);
+            sort_network(func, block, call->keys, call->varying, call->conds);
             sorted++;
         }
         call->keys.clear();

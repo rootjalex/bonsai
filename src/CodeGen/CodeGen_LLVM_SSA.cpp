@@ -1926,13 +1926,39 @@ struct CodeGen_LLVM::SSALowering {
                     // and as with a Call (above) the test is the SSA's:
                     // every call of the run shares the mask, so one test in
                     // front of the run guards them all.
+                    //
+                    // A call with a condition of its own
+                    // (Terminator::MultiCall::conds) -- a child whose box the
+                    // parent tested -- is made only where it holds: a branch
+                    // round the call, in blocks of this run's own.
+                    internal_assert(c.conds.empty() || c.drop)
+                        << block.name << " keeps the result of a run whose "
+                        << "calls are conditional, so there may be no result "
+                        << "to keep.";
                     llvm::Value *result = nullptr;
                     for (size_t i = 0; i < c.varying.size(); i++) {
+                        llvm::BasicBlock *next = nullptr;
+                        if (!c.conds.empty()) {
+                            llvm::Value *cond =
+                                cg.codegen_expr(operand(c.conds[i]));
+                            llvm::BasicBlock *made = llvm::BasicBlock::Create(
+                                *cg.context, block.name + "!call",
+                                cg.current_function);
+                            next = llvm::BasicBlock::Create(
+                                *cg.context, block.name + "!next",
+                                cg.current_function);
+                            cg.builder->CreateCondBr(cond, made, next);
+                            cg.builder->SetInsertPoint(made);
+                        }
                         std::vector<llvm::Value *> args;
                         for (const auto &a : c.call_args(i)) {
                             args.push_back(cg.codegen_expr(operand(a)));
                         }
                         result = cg.emit_call(callee, std::move(args));
+                        if (next != nullptr) {
+                            cg.builder->CreateBr(next);
+                            cg.builder->SetInsertPoint(next);
+                        }
                     }
                     llvm::BasicBlock *after = cg.builder->GetInsertBlock();
                     supply(c.cont, after, c.drop ? 0 : 1,

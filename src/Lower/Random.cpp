@@ -199,16 +199,18 @@ Stmt insert_rand_state(const Stmt &stmt,
             }
             auto [keys, keys_same] = visit_list(node->keys);
             not_changed = not_changed && keys_same;
+            auto [conds, conds_same] = visit_list(node->conds);
+            not_changed = not_changed && conds_same;
             if (func.defined()) {
                 return MultiRecurse::make(std::move(func), std::move(args),
                                           node->varying_at, std::move(varying),
-                                          std::move(keys));
+                                          std::move(keys), std::move(conds));
             } else if (not_changed) {
                 return node;
             }
             return MultiRecurse::make(node->func, std::move(args),
                                       node->varying_at, std::move(varying),
-                                      std::move(keys));
+                                      std::move(keys), std::move(conds));
         }
     };
     CallsRandFinder finder(funcs_call_rand, sets_up_own);

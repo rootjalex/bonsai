@@ -649,6 +649,9 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
                         for (auto &v : c.keys) {
                             rename_value(v);
                         }
+                        for (auto &v : c.conds) {
+                            rename_value(v);
+                        }
                     },
                 },
                 copy->terminator.data);

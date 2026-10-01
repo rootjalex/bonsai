@@ -28,7 +28,7 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
 Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
                         std::vector<size_t> varying_at,
                         std::vector<std::vector<Expr>> varying,
-                        std::vector<Expr> keys) {
+                        std::vector<Expr> keys, std::vector<Expr> conds) {
     internal_assert(func.defined())
         << "MultiRecurse::make received undefined func";
     const Function_t *f = func.type().as<Function_t>();
@@ -60,6 +60,14 @@ Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
     internal_assert(std::all_of(keys.cbegin(), keys.cend(),
                                 [](const Expr &e) { return e.defined(); }))
         << "MultiRecurse::make received an undefined sort key";
+    internal_assert(conds.empty() || conds.size() == varying.size())
+        << "MultiRecurse::make received " << conds.size() << " conditions for "
+        << varying.size() << " calls";
+    internal_assert(std::all_of(conds.cbegin(), conds.cend(),
+                                [](const Expr &e) {
+                                    return e.defined() && e.type().is_bool();
+                                }))
+        << "MultiRecurse::make received a condition that is not a boolean";
 
     MultiRecurse *node = new MultiRecurse;
     node->func = std::move(func);
@@ -67,6 +75,7 @@ Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
     node->varying_at = std::move(varying_at);
     node->varying = std::move(varying);
     node->keys = std::move(keys);
+    node->conds = std::move(conds);
     return node;
 }
 
@@ -470,13 +479,24 @@ Stmt YieldFrom::make(Expr value) {
 }
 
 Stmt YieldFrom::make(Expr value, std::vector<Expr> keys) {
+    return YieldFrom::make(std::move(value), std::move(keys), {});
+}
+
+Stmt YieldFrom::make(Expr value, std::vector<Expr> keys,
+                     std::vector<Expr> conds) {
     internal_assert(value.defined()) << "Undefined value in YieldFrom::make";
     internal_assert(std::all_of(keys.cbegin(), keys.cend(),
                                 [](const Expr &e) { return e.defined(); }))
         << "Undefined sort key in YieldFrom::make";
+    internal_assert(std::all_of(conds.cbegin(), conds.cend(),
+                                [](const Expr &e) {
+                                    return e.defined() && e.type().is_bool();
+                                }))
+        << "A branch condition in YieldFrom::make is not a boolean";
     YieldFrom *node = new YieldFrom;
     node->value = std::move(value);
     node->keys = std::move(keys);
+    node->conds = std::move(conds);
     return node;
 }
 

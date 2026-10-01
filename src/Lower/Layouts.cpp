@@ -237,6 +237,37 @@ std::string split_name(uint32_t count, const std::string &field) {
     return "split" + std::to_string(count) + "on_" + field;
 }
 
+// Whether a layout puts no bytes anywhere: every field computed
+// (Materialize), every arm a row of another group (Lookup), nothing named,
+// padded or grouped. A group whose rows store nothing is a group of
+// references -- the reference is the data, as Embree's NodeRef is -- and
+// gets no array of rows (see layout_to_structs). Asked here rather than of
+// Layout::bits(), which has no answer yet for a constant-sized group inside.
+bool stores_nothing(const ir::Layout &layout) {
+    switch (layout.node_type()) {
+    case ir::IRLayoutEnum::Name:
+    case ir::IRLayoutEnum::Group:
+        return false;
+    case ir::IRLayoutEnum::Pad:
+        return layout.as<ir::Pad>()->bits == 0;
+    case ir::IRLayoutEnum::Materialize:
+    case ir::IRLayoutEnum::Lookup:
+        return true;
+    case ir::IRLayoutEnum::Switch:
+        return std::all_of(layout.as<ir::Switch>()->arms.begin(),
+                           layout.as<ir::Switch>()->arms.end(),
+                           [](const ir::Switch::Arm &arm) {
+                               return stores_nothing(arm.layout);
+                           });
+    case ir::IRLayoutEnum::Chain:
+        return std::all_of(layout.as<ir::Chain>()->layouts.begin(),
+                           layout.as<ir::Chain>()->layouts.end(),
+                           stores_nothing);
+    }
+    internal_error << "stores_nothing: unknown layout " << layout;
+    return false;
+}
+
 using IndexTList = std::vector<ir::TypedVar>;
 
 IndexTList get_index_type(const ir::Layout &layout) {
@@ -384,6 +415,17 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                     ir::Array_t::make(std::move(base_t), node->size);
                 internal_assert(!node->name.empty());
                 std::string field_name = group_name(group_count++, node->name);
+                // A group that stores nothing -- every field computed from
+                // the index, every arm a lookup elsewhere -- is a group of
+                // references and not of rows: Embree's NodeRef, whose low
+                // bits say what it refers to and whose high bits say where.
+                // It declares the reference's type and occupies no bytes, so
+                // no array of empty rows is made for it. The count still
+                // advances, since the name a field is read by is made the
+                // same way (field_in_layout) and nothing reads one of these.
+                if (stores_nothing(node->inner)) {
+                    break;
+                }
                 // A named group can be looked up, so remember where its rows
                 // live and what shape they are. Declared before the arm that
                 // names it, which reading the chain in order gives for free.
@@ -545,10 +587,17 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                     }
                     break;
                 }
-                ir::Expr push_group = ir::Access::make(field_name, base);
                 ir::Expr index =
                     ir::Var::make(node->index_t, iter_name + "_" + node->name);
-                ir::Expr path = ir::Extract::make(push_group, index);
+                // A group that stores nothing has no rows to read (see
+                // layout_to_structs): its fields are computed from the
+                // index, and its arms are looked up elsewhere, so only the
+                // index is bound here.
+                ir::Expr push_group, path;
+                if (!stores_nothing(node->inner)) {
+                    push_group = ir::Access::make(field_name, base);
+                    path = ir::Extract::make(push_group, index);
+                }
                 frames.push_frame();
                 frames.add_to_frame(node->name, index);
                 ir::Expr rec =
@@ -1042,7 +1091,15 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
             for (const auto &key : node->keys) {
                 keys.push_back(mutate(key));
             }
-            return ir::YieldFrom::make(std::move(value), std::move(keys));
+            // And the branch conditions, for the same reason: a child's box
+            // test names the fields the parent stores it in.
+            std::vector<ir::Expr> conds;
+            conds.reserve(node->conds.size());
+            for (const auto &cond : node->conds) {
+                conds.push_back(mutate(cond));
+            }
+            return ir::YieldFrom::make(std::move(value), std::move(keys),
+                                       std::move(conds));
         }
     };
 
@@ -1699,7 +1756,7 @@ struct TightenExternArray : public ir::Mutator {
         }
         return ir::MultiRecurse::make(std::move(func), std::move(args),
                                       node->varying_at, node->varying,
-                                      node->keys);
+                                      node->keys, node->conds);
     }
 
     ir::Expr visit(const ir::Extract *node) override {

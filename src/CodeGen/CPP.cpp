@@ -291,6 +291,13 @@ void emit_type_declaration(std::stringstream &ss, Type type,
     auto indent = std::string(4, ' ');
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
+        // A layout arm that stores nothing -- its fields computed from the
+        // reference, or a row of another group -- is a struct with no
+        // members, which nothing names (the lowering reinterprets bytes only
+        // where there are some) and which C++ would give a size C does not.
+        if (struct_t->fields.empty() && struct_t->is_packed()) {
+            return;
+        }
         const bool buffers =
             buffer_layouts != nullptr && buffer_layouts->count(struct_t->name);
         const bool host =
@@ -1405,7 +1412,13 @@ class BonsaiToCpp : ir::Printer {
                "its keys, so nothing ever put its calls in order. The "
                "reordering is an SSA rewrite; see SSA/SortRecursion.h.";
         for (size_t i = 0; i < node->varying.size(); i++) {
-            CallStmt::make(node->func, node->call_args(i)).accept(this);
+            Stmt call = CallStmt::make(node->func, node->call_args(i));
+            // A call under its branch's condition: made only where the
+            // parent's test of that child's volume passed.
+            if (!node->conds.empty()) {
+                call = IfElse::make(node->conds[i], std::move(call));
+            }
+            call.accept(this);
         }
     }
 

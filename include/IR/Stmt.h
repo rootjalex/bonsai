@@ -124,10 +124,17 @@ struct MultiRecurse : StmtNode<MultiRecurse> {
     // which is the normal case. Acted on in SSA -- see SSA/SortRecursion.h.
     std::vector<Expr> keys;
 
+    // Whether each call is made at all: one boolean per call, carried over
+    // from the YieldFrom like the keys, or empty when every call is made. A
+    // call whose condition is false is not made, and when the run is put on
+    // a stack (SSA/QueueRecursion.h) it is not pushed either. See
+    // YieldFrom::conds for where they come from.
+    std::vector<Expr> conds;
+
     static Stmt make(Expr func, std::vector<Expr> args,
                      std::vector<size_t> varying_at,
                      std::vector<std::vector<Expr>> varying,
-                     std::vector<Expr> keys = {});
+                     std::vector<Expr> keys = {}, std::vector<Expr> conds = {});
 
     // The full argument list of call `c`, i.e. `args` with `varying[c]`
     // substituted in at `varying_at`. This is what expanding the node emits.
@@ -485,8 +492,27 @@ struct YieldFrom : StmtNode<YieldFrom> {
     // itself happens much later, as an SSA rewrite -- see SSA/SortRecursion.h.
     std::vector<Expr> keys;
 
+    // Which branches are taken: one boolean per branch, or empty when all of
+    // them are.
+    //
+    // A tree node's own volume bounds everything beneath it, and a traversal
+    // tests it on arrival; a node that states its *children's* volumes
+    // instead (`with AABB(l, h) on child`, a BVH whose parent holds its
+    // children's boxes, as Embree's nodes do) is tested before the descent,
+    // and the test is one per child. These are those tests, built by the
+    // tree lowering (Lower/Trees.cpp) from predicate analysis over each
+    // child's volume, in the same order as the branches. They are carried
+    // here and not folded into the branches for the reason the keys are: a
+    // branch has to stay a branch for sort() to permute, and a condition has
+    // to travel with the branch it guards when it does. What becomes of them
+    // is the run's business -- a call not made, a push not made (see
+    // MultiRecurse::conds, Terminator::MultiCall::conds).
+    std::vector<Expr> conds;
+
     static Stmt make(Expr value);
     static Stmt make(Expr value, std::vector<Expr> keys);
+    static Stmt make(Expr value, std::vector<Expr> keys,
+                     std::vector<Expr> conds);
 
     static const IRStmtEnum node_type = IRStmtEnum::YieldFrom;
 };

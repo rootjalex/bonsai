@@ -225,6 +225,11 @@ Stmt rewrite_yieldfroms(Stmt body, WriteLoc count_loc, Expr count_var,
                    "original order would compile a different program than the "
                    "schedule asks for, so it is an error instead. Compile "
                    "with `-p ssa`.";
+            internal_assert(node->conds.empty())
+                << "This tree bounds its children at their parent (`with ... "
+                   "on <child>`), so a branch is taken only under its "
+                   "condition, and this pipeline's queue writes every branch. "
+                   "Compile with `-p ssa`, where loopify keeps the conditions.";
             auto ids = break_tuple(node->value);
             // TODO(ajr): handle if the tuple must be compressed.
 

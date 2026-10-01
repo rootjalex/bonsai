@@ -7,6 +7,7 @@ add_bonsai_tests(
     adt-tagged-index.bonsai
     bind_cpu_thread.bonsai
     buffers.bonsai
+    bvh4_child_volumes.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai
     blas-tlas-sorted.bonsai

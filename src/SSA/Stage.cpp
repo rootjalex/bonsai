@@ -64,6 +64,7 @@ void for_each_value(Block &block, const F &fn) {
                            all(vs);
                        }
                        all(c.keys);
+                       all(c.conds);
                    },
                },
                block.terminator.data);

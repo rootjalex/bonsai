@@ -1,0 +1,88 @@
+//! flags: -p canonicalize -p lower-trees
+
+// A node that bounds its children rather than itself.
+//
+// pbrt's LinearBVHNode stores its own box, and a traversal tests it on
+// arrival: the leaf arm and the interior arm each begin by asking whether the
+// ray meets the node. Embree's AABBNode stores no box of its own; it stores
+// its children's, six vectors of N floats, and the traversal tests all N
+// children at the parent and descends only into the ones hit. The tree
+// language has said this since BVH_t gained volumes -- `with AABB(l, h) on
+// c` puts the volume on the child named -- but until now nothing consumed it,
+// and a tree written this way was walked without a single box test.
+//
+// What to read for in the golden. Neither arm tests a volume of its own: the
+// leaf loops straight over its triangles, and the interior has no `if` in
+// front of it. Instead the `from` carries a condition per branch,
+//
+//     from ((tris as Interior).c0, ...) where (
+//         intersects(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0))
+//             && distmin(r, build<AABB>(...)) < _best0[0], ...)
+//
+// one per child, in the children's order, each predicate analysis's `maybe`
+// bound of the fused filter -- the ray meets the child's box, and the box is
+// nearer than the best hit so far -- over that child's volume. The `any` is
+// the same with its own predicate: a branch is taken where the ray meets the
+// child's box, and the whole run is gated once on the accumulator, as a
+// node's own test would be. What becomes of the conditions is downstream's
+// business: a call not made (the LLVM and C++ backends), a push not made
+// (ssa/child-volumes-sorted.bonsai).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    // Embree's BVH4: four children per node, their boxes in the parent, and
+    // nothing said about the node itself.
+    tree[[Triangle]] BVH4 =
+    | Interior(c0 c1 c2 c3 : BVH4, l0 l1 l2 l3 : vec3f, h0 h1 h2 h3 : vec3f)
+        with AABB(l0, h0) on c0 with AABB(l1, h1) on c1
+        with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        // Embree's AABBNode: the children's references, then their boxes as
+        // six vectors of four floats.
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            c0 = children[0]; c1 = children[1]; c2 = children[2]; c3 = children[3];
+            l0 = vec3f{lower_x[0], lower_y[0], lower_z[0]}; h0 = vec3f{upper_x[0], upper_y[0], upper_z[0]};
+            l1 = vec3f{lower_x[1], lower_y[1], lower_z[1]}; h1 = vec3f{upper_x[1], upper_y[1], upper_z[1]};
+            l2 = vec3f{lower_x[2], lower_y[2], lower_z[2]}; h2 = vec3f{upper_x[2], upper_y[2], upper_z[2]};
+            l3 = vec3f{lower_x[3], lower_y[3], lower_z[3]}; h3 = vec3f{upper_x[3], upper_y[3], upper_z[3]};
+        };
+        // Embree's NodeRef: a reference whose low four bits say what it is --
+        // 0 an interior node, 8 + n a leaf of n triangles -- and whose high
+        // bits are the node's row or the leaf's first triangle. A group that
+        // stores nothing: the reference is the data.
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+}

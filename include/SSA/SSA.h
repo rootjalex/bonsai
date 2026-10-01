@@ -385,6 +385,13 @@ struct Terminator {
         // permutes `varying` to match and then clears this -- so a MultiCall
         // reaching code generation should not have any.
         std::vector<std::shared_ptr<Value>> keys;
+        // Whether each call is made: one boolean per call, or empty when
+        // every call is. The parent's test of each child's volume, where a
+        // tree stores its children's bounds rather than its own (see
+        // ir::YieldFrom::conds). Permuted with `varying` by sort_recursion();
+        // a call whose condition is false is not made, and queue_recursion()
+        // does not push it (SSA/QueueRecursion.h).
+        std::vector<std::shared_ptr<Value>> conds;
         bool drop = true;
 
         // `call.args` with entry `c` substituted in at `varying_at`.

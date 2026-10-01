@@ -153,7 +153,7 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             for (size_t i = 0; i < exprs.size(); i++) {
                 keys[i] = sort_cost(i);
             }
-            return YieldFrom::make(node->value, std::move(keys));
+            return YieldFrom::make(node->value, std::move(keys), node->conds);
         }
 
         Stmt visit(const Match *node) override {

@@ -1,0 +1,22 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_child_volumes.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_child_volumes.o
+[test] clang++ tests/bonsai/correctness/cpp/main_bvh4_child_volumes.o tests/bonsai/correctness/cpp/bvh4_child_volumes.o -o tests/bonsai/correctness/cpp/bvh4_child_volumes
+[test] ./tests/bonsai/correctness/cpp/bvh4_child_volumes
++x: wall at x=0 z=0, occluded -- ok
+-x: wall at x=70 z=0, occluded -- ok
++x from 35: wall at x=40 z=0, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=5, occluded -- ok
+-x: wall at x=70 z=5, occluded -- ok
++x from 35: wall at x=40 z=5, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=10, occluded -- ok
+-x: wall at x=70 z=10, occluded -- ok
++x from 35: wall at x=40 z=10, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=15, occluded -- ok
+-x: wall at x=70 z=15, occluded -- ok
++x from 35: wall at x=40 z=15, occluded -- ok
++x short: miss, clear -- ok
++x between lanes: miss, clear -- ok
+diagonal: wall at x=0 z=0, occluded -- ok
++z beside: miss, clear -- ok
