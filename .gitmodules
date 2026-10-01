@@ -14,3 +14,6 @@
 [submodule "deps/fcl"]
 	path = deps/fcl
 	url = git@github.com:flexible-collision-library/fcl.git
+[submodule "deps/embree"]
+	path = deps/embree
+	url = https://github.com/RenderKit/embree.git
