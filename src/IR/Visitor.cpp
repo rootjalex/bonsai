@@ -229,6 +229,8 @@ void Visitor::visit(const StoredElement *node) {
     node->index.accept(this);
 }
 
+void Visitor::visit(const TiledArray *node) { node->tiles.accept(this); }
+
 void Visitor::visit(const Deref *node) {
     node->expr.accept(this);
     if (node->mask.defined()) {

@@ -1434,6 +1434,7 @@ class BonsaiToCpp : ir::Printer {
     // void visit(const PtrTo *) override;
     RESTRICT_VISITOR(RefTo);
     RESTRICT_VISITOR(StoredElement);
+    RESTRICT_VISITOR(TiledArray);
     void visit(const Deref *node) override {
         internal_assert(!node->mask.defined())
             << "[unimplemented] masked load in C++ codegen: " << Expr(node);

@@ -14,6 +14,7 @@
 #include "Lower/Geometrics.h"
 #include "Lower/Lambdas.h"
 #include "Lower/Layouts.h"
+#include "Lower/TiledArrays.h"
 #include "Lower/LogicalOperations.h"
 #include "Lower/LoopTransforms.h"
 #include "Lower/Maps.h"
@@ -219,6 +220,9 @@ PassManager register_passes(const CompilerOptions &options) {
     // has spelled each element as an indexed read of it. See
     // Lower/ElementReferences.h.
     core.push_back(std::make_unique<LowerElementReferences>());
+    // Once every element read -- a leaf's, or through a reference -- is an
+    // indexed read of its array: the tiled arrays' reads become their tiles'.
+    core.push_back(std::make_unique<LowerTiledArrays>());
     // TODO(ajr): figure out the right placement of transforms.
     core.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,
@@ -275,6 +279,7 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerForEachs>());
     // After LowerForEachs; see `core`.
     ssa.push_back(std::make_unique<LowerElementReferences>());
+    ssa.push_back(std::make_unique<LowerTiledArrays>());
     ssa.push_back(std::make_unique<LowerDynamicSets>());
     ssa.push_back(std::make_unique<LowerYields>());
     ssa.push_back(std::make_unique<LowerScans>());
@@ -361,6 +366,7 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa_analysis.push_back(std::make_unique<LowerLayouts>());
     ssa_analysis.push_back(std::make_unique<LowerForEachs>());
     ssa_analysis.push_back(std::make_unique<LowerElementReferences>());
+    ssa_analysis.push_back(std::make_unique<LowerTiledArrays>());
     ssa_analysis.push_back(std::make_unique<LowerDynamicSets>());
     ssa_analysis.push_back(std::make_unique<LowerYields>());
     ssa_analysis.push_back(std::make_unique<LowerScans>());
@@ -401,6 +407,7 @@ PassManager register_passes(const CompilerOptions &options) {
     d.push_back(std::make_unique<LowerLayouts>());
     d.push_back(std::make_unique<LowerForEachs>());
     d.push_back(std::make_unique<LowerElementReferences>());
+    d.push_back(std::make_unique<LowerTiledArrays>());
     // TODO(ajr): figure out the right placement of transforms.
     d.push_back(std::make_unique<LoopTransforms>());
     // This must *always* go after parallelization,

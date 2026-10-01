@@ -1404,6 +1404,14 @@ struct FunctionBuilder : Visitor {
                        << "layout's array.";
     }
 
+    void visit(const TiledArray *node) override {
+        internal_error << "A tiled array reached the SSA conversion as a "
+                       << "whole: " << ir::Expr(node)
+                       << ". Only an element of one can be read, and "
+                       << "Lower/TiledArrays.cpp spells each read as the "
+                       << "tile's.";
+    }
+
     void visit(const Deref *node) override {
         // `node->expr` is a pointer (e.g. a `mut` argument/local, wrapped by
         // Lower/Mutability.cpp); Load reads through it to produce a value of

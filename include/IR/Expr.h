@@ -59,6 +59,7 @@ enum class IRExprEnum {
     Deref,
     AtomicAdd,
     StoredElement,
+    TiledArray,
 };
 
 using IRExprNode = IRNode<Expr, IRExprEnum>;
@@ -881,6 +882,29 @@ struct StoredElement : ExprNode<StoredElement> {
     static Expr make(Expr tree, Expr index, Type element_type);
 
     static const IRExprEnum node_type = IRExprEnum::StoredElement;
+};
+
+// An array of elements stored in tiles: `width` elements per tile, each tile a
+// struct holding every field of the element as a vector over the tile's
+// lanes, so that a tile of four triangles is `v0.x[4], v0.y[4], v0.z[4],
+// e1.x[4], ...` -- Embree's Triangle4, and the array-of-structs-of-arrays
+// (AoSoA) of Scion's nested groups (Gyurgyik, Root and Kjolstad, "Decoupling
+// Data Layouts from Bounding Volume Hierarchies", PLDI 2026, Fig. 7).
+//
+// `tiles` is the storage, an array of the tile structs; this expression is
+// the same bytes read as the array of elements they hold, typed so: element
+// `k` is lane `k % width` of tile `k / width`, which Lower/TiledArrays.cpp
+// spells out for every `Extract` of one. Nothing but an Extract may use it:
+// the whole array has no representation as elements, only as tiles.
+struct TiledArray : ExprNode<TiledArray> {
+    Expr tiles;
+    uint32_t width = 0;
+
+    // `element` is the element type the tiles hold; `tiles` has the type of
+    // the storage, `array[<tile struct>, n]`.
+    static Expr make(Expr tiles, uint32_t width, Type element);
+
+    static const IRExprEnum node_type = IRExprEnum::TiledArray;
 };
 
 struct Deref : ExprNode<Deref> {

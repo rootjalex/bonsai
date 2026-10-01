@@ -993,17 +993,38 @@ Expr Build::make(Type type, std::vector<Expr> values) {
         }
 
         if (type.is<Vector_t>()) {
-            internal_assert(values.empty() ||
-                            type.as<Vector_t>()->lanes == values.size())
-                << "Build<Vector_t> with incorrect number of arguments, "
-                   "expected: "
-                << type << " but received " << values.size() << " elements.";
-            Type etype = type.as<Vector_t>()->etype;
-            for (const auto &expr : values) {
-                internal_assert(equals(expr.type(), etype))
-                    << "Build<Vector_t> requires uniform element type, "
+            const Vector_t *vector = type.as<Vector_t>();
+            const Type etype = vector->etype;
+            // A vector of vectors may be given its components instead of
+            // its lanes: `vector[vec3f, 8]` from three `vector[f32, 8]`,
+            // which is the shape it has in a gang and in storage (one vector
+            // per component; see CodeGen_LLVM::visit(const Vector_t *)). The
+            // two spellings are told apart by the count, lanes first where
+            // both would fit.
+            const Vector_t *inner = etype.as<Vector_t>();
+            const bool by_lane =
+                values.empty() ||
+                (values.size() == vector->lanes &&
+                 std::all_of(values.begin(), values.end(), [&](const Expr &e) {
+                     return equals(e.type(), etype);
+                 }));
+            if (!by_lane) {
+                internal_assert(inner != nullptr &&
+                                values.size() == inner->lanes)
+                    << "Build<Vector_t> with incorrect number of arguments, "
                        "expected: "
-                    << etype << " but received " << expr;
+                    << type << " but received " << values.size()
+                    << " elements.";
+                const Type component_t =
+                    Vector_t::make(inner->etype, vector->lanes);
+                for (const auto &expr : values) {
+                    internal_assert(equals(expr.type(), component_t))
+                        << "Build<Vector_t> of " << type
+                        << " by components takes " << inner->lanes
+                        << " values of type " << component_t
+                        << ", but received " << expr << " of type "
+                        << expr.type();
+                }
             }
         } else if (type.is<Struct_t>()) {
             if (!values.empty()) {
@@ -1999,6 +2020,34 @@ Expr StoredElement::make(Expr tree, Expr index, Type element_type) {
     node->type = std::move(element_type);
     node->tree = std::move(tree);
     node->index = std::move(index);
+    return node;
+}
+
+Expr TiledArray::make(Expr tiles, uint32_t width, Type element) {
+    internal_assert(tiles.defined() && tiles.type().defined())
+        << "TiledArray::make received undefined or untyped tiles";
+    const Array_t *array = tiles.type().as<Array_t>();
+    internal_assert(array != nullptr)
+        << "TiledArray::make takes an array of tiles, not " << tiles << " of "
+        << tiles.type();
+    internal_assert(array->etype.is<Struct_t>())
+        << "A tile is a struct of the element's fields as vectors, not "
+        << array->etype;
+    internal_assert(width > 1) << "A tile holds more than one element";
+    internal_assert(element.defined() && element.is<Struct_t>())
+        << "TiledArray::make takes the element struct the tiles hold, not "
+        << element;
+    TiledArray *node = new TiledArray;
+    // As many elements as the tiles hold, which is what a read of one bounds
+    // against: the last tile may hold fewer live elements than lanes, and
+    // its spare lanes are elements too, whatever was written there.
+    Expr count = array->size;
+    if (count.defined()) {
+        count = BinOp::make(BinOp::Mul, count, make_const(count.type(), width));
+    }
+    node->type = Array_t::make(std::move(element), std::move(count));
+    node->tiles = std::move(tiles);
+    node->width = width;
     return node;
 }
 

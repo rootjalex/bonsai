@@ -2471,6 +2471,25 @@ struct Parser {
             return ir::Extrema::make(f32, ir::Extrema::eps);
         }
 
+        // `vector[T, n]{a, b, ..}`: a vector from what is listed, as
+        // `vec3f{x, y, z}` is for a named type. For a vector of vectors the
+        // list is either its lanes or its components (see Build::make):
+        // `vector[vec3f, 8]{xs, ys, zs}` from three eight-wide vectors is how
+        // a layout assembles a node's eight child boxes out of the six
+        // component vectors it stores, which is how Embree stores them.
+        if (name == "vector" && !name_in_scope(name) &&
+            peek().type == Token::Type::LBRACKET) {
+            ir::Type type = parse_vector_type();
+            expect(Token::Type::LSQUIGGLE);
+            std::vector<ir::Expr> values =
+                parse_expr_list_until(Token::Type::RSQUIGGLE);
+            if (values.empty()) {
+                report_error() << "vector[" << type
+                               << "]{} lists no lanes or components.";
+            }
+            return ir::Build::make(std::move(type), std::move(values));
+        }
+
         if (consume(Token::Type::LPAREN)) {
             std::vector<ir::Expr> args =
                 parse_expr_list_until(Token::Type::RPAREN);
@@ -2963,6 +2982,21 @@ struct Parser {
     //         | f[N] | bf[N] | f[N]_[N]
     //         | bool | vector[type, int]
     //         | option[type] | declared_type
+    // `[T, n]` after `vector`: the element type and the lane count.
+    ir::Type parse_vector_type() {
+        expect(Token::Type::LBRACKET);
+        ir::Type etype = parse_type();
+        expect(Token::Type::COMMA);
+        const int64_t lanes = parse_int_literal();
+        // TODO: this upper bound is arbitrary. Can't imagine needing a
+        // larger one though?
+        internal_assert(lanes > 0 && lanes < 1025)
+            << "Vector lane count is invalid: " << lanes;
+        expect(Token::Type::RBRACKET);
+        return ir::Vector_t::make(std::move(etype),
+                                  static_cast<uint32_t>(lanes));
+    }
+
     ir::Type parse_type() {
         if (consume(Token::Type::LPAREN)) {
             // Tuple type.
@@ -3037,17 +3071,7 @@ struct Parser {
         }
         // Now look for built-ins
         else if (name == "vector") {
-            expect(Token::Type::LBRACKET);
-            ir::Type etype = parse_type();
-            expect(Token::Type::COMMA);
-            const int64_t lanes = parse_int_literal();
-            // TODO: this upper bound is arbitrary. Can't imagine needing a
-            // larger one though?
-            internal_assert(lanes > 0 && lanes < 1025)
-                << "Vector lane count is invalid: " << lanes;
-            expect(Token::Type::RBRACKET);
-            return ir::Vector_t::make(std::move(etype),
-                                      static_cast<uint32_t>(lanes));
+            return parse_vector_type();
         } else if (name == "option") {
             expect(Token::Type::LBRACKET);
             ir::Type etype = parse_type();
@@ -3419,7 +3443,12 @@ struct Parser {
                     break;
                 }
 
+                // The set's element, for a group of elements in the layout
+                // (see ir::Group::element).
+                const auto *as_set = extern_iter->type.as<ir::Set_t>();
+                layout_element_t = as_set != nullptr ? as_set->etype : ir::Type();
                 ir::Layout layout = parse_top_level_layout();
+                layout_element_t = ir::Type();
                 const auto [_, inserted] =
                     schedule.tree_layouts.emplace(name, std::move(layout));
                 if (!inserted) {
@@ -4089,6 +4118,10 @@ struct Parser {
         return args;
     }
 
+    // The element type of the set whose layout is being parsed, for a group
+    // of elements (ir::Group::element); undefined outside a tree's layout.
+    ir::Type layout_element_t;
+
     // Wrapper that adds built-ins into scope and then calls parse_layout()
     ir::Layout parse_top_level_layout() {
         push_frame();
@@ -4213,6 +4246,38 @@ struct Parser {
                 add_type_to_frame(name, index_t, /* mutable=*/false);
             }
             ir::Layout inner = parse_layout();
+            // An indirect group whose rows are an anonymous constant inner
+            // group of the element's fields holds the set's elements, in
+            // tiles -- Scion's array-of-structs-of-arrays, a group nested in
+            // a group (see ir::Group::element). It is named in scope as the
+            // array of elements it is, for a leaf's `range(prims, a, n)`.
+            ir::Type element;
+            if (indirect && layout_element_t.defined()) {
+                if (const ir::Group *tile = ir::tile_of(inner)) {
+                    const auto *as_struct =
+                        layout_element_t.as<ir::Struct_t>();
+                    if (as_struct == nullptr ||
+                        !holds_fields_of(tile->inner, *as_struct)) {
+                        report_error()
+                            << "The tiles of group " << declared_name
+                            << " hold fields other than those of the set's "
+                               "element "
+                            << layout_element_t
+                            << ": a group of elements stores every field of "
+                               "the element, by its name and type, in the "
+                               "element's order, and nothing else.";
+                    }
+                    if (!size.defined()) {
+                        report_error() << "A group of elements says how many "
+                                          "elements it holds: group "
+                                       << declared_name << "[<count>]";
+                    }
+                    element = layout_element_t;
+                    add_type_to_frame(declared_name,
+                                      ir::Array_t::make(element, size),
+                                      /*mutable=*/false);
+                }
+            }
             if (!size.defined()) {
                 ir::Expr isize = inner.count();
                 if (!isize.defined() || !is_const(isize)) {
@@ -4224,8 +4289,8 @@ struct Parser {
             return ir::Group::make(
                 std::move(size), std::move(name), std::move(declared_name),
                 std::move(index_t), std::move(inner),
-                indirect ? ir::Group::Type::Indirect
-                         : ir::Group::Type::Direct);
+                indirect ? ir::Group::Type::Indirect : ir::Group::Type::Direct,
+                std::move(element));
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();

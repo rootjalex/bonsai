@@ -369,6 +369,37 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
     return Rewrite(frames).mutate(expr);
 }
 
+// The struct one tile of a group of elements is stored as: every field of the
+// element as a packed vector over the tile's lanes, in the element's order,
+// so that a tile of four triangles is `v0 : vector[vec3f, 4]` -- three packed
+// vectors, x[4] y[4] z[4] -- then e1, e2, and the two ids as four each.
+// Embree's TriangleM<4>, byte for byte (kernels/geometry/triangle.h).
+ir::Type tile_struct(const ir::Group &tile, LayoutTypeMap &ltmap) {
+    const uint32_t width = ir::tile_width(tile);
+    const ir::Chain *chain = tile.inner.as<ir::Chain>();
+    internal_assert(chain != nullptr) << tile.inner;
+    ir::Struct_t::Map fields;
+    for (const ir::Layout &member : chain->layouts) {
+        const ir::Name *name = member.as<ir::Name>();
+        internal_assert(name != nullptr)
+            << "[unimplemented] a tile holds stored fields only, not "
+            << member;
+        fields.emplace_back(
+            name->name,
+            packed_storage(ir::Vector_t::make(
+                stored_type(name->type, ltmap.field_refs), width)));
+    }
+    const std::string struct_name =
+        "_tree_layout" + std::to_string(ltmap.counter++);
+    const std::vector<ir::Struct_t::Attribute> attributes = {
+        ir::Struct_t::Attribute::packed, ir::Struct_t::Attribute::layout};
+    ir::Type struct_t =
+        ir::Struct_t::make(struct_name, std::move(fields), attributes);
+    ltmap.layout_to_type.try_emplace(tile.inner, struct_t);
+    ltmap.layout_to_name.try_emplace(tile.inner, struct_name);
+    return struct_t;
+}
+
 ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
     if (const auto in_cache = ltmap.layout_to_type.find(layout);
         in_cache != ltmap.layout_to_type.cend()) {
@@ -410,6 +441,37 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
             }
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
+                // A group of the tree's elements, stored in tiles: the array
+                // is of tiles, each a struct holding every field of the
+                // element as a packed vector over the tile's lanes -- Embree's
+                // Triangle4 -- and there are as many tiles as it takes to
+                // hold the elements. Read as elements through ir::TiledArray
+                // (see field_in_layout).
+                if (node->element.defined()) {
+                    const ir::Group *tile = ir::tile_of(node->inner);
+                    internal_assert(tile != nullptr)
+                        << "[unimplemented] a group of elements stored as "
+                           "rows rather than tiles: store the elements as an "
+                           "array field instead. Group "
+                        << node->declared_name;
+                    const uint32_t width = ir::tile_width(*tile);
+                    ir::Type tile_t = tile_struct(*tile, ltmap);
+                    ir::Expr tiles =
+                        (node->size + make_const(node->size.type(), width - 1)) /
+                        make_const(node->size.type(), width);
+                    std::string field_name =
+                        group_name(group_count++, node->declared_name);
+                    const auto [_, added] = ltmap.groups.emplace(
+                        node->declared_name,
+                        LayoutTypeMap::Named{node->inner, field_name,
+                                             ir::Layout(), ir::Type()});
+                    internal_assert(added)
+                        << "Two groups named " << node->declared_name;
+                    fields.emplace_back(
+                        std::move(field_name),
+                        ir::Array_t::make(std::move(tile_t), std::move(tiles)));
+                    break;
+                }
                 ir::Type base_t = layout_to_structs(node->inner, ltmap);
                 ir::Type group_t =
                     ir::Array_t::make(std::move(base_t), node->size);
@@ -502,7 +564,7 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                     }
                     members.push_back(ir::Group::make(
                         g->size, g->name, g->declared_name, g->index_t,
-                        g->inner, ir::Group::Type::Direct));
+                        g->inner, ir::Group::Type::Direct, g->element));
                     continue;
                 }
                 members.push_back(l);
@@ -574,16 +636,29 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             }
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
-                std::string field_name = group_name(group_count++, node->name);
+                std::string field_name = group_name(
+                    group_count++,
+                    node->element.defined() ? node->declared_name : node->name);
                 if (node->type == ir::Group::Type::Indirect) {
                     // Not walked into: its rows are reached only through a
                     // lookup, which supplies the index, and descending here
                     // would invent an index variable nothing binds. Put the
                     // rows in scope under the name a lookup uses instead.
                     if (!node->declared_name.empty()) {
-                        frames.add_to_frame(
-                            node->declared_name,
-                            ir::Access::make(field_name, base));
+                        ir::Expr rows = ir::Access::make(field_name, base);
+                        // A group of elements in tiles is named as the array
+                        // of elements it holds; a leaf's `range(prims, a, n)`
+                        // and a reference's read index it as one, and
+                        // Lower/TiledArrays.cpp makes each read the tile's.
+                        if (node->element.defined()) {
+                            const ir::Group *tile = ir::tile_of(node->inner);
+                            internal_assert(tile != nullptr);
+                            rows = ir::TiledArray::make(
+                                std::move(rows), ir::tile_width(*tile),
+                                stored_type(node->element, ltmap.field_refs));
+                        }
+                        frames.add_to_frame(node->declared_name,
+                                            std::move(rows));
                     }
                     break;
                 }

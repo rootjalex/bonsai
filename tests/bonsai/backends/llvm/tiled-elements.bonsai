@@ -1,0 +1,64 @@
+//! flags: -p ssa -b llvm
+
+// Embree's bytes all the way to LLVM: a node row with the bounds as six
+// component vectors, `lo` and `hi` derived from them, and leaves of
+// Triangle4 tiles (lower/tiled-elements.bonsai explains both).
+//
+// What to read for. The interior arm loads the row's six `<4 x float>`
+// vectors and nothing else: the derived `lo` and `hi` are those loads, no
+// shuffle between them and the box test. The leaf arm reads a triangle out
+// of its tile with the tile index `k >> 2` and lane `k & 3`, one lane of
+// each field vector -- which LLVM makes a scalar load at the lane's offset
+// inside the tile, so the leaf reads nine floats as Embree's Triangle4 reads
+// them when it tests one lane.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+}

@@ -1,4 +1,5 @@
 #include "IR/Layout.h"
+#include "IR/Equality.h"
 
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -177,7 +178,8 @@ Layout Chain::make(std::vector<Layout> layouts) {
 }
 
 Layout Group::make(Expr size, std::string name, std::string declared_name,
-                   ir::Type index_t, Layout inner, Group::Type type) {
+                   ir::Type index_t, Layout inner, Group::Type type,
+                   ir::Type element) {
     internal_assert(size.defined())
         << "Cannot make Group with undefined size, named: " << name;
     // Groups can have no label, name can be empty and index_t can be undefined
@@ -193,6 +195,9 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
         << "An indirect group has to be named: nothing can look it up "
            "otherwise.";
 
+    internal_assert(!element.defined() || type == Group::Type::Indirect)
+        << "A group of elements is reached by the leaves that range over it, "
+           "not walked: it is indirect. Group " << declared_name;
     Group *node = new Group;
     node->size = std::move(size);
     node->name = std::move(name);
@@ -200,7 +205,53 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
     node->index_t = std::move(index_t);
     node->inner = std::move(inner);
     node->type = type;
+    node->element = std::move(element);
     return node;
+}
+
+const Group *tile_of(const Layout &inner) {
+    const Group *group = inner.as<Group>();
+    if (const Chain *chain = inner.as<Chain>()) {
+        if (chain->layouts.size() != 1) {
+            return nullptr;
+        }
+        group = chain->layouts.front().as<Group>();
+    }
+    if (group == nullptr || !group->name.empty() ||
+        !group->declared_name.empty() || !group->size.defined() ||
+        !is_const(group->size)) {
+        return nullptr;
+    }
+    return group;
+}
+
+uint32_t tile_width(const Group &tile) {
+    const std::optional<uint64_t> width = get_constant_value(tile.size);
+    internal_assert(width.has_value() && *width > 1 && *width <= 1024)
+        << "A tile holds a constant number of elements, more than one: "
+        << Layout(&tile);
+    return static_cast<uint32_t>(*width);
+}
+
+bool holds_fields_of(const Layout &inner, const Struct_t &element) {
+    const Chain *chain = inner.as<Chain>();
+    std::vector<Layout> members;
+    if (chain != nullptr) {
+        members = chain->layouts;
+    } else {
+        members.push_back(inner);
+    }
+    if (members.size() != element.fields.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < members.size(); i++) {
+        const Name *name = members[i].as<Name>();
+        if (name == nullptr || name->name != element.fields[i].name ||
+            !equals(name->type, element.fields[i].type)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 Layout Materialize::make(std::string name, Expr value) {

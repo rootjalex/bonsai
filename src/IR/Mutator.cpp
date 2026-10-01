@@ -557,6 +557,15 @@ Expr Mutator::visit(const StoredElement *node) {
     return StoredElement::make(std::move(tree), std::move(index), node->type);
 }
 
+Expr Mutator::visit(const TiledArray *node) {
+    Expr tiles = mutate(node->tiles);
+    if (tiles.same_as(node->tiles)) {
+        return node;
+    }
+    return TiledArray::make(std::move(tiles), node->width,
+                            node->type.element_of());
+}
+
 Expr Mutator::visit(const Deref *node) {
     Expr expr = mutate(node->expr);
     Expr mask = node->mask.defined() ? mutate(node->mask) : node->mask;

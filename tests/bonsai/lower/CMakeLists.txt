@@ -49,6 +49,7 @@ add_bonsai_tests(
     sort-call.bonsai
     struct_defaults.bonsai
     tight-array.bonsai
+    tiled-elements.bonsai
     trace_aosoa.bonsai
     trace.bonsai
     trees.bonsai

@@ -1391,6 +1391,12 @@ void Printer::visit(const StoredElement *node) {
     os << ")";
 }
 
+void Printer::visit(const TiledArray *node) {
+    os << "tiled[" << node->width << "](";
+    print_no_parens(node->tiles);
+    os << ")";
+}
+
 void Printer::visit(const Deref *node) {
     if (node->mask.defined()) {
         os << "masked_load(";

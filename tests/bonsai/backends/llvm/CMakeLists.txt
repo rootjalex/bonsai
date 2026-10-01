@@ -44,6 +44,7 @@ add_bonsai_tests(
     switch-three-way.bonsai
     tail-call.bonsai
     tight-array.bonsai
+    tiled-elements.bonsai
     tree-traversal.bonsai
     tree-traversal-instanced.bonsai
     tree-traversal-mixed.bonsai

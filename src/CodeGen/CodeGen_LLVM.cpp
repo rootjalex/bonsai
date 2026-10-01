@@ -1228,6 +1228,13 @@ void CodeGen_LLVM::visit(const StoredElement *node) {
                    << "layout's array they are.";
 }
 
+void CodeGen_LLVM::visit(const TiledArray *node) {
+    internal_error << "A tiled array reached code generation as a whole: "
+                   << ir::Expr(node)
+                   << ". Only an element of one can be read, and "
+                   << "Lower/TiledArrays.cpp spells each read as the tile's.";
+}
+
 void CodeGen_LLVM::visit(const RefTo *node) {
     internal_error << "A reference to a stored element reached code "
                    << "generation unresolved: " << ir::Expr(node)
@@ -4003,8 +4010,6 @@ void CodeGen_LLVM::visit(const Build *node) {
         // component k of the whole is lane i's component k for every lane
         // (see the Vector_t visitor), and packed storage is packed last.
         const Vector_t *inner = outer->etype.as<Vector_t>();
-        internal_assert(values.empty() || values.size() == outer->lanes)
-            << "Partial build of a vector of vectors: " << Expr(node);
         if (values.empty()) {
             value = llvm::Constant::getNullValue(build_type);
             return;
@@ -4012,6 +4017,20 @@ void CodeGen_LLVM::visit(const Build *node) {
         const Type component_t = Vector_t::make(inner->etype, outer->lanes);
         llvm::Value *whole = llvm::PoisonValue::get(
             codegen_type(Vector_t::make(outer->etype, outer->lanes)));
+        // Or from its components, each already a vector over the lanes (see
+        // Build::make): the struct is put together as it is.
+        const bool by_component =
+            values.size() == inner->lanes &&
+            equals(node->values[0].type(), component_t);
+        if (by_component) {
+            for (uint32_t k = 0; k < inner->lanes; k++) {
+                whole = builder->CreateInsertValue(whole, values[k], k);
+            }
+            value = outer->packed ? pack_value(whole, outer) : whole;
+            return;
+        }
+        internal_assert(values.size() == outer->lanes)
+            << "Partial build of a vector of vectors: " << Expr(node);
         for (uint32_t k = 0; k < inner->lanes; k++) {
             llvm::Value *component =
                 llvm::PoisonValue::get(codegen_type(component_t));

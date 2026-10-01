@@ -833,6 +833,15 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
         return tree != Cmp::Equals ? tree
                                    : compare_exprs(v0->index, v1->index);
     }
+    case IRExprEnum::TiledArray: {
+        const TiledArray *v0 = e0.as<TiledArray>();
+        const TiledArray *v1 = e1.as<TiledArray>();
+        if (const Cmp width = compare_primitives(v0->width, v1->width);
+            width != Cmp::Equals) {
+            return width;
+        }
+        return compare_exprs(v0->tiles, v1->tiles);
+    }
     case IRExprEnum::Deref: {
         const Deref *v0 = e0.as<Deref>();
         const Deref *v1 = e1.as<Deref>();
@@ -1381,6 +1390,12 @@ uint64_t hash_of(const Expr &e) {
         const StoredElement *v = e.as<StoredElement>();
         h = hash_exprs(h, v->tree);
         h = hash_exprs(h, v->index);
+        break;
+    }
+    case IRExprEnum::TiledArray: {
+        const TiledArray *v = e.as<TiledArray>();
+        h = hash_value(h, v->width);
+        h = hash_exprs(h, v->tiles);
         break;
     }
     case IRExprEnum::RefTo: {

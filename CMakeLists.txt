@@ -203,6 +203,7 @@ target_sources(
     src/Lower/Lambdas.cpp
     src/Lower/Layouts.cpp
     src/Lower/LogicalOperations.cpp
+    src/Lower/TiledArrays.cpp
     src/Lower/LoopTransforms.cpp
     src/Lower/Lower.cpp
     src/Lower/Maps.cpp

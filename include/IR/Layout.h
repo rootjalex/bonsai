@@ -130,10 +130,18 @@ struct Group : LayoutNode<Group> {
     ir::Type index_t;
     Layout inner;
     Type type = Type::Direct;
+    // Defined when the group's rows are the elements of the tree's set: an
+    // indirect group whose fields are the element's, which a leaf's `data`
+    // ranges over. Stored in tiles where the rows are an anonymous constant
+    // inner group -- `indirect group prims[pCount] { group[4] { v0 : vec3f;
+    // ... }; }` -- each tile holding every field as a vector over its lanes
+    // (see ir::TiledArray). Scion's array-of-structs-of-arrays, spelled as
+    // Scion spells it: a group nested in a group, the inner one the tile.
+    ir::Type element;
 
     static Layout make(Expr size, std::string name, std::string declared_name,
                        ir::Type index_t, Layout inner,
-                       Type type = Type::Direct);
+                       Type type = Type::Direct, ir::Type element = ir::Type());
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
@@ -166,6 +174,16 @@ struct Lookup : LayoutNode<Lookup> {
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
 };
+
+// The tile of a group of elements (see Group::element): the anonymous,
+// constant-sized group that is the whole of `inner`, or null where `inner` is
+// anything else.
+const Group *tile_of(const Layout &inner);
+// How many elements a tile holds.
+uint32_t tile_width(const Group &tile);
+// Whether `inner` stores exactly the fields of `element`: one field per field
+// of the struct, by name and type, in the struct's order, and nothing else.
+bool holds_fields_of(const Layout &inner, const Struct_t &element);
 
 using LayoutMap = std::map<std::string, Layout>;
 

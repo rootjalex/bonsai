@@ -74,6 +74,7 @@ struct RefTo;
 struct Deref;
 struct AtomicAdd;
 struct StoredElement;
+struct TiledArray;
 
 // Stmts
 struct Stmt;
