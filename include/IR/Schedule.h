@@ -232,9 +232,18 @@ struct Vectorize {
 // volpath integrator per sampler type (`ForEachType(..., Sampler::Types())`
 // on ConcreteSampler), and its other integrators are not templated on it.
 // `variant` is that suffix, `!VolPath`, or empty for every loop.
+//
+// Written with a loop first -- `render.specialize(shadow, have_media)` --
+// it copies that one loop's body, wherever it sits, and dispatches on the
+// parameter where the loop was: pbrt's `if (haveMedia) IntersectShadowTr()
+// else IntersectShadow()`, two shadow kernels chosen on the host per scene
+// with everything else as it was. This form comes late, after the queues
+// and binds that made the loop, since it copies the loop as scheduled;
+// `loop` names it, or is empty for the whole-function form above.
 struct Specialize {
     std::string param;
     std::string variant;
+    std::string loop;
 };
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Reorder, Split,

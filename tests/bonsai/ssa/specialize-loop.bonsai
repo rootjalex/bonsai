@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// `run.specialize(j, flag)`: the loop form. One loop, named, is copied for
+// the two values of a bool, and nothing else of the function is touched:
+// `i`'s loop keeps its run-time branch on `flag`, `j`'s becomes `j!False`
+// and `j!True`, each with one arm, entered through a dispatch on the value
+// where the loop was (SSA/Specialize.h). It comes late -- here after the
+// binds, which the whole-function form may not follow -- since it copies
+// the loop as scheduled: the bind is on both copies. pbrt's
+// TraceShadowRays is this: `if (haveMedia) IntersectShadowTr() else
+// IntersectShadow()`, two shadow kernels chosen on the host per scene, the
+// rest of the wavefront as it was.
+import stdlib/numerics;
+
+func pick(flag : bool, x : Float) -> Float {
+    if flag {
+        return x * 2.0;
+    }
+    return x + 1.0;
+}
+
+func [[export]] run(flag : bool, values : array[Float, 8],
+                    out : mut array[Float, 8],
+                    twice : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(flag, values[i]);
+    }
+    parfor j in 0:8 {
+        twice[j] = pick(flag, out[j]);
+    }
+    return;
+}
+
+schedule {
+    run.bind(i, CPUThread);
+    run.bind(j, CPUThread);
+    run.specialize(j, flag);
+}

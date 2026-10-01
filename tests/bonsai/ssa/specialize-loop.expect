@@ -1,0 +1,56 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func pick(flag : bool, x : f32) -> f32 {
+  if (flag) {
+    let @0 = x * 2f in
+    return @0
+  } else {
+    let @1 = x + 1f in
+    return @1
+  }
+}
+
+func [[export]] run(flag : bool, values : f32[8], out : mut f32[8], twice : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    pick$r6 : mut f32
+    let x$i6 = values[i] in
+    if (flag) {
+      let @1 = x$i6 * 2f in
+      pick$r6 = @1
+    } else {
+      let @2 = x$i6 + 1f in
+      pick$r6 = @2
+    }
+    out[i] = (*pick$r6)
+    continue
+  }
+  if (flag) {
+    parfor j!True in [0:8:1] {
+      let @19 = out[j!True] in
+      let @21 = @19 * 2f in
+      twice[j!True] = @21
+      continue
+    }
+  } else {
+    parfor j!False in [0:8:1] {
+      let @13 = out[j!False] in
+      let @10 = @13 + 1f in
+      twice[j!False] = @10
+      continue
+    }
+  }
+  return
+}
+
+
+schedule host {
+    run.bind(i, CPUThread)
+       .bind(j, CPUThread)
+       .specialize(flag)
+
+}

@@ -109,6 +109,7 @@ add_bonsai_tests(
     specialize.bonsai
     specialize-bool.bonsai
     specialize-callee.bonsai
+    specialize-loop.bonsai
     specialize-nested.bonsai
     sret.bonsai
     ssa-intrinsics.bonsai

@@ -60,6 +60,7 @@ add_bonsai_tests(
     specialize.bonsai
     specialize-bool.bonsai
     specialize-first.bonsai
+    specialize-loop.bonsai
     specialize-nested.bonsai
     split.bonsai
     split-program-chunk.bonsai

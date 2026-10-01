@@ -3864,14 +3864,25 @@ struct Parser {
                 add(
                     ir::Vectorize{std::move(i)});
             } else if (rewrite == "specialize") {
-                // The parameter whose variants the function is copied for.
-                ir::Location param = parse_location();
+                // The parameter whose variants the function is copied for;
+                // with a loop before it, `render.specialize(shadow,
+                // have_media)`, that loop's body alone (ir::Specialize).
+                ir::Location first = parse_location();
+                std::string loop;
+                ir::Location param = first;
+                if (consume(Token::Type::COMMA)) {
+                    internal_assert(first.names.size() == 1)
+                        << "specialize(<loop>, <parameter>) names one loop of "
+                           "the function, not a path";
+                    loop = first.names.front();
+                    param = parse_location();
+                }
                 internal_assert(param.names.size() == 1)
                     << "specialize() names one parameter of the function, "
                        "not a path";
                 // `render[VolPath].specialize(sampler)`: that variant's
                 // loops alone are copied per variant of `sampler`.
-                add(ir::Specialize{param.names.front(), variant});
+                add(ir::Specialize{param.names.front(), variant, loop});
             } else if (rewrite == "skip") {
                 // Not a transform: which arms of the function's branches get
                 // a test of whether any lane is in them, when the function

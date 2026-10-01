@@ -1,0 +1,48 @@
+//! flags: -p ssa -b llvm -e
+
+// `run.specialize(j, flag)`, the loop form: the second loop alone is copied
+// for `false` and `true` and entered through a dispatch on the value, the
+// first loop keeps its run-time branch (SSA/Specialize.h). Run with each
+// value in turn: both arrays differ between the two, so a copy entered for
+// the wrong value, or the first loop disturbed, would show. Unbound, since
+// the JIT has no thread pool; ssa/specialize-loop shows the same under
+// binds.
+import stdlib/numerics;
+
+func pick(flag : bool, x : Float) -> Float {
+    if flag {
+        return x * 2.0;
+    }
+    return x + 1.0;
+}
+
+func [[export]] run(flag : bool, values : array[Float, 8],
+                    out : mut array[Float, 8],
+                    twice : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(flag, values[i]);
+    }
+    parfor j in 0:8 {
+        twice[j] = pick(flag, out[j]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    twice : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(true, values, out, twice);
+    // Doubled, then doubled again.
+    print(out);
+    print(twice);
+    run(false, values, out, twice);
+    // One more, then one more.
+    print(out);
+    print(twice);
+    return 0;
+}
+
+schedule {
+    run.specialize(j, flag);
+}

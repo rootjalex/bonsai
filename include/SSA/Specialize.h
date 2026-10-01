@@ -54,9 +54,14 @@ namespace ssa {
 // `variant` is the suffix of the copies whose loops are to be specialized
 // -- `!VolPath` for `render[VolPath].specialize(sampler)`, the loops named
 // `p!VolPath` an earlier specialize made -- or empty for every outermost
-// loop of the function (ir::Specialize).
+// loop of the function (ir::Specialize). `loop` names one loop to copy
+// instead, wherever it sits in the function and however it is scheduled
+// (`render.specialize(shadow, have_media)`: the shadow drain alone, after
+// the defer that made it and the bind that put it on the hardware), with
+// every copy an earlier specialize made of that loop; or is empty.
 void specialize_loops(FuncMap &fmap, const std::string &fname,
                       const std::string &param, const std::string &variant,
+                      const std::string &loop,
                       const std::map<std::string, ir::Program::AdtStorage>
                           &storages);
 
