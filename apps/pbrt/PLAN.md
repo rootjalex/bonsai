@@ -8170,6 +8170,77 @@ split and the slots all go. pbrt itself allocates everything through
 that, and after the 29th want none of it. Not started: the user's order
 is the kernel-time losses first.
 
+**The raygens' loss, looked into (2026-10-01, 08:20-08:45).** First, a
+correction to the ledger above: the kernel profile is event-timed, and
+with the launches now asynchronous a small launch's bracket includes
+the host's time to enqueue it whenever the GPU has caught up -- which it
+does in the late rounds, where every kernel is near empty -- so the
+profile overstates what the raygens take. nsys, which times the kernels
+themselves, gives for one book render: the closest-hit raygen 226 ms
+(the profile said 310), the shadow raygen 98 ms (138), by round 490 /
+1052 / 126 / 49 / 28 / 23 µs and 526 / 145 / 47 / 23 / 20 / 8 µs over
+the 128 bands. Nsight Compute, replaying single launches at base clocks,
+is not comparable to either and varied up to 45% between identical runs
+of the same launch (the closest-hit raygen of round 0: 1405, 2021,
+1735, 2059, 2093 µs; the camera kernel beside it 372-374 every time), so
+nothing below rests on one of its numbers. What the comparison with
+pbrt's `--stats` (event-timed too, so an upper bound on its kernels)
+does support: the closest-hit trace is near parity (226 against at
+most 217 ms), the shadow trace is about twice pbrt's (98 against at most
+51).
+
+*What was checked and ruled out.* The pipeline options match pbrt's or
+better (two payload words to its three, no exceptions, optimization
+level 3, single-level instancing to its any-graph); the shadow trace
+already carries `OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+DISABLE_CLOSESTHIT` and has no closest-hit program, as pbrt's; the
+any-hit programs are off over every mesh without an alpha texture
+(`trace_any_anyhit_matters` tests the alpha index; forcing them on with
+BONSAI_OPTIX_ANYHIT=always made the shadow raygen 2.2x and the
+closest-hit raygen 2x slower, so they were off); the per-thread stack is
+1,024 bytes in every variant; registers 120 and 116 against pbrt's 128,
+occupancy the same.
+
+*What was found.* Our `__raygen__shadow` is 4,294 lines of PTX with two
+traces: `shadow_contribution` holds both pbrt's `IntersectShadow` and
+its `IntersectShadowTr`, the ratio-tracking walk inlined, under `if
+!have_media`. pbrt has two raygens -- `__raygen__shadow`, 172 lines,
+and `__raygen__shadow_Tr`, 19,237 -- and picks one per scene by
+`haveMedia` (TraceShadowRays). An experiment binary with the medium
+path cut out of `shadow_contribution` (a scratch copy of the program,
+not a change to it; the image bit for bit the same on book) has a
+115-line shadow raygen that nsys times at 26 ms for the render against
+98 -- half of pbrt's -- and the whole render at 0.684 and 0.694 s
+against the original's 0.808 and 0.737 (least of three, two trials
+each, alternating): some 6-8% of book. The remaining difference in the
+shadow raygen as it stands is the code the trace sits in, not the
+trace. (Every load in our OptiX programs is a generic `ld.b32`, from
+pointers read out of `params`; pbrt's are mostly `ld.global`. Whether
+that matters is untested; the camera kernel's `.nc` loads show the CUDA
+side already gets the address space.)
+
+*To decide, with the user.* The faithful fix is pbrt's: two shadow
+kernels chosen per scene by whether it has media. In the schedule that
+is `render.specialize(have_media)` -- a specialization on a bool
+parameter, which `specialize` does not take today (it keys on an ADT's
+tag, or an optional's None/Some); extending it to a bool, two variants
+with the parameter folded to a constant in each, is a small
+generalization of an existing directive, and would also clear the
+medium branches out of the closest-hit raygen and the material kernels
+for a scene without media. The alternative that needs no compiler
+change is two deferred callees in the program (`shadow_contribution`
+and `shadow_contribution_tr`, chosen at the push by `have_media`), two
+queues and two raygens, one of them empty in a scene without media --
+pbrt's behaviour from a different shape. Second decision: pbrt launches
+a material kernel only for the material types the scene has, and the
+medium kernels only `if (haveMedia)`; we launch all seven variants and
+both medium drains every round, 40 ms of empty launches on book (3%).
+A host-side test per drain on a scene predicate -- `have_media`, "any
+material of this variant" -- is pbrt's, and wants a way to say it. Also
+found on the way: a `if true { ... return ... }` in a function trips an
+internal assert in the SSA builder (`!block->terminator.defined()`,
+Convert.cpp), a constant-condition bug to fix with a test.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
