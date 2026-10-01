@@ -103,12 +103,15 @@ func split_run(out : mut i32[64]) -> void {
     let @11 = tally_queue[(*tally!round) & 1u].count in
     let @13 = @9 ^ 1u in
     tally_queue[@13].count = 0u
-    parfor tally_blk in [0u:@11:16u] {
+    let @32 = cast<u32>(64) in
+    parfor tally_blk in [0u:@32:16u] {
       let @14 = (&tally_queue[@13]) in
-      let @29 = tally_queue[(*tally!round) & 1u].count in
+      let @35 = (&tally_queue[@9].count) in
       parfor tally_thr in [0u:16u:1u] {
+        let @36 = (&tally_queue[@9].count) in
         let @30 = tally_blk + tally_thr in
-        let @31 = @30 < @29 in
+        let @37 = (*@36) in
+        let @31 = @30 < @37 in
         if (@31) {
           let tally = @30 in
           let @18 = tally_queue[@9].k in

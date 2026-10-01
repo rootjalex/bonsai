@@ -390,13 +390,21 @@ void split_impl(FuncMap &funcs, string func, string idx,
         if (factor_arg) {
             to_inner.push_back(split_factor);
         }
-        block->terminator.data = Terminator::ParFor{
+        Terminator::ParFor outer_loop{
             outer,
             parfor.start,
             parfor.end,
             split_factor,
             Terminator::Jump{inner_loop->name, std::move(to_inner)},
             parfor.cont};
+        // A drain's launch values (Terminator::ParFor::capacity: the queue's
+        // size, its header and the slot drained) go to the outer loop, which
+        // is the loop a GPU bind launches; the bind then sets the guard on
+        // the step above, where the global index is formed (Bind.cpp).
+        outer_loop.capacity = parfor.capacity;
+        outer_loop.queue_base = parfor.queue_base;
+        outer_loop.queue_slot = parfor.queue_slot;
+        block->terminator.data = std::move(outer_loop);
     }
     if (blocks.size() == f->blocks.size()) {
         internal_error << "Did not find loop: " << idx

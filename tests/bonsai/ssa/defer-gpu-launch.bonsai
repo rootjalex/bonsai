@@ -17,12 +17,16 @@
 // next queue's count are on the host, once a round (they become copies to
 // and from the device, since the queue's header is device-resident).
 //
-// `split_run`'s drain is split into `tally_blk` and `tally_thr` and keeps
-// the count launch -- `parfor tally_blk in [0u:<count>:16u]`, the queue's
-// count as its bound: the launch-over-capacity is built only for a drain
-// bound whole (the raygens), not yet for a split one (Bind.cpp; the plan
-// records extending it). `climb` is `walk` under another name: a function
-// is deferred into one queue only.
+// `split_run`'s drain is split into `tally_blk` and `tally_thr` (the
+// material kernels' shape, blocks of threads) and launches over the
+// capacity too: `parfor tally_blk in [0u:<cap>:16u]`, the capacity as the
+// block loop's bound, and the split's own guard on the step -- where
+// `tally_blk + tally_thr` is formed -- testing that index against the count
+// loaded through `(&tally_queue[..].count)`, the address threaded into the
+// step as the end was (Rewrite.cpp carries the launch values to the outer
+// loop; Bind.cpp retargets the guard). The count the host read for the
+// bound is gone from the round. `climb` is `walk` under another name: a
+// function is deferred into one queue only.
 
 func walk(k : i32, acc : i32) -> i32 {
     if (k <= 0) {

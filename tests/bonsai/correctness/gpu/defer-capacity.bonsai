@@ -4,8 +4,10 @@
 // entries than that: only every eighth iteration of the producer pushes,
 // so the queue of 32 holds 4, and the 28 threads past the count have to do
 // nothing (the guard the bind put ahead of the body, Bind.cpp). Then the
-// same with the drain split into blocks of 16 and the guard the split's
-// (Rewrite.cpp). The answers are the CPU's: walk(i, 0) is the sum 1..i for
+// same with the drain split into blocks of 16 -- two blocks over the
+// capacity of 32, the split's guard on the step retargeted at the count
+// read on the device (Bind.cpp), so the 28 steps past it end at the tail.
+// The answers are the CPU's: walk(i, 0) is the sum 1..i for
 // the pushed i -- 0, 36, 136, 300 at 0, 8, 16, 24 -- and -1 everywhere the
 // producer wrote itself.
 
