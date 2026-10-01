@@ -1236,6 +1236,23 @@ void CodeGen_LLVM::visit(const RefTo *node) {
 }
 
 void CodeGen_LLVM::visit(const Vector_t *node) {
+    // A vector of vectors -- `vector[vec3f, 8]`, the boxes of a node's eight
+    // children -- is one vector per component of the inner vector, held as
+    // a struct of them: the shape a varying `vec3f` has in a gang
+    // (ir::widen), and the shape Embree stores a node's bounds in (lower_x
+    // of all eight children, then upper_x, ...). LLVM has no vector whose
+    // elements are vectors, and this is the one that reads a component of
+    // every lane at once. Its packed storage is one packed array per
+    // component, in a packed struct.
+    if (const Vector_t *inner = node->etype.as<Vector_t>()) {
+        internal_assert(!inner->etype.is<Vector_t>())
+            << "A vector of vectors of vectors: " << Type(node);
+        llvm::Type *component = codegen_type(
+            Vector_t::make(inner->etype, node->lanes, node->packed));
+        std::vector<llvm::Type *> fields(inner->lanes, component);
+        type = llvm::StructType::get(*context, fields, node->packed);
+        return;
+    }
     llvm::Type *etype = codegen_type(node->etype);
     internal_assert(!etype->isVoidTy())
         << "Cannot make a vector of type void: " << Type(node);
@@ -1282,6 +1299,45 @@ llvm::Value *CodeGen_LLVM::pack_vector(llvm::Value *vector,
         packed = builder->CreateInsertValue(packed, element, i);
     }
     return packed;
+}
+
+// The same for a vector of vectors, component by component: each component
+// is a packed array in storage and a vector in the value (see the Vector_t
+// visitor), and the whole is a struct of them either way.
+llvm::Value *CodeGen_LLVM::unpack_value(llvm::Value *packed,
+                                        const Vector_t *type) {
+    const Vector_t *inner = type->etype.as<Vector_t>();
+    if (inner == nullptr) {
+        return unpack_vector(packed, type);
+    }
+    const Type component_storage =
+        Vector_t::make(inner->etype, type->lanes, /*packed=*/true);
+    llvm::Value *whole = llvm::PoisonValue::get(
+        codegen_type(Vector_t::make(type->etype, type->lanes)));
+    for (uint32_t k = 0; k < inner->lanes; k++) {
+        llvm::Value *component = builder->CreateExtractValue(packed, k);
+        component =
+            unpack_vector(component, component_storage.as<Vector_t>());
+        whole = builder->CreateInsertValue(whole, component, k);
+    }
+    return whole;
+}
+
+llvm::Value *CodeGen_LLVM::pack_value(llvm::Value *vector,
+                                      const Vector_t *type) {
+    const Vector_t *inner = type->etype.as<Vector_t>();
+    if (inner == nullptr) {
+        return pack_vector(vector, type);
+    }
+    const Type component_storage =
+        Vector_t::make(inner->etype, type->lanes, /*packed=*/true);
+    llvm::Value *whole = llvm::PoisonValue::get(codegen_type(Type(type)));
+    for (uint32_t k = 0; k < inner->lanes; k++) {
+        llvm::Value *component = builder->CreateExtractValue(vector, k);
+        component = pack_vector(component, component_storage.as<Vector_t>());
+        whole = builder->CreateInsertValue(whole, component, k);
+    }
+    return whole;
 }
 
 void CodeGen_LLVM::visit(const Struct_t *node) {
@@ -2055,7 +2111,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
     // kinds of the same vector is then the identity in the middle.
     if (const auto *packed = src.as<Vector_t>();
         packed != nullptr && packed->packed) {
-        inner = unpack_vector(inner, packed);
+        inner = unpack_value(inner, packed);
         src = Vector_t::make(packed->etype, packed->lanes);
     }
     const Vector_t *pack_to = nullptr;
@@ -2068,7 +2124,7 @@ void CodeGen_LLVM::visit(const Cast *node) {
     llvm::Type *llvm_dst = codegen_type(dst);
 
     if (equals(src, dst)) {
-        value = pack_to ? pack_vector(inner, pack_to) : inner;
+        value = pack_to ? pack_value(inner, pack_to) : inner;
         return;
     }
     internal_assert(pack_to == nullptr)
@@ -2829,7 +2885,20 @@ void CodeGen_LLVM::visit(const Extract *node) {
 
     llvm::Value *idx = codegen_expr(node->idx);
     if (const Vector_t *v = vec_expr.type().as<Vector_t>();
-        v != nullptr && v->packed) {
+        v != nullptr && v->etype.is<Vector_t>()) {
+        // One lane of a vector of vectors -- child i's box out of a node's
+        // eight -- is that lane of each component vector, made into the
+        // inner vector (see the Vector_t visitor).
+        const Vector_t *inner = v->etype.as<Vector_t>();
+        llvm::Value *whole = v->packed ? unpack_value(vec, v) : vec;
+        llvm::Value *lane = llvm::PoisonValue::get(codegen_type(v->etype));
+        for (uint32_t k = 0; k < inner->lanes; k++) {
+            llvm::Value *component = builder->CreateExtractValue(whole, k);
+            lane = builder->CreateInsertElement(
+                lane, extract_lane(component, idx), uint64_t(k));
+        }
+        value = lane;
+    } else if (v != nullptr && v->packed) {
         // A packed vector's storage is an LLVM array (see the Vector_t
         // visitor): its element is an extractvalue at a constant index, and
         // an extractelement of the unpacked vector at any other.
@@ -3927,6 +3996,34 @@ void CodeGen_LLVM::visit(const Build *node) {
         for (size_t i = 0; i < values.size(); i++) {
             value = builder->CreateInsertElement(value, values[i], i);
         }
+        return;
+    } else if (const Vector_t *outer = node->type.as<Vector_t>();
+               outer != nullptr && outer->etype.is<Vector_t>()) {
+        // A vector of vectors from its lanes, each an inner vector:
+        // component k of the whole is lane i's component k for every lane
+        // (see the Vector_t visitor), and packed storage is packed last.
+        const Vector_t *inner = outer->etype.as<Vector_t>();
+        internal_assert(values.empty() || values.size() == outer->lanes)
+            << "Partial build of a vector of vectors: " << Expr(node);
+        if (values.empty()) {
+            value = llvm::Constant::getNullValue(build_type);
+            return;
+        }
+        const Type component_t = Vector_t::make(inner->etype, outer->lanes);
+        llvm::Value *whole = llvm::PoisonValue::get(
+            codegen_type(Vector_t::make(outer->etype, outer->lanes)));
+        for (uint32_t k = 0; k < inner->lanes; k++) {
+            llvm::Value *component =
+                llvm::PoisonValue::get(codegen_type(component_t));
+            for (uint32_t i = 0; i < outer->lanes; i++) {
+                component = builder->CreateInsertElement(
+                    component,
+                    builder->CreateExtractElement(values[i], uint64_t(k)),
+                    uint64_t(i));
+            }
+            whole = builder->CreateInsertValue(whole, component, k);
+        }
+        value = outer->packed ? pack_value(whole, outer) : whole;
         return;
     } else if (build_type->isArrayTy() && node->type.is<Vector_t>()) {
         // A packed vector is its elements side by side in memory, an LLVM

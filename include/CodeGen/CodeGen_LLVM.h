@@ -510,6 +510,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // the program computes with; see ir::Vector_t::packed.
     llvm::Value *unpack_vector(llvm::Value *packed, const ir::Vector_t *type);
     llvm::Value *pack_vector(llvm::Value *vector, const ir::Vector_t *type);
+    // The same for any vector, including a vector of vectors, whose storage
+    // and value are each a struct of component vectors (see visit(const
+    // ir::Vector_t *)) converted component by component.
+    llvm::Value *unpack_value(llvm::Value *packed, const ir::Vector_t *type);
+    llvm::Value *pack_value(llvm::Value *vector, const ir::Vector_t *type);
 
     //===------------------------------------------------------------------===//
     // Shuffles

@@ -219,6 +219,20 @@ class RenameAnalysis : public ir::Visitor {
         pop_frame();
     }
 
+    // A parfor's body is a scope as a forall's is: what is bound in it is
+    // not in scope after it. Without this a temporary bound in the body for
+    // a value also used after the loop was taken for the same binding, and
+    // the use after the loop read a name defined only inside it.
+    void visit(const ir::ParFor *node) override {
+        push_frame();
+        const ir::ParFor::Slice &slice = node->slice;
+        slice.begin.accept(this);
+        slice.end.accept(this);
+        slice.stride.accept(this);
+        node->body.accept(this);
+        pop_frame();
+    }
+
     void visit(const ir::DoWhile *node) override {
         push_frame();
         node->body.accept(this);
@@ -890,6 +904,20 @@ class LVN : public ir::Mutator {
         return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
 
+    // As ForAll: the body is a scope of its own (see RenameAnalysis).
+    ir::Stmt visit(const ir::ParFor *node) override {
+        ir::ParFor::Slice slice = ir::ParFor::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        push_frame();
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::ParFor::make(node->index, std::move(slice), std::move(body),
+                                node->binding);
+    }
+
     ir::Stmt visit(const ir::DoWhile *node) override {
         push_frame();
         ir::Stmt body = mutate(node->body);
@@ -1207,6 +1235,21 @@ class CopyPropagation : public ir::Mutator {
         pop_frame();
         return ir::ForAll::make(node->index, std::move(slice), std::move(body));
     }
+
+    // As ForAll: the body is a scope of its own (see RenameAnalysis).
+    ir::Stmt visit(const ir::ParFor *node) override {
+        ir::ParFor::Slice slice = ir::ParFor::Slice{
+            .begin = mutate(node->slice.begin),
+            .end = mutate(node->slice.end),
+            .stride = mutate(node->slice.stride),
+        };
+        push_frame();
+        ir::Stmt body = mutate(node->body);
+        pop_frame();
+        return ir::ParFor::make(node->index, std::move(slice), std::move(body),
+                                node->binding);
+    }
+
     ir::Stmt visit(const ir::DoWhile *node) override {
         push_frame();
         ir::Stmt body = mutate(node->body);

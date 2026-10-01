@@ -14,8 +14,8 @@ type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
-type _tree_layout1 = [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lo : [[packed]] f32x3x4; hi : [[packed]] f32x3x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lo : [[packed]] f32x3x4; hi : [[packed]] f32x3x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{  }
 type _tree_layout3 = [[packed]] struct _tree_layout3{  }
 type vec2f = f32x2
@@ -23,9 +23,9 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lo : [[packed]] f32x3x4; hi : [[packed]] f32x3x4 }[nCount] }
 
-func _recloop_func0(tris_ref : u32, tris : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
+func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut (__tuple_1*)) -> void {
   _idx0 : mut u32
   tris_ref!top : mut u32
   !live : mut bool
@@ -35,509 +35,239 @@ func _recloop_func0(tris_ref : u32, tris : _tree_layout0, r : Ray, _best0 : mut 
   !live = true
   !count = 0u
   while ((*!live)) {
-    let _t655 = (*tris_ref!top) & 15u in
-    let @1 = _t655 == 0u in
+    let _t59 = (*tris_ref!top) & 15u in
+    let @1 = _t59 == 0u in
     if (@1) {
       do {
-        let @2 = tris.group0_row in
-        let @3 = (*tris_ref!top) >> 4u in
-        let _t12 = @2[@3] in
-        let @5 = _t12.children in
-        let _t14 = cast<u32x4>(@5) in
-        let @7 = _t12.lower_x in
-        let _t34 = cast<f32x4>(@7) in
-        let @9 = _t12.lower_y in
-        let _t40 = cast<f32x4>(@9) in
-        let @11 = _t12.lower_z in
-        let _t46 = cast<f32x4>(@11) in
-        let @13 = _t34[0] in
-        let @14 = _t40[0] in
-        let @15 = _t46[0] in
-        let _t48 = build<f32x3>(@13, @14, @15) in
-        let @17 = _t34[1] in
-        let @18 = _t40[1] in
-        let @19 = _t46[1] in
-        let _t67 = build<f32x3>(@17, @18, @19) in
-        let @21 = _t34[2] in
-        let @22 = _t40[2] in
-        let @23 = _t46[2] in
-        let _t86 = build<f32x3>(@21, @22, @23) in
-        let @25 = _t34[3] in
-        let @26 = _t40[3] in
-        let @27 = _t46[3] in
-        let _t105 = build<f32x3>(@25, @26, @27) in
-        let @29 = _t12.upper_x in
-        let _t110 = cast<f32x4>(@29) in
-        let @31 = _t12.upper_y in
-        let _t116 = cast<f32x4>(@31) in
-        let @33 = _t12.upper_z in
-        let _t122 = cast<f32x4>(@33) in
-        let @35 = _t110[0] in
-        let @36 = _t116[0] in
-        let @37 = _t122[0] in
-        let _t124 = build<f32x3>(@35, @36, @37) in
-        let @39 = _t110[1] in
-        let @40 = _t116[1] in
-        let @41 = _t122[1] in
-        let _t143 = build<f32x3>(@39, @40, @41) in
-        let @43 = _t110[2] in
-        let @44 = _t116[2] in
-        let @45 = _t122[2] in
-        let _t162 = build<f32x3>(@43, @44, @45) in
-        let @47 = _t110[3] in
-        let @48 = _t116[3] in
-        let @49 = _t122[3] in
-        let _t181 = build<f32x3>(@47, @48, @49) in
-        let @51 = _t14[0] in
-        let @52 = _t14[1] in
-        let @53 = _t14[2] in
-        let @54 = _t14[3] in
-        let @55 = child_box(0u, _t48, _t67, _t86, _t105, _t124, _t143, _t162, _t181) in
-        let @56 = entry(r, @55) in
-        let @57 = child_box(1u, _t48, _t67, _t86, _t105, _t124, _t143, _t162, _t181) in
-        let @58 = entry(r, @57) in
-        let @59 = child_box(2u, _t48, _t67, _t86, _t105, _t124, _t143, _t162, _t181) in
-        let @60 = entry(r, @59) in
-        let @61 = child_box(3u, _t48, _t67, _t86, _t105, _t124, _t143, _t162, _t181) in
-        let @62 = entry(r, @61) in
-        let @63 = tris.group0_row in
-        let @64 = (*tris_ref!top) >> 4u in
-        let @65 = @63[@64] in
-        let @66 = @65.lower_x in
-        let @67 = cast<f32x4>(@66) in
-        let @68 = @67[0] in
-        let @69 = tris.group0_row in
-        let @70 = (*tris_ref!top) >> 4u in
-        let @71 = @69[@70] in
-        let @72 = @71.lower_y in
-        let @73 = cast<f32x4>(@72) in
-        let @74 = @73[0] in
-        let @75 = tris.group0_row in
-        let @76 = (*tris_ref!top) >> 4u in
-        let @77 = @75[@76] in
-        let @78 = @77.lower_z in
-        let @79 = cast<f32x4>(@78) in
-        let @80 = @79[0] in
-        let @81 = build<f32x3>(@68, @74, @80) in
-        let @82 = tris.group0_row in
-        let @83 = (*tris_ref!top) >> 4u in
-        let @84 = @82[@83] in
-        let @85 = @84.upper_x in
-        let @86 = cast<f32x4>(@85) in
-        let @87 = @86[0] in
-        let @88 = tris.group0_row in
-        let @89 = (*tris_ref!top) >> 4u in
-        let @90 = @88[@89] in
-        let @91 = @90.upper_y in
-        let @92 = cast<f32x4>(@91) in
-        let @93 = @92[0] in
-        let @94 = tris.group0_row in
-        let @95 = (*tris_ref!top) >> 4u in
-        let @96 = @94[@95] in
-        let @97 = @96.upper_z in
-        let @98 = cast<f32x4>(@97) in
-        let @99 = @98[0] in
-        let @100 = build<f32x3>(@87, @93, @99) in
-        let @101 = build<AABB>(@81, @100) in
-        let @102 = intersects_Ray_AABB(r, @101) in
-        let !and_0 = false in
-        if (@102) {
-          let @103 = tris.group0_row in
-          let @104 = (*tris_ref!top) >> 4u in
-          let @105 = @103[@104] in
-          let @106 = @105.lower_x in
-          let @107 = cast<f32x4>(@106) in
-          let @108 = @107[0] in
-          let @109 = tris.group0_row in
-          let @110 = (*tris_ref!top) >> 4u in
-          let @111 = @109[@110] in
-          let @112 = @111.lower_y in
-          let @113 = cast<f32x4>(@112) in
-          let @114 = @113[0] in
-          let @115 = tris.group0_row in
-          let @116 = (*tris_ref!top) >> 4u in
-          let @117 = @115[@116] in
-          let @118 = @117.lower_z in
-          let @119 = cast<f32x4>(@118) in
-          let @120 = @119[0] in
-          let @121 = build<f32x3>(@108, @114, @120) in
-          let @122 = tris.group0_row in
-          let @123 = (*tris_ref!top) >> 4u in
-          let @124 = @122[@123] in
-          let @125 = @124.upper_x in
-          let @126 = cast<f32x4>(@125) in
-          let @127 = @126[0] in
-          let @128 = tris.group0_row in
-          let @129 = (*tris_ref!top) >> 4u in
-          let @130 = @128[@129] in
-          let @131 = @130.upper_y in
-          let @132 = cast<f32x4>(@131) in
-          let @133 = @132[0] in
-          let @134 = tris.group0_row in
-          let @135 = (*tris_ref!top) >> 4u in
-          let @136 = @134[@135] in
-          let @137 = @136.upper_z in
-          let @138 = cast<f32x4>(@137) in
-          let @139 = @138[0] in
-          let @140 = build<f32x3>(@127, @133, @139) in
-          let @141 = build<AABB>(@121, @140) in
-          let @142 = distmin_Ray_AABB(r, @141) in
-          let @143 = (*_best0) in
-          let @144 = @143._field0 in
-          let !and_0 = @142 < @144 in
+        _mask0 : mut bool[4]
+        _keys0 : mut f32[4]
+        parfor children in [0u:4u:1u] {
+          intersectsp_ray_aabb$r26 : mut _option1
+          tmin$i26 : mut f32
+          tmax$i26 : mut f32
+          intersects_Ray_AABB$r0 : mut bool
+          let @2 = tris.group0_row in
+          let @3 = (*tris_ref!top) >> 4u in
+          let _t155 = @2[@3] in
+          let @5 = _t155.lo in
+          let @6 = cast<f32x3x4>(@5) in
+          let _t103$i26 = @6[children] in
+          let @8 = _t155.hi in
+          let @9 = cast<f32x3x4>(@8) in
+          let _t102$i26 = @9[children] in
+          let @12 = f32x3(1f) in
+          let @13 = r.d in
+          let invDir$i26 = @12 / @13 in
+          let @15 = f32x3(0f) in
+          let dirIsNeg$i26 = invDir$i26 < @15 in
+          let low_parts$i26 = select(dirIsNeg$i26, _t102$i26, _t103$i26) in
+          let high_parts$i26 = select(dirIsNeg$i26, _t103$i26, _t102$i26) in
+          let _t106$i26 = r.o in
+          let @22 = low_parts$i26 - _t106$i26 in
+          let @23 = @22 * invDir$i26 in
+          let @24 = high_parts$i26 - _t106$i26 in
+          let @25 = @24 * invDir$i26 in
+          let @26 = (f32)eps in
+          let @27 = 0.5f * @26 in
+          let _t97$i14$i26 = 3f * @27 in
+          let @29 = 1f - _t97$i14$i26 in
+          let @30 = _t97$i14$i26 / @29 in
+          let @32 = 2f * @30 in
+          let @33 = 1f + @32 in
+          let @207 = @25 * f32x3(@33) in
+          let @35 = @207[1u] in
+          let @37 = @23[0u] in
+          let @38 = @35 < @37 in
+          let @40 = @207[0u] in
+          let @42 = @23[1u] in
+          let @43 = @40 < @42 in
+          let @44 = @38 || @43 in
+          if (@44) {
+            let @45 = build<_option1>() in
+            intersectsp_ray_aabb$r26 = @45
+          } else {
+            let @47 = @23[0u] in
+            let @49 = @23[1u] in
+            let @50 = max(@47, @49) in
+            let @52 = @207[0u] in
+            let @54 = @207[1u] in
+            let @55 = min(@52, @54) in
+            let @57 = @207[2u] in
+            let @59 = @57 < @50 in
+            let @62 = @23[2u] in
+            let @63 = @55 < @62 in
+            let @64 = @59 || @63 in
+            if (@64) {
+              let @65 = build<_option1>() in
+              intersectsp_ray_aabb$r26 = @65
+              tmin$i26 = @50
+              tmax$i26 = @55
+            } else {
+              let @68 = @23[2u] in
+              let @69 = max(@50, @68) in
+              let @72 = @207[2u] in
+              let @73 = min(@55, @72) in
+              let @76 = build<FInterval>(@69, @73) in
+              let @77 = build<_option1>(@76, true) in
+              intersectsp_ray_aabb$r26 = @77
+              tmin$i26 = @69
+              tmax$i26 = @73
+            }
+          }
+          let @79 = (*intersectsp_ray_aabb$r26).set in
+          if (@79) {
+            let extract$i0 = (*intersectsp_ray_aabb$r26).value in
+            let @82 = extract$i0.low in
+            let @83 = r.tmax in
+            let @84 = @82 < @83 in
+            let @85 = extract$i0.high in
+            let @86 = 0f < @85 in
+            let @87 = @84 & @86 in
+            intersects_Ray_AABB$r0 = @87
+          } else {
+            intersects_Ray_AABB$r0 = false
+          }
+          let !and_0 = false in
+          if ((*intersects_Ray_AABB$r0)) {
+            let @89 = tris.group0_row in
+            let @90 = (*tris_ref!top) >> 4u in
+            let @91 = @89[@90] in
+            let @92 = @91.lo in
+            let @93 = cast<f32x3x4>(@92) in
+            let @94 = @93[children] in
+            let @95 = tris.group0_row in
+            let @96 = (*tris_ref!top) >> 4u in
+            let @97 = @95[@96] in
+            let @98 = @97.hi in
+            let @99 = cast<f32x3x4>(@98) in
+            let @100 = @99[children] in
+            let @101 = build<AABB>(@94, @100) in
+            let @102 = distmin_Ray_AABB(r, @101) in
+            let @103 = (*_best0) in
+            let @104 = @103._field0 in
+            let !and_0 = @102 < @104 in
+          }
+          _mask0[children] = !and_0
+          let _t12 = _t155 in
+          let _t15 = cast<u8>(children) in
+          let @108 = _t12.lo in
+          let @109 = cast<f32x3x4>(@108) in
+          let @110 = @109[_t15] in
+          let @111 = _t12.hi in
+          let @112 = cast<f32x3x4>(@111) in
+          let @113 = @112[_t15] in
+          let @114 = build<AABB>(@110, @113) in
+          let @115 = entry(r, @114) in
+          _keys0[children] = @115
+          continue
         }
-        let @146 = tris.group0_row in
-        let @147 = (*tris_ref!top) >> 4u in
-        let @148 = @146[@147] in
-        let @149 = @148.lower_x in
-        let @150 = cast<f32x4>(@149) in
-        let @151 = @150[1] in
-        let @152 = tris.group0_row in
-        let @153 = (*tris_ref!top) >> 4u in
-        let @154 = @152[@153] in
-        let @155 = @154.lower_y in
-        let @156 = cast<f32x4>(@155) in
-        let @157 = @156[1] in
-        let @158 = tris.group0_row in
-        let @159 = (*tris_ref!top) >> 4u in
-        let @160 = @158[@159] in
-        let @161 = @160.lower_z in
-        let @162 = cast<f32x4>(@161) in
-        let @163 = @162[1] in
-        let @164 = build<f32x3>(@151, @157, @163) in
-        let @165 = tris.group0_row in
-        let @166 = (*tris_ref!top) >> 4u in
-        let @167 = @165[@166] in
-        let @168 = @167.upper_x in
-        let @169 = cast<f32x4>(@168) in
-        let @170 = @169[1] in
-        let @171 = tris.group0_row in
-        let @172 = (*tris_ref!top) >> 4u in
-        let @173 = @171[@172] in
-        let @174 = @173.upper_y in
-        let @175 = cast<f32x4>(@174) in
-        let @176 = @175[1] in
-        let @177 = tris.group0_row in
-        let @178 = (*tris_ref!top) >> 4u in
-        let @179 = @177[@178] in
-        let @180 = @179.upper_z in
-        let @181 = cast<f32x4>(@180) in
-        let @182 = @181[1] in
-        let @183 = build<f32x3>(@170, @176, @182) in
-        let @184 = build<AABB>(@164, @183) in
-        let @185 = intersects_Ray_AABB(r, @184) in
-        let !and_1 = false in
-        if (@185) {
-          let @186 = tris.group0_row in
-          let @187 = (*tris_ref!top) >> 4u in
-          let @188 = @186[@187] in
-          let @189 = @188.lower_x in
-          let @190 = cast<f32x4>(@189) in
-          let @191 = @190[1] in
-          let @192 = tris.group0_row in
-          let @193 = (*tris_ref!top) >> 4u in
-          let @194 = @192[@193] in
-          let @195 = @194.lower_y in
-          let @196 = cast<f32x4>(@195) in
-          let @197 = @196[1] in
-          let @198 = tris.group0_row in
-          let @199 = (*tris_ref!top) >> 4u in
-          let @200 = @198[@199] in
-          let @201 = @200.lower_z in
-          let @202 = cast<f32x4>(@201) in
-          let @203 = @202[1] in
-          let @204 = build<f32x3>(@191, @197, @203) in
-          let @205 = tris.group0_row in
-          let @206 = (*tris_ref!top) >> 4u in
-          let @207 = @205[@206] in
-          let @208 = @207.upper_x in
-          let @209 = cast<f32x4>(@208) in
-          let @210 = @209[1] in
-          let @211 = tris.group0_row in
-          let @212 = (*tris_ref!top) >> 4u in
-          let @213 = @211[@212] in
-          let @214 = @213.upper_y in
-          let @215 = cast<f32x4>(@214) in
-          let @216 = @215[1] in
-          let @217 = tris.group0_row in
-          let @218 = (*tris_ref!top) >> 4u in
-          let @219 = @217[@218] in
-          let @220 = @219.upper_z in
-          let @221 = cast<f32x4>(@220) in
-          let @222 = @221[1] in
-          let @223 = build<f32x3>(@210, @216, @222) in
-          let @224 = build<AABB>(@204, @223) in
-          let @225 = distmin_Ray_AABB(r, @224) in
-          let @226 = (*_best0) in
-          let @227 = @226._field0 in
-          let !and_1 = @225 < @227 in
+        let @117 = tris.group0_row in
+        let @118 = (*tris_ref!top) >> 4u in
+        let @119 = @117[@118] in
+        let @120 = @119.children in
+        let _t26 = cast<u32x4>(@120) in
+        let @122 = _t26[0u] in
+        let @123 = _t26[1u] in
+        let @124 = _t26[2u] in
+        let @125 = _t26[3u] in
+        let @126 = _keys0[0u] in
+        let @127 = _keys0[1u] in
+        let @128 = _keys0[2u] in
+        let @129 = _keys0[3u] in
+        let @130 = _mask0[0u] in
+        let @131 = _mask0[1u] in
+        let @132 = _mask0[2u] in
+        let @133 = _mask0[3u] in
+        let @152 = @126 < @127 in
+        let @153 = select(@152, @126, @127) in
+        let @154 = select(@152, @127, @126) in
+        let @155 = select(@152, @122, @123) in
+        let @156 = select(@152, @123, @122) in
+        let @157 = select(@152, @130, @131) in
+        let @158 = select(@152, @131, @130) in
+        let @159 = @129 < @128 in
+        let @160 = select(@159, @128, @129) in
+        let @161 = select(@159, @129, @128) in
+        let @162 = select(@159, @124, @125) in
+        let @163 = select(@159, @125, @124) in
+        let @164 = select(@159, @132, @133) in
+        let @165 = select(@159, @133, @132) in
+        let @166 = @153 < @160 in
+        let @167 = select(@166, @153, @160) in
+        let @168 = select(@166, @160, @153) in
+        let @169 = select(@166, @155, @162) in
+        let @170 = select(@166, @162, @155) in
+        let @171 = select(@166, @157, @164) in
+        let @172 = select(@166, @164, @157) in
+        let @173 = @154 < @161 in
+        let @174 = select(@173, @154, @161) in
+        let @175 = select(@173, @161, @154) in
+        let @176 = select(@173, @156, @163) in
+        let @177 = select(@173, @163, @156) in
+        let @178 = select(@173, @158, @165) in
+        let @179 = select(@173, @165, @158) in
+        let @180 = @167 < @174 in
+        let @183 = select(@180, @169, @176) in
+        let @184 = select(@180, @176, @169) in
+        let @185 = select(@180, @171, @178) in
+        let @186 = select(@180, @178, @171) in
+        let @187 = @168 < @175 in
+        let @190 = select(@187, @170, @177) in
+        let @191 = select(@187, @177, @170) in
+        let @192 = select(@187, @172, @179) in
+        let @193 = select(@187, @179, @172) in
+        if (@193) {
+          !stack[(*!count)] = @191
+          let @200 = (*!count) + 1u in
+          !count = @200
         }
-        let @229 = tris.group0_row in
-        let @230 = (*tris_ref!top) >> 4u in
-        let @231 = @229[@230] in
-        let @232 = @231.lower_x in
-        let @233 = cast<f32x4>(@232) in
-        let @234 = @233[2] in
-        let @235 = tris.group0_row in
-        let @236 = (*tris_ref!top) >> 4u in
-        let @237 = @235[@236] in
-        let @238 = @237.lower_y in
-        let @239 = cast<f32x4>(@238) in
-        let @240 = @239[2] in
-        let @241 = tris.group0_row in
-        let @242 = (*tris_ref!top) >> 4u in
-        let @243 = @241[@242] in
-        let @244 = @243.lower_z in
-        let @245 = cast<f32x4>(@244) in
-        let @246 = @245[2] in
-        let @247 = build<f32x3>(@234, @240, @246) in
-        let @248 = tris.group0_row in
-        let @249 = (*tris_ref!top) >> 4u in
-        let @250 = @248[@249] in
-        let @251 = @250.upper_x in
-        let @252 = cast<f32x4>(@251) in
-        let @253 = @252[2] in
-        let @254 = tris.group0_row in
-        let @255 = (*tris_ref!top) >> 4u in
-        let @256 = @254[@255] in
-        let @257 = @256.upper_y in
-        let @258 = cast<f32x4>(@257) in
-        let @259 = @258[2] in
-        let @260 = tris.group0_row in
-        let @261 = (*tris_ref!top) >> 4u in
-        let @262 = @260[@261] in
-        let @263 = @262.upper_z in
-        let @264 = cast<f32x4>(@263) in
-        let @265 = @264[2] in
-        let @266 = build<f32x3>(@253, @259, @265) in
-        let @267 = build<AABB>(@247, @266) in
-        let @268 = intersects_Ray_AABB(r, @267) in
-        let !and_2 = false in
-        if (@268) {
-          let @269 = tris.group0_row in
-          let @270 = (*tris_ref!top) >> 4u in
-          let @271 = @269[@270] in
-          let @272 = @271.lower_x in
-          let @273 = cast<f32x4>(@272) in
-          let @274 = @273[2] in
-          let @275 = tris.group0_row in
-          let @276 = (*tris_ref!top) >> 4u in
-          let @277 = @275[@276] in
-          let @278 = @277.lower_y in
-          let @279 = cast<f32x4>(@278) in
-          let @280 = @279[2] in
-          let @281 = tris.group0_row in
-          let @282 = (*tris_ref!top) >> 4u in
-          let @283 = @281[@282] in
-          let @284 = @283.lower_z in
-          let @285 = cast<f32x4>(@284) in
-          let @286 = @285[2] in
-          let @287 = build<f32x3>(@274, @280, @286) in
-          let @288 = tris.group0_row in
-          let @289 = (*tris_ref!top) >> 4u in
-          let @290 = @288[@289] in
-          let @291 = @290.upper_x in
-          let @292 = cast<f32x4>(@291) in
-          let @293 = @292[2] in
-          let @294 = tris.group0_row in
-          let @295 = (*tris_ref!top) >> 4u in
-          let @296 = @294[@295] in
-          let @297 = @296.upper_y in
-          let @298 = cast<f32x4>(@297) in
-          let @299 = @298[2] in
-          let @300 = tris.group0_row in
-          let @301 = (*tris_ref!top) >> 4u in
-          let @302 = @300[@301] in
-          let @303 = @302.upper_z in
-          let @304 = cast<f32x4>(@303) in
-          let @305 = @304[2] in
-          let @306 = build<f32x3>(@293, @299, @305) in
-          let @307 = build<AABB>(@287, @306) in
-          let @308 = distmin_Ray_AABB(r, @307) in
-          let @309 = (*_best0) in
-          let @310 = @309._field0 in
-          let !and_2 = @308 < @310 in
+        if (@192) {
+          !stack[(*!count)] = @190
+          let @203 = (*!count) + 1u in
+          !count = @203
         }
-        let @312 = tris.group0_row in
-        let @313 = (*tris_ref!top) >> 4u in
-        let @314 = @312[@313] in
-        let @315 = @314.lower_x in
-        let @316 = cast<f32x4>(@315) in
-        let @317 = @316[3] in
-        let @318 = tris.group0_row in
-        let @319 = (*tris_ref!top) >> 4u in
-        let @320 = @318[@319] in
-        let @321 = @320.lower_y in
-        let @322 = cast<f32x4>(@321) in
-        let @323 = @322[3] in
-        let @324 = tris.group0_row in
-        let @325 = (*tris_ref!top) >> 4u in
-        let @326 = @324[@325] in
-        let @327 = @326.lower_z in
-        let @328 = cast<f32x4>(@327) in
-        let @329 = @328[3] in
-        let @330 = build<f32x3>(@317, @323, @329) in
-        let @331 = tris.group0_row in
-        let @332 = (*tris_ref!top) >> 4u in
-        let @333 = @331[@332] in
-        let @334 = @333.upper_x in
-        let @335 = cast<f32x4>(@334) in
-        let @336 = @335[3] in
-        let @337 = tris.group0_row in
-        let @338 = (*tris_ref!top) >> 4u in
-        let @339 = @337[@338] in
-        let @340 = @339.upper_y in
-        let @341 = cast<f32x4>(@340) in
-        let @342 = @341[3] in
-        let @343 = tris.group0_row in
-        let @344 = (*tris_ref!top) >> 4u in
-        let @345 = @343[@344] in
-        let @346 = @345.upper_z in
-        let @347 = cast<f32x4>(@346) in
-        let @348 = @347[3] in
-        let @349 = build<f32x3>(@336, @342, @348) in
-        let @350 = build<AABB>(@330, @349) in
-        let @351 = intersects_Ray_AABB(r, @350) in
-        let !and_3 = false in
-        if (@351) {
-          let @352 = tris.group0_row in
-          let @353 = (*tris_ref!top) >> 4u in
-          let @354 = @352[@353] in
-          let @355 = @354.lower_x in
-          let @356 = cast<f32x4>(@355) in
-          let @357 = @356[3] in
-          let @358 = tris.group0_row in
-          let @359 = (*tris_ref!top) >> 4u in
-          let @360 = @358[@359] in
-          let @361 = @360.lower_y in
-          let @362 = cast<f32x4>(@361) in
-          let @363 = @362[3] in
-          let @364 = tris.group0_row in
-          let @365 = (*tris_ref!top) >> 4u in
-          let @366 = @364[@365] in
-          let @367 = @366.lower_z in
-          let @368 = cast<f32x4>(@367) in
-          let @369 = @368[3] in
-          let @370 = build<f32x3>(@357, @363, @369) in
-          let @371 = tris.group0_row in
-          let @372 = (*tris_ref!top) >> 4u in
-          let @373 = @371[@372] in
-          let @374 = @373.upper_x in
-          let @375 = cast<f32x4>(@374) in
-          let @376 = @375[3] in
-          let @377 = tris.group0_row in
-          let @378 = (*tris_ref!top) >> 4u in
-          let @379 = @377[@378] in
-          let @380 = @379.upper_y in
-          let @381 = cast<f32x4>(@380) in
-          let @382 = @381[3] in
-          let @383 = tris.group0_row in
-          let @384 = (*tris_ref!top) >> 4u in
-          let @385 = @383[@384] in
-          let @386 = @385.upper_z in
-          let @387 = cast<f32x4>(@386) in
-          let @388 = @387[3] in
-          let @389 = build<f32x3>(@376, @382, @388) in
-          let @390 = build<AABB>(@370, @389) in
-          let @391 = distmin_Ray_AABB(r, @390) in
-          let @392 = (*_best0) in
-          let @393 = @392._field0 in
-          let !and_3 = @391 < @393 in
+        if (@186) {
+          !stack[(*!count)] = @184
+          let @206 = (*!count) + 1u in
+          !count = @206
         }
-        let @413 = @56 < @58 in
-        let @414 = select(@413, @56, @58) in
-        let @415 = select(@413, @58, @56) in
-        let @416 = select(@413, @51, @52) in
-        let @417 = select(@413, @52, @51) in
-        let @418 = select(@413, !and_0, !and_1) in
-        let @419 = select(@413, !and_1, !and_0) in
-        let @420 = @62 < @60 in
-        let @421 = select(@420, @60, @62) in
-        let @422 = select(@420, @62, @60) in
-        let @423 = select(@420, @53, @54) in
-        let @424 = select(@420, @54, @53) in
-        let @425 = select(@420, !and_2, !and_3) in
-        let @426 = select(@420, !and_3, !and_2) in
-        let @427 = @414 < @421 in
-        let @428 = select(@427, @414, @421) in
-        let @429 = select(@427, @421, @414) in
-        let @430 = select(@427, @416, @423) in
-        let @431 = select(@427, @423, @416) in
-        let @432 = select(@427, @418, @425) in
-        let @433 = select(@427, @425, @418) in
-        let @434 = @415 < @422 in
-        let @435 = select(@434, @415, @422) in
-        let @436 = select(@434, @422, @415) in
-        let @437 = select(@434, @417, @424) in
-        let @438 = select(@434, @424, @417) in
-        let @439 = select(@434, @419, @426) in
-        let @440 = select(@434, @426, @419) in
-        let @441 = @428 < @435 in
-        let @442 = select(@441, @428, @435) in
-        let @443 = select(@441, @435, @428) in
-        let @444 = select(@441, @430, @437) in
-        let @445 = select(@441, @437, @430) in
-        let @446 = select(@441, @432, @439) in
-        let @447 = select(@441, @439, @432) in
-        let @448 = @429 < @436 in
-        let @449 = select(@448, @429, @436) in
-        let @450 = select(@448, @436, @429) in
-        let @451 = select(@448, @431, @438) in
-        let @452 = select(@448, @438, @431) in
-        let @453 = select(@448, @433, @440) in
-        let @454 = select(@448, @440, @433) in
-        if (@454) {
-          !stack[(*!count)] = @452
-          let @461 = (*!count) + 1u in
-          !count = @461
-        }
-        if (@453) {
-          !stack[(*!count)] = @451
-          let @464 = (*!count) + 1u in
-          !count = @464
-        }
-        if (@447) {
-          !stack[(*!count)] = @445
-          let @467 = (*!count) + 1u in
-          !count = @467
-        }
-        tris_ref!top = @444
+        tris_ref!top = @183
         !live = true
-      } while (@446)
+      } while (@185)
     } else {
-      let @395 = _t655 - 8u in
+      let @134 = _t59 - 8u in
       _idx0 = 0u
-      while ((*_idx0) < @395) {
-        let @397 = (*tris_ref!top) >> 4u in
-        let _t652 = @397 + (*_idx0) in
-        let @399 = tris.prims in
-        let @400 = @399[_t652] in
-        let @401 = intersectsp_ray_tri(r, @400) in
-        let _t790 = @401 in
-        let @402 = _t790.set in
-        if (@402) {
-          let isect_$i0 = _t790.value in
-          let @404 = isect_$i0.t in
-          let @406 = (*_best0) in
-          let @407 = @406._field0 in
-          let @408 = @404 < @407 in
-          if (@408) {
-            let @410 = build<__tuple_0>(_t652) in
-            let @411 = build<__tuple_1>(@404, @410) in
-            _best0 = @411
+      while ((*_idx0) < @134) {
+        let @136 = (*tris_ref!top) >> 4u in
+        let _t56 = @136 + (*_idx0) in
+        let @138 = tris.prims in
+        let @139 = @138[_t56] in
+        let @140 = intersectsp_ray_tri(r, @139) in
+        let _t173 = @140 in
+        let @141 = _t173.set in
+        if (@141) {
+          let isect_$i1 = _t173.value in
+          let @143 = isect_$i1.t in
+          let @145 = (*_best0) in
+          let @146 = @145._field0 in
+          let @147 = @143 < @146 in
+          if (@147) {
+            let @149 = build<__tuple_0>(_t56) in
+            let @150 = build<__tuple_1>(@143, @149) in
+            _best0 = @150
           }
         }
-        let @412 = (*_idx0) + 1u in
-        _idx0 = @412
+        let @151 = (*_idx0) + 1u in
+        _idx0 = @151
       }
     }
-    let @456 = (*!count) != 0u in
-    if (@456) {
-      let @457 = (*!count) - 1u in
-      let @458 = !stack[@457] in
-      tris_ref!top = @458
+    let @195 = (*!count) != 0u in
+    if (@195) {
+      let @196 = (*!count) - 1u in
+      let @197 = !stack[@196] in
+      tris_ref!top = @197
       !live = true
-      !count = @457
+      !count = @196
     } else {
       !live = false
     }
@@ -552,7 +282,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
-  _recloop_func0(0u, tris, r, _best0)
+  _recloop_func0(0u, r, tris, _best0)
   let @3 = build<_option0>() in
   let @4 = (*_best0) in
   let @5 = @4._field0 in
@@ -572,43 +302,29 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   return (*_best0_result)
 }
 
-func child_box(i : u8, l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) -> AABB {
-  let _t656 = i == 0u in
-  let _t657 = i == 1u in
-  let _t658 = i == 2u in
-  let @3 = select(_t658, l2, l3) in
-  let @4 = select(_t657, l1, @3) in
-  let low = select(_t656, l0, @4) in
-  let @6 = select(_t658, h2, h3) in
-  let @7 = select(_t657, h1, @6) in
-  let high = select(_t656, h0, @7) in
-  let @9 = build<AABB>(low, high) in
-  return @9
-}
-
 func entry(r : Ray, b : AABB) -> f32 {
-  intersectsp_ray_aabb$r10 : mut _option1
-  tmin$i10 : mut f32
-  tmax$i10 : mut f32
+  intersectsp_ray_aabb$r11 : mut _option1
+  tmin$i11 : mut f32
+  tmax$i11 : mut f32
   let @0 = f32x3(1f) in
   let @1 = r.d in
-  let invDir$i10 = @0 / @1 in
+  let invDir$i11 = @0 / @1 in
   let @3 = f32x3(0f) in
-  let dirIsNeg$i10 = invDir$i10 < @3 in
-  let _t704$i10 = b.high in
-  let _t705$i10 = b.low in
-  let low_parts$i10 = select(dirIsNeg$i10, _t704$i10, _t705$i10) in
-  let high_parts$i10 = select(dirIsNeg$i10, _t705$i10, _t704$i10) in
-  let _t708$i10 = r.o in
-  let @10 = low_parts$i10 - _t708$i10 in
-  let @11 = @10 * invDir$i10 in
-  let @12 = high_parts$i10 - _t708$i10 in
-  let @13 = @12 * invDir$i10 in
+  let dirIsNeg$i11 = invDir$i11 < @3 in
+  let _t102$i11 = b.high in
+  let _t103$i11 = b.low in
+  let low_parts$i11 = select(dirIsNeg$i11, _t102$i11, _t103$i11) in
+  let high_parts$i11 = select(dirIsNeg$i11, _t103$i11, _t102$i11) in
+  let _t106$i11 = r.o in
+  let @10 = low_parts$i11 - _t106$i11 in
+  let @11 = @10 * invDir$i11 in
+  let @12 = high_parts$i11 - _t106$i11 in
+  let @13 = @12 * invDir$i11 in
   let @14 = (f32)eps in
   let @15 = 0.5f * @14 in
-  let _t699$i28 = 3f * @15 in
-  let @17 = 1f - _t699$i28 in
-  let @18 = _t699$i28 / @17 in
+  let _t97$i30 = 3f * @15 in
+  let @17 = 1f - _t97$i30 in
+  let @18 = _t97$i30 / @17 in
   let @20 = 2f * @18 in
   let @21 = 1f + @20 in
   let @76 = @13 * f32x3(@21) in
@@ -621,7 +337,7 @@ func entry(r : Ray, b : AABB) -> f32 {
   let @32 = @26 || @31 in
   if (@32) {
     let @33 = build<_option1>() in
-    intersectsp_ray_aabb$r10 = @33
+    intersectsp_ray_aabb$r11 = @33
   } else {
     let @35 = @11[0u] in
     let @37 = @11[1u] in
@@ -636,9 +352,9 @@ func entry(r : Ray, b : AABB) -> f32 {
     let @52 = @47 || @51 in
     if (@52) {
       let @53 = build<_option1>() in
-      intersectsp_ray_aabb$r10 = @53
-      tmin$i10 = @38
-      tmax$i10 = @43
+      intersectsp_ray_aabb$r11 = @53
+      tmin$i11 = @38
+      tmax$i11 = @43
     } else {
       let @56 = @11[2u] in
       let @57 = max(@38, @56) in
@@ -646,22 +362,22 @@ func entry(r : Ray, b : AABB) -> f32 {
       let @61 = min(@43, @60) in
       let @64 = build<FInterval>(@57, @61) in
       let @65 = build<_option1>(@64, true) in
-      intersectsp_ray_aabb$r10 = @65
-      tmin$i10 = @57
-      tmax$i10 = @61
+      intersectsp_ray_aabb$r11 = @65
+      tmin$i11 = @57
+      tmax$i11 = @61
     }
   }
-  let @67 = (*intersectsp_ray_aabb$r10).set in
+  let @67 = (*intersectsp_ray_aabb$r11).set in
   if (@67) {
-    let extract = (*intersectsp_ray_aabb$r10).value in
-    let _t696 = extract.low in
+    let extract = (*intersectsp_ray_aabb$r11).value in
+    let _t94 = extract.low in
     let @71 = r.tmax in
-    let @72 = _t696 < @71 in
+    let @72 = _t94 < @71 in
     if (@72) {
       let @73 = extract.high in
       let @74 = 0f < @73 in
       if (@74) {
-        return _t696
+        return _t94
       }
     }
   }
@@ -670,42 +386,42 @@ func entry(r : Ray, b : AABB) -> f32 {
 }
 
 func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0*)) -> void {
-  _best0_result$i24 : mut _option0
-  _best0$i24 : mut __tuple_1
+  _best0_result$i25 : mut _option0
+  _best0$i25 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
-  _best0$i24 = @2
-  let @3 = (*tris) in
-  let @4 = (*r) in
-  _recloop_func0(0u, @3, @4, _best0$i24)
+  _best0$i25 = @2
+  let @3 = (*r) in
+  let @4 = (*tris) in
+  _recloop_func0(0u, @3, @4, _best0$i25)
   let @5 = build<_option0>() in
-  let @6 = (*_best0$i24) in
+  let @6 = (*_best0$i25) in
   let @7 = @6._field0 in
   let @8 = (f32)inf in
   let @9 = @7 != @8 in
   if (@9) {
     let @10 = (*tris) in
     let @11 = @10.prims in
-    let @12 = (*_best0$i24) in
+    let @12 = (*_best0$i25) in
     let @13 = @12._field1 in
     let @14 = @13._field0 in
     let @15 = @11[@14] in
     let @16 = build<_option0>(@15, true) in
-    _best0_result$i24 = @16
+    _best0_result$i25 = @16
   } else {
-    _best0_result$i24 = @5
+    _best0_result$i25 = @5
   }
-  _ret0 = (*_best0_result$i24)
+  _ret0 = (*_best0_result$i25)
   return
 }
 
 
 schedule host {
     tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
-  | Interior(c0 : (const BVH4&), c1 : (const BVH4&), c2 : (const BVH4&), c3 : (const BVH4&), l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) with AABB(l0, h0) on c0 with AABB(l1, h1) on c1 with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+  | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
   | Leaf(data : Triangle[]) with data = data
-    trace.sort(tris.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3| entry(r, child_box(i, l0, l1, l2, l3, h0, h1, h2, h3)))
+    trace.sort(tris.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, lo : f32x3x4, hi : f32x3x4| entry(r, build<struct AABB{ low : f32x3; high : f32x3 }>(lo[i], hi[i])))
          .loopify((i32)64)
 
 }

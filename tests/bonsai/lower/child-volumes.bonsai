@@ -7,25 +7,33 @@
 // ray meets the node. Embree's AABBNode stores no box of its own; it stores
 // its children's, six vectors of N floats, and the traversal tests all N
 // children at the parent and descends only into the ones hit. The tree
-// language has said this since BVH_t gained volumes -- `with AABB(l, h) on
-// c` puts the volume on the child named -- but until now nothing consumed it,
-// and a tree written this way was walked without a single box test.
+// language has said this since BVH_t gained volumes -- `with AABB(lo, hi) on
+// children` puts the volume on the children, each child's box read out of
+// `lo` and `hi` at its index -- but until now nothing consumed it, and a tree
+// written this way was walked without a single box test.
 //
 // What to read for in the golden. Neither arm tests a volume of its own: the
 // leaf loops straight over its triangles, and the interior has no `if` in
-// front of it. Instead the `from` carries a condition per branch,
+// front of it. Instead the children are tested in a loop over them, which
+// computes a mask the `from` carries, one bit per branch:
 //
-//     from ((tris as Interior).c0, ...) where (
-//         intersects(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0))
-//             && distmin(r, build<AABB>(...)) < _best0[0], ...)
+//     _mask0 : mut bool[4]
+//     parfor children in [0u:4u:1u] {
+//       _mask0[children] = intersects(r, build<AABB>((tris as Interior).lo[children],
+//                                                    (tris as Interior).hi[children]))
+//           && (distmin(r, build<AABB>(...)) < _best0[0])
+//     }
+//     from ((tris as Interior).children[0u], ...) where (_mask0[0u], ...)
 //
-// one per child, in the children's order, each predicate analysis's `maybe`
-// bound of the fused filter -- the ray meets the child's box, and the box is
-// nearer than the best hit so far -- over that child's volume. The `any` is
-// the same with its own predicate: a branch is taken where the ray meets the
-// child's box, and the whole run is gated once on the accumulator, as a
-// node's own test would be. What becomes of the conditions is downstream's
-// business: a call not made (the LLVM and C++ backends), a push not made
+// the test being predicate analysis's `maybe` bound of the fused filter --
+// the ray meets the child's box, and the box is nearer than the best hit so
+// far -- over child i's volume, with i the loop's index. A parfor, since the
+// tests are independent, and named for the field, so that a schedule can
+// vectorize it (`trace.vectorize(tris.Interior.children)`) into Embree's one
+// test of every child at once. The `any` is the same with its own predicate,
+// and the whole run is gated once on the accumulator, as a node's own test
+// would be. What becomes of the mask is downstream's business: a call not
+// made (the LLVM and C++ backends), a push not made
 // (ssa/child-volumes-sorted.bonsai).
 import stdlib/aabb;
 import stdlib/distance;
@@ -46,9 +54,8 @@ schedule {
     // Embree's BVH4: four children per node, their boxes in the parent, and
     // nothing said about the node itself.
     tree[[Triangle]] BVH4 =
-    | Interior(c0 c1 c2 c3 : BVH4, l0 l1 l2 l3 : vec3f, h0 h1 h2 h3 : vec3f)
-        with AABB(l0, h0) on c0 with AABB(l1, h1) on c1
-        with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
     | Leaf(data : array[Triangle]) with data = data;
 
     tris : BVH4;
@@ -61,17 +68,8 @@ schedule {
         // six vectors of four floats.
         indirect group Nodes[nCount] row : u32 {
             children : vector[u32, 4];
-            lower_x : vector[f32, 4];
-            upper_x : vector[f32, 4];
-            lower_y : vector[f32, 4];
-            upper_y : vector[f32, 4];
-            lower_z : vector[f32, 4];
-            upper_z : vector[f32, 4];
-            c0 = children[0]; c1 = children[1]; c2 = children[2]; c3 = children[3];
-            l0 = vec3f{lower_x[0], lower_y[0], lower_z[0]}; h0 = vec3f{upper_x[0], upper_y[0], upper_z[0]};
-            l1 = vec3f{lower_x[1], lower_y[1], lower_z[1]}; h1 = vec3f{upper_x[1], upper_y[1], upper_z[1]};
-            l2 = vec3f{lower_x[2], lower_y[2], lower_z[2]}; h2 = vec3f{upper_x[2], upper_y[2], upper_z[2]};
-            l3 = vec3f{lower_x[3], lower_y[3], lower_z[3]}; h3 = vec3f{upper_x[3], upper_y[3], upper_z[3]};
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
         };
         // Embree's NodeRef: a reference whose low four bits say what it is --
         // 0 an interior node, 8 + n a leaf of n triangles -- and whose high

@@ -33,10 +33,50 @@ static size_t counter = 0;
 
 std::string unique_iter_name() { return "_iter" + std::to_string(counter++); }
 
+// A child of a node: a field of the tree's reference type, or one element of
+// a field holding an array (or vector) of them -- `children : array[BVH, 8]`,
+// the eight children of a wide node, which Embree's AABBNode holds as one
+// array beside their boxes.
+struct ChildRef {
+    ir::TypedVar field;
+    std::optional<uint32_t> index;
+
+    // The child, as read off the unwrapped node.
+    ir::Expr access(const ir::Expr &node) const {
+        ir::Expr whole = ir::Access::make(field.name, node);
+        if (!index.has_value()) {
+            return whole;
+        }
+        return ir::Extract::make(
+            std::move(whole), ir::UIntImm::make(ir::UInt_t::make(32), *index));
+    }
+};
+
+// How many children a field holds: one for a reference, the length for an
+// array or vector of them, nothing for a field that is not a child.
+std::optional<uint32_t> children_in(const ir::Type &type) {
+    if (type.is<ir::Ref_t>()) { // TODO: and is ref to the current tree type?
+        return 1;
+    }
+    if (const auto *array = type.as<ir::Array_t>();
+        array != nullptr && array->etype.is<ir::Ref_t>()) {
+        const auto n = get_constant_value<uint64_t>(array->size);
+        internal_assert(n.has_value())
+            << "A node's children have to be a fixed number: " << type;
+        return uint32_t(*n);
+    }
+    if (const auto *vector = type.as<ir::Vector_t>();
+        vector != nullptr && vector->etype.is<ir::Ref_t>()) {
+        return vector->lanes;
+    }
+    return std::nullopt;
+}
+
 // returns has_data, has_children
-std::pair<std::vector<ir::TypedVar>, std::vector<ir::TypedVar>>
+std::pair<std::vector<ir::TypedVar>, std::vector<ChildRef>>
 analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
-    std::vector<ir::TypedVar> data, children;
+    std::vector<ir::TypedVar> data;
+    std::vector<ChildRef> children;
     // Search for nodes annotated as data.
     for (const auto &annot : node.annotations) {
         if (const auto *d = annot.as<ir::Annotation::Data>()) {
@@ -66,11 +106,19 @@ analyze_node(const ir::BVH_t::Node &node, const ir::Type &prim_t) {
         }
     }
 
-    // Search for recursive references.
+    // Search for recursive references: a field of the tree's type is one
+    // child, a field holding an array of them is that many, in order.
     for (const auto &param : node.fields()) {
-        if (param.type.is<ir::Ref_t>()) { // TODO: and is ref to
-                                          // current tree type?
-            children.push_back(param);
+        const std::optional<uint32_t> count = children_in(param.type);
+        if (!count.has_value()) {
+            continue;
+        }
+        if (param.type.is<ir::Ref_t>()) {
+            children.push_back(ChildRef{param, std::nullopt});
+            continue;
+        }
+        for (uint32_t i = 0; i < *count; i++) {
+            children.push_back(ChildRef{param, i});
         }
     }
 
@@ -246,12 +294,36 @@ bool recurses_at_this_level(const ir::Stmt &body) {
     return find.found;
 }
 
+// The volumes an arm states for its children rather than for itself (`with
+// AABB(l, h) on child`).
+struct ChildVolumes {
+    // Each child's volume, keyed by the child as the Scan over the arm spells
+    // it (ChildRef::access, printed): a named field, or an element of a field
+    // holding an array of children.
+    std::map<std::string, ir::Expr> by_child;
+
+    // Children held in one array field, with one volume annotation over all
+    // of them -- `Interior(children : array[BVH, 8], lo hi : vector[vec3f,
+    // 8]) with AABB(lo, hi) on children`, Embree's wide node -- which is
+    // what lets the children's tests be a loop over the array rather than
+    // one test per named child.
+    struct Array {
+        std::string field;
+        uint32_t count = 0;
+        // The volume of child `index` -- a symbolic index is as good as a
+        // constant one: an initializer holding one value per child is read
+        // at `index`, one shared by every child is read as it is.
+        std::function<ir::Expr(const ir::Expr &index)> volume_at;
+    };
+    std::optional<Array> array;
+};
+
 struct Rewriter : public ir::Mutator {
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
     // Volumes annotated on a node's children rather than on the node itself.
-    // Keyed by the matched tree variable, then by child field name.
-    std::map<std::string, std::map<std::string, ir::Expr>> child_volumes;
+    // Keyed by the matched tree variable, then by child.
+    std::map<std::string, ChildVolumes> child_volumes;
     // The list of tagged intervals. Holds scalar interval OR map of field
     // intervals.
     std::vector<
@@ -422,7 +494,7 @@ struct Rewriter : public ir::Mutator {
                          std::map<std::string, Interval>>
                 interval;
             std::map<std::string, ir::Expr> aggregation;
-            std::map<std::string, ir::Expr> built_child_volumes;
+            ChildVolumes built_child_volumes;
             for (const auto &annot : node->arms[i].first.annotations) {
                 if (const auto *a_interval =
                         annot.as<ir::Annotation::Interval>()) {
@@ -455,15 +527,64 @@ struct Rewriter : public ir::Mutator {
                     if (vol->geometry.empty()) {
                         continue; // the node's own volume, handled above
                     }
-                    // Tagged on a child.
-                    built_child_volumes[vol->geometry] = make_volume(vol);
+                    // Tagged on a child: a field holding one, or an array of
+                    // them with one annotation over all, where an
+                    // initializer as wide as the array holds each child's
+                    // value and one of the volume's own type is shared.
+                    const ir::TypedVar *on = nullptr;
+                    for (const auto &field : bvh_node.fields()) {
+                        if (field.name == vol->geometry) {
+                            on = &field;
+                        }
+                    }
+                    internal_assert(on != nullptr)
+                        << "The volume of " << bvh_node.name() << " is on `"
+                        << vol->geometry << "`, which is not one of its fields";
+                    const std::optional<uint32_t> count = children_in(on->type);
+                    internal_assert(count.has_value())
+                        << "The volume of " << bvh_node.name() << " is on `"
+                        << vol->geometry << "`, which holds no child of the tree";
+                    if (on->type.is<ir::Ref_t>()) {
+                        built_child_volumes.by_child[ir::to_string(
+                            ChildRef{*on, std::nullopt}.access(tree))] =
+                            make_volume(vol);
+                    } else {
+                        const auto *struct_t =
+                            vol->struct_type.as<ir::Struct_t>();
+                        internal_assert(struct_t) << vol->struct_type;
+                        const ir::Annotation::Volume volume = *vol;
+                        const auto volume_at = [volume, struct_t,
+                                                tree](const ir::Expr &index) {
+                            std::vector<ir::Expr> args;
+                            for (size_t j = 0; j < volume.initializers.size();
+                                 j++) {
+                                ir::Expr arg = ir::Access::make(
+                                    volume.initializers[j], tree);
+                                if (!ir::equals(arg.type(),
+                                                struct_t->fields[j].type)) {
+                                    arg = ir::Extract::make(std::move(arg), index);
+                                }
+                                args.push_back(std::move(arg));
+                            }
+                            return ir::Build::make(volume.struct_type, args);
+                        };
+                        for (uint32_t c = 0; c < *count; c++) {
+                            const ChildRef child{*on, c};
+                            built_child_volumes
+                                .by_child[ir::to_string(child.access(tree))] =
+                                volume_at(ir::UIntImm::make(
+                                    ir::UInt_t::make(32), c));
+                        }
+                        built_child_volumes.array =
+                            ChildVolumes::Array{on->name, *count, volume_at};
+                    }
                 }
             }
             intervals.emplace_back(std::move(interval));
             aggregations.emplace_back(std::move(aggregation));
             bounds_below.push_back(promises);
             levels.push_back(level_facts(node));
-            if (!built_child_volumes.empty()) {
+            if (!built_child_volumes.by_child.empty()) {
                 child_volumes[loc_key] = built_child_volumes;
             }
 
@@ -483,7 +604,7 @@ struct Rewriter : public ir::Mutator {
             aggregations.pop_back();
             bounds_below.pop_back();
             levels.pop_back();
-            if (!built_child_volumes.empty()) {
+            if (!built_child_volumes.by_child.empty()) {
                 child_volumes.erase(loc_key);
             }
             new_arms[i] = {node->arms[i].first, std::move(stmt)};
@@ -656,16 +777,22 @@ struct Rewriter : public ir::Mutator {
     VolumeMap make_volume_map(const std::vector<ir::TypedVar> &args,
                               const ir::Expr &value) const {
         const auto get_volume = [&](const ir::Expr &e) {
-            const ir::Access *access = e.as<ir::Access>();
+            // The child is a field of the unwrapped node, or an element of
+            // one; the node is what keys the volumes (see the Match visitor),
+            // the child as spelled is what keys its own.
+            ir::Expr at = e;
+            if (const ir::Extract *element = at.as<ir::Extract>()) {
+                at = element->vec;
+            }
+            const ir::Access *access = at.as<ir::Access>();
             internal_assert(access) << e;
             const ir::Unwrap *unwrap = access->value.as<ir::Unwrap>();
             internal_assert(unwrap) << e;
-            // Keyed by how the tree was reached; see the Match visitor.
             const auto &iter =
                 child_volumes.find(ir::to_string(unwrap->value));
             internal_assert(iter != child_volumes.cend()) << e;
-            const auto &citer = iter->second.find(access->field);
-            internal_assert(citer != iter->second.cend()) << e;
+            const auto &citer = iter->second.by_child.find(ir::to_string(e));
+            internal_assert(citer != iter->second.by_child.cend()) << e;
             return citer->second;
         };
         VolumeMap vols;
@@ -743,6 +870,140 @@ struct Rewriter : public ir::Mutator {
             conds.clear();
         }
         return conds;
+    }
+
+    // The `maybe` test of a predicate over a child's bounds, or nothing where
+    // it is trivially true.
+    static ir::Expr maybe_of(const Interval &bounds) {
+        if (bounds.max.defined() && !is_const_one(bounds.max)) {
+            return bounds.max;
+        }
+        return ir::Expr();
+    }
+
+    // The children of the arm being rewritten, when they are one array field
+    // with one volume over all of them; nothing for an arm whose children are
+    // named one by one, or bounded nowhere.
+    std::optional<ChildVolumes::Array> array_children() const {
+        if (!has_child_volumes()) {
+            return std::nullopt;
+        }
+        return child_volumes.at(ir::to_string(locs.back())).array;
+    }
+
+    // What a Scan over an arm's children becomes where the arm bounds its
+    // children rather than itself: a `from` over them, each descended into
+    // only where `cond_of` -- the rewrite's own test of a child, from
+    // predicate analysis over that child's volume -- holds.
+    //
+    // For children held in one array (`children : array[BVH, 8]`), the tests
+    // are a loop over the array computing the mask the `from` then carries:
+    //
+    //     _mask0 : bool[8]
+    //     parfor children in [0:8] { _mask0[children] = <test of child i> }
+    //     from (children[0], ..., children[7]) where (_mask0[0], ..., _mask0[7])
+    //
+    // a parfor, since the tests are independent, named for the field so that
+    // a schedule can vectorize it -- `trace.vectorize(tris.Interior.children)`
+    // -- into one test of all the children at once, which is how Embree's
+    // traversal tests a node (node_intersector1.h). For children named one by
+    // one, each branch's test is its condition, with nothing to loop over.
+    //
+    // `extra_at` is what else a rewrite does with a child's bounds -- a
+    // quantifier settling its answer where a child's volume decides it, an
+    // extremum tightening its accumulator with what a child could reach --
+    // given the bounds and the child's condition (true where there is none)
+    // and whether it is being asked inside the loop; it may answer nothing.
+    // The plain `from` where there is nothing to test or do.
+    ir::Stmt from_children(
+        const ir::Expr &value, const ir::Lambda *lambda,
+        const IntervalMap &existing,
+        const std::function<ir::Expr(const Interval &)> &cond_of,
+        const std::function<ir::Stmt(const Interval &, const ir::Expr &,
+                                     bool in_loop)> &extra_at = {}) {
+        const std::optional<ChildVolumes::Array> array = array_children();
+        if (array.has_value() && lambda->args.size() == 1 &&
+            volumes.size() == 1) {
+            static const ir::Type index_t = ir::UInt_t::make(32);
+            const ir::Expr index = ir::Var::make(index_t, array->field);
+            VolumeMap vols;
+            vols[lambda->args[0].name] = array->volume_at(index);
+            IntervalMap ints = make_interval_map(lambda->args, existing);
+            const Interval bounds =
+                predicate_analysis(lambda->value, vols, ints);
+            const ir::Expr cond = cond_of(bounds);
+            ir::Stmt extra;
+            if (extra_at) {
+                extra = extra_at(
+                    bounds, cond.defined() ? cond : ir::BoolImm::make(true),
+                    /*in_loop=*/true);
+            }
+            if (!cond.defined() && !extra.defined()) {
+                return ir::YieldFrom::make(value);
+            }
+            std::vector<ir::Stmt> stmts, body;
+            std::vector<ir::Expr> conds;
+            if (cond.defined()) {
+                static size_t counter = 0;
+                const std::string name = "_mask" + std::to_string(counter++);
+                const ir::Type mask_t = ir::Array_t::make(
+                    ir::Bool_t::make(),
+                    ir::UIntImm::make(index_t, array->count));
+                ir::WriteLoc mask(name, mask_t);
+                stmts.push_back(
+                    ir::Allocate::make(mask, ir::Allocate::Memory::Stack));
+                ir::WriteLoc slot = mask;
+                slot.add_index_access(index);
+                body.push_back(ir::Store::make(std::move(slot), cond));
+                const ir::Expr held = ir::Var::make(mask_t, name);
+                for (uint32_t c = 0; c < array->count; c++) {
+                    conds.push_back(ir::Extract::make(
+                        held, ir::UIntImm::make(index_t, c)));
+                }
+            }
+            if (extra.defined()) {
+                body.push_back(std::move(extra));
+            }
+            stmts.push_back(ir::ParFor::make(
+                array->field,
+                ir::ParFor::Slice{ir::UIntImm::make(index_t, 0),
+                                  ir::UIntImm::make(index_t, array->count),
+                                  ir::UIntImm::make(index_t, 1)},
+                body.size() == 1 ? std::move(body.front())
+                                 : ir::Sequence::make(std::move(body))));
+            stmts.push_back(ir::YieldFrom::make(value, {}, std::move(conds)));
+            return ir::Sequence::make(std::move(stmts));
+        }
+
+        const std::vector<Interval> bounds =
+            child_bounds(lambda, value, existing);
+        if (bounds.empty()) {
+            return ir::YieldFrom::make(value);
+        }
+        std::vector<ir::Stmt> stmts;
+        std::vector<ir::Expr> conds;
+        bool any = false;
+        for (const Interval &b : bounds) {
+            ir::Expr cond = cond_of(b);
+            if (cond.defined()) {
+                any = true;
+            } else {
+                cond = ir::BoolImm::make(true);
+            }
+            if (extra_at) {
+                if (ir::Stmt extra = extra_at(b, cond, /*in_loop=*/false);
+                    extra.defined()) {
+                    stmts.push_back(std::move(extra));
+                }
+            }
+            conds.push_back(std::move(cond));
+        }
+        if (!any) {
+            conds.clear();
+        }
+        stmts.push_back(ir::YieldFrom::make(value, {}, std::move(conds)));
+        return stmts.size() == 1 ? std::move(stmts.front())
+                                 : ir::Sequence::make(std::move(stmts));
     }
 
     IntervalMap make_interval_map(const std::vector<ir::TypedVar> &args,
@@ -902,9 +1163,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             // Where the node bounds its children rather than itself, each
             // branch is taken only where the predicate may hold in that
             // child: the child's test, made here at its parent.
-            ir::Stmt body = ir::YieldFrom::make(
-                node->value, {},
-                maybe_conds(child_bounds(lambda, node->value, intervals)));
+            ir::Stmt body =
+                from_children(node->value, lambda, intervals, maybe_of);
             // Add the maybe case -> recursive call. A bound that is trivially
             // true prunes nothing, so skip the guard entirely.
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
@@ -1530,39 +1790,35 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             // And per child, where the node bounds its children rather than
             // itself: a child is descended into only where its best could
             // beat the running best, and the accumulator is tightened with
-            // what each child could reach, under the same test.
+            // what each child could reach, under the same test -- though
+            // not inside the children's loop, where that would be a
+            // reduction over the children and the loop is the schedule's to
+            // run as it likes.
             const ir::Lambda *lambda = metric.as<ir::Lambda>();
             internal_assert(lambda) << "Metric is not a lambda: " << metric;
-            std::vector<Interval> children = child_bounds(lambda, node->value, intervals);
-            std::vector<ir::Expr> conds;
-            bool guarded = false;
-            for (const Interval &child : children) {
-                if (ir::Expr promising = promising_bound(dir, child);
-                    promising.defined()) {
-                    conds.push_back(improves_on(dir, std::move(promising),
-                                                loc.to_expr()));
-                    guarded = true;
-                } else {
-                    conds.push_back(ir::BoolImm::make(true));
-                }
-            }
-            if (!guarded) {
-                conds.clear();
-            }
-            for (size_t i = 0; i < children.size(); i++) {
-                ir::Expr reachable = reachable_bound(dir, children[i]);
-                if (!reachable.defined()) {
-                    continue;
-                }
-                ir::Stmt tighten = ir::Accumulate::make(loc, accumulate_op(),
-                                                        std::move(reachable));
-                if (!conds.empty()) {
-                    tighten = ir::IfElse::make(conds[i], std::move(tighten));
-                }
-                stmts.push_back(std::move(tighten));
-            }
-            stmts.push_back(
-                ir::YieldFrom::make(node->value, {}, std::move(conds)));
+            stmts.push_back(from_children(
+                node->value, lambda, intervals,
+                [&](const Interval &child) {
+                    ir::Expr promising = promising_bound(dir, child);
+                    if (!promising.defined()) {
+                        return ir::Expr();
+                    }
+                    return improves_on(dir, std::move(promising),
+                                       loc.to_expr());
+                },
+                [&](const Interval &child, const ir::Expr &cond,
+                    bool in_loop) {
+                    ir::Expr reachable = reachable_bound(dir, child);
+                    if (in_loop || !reachable.defined()) {
+                        return ir::Stmt();
+                    }
+                    ir::Stmt tighten = ir::Accumulate::make(
+                        loc, accumulate_op(), std::move(reachable));
+                    if (!is_const_one(cond)) {
+                        tighten = ir::IfElse::make(cond, std::move(tighten));
+                    }
+                    return tighten;
+                }));
             ir::Stmt body = stmts.size() == 1
                                 ? std::move(stmts.front())
                                 : ir::Sequence::make(std::move(stmts));
@@ -1821,27 +2077,29 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
-            std::vector<Interval> children = child_bounds(lambda, node->value, intervals);
-            std::vector<ir::Stmt> stmts;
-            for (const Interval &child : children) {
-                if (!is_any && child.max.defined() &&
-                    !is_const_one(child.max)) {
-                    stmts.push_back(ir::IfElse::make(
-                        ~child.max,
-                        ir::Store::make(loc, ir::BoolImm::make(false))));
-                }
-                if (is_any && child.min.defined() &&
-                    !is_const_zero(child.min)) {
-                    stmts.push_back(ir::IfElse::make(
-                        child.min,
-                        ir::Store::make(loc, ir::BoolImm::make(true))));
-                }
-            }
-            stmts.push_back(
-                ir::YieldFrom::make(node->value, {}, maybe_conds(children)));
-            ir::Stmt recurse = stmts.size() == 1
-                                   ? std::move(stmts.front())
-                                   : ir::Sequence::make(std::move(stmts));
+            ir::Stmt recurse = from_children(
+                node->value, lambda, intervals, maybe_of,
+                [&](const Interval &child, const ir::Expr &cond, bool) {
+                    std::vector<ir::Stmt> settles;
+                    if (!is_any && child.max.defined() &&
+                        !is_const_one(child.max)) {
+                        settles.push_back(ir::IfElse::make(
+                            ~child.max,
+                            ir::Store::make(loc, ir::BoolImm::make(false))));
+                    }
+                    if (is_any && child.min.defined() &&
+                        !is_const_zero(child.min)) {
+                        settles.push_back(ir::IfElse::make(
+                            child.min,
+                            ir::Store::make(loc, ir::BoolImm::make(true))));
+                    }
+                    if (settles.empty()) {
+                        return ir::Stmt();
+                    }
+                    return settles.size() == 1
+                               ? std::move(settles.front())
+                               : ir::Sequence::make(std::move(settles));
+                });
 
             // For `any`, a subtree the predicate can never hold on contributes
             // nothing; for `all` it settles the answer to false.
@@ -3473,7 +3731,7 @@ ir::Stmt build_base_scan(ir::Expr bvh_expr, const ir::BVH_t *bvh_t) {
             std::vector<ir::Expr> cs;
             cs.reserve(children.size());
             for (const auto &c : children) {
-                cs.push_back(ir::Access::make(c.name, node));
+                cs.push_back(c.access(node));
             }
             stmts.back() = ir::Scan::make(ir::Expr(), make_tuple(cs));
         }

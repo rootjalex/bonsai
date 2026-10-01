@@ -5,6 +5,8 @@
 
 #include "Utils.h"
 
+#include <functional>
+
 namespace bonsai {
 namespace ir {
 
@@ -17,10 +19,16 @@ uint64_t Layout::bits() const {
         // the layout that pads it out to a 32-byte node has always taken it
         // to be.
         const Type &type = as<Name>()->type;
-        if (const auto *vector = type.as<Vector_t>()) {
-            return uint64_t(vector->lanes) * vector->etype.bits();
-        }
-        return type.bits();
+        // A vector of vectors -- `vector[vec3f, 8]`, a node's eight child
+        // boxes -- is every lane of every component: 8 * 3 * 32 bits.
+        const std::function<uint64_t(const Type &)> storage_bits =
+            [&](const Type &t) -> uint64_t {
+            if (const auto *vector = t.as<Vector_t>()) {
+                return uint64_t(vector->lanes) * storage_bits(vector->etype);
+            }
+            return t.bits();
+        };
+        return storage_bits(type);
     }
     case IRLayoutEnum::Pad: {
         return as<Pad>()->bits;

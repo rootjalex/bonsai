@@ -14,28 +14,23 @@ type vec3h = f16x3
 type vec4f = f32x4
 
 extern tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
-  | Interior(c0 : (const BVH4&), c1 : (const BVH4&), c2 : (const BVH4&), c3 : (const BVH4&), l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) with AABB(l0, h0) on c0 with AABB(l1, h1) on c1 with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+  | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
   | Leaf(data : Triangle[]) with data = data
 
 func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
   _holds0 : mut bool := false
   rec(tris : tree[[Triangle]] BVH4) {
     match tris {
-    | Interior(c0 : (const BVH4&), c1 : (const BVH4&), c2 : (const BVH4&), c3 : (const BVH4&), l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) with AABB(l0, h0) on c0 with AABB(l1, h1) on c1 with AABB(l2, h2) on c2 with AABB(l3, h3) on c3 ->
+    | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
       if (!_holds0) {
-        if (contains(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0))) {
-          _holds0 = true
+        _mask0 : mut bool[4]
+        parfor children in [0u:4u:1u] {
+          _mask0[children] = intersects(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children]))
+          if (contains(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children]))) {
+            _holds0 = true
+          }
         }
-        if (contains(r, build<AABB>((tris as Interior).l1, (tris as Interior).h1))) {
-          _holds0 = true
-        }
-        if (contains(r, build<AABB>((tris as Interior).l2, (tris as Interior).h2))) {
-          _holds0 = true
-        }
-        if (contains(r, build<AABB>((tris as Interior).l3, (tris as Interior).h3))) {
-          _holds0 = true
-        }
-        from ((tris as Interior).c0, (tris as Interior).c1, (tris as Interior).c2, (tris as Interior).c3) where (intersects(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0)), intersects(r, build<AABB>((tris as Interior).l1, (tris as Interior).h1)), intersects(r, build<AABB>((tris as Interior).l2, (tris as Interior).h2)), intersects(r, build<AABB>((tris as Interior).l3, (tris as Interior).h3)))
+        from ((tris as Interior).children[0u], (tris as Interior).children[1u], (tris as Interior).children[2u], (tris as Interior).children[3u]) where (_mask0[0u], _mask0[1u], _mask0[2u], _mask0[3u])
       }
     | Leaf(data : Triangle[]) with data = data ->
       if (!_holds0) {
@@ -54,8 +49,12 @@ func _traverse_tree1(r : Ray, tris : tree[[Triangle]] BVH4) -> option<Triangle> 
   _best0 : mut (f32, (ref[Triangle in tris])) := ((f32)inf, ())
   rec(tris : tree[[Triangle]] BVH4) {
     match tris {
-    | Interior(c0 : (const BVH4&), c1 : (const BVH4&), c2 : (const BVH4&), c3 : (const BVH4&), l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) with AABB(l0, h0) on c0 with AABB(l1, h1) on c1 with AABB(l2, h2) on c2 with AABB(l3, h3) on c3 ->
-      from ((tris as Interior).c0, (tris as Interior).c1, (tris as Interior).c2, (tris as Interior).c3) where (intersects(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0)) && (distmin(r, build<AABB>((tris as Interior).l0, (tris as Interior).h0)) < _best0[0]), intersects(r, build<AABB>((tris as Interior).l1, (tris as Interior).h1)) && (distmin(r, build<AABB>((tris as Interior).l1, (tris as Interior).h1)) < _best0[0]), intersects(r, build<AABB>((tris as Interior).l2, (tris as Interior).h2)) && (distmin(r, build<AABB>((tris as Interior).l2, (tris as Interior).h2)) < _best0[0]), intersects(r, build<AABB>((tris as Interior).l3, (tris as Interior).h3)) && (distmin(r, build<AABB>((tris as Interior).l3, (tris as Interior).h3)) < _best0[0]))
+    | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
+      _mask1 : mut bool[4]
+      parfor children in [0u:4u:1u] {
+        _mask1[children] = intersects(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) && (distmin(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) < _best0[0])
+      }
+      from ((tris as Interior).children[0u], (tris as Interior).children[1u], (tris as Interior).children[2u], (tris as Interior).children[3u]) where (_mask1[0u], _mask1[1u], _mask1[2u], _mask1[3u])
     | Leaf(data : Triangle[]) with data = data ->
       foreach _iter1 in (tris as Leaf).data {
         if (intersects(r, _iter1) && (distmin(r, _iter1) < _best0[0])) {
@@ -82,7 +81,7 @@ func [[export]] trace(r : Ray) -> option<Triangle> {
 
 schedule host {
     tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
-  | Interior(c0 : (const BVH4&), c1 : (const BVH4&), c2 : (const BVH4&), c3 : (const BVH4&), l0 : f32x3, l1 : f32x3, l2 : f32x3, l3 : f32x3, h0 : f32x3, h1 : f32x3, h2 : f32x3, h3 : f32x3) with AABB(l0, h0) on c0 with AABB(l1, h1) on c1 with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+  | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
   | Leaf(data : Triangle[]) with data = data
     tris :       {
         pCount : u32;
@@ -91,24 +90,8 @@ schedule host {
         group[nCount] row : u32
         {
           children : u32x4;
-          lower_x : f32x4;
-          upper_x : f32x4;
-          lower_y : f32x4;
-          upper_y : f32x4;
-          lower_z : f32x4;
-          upper_z : f32x4;
-          c0 = children[(i32)0];
-          c1 = children[(i32)1];
-          c2 = children[(i32)2];
-          c3 = children[(i32)3];
-          l0 = build<f32x3>(lower_x[(i32)0], lower_y[(i32)0], lower_z[(i32)0]);
-          h0 = build<f32x3>(upper_x[(i32)0], upper_y[(i32)0], upper_z[(i32)0]);
-          l1 = build<f32x3>(lower_x[(i32)1], lower_y[(i32)1], lower_z[(i32)1]);
-          h1 = build<f32x3>(upper_x[(i32)1], upper_y[(i32)1], upper_z[(i32)1]);
-          l2 = build<f32x3>(lower_x[(i32)2], lower_y[(i32)2], lower_z[(i32)2]);
-          h2 = build<f32x3>(upper_x[(i32)2], upper_y[(i32)2], upper_z[(i32)2]);
-          l3 = build<f32x3>(lower_x[(i32)3], lower_y[(i32)3], lower_z[(i32)3]);
-          h3 = build<f32x3>(upper_x[(i32)3], upper_y[(i32)3], upper_z[(i32)3]);
+          lo : f32x3x4;
+          hi : f32x3x4;
         };
         group[nCount] ref : u32
         {

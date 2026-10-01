@@ -48,6 +48,18 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
         // schedule names is the field it came from: `Instance.blas.Interior`.
         std::map<std::string, std::string> nested_paths;
 
+        // The arm's field holding its children as an array, if it has one
+        // (`children : array[BVH, 8]`): the tree lowering tests those
+        // children in a parfor named for the field (Lower/Trees.cpp,
+        // from_children), and the keys go into the same loop -- one pass
+        // over the children computes both what the parent tests and what it
+        // orders by, which is one loop for a schedule to vectorize. Empty for
+        // an arm whose children are named one by one, whose keys are one
+        // expression per branch.
+        std::string children_loop;
+        // The array the loop fills with the keys, once it has been found.
+        Expr keys_held;
+
         ApplySortImpl(const Location &loc, const Expr &cost_func,
                       FuncMap &funcs,
                       std::map<std::string, Type> names_in_scope)
@@ -86,8 +98,17 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             const Lambda *lambda = cost_func.as<Lambda>();
             internal_assert(lambda) << cost_func;
             internal_assert(!lambda->args.empty()) << cost_func;
+            return sort_cost(make_const(lambda->args[0].type, i));
+        }
+
+        // The key of the child at `value` -- a constant, for one branch of a
+        // `from`, or the index of the children's loop, for every child in
+        // one expression.
+        Expr sort_cost(Expr value) const {
+            const Lambda *lambda = cost_func.as<Lambda>();
+            internal_assert(lambda) << cost_func;
+            internal_assert(!lambda->args.empty()) << cost_func;
             const std::string &idx = lambda->args[0].name;
-            Expr value = make_const(lambda->args[0].type, i);
 
             std::map<std::string, Expr> temp_repls;
 
@@ -151,9 +172,54 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             // permutation happens on SSA once a branch is a number.
             std::vector<Expr> keys(exprs.size());
             for (size_t i = 0; i < exprs.size(); i++) {
-                keys[i] = sort_cost(i);
+                // Computed in the children's loop, where there is one (see
+                // visit(ParFor)), and otherwise here, per branch.
+                keys[i] = keys_held.defined()
+                              ? Extract::make(keys_held, make_const(
+                                                             UInt_t::make(32), i))
+                              : sort_cost(i);
             }
             return YieldFrom::make(node->value, std::move(keys), node->conds);
+        }
+
+        // The children's loop of the arm this sort names: the keys are
+        // computed in it, one per child, into an array the `from` then reads
+        // (see `children_loop`).
+        Stmt visit(const ParFor *node) override {
+            if (!current_match_arg.defined() || children_loop.empty() ||
+                node->index != children_loop) {
+                return Mutator::visit(node);
+            }
+            internal_assert(!keys_held.defined())
+                << "Two loops over the children of one arm: " << Stmt(node);
+            const Lambda *lambda = cost_func.as<Lambda>();
+            internal_assert(lambda) << cost_func;
+            const Type index_t = UInt_t::make(32);
+            const std::optional<uint64_t> count =
+                get_constant_value<uint64_t>(node->slice.end);
+            internal_assert(count.has_value())
+                << "The children's loop has no constant extent: " << Stmt(node);
+
+            static size_t counter = 0;
+            const std::string name = "_keys" + std::to_string(counter++);
+            const Type keys_t =
+                Array_t::make(lambda->value.type(), make_const(index_t, *count));
+            WriteLoc keys(name, keys_t);
+            WriteLoc slot = keys;
+            const Expr index = Var::make(index_t, node->index);
+            slot.add_index_access(index);
+            // The lambda takes the child's index as its first parameter, in
+            // whatever type the schedule gave it.
+            Expr key = sort_cost(Cast::make(lambda->args[0].type, index,
+                                            Cast::Mode::Convert));
+            keys_held = Var::make(keys_t, name);
+            return Sequence::make(
+                {Allocate::make(keys, Allocate::Memory::Stack),
+                 ParFor::make(node->index, node->slice,
+                              Sequence::make({node->body,
+                                              Store::make(std::move(slot),
+                                                          std::move(key))}),
+                              node->binding)});
         }
 
         Stmt visit(const Match *node) override {
@@ -182,9 +248,26 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                 Stmt stmt = node->arms[i].second;
                 if (node->arms[i].first.name() == wanted_arm()) {
                     current_match_arg = Unwrap::make(i, node->loc);
+                    // The arm's children as an array, if it holds them so:
+                    // the field of an array or vector of the tree's
+                    // references, which names the loop over them.
+                    children_loop.clear();
+                    for (const auto &field : node->arms[i].first.fields()) {
+                        const Type *element = nullptr;
+                        if (const auto *a = field.type.as<Array_t>()) {
+                            element = &a->etype;
+                        } else if (const auto *v = field.type.as<Vector_t>()) {
+                            element = &v->etype;
+                        }
+                        if (element != nullptr && element->is<Ref_t>()) {
+                            children_loop = field.name;
+                        }
+                    }
                     stmt = mutate(stmt);
                     found = true;
                     current_match_arg = Expr();
+                    children_loop.clear();
+                    keys_held = Expr();
                 }
                 new_arms[i] = {node->arms[i].first, std::move(stmt)};
             }

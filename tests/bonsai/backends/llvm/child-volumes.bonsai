@@ -3,13 +3,14 @@
 // A node that bounds its children rather than itself, all the way to LLVM,
 // with the recursion left as recursion.
 //
-// lower/child-volumes.bonsai is the `from` with a condition per branch;
-// ssa/child-volumes-sorted.bonsai is what loopify makes of those conditions.
-// This is the other consumer: a run of recursive calls that is still a run
-// of calls when it reaches the backend. Each call is made under its branch's
-// condition -- a `br i1` round the call, in blocks of the run's own
-// (`!call`, `!next`) -- so the child whose box the ray missed is not visited,
-// and the two calls that are made are made in the order the `from` gave.
+// lower/child-volumes.bonsai is the `from` with a mask bit per branch, from
+// a loop over the children; ssa/child-volumes-sorted.bonsai is what loopify
+// makes of those bits. This is the other consumer: a run of recursive calls
+// that is still a run of calls when it reaches the backend. Each call is
+// made under its branch's bit -- a `br i1` round the call, in blocks of the
+// run's own (`!call`, `!next`) -- so the child whose box the ray missed is
+// not visited, and the two calls that are made are made in the order the
+// `from` gave.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;
@@ -28,8 +29,8 @@ schedule {
     // Two children, to keep the module short: the shape is the same at four
     // or eight.
     tree[[Triangle]] BVH2 =
-    | Interior(c0 c1 : BVH2, l0 l1 : vec3f, h0 h1 : vec3f)
-        with AABB(l0, h0) on c0 with AABB(l1, h1) on c1
+    | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
+        with AABB(lo, hi) on children
     | Leaf(data : array[Triangle]) with data = data;
 
     tris : BVH2;
@@ -40,15 +41,8 @@ schedule {
         nCount : u32;
         indirect group Nodes[nCount] row : u32 {
             children : vector[u32, 2];
-            lower_x : vector[f32, 2];
-            upper_x : vector[f32, 2];
-            lower_y : vector[f32, 2];
-            upper_y : vector[f32, 2];
-            lower_z : vector[f32, 2];
-            upper_z : vector[f32, 2];
-            c0 = children[0]; c1 = children[1];
-            l0 = vec3f{lower_x[0], lower_y[0], lower_z[0]}; h0 = vec3f{upper_x[0], upper_y[0], upper_z[0]};
-            l1 = vec3f{lower_x[1], lower_y[1], lower_z[1]}; h1 = vec3f{upper_x[1], upper_y[1], upper_z[1]};
+            lo : vector[vec3f, 2];
+            hi : vector[vec3f, 2];
         };
         group[nCount] ref : u32 {
             kind = ref & 15u;

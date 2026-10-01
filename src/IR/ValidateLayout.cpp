@@ -5,6 +5,7 @@
 #include "IR/Visitor.h"
 
 #include "Error.h"
+#include "Utils.h"
 
 #include <set>
 
@@ -144,6 +145,34 @@ bool valid_path(const Path &path, const BVH_t::Node &node) {
                                                iter->second.is_int_tuple())) {
                 // TODO: figure out how to validate references as indexes into
                 // groups!
+                continue;
+            }
+            // A field holding an array of children (`children : array[BVH,
+            // 8]`) is stored as that many references, each an index: a vector
+            // or array of integers as long as it.
+            const auto element_of = [](const Type &t) -> const Type * {
+                if (const auto *a = t.as<Array_t>()) {
+                    return &a->etype;
+                }
+                if (const auto *v = t.as<Vector_t>()) {
+                    return &v->etype;
+                }
+                return nullptr;
+            };
+            const auto length_of = [](const Type &t) -> std::optional<uint64_t> {
+                if (const auto *a = t.as<Array_t>()) {
+                    return get_constant_value<uint64_t>(a->size);
+                }
+                if (const auto *v = t.as<Vector_t>()) {
+                    return v->lanes;
+                }
+                return std::nullopt;
+            };
+            const Type *held = element_of(param.type);
+            const Type *stored = element_of(iter->second);
+            if (held != nullptr && stored != nullptr && held->is<Ref_t>() &&
+                stored->is_int_or_uint() &&
+                length_of(param.type) == length_of(iter->second)) {
                 continue;
             }
             return false;

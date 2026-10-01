@@ -97,6 +97,19 @@ void emit_type(std::ostream &ss, Type type,
 
         void visit(const Vector_t *node) override {
             internal_assert(!contains<Ptr_t>(node->etype));
+            // A vector of vectors is a struct of one vector per component
+            // (see CodeGen_LLVM::visit(const Vector_t *)), declared by
+            // emit_type_declaration under the name of what it holds --
+            // `float3x8` -- and, for its packed storage, a struct of one
+            // std::array per component, `float3x8_packed`.
+            if (node->etype.is<Vector_t>()) {
+                node->etype.accept(this);
+                ss << "x" << node->lanes;
+                if (node->packed) {
+                    ss << "_packed";
+                }
+                return;
+            }
             // Packed storage of an exact width, not a value: a layout's vector
             // field, and the bytes of a layout's switch payload (see
             // Lower/Layouts.cpp and Vector_t::packed). A native vector cannot
@@ -108,11 +121,6 @@ void emit_type(std::ostream &ss, Type type,
                 ss << "std::array<";
                 node->etype.accept(this);
                 ss << ", " << node->lanes << ">";
-                return;
-            }
-            if (node->etype.is<Vector_t>()) {
-                node->etype.accept(this);
-                ss << "x" << node->lanes;
                 return;
             }
             node->etype.accept(this);
@@ -337,6 +345,34 @@ void emit_type_declaration(std::stringstream &ss, Type type,
         ss << ";\n";
         return;
     } else if (const Vector_t *vector_t = type.as<Vector_t>()) {
+        // A vector of vectors: a struct of one vector per component, as the
+        // LLVM backend lays it out, each a native vector of the lanes or,
+        // packed, a std::array of them (see emit_type for the names). The
+        // components are named as a short vector's are.
+        if (const Vector_t *inner = vector_t->etype.as<Vector_t>()) {
+            static const char *const names[4] = {"x", "y", "z", "w"};
+            ss << "struct ";
+            emit_type(ss, type);
+            ss << " {\n";
+            for (uint32_t k = 0; k < inner->lanes; k++) {
+                ss << "    ";
+                emit_type(ss, Vector_t::make(inner->etype, vector_t->lanes,
+                                             vector_t->packed));
+                ss << " ";
+                if (k < 4) {
+                    ss << names[k];
+                } else {
+                    ss << "c" << k;
+                }
+                ss << ";\n";
+            }
+            ss << "}";
+            if (vector_t->packed) {
+                ss << " __attribute__((packed))";
+            }
+            ss << ";\n";
+            return;
+        }
         // Packed storage, and byte vectors, are spelled std::array at the
         // point of use (see emit_type), which needs no declaration of its own.
         if (vector_t->packed ||
@@ -781,6 +817,13 @@ class BonsaiToCpp : ir::Printer {
                             std::vector<Type> &types) {
         if (const Vector_t *vector_t = type.as<Vector_t>()) {
             get_declared_types(vector_t->etype, deduplicate, types);
+            // A vector of vectors is declared as a struct of component
+            // vectors, which have to be declared before it.
+            if (const Vector_t *inner = vector_t->etype.as<Vector_t>()) {
+                get_declared_types(Vector_t::make(inner->etype, vector_t->lanes,
+                                                  vector_t->packed),
+                                   deduplicate, types);
+            }
             if (auto [_, inserted] = deduplicate.insert(type); inserted) {
                 types.push_back(type);
             }

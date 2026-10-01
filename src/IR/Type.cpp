@@ -663,9 +663,18 @@ uint64_t layout_align(const Type &type) {
         return type.bytes();
     }
     if (const Vector_t *v = type.as<Vector_t>()) {
-        // Packed storage is an array of the element; a vector proper is
-        // aligned to its whole (power-of-two) size, as the targets align it.
-        return v->packed ? layout_align(v->etype) : type.bytes();
+        // Packed storage is an array of the element -- of the scalar, for a
+        // vector of vectors, whose storage is one array per component (see
+        // CodeGen_LLVM::visit(const Vector_t *)); a vector proper is aligned
+        // to its whole (power-of-two) size, as the targets align it.
+        if (v->packed) {
+            Type scalar = v->etype;
+            while (const Vector_t *inner = scalar.as<Vector_t>()) {
+                scalar = inner->etype;
+            }
+            return layout_align(scalar);
+        }
+        return type.bytes();
     }
     if (type.is<Ptr_t>() || type.is_reference()) {
         return 8;
@@ -895,6 +904,37 @@ bool validate_volume(const Annotation::Volume &volume,
         return false;
     }
 
+    // How many values an initializer holds: one, or one per child when the
+    // volume is on a field holding an array of children (`with AABB(lo, hi)
+    // on children` for `children : array[BVH, 8]`, `lo hi : vector[vec3f,
+    // 8]`), where it is a vector or array of the volume's field, as wide.
+    std::optional<uint64_t> per_child;
+    if (!volume.geometry.empty()) {
+        const auto on = std::find_if(
+            params.begin(), params.end(),
+            [&](const TypedVar &p) { return p.name == volume.geometry; });
+        if (on != params.end()) {
+            if (const auto *array = on->type.as<Array_t>()) {
+                per_child = get_constant_value<uint64_t>(array->size);
+            } else if (const auto *vector = on->type.as<Vector_t>()) {
+                per_child = vector->lanes;
+            }
+        }
+    }
+    const auto holds_per_child = [&](const Type &type, const Type &field) {
+        if (!per_child.has_value()) {
+            return false;
+        }
+        if (const auto *array = type.as<Array_t>()) {
+            return equals(array->etype, field) &&
+                   get_constant_value<uint64_t>(array->size) == per_child;
+        }
+        if (const auto *vector = type.as<Vector_t>()) {
+            return equals(vector->etype, field) && vector->lanes == *per_child;
+        }
+        return false;
+    };
+
     for (size_t i = 0; i < fields.size(); i++) {
         const std::string &name = volume.initializers[i];
 
@@ -907,7 +947,8 @@ bool validate_volume(const Annotation::Volume &volume,
         }
 
         // Validate type
-        if (!equals(it->type, fields[i].type)) {
+        if (!equals(it->type, fields[i].type) &&
+            !holds_per_child(it->type, fields[i].type)) {
             return false;
         }
     }

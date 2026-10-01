@@ -39,19 +39,10 @@ func entry(r : Ray, b : AABB) -> Float {
     return inf;
 }
 
-func [[inline]] child_box(i : u8, l0 : vec3f, l1 : vec3f, l2 : vec3f,
-                          l3 : vec3f, h0 : vec3f, h1 : vec3f, h2 : vec3f,
-                          h3 : vec3f) -> AABB {
-    low = select(i == 0, l0, select(i == 1, l1, select(i == 2, l2, l3)));
-    high = select(i == 0, h0, select(i == 1, h1, select(i == 2, h2, h3)));
-    return AABB{low, high};
-}
-
 schedule {
     tree[[Triangle]] BVH4 =
-    | Interior(c0 c1 c2 c3 : BVH4, l0 l1 l2 l3 : vec3f, h0 h1 h2 h3 : vec3f)
-        with AABB(l0, h0) on c0 with AABB(l1, h1) on c1
-        with AABB(l2, h2) on c2 with AABB(l3, h3) on c3
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
     | Leaf(data : array[Triangle]) with data = data;
 
     tris : BVH4;
@@ -62,17 +53,8 @@ schedule {
         nCount : u32;
         indirect group Nodes[nCount] row : u32 {
             children : vector[u32, 4];
-            lower_x : vector[f32, 4];
-            upper_x : vector[f32, 4];
-            lower_y : vector[f32, 4];
-            upper_y : vector[f32, 4];
-            lower_z : vector[f32, 4];
-            upper_z : vector[f32, 4];
-            c0 = children[0]; c1 = children[1]; c2 = children[2]; c3 = children[3];
-            l0 = vec3f{lower_x[0], lower_y[0], lower_z[0]}; h0 = vec3f{upper_x[0], upper_y[0], upper_z[0]};
-            l1 = vec3f{lower_x[1], lower_y[1], lower_z[1]}; h1 = vec3f{upper_x[1], upper_y[1], upper_z[1]};
-            l2 = vec3f{lower_x[2], lower_y[2], lower_z[2]}; h2 = vec3f{upper_x[2], upper_y[2], upper_z[2]};
-            l3 = vec3f{lower_x[3], lower_y[3], lower_z[3]}; h3 = vec3f{upper_x[3], upper_y[3], upper_z[3]};
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
         };
         // A reference's low four bits say what it is: 0 an interior node at
         // row `ref >> 4`, 8 + n a leaf of n triangles starting at `ref >> 4`.
@@ -86,9 +68,8 @@ schedule {
     };
 
     trace.sort(tris.Interior,
-               |i : u8, r : Ray, l0 : vec3f, l1 : vec3f, l2 : vec3f, l3 : vec3f,
-                h0 : vec3f, h1 : vec3f, h2 : vec3f, h3 : vec3f|
-               entry(r, child_box(i, l0, l1, l2, l3, h0, h1, h2, h3)))
+               |i : u8, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
          .loopify(64);
     occluded.loopify(64);
 }

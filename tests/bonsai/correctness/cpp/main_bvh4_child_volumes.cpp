@@ -79,21 +79,31 @@ struct Builder {
         return (first << 4) | (8u + uint32_t(tris.size()));
     }
 
+    // A node's row: its four children and their boxes, the boxes stored by
+    // component -- `lo : vector[vec3f, 4]` is the four children's lower
+    // corners, held as one array per component, as Embree's AABBNode holds
+    // them.
+    static void fill(_tree_layout1 &n, const uint32_t children[4],
+                     const Box boxes[4]) {
+        for (int i = 0; i < 4; i++) {
+            n.children[i] = children[i];
+            n.lo.x[i] = boxes[i].lo[0];
+            n.lo.y[i] = boxes[i].lo[1];
+            n.lo.z[i] = boxes[i].lo[2];
+            n.hi.x[i] = boxes[i].hi[0];
+            n.hi.y[i] = boxes[i].hi[1];
+            n.hi.z[i] = boxes[i].hi[2];
+        }
+    }
+
     // An interior node over four children, each already built, with its box.
     uint32_t interior(const uint32_t children[4], const Box boxes[4],
                       Box &box) {
         const uint32_t row = uint32_t(rows.size());
         rows.emplace_back();
-        _tree_layout1 &n = rows.back();
+        fill(rows.back(), children, boxes);
         box = boxes[0];
-        for (int i = 0; i < 4; i++) {
-            n.children[i] = children[i];
-            n.lower_x[i] = boxes[i].lo[0];
-            n.upper_x[i] = boxes[i].hi[0];
-            n.lower_y[i] = boxes[i].lo[1];
-            n.upper_y[i] = boxes[i].hi[1];
-            n.lower_z[i] = boxes[i].lo[2];
-            n.upper_z[i] = boxes[i].hi[2];
+        for (int i = 1; i < 4; i++) {
             box = merge(box, boxes[i]);
         }
         return row << 4;
@@ -124,16 +134,7 @@ _tree_layout0 build_tree(Builder &b) {
         root_children[quarter] =
             b.interior(leaves, leaf_boxes, root_boxes[quarter]);
     }
-    _tree_layout1 &root = b.rows[0];
-    for (int i = 0; i < 4; i++) {
-        root.children[i] = root_children[i];
-        root.lower_x[i] = root_boxes[i].lo[0];
-        root.upper_x[i] = root_boxes[i].hi[0];
-        root.lower_y[i] = root_boxes[i].lo[1];
-        root.upper_y[i] = root_boxes[i].hi[1];
-        root.lower_z[i] = root_boxes[i].lo[2];
-        root.upper_z[i] = root_boxes[i].hi[2];
-    }
+    Builder::fill(b.rows[0], root_children, root_boxes);
 
     // The layout's arrays reach the program as buffer descriptors
     // (runtime/bonsai_buffer.h), which have to outlive the tree.
