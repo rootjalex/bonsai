@@ -4,7 +4,8 @@ A TextMate grammar for `.bonsai` files, packaged as a VS Code extension. It
 highlights what the lexer in `src/Parser/Lexer.cpp` knows about -- keywords,
 literals, comments, operators -- plus a few things the parser knows: builtin
 types (`f32`, `vector[...]`, `array[...]`), declarations (`func`, `element`,
-`tree[[T]] Name`), type positions (`x : vec3f`, `-> Float`), the schedule
+`tree[[T]] Name`), type positions (`x : vec3f`, `x : mut Interval`,
+`l : reduce(+) vec4f`, `-> Float`), the schedule
 directives (`.loopify()`, `.bind()`, ...) and the layout words (`tagged_index`,
 `inline`, `tight`). There is no language server here: no completion, no errors,
 no go-to-definition. Just colour.
@@ -55,6 +56,8 @@ that wants to single them out:
 | `support.function.builtin.bonsai` | `fma`, `sqrt`, `cast`, `range`, `select`, ... |
 | `entity.name.type.interface.bonsai` | `IFloat`, `IVector`, any `I` + capital |
 | `storage.type.tree.bonsai` | the `tree` keyword |
+| `storage.modifier.reduce.bonsai` | `reduce` in a reduction variable's type, `l : reduce(+) vec4f` |
+| `keyword.operator.reduce.bonsai` | the operation inside it, the `+` |
 | `meta.generic.bonsai` | the inside of `[[ ... ]]` |
 
 ## Keeping it current

@@ -108,6 +108,11 @@
           "match": "\\b(mut|indirect)\\b"
         },
         {
+          "comment": "`reduce(+)` when it is not right after the `:` (the declaration wrapped, say): still the modifier, not a call.",
+          "name": "storage.modifier.reduce.bonsai",
+          "match": "\\b(reduce)(?=\\s*\\()"
+        },
+        {
           "name": "keyword.other.bonsai",
           "match": "\\b(with|on|in|from)\\b"
         },
@@ -138,12 +143,16 @@
       ]
     },
     "type-annotation": {
-      "comment": "The name after `:` or `->` is a type: `o : vec3f`, `x : mut Interval`, `-> Float`. Builtins keep their own scope, anything else is a type name.",
-      "match": "(:|->)\\s*(?:(mut)\\s+)?(?!(?:mut|in|from|with|on)\\b)([A-Za-z_][A-Za-z0-9_]*)?",
+      "comment": "The name after `:` or `->` is a type: `o : vec3f`, `x : mut Interval`, `-> Float`. A reduction variable puts `reduce(+)` before its type, `l : reduce(+) vec4f`; the modifier and its operation are their own scopes and the type is still the type. Builtins keep their own scope, anything else is a type name.",
+      "match": "(:|->)\\s*(?:(mut)\\s+|(reduce)\\s*(\\()\\s*([-+*/%&|^]|&&|\\|\\||min|max)?\\s*(\\))\\s*)?(?!(?:mut|in|from|with|on|reduce)\\b)([A-Za-z_][A-Za-z0-9_]*)?",
       "captures": {
         "1": { "name": "punctuation.separator.type.bonsai" },
         "2": { "name": "storage.modifier.bonsai" },
-        "3": {
+        "3": { "name": "storage.modifier.reduce.bonsai" },
+        "4": { "name": "punctuation.section.parens.bonsai" },
+        "5": { "name": "keyword.operator.reduce.bonsai" },
+        "6": { "name": "punctuation.section.parens.bonsai" },
+        "7": {
           "patterns": [
             { "include": "#types" },
             {
