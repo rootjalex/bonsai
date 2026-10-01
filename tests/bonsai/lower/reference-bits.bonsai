@@ -1,0 +1,75 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// Scion's spelling of a reference decoded from its own bits (Gyurgyik, Root
+// and Kjolstad, "Decoupling Data Layouts from Bounding Volume Hierarchies",
+// PLDI 2026, Figs. 12 and 13), for Embree's NodeRef.
+//
+// The reference is a parameter of the layout, with the root's value as its
+// default: `layout tris(ref : u32 = 0u)`. Its bits are read as ranges, both
+// ends included: `ref[0:3]` the low four, `ref[4:31]` the rest. The switch
+// is on an expression -- `switch ref[0:3]` -- which becomes a derived field
+// of its own, switched on by name. And a leaf's elements are a slice of the
+// primitive array, `prims[a : b]`, from a up to but not including b. The
+// hand-written form, `group[n] ref : u32 { kind = ref & 15u; switch kind {
+// ... Leaf { data = range(prims, ..) } } }` (lower/child-volumes.bonsai), is
+// what this parses to: the switch and the fields it derives are the direct
+// group of references, which stores nothing, and the walk begins at the
+// default.
+//
+// What to read for in the golden. The same lowering as
+// lower/tiled-elements.bonsai, which spells the group by hand, to the
+// letter but for the derived field's name: `_switch0 = ref & 15u` where that
+// has `kind`, `ref >> 4u` for the row (a range to the top bit needs no
+// mask), and the leaf's loop over `prims` from `(ref >> 4u) * 4u` for
+// `(_switch0 - 8u) * 4u` elements -- the slice's `first : first + count`
+// folding back to the count.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris(ref : u32 = 0u) {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        // Embree's NodeRef: the low four bits say what it names, 0 a node at
+        // row `ref[4:31]`, 8 + n a leaf of n tiles from tile `ref[4:31]`.
+        switch ref[0:3] {
+            0 => Interior from Nodes[ref[4:31]];
+            _ => Leaf { data = prims[ref[4:31] * 4u : ref[4:31] * 4u + (ref[0:3] - 8u) * 4u]; };
+        };
+    };
+}

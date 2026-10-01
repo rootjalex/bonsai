@@ -2104,9 +2104,26 @@ struct Parser {
                     base = ir::Access::make(std::move(field), std::move(base));
                 }
             } else if (consume(Token::Type::LBRACKET)) {
-                // Can have multiple indexes in one `[` `]`
-                std::vector<ir::Expr> idxs =
-                    parse_expr_list_until(Token::Type::RBRACKET);
+                // `x[i]`, or several indices in one `[` `]`; or a range,
+                // `x[a : b]` -- of an integer, its bits a through b, both
+                // included (Scion's `I[0:3]`, the four low bits of a
+                // reference); of an array, the elements from a up to but not
+                // including b (Scion's `prims[o : o + n]`), which is
+                // `range(x, a, b - a)`.
+                ir::Expr first = parse_expr();
+                if (consume(Token::Type::COL)) {
+                    ir::Expr last = parse_expr();
+                    expect(Token::Type::RBRACKET);
+                    base = parse_range_of(std::move(base), std::move(first),
+                                          std::move(last));
+                    continue;
+                }
+                std::vector<ir::Expr> idxs;
+                idxs.push_back(std::move(first));
+                while (consume(Token::Type::COMMA)) {
+                    idxs.push_back(parse_expr());
+                }
+                expect(Token::Type::RBRACKET);
                 for (auto &idx : idxs) {
                     base = ir::Extract::make(std::move(base), std::move(idx));
                 }
@@ -2114,6 +2131,69 @@ struct Parser {
                 break;
             }
         }
+        return base;
+    }
+
+    // `base[first : last]`: the bits of an integer, both ends included, as the
+    // same type -- shifted down and masked, with constant ends, which fold --
+    // or the elements of an array from `first` up to `last`.
+    ir::Expr parse_range_of(ir::Expr base, ir::Expr first, ir::Expr last) {
+        const ir::Type type = base.type();
+        if (type.is_int_or_uint()) {
+            const std::optional<int64_t> lo = get_constant_value<int64_t>(first);
+            const std::optional<int64_t> hi = get_constant_value<int64_t>(last);
+            if (!lo.has_value() || !hi.has_value()) {
+                report_error() << "A bit range's ends are constants: " << base
+                               << "[" << first << " : " << last << "]";
+            }
+            if (*lo < 0 || *hi < *lo || *hi >= int64_t(type.bits())) {
+                report_error() << "Bit range " << *lo << ":" << *hi
+                               << " does not fit in a " << type;
+            }
+            ir::Expr bits = std::move(base);
+            if (*lo > 0) {
+                bits = ir::BinOp::make(ir::BinOp::Shr, std::move(bits),
+                                       make_const(type, *lo));
+            }
+            const uint32_t width = static_cast<uint32_t>(*hi - *lo + 1);
+            // A range reaching the top bit of an unsigned integer needs no
+            // mask: the shift brought zeros in above it.
+            if (width == type.bits() ||
+                (type.is_uint() && *hi == int64_t(type.bits()) - 1)) {
+                return bits;
+            }
+            const uint64_t mask = (uint64_t(1) << width) - 1;
+            return ir::BinOp::make(ir::BinOp::BwAnd, std::move(bits),
+                                   make_const(type, mask));
+        }
+        if (type.is<ir::Array_t>()) {
+            if (!ir::equals(first.type(), last.type())) {
+                report_error() << "A slice's ends are of one type: " << first
+                               << " is " << first.type() << ", " << last
+                               << " is " << last.type();
+            }
+            // The length. A slice is usually written `x[a : a + n]`, and its
+            // length is then `n` outright: the length goes into the array
+            // type of the result, where no later simplification reaches.
+            ir::Expr count;
+            if (const ir::BinOp *sum = last.as<ir::BinOp>();
+                sum != nullptr && sum->op == ir::BinOp::Add) {
+                if (ir::equals(sum->a, first)) {
+                    count = sum->b;
+                } else if (ir::equals(sum->b, first)) {
+                    count = sum->a;
+                }
+            }
+            if (!count.defined()) {
+                count = ir::BinOp::make(ir::BinOp::Sub, last, first);
+            }
+            return ir::Generator::make(
+                ir::Generator::range,
+                {std::move(base), std::move(first), std::move(count)});
+        }
+        report_error() << "A range `[a : b]` is taken of an integer's bits or "
+                          "an array's elements, not of "
+                       << base << " of type " << type;
         return base;
     }
 
@@ -4121,6 +4201,89 @@ struct Parser {
     // The element type of the set whose layout is being parsed, for a group
     // of elements (ir::Group::element); undefined outside a tree's layout.
     ir::Type layout_element_t;
+    // Members a layout construct makes for itself -- the derived field a
+    // `switch <expr>` switches on -- to go into the chain just before it.
+    std::vector<ir::Layout> pending_layout_members;
+    size_t layout_switch_counter = 0;
+
+    // Scion's reference parameter: `layout tris(ref : u64 = 0u) { ... }`
+    // declares the type a reference to a node is, and where the walk begins
+    // (the root's reference; zero if not said). The members that decode the
+    // reference -- the `switch` on its bits, and the fields derived from it
+    // -- are then written at the layout's top level, where the hand-written
+    // form puts them inside `group[n] ref : u64 { ... }`.
+    struct LayoutReference {
+        std::string name;
+        ir::Type type;
+        ir::Expr start;
+    };
+
+    std::optional<LayoutReference> parse_layout_reference() {
+        if (!consume(Token::Type::LPAREN)) {
+            return std::nullopt;
+        }
+        LayoutReference reference;
+        reference.name = get_id();
+        expect(Token::Type::COL);
+        reference.type = parse_type();
+        if (!reference.type.is_int_or_uint()) {
+            report_error() << "A layout's reference is an integer: "
+                           << reference.name << " is a " << reference.type;
+        }
+        if (consume(Token::Type::ASSIGN)) {
+            ir::Expr start = parse_expr();
+            const std::optional<int64_t> value =
+                get_constant_value<int64_t>(start);
+            if (!value.has_value()) {
+                report_error() << "A layout's root reference is a constant: "
+                               << start;
+            }
+            reference.start = make_const(reference.type, *value);
+        }
+        expect(Token::Type::RPAREN);
+        return reference;
+    }
+
+    // The direct group of references made from the members that decode the
+    // reference, put where the first of them stood. The hand-written form
+    // (`group[n] ref : u64 { kind = ref & 15u; switch kind { ... }; }`) is
+    // exactly this group; the group stores nothing, so its size does not
+    // matter (see Lower/Layouts.cpp, stores_nothing).
+    ir::Layout group_the_reference(ir::Layout layout,
+                                   const LayoutReference &reference) {
+        const ir::Chain *chain = layout.as<ir::Chain>();
+        if (chain == nullptr) {
+            report_error() << "A layout with a reference parameter is a "
+                              "sequence of members ending in a switch on it.";
+        }
+        std::vector<ir::Layout> outer, decoding;
+        std::optional<size_t> at;
+        bool switched = false;
+        for (const ir::Layout &member : chain->layouts) {
+            if (member.is<ir::Switch>() || member.is<ir::Materialize>()) {
+                if (!at.has_value()) {
+                    at = outer.size();
+                }
+                switched = switched || member.is<ir::Switch>();
+                decoding.push_back(member);
+            } else {
+                outer.push_back(member);
+            }
+        }
+        if (!switched) {
+            report_error() << "A layout with a reference parameter (`"
+                           << reference.name
+                           << "`) decodes it with a `switch` on its bits, and "
+                              "this one has none.";
+        }
+        outer.insert(outer.begin() + static_cast<std::ptrdiff_t>(*at),
+                     ir::Group::make(ir::Var::make(ir::UInt_t::make(32), "count"),
+                                     reference.name, "", reference.type,
+                                     ir::Chain::make(std::move(decoding)),
+                                     ir::Group::Type::Direct, ir::Type(),
+                                     reference.start));
+        return ir::Chain::make(std::move(outer));
+    }
 
     // Wrapper that adds built-ins into scope and then calls parse_layout()
     ir::Layout parse_top_level_layout() {
@@ -4128,10 +4291,18 @@ struct Parser {
 
         // TODO: support other non-u32 indexing.
         add_type_to_frame("this", ir::Type(), false);
+        const std::optional<LayoutReference> reference =
+            parse_layout_reference();
+        if (reference.has_value()) {
+            add_type_to_frame(reference->name, reference->type, false);
+        }
         ir::Layout layout = parse_layout();
         expect(Token::Type::SEMICOL);
 
         pop_frame();
+        if (reference.has_value()) {
+            layout = group_the_reference(std::move(layout), *reference);
+        }
         return layout;
     }
 
@@ -4197,10 +4368,23 @@ struct Parser {
             consume();
             std::vector<ir::Layout> layouts;
             push_frame();
+            // Members made for a member of an enclosing chain -- the derived
+            // field a `switch <expr>` switches on, made before its arms are
+            // read -- belong to that chain, not to the arm's.
+            std::vector<ir::Layout> enclosing_pending =
+                std::move(pending_layout_members);
+            pending_layout_members.clear();
             do {
-                layouts.emplace_back(parse_layout());
+                ir::Layout member = parse_layout();
+                // What the member made for itself goes in front of it.
+                for (ir::Layout &pending : pending_layout_members) {
+                    layouts.push_back(std::move(pending));
+                }
+                pending_layout_members.clear();
+                layouts.push_back(std::move(member));
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
+            pending_layout_members = std::move(enclosing_pending);
             pop_frame();
             return ir::Chain::make(std::move(layouts));
         }
@@ -4323,7 +4507,26 @@ struct Parser {
         }
         case Token::Type::SWITCH: {
             consume();
-            std::string name = get_id();
+            // `switch <field> { ... }`, or Scion's `split e`: `switch <expr> {
+            // ... }` on any expression of the reference and the fields --
+            // `switch ref[0:3]`, the low four bits -- which is made a derived
+            // field of its own, placed just before the switch, and switched
+            // on by name.
+            std::string name;
+            if (peek().type == Token::Type::IDENTIFIER &&
+                peek(1).type == Token::Type::LSQUIGGLE) {
+                name = get_id();
+            } else {
+                ir::Expr value = parse_expr();
+                if (!value.type().defined() || !value.type().is_int_or_uint()) {
+                    report_error()
+                        << "A layout switches on an integer: " << value;
+                }
+                name = "_switch" + std::to_string(layout_switch_counter++);
+                add_type_to_frame(name, value.type(), /* mutable=*/false);
+                pending_layout_members.push_back(
+                    ir::Materialize::make(name, std::move(value)));
+            }
             expect(Token::Type::LSQUIGGLE);
 
             std::vector<ir::Switch::Arm> arms;

@@ -40,7 +40,7 @@ func _traverse_array4(ij : i32[8][8]) -> i32[8][8] {
   alloc _alloc4 : mut i32[8 * 8]
   parfor _i0 in [0:8:1] {
     parfor _i1 in [0:8:1] {
-      _alloc4[(_i0 << 3) + _i1] = (ij[_i0][_i1] + 1) - 1
+      _alloc4[(_i0 << 3) + _i1] = ij[_i0][_i1]
     }
   }
   return reinterpret_cast<i32[8][8]>(_alloc4)

@@ -138,10 +138,15 @@ struct Group : LayoutNode<Group> {
     // (see ir::TiledArray). Scion's array-of-structs-of-arrays, spelled as
     // Scion spells it: a group nested in a group, the inner one the tile.
     ir::Type element;
+    // Where a walk of a direct group begins -- the root's reference -- when
+    // the layout says (`layout tris(ref : u64 = 0u)`, Scion's reference
+    // parameter with its default); undefined means zero.
+    Expr start;
 
     static Layout make(Expr size, std::string name, std::string declared_name,
                        ir::Type index_t, Layout inner,
-                       Type type = Type::Direct, ir::Type element = ir::Type());
+                       Type type = Type::Direct, ir::Type element = ir::Type(),
+                       Expr start = Expr());
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };

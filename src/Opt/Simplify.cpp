@@ -363,6 +363,20 @@ struct Simplifier : ir::Mutator {
                 // 0 - a = -a
                 return -b;
             }
+            // (x + y) - x = y, and (x + y) - y = x: integers only, for the
+            // reason above. A slice `prims[first : first + count]` asks for
+            // its length this way (Parser.cpp, parse_range_of).
+            if (!type.is_float()) {
+                if (const ir::BinOp *sum = a.as<ir::BinOp>();
+                    sum != nullptr && sum->op == ir::BinOp::OpType::Add) {
+                    if (ir::equals(sum->a, b)) {
+                        return sum->b;
+                    }
+                    if (ir::equals(sum->b, b)) {
+                        return sum->a;
+                    }
+                }
+            }
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Mod: {

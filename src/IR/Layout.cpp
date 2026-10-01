@@ -179,7 +179,7 @@ Layout Chain::make(std::vector<Layout> layouts) {
 
 Layout Group::make(Expr size, std::string name, std::string declared_name,
                    ir::Type index_t, Layout inner, Group::Type type,
-                   ir::Type element) {
+                   ir::Type element, Expr start) {
     internal_assert(size.defined())
         << "Cannot make Group with undefined size, named: " << name;
     // Groups can have no label, name can be empty and index_t can be undefined
@@ -206,6 +206,13 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
     node->inner = std::move(inner);
     node->type = type;
     node->element = std::move(element);
+    internal_assert(!start.defined() ||
+                    (type == Group::Type::Direct && node->index_t.defined() &&
+                     equals(start.type(), node->index_t)))
+        << "A group's starting reference is a value of its direct index's "
+           "type: "
+        << start << " for " << node->name << " : " << node->index_t;
+    node->start = std::move(start);
     return node;
 }
 

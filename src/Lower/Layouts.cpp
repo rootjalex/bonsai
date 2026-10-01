@@ -324,6 +324,26 @@ IndexTList get_index_type(const ir::Layout &layout) {
     internal_error << "[unimplemented] handle get_index_type for: " << layout;
 }
 
+// Where each index of get_index_type's list begins, in the same order: what
+// the layout's direct group says (ir::Group::start), or zero.
+std::vector<ir::Expr> get_index_starts(const ir::Layout &layout) {
+    std::vector<ir::Expr> starts;
+    const ir::Chain *chain = layout.as<ir::Chain>();
+    if (chain == nullptr) {
+        return starts;
+    }
+    for (const auto &l : chain->layouts) {
+        const ir::Group *node = l.as<ir::Group>();
+        if (node == nullptr || node->type == ir::Group::Type::Indirect) {
+            continue;
+        }
+        starts = get_index_starts(node->inner);
+        starts.push_back(node->start.defined() ? node->start
+                                               : make_zero(node->index_t));
+    }
+    return starts;
+}
+
 struct FindFromType : public ir::Visitor {
     ir::Type from_type;
 
@@ -564,7 +584,8 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                     }
                     members.push_back(ir::Group::make(
                         g->size, g->name, g->declared_name, g->index_t,
-                        g->inner, ir::Group::Type::Direct, g->element));
+                        g->inner, ir::Group::Type::Direct, g->element,
+                        g->start));
                     continue;
                 }
                 members.push_back(l);
@@ -1362,6 +1383,10 @@ struct LowerMatches : public ir::Mutator {
         if (!matched_objects.contains(tree_name)) {
             IndexTList node_index_list = get_index_type(layout);
             std::reverse(node_index_list.begin(), node_index_list.end());
+            std::vector<ir::Expr> declared_starts = get_index_starts(layout);
+            std::reverse(declared_starts.begin(), declared_starts.end());
+            internal_assert(declared_starts.size() == node_index_list.size())
+                << "every index of " << tree_name << " has a start";
             std::vector<ir::Expr> idxs;
             std::vector<ir::Expr> starts;
             idxs.reserve(node_index_list.size());
@@ -1370,14 +1395,16 @@ struct LowerMatches : public ir::Mutator {
             internal_assert(!nested || node_index_list.size() == 1)
                 << tree_name << " is reached through a field holding one "
                 << "index, but walking it advances " << node_index_list.size();
-            for (auto &it : node_index_list) {
-                // A tree the schedule named is rooted at the first row of its
-                // group. A tree held in an element's field is rooted wherever
-                // that field says, which is the value already bound under this
-                // name -- the same walk over the same storage, begun somewhere
-                // else.
+            for (size_t k = 0; k < node_index_list.size(); k++) {
+                auto &it = node_index_list[k];
+                // A tree the schedule named is rooted where its layout says
+                // (`layout tris(ref : u64 = 0u)`), the first row of its group
+                // unless said otherwise. A tree held in an element's field is
+                // rooted wherever that field says, which is the value already
+                // bound under this name -- the same walk over the same
+                // storage, begun somewhere else.
                 starts.push_back(nested ? ir::Var::make(it.type, tree_name)
-                                        : make_zero(it.type));
+                                        : declared_starts[k]);
                 it.name = tree_name + "_" + it.name;
                 idxs.push_back(ir::Var::make(it.type, it.name));
             }
