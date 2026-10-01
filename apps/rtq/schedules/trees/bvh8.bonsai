@@ -1,19 +1,45 @@
-// The triangles as Embree holds them: BVH8Triangle4, the structure Embree
-// builds for a static scene of triangles on a machine with AVX (scene.cpp,
-// createTriangleAccel) -- a BVH whose nodes have eight children and store
-// the children's boxes, over leaves of blocks of four triangles. What every
-// schedule of apps/rtq imports; the driver (rtq_hook.cpp) builds it with
-// Embree's own builder (rtcBuildBVH, with the settings Embree's internal
-// BVH8Triangle4 builder uses) and lays it out as this file says.
+// Embree's BVH8 over Triangle4 leaves, as its bytes are -- the tree the
+// comparison against Embree runs over (see ../../README.md). Embree builds it
+// (rtcBuildBVH, in rtq_hook.cpp, with the settings of Embree's own
+// BVH8Triangle4 builder), so the splits, leaves and boxes are Embree's; this
+// file says what the bytes mean.
 //
-// The tree language owns the pruning: a node bounds its children (`with
-// AABB(lo, hi) on children`), so a traversal tests all eight children's
-// boxes at the node and descends only into the ones hit, as Embree's
-// BVHNIntersector1 does. The layout language owns the bytes.
+// The tree: a node holds its eight children and their boxes, the node itself
+// having none (Embree's AABBNode, kernels/bvh/bvh_node_aabb.h); a leaf holds
+// a run of triangles. `with AABB(lo, hi) on children` is what makes the
+// traversal test the children at the parent (Lower/Trees.cpp), as Embree's
+// does.
+//
+// The layout, in Scion's constructs (Gyurgyik, Root and Kjolstad, PLDI 2026):
+//
+//   - The node row is Embree's 256 bytes in Embree's order: the eight child
+//     references, then the bounds as six vectors of eight floats, lower x,
+//     upper x, lower y, upper y, lower z, upper z. `lo` and `hi`, the
+//     vectors of boxes the tree speaks of, are *derived* fields assembled
+//     from the three stored components each -- Scion's `x = e`, free in the
+//     generated code, since a vector of vectors is a struct of its component
+//     vectors anyway.
+//
+//   - The triangles are Embree's Triangle4 blocks (kernels/geometry/
+//     triangle.h, TriangleM<4>): four triangles per 176-byte tile, every field
+//     a vector over the four -- v0.x[4], v0.y[4], v0.z[4], e1..., e2...,
+//     geomID[4], primID[4]. Scion's array-of-structs-of-arrays: a group of
+//     the elements whose rows are an anonymous group of four, the tile
+//     (ir::Group::element, Lower/TiledArrays.cpp). A leaf's `data` ranges
+//     over the elements; element k is lane k % 4 of tile k / 4.
+//
+//   - The reference is Embree's NodeRef (kernels/bvh/bvh_node_ref.h): the
+//     low four bits say what it names -- 0 a node, 8 + n a leaf of n tiles
+//     (8 alone, `emptyNode`, a leaf of none) -- and the rest say where. A
+//     group that stores nothing: the reference is the data. Embree's "where"
+//     is a pointer; here it is an index, a row of Nodes or a tile of prims
+//     (times four, an element), which the layout language stores and which
+//     any device can read.
+//
+// What is not Embree's: a header of two counts and two pointers in front of
+// the arrays, and Embree's relocation of its largest nodes after the build
+// (BVHN::layoutLargeNodes), which the driver does not do.
 schedule {
-    // Embree: BVHN<8>::AABBNode, and TriangleM<4> leaves. A node has no box
-    // of its own -- its box is in its parent's row -- and a leaf is a run of
-    // triangle blocks.
     tree[[Triangle]] BVH8 =
     | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
         with AABB(lo, hi) on children
@@ -22,32 +48,30 @@ schedule {
     triangles : BVH8;
 
     layout triangles {
-        // Embree: the Triangle4 blocks, here one slot after another: block b
-        // is slots 4b to 4b+3, and a slot a block does not fill is the zero
-        // triangle with ids of -1, exactly as TriangleM::fill leaves it.
+        // Slots, four per tile: a leaf's tiles are padded with slots whose
+        // ids are -1 and whose vertices are zero, as Embree pads its own.
         pCount : u32;
-        prims : array[Triangle, pCount];
-
-        // Embree: AABBNode_t<NodeRefPtr<8>, 8>, 256 bytes -- eight child
-        // references of 64 bits, then the children's bounds, six vectors of
-        // eight floats. Embree orders the six lower_x, upper_x, lower_y,
-        // upper_y, lower_z, upper_z; a vector of vectors is stored by
-        // component here, so this row is lower_x, lower_y, lower_z, upper_x,
-        // upper_y, upper_z: the same 192 bytes, two blocks of 96 rather than
-        // three of 64 (PLAN.md).
+        indirect group prims[pCount] {
+            group[4] {
+                v0 : vec3f;
+                e1 : vec3f;
+                e2 : vec3f;
+                geomID : u32;
+                primID : u32;
+            };
+        };
         nCount : u32;
         indirect group Nodes[nCount] row : u64 {
             children : vector[u64, 8];
-            lo : vector[vec3f, 8];
-            hi : vector[vec3f, 8];
+            lower_x : vector[f32, 8];
+            upper_x : vector[f32, 8];
+            lower_y : vector[f32, 8];
+            upper_y : vector[f32, 8];
+            lower_z : vector[f32, 8];
+            upper_z : vector[f32, 8];
+            lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
         };
-
-        // Embree: NodeRef. A reference's low four bits say what it refers to
-        // -- 0 an AABB node, 8 + n a leaf of n blocks (1 to 7) -- and the
-        // rest says where: Embree's byte address of the node or the blocks,
-        // and here the node's row or the first block's number. A group that
-        // stores nothing: the reference is the data, and the root is
-        // reference 0, row 0.
         group[nCount] ref : u64 {
             kind = ref & 15u;
             switch kind {

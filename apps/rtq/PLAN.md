@@ -64,14 +64,25 @@ same stored triangle (a vertex, two edges, two ids), and two queries:
 `argmin(distmin, filter(intersects, triangles))` and `any(intersects,
 triangles)`. The tree (`schedules/trees/bvh8.bonsai`) is a node holding
 `children : array[BVH8, 8]` with one `with AABB(lo, hi) on children`, and a
-leaf holding a run of triangle slots; the layout is a 256-byte node row --
-`children : vector[u64, 8]`, `lo hi : vector[vec3f, 8]`, each stored by
-component -- and a reference decoded from its bits: `kind = ref & 15`, 0 a
-node at row `ref >> 4`, else a leaf of `kind - 8` blocks from block `ref >>
-4`. The schedule (`schedules/embree.bonsai`) sorts the children by
-`distmin(r, AABB{lo[i], hi[i]})` -- the slab test's entry distance, infinite
-for a miss -- and `loopify(564)`s both traversals; `occluded` is not
-sorted, as Embree's is not.
+leaf holding a run of triangles. The layout is Embree's bytes (2026-10-01,
+the user's direction: "get the layout matching perfectly, use Scion's
+techniques"): a 256-byte node row of `children : vector[u64, 8]` and the
+six bound vectors `lower_x, upper_x, lower_y, upper_y, lower_z, upper_z :
+vector[f32, 8]` in Embree's order, with `lo` and `hi` *derived* from them
+(`lo = vector[vec3f, 8]{lower_x, lower_y, lower_z}`, Scion's `x = e`);
+176-byte Triangle4 blocks for the leaves, a group of the elements whose
+rows are an anonymous `group[4]` -- Scion's array-of-structs-of-arrays --
+so that each field is a vector over the four (`v0.x[4], v0.y[4], v0.z[4],
+e1..., e2..., geomID[4], primID[4]`); and a reference decoded from its bits:
+`kind = ref & 15`, 0 a node at row `ref >> 4`, else a leaf of `kind - 8`
+blocks from block `ref >> 4`. The driver asserts the row and block sizes
+and the field offsets against Embree's, and the byte counts it reports
+(285,184 for head's 1114 rows, 872,256 for its 4956 blocks) are the ones
+Embree's own statistics print for its tree. The schedule
+(`schedules/embree.bonsai`) sorts the children by `distmin(r, AABB{lo[i],
+hi[i]})` -- the slab test's entry distance, infinite for a miss -- and
+`loopify(564)`s both traversals; `occluded` is not sorted, as Embree's is
+not.
 
 The driver builds the tree with `rtcBuildBVH` under the settings above,
 its callbacks writing rows and slots exactly as `AABBNode::clear/set` and
@@ -149,6 +160,27 @@ not do, and two the user decided after seeing the first form.
    is what a heap-layout bug looks like. The map is keyed by the shared
    pointer now.
 
+7. **Tiled element storage (Scion's AoSoA).** `indirect group prims[pCount]
+   { group[4] { v0 : vec3f; ... }; }` -- an indirect group whose rows are an
+   anonymous constant group of the element's fields -- is a group of the
+   set's elements stored in tiles (`ir::Group::element`): the storage is an
+   array of tile structs, each field a packed vector over the tile's lanes,
+   and the layout names it as the array of elements it logically is
+   (`ir::TiledArray`), so that a leaf's `range(prims, a, n)` and a reference
+   to an element index it as any array. `Lower/TiledArrays.cpp`, after the
+   for-each and element-reference lowerings, spells every such read as the
+   tile's: element k is lane k % 4 of tile k / 4, one lane of each field
+   vector, built into the element. Neither this branch nor the Scion
+   artifact stored an inner group field-major before; the paper's Fig. 7
+   (AoSoA) does, and this is that. Tests: lower/tiled-elements,
+   backends/llvm/tiled-elements, correctness/cpp/bvh4_tiled_elements.
+8. **A vector of vectors built from its components.** `vector[vec3f,
+   8]{xs, ys, zs}` from three eight-wide vectors (Build::make, both
+   backends): the shape the type already has in a gang and in storage, so
+   the build is nothing. It is how a layout derives `lo` from `lower_x,
+   lower_y, lower_z`. The parser's `vector[T, n]{...}` constructor is new;
+   the editor grammar needed no change for it.
+
 Also: `validate_volume` accepts an initializer holding one value per child
 of an array of children; `valid_path` accepts an array of references stored
 as a vector of integers.
@@ -225,13 +257,13 @@ triangle what Embree does per block. In order of what they are worth:
    (Lower/Sorts.cpp, SSA/SortRecursion.cpp) given the conditions it
    already carries, not a new directive.
 2. **The four-wide triangle test.** Embree tests a `Triangle4` block as
-   four lanes and picks the nearest valid one. Here the leaf's elements are
-   a scalar loop over slots. That is a vectorize of the leaf's element loop
-   -- which the schedule has no name for yet -- over a leaf whose storage
-   is SoA blocks. The layout stores slots AoS at 56 bytes (the compute
-   `vec3f` is 16 bytes in an array element; Embree's slot is 44 bytes in
-   its block); a `tight` storage rule for the array and a blocked SoA rule
-   are the layout language's part of this.
+   four lanes and picks the nearest valid one. The storage is Embree's now
+   (item 7 above); what remains is the schedule: the leaf's element loop is
+   a sequential for-all today, and a four-wide test needs it as a parfor of
+   the tile's lanes with the argmin's accumulation a reduction across them
+   -- the user's note (2026-10-01): "the loop over leaves might also need
+   to be massaged into a parfor so we can vectorize it". The spelling by
+   analogy with the children is `trace.vectorize(triangles.Leaf.data)`.
 3. **The distance on the stack.** Embree pushes each child with its entry
    distance and drops a popped entry whose distance is past the best hit
    since found. Here a popped child is visited and its children all fail
@@ -239,17 +271,17 @@ triangle what Embree does per block. In order of what they are worth:
    stack would carry the sort key and the pop re-test `key < best` -- which
    is sound when the key is the pruning metric, as it is here. A loopify
    refinement, for the user to decide.
-4. **The bounds' byte order.** Embree interleaves lower_x, upper_x, lower_y,
-   ...; a vector of vectors stored by component gives lower_x, lower_y,
-   lower_z, upper_x, ...: the same 192 bytes, two blocks of 96 rather than
-   three of 64. A component path in the layout (`lo.x : vector[f32, 8]`
-   placed where Embree places it) would make the row byte-identical; the
-   user chose SoA by component, and this is its last step.
+4. **The bounds' byte order.** Done (item 8 above): the six component
+   vectors are stored in Embree's order and `lo`, `hi` derived from them.
 5. **Scion's reference syntax.** The user chose to port `layout tris(ref :
    u64 = 0u) { ... switch ref[0:3] { 0 => Interior from Nodes[ref[4:63]];
    ... } }` (spelled `switch`, since `split` is the scheduling directive)
    and array slices, over today's `group[n] ref : u64 { kind = ref & 15u;
-   ... }` and `range(...)`. Not done yet.
+   ... }` and `range(...)`. Not done yet; with it, a stored root reference
+   (Embree's `bvh->root`) instead of "the traversal starts at reference 0",
+   which is what Embree's relocation of its largest nodes
+   (`BVHN::layoutLargeNodes`: the top 0.5% by area copied contiguously in
+   depth-first order after the build) needs before the driver can do it.
 
 Arithmetic that cannot match: Embree's `rcp` (an approximate reciprocal
 and a Newton step) against a division, in the node test and the triangle

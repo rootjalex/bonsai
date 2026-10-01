@@ -37,6 +37,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -378,14 +379,22 @@ uint64_t leaf_ref(uint64_t first_block, uint64_t blocks) {
     return (first_block << 4) | (kTyLeaf + blocks);
 }
 
-// What rtcBuildBVH's callbacks fill: the rows and the triangle slots,
+// The layout's storage, as the generated header spells it: a node row is
+// Embree's AABBNode -- the eight children, then the bounds as six vectors of
+// eight floats in Embree's order -- and a leaf's block is Embree's Triangle4,
+// four triangles with every field a vector over the four (see
+// schedules/trees/bvh8.bonsai).
+using NodeRow = _tree_layout2;
+using TriangleBlock = _tree_layout1;
+
+// What rtcBuildBVH's callbacks fill: the rows and the triangle blocks,
 // claimed by atomic counters since Embree builds in parallel.
 struct Building {
     const Mesh *mesh = nullptr;
-    std::vector<_tree_layout1> rows;
+    std::vector<NodeRow> rows;
     std::atomic<uint64_t> rows_used{0};
-    std::vector<Triangle> slots;
-    std::atomic<uint64_t> slots_used{0};
+    std::vector<TriangleBlock> blocks;
+    std::atomic<uint64_t> blocks_used{0};
     std::atomic<uint64_t> leaves{0};
     std::atomic<uint64_t> leaf_prims{0};
 
@@ -399,11 +408,11 @@ struct Building {
             std::abort();
         }
         // Embree: AABBNode::clear -- every child empty, every box empty.
-        _tree_layout1 &n = b.rows[row];
+        NodeRow &n = b.rows[row];
         for (int i = 0; i < 8; i++) {
             n.children[i] = kEmptyNode;
-            n.lo.x[i] = n.lo.y[i] = n.lo.z[i] = kInf;
-            n.hi.x[i] = n.hi.y[i] = n.hi.z[i] = -kInf;
+            n.lower_x[i] = n.lower_y[i] = n.lower_z[i] = kInf;
+            n.upper_x[i] = n.upper_y[i] = n.upper_z[i] = -kInf;
         }
         return reinterpret_cast<void *>(node_ref(row));
     }
@@ -411,69 +420,84 @@ struct Building {
     static void set_children(void *node, void **children, unsigned count,
                              void *user) {
         Building &b = *of(user);
-        _tree_layout1 &n = b.rows[reinterpret_cast<uint64_t>(node) >> 4];
+        NodeRow &n = b.rows[reinterpret_cast<uint64_t>(node) >> 4];
         for (unsigned i = 0; i < count; i++) {
             n.children[i] = reinterpret_cast<uint64_t>(children[i]);
         }
     }
 
+    // Embree: AABBNode::setBounds -- the child's box into lane i of the six
+    // bound vectors.
     static void set_bounds(void *node, const RTCBounds **bounds, unsigned count,
                            void *user) {
         Building &b = *of(user);
-        _tree_layout1 &n = b.rows[reinterpret_cast<uint64_t>(node) >> 4];
+        NodeRow &n = b.rows[reinterpret_cast<uint64_t>(node) >> 4];
         for (unsigned i = 0; i < count; i++) {
-            n.lo.x[i] = bounds[i]->lower_x;
-            n.lo.y[i] = bounds[i]->lower_y;
-            n.lo.z[i] = bounds[i]->lower_z;
-            n.hi.x[i] = bounds[i]->upper_x;
-            n.hi.y[i] = bounds[i]->upper_y;
-            n.hi.z[i] = bounds[i]->upper_z;
+            n.lower_x[i] = bounds[i]->lower_x;
+            n.lower_y[i] = bounds[i]->lower_y;
+            n.lower_z[i] = bounds[i]->lower_z;
+            n.upper_x[i] = bounds[i]->upper_x;
+            n.upper_y[i] = bounds[i]->upper_y;
+            n.upper_z[i] = bounds[i]->upper_z;
         }
     }
 
+    // A triangle into lane `lane` of a block: TriangleM::fill, with the
+    // vertex and the two edges by component.
+    static void fill(TriangleBlock &block, unsigned lane, const Vec3 &v0,
+                     const Vec3 &e1, const Vec3 &e2, uint32_t geom_id,
+                     uint32_t prim_id) {
+        block.v0.x[lane] = v0.x;
+        block.v0.y[lane] = v0.y;
+        block.v0.z[lane] = v0.z;
+        block.e1.x[lane] = e1.x;
+        block.e1.y[lane] = e1.y;
+        block.e1.z[lane] = e1.z;
+        block.e2.x[lane] = e2.x;
+        block.e2.y[lane] = e2.y;
+        block.e2.z[lane] = e2.z;
+        block.geomID[lane] = geom_id;
+        block.primID[lane] = prim_id;
+    }
+
     // Embree: CreateLeaf<8, Triangle4> -- blocks(n) = (n + 3) / 4 blocks,
-    // each filled from the primitives in order (TriangleM::fill), a slot a
+    // each filled from the primitives in order (TriangleM::fill), a lane a
     // block does not fill left as the zero triangle with ids of -1.
     static void *create_leaf(RTCThreadLocalAllocator,
                              const RTCBuildPrimitive *prims, size_t count,
                              void *user) {
         Building &b = *of(user);
         const uint64_t blocks = (count + 3) / 4;
-        const uint64_t first = b.slots_used.fetch_add(4 * blocks);
-        if (first + 4 * blocks > b.slots.size()) {
-            std::cerr << "more leaf slots than were made for\n";
+        const uint64_t first = b.blocks_used.fetch_add(blocks);
+        if (first + blocks > b.blocks.size()) {
+            std::cerr << "more leaf blocks than were made for\n";
             std::abort();
         }
         b.leaves.fetch_add(1);
         b.leaf_prims.fetch_add(count);
         const Mesh &mesh = *b.mesh;
         for (uint64_t s = 0; s < 4 * blocks; s++) {
-            Triangle &t = b.slots[first + s];
+            TriangleBlock &block = b.blocks[first + s / 4];
+            const unsigned lane = unsigned(s % 4);
             if (s >= count) {
-                t.v0 = t.e1 = t.e2 = float3{0.0f, 0.0f, 0.0f};
-                t.geomID = kNoHit;
-                t.primID = kNoHit;
+                fill(block, lane, Vec3{}, Vec3{}, Vec3{}, kNoHit, kNoHit);
                 continue;
             }
             const uint32_t prim = prims[s].primID;
             const Vec3 p0 = mesh.vertices[mesh.indices[3 * prim + 0]];
             const Vec3 p1 = mesh.vertices[mesh.indices[3 * prim + 1]];
             const Vec3 p2 = mesh.vertices[mesh.indices[3 * prim + 2]];
-            t.v0 = to_float3(p0);
-            t.e1 = to_float3(p0 - p1);
-            t.e2 = to_float3(p2 - p0);
-            t.geomID = prims[s].geomID;
-            t.primID = prim;
+            fill(block, lane, p0, p0 - p1, p2 - p0, prims[s].geomID, prim);
         }
-        return reinterpret_cast<void *>(leaf_ref(first / 4, blocks));
+        return reinterpret_cast<void *>(leaf_ref(first, blocks));
     }
 };
 
 struct Tree {
     std::unique_ptr<Building> building;
     _tree_layout0 layout{};
-    bonsai_buffer prims_buffer{}, rows_buffer{};
-    uint64_t nodes = 0, leaves = 0, slots = 0, leaf_prims = 0;
+    bonsai_buffer blocks_buffer{}, rows_buffer{};
+    uint64_t nodes = 0, leaves = 0, blocks = 0, leaf_prims = 0;
 };
 
 // Embree's tree over the mesh, in the layout. The settings are those of
@@ -492,10 +516,11 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     const size_t count = mesh.triangles();
     // Every node has at least two children and every leaf at least one
     // primitive (bar one), so there are fewer nodes than primitives; a leaf
-    // of n primitives takes at most n + 3 slots and holds at least 4 unless
-    // it is the whole tree.
+    // of n primitives takes (n + 3) / 4 blocks and holds at least 4 unless
+    // it is the whole tree, so there are at most about half as many blocks
+    // as primitives.
     b.rows.resize(count + 2);
-    b.slots.resize(2 * count + 8);
+    b.blocks.resize(count / 2 + 2);
 
     std::vector<RTCBuildPrimitive> prims(count);
     for (size_t i = 0; i < count; i++) {
@@ -556,20 +581,38 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     }
 
     tree.nodes = b.rows_used.load();
-    tree.slots = b.slots_used.load();
+    tree.blocks = b.blocks_used.load();
     tree.leaves = b.leaves.load();
     tree.leaf_prims = b.leaf_prims.load();
     b.rows.resize(tree.nodes);
-    b.slots.resize(tree.slots);
+    b.blocks.resize(tree.blocks);
 
-    tree.prims_buffer = bonsai_buffer_wrap(b.slots.data(),
-                                           b.slots.size() * sizeof(Triangle));
-    tree.rows_buffer = bonsai_buffer_wrap(
-        b.rows.data(), b.rows.size() * sizeof(_tree_layout1));
-    tree.layout.pCount = uint32_t(tree.slots);
-    tree.layout.prims = &tree.prims_buffer;
+    // The bytes, as Embree's: a 256-byte row and a 176-byte block.
+    static_assert(sizeof(NodeRow) == 256, "a node row is Embree's AABBNode");
+    static_assert(offsetof(NodeRow, lower_x) == 64 &&
+                      offsetof(NodeRow, upper_x) == 96 &&
+                      offsetof(NodeRow, lower_y) == 128 &&
+                      offsetof(NodeRow, upper_y) == 160 &&
+                      offsetof(NodeRow, lower_z) == 192 &&
+                      offsetof(NodeRow, upper_z) == 224,
+                  "the bounds sit where Embree's AABBNode puts them");
+    static_assert(sizeof(TriangleBlock) == 176,
+                  "a block is Embree's Triangle4");
+    static_assert(offsetof(TriangleBlock, e1) == 48 &&
+                      offsetof(TriangleBlock, e2) == 96 &&
+                      offsetof(TriangleBlock, geomID) == 144 &&
+                      offsetof(TriangleBlock, primID) == 160,
+                  "the fields sit where Embree's TriangleM<4> puts them");
+
+    tree.blocks_buffer = bonsai_buffer_wrap(
+        b.blocks.data(), b.blocks.size() * sizeof(TriangleBlock));
+    tree.rows_buffer =
+        bonsai_buffer_wrap(b.rows.data(), b.rows.size() * sizeof(NodeRow));
+    // The layout counts elements -- slots, four to a block.
+    tree.layout.pCount = uint32_t(4 * tree.blocks);
+    tree.layout.group0_prims = &tree.blocks_buffer;
     tree.layout.nCount = uint32_t(tree.nodes);
-    tree.layout.group0_row = &tree.rows_buffer;
+    tree.layout.group1_row = &tree.rows_buffer;
     return tree;
 }
 
@@ -915,10 +958,10 @@ int main(int argc, char **argv) {
     rtcSetDeviceErrorFunction(device, embree_error, nullptr);
     RTCScene scene = make_embree_scene(device, mesh);
     const Tree tree = build_tree(device, mesh);
-    std::cout << "tree: " << tree.nodes << " nodes (" << tree.nodes * sizeof(_tree_layout1)
+    std::cout << "tree: " << tree.nodes << " nodes (" << tree.nodes * sizeof(NodeRow)
               << " bytes), " << tree.leaves << " leaves holding " << tree.leaf_prims
-              << " triangles in " << tree.slots / 4 << " blocks of 4 ("
-              << tree.slots * sizeof(Triangle) << " bytes)\n";
+              << " triangles in " << tree.blocks << " blocks of 4 ("
+              << tree.blocks * sizeof(TriangleBlock) << " bytes)\n";
 
     // The ray sets: the camera's, then from what it saw.
     const std::vector<Ray> primary = primary_rays(mesh, side);
