@@ -114,7 +114,12 @@ OPTIX_FLAGS=(-isystem "$OPTIX_SDK/include" -isystem "$CUDA_DIR/include")
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-cmake --build "$BONSAI_BUILD_DIR" -j > /dev/null
+# A build tree is brought up to date; a directory that only holds a compiler
+# (a copy kept of an earlier build, to measure a change against) is used as
+# it is.
+if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
+  cmake --build "$BONSAI_BUILD_DIR" -j > /dev/null
+fi
 bash $PREFIX/build_scene_dump.sh "$OUT/scene_dump"
 
 # The machine has to be idle of everything before a timed run: the user's
@@ -219,7 +224,7 @@ for s in $SCHEDULES; do
   fi
   echo "compiling schedule $s"
   mkdir -p "$OUT/$s"
-  "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
+  "$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
       --gpu-max-registers 128 -i $PREFIX/render.bonsai \
       -i "$PREFIX/schedules/$s.bonsai" -b cpp -o $PREFIX/render
   "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \

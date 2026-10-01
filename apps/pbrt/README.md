@@ -22,7 +22,11 @@ material stage) take the second.
 
 Run from the repository root, inside the `bonsai` conda environment. Each
 takes `PBRT=<path to a built pbrt>` (default `~/projects/pbrt-v4/build/pbrt`)
-and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`).
+and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`). A build
+tree is brought up to date first; `gpu_compare.sh` also accepts a directory
+that only holds a `compiler` binary -- a copy kept of an earlier build -- and
+uses it as it is, which is how a change is measured against the compiler
+before it.
 
 - `render.sh [--spp N] [--schedule S] <scene.pbrt> <out.pfm>`: build the
   renderer with one schedule and render a scene.
