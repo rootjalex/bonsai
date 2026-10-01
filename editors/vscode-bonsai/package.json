@@ -1,0 +1,36 @@
+{
+  "name": "bonsai-syntax",
+  "displayName": "Bonsai",
+  "description": "Syntax highlighting for the Bonsai DSL (.bonsai).",
+  "version": "0.1.0",
+  "publisher": "bonsai",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "bonsai",
+        "aliases": [
+          "Bonsai",
+          "bonsai"
+        ],
+        "extensions": [
+          ".bonsai"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "bonsai",
+        "scopeName": "source.bonsai",
+        "path": "./syntaxes/bonsai.tmLanguage.json"
+      }
+    ]
+  }
+}

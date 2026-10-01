@@ -1,0 +1,287 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Bonsai",
+  "scopeName": "source.bonsai",
+  "fileTypes": ["bonsai"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#import" },
+    { "include": "#func-declaration" },
+    { "include": "#type-declaration" },
+    { "include": "#tree-declaration" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#type-annotation" },
+    { "include": "#generic-arguments" },
+    { "include": "#types" },
+    { "include": "#schedule-directives" },
+    { "include": "#layout-words" },
+    { "include": "#builtin-functions" },
+    { "include": "#function-call" },
+    { "include": "#capitalized-names" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.bonsai",
+          "begin": "//",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.bonsai" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "name": "keyword.other.todo.bonsai",
+              "match": "\\b(TODO|FIXME|NOTE|XXX|HACK)\\b(\\([^)]*\\))?:?"
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.bonsai",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.bonsai" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.bonsai" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.bonsai",
+          "match": "\\\\[abfnrtv\\\\'\"?]"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.bonsai",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "import": {
+      "match": "\\b(import)\\s+([A-Za-z0-9_./-]+)",
+      "captures": {
+        "1": { "name": "keyword.control.import.bonsai" },
+        "2": { "name": "entity.name.namespace.bonsai" }
+      }
+    },
+    "func-declaration": {
+      "match": "\\b(func)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.function.bonsai" },
+        "2": { "name": "entity.name.function.bonsai" }
+      }
+    },
+    "type-declaration": {
+      "match": "\\b(element|interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.bonsai" },
+        "2": { "name": "entity.name.type.bonsai" }
+      }
+    },
+    "tree-declaration": {
+      "match": "\\b(tree)\\s*(\\[\\[[^\\]]*\\]\\])?\\s*([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.tree.bonsai" },
+        "2": { "patterns": [{ "include": "#generic-arguments" }] },
+        "3": { "name": "entity.name.type.bonsai" }
+      }
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.bonsai",
+          "match": "\\b(if|elif|else|for|parfor|while|do|return|match|switch|spawn|atomic)\\b"
+        },
+        {
+          "name": "storage.type.bonsai",
+          "match": "\\b(element|interface|extern|schedule|func|tree|layout|group)\\b"
+        },
+        {
+          "name": "storage.modifier.bonsai",
+          "match": "\\b(mut|indirect)\\b"
+        },
+        {
+          "name": "keyword.other.bonsai",
+          "match": "\\b(with|on|in|from)\\b"
+        },
+        {
+          "name": "support.function.builtin.bonsai",
+          "match": "\\b(print)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "name": "constant.language.bonsai",
+      "match": "\\b(true|false|inf)\\b"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.bonsai",
+          "match": "\\b0[xX][0-9A-Fa-f]+u?\\b"
+        },
+        {
+          "name": "constant.numeric.float.bonsai",
+          "match": "\\b[0-9]+(\\.[0-9]+([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\\b"
+        },
+        {
+          "name": "constant.numeric.integer.bonsai",
+          "match": "\\b[0-9]+u?\\b"
+        }
+      ]
+    },
+    "type-annotation": {
+      "comment": "The name after `:` or `->` is a type: `o : vec3f`, `x : mut Interval`, `-> Float`. Builtins keep their own scope, anything else is a type name.",
+      "match": "(:|->)\\s*(?:(mut)\\s+)?(?!(?:mut|in|from|with|on)\\b)([A-Za-z_][A-Za-z0-9_]*)?",
+      "captures": {
+        "1": { "name": "punctuation.separator.type.bonsai" },
+        "2": { "name": "storage.modifier.bonsai" },
+        "3": {
+          "patterns": [
+            { "include": "#types" },
+            {
+              "name": "entity.name.type.bonsai",
+              "match": "[A-Za-z_][A-Za-z0-9_]*"
+            }
+          ]
+        }
+      }
+    },
+    "generic-arguments": {
+      "comment": "`[[T]]` on a call, a type, or a tree: `cast[[u32]](x)`, `tree[[Primitive]]`.",
+      "name": "meta.generic.bonsai",
+      "begin": "\\[\\[",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.generic.begin.bonsai" }
+      },
+      "end": "\\]\\]",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.generic.end.bonsai" }
+      },
+      "patterns": [
+        { "include": "#types" },
+        { "include": "#numbers" },
+        {
+          "name": "entity.name.type.bonsai",
+          "match": "[A-Za-z_][A-Za-z0-9_]*"
+        },
+        { "include": "#punctuation" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.interface.bonsai",
+          "match": "\\bI[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "storage.type.primitive.bonsai",
+          "match": "\\b(bool|void|Fn|i[0-9]+|u[0-9]+|b?f[0-9]+|f[0-9]+_[0-9]+)\\b"
+        },
+        {
+          "name": "storage.type.primitive.bonsai",
+          "match": "\\b(vector|option|set|array|dyn_array)(?=\\s*\\[)"
+        }
+      ]
+    },
+    "schedule-directives": {
+      "comment": "What a schedule block says about a loop, a call or a set.",
+      "match": "\\.(loopify|bind|defer|sort|split|queue|specialize|vectorize|skip|reorder)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "support.function.schedule.bonsai" }
+      }
+    },
+    "layout-words": {
+      "name": "support.constant.layout.bonsai",
+      "match": "\\b(tagged_index|inline|tight)\\b"
+    },
+    "builtin-functions": {
+      "match": "\\b(abs|all|any|argmax|argmin|cast|cos|count|cross|dot|exp|fma|log|max|min|pow|range|select|sin|sqrt|sum)(?=\\s*(\\[\\[[^\\]]*\\]\\]\\s*)?\\()",
+      "captures": {
+        "1": { "name": "support.function.builtin.bonsai" }
+      }
+    },
+    "function-call": {
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*(\\[\\[[^\\]]*\\]\\]\\s*)?\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.call.bonsai" }
+      }
+    },
+    "capitalized-names": {
+      "comment": "Types, ADT variants and tree node kinds are capitalized: Float, Interior, Leaf, Sph(s).",
+      "name": "entity.name.type.bonsai",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.bonsai",
+          "match": "=>|->"
+        },
+        {
+          "name": "keyword.operator.comparison.bonsai",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.bonsai",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.assignment.bonsai",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.bonsai",
+          "match": "\\+\\+|--|<<|>>|[-+*/%]"
+        },
+        {
+          "name": "keyword.operator.bitwise.bonsai",
+          "match": "[&|^~]"
+        },
+        {
+          "name": "keyword.operator.at.bonsai",
+          "match": "@"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.terminator.statement.bonsai",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.bonsai",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.bonsai",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.separator.colon.bonsai",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.section.braces.bonsai",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.section.brackets.bonsai",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.parens.bonsai",
+          "match": "[()]"
+        }
+      ]
+    }
+  }
+}
