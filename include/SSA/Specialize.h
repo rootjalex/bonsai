@@ -21,11 +21,14 @@
 //
 // It is Halide's `specialize()` -- a copy of a stage's loop nest under a
 // condition, the general nest kept for the rest -- with the condition a
-// variant's tag rather than a boolean, which is what a variant type makes
-// natural: the copies are exhaustive, so there is no general nest to keep.
-// In the language's terms it changes how the program runs and nothing of
-// what it computes, each copy computing exactly what the original would
-// have with that tag.
+// variant's tag, or a boolean parameter: `render.specialize(have_media)` is
+// pbrt's `haveMedia`, which picks the shadow-ray kernel per scene, and makes
+// the copies `False` and `True` (named so because `true` and `false` are
+// keywords, and a schedule names a copy by its label: `render[True]`). A
+// variant type makes the copies exhaustive, so there is no general nest to
+// keep; a bool's two are too. In the language's terms it changes how the
+// program runs and nothing of what it computes, each copy computing exactly
+// what the original would have with that tag.
 //
 // The copies are of the loop as scheduled up to this directive: binds are
 // already on the loop (they are tags set at conversion), and a loopify or

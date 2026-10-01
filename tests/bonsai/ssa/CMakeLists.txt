@@ -57,6 +57,7 @@ add_bonsai_tests(
     sort-nested.bonsai
     sort-recursion.bonsai
     specialize.bonsai
+    specialize-bool.bonsai
     specialize-first.bonsai
     specialize-nested.bonsai
     split.bonsai

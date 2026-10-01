@@ -1,0 +1,33 @@
+//! flags: -p ssa
+
+// `run.specialize(flag)` on a boolean parameter: Halide's `specialize(cond)`
+// exactly. The loop's block dispatches on the value itself -- a bool is its
+// own tag, with no field to read -- to a selector per value, `i!False` and
+// `i!True`, each the loop over its own copy of the body in which `flag` is
+// the constant, so the `if` on it folds to one arm and `pick`, handed the
+// constant, is copied as `pick!False` and `pick!True` with its branch
+// folded too (SSA/Specialize.h). The bind written after the specialize,
+// naming `i`, binds both copies. pbrt's `haveMedia` is such a parameter:
+// the wavefront picks a shadow-ray kernel per scene by it, and this is how
+// the schedule says so.
+import stdlib/numerics;
+
+func pick(flag : bool, x : Float) -> Float {
+    if flag {
+        return x * 2.0;
+    }
+    return x + 1.0;
+}
+
+func [[export]] run(flag : bool, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(flag, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(flag);
+    run.bind(i, CPUThread);
+}

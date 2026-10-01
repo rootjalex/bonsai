@@ -1,0 +1,41 @@
+//! flags: -p ssa -b llvm -e
+
+// `run.specialize(flag)` on a boolean: the loop's body copied once for
+// `false` and once for `true`, the loop entered through a dispatch on the
+// value, and in each copy the parameter a constant that folds the `if` in
+// the body and in `pick`, copied per value (SSA/Specialize.h). Run with
+// each value in turn; the two answers differ, so a copy entered for the
+// wrong value would show. Unbound, since the JIT has no thread pool;
+// ssa/specialize-bool shows the same over a bound loop.
+import stdlib/numerics;
+
+func pick(flag : bool, x : Float) -> Float {
+    if flag {
+        return x * 2.0;
+    }
+    return x + 1.0;
+}
+
+func [[export]] run(flag : bool, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(flag, values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(true, values, out);
+    // Doubled.
+    print(out);
+    run(false, values, out);
+    // One more.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(flag);
+}

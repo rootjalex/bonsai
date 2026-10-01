@@ -170,33 +170,45 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
     }
     internal_assert(parameter != nullptr)
         << where << ": " << fname << " has no parameter " << param;
+    // Or a bool -- pbrt's `haveMedia`, fixed for the whole render as the
+    // integrator is -- copied for `False` and `True`: Halide's
+    // `specialize(cond)` exactly, the value its own tag (KeyTag).
+    const bool boolean = parameter->type.is<Bool_t>();
     const Ptr_t *pointer = parameter->type.as<Ptr_t>();
     const Type struct_type = pointer != nullptr ? pointer->etype : parameter->type;
     const Struct_t *storage_t = struct_type.as<Struct_t>();
     const auto storage_it = storage_t != nullptr ? storages.find(storage_t->name)
                                                  : storages.end();
-    if (storage_it == storages.end()) {
+    if (!boolean && storage_it == storages.end()) {
         string known;
         for (const auto &[name, _] : storages) {
             known += (known.empty() ? "" : ", ") + name;
         }
         internal_error << where << ": " << param << " is a " << parameter->type
-                       << ", not a variant type (the variant types stored: "
-                       << (known.empty() ? "none" : known) << ")";
+                       << ", not a variant type or a bool (the variant types "
+                       << "stored: " << (known.empty() ? "none" : known) << ")";
     }
-    const ir::Program::AdtStorage &storage = storage_it->second;
-    internal_assert(storage.inline_storage)
-        << "[unimplemented] " << where << ": " << storage_t->name
-        << " is stored as a tagged index, whose tag is the top bits of one "
-        << "word; specialize() handles a tag beside the payload";
-    const size_t tag_at = find_struct_index(storage.tag_field, storage_t->fields);
-    // The dispatch below takes its k-th target on k, so the tags have to be
-    // the variants' positions.
-    for (size_t k = 0; k < storage.variants.size(); k++) {
-        internal_assert(storage.variants[k].second == k)
-            << "[unimplemented] " << where << ": variant "
-            << storage.variants[k].first << " has tag "
-            << storage.variants[k].second << ", not its position " << k;
+    const ir::Program::AdtStorage *storage = boolean ? nullptr : &storage_it->second;
+    // The copies, in the order the dispatch below takes them: its k-th
+    // target on k, so a variant's tag has to be its position, and a bool's
+    // false comes first.
+    vector<std::pair<string, uint64_t>> variants;
+    size_t tag_at = 0;
+    if (boolean) {
+        variants = {{"False", 0}, {"True", 1}};
+    } else {
+        internal_assert(storage->inline_storage)
+            << "[unimplemented] " << where << ": " << storage_t->name
+            << " is stored as a tagged index, whose tag is the top bits of one "
+            << "word; specialize() handles a tag beside the payload";
+        tag_at = find_struct_index(storage->tag_field, storage_t->fields);
+        for (size_t k = 0; k < storage->variants.size(); k++) {
+            internal_assert(storage->variants[k].second == k)
+                << "[unimplemented] " << where << ": variant "
+                << storage->variants[k].first << " has tag "
+                << storage->variants[k].second << ", not its position " << k;
+            variants.push_back(storage->variants[k]);
+        }
     }
 
     // The loops to specialize: the function's parallel loops that are not
@@ -263,7 +275,7 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
         };
         vector<Copy> made;
         Terminator::Dispatch dispatch;
-        for (const auto &[vname, tag] : storage.variants) {
+        for (const auto &[vname, tag] : variants) {
             Copy copy;
             copy.variant = vname;
             copy.tag = tag;
@@ -295,14 +307,16 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             return value;
         };
         shared_ptr<Value> tag_value;
-        if (pointer != nullptr) {
+        if (boolean) {
+            tag_value = given_here; // its own tag
+        } else if (pointer != nullptr) {
             shared_ptr<Value> tag_ptr =
-                at_instr(f.get_unique_name(), Ptr_t::make(storage.tag_type),
+                at_instr(f.get_unique_name(), Ptr_t::make(storage->tag_type),
                          Instruction::Op::FieldPtr, {given_here, constant_u32(tag_at)});
-            tag_value = at_instr(f.get_unique_name(), storage.tag_type,
+            tag_value = at_instr(f.get_unique_name(), storage->tag_type,
                                  Instruction::Op::Load, {tag_ptr});
         } else {
-            tag_value = at_instr(f.get_unique_name(), storage.tag_type,
+            tag_value = at_instr(f.get_unique_name(), storage->tag_type,
                                  Instruction::Op::LoadField,
                                  {given_here, constant_u32(tag_at)});
         }
@@ -350,18 +364,19 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             };
             // The given value as a whole -- read through the pointer, when
             // that is how it arrived -- and its fields, the tag replaced.
+            // For a bool, the constant.
             shared_ptr<Value> whole =
                 pointer != nullptr
                     ? make(f.get_unique_name(), struct_type, Instruction::Op::Load,
                            {given})
                     : given;
             vector<shared_ptr<Value>> fields;
-            for (size_t i = 0; i < storage_t->fields.size(); i++) {
+            for (size_t i = 0; !boolean && i < storage_t->fields.size(); i++) {
                 if (i == tag_at) {
                     fields.push_back(std::make_shared<Value>(
-                        storage.tag_type.is_uint()
-                            ? Constant{storage.tag_type, uint64_t(copy.tag)}
-                            : Constant{storage.tag_type, int64_t(copy.tag)}));
+                        storage->tag_type.is_uint()
+                            ? Constant{storage->tag_type, uint64_t(copy.tag)}
+                            : Constant{storage->tag_type, int64_t(copy.tag)}));
                     continue;
                 }
                 fields.push_back(make(f.get_unique_name(),
@@ -370,7 +385,10 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                                       {whole, constant_u32(i)}));
             }
             shared_ptr<Value> spec;
-            if (pointer != nullptr) {
+            if (boolean) {
+                spec = std::make_shared<Value>(
+                    Constant{parameter->type, copy.tag != 0});
+            } else if (pointer != nullptr) {
                 // Stored where the body can point at it: a slot under the
                 // copy's name, holding the specialized value.
                 spec = make(f.get_unique_name(), struct_type,
@@ -544,9 +562,13 @@ bool is_optional_storage(const Struct_t &s) {
            s.fields[0].name == "value" && s.fields[1].name == "set";
 }
 
-// Where a value's tag is and what it can be.
+// Where a value's tag is and what it can be. A bool is its own tag -- no
+// field to read, the value itself -- with the two variants `False` and
+// `True`, in that order, since a dispatch on a bool takes its second target
+// when true. Capitalized as a variant's name is, because `true` and `false`
+// are keywords and a schedule names a copy by its label (`render[True]`).
 struct KeyTag {
-    size_t field;
+    std::optional<size_t> field;
     Type type;
     vector<KeyVariant> variants;
 };
@@ -555,6 +577,9 @@ std::optional<KeyTag>
 key_tag_of(const Type &type,
            const map<string, ir::Program::AdtStorage> &storages,
            const string &what) {
+    if (type.is<Bool_t>()) {
+        return KeyTag{std::nullopt, Bool_t::make(), {{"False", 0}, {"True", 1}}};
+    }
     const Struct_t *s = type.as<Struct_t>();
     if (s == nullptr) {
         return std::nullopt;
@@ -700,12 +725,13 @@ specialize_function(const Function &func, const string &name,
     const auto tag = key_tag_of(held, storages, what);
     internal_assert(tag.has_value())
         << what << ": " << key << " is a " << held
-        << ", not a variant type or an optional";
-    const Struct_t &s = *held.as<Struct_t>();
+        << ", not a variant type, an optional or a bool";
+    const Struct_t *s = held.as<Struct_t>();
+    internal_assert(!tag->field.has_value() || s != nullptr) << what;
 
     // The specialized value is defined right after the key: after its
     // instruction, or first thing in the entry for a parameter. It is the
-    // key's fields with the tag replaced.
+    // key's fields with the tag replaced -- or, for a bool, the constant.
     const string fresh = key + "!" + v.label;
     copy->reserve_name(fresh);
     shared_ptr<Block> at;
@@ -740,15 +766,18 @@ specialize_function(const Function &func, const string &name,
         by_pointer ? make(copy->get_unique_name(), held, Instruction::Op::Load, {given})
                    : given;
     vector<shared_ptr<Value>> fields;
-    for (size_t i = 0; i < s.fields.size(); i++) {
-        fields.push_back(i == tag->field
+    for (size_t i = 0; tag->field.has_value() && i < s->fields.size(); i++) {
+        fields.push_back(i == *tag->field
                              ? tag_constant(*tag, v.tag)
-                             : make(copy->get_unique_name(), s.fields[i].type,
+                             : make(copy->get_unique_name(), s->fields[i].type,
                                     Instruction::Op::LoadField,
                                     {whole, constant_u32(i)}));
     }
     shared_ptr<Value> spec;
-    if (by_pointer) {
+    if (!tag->field.has_value()) {
+        internal_assert(!by_pointer) << what << ": a bool arrives by value";
+        spec = tag_constant(*tag, v.tag);
+    } else if (by_pointer) {
         spec = make(copy->get_unique_name(), held, Instruction::Op::MakeStruct,
                     std::move(fields));
         const shared_ptr<Value> slot =
@@ -937,8 +966,11 @@ key_tag_at(Block &block, const Function &func, const string &key,
     const auto *instr = std::get_if<shared_ptr<Instruction>>(&given->data);
     const shared_ptr<Value> here =
         copy_of(given, instr != nullptr ? (*instr)->owner.lock()->name : entry);
+    if (!tag->field.has_value()) {
+        return here; // a bool is its own tag
+    }
     return block.make_instruction(tag->type, Instruction::Op::LoadField,
-                                  {here, constant_u32(tag->field)});
+                                  {here, constant_u32(*tag->field)});
 }
 
 } // namespace ssa

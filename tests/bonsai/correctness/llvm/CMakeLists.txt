@@ -107,6 +107,7 @@ add_bonsai_tests(
     shadowed-let.bonsai
     simplify-facts.bonsai
     specialize.bonsai
+    specialize-bool.bonsai
     specialize-callee.bonsai
     specialize-nested.bonsai
     sret.bonsai
