@@ -181,6 +181,28 @@ not do, and two the user decided after seeing the first form.
    lower_y, lower_z`. The parser's `vector[T, n]{...}` constructor is new;
    the editor grammar needed no change for it.
 
+9. **Scion's reference syntax** (the user's choice, spelled with `switch`):
+   `layout triangles(ref : u64 = 0u) { ...; switch ref[0:3] { 0 => Interior
+   from Nodes[ref[4:63]]; _ => Leaf { data = prims[a : a + n]; }; }; }`.
+   The reference is the layout's parameter with the root's value as its
+   default (`ir::Group::start`, where the walk begins); `x[a:b]` of an
+   integer is its bits a through b, both included, folded to a shift and a
+   mask at parse time (no mask for a range to the top bit); `x[a : b]` of an
+   array is `range(x, a, b - a)`; `switch <expr>` makes the expression a
+   derived field of its own and switches on it. The parser turns the
+   top-level switch and derived fields into the direct group of references
+   the hand-written form spells (`group[n] ref : u64 { ... }`), so the
+   lowering is unchanged -- lower/reference-bits.bonsai's golden is
+   lower/tiled-elements.bonsai's to the letter but for the derived field's
+   name. No new keywords, so the editor grammar needed no change.
+10. **Embree's large-node relocation**, in the driver
+   (`relocate_large_nodes`): Embree's `layoutLargeNodes` takes the half a
+   percent of nodes of greatest area off a heap from the root and copies
+   them into fresh memory in depth-first order; the driver permutes the rows
+   to the same order, root first, the rest in build order, and rewrites the
+   references. The one difference is that Embree leaves the copied nodes'
+   old slots as holes, which a permutation closes.
+
 Also: `validate_volume` accepts an initializer holding one value per child
 of an array of children; `valid_path` accepts an array of references stored
 as a vector of integers.
@@ -273,15 +295,11 @@ triangle what Embree does per block. In order of what they are worth:
    refinement, for the user to decide.
 4. **The bounds' byte order.** Done (item 8 above): the six component
    vectors are stored in Embree's order and `lo`, `hi` derived from them.
-5. **Scion's reference syntax.** The user chose to port `layout tris(ref :
-   u64 = 0u) { ... switch ref[0:3] { 0 => Interior from Nodes[ref[4:63]];
-   ... } }` (spelled `switch`, since `split` is the scheduling directive)
-   and array slices, over today's `group[n] ref : u64 { kind = ref & 15u;
-   ... }` and `range(...)`. Not done yet; with it, a stored root reference
-   (Embree's `bvh->root`) instead of "the traversal starts at reference 0",
-   which is what Embree's relocation of its largest nodes
-   (`BVHN::layoutLargeNodes`: the top 0.5% by area copied contiguously in
-   depth-first order after the build) needs before the driver can do it.
+5. **Scion's reference syntax.** Done (item 9 above), and Embree's
+   large-node relocation with it (item 10). The references are indices
+   where Embree's are pointers; the root is the layout's default reference,
+   row 0, where Embree stores a pointer to it. Same arithmetic per step
+   (an index times the row size against a pointer); the bits differ.
 
 Arithmetic that cannot match: Embree's `rcp` (an approximate reciprocal
 and a Newton step) against a division, in the node test and the triangle

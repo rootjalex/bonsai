@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -493,6 +494,96 @@ struct Building {
     }
 };
 
+// Embree: BVHN::layoutLargeNodes (kernels/bvh/bvh.cpp), run by the builder
+// after the build over the `num` largest nodes. From the root, the node of
+// greatest surface area is taken off a heap and its children put on, until
+// `num` nodes are waiting; the ones taken -- the top of the tree by area --
+// are then copied into fresh memory in depth-first order, root first, so
+// that they sit together, while the ones waiting (the frontier) and
+// everything below them stay where the build put them. Here the rows are
+// permuted to the same effect: the copied nodes take the first rows in
+// depth-first order, the root staying row 0, and the rest follow in their
+// build order -- Embree leaves the copied nodes' old slots as holes, which
+// a permutation closes up, and that is the one difference.
+void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
+    const uint64_t rows = b.rows_used.load();
+    if (num == 0 || rows == 0) {
+        return;
+    }
+    // Embree: area(bounds) = 2 * halfArea, halfArea(d) = d.x * (d.y + d.z) +
+    // d.y * d.z; a leaf counts as -inf, so it is never expanded.
+    const auto area = [](float lx, float ly, float lz, float ux, float uy,
+                         float uz) {
+        const float dx = ux - lx, dy = uy - ly, dz = uz - lz;
+        return 2.0f * (dx * (dy + dz) + dy * dz);
+    };
+    struct Item {
+        uint64_t ref;
+        float area;
+        bool operator<(const Item &o) const { return area < o.area; }
+    };
+    std::vector<Item> waiting;
+    waiting.reserve(num + 8);
+    waiting.push_back({node_ref(0), area(mesh.lo.x, mesh.lo.y, mesh.lo.z,
+                                         mesh.hi.x, mesh.hi.y, mesh.hi.z)});
+    std::vector<bool> copied(rows, false);
+    while (waiting.size() < num) {
+        std::pop_heap(waiting.begin(), waiting.end());
+        const Item top = waiting.back();
+        waiting.pop_back();
+        if ((top.ref & 15) != 0) {
+            break; // a leaf: nothing larger is left
+        }
+        const uint64_t row = top.ref >> 4;
+        copied[row] = true;
+        const NodeRow &n = b.rows[row];
+        for (int i = 0; i < 8; i++) {
+            if (n.children[i] == kEmptyNode) {
+                continue;
+            }
+            const float a = (n.children[i] & 15) != 0
+                                ? -kInf
+                                : area(n.lower_x[i], n.lower_y[i], n.lower_z[i],
+                                       n.upper_x[i], n.upper_y[i], n.upper_z[i]);
+            waiting.push_back({n.children[i], a});
+            std::push_heap(waiting.begin(), waiting.end());
+        }
+    }
+    // The copied nodes in depth-first order from the root, then the rest in
+    // their build order.
+    std::vector<uint64_t> new_row(rows, UINT64_MAX);
+    uint64_t next = 0;
+    const std::function<void(uint64_t)> visit = [&](uint64_t row) {
+        new_row[row] = next++;
+        const NodeRow &n = b.rows[row];
+        for (int i = 0; i < 8; i++) {
+            const uint64_t child = n.children[i];
+            if ((child & 15) == 0 && copied[child >> 4]) {
+                visit(child >> 4);
+            }
+        }
+    };
+    if (copied[0]) {
+        visit(0);
+    }
+    for (uint64_t row = 0; row < rows; row++) {
+        if (new_row[row] == UINT64_MAX) {
+            new_row[row] = next++;
+        }
+    }
+    std::vector<NodeRow> moved(rows);
+    for (uint64_t row = 0; row < rows; row++) {
+        NodeRow &n = moved[new_row[row]];
+        n = b.rows[row];
+        for (int i = 0; i < 8; i++) {
+            if ((n.children[i] & 15) == 0) {
+                n.children[i] = node_ref(new_row[n.children[i] >> 4]);
+            }
+        }
+    }
+    b.rows.swap(moved);
+}
+
 struct Tree {
     std::unique_ptr<Building> building;
     _tree_layout0 layout{};
@@ -579,6 +670,10 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
         Building::set_bounds(node, bounds_of, 1, &b);
         Building::set_children(node, children, 1, &b);
     }
+
+    // Embree: bvh_builder_sah.cpp -- layoutLargeNodes(pinfo.size() * 0.005f)
+    // after the build, over half a percent of the primitive count.
+    relocate_large_nodes(b, mesh, size_t(float(count) * 0.005f));
 
     tree.nodes = b.rows_used.load();
     tree.blocks = b.blocks_used.load();

@@ -30,15 +30,18 @@
 //
 //   - The reference is Embree's NodeRef (kernels/bvh/bvh_node_ref.h): the
 //     low four bits say what it names -- 0 a node, 8 + n a leaf of n tiles
-//     (8 alone, `emptyNode`, a leaf of none) -- and the rest say where. A
-//     group that stores nothing: the reference is the data. Embree's "where"
-//     is a pointer; here it is an index, a row of Nodes or a tile of prims
-//     (times four, an element), which the layout language stores and which
-//     any device can read.
+//     (8 alone, `emptyNode`, a leaf of none) -- and the rest say where.
+//     Spelled as Scion spells it: the reference is the layout's parameter,
+//     its default the root's, its bits read as ranges, the switch on them.
+//     A group that stores nothing: the reference is the data. Embree's
+//     "where" is a pointer; here it is an index, a row of Nodes or a tile of
+//     prims (times four, an element), which the layout language stores and
+//     which any device can read.
 //
 // What is not Embree's: a header of two counts and two pointers in front of
-// the arrays, and Embree's relocation of its largest nodes after the build
-// (BVHN::layoutLargeNodes), which the driver does not do.
+// the arrays. Embree's relocation of its largest nodes after the build
+// (BVHN::layoutLargeNodes) the driver reproduces as a permutation of the
+// rows (rtq_hook.cpp, relocate_large_nodes).
 schedule {
     tree[[Triangle]] BVH8 =
     | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
@@ -47,7 +50,7 @@ schedule {
 
     triangles : BVH8;
 
-    layout triangles {
+    layout triangles(ref : u64 = 0u) {
         // Slots, four per tile: a leaf's tiles are padded with slots whose
         // ids are -1 and whose vertices are zero, as Embree pads its own.
         pCount : u32;
@@ -72,13 +75,10 @@ schedule {
             lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
             hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
         };
-        group[nCount] ref : u64 {
-            kind = ref & 15u;
-            switch kind {
-                0 => Interior from Nodes[ref >> 4];
-                _ => Leaf { data = range(prims, cast[[u32]]((ref >> 4) * 4u),
-                                         cast[[u32]]((kind - 8u) * 4u)); };
-            };
+        switch ref[0:3] {
+            0 => Interior from Nodes[ref[4:63]];
+            _ => Leaf { data = prims[cast[[u32]](ref[4:63] * 4u)
+                                     : cast[[u32]](ref[4:63] * 4u) + cast[[u32]]((ref[0:3] - 8u) * 4u)]; };
         };
     };
 }

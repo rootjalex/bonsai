@@ -92,8 +92,11 @@ are the same tree.
   row of eight 64-bit child references and the bounds as six vectors of
   eight floats in Embree's order, the leaves as 176-byte Triangle4 blocks
   (every field a vector over four triangles), and a reference decoded from
-  its own bits as Embree's `NodeRef` is. The driver checks the sizes and
-  offsets against Embree's at compile time.
+  its own bits as Embree's `NodeRef` is, in Scion's spelling: the
+  reference is the layout's parameter, `switch ref[0:3]` reads its low
+  bits, `Nodes[ref[4:63]]` the rest, `prims[a : a + n]` a leaf's slice.
+  The driver checks the sizes and offsets against Embree's at compile
+  time, and relocates the largest nodes after the build as Embree does.
 - `schedules/embree.bonsai`: the traversal's order (`sort` by each child's
   entry distance) and stack (`loopify(564)`, Embree's stack depth), and the
   rays across the cores.
