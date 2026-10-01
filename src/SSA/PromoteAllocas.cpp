@@ -467,8 +467,12 @@ size_t promote_allocas(Function &func, const string &entry) {
         erase_threading(func, region, c.name);
         stage("erase threading");
 
-        // Loads become references to whatever value reaches them.
-        map<const Instruction *, shared_ptr<Value>> replacements;
+        // Loads become references to whatever value reaches them. Keyed by
+        // the shared pointer, not the raw one, so that a load outlives its
+        // removal from its block: a load nothing reads has its last reference
+        // in the by-name index, which the walk overwrites, and its name is
+        // still wanted when the renames are recorded after the walk.
+        map<shared_ptr<Instruction>, shared_ptr<Value>> replacements;
 
         vector<shared_ptr<Value>> reaching;
         std::function<void(BlockId)> rename = [&](BlockId b) {
@@ -517,7 +521,7 @@ size_t promote_allocas(Function &func, const string &entry) {
                     internal_assert(!reaching.empty())
                         << "Load of " << c.name << " in " << name
                         << " before it is ever stored to";
-                    replacements[instr.get()] = reaching.back();
+                    replacements[instr] = reaching.back();
                     block.lookups[instr->name] = reaching.back();
                     continue;
                 }
@@ -557,7 +561,7 @@ size_t promote_allocas(Function &func, const string &entry) {
                 if (instr == nullptr) {
                     return;
                 }
-                const auto it = replacements.find(instr->get());
+                const auto it = replacements.find(*instr);
                 if (it != replacements.end()) {
                     v = it->second;
                 }
