@@ -1000,6 +1000,18 @@ struct CodeGen_LLVM : public ir::Visitor {
     // anything. Set by the SSA lowering around such an allocation, as
     // alloca_where_defined is.
     bool heap_once_per_call = false;
+    // The device-resident allocations (device_resident) the SSA left as
+    // stack allocas -- a queue's header, an array of a constant size --
+    // which no Free instruction follows (SSA/HeapArrays.h frees only what
+    // it moved to the heap). Their device storage is freed at every return
+    // of the function instead: one slot per allocation, made null at the
+    // entry and filled where the allocation runs, so a return the
+    // allocation's block does not dominate frees nothing (bonsai_cuda_free
+    // takes a null). Both reset per function (CodeGen_LLVM_SSA.cpp).
+    std::set<std::string> device_resident_allocas;
+    std::vector<llvm::Value *> device_alloca_slots;
+    void remember_device_alloca(llvm::Value *storage, const std::string &name);
+    void free_device_allocas();
     // The functions some loop calls, directly or through another call
     // (ir::ssa::called_inside_loops): an allocation at the top of one of
     // these is made per iteration of that loop.

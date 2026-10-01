@@ -598,6 +598,11 @@ __attribute__((used)) inline void *bonsai_cuda_malloc(uint64_t bytes) {
 
 __attribute__((used)) inline void bonsai_cuda_free(void *device) {
     using namespace bonsai_cuda_detail;
+    // A null is storage never made: the slot of a resident stack allocation
+    // on a return its block did not reach (CodeGen_LLVM::free_device_allocas).
+    if (device == nullptr) {
+        return;
+    }
     Driver &d = ready("free device memory");
     std::lock_guard<std::mutex> lock(d.mutex);
     check(d,

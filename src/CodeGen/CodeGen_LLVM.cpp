@@ -4762,15 +4762,85 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         internal_assert(rhs)
             << "Array allocation produced no storage: " << Stmt(node);
         frames.add_to_frame(name, rhs);
+        if (node->memory == Allocate::Memory::Device &&
+            device_resident_allocas.contains(name)) {
+            remember_device_alloca(rhs, name);
+        }
         return;
     }
 
     llvm::Type *value_type = codegen_type(node->loc.base_type);
+    if (node->memory == Allocate::Memory::Device) {
+        // A struct the residency analysis put on the device -- a lone
+        // queue's header, whose drains run there (device_resident):
+        // `bonsai_cuda_malloc` of its size, the device address held by the
+        // host as a pointer it never dereferences, as for an array above.
+        // The host's loads and stores of it are copies (load_from_device,
+        // store_to_device), and the kernels are handed the address. Until
+        // 2026-10-01 this fell through to the stack below while the kernels
+        // were handed the stack address as if it were device memory: a
+        // program with HMM reached it through the driver's page-fault path,
+        // at milliseconds a launch for a count read by every thread, and
+        // was a client of the unified-memory module it never meant to be
+        // (apps/pbrt/PLAN.md, the split kernels' capacity launch).
+        llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
+        llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+        llvm::Value *bytes = llvm::ConstantInt::get(
+            i64, module->getDataLayout().getTypeAllocSize(value_type));
+        llvm::FunctionCallee device_malloc = module->getOrInsertFunction(
+            "bonsai_cuda_malloc",
+            llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
+        llvm::Value *storage = builder->CreateCall(device_malloc, {bytes}, name);
+        frames.add_to_frame(name, storage);
+        if (rhs != nullptr) {
+            store_to_device(rhs, storage, node->loc.base_type);
+        }
+        if (device_resident_allocas.contains(name)) {
+            remember_device_alloca(storage, name);
+        }
+        return;
+    }
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
     if (rhs != nullptr) {
         // TODO: when is isVolatile true?
         builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+    }
+}
+
+void CodeGen_LLVM::remember_device_alloca(llvm::Value *storage,
+                                          const std::string &name) {
+    // The slot sits at the entry whatever block the allocation is in (a
+    // once-per-call block may size its own allocas in place, see
+    // alloca_where_defined), and holds null from the entry on, so that a
+    // return reached without the allocation frees nothing.
+    llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+    llvm::Value *slot;
+    {
+        ScopedValue<bool> _(alloca_where_defined, false);
+        slot = create_alloca_at_entry(ptr, name + "_device_slot");
+    }
+    auto *slot_inst = llvm::cast<llvm::AllocaInst>(slot);
+    const llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
+    builder->SetInsertPoint(slot_inst->getParent(), std::next(slot_inst->getIterator()));
+    builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ptr)),
+                         slot);
+    builder->restoreIP(here);
+    builder->CreateStore(storage, slot);
+    device_alloca_slots.push_back(slot);
+}
+
+void CodeGen_LLVM::free_device_allocas() {
+    if (device_alloca_slots.empty()) {
+        return;
+    }
+    llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+    llvm::FunctionCallee device_free = module->getOrInsertFunction(
+        "bonsai_cuda_free",
+        llvm::FunctionType::get(void_t, {ptr}, /*isVarArg=*/false));
+    for (llvm::Value *slot : device_alloca_slots) {
+        llvm::Value *storage = builder->CreateLoad(ptr, slot, "device_storage");
+        builder->CreateCall(device_free, {storage});
     }
 }
 

@@ -591,6 +591,13 @@ struct CodeGen_LLVM::SSALowering {
                 cg.device_resident.contains(instr->name)  ? Allocate::Device
                 : instr->op == Instruction::Op::Alloca ? Allocate::Stack
                                                        : Allocate::Heap;
+            // A stack allocation put on the device has no Free of its own
+            // (SSA/HeapArrays.h frees only what it moved to the heap): the
+            // backend frees its device storage at the function's returns
+            // (CodeGen_LLVM::free_device_allocas).
+            if (memory == Allocate::Device && instr->op == Instruction::Op::Alloca) {
+                cg.device_resident_allocas.insert(instr->name);
+            }
             // In a block that runs once per call, a run-time size computed
             // there may size the allocation in place (see once_blocks).
             const std::shared_ptr<Block> home = instr->owner.lock();
@@ -1697,6 +1704,8 @@ struct CodeGen_LLVM::SSALowering {
             by_name[block->name] = block.get();
         }
         cg.device_resident = device_resident_allocations();
+        cg.device_resident_allocas.clear();
+        cg.device_alloca_slots.clear();
 
         cg.frames.push_frame();
         llvm::BasicBlock *entry_bb =
@@ -1857,10 +1866,15 @@ struct CodeGen_LLVM::SSALowering {
                 },
                 [&](const Terminator::Return &r) {
                     if (!r.value) {
+                        cg.free_device_allocas();
                         cg.builder->CreateRetVoid();
                         return;
                     }
                     llvm::Value *value = cg.codegen_expr(operand(r.value));
+                    // The device storage of the function's resident stack
+                    // allocations, given back on the way out (see
+                    // CodeGen_LLVM::device_alloca_slots).
+                    cg.free_device_allocas();
                     if (cg.current_sret) {
                         // Returned through the hidden pointer; see
                         // indirect_return_type.
