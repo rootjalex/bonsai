@@ -47,6 +47,9 @@ venv
 # Build dependencies
 deps/llvm-build
 deps/llvm-install
+# Embree, built from the deps/embree submodule by apps/rtq/build_embree.sh.
+deps/embree-build
+deps/embree-install
 # One LLVM per branch that pins a different release: deps/llvm-build-23,
 # deps/llvm-install-23, and the bonsai build against it, build-23.
 deps/llvm-build-*
@@ -97,6 +100,7 @@ eval/__pycache__/
 # could only ever drift from what the compiler actually produces.
 apps/pbrt/render.h
 apps/rtiow/cpu/main.h
+apps/rtq/rtq.h
 
 *.csv
 

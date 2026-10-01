@@ -1,0 +1,201 @@
+// apps/rtq: a ray query against a set of triangles, as Embree answers it.
+//
+// The program says what is computed: the nearest triangle a ray hits
+// (`trace`, Embree's rtcIntersect1) and whether it hits any (`occluded`,
+// rtcOccluded1), over a set of triangles. How that is computed -- that the
+// set is Embree's BVH8 over Triangle4 leaves, that a node's eight children
+// are tested at the node and descended into nearest first, that the
+// traversal is a loop over a stack -- is the schedule's (schedules/*.bonsai),
+// and the tree and its bytes are the layout's (schedules/trees/bvh8.bonsai).
+// The driver (rtq_hook.cpp) builds the tree with Embree's own builder, hands
+// the same rays to both, and compares answers and times.
+//
+// The geometry here is Embree's, transcribed: a triangle is stored as Embree
+// stores it (TriangleM: a vertex and two edges, with its ids), tested as
+// Embree tests it (triangle_intersector_moeller.h), and a box as Embree's
+// node test tests it (node_intersector1.h, intersectNode for an AABBNode).
+// Where Embree's arithmetic is an instruction this language has no name for
+// -- its reciprocal is `rcp14` refined by a Newton step -- the exact
+// operation is used and the difference is noted in PLAN.md.
+import stdlib/numerics;
+
+// Embree: RTCRay, the fields the traversal reads. `tnear` and `tfar` are the
+// segment of the ray a hit counts on; a hit at `t` is accepted where
+// `tnear < t <= tfar` (triangle_intersector_moeller.h), and a box where its
+// slab interval meets [tnear, tfar].
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+// Embree: TriangleM<M>, one of its M slots. A vertex, the two edges Embree
+// precomputes (`e1 = v0 - v1`, `e2 = v2 - v0`), and the ids. A slot of a
+// block that holds fewer than M triangles is all zeros with ids of -1, as
+// Embree fills it (TriangleM::fill), and the zero triangle never hits.
+element Triangle {
+    v0 : vec3f;
+    e1 : vec3f;
+    e2 : vec3f;
+    geomID : u32;
+    primID : u32;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+// Embree: the smallest magnitude a direction's component is allowed before
+// its reciprocal is taken (min_rcp_input, rcp_safe / zero_fix).
+func zero_fix(d : vec3f) -> vec3f {
+    tiny : Float = 1e-18;
+    return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
+}
+
+// Embree: node_intersector1.h, the slab test of `intersectNode` for one
+// child's box, as TravRay sets it up -- the reciprocal direction and
+// `org * rdir` once per ray, each slab then one fused multiply-subtract --
+// and the interval clamped to the ray's segment before the comparison.
+//
+//     tNear = max(tNearX, tNearY, tNearZ, tnear)
+//     tFar  = min(tFarX,  tFarY,  tFarZ,  tfar)
+//     hit   = tNear <= tFar
+//
+// Embree takes the reciprocal with `rcp` (an approximate reciprocal and a
+// Newton step); this divides. Embree's AVX-512 build compares the two as
+// integers (`maxi`, `mini`, `asInt(tNear) <= asInt(tFar)`), which agrees
+// with the float comparison everywhere it matters (PLAN.md).
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir = 1.0 / zero_fix(r.d);
+    org_rdir = r.o * rdir;
+    dirIsNeg = rdir < 0.0;
+    near = select(dirIsNeg, b.high, b.low);
+    far = select(dirIsNeg, b.low, b.high);
+    tNearV = near * rdir - org_rdir;
+    tFarV = far * rdir - org_rdir;
+    tNear = max(max(tNearV.x, tNearV.y), max(tNearV.z, r.tnear));
+    tFar = min(min(tFarV.x, tFarV.y), min(tFarV.z, r.tfar));
+    if tNear <= tFar {
+        return FInterval{tNear, tFar};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+// Where the ray enters the box, and infinitely far where it misses: as a
+// bound on the metric below it says a missed box holds nothing nearer than
+// anything, and as a sort key it puts the children the ray misses last.
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+// A box never contains a ray, so no subtree is ever hit throughout: what
+// settles an `any` without a visit, which for a ray is never.
+func contains(r : Ray, b : AABB) -> bool = false;
+
+element TriangleHit {
+    t, u, v : Float;
+}
+
+// Embree: MoellerTrumboreIntersector1::intersect, through intersectEdge --
+// the Moeller-Trumbore test as Embree factors it, with the triangle's
+// normal from its two stored edges and the sign of the denominator folded
+// into the edge tests by flipping the sign bit (`asInt(..) ^ asInt(sgnDen)`).
+// Backface culling off, as Embree builds by default. The depth test is
+// against the ray's own segment; the comparison with the nearest hit so far
+// is the query's, below.
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
+    Ng = cross(tri.e2, tri.e1);
+    C = tri.v0 - r.o;
+    R = cross(C, r.d);
+    den = dot(Ng, r.d);
+    absDen = abs(den);
+    sgnDen = reinterpret[[u32]](den) & 2147483648u;
+    U = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e2)) ^ sgnDen);
+    V = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e1)) ^ sgnDen);
+    if !(den != 0.0 && U >= 0.0 && V >= 0.0 && U + V <= absDen) {
+        return {};
+    }
+    T = reinterpret[[Float]](reinterpret[[u32]](dot(Ng, C)) ^ sgnDen);
+    if !(absDen * r.tnear < T && T <= absDen * r.tfar) {
+        return {};
+    }
+    // Embree: MoellerTrumboreHitM::finalize, `rcp(absDen)` once and the
+    // three scaled by it.
+    rcpAbsDen = 1.0 / absDen;
+    return TriangleHit{T * rcpAbsDen, U * rcpAbsDen, V * rcpAbsDen};
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return -inf;
+}
+
+extern triangles : set[Triangle];
+
+// Embree: rtcIntersect1 -- the nearest triangle the ray hits, if any.
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), triangles));
+
+// Embree: rtcOccluded1 -- whether the ray hits anything at all.
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), triangles);
+
+// A batch of rays, each answered with the id of the triangle it hits or
+// 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), and a batch answered with
+// 1 where something is in the way. The rays are a parfor, which the
+// schedule spreads over the cores as the driver spreads Embree's.
+func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
+    parfor i in 0u:n {
+        h = trace(rays[i]);
+        if h {
+            tri = *h;
+            hits[i] = tri.primID;
+        } else {
+            hits[i] = 4294967295u;
+        }
+    }
+    return;
+}
+
+func [[export]] occluded_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
+    parfor i in 0u:n {
+        hits[i] = select(occluded(rays[i]), 1u, 0u);
+    }
+    return;
+}

@@ -1,0 +1,41 @@
+// The Embree schedule: apps/rtq/rtq.bonsai run the way Embree's
+// BVHNIntersector1<8> runs -- the schedule the comparison against Embree is
+// made with. Compiled beside the program as a second input:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/embree.bonsai ...
+//
+// The tree is Embree's (trees/bvh8.bonsai): a node holds its eight
+// children's boxes, so a traversal tests the eight at the node, in a loop
+// over the children the tree lowering makes (Lower/Trees.cpp,
+// from_children). What this file adds is the order and the stack.
+import apps/rtq/schedules/trees/bvh8;
+
+schedule {
+    // Embree: traverseClosestHit -- of the children hit, the nearest is
+    // descended into and the rest are pushed, farthest first, so that the
+    // next pop is the next nearest; `tNear`, the distance at which the ray
+    // enters each child's box, is the order. The key is written over the
+    // node's fields: child i's box is corner i of the eight the node holds,
+    // and `distmin` is the slab test's entry distance, infinite for a miss,
+    // which puts the misses last -- and they are not pushed at all, since
+    // each child's push is under its own test (SSA/QueueRecursion.h). The
+    // key is computed in the same loop as the tests (Lower/Sorts.cpp).
+    //
+    // Embree: stackSize = 1 + (N - 1) * maxDepth + 3 for N = 8 and a maximum
+    // depth of 80 (bvh.h, bvh_intersector1.h): 564 entries, the most a
+    // traversal can have waiting.
+    trace.sort(triangles.Interior,
+               |i : u8, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .loopify(564);
+
+    // Embree: traverseAnyHit -- the occlusion test pushes the hit children
+    // in their stored order, "simpler in sequence traversal order", and
+    // stops at the first triangle hit: `any` stops, and nothing is sorted.
+    occluded.loopify(564);
+
+    // The rays across the cores, as the driver spreads Embree's with TBB.
+    trace_all.bind(i, CPUThread);
+    occluded_all.bind(i, CPUThread);
+}

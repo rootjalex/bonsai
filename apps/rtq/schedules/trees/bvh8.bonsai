@@ -1,0 +1,60 @@
+// The triangles as Embree holds them: BVH8Triangle4, the structure Embree
+// builds for a static scene of triangles on a machine with AVX (scene.cpp,
+// createTriangleAccel) -- a BVH whose nodes have eight children and store
+// the children's boxes, over leaves of blocks of four triangles. What every
+// schedule of apps/rtq imports; the driver (rtq_hook.cpp) builds it with
+// Embree's own builder (rtcBuildBVH, with the settings Embree's internal
+// BVH8Triangle4 builder uses) and lays it out as this file says.
+//
+// The tree language owns the pruning: a node bounds its children (`with
+// AABB(lo, hi) on children`), so a traversal tests all eight children's
+// boxes at the node and descends only into the ones hit, as Embree's
+// BVHNIntersector1 does. The layout language owns the bytes.
+schedule {
+    // Embree: BVHN<8>::AABBNode, and TriangleM<4> leaves. A node has no box
+    // of its own -- its box is in its parent's row -- and a leaf is a run of
+    // triangle blocks.
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : BVH8;
+
+    layout triangles {
+        // Embree: the Triangle4 blocks, here one slot after another: block b
+        // is slots 4b to 4b+3, and a slot a block does not fill is the zero
+        // triangle with ids of -1, exactly as TriangleM::fill leaves it.
+        pCount : u32;
+        prims : array[Triangle, pCount];
+
+        // Embree: AABBNode_t<NodeRefPtr<8>, 8>, 256 bytes -- eight child
+        // references of 64 bits, then the children's bounds, six vectors of
+        // eight floats. Embree orders the six lower_x, upper_x, lower_y,
+        // upper_y, lower_z, upper_z; a vector of vectors is stored by
+        // component here, so this row is lower_x, lower_y, lower_z, upper_x,
+        // upper_y, upper_z: the same 192 bytes, two blocks of 96 rather than
+        // three of 64 (PLAN.md).
+        nCount : u32;
+        indirect group Nodes[nCount] row : u64 {
+            children : vector[u64, 8];
+            lo : vector[vec3f, 8];
+            hi : vector[vec3f, 8];
+        };
+
+        // Embree: NodeRef. A reference's low four bits say what it refers to
+        // -- 0 an AABB node, 8 + n a leaf of n blocks (1 to 7) -- and the
+        // rest says where: Embree's byte address of the node or the blocks,
+        // and here the node's row or the first block's number. A group that
+        // stores nothing: the reference is the data, and the root is
+        // reference 0, row 0.
+        group[nCount] ref : u64 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, cast[[u32]]((ref >> 4) * 4u),
+                                         cast[[u32]]((kind - 8u) * 4u)); };
+            };
+        };
+    };
+}
