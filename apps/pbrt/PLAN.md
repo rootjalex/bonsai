@@ -8000,6 +8000,176 @@ draw through there -- so the table's FAILED on pavilion-day-16 is read
 against this calibration; a per-scene or spp-aware tolerance is the
 proper fix if the table is to stop flagging it.
 
+**The split kernels launch over the capacity too (2026-09-30).** The
+material, medium, escaped, emissive and film kernels are drains split
+into blocks of 256 (`render.split(hits, hits_blk, hits_thr, 256, true);
+bind(hits_blk, GPUBlock); bind(hits_thr, GPUThread)`), and the step
+above left them launching over the count: the host read each queue's
+count to size the grid, one copy-and-wait per kernel, four or five a
+round. Now the split carries the drain's launch values -- the queue's
+size, its header, the slot drained -- to the loop it makes of the blocks
+(Rewrite.cpp; SSA.h had said so and the code had not), and the bind of
+that loop sets its bound to the capacity and turns the split's own guard
+into pbrt's: the split's step, where `blk + thr` is formed, tested it
+against the end threaded in through both new loops, and that end was the
+host's count; the bind passes the extent for it instead and rewrites the
+test to compare against the count loaded on the device through the
+queue's count address, threaded into the step as the end was (Bind.cpp).
+One guard, as the material kernels of pbrt have (`if (index >=
+queue->Size()) return;` at the top of each `ForAllQueued` body); the
+grid is `ceil(capacity / 256)` blocks from a value the host has. The
+host's count read goes dead with the launch that waited for it. On the
+CPU nothing changes: a split drain not bound to the GPU has its carried
+values cleared as before (Convert.cpp), and the goldens are unchanged
+but for ssa/defer-gpu-launch's split case, which now reads as the plain
+one does. gpu_compare.sh takes a directory holding only a compiler --
+a copy kept of an earlier build -- so the two steps could be measured
+apart: the raygens alone (the compiler as committed on 09-29), then
+both.
+
+*Read in the host code* (correctness/gpu/defer-capacity compiled to
+LLVM, no run): a round of either drain, whole or split, is one memset of
+the next queue's count, one launch, and one count read -- the round
+test's. The split drain's grid is `ceil(32 / 16)` blocks from the
+constant; the read the host made of the count for that grid is gone,
+and so is the end the split had threaded into the kernel (it would have
+been a capture). The GPU execution test, the killeroo check and the two
+measurements wait for the machine: the user, on the 30th, "Don't run
+GPU benchmarks that conflict with Datalog for now" -- the datalog
+benchmarks run alongside, and sharing the GPU with them is what took
+the machine down on the 29th (a fault in the driver's unified-memory
+module under the datalog process, our render faulting 39 s later).
+
+**What the first run found: the queue headers were on the host, read
+through the driver's page faults (2026-10-01).** Run at 1 AM with the
+machine free, the GPU tests passed and killeroo-simple at 16 spp matched
+pbrt bit for bit with the render of the 29th -- and took 0.417 s against
+0.051 s, the material kernel 241 ms where it had been 8.6 ms, and the
+`medium_samples` kernel, which has nothing to do in killeroo, 85 µs a
+launch where the unused material variants' empty launches over the same
+1915 blocks took 2 µs. nsys gave the durations as real GPU time, with
+the slow launches wandering between kernels round by round (an empty
+`emissive` launch of 3.4 ms, a `Diffuse` of 11 ms); Nsight Compute,
+replaying one of those kernels in isolation, had it at 6 µs with no
+system-memory traffic; compute-sanitizer found nothing. The cause was in
+the backend: the residency analysis (CodeGen_LLVM_SSA.cpp,
+device_resident_allocations) had put the headers of the lone queues --
+`escaped_queue`, `emissive_queue`, `medium_samples_queue`,
+`medium_scatters_queue`, each `alloca<Queue_x>`, a struct, not an array
+-- on the device, now that their drains read the count through the
+header's address; but `CodeGen_LLVM::visit(Allocate)` made device
+storage only for arrays (`rays_queue : Queue_rays[2]`, `hits_queue :
+Queue_hits[7]`, whence the 2 µs), and a resident struct fell through to
+the stack. So the kernels were handed a host stack address as if it were
+device memory, the per-launch copies that had carried the header across
+before were skipped because the analysis believed it resident, and this
+machine's driver (`Addressing Mode: HMM`) served every thread's count
+read -- 490,000 a launch -- through page faults and migrations between
+host and device, with the host's own count zeroing and reads (memsets
+and copies on a stack address, also only HMM makes work) pulling the
+page back each round. Nothing was wrong, only slow: the image was bit
+for bit, memcheck clean. The shadow queue's header (`shadow_queue`, a
+struct too) has been in this state since the raygen launch-over-capacity
+of the 29th -- its `__raygen__shadow` was 10.7 ms against 4.5 before
+with the same rays -- so the renderer had been a client of the
+unified-memory module, unintentionally, through the evening the driver
+crashed in that module under the datalog process.
+
+*The fix* (CodeGen_LLVM.cpp): a device-resident struct gets
+`bonsai_cuda_malloc` of its size, as an array does, the host holding the
+device address and reaching it by copies (store_to_device,
+load_from_device, which the Store and Load paths already did for a
+resident name). And since a resident *stack* allocation has no Free of
+its own (SSA/HeapArrays.h frees only what it moved to the heap -- the
+constant-sized `rays_queue` and `hits_queue` headers were leaking their
+device storage once per render call), the backend keeps a slot per such
+allocation, null from the entry, and frees what it holds at every return
+of the function (free_device_allocas; bonsai_cuda_free takes a null).
+Tests: the 54 GPU tests and the defer tests pass; the killeroo profile
+and the two measurements are to be re-run once the machine is free
+again (another process of the user's took the GPU at 06:30).
+
+*Measured (2026-10-01, 07:45-08:15, the machine idle; 64 spp, wall the
+least of three, kernel time from the profile run; `pbrt --gpu` the
+least of three by its own timer).* killeroo-simple at 16 spp first, with
+the fix: 0.0505 s, 2.18x over pbrt, kernel time 38.4 ms against 41.0
+before the launch-shape work, the image bit for bit the one of the
+29th, the empty capacity launches 4-6 µs each. Then book and landscape,
+three compilers:
+
+    book 64 spp         wall     kernels   vs pbrt
+      pbrt --gpu        0.73 s   640 ms    1.00x
+      09-29, count launches     0.725 s   598 ms    1.01x
+      raygens over capacity, shadow header on the host (e2aec2fc as
+        committed)      4.16 s   4124 ms   0.18x
+      both steps, header fixed  0.719 s   730 ms    1.02x
+
+    landscape view-0 64 spp
+      pbrt --gpu        4.49 s   4343 ms   1.00x
+      09-29             4.656 s  4158 ms   0.97x
+      raygens over capacity, header on the host   21.6 s   21142 ms   0.21x
+      both steps, header fixed  4.527 s   4270 ms   0.99x
+
+So the commit of the 29th had made both scenes five times slower
+through the host-stack header, unnoticed because the machine went down
+before this measurement ran; the fix returns them to a little better
+than the 29th, and the launch shape as a whole bought 6 ms on book
+(noise) and 129 ms on landscape (2.8%): the host's gaps on landscape
+went from 498 ms to 257 (pbrt's are 147), what remains being the CUDA
+launches' synchronize after each kernel and the count read of the round
+test. Wall time is at parity with pbrt on both. What moved is the
+ledger: kernel time rose by the empty capacity launches, so the
+comparison is now kernel against kernel, pbrt's `--stats` profile
+against ours, and on book it reads:
+
+    ours                                  pbrt                         diff
+    __raygen__rays       768   310 ms     Trace closest hit   768   217   +93
+    __raygen__shadow     768   138 ms     Trace shadow rays   640    51   +87
+    Diffuse + Coated     768   181 ms     the two materials   640   244   -63
+    camera + film        256    60 ms     camera, samples, film  1024  106  -46
+    4 lone queues, empty 3072   20 ms     resets, stats       2304     8
+    5 unused materials   3840   20 ms     (not launched)         0     0   +32
+
+The two raygens are the whole loss. The shadow trace is 2.7x pbrt's
+(the user's reading on the 27th: pbrt traces shadow rays with the
+closest-hit program disabled and terminates on the first hit, we run a
+closest-hit; a lowering fix). The closest-hit trace was 237 ms on the
+29th and is 310 now with the same 768 launches: the idle threads of a
+raygen launched over 921,600 when a late round has a few thousand rays
+cost ~110 µs a launch where pbrt's identical launches cost less -- to
+be read in the two raygens' SASS. And pbrt launches a material kernel
+only for the material types the scene has (`haveBasicEvalMaterial`) and
+the medium kernels only `if (haveMedia)`; we launch all seven variants
+and both medium drains every round, 40 ms of empty launches on book
+against pbrt's 8 -- a host-side test per drain on whether the scene has
+any entry of that kind, which is pbrt's, not a new construct.
+
+*Deferred, to be done: storage placement as an SSA pass.* The user, on
+the 1st: "Is there a more efficient and intelligent thing to do than
+the hacks you're stacking together?" What is stacked today: the backend
+infers which allocations live on the device (device_resident_allocations,
+touched by a kernel and never by the host), turns the host's loads and
+stores of them into copies by chasing addresses to a device root
+(device_root_of, device_pointer_vars), copies host-touched storage a
+kernel also touches in and out around every launch with a synchronize
+(the `bonsai_cuda_buffer`s, a hidden launch gap of the very kind the
+launch shape removed), places arrays and structs by separate code, and
+frees device storage two ways (SSA/HeapArrays.h for what it moved to
+the heap, the slots of this commit for resident stack allocations). The
+shape it should have: one SSA pass after the binds, with a rule rather
+than an inference -- in a function with GPU-bound loops every
+allocation a kernel touches is device storage, allocated where it is
+declared and freed at the function's exits with the edge-splitting
+HeapArrays already does (generalized from "to the heap" to "to a memory
+space"), and every host read or write of device storage an explicit
+copy instruction in the SSA, visible in the dump and countable in a
+golden. The backend then emits what the IR says and the per-launch
+copies, the residency inference, the root chasing, the struct/array
+split and the slots all go. pbrt itself allocates everything through
+`cudaMallocManaged` and lets the driver place pages; we need none of
+that, and after the 29th want none of it. Not started: the user's order
+is the kernel-time losses first.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,
