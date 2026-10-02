@@ -310,11 +310,17 @@ vector<size_t> value_operands(const Instruction &instr) {
         return {0};
 
     // An intrinsic computes on values, so every operand goes per-lane -- with
-    // one exception: `rand`'s argument is how many numbers to draw, which is
-    // a count and not one of them.
+    // two exceptions: `rand`'s argument is how many numbers to draw, which is
+    // a count and not one of them; and a `prefetch`'s byte count is a
+    // constant of the layout, the same for every lane, so only its address
+    // goes per lane (the mask it carries once predicated is a gang's
+    // already; see SSA/Linearize.cpp).
     case Instruction::Op::Intrinsic: {
         if (instr.intrinsic == ir::Intrinsic::rand) {
             return {};
+        }
+        if (instr.intrinsic == ir::Intrinsic::prefetch) {
+            return {0};
         }
         vector<size_t> all(n);
         for (size_t i = 0; i < n; i++) {
@@ -1966,14 +1972,21 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     internal_assert(loop) << "Did not find loop: " << idx
                           << " in function: " << func;
 
-    const Terminator::ParFor parfor =
-        std::get<Terminator::ParFor>(loop->terminator.data);
-    const uint32_t lanes = gang_width(parfor);
-
     // A mutable local written by one lane is a value that differs between
     // lanes, not memory traffic: promote before anything else looks at the
     // body (see SSA/PromoteAllocas.h).
     promote_allocas(*f, f->blocks[0]->name);
+
+    // The loop is read after the promotion, not before it. A `mut` local of
+    // the enclosing loop that the body reads reaches it as an address
+    // threaded through the body's arguments, and promoting it deletes that
+    // argument from the body and from the loop's jump to it alike
+    // (PromoteAllocas.cpp, erase_threading). This copy is what the loop's
+    // entry is rebuilt from once the body is a gang, below; taken before the
+    // promotion, it handed the body one argument more than the body took.
+    const Terminator::ParFor parfor =
+        std::get<Terminator::ParFor>(loop->terminator.data);
+    const uint32_t lanes = gang_width(parfor);
 
     const string entry = parfor.body.name;
 

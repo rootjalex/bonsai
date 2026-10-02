@@ -4019,6 +4019,13 @@ struct Parser {
                 ir::Location i = loop_cursor();
                 add(
                     ir::Vectorize{std::move(i)});
+            } else if (rewrite == "prefetch") {
+                // The field of an arm holding the tree's references -- the
+                // children a node tests -- whose storage each hit one has
+                // brought into cache in the loop that tests them
+                // (ir::Prefetch).
+                ir::Location loc = loop_cursor();
+                add(ir::Prefetch{std::move(loc)});
             } else if (rewrite == "specialize") {
                 // The parameter whose variants the function is copied for;
                 // with a loop before it, `render.specialize(shadow,

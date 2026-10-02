@@ -2159,7 +2159,12 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // lane that is off must neither write nor add. And a push onto a
             // queue, which claims a slot and writes it: a lane that is off
             // pushes nothing, and the lanes that are on compact into the
-            // slots the gang claims (see Instruction::Op::Push).
+            // slots the gang claims (see Instruction::Op::Push). And a
+            // prefetch, which touches a line per lane: a lane that is off
+            // names no line worth fetching (ir::Intrinsic::prefetch).
+            const bool prefetch =
+                instr->op == Instruction::Op::Intrinsic &&
+                instr->intrinsic == ir::Intrinsic::prefetch;
             if (instr->op != Instruction::Op::Store &&
                 instr->op != Instruction::Op::AccAdd &&
                 instr->op != Instruction::Op::AccMul &&
@@ -2168,7 +2173,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 instr->op != Instruction::Op::AccMax &&
                 instr->op != Instruction::Op::AccArgmin &&
                 instr->op != Instruction::Op::AccArgmax &&
-                instr->op != Instruction::Op::Push) {
+                instr->op != Instruction::Op::Push && !prefetch) {
                 continue;
             }
             internal_assert(instr->operands.size() == 2)

@@ -1433,9 +1433,11 @@ class BonsaiToCpp : ir::Printer {
             print_expr_list(node->args);
             ss << "))";
         } else if (node->op == Intrinsic::permute ||
-                   node->op == Intrinsic::compress) {
+                   node->op == Intrinsic::compress ||
+                   node->op == Intrinsic::prefetch) {
             // A lane at a time, by the helpers in runtime/bonsai_cpp.h:
-            // C++ has no permute or compress to name.
+            // C++ has no permute or compress to name, and its prefetch
+            // (`__builtin_prefetch`) takes one address and one line.
             ss << "bonsai_" << to_string(node->op) << "(";
             print_expr_list(node->args);
             ss << ")";

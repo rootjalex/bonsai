@@ -220,6 +220,7 @@ target_sources(
     src/Lower/ReturnToOutParameter.cpp
     src/Lower/Scans.cpp
     src/Lower/SetFunctions.cpp
+    src/Lower/Prefetches.cpp
     src/Lower/Sorts.cpp
     src/Lower/Trees.cpp
     src/Lower/Tuples.cpp

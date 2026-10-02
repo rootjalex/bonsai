@@ -148,5 +148,30 @@ bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask) {
     return out;
 }
 
+// The prefetch (Intrinsic::prefetch): the `bytes` at `address` into the
+// first-level cache, a 64-byte line at a time, for one address or for each
+// lane's address that the mask has on.
+template <typename T>
+__attribute__((always_inline)) void bonsai_prefetch(const T *address,
+                                                    uint32_t bytes,
+                                                    bool wanted = true) {
+    if (!wanted) {
+        return;
+    }
+    const char *at = reinterpret_cast<const char *>(address);
+    for (uint32_t k = 0; k < bytes; k += 64) {
+        __builtin_prefetch(at + k, 0, 3);
+    }
+}
+
+template <typename T, size_t N>
+__attribute__((always_inline)) void
+bonsai_prefetch(const vector<T *, N> &addresses, uint32_t bytes,
+                const vector<bool, N> &mask) {
+    for (size_t k = 0; k < N; k++) {
+        bonsai_prefetch(addresses[k], bytes, mask[k]);
+    }
+}
+
 // Temp hack.
 using bool3 = vector<bool, 3>;

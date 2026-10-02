@@ -709,6 +709,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // no-op, should have been handled in
                                       // Lower/Sorts.cpp
                                   },
+                                  [&](const Prefetch &) {
+                                      // no-op, applied in Lower/Prefetches.cpp
+                                  },
                                   [&](const Split &split) {
                                       std::string i = get_name(split.i);
                                       std::string io = get_name(split.io);

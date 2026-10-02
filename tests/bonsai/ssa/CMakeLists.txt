@@ -10,6 +10,7 @@ add_bonsai_tests(
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     skip-leaf-helper.bonsai
+    prefetch-children.bonsai
     collapse.bonsai
     defer-bools.bonsai
     defer-frame.bonsai

@@ -1,0 +1,77 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-prefetches -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// The prefetch directive, from the schedule to the layout: the tree of
+// tiled-elements.bonsai with `trace.prefetch(tris.Interior.children)`, read
+// after the layout lowering.
+//
+// What to read for. In the loop over a node's children, after the test's
+// store into `_mask0[children]` and the sort key's into `_keys0[children]`,
+// Lower/Prefetches.cpp appended `if _mask0[children] { prefetch(children[
+// children]) }`, of the child's reference. Lower/Layouts.cpp then lowered
+// the prefetch of a reference as it lowers a visit of one: the reference is
+// its stored bits, `tris.group1_children[children]`, and its low four bits
+// pick the arm -- zero, an interior node whose row is `group2_Nodes[ref >>
+// 4]`; otherwise a leaf whose range starts at tile `((ref >> 4) * 4) / 4` of
+// `group0_prims` -- so the prefetch is an `if` on the kind with a `prefetch`
+// of the address of that arm's row in each branch, `prefetch(&row, 144)`:
+// the same byte count in both, the widest arm's, the 144 bytes of a tile
+// of four triangles of three corners (a node row is 112), so the branches differ
+// in nothing but the address. A let of void type, since a prefetch computes
+// nothing; a name nothing reads.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}));
+    trace.prefetch(tris.Interior.children);
+}

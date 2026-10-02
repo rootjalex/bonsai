@@ -1382,6 +1382,32 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type().element_of();
             break;
         }
+        case Intrinsic::prefetch: {
+            // Before the layout: a tree reference, `prefetch(ref)`, or the
+            // integer the reference is stored as once the layout has
+            // lowered its read and not yet the prefetch (Lower/Layouts.cpp).
+            // After it: a pointer and a constant byte count, and once a gang
+            // carries it, a pointer per lane and the lanes' mask. Computes
+            // nothing, so its type is void and it is bound to no name
+            // (see SSA/Convert.cpp).
+            const Type &first = args.empty() ? Type() : args[0].type();
+            const bool reference =
+                args.size() == 1 &&
+                (first.is<Ref_t>() || first.is_int_or_uint());
+            const bool address =
+                (args.size() == 2 || args.size() == 3) &&
+                (first.is<Ptr_t>() ||
+                 (first.is<Vector_t>() && first.element_of().is<Ptr_t>())) &&
+                args[1].type().is_int_or_uint() &&
+                (args.size() == 2 || args[2].type().is_bool() ||
+                 (args[2].type().is<Vector_t>() &&
+                  args[2].type().element_of().is_bool()));
+            internal_assert(reference || address)
+                << "prefetch takes a tree reference, or a pointer and a byte "
+                << "count with a mask of the lanes after a gang widens it";
+            node->type = Void_t::make();
+            break;
+        }
         case Intrinsic::block_reduce_add:
         case Intrinsic::block_reduce_max:
         case Intrinsic::block_reduce_min:
@@ -2020,6 +2046,7 @@ Expr PtrTo::make(Expr expr) {
 
 bool Intrinsic::has_effects(OpType op) {
     switch (op) {
+    case Intrinsic::prefetch:
     case Intrinsic::rand:
     case Intrinsic::rt_trace:
     case Intrinsic::rt_report_hit:

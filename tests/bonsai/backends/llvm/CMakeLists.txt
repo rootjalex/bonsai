@@ -10,6 +10,7 @@ add_bonsai_tests(
     child-volumes.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
+    prefetch-children.bonsai
     rcp.bonsai
     permute.bonsai
     defer.bonsai

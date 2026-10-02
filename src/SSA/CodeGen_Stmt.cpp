@@ -386,8 +386,16 @@ uint64_t get_const_u64(const Expr &e) {
 
 Expr pure_expr(const Instruction &instr, std::vector<Expr> args);
 
+// As is_side_effecty of the operation, and also an intrinsic with no value
+// and so no name -- a prefetch (see SSA/Convert.cpp) -- which is a statement
+// however pure its operation's other uses are.
+bool is_side_effecty(const Instruction &instr) {
+    return is_side_effecty(instr.op) ||
+           (instr.op == Instruction::Op::Intrinsic && instr.name.empty());
+}
+
 Stmt codegen_instruction(const Instruction &instr) {
-    if (is_side_effecty(instr.op)) {
+    if (is_side_effecty(instr)) {
         switch (instr.op) {
         case Instruction::Op::AccAdd:
         case Instruction::Op::AccMul:
@@ -476,6 +484,15 @@ Stmt codegen_instruction(const Instruction &instr) {
         }
         case Instruction::Op::Print:
             return Print::make(codegen_values(instr.operands));
+        case Instruction::Op::Intrinsic: {
+            // An effect with no value, a prefetch: bound to a fresh name
+            // nothing reads, which is how the Stmt form holds a statement
+            // of it (Lower/Prefetches.cpp).
+            static size_t counter = 0;
+            return LetStmt::make(
+                WriteLoc("_effect" + std::to_string(counter++), Void_t::make()),
+                pure_expr(instr, codegen_values(instr.operands)));
+        }
         case Instruction::Op::Free:
             internal_assert(instr.operands.size() == 1) << instr.operands.size();
             return Free::make(codegen_value(instr.operands[0]));
@@ -892,7 +909,7 @@ Expr inline_expr(const std::shared_ptr<Value> &v,
     const bool must_inline =
         unbound != nullptr && instr.owner.lock().get() == unbound;
 
-    if (is_side_effecty(instr.op)) {
+    if (is_side_effecty(instr)) {
         internal_assert(!must_inline)
             << "Cannot inline " << instr.name << ", which has an effect, into "
             << "an expression that has nowhere to be bound";
@@ -1686,7 +1703,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
         // them here would compute it once, before the loop.
         for (auto &instr : block->instrs) {
             if (bi.role == BlockInfo::Role::WhileHeader) {
-                internal_assert(!is_side_effecty(instr->op))
+                internal_assert(!is_side_effecty(*instr))
                     << "While header " << name << " has a side effect in it, "
                     << "which cannot be moved into the loop condition";
                 continue;

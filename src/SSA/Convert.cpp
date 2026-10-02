@@ -374,6 +374,15 @@ struct FunctionBuilder : Visitor {
     }
 
     void visit(const LetStmt *node) override {
+        // A let of an effect that computes nothing -- `prefetch(...)`, bound
+        // to a name nothing reads so that it has a place among statements --
+        // is the effect alone here, an instruction with no name, as a store
+        // is (see visit(const Intrinsic *)).
+        if (const Intrinsic *in = node->value.as<Intrinsic>();
+            in != nullptr && in->type.is<Void_t>()) {
+            node->value.accept(this);
+            return;
+        }
         auto v = get_value(node->value);
         block->make_instruction(node->loc.base, node->loc.base_type,
                                 std::move(v));
@@ -1221,6 +1230,20 @@ struct FunctionBuilder : Visitor {
 
         if (const auto op = get_intrinsic(node->op)) {
             value = block->make_instruction(node->type, *op, std::move(args));
+            return;
+        }
+
+        // One that computes nothing is a side effect: an instruction with no
+        // name, kept in its place among the block's stores, which is how
+        // the vectorizer and the backend treat it (a prefetch; see
+        // ir::Intrinsic::prefetch).
+        if (node->type.is<Void_t>()) {
+            internal_assert(Intrinsic::has_effects(node->op))
+                << "An intrinsic of no value and no effect: " << Expr(node);
+            block->make_side_effect(Instruction::Op::Intrinsic,
+                                    std::move(args));
+            block->instrs.back()->intrinsic = node->op;
+            value = nullptr;
             return;
         }
 
@@ -2154,6 +2177,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Collapse &) { return "collapse"; },
                           [](const ir::Defer &) { return "defer"; },
                           [](const ir::Loopify &) { return "loopify"; },
+                          [](const ir::Prefetch &) { return "prefetch"; },
                           [](const ir::Reorder &) { return "reorder"; },
                           [](const ir::Split &) { return "split"; },
                           [](const ir::Sort &) { return "sort"; },
@@ -2449,6 +2473,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     },
                     // Applied earlier in lowering, by the pass named.
                     [&](const ir::Sort &) {}, // Lower/Sorts.cpp
+                    [&](const ir::Prefetch &) {}, // Lower/Prefetches.cpp
                     [&](const ir::Split &s) {
                         internal_assert(!s.i.names.empty() &&
                                         !s.io.names.empty() &&

@@ -218,6 +218,27 @@ struct Vectorize {
     Location i;
 };
 
+// Bring into cache the storage that each hit child of a node refers to, in
+// the loop that tests the children -- written `trace.prefetch(tris.Interior.
+// children)`, the field of an arm whose type is a reference to the tree, or
+// an array or vector of them, which is also the loop `vectorize` names for
+// the same test (Lower/Trees.cpp, from_children). Halide's `f.prefetch(g,
+// at, from, offset)` places a prefetch in loop `at` for the region of `g`
+// that iteration `from + offset` will touch, found by bounds inference over
+// the loop body (Halide's src/Prefetch.cpp). A traversal's next touch is
+// behind an indirection bounds inference cannot see -- the row a child
+// reference names -- but the layout knows it exactly: so this keeps Halide's
+// `at`, the loop named by the field, and takes the region from the
+// reference, lowered through the same arm switch a visit of it goes through
+// (Lower/Layouts.cpp) to the row's address and the widest arm's bytes.
+// Embree's `BVH::prefetch` on every hit child as the traversal extracts it
+// (kernels/bvh/bvh_traverser1.h), four lines of L1 for a BVH8 node. Applied
+// by lower::LowerPrefetches, after the sort and before the layout; a
+// `prefetch` of a field that is not a reference is refused.
+struct Prefetch {
+    Location loc;
+};
+
 // One copy of the function per variant of a parameter of algebraic type,
 // the parameter's tag a constant in each, and the function itself a
 // dispatcher that reads the tag once and calls the copy -- written
@@ -252,8 +273,9 @@ struct Specialize {
     std::string loop;
 };
 
-using Transform = std::variant<Bind, Collapse, Defer, Loopify, Reorder, Split,
-                               Sort, Specialize, Stage, Vectorize>;
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, Prefetch,
+                               Reorder, Split, Sort, Specialize, Stage,
+                               Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

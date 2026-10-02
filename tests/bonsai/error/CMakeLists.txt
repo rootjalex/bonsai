@@ -44,6 +44,7 @@ add_bonsai_tests(
     reorder-triangular.bonsai
     skip-unknown-arm.bonsai
     skip-unknown-function.bonsai
+    prefetch-not-a-reference.bonsai
     sort-needs-ssa.bonsai
     sort-key-index-type.bonsai
     split-not-divisible.bonsai

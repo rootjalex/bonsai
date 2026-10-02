@@ -203,7 +203,7 @@
     },
     "schedule-directives": {
       "comment": "What a schedule block says about a loop, a call or a set.",
-      "match": "\\.(loopify|bind|defer|sort|split|queue|specialize|vectorize|skip|reorder)(?=\\s*\\()",
+      "match": "\\.(loopify|bind|defer|sort|split|queue|specialize|vectorize|skip|reorder|prefetch)(?=\\s*\\()",
       "captures": {
         "1": { "name": "support.function.schedule.bonsai" }
       }

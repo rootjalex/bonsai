@@ -364,6 +364,9 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void check_block_level_call(const std::string &callee) {}
     llvm::Value *codegen_expr(const ir::Expr &expr);
     std::vector<llvm::Value *> codegen_exprs(const std::vector<ir::Expr> exprs);
+    // Generates an expression of void type for its effect alone -- a
+    // prefetch -- leaving no value.
+    void codegen_effect(const ir::Expr &e);
     void codegen_stmt(const ir::Stmt &stmt);
     llvm::Type *codegen_type(const ir::Type &type);
     llvm::Function *codegen_func_ptr(const ir::Expr &expr);
@@ -630,6 +633,17 @@ struct CodeGen_LLVM : public ir::Visitor {
     // and a load per lane where the machine has nothing.
     llvm::Value *compress_lanes(llvm::Value *vec, llvm::Value *mask,
                                 const std::string &name);
+
+    // Brings the `bytes` bytes at `ptr` into the first-level cache, a line
+    // at a time (ir::Intrinsic::prefetch): llvm.prefetch for a read with
+    // high locality, `prefetcht0` on x86, one per 64-byte line. `ptr` is one
+    // address, or one per lane -- a vector of pointers -- and `mask`, when
+    // given, which lanes want theirs (one bool for a scalar address). No
+    // machine prefetches a vector of addresses, so the lanes are taken one
+    // at a time: a loop over the set bits of the mask, each lane's number
+    // the lowest bit set (`tzcnt`) and that bit cleared after (`blsr`),
+    // Embree's `bscf` loop over the children a ray hit (bvh_traverser1.h).
+    void emit_prefetch(llvm::Value *ptr, uint64_t bytes, llvm::Value *mask);
 
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).

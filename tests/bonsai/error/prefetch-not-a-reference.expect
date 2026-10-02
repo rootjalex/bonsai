@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/Prefetches.cpp:157
+
+--> holds
+trace.prefetch(tris.Interior.lo): lo is a f32x3x4, not a reference to the tree or an array of them. prefetch names the field holding the children a node tests, whose storage each hit child's is brought into cache.

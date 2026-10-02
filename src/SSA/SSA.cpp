@@ -316,6 +316,20 @@ void Instruction::dump(std::ostream &os) const {
         return;
     }
 
+    if (op == Instruction::Op::Intrinsic && name.empty()) {
+        // An intrinsic with no value -- a prefetch -- is a statement, and
+        // dumps as one (see SSA/Convert.cpp).
+        os << to_string(intrinsic) << "(";
+        for (size_t i = 0; i < operands.size(); i++) {
+            if (i != 0) {
+                os << ", ";
+            }
+            operands[i]->dump(os);
+        }
+        os << ")";
+        return;
+    }
+
     internal_assert(!name.empty()) << op_name(op);
     os << name << " = ";
 

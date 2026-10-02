@@ -11,6 +11,7 @@ add_bonsai_tests(
     bvh4_child_volumes_vectorized.bonsai
     bvh4_tiled_elements.bonsai
     bvh4_tiled_elements_vectorized.bonsai
+    bvh4_tiled_elements_prefetch.bonsai
     rcp.bonsai
     permute.bonsai
     blas-tlas.bonsai

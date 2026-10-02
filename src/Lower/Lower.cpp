@@ -26,6 +26,7 @@
 #include "Lower/RenamePointerToExpr.h"
 #include "Lower/ReturnToOutParameter.h"
 #include "Lower/Scans.h"
+#include "Lower/Prefetches.h"
 #include "Lower/Sorts.h"
 #include "Lower/SetFunctions.h"
 #include "Lower/Trees.h"
@@ -155,6 +156,7 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<VerifyLayouts>();
     manager.register_pass<LowerTrees>();
     manager.register_pass<LowerSorts>();
+    manager.register_pass<LowerPrefetches>();
     manager.register_pass<LoopTransforms>();
     manager.register_pass<LowerForEachs>();
     manager.register_pass<LowerElementReferences>();
@@ -200,6 +202,9 @@ PassManager register_passes(const CompilerOptions &options) {
     core.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     core.push_back(std::make_unique<LowerSorts>());
+    // After LowerSorts, whose keys go into the children's loop first, and
+    // before LowerLayouts, which lowers the reference it prefetches.
+    core.push_back(std::make_unique<LowerPrefetches>());
     // Once the pruning conditions exist and the sort keys are on the
     // recursion, and while a motion is still a GeomOp: after LowerTrees and
     // LowerSorts, before LowerGeometrics. See Opt/PullQueries.h.
@@ -270,6 +275,8 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<LowerTrees>());
     // This must always run after LowerTrees and before LowerLayouts
     ssa.push_back(std::make_unique<LowerSorts>());
+    // After LowerSorts, before LowerLayouts; see `core`.
+    ssa.push_back(std::make_unique<LowerPrefetches>());
     // After LowerSorts, before LowerGeometrics; see `core`.
     ssa.push_back(std::make_unique<opt::PullQueries>());
     // Geometrics before Externs; see the note in `core`.

@@ -3676,6 +3676,25 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = reciprocal(codegen_expr(node->args[0]), "rcp");
         return;
     }
+    case Intrinsic::prefetch: {
+        // An address and a byte count, and a mask once a gang carries it
+        // (see emit_prefetch); a reference that reached here was never
+        // lowered by the layout. Computes nothing, so no value is left.
+        internal_assert(node->args.size() == 2 || node->args.size() == 3)
+            << "prefetch reached code generation as " << Expr(node)
+            << ", before the layout lowering made it an address and a size";
+        const std::optional<uint64_t> bytes =
+            get_constant_value<uint64_t>(node->args[1]);
+        internal_assert(bytes.has_value())
+            << "prefetch of a byte count that is not a constant: "
+            << Expr(node);
+        llvm::Value *address = codegen_expr(node->args[0]);
+        llvm::Value *mask =
+            node->args.size() == 3 ? codegen_expr(node->args[2]) : nullptr;
+        emit_prefetch(address, *bytes, mask);
+        value = nullptr;
+        return;
+    }
     case Intrinsic::permute: {
         internal_assert(node->args.size() == 2);
         value = dynamic_shuffle(codegen_expr(node->args[0]),
@@ -3777,6 +3796,83 @@ llvm::Value *CodeGen_LLVM::compress_lanes(llvm::Value *vec, llvm::Value *mask,
         vec->getType(), llvm::Intrinsic::experimental_vector_compress,
         {vec, mask, llvm::Constant::getNullValue(vec->getType())}, nullptr,
         name);
+}
+
+void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
+                                 llvm::Value *mask) {
+    // One llvm.prefetch per 64-byte line of the row, each a read (0) of
+    // high locality (3) of data (1): x86's prefetcht0, as Embree's
+    // prefetchL1 (common/sys/intrinsics.h).
+    const uint64_t lines = std::max<uint64_t>(1, (bytes + 63) / 64);
+    const auto lines_at = [&](llvm::Value *address) {
+        for (uint64_t k = 0; k < lines; k++) {
+            llvm::Value *line =
+                k == 0 ? address
+                       : builder->CreateConstInBoundsGEP1_64(i8_t, address,
+                                                             k * 64);
+            builder->CreateIntrinsic(
+                llvm::Intrinsic::prefetch, {address->getType()},
+                {line, llvm::ConstantInt::get(i32_t, 0),
+                 llvm::ConstantInt::get(i32_t, 3),
+                 llvm::ConstantInt::get(i32_t, 1)});
+        }
+    };
+
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(ptr->getType());
+    if (vt == nullptr) {
+        if (mask != nullptr) {
+            emit_if(mask, [&] { lines_at(ptr); });
+        } else {
+            lines_at(ptr);
+        }
+        return;
+    }
+
+    // A pointer per lane, the lanes that are on taken one at a time. The
+    // mask's bits as one integer, tested for any bit before the loop and
+    // for the bits left at its end; in the loop, the lowest set bit is the
+    // lane (cttz, defined since the word is not zero here), that lane's
+    // pointer is read and its lines fetched, and the bit is cleared
+    // (`x & (x - 1)`, blsr). The pointers are written to a stack slot once,
+    // before the loop, and the lane's read from it by index: a lane taken
+    // out of the register at a run-time index is legalised to the same
+    // store and load, but with the store inside the loop, once per lane.
+    const unsigned lanes = vt->getNumElements();
+    llvm::Type *bits_t = llvm::IntegerType::get(*context, lanes);
+    llvm::Value *bits = mask != nullptr
+                            ? builder->CreateBitCast(mask, bits_t)
+                            : llvm::ConstantInt::getAllOnesValue(bits_t);
+    llvm::Type *word_t = lanes > 32 ? i64_t : i32_t;
+    llvm::Value *word = builder->CreateZExt(bits, word_t, "prefetch_lanes");
+    llvm::Value *zero = llvm::ConstantInt::get(word_t, 0);
+    llvm::Value *one = llvm::ConstantInt::get(word_t, 1);
+    llvm::Value *slot = create_alloca_at_entry(vt, "prefetch_addresses");
+    builder->CreateStore(ptr, slot);
+
+    llvm::BasicBlock *from = builder->GetInsertBlock();
+    llvm::BasicBlock *loop_bb = llvm::BasicBlock::Create(
+        *context, "prefetch_lane", current_function);
+    llvm::BasicBlock *done_bb = llvm::BasicBlock::Create(
+        *context, "prefetch_done", current_function);
+    builder->CreateCondBr(builder->CreateICmpNE(word, zero), loop_bb, done_bb);
+
+    builder->SetInsertPoint(loop_bb);
+    llvm::PHINode *remaining =
+        builder->CreatePHI(word_t, 2, "prefetch_remaining");
+    remaining->addIncoming(word, from);
+    llvm::Value *lane = builder->CreateIntrinsic(
+        word_t, llvm::Intrinsic::cttz, {remaining, builder->getTrue()},
+        nullptr, "prefetch_which");
+    llvm::Value *at = builder->CreateInBoundsGEP(vt->getElementType(), slot,
+                                                 lane, "prefetch_slot");
+    llvm::Value *address =
+        builder->CreateLoad(vt->getElementType(), at, "prefetch_address");
+    lines_at(address);
+    llvm::Value *rest = builder->CreateAnd(
+        remaining, builder->CreateSub(remaining, one), "prefetch_rest");
+    remaining->addIncoming(rest, builder->GetInsertBlock());
+    builder->CreateCondBr(builder->CreateICmpNE(rest, zero), loop_bb, done_bb);
+    builder->SetInsertPoint(done_bb);
 }
 
 void CodeGen_LLVM::visit(const Lambda *node) {
@@ -4550,6 +4646,12 @@ void CodeGen_LLVM::visit(const Return *node) {
 
 void CodeGen_LLVM::visit(const LetStmt *node) {
     internal_assert(node->loc.accesses.empty());
+    // A let of an effect that computes nothing, a prefetch: the effect is
+    // made and the name, which nothing reads, is bound to nothing.
+    if (node->value.type().is<Void_t>()) {
+        codegen_effect(node->value);
+        return;
+    }
     llvm::Value *v = codegen_expr(node->value);
     frames.add_to_frame(node->loc.base, v);
     // A name bound to an address into device memory is one to cross through
@@ -6726,6 +6828,14 @@ llvm::Value *CodeGen_LLVM::codegen_expr(const Expr &e) {
     e.accept(this);
     internal_assert(value) << "Failed to codegen expression: " << e;
     return value;
+}
+
+void CodeGen_LLVM::codegen_effect(const Expr &e) {
+    internal_assert(e.defined() && e.type().is<Void_t>())
+        << "Not an effect without a value: " << e;
+    value = nullptr;
+    e.accept(this);
+    internal_assert(value == nullptr) << "An effect left a value: " << e;
 }
 
 std::vector<llvm::Value *>

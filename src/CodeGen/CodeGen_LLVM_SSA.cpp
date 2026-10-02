@@ -760,6 +760,15 @@ struct CodeGen_LLVM::SSALowering {
                                         std::move(mask), instr->compact));
             return;
         }
+        if (instr->op == Instruction::Op::Intrinsic &&
+            instr->intrinsic == Intrinsic::prefetch) {
+            // An effect with no value and no name (see SSA/Convert.cpp):
+            // made here, bound to nothing.
+            internal_assert(instr->name.empty())
+                << "A prefetch bound to a name: " << instr->name;
+            cg.codegen_effect(value_of(*instr));
+            return;
+        }
         Expr value = value_of(*instr);
         internal_assert(value.defined()) << "No value for " << instr->name
                                          << " (" << op_name(instr->op) << ")";

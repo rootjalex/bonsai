@@ -601,6 +601,14 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
     internal_error << "Handle layout conversion for: " << layout;
 }
 
+// The name by which field_in_layout is asked for the storage an arm resolves
+// to rather than for one of its fields: the row of the group a lookup arm
+// names (`Interior from Nodes[ref >> 4]`), or the first tile of the range a
+// leaf arm names (`data = range(prims, start, count)`). What a prefetch of a
+// reference fetches (LowerReferencePrefetches). Not an identifier, so no
+// field of a layout is called this.
+const std::string kRowOfArm = "<row>";
+
 ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                          ir::MapStack<std::string, ir::Expr> frames,
                          const std::string &iter_name,
@@ -621,6 +629,9 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                "declared before the arm that names it.";
         ir::Expr row =
             ir::Extract::make(*rows, fill(frames, lookup->index));
+        if (field == kRowOfArm) {
+            return row;
+        }
         return field_in_layout(std::move(row), named->second.inner, frames,
                                iter_name, node_type, field, ltmap,
                                std::move(group));
@@ -750,6 +761,27 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                 ir::Expr mat = fill(frames, value);
                 if (group.defined()) {
                     frames.pop_frame();
+                }
+                // Asked for the arm's storage: a leaf's `data = range(prims,
+                // start, count)` over a group of tiles names, as the storage
+                // worth fetching first, the tile its first element is in --
+                // element `start` is lane `start % width` of tile `start /
+                // width` (Lower/TiledArrays.cpp).
+                if (field == kRowOfArm) {
+                    const ir::Generator *range = mat.as<ir::Generator>();
+                    const ir::TiledArray *tiled =
+                        range != nullptr && range->op == ir::Generator::range &&
+                                range->args.size() == 3
+                            ? range->args[0].as<ir::TiledArray>()
+                            : nullptr;
+                    if (tiled != nullptr) {
+                        const ir::Expr &start = range->args[1];
+                        return ir::Extract::make(
+                            tiled->tiles,
+                            ir::BinOp::make(
+                                ir::BinOp::Div, start,
+                                ir::UIntImm::make(start.type(), tiled->width)));
+                    }
                 }
                 if (node->name == field) {
                     return mat;
@@ -1216,6 +1248,135 @@ flatten_yield_froms(const IndexTList &index_list,
     return f.mutate(std::move(body));
 }
 
+// The bits a value of `type` takes in storage: a layout's struct is packed,
+// so its fields' bits summed; a vector its lanes' bits, each lane possibly
+// a vector itself (a packed `vector[vec3f, 4]`, twelve floats); anything
+// else as Type::bits has it.
+uint64_t stored_bits(const ir::Type &type) {
+    if (const auto *s = type.as<ir::Struct_t>()) {
+        uint64_t sum = 0;
+        for (const auto &field : s->fields) {
+            sum += stored_bits(field.type);
+        }
+        return sum;
+    }
+    if (const auto *v = type.as<ir::Vector_t>()) {
+        return uint64_t(v->lanes) * stored_bits(v->etype);
+    }
+    if (const auto *a = type.as<ir::Array_t>()) {
+        const std::optional<uint64_t> n = get_constant_value<uint64_t>(a->size);
+        internal_assert(n.has_value())
+            << "The size of " << type << " is not a constant";
+        return *n * stored_bits(a->etype);
+    }
+    return type.bits();
+}
+
+// The arms a layout's switches name, in the order found: what
+// lower_switch_tree makes a hole for. A walk never enters an indirect group,
+// whose arms are reached through a lookup (see FindPaths there).
+std::vector<std::string> switch_arm_names(const ir::Layout &layout) {
+    struct Find : public ir::Visitor {
+        std::vector<std::string> names;
+        void visit(const ir::Group *node) override {
+            if (node->type == ir::Group::Type::Indirect) {
+                return;
+            }
+            node->inner.accept(this);
+        }
+        void visit(const ir::Switch *node) override {
+            for (const auto &arm : node->arms) {
+                if (arm.name.has_value()) {
+                    names.push_back(*arm.name);
+                } else {
+                    arm.layout.accept(this);
+                }
+            }
+        }
+    };
+    Find find;
+    layout.accept(&find);
+    return find.names;
+}
+
+// A prefetch of a tree reference -- `prefetch(ref)`, which the prefetch
+// directive put into the loop over a node's children (Lower/Prefetches.cpp)
+// -- as the address of the storage the reference names: the same switch over
+// the arms that a visit of the reference goes through (lower_switch_tree),
+// each arm's hole filled with a prefetch of that arm's storage, the row of
+// the group a lookup arm names or the first tile of a leaf's range
+// (field_in_layout, kRowOfArm). Every arm asks for the widest arm's bytes, so
+// that the arms differ in the address alone and the backend can fold them
+// into one fetch; Embree fetches the same four lines of a node and of a
+// leaf, not knowing which it has (`BVH::prefetch`). Runs on an arm's body
+// after its unwraps are lowered (LowerUnwrapAccesses), so the reference is
+// already its stored bits, and those stand in for the walk's index variable
+// in the switch's conditions and the rows' indices.
+struct LowerReferencePrefetches : public ir::Mutator {
+    const ir::Layout &layout;
+    const ir::Expr &base;
+    const std::string &tree_name;
+    const ir::Expr &tree_idx;
+    const LayoutTypeMap &ltmap;
+
+    LowerReferencePrefetches(const ir::Layout &layout, const ir::Expr &base,
+                             const std::string &tree_name,
+                             const ir::Expr &tree_idx,
+                             const LayoutTypeMap &ltmap)
+        : layout(layout), base(base), tree_name(tree_name),
+          tree_idx(tree_idx), ltmap(ltmap) {}
+
+    ir::Stmt visit(const ir::LetStmt *node) override {
+        const ir::Intrinsic *in = node->value.as<ir::Intrinsic>();
+        if (in == nullptr || in->op != ir::Intrinsic::prefetch ||
+            in->args.size() != 1) {
+            return ir::Mutator::visit(node);
+        }
+        const ir::Expr &ref = in->args[0];
+        internal_assert(!ref.type().is<ir::Ref_t>())
+            << "A prefetch of a reference reached the layout lowering before "
+            << "the reference's read was lowered: " << ref;
+        const std::vector<ir::Expr> indices = break_tuple(tree_idx);
+        internal_assert(indices.size() == 1)
+            << "[unimplemented] a prefetch of a reference into " << tree_name
+            << ", whose walk has " << indices.size() << " indices";
+        const ir::Var *index = indices[0].as<ir::Var>();
+        internal_assert(index != nullptr) << indices[0];
+
+        // Each arm's storage, and the widest.
+        std::map<std::string, ir::Expr> rows;
+        uint64_t bytes = 0;
+        for (const std::string &arm : switch_arm_names(layout)) {
+            ir::Expr row = field_in_layout(
+                base, layout, ir::MapStack<std::string, ir::Expr>(), tree_name,
+                arm, kRowOfArm, ltmap, /*outer_group=*/ir::Expr());
+            internal_assert(row.defined())
+                << "[unimplemented] a prefetch of a " << arm << " of "
+                << tree_name << ": the arm is neither a row of a group nor a "
+                << "range of tiles, so it has no storage of its own to fetch";
+            bytes = std::max(bytes, (stored_bits(row.type()) + 7) / 8);
+            rows.emplace(arm, std::move(row));
+        }
+
+        ir::Stmt chain = lower_switch_tree(layout, base, tree_name, ltmap);
+        static size_t counter = 0;
+        for (auto &[arm, row] : rows) {
+            ir::Stmt fetch = ir::LetStmt::make(
+                ir::WriteLoc("_prefetch_row" + std::to_string(counter++),
+                             ir::Void_t::make()),
+                ir::Intrinsic::make(
+                    ir::Intrinsic::prefetch,
+                    {ir::PtrTo::make(row),
+                     ir::UIntImm::make(ir::UInt_t::make(32), bytes)}));
+            chain = FillHole(arm, std::move(fetch)).mutate(std::move(chain));
+        }
+        // The walk's index variable is the reference being visited; here it
+        // is the one prefetched.
+        return replace(std::map<std::string, ir::Expr>{{index->name, ref}},
+                       std::move(chain));
+    }
+};
+
 struct LowerMatches : public ir::Mutator {
     const ir::LayoutMap &layouts;
     const ir::TypeMap &structs;
@@ -1470,6 +1631,11 @@ struct LowerMatches : public ir::Mutator {
                 LowerUnwrapAccesses(tree_name, tree_idx, base_struct,
                                     branch_name, field_map)
                     .mutate(arm.second);
+            // And the prefetches of the children's references, now that
+            // each is its stored bits.
+            branch_body = LowerReferencePrefetches(layout, base_struct,
+                                                   tree_name, tree_idx, ltmap)
+                              .mutate(std::move(branch_body));
 
             body = FillHole(branch_name, std::move(branch_body))
                        .mutate(std::move(body));

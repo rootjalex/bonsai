@@ -592,6 +592,18 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // (SSA/SortRecursion.cpp), as Embree's `permuteExtract` does.
         permute,
         pow,
+        // `prefetch(ptr, bytes)`: bring the `bytes` bytes at `ptr` into the
+        // first-level cache, one line at a time, and compute nothing --
+        // LLVM's llvm.prefetch (read, high locality), `prefetcht0` on x86.
+        // A hint: it faults on nothing and changes no value, which is why
+        // it is an effect and not a load. Written by the `prefetch`
+        // scheduling directive (ir::Prefetch) as `prefetch(ref)` of a tree
+        // reference, which Lower/Layouts.cpp turns into the row's address
+        // and size; a gang's (SSA/Vectorize.cpp) carries a pointer per lane
+        // and the lanes' mask as a third operand, and the backend issues it
+        // for each lane that is on (CodeGen_LLVM::emit_prefetch). Embree's
+        // `BVH::prefetch` of a hit child, four `prefetchL1` for a BVH8 node.
+        prefetch,
         rand,
         // The reciprocal of a float, or of each lane of a vector of them, as
         // the machine takes it: an estimate instruction refined by one

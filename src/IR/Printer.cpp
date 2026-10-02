@@ -363,6 +363,11 @@ void Printer::print(const Schedule &schedule) {
                                       print(sort.lambda);
                                       os << ")";
                                   },
+                                  [&](const Prefetch &prefetch) {
+                                      os << "prefetch(";
+                                      print(prefetch.loc);
+                                      os << ")";
+                                  },
                                   [&](const Split &split) {
                                       os << "split(";
                                       print(split.i);
@@ -1180,6 +1185,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "permute";
     case Intrinsic::pow:
         return "pow";
+    case Intrinsic::prefetch:
+        return "prefetch";
     case Intrinsic::rand:
         return "rand";
     case Intrinsic::rcp:
