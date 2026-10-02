@@ -8562,7 +8562,20 @@ while the PTX census below was being taken on the same machine
 flagged pbrt's rows on killeroo-gold, frame25 and view-0 as redone eight
 times with four kept disturbed; it does not see this user's own
 processes on our rows. The 64 spp table ran undisturbed and lost
-nothing. A clean 16 spp table follows the next commit.
+nothing. The clean 16 spp table, run on the next commit (649396e4) with
+nothing else of this user's on the machine: killeroo-simple 1.90x
+(0.058 s against the previous evening's 0.047), killeroo-gold 1.75x
+(0.126 against 0.109), book 1.68x (0.137 against 0.172), ganesha 1.49x
+(0.154 against 0.147), pavilion-day 1.34x (0.186 against 0.254), frame25
+1.55x (0.213 against 0.232), lte-orb 1.29x (0.216 against 0.205), view-0
+1.18x (1.097 against 1.088). So the pattern is one thing: every scene
+pays some 10 to 17 ms more per render than before -- the allocations,
+measured below at 29 ms a render on killeroo-gold -- and the scenes
+whose raygens had been swinging (book, pavilion, frame25) gain far more
+than that. The 64 spp table on the same commit matches the one above
+within noise (book 1.48x, pavilion 1.22x, frame25 1.45x, view-0 1.05x;
+killeroo-gold 1.48x on a cell the watcher flagged disturbed by the
+other agent's compiles, 1.65x the run before).
 
 *What the host pays per render now, measured.* nsys on killeroo-gold at
 16 spp (one process, three renders, the plain allocator): 1665
