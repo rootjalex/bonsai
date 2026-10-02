@@ -85,11 +85,11 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @33 = _t112$i15$i27 / @32 in
           let @35 = 2f * @33 in
           let @36 = 1f + @35 in
-          let @277 = @28 * f32x3(@36) in
-          let @38 = @277[1u] in
+          let @278 = @28 * f32x3(@36) in
+          let @38 = @278[1u] in
           let @40 = @26[0u] in
           let @41 = @38 < @40 in
-          let @43 = @277[0u] in
+          let @43 = @278[0u] in
           let @45 = @26[1u] in
           let @46 = @43 < @45 in
           let @47 = @41 || @46 in
@@ -100,10 +100,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @50 = @26[0u] in
             let @52 = @26[1u] in
             let @53 = max(@50, @52) in
-            let @55 = @277[0u] in
-            let @57 = @277[1u] in
+            let @55 = @278[0u] in
+            let @57 = @278[1u] in
             let @58 = min(@55, @57) in
-            let @60 = @277[2u] in
+            let @60 = @278[2u] in
             let @62 = @60 < @53 in
             let @65 = @26[2u] in
             let @66 = @58 < @65 in
@@ -116,7 +116,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             } else {
               let @71 = @26[2u] in
               let @72 = max(@53, @71) in
-              let @75 = @277[2u] in
+              let @75 = @278[2u] in
               let @76 = min(@58, @75) in
               let @79 = build<FInterval>(@72, @76) in
               let @80 = build<_option1>(@79, true) in
@@ -258,8 +258,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         let @243 = (*@202) & @242 in
         let @244 = permute(_t41, @243) in
         let @245 = permute(@186, @243) in
-        let @263 = @200 != 0u in
-        if (@263) {
+        let @277 = reduce<any>(@182) in
+        if (@277) {
           let @266 = 4u - @200 in
           let @267 = u32x4(@266) in
           let @268 = @267 <= ramp(0u, 1u, 4) in

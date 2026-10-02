@@ -363,8 +363,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         let @313 = (*@272) & @312 in
         let @314 = permute(_t85, @313) in
         let @315 = permute(@256, @313) in
-        let @476 = @270 != 0u in
-        if (@476) {
+        let @491 = reduce<any>(@252) in
+        if (@491) {
           let @479 = 4u - @270 in
           let @480 = u32x4(@479) in
           let @481 = @480 <= ramp(0u, 1u, 4) in

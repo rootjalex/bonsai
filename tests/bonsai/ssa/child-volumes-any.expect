@@ -183,8 +183,8 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         let _t40 = cast<u32x4>(@95) in
         let @218 = _mask0[ramp(0u, 1u, 4)] in
         let @219 = reduce<+>(cast<u32x4>(@218)) in
-        let @220 = @219 != 0u in
-        if (@220) {
+        let @233 = reduce<any>(@218) in
+        if (@233) {
           let @223 = u32x4(0u) in
           let @224 = select(@218, ramp(0u, 1u, 4), @223) in
           let @225 = reduce<max>(@224) in

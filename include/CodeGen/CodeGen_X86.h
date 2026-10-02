@@ -84,6 +84,18 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     llvm::Value *dynamic_shuffle(llvm::Value *vec, llvm::Value *indices,
                                  const std::string &name) override;
 
+    // Whether dynamic_shuffle above has an instruction for a vector of
+    // `lanes` lanes of `bits` bits on this machine.
+    bool has_permute(unsigned bits, unsigned lanes) const;
+
+    // One lane of a vector at an index computed at run time: the index
+    // broadcast, the vector permuted by it and lane zero taken -- a permute
+    // and a move -- where LLVM's variable extract stores the vector to the
+    // stack and loads the lane back, and the load waits on the store.
+    // A leaf's argmin picks the nearest lane's triangle this way. A constant
+    // index and a shape without a permute keep the base's extract.
+    llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) override;
+
     // glibc's libmvec: the vector entry points of libm, asked for rather
     // than assumed (see the definition). Only on Linux, which is where glibc
     // is; a host without it has no vector maths library and says nothing.

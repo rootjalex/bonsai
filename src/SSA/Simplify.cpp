@@ -585,6 +585,37 @@ struct Simplifier {
             if (std::optional<bool> c = compare_constants(op, ops[0], ops[1])) {
                 return make_bool(*c);
             }
+            // popcount(m) != 0 is any(m), and popcount(m) == 0 is !any(m):
+            // one `kortest` of the mask where the count compared is a mask
+            // move, a `popcnt` and a `test`. What a traversal asks of a
+            // node's hits before it sorts them (SSA/QueueRecursion.cpp).
+            if (op == Instruction::Op::Ne || op == Instruction::Op::Eq) {
+                for (const auto &[counted, zero] :
+                     {std::pair{ops[0], ops[1]}, std::pair{ops[1], ops[0]}}) {
+                    const Instruction *count = defined_by(counted);
+                    const Constant *c = constant_of(zero);
+                    if (count == nullptr ||
+                        count->op != Instruction::Op::Popcount ||
+                        count->operands.size() != 1 || c == nullptr ||
+                        !count->operands[0]->get_type().is_vector()) {
+                        continue;
+                    }
+                    const bool is_zero = std::visit(
+                        overloads{[](uint64_t u) { return u == 0; },
+                                  [](int64_t i) { return i == 0; },
+                                  [](const auto &) { return false; }},
+                        c->data);
+                    if (!is_zero) {
+                        continue;
+                    }
+                    ValuePtr any = make(Instruction::Op::Any, Bool_t::make(),
+                                        {count->operands[0]});
+                    if (op == Instruction::Op::Ne) {
+                        return any;
+                    }
+                    return make(Instruction::Op::Not, Bool_t::make(), {any});
+                }
+            }
             if (same_value(ops[0], ops[1]) && !ops[0]->get_type().is_float()) {
                 // x < x, x == x, and the rest, for anything without a NaN.
                 return make_bool(op == Instruction::Op::Leq ||
