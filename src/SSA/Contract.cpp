@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -412,6 +413,103 @@ void contract_fp(Function &f) {
             return negated;
         };
 
+        // Whether a value is the same on every pass of the loop around
+        // `block`, as far as can be told here: a constant, an argument, a
+        // value of another block, or a broadcast of one -- the gang's copy of
+        // a uniform value, which the vectorizer puts beside its use and LLVM
+        // hoists. Where a sign goes matters for such a value: LLVM pushes a
+        // negation into a multiply's right operand (InstCombine's
+        // hoistFNegAboveFMulFDiv) and hoists the negation of an invariant one
+        // out of the loop, where it holds a register for the loop's whole
+        // run -- three of them, for a ray's direction in the triangle test --
+        // while a negation of a value computed in the loop folds into the
+        // fused multiply-add's own sign (`vfmsub`, `vfnmadd`) and costs
+        // nothing. Either operand may carry the sign: a negation is exact,
+        // and so is swapping a multiply's operands.
+        // A value of this block counts as invariant when it is pure
+        // arithmetic over invariant values: the broadcast of one component
+        // of the ray's direction is a broadcast of an extract of a value
+        // from above, all three placed here by the vectorizer and all three
+        // hoisted by LLVM.
+        // A block's arguments are the values threaded in from above under
+        // their own names and the loop's own variables, its index among
+        // them: only an argument named as one of the function's parameters
+        // is known to be the same throughout.
+        const auto is_parameter = [&](const std::string &name) {
+            const std::vector<Argument> &params = f.blocks.front()->args;
+            return std::any_of(params.begin(), params.end(),
+                               [&](const Argument &p) { return p.name == name; });
+        };
+        std::map<const Instruction *, bool> invariant;
+        std::function<bool(const std::shared_ptr<Value> &)> looks_invariant =
+            [&](const std::shared_ptr<Value> &v) -> bool {
+            if (const auto *arg = std::get_if<Argument>(&v->data)) {
+                return is_parameter(arg->name);
+            }
+            const auto *held =
+                std::get_if<std::shared_ptr<Instruction>>(&v->data);
+            if (held == nullptr) {
+                return true; // a constant
+            }
+            const Instruction &in = **held;
+            if (in.owner.lock().get() != block.get()) {
+                return true;
+            }
+            if (const auto known = invariant.find(&in);
+                known != invariant.end()) {
+                return known->second;
+            }
+            bool pure;
+            switch (in.op) {
+            case Instruction::Op::Abs:
+            case Instruction::Op::Add:
+            case Instruction::Op::Bc:
+            case Instruction::Op::BwAnd:
+            case Instruction::Op::BwOr:
+            case Instruction::Op::Cast:
+            case Instruction::Op::Div:
+            case Instruction::Op::Eps:
+            case Instruction::Op::Eq:
+            case Instruction::Op::ExtractIdx:
+            case Instruction::Op::Inf:
+            case Instruction::Op::LAnd:
+            case Instruction::Op::Leq:
+            case Instruction::Op::LoadField:
+            case Instruction::Op::LOr:
+            case Instruction::Op::Lt:
+            case Instruction::Op::MakeStruct:
+            case Instruction::Op::Max:
+            case Instruction::Op::Min:
+            case Instruction::Op::Mod:
+            case Instruction::Op::Mul:
+            case Instruction::Op::Ne:
+            case Instruction::Op::Not:
+            case Instruction::Op::Reinterpret:
+            case Instruction::Op::Select:
+            case Instruction::Op::Set:
+            case Instruction::Op::Shl:
+            case Instruction::Op::Shr:
+            case Instruction::Op::Shuffle:
+            case Instruction::Op::Sub:
+            case Instruction::Op::Xor:
+                pure = true;
+                break;
+            case Instruction::Op::Intrinsic:
+                pure = !ir::Intrinsic::has_effects(in.intrinsic);
+                break;
+            default:
+                pure = false;
+            }
+            bool result = pure;
+            // Marked first, against a cycle, which the SSA form has none of.
+            invariant[&in] = false;
+            for (size_t i = 0; result && i < in.operands.size(); i++) {
+                result = looks_invariant(in.operands[i]);
+            }
+            invariant[&in] = result;
+            return result;
+        };
+
         for (Fusion &fusion : fusions) {
             const std::shared_ptr<Instruction> &instr = fusion.consumer;
             const std::shared_ptr<Instruction> &mul = fusion.product.mul;
@@ -422,10 +520,28 @@ void contract_fp(Function &f) {
             std::shared_ptr<Value> b =
                 in_block(mul->operands[1], *block, placement);
             if (fusion.negate_product) {
-                a = negate(a, instr->type, instr);
+                // The sign on the operand computed in the loop, where it folds
+                // into the instruction (see looks_invariant).
+                if (looks_invariant(a) && !looks_invariant(b)) {
+                    b = negate(b, instr->type, instr);
+                } else {
+                    a = negate(a, instr->type, instr);
+                }
             }
             std::shared_ptr<Value> addend = fusion.addend;
             if (fusion.negate_addend) {
+                // A negated product, `a*b - c*d`: LLVM will push the sign
+                // into the product's right operand, so the one computed in
+                // the loop goes there (see looks_invariant).
+                if (const auto *held = std::get_if<std::shared_ptr<Instruction>>(
+                        &addend->data);
+                    held != nullptr && (*held)->op == Instruction::Op::Mul &&
+                    (*held)->operands.size() == 2 &&
+                    (*held)->owner.lock().get() == block.get() &&
+                    !looks_invariant((*held)->operands[0]) &&
+                    looks_invariant((*held)->operands[1])) {
+                    std::swap((*held)->operands[0], (*held)->operands[1]);
+                }
                 addend = negate(addend, instr->type, instr);
             }
             // The add becomes the fma. Rewritten in place rather than replaced,
