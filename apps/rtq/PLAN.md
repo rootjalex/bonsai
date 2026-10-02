@@ -94,14 +94,17 @@ runs after a warm-up.
 
 The user's rule for the measurement (2026-10-01): both sides
 single-threaded, pinned with numactl to a performance core; a
-multi-threaded, unpinned number is not a fair comparison. So the driver
-supplies the program's parallel loop itself (`BONSAI_PARALLEL_EXTERNAL`)
-and runs Embree's rays through the same loop -- a plain serial loop at
-`--threads 1`, the default -- and `compare.sh` pins the run to the physical
-core with the highest `amd_pstate_prefcore_ranking` (the frequency chiplet
-of the 9950X3D, cpus 8-15; the V-cache chiplet is 0-7), with its node's
-memory. All-core, unpinned runs made before that rule are not recorded;
-the tables below are pinned and single-threaded.
+multi-threaded, unpinned number is not a fair comparison. The schedule
+leaves the parfor over the rays unbound, so it lowers to a plain sequential
+loop (2026-10-02, at the user's reminder: the schedule had bound it to the
+CPU threads, which the driver ran on one thread anyway; measured back to
+back on head the two were the same to within the drift, the unbound loop a
+hair ahead), Embree's rays go through a plain loop of `rtcIntersect1`, and
+`compare.sh` pins the run to the physical core with the highest
+`amd_pstate_prefcore_ranking` (the frequency chiplet of the 9950X3D, cpus
+8-15; the V-cache chiplet is 0-7), with its node's memory. All-core,
+unpinned runs made before that rule are not recorded; the tables below are
+pinned and single-threaded.
 
 ## What the compiler needed (built 2026-10-01)
 
@@ -544,7 +547,8 @@ renders came and went during the day; Embree's own head primary any-hit
 read 40.4 to 44.3 across the day's runs), so a ratio is good to a few
 hundredths.
 
-What is left, in the order it is worth:
+What was left that evening, in the order it was worth (the first two are
+done the next day; see the section after this one):
 
 1. **The sort over the hits is a full network.** Embree compacts the hits
    (`vpcompressd`) and switches on their count -- one hit, no sort; two,
@@ -575,6 +579,144 @@ What is left, in the order it is worth:
 Arithmetic that cannot match: Embree's `T <= |den| * tfar` against the
 current best versus this program's `t < best` from the argmin. It decides
 ties only; the driver counts them. (Embree's `rcp` matches since step 7.)
+
+## The differences, read off the machine code, and what was done about them (2026-10-02)
+
+The user asked for the generated code and Embree's to be compared
+difference by difference, the most concerning addressed, starting with a
+dynamic sorting network for the masked children (with Halide's dynamic
+shuffle as the model), and a profile. The objects compared: `-b cpp`'s
+`rtq.o` (`objdump -d`) against Embree's `bvh_intersector1_bvh8.cpp.avx512`
+object (`BVHNIntersector1<8, 1, false, ArrayIntersector1<
+TriangleMIntersector1Moeller<4, true>>>::intersect` and `::occluded`), and
+`perf record -e cycles:u` of the driver on head, `--side 2048`, both sides
+in one run, pinned to cpu 11.
+
+**The profile (morning, before any change).** Of the samples, our
+nearest-hit kernel took 31.3% and Embree's 25.4%; our any-hit kernel 16.7%
+and Embree's 18.8%. Embree's nearest-hit kernel by region: ray setup 27%
+(12.8% on the instruction after the ray's load -- the driver stores the
+RTCRayHit it just built and `intersect` loads it as vectors, a
+store-forwarding stall per ray that is Embree's API cost, in our favor),
+node test 21%, sort and push 21%, leaf 25% (22% test, 4% epilog), pop 5%.
+Ours, by instruction, had the sort as its hottest region: the compare-exchange
+network and the children's selects through it.
+
+**The differences, in the order of their cost, and their state:**
+
+1. *The sort.* Ours: one six-layer bitonic network over all eight lanes
+   whatever the count, the children and their bounds following the keys
+   with a shuffle and a masked move per layer each, about eighty-five
+   instructions for a node with any hit. Embree's: the hits' keys
+   compressed to the front (`vpcompressd`), a switch on their count --
+   nothing for one, one min/max for two, three for three, six for four,
+   an insertion sort past that -- and the children taken out of the sorted
+   keys' low bits by one `vpermt2q` each, about fourteen instructions for
+   one hit and thirty for two. **Done**: two intrinsics, `permute(v, idx)`
+   (Halide's dynamic_shuffle; `vpermd`/`vpermq`/`vpermilps`/`vpermw` on x86
+   by shape, an extract per lane elsewhere) and `compress(v, mask)` (LLVM's
+   vector.compress, `vpcompressd` into a zeroed register), and the lane
+   sort rewritten as Embree's: compress, a switch on the count with Knuth's
+   shortest networks for two to four hits and the bitonic for more, one
+   permute per varying vector at the join, the pushes unchanged
+   (SSA/SortRecursion.cpp; commits 14eaafa6, 5833b513). About twenty
+   instructions for one hit, thirty for two.
+2. *The node test's near and far bounds.* Ours: six `vblendmps` per node
+   picking each slab's near and far vector by the direction's sign, plus
+   two mask-register reloads per node from register pressure. Embree's:
+   byte offsets computed once per ray (`TravRay::nearX`) and the six
+   vectors loaded straight through them. **Done**: a pass run last in
+   LLVM's optimizer folds `select (splat c), (load (gep p, 64)), (load
+   (gep p, 96))` into `load (gep p, (select c, 64, 96))` with the select
+   placed where `c` is defined, outside the loop
+   (CodeGen/FoldSelectOfLoads.h). Last, because the inliner and GVN first
+   merge the three copies of the test (the mask's, the sort key's, the
+   carried bound's -- each a call of the same function) into one, and
+   because instcombine turns a load from a *selected pointer* back into two
+   loads and a select (and then a branch); it leaves a selected integer
+   offset under a gep alone. A codegen-time fold was tried first and did
+   both of those things wrong. The reloads went with the sort's constants.
+3. *The leaf's nearest lane.* Ours: `llvm.vector.reduce.fmin`, libm's fmin
+   semantics, which x86 has no instruction for: a compare for NaN and a
+   blend around each of three `vminss`, twelve instructions. Embree's:
+   `vreduce_min`, four. **Done**: a float min or max over lanes is the
+   binary min (`b < a ? b : a`, std::min, as the binary op already was)
+   folded over halves: a shuffle and one `vminps` per halving
+   (CodeGen_LLVM::visit(VectorReduce); 04f493f2). Also changed the
+   stdlib's `max` over a vec3, from fmax to the same fold.
+4. *The carried bound's compare on arrival.* Ours: after the slab test's
+   `kortest`, a second compare of the eight entry distances against the
+   best and a second `kortest`, three instructions per node. Embree:
+   clamps `tFar` by the current `tfar` inside the same min, no extra
+   compare. **Open**: folding `tNear <= tFar && tNear < best` into
+   `tNear <= min(tFar, best)` changes `<` to `<=` at equality, which is
+   the tie rule noted below; worth a tenth of the node test.
+5. *The leaf's early exit.* Embree stops a Triangle4 block after the
+   edge tests when no lane passed (`if (none(valid)) return`), before `T`,
+   the range compares and the `rcp`; the vectorized leaf here computes all
+   of it and tests the mask once at the end, about ten instructions per
+   block that misses, which is most blocks. The `rcp` is among them
+   because its estimate is speculatable and LLVM hoists it above the test.
+   **Open**: an all-lanes-off branch at a linearized `if` with a costly
+   body -- ISPC's coherent control flow -- is a vectorizer feature; to ask
+   about before adding.
+6. *The pushed children are not prefetched.* Embree issues `prefetcht0`
+   for four lines of every hit child as it extracts it, before the sort,
+   so a child popped later is in cache; twenty prefetches in its
+   nearest-hit kernel, eight in any-hit. Ours issues none. Both sides walk
+   the same nodes, so on the large meshes the incoherent rays (ao,
+   diffuse) wait on the same misses, which is the likeliest part of the
+   gap left there (0.73x-0.79x). **Open**: a prefetch at the push needs the
+   pushed reference decoded to the node's address, which the layout's
+   `switch ref[0:3]` only does at the visit.
+7. *The any-hit kernel's register pressure.* It reloads its six node
+   constants (the broadcast reciprocal direction and origin) from the stack
+   every node; the leaf's temporaries and the ray's constants fill the
+   thirty-two registers. Embree's leaf reloads the ray's origin and
+   direction from the ray struct instead, which is free (a broadcast from
+   memory). **Open**; not visible in the ratio (any-hit is ahead).
+8. *The leaf's lane pick.* Picking the nearest lane's triangle: fourteen
+   instructions, the four lanes' references written to a stack slot and
+   the picked one read back; Embree's eight, reading the primitive id from
+   the block. **Open**, small; a `permute` could replace the stack slot.
+9. *The packed sort key.* Four instructions (sign flip for negative
+   floats) where Embree's is one `vpternlogd`, because Embree knows its
+   distances are non-negative (`tnear` clamped to zero). **Open**, small;
+   a fact the program could state.
+10. *The `hits != 0` test* after each sort case is a `kmov` and a `test`
+    where the popcount is at hand. **Open**, trivial.
+11. *Pointers against indices*, and Embree's epilog writing `t`, `u`, `v`
+    and the normal where ours writes the id: same work per step, different
+    bits; in Embree's favor and ours respectively, both small.
+
+**Where it stands after 1-3** (million rays per second, one thread pinned
+to cpu 11, least of 5, `--side 2048`; every ray agrees on every mesh):
+
+| mesh (triangles)    | rays    | intersect: Embree | bonsai | ratio | occluded: Embree | bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 38.34 | 42.13 | 1.10x | 43.86 | 76.38 | 1.74x |
+|                     | ao      | 13.34 | 10.70 | 0.80x | 14.76 | 16.38 | 1.11x |
+|                     | diffuse | 12.18 |  9.86 | 0.81x | 13.69 | 15.19 | 1.11x |
+| ganesha (4,323,658) | primary | 19.16 | 16.68 | 0.87x | 21.61 | 25.14 | 1.16x |
+|                     | ao      |  6.11 |  4.47 | 0.73x |  6.59 |  6.19 | 0.94x |
+|                     | diffuse |  5.67 |  4.15 | 0.73x |  5.59 |  5.07 | 0.91x |
+| dragon (7,219,045)  | primary | 25.11 | 25.44 | 1.01x | 26.54 | 32.10 | 1.21x |
+|                     | ao      |  4.27 |  3.35 | 0.79x |  4.54 |  4.19 | 0.92x |
+|                     | diffuse |  3.82 |  2.93 | 0.77x |  4.05 |  3.64 | 0.90x |
+
+Against the previous evening: nearest-hit from 0.63-0.89x to 0.73-1.10x,
+any-hit from 0.83-1.46x to 0.90-1.74x. Each step on head, back to back
+(nearest-hit primary/ao/diffuse; any-hit the same): the sort alone 1.08x/
+0.81x/0.81x and 1.65x/1.11x/1.11x; the reduction 1.04x/0.79x/0.78x (within
+the drift); the picked loads 1.10x/0.80x/0.81x and 1.74x/1.11x/1.11x.
+The whole kernels grew in instructions while running shorter paths --
+nearest-hit 347 to 397, any-hit 230 to 267 -- since the sort is now five
+case bodies where it was one network; Embree's are 604 and 359, with its
+epilog's filter and mask handling in them.
+
+What is left, in the order it is worth: the incoherent rays on the large
+meshes (6, the prefetch, with a profile of the ao batch to confirm), the
+leaf's early exit (5), and the small ones (4, 7-10).
 
 ## Known-open, smaller
 
