@@ -980,8 +980,13 @@ void usage() {
            "  --repeats N    timed runs per measurement, the least kept "
            "(default 5)\n"
            "  --embree-stats ask Embree to print its own tree's statistics\n"
+           "  --batch B      only the rays named: primary, ao or diffuse "
+           "(default all three)\n"
+           "  --query Q      only the query named: intersect or occluded "
+           "(default both)\n"
            "Both sides run their rays as one plain loop on the calling "
-           "thread; compare.sh pins it.\n";
+           "thread; compare.sh pins it. --batch and --query narrow a run to "
+           "one kernel over one kind of ray, for a profile of it.\n";
     std::exit(1);
 }
 
@@ -991,6 +996,8 @@ int main(int argc, char **argv) {
     uint32_t side = 1024;
     int repeats = 5;
     bool embree_stats = false;
+    // Empty for all; otherwise the one batch and the one query to run.
+    std::string only_batch, only_query;
     std::string path;
     for (int i = 1; i < argc; i++) {
         const std::string arg = argv[i];
@@ -1000,6 +1007,16 @@ int main(int argc, char **argv) {
             repeats = std::atoi(argv[++i]);
         } else if (arg == "--embree-stats") {
             embree_stats = true;
+        } else if (arg == "--batch" && i + 1 < argc) {
+            only_batch = argv[++i];
+            if (only_batch != "primary" && only_batch != "ao" && only_batch != "diffuse") {
+                usage();
+            }
+        } else if (arg == "--query" && i + 1 < argc) {
+            only_query = argv[++i];
+            if (only_query != "intersect" && only_query != "occluded") {
+                usage();
+            }
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
@@ -1051,31 +1068,38 @@ int main(int argc, char **argv) {
     bool all_agree = true;
     for (const Batch &batch : batches) {
         const std::vector<Ray> &rays = *batch.rays;
-        if (rays.empty()) {
+        if (rays.empty() || (!only_batch.empty() && only_batch != batch.name)) {
             continue;
         }
         std::vector<RTCRayHit> embree_hits;
         std::vector<uint32_t> embree_blocked, our_hits, our_blocked;
 
-        const double te = timed(repeats, [&] { embree_intersect(scene, rays, embree_hits); });
-        const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
-        const Agreement hit = compare_hits(mesh, rays, embree_hits, our_hits);
-        std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu differ "
-                    "(embree hits %zu, bonsai %zu)\n",
-                    batch.name, "intersect", rays.size(), rays.size() / te * 1e-6,
-                    rays.size() / tb * 1e-6, te / tb, hit.same, hit.ties, hit.differ,
-                    hit.embree_hits, hit.bonsai_hits);
-        all_agree = all_agree && hit.differ == 0;
+        if (only_query.empty() || only_query == "intersect") {
+            const double te =
+                timed(repeats, [&] { embree_intersect(scene, rays, embree_hits); });
+            const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
+            const Agreement hit = compare_hits(mesh, rays, embree_hits, our_hits);
+            std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
+                        "differ (embree hits %zu, bonsai %zu)\n",
+                        batch.name, "intersect", rays.size(), rays.size() / te * 1e-6,
+                        rays.size() / tb * 1e-6, te / tb, hit.same, hit.ties, hit.differ,
+                        hit.embree_hits, hit.bonsai_hits);
+            all_agree = all_agree && hit.differ == 0;
+        }
 
-        const double oe = timed(repeats, [&] { embree_occluded(scene, rays, embree_blocked); });
-        const double ob = timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
-        const Agreement occ = compare_occluded(embree_blocked, our_blocked);
-        std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu differ "
-                    "(embree blocked %zu, bonsai %zu)\n",
-                    batch.name, "occluded", rays.size(), rays.size() / oe * 1e-6,
-                    rays.size() / ob * 1e-6, oe / ob, occ.same, occ.differ, occ.embree_hits,
-                    occ.bonsai_hits);
-        all_agree = all_agree && occ.differ == 0;
+        if (only_query.empty() || only_query == "occluded") {
+            const double oe =
+                timed(repeats, [&] { embree_occluded(scene, rays, embree_blocked); });
+            const double ob =
+                timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
+            const Agreement occ = compare_occluded(embree_blocked, our_blocked);
+            std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu differ "
+                        "(embree blocked %zu, bonsai %zu)\n",
+                        batch.name, "occluded", rays.size(), rays.size() / oe * 1e-6,
+                        rays.size() / ob * 1e-6, oe / ob, occ.same, occ.differ,
+                        occ.embree_hits, occ.bonsai_hits);
+            all_agree = all_agree && occ.differ == 0;
+        }
     }
     std::printf("\n%s\n", all_agree ? "every ray agrees with Embree (up to ties)"
                                     : "DISAGREEMENTS with Embree; see above");

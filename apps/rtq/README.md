@@ -88,7 +88,10 @@ The table it prints, per batch and query: rays, million rays per second for
 each side, the speedup (Embree's time over ours), and the agreement counts.
 `--embree-stats` asks Embree to print its own tree's statistics (node and
 leaf counts, SAH), beside the tree the driver built, to check that the two
-are the same tree.
+are the same tree. `--batch primary|ao|diffuse` and `--query
+intersect|occluded` narrow a run to one kernel over one kind of ray, which
+is what a profile of it wants (`perf record` over the driver, the two
+sides' kernels told apart by symbol).
 
 ## Layout of the files
 
