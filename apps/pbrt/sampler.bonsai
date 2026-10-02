@@ -444,7 +444,14 @@ func halton_dimension(dim : i32, index : i64, randomize : i32) -> Float {
 // order that differs everywhere -- and places the sample inside that cell. That
 // is the whole of what stratification is, and it is why a stratified render is
 // less noisy than an independent one at the same sample count.
-func get_1d(s : Sampler, st : mut SamplerState) -> Float {
+// `[[inline]]`, as pbrt's Get1D is a method of the concrete sampler and
+// inline code wherever it is drawn: left as a call, every draw of a path
+// paid for handing the Sampler's nine words and the state's address over
+// (perf put a tenth of a killeroo render in those calls), and LLVM's own
+// inliner declines a three-armed match of this size. The frontend cannot
+// copy a function that takes a `mut` argument, so the hint reaches the
+// backend, which folds it in (CodeGen_LLVM.cpp).
+func [[inline]] get_1d(s : Sampler, st : mut SamplerState) -> Float {
     match s {
         Independent(spp, seed) => return next_float(st.rng);
         Stratified(x_samples, y_samples, seed, jitter) => {
@@ -479,7 +486,7 @@ func get_1d(s : Sampler, st : mut SamplerState) -> Float {
 // pbrt: Get2D. The stratified sampler's two dimensions come from one stratum in
 // a grid rather than from two independent strata, which is what makes a pair of
 // samples cover the square instead of each axis separately.
-func get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
+func [[inline]] get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
     match s {
         Independent(spp, seed) => {
             u = next_float(st.rng);
@@ -530,7 +537,7 @@ func get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
 // those digits would move the sample into a different pixel.
 //
 // For the other two the pixel sample is nothing special and this is Get2D.
-func get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f {
+func [[inline]] get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f {
     match s {
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
             a = cast[[u64]](st.halton_index);
