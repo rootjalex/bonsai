@@ -31,12 +31,19 @@ public:
         // An arm of a `match` on a variant type: the arm taking `variant` of
         // the `adt`, in function `func`.
         MatchArm,
+        // An arm of an `if` written in function `func`: either arm, and the
+        // code after an `if` whose one arm returns, which is its other arm.
+        // Named by the function alone, since an `if` has no name of its own:
+        // `trace.skip(intersectsp_ray_tri)` wagers on every arm written in
+        // that helper, wherever inlining carried it (see ir::ArmCursors).
+        IfArm,
     };
 
     Provenance() = default;
 
     static Provenance match_arm(const std::string &func, const std::string &adt,
                                 const std::string &variant);
+    static Provenance if_arm(const std::string &func);
 
     bool defined() const { return data != nullptr; }
     Kind kind() const;
@@ -48,11 +55,12 @@ public:
 
     // Does a schedule's dotted name pick this out? `Shape` names every arm
     // of every match on a Shape; `Shape.Disc` names the arms taking that
-    // variant. An undefined provenance matches nothing.
+    // variant. An `if`'s arm has no such name and matches none; an
+    // undefined provenance matches nothing.
     bool matches(const std::vector<std::string> &names) const;
 
-    // `Shape.Disc`: the way a schedule spells it. Printing adds the function:
-    // `Shape.Disc of area`.
+    // `Shape.Disc`: the way a schedule spells it, and `if` for an `if`'s arm.
+    // Printing adds the function: `Shape.Disc of area`.
     std::string str() const;
 
     friend bool operator==(const Provenance &a, const Provenance &b) {

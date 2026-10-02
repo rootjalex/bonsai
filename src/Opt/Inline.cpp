@@ -305,11 +305,12 @@ struct Nester {
             ir::Stmt else_body = rewrite(else_stmts);
             if (then_body.defined()) {
                 out.push_back(ir::IfElse::make(ie->cond, std::move(then_body),
-                                               std::move(else_body)));
+                                               std::move(else_body),
+                                               ie->provenance));
             } else if (else_body.defined()) {
                 out.push_back(ir::IfElse::make(
                     ir::UnOp::make(ir::UnOp::OpType::Not, ie->cond),
-                    std::move(else_body)));
+                    std::move(else_body), ir::Stmt(), ie->provenance));
             }
             return sequence(std::move(out));
         }
@@ -480,8 +481,8 @@ class Inliner : public ir::Mutator {
         ir::Stmt then_body = mutate(node->then_body);
         ir::Stmt else_body =
             node->else_body.defined() ? mutate(node->else_body) : ir::Stmt();
-        return with(std::move(pre),
-                    ir::IfElse::make(cond, then_body, else_body));
+        return with(std::move(pre), ir::IfElse::make(cond, then_body, else_body,
+                                                     node->provenance));
     }
     ir::Stmt visit(const ir::SwitchStmt *node) override {
         std::vector<ir::Stmt> pre;

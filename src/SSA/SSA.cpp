@@ -729,11 +729,16 @@ void Block::dump(std::ostream &os) const {
     }
     os << "): ";
 
-    if (provenance.defined()) {
+    // A match arm's provenance is printed, since a dump is read for which
+    // arm is which; an `if`'s says only which function it was written in,
+    // which every block of a program with no inlining could say.
+    const bool named = provenance.defined() &&
+                       provenance.kind() == ir::Provenance::Kind::MatchArm;
+    if (named) {
         os << "// " << provenance << (preds.empty() ? "" : "; ");
     }
     if (!preds.empty()) {
-        os << (provenance.defined() ? "preds: " : "// preds: ");
+        os << (named ? "preds: " : "// preds: ");
         bool first = true;
         for (const auto &p : preds) {
             const auto ptr = p.lock();

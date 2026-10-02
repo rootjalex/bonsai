@@ -158,6 +158,18 @@ struct FunctionBuilder : Visitor {
         std::shared_ptr<Block> merge_block =
             needs_merge ? make_block("merge") : nullptr;
 
+        // The arms carry where the `if` was written, for a schedule's
+        // `skip` to find them (ir::Provenance::if_arm). An `if` with no
+        // else whose arm always returns -- `if !(hit) { return {}; }` --
+        // has the code after it as its other arm, reached by the false edge
+        // alone: the merge block is that arm, and is named too.
+        then_case->provenance = node->provenance;
+        if (else_case) {
+            else_case->provenance = node->provenance;
+        } else if (!then_needs_merge && merge_block) {
+            merge_block->provenance = node->provenance;
+        }
+
         block->terminator.data = Terminator::Dispatch{
             .cond = std::move(v),
             // v == 0
@@ -1721,9 +1733,72 @@ void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
 // runs, with what the program does have, since a cursor that finds nothing
 // would otherwise be a directive the program was compiled without (compare
 // the transforms below, none of which is allowed to be ignored either).
+// Every function a schedule's name stands for when it says `skip`: the
+// function itself and every function its calls reach -- the recursion that
+// Lower/RecLoops.cpp extracted out of it into a function of its own, and the
+// helpers a vectorized traversal calls under a mask, which the vectorizer
+// specializes and linearizes under their own names (SSA/Vectorize.cpp).
+// The linearizer looks a policy up under the name of the function it is
+// running on; without this, `trace.skip(...)` sat under `trace` while the
+// leaf it meant was in `_recloop_func1`, and did nothing, silently.
+std::set<std::string> reach_of(const FuncMap &fmap, const std::string &start) {
+    std::set<std::string> seen;
+    std::vector<std::string> work{start};
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second) {
+            continue;
+        }
+        const auto it = fmap.find(name);
+        if (it == fmap.end()) {
+            continue;
+        }
+        for (const auto &block : it->second->blocks) {
+            if (const auto *call = block->terminator.callee()) {
+                work.push_back(call->name);
+            }
+        }
+    }
+    return seen;
+}
+
+// The policies under every name they stand for (see reach_of): the bare
+// `skip()` and the cursors that name a function, which are about the code
+// as compiled wherever it is. A cursor naming a match (`Shape`, `Shape.Disc`)
+// stays where it was written: it names a match *written in* the function
+// the schedule said, and the linearizer looks it up by the arm's own
+// function (ir::skips), so copying it along would widen it to every match
+// on the type in everything the function calls.
+ir::BranchPolicyMap expand_branch_policies(const FuncMap &fmap,
+                                           const ir::BranchPolicyMap &policies) {
+    ir::BranchPolicyMap expanded = policies;
+    for (const auto &[name, policy] : policies) {
+        std::vector<ir::Location> by_function;
+        for (const ir::Location &cursor : policy.skip.arms) {
+            if (!cursor.names.empty() && fmap.contains(cursor.names.front())) {
+                by_function.push_back(cursor);
+            }
+        }
+        if (!policy.skip.all && by_function.empty()) {
+            continue;
+        }
+        for (const std::string &reached : reach_of(fmap, name)) {
+            if (reached == name) {
+                continue;
+            }
+            ir::ArmCursors &skip = expanded[reached].skip;
+            skip.all = skip.all || policy.skip.all;
+            skip.arms.insert(skip.arms.end(), by_function.begin(),
+                             by_function.end());
+        }
+    }
+    return expanded;
+}
+
 void check_branch_policies(const FuncMap &fmap,
                            const ir::BranchPolicyMap &policies) {
-    // Every match arm in the program, with the function it is in now.
+    // Every arm in the program, with the function it is in now.
     std::vector<std::pair<std::string, ir::Provenance>> arms;
     for (const auto &[fname, f] : fmap) {
         for (const auto &block : f->blocks) {
@@ -1760,10 +1835,18 @@ void check_branch_policies(const FuncMap &fmap,
             for (const std::string &n : cursor.names) {
                 spelled += (spelled.empty() ? "" : ".") + n;
             }
+            // An arm of a match written in the function, or an arm written
+            // in the function the cursor names, anywhere the schedule's name
+            // stands for (see reach_of and ir::ArmCursors).
+            ir::ArmCursors one;
+            one.arms.push_back(cursor);
+            const std::set<std::string> reach = reach_of(fmap, fname);
             const bool found =
                 std::any_of(arms.begin(), arms.end(), [&](const auto &arm) {
-                    return arm.second.func() == fname &&
-                           arm.second.matches(cursor.names);
+                    return reach.count(arm.first) != 0 &&
+                           ((arm.second.func() == fname &&
+                             arm.second.matches(cursor.names)) ||
+                            one.names_function_of(arm.second));
                 });
             if (found) {
                 continue;
@@ -1786,9 +1869,17 @@ void check_branch_policies(const FuncMap &fmap,
                 instead += " The arms of " + origin + " inlined into it (" +
                            spell(names) + ") are named by " + origin + ".";
             }
+            const std::string &first = cursor.names[0];
+            const std::string as_function =
+                fmap.contains(first)
+                    ? ", and " + first + " has no arm in what " + fname +
+                          " reaches"
+                    : ", and nothing " + fname + " reaches is a function named " +
+                          first;
             internal_error << "skip(" << spelled << ") on " << fname
                            << ": no arm of a match written in " << fname
-                           << " takes " << spelled << ". " << instead;
+                           << " takes " << spelled << as_function << ". "
+                           << instead;
         }
     }
 }
@@ -1885,6 +1976,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     phase("build");
 
     check_branch_policies(fmap, policies);
+    // Under every name they stand for, which is what the linearizer looks
+    // them up by (see expand_branch_policies).
+    const ir::BranchPolicyMap expanded_policies =
+        expand_branch_policies(fmap, policies);
 
     // Before any rewrite has touched it, so that a transform's golden can say
     // what it changed and not only what it ended at.
@@ -2098,7 +2193,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         }
                         for (const LoopSite &at : resolve_loops(
                                  fmap, name, v.i.names.back(), "vectorize")) {
-                            vectorize(fmap, at.func, at.index, policies);
+                            vectorize(fmap, at.func, at.index,
+                                      expanded_policies);
                         }
                     },
                     [&](const ir::Specialize &s) {

@@ -652,7 +652,7 @@ Stmt Mutator::visit(const IfElse *node) {
         return node;
     }
     return IfElse::make(std::move(cond), std::move(then_body),
-                        std::move(else_body));
+                        std::move(else_body), node->provenance);
 }
 
 Stmt Mutator::visit(const SwitchStmt *node) {

@@ -366,6 +366,30 @@ bool must_skip(const Cfg &cfg, const BlockSet &region) {
     return false;
 }
 
+// Whether a region does anything a test could spare: an instruction that is
+// not the mask's own logic, a value put together from what is already there
+// (an option's `none`, a struct of the arm's results) or a copy. The arm of
+// an early return, `if !(hit) { return {}; }`, is nothing but such a build
+// and a jump, and a test in front of it would cost the pass it never saves;
+// the arm that is the rest of the function is what the wager is about.
+bool worth_skipping(const Cfg &cfg, const BlockSet &region) {
+    for (BlockId b : region) {
+        for (const shared_ptr<Instruction> &instr : cfg[b].instrs) {
+            switch (instr->op) {
+            case Instruction::Op::MakeStruct:
+            case Instruction::Op::Set:
+            case Instruction::Op::Bc:
+                continue;
+            default:
+                if (!is_mask_logic(instr->op)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 // Which block defines `v`, for an instruction; NO_BLOCK for anything else.
 BlockId defined_in(const Cfg &cfg, const Value &v) {
     const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data);
@@ -889,9 +913,11 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     continue; // a mask the arm computes for itself
                 }
                 // A gadget where there must be one, and where the schedule
-                // wagers on one (see Linearize.h, "Which arms get a gadget").
+                // wagers on one and there is work to spare (see Linearize.h,
+                // "Which arms get a gadget").
                 if (!must_skip(cfg, dominated) &&
-                    !ir::skips(policies, policy_name, cfg[a].provenance)) {
+                    !(ir::skips(policies, policy_name, cfg[a].provenance) &&
+                      worth_skipping(cfg, dominated))) {
                     continue;
                 }
 

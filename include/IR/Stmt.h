@@ -176,8 +176,15 @@ struct IfElse : StmtNode<IfElse> {
     Expr cond;
     Stmt then_body;
     Stmt else_body;
+    // Where the `if` was written, for a schedule to point at its arms
+    // wherever inlining carries them (ir::Provenance::if_arm; see
+    // ir::ArmCursors). Set by the parser on every `if` of the program;
+    // undefined on the ones lowering makes. A pass that rebuilds an `if`
+    // from one it was given keeps it (see Mutator::visit).
+    Provenance provenance;
 
-    static Stmt make(Expr cond, Stmt then_body, Stmt else_body = Stmt());
+    static Stmt make(Expr cond, Stmt then_body, Stmt else_body = Stmt(),
+                     Provenance provenance = Provenance());
 
     static const IRStmtEnum node_type = IRStmtEnum::IfElse;
 };

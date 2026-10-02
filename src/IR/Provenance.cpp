@@ -34,6 +34,20 @@ Provenance Provenance::match_arm(const std::string &func,
     return p;
 }
 
+Provenance Provenance::if_arm(const std::string &func) {
+    internal_assert(!func.empty()) << "An if's provenance needs its function";
+    static std::mutex lock;
+    static std::map<std::string, std::unique_ptr<Data>> records;
+    const std::lock_guard<std::mutex> guard(lock);
+    auto &record = records[func];
+    if (record == nullptr) {
+        record = std::make_unique<Data>(Data{Kind::IfArm, func, "", ""});
+    }
+    Provenance p;
+    p.data = record.get();
+    return p;
+}
+
 Provenance::Kind Provenance::kind() const {
     internal_assert(defined()) << "kind() of an undefined provenance";
     return data->kind;
@@ -55,7 +69,8 @@ const std::string &Provenance::variant() const {
 }
 
 bool Provenance::matches(const std::vector<std::string> &names) const {
-    if (!defined() || names.empty() || names.size() > 2) {
+    if (!defined() || data->kind != Kind::MatchArm || names.empty() ||
+        names.size() > 2) {
         return false;
     }
     return names[0] == data->adt &&
@@ -65,6 +80,9 @@ bool Provenance::matches(const std::vector<std::string> &names) const {
 std::string Provenance::str() const {
     if (!defined()) {
         return "";
+    }
+    if (data->kind == Kind::IfArm) {
+        return "if";
     }
     return data->adt + "." + data->variant;
 }

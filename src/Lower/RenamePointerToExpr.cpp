@@ -117,8 +117,8 @@ struct Rename : public ir::Mutator {
         // This should be lowered after so that any expressions generated are
         // not placed in the `then` or `else` body.
         ir::Expr cond = mutate(node->cond);
-        return make(
-            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
+        return make(ir::IfElse::make(std::move(cond), std::move(th),
+                                     std::move(el), node->provenance));
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {

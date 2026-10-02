@@ -1,0 +1,34 @@
+//! flags: -p ssa
+
+// A `skip` cursor that names a function has to name one with an arm, among
+// the functions the schedule's name stands for.
+//
+// `weigh.skip(helper)` names the arms written in `helper`: its `if`s, and
+// the arms of any match in it, wherever inlining carried them. Nothing
+// called `helper` is reached from `weigh` here (the helper is `classify`),
+// so no arm can be the one meant, and the directive is refused rather than
+// doing nothing -- which is what a misspelled name did silently before.
+import stdlib/numerics;
+
+func classify(x : f32) -> f32 {
+    if x < 0.0 {
+        return -x;
+    }
+    return x * 0.5;
+}
+
+func weigh(x : f32) -> f32 {
+    return classify(x) * 3.0;
+}
+
+func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = weigh(a[i]);
+    }
+    return;
+}
+
+schedule {
+    weigh_all.vectorize(i);
+    weigh.skip(helper);
+}

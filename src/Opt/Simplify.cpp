@@ -814,7 +814,8 @@ struct Simplifier : ir::Mutator {
                 // No-op
                 return then_body;
             }
-            return ir::IfElse::make(~cond, std::move(else_body));
+            return ir::IfElse::make(~cond, std::move(else_body), ir::Stmt(),
+                                    node->provenance);
         }
 
         if (cond.same_as(node->cond) && then_body.same_as(node->then_body) &&
@@ -822,7 +823,7 @@ struct Simplifier : ir::Mutator {
             return node;
         }
         return ir::IfElse::make(std::move(cond), std::move(then_body),
-                                std::move(else_body));
+                                std::move(else_body), node->provenance);
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {

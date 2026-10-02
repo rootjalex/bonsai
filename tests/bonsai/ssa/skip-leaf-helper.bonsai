@@ -1,0 +1,191 @@
+//! flags: -p ssa
+
+// The early exits of a helper's triangle test, named by the helper from the
+// query's schedule: the tree and schedule of tiled-leaf-vectorized.bonsai
+// over Embree's triangle test (apps/rtq/rtq.bonsai, transcribed from
+// triangle_intersector_moeller.h), with `trace.skip(intersectsp_ray_tri)`.
+// Embree's intersector stops a Triangle4 block after the edge tests when no
+// lane passed (`early_out`), before the depth test and the reciprocal; a
+// vectorized leaf without the directive computes all of it for every block
+// and tests the mask once at the end.
+//
+// What to read for. The test's two early returns, `if !(...) { return {}; }`,
+// are `if`s written in `intersectsp_ray_tri`, inlined into the leaf's gang
+// inside the recursion Lower/RecLoops.cpp extracted out of `trace`. An
+// `if`'s arms carry where the `if` was written (ir::Provenance::if_arm), an
+// `if` with no else whose arm returns has the code after it as its other
+// arm, and the schedule's policy follows `trace` into the extracted
+// recursion (expand_branch_policies in SSA/Convert.cpp): so `skip(
+// intersectsp_ray_tri)` names the rest of the test after each early return
+// and puts it behind a test of `reduce<any>` of its mask -- after the edge
+// tests, before `T` and the reciprocal; after the depth test, before the
+// hit is built. The returning arms themselves, a `make_struct` of the empty
+// option and a jump, get no test, since nothing in them is worth one
+// (worth_skipping in SSA/Linearize.cpp). The condition of each `if` is one
+// expression, a negated conjunction, which is what names the whole
+// fall-through: a conjunction `if a && b { return }` is split into nested
+// `if`s by Lower/LogicalOperations.cpp, and only the last test's fall-through
+// is then an arm of its own.
+import stdlib/numerics;
+
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+element Triangle {
+    v0 : vec3f;
+    e1 : vec3f;
+    e2 : vec3f;
+    primID : u32;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir = 1.0 / r.d;
+    org_rdir = r.o * rdir;
+    dirIsNeg = rdir < 0.0;
+    near = select(dirIsNeg, b.high, b.low);
+    far = select(dirIsNeg, b.low, b.high);
+    tNearV = near * rdir - org_rdir;
+    tFarV = far * rdir - org_rdir;
+    tNear = max(max(tNearV.x, tNearV.y), max(tNearV.z, r.tnear));
+    tFar = min(min(tFarV.x, tFarV.y), min(tFarV.z, r.tfar));
+    if tNear <= tFar {
+        return FInterval{tNear, tFar};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+element TriangleHit {
+    t, u, v : Float;
+}
+
+// Embree's Moeller-Trumbore test as it factors it, with its two early
+// returns: after the edge tests, and after the depth test.
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
+    Ng = cross(tri.e2, tri.e1);
+    C = tri.v0 - r.o;
+    R = cross(C, r.d);
+    den = dot(Ng, r.d);
+    absDen = abs(den);
+    sgnDen = reinterpret[[u32]](den) & 2147483648u;
+    U = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e2)) ^ sgnDen);
+    V = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e1)) ^ sgnDen);
+    if !(den != 0.0 && U >= 0.0 && V >= 0.0 && U + V <= absDen) {
+        return {};
+    }
+    T = reinterpret[[Float]](reinterpret[[u32]](dot(Ng, C)) ^ sgnDen);
+    if !(absDen * r.tnear < T && T <= absDen * r.tfar) {
+        return {};
+    }
+    rcpAbsDen = 1.0 / absDen;
+    return TriangleHit{T * rcpAbsDen, U * rcpAbsDen, V * rcpAbsDen};
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return -inf;
+}
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                v0 : vec3f;
+                e1 : vec3f;
+                e2 : vec3f;
+                primID : u32;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .vectorize(tris.Leaf.data)
+         .loopify(64);
+    // Embree's early_out: the rest of the triangle test behind a test of
+    // whether any lane goes on, after each of the helper's early returns.
+    trace.skip(intersectsp_ray_tri);
+}

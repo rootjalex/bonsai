@@ -437,7 +437,7 @@ struct IfElseHandler : public ir::Mutator {
         ir::Stmt el = mutate(node->else_body);
 
         stmts.push_back(ir::IfElse::make(std::move(new_cond), std::move(th),
-                                         std::move(el)));
+                                         std::move(el), node->provenance));
         return ir::Sequence::make(std::move(stmts));
     }
 };
@@ -542,8 +542,8 @@ struct Rename : public ir::Mutator {
         // This should be lowered after so that any expressions generated are
         // not placed in the `then` or `else` body.
         ir::Expr cond = mutate(node->cond);
-        return make(
-            ir::IfElse::make(std::move(cond), std::move(th), std::move(el)));
+        return make(ir::IfElse::make(std::move(cond), std::move(th),
+                                     std::move(el), node->provenance));
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {
@@ -867,7 +867,8 @@ class LVN : public ir::Mutator {
         push_frame();
         ir::Stmt el = mutate(node->else_body);
         pop_frame();
-        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el),
+                                node->provenance);
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {
@@ -1202,7 +1203,8 @@ class CopyPropagation : public ir::Mutator {
         push_frame();
         ir::Stmt el = mutate(node->else_body);
         pop_frame();
-        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el),
+                                node->provenance);
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {

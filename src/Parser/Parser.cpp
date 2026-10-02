@@ -208,6 +208,9 @@ struct Parser {
     ir::TypeMap schedule_trees;
     // Set of all built-in, non-overridable functions.
     std::set<std::string> builtins;
+    // The function whose body is being parsed, for the provenance its `if`s
+    // get (see parse_statement); empty outside one.
+    std::string function_being_parsed;
 
     const TokenStream &tokens() const { return context.back(); }
 
@@ -1225,6 +1228,7 @@ struct Parser {
             expect(Token::Type::RBRACKET);
         }
         const std::string name = get_id();
+        function_being_parsed = name;
         if (is_geometric_intrinsic(name)) {
             return parse_geometric_intrinsic(
                 name, std::move(attributes)); // special case.
@@ -1512,12 +1516,19 @@ struct Parser {
             internal_assert(!consume(Token::Type::ELIF))
                 << "TODO: implement elif parsing for line: "
                 << peek().line_begin();
+            // Where the `if` was written, for a schedule's `skip` to name
+            // its arms by the function (ir::Provenance::if_arm).
+            const ir::Provenance written_in =
+                function_being_parsed.empty()
+                    ? ir::Provenance()
+                    : ir::Provenance::if_arm(function_being_parsed);
             if (consume(Token::Type::ELSE)) {
                 ir::Stmt else_case = parse_statement();
                 return ir::IfElse::make(std::move(cond), std::move(then_case),
-                                        std::move(else_case));
+                                        std::move(else_case), written_in);
             } else {
-                return ir::IfElse::make(std::move(cond), std::move(then_case));
+                return ir::IfElse::make(std::move(cond), std::move(then_case),
+                                        ir::Stmt(), written_in);
             }
         } else if (consume(Token::Type::RETURN)) {
             if (consume(Token::Type::SEMICOL)) {

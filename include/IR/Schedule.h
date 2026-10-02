@@ -283,6 +283,25 @@ struct ArmCursors {
         }
         return false;
     }
+    // Does a cursor name the function the arm was written in -- `skip(
+    // intersectsp_ray_tri)`, every arm written in that helper, `if`s
+    // included, wherever inlining carried them; or `skip(helper.Shape.Disc)`,
+    // the arms of the helper's match that the rest of the name picks?
+    bool names_function_of(const Provenance &arm_of) const {
+        if (!arm_of.defined()) {
+            return false;
+        }
+        for (const Location &arm : arms) {
+            if (arm.names.empty() || arm.names.front() != arm_of.func()) {
+                continue;
+            }
+            if (arm.names.size() == 1 ||
+                arm_of.matches({arm.names.begin() + 1, arm.names.end()})) {
+                return true;
+            }
+        }
+        return false;
+    }
     bool empty() const { return !all && arms.empty(); }
 };
 
@@ -307,13 +326,17 @@ using BranchPolicyMap = std::map<std::string, BranchPolicy>;
 // Does the schedule put a test in front of an arm found in `func` -- the name
 // the schedule knows the function by, before specialization renamed it --
 // that was `arm` in the source? The bare `func.skip()` covers it wherever it
-// was written; a named cursor covers it under the name of the function it
-// was written in (see ArmCursors).
+// was written; `func.skip(helper)` covers it when it was written in `helper`;
+// a cursor naming a match covers it under the name of the function it was
+// written in (see ArmCursors). `func` is any function the schedule's name
+// stands for: the function itself, and the ones its recursion was extracted
+// into and its calls reach (expand_branch_policies in SSA/Convert.cpp).
 inline bool skips(const BranchPolicyMap &policies, const std::string &func,
                   const Provenance &arm) {
-    if (const auto here = policies.find(func);
-        here != policies.end() && here->second.skip.all) {
-        return true;
+    if (const auto here = policies.find(func); here != policies.end()) {
+        if (here->second.skip.all || here->second.skip.names_function_of(arm)) {
+            return true;
+        }
     }
     if (arm.defined()) {
         if (const auto origin = policies.find(arm.func());

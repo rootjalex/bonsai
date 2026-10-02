@@ -192,10 +192,10 @@ class Threader : public Mutator {
                 return Stmt();
             }
             return IfElse::make(UnOp::make(UnOp::OpType::Not, std::move(cond)),
-                                std::move(else_body));
+                                std::move(else_body), Stmt(), node->provenance);
         }
         return IfElse::make(std::move(cond), std::move(then_body),
-                            std::move(else_body));
+                            std::move(else_body), node->provenance);
     }
 
     // The first branch in a sequence that the statements after it test again
@@ -345,10 +345,10 @@ class Threader : public Mutator {
                 return Stmt();
             }
             return IfElse::make(UnOp::make(UnOp::OpType::Not, branch.cond),
-                                std::move(else_body));
+                                std::move(else_body), Stmt(), branch.provenance);
         }
         return IfElse::make(branch.cond, std::move(then_body),
-                            std::move(else_body));
+                            std::move(else_body), branch.provenance);
     }
 
     // An arm, and after it -- unless it never gets there -- a copy of `rest`

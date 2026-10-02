@@ -1,5 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:1568
-skip(Shape.Cone) on weigh: no arm of a match written in weigh takes Shape.Cone. The arms written in weigh are: Shape.Box, Shape.Disc.
+[internal] Error: src/SSA/Convert.cpp:1879
+skip(Shape.Cone) on weigh: no arm of a match written in weigh takes Shape.Cone, and nothing weigh reaches is a function named Shape. The arms written in weigh are: Shape.Box, Shape.Disc. The arms of classify inlined into it (if) are named by classify.

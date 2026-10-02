@@ -125,7 +125,8 @@ Stmt LetStmt::make(WriteLoc loc, Expr value) {
     return node;
 }
 
-Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
+Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body,
+                  Provenance provenance) {
     internal_assert(cond.defined()) << "Undefined condition in IfElse::make";
     internal_assert(cond.type().defined() &&
                     (cond.type().is_bool() || cond.type().is<Option_t>()))
@@ -140,6 +141,7 @@ Stmt IfElse::make(Expr cond, Stmt then_body, Stmt else_body) {
     node->cond = std::move(cond);
     node->then_body = std::move(then_body);
     node->else_body = std::move(else_body);
+    node->provenance = std::move(provenance);
     return node;
 }
 

@@ -23,7 +23,8 @@ class LowerImpl : public ir::Mutator {
         }
         return ir::IfElse::make(/*cond=*/mutate(node->cond),
                                 /*then_body=*/mutate(node->then_body),
-                                /*else_body=*/mutate(node->else_body));
+                                /*else_body=*/mutate(node->else_body),
+                                node->provenance);
     }
 
   private:
@@ -35,9 +36,12 @@ class LowerImpl : public ir::Mutator {
 
         if (!if_else->else_body.defined()) {
             // if (a && b) { <body> }  ->  if (a) { if (b) { <body> } }
-            ir::Stmt then_body =
-                mutate(ir::IfElse::make(cond->b, if_else->then_body));
-            return mutate(ir::IfElse::make(cond->a, std::move(then_body)));
+            // Both halves are the one `if` the program wrote, and keep its
+            // provenance.
+            ir::Stmt then_body = mutate(ir::IfElse::make(
+                cond->b, if_else->then_body, ir::Stmt(), if_else->provenance));
+            return mutate(ir::IfElse::make(cond->a, std::move(then_body),
+                                           ir::Stmt(), if_else->provenance));
         }
         return statement;
     }

@@ -98,7 +98,8 @@ struct NameHygiene : ir::Mutator {
         ScopedValue<bool> _(rename, true);
         ir::Stmt th = mutate(node->then_body);
         ir::Stmt el = mutate(node->else_body);
-        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el));
+        return ir::IfElse::make(std::move(cond), std::move(th), std::move(el),
+                                node->provenance);
     }
 
     ir::Stmt visit(const ir::SwitchStmt *node) override {
@@ -522,15 +523,17 @@ struct DeadCodeElimination : ir::Mutator {
             return ir::Stmt();
         } else if (then_body.defined() && else_body.defined()) {
             return ir::IfElse::make(node->cond, std::move(then_body),
-                                    std::move(else_body));
+                                    std::move(else_body), node->provenance);
         } else if (then_body.defined()) {
-            return ir::IfElse::make(node->cond, std::move(then_body));
+            return ir::IfElse::make(node->cond, std::move(then_body),
+                                    ir::Stmt(), node->provenance);
         } else {
             // else_body is defined, but then_body has been DCEed.
             // We now need to flip the condition, and only execute
             // else_body.
             ir::Expr flipped = ir::UnOp::make(ir::UnOp::Not, node->cond);
-            return ir::IfElse::make(std::move(flipped), std::move(else_body));
+            return ir::IfElse::make(std::move(flipped), std::move(else_body),
+                                    ir::Stmt(), node->provenance);
         }
     }
 

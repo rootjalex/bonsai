@@ -65,7 +65,7 @@ struct UnswitchImpl : public Mutator {
                 return node;
             } else {
                 return IfElse::make(node->cond, std::move(then_body),
-                                    std::move(else_body));
+                                    std::move(else_body), node->provenance);
             }
         }
 
@@ -82,7 +82,7 @@ struct UnswitchImpl : public Mutator {
                 return node;
             } else {
                 return IfElse::make(node->cond, std::move(then_body),
-                                    std::move(else_body));
+                                    std::move(else_body), node->provenance);
             }
         }
 
@@ -196,7 +196,7 @@ struct UnswitchImpl : public Mutator {
                     }
                     Stmt new_if =
                         IfElse::make(prev_if->cond, std::move(merged_then),
-                                     std::move(merged_else));
+                                     std::move(merged_else), prev_if->provenance);
 
                     new_stmts.back() = std::move(new_if);
                     changed = true;
@@ -248,7 +248,7 @@ struct UnswitchImpl : public Mutator {
                                      : if_else->else_body;
                 body1 = mutate(body1);
                 return IfElse::make(if_else->cond, std::move(body0),
-                                    std::move(body1));
+                                    std::move(body1), if_else->provenance);
             }
         }
 

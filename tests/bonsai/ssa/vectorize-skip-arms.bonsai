@@ -9,11 +9,14 @@
 // ispc's layout of a varying `if`, which a gadget installed before the fold
 // could only give one arm. The three arms of the `match` line up the same
 // way. None of these arms touches memory or calls, so every test here is the
-// schedule's doing -- `weigh.skip()`, every arm `weigh` has, the inner `if`'s
-// two-operation fall-through and the arms of `classify` inlined into it
-// included; without it there would be none (see "Which arms get a gadget" in
-// SSA/Linearize.h, and ssa/vectorize-skip-cursor.bonsai for naming arms one
-// at a time). Every value an arm computes that is read after it arrives at the
+// schedule's doing -- `weigh.skip()`, every arm `weigh` has, the arms of
+// `classify` inlined into it included; without it there would be none (see
+// "Which arms get a gadget" in SSA/Linearize.h, and
+// ssa/vectorize-skip-cursor.bonsai for naming arms one at a time). The one
+// arm left without a test is the inner `if`'s fall-through, whose only work
+// is two `&&` of masks: a test in front of nothing but the mask's own logic
+// would cost the pass it never saves (worth_skipping in SSA/Linearize.cpp).
+// Every value an arm computes that is read after it arrives at the
 // landing as a `!skip` argument: the running blend from inside the arm, and
 // along the bypass the value from before the arm -- `acc` from before the
 // `if`, or the previous arm's blend -- so the join reads exactly what a lane
