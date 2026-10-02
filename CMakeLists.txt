@@ -168,6 +168,7 @@ target_sources(
     runtime/bonsai_cuda.cpp
     runtime/bonsai_optix.cpp
     src/CodeGen/ExpandVectorMulHigh.cpp
+    src/CodeGen/FoldSelectOfLoads.cpp
     src/CodeGen/MarkDeviceMemory.cpp
     src/CodeGen/VectorMath.cpp
     src/CodeGen/CPP.cpp
@@ -294,6 +295,7 @@ target_sources(
     include/CodeGen/CodeGen_PTX.h
     include/CodeGen/CodeGen_X86.h
     include/CodeGen/ExpandVectorMulHigh.h
+    include/CodeGen/FoldSelectOfLoads.h
     include/CodeGen/MarkDeviceMemory.h
     include/CodeGen/VectorMath.h
     include/CodeGen/CPP.h

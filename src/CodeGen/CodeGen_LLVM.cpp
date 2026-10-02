@@ -32,6 +32,7 @@
 #include <llvm/Transforms/Utils/RelLookupTableConverter.h>
 
 #include "CodeGen/ExpandVectorMulHigh.h"
+#include "CodeGen/FoldSelectOfLoads.h"
 #include "CodeGen/VectorMath.h"
 // #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Scalar/GVN.h>
@@ -1125,12 +1126,16 @@ void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
     }
 
     // After LLVM's own passes, which would otherwise fold the expansion back
-    // (see CodeGen/ExpandVectorMulHigh.h).
+    // (see CodeGen/ExpandVectorMulHigh.h), and would undo the picked loads
+    // (see CodeGen/FoldSelectOfLoads.h), which also want the inliner and
+    // GVN to have merged what they fold.
     pb.registerOptimizerLastEPCallback(
         [](llvm::ModulePassManager &mpm, OptimizationLevel,
            llvm::ThinOrFullLTOPhase) {
             mpm.addPass(
                 llvm::createModuleToFunctionPassAdaptor(ExpandVectorMulHigh()));
+            mpm.addPass(
+                llvm::createModuleToFunctionPassAdaptor(FoldSelectOfLoads()));
         });
 
     register_backend_passes(pb);

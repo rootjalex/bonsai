@@ -181,9 +181,6 @@ declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #1
 declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fmax.v3f32(<3 x float>) #1
-
-; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.fabs.f32(float) #1
 
 ; Function Attrs: nounwind
@@ -255,255 +252,283 @@ __intersection__trace:
   %43 = fsub <3 x float> %_rt_e0.tri.unpack9, %"@6.o"
   %44 = fsub <3 x float> %_rt_e0.tri.unpack11, %"@6.o"
   %45 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@9.d")
-  %46 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %45)
-  %47 = extractelement <3 x float> %45, i64 0
-  %48 = fcmp oeq float %46, %47
-  %49 = extractelement <3 x float> %45, i64 1
-  %50 = fcmp oeq float %46, %49
-  %51 = select i1 %50, i32 1, i32 2
-  %52 = select i1 %48, i32 0, i32 %51
-  %53 = or i1 %48, %50
-  %.v.i = select i1 %53, i32 1, i32 -2
-  %54 = add nsw i32 %52, %.v.i
-  %55 = add nsw i32 %54, 1
-  %56 = icmp ult i32 %55, 3
-  %57 = add nsw i32 %54, -2
-  %58 = select i1 %56, i32 %55, i32 %57
-  %59 = extractelement <3 x float> %"@9.d", i64 0
-  %lane_is.i = icmp eq i32 %54, 1
-  %60 = extractelement <3 x float> %"@9.d", i64 1
-  %lane.i = select i1 %lane_is.i, float %60, float %59
-  %lane_is51.i = icmp eq i32 %54, 2
-  %61 = extractelement <3 x float> %"@9.d", i64 2
-  %lane52.i = select i1 %lane_is51.i, float %61, float %lane.i
-  %lane_is53.i = icmp eq i32 %58, 1
-  %lane54.i = select i1 %lane_is53.i, float %60, float %59
-  %lane_is55.i = icmp eq i32 %58, 2
-  %lane56.i = select i1 %lane_is55.i, float %61, float %lane54.i
-  %not..i = xor i1 %48, true
-  %lane_is57.i = and i1 %50, %not..i
-  %lane58.i = select i1 %lane_is57.i, float %60, float %59
-  %lane_is59.i = icmp eq i32 %52, 2
-  %lane60.i = select i1 %lane_is59.i, float %61, float %lane58.i
-  %62 = extractelement <3 x float> %42, i64 0
-  %63 = extractelement <3 x float> %42, i64 1
-  %lane62.i = select i1 %lane_is.i, float %63, float %62
-  %64 = extractelement <3 x float> %42, i64 2
-  %lane64.i = select i1 %lane_is51.i, float %64, float %lane62.i
-  %lane66.i = select i1 %lane_is53.i, float %63, float %62
-  %lane68.i = select i1 %lane_is55.i, float %64, float %lane66.i
-  %lane70.i = select i1 %lane_is57.i, float %63, float %62
-  %lane72.i = select i1 %lane_is59.i, float %64, float %lane70.i
-  %65 = insertelement <3 x float> poison, float %lane64.i, i64 0
-  %66 = insertelement <3 x float> %65, float %lane68.i, i64 1
-  %67 = insertelement <3 x float> %66, float %lane72.i, i64 2
-  %68 = extractelement <3 x float> %43, i64 0
-  %69 = extractelement <3 x float> %43, i64 1
-  %lane75.i = select i1 %lane_is.i, float %69, float %68
-  %70 = extractelement <3 x float> %43, i64 2
-  %lane77.i = select i1 %lane_is51.i, float %70, float %lane75.i
-  %lane79.i = select i1 %lane_is53.i, float %69, float %68
-  %lane81.i = select i1 %lane_is55.i, float %70, float %lane79.i
-  %lane83.i = select i1 %lane_is57.i, float %69, float %68
-  %lane85.i = select i1 %lane_is59.i, float %70, float %lane83.i
-  %71 = insertelement <3 x float> poison, float %lane77.i, i64 0
-  %72 = insertelement <3 x float> %71, float %lane81.i, i64 1
-  %73 = insertelement <3 x float> %72, float %lane85.i, i64 2
-  %74 = extractelement <3 x float> %44, i64 0
-  %75 = extractelement <3 x float> %44, i64 1
-  %lane88.i = select i1 %lane_is.i, float %75, float %74
-  %76 = extractelement <3 x float> %44, i64 2
-  %lane90.i = select i1 %lane_is51.i, float %76, float %lane88.i
-  %lane92.i = select i1 %lane_is53.i, float %75, float %74
-  %lane94.i = select i1 %lane_is55.i, float %76, float %lane92.i
-  %lane96.i = select i1 %lane_is57.i, float %75, float %74
-  %lane98.i = select i1 %lane_is59.i, float %76, float %lane96.i
-  %77 = insertelement <3 x float> poison, float %lane90.i, i64 0
-  %78 = insertelement <3 x float> %77, float %lane94.i, i64 1
-  %79 = insertelement <3 x float> %78, float %lane98.i, i64 2
-  %80 = fsub float 0.000000e+00, %lane52.i
-  %81 = fdiv float %80, %lane60.i
-  %82 = fsub float 0.000000e+00, %lane56.i
-  %83 = fdiv float %82, %lane60.i
-  %84 = fdiv float 1.000000e+00, %lane60.i
-  %85 = fmul float %lane72.i, %81
-  %.splatinsert.i = insertelement <3 x float> poison, float %85, i64 0
+  %46 = extractelement <3 x float> %45, i64 0
+  %47 = extractelement <3 x float> %45, i64 1
+  %48 = fcmp olt float %46, %47
+  %49 = select i1 %48, float %47, float %46
+  %50 = extractelement <3 x float> %45, i64 2
+  %51 = fcmp olt float %49, %50
+  %reduce_max.i = select i1 %51, float %50, float %49
+  %52 = fcmp oeq float %reduce_max.i, %46
+  %53 = fcmp oeq float %reduce_max.i, %47
+  %54 = select i1 %53, i32 1, i32 2
+  %55 = select i1 %52, i32 0, i32 %54
+  %56 = or i1 %52, %53
+  %.v.i = select i1 %56, i32 1, i32 -2
+  %57 = add nsw i32 %55, %.v.i
+  %58 = add nsw i32 %57, 1
+  %59 = icmp ult i32 %58, 3
+  %60 = add nsw i32 %57, -2
+  %61 = select i1 %59, i32 %58, i32 %60
+  %62 = extractelement <3 x float> %"@9.d", i64 0
+  %lane_is.i = icmp eq i32 %57, 1
+  %63 = extractelement <3 x float> %"@9.d", i64 1
+  %lane.i = select i1 %lane_is.i, float %63, float %62
+  %lane_is52.i = icmp eq i32 %57, 2
+  %64 = extractelement <3 x float> %"@9.d", i64 2
+  %lane53.i = select i1 %lane_is52.i, float %64, float %lane.i
+  %lane_is54.i = icmp eq i32 %61, 1
+  %lane55.i = select i1 %lane_is54.i, float %63, float %62
+  %lane_is56.i = icmp eq i32 %61, 2
+  %lane57.i = select i1 %lane_is56.i, float %64, float %lane55.i
+  %not..i = xor i1 %52, true
+  %lane_is58.i = and i1 %53, %not..i
+  %lane59.i = select i1 %lane_is58.i, float %63, float %62
+  %lane_is60.i = icmp eq i32 %55, 2
+  %lane61.i = select i1 %lane_is60.i, float %64, float %lane59.i
+  %65 = extractelement <3 x float> %42, i64 0
+  %66 = extractelement <3 x float> %42, i64 1
+  %lane63.i = select i1 %lane_is.i, float %66, float %65
+  %67 = extractelement <3 x float> %42, i64 2
+  %lane65.i = select i1 %lane_is52.i, float %67, float %lane63.i
+  %lane67.i = select i1 %lane_is54.i, float %66, float %65
+  %lane69.i = select i1 %lane_is56.i, float %67, float %lane67.i
+  %lane71.i = select i1 %lane_is58.i, float %66, float %65
+  %lane73.i = select i1 %lane_is60.i, float %67, float %lane71.i
+  %68 = insertelement <3 x float> poison, float %lane65.i, i64 0
+  %69 = insertelement <3 x float> %68, float %lane69.i, i64 1
+  %70 = insertelement <3 x float> %69, float %lane73.i, i64 2
+  %71 = extractelement <3 x float> %43, i64 0
+  %72 = extractelement <3 x float> %43, i64 1
+  %lane76.i = select i1 %lane_is.i, float %72, float %71
+  %73 = extractelement <3 x float> %43, i64 2
+  %lane78.i = select i1 %lane_is52.i, float %73, float %lane76.i
+  %lane80.i = select i1 %lane_is54.i, float %72, float %71
+  %lane82.i = select i1 %lane_is56.i, float %73, float %lane80.i
+  %lane84.i = select i1 %lane_is58.i, float %72, float %71
+  %lane86.i = select i1 %lane_is60.i, float %73, float %lane84.i
+  %74 = insertelement <3 x float> poison, float %lane78.i, i64 0
+  %75 = insertelement <3 x float> %74, float %lane82.i, i64 1
+  %76 = insertelement <3 x float> %75, float %lane86.i, i64 2
+  %77 = extractelement <3 x float> %44, i64 0
+  %78 = extractelement <3 x float> %44, i64 1
+  %lane89.i = select i1 %lane_is.i, float %78, float %77
+  %79 = extractelement <3 x float> %44, i64 2
+  %lane91.i = select i1 %lane_is52.i, float %79, float %lane89.i
+  %lane93.i = select i1 %lane_is54.i, float %78, float %77
+  %lane95.i = select i1 %lane_is56.i, float %79, float %lane93.i
+  %lane97.i = select i1 %lane_is58.i, float %78, float %77
+  %lane99.i = select i1 %lane_is60.i, float %79, float %lane97.i
+  %80 = insertelement <3 x float> poison, float %lane91.i, i64 0
+  %81 = insertelement <3 x float> %80, float %lane95.i, i64 1
+  %82 = insertelement <3 x float> %81, float %lane99.i, i64 2
+  %83 = fsub float 0.000000e+00, %lane53.i
+  %84 = fdiv float %83, %lane61.i
+  %85 = fsub float 0.000000e+00, %lane57.i
+  %86 = fdiv float %85, %lane61.i
+  %87 = fdiv float 1.000000e+00, %lane61.i
+  %88 = fmul float %lane73.i, %84
+  %.splatinsert.i = insertelement <3 x float> poison, float %88, i64 0
   %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %86 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %87 = fadd <3 x float> %67, %86
-  %88 = extractelement <3 x float> %87, i64 2
-  %89 = fmul float %83, %88
-  %.splatinsert103.i = insertelement <3 x float> poison, float %89, i64 0
-  %.splat104.i = shufflevector <3 x float> %.splatinsert103.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %90 = fmul <3 x float> %.splat104.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %91 = fadd <3 x float> %87, %90
-  %92 = fmul float %lane85.i, %81
-  %.splatinsert107.i = insertelement <3 x float> poison, float %92, i64 0
-  %.splat108.i = shufflevector <3 x float> %.splatinsert107.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %93 = fmul <3 x float> %.splat108.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %94 = fadd <3 x float> %73, %93
-  %95 = extractelement <3 x float> %94, i64 2
-  %96 = fmul float %83, %95
-  %.splatinsert111.i = insertelement <3 x float> poison, float %96, i64 0
-  %.splat112.i = shufflevector <3 x float> %.splatinsert111.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %97 = fmul <3 x float> %.splat112.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %98 = fadd <3 x float> %94, %97
-  %99 = fmul float %lane98.i, %81
-  %.splatinsert115.i = insertelement <3 x float> poison, float %99, i64 0
-  %.splat116.i = shufflevector <3 x float> %.splatinsert115.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %100 = fmul <3 x float> %.splat116.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %101 = fadd <3 x float> %79, %100
-  %102 = extractelement <3 x float> %101, i64 2
-  %103 = fmul float %83, %102
-  %.splatinsert119.i = insertelement <3 x float> poison, float %103, i64 0
-  %.splat120.i = shufflevector <3 x float> %.splatinsert119.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %104 = fmul <3 x float> %.splat120.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %105 = fadd <3 x float> %101, %104
-  %106 = extractelement <3 x float> %98, i64 0
-  %107 = extractelement <3 x float> %105, i64 1
-  %108 = extractelement <3 x float> %98, i64 1
-  %109 = extractelement <3 x float> %105, i64 0
-  %110 = fmul float %108, %109
-  %111 = fsub float 0.000000e+00, %110
-  %112 = tail call float @llvm.fma.f32(float %106, float %107, float %111)
-  %113 = fsub float 0.000000e+00, %108
-  %114 = tail call float @llvm.fma.f32(float %113, float %109, float %110)
-  %115 = fadd float %114, %112
-  %116 = extractelement <3 x float> %91, i64 1
-  %117 = extractelement <3 x float> %91, i64 0
-  %118 = fmul float %107, %117
-  %119 = fsub float 0.000000e+00, %118
-  %120 = tail call float @llvm.fma.f32(float %109, float %116, float %119)
-  %121 = fsub float 0.000000e+00, %107
-  %122 = tail call float @llvm.fma.f32(float %121, float %117, float %118)
-  %123 = fadd float %122, %120
-  %124 = fmul float %116, %106
-  %125 = fsub float 0.000000e+00, %124
-  %126 = tail call float @llvm.fma.f32(float %117, float %108, float %125)
-  %127 = fsub float 0.000000e+00, %116
-  %128 = tail call float @llvm.fma.f32(float %127, float %106, float %124)
-  %129 = fadd float %128, %126
-  %130 = fcmp olt float %115, 0.000000e+00
-  %131 = fcmp olt float %123, 0.000000e+00
-  %132 = or i1 %130, %131
-  %133 = fcmp olt float %129, 0.000000e+00
-  %134 = or i1 %133, %132
-  br i1 %134, label %"!then_2.i", label %"!merge_3.i"
+  %89 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %90 = fadd <3 x float> %70, %89
+  %91 = extractelement <3 x float> %90, i64 2
+  %92 = fmul float %86, %91
+  %.splatinsert104.i = insertelement <3 x float> poison, float %92, i64 0
+  %.splat105.i = shufflevector <3 x float> %.splatinsert104.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %93 = fmul <3 x float> %.splat105.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %94 = fadd <3 x float> %90, %93
+  %95 = fmul float %lane86.i, %84
+  %.splatinsert108.i = insertelement <3 x float> poison, float %95, i64 0
+  %.splat109.i = shufflevector <3 x float> %.splatinsert108.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %96 = fmul <3 x float> %.splat109.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %97 = fadd <3 x float> %76, %96
+  %98 = extractelement <3 x float> %97, i64 2
+  %99 = fmul float %86, %98
+  %.splatinsert112.i = insertelement <3 x float> poison, float %99, i64 0
+  %.splat113.i = shufflevector <3 x float> %.splatinsert112.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %100 = fmul <3 x float> %.splat113.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %101 = fadd <3 x float> %97, %100
+  %102 = fmul float %lane99.i, %84
+  %.splatinsert116.i = insertelement <3 x float> poison, float %102, i64 0
+  %.splat117.i = shufflevector <3 x float> %.splatinsert116.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %103 = fmul <3 x float> %.splat117.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %104 = fadd <3 x float> %82, %103
+  %105 = extractelement <3 x float> %104, i64 2
+  %106 = fmul float %86, %105
+  %.splatinsert120.i = insertelement <3 x float> poison, float %106, i64 0
+  %.splat121.i = shufflevector <3 x float> %.splatinsert120.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %107 = fmul <3 x float> %.splat121.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %108 = fadd <3 x float> %104, %107
+  %109 = extractelement <3 x float> %101, i64 0
+  %110 = extractelement <3 x float> %108, i64 1
+  %111 = extractelement <3 x float> %101, i64 1
+  %112 = extractelement <3 x float> %108, i64 0
+  %113 = fmul float %111, %112
+  %114 = fsub float 0.000000e+00, %113
+  %115 = tail call float @llvm.fma.f32(float %109, float %110, float %114)
+  %116 = fsub float 0.000000e+00, %111
+  %117 = tail call float @llvm.fma.f32(float %116, float %112, float %113)
+  %118 = fadd float %117, %115
+  %119 = extractelement <3 x float> %94, i64 1
+  %120 = extractelement <3 x float> %94, i64 0
+  %121 = fmul float %110, %120
+  %122 = fsub float 0.000000e+00, %121
+  %123 = tail call float @llvm.fma.f32(float %112, float %119, float %122)
+  %124 = fsub float 0.000000e+00, %110
+  %125 = tail call float @llvm.fma.f32(float %124, float %120, float %121)
+  %126 = fadd float %125, %123
+  %127 = fmul float %119, %109
+  %128 = fsub float 0.000000e+00, %127
+  %129 = tail call float @llvm.fma.f32(float %120, float %111, float %128)
+  %130 = fsub float 0.000000e+00, %119
+  %131 = tail call float @llvm.fma.f32(float %130, float %109, float %127)
+  %132 = fadd float %131, %129
+  %133 = fcmp olt float %118, 0.000000e+00
+  %134 = fcmp olt float %126, 0.000000e+00
+  %135 = or i1 %133, %134
+  %136 = fcmp olt float %132, 0.000000e+00
+  %137 = or i1 %136, %135
+  br i1 %137, label %"!then_2.i", label %"!merge_3.i"
 
 "!then_2.i":                                      ; preds = %"!merge_1.i"
-  %135 = fcmp ogt float %115, 0.000000e+00
-  %136 = fcmp ogt float %123, 0.000000e+00
-  %137 = or i1 %135, %136
-  %138 = fcmp ogt float %129, 0.000000e+00
-  %139 = or i1 %138, %137
-  br i1 %139, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
+  %138 = fcmp ogt float %118, 0.000000e+00
+  %139 = fcmp ogt float %126, 0.000000e+00
+  %140 = or i1 %138, %139
+  %141 = fcmp ogt float %132, 0.000000e+00
+  %142 = or i1 %141, %140
+  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
 
 "!merge_3.i":                                     ; preds = %"!then_2.i", %"!merge_1.i"
-  %140 = fadd float %115, %123
-  %141 = fadd float %129, %140
-  %142 = fcmp oeq float %141, 0.000000e+00
-  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
+  %143 = fadd float %118, %126
+  %144 = fadd float %132, %143
+  %145 = fcmp oeq float %144, 0.000000e+00
+  br i1 %145, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
 
 "!merge_7.i":                                     ; preds = %"!merge_3.i"
-  %.splatinsert134.i = insertelement <3 x float> poison, float %84, i64 0
-  %.splat135.i = shufflevector <3 x float> %.splatinsert134.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %143 = fmul <3 x float> %.splat135.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
-  %144 = fadd <3 x float> %143, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %145 = fmul <3 x float> %144, %91
-  %146 = fmul <3 x float> %144, %98
-  %147 = fmul <3 x float> %144, %105
-  %148 = extractelement <3 x float> %145, i64 2
-  %149 = fmul float %148, %115
-  %150 = extractelement <3 x float> %146, i64 2
-  %151 = fmul float %150, %123
-  %152 = fadd float %149, %151
-  %153 = extractelement <3 x float> %147, i64 2
-  %154 = fmul float %153, %129
-  %155 = fadd float %154, %152
-  %156 = fcmp olt float %141, 0.000000e+00
-  %157 = fcmp oge float %155, 0.000000e+00
-  %158 = fmul float %141, %_hit_t
-  %159 = fcmp olt float %155, %158
-  %160 = or i1 %157, %159
-  %161 = and i1 %156, %160
-  br i1 %161, label %intersectsp_ray_tri.exit, label %"!else_9.i"
+  %.splatinsert135.i = insertelement <3 x float> poison, float %87, i64 0
+  %.splat136.i = shufflevector <3 x float> %.splatinsert135.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %146 = fmul <3 x float> %.splat136.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %147 = fadd <3 x float> %146, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %148 = fmul <3 x float> %147, %94
+  %149 = fmul <3 x float> %147, %101
+  %150 = fmul <3 x float> %147, %108
+  %151 = extractelement <3 x float> %148, i64 2
+  %152 = fmul float %151, %118
+  %153 = extractelement <3 x float> %149, i64 2
+  %154 = fmul float %153, %126
+  %155 = fadd float %152, %154
+  %156 = extractelement <3 x float> %150, i64 2
+  %157 = fmul float %156, %132
+  %158 = fadd float %157, %155
+  %159 = fcmp olt float %144, 0.000000e+00
+  %160 = fcmp oge float %158, 0.000000e+00
+  %161 = fmul float %144, %_hit_t
+  %162 = fcmp olt float %158, %161
+  %163 = or i1 %160, %162
+  %164 = and i1 %159, %163
+  br i1 %164, label %intersectsp_ray_tri.exit, label %"!else_9.i"
 
 "!else_9.i":                                      ; preds = %"!merge_7.i"
-  %162 = fcmp ogt float %141, 0.000000e+00
-  %163 = fcmp ole float %155, 0.000000e+00
-  %164 = fcmp olt float %158, %155
-  %165 = or i1 %163, %164
-  %166 = and i1 %162, %165
-  br i1 %166, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
+  %165 = fcmp ogt float %144, 0.000000e+00
+  %166 = fcmp ole float %158, 0.000000e+00
+  %167 = fcmp olt float %161, %158
+  %168 = or i1 %166, %167
+  %169 = and i1 %165, %168
+  br i1 %169, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
 
 "!merge_10.i":                                    ; preds = %"!else_9.i"
-  %167 = fdiv float 1.000000e+00, %141
-  %168 = fmul float %155, %167
-  %169 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 2, i32 5, i32 poison>
-  %170 = shufflevector <3 x float> %169, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 5>
-  %171 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %170)
-  %172 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %171)
-  %173 = fmul float %172, f0x34400002
-  %174 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 0, i32 3, i32 poison>
-  %175 = shufflevector <3 x float> %174, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 3>
-  %176 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %175)
-  %177 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %176)
-  %178 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 1, i32 4, i32 poison>
-  %179 = shufflevector <3 x float> %178, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 4>
-  %180 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %179)
-  %181 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %180)
-  %182 = fadd float %177, %172
-  %183 = fmul float %182, f0x34A00003
-  %184 = fadd float %181, %172
-  %185 = fmul float %184, f0x34A00003
-  %186 = fmul float %177, f0x34000001
-  %187 = fmul float %186, %181
-  %188 = fmul float %177, %185
-  %189 = fadd float %187, %188
-  %190 = fmul float %181, %183
-  %191 = fadd float %190, %189
-  %192 = fmul float %191, 2.000000e+00
-  %193 = insertelement <3 x float> poison, float %115, i64 0
-  %194 = insertelement <3 x float> %193, float %123, i64 1
-  %195 = insertelement <3 x float> %194, float %129, i64 2
-  %196 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %195)
-  %197 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %196)
-  %198 = fmul float %197, f0x34400002
-  %199 = fmul float %172, %198
-  %200 = fmul float %172, %192
-  %201 = fadd float %199, %200
-  %202 = fmul float %173, %197
-  %203 = fadd float %202, %201
-  %204 = fmul float %203, 3.000000e+00
-  %205 = tail call float @llvm.fabs.f32(float %167)
-  %206 = fmul float %205, %204
-  %207 = fcmp ugt float %168, %206
-  br i1 %207, label %"!merge_14.i", label %intersectsp_ray_tri.exit
+  %170 = fdiv float 1.000000e+00, %144
+  %171 = fmul float %158, %170
+  %172 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 2, i32 5, i32 poison>
+  %173 = shufflevector <3 x float> %172, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 5>
+  %174 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %173)
+  %175 = extractelement <3 x float> %174, i64 0
+  %176 = extractelement <3 x float> %174, i64 1
+  %177 = fcmp olt float %175, %176
+  %178 = select i1 %177, float %176, float %175
+  %179 = extractelement <3 x float> %174, i64 2
+  %180 = fcmp olt float %178, %179
+  %reduce_max150.i = select i1 %180, float %179, float %178
+  %181 = fmul float %reduce_max150.i, f0x34400002
+  %182 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 0, i32 3, i32 poison>
+  %183 = shufflevector <3 x float> %182, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 3>
+  %184 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %183)
+  %185 = extractelement <3 x float> %184, i64 0
+  %186 = extractelement <3 x float> %184, i64 1
+  %187 = fcmp olt float %185, %186
+  %188 = select i1 %187, float %186, float %185
+  %189 = extractelement <3 x float> %184, i64 2
+  %190 = fcmp olt float %188, %189
+  %reduce_max154.i = select i1 %190, float %189, float %188
+  %191 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 1, i32 4, i32 poison>
+  %192 = shufflevector <3 x float> %191, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 4>
+  %193 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %192)
+  %194 = extractelement <3 x float> %193, i64 0
+  %195 = extractelement <3 x float> %193, i64 1
+  %196 = fcmp olt float %194, %195
+  %197 = select i1 %196, float %195, float %194
+  %198 = extractelement <3 x float> %193, i64 2
+  %199 = fcmp olt float %197, %198
+  %reduce_max158.i = select i1 %199, float %198, float %197
+  %200 = fadd float %reduce_max154.i, %reduce_max150.i
+  %201 = fmul float %200, f0x34A00003
+  %202 = fadd float %reduce_max158.i, %reduce_max150.i
+  %203 = fmul float %202, f0x34A00003
+  %204 = fmul float %reduce_max154.i, f0x34000001
+  %205 = fmul float %204, %reduce_max158.i
+  %206 = fmul float %reduce_max154.i, %203
+  %207 = fadd float %205, %206
+  %208 = fmul float %reduce_max158.i, %201
+  %209 = fadd float %208, %207
+  %210 = fmul float %209, 2.000000e+00
+  %211 = insertelement <3 x float> poison, float %118, i64 0
+  %212 = insertelement <3 x float> %211, float %126, i64 1
+  %213 = insertelement <3 x float> %212, float %132, i64 2
+  %214 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %213)
+  %215 = extractelement <3 x float> %214, i64 0
+  %216 = extractelement <3 x float> %214, i64 1
+  %217 = fcmp olt float %215, %216
+  %218 = select i1 %217, float %216, float %215
+  %219 = extractelement <3 x float> %214, i64 2
+  %220 = fcmp olt float %218, %219
+  %reduce_max159.i = select i1 %220, float %219, float %218
+  %221 = fmul float %reduce_max159.i, f0x34400002
+  %222 = fmul float %reduce_max150.i, %221
+  %223 = fmul float %reduce_max150.i, %210
+  %224 = fadd float %222, %223
+  %225 = fmul float %181, %reduce_max159.i
+  %226 = fadd float %225, %224
+  %227 = fmul float %226, 3.000000e+00
+  %228 = tail call float @llvm.fabs.f32(float %170)
+  %229 = fmul float %228, %227
+  %230 = fcmp ugt float %171, %229
+  br i1 %230, label %"!merge_14.i", label %intersectsp_ray_tri.exit
 
 "!merge_14.i":                                    ; preds = %"!merge_10.i"
-  %208 = fmul float %129, %167
-  %209 = fmul float %123, %167
-  %210 = fmul float %115, %167
-  %211 = insertvalue %struct.TriangleIntersection undef, float %210, 0
-  %212 = insertvalue %struct.TriangleIntersection %211, float %209, 1
-  %213 = insertvalue %struct.TriangleIntersection %212, float %208, 2
-  %214 = insertvalue %struct.TriangleIntersection %213, float %168, 3
-  %215 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %214, 0
-  %216 = insertvalue %struct._option2 %215, i1 true, 1
+  %231 = fmul float %132, %170
+  %232 = fmul float %126, %170
+  %233 = fmul float %118, %170
+  %234 = insertvalue %struct.TriangleIntersection undef, float %233, 0
+  %235 = insertvalue %struct.TriangleIntersection %234, float %232, 1
+  %236 = insertvalue %struct.TriangleIntersection %235, float %231, 2
+  %237 = insertvalue %struct.TriangleIntersection %236, float %171, 3
+  %238 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %237, 0
+  %239 = insertvalue %struct._option2 %238, i1 true, 1
   br label %intersectsp_ray_tri.exit
 
 intersectsp_ray_tri.exit:                         ; preds = %__intersection__trace, %"!then_2.i", %"!merge_3.i", %"!merge_7.i", %"!else_9.i", %"!merge_10.i", %"!merge_14.i"
-  %common.ret.op.i = phi %struct._option2 [ %216, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
-  %217 = extractvalue %struct._option2 %common.ret.op.i, 1
+  %common.ret.op.i = phi %struct._option2 [ %239, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
+  %240 = extractvalue %struct._option2 %common.ret.op.i, 1
   %"isect$i2.value" = extractvalue %struct._option2 %common.ret.op.i, 0
   %"isect_$i2.t" = extractvalue %struct.TriangleIntersection %"isect$i2.value", 3
-  %"distmin_Ray_Triangle$r2" = select i1 %217, float %"isect_$i2.t", float +inf
-  %218 = fcmp une float %"distmin_Ray_Triangle$r2", +inf
-  br i1 %218, label %"!then_4", label %"!merge_5"
+  %"distmin_Ray_Triangle$r2" = select i1 %240, float %"isect_$i2.t", float +inf
+  %241 = fcmp une float %"distmin_Ray_Triangle$r2", +inf
+  br i1 %241, label %"!then_4", label %"!merge_5"
 
 "!then_4":                                        ; preds = %intersectsp_ray_tri.exit
-  %219 = bitcast float %"distmin_Ray_Triangle$r2" to i32
-  %220 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %219, i32 0) #0
+  %242 = bitcast float %"distmin_Ray_Triangle$r2" to i32
+  %243 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %242, i32 0) #0
   br label %"!merge_5"
 
 "!merge_5":                                       ; preds = %"!then_4", %intersectsp_ray_tri.exit
@@ -626,255 +651,283 @@ __intersection__trace_any:
   %43 = fsub <3 x float> %_rt_e0.tri.unpack6, %"@6.o"
   %44 = fsub <3 x float> %_rt_e0.tri.unpack8, %"@6.o"
   %45 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@9.d")
-  %46 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %45)
-  %47 = extractelement <3 x float> %45, i64 0
-  %48 = fcmp oeq float %46, %47
-  %49 = extractelement <3 x float> %45, i64 1
-  %50 = fcmp oeq float %46, %49
-  %51 = select i1 %50, i32 1, i32 2
-  %52 = select i1 %48, i32 0, i32 %51
-  %53 = or i1 %48, %50
-  %.v.i = select i1 %53, i32 1, i32 -2
-  %54 = add nsw i32 %52, %.v.i
-  %55 = add nsw i32 %54, 1
-  %56 = icmp ult i32 %55, 3
-  %57 = add nsw i32 %54, -2
-  %58 = select i1 %56, i32 %55, i32 %57
-  %59 = extractelement <3 x float> %"@9.d", i64 0
-  %lane_is.i = icmp eq i32 %54, 1
-  %60 = extractelement <3 x float> %"@9.d", i64 1
-  %lane.i = select i1 %lane_is.i, float %60, float %59
-  %lane_is51.i = icmp eq i32 %54, 2
-  %61 = extractelement <3 x float> %"@9.d", i64 2
-  %lane52.i = select i1 %lane_is51.i, float %61, float %lane.i
-  %lane_is53.i = icmp eq i32 %58, 1
-  %lane54.i = select i1 %lane_is53.i, float %60, float %59
-  %lane_is55.i = icmp eq i32 %58, 2
-  %lane56.i = select i1 %lane_is55.i, float %61, float %lane54.i
-  %not..i = xor i1 %48, true
-  %lane_is57.i = and i1 %50, %not..i
-  %lane58.i = select i1 %lane_is57.i, float %60, float %59
-  %lane_is59.i = icmp eq i32 %52, 2
-  %lane60.i = select i1 %lane_is59.i, float %61, float %lane58.i
-  %62 = extractelement <3 x float> %42, i64 0
-  %63 = extractelement <3 x float> %42, i64 1
-  %lane62.i = select i1 %lane_is.i, float %63, float %62
-  %64 = extractelement <3 x float> %42, i64 2
-  %lane64.i = select i1 %lane_is51.i, float %64, float %lane62.i
-  %lane66.i = select i1 %lane_is53.i, float %63, float %62
-  %lane68.i = select i1 %lane_is55.i, float %64, float %lane66.i
-  %lane70.i = select i1 %lane_is57.i, float %63, float %62
-  %lane72.i = select i1 %lane_is59.i, float %64, float %lane70.i
-  %65 = insertelement <3 x float> poison, float %lane64.i, i64 0
-  %66 = insertelement <3 x float> %65, float %lane68.i, i64 1
-  %67 = insertelement <3 x float> %66, float %lane72.i, i64 2
-  %68 = extractelement <3 x float> %43, i64 0
-  %69 = extractelement <3 x float> %43, i64 1
-  %lane75.i = select i1 %lane_is.i, float %69, float %68
-  %70 = extractelement <3 x float> %43, i64 2
-  %lane77.i = select i1 %lane_is51.i, float %70, float %lane75.i
-  %lane79.i = select i1 %lane_is53.i, float %69, float %68
-  %lane81.i = select i1 %lane_is55.i, float %70, float %lane79.i
-  %lane83.i = select i1 %lane_is57.i, float %69, float %68
-  %lane85.i = select i1 %lane_is59.i, float %70, float %lane83.i
-  %71 = insertelement <3 x float> poison, float %lane77.i, i64 0
-  %72 = insertelement <3 x float> %71, float %lane81.i, i64 1
-  %73 = insertelement <3 x float> %72, float %lane85.i, i64 2
-  %74 = extractelement <3 x float> %44, i64 0
-  %75 = extractelement <3 x float> %44, i64 1
-  %lane88.i = select i1 %lane_is.i, float %75, float %74
-  %76 = extractelement <3 x float> %44, i64 2
-  %lane90.i = select i1 %lane_is51.i, float %76, float %lane88.i
-  %lane92.i = select i1 %lane_is53.i, float %75, float %74
-  %lane94.i = select i1 %lane_is55.i, float %76, float %lane92.i
-  %lane96.i = select i1 %lane_is57.i, float %75, float %74
-  %lane98.i = select i1 %lane_is59.i, float %76, float %lane96.i
-  %77 = insertelement <3 x float> poison, float %lane90.i, i64 0
-  %78 = insertelement <3 x float> %77, float %lane94.i, i64 1
-  %79 = insertelement <3 x float> %78, float %lane98.i, i64 2
-  %80 = fsub float 0.000000e+00, %lane52.i
-  %81 = fdiv float %80, %lane60.i
-  %82 = fsub float 0.000000e+00, %lane56.i
-  %83 = fdiv float %82, %lane60.i
-  %84 = fdiv float 1.000000e+00, %lane60.i
-  %85 = fmul float %lane72.i, %81
-  %.splatinsert.i = insertelement <3 x float> poison, float %85, i64 0
+  %46 = extractelement <3 x float> %45, i64 0
+  %47 = extractelement <3 x float> %45, i64 1
+  %48 = fcmp olt float %46, %47
+  %49 = select i1 %48, float %47, float %46
+  %50 = extractelement <3 x float> %45, i64 2
+  %51 = fcmp olt float %49, %50
+  %reduce_max.i = select i1 %51, float %50, float %49
+  %52 = fcmp oeq float %reduce_max.i, %46
+  %53 = fcmp oeq float %reduce_max.i, %47
+  %54 = select i1 %53, i32 1, i32 2
+  %55 = select i1 %52, i32 0, i32 %54
+  %56 = or i1 %52, %53
+  %.v.i = select i1 %56, i32 1, i32 -2
+  %57 = add nsw i32 %55, %.v.i
+  %58 = add nsw i32 %57, 1
+  %59 = icmp ult i32 %58, 3
+  %60 = add nsw i32 %57, -2
+  %61 = select i1 %59, i32 %58, i32 %60
+  %62 = extractelement <3 x float> %"@9.d", i64 0
+  %lane_is.i = icmp eq i32 %57, 1
+  %63 = extractelement <3 x float> %"@9.d", i64 1
+  %lane.i = select i1 %lane_is.i, float %63, float %62
+  %lane_is52.i = icmp eq i32 %57, 2
+  %64 = extractelement <3 x float> %"@9.d", i64 2
+  %lane53.i = select i1 %lane_is52.i, float %64, float %lane.i
+  %lane_is54.i = icmp eq i32 %61, 1
+  %lane55.i = select i1 %lane_is54.i, float %63, float %62
+  %lane_is56.i = icmp eq i32 %61, 2
+  %lane57.i = select i1 %lane_is56.i, float %64, float %lane55.i
+  %not..i = xor i1 %52, true
+  %lane_is58.i = and i1 %53, %not..i
+  %lane59.i = select i1 %lane_is58.i, float %63, float %62
+  %lane_is60.i = icmp eq i32 %55, 2
+  %lane61.i = select i1 %lane_is60.i, float %64, float %lane59.i
+  %65 = extractelement <3 x float> %42, i64 0
+  %66 = extractelement <3 x float> %42, i64 1
+  %lane63.i = select i1 %lane_is.i, float %66, float %65
+  %67 = extractelement <3 x float> %42, i64 2
+  %lane65.i = select i1 %lane_is52.i, float %67, float %lane63.i
+  %lane67.i = select i1 %lane_is54.i, float %66, float %65
+  %lane69.i = select i1 %lane_is56.i, float %67, float %lane67.i
+  %lane71.i = select i1 %lane_is58.i, float %66, float %65
+  %lane73.i = select i1 %lane_is60.i, float %67, float %lane71.i
+  %68 = insertelement <3 x float> poison, float %lane65.i, i64 0
+  %69 = insertelement <3 x float> %68, float %lane69.i, i64 1
+  %70 = insertelement <3 x float> %69, float %lane73.i, i64 2
+  %71 = extractelement <3 x float> %43, i64 0
+  %72 = extractelement <3 x float> %43, i64 1
+  %lane76.i = select i1 %lane_is.i, float %72, float %71
+  %73 = extractelement <3 x float> %43, i64 2
+  %lane78.i = select i1 %lane_is52.i, float %73, float %lane76.i
+  %lane80.i = select i1 %lane_is54.i, float %72, float %71
+  %lane82.i = select i1 %lane_is56.i, float %73, float %lane80.i
+  %lane84.i = select i1 %lane_is58.i, float %72, float %71
+  %lane86.i = select i1 %lane_is60.i, float %73, float %lane84.i
+  %74 = insertelement <3 x float> poison, float %lane78.i, i64 0
+  %75 = insertelement <3 x float> %74, float %lane82.i, i64 1
+  %76 = insertelement <3 x float> %75, float %lane86.i, i64 2
+  %77 = extractelement <3 x float> %44, i64 0
+  %78 = extractelement <3 x float> %44, i64 1
+  %lane89.i = select i1 %lane_is.i, float %78, float %77
+  %79 = extractelement <3 x float> %44, i64 2
+  %lane91.i = select i1 %lane_is52.i, float %79, float %lane89.i
+  %lane93.i = select i1 %lane_is54.i, float %78, float %77
+  %lane95.i = select i1 %lane_is56.i, float %79, float %lane93.i
+  %lane97.i = select i1 %lane_is58.i, float %78, float %77
+  %lane99.i = select i1 %lane_is60.i, float %79, float %lane97.i
+  %80 = insertelement <3 x float> poison, float %lane91.i, i64 0
+  %81 = insertelement <3 x float> %80, float %lane95.i, i64 1
+  %82 = insertelement <3 x float> %81, float %lane99.i, i64 2
+  %83 = fsub float 0.000000e+00, %lane53.i
+  %84 = fdiv float %83, %lane61.i
+  %85 = fsub float 0.000000e+00, %lane57.i
+  %86 = fdiv float %85, %lane61.i
+  %87 = fdiv float 1.000000e+00, %lane61.i
+  %88 = fmul float %lane73.i, %84
+  %.splatinsert.i = insertelement <3 x float> poison, float %88, i64 0
   %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %86 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %87 = fadd <3 x float> %67, %86
-  %88 = extractelement <3 x float> %87, i64 2
-  %89 = fmul float %83, %88
-  %.splatinsert103.i = insertelement <3 x float> poison, float %89, i64 0
-  %.splat104.i = shufflevector <3 x float> %.splatinsert103.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %90 = fmul <3 x float> %.splat104.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %91 = fadd <3 x float> %87, %90
-  %92 = fmul float %lane85.i, %81
-  %.splatinsert107.i = insertelement <3 x float> poison, float %92, i64 0
-  %.splat108.i = shufflevector <3 x float> %.splatinsert107.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %93 = fmul <3 x float> %.splat108.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %94 = fadd <3 x float> %73, %93
-  %95 = extractelement <3 x float> %94, i64 2
-  %96 = fmul float %83, %95
-  %.splatinsert111.i = insertelement <3 x float> poison, float %96, i64 0
-  %.splat112.i = shufflevector <3 x float> %.splatinsert111.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %97 = fmul <3 x float> %.splat112.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %98 = fadd <3 x float> %94, %97
-  %99 = fmul float %lane98.i, %81
-  %.splatinsert115.i = insertelement <3 x float> poison, float %99, i64 0
-  %.splat116.i = shufflevector <3 x float> %.splatinsert115.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %100 = fmul <3 x float> %.splat116.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
-  %101 = fadd <3 x float> %79, %100
-  %102 = extractelement <3 x float> %101, i64 2
-  %103 = fmul float %83, %102
-  %.splatinsert119.i = insertelement <3 x float> poison, float %103, i64 0
-  %.splat120.i = shufflevector <3 x float> %.splatinsert119.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %104 = fmul <3 x float> %.splat120.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %105 = fadd <3 x float> %101, %104
-  %106 = extractelement <3 x float> %98, i64 0
-  %107 = extractelement <3 x float> %105, i64 1
-  %108 = extractelement <3 x float> %98, i64 1
-  %109 = extractelement <3 x float> %105, i64 0
-  %110 = fmul float %108, %109
-  %111 = fsub float 0.000000e+00, %110
-  %112 = tail call float @llvm.fma.f32(float %106, float %107, float %111)
-  %113 = fsub float 0.000000e+00, %108
-  %114 = tail call float @llvm.fma.f32(float %113, float %109, float %110)
-  %115 = fadd float %114, %112
-  %116 = extractelement <3 x float> %91, i64 1
-  %117 = extractelement <3 x float> %91, i64 0
-  %118 = fmul float %107, %117
-  %119 = fsub float 0.000000e+00, %118
-  %120 = tail call float @llvm.fma.f32(float %109, float %116, float %119)
-  %121 = fsub float 0.000000e+00, %107
-  %122 = tail call float @llvm.fma.f32(float %121, float %117, float %118)
-  %123 = fadd float %122, %120
-  %124 = fmul float %116, %106
-  %125 = fsub float 0.000000e+00, %124
-  %126 = tail call float @llvm.fma.f32(float %117, float %108, float %125)
-  %127 = fsub float 0.000000e+00, %116
-  %128 = tail call float @llvm.fma.f32(float %127, float %106, float %124)
-  %129 = fadd float %128, %126
-  %130 = fcmp olt float %115, 0.000000e+00
-  %131 = fcmp olt float %123, 0.000000e+00
-  %132 = or i1 %130, %131
-  %133 = fcmp olt float %129, 0.000000e+00
-  %134 = or i1 %133, %132
-  br i1 %134, label %"!then_2.i", label %"!merge_3.i"
+  %89 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %90 = fadd <3 x float> %70, %89
+  %91 = extractelement <3 x float> %90, i64 2
+  %92 = fmul float %86, %91
+  %.splatinsert104.i = insertelement <3 x float> poison, float %92, i64 0
+  %.splat105.i = shufflevector <3 x float> %.splatinsert104.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %93 = fmul <3 x float> %.splat105.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %94 = fadd <3 x float> %90, %93
+  %95 = fmul float %lane86.i, %84
+  %.splatinsert108.i = insertelement <3 x float> poison, float %95, i64 0
+  %.splat109.i = shufflevector <3 x float> %.splatinsert108.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %96 = fmul <3 x float> %.splat109.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %97 = fadd <3 x float> %76, %96
+  %98 = extractelement <3 x float> %97, i64 2
+  %99 = fmul float %86, %98
+  %.splatinsert112.i = insertelement <3 x float> poison, float %99, i64 0
+  %.splat113.i = shufflevector <3 x float> %.splatinsert112.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %100 = fmul <3 x float> %.splat113.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %101 = fadd <3 x float> %97, %100
+  %102 = fmul float %lane99.i, %84
+  %.splatinsert116.i = insertelement <3 x float> poison, float %102, i64 0
+  %.splat117.i = shufflevector <3 x float> %.splatinsert116.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %103 = fmul <3 x float> %.splat117.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
+  %104 = fadd <3 x float> %82, %103
+  %105 = extractelement <3 x float> %104, i64 2
+  %106 = fmul float %86, %105
+  %.splatinsert120.i = insertelement <3 x float> poison, float %106, i64 0
+  %.splat121.i = shufflevector <3 x float> %.splatinsert120.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %107 = fmul <3 x float> %.splat121.i, <float 0.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %108 = fadd <3 x float> %104, %107
+  %109 = extractelement <3 x float> %101, i64 0
+  %110 = extractelement <3 x float> %108, i64 1
+  %111 = extractelement <3 x float> %101, i64 1
+  %112 = extractelement <3 x float> %108, i64 0
+  %113 = fmul float %111, %112
+  %114 = fsub float 0.000000e+00, %113
+  %115 = tail call float @llvm.fma.f32(float %109, float %110, float %114)
+  %116 = fsub float 0.000000e+00, %111
+  %117 = tail call float @llvm.fma.f32(float %116, float %112, float %113)
+  %118 = fadd float %117, %115
+  %119 = extractelement <3 x float> %94, i64 1
+  %120 = extractelement <3 x float> %94, i64 0
+  %121 = fmul float %110, %120
+  %122 = fsub float 0.000000e+00, %121
+  %123 = tail call float @llvm.fma.f32(float %112, float %119, float %122)
+  %124 = fsub float 0.000000e+00, %110
+  %125 = tail call float @llvm.fma.f32(float %124, float %120, float %121)
+  %126 = fadd float %125, %123
+  %127 = fmul float %119, %109
+  %128 = fsub float 0.000000e+00, %127
+  %129 = tail call float @llvm.fma.f32(float %120, float %111, float %128)
+  %130 = fsub float 0.000000e+00, %119
+  %131 = tail call float @llvm.fma.f32(float %130, float %109, float %127)
+  %132 = fadd float %131, %129
+  %133 = fcmp olt float %118, 0.000000e+00
+  %134 = fcmp olt float %126, 0.000000e+00
+  %135 = or i1 %133, %134
+  %136 = fcmp olt float %132, 0.000000e+00
+  %137 = or i1 %136, %135
+  br i1 %137, label %"!then_2.i", label %"!merge_3.i"
 
 "!then_2.i":                                      ; preds = %"!merge_1.i"
-  %135 = fcmp ogt float %115, 0.000000e+00
-  %136 = fcmp ogt float %123, 0.000000e+00
-  %137 = or i1 %135, %136
-  %138 = fcmp ogt float %129, 0.000000e+00
-  %139 = or i1 %138, %137
-  br i1 %139, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
+  %138 = fcmp ogt float %118, 0.000000e+00
+  %139 = fcmp ogt float %126, 0.000000e+00
+  %140 = or i1 %138, %139
+  %141 = fcmp ogt float %132, 0.000000e+00
+  %142 = or i1 %141, %140
+  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_3.i"
 
 "!merge_3.i":                                     ; preds = %"!then_2.i", %"!merge_1.i"
-  %140 = fadd float %115, %123
-  %141 = fadd float %129, %140
-  %142 = fcmp oeq float %141, 0.000000e+00
-  br i1 %142, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
+  %143 = fadd float %118, %126
+  %144 = fadd float %132, %143
+  %145 = fcmp oeq float %144, 0.000000e+00
+  br i1 %145, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
 
 "!merge_7.i":                                     ; preds = %"!merge_3.i"
-  %.splatinsert134.i = insertelement <3 x float> poison, float %84, i64 0
-  %.splat135.i = shufflevector <3 x float> %.splatinsert134.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %143 = fmul <3 x float> %.splat135.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
-  %144 = fadd <3 x float> %143, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %145 = fmul <3 x float> %144, %91
-  %146 = fmul <3 x float> %144, %98
-  %147 = fmul <3 x float> %144, %105
-  %148 = extractelement <3 x float> %145, i64 2
-  %149 = fmul float %148, %115
-  %150 = extractelement <3 x float> %146, i64 2
-  %151 = fmul float %150, %123
-  %152 = fadd float %149, %151
-  %153 = extractelement <3 x float> %147, i64 2
-  %154 = fmul float %153, %129
-  %155 = fadd float %154, %152
-  %156 = fcmp olt float %141, 0.000000e+00
-  %157 = fcmp oge float %155, 0.000000e+00
-  %158 = fmul float %141, %_hit_t
-  %159 = fcmp olt float %155, %158
-  %160 = or i1 %157, %159
-  %161 = and i1 %156, %160
-  br i1 %161, label %intersectsp_ray_tri.exit, label %"!else_9.i"
+  %.splatinsert135.i = insertelement <3 x float> poison, float %87, i64 0
+  %.splat136.i = shufflevector <3 x float> %.splatinsert135.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %146 = fmul <3 x float> %.splat136.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %147 = fadd <3 x float> %146, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
+  %148 = fmul <3 x float> %147, %94
+  %149 = fmul <3 x float> %147, %101
+  %150 = fmul <3 x float> %147, %108
+  %151 = extractelement <3 x float> %148, i64 2
+  %152 = fmul float %151, %118
+  %153 = extractelement <3 x float> %149, i64 2
+  %154 = fmul float %153, %126
+  %155 = fadd float %152, %154
+  %156 = extractelement <3 x float> %150, i64 2
+  %157 = fmul float %156, %132
+  %158 = fadd float %157, %155
+  %159 = fcmp olt float %144, 0.000000e+00
+  %160 = fcmp oge float %158, 0.000000e+00
+  %161 = fmul float %144, %_hit_t
+  %162 = fcmp olt float %158, %161
+  %163 = or i1 %160, %162
+  %164 = and i1 %159, %163
+  br i1 %164, label %intersectsp_ray_tri.exit, label %"!else_9.i"
 
 "!else_9.i":                                      ; preds = %"!merge_7.i"
-  %162 = fcmp ogt float %141, 0.000000e+00
-  %163 = fcmp ole float %155, 0.000000e+00
-  %164 = fcmp olt float %158, %155
-  %165 = or i1 %163, %164
-  %166 = and i1 %162, %165
-  br i1 %166, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
+  %165 = fcmp ogt float %144, 0.000000e+00
+  %166 = fcmp ole float %158, 0.000000e+00
+  %167 = fcmp olt float %161, %158
+  %168 = or i1 %166, %167
+  %169 = and i1 %165, %168
+  br i1 %169, label %intersectsp_ray_tri.exit, label %"!merge_10.i"
 
 "!merge_10.i":                                    ; preds = %"!else_9.i"
-  %167 = fdiv float 1.000000e+00, %141
-  %168 = fmul float %155, %167
-  %169 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 2, i32 5, i32 poison>
-  %170 = shufflevector <3 x float> %169, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 5>
-  %171 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %170)
-  %172 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %171)
-  %173 = fmul float %172, f0x34400002
-  %174 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 0, i32 3, i32 poison>
-  %175 = shufflevector <3 x float> %174, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 3>
-  %176 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %175)
-  %177 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %176)
-  %178 = shufflevector <3 x float> %145, <3 x float> %146, <3 x i32> <i32 1, i32 4, i32 poison>
-  %179 = shufflevector <3 x float> %178, <3 x float> %147, <3 x i32> <i32 0, i32 1, i32 4>
-  %180 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %179)
-  %181 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %180)
-  %182 = fadd float %177, %172
-  %183 = fmul float %182, f0x34A00003
-  %184 = fadd float %181, %172
-  %185 = fmul float %184, f0x34A00003
-  %186 = fmul float %177, f0x34000001
-  %187 = fmul float %186, %181
-  %188 = fmul float %177, %185
-  %189 = fadd float %187, %188
-  %190 = fmul float %181, %183
-  %191 = fadd float %190, %189
-  %192 = fmul float %191, 2.000000e+00
-  %193 = insertelement <3 x float> poison, float %115, i64 0
-  %194 = insertelement <3 x float> %193, float %123, i64 1
-  %195 = insertelement <3 x float> %194, float %129, i64 2
-  %196 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %195)
-  %197 = tail call float @llvm.vector.reduce.fmax.v3f32(<3 x float> %196)
-  %198 = fmul float %197, f0x34400002
-  %199 = fmul float %172, %198
-  %200 = fmul float %172, %192
-  %201 = fadd float %199, %200
-  %202 = fmul float %173, %197
-  %203 = fadd float %202, %201
-  %204 = fmul float %203, 3.000000e+00
-  %205 = tail call float @llvm.fabs.f32(float %167)
-  %206 = fmul float %205, %204
-  %207 = fcmp ugt float %168, %206
-  br i1 %207, label %"!merge_14.i", label %intersectsp_ray_tri.exit
+  %170 = fdiv float 1.000000e+00, %144
+  %171 = fmul float %158, %170
+  %172 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 2, i32 5, i32 poison>
+  %173 = shufflevector <3 x float> %172, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 5>
+  %174 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %173)
+  %175 = extractelement <3 x float> %174, i64 0
+  %176 = extractelement <3 x float> %174, i64 1
+  %177 = fcmp olt float %175, %176
+  %178 = select i1 %177, float %176, float %175
+  %179 = extractelement <3 x float> %174, i64 2
+  %180 = fcmp olt float %178, %179
+  %reduce_max150.i = select i1 %180, float %179, float %178
+  %181 = fmul float %reduce_max150.i, f0x34400002
+  %182 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 0, i32 3, i32 poison>
+  %183 = shufflevector <3 x float> %182, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 3>
+  %184 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %183)
+  %185 = extractelement <3 x float> %184, i64 0
+  %186 = extractelement <3 x float> %184, i64 1
+  %187 = fcmp olt float %185, %186
+  %188 = select i1 %187, float %186, float %185
+  %189 = extractelement <3 x float> %184, i64 2
+  %190 = fcmp olt float %188, %189
+  %reduce_max154.i = select i1 %190, float %189, float %188
+  %191 = shufflevector <3 x float> %148, <3 x float> %149, <3 x i32> <i32 1, i32 4, i32 poison>
+  %192 = shufflevector <3 x float> %191, <3 x float> %150, <3 x i32> <i32 0, i32 1, i32 4>
+  %193 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %192)
+  %194 = extractelement <3 x float> %193, i64 0
+  %195 = extractelement <3 x float> %193, i64 1
+  %196 = fcmp olt float %194, %195
+  %197 = select i1 %196, float %195, float %194
+  %198 = extractelement <3 x float> %193, i64 2
+  %199 = fcmp olt float %197, %198
+  %reduce_max158.i = select i1 %199, float %198, float %197
+  %200 = fadd float %reduce_max154.i, %reduce_max150.i
+  %201 = fmul float %200, f0x34A00003
+  %202 = fadd float %reduce_max158.i, %reduce_max150.i
+  %203 = fmul float %202, f0x34A00003
+  %204 = fmul float %reduce_max154.i, f0x34000001
+  %205 = fmul float %204, %reduce_max158.i
+  %206 = fmul float %reduce_max154.i, %203
+  %207 = fadd float %205, %206
+  %208 = fmul float %reduce_max158.i, %201
+  %209 = fadd float %208, %207
+  %210 = fmul float %209, 2.000000e+00
+  %211 = insertelement <3 x float> poison, float %118, i64 0
+  %212 = insertelement <3 x float> %211, float %126, i64 1
+  %213 = insertelement <3 x float> %212, float %132, i64 2
+  %214 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %213)
+  %215 = extractelement <3 x float> %214, i64 0
+  %216 = extractelement <3 x float> %214, i64 1
+  %217 = fcmp olt float %215, %216
+  %218 = select i1 %217, float %216, float %215
+  %219 = extractelement <3 x float> %214, i64 2
+  %220 = fcmp olt float %218, %219
+  %reduce_max159.i = select i1 %220, float %219, float %218
+  %221 = fmul float %reduce_max159.i, f0x34400002
+  %222 = fmul float %reduce_max150.i, %221
+  %223 = fmul float %reduce_max150.i, %210
+  %224 = fadd float %222, %223
+  %225 = fmul float %181, %reduce_max159.i
+  %226 = fadd float %225, %224
+  %227 = fmul float %226, 3.000000e+00
+  %228 = tail call float @llvm.fabs.f32(float %170)
+  %229 = fmul float %228, %227
+  %230 = fcmp ugt float %171, %229
+  br i1 %230, label %"!merge_14.i", label %intersectsp_ray_tri.exit
 
 "!merge_14.i":                                    ; preds = %"!merge_10.i"
-  %208 = fmul float %129, %167
-  %209 = fmul float %123, %167
-  %210 = fmul float %115, %167
-  %211 = insertvalue %struct.TriangleIntersection undef, float %210, 0
-  %212 = insertvalue %struct.TriangleIntersection %211, float %209, 1
-  %213 = insertvalue %struct.TriangleIntersection %212, float %208, 2
-  %214 = insertvalue %struct.TriangleIntersection %213, float %168, 3
-  %215 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %214, 0
-  %216 = insertvalue %struct._option2 %215, i1 true, 1
+  %231 = fmul float %132, %170
+  %232 = fmul float %126, %170
+  %233 = fmul float %118, %170
+  %234 = insertvalue %struct.TriangleIntersection undef, float %233, 0
+  %235 = insertvalue %struct.TriangleIntersection %234, float %232, 1
+  %236 = insertvalue %struct.TriangleIntersection %235, float %231, 2
+  %237 = insertvalue %struct.TriangleIntersection %236, float %171, 3
+  %238 = insertvalue %struct._option2 undef, %struct.TriangleIntersection %237, 0
+  %239 = insertvalue %struct._option2 %238, i1 true, 1
   br label %intersectsp_ray_tri.exit
 
 intersectsp_ray_tri.exit:                         ; preds = %__intersection__trace_any, %"!then_2.i", %"!merge_3.i", %"!merge_7.i", %"!else_9.i", %"!merge_10.i", %"!merge_14.i"
-  %common.ret.op.i = phi %struct._option2 [ %216, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace_any ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
-  %217 = extractvalue %struct._option2 %common.ret.op.i, 1
+  %common.ret.op.i = phi %struct._option2 [ %239, %"!merge_14.i" ], [ zeroinitializer, %__intersection__trace_any ], [ zeroinitializer, %"!then_2.i" ], [ zeroinitializer, %"!merge_3.i" ], [ zeroinitializer, %"!merge_7.i" ], [ zeroinitializer, %"!else_9.i" ], [ zeroinitializer, %"!merge_10.i" ]
+  %240 = extractvalue %struct._option2 %common.ret.op.i, 1
   %"isect$i3.value" = extractvalue %struct._option2 %common.ret.op.i, 0
   %"isect_$i3.t" = extractvalue %struct.TriangleIntersection %"isect$i3.value", 3
-  %"distmin_Ray_Triangle$r3" = select i1 %217, float %"isect_$i3.t", float +inf
-  %218 = fcmp une float %"distmin_Ray_Triangle$r3", +inf
-  br i1 %218, label %"!then_4", label %"!merge_5"
+  %"distmin_Ray_Triangle$r3" = select i1 %240, float %"isect_$i3.t", float +inf
+  %241 = fcmp une float %"distmin_Ray_Triangle$r3", +inf
+  br i1 %241, label %"!then_4", label %"!merge_5"
 
 "!then_4":                                        ; preds = %intersectsp_ray_tri.exit
-  %219 = bitcast float %"distmin_Ray_Triangle$r3" to i32
-  %220 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %219, i32 0) #0
+  %242 = bitcast float %"distmin_Ray_Triangle$r3" to i32
+  %243 = tail call i32 asm sideeffect "{ .reg .f32 %ft; mov.b32 %ft, $1; call ($0), _optix_report_intersection_0, (%ft, $2); }", "=r,r,r"(i32 %242, i32 0) #0
   br label %"!merge_5"
 
 "!merge_5":                                       ; preds = %"!then_4", %intersectsp_ray_tri.exit
@@ -1117,7 +1170,7 @@ $L__BB1_3:
 	// .globl	__intersection__trace
 .visible .entry __intersection__trace()
 {
-	.reg .pred 	%p<28>;
+	.reg .pred 	%p<38>;
 	.reg .b32 	%r<224>;
 	.reg .b64 	%rd<18>;
 
@@ -1191,7 +1244,7 @@ $L__BB1_3:
 	add.rn.f32 	%r79, %r78, %r76;
 	add.rn.f32 	%r80, %r79, %r75;
 	setp.eq.f32 	%p1, %r80, 0f00000000;
-	mov.pred 	%p27, 0;
+	mov.pred 	%p37, 0;
 	@%p1 bra 	$L__BB3_8;
 	cvt.u64.u32 	%rd2, %r43;
 	cvt.u64.u32 	%rd3, %r45;
@@ -1217,50 +1270,52 @@ $L__BB1_3:
 	abs.f32 	%r90, %r15;
 	abs.f32 	%r91, %r13;
 	abs.f32 	%r92, %r14;
-	max.f32 	%r93, %r91, %r92;
-	max.f32 	%r94, %r93, %r90;
-	setp.neu.f32 	%p2, %r94, %r91;
-	setp.eq.f32 	%p3, %r94, %r91;
-	setp.eq.f32 	%p4, %r94, %r92;
-	selp.b32 	%r95, 1, 2, %p4;
-	selp.b32 	%r96, 0, %r95, %p3;
-	selp.b32 	%r97, 1, -2, %p4;
-	selp.b32 	%r98, 1, %r97, %p3;
+	setp.lt.f32 	%p2, %r91, %r92;
+	selp.f32 	%r93, %r92, %r91, %p2;
+	setp.lt.f32 	%p3, %r93, %r90;
+	selp.f32 	%r94, %r90, %r93, %p3;
+	setp.neu.f32 	%p4, %r94, %r91;
+	setp.eq.f32 	%p5, %r94, %r91;
+	setp.eq.f32 	%p6, %r94, %r92;
+	selp.b32 	%r95, 1, 2, %p6;
+	selp.b32 	%r96, 0, %r95, %p5;
+	selp.b32 	%r97, 1, -2, %p6;
+	selp.b32 	%r98, 1, %r97, %p5;
 	add.s32 	%r99, %r96, %r98;
 	add.s32 	%r100, %r99, 1;
-	setp.lt.u32 	%p5, %r100, 3;
+	setp.lt.u32 	%p7, %r100, 3;
 	add.s32 	%r101, %r99, -2;
-	selp.b32 	%r102, %r100, %r101, %p5;
-	setp.eq.b32 	%p6, %r99, 1;
-	selp.f32 	%r103, %r14, %r13, %p6;
-	setp.eq.b32 	%p7, %r99, 2;
-	selp.f32 	%r104, %r15, %r103, %p7;
-	setp.eq.b32 	%p8, %r102, 1;
-	selp.f32 	%r105, %r14, %r13, %p8;
-	setp.eq.b32 	%p9, %r102, 2;
-	selp.f32 	%r106, %r15, %r105, %p9;
-	and.pred 	%p10, %p4, %p2;
-	selp.f32 	%r107, %r14, %r13, %p10;
-	setp.eq.b32 	%p11, %r96, 2;
-	selp.f32 	%r108, %r15, %r107, %p11;
-	selp.f32 	%r109, %r83, %r82, %p6;
-	selp.f32 	%r110, %r81, %r109, %p7;
-	selp.f32 	%r111, %r83, %r82, %p8;
-	selp.f32 	%r112, %r81, %r111, %p9;
-	selp.f32 	%r113, %r83, %r82, %p10;
-	selp.f32 	%r114, %r81, %r113, %p11;
-	selp.f32 	%r115, %r86, %r85, %p6;
-	selp.f32 	%r116, %r84, %r115, %p7;
-	selp.f32 	%r117, %r86, %r85, %p8;
-	selp.f32 	%r118, %r84, %r117, %p9;
-	selp.f32 	%r119, %r86, %r85, %p10;
-	selp.f32 	%r120, %r84, %r119, %p11;
-	selp.f32 	%r121, %r89, %r88, %p6;
-	selp.f32 	%r122, %r87, %r121, %p7;
-	selp.f32 	%r123, %r89, %r88, %p8;
-	selp.f32 	%r124, %r87, %r123, %p9;
-	selp.f32 	%r125, %r89, %r88, %p10;
-	selp.f32 	%r126, %r87, %r125, %p11;
+	selp.b32 	%r102, %r100, %r101, %p7;
+	setp.eq.b32 	%p8, %r99, 1;
+	selp.f32 	%r103, %r14, %r13, %p8;
+	setp.eq.b32 	%p9, %r99, 2;
+	selp.f32 	%r104, %r15, %r103, %p9;
+	setp.eq.b32 	%p10, %r102, 1;
+	selp.f32 	%r105, %r14, %r13, %p10;
+	setp.eq.b32 	%p11, %r102, 2;
+	selp.f32 	%r106, %r15, %r105, %p11;
+	and.pred 	%p12, %p6, %p4;
+	selp.f32 	%r107, %r14, %r13, %p12;
+	setp.eq.b32 	%p13, %r96, 2;
+	selp.f32 	%r108, %r15, %r107, %p13;
+	selp.f32 	%r109, %r83, %r82, %p8;
+	selp.f32 	%r110, %r81, %r109, %p9;
+	selp.f32 	%r111, %r83, %r82, %p10;
+	selp.f32 	%r112, %r81, %r111, %p11;
+	selp.f32 	%r113, %r83, %r82, %p12;
+	selp.f32 	%r114, %r81, %r113, %p13;
+	selp.f32 	%r115, %r86, %r85, %p8;
+	selp.f32 	%r116, %r84, %r115, %p9;
+	selp.f32 	%r117, %r86, %r85, %p10;
+	selp.f32 	%r118, %r84, %r117, %p11;
+	selp.f32 	%r119, %r86, %r85, %p12;
+	selp.f32 	%r120, %r84, %r119, %p13;
+	selp.f32 	%r121, %r89, %r88, %p8;
+	selp.f32 	%r122, %r87, %r121, %p9;
+	selp.f32 	%r123, %r89, %r88, %p10;
+	selp.f32 	%r124, %r87, %r123, %p11;
+	selp.f32 	%r125, %r89, %r88, %p12;
+	selp.f32 	%r126, %r87, %r125, %p13;
 	sub.rn.f32 	%r127, %r223, %r104;
 	div.rn.f32 	%r128, %r127, %r108;
 	sub.rn.f32 	%r129, %r223, %r106;
@@ -1312,19 +1367,19 @@ $L__BB1_3:
 	add.rn.f32 	%r28, %r166, %r164;
 	min.f32 	%r167, %r26, %r27;
 	min.f32 	%r168, %r28, %r167;
-	setp.geu.f32 	%p12, %r168, 0f00000000;
-	@%p12 bra 	$L__BB3_3;
+	setp.geu.f32 	%p14, %r168, 0f00000000;
+	@%p14 bra 	$L__BB3_3;
 	max.f32 	%r169, %r26, %r27;
 	max.f32 	%r170, %r28, %r169;
-	setp.gt.f32 	%p13, %r170, 0f00000000;
+	setp.gt.f32 	%p15, %r170, 0f00000000;
 	mov.b32 	%r223, 0f00000000;
-	@%p13 bra 	$L__BB3_8;
+	@%p15 bra 	$L__BB3_8;
 $L__BB3_3:
 	add.rn.f32 	%r171, %r26, %r27;
 	add.rn.f32 	%r29, %r28, %r171;
-	setp.eq.f32 	%p14, %r29, 0f00000000;
+	setp.eq.f32 	%p16, %r29, 0f00000000;
 	mov.b32 	%r223, 0f00000000;
-	@%p14 bra 	$L__BB3_8;
+	@%p16 bra 	$L__BB3_8;
 	rcp.rn.f32 	%r16, %r108;
 	add.rn.f32 	%r19, %r135, %r137;
 	add.rn.f32 	%r22, %r142, %r144;
@@ -1338,21 +1393,21 @@ $L__BB3_3:
 	add.rn.f32 	%r177, %r175, %r176;
 	mul.rn.f32 	%r178, %r38, %r28;
 	add.rn.f32 	%r39, %r178, %r177;
-	setp.lt.f32 	%p15, %r29, 0f00000000;
-	setp.ge.f32 	%p16, %r39, 0f00000000;
+	setp.lt.f32 	%p17, %r29, 0f00000000;
+	setp.ge.f32 	%p18, %r39, 0f00000000;
 	mul.rn.f32 	%r40, %r29, %r48;
-	setp.lt.f32 	%p17, %r39, %r40;
-	or.pred 	%p18, %p16, %p17;
-	and.pred 	%p19, %p15, %p18;
+	setp.lt.f32 	%p19, %r39, %r40;
+	or.pred 	%p20, %p18, %p19;
+	and.pred 	%p21, %p17, %p20;
 	mov.b32 	%r223, 0f00000000;
-	@%p19 bra 	$L__BB3_8;
-	setp.gt.f32 	%p20, %r29, 0f00000000;
-	setp.le.f32 	%p21, %r39, 0f00000000;
-	setp.lt.f32 	%p22, %r40, %r39;
-	or.pred 	%p23, %p21, %p22;
-	and.pred 	%p24, %p20, %p23;
+	@%p21 bra 	$L__BB3_8;
+	setp.gt.f32 	%p22, %r29, 0f00000000;
+	setp.le.f32 	%p23, %r39, 0f00000000;
+	setp.lt.f32 	%p24, %r40, %r39;
+	or.pred 	%p25, %p23, %p24;
+	and.pred 	%p26, %p22, %p25;
 	mov.b32 	%r223, 0f00000000;
-	@%p24 bra 	$L__BB3_8;
+	@%p26 bra 	$L__BB3_8;
 	mul.rn.f32 	%r172, %r16, 0f00000000;
 	add.rn.f32 	%r174, %r172, 0f3F800000;
 	mul.rn.f32 	%r31, %r174, %r18;
@@ -1366,19 +1421,25 @@ $L__BB3_3:
 	abs.f32 	%r179, %r38;
 	abs.f32 	%r180, %r35;
 	abs.f32 	%r181, %r32;
-	max.f32 	%r182, %r181, %r180;
-	max.f32 	%r183, %r182, %r179;
+	setp.lt.f32 	%p27, %r181, %r180;
+	selp.f32 	%r182, %r180, %r181, %p27;
+	setp.lt.f32 	%p28, %r182, %r179;
+	selp.f32 	%r183, %r179, %r182, %p28;
 	mul.rn.f32 	%r184, %r183, 0f34400002;
 	abs.f32 	%r185, %r36;
 	abs.f32 	%r186, %r33;
 	abs.f32 	%r187, %r30;
-	max.f32 	%r188, %r187, %r186;
-	max.f32 	%r189, %r188, %r185;
+	setp.lt.f32 	%p29, %r187, %r186;
+	selp.f32 	%r188, %r186, %r187, %p29;
+	setp.lt.f32 	%p30, %r188, %r185;
+	selp.f32 	%r189, %r185, %r188, %p30;
 	abs.f32 	%r190, %r37;
 	abs.f32 	%r191, %r34;
 	abs.f32 	%r192, %r31;
-	max.f32 	%r193, %r192, %r191;
-	max.f32 	%r194, %r193, %r190;
+	setp.lt.f32 	%p31, %r192, %r191;
+	selp.f32 	%r193, %r191, %r192, %p31;
+	setp.lt.f32 	%p32, %r193, %r190;
+	selp.f32 	%r194, %r190, %r193, %p32;
 	add.rn.f32 	%r195, %r189, %r183;
 	mul.rn.f32 	%r196, %r195, 0f34A00003;
 	add.rn.f32 	%r197, %r194, %r183;
@@ -1393,8 +1454,10 @@ $L__BB3_3:
 	abs.f32 	%r206, %r28;
 	abs.f32 	%r207, %r27;
 	abs.f32 	%r208, %r26;
-	max.f32 	%r209, %r208, %r207;
-	max.f32 	%r210, %r209, %r206;
+	setp.lt.f32 	%p33, %r208, %r207;
+	selp.f32 	%r209, %r207, %r208, %p33;
+	setp.lt.f32 	%p34, %r209, %r206;
+	selp.f32 	%r210, %r206, %r209, %p34;
 	mul.rn.f32 	%r211, %r210, 0f34400002;
 	mul.rn.f32 	%r212, %r183, %r211;
 	mul.rn.f32 	%r213, %r183, %r205;
@@ -1404,15 +1467,15 @@ $L__BB3_3:
 	mul.rn.f32 	%r217, %r216, 0f40400000;
 	abs.f32 	%r218, %r41;
 	mul.rn.f32 	%r219, %r218, %r217;
-	setp.le.f32 	%p25, %r42, %r219;
+	setp.le.f32 	%p35, %r42, %r219;
 	mov.b32 	%r223, 0f00000000;
-	@%p25 bra 	$L__BB3_8;
-	mov.pred 	%p27, -1;
+	@%p35 bra 	$L__BB3_8;
+	mov.pred 	%p37, -1;
 	mov.b32 	%r223, %r42;
 $L__BB3_8:
-	selp.f32 	%r221, %r223, 0f7F800000, %p27;
-	setp.eq.f32 	%p26, %r221, 0f7F800000;
-	@%p26 bra 	$L__BB3_10;
+	selp.f32 	%r221, %r223, 0f7F800000, %p37;
+	setp.eq.f32 	%p36, %r221, 0f7F800000;
+	@%p36 bra 	$L__BB3_10;
 	mov.b32 	%r222, 0;
 	// begin inline asm
 	{ .reg .f32 %ft; mov.b32 %ft, %r221; call (%r220), _optix_report_intersection_0, (%ft, %r222); }
@@ -1487,7 +1550,7 @@ $L__BB5_3:
 	// .globl	__intersection__trace_any
 .visible .entry __intersection__trace_any()
 {
-	.reg .pred 	%p<28>;
+	.reg .pred 	%p<38>;
 	.reg .b32 	%r<224>;
 	.reg .b64 	%rd<18>;
 
@@ -1561,7 +1624,7 @@ $L__BB5_3:
 	add.rn.f32 	%r79, %r78, %r76;
 	add.rn.f32 	%r80, %r79, %r75;
 	setp.eq.f32 	%p1, %r80, 0f00000000;
-	mov.pred 	%p27, 0;
+	mov.pred 	%p37, 0;
 	@%p1 bra 	$L__BB6_8;
 	cvt.u64.u32 	%rd2, %r43;
 	cvt.u64.u32 	%rd3, %r45;
@@ -1587,50 +1650,52 @@ $L__BB5_3:
 	abs.f32 	%r90, %r15;
 	abs.f32 	%r91, %r13;
 	abs.f32 	%r92, %r14;
-	max.f32 	%r93, %r91, %r92;
-	max.f32 	%r94, %r93, %r90;
-	setp.neu.f32 	%p2, %r94, %r91;
-	setp.eq.f32 	%p3, %r94, %r91;
-	setp.eq.f32 	%p4, %r94, %r92;
-	selp.b32 	%r95, 1, 2, %p4;
-	selp.b32 	%r96, 0, %r95, %p3;
-	selp.b32 	%r97, 1, -2, %p4;
-	selp.b32 	%r98, 1, %r97, %p3;
+	setp.lt.f32 	%p2, %r91, %r92;
+	selp.f32 	%r93, %r92, %r91, %p2;
+	setp.lt.f32 	%p3, %r93, %r90;
+	selp.f32 	%r94, %r90, %r93, %p3;
+	setp.neu.f32 	%p4, %r94, %r91;
+	setp.eq.f32 	%p5, %r94, %r91;
+	setp.eq.f32 	%p6, %r94, %r92;
+	selp.b32 	%r95, 1, 2, %p6;
+	selp.b32 	%r96, 0, %r95, %p5;
+	selp.b32 	%r97, 1, -2, %p6;
+	selp.b32 	%r98, 1, %r97, %p5;
 	add.s32 	%r99, %r96, %r98;
 	add.s32 	%r100, %r99, 1;
-	setp.lt.u32 	%p5, %r100, 3;
+	setp.lt.u32 	%p7, %r100, 3;
 	add.s32 	%r101, %r99, -2;
-	selp.b32 	%r102, %r100, %r101, %p5;
-	setp.eq.b32 	%p6, %r99, 1;
-	selp.f32 	%r103, %r14, %r13, %p6;
-	setp.eq.b32 	%p7, %r99, 2;
-	selp.f32 	%r104, %r15, %r103, %p7;
-	setp.eq.b32 	%p8, %r102, 1;
-	selp.f32 	%r105, %r14, %r13, %p8;
-	setp.eq.b32 	%p9, %r102, 2;
-	selp.f32 	%r106, %r15, %r105, %p9;
-	and.pred 	%p10, %p4, %p2;
-	selp.f32 	%r107, %r14, %r13, %p10;
-	setp.eq.b32 	%p11, %r96, 2;
-	selp.f32 	%r108, %r15, %r107, %p11;
-	selp.f32 	%r109, %r83, %r82, %p6;
-	selp.f32 	%r110, %r81, %r109, %p7;
-	selp.f32 	%r111, %r83, %r82, %p8;
-	selp.f32 	%r112, %r81, %r111, %p9;
-	selp.f32 	%r113, %r83, %r82, %p10;
-	selp.f32 	%r114, %r81, %r113, %p11;
-	selp.f32 	%r115, %r86, %r85, %p6;
-	selp.f32 	%r116, %r84, %r115, %p7;
-	selp.f32 	%r117, %r86, %r85, %p8;
-	selp.f32 	%r118, %r84, %r117, %p9;
-	selp.f32 	%r119, %r86, %r85, %p10;
-	selp.f32 	%r120, %r84, %r119, %p11;
-	selp.f32 	%r121, %r89, %r88, %p6;
-	selp.f32 	%r122, %r87, %r121, %p7;
-	selp.f32 	%r123, %r89, %r88, %p8;
-	selp.f32 	%r124, %r87, %r123, %p9;
-	selp.f32 	%r125, %r89, %r88, %p10;
-	selp.f32 	%r126, %r87, %r125, %p11;
+	selp.b32 	%r102, %r100, %r101, %p7;
+	setp.eq.b32 	%p8, %r99, 1;
+	selp.f32 	%r103, %r14, %r13, %p8;
+	setp.eq.b32 	%p9, %r99, 2;
+	selp.f32 	%r104, %r15, %r103, %p9;
+	setp.eq.b32 	%p10, %r102, 1;
+	selp.f32 	%r105, %r14, %r13, %p10;
+	setp.eq.b32 	%p11, %r102, 2;
+	selp.f32 	%r106, %r15, %r105, %p11;
+	and.pred 	%p12, %p6, %p4;
+	selp.f32 	%r107, %r14, %r13, %p12;
+	setp.eq.b32 	%p13, %r96, 2;
+	selp.f32 	%r108, %r15, %r107, %p13;
+	selp.f32 	%r109, %r83, %r82, %p8;
+	selp.f32 	%r110, %r81, %r109, %p9;
+	selp.f32 	%r111, %r83, %r82, %p10;
+	selp.f32 	%r112, %r81, %r111, %p11;
+	selp.f32 	%r113, %r83, %r82, %p12;
+	selp.f32 	%r114, %r81, %r113, %p13;
+	selp.f32 	%r115, %r86, %r85, %p8;
+	selp.f32 	%r116, %r84, %r115, %p9;
+	selp.f32 	%r117, %r86, %r85, %p10;
+	selp.f32 	%r118, %r84, %r117, %p11;
+	selp.f32 	%r119, %r86, %r85, %p12;
+	selp.f32 	%r120, %r84, %r119, %p13;
+	selp.f32 	%r121, %r89, %r88, %p8;
+	selp.f32 	%r122, %r87, %r121, %p9;
+	selp.f32 	%r123, %r89, %r88, %p10;
+	selp.f32 	%r124, %r87, %r123, %p11;
+	selp.f32 	%r125, %r89, %r88, %p12;
+	selp.f32 	%r126, %r87, %r125, %p13;
 	sub.rn.f32 	%r127, %r223, %r104;
 	div.rn.f32 	%r128, %r127, %r108;
 	sub.rn.f32 	%r129, %r223, %r106;
@@ -1682,19 +1747,19 @@ $L__BB5_3:
 	add.rn.f32 	%r28, %r166, %r164;
 	min.f32 	%r167, %r26, %r27;
 	min.f32 	%r168, %r28, %r167;
-	setp.geu.f32 	%p12, %r168, 0f00000000;
-	@%p12 bra 	$L__BB6_3;
+	setp.geu.f32 	%p14, %r168, 0f00000000;
+	@%p14 bra 	$L__BB6_3;
 	max.f32 	%r169, %r26, %r27;
 	max.f32 	%r170, %r28, %r169;
-	setp.gt.f32 	%p13, %r170, 0f00000000;
+	setp.gt.f32 	%p15, %r170, 0f00000000;
 	mov.b32 	%r223, 0f00000000;
-	@%p13 bra 	$L__BB6_8;
+	@%p15 bra 	$L__BB6_8;
 $L__BB6_3:
 	add.rn.f32 	%r171, %r26, %r27;
 	add.rn.f32 	%r29, %r28, %r171;
-	setp.eq.f32 	%p14, %r29, 0f00000000;
+	setp.eq.f32 	%p16, %r29, 0f00000000;
 	mov.b32 	%r223, 0f00000000;
-	@%p14 bra 	$L__BB6_8;
+	@%p16 bra 	$L__BB6_8;
 	rcp.rn.f32 	%r16, %r108;
 	add.rn.f32 	%r19, %r135, %r137;
 	add.rn.f32 	%r22, %r142, %r144;
@@ -1708,21 +1773,21 @@ $L__BB6_3:
 	add.rn.f32 	%r177, %r175, %r176;
 	mul.rn.f32 	%r178, %r38, %r28;
 	add.rn.f32 	%r39, %r178, %r177;
-	setp.lt.f32 	%p15, %r29, 0f00000000;
-	setp.ge.f32 	%p16, %r39, 0f00000000;
+	setp.lt.f32 	%p17, %r29, 0f00000000;
+	setp.ge.f32 	%p18, %r39, 0f00000000;
 	mul.rn.f32 	%r40, %r29, %r48;
-	setp.lt.f32 	%p17, %r39, %r40;
-	or.pred 	%p18, %p16, %p17;
-	and.pred 	%p19, %p15, %p18;
+	setp.lt.f32 	%p19, %r39, %r40;
+	or.pred 	%p20, %p18, %p19;
+	and.pred 	%p21, %p17, %p20;
 	mov.b32 	%r223, 0f00000000;
-	@%p19 bra 	$L__BB6_8;
-	setp.gt.f32 	%p20, %r29, 0f00000000;
-	setp.le.f32 	%p21, %r39, 0f00000000;
-	setp.lt.f32 	%p22, %r40, %r39;
-	or.pred 	%p23, %p21, %p22;
-	and.pred 	%p24, %p20, %p23;
+	@%p21 bra 	$L__BB6_8;
+	setp.gt.f32 	%p22, %r29, 0f00000000;
+	setp.le.f32 	%p23, %r39, 0f00000000;
+	setp.lt.f32 	%p24, %r40, %r39;
+	or.pred 	%p25, %p23, %p24;
+	and.pred 	%p26, %p22, %p25;
 	mov.b32 	%r223, 0f00000000;
-	@%p24 bra 	$L__BB6_8;
+	@%p26 bra 	$L__BB6_8;
 	mul.rn.f32 	%r172, %r16, 0f00000000;
 	add.rn.f32 	%r174, %r172, 0f3F800000;
 	mul.rn.f32 	%r31, %r174, %r18;
@@ -1736,19 +1801,25 @@ $L__BB6_3:
 	abs.f32 	%r179, %r38;
 	abs.f32 	%r180, %r35;
 	abs.f32 	%r181, %r32;
-	max.f32 	%r182, %r181, %r180;
-	max.f32 	%r183, %r182, %r179;
+	setp.lt.f32 	%p27, %r181, %r180;
+	selp.f32 	%r182, %r180, %r181, %p27;
+	setp.lt.f32 	%p28, %r182, %r179;
+	selp.f32 	%r183, %r179, %r182, %p28;
 	mul.rn.f32 	%r184, %r183, 0f34400002;
 	abs.f32 	%r185, %r36;
 	abs.f32 	%r186, %r33;
 	abs.f32 	%r187, %r30;
-	max.f32 	%r188, %r187, %r186;
-	max.f32 	%r189, %r188, %r185;
+	setp.lt.f32 	%p29, %r187, %r186;
+	selp.f32 	%r188, %r186, %r187, %p29;
+	setp.lt.f32 	%p30, %r188, %r185;
+	selp.f32 	%r189, %r185, %r188, %p30;
 	abs.f32 	%r190, %r37;
 	abs.f32 	%r191, %r34;
 	abs.f32 	%r192, %r31;
-	max.f32 	%r193, %r192, %r191;
-	max.f32 	%r194, %r193, %r190;
+	setp.lt.f32 	%p31, %r192, %r191;
+	selp.f32 	%r193, %r191, %r192, %p31;
+	setp.lt.f32 	%p32, %r193, %r190;
+	selp.f32 	%r194, %r190, %r193, %p32;
 	add.rn.f32 	%r195, %r189, %r183;
 	mul.rn.f32 	%r196, %r195, 0f34A00003;
 	add.rn.f32 	%r197, %r194, %r183;
@@ -1763,8 +1834,10 @@ $L__BB6_3:
 	abs.f32 	%r206, %r28;
 	abs.f32 	%r207, %r27;
 	abs.f32 	%r208, %r26;
-	max.f32 	%r209, %r208, %r207;
-	max.f32 	%r210, %r209, %r206;
+	setp.lt.f32 	%p33, %r208, %r207;
+	selp.f32 	%r209, %r207, %r208, %p33;
+	setp.lt.f32 	%p34, %r209, %r206;
+	selp.f32 	%r210, %r206, %r209, %p34;
 	mul.rn.f32 	%r211, %r210, 0f34400002;
 	mul.rn.f32 	%r212, %r183, %r211;
 	mul.rn.f32 	%r213, %r183, %r205;
@@ -1774,15 +1847,15 @@ $L__BB6_3:
 	mul.rn.f32 	%r217, %r216, 0f40400000;
 	abs.f32 	%r218, %r41;
 	mul.rn.f32 	%r219, %r218, %r217;
-	setp.le.f32 	%p25, %r42, %r219;
+	setp.le.f32 	%p35, %r42, %r219;
 	mov.b32 	%r223, 0f00000000;
-	@%p25 bra 	$L__BB6_8;
-	mov.pred 	%p27, -1;
+	@%p35 bra 	$L__BB6_8;
+	mov.pred 	%p37, -1;
 	mov.b32 	%r223, %r42;
 $L__BB6_8:
-	selp.f32 	%r221, %r223, 0f7F800000, %p27;
-	setp.eq.f32 	%p26, %r221, 0f7F800000;
-	@%p26 bra 	$L__BB6_10;
+	selp.f32 	%r221, %r223, 0f7F800000, %p37;
+	setp.eq.f32 	%p36, %r221, 0f7F800000;
+	@%p36 bra 	$L__BB6_10;
 	mov.b32 	%r222, 0;
 	// begin inline asm
 	{ .reg .f32 %ft; mov.b32 %ft, %r221; call (%r220), _optix_report_intersection_0, (%ft, %r222); }
