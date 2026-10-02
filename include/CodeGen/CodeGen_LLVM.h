@@ -605,6 +605,12 @@ struct CodeGen_LLVM : public ir::Visitor {
         return nullptr;
     }
 
+    // The reciprocal of `x`, a float or a vector of them (ir::Intrinsic::rcp):
+    // the machine's estimate instruction refined by one Newton step where
+    // the machine has one (see CodeGen_X86), and here, for a target that
+    // does not, the division `1 / x`.
+    virtual llvm::Value *reciprocal(llvm::Value *x, const std::string &name);
+
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
     llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,

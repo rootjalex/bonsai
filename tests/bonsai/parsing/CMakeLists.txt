@@ -7,6 +7,7 @@ add_bonsai_tests(
     aggregation-names.bonsai
     bitwise.bonsai
     call.bonsai
+    rcp.bonsai
     export.bonsai
     extract-access.bonsai
     function-type.bonsai

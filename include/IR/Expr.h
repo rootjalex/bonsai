@@ -572,6 +572,15 @@ struct Intrinsic : ExprNode<Intrinsic> {
         norm,
         pow,
         rand,
+        // The reciprocal of a float, or of each lane of a vector of them, as
+        // the machine takes it: an estimate instruction refined by one
+        // Newton step where there is one (x86's `rcp14ps` or `rcpps`, see
+        // CodeGen_X86), a division where there is not. Embree's `rcp`
+        // (common/simd/*.h, math/vec3fa.h), which its ray-box and
+        // ray-triangle tests take their reciprocals with; a program
+        // transcribing them says `rcp(d)` to get the same bits, where `1 /
+        // d` is the correctly rounded quotient and differs in the last bits.
+        rcp,
         round,
         sin,
         sqr,

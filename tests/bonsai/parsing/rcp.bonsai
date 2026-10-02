@@ -1,0 +1,14 @@
+//! flags: -p core
+
+// `rcp(x)`: the reciprocal of a float or of each lane of a vector of floats,
+// as the machine estimates and refines it (ir::Intrinsic::rcp). An intrinsic
+// like `sqrt`, so it parses to one and types to its argument's type.
+element vec3f = vector[f32, 3];
+
+func scalar(x : f32) -> f32 {
+    return rcp(x);
+}
+
+func lanes(v : vec3f) -> vec3f {
+    return rcp(v);
+}

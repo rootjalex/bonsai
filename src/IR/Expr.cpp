@@ -1338,6 +1338,16 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type();
             break;
         }
+        case Intrinsic::rcp: {
+            // A float, or a vector of floats, to the same.
+            internal_assert(args.size() == 1) << "rcp takes one argument";
+            internal_assert(args[0].type().is_float() ||
+                            (args[0].type().is_vector() &&
+                             args[0].type().element_of().is_float()))
+                << "rcp of a non-float " << args[0].type();
+            node->type = args[0].type();
+            break;
+        }
         case Intrinsic::norm: {
             internal_assert(args.size() == 1);
             internal_assert(args[0].type().is<Vector_t>());

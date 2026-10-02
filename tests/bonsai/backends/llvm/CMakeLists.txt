@@ -10,6 +10,7 @@ add_bonsai_tests(
     child-volumes.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
+    rcp.bonsai
     defer.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai

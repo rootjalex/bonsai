@@ -1175,6 +1175,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "pow";
     case Intrinsic::rand:
         return "rand";
+    case Intrinsic::rcp:
+        return "rcp";
     case Intrinsic::round:
         return "round";
     case Intrinsic::sin:

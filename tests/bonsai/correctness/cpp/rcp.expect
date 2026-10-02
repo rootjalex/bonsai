@@ -1,0 +1,19 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_rcp.cpp -I. -o tests/bonsai/correctness/cpp/main_rcp.o
+[test] clang++ tests/bonsai/correctness/cpp/main_rcp.o tests/bonsai/correctness/cpp/rcp.o -o tests/bonsai/correctness/cpp/rcp
+[test] ./tests/bonsai/correctness/cpp/rcp
+scalar rcp(1) = 1 (exact 1, 0 ulp) -- ok
+scalar rcp(2) = 0.5 (exact 0.5, 0 ulp) -- ok
+scalar rcp(3) = 0.333333 (exact 0.333333, 0 ulp) -- ok
+scalar rcp(0.1) = 10 (exact 10, 0 ulp) -- ok
+scalar rcp(7.5) = 0.133333 (exact 0.133333, 0 ulp) -- ok
+scalar rcp(1e-06) = 1e+06 (exact 1e+06, 0 ulp) -- ok
+scalar rcp(123456) = 8.10005e-06 (exact 8.10005e-06, 0 ulp) -- ok
+scalar rcp(-4) = -0.25 (exact -0.25, 0 ulp) -- ok
+vec3 rcp(3) = 0.333333 (exact 0.333333, 0 ulp) -- ok
+vec3 rcp(-0.25) = -4 (exact -4, 0 ulp) -- ok
+vec3 rcp(1000) = 0.001 (exact 0.001, 0 ulp) -- ok
+vec4 rcp(0.5) = 2 (exact 2, 0 ulp) -- ok
+vec4 rcp(9) = 0.111111 (exact 0.111111, 0 ulp) -- ok
+vec4 rcp(-0.001) = -1000 (exact -1000, 0 ulp) -- ok
+vec4 rcp(42) = 0.0238095 (exact 0.0238095, 0 ulp) -- ok
+all ok

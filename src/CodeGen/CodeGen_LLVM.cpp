@@ -3632,6 +3632,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
                                       : builder->CreateMul(a, a);
         return;
     }
+    case Intrinsic::rcp: {
+        internal_assert(node->args.size() == 1);
+        value = reciprocal(codegen_expr(node->args[0]), "rcp");
+        return;
+    }
     case Intrinsic::sqrt: {
         intrin = llvm::Intrinsic::sqrt;
         break;
@@ -3685,6 +3690,12 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     value = builder->CreateIntrinsic(ret_type, intrin, args);
 
     internal_assert(value) << "Intrinsic codegen failure: " << Expr(node);
+}
+
+llvm::Value *CodeGen_LLVM::reciprocal(llvm::Value *x, const std::string &name) {
+    // No estimate instruction named for this target: the quotient itself.
+    return builder->CreateFDiv(llvm::ConstantFP::get(x->getType(), 1.0), x,
+                               name);
 }
 
 void CodeGen_LLVM::visit(const Lambda *node) {

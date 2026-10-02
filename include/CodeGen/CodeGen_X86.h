@@ -62,6 +62,16 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     llvm::Value *vector_int_division(llvm::Value *a, llvm::Value *b,
                                      bool is_signed, bool remainder) override;
 
+    // A single-precision reciprocal as Embree takes it on this machine: the
+    // estimate instruction -- `vrcp14ps` with AVX-512VL, fourteen bits, or
+    // `rcpps`, twelve -- refined by one Newton step, `r + r * (1 - x * r)`,
+    // as two fused multiply-adds (common/simd/vfloat4_sse2.h, vfloat8_avx.h,
+    // vfloat16_avx512.h, math/vec3fa.h). A scalar or a short vector is
+    // padded to the four lanes of an xmm register, as Embree's Vec3fa is;
+    // a double, or a width the machine has no estimate for, keeps the
+    // division.
+    llvm::Value *reciprocal(llvm::Value *x, const std::string &name) override;
+
     // glibc's libmvec: the vector entry points of libm, asked for rather
     // than assumed (see the definition). Only on Linux, which is where glibc
     // is; a host without it has no vector maths library and says nothing.

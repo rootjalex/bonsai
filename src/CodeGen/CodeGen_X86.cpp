@@ -193,6 +193,80 @@ std::string vector_abi_name(char isa, uint32_t lanes, unsigned arity,
 // symbol present in this machine's libmvec, at a level this machine runs, is
 // ever emitted, so nothing here can fail to link or to run where it was
 // compiled; following the host means the code runs on the host.
+llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
+    llvm::Type *t = x->getType();
+    if (!t->getScalarType()->isFloatTy()) {
+        return CodeGen_LLVM::reciprocal(x, name);
+    }
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
+    const unsigned lanes = vt != nullptr ? unsigned(vt->getNumElements()) : 1;
+    // The register the lanes fit: xmm for a scalar or up to four, ymm for
+    // up to eight, zmm for up to sixteen.
+    const unsigned width = lanes <= 4 ? 4 : lanes <= 8 ? 8 : lanes <= 16 ? 16 : 0;
+    const bool vl = has_feature("avx512vl");
+    const bool estimate = width == 4 || (width == 8 && (vl || has_feature("avx"))) ||
+                          (width == 16 && has_feature("avx512f"));
+    if (!estimate) {
+        return CodeGen_LLVM::reciprocal(x, name);
+    }
+
+    // Into the register, the lanes past the value's set to one -- a
+    // reciprocal the estimate has a value for.
+    llvm::Type *f32 = t->getScalarType();
+    auto *rt = llvm::FixedVectorType::get(f32, width);
+    llvm::Value *a = llvm::ConstantFP::get(rt, 1.0);
+    if (vt == nullptr) {
+        a = builder->CreateInsertElement(a, x, uint64_t(0));
+    } else if (lanes != width) {
+        for (unsigned k = 0; k < lanes; k++) {
+            a = builder->CreateInsertElement(
+                a, builder->CreateExtractElement(x, uint64_t(k)), uint64_t(k));
+        }
+    } else {
+        a = x;
+    }
+
+    llvm::Value *r = nullptr;
+    if (vl) {
+        const llvm::Intrinsic::ID id =
+            width == 4    ? llvm::Intrinsic::x86_avx512_rcp14_ps_128
+            : width == 8  ? llvm::Intrinsic::x86_avx512_rcp14_ps_256
+                          : llvm::Intrinsic::x86_avx512_rcp14_ps_512;
+        // The masked form: every lane on, nothing kept from the source.
+        llvm::Type *mask_t = width == 16 ? i16_t : i8_t;
+        r = builder->CreateIntrinsic(
+            id, {},
+            {a, llvm::Constant::getNullValue(rt),
+             llvm::ConstantInt::getAllOnesValue(mask_t)},
+            nullptr, name + "_est");
+    } else {
+        const llvm::Intrinsic::ID id = width == 4
+                                           ? llvm::Intrinsic::x86_sse_rcp_ps
+                                           : llvm::Intrinsic::x86_avx_rcp_ps_256;
+        r = builder->CreateIntrinsic(id, {}, {a}, nullptr, name + "_est");
+    }
+    // One Newton step: h = 1 - a * r, then r + r * h, each a fused
+    // multiply-add as Embree writes them.
+    llvm::Value *h = builder->CreateIntrinsic(
+        rt, llvm::Intrinsic::fma,
+        {builder->CreateFNeg(a), r, llvm::ConstantFP::get(rt, 1.0)});
+    llvm::Value *refined =
+        builder->CreateIntrinsic(rt, llvm::Intrinsic::fma, {r, h, r});
+
+    if (vt == nullptr) {
+        return builder->CreateExtractElement(refined, uint64_t(0), name);
+    }
+    if (lanes != width) {
+        llvm::SmallVector<int, 16> keep(lanes);
+        for (unsigned k = 0; k < lanes; k++) {
+            keep[k] = int(k);
+        }
+        return builder->CreateShuffleVector(refined, keep, name);
+    }
+    refined->setName(name);
+    return refined;
+}
+
 void CodeGen_X86::probe_host_libraries() {
     if (!llvm::Triple(llvm::sys::getDefaultTargetTriple()).isOSLinux()) {
         return;

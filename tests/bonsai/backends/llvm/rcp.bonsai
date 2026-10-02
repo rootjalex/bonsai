@@ -1,0 +1,19 @@
+//! flags: -b llvm
+
+// `rcp` on the generic x86-64 this directory pins: SSE's `rcpps`, which
+// every x86-64 has, over the scalar or the three components padded to the
+// register's four lanes, refined by one Newton step as two fused
+// multiply-adds (CodeGen_X86::reciprocal) -- `llvm.x86.sse.rcp.ps` and
+// `llvm.fma`, the fma expanded by LLVM where the machine has none. With
+// AVX-512VL the estimate is `vrcp14ps` instead; a target without any
+// estimate to name divides (CodeGen_LLVM::reciprocal).
+// correctness/cpp/rcp.bonsai runs the host's.
+element vec3f = vector[f32, 3];
+
+func [[export]] scalar(x : f32) -> f32 {
+    return rcp(x);
+}
+
+func [[export]] lanes(v : vec3f) -> vec3f {
+    return rcp(v);
+}
