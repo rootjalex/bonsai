@@ -25,9 +25,21 @@ namespace lower {
 
 namespace {
 
+// A value a traversal carries with each child it descends into, asked for
+// by the query being lowered: an extremum's bound on the best a child could
+// hold, which its parent computes when it decides to descend and the child
+// tests again on arrival (see carry_bound_around). `metric` is the lambda
+// whose interval over the child's volume says it; `bound_of` picks the end
+// of that interval that is the bound.
+struct Carry {
+    const ir::Lambda *metric = nullptr;
+    std::function<ir::Expr(const Interval &)> bound_of;
+};
+
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                          const std::map<std::string, ir::Expr> &extents,
-                         const IntervalMap &intervals);
+                         const IntervalMap &intervals,
+                         const std::optional<Carry> &carry = {});
 
 static size_t counter = 0;
 
@@ -180,6 +192,28 @@ ir::Expr make_tuple_pair(ir::Expr a, ir::Expr b) {
     ir::Type tuple_t = ir::Tuple_t::make({a.type(), b.type()});
     std::vector<ir::Expr> values = {std::move(a), std::move(b)};
     return ir::Build::make(std::move(tuple_t), std::move(values));
+}
+
+// A branch of a `from` with one more value carried beside it: the pair, or
+// the tuple the branch already is with the value appended -- in the order
+// the recursion's arguments go, which is how Lower/RecLoops.cpp takes a
+// branch's tuple apart.
+ir::Expr with_carried(const ir::Expr &branch, ir::Expr carried) {
+    std::vector<ir::Expr> values;
+    std::vector<ir::Type> types;
+    if (const ir::Tuple_t *tuple = branch.type().as<ir::Tuple_t>()) {
+        for (size_t i = 0; i < tuple->etypes.size(); i++) {
+            values.push_back(ir::Extract::make(branch, static_cast<int>(i)));
+            types.push_back(tuple->etypes[i]);
+        }
+    } else {
+        values.push_back(branch);
+        types.push_back(branch.type());
+    }
+    types.push_back(carried.type());
+    values.push_back(std::move(carried));
+    return ir::Build::make(ir::Tuple_t::make(std::move(types)),
+                           std::move(values));
 }
 
 ir::Stmt lower_iterate(const ir::Expr &expr) {
@@ -427,6 +461,16 @@ struct Rewriter : public ir::Mutator {
     // intersection each.
     virtual ir::Stmt guard_leaf(ir::Stmt body) { return body; }
 
+    // The match once rewritten, for a rewrite to put something around it: the
+    // recursion a query declares a carried value for (carry_bound_around).
+    // `outermost` says this match is the one the traversal's recursion will
+    // be wrapped around (WrapMatchInRecLoop); a nested one belongs to the
+    // enclosing recursion, or gets one of its own.
+    virtual ir::Stmt wrap_match(const ir::Match *, ir::Stmt rewritten,
+                                bool outermost) {
+        return rewritten;
+    }
+
     ir::Stmt visit(const ir::Match *node) final override {
         // Keyed by how the tree was reached rather than by its name, because a
         // tree held in a field -- `i.blas` -- has no name. The key only has to
@@ -611,8 +655,10 @@ struct Rewriter : public ir::Mutator {
         }
         locs.pop_back();
 
-        return ir::Match::make(node->loc, std::move(new_arms),
-                               node->volume_map);
+        return wrap_match(node,
+                          ir::Match::make(node->loc, std::move(new_arms),
+                                          node->volume_map),
+                          /*outermost=*/locs.empty());
     }
 
     // What make_volume_map needs to know about a matched level beyond its
@@ -915,12 +961,21 @@ struct Rewriter : public ir::Mutator {
     // given the bounds and the child's condition (true where there is none)
     // and whether it is being asked inside the loop; it may answer nothing.
     // The plain `from` where there is nothing to test or do.
+    //
+    // `carry` is a value the recursion takes along with each child, from the
+    // child's volume (Carry) -- an extremum's bound on what the child holds,
+    // tested again on arrival (see RewriteExtremum) -- or nothing. Where
+    // the bound is known for every child, each branch of the `from` becomes
+    // the child and its bound (with_carried), computed in the children's
+    // loop into an array beside the mask where there is a loop; where it is
+    // not known for every child, the `from` carries nothing.
     ir::Stmt from_children(
         const ir::Expr &value, const ir::Lambda *lambda,
         const IntervalMap &existing,
         const std::function<ir::Expr(const Interval &)> &cond_of,
         const std::function<ir::Stmt(const Interval &, const ir::Expr &,
-                                     bool in_loop)> &extra_at = {}) {
+                                     bool in_loop)> &extra_at = {},
+        const std::optional<Carry> &carry = {}) {
         const std::optional<ChildVolumes::Array> array = array_children();
         if (array.has_value() && lambda->args.size() == 1 &&
             volumes.size() == 1) {
@@ -932,13 +987,26 @@ struct Rewriter : public ir::Mutator {
             const Interval bounds =
                 predicate_analysis(lambda->value, vols, ints);
             const ir::Expr cond = cond_of(bounds);
+            // The carried bound, from the carried lambda's own interval over
+            // the same child.
+            ir::Expr carried_value;
+            if (carry.has_value() && carry->metric->args.size() == 1) {
+                VolumeMap carry_vols;
+                carry_vols[carry->metric->args[0].name] =
+                    array->volume_at(index);
+                IntervalMap carry_ints =
+                    make_interval_map(carry->metric->args, existing);
+                carried_value = carry->bound_of(predicate_analysis(
+                    carry->metric->value, carry_vols, carry_ints));
+            }
             ir::Stmt extra;
             if (extra_at) {
                 extra = extra_at(
                     bounds, cond.defined() ? cond : ir::BoolImm::make(true),
                     /*in_loop=*/true);
             }
-            if (!cond.defined() && !extra.defined()) {
+            if (!cond.defined() && !extra.defined() &&
+                !carried_value.defined()) {
                 return ir::YieldFrom::make(value);
             }
             std::vector<ir::Stmt> stmts, body;
@@ -961,6 +1029,33 @@ struct Rewriter : public ir::Mutator {
                         held, ir::UIntImm::make(index_t, c)));
                 }
             }
+            ir::Expr branches = value;
+            if (carried_value.defined()) {
+                static size_t counter = 0;
+                const std::string name = "_carry" + std::to_string(counter++);
+                const ir::Type carry_t = ir::Array_t::make(
+                    carried_value.type(),
+                    ir::UIntImm::make(index_t, array->count));
+                ir::WriteLoc carried(name, carry_t);
+                stmts.push_back(
+                    ir::Allocate::make(carried, ir::Allocate::Memory::Stack));
+                ir::WriteLoc slot = carried;
+                slot.add_index_access(index);
+                body.push_back(ir::Store::make(std::move(slot), carried_value));
+                const ir::Expr held = ir::Var::make(carry_t, name);
+                std::vector<ir::Expr> paired;
+                uint32_t c = 0;
+                for (const ir::Expr &branch : break_tuple(value)) {
+                    paired.push_back(with_carried(
+                        branch,
+                        ir::Extract::make(held, ir::UIntImm::make(index_t, c))));
+                    c++;
+                }
+                internal_assert(c == array->count)
+                    << "A `from` over " << c << " children of an array of "
+                    << array->count;
+                branches = make_tuple(std::move(paired));
+            }
             if (extra.defined()) {
                 body.push_back(std::move(extra));
             }
@@ -971,7 +1066,8 @@ struct Rewriter : public ir::Mutator {
                                   ir::UIntImm::make(index_t, 1)},
                 body.size() == 1 ? std::move(body.front())
                                  : ir::Sequence::make(std::move(body))));
-            stmts.push_back(ir::YieldFrom::make(value, {}, std::move(conds)));
+            stmts.push_back(ir::YieldFrom::make(std::move(branches), {},
+                                                std::move(conds)));
             return ir::Sequence::make(std::move(stmts));
         }
 
@@ -1001,7 +1097,28 @@ struct Rewriter : public ir::Mutator {
         if (!any) {
             conds.clear();
         }
-        stmts.push_back(ir::YieldFrom::make(value, {}, std::move(conds)));
+        // The carried bounds, one per child from the carried lambda's
+        // interval over it, where every child has one.
+        ir::Expr branches = value;
+        if (carry.has_value()) {
+            std::vector<ir::Expr> carries;
+            for (const Interval &b :
+                 child_bounds(carry->metric, value, existing)) {
+                carries.push_back(carry->bound_of(b));
+            }
+            const std::vector<ir::Expr> parts = break_tuple(value);
+            if (carries.size() == parts.size() &&
+                std::all_of(carries.begin(), carries.end(),
+                            [](const ir::Expr &c) { return c.defined(); })) {
+                std::vector<ir::Expr> paired;
+                for (size_t i = 0; i < parts.size(); i++) {
+                    paired.push_back(with_carried(parts[i], carries[i]));
+                }
+                branches = make_tuple(std::move(paired));
+            }
+        }
+        stmts.push_back(ir::YieldFrom::make(std::move(branches), {},
+                                            std::move(conds)));
         return stmts.size() == 1 ? std::move(stmts.front())
                                  : ir::Sequence::make(std::move(stmts));
     }
@@ -1040,15 +1157,21 @@ struct Rewriter : public ir::Mutator {
 
 ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
                       const std::map<std::string, ir::Expr> &extents,
-                      const IntervalMap &intervals) {
+                      const IntervalMap &intervals,
+                      const std::optional<Carry> &carry = {}) {
     struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
         const IntervalMap &intervals;
+        // What the query around this filter has each `from` carry with its
+        // children, if anything (see Carry): the extremum whose "improves on
+        // the best" was fused into this predicate carries its bound.
+        const std::optional<Carry> &carry;
 
         RewriteFilter(ir::Expr pred,
                       const std::map<std::string, ir::Expr> &extents,
-                      const IntervalMap &intervals)
-            : predicate(std::move(pred)), intervals(intervals) {
+                      const IntervalMap &intervals,
+                      const std::optional<Carry> &carry)
+            : predicate(std::move(pred)), intervals(intervals), carry(carry) {
             this->extents = &extents;
         }
 
@@ -1163,8 +1286,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             // Where the node bounds its children rather than itself, each
             // branch is taken only where the predicate may hold in that
             // child: the child's test, made here at its parent.
-            ir::Stmt body =
-                from_children(node->value, lambda, intervals, maybe_of);
+            ir::Stmt body = from_children(node->value, lambda, intervals,
+                                          maybe_of, {}, carry);
             // Add the maybe case -> recursive call. A bound that is trivially
             // true prunes nothing, so skip the guard entirely.
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
@@ -1188,7 +1311,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
     };
 
-    return RewriteFilter(std::move(predicate), extents, intervals).mutate(body);
+    return RewriteFilter(std::move(predicate), extents, intervals, carry)
+        .mutate(body);
 }
 
 // Which end of the metric an extremum operator seeks.
@@ -1493,6 +1617,93 @@ StoredIn stored_components(const ir::Expr &set,
     }
 }
 
+// What a `from` carries with each child under an extremum: the best the child
+// could hold, the metric's promising bound over the child's volume (see
+// Carry, and carry_bound_around for what reads it).
+Carry bound_carry(Extremum dir, const ir::Lambda *metric) {
+    return Carry{metric, [dir](const Interval &child) {
+                     return promising_bound(dir, child);
+                 }};
+}
+
+// match tr { ... from ((c0, b0), (c1, b1), ...) ... }
+//   => rec(b := <worst>) { if b beats best: match tr { ... } }
+//
+// A child's bound is tested once more on arrival. The parent tested it when
+// it decided to descend (the condition of the `from`); but where the
+// recursion is put on a stack (SSA/QueueRecursion.h), a child waits there
+// while its siblings are visited, and what they find tightens the
+// accumulator past what the parent knew. A waiting child whose bound no
+// longer beats the best is then not worth visiting, and the test at arrival
+// is what skips it: Embree's `if (stackPtr->dist > ray.tfar) continue` on a
+// popped entry, with the bound carried as the stack carries its `dist`. The
+// bound is a value the recursion carries beside the node, declared here as a
+// recursion of its own around the outermost match -- the trees are put in
+// front of it when the traversal is wrapped in its recursion
+// (WrapMatchInRecLoop) -- handed at each `from` by from_children (Carry,
+// through whichever rewrite built the `from`: the extremum's own, or the
+// filter's for a fused filter), and starting at the worst value, which
+// prunes nothing at the root.
+//
+// Only where the children's bounds are the parent's to compute -- a node that
+// holds its children's volumes -- do the `from`s carry one. A node that
+// bounds itself is tested on arrival already (the guard the extremum puts on
+// a subtree) and its `from`s carry nothing. Which is read off the `from`s of
+// the recursion `matched` will be: every branch carries one value more than
+// the recursion has trees, or none does (a recursion whose `from`s differ is
+// not built yet). `best` is the running best the bound has to beat,
+// `metric_t` its type.
+ir::Stmt carry_bound_around(ir::Stmt matched, Extremum dir,
+                            const ir::Type &metric_t, const ir::Expr &best) {
+    // The `from`s of the recursion the match will be wrapped in: its own and
+    // those of a match coiterated with it (a nested match on a name, which
+    // adds a tree to the same recursion), but not those of a nested match on
+    // an expression, which is a recursion of its own (see
+    // WrapMatchInRecLoop), nor of a recursion already declared.
+    struct Arities : public ir::Visitor {
+        std::set<std::string> trees;
+        std::vector<size_t> arities;
+        using ir::Visitor::visit;
+        void visit(const ir::Match *node) override {
+            if (const ir::Var *var = node->loc.as<ir::Var>()) {
+                trees.insert(var->name);
+                ir::Visitor::visit(node);
+            }
+        }
+        void visit(const ir::RecLoop *) override {}
+        void visit(const ir::YieldFrom *node) override {
+            const std::vector<ir::Expr> branches = break_tuple(node->value);
+            internal_assert(!branches.empty()) << ir::Stmt(node);
+            const ir::Tuple_t *tuple =
+                branches.front().type().as<ir::Tuple_t>();
+            arities.push_back(tuple != nullptr ? tuple->etypes.size() : 1);
+        }
+    };
+    Arities arities;
+    matched.accept(&arities);
+    size_t carrying = 0, plain = 0;
+    for (const size_t arity : arities.arities) {
+        (arity == arities.trees.size() + 1 ? carrying : plain)++;
+    }
+    if (carrying == 0) {
+        return matched;
+    }
+    internal_assert(plain == 0)
+        << "[unimplemented] a recursion some of whose `from`s carry the "
+        << "children's bounds and some of which do not: " << matched;
+
+    static size_t counter = 0;
+    const ir::TypedVar bound("_bound" + std::to_string(counter++), metric_t);
+    ir::Stmt body = ir::IfElse::make(
+        improves_on(dir, ir::Var::make(metric_t, bound.name), best),
+        std::move(matched));
+    std::vector<ir::RecLoop::Arg> args = {ir::RecLoop::Arg{
+        bound, extremum_identity(metric_t, dir == Extremum::Min
+                                               ? Extremum::Max
+                                               : Extremum::Min)}};
+    return ir::RecLoop::make(std::move(args), std::move(body));
+}
+
 ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                             const ir::TypeMap &tree_types,
                             const std::map<std::string, ir::Expr> &extents,
@@ -1575,6 +1786,20 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
         ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+
+        // The bound each child carries, tested again on arrival (see
+        // carry_bound_around): the fused filter had the `from`s carry it.
+        ir::Stmt wrap_match(const ir::Match *, ir::Stmt rewritten,
+                            bool outermost) override {
+            if (!outermost) {
+                return rewritten;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            return carry_bound_around(std::move(rewritten), dir,
+                                      lambda->value.type(),
+                                      ir::Extract::make(loc.to_expr(), 0));
+        }
     };
 
     const ir::Lambda *lambda = metric.as<ir::Lambda>();
@@ -1682,11 +1907,13 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     IntervalMap local_intervals = intervals;
     local_intervals[best_metric] = accumulator_interval(dir, best_metric);
 
-    // Try to build fused filter inside.
+    // Try to build fused filter inside. The `from`s it builds carry each
+    // child's bound on the metric, for the test on arrival (bound_carry,
+    // RewriteArgExtremum::visit(RecLoop)).
     auto [fused_filter, fused] =
         try_fuse_filter(dir, lambda, best_metric, inner);
-    ir::Stmt body =
-        build_traversal(fused_filter, tree_types, extents, local_intervals);
+    ir::Stmt body = build_traversal(fused_filter, tree_types, extents,
+                                    local_intervals, bound_carry(dir, lambda));
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
                               std::move(tuple_t), ret_type, held_t, stored_in)
@@ -1818,7 +2045,10 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                         tighten = ir::IfElse::make(cond, std::move(tighten));
                     }
                     return tighten;
-                }));
+                },
+                // The child's bound travels with it, to be tested again on
+                // arrival (see visit(RecLoop)).
+                carried_bound()));
             ir::Stmt body = stmts.size() == 1
                                 ? std::move(stmts.front())
                                 : ir::Sequence::make(std::move(stmts));
@@ -1839,6 +2069,27 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             return predicate_analysis(lambda->value, vols, ints);
+        }
+
+        // What a `from` carries with each child under this extremum (see
+        // bound_carry).
+        Carry carried_bound() const {
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            return bound_carry(dir, lambda);
+        }
+
+        // The bound each child carries, tested again on arrival (see
+        // carry_bound_around).
+        ir::Stmt wrap_match(const ir::Match *, ir::Stmt rewritten,
+                            bool outermost) override {
+            if (!outermost) {
+                return rewritten;
+            }
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            return carry_bound_around(std::move(rewritten), dir,
+                                      lambda->value.type(), loc.to_expr());
         }
 
         // from tr => upd a minb(a, max(M, tr)); from tr
@@ -1917,8 +2168,14 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     // is, when the metric names a field an augmentation might cover.
     auto [fused_filter, fused] = try_fuse_filter(dir, lambda, ret_var, inner);
     const bool keep_scan = !fused && key.has_value();
+    // Whichever rewrite builds the `from`s -- the fused filter's, or the
+    // extremum's own below -- has each child carry the extremum's bound on
+    // it, for the test on arrival (RewriteExtremum::visit(RecLoop)).
+    const Carry carry{lambda, [dir](const Interval &child) {
+                          return promising_bound(dir, child);
+                      }};
     ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
-                                    tree_types, extents, local_intervals);
+                                    tree_types, extents, local_intervals, carry);
 
     body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
                            std::move(key), !fused)
@@ -2666,7 +2923,8 @@ ir::Stmt build_flatten(ir::Stmt outer, ir::Expr func,
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                          const std::map<std::string, ir::Expr> &extents,
-                         const IntervalMap &intervals) {
+                         const IntervalMap &intervals,
+                         const std::optional<Carry> &carry) {
     // A set held in a field of an element rather than bound to a name of its
     // own: `i.blas`, the acceleration structure an instance carries.
     //
@@ -2731,7 +2989,8 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
         for (const auto &arm : as_match->arms) {
             arms.push_back(ir::MatchVariant::Arm{
                 arm.variant, {},
-                build_traversal(arm.value, tree_types, extents, intervals)});
+                build_traversal(arm.value, tree_types, extents, intervals,
+                                carry)});
         }
         return ir::MatchVariant::make(as_match->value, std::move(arms));
     }
@@ -2769,8 +3028,9 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
 
     switch (as_set->op) {
     case ir::SetOp::filter: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
-        return build_filter(body, as_set->a, extents, intervals);
+        ir::Stmt body =
+            build_traversal(as_set->b, tree_types, extents, intervals, carry);
+        return build_filter(body, as_set->a, extents, intervals, carry);
     }
     case ir::SetOp::map: {
         ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
@@ -2842,6 +3102,26 @@ struct WrapMatchInRecLoop : public ir::Mutator {
 
     WrapMatchInRecLoop(std::vector<ir::TypedVar> trees)
         : trees(std::move(trees)) {}
+
+    // A recursion a query declared a carried value for, around the outermost
+    // match (carry_bound_around): the trees go in front of what it carries,
+    // and the match inside is not wrapped again.
+    ir::Stmt visit(const ir::RecLoop *node) override {
+        internal_assert(depth == 0)
+            << "[unimplemented] a recursion with carried values nested in "
+            << "another: " << ir::Stmt(node);
+        depth++;
+        ir::Stmt body = mutate(node->body);
+        depth--;
+        std::vector<ir::RecLoop::Arg> args;
+        for (const ir::TypedVar &tree : trees) {
+            args.push_back(ir::RecLoop::Arg{tree, ir::Expr(tree)});
+        }
+        for (const ir::RecLoop::Arg &arg : node->args) {
+            args.push_back(arg);
+        }
+        return ir::RecLoop::make(std::move(args), std::move(body));
+    }
 
     ir::Stmt visit(const ir::Match *node) override {
         // Descend first, because a query over a set held in an element's field

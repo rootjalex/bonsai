@@ -47,18 +47,22 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
 
 func _traverse_tree1(r : Ray, tris : tree[[Triangle]] BVH4) -> option<Triangle> {
   _best0 : mut (f32, (ref[Triangle in tris])) := ((f32)inf, ())
-  rec(tris : tree[[Triangle]] BVH4) {
-    match tris {
-    | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
-      _mask1 : mut bool[4]
-      parfor children in [0u:4u:1u] {
-        _mask1[children] = intersects(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) && (distmin(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) < _best0[0])
-      }
-      from ((tris as Interior).children[0u], (tris as Interior).children[1u], (tris as Interior).children[2u], (tris as Interior).children[3u]) where (_mask1[0u], _mask1[1u], _mask1[2u], _mask1[3u])
-    | Leaf(data : Triangle[]) with data = data ->
-      foreach _iter1 in (tris as Leaf).data {
-        if (intersects(r, _iter1) && (distmin(r, _iter1) < _best0[0])) {
-          _best0 = (distmin(r, _iter1), (ref(_iter1)))
+  rec(tris : tree[[Triangle]] BVH4, _bound0 : f32 = -(f32)inf) {
+    if (_bound0 < _best0[0]) {
+      match tris {
+      | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
+        _mask1 : mut bool[4]
+        _carry0 : mut f32[4]
+        parfor children in [0u:4u:1u] {
+          _mask1[children] = intersects(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) && (distmin(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children])) < _best0[0])
+          _carry0[children] = distmin(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children]))
+        }
+        from (((tris as Interior).children[0u], _carry0[0u]), ((tris as Interior).children[1u], _carry0[1u]), ((tris as Interior).children[2u], _carry0[2u]), ((tris as Interior).children[3u], _carry0[3u])) where (_mask1[0u], _mask1[1u], _mask1[2u], _mask1[3u])
+      | Leaf(data : Triangle[]) with data = data ->
+        foreach _iter1 in (tris as Leaf).data {
+          if (intersects(r, _iter1) && (distmin(r, _iter1) < _best0[0])) {
+            _best0 = (distmin(r, _iter1), (ref(_iter1)))
+          }
         }
       }
     }

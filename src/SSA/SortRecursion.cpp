@@ -276,7 +276,8 @@ std::optional<Lanes> lanes_of(const Terminator::MultiCall &call) {
     }
     for (const shared_ptr<Value> &v : out.varying) {
         const std::optional<Type> t = element_of_n(v->get_type(), n);
-        if (!t.has_value() || !t->is_scalar() || !t->is_int_or_uint()) {
+        if (!t.has_value() || !t->is_scalar() ||
+            !(t->is_int_or_uint() || t->is_float())) {
             return std::nullopt;
         }
         out.varying_type.push_back(*t);

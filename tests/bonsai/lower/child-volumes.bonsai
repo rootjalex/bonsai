@@ -35,6 +35,21 @@
 // would be. What becomes of the mask is downstream's business: a call not
 // made (the LLVM and C++ backends), a push not made
 // (ssa/child-volumes-sorted.bonsai).
+//
+// And the extremum has each child carry its bound -- the same `distmin` of
+// the child's box, into `_carry0` beside the mask -- as a second value of
+// the recursion, tested again on arrival:
+//
+//     rec(tris : ..., _bound0 : f32 = -(f32)inf) {
+//       if (_bound0 < _best0[0]) { match tris { ... from ((child, _carry0[0u]), ...) } }
+//
+// The parent's test let the child through; but once the recursion is a
+// stack, a child waits while its siblings are visited, and what they find
+// may tighten the best past the child's bound. The test on arrival is what
+// then skips it -- Embree's `if (stackPtr->dist > ray.tfar) continue`, with
+// the bound on the stack as Embree's `dist` is -- and the root starts at the
+// worst value, which prunes nothing. A node that bounds itself gets no
+// such value: its own test on arrival is already this.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

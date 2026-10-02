@@ -1130,16 +1130,29 @@ ir::Expr flatten_tuple(ir::Expr expr,
     return ir::Build::make(std::move(tuple), std::move(exprs));
 }
 
+// `carried` are the recursion's values that are not trees -- a bound the
+// query takes along with each child (Lower/Trees.cpp, Carry) -- which every
+// branch of a `from` supplies after the indices that stand for its subtree,
+// in the order the recursion's arguments go.
 ir::Stmt
-flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
+flatten_yield_froms(const IndexTList &index_list,
+                    const std::vector<ir::TypedVar> &carried, ir::Stmt body,
                     const std::map<std::string, ir::Expr> &references) {
     struct FlattenYieldFroms : public ir::Mutator {
-        const IndexTList &index_list;
+        std::vector<ir::Type> expected; // the indices', then the carried
         const std::map<std::string, ir::Expr> &references;
 
         FlattenYieldFroms(const IndexTList &index_list,
+                          const std::vector<ir::TypedVar> &carried,
                           const std::map<std::string, ir::Expr> &references)
-            : index_list(index_list), references(references) {}
+            : references(references) {
+            for (const ir::TypedVar &index : index_list) {
+                expected.push_back(index.type);
+            }
+            for (const ir::TypedVar &c : carried) {
+                expected.push_back(c.type);
+            }
+        }
 
         ir::Stmt visit(const ir::YieldFrom *node) override {
             auto ids = break_tuple(node->value);
@@ -1149,26 +1162,26 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
             for (auto &id : ids) {
                 ir::Expr value = flatten_tuple(id, references);
                 ir::Type type = value.type();
-                if (index_list.size() == 1) {
-                    internal_assert(ir::equals(type, index_list[0].type))
+                if (expected.size() == 1) {
+                    internal_assert(ir::equals(type, expected[0]))
                         << "Mismatching YieldFroms, expected type: "
-                        << index_list[0].type << " but found type: " << type
+                        << expected[0] << " but found type: " << type
                         << " in: " << ir::Stmt(node);
                 } else {
                     const ir::Tuple_t *tuple = type.as<ir::Tuple_t>();
                     internal_assert(tuple &&
-                                    tuple->etypes.size() == index_list.size())
-                        << "Expected " << index_list.size()
+                                    tuple->etypes.size() == expected.size())
+                        << "Expected " << expected.size()
                         << " values, but found: " << type
                         << " in recursive function of: " << ir::Stmt(node)
                         << "\n with type: " << type
                         << " of flattened id: " << id;
 
-                    for (size_t i = 0; i < index_list.size(); i++) {
+                    for (size_t i = 0; i < expected.size(); i++) {
                         internal_assert(
-                            ir::equals(index_list[i].type, tuple->etypes[i]))
+                            ir::equals(expected[i], tuple->etypes[i]))
                             << "Mismatching YieldFroms, expected type: "
-                            << index_list[i].type
+                            << expected[i]
                             << " but found type: " << tuple->etypes[i]
                             << " at index: " << i << " in: " << ir::Stmt(node);
                     }
@@ -1199,7 +1212,7 @@ flatten_yield_froms(const IndexTList &index_list, ir::Stmt body,
         }
     };
 
-    FlattenYieldFroms f(index_list, references);
+    FlattenYieldFroms f(index_list, carried, references);
     return f.mutate(std::move(body));
 }
 
@@ -1335,15 +1348,35 @@ struct LowerMatches : public ir::Mutator {
         index_list.clear();
         index_starts.clear();
 
+        // What the recursion carries that is not a tree -- a bound the
+        // query takes along with each child (Lower/Trees.cpp, Carry) --
+        // stays an argument as it is, after the indices that stand for the
+        // trees, in the order it was declared.
+        std::vector<ir::RecLoop::Arg> carried;
+        for (const ir::RecLoop::Arg &arg : node->args) {
+            if (!arg.var.type.is<ir::BVH_t>()) {
+                carried.push_back(
+                    ir::RecLoop::Arg{arg.var, mutate(arg.init)});
+            }
+        }
+        std::vector<ir::TypedVar> carried_vars;
+        for (const ir::RecLoop::Arg &arg : carried) {
+            carried_vars.push_back(arg.var);
+        }
+
         ir::Stmt body = mutate(node->body);
-        body = flatten_yield_froms(index_list, std::move(body), references);
+        body = flatten_yield_froms(index_list, carried_vars, std::move(body),
+                                   references);
 
         internal_assert(index_list.size() == index_starts.size());
         std::vector<ir::RecLoop::Arg> args;
-        args.reserve(index_list.size());
+        args.reserve(index_list.size() + carried.size());
         for (size_t i = 0; i < index_list.size(); i++) {
             args.push_back(
                 ir::RecLoop::Arg{index_list[i], std::move(index_starts[i])});
+        }
+        for (ir::RecLoop::Arg &arg : carried) {
+            args.push_back(std::move(arg));
         }
         ir::Stmt loop = ir::RecLoop::make(std::move(args), std::move(body));
 
