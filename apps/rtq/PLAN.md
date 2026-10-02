@@ -411,6 +411,32 @@ No change in the ratios from step 3: on head the stale pops the cull
 skips are few, and the time of the incoherent rays is in the leaves.
 Every ray agrees.
 
+**Step 5, the any-hit order and its compacting push.** The any-hit run --
+the children under their mask, no keys -- is the lanes of vectors too
+(`LaneRun`, SSA/SortRecursion.h), and loopify writes it as Embree's
+`traverseAnyHit` does: the hits in their stored order, every one but the
+last pushed, the last continued with. The hit in the highest lane is
+descended into and the others go to the stack by one compacting store
+with the mask less that lane. The highest lane is the mask's bits as an
+integer with its leading zeros counted (`kmov`, `lzcnt`; Embree's `bsr`
+of its movemask) where the lanes are a byte or more, the maximum of the
+lane indices the mask keeps otherwise (`ssa/child-volumes-any.bonsai`,
+four wide). A first version took the lane by that reduction for eight
+lanes too and cost a tenth on incoherent rays against the conditional
+pushes it replaced, the reduction and the lane's extraction sitting on
+the path to the next node's address; with the count of leading zeros it
+is level with them on incoherent rays and ahead on coherent ones. Head,
+back to back under the same load (the other agent's render on another
+core):
+
+| rays    | occluded: Embree | conditional pushes | ratio | Embree | compacting push | ratio |
+|---------|------:|------:|------:|------:|------:|------:|
+| primary | 40.87 | 47.77 | 1.17x | 42.96 | 59.29 | 1.38x |
+| ao      | 13.96 |  8.61 | 0.62x | 14.39 |  8.56 | 0.60x |
+| diffuse | 12.96 |  7.79 | 0.60x | 13.41 |  8.00 | 0.60x |
+
+Every ray agrees.
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per
