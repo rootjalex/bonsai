@@ -8718,8 +8718,31 @@ are the larger because what went -- the allocations inside each render,
 the per-thread multipliers -- was a fixed cost per render and a cost per
 sample drawn, both a bigger share of a short render. Every image matches
 pbrt's but pavilion-day's at 16 spp, the standing verdict. The lowest two
-are still view-0 and lte-orb, and the Dielectric kernel on pavilion-day is
-re-profiled against pbrt's next, the sampler's divisions gone.
+are still view-0 and lte-orb.
+
+*Dielectric on pavilion-day, re-profiled.* The same 768 launches: 26.4 G
+warp instructions to 6.38 G (842 G to 202 G thread instructions), L2 and
+DRAM traffic unchanged (45.5 and 18.7 GB), 50.4 to 37.0 ms under ncu;
+pbrt's kernel 2.74 G and 27.2 ms over 640 launches (it evaluates no
+material at the last depth; we launch the round, with small queues). One
+launch at the SASS level, ours 6.74 M warp instructions against pbrt's
+2.71 M for the same 1613 warps of entries: ours has a 67-instruction
+subroutine called seven times per warp (`div.u64`, the backend's; the
+64-to-32-bit bypass LLVM's NVPTX backend emits is not taken, the Halton
+index being wider than 32 bits) and eight 20- to 23-instruction loops run
+seven times per warp -- the sampler's digit loops, some 2.8 M of the 6.7
+M, 41%. pbrt has none of that in this kernel: its samples come from
+"Generate ray samples", a kernel of its own (35 ms on this scene, over
+every material), written into the ray queue's entry a round ahead. The
+material part proper is then some 3.9 M against pbrt's 2.7 M per launch
+-- 45% more instructions for the same entries and the same memory
+traffic, which a SASS listing without symbols does not attribute; a
+`-lineinfo` build of the PTX, mapping SASS back to the program's lines,
+is the next tool for it. The sampler's placement is pbrt's structure and
+a program-and-schedule question for the user: the dimensions a surface
+interaction draws computed in the step before, carried in the entry
+(pbrt's RaySamples, some ten floats), in a kernel of their own or in the
+trace's raygen.
 
 **Dielectric on pavilion-day: the sampler's divisions, and a rule.**
 pbrt's Dielectric kernel and ours, ncu over every launch of a 64 spp
