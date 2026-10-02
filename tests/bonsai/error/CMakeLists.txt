@@ -40,6 +40,7 @@ add_bonsai_tests(
     reorder-triangular.bonsai
     skip-unknown-arm.bonsai
     sort-needs-ssa.bonsai
+    sort-key-index-type.bonsai
     split-not-divisible.bonsai
     ssa-unimplemented-transform.bonsai
     gpu-block-level-call.bonsai

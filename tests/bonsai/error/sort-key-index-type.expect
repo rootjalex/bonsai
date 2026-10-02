@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/Sorts.cpp:221
+
+--> equals(lambda->args[0].type, index_t)
+The sort key's index `i : u8` must have the type of the loop over the children it indexes, u32, in the sort key: |i : u8, r : Ray, lo : f32x3x4, hi : f32x3x4| entry(r, build<AABB>(lo[i], hi[i]))

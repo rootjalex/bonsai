@@ -1,0 +1,66 @@
+//! flags: -p ssa
+
+// A sort key over a node's array of children whose index is not in the
+// children's loop's type.
+//
+// The key is computed in the loop over the children (Lower/Sorts.cpp), with
+// the lambda's `i` standing for the loop's index. Converting that index to a
+// type the schedule picked -- `lo[cast<u8>(children)]` beside the loop's own
+// `lo[children]` -- makes the key's reads of the child's box different
+// expressions from the test's, and the slab test is then done twice per
+// child, because no later pass can see that a truncation of a loop index
+// below 4 loses nothing. So the type has to be the loop's, and a schedule
+// that wrote another is told which.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u8, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+}

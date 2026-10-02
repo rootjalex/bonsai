@@ -253,6 +253,31 @@ keys, with their references and conditions, misses included (an infinite
 key), in scalar compare-and-swaps at every node. Item 1 below, and the sort
 over the hits only that follows from it.
 
+## The schedule, step by step (2026-10-01)
+
+The user's order, after the layout matched: the sort key's index type, the
+eight-wide node test, the sort over the hits only, the carried bound with
+the pop cull, the any-hit order, the four-wide leaf test, `rcp`. Each step
+measured as above (head, cpu 11, least of 5, `--side 2048`), every ray
+checked against Embree.
+
+**Step 1, the key's index type.** The key `distmin(r, AABB{lo[i], hi[i]})`
+is computed in the children's loop with `i` the loop's index, and the
+schedule had declared `i : u8` while the loop's index is a `u32`. The
+lowering converted, so the key read the child's box as `lo[cast<u8>(i)]`
+beside the test's `lo[i]`, two expressions no later pass can tell are one
+(the truncation discards bits only the loop bounds say are zero), and the
+slab test ran twice per child. The sort lowering now substitutes the loop's
+index as it is and refuses another type with a message naming the loop's
+(`tests/bonsai/error/sort-key-index-type.bonsai`); the schedule says
+`i : u32`. Head, million rays per second:
+
+| rays    | intersect: Embree | bonsai | was   | now   | occluded: Embree | bonsai | ratio |
+|---------|------:|------:|------:|------:|------:|------:|------:|
+| primary | 38.49 | 14.34 | 0.29x | 0.37x | 45.09 | 40.75 | 0.90x |
+| ao      | 13.60 |  4.79 | 0.29x | 0.35x | 15.09 |  7.59 | 0.50x |
+| diffuse | 12.36 |  4.34 | 0.29x | 0.35x | 14.04 |  6.89 | 0.49x |
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per

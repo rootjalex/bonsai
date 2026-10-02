@@ -20,13 +20,15 @@ schedule {
     // and `distmin` is the slab test's entry distance, infinite for a miss,
     // which puts the misses last -- and they are not pushed at all, since
     // each child's push is under its own test (SSA/QueueRecursion.h). The
-    // key is computed in the same loop as the tests (Lower/Sorts.cpp).
+    // key is computed in the same loop as the tests (Lower/Sorts.cpp), and
+    // `i` is that loop's index, in its type, so that the key's reads of the
+    // child's box are the test's reads and the slab test is done once.
     //
     // Embree: stackSize = 1 + (N - 1) * maxDepth + 3 for N = 8 and a maximum
     // depth of 80 (bvh.h, bvh_intersector1.h): 564 entries, the most a
     // traversal can have waiting.
     trace.sort(triangles.Interior,
-               |i : u8, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
                distmin(r, AABB{lo[i], hi[i]}))
          .loopify(564);
 

@@ -35,8 +35,8 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
   !live = true
   !count = 0u
   while ((*!live)) {
-    let _t59 = (*tris_ref!top) & 15u in
-    let @1 = _t59 == 0u in
+    let _t60 = (*tris_ref!top) & 15u in
+    let @1 = _t60 == 0u in
     if (@1) {
       do {
         _mask0 : mut bool[4]
@@ -48,37 +48,38 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
           intersects_Ray_AABB$r0 : mut bool
           let @2 = tris.group0_row in
           let @3 = (*tris_ref!top) >> 4u in
-          let _t155 = @2[@3] in
-          let @5 = _t155.lo in
+          let _t156 = @2[@3] in
+          let @5 = _t156.lo in
           let @6 = cast<f32x3x4>(@5) in
-          let _t103$i26 = @6[children] in
-          let @8 = _t155.hi in
+          let _t104$i26 = @6[children] in
+          let @8 = _t156.hi in
           let @9 = cast<f32x3x4>(@8) in
-          let _t102$i26 = @9[children] in
+          let _t103$i26 = @9[children] in
+          let b$i0 = build<AABB>(_t104$i26, _t103$i26) in
           let @12 = f32x3(1f) in
           let @13 = r.d in
           let invDir$i26 = @12 / @13 in
           let @15 = f32x3(0f) in
           let dirIsNeg$i26 = invDir$i26 < @15 in
-          let low_parts$i26 = select(dirIsNeg$i26, _t102$i26, _t103$i26) in
-          let high_parts$i26 = select(dirIsNeg$i26, _t103$i26, _t102$i26) in
-          let _t106$i26 = r.o in
-          let @22 = low_parts$i26 - _t106$i26 in
+          let low_parts$i26 = select(dirIsNeg$i26, _t103$i26, _t104$i26) in
+          let high_parts$i26 = select(dirIsNeg$i26, _t104$i26, _t103$i26) in
+          let _t107$i26 = r.o in
+          let @22 = low_parts$i26 - _t107$i26 in
           let @23 = @22 * invDir$i26 in
-          let @24 = high_parts$i26 - _t106$i26 in
+          let @24 = high_parts$i26 - _t107$i26 in
           let @25 = @24 * invDir$i26 in
           let @26 = (f32)eps in
           let @27 = 0.5f * @26 in
-          let _t97$i14$i26 = 3f * @27 in
-          let @29 = 1f - _t97$i14$i26 in
-          let @30 = _t97$i14$i26 / @29 in
+          let _t98$i14$i26 = 3f * @27 in
+          let @29 = 1f - _t98$i14$i26 in
+          let @30 = _t98$i14$i26 / @29 in
           let @32 = 2f * @30 in
           let @33 = 1f + @32 in
-          let @207 = @25 * f32x3(@33) in
-          let @35 = @207[1u] in
+          let @199 = @25 * f32x3(@33) in
+          let @35 = @199[1u] in
           let @37 = @23[0u] in
           let @38 = @35 < @37 in
-          let @40 = @207[0u] in
+          let @40 = @199[0u] in
           let @42 = @23[1u] in
           let @43 = @40 < @42 in
           let @44 = @38 || @43 in
@@ -89,10 +90,10 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
             let @47 = @23[0u] in
             let @49 = @23[1u] in
             let @50 = max(@47, @49) in
-            let @52 = @207[0u] in
-            let @54 = @207[1u] in
+            let @52 = @199[0u] in
+            let @54 = @199[1u] in
             let @55 = min(@52, @54) in
-            let @57 = @207[2u] in
+            let @57 = @199[2u] in
             let @59 = @57 < @50 in
             let @62 = @23[2u] in
             let @63 = @55 < @62 in
@@ -105,7 +106,7 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
             } else {
               let @68 = @23[2u] in
               let @69 = max(@50, @68) in
-              let @72 = @207[2u] in
+              let @72 = @199[2u] in
               let @73 = min(@55, @72) in
               let @76 = build<FInterval>(@69, @73) in
               let @77 = build<_option1>(@76, true) in
@@ -148,126 +149,117 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
             let !and_0 = @102 < @104 in
           }
           _mask0[children] = !and_0
-          let _t12 = _t155 in
-          let _t15 = cast<u8>(children) in
-          let @108 = _t12.lo in
-          let @109 = cast<f32x3x4>(@108) in
-          let @110 = @109[_t15] in
-          let @111 = _t12.hi in
-          let @112 = cast<f32x3x4>(@111) in
-          let @113 = @112[_t15] in
-          let @114 = build<AABB>(@110, @113) in
-          let @115 = entry(r, @114) in
-          _keys0[children] = @115
+          let @107 = entry(r, b$i0) in
+          _keys0[children] = @107
           continue
         }
-        let @117 = tris.group0_row in
-        let @118 = (*tris_ref!top) >> 4u in
-        let @119 = @117[@118] in
-        let @120 = @119.children in
-        let _t26 = cast<u32x4>(@120) in
-        let @122 = _t26[0u] in
-        let @123 = _t26[1u] in
-        let @124 = _t26[2u] in
-        let @125 = _t26[3u] in
-        let @126 = _keys0[0u] in
-        let @127 = _keys0[1u] in
-        let @128 = _keys0[2u] in
-        let @129 = _keys0[3u] in
-        let @130 = _mask0[0u] in
-        let @131 = _mask0[1u] in
-        let @132 = _mask0[2u] in
-        let @133 = _mask0[3u] in
-        let @152 = @126 < @127 in
-        let @153 = select(@152, @126, @127) in
-        let @154 = select(@152, @127, @126) in
-        let @155 = select(@152, @122, @123) in
-        let @156 = select(@152, @123, @122) in
-        let @157 = select(@152, @130, @131) in
-        let @158 = select(@152, @131, @130) in
-        let @159 = @129 < @128 in
-        let @160 = select(@159, @128, @129) in
-        let @161 = select(@159, @129, @128) in
-        let @162 = select(@159, @124, @125) in
-        let @163 = select(@159, @125, @124) in
-        let @164 = select(@159, @132, @133) in
-        let @165 = select(@159, @133, @132) in
-        let @166 = @153 < @160 in
-        let @167 = select(@166, @153, @160) in
-        let @168 = select(@166, @160, @153) in
-        let @169 = select(@166, @155, @162) in
-        let @170 = select(@166, @162, @155) in
-        let @171 = select(@166, @157, @164) in
-        let @172 = select(@166, @164, @157) in
-        let @173 = @154 < @161 in
-        let @174 = select(@173, @154, @161) in
-        let @175 = select(@173, @161, @154) in
-        let @176 = select(@173, @156, @163) in
-        let @177 = select(@173, @163, @156) in
-        let @178 = select(@173, @158, @165) in
-        let @179 = select(@173, @165, @158) in
-        let @180 = @167 < @174 in
-        let @183 = select(@180, @169, @176) in
-        let @184 = select(@180, @176, @169) in
-        let @185 = select(@180, @171, @178) in
-        let @186 = select(@180, @178, @171) in
-        let @187 = @168 < @175 in
-        let @190 = select(@187, @170, @177) in
-        let @191 = select(@187, @177, @170) in
-        let @192 = select(@187, @172, @179) in
-        let @193 = select(@187, @179, @172) in
-        if (@193) {
-          !stack[(*!count)] = @191
-          let @200 = (*!count) + 1u in
-          !count = @200
+        let @109 = tris.group0_row in
+        let @110 = (*tris_ref!top) >> 4u in
+        let @111 = @109[@110] in
+        let @112 = @111.children in
+        let _t27 = cast<u32x4>(@112) in
+        let @114 = _t27[0u] in
+        let @115 = _t27[1u] in
+        let @116 = _t27[2u] in
+        let @117 = _t27[3u] in
+        let @118 = _keys0[0u] in
+        let @119 = _keys0[1u] in
+        let @120 = _keys0[2u] in
+        let @121 = _keys0[3u] in
+        let @122 = _mask0[0u] in
+        let @123 = _mask0[1u] in
+        let @124 = _mask0[2u] in
+        let @125 = _mask0[3u] in
+        let @144 = @118 < @119 in
+        let @145 = select(@144, @118, @119) in
+        let @146 = select(@144, @119, @118) in
+        let @147 = select(@144, @114, @115) in
+        let @148 = select(@144, @115, @114) in
+        let @149 = select(@144, @122, @123) in
+        let @150 = select(@144, @123, @122) in
+        let @151 = @121 < @120 in
+        let @152 = select(@151, @120, @121) in
+        let @153 = select(@151, @121, @120) in
+        let @154 = select(@151, @116, @117) in
+        let @155 = select(@151, @117, @116) in
+        let @156 = select(@151, @124, @125) in
+        let @157 = select(@151, @125, @124) in
+        let @158 = @145 < @152 in
+        let @159 = select(@158, @145, @152) in
+        let @160 = select(@158, @152, @145) in
+        let @161 = select(@158, @147, @154) in
+        let @162 = select(@158, @154, @147) in
+        let @163 = select(@158, @149, @156) in
+        let @164 = select(@158, @156, @149) in
+        let @165 = @146 < @153 in
+        let @166 = select(@165, @146, @153) in
+        let @167 = select(@165, @153, @146) in
+        let @168 = select(@165, @148, @155) in
+        let @169 = select(@165, @155, @148) in
+        let @170 = select(@165, @150, @157) in
+        let @171 = select(@165, @157, @150) in
+        let @172 = @159 < @166 in
+        let @175 = select(@172, @161, @168) in
+        let @176 = select(@172, @168, @161) in
+        let @177 = select(@172, @163, @170) in
+        let @178 = select(@172, @170, @163) in
+        let @179 = @160 < @167 in
+        let @182 = select(@179, @162, @169) in
+        let @183 = select(@179, @169, @162) in
+        let @184 = select(@179, @164, @171) in
+        let @185 = select(@179, @171, @164) in
+        if (@185) {
+          !stack[(*!count)] = @183
+          let @192 = (*!count) + 1u in
+          !count = @192
         }
-        if (@192) {
-          !stack[(*!count)] = @190
-          let @203 = (*!count) + 1u in
-          !count = @203
+        if (@184) {
+          !stack[(*!count)] = @182
+          let @195 = (*!count) + 1u in
+          !count = @195
         }
-        if (@186) {
-          !stack[(*!count)] = @184
-          let @206 = (*!count) + 1u in
-          !count = @206
+        if (@178) {
+          !stack[(*!count)] = @176
+          let @198 = (*!count) + 1u in
+          !count = @198
         }
-        tris_ref!top = @183
+        tris_ref!top = @175
         !live = true
-      } while (@185)
+      } while (@177)
     } else {
-      let @134 = _t59 - 8u in
+      let @126 = _t60 - 8u in
       _idx0 = 0u
-      while ((*_idx0) < @134) {
-        let @136 = (*tris_ref!top) >> 4u in
-        let _t56 = @136 + (*_idx0) in
-        let @138 = tris.prims in
-        let @139 = @138[_t56] in
-        let @140 = intersectsp_ray_tri(r, @139) in
-        let _t173 = @140 in
-        let @141 = _t173.set in
-        if (@141) {
-          let isect_$i1 = _t173.value in
-          let @143 = isect_$i1.t in
-          let @145 = (*_best0) in
-          let @146 = @145._field0 in
-          let @147 = @143 < @146 in
-          if (@147) {
-            let @149 = build<__tuple_0>(_t56) in
-            let @150 = build<__tuple_1>(@143, @149) in
-            _best0 = @150
+      while ((*_idx0) < @126) {
+        let @128 = (*tris_ref!top) >> 4u in
+        let _t57 = @128 + (*_idx0) in
+        let @130 = tris.prims in
+        let @131 = @130[_t57] in
+        let @132 = intersectsp_ray_tri(r, @131) in
+        let _t174 = @132 in
+        let @133 = _t174.set in
+        if (@133) {
+          let isect_$i1 = _t174.value in
+          let @135 = isect_$i1.t in
+          let @137 = (*_best0) in
+          let @138 = @137._field0 in
+          let @139 = @135 < @138 in
+          if (@139) {
+            let @141 = build<__tuple_0>(_t57) in
+            let @142 = build<__tuple_1>(@135, @141) in
+            _best0 = @142
           }
         }
-        let @151 = (*_idx0) + 1u in
-        _idx0 = @151
+        let @143 = (*_idx0) + 1u in
+        _idx0 = @143
       }
     }
-    let @195 = (*!count) != 0u in
-    if (@195) {
-      let @196 = (*!count) - 1u in
-      let @197 = !stack[@196] in
-      tris_ref!top = @197
+    let @187 = (*!count) != 0u in
+    if (@187) {
+      let @188 = (*!count) - 1u in
+      let @189 = !stack[@188] in
+      tris_ref!top = @189
       !live = true
-      !count = @196
+      !count = @188
     } else {
       !live = false
     }
@@ -311,20 +303,20 @@ func entry(r : Ray, b : AABB) -> f32 {
   let invDir$i11 = @0 / @1 in
   let @3 = f32x3(0f) in
   let dirIsNeg$i11 = invDir$i11 < @3 in
-  let _t102$i11 = b.high in
-  let _t103$i11 = b.low in
-  let low_parts$i11 = select(dirIsNeg$i11, _t102$i11, _t103$i11) in
-  let high_parts$i11 = select(dirIsNeg$i11, _t103$i11, _t102$i11) in
-  let _t106$i11 = r.o in
-  let @10 = low_parts$i11 - _t106$i11 in
+  let _t103$i11 = b.high in
+  let _t104$i11 = b.low in
+  let low_parts$i11 = select(dirIsNeg$i11, _t103$i11, _t104$i11) in
+  let high_parts$i11 = select(dirIsNeg$i11, _t104$i11, _t103$i11) in
+  let _t107$i11 = r.o in
+  let @10 = low_parts$i11 - _t107$i11 in
   let @11 = @10 * invDir$i11 in
-  let @12 = high_parts$i11 - _t106$i11 in
+  let @12 = high_parts$i11 - _t107$i11 in
   let @13 = @12 * invDir$i11 in
   let @14 = (f32)eps in
   let @15 = 0.5f * @14 in
-  let _t97$i30 = 3f * @15 in
-  let @17 = 1f - _t97$i30 in
-  let @18 = _t97$i30 / @17 in
+  let _t98$i30 = 3f * @15 in
+  let @17 = 1f - _t98$i30 in
+  let @18 = _t98$i30 / @17 in
   let @20 = 2f * @18 in
   let @21 = 1f + @20 in
   let @76 = @13 * f32x3(@21) in
@@ -370,14 +362,14 @@ func entry(r : Ray, b : AABB) -> f32 {
   let @67 = (*intersectsp_ray_aabb$r11).set in
   if (@67) {
     let extract = (*intersectsp_ray_aabb$r11).value in
-    let _t94 = extract.low in
+    let _t95 = extract.low in
     let @71 = r.tmax in
-    let @72 = _t94 < @71 in
+    let @72 = _t95 < @71 in
     if (@72) {
       let @73 = extract.high in
       let @74 = 0f < @73 in
       if (@74) {
-        return _t94
+        return _t95
       }
     }
   }
@@ -421,7 +413,7 @@ schedule host {
     tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
   | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
   | Leaf(data : Triangle[]) with data = data
-    trace.sort(tris.Interior, |i : u8, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, lo : f32x3x4, hi : f32x3x4| entry(r, build<struct AABB{ low : f32x3; high : f32x3 }>(lo[i], hi[i])))
+    trace.sort(tris.Interior, |i : u32, r : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }, lo : f32x3x4, hi : f32x3x4| entry(r, build<struct AABB{ low : f32x3; high : f32x3 }>(lo[i], hi[i])))
          .loopify((i32)64)
 
 }

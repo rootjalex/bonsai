@@ -194,7 +194,7 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
                 << "Two loops over the children of one arm: " << Stmt(node);
             const Lambda *lambda = cost_func.as<Lambda>();
             internal_assert(lambda) << cost_func;
-            const Type index_t = UInt_t::make(32);
+            const Type index_t = node->slice.begin.type();
             const std::optional<uint64_t> count =
                 get_constant_value<uint64_t>(node->slice.end);
             internal_assert(count.has_value())
@@ -208,10 +208,22 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
             WriteLoc slot = keys;
             const Expr index = Var::make(index_t, node->index);
             slot.add_index_access(index);
-            // The lambda takes the child's index as its first parameter, in
-            // whatever type the schedule gave it.
-            Expr key = sort_cost(Cast::make(lambda->args[0].type, index,
-                                            Cast::Mode::Convert));
+            // The lambda's first parameter is the child's index, and here that
+            // is the loop's own index, in the loop's type. It is substituted
+            // as it is, not converted to a type the schedule picked: the
+            // child's bounds the key reads are the same reads the loop's
+            // test makes, and they are the same reads only while they are
+            // indexed by the same expression -- `lo[children]` twice, not
+            // `lo[children]` and `lo[cast<u8>(children)]`, which no later
+            // pass can tell are one (the truncation discards bits it cannot
+            // know are zero). A schedule that wrote the index in another
+            // type is told which to write.
+            internal_assert(equals(lambda->args[0].type, index_t))
+                << "The sort key's index `" << lambda->args[0].name << " : "
+                << lambda->args[0].type << "` must have the type of the loop "
+                << "over the children it indexes, " << index_t
+                << ", in the sort key: " << cost_func;
+            Expr key = sort_cost(index);
             keys_held = Var::make(keys_t, name);
             return Sequence::make(
                 {Allocate::make(keys, Allocate::Memory::Stack),

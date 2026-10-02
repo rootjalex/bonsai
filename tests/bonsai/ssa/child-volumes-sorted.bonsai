@@ -92,9 +92,9 @@ schedule {
 
     // Nearest child first: the key is the distance at which the ray enters
     // child i's box, which the parent holds -- `i` is the children's loop
-    // index, and the key is computed in that loop.
+    // index, in the loop's type, and the key is computed in that loop.
     trace.sort(tris.Interior,
-               |i : u8, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
                entry(r, AABB{lo[i], hi[i]}))
          .loopify(64);
 }

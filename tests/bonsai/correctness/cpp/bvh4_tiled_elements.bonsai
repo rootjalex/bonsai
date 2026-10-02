@@ -87,7 +87,7 @@ schedule {
     };
 
     trace.sort(tris.Interior,
-               |i : u8, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
                entry(r, AABB{lo[i], hi[i]}))
          .loopify(64);
     occluded.loopify(64);
