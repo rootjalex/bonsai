@@ -780,6 +780,8 @@ void erase(Function &func, const std::set<const Instruction *> &dead) {
 
 // Removes every pure instruction nothing reads, and then whatever that
 // leaves unread, until nothing more goes.
+} // namespace
+
 void remove_dead(Function &func) {
     for (;;) {
         const UseCounts uses = use_counts(func);
@@ -799,6 +801,8 @@ void remove_dead(Function &func) {
         erase(func, dead);
     }
 }
+
+namespace {
 
 // A dispatch on a constant is a jump to the target it names: what a
 // specialized copy's match on its variant becomes once the tag is read off

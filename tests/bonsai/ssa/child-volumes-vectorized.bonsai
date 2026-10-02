@@ -21,8 +21,10 @@
 //     _maskN[ramp(0u, 1u, 4)] = <hit and nearer than the best>
 //     _keysN[ramp(0u, 1u, 4)] = <entry distance, inf for a miss>
 //
-// and the sorting network and the pushes after the loop read them back a
-// lane at a time, as before. The `&&` in the mask -- the slab test, and
+// and the sort after the loop reads them back as the vectors they are: the
+// hits sorted by one vector network and the ones that wait written to the
+// stack by one compacting store (see child-volumes-sorted.bonsai). The `&&`
+// in the mask -- the slab test, and
 // only where it hit, the comparison with the best -- is a merge of two
 // values under a divergent branch: a `mut` the arm assigns one lane each
 // and the other edge the constant, blended at the join, with the arm

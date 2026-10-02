@@ -37,6 +37,12 @@ void simplify(Function &func);
 // is a question of what is stored in between (see SSA/ReorderLoops.h).
 bool pure(const Instruction &in);
 
+// Removes every pure instruction nothing reads, to a fixed point. What
+// simplify() ends with once it has changed something; a rewrite that leaves
+// values unread by itself -- loopify replacing a run of calls, whose lanes
+// were read for the calls alone -- calls it for what it orphaned.
+void remove_dead(Function &func);
+
 // Whether an instruction reads memory: a load through a pointer, or an
 // element read from an array -- which this form writes as extract_idx of the
 // array handle (or of the struct a dynamic array is lowered to), the same

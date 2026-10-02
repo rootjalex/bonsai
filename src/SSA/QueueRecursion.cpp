@@ -2,6 +2,8 @@
 
 #include "SSA/Analysis.h"
 #include "SSA/InsertPreheader.h"
+#include "SSA/Simplify.h"
+#include "SSA/SortRecursion.h"
 
 #include "Utils.h"
 
@@ -429,11 +431,15 @@ struct RecursiveCall {
     vector<shared_ptr<Value>> conds;
     Terminator::Jump cont;
     bool drop;
+    // The run as sorted vectors, when a sort left it so (see
+    // SSA/SortRecursion.h): then the pushes are one compacting store each.
+    std::optional<SortedRun> sorted;
 };
 
 std::optional<RecursiveCall> called_by(const Block &block) {
     if (const auto *c = std::get_if<Terminator::Call>(&block.terminator.data)) {
-        return RecursiveCall{c->call.name, {c->call.args}, {}, c->cont, c->drop};
+        return RecursiveCall{c->call.name, {c->call.args}, {}, c->cont, c->drop,
+                             std::nullopt};
     }
     if (const auto *c =
             std::get_if<Terminator::MultiCall>(&block.terminator.data)) {
@@ -447,7 +453,7 @@ std::optional<RecursiveCall> called_by(const Block &block) {
             << "The run in " << block.name << " has " << c->conds.size()
             << " conditions for " << c->varying.size() << " calls";
         return RecursiveCall{c->call.name, std::move(args), c->conds, c->cont,
-                             c->drop};
+                             c->drop,          sorted_run(*c)};
     }
     return std::nullopt;
 }
@@ -901,6 +907,98 @@ void queue_recursion(Function &func, size_t size) {
         // push the hits -- and it is what pruning *at the parent* has to
         // mean once the recursion is a stack: a child that is not visited is
         // one that is never written down.
+        //
+        // A run sort_recursion() ordered as vectors (SortedRun, see
+        // SSA/SortRecursion.h) -- the run of a node that holds its children's
+        // boxes, its hits sorted and its children held as one vector per
+        // varying parameter, the nearest in the last lane and the children
+        // not hit in the lowest -- is written down with one compacting store
+        // per stack rather than a conditional push per child: the lanes of
+        // the hits that wait, farthest first, go into consecutive slots from
+        // the top (LLVM's masked.compressstore, `vpcompressq`), the count
+        // advances once by their number, and the nearest is descended into.
+        // Where no child is hit there is nothing to write and nothing to
+        // descend into, and the next node comes off the stack: Embree's `if
+        // (mask == 0) goto pop` in front of its traverseClosestHit.
+        if (call->sorted.has_value()) {
+            const SortedRun &run = *call->sorted;
+            const uint32_t n = run.lanes;
+            const Type bool_t = Bool_t::make();
+            const Type lanes_t = Vector_t::make(count_type, n);
+            const Type mask_t = Vector_t::make(bool_t, n);
+            auto made = append(func, into, bool_t, Instruction::Op::Ne,
+                               {run.hits, count_of(0)});
+            auto push = new_block(func, name + "!push");
+            func.blocks.push_back(push);
+            into->terminator.data = Terminator::Dispatch{
+                made,
+                {last ? Terminator::Jump{pop->name} : call->cont,
+                 Terminator::Jump{push->name}}};
+
+            auto top =
+                append(func, push, count_type, Instruction::Op::Load, {count});
+            // The lanes that wait: the hits are the last `hits` lanes, and
+            // the nearest of them, the last lane, is not written but visited.
+            auto lane = append(func, push, lanes_t, Instruction::Op::Ramp,
+                               {count_of(0), count_of(1)});
+            auto first = append(func, push, count_type, Instruction::Op::Sub,
+                                {count_of(n), run.hits});
+            auto from = append(func, push, lanes_t, Instruction::Op::Bc,
+                               {first, count_of(n)});
+            shared_ptr<Value> waiting =
+                append(func, push, mask_t, Instruction::Op::Leq, {from, lane});
+            shared_ptr<Value> added = run.hits;
+            if (last) {
+                vector<shared_ptr<Value>> below;
+                for (uint32_t i = 0; i < n; i++) {
+                    below.push_back(
+                        std::make_shared<Value>(Constant{bool_t, i + 1 < n}));
+                }
+                auto not_nearest = append(func, push, mask_t,
+                                          Instruction::Op::MakeStruct,
+                                          std::move(below));
+                waiting = append(func, push, mask_t, Instruction::Op::LAnd,
+                                 {waiting, not_nearest});
+                added = append(func, push, count_type, Instruction::Op::Sub,
+                               {run.hits, count_of(1)});
+            }
+            for (const Stack &stack : stacks) {
+                const auto values = run.values.find(stack.param);
+                internal_assert(values != run.values.end())
+                    << "The sorted run in " << name << " has no vector for "
+                    << params[stack.param].name << ", which varies";
+                auto slot =
+                    append(func, push, Ptr_t::make(params[stack.param].type),
+                           Instruction::Op::GEP, {stack.storage, top});
+                auto store = std::make_shared<Instruction>(
+                    Instruction::Op::Store,
+                    vector<shared_ptr<Value>>{slot, values->second, waiting},
+                    push);
+                store->compact = true;
+                push->instrs.push_back(store);
+            }
+            append_store(push, count,
+                         append(func, push, count_type, Instruction::Op::Add,
+                                {top, added}));
+            if (!last) {
+                push->terminator.data = call->cont;
+                continue;
+            }
+            shared_ptr<Value> alive = bool_of(true);
+            if (acc.has_value() && may_settle_before(name)) {
+                alive = undecided_in(push);
+            }
+            vector<shared_ptr<Value>> nearest;
+            for (const Stack &stack : stacks) {
+                nearest.push_back(append(
+                    func, push, params[stack.param].type,
+                    Instruction::Op::ExtractIdx,
+                    {run.values.at(stack.param), count_of(n - 1)}));
+            }
+            push->terminator.data = visit(std::move(nearest), std::move(alive));
+            continue;
+        }
+
         const auto condition = [&](size_t i) -> shared_ptr<Value> {
             if (call->conds.empty() || always(call->conds[i])) {
                 return nullptr;
@@ -985,6 +1083,9 @@ void queue_recursion(Function &func, size_t size) {
     }
 
     refresh_preds(func);
+    // The runs are gone, and with them the only readers of what was made for
+    // the calls alone: a sorted run's lanes and conditions (SortedRun).
+    remove_dead(func);
 }
 
 } // namespace ssa

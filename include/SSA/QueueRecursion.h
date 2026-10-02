@@ -57,6 +57,14 @@ namespace ssa {
 // dropped here either way, since a run that is pushes on a stack is visited
 // entry by entry; and a gang's accumulator is one bool per lane, so `any` is
 // settled only when every lane's is.
+//
+// A run a sort left as vectors -- a node's children, the hits sorted and held
+// one vector per varying parameter (SortedRun, SSA/SortRecursion.h) -- is
+// written down with one compacting store per stack: the hits that wait go
+// into consecutive slots from the top in one store, the count advances once
+// by their number, and the nearest is descended into. Embree's
+// traverseClosestHit, which pushes the sorted hits and continues with the
+// nearest; where no child is hit, its `goto pop`.
 void queue_recursion(Function &func, size_t size);
 
 } // namespace ssa

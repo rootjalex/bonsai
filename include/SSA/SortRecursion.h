@@ -3,6 +3,10 @@
 
 #include "SSA/SSA.h"
 
+#include <map>
+#include <memory>
+#include <optional>
+
 namespace bonsai {
 namespace ir {
 namespace ssa {
@@ -32,9 +36,30 @@ namespace ssa {
 // which is what keeps the children a gang descends into uniform when its rays
 // would each have ordered them differently.
 //
+// A run whose conditions, keys and children are the lanes of vectors -- the
+// run a node that holds its children's boxes makes, from the loop over them
+// -- is sorted as those vectors, over the children that are hit alone (see
+// sort_lanes in SortRecursion.cpp), and left in the shape `sorted_run` below
+// reads back.
+//
 // Returns the number of runs it reordered, which is zero for a function whose
 // recursion no schedule sorted.
 size_t sort_recursion(Function &func);
+
+// A run sort_recursion() ordered as vectors, read off the shape it left: call
+// k's varying values are lane `lanes - 1 - k` of one vector per varying
+// parameter -- the nearest child in the last lane, the ones behind it in the
+// lanes below, the children not hit in the lowest lanes -- and its condition
+// is `k < hits`. What loopify reads to write the waiting children to its
+// stack with one compacting store rather than a conditional push each (see
+// SSA/QueueRecursion.h). Nothing for a run of any other shape.
+struct SortedRun {
+    // The sorted vector of each varying parameter, by the parameter's index.
+    std::map<size_t, std::shared_ptr<Value>> values;
+    std::shared_ptr<Value> hits; // how many calls are made, a u32
+    uint32_t lanes = 0;
+};
+std::optional<SortedRun> sorted_run(const Terminator::MultiCall &call);
 
 } // namespace ssa
 } // namespace ir

@@ -38,197 +38,183 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
     let _t60 = (*tris_ref!top) & 15u in
     let @1 = _t60 == 0u in
     if (@1) {
-      do {
-        _mask0 : mut bool[4]
-        _keys0 : mut f32[4]
-        parfor children in [0u:4u:1u] {
-          intersectsp_ray_aabb$r26 : mut _option1
-          tmin$i26 : mut f32
-          tmax$i26 : mut f32
-          intersects_Ray_AABB$r0 : mut bool
-          !and_0 : mut bool
-          let @2 = tris.group0_row in
-          let @3 = (*tris_ref!top) >> 4u in
-          let _t156 = @2[@3] in
-          let @5 = _t156.lo in
-          let @6 = cast<f32x3x4>(@5) in
-          let _t104$i26 = @6[children] in
-          let @8 = _t156.hi in
-          let @9 = cast<f32x3x4>(@8) in
-          let _t103$i26 = @9[children] in
-          let b$i0 = build<AABB>(_t104$i26, _t103$i26) in
-          let @12 = f32x3(1f) in
-          let @13 = r.d in
-          let invDir$i26 = @12 / @13 in
-          let @15 = f32x3(0f) in
-          let dirIsNeg$i26 = invDir$i26 < @15 in
-          let low_parts$i26 = select(dirIsNeg$i26, _t103$i26, _t104$i26) in
-          let high_parts$i26 = select(dirIsNeg$i26, _t104$i26, _t103$i26) in
-          let _t107$i26 = r.o in
-          let @22 = low_parts$i26 - _t107$i26 in
-          let @23 = @22 * invDir$i26 in
-          let @24 = high_parts$i26 - _t107$i26 in
-          let @25 = @24 * invDir$i26 in
-          let @26 = (f32)eps in
-          let @27 = 0.5f * @26 in
-          let _t98$i14$i26 = 3f * @27 in
-          let @29 = 1f - _t98$i14$i26 in
-          let @30 = _t98$i14$i26 / @29 in
-          let @32 = 2f * @30 in
-          let @33 = 1f + @32 in
-          let @199 = @25 * f32x3(@33) in
-          let @35 = @199[1u] in
-          let @37 = @23[0u] in
-          let @38 = @35 < @37 in
-          let @40 = @199[0u] in
-          let @42 = @23[1u] in
-          let @43 = @40 < @42 in
-          let @44 = @38 || @43 in
-          if (@44) {
-            let @45 = build<_option1>() in
-            intersectsp_ray_aabb$r26 = @45
+      _mask0 : mut bool[4]
+      _keys0 : mut f32[4]
+      parfor children in [0u:4u:1u] {
+        intersectsp_ray_aabb$r26 : mut _option1
+        tmin$i26 : mut f32
+        tmax$i26 : mut f32
+        intersects_Ray_AABB$r0 : mut bool
+        !and_0 : mut bool
+        let @2 = tris.group0_row in
+        let @3 = (*tris_ref!top) >> 4u in
+        let _t156 = @2[@3] in
+        let @5 = _t156.lo in
+        let @6 = cast<f32x3x4>(@5) in
+        let _t104$i26 = @6[children] in
+        let @8 = _t156.hi in
+        let @9 = cast<f32x3x4>(@8) in
+        let _t103$i26 = @9[children] in
+        let b$i0 = build<AABB>(_t104$i26, _t103$i26) in
+        let @12 = f32x3(1f) in
+        let @13 = r.d in
+        let invDir$i26 = @12 / @13 in
+        let @15 = f32x3(0f) in
+        let dirIsNeg$i26 = invDir$i26 < @15 in
+        let low_parts$i26 = select(dirIsNeg$i26, _t103$i26, _t104$i26) in
+        let high_parts$i26 = select(dirIsNeg$i26, _t104$i26, _t103$i26) in
+        let _t107$i26 = r.o in
+        let @22 = low_parts$i26 - _t107$i26 in
+        let @23 = @22 * invDir$i26 in
+        let @24 = high_parts$i26 - _t107$i26 in
+        let @25 = @24 * invDir$i26 in
+        let @26 = (f32)eps in
+        let @27 = 0.5f * @26 in
+        let _t98$i14$i26 = 3f * @27 in
+        let @29 = 1f - _t98$i14$i26 in
+        let @30 = _t98$i14$i26 / @29 in
+        let @32 = 2f * @30 in
+        let @33 = 1f + @32 in
+        let @210 = @25 * f32x3(@33) in
+        let @35 = @210[1u] in
+        let @37 = @23[0u] in
+        let @38 = @35 < @37 in
+        let @40 = @210[0u] in
+        let @42 = @23[1u] in
+        let @43 = @40 < @42 in
+        let @44 = @38 || @43 in
+        if (@44) {
+          let @45 = build<_option1>() in
+          intersectsp_ray_aabb$r26 = @45
+        } else {
+          let @47 = @23[0u] in
+          let @49 = @23[1u] in
+          let @50 = max(@47, @49) in
+          let @52 = @210[0u] in
+          let @54 = @210[1u] in
+          let @55 = min(@52, @54) in
+          let @57 = @210[2u] in
+          let @59 = @57 < @50 in
+          let @62 = @23[2u] in
+          let @63 = @55 < @62 in
+          let @64 = @59 || @63 in
+          if (@64) {
+            let @65 = build<_option1>() in
+            intersectsp_ray_aabb$r26 = @65
+            tmin$i26 = @50
+            tmax$i26 = @55
           } else {
-            let @47 = @23[0u] in
-            let @49 = @23[1u] in
-            let @50 = max(@47, @49) in
-            let @52 = @199[0u] in
-            let @54 = @199[1u] in
-            let @55 = min(@52, @54) in
-            let @57 = @199[2u] in
-            let @59 = @57 < @50 in
-            let @62 = @23[2u] in
-            let @63 = @55 < @62 in
-            let @64 = @59 || @63 in
-            if (@64) {
-              let @65 = build<_option1>() in
-              intersectsp_ray_aabb$r26 = @65
-              tmin$i26 = @50
-              tmax$i26 = @55
-            } else {
-              let @68 = @23[2u] in
-              let @69 = max(@50, @68) in
-              let @72 = @199[2u] in
-              let @73 = min(@55, @72) in
-              let @76 = build<FInterval>(@69, @73) in
-              let @77 = build<_option1>(@76, true) in
-              intersectsp_ray_aabb$r26 = @77
-              tmin$i26 = @69
-              tmax$i26 = @73
-            }
+            let @68 = @23[2u] in
+            let @69 = max(@50, @68) in
+            let @72 = @210[2u] in
+            let @73 = min(@55, @72) in
+            let @76 = build<FInterval>(@69, @73) in
+            let @77 = build<_option1>(@76, true) in
+            intersectsp_ray_aabb$r26 = @77
+            tmin$i26 = @69
+            tmax$i26 = @73
           }
-          let @79 = (*intersectsp_ray_aabb$r26).set in
-          if (@79) {
-            let extract$i0 = (*intersectsp_ray_aabb$r26).value in
-            let @82 = extract$i0.low in
-            let @83 = r.tmax in
-            let @84 = @82 < @83 in
-            let @85 = extract$i0.high in
-            let @86 = 0f < @85 in
-            let @87 = @84 & @86 in
-            intersects_Ray_AABB$r0 = @87
-          } else {
-            intersects_Ray_AABB$r0 = false
-          }
-          if ((*intersects_Ray_AABB$r0)) {
-            let @89 = tris.group0_row in
-            let @90 = (*tris_ref!top) >> 4u in
-            let @91 = @89[@90] in
-            let @92 = @91.lo in
-            let @93 = cast<f32x3x4>(@92) in
-            let @94 = @93[children] in
-            let @95 = tris.group0_row in
-            let @96 = (*tris_ref!top) >> 4u in
-            let @97 = @95[@96] in
-            let @98 = @97.hi in
-            let @99 = cast<f32x3x4>(@98) in
-            let @100 = @99[children] in
-            let @101 = build<AABB>(@94, @100) in
-            let @102 = distmin_Ray_AABB(r, @101) in
-            let @103 = (*_best0) in
-            let @104 = @103._field0 in
-            let @105 = @102 < @104 in
-            !and_0 = @105
-          } else {
-            !and_0 = false
-          }
-          _mask0[children] = (*!and_0)
-          let @107 = entry(r, b$i0) in
-          _keys0[children] = @107
-          continue
         }
-        let @109 = tris.group0_row in
-        let @110 = (*tris_ref!top) >> 4u in
-        let @111 = @109[@110] in
-        let @112 = @111.children in
-        let _t27 = cast<u32x4>(@112) in
-        let @114 = _t27[0u] in
-        let @115 = _t27[1u] in
-        let @116 = _t27[2u] in
-        let @117 = _t27[3u] in
-        let @118 = _keys0[0u] in
-        let @119 = _keys0[1u] in
-        let @120 = _keys0[2u] in
-        let @121 = _keys0[3u] in
-        let @122 = _mask0[0u] in
-        let @123 = _mask0[1u] in
-        let @124 = _mask0[2u] in
-        let @125 = _mask0[3u] in
-        let @144 = @118 < @119 in
-        let @145 = select(@144, @118, @119) in
-        let @146 = select(@144, @119, @118) in
-        let @147 = select(@144, @114, @115) in
-        let @148 = select(@144, @115, @114) in
-        let @149 = select(@144, @122, @123) in
-        let @150 = select(@144, @123, @122) in
-        let @151 = @121 < @120 in
-        let @152 = select(@151, @120, @121) in
-        let @153 = select(@151, @121, @120) in
-        let @154 = select(@151, @116, @117) in
-        let @155 = select(@151, @117, @116) in
-        let @156 = select(@151, @124, @125) in
-        let @157 = select(@151, @125, @124) in
-        let @158 = @145 < @152 in
-        let @159 = select(@158, @145, @152) in
-        let @160 = select(@158, @152, @145) in
-        let @161 = select(@158, @147, @154) in
-        let @162 = select(@158, @154, @147) in
-        let @163 = select(@158, @149, @156) in
-        let @164 = select(@158, @156, @149) in
-        let @165 = @146 < @153 in
-        let @166 = select(@165, @146, @153) in
-        let @167 = select(@165, @153, @146) in
-        let @168 = select(@165, @148, @155) in
-        let @169 = select(@165, @155, @148) in
-        let @170 = select(@165, @150, @157) in
-        let @171 = select(@165, @157, @150) in
-        let @172 = @159 < @166 in
-        let @175 = select(@172, @161, @168) in
-        let @176 = select(@172, @168, @161) in
-        let @177 = select(@172, @163, @170) in
-        let @178 = select(@172, @170, @163) in
-        let @179 = @160 < @167 in
-        let @182 = select(@179, @162, @169) in
-        let @183 = select(@179, @169, @162) in
-        let @184 = select(@179, @164, @171) in
-        let @185 = select(@179, @171, @164) in
-        if (@185) {
-          !stack[(*!count)] = @183
-          let @192 = (*!count) + 1u in
-          !count = @192
+        let @79 = (*intersectsp_ray_aabb$r26).set in
+        if (@79) {
+          let extract$i0 = (*intersectsp_ray_aabb$r26).value in
+          let @82 = extract$i0.low in
+          let @83 = r.tmax in
+          let @84 = @82 < @83 in
+          let @85 = extract$i0.high in
+          let @86 = 0f < @85 in
+          let @87 = @84 & @86 in
+          intersects_Ray_AABB$r0 = @87
+        } else {
+          intersects_Ray_AABB$r0 = false
         }
-        if (@184) {
-          !stack[(*!count)] = @182
-          let @195 = (*!count) + 1u in
-          !count = @195
+        if ((*intersects_Ray_AABB$r0)) {
+          let @89 = tris.group0_row in
+          let @90 = (*tris_ref!top) >> 4u in
+          let @91 = @89[@90] in
+          let @92 = @91.lo in
+          let @93 = cast<f32x3x4>(@92) in
+          let @94 = @93[children] in
+          let @95 = tris.group0_row in
+          let @96 = (*tris_ref!top) >> 4u in
+          let @97 = @95[@96] in
+          let @98 = @97.hi in
+          let @99 = cast<f32x3x4>(@98) in
+          let @100 = @99[children] in
+          let @101 = build<AABB>(@94, @100) in
+          let @102 = distmin_Ray_AABB(r, @101) in
+          let @103 = (*_best0) in
+          let @104 = @103._field0 in
+          let @105 = @102 < @104 in
+          !and_0 = @105
+        } else {
+          !and_0 = false
         }
-        if (@178) {
-          !stack[(*!count)] = @176
-          let @198 = (*!count) + 1u in
-          !count = @198
-        }
-        tris_ref!top = @175
+        _mask0[children] = (*!and_0)
+        let @107 = entry(r, b$i0) in
+        _keys0[children] = @107
+        continue
+      }
+      let @109 = tris.group0_row in
+      let @110 = (*tris_ref!top) >> 4u in
+      let @111 = @109[@110] in
+      let @112 = @111.children in
+      let _t27 = cast<u32x4>(@112) in
+      let @145 = _mask0[ramp(0u, 1u, 4)] in
+      let @147 = _keys0[ramp(0u, 1u, 4)] in
+      let @148 = (f32)inf in
+      let @149 = f32x4(@148) in
+      let @150 = select(@145, @147, @149) in
+      let @151 = reinterpret_cast<i32x4>(@150) in
+      let @152 = i32x4(31) in
+      let @153 = @151 >> @152 in
+      let @154 = i32x4(2147483647) in
+      let @155 = @153 & @154 in
+      let @156 = @151 ^ @155 in
+      let @158 = i32x4(-4) in
+      let @159 = @156 & @158 in
+      let @160 = @159 | ramp(0, 1, 4) in
+      let @161 = shuffle({@160}, {1, 0, 3, 2}) in
+      let @162 = min(@160, @161) in
+      let @163 = max(@160, @161) in
+      let @164 = build<boolx4>(true, false, false, true) in
+      let @165 = select(@164, @163, @162) in
+      let @166 = @165 != @160 in
+      let @167 = shuffle({_t27}, {1, 0, 3, 2}) in
+      let @168 = select(@166, @167, _t27) in
+      let @169 = shuffle({@165}, {2, 3, 0, 1}) in
+      let @170 = min(@165, @169) in
+      let @171 = max(@165, @169) in
+      let @172 = build<boolx4>(true, true, false, false) in
+      let @173 = select(@172, @171, @170) in
+      let @174 = @173 != @165 in
+      let @175 = shuffle({@168}, {2, 3, 0, 1}) in
+      let @176 = select(@174, @175, @168) in
+      let @177 = shuffle({@173}, {1, 0, 3, 2}) in
+      let @178 = min(@173, @177) in
+      let @179 = max(@173, @177) in
+      let @180 = build<boolx4>(true, false, true, false) in
+      let @181 = select(@180, @179, @178) in
+      let @182 = @181 != @173 in
+      let @183 = shuffle({@176}, {1, 0, 3, 2}) in
+      let @184 = select(@182, @183, @176) in
+      let @185 = reduce<+>(cast<u32x4>(@145)) in
+      let @198 = @185 != 0u in
+      if (@198) {
+        let @201 = 4u - @185 in
+        let @202 = u32x4(@201) in
+        let @203 = @202 <= ramp(0u, 1u, 4) in
+        let @204 = build<boolx4>(true, true, true, false) in
+        let @205 = @203 && @204 in
+        let @206 = @185 - 1u in
+        compress_store(!stack[(*!count)], @184, @205)
+        let @208 = (*!count) + @206 in
+        let @209 = @184[3u] in
+        tris_ref!top = @209
         !live = true
-      } while (@177)
+        !count = @208
+        continue
+      }
     } else {
       let @126 = _t60 - 8u in
       _idx0 = 0u
@@ -256,13 +242,13 @@ func _recloop_func0(tris_ref : u32, r : Ray, tris : _tree_layout0, _best0 : mut 
         _idx0 = @143
       }
     }
-    let @187 = (*!count) != 0u in
-    if (@187) {
-      let @188 = (*!count) - 1u in
-      let @189 = !stack[@188] in
-      tris_ref!top = @189
+    let @195 = (*!count) != 0u in
+    if (@195) {
+      let @196 = (*!count) - 1u in
+      let @197 = !stack[@196] in
+      tris_ref!top = @197
       !live = true
-      !count = @188
+      !count = @196
     } else {
       !live = false
     }

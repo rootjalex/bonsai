@@ -5,8 +5,10 @@
 // four children's slab test as `<4 x float>` arithmetic over the node's
 // component vectors loaded whole -- no `extractelement` of a box per child,
 // no `select` chain picking a child's box by its index -- and the mask and
-// the keys stored once each as a vector; after it, the network and the
-// pushes read them back a lane at a time.
+// the keys stored once each as a vector; after it, the sort of the hits as
+// vector `smin`/`smax` and shuffles over the keys with the lane in their low
+// bits, and the waiting children written to the stack by one
+// `masked.compressstore`.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

@@ -18,20 +18,27 @@
 //     }
 //
 // The sort orders the four children by the distance at which the ray enters
-// each box, a miss counting as infinitely far, so the nearest hit child is
-// descended into first and the misses sort last; the sorting network
-// permutes each child's mask bit along with its reference and key, since the
-// test belongs to the child wherever the order put it. Then loopify puts the
-// run on a stack, and the mask decides what is written down:
+// each box, and only the children hit: the mask, the keys and the children
+// are the lanes of one vector each, so the run is sorted as those vectors
+// (SSA/SortRecursion.cpp, sort_lanes). The misses' keys are made infinite,
+// the keys become integers that order as the floats do with the lane in the
+// low bits -- Embree's `distance_i` -- and a bitonic network of vector
+// minimums and maximums puts them in descending order, the children
+// following their keys (`shuffle`, `min`, `max`, `select`): the misses in
+// the first lanes, then the hits from the farthest to the nearest in the
+// last. Then loopify puts the run on a stack with one compacting store:
 //
-//     if (<mask of the farthest>) { !stack[!count] = <it>; !count += 1 }
-//     ...
-//     tris_ref!top = <the nearest>, under its mask bit, and otherwise the pop
+//     if (hits != 0) {
+//       compress_store(!stack[!count], <sorted children>, <lanes 4-hits .. 2>)
+//       !count += hits - 1
+//       tris_ref!top = <lane 3, the nearest>
+//     }                                   -- and otherwise the pop
 //
-// a child whose box the ray missed is neither descended into nor pushed. That
-// is Embree's BVHNIntersector1 -- intersect the node's children, sort the
-// hits by distance, push them and continue with the nearest -- as the
-// composition of a tree declaration and two directives.
+// a child whose box the ray missed is neither descended into nor pushed, and
+// no push is a branch. That is Embree's BVHNIntersector1 -- intersect the
+// node's children, sort the hits by distance, push them and continue with
+// the nearest -- as the composition of a tree declaration and two
+// directives.
 //
 // What is not here: Embree also carries each pushed child's entry distance
 // on the stack and drops a popped entry whose distance is beyond the best
