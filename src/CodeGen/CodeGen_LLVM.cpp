@@ -2362,17 +2362,51 @@ void CodeGen_LLVM::visit(const VectorReduce *node) {
         }
         break;
     case VectorReduce::Min:
+    case VectorReduce::Max: {
+        const bool is_max = node->op == VectorReduce::Max;
+        if (node->type.is_float()) {
+            // The binary min and max folded over halves of the vector -- a
+            // shuffle and one minps per halving, four instructions for four
+            // lanes -- and not llvm.vector.reduce.fmin: that is libm's fmin,
+            // which drops a NaN in either position, and x86 has no such
+            // instruction, so every minss of it came with a compare for NaN
+            // and a blend, twelve instructions for four lanes, in the leaf
+            // of every traversal (the nearest of a Triangle4's four hits).
+            // The binary op is std::min, `b < a ? b : a`, exactly as
+            // visit(Intrinsic) lowers it, so a reduction and a chain of the
+            // program's own mins agree wherever no NaN is involved; with
+            // one, this takes the tree's answer where the chain takes the
+            // chain's, which is what Embree's `select_min` does too
+            // (common/simd/vfloat4_sse2.h, vreduce_min).
+            const auto pick = [&](llvm::Value *a, llvm::Value *b) {
+                llvm::Value *take_b = is_max ? builder->CreateFCmpOLT(a, b)
+                                             : builder->CreateFCmpOLT(b, a);
+                return builder->CreateSelect(take_b, b, a);
+            };
+            unsigned lanes = vector_lanes(v->getType());
+            llvm::Value *acc = v;
+            while (lanes > 1 && (lanes & 1) == 0) {
+                const unsigned half = lanes / 2;
+                acc = pick(slice_vector(acc, 0, int(half)),
+                           slice_vector(acc, int(half), int(half)));
+                lanes = half;
+            }
+            // An odd count of lanes left -- a vector of three, or of six
+            // halved once -- folds the rest lane by lane.
+            llvm::Value *result = builder->CreateExtractElement(acc, uint64_t(0));
+            for (unsigned k = 1; k < lanes; k++) {
+                result = pick(result,
+                              builder->CreateExtractElement(acc, uint64_t(k)));
+            }
+            result->setName(is_max ? "reduce_max" : "reduce_min");
+            value = result;
+            return;
+        }
         // TODO: handle unsigned eventually!
-        // TODO: what is the difference between fmin and fminimum?
-        intrin = node->type.is_float() ? llvm::Intrinsic::vector_reduce_fmin
-                                       : llvm::Intrinsic::vector_reduce_smin;
+        intrin = is_max ? llvm::Intrinsic::vector_reduce_smax
+                        : llvm::Intrinsic::vector_reduce_smin;
         break;
-    case VectorReduce::Max:
-        // TODO: handle unsigned eventually!
-        // TODO: what is the difference between fmax and fmaximum?
-        intrin = node->type.is_float() ? llvm::Intrinsic::vector_reduce_fmax
-                                       : llvm::Intrinsic::vector_reduce_smax;
-        break;
+    }
     case VectorReduce::Idxmax:
         // TODO: on x86 lower to phminposuw
         value = codegen_expr(lower::argmax(node->value));
