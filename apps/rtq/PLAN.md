@@ -330,6 +330,48 @@ conditional pushes -- which is step 3. A profile of the run (perf, head,
 cpu 11) puts the nearest-hit kernel at twice the any-hit kernel's time for
 the same rays.
 
+**Step 3, the sort over the hits only, and the pushes as one store.** The
+user: "Sort applied to masked children should only sort hits!" and
+"Instead of 8 conditional pushes, we should have a compact+store, no?" No
+new directive: the sort lowering sees that the run's conditions, keys and
+children are the lanes of one vector each (the mask and key arrays the
+children's loop fills, the node's vector of references) and sorts them as
+vectors (SSA/SortRecursion.cpp, `sort_lanes`): the misses' keys made
+infinite, the keys turned into integers that order as the floats do with
+the lane in the low bits (Embree's `distance_i`, so every key is distinct
+and the lane travels with it), one bitonic network of vector minimums and
+maximums in descending order -- misses first, then the hits from the
+farthest to the nearest in the last lane -- with the children following
+their keys by a select per step. The run is left in a shape loopify reads
+back (`sorted_run`): where any child is hit, the waiting hits are written
+to the stack by one compacting store (`masked.compressstore`, lanes
+`8 - hits .. 6`), the count advances once by `hits - 1`, and the nearest,
+lane 7, is descended into; where none is, the next node is popped --
+Embree's `if (mask == 0) goto pop`. Every ray agrees. Head, idle:
+
+| rays    | intersect: Embree | bonsai | was   | now   | occluded: Embree | bonsai | ratio |
+|---------|------:|------:|------:|------:|------:|------:|------:|
+| primary | 38.44 | 29.58 | 0.34x | 0.77x | 44.88 | 72.94 | 1.63x |
+| ao      | 13.52 |  5.97 | 0.33x | 0.44x | 15.01 | 10.05 | 0.67x |
+| diffuse | 12.32 |  5.47 | 0.33x | 0.44x | 14.00 |  9.03 | 0.64x |
+
+(The any-hit numbers are higher than step 2's because the machine was
+idle for this run; its code did not change.)
+
+What still differs from Embree's `traverseClosestHitAVX512VL8`: Embree
+compacts the hits first (`vpcompressd`) and then switches on their
+number -- one hit, no sort; two, one min and max; three, three; four,
+five; more, an insertion sort -- so a node with one or two hits, the
+common case, costs a handful of operations where this network always
+costs its six steps (`shuffle`, `min`, `max`, `select` on the keys and
+`shuffle`, `select` on the children: about forty vector operations). And
+Embree's children come out of the sorted keys' low bits by one permute
+(`vpermt2q`), where here they ride through the network. The incoherent
+rays, at 0.44x, also spend their time in the leaves (step 6). Next: the
+carried bound with the pop cull (step 4), the any-hit order and its
+compacting push (step 5), the four-wide leaf (step 6), `rcp` (step 7);
+the count-specialized sort is a refinement to measure after those.
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per

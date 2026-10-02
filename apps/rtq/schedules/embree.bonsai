@@ -18,12 +18,16 @@ schedule {
     // next pop is the next nearest; `tNear`, the distance at which the ray
     // enters each child's box, is the order. The key is written over the
     // node's fields: child i's box is corner i of the eight the node holds,
-    // and `distmin` is the slab test's entry distance, infinite for a miss,
-    // which puts the misses last -- and they are not pushed at all, since
-    // each child's push is under its own test (SSA/QueueRecursion.h). The
-    // key is computed in the same loop as the tests (Lower/Sorts.cpp), and
-    // `i` is that loop's index, in its type, so that the key's reads of the
-    // child's box are the test's reads and the slab test is done once.
+    // and `distmin` is the slab test's entry distance. The key is computed
+    // in the same loop as the tests (Lower/Sorts.cpp), and `i` is that
+    // loop's index, in its type, so that the key's reads of the child's box
+    // are the test's reads and the slab test is done once. The sort is over
+    // the hits alone, as Embree's is: the mask, the keys and the children
+    // come out of the loop as vectors, the misses' keys are made infinite,
+    // and one vector network orders them with the children following
+    // (SSA/SortRecursion.cpp); the hits that wait go to the stack in one
+    // compacting store and the nearest is descended into
+    // (SSA/QueueRecursion.h).
     //
     // Embree: intersectNode -- the eight children's boxes tested at once,
     // the node's six bound vectors against the ray broadcast. The loop over
