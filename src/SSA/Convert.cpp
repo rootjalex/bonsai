@@ -979,10 +979,15 @@ struct FunctionBuilder : Visitor {
         auto a = get_value(node->a);
         internal_assert(!block->terminator.defined());
         const std::string result = conditional_name(is_and ? "and" : "or");
-        // The answer `a` settles on its own, defined here so that the merge
-        // finds it along the edge that skips `b`.
-        block->make_instruction(result, node->type,
-                                make_constant(node->type, !is_and));
+        // The answer `a` settles on its own, bound to the result's name here
+        // so that the merge finds it along the edge that skips `b`. Bound in
+        // the lookups and not as an instruction named for the result: the
+        // name is the merge's parameter's, and a value is told apart from
+        // another by its name (value_key in SSA/AnalyzeDivergence.cpp), so
+        // two definitions under it -- this constant and `b` -- would read as
+        // one value threaded through, and the merge's parameter as nothing;
+        // a vectorized merge then kept the constant alone.
+        block->lookups[result] = make_constant(node->type, !is_and);
         std::shared_ptr<Block> rhs = make_block(is_and ? "and_rhs" : "or_rhs");
         std::shared_ptr<Block> merge = make_block(is_and ? "and_merge" : "or_merge");
         block->terminator.data = Terminator::Dispatch{
@@ -997,8 +1002,9 @@ struct FunctionBuilder : Visitor {
         rhs->preds.push_back(from);
         merge->preds.push_back(from);
         block = rhs;
-        auto b = get_value(node->b);
-        block->make_instruction(result, node->type, std::move(b));
+        // `b` under the result's name along the other edge, as itself: the
+        // instruction it is keeps its own name.
+        block->lookups[result] = get_value(node->b);
         merge->preds.push_back(block);
         set_block_jump(merge->name);
         block = merge;

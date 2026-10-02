@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -137,6 +138,36 @@ bool is_gang_wide(const Type &type, uint32_t lanes) {
                                suffix) == 0;
     }
     return false;
+}
+
+// If `index` is the gang's lane indices -- a ramp of unit stride from a
+// constant base, `lanes` wide, which is what the loop index became (see
+// vectorize()) -- that base; nothing otherwise.
+std::optional<uint64_t> lane_ramp_base(const Value &index, uint32_t lanes) {
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&index.data);
+    if (instr == nullptr || (*instr)->op != Instruction::Op::Ramp ||
+        (*instr)->operands.size() != 2 || index.get_type().lanes() != lanes) {
+        return std::nullopt;
+    }
+    const auto constant = [](const Value &v) -> std::optional<uint64_t> {
+        const auto *c = std::get_if<Constant>(&v.data);
+        if (c == nullptr) {
+            return std::nullopt;
+        }
+        if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+            return *u;
+        }
+        if (const auto *i = std::get_if<int64_t>(&c->data); i && *i >= 0) {
+            return uint64_t(*i);
+        }
+        return std::nullopt;
+    };
+    const std::optional<uint64_t> base = constant(*(*instr)->operands[0]);
+    const std::optional<uint64_t> stride = constant(*(*instr)->operands[1]);
+    if (!base.has_value() || !stride.has_value() || *stride != 1) {
+        return std::nullopt;
+    }
+    return base;
 }
 
 // A pointer or array handle whose memory has already been laid out per lane:
@@ -674,6 +705,51 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
 
         vector<shared_ptr<Instruction>> widened;
         for (const auto &instr : block.instrs) {
+            // A lane's element of a vector the gang shares, at the lane's own
+            // index -- a node's eight children's boxes, each lane testing one
+            // (`lo[children]` in a vectorized loop over the children) -- is
+            // the vector itself, or a slice of it, in the gang's shape. Of a
+            // vector of vectors, held as one vector per component (see
+            // CodeGen_LLVM's Vector_t), it is the struct of those components
+            // that a per-lane short vector is carried as (ir::widen): the
+            // same members, reinterpreted. Of a vector of scalars it is the
+            // lanes the ramp names, a shuffle LLVM folds when they are all
+            // of them. Not a chain of selects over the elements, which is
+            // what a computed index into a short vector becomes (see
+            // SSA/SplitAggregates.cpp) and what a read at the gang's own
+            // indices never needs.
+            if (instr->op == Instruction::Op::ExtractIdx &&
+                instr->operands.size() == 2 &&
+                !div.is_varying(name, *instr->operands[0]) &&
+                instr->operands[0]->get_type().is_vector() &&
+                !instr->operands[0]->get_type().as<Vector_t>()->packed) {
+                const Vector_t *v =
+                    instr->operands[0]->get_type().as<Vector_t>();
+                const std::optional<uint64_t> base =
+                    lane_ramp_base(*instr->operands[1], lanes);
+                if (base.has_value() && *base + lanes <= v->lanes) {
+                    if (v->etype.is_vector()) {
+                        internal_assert(*base == 0 && v->lanes == lanes)
+                            << "[unimplemented] " << instr->name
+                            << " reads a slice of a vector of vectors, "
+                            << Type(v) << ", from lane " << *base
+                            << ": each component would have to be sliced";
+                        instr->op = Instruction::Op::Reinterpret;
+                        instr->type = widen(v->etype, lanes);
+                    } else {
+                        instr->op = Instruction::Op::Shuffle;
+                        instr->shuffle.clear();
+                        for (uint32_t k = 0; k < lanes; k++) {
+                            instr->shuffle.push_back(int(*base + k));
+                        }
+                        instr->type = Vector_t::make(v->etype, lanes);
+                    }
+                    instr->operands.pop_back();
+                    widened.push_back(instr);
+                    continue;
+                }
+            }
+
             // An element of a per-lane array at an index the lanes disagree
             // about -- a traversal's stack at each lane's own depth. The array
             // is laid out one gang vector per element (see widen_pointee), so
@@ -1830,10 +1906,6 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
 
     Cfg region(*f, entry);
 
-    internal_assert(parfor.cont.args.empty())
-        << "TODO: thread the continuation arguments of " << idx
-        << " through its body";
-
     // The lane indices, which is what the loop index becomes. An index of
     // this shape is what later makes an access to a[i] a dense vector load
     // rather than a gather.
@@ -1905,7 +1977,11 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     loop->terminator.data =
         Terminator::Jump{parfor.body.name, parfor.body.args};
 
-    // The continuation is past the region: what the loop falls through to.
+    // The continuation is past the region: what the loop falls through to,
+    // handed what the loop's header handed it. Those are values live across
+    // the loop -- the query's accumulator, the tree, the ray -- defined
+    // before the header and so in scope at the body's end as at the header,
+    // and uniform across the gang, since nothing in the body made them.
     const BlockMap blocks = make_block_map(f);
     for (BlockId b = 0; b < region.size(); b++) {
         const shared_ptr<Block> &block = region.block(b);
@@ -1913,7 +1989,8 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
                 block->terminator.data)) {
             continue;
         }
-        block->terminator.data = Terminator::Jump{parfor.cont.name};
+        block->terminator.data =
+            Terminator::Jump{parfor.cont.name, parfor.cont.args};
 
         auto cont = blocks.at(parfor.cont.name);
         std::erase_if(cont->preds, [&](const std::weak_ptr<Block> &p) {

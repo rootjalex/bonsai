@@ -1,0 +1,65 @@
+//! flags: -p ssa -b llvm
+
+// The loop over a node's children vectorized, all the way to LLVM: the
+// program of ssa/child-volumes-vectorized.bonsai. What to read for: the
+// four children's slab test as `<4 x float>` arithmetic over the node's
+// component vectors loaded whole -- no `extractelement` of a box per child,
+// no `select` chain picking a child's box by its index -- and the mask and
+// the keys stored once each as a vector; after it, the network and the
+// pushes read them back a lane at a time.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .loopify(64);
+}

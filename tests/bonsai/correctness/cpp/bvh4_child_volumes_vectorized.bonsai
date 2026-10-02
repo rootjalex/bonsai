@@ -1,0 +1,74 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_child_volumes_vectorized.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_child_volumes_vectorized.o, clang++ tests/bonsai/correctness/cpp/main_bvh4_child_volumes_vectorized.o tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized.o -o tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized, ./tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized, rm tests/bonsai/correctness/cpp/main_bvh4_child_volumes_vectorized.o, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized.h, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_vectorized.o
+
+// bvh4_child_volumes.bonsai with the loop over a node's children vectorized
+// -- the parent's test of its four children done as one four-wide test, the
+// mask and the sort keys as vectors -- run against the same scene of walls
+// (main_bvh4_child_volumes_vectorized.cpp, the same driver) with the same
+// known answers. ssa/child-volumes-vectorized.bonsai pins what the schedule
+// makes of this; this pins that what it makes is right: that a lane's box
+// is the lane's child's, that a miss is neither descended into nor pushed,
+// and that the order the keys give is the nearest child first.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        // A reference's low four bits say what it is: 0 an interior node at
+        // row `ref >> 4`, 8 + n a leaf of n triangles starting at `ref >> 4`.
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .loopify(64);
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+}

@@ -2098,6 +2098,30 @@ void CodeGen_LLVM::visit(const Cast *node) {
     // TODO: upgrade_type_for_arithmetic?
     llvm::Value *inner = codegen_expr(node->value);
 
+    // A vector of vectors read as the struct of its component vectors, or
+    // the reverse: a node's eight boxes, `vector[vec3f, 8]`, held as one
+    // vector per component (see visit(const Vector_t *)), are exactly the
+    // gang's per-lane `vec3f` (ir::widen) when each lane takes one. The two
+    // are aggregates of the same members in the same order, so the
+    // reinterpretation moves nothing: the members are taken out of the one
+    // and put into the other, which LLVM folds away.
+    if (node->mode == Cast::Mode::Reinterpret) {
+        auto *from = llvm::dyn_cast<llvm::StructType>(codegen_type(src));
+        auto *to = llvm::dyn_cast<llvm::StructType>(codegen_type(dst));
+        if (from != nullptr && to != nullptr && from != to &&
+            from->getNumElements() == to->getNumElements() &&
+            std::equal(from->element_begin(), from->element_end(),
+                       to->element_begin())) {
+            llvm::Value *rebuilt = llvm::PoisonValue::get(to);
+            for (unsigned k = 0; k < to->getNumElements(); k++) {
+                rebuilt = builder->CreateInsertValue(
+                    rebuilt, builder->CreateExtractValue(inner, k), k);
+            }
+            value = rebuilt;
+            return;
+        }
+    }
+
     // An aggregate read as the packed words of its storage, or the reverse.
     // Through memory, as any reinterpretation of an aggregate is.
     if (node->mode == Cast::Mode::Reinterpret) {

@@ -1,0 +1,18 @@
+func two_loops(a : f32[8], b : f32[8], out : mut f32[8], out2 : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @7 = f32x8(1f) in
+  let @1 = @0 + @7 in
+  out[ramp(0, 1, 8)] = @1
+  let @3 = b[ramp(0, 1, 8)] in
+  let @9 = f32x8(2f) in
+  let @4 = @3 * @9 in
+  out2[ramp(0, 1, 8)] = @4
+  return
+}
+
+
+schedule host {
+    two_loops.vectorize(i)
+             .vectorize(j)
+
+}

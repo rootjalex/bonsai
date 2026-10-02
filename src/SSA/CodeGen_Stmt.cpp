@@ -105,17 +105,20 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                 return Var::make(i->type, i->name);
             },
             [](const Constant &c) {
+                // Through make_const, which spells a constant of a vector
+                // type -- one a gang's rewrite made, every lane the same --
+                // as the broadcast of the scalar it is.
                 return std::visit(
                     overloads{
-                        [](const bool &b) { return BoolImm::make(b); },
+                        [&](const bool &b) { return make_const(c.type, b); },
                         [&](const int64_t &i) {
-                            return IntImm::make(c.type, i);
+                            return make_const(c.type, i);
                         },
                         [&](const uint64_t &u) {
-                            return UIntImm::make(c.type, u);
+                            return make_const(c.type, u);
                         },
                         [&](const double &d) {
-                            return FloatImm::make(c.type, d);
+                            return make_const(c.type, d);
                         },
                         [&](const std::string &s) {
                             return StringImm::make(s);

@@ -1,0 +1,26 @@
+//! flags: -p ssa
+
+// Two parfors in one function, both vectorized. The first loop's
+// continuation carries the values the second needs -- its arrays, and
+// whatever else is live across the loop -- and once the first is a
+// straight-line region its end has to hand them on: the body's exit jumps
+// to the continuation with the arguments the loop's header passed it, which
+// are defined before the loop and in scope at the exit as at the header.
+// (This was a known limitation -- vectorize() refused a loop whose
+// continuation took arguments -- until the loop over a node's children in a
+// traversal, which sits inside the traversal's own control flow, needed it.)
+func two_loops(a : array[f32, 8], b : array[f32, 8], out : mut array[f32, 8],
+               out2 : mut array[f32, 8]) {
+  parfor i in 0:8 {
+    out[i] = a[i] + 1.0;
+  }
+  parfor j in 0:8 {
+    out2[j] = b[j] * 2.0;
+  }
+  return;
+}
+
+schedule {
+  two_loops.vectorize(i);
+  two_loops.vectorize(j);
+}

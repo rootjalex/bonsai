@@ -32,6 +32,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
   tmax$i67 : mut f32
   intersects_Ray_AABB$r1 : mut bool
   _idx0 : mut u32
+  !or_0 : mut bool
   tris_index!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -222,8 +223,9 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @178 = !@177 in
             if (@178) {
               let @179 = (*_holds0) in
-              let !or_0 = true in
-              if (!@179) {
+              if (@179) {
+                !or_0 = true
+              } else {
                 let @180 = tris.prims in
                 let @181 = tris.group0_index in
                 let @182 = @181[(*tris_index!top)] in
@@ -233,9 +235,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
                 let @186 = @185 + (*_idx0) in
                 let @187 = @180[@186] in
                 let @188 = intersectsp_ray_tri(r, @187) in
-                let !or_0 = @188.set in
+                let @189 = @188.set in
+                !or_0 = @189
               }
-              _holds0 = !or_0
+              _holds0 = (*!or_0)
             }
             let @190 = (*_idx0) + 1u in
             _idx0 = @190

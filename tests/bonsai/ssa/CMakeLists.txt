@@ -6,6 +6,7 @@ add_bonsai_tests(
     alias-edges.bonsai
     calls.bonsai
     child-volumes-sorted.bonsai
+    child-volumes-vectorized.bonsai
     collapse.bonsai
     defer-bools.bonsai
     defer-frame.bonsai
@@ -37,7 +38,7 @@ add_bonsai_tests(
     forall.bonsai
     hoist-allocations.bonsai
     invariant-division.bonsai
-    known-limitation-two-parfors.bonsai
+    vectorize-two-parfors.bonsai
     linearize.bonsai
     ite.bonsai
     loopify.bonsai

@@ -232,6 +232,21 @@ optional<uint64_t> constant_index(const Value &value) {
         constant->data);
 }
 
+// Is `index` the gang's lane indices -- a ramp of unit stride from zero --
+// spanning exactly the `n` lanes of a vector? A vector the gang shares read
+// at it is that vector, lane for lane.
+bool is_lane_ramp_over(const Value &index, uint32_t n) {
+    const auto *instr = std::get_if<shared_ptr<Instruction>>(&index.data);
+    if (instr == nullptr || (*instr)->op != Instruction::Op::Ramp ||
+        (*instr)->operands.size() != 2 || index.get_type().lanes() != n) {
+        return false;
+    }
+    const optional<uint64_t> base = constant_index(*(*instr)->operands[0]);
+    const optional<uint64_t> stride = constant_index(*(*instr)->operands[1]);
+    return base.has_value() && *base == 0 && stride.has_value() &&
+           *stride == 1;
+}
+
 // A constant of `type` holding `k`, spelled the way that type's constants are.
 shared_ptr<Value> constant_of(const Type &type, uint64_t k) {
     if (type.is_int()) {
@@ -331,6 +346,17 @@ SplitResult split_aggregates(Function &func, const string &entry,
                         splitter.folded[instr.get()] = (*split)[*k];
                         continue;
                     }
+                } else if (varying && !splitter.is_varying(*vec) &&
+                           is_lane_ramp_over(*instr->operands[1],
+                                             vec->get_type().lanes())) {
+                    // At the gang's own indices into a vector the gang
+                    // shares -- a node's eight children's boxes, one per
+                    // lane -- the read is the vector itself in the gang's
+                    // shape, and widening makes it so (see widen_region in
+                    // SSA/Vectorize.cpp). Carried whole until then; its
+                    // components are read out of it like any whole vector's.
+                    splitter.emitted.push_back(instr);
+                    continue;
                 } else if (varying) {
                     // At a computed index: which component a lane reads is
                     // its own business, so no single component can be named.

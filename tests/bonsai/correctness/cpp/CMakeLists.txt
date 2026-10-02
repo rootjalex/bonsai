@@ -8,6 +8,7 @@ add_bonsai_tests(
     bind_cpu_thread.bonsai
     buffers.bonsai
     bvh4_child_volumes.bonsai
+    bvh4_child_volumes_vectorized.bonsai
     bvh4_tiled_elements.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai

@@ -1904,6 +1904,16 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 }
                 if (!shadowed) {
                     replace_in(cfg[other], /*skip_blends=*/false);
+                    // And in the guard standing in front of it, if one does:
+                    // added after the dominator tree was built, so not in
+                    // the subtree, and its test is of the arm's mask -- the
+                    // argument itself, when the branch was on one (`a && b`
+                    // whose `a` the arms of a match handed the join).
+                    for (const Gadget &g : gadgets) {
+                        if (g.arm == other) {
+                            replace_in(cfg[g.guard], /*skip_blends=*/false);
+                        }
+                    }
                 }
             }
 
