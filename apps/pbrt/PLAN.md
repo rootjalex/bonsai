@@ -8629,6 +8629,20 @@ maxDepth rounds, launching over an empty queue -- comparable cost on a
 scene like this one, a schedule question rather than a codegen one, left
 as it is.
 
+*The tables on the staged store (1980926e, the night of 2026-10-01 to
+02).* Every scene faster than on the commit before, at both sample
+counts. 16 spp, speedup over `pbrt --gpu` (the pass-fix table in
+parentheses): killeroo-simple 2.00x (1.90), killeroo-gold 1.80x (1.75),
+book 1.66x (1.68, pbrt's own run 0.22 against 0.23), ganesha 1.53x
+(1.49), pavilion-day 1.37x (1.34), frame25 1.66x (1.55), lte-orb 1.33x
+(1.29), view-0 1.22x (1.18). 64 spp: killeroo-simple 1.53x (1.45),
+killeroo-gold 1.73x (1.48, that cell having been disturbed before), book
+1.53x (1.48), ganesha 1.52x (1.47), pavilion-day 1.26x (1.22), frame25
+1.53x (1.45), lte-orb 1.32x (1.16), view-0 1.11x (1.05). Images as
+before: all match pbrt's but pavilion-day's at 16 spp, the standing
+verdict. The three lowest -- view-0, pavilion-day, lte-orb -- are where
+to look next, kernel by kernel against pbrt's profile.
+
 *The device-memory pass's second gap.* The census of the render's PTX
 after the pass: the CUDA module 7572 `ld.global` (6344 `.nc`) and 419
 generic loads -- 60 in every material kernel, at its top, reading the
