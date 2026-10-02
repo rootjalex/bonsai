@@ -372,6 +372,45 @@ carried bound with the pop cull (step 4), the any-hit order and its
 compacting push (step 5), the four-wide leaf (step 6), `rcp` (step 7);
 the count-specialized sort is a refinement to measure after those.
 
+**Step 4, the carried bound and the pop cull.** The argmin lowering now
+has each child carry its bound -- the metric's lower bound over the
+child's box, the `distmin` the mask already computes, stored into
+`_carry0` beside the mask in the children's loop -- as a second value of
+the traversal's recursion, `rec(tris, _bound0 := -inf)`, and the whole
+node body sits under `if (_bound0 < best)`. Embree's `StackItem.dist` and
+`if (stackPtr->dist > ray.tfar) continue`, as the lowering of argmin and
+not a directive: the user had said this pruning "should definitely be
+generated". Where the parent tested a child and let it through, the
+child may still be stale when it comes off the stack, because its
+siblings were visited in between and tightened the best; the test on
+arrival is what skips it. The bound travels as the stack's second
+array, written by the same compacting store as the children and read
+back by the pop; the sort network carries it beside the children. The
+test also runs on the child descended into straight away, where the
+parent's test just held -- one compare Embree does not make; a stale
+first child is impossible, so it is pure cost, small and noted.
+
+What the compiler needed (Lower/Trees.cpp, Lower/Layouts.cpp): a `from`
+whose branches are the child and a carried value (`Carry`, requested by
+the extremum through whichever rewrite builds the `from` -- the fused
+filter's, here); the recursion declared around the outermost match with
+the carried value as its argument, and the trees put in front when the
+traversal is wrapped in its recursion; the layout lowering keeping a
+recursion's non-tree arguments. The recursion's function then takes the
+bound as a parameter, and loopify gives it a stack of its own.
+
+Head (the other agent's render running on another core, load 3.5):
+
+| rays    | intersect: Embree | bonsai | ratio | occluded: Embree | bonsai | ratio |
+|---------|------:|------:|------:|------:|------:|------:|
+| primary | 35.17 | 26.96 | 0.77x | 40.25 | 46.58 | 1.16x |
+| ao      | 12.66 |  5.51 | 0.44x | 13.76 |  8.42 | 0.61x |
+| diffuse | 11.47 |  5.09 | 0.44x | 12.79 |  7.67 | 0.60x |
+
+No change in the ratios from step 3: on head the stale pops the cull
+skips are few, and the time of the incoherent rays is in the leaves.
+Every ray agrees.
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per
