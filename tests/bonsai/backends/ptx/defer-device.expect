@@ -81,15 +81,21 @@ define ptx_kernel void @_kernel_sums_1(i32 %_begin, i32 %_stride, i32 %"@9", ptr
   %extract_ptr = getelementptr inbounds [32 x i8], ptr %sums_queue.generic, i64 %2
   %extract = load %struct.Queue_sums, ptr %extract_ptr, align 8, !invariant.load !6
   %k = extractvalue %struct.Queue_sums %extract, 1
+  %k.global = addrspacecast ptr %k to ptr addrspace(1)
+  %k.generic = addrspacecast ptr addrspace(1) %k.global to ptr
   %3 = sext i32 %sums to i64
-  %extract_ptr6 = getelementptr inbounds [4 x i8], ptr %k, i64 %3
-  %extract7 = load i32, ptr %extract_ptr6, align 4
+  %extract_ptr6 = getelementptr inbounds [4 x i8], ptr %k.generic, i64 %3
+  %extract7 = load i32, ptr %extract_ptr6, align 4, !invariant.load !6
   %acc = extractvalue %struct.Queue_sums %extract, 2
-  %extract_ptr10 = getelementptr inbounds [4 x i8], ptr %acc, i64 %3
-  %extract11 = load i32, ptr %extract_ptr10, align 4
+  %acc.global = addrspacecast ptr %acc to ptr addrspace(1)
+  %acc.generic = addrspacecast ptr addrspace(1) %acc.global to ptr
+  %extract_ptr10 = getelementptr inbounds [4 x i8], ptr %acc.generic, i64 %3
+  %extract11 = load i32, ptr %extract_ptr10, align 4, !invariant.load !6
   %_slot = extractvalue %struct.Queue_sums %extract, 3
-  %extract_ptr14 = getelementptr inbounds [4 x i8], ptr %_slot, i64 %3
-  %extract15 = load i32, ptr %extract_ptr14, align 4
+  %_slot.global = addrspacecast ptr %_slot to ptr addrspace(1)
+  %_slot.generic = addrspacecast ptr addrspace(1) %_slot.global to ptr
+  %extract_ptr14 = getelementptr inbounds [4 x i8], ptr %_slot.generic, i64 %3
+  %extract15 = load i32, ptr %extract_ptr14, align 4, !invariant.load !6
   %4 = icmp slt i32 %extract7, 1
   br i1 %4, label %"!then_0.i", label %"!merge_1.i"
 
@@ -231,7 +237,7 @@ $L__BB0_3:
 {
 	.reg .pred 	%p<3>;
 	.reg .b32 	%r<13>;
-	.reg .b64 	%rd<31>;
+	.reg .b64 	%rd<34>;
 
 	ld.param.b32 	%r6, [_kernel_sums_1_param_0];
 	ld.param.b64 	%rd5, [_kernel_sums_1_param_6];
@@ -254,37 +260,40 @@ $L__BB0_3:
 	ld.global.nc.b64 	%rd12, [%rd11+24];
 	ld.global.nc.b64 	%rd13, [%rd11+16];
 	ld.global.nc.b64 	%rd14, [%rd11+8];
-	mul.wide.s32 	%rd15, %r1, 4;
-	add.s64 	%rd16, %rd14, %rd15;
-	ld.b32 	%r2, [%rd16];
-	add.s64 	%rd17, %rd13, %rd15;
-	ld.b32 	%r3, [%rd17];
-	add.s64 	%rd18, %rd12, %rd15;
-	ld.b32 	%r4, [%rd18];
+	cvta.to.global.u64 	%rd15, %rd14;
+	mul.wide.s32 	%rd16, %r1, 4;
+	add.s64 	%rd17, %rd15, %rd16;
+	ld.global.nc.b32 	%r2, [%rd17];
+	cvta.to.global.u64 	%rd18, %rd13;
+	add.s64 	%rd19, %rd18, %rd16;
+	ld.global.nc.b32 	%r3, [%rd19];
+	cvta.to.global.u64 	%rd20, %rd12;
+	add.s64 	%rd21, %rd20, %rd16;
+	ld.global.nc.b32 	%r4, [%rd21];
 	setp.gt.s32 	%p2, %r2, 0;
 	@!%p2 bra 	$L__BB1_2;
 	add.s32 	%r10, %r2, -1;
 	add.s32 	%r11, %r3, %r2;
 	atom.relaxed.gpu.global.add.u32 	%r12, [%rd2], 1;
-	ld.global.b64 	%rd19, [%rd2+8];
-	cvta.to.global.u64 	%rd20, %rd19;
-	mul.wide.s32 	%rd21, %r12, 4;
-	add.s64 	%rd22, %rd20, %rd21;
-	st.global.b32 	[%rd22], %r10;
-	ld.global.b64 	%rd23, [%rd2+16];
-	cvta.to.global.u64 	%rd24, %rd23;
-	add.s64 	%rd25, %rd24, %rd21;
-	st.global.b32 	[%rd25], %r11;
-	ld.global.b64 	%rd26, [%rd2+24];
+	ld.global.b64 	%rd22, [%rd2+8];
+	cvta.to.global.u64 	%rd23, %rd22;
+	mul.wide.s32 	%rd24, %r12, 4;
+	add.s64 	%rd25, %rd23, %rd24;
+	st.global.b32 	[%rd25], %r10;
+	ld.global.b64 	%rd26, [%rd2+16];
 	cvta.to.global.u64 	%rd27, %rd26;
-	add.s64 	%rd28, %rd27, %rd21;
-	st.global.b32 	[%rd28], %r4;
+	add.s64 	%rd28, %rd27, %rd24;
+	st.global.b32 	[%rd28], %r11;
+	ld.global.b64 	%rd29, [%rd2+24];
+	cvta.to.global.u64 	%rd30, %rd29;
+	add.s64 	%rd31, %rd30, %rd24;
+	st.global.b32 	[%rd31], %r4;
 	bra.uni 	$L__BB1_4;
 $L__BB1_2:
 	cvt.s64.s32 	%rd4, %r4;
-	shl.b64 	%rd29, %rd4, 2;
-	add.s64 	%rd30, %rd1, %rd29;
-	st.global.b32 	[%rd30], %r3;
+	shl.b64 	%rd32, %rd4, 2;
+	add.s64 	%rd33, %rd1, %rd32;
+	st.global.b32 	[%rd33], %r3;
 $L__BB1_4:
 	ret;
 

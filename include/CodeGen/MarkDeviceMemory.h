@@ -19,7 +19,10 @@
 // and a pointer read out of device memory through a root -- a queue
 // header's array handles, a layout struct's tables -- since device memory
 // holds device pointers (a hit program's context travels in payload
-// registers, never in memory), followed to a fixed point.
+// registers, never in memory), followed to a fixed point. Such a pointer
+// may be read on its own or as a field of a struct read whole (a drain
+// reads its queue's header as one value and extracts the handles): both
+// are roots, the second as the extractvalue.
 //
 // So, per kernel, at the end of the optimization pipeline (after inlining
 // and SROA have made the by-value structs' pointers `extractvalue`s of the

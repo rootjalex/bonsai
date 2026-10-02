@@ -8546,6 +8546,72 @@ build's own wait. The determinism of `optixAccelBuild`, the other
 suspect, is moot for this swing and was not examined. The GPU and defer
 tests pass unchanged (the runtime is linked into the test runner).
 
+*The eight-scene tables with the plain allocations (2026-10-01, late
+evening).* 64 spp, wavefront schedule, speedup over `pbrt --gpu`, the
+previous evening's table in parentheses: killeroo-simple 1.45x (1.47),
+killeroo-gold 1.65x (1.71), book 1.47x (1.01), ganesha 1.47x (1.50),
+pavilion-day 1.21x (0.85), frame25 1.46x (1.47), lte-orb 1.14x (1.29;
+pbrt itself 0.93 s against 1.03), view-0 1.05x (1.06). 16 spp:
+killeroo-simple 1.96x (2.35), killeroo-gold 1.38x (2.02), book 1.64x
+(1.34), ganesha 1.49x (1.57), pavilion-day 1.28x (0.98), frame25 1.60x
+(1.46), lte-orb 1.29x (1.36), view-0 1.18x (1.19). Every image matches
+pbrt's but pavilion-day's, whose verdict is the one the previous table
+gave too. The 16 spp losses are not yet read as real: that table ran
+while the PTX census below was being taken on the same machine
+(`strings` over an 8 MB object, `llc`, the compiler), and the watcher
+flagged pbrt's rows on killeroo-gold, frame25 and view-0 as redone eight
+times with four kept disturbed; it does not see this user's own
+processes on our rows. The 64 spp table ran undisturbed and lost
+nothing. A clean 16 spp table follows the next commit.
+
+*What the host pays per render now, measured.* nsys on killeroo-gold at
+16 spp (one process, three renders, the plain allocator): 1665
+`cuMemAlloc` and 1596 `cuMemFree` calls, 33 and 53 ms in all -- some 29
+ms a render against a 127 ms render, where the pool's calls were
+microseconds; 11893 synchronous `cuMemcpyHtoD`, 236 ms, about one per
+kernel launch (10895 launches), and the trace shows the one before a
+launch waiting on the stream for the kernel ahead of it (68 µs) -- a
+wait per launch that pbrt does not have, since pbrt copies nothing per
+launch; 12480 `cuMemsetD32Async` (the count resets, cheap); 1148
+`cuMemcpyDtoH`, whose 308 ms are mostly the wait for the device they
+imply. So the per-render host cost the allocator change exposed is real
+(the allocations), and there is a second, older one beside it (a
+synchronous copy per launch) that the pool had been hiding only in part.
+Both are what pbrt's one-time allocation outside its timer avoids; the
+storage argument to `queue()` the user is designing (an `Extern`
+placement, the caller's memory, with a driver switch for managed memory
+as pbrt has it) is the fix for the first, and the copy per launch is to
+be traced to its source in the generated host code next.
+
+*The device-memory pass's second gap.* The census of the render's PTX
+after the pass: the CUDA module 7572 `ld.global` (6344 `.nc`) and 419
+generic loads -- 60 in every material kernel, at its top, reading the
+queue's entries through handles that themselves came in as
+`ld.global.nc.b64`. The drain reads its queue's header as one struct
+(`load %struct.Queue_hits`) and takes the array handles out of it with
+`extractvalue`; the pass rooted pointer-typed loads and extractvalues of
+parameters, so a pointer extracted from a struct loaded out of device
+memory was never a root, and the backend's SROA split the struct load
+into pointer loads only after the pass had run. Fixed by rooting a
+pointer-typed extractvalue whose aggregate is a load from a device
+address, to the same fixed point (MarkDeviceMemory.cpp,
+`aggregate_base`; the written-source taint follows the same chain). The
+golden backends/ptx/defer-device shows it exactly: the drain's three
+generic `ld.b32` become `ld.global.nc.b32` with the cast pair on each
+extracted handle and `!invariant.load` on the loads through it; no other
+golden moves. The render: the CUDA module 0 generic loads (from 419),
+7991 `ld.global` (6763 `.nc`), the rays raygen 55 to 11, the shadow
+raygens unchanged at 10 and 11. book 64 spp against the table's binary,
+alternating, least of three each: 0.491 / 0.495 / 0.491 against 0.496 /
+0.492 / 0.491, the image bit for bit -- no measurable change on this
+scene, where the entry reads were a small part of a material kernel.
+What remains generic in the OptiX programs are loads through
+`_optix_get_sbt_data_ptr_64` (the hit and intersection programs' record
+data) and a few in the raygens; and every pointer read out of `params`
+comes as two `ld.const.b32` halves joined with a shift and an or, since
+the launch-parameter struct is laid out 4-aligned -- a cheap fix, to
+make.
+
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
 GPUThread)` and the like make each drain a launch, and `bind(rays_rest,

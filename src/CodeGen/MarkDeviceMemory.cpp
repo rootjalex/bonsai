@@ -97,6 +97,19 @@ MarkDeviceMemory::run(llvm::Function &function,
             roots.push_back(v);
         }
     };
+    // The aggregate an extractvalue chain takes apart; anything else is
+    // its own base.
+    const auto aggregate_base = [](const llvm::Value *v) {
+        while (const auto *extract = llvm::dyn_cast<llvm::ExtractValueInst>(v)) {
+            v = extract->getAggregateOperand();
+        }
+        return v;
+    };
+    // An address in device memory: derived from roots alone, or from the
+    // launch parameters.
+    const auto device_address = [&](const llvm::Value *ptr) {
+        return rooted(ptr, root_set) || in_launch_parameters(ptr);
+    };
     for (llvm::Argument &arg : function.args()) {
         if (arg.getType()->isPointerTy()) {
             add_root(&arg);
@@ -108,24 +121,33 @@ MarkDeviceMemory::run(llvm::Function &function,
                 parameter_root(extract, function) != nullptr) {
                 add_root(extract);
             }
-        } else if (auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr)) {
-            if (load->getType()->isPointerTy() &&
-                in_launch_parameters(load->getPointerOperand())) {
-                add_root(load);
-            }
         }
     }
-    // Pointers read out of device memory, as far as they reach.
+    // Pointers read out of device memory, as far as they reach: a load of
+    // a pointer from a device address, and a pointer extracted from a
+    // struct loaded whole from one -- a queue's header read as one value,
+    // its array handles extractvalues of that load. The backend's SROA
+    // splits such a load into one pointer load per field later, which is
+    // too late for this pass to see; without the extractvalues as roots,
+    // every drain read its entries through generic loads while the
+    // handles themselves came in as `ld.global.nc`.
     for (bool grew = true; grew;) {
         grew = false;
         for (llvm::Instruction &instr : llvm::instructions(function)) {
-            auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr);
-            if (load == nullptr || !load->getType()->isPointerTy() ||
-                root_set.count(load) || load->isVolatile() || load->isAtomic()) {
+            if (!instr.getType()->isPointerTy() || root_set.count(&instr)) {
                 continue;
             }
-            if (rooted(load->getPointerOperand(), root_set)) {
-                add_root(load);
+            const llvm::LoadInst *load = nullptr;
+            if (auto *direct = llvm::dyn_cast<llvm::LoadInst>(&instr)) {
+                load = direct;
+            } else if (auto *extract = llvm::dyn_cast<llvm::ExtractValueInst>(&instr)) {
+                load = llvm::dyn_cast<llvm::LoadInst>(aggregate_base(extract));
+            }
+            if (load == nullptr || load->isVolatile() || load->isAtomic()) {
+                continue;
+            }
+            if (device_address(load->getPointerOperand())) {
+                add_root(&instr);
                 grew = true;
             }
         }
@@ -148,7 +170,10 @@ MarkDeviceMemory::run(llvm::Function &function,
     llvm::SmallPtrSet<const llvm::Value *, 16> written;
     llvm::SmallPtrSet<const llvm::Value *, 16> written_sources;
     const auto source_of = [&](const llvm::Value *root) -> const llvm::Value * {
-        const auto *load = llvm::dyn_cast<llvm::LoadInst>(root);
+        // A pointer read out of memory, directly or as a field of a struct
+        // read whole: the memory it came from. A parameter, or a pointer
+        // extracted from one, came from no memory the kernel can see.
+        const auto *load = llvm::dyn_cast<llvm::LoadInst>(aggregate_base(root));
         if (load == nullptr) {
             return nullptr;
         }
