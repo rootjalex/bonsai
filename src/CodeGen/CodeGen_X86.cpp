@@ -226,7 +226,7 @@ llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
         a = x;
     }
 
-    llvm::Value *r = nullptr;
+    llvm::CallInst *r = nullptr;
     if (vl) {
         const llvm::Intrinsic::ID id =
             width == 4    ? llvm::Intrinsic::x86_avx512_rcp14_ps_128
@@ -234,17 +234,29 @@ llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
                           : llvm::Intrinsic::x86_avx512_rcp14_ps_512;
         // The masked form: every lane on, nothing kept from the source.
         llvm::Type *mask_t = width == 16 ? i16_t : i8_t;
-        r = builder->CreateIntrinsic(
+        r = llvm::cast<llvm::CallInst>(builder->CreateIntrinsic(
             id, {},
             {a, llvm::Constant::getNullValue(rt),
              llvm::ConstantInt::getAllOnesValue(mask_t)},
-            nullptr, name + "_est");
+            nullptr, name + "_est"));
     } else {
         const llvm::Intrinsic::ID id = width == 4
                                            ? llvm::Intrinsic::x86_sse_rcp_ps
                                            : llvm::Intrinsic::x86_avx_rcp_ps_256;
-        r = builder->CreateIntrinsic(id, {}, {a}, nullptr, name + "_est");
+        r = llvm::cast<llvm::CallInst>(
+            builder->CreateIntrinsic(id, {}, {a}, nullptr, name + "_est"));
     }
+    // The estimate raises no exception and reads nothing, so it may be
+    // computed where its operand is -- hoisted out of a traversal's loop
+    // with the ray's reciprocal direction it belongs to, as the division it
+    // replaces was. LLVM knows the instruction reads no memory but not that
+    // it is safe to speculate, and would otherwise leave it, and everything
+    // computed from it, inside the loop at every node. Said of the
+    // intrinsic's declaration, since a call site may not say it.
+    r->getCalledFunction()->addFnAttr(llvm::Attribute::Speculatable);
+    r->addFnAttr(llvm::Attribute::NoUnwind);
+    r->addFnAttr(llvm::Attribute::WillReturn);
+    r->setDoesNotAccessMemory();
     // One Newton step: h = 1 - a * r, then r + r * h, each a fused
     // multiply-add as Embree writes them.
     llvm::Value *h = builder->CreateIntrinsic(
