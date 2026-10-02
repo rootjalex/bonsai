@@ -87,6 +87,12 @@ const char *bonsai_cuda_device_arch(void);
 // driver's reason on failure, as the launch does.
 void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
+// Waits for everything launched so far. Every launch is asynchronous, so a
+// clock around a render has to call this before it stops, as pbrt's does
+// (GPUWait at the end of Render); nothing in a program needs it, since what
+// a program reads back is a copy that waits on the stream by itself. A
+// program with no device does nothing.
+void bonsai_cuda_synchronize();
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
 void bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes);
 // A host-to-device copy on the stream, without the host waiting: OptiX's
@@ -405,6 +411,30 @@ inline void check(Driver &d, CUresult r, const std::string &what) {
 // The driver, ready to be used, with the context current on this thread;
 // the first use makes the context. Aborts with the reason when there is no
 // usable driver or device.
+// Every launch is asynchronous (bonsai_cuda_launch, bonsai_optix_launch):
+// the host issues a band's kernels one after another into the stream and
+// waits only where it reads something back -- a queue's count between
+// rounds, the film at the end -- which is pbrt's shape, one wait per band
+// rather than one per kernel. What nothing reads back is a device `print`:
+// its text reaches the host when the stream drains, so the stream is
+// drained once more as the process exits, after the last launch of a
+// program that only printed (correctness/gpu/print).
+inline void drain_at_exit() {
+    Driver &d = driver();
+    if (d.ok && d.context != nullptr &&
+        d.cuCtxSetCurrent(d.context) == CUDA_SUCCESS) {
+        d.cuCtxSynchronize();
+    }
+}
+
+// BONSAI_CUDA_SYNC=1 puts the wait back after every CUDA launch, so that a
+// kernel's fault is reported at the launch it belongs to rather than at the
+// next wait: for finding one, and nothing else.
+inline bool synchronous_launches() {
+    static const bool on = std::getenv("BONSAI_CUDA_SYNC") != nullptr;
+    return on;
+}
+
 inline Driver &ready(const char *what) {
     Driver &d = driver();
     if (!d.ok) {
@@ -413,13 +443,7 @@ inline Driver &ready(const char *what) {
     if (d.context == nullptr) {
         check(d, d.cuDevicePrimaryCtxRetain(&d.context, d.device),
               "cuDevicePrimaryCtxRetain");
-        // OptiX launches are asynchronous (bonsai_optix_launch): the host
-        // issues a band's raygens one after another and a host read of the
-        // queue counts between rounds waits on the stream. Their output is
-        // read that way or by a buffer copy, never by device `print`, so no
-        // synchronize at exit is needed to drain them -- and a program that
-        // only printed would go through the synchronous CUDA launch below,
-        // not OptiX.
+        std::atexit(drain_at_exit);
     }
     check(d, d.cuCtxSetCurrent(d.context), "cuCtxSetCurrent");
     return d;
@@ -608,6 +632,17 @@ __attribute__((used)) inline void bonsai_cuda_free(void *device) {
     check(d,
           d.cuMemFreeAsync(reinterpret_cast<CUdeviceptr>(device), null_stream),
           "cuMemFreeAsync");
+}
+
+__attribute__((used)) inline void bonsai_cuda_synchronize() {
+    using namespace bonsai_cuda_detail;
+    Driver &d = driver();
+    if (!d.ok || d.context == nullptr) {
+        return; // nothing was ever launched
+    }
+    std::lock_guard<std::mutex> lock(d.mutex);
+    check(d, d.cuCtxSetCurrent(d.context), "cuCtxSetCurrent");
+    check(d, d.cuCtxSynchronize(), "cuCtxSynchronize");
 }
 
 __attribute__((used)) inline void
@@ -820,19 +855,23 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                            params, nullptr),
           "cuLaunchKernel(" + std::string(kernel) + ")");
     stats.mark(d);
-    // A CUDA launch (a material or medium kernel, GPUBlock/GPUThread) waits
-    // here, as it did: unlike the OptiX raygens (bonsai_optix_launch, whose
-    // parameters ride a pinned ring so a band's launches pipeline), a CUDA
-    // kernel's output is read here by a buffer copy or, for a `print`,
-    // flushed by this synchronize -- and going async would lose a print
-    // that no host read follows (correctness/gpu/print). The launch-over-
-    // capacity these kernels can still use (Bind.cpp) saves the host the
-    // per-launch read of the device count for the grid, which is the wait
-    // the launch shape was about; the synchronize that remains is the one
-    // pbrt's per-band wait is too.
+    stats.account(d, kernel);
+    // Asynchronous, as the OptiX raygens are: the host goes on to the next
+    // launch, and whatever reads this kernel's output -- a queue's count,
+    // the film -- is a copy that waits on the stream (drain_at_exit for a
+    // device `print`). Until 2026-10-01 every CUDA launch waited here, and
+    // with the drains launched over their capacity, so that every queue's
+    // kernel is launched every round whether or not it holds anything, the
+    // wait was paid some two thousand times a 16-sample render of book:
+    // 40 µs of host round trip each, three quarters of a render that pbrt,
+    // which waits once a band, did in 0.13 s (apps/pbrt/PLAN.md). The wait
+    // stays only for a buffer that has to come back, which the copy below
+    // needs finished, and under BONSAI_CUDA_SYNC.
+    if (nbuffers == 0 && !synchronous_launches()) {
+        return;
+    }
     check(d, d.cuCtxSynchronize(),
           "cuCtxSynchronize after " + std::string(kernel));
-    stats.account(d, kernel);
 
     // Back, and the slots as they were: the host's own addresses.
     for (int64_t b = 0; b < nbuffers; b++) {

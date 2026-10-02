@@ -2495,6 +2495,14 @@ int main(int argc, char **argv) {
                &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool);
+#ifdef BONSAI_HAS_GPU
+        // Every launch is asynchronous (runtime/bonsai_cuda.h), so the
+        // render returns with its last kernels still in the stream -- a
+        // megakernel schedule's whole band, a wavefront's film pass -- and
+        // the clock has to wait for them, as pbrt's GPUWait at the end of
+        // Render does. The film's copy below needs no wait of its own.
+        bonsai_cuda_synchronize();
+#endif
         const auto finished = std::chrono::steady_clock::now();
         const double took =
             std::chrono::duration<double>(finished - started).count();
