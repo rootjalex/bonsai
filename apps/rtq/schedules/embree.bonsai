@@ -52,6 +52,26 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(564);
+    // Embree: MoellerTrumboreIntersector1's `early_out` -- after the edge
+    // tests of a Triangle4 block, `if (none(valid)) return`, before the
+    // depth test and the reciprocal. The triangle test's early returns are
+    // the `if`s written in intersectsp_ray_tri; this puts a test of whether
+    // any lane goes on in front of what follows each (SSA/Linearize.h,
+    // "Which arms get a gadget"). Measured 2026-10-02: level on primary
+    // rays, 5-7% slower on the incoherent ones, where whether any lane of a
+    // block survives the edge tests is a coin flip and the mispredictions
+    // cost more than the ten instructions skipped. Kept, since this schedule
+    // is Embree's structure step for step; tuned.bonsai is where a step is
+    // dropped when it measures worse.
+    trace.skip(intersectsp_ray_tri);
+    // Embree: BVH::prefetch on every hit child as the traversal extracts it
+    // from the node, before the sort and the pushes -- four `prefetcht0`,
+    // the 256 bytes of a BVH8 node, so that a child popped later is in L1
+    // (bvh_traverser1.h, bvh.h). The children's loop prefetches what each
+    // hit child refers to: the node row or the leaf's first tile, chosen by
+    // the reference's low bits as a visit chooses, 256 bytes either way
+    // (Lower/Prefetches.cpp, Lower/Layouts.cpp).
+    trace.prefetch(triangles.Interior.children);
 
     // Embree: traverseAnyHit -- the occlusion test pushes the hit children
     // in their stored order, "simpler in sequence traversal order", and
@@ -61,6 +81,14 @@ schedule {
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(564);
+    // Embree: the occlusion intersector is the same MoellerTrumbore test
+    // with the same `early_out` (TriangleMIntersector1Moeller::occluded),
+    // so the leaf's early exits are scheduled here too (same measured cost
+    // as above; tuned.bonsai leaves this one out).
+    occluded.skip(intersectsp_ray_tri);
+    // Embree: traverseAnyHit prefetches the hit children as the closest-hit
+    // traversal does (BVH::prefetch on `cur` and on each child pushed).
+    occluded.prefetch(triangles.Interior.children);
 
     // The parfor over the rays is left unbound, so it lowers to a plain
     // sequential loop: the comparison is single-threaded on both sides

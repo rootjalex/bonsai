@@ -2,9 +2,16 @@
 
 set -euo pipefail
 
-# Build the program with a schedule and run it against Embree on a mesh.
+# Build the program with each schedule and run it against Embree on a mesh.
 #
-#     apps/rtq/compare.sh [--schedule S] [--side N] [--repeats N] <mesh.ply[.gz]>
+#     apps/rtq/compare.sh [--schedule S[,S...]] [--side N] [--repeats N] <mesh.ply[.gz]>
+#
+# Two comparison points by default, `embree,tuned`: schedules/embree.bonsai
+# follows Embree's traversal step for step and says whether the compiler
+# makes of that structure what Embree's hand-written code is; schedules/
+# tuned.bonsai departs from it where a step measures worse here and says what
+# the schedule language can do beyond it. Each is built and run in turn, its
+# table under a `=== schedule` line.
 #
 # Run from the repository root, inside the `bonsai` conda environment. Embree
 # is an optional dependency: a submodule at deps/embree, built by
@@ -37,16 +44,16 @@ if [[ "$(pwd)" == */apps/rtq ]]; then
 fi
 
 PREFIX="apps/rtq"
-SCHEDULE="embree"
+SCHEDULES="embree,tuned"
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --schedule)
       if [[ $# -lt 2 ]]; then
-        echo "--schedule needs a name from $PREFIX/schedules/" >&2
+        echo "--schedule needs a name from $PREFIX/schedules/, or several separated by commas" >&2
         exit 1
       fi
-      SCHEDULE="$2"
+      SCHEDULES="$2"
       shift 2
       ;;
     *)
@@ -68,10 +75,13 @@ if [[ ! -f "$EMBREE/include/embree4/rtcore.h" || ! -f "$EMBREE/lib/libembree4.so
   echo "Embree is checked out but not built: run $PREFIX/build_embree.sh" >&2
   exit 1
 fi
-if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
-  echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
-  exit 1
-fi
+IFS=, read -r -a SCHEDULE_LIST <<< "$SCHEDULES"
+for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
+  if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
+    echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
+    exit 1
+  fi
+done
 
 BONSAI_CXX="${BONSAI_CXX:-clang++}"
 if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
@@ -106,21 +116,24 @@ if [[ -z "${BONSAI_BUILD_DIR:-}" ]]; then
 fi
 cmake --build "$BONSAI_BUILD_DIR" -j
 
-# `-p ssa` because sort and loopify are SSA rewrites; `--no-heap` refuses any
-# allocation in the compiled program; `--ffp-contract` fuses `a * b + c` as
-# Embree's build does (its node test is written with msub, its dot products
-# with madd).
-FLAGS=(-p ssa --no-heap --ffp-contract)
-INPUTS=(-i $PREFIX/rtq.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai")
-"./$BONSAI_BUILD_DIR/compiler" -p ssa "${INPUTS[@]}" -o $PREFIX/rtq.bir
-"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/rtq.ll
-"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/rtq
+# The program with one schedule, as $PREFIX/rtq.out. `-p ssa` because sort
+# and loopify are SSA rewrites; `--no-heap` refuses any allocation in the
+# compiled program; `--ffp-contract` fuses `a * b + c` as Embree's build does
+# (its node test is written with msub, its dot products with madd).
+build_schedule() {
+  local schedule="$1"
+  local flags=(-p ssa --no-heap --ffp-contract)
+  local inputs=(-i $PREFIX/rtq.bonsai -i "$PREFIX/schedules/$schedule.bonsai")
+  "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/rtq.bir
+  "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/rtq.ll
+  "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/rtq
 
-"$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
-    $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
-    -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
-    -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
-    -o $PREFIX/rtq.out
+  "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
+      $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
+      -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
+      -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
+      -o $PREFIX/rtq.out
+}
 
 # The core to pin to (see the top of the file): the physical core the kernel
 # ranks highest, one hardware thread of it. A CPU is the first of its core
@@ -155,7 +168,10 @@ NODE="${NODE#node}"
 echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW"
 
 STATUS=0
-numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "$@" || STATUS=$?
-
-rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
+for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
+  echo "=== schedule $SCHEDULE ($PREFIX/schedules/$SCHEDULE.bonsai)"
+  build_schedule "$SCHEDULE"
+  numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "$@" || STATUS=$?
+  rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
+done
 exit $STATUS

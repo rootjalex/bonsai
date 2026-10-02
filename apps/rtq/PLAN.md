@@ -657,28 +657,70 @@ network and the children's selects through it.
    of it and tests the mask once at the end, about ten instructions per
    block that misses, which is most blocks. The `rcp` is among them
    because its estimate is speculatable and LLVM hoists it above the test.
-   **Open**: an all-lanes-off branch at a linearized `if` with a costly
-   body -- ISPC's coherent control flow -- is a vectorizer feature; to ask
-   about before adding.
+   **Done, and measured a loss** (afternoon of 2026-10-02): `trace.skip(
+   intersectsp_ray_tri)` -- the skip directive now names a helper's `if`s
+   wherever inlining carried them (commit 85247b46; it used to sit under
+   `trace` and do nothing) -- puts `kortestb; je` after the edge tests and
+   `kandw; kmovd; test; je` after the depth test, Embree's two exits. Back
+   to back with and without, machine quiet: nearest hit level on primary
+   rays, 6% slower on head's ao and diffuse rays; any hit (`occluded.skip`,
+   one guard, the second return's fall-through being dead for any hit)
+   level on primary, 5-7% slower on the incoherent rays of all three
+   meshes. Whether any lane of a block survives the edge tests is a coin
+   flip on those rays, and the mispredictions cost more than the ten
+   instructions skipped. Kept in embree.bonsai, which follows Embree step
+   for step (the user: "an apples-to-apples benchmark"); left out of the
+   any-hit query in tuned.bonsai (see "Two schedules" below).
 6. *The pushed children are not prefetched.* Embree issues `prefetcht0`
    for four lines of every hit child as it extracts it, before the sort,
    so a child popped later is in cache; twenty prefetches in its
    nearest-hit kernel, eight in any-hit. Ours issues none. Both sides walk
    the same nodes, so on the large meshes the incoherent rays (ao,
    diffuse) wait on the same misses, which is the likeliest part of the
-   gap left there (0.73x-0.79x). **Open**: a prefetch at the push needs the
-   pushed reference decoded to the node's address, which the layout's
-   `switch ref[0:3]` only does at the visit.
+   gap left there (0.73x-0.79x). **Done**: the `prefetch` scheduling
+   directive, `trace.prefetch(triangles.Interior.children)`, Halide's
+   `prefetch(g, at, from, offset)` with the region taken from the
+   reference rather than from bounds inference (IR/Schedule.h,
+   ir::Prefetch): Lower/Prefetches.cpp appends `if _mask[i] {
+   prefetch(children[i]) }` to the children's loop, Lower/Layouts.cpp
+   lowers the prefetch of a reference through the arm switch a visit goes
+   through to each arm's row address with the widest arm's bytes (256,
+   node and leaf alike, as `BVH::prefetch` fetches four lines of either),
+   SSA/Linearize.cpp predicates it like a store, and
+   CodeGen_LLVM::emit_prefetch issues it per lane as a `tzcnt`/`blsr` loop
+   over the mask with four `prefetcht0` per hit child, the pointer vector
+   spilled once before the loop. Two loops per node, one per arm (the
+   interior children's and the leaves'), eight `prefetcht0` in each
+   kernel. Measured below.
 7. *The any-hit kernel's register pressure.* It reloads its six node
    constants (the broadcast reciprocal direction and origin) from the stack
    every node; the leaf's temporaries and the ray's constants fill the
    thirty-two registers. Embree's leaf reloads the ray's origin and
    direction from the ray struct instead, which is free (a broadcast from
-   memory). **Open**; not visible in the ratio (any-hit is ahead).
+   memory). **Done** (commit cc7ec269): the reloads were LLVM's doing, not
+   register pressure -- instcombine pushes a negation into a multiply's
+   right operand and hoists the negation of a loop-invariant one, so the
+   cross product with the ray's direction kept three negated copies of the
+   direction live through the leaf. The cross product itself was already
+   Embree's bit for bit (the same fused multiply-subtract, the same
+   roundings): an instruction selection problem, not a semantic one. The
+   contraction pass now puts the sign on the operand computed in the loop,
+   it folds into `vfmsub`, and the any-hit kernel went from 267 to 256
+   instructions with no reloads; back to back, 2% faster.
 8. *The leaf's lane pick.* Picking the nearest lane's triangle: fourteen
    instructions, the four lanes' references written to a stack slot and
    the picked one read back; Embree's eight, reading the primitive id from
-   the block. **Open**, small; a `permute` could replace the stack slot.
+   the block. **Tried and reverted**: a lane extracted at a run-time index
+   as the index broadcast, a permute by it and lane zero taken (commit
+   bb22d1f7) made the any-hit kernel 10-12% *slower*, found by building
+   the compiler at each of the day's commits in a scratch worktree and
+   measuring head four ways back to back. The same lowering applied to the
+   child the any-hit traversal descends into -- the lane the mask's first
+   bit names, on the one chain the traversal waits on -- and there the
+   broadcast, its widening to 64-bit lanes (`vpmovzxdq`) and `vpermq zmm`
+   are each a few cycles, where the stack slot's store does not wait on
+   the index and the load is forwarded from it. In the leaf the two were
+   level. The stack slot stays (CodeGen_X86.h records why).
 9. *The packed sort key.* Four instructions (sign flip for negative
    floats) where Embree's is one `vpternlogd`, because Embree knows its
    distances are non-negative (`tnear` clamped to zero). **Open**, small;
@@ -714,9 +756,141 @@ nearest-hit 347 to 397, any-hit 230 to 267 -- since the sort is now five
 case bodies where it was one network; Embree's are 604 and 359, with its
 epilog's filter and mask handling in them.
 
-What is left, in the order it is worth: the incoherent rays on the large
-meshes (6, the prefetch, with a profile of the ao batch to confirm), the
-leaf's early exit (5), and the small ones (4, 7-10).
+What was left at that point, in the order it was worth: the incoherent
+rays on the large meshes (6, the prefetch), the leaf's early exit (5), and
+the small ones (4, 7-10). The afternoon's work on them is the section
+below.
+
+## Two schedules, the instructions side by side, and the prefetch (afternoon of 2026-10-02)
+
+**Two comparison points** (the user's direction). `schedules/embree.bonsai`
+follows Embree step for step and keeps a step even where it measures worse
+-- the leaf's early exit, item 5 -- because its table answers one question
+only: does the compiler make of Embree's structure what Embree's
+hand-written code is. `schedules/tuned.bonsai` is where a step is dropped
+once measured worse, and answers what the schedule language can do beyond
+Embree on this machine; for now it is the matching schedule for the
+nearest hit and the any-hit query without the skip. It is to be changed
+only after the matching schedule is level with Embree or ahead.
+`compare.sh` builds and runs both by default (`--schedule embree,tuned`).
+
+**The instructions, side by side** (the user asked for them exactly; both
+kernels as `objdump -d` lists them, the nearest-hit query, 2026-10-02
+afternoon). The node test, from the node row's address to the branch on
+the mask. Embree (`bvh_intersector1_bvh8.cpp.avx512`, 0x1b0-0x232, 22
+instructions): `test $0x8,%r14b; jne` (is this a leaf), then per axis a
+`vmovaps 0x40(%r14,%rXX,1),%ymmN` of the near or far bound through the
+offset chosen per ray and a `vfmadd132ps` with the reciprocal direction and
+the origin term, six of each; `vpmaxsd` of the three near distances and
+`tnear` (three; integer maxima, which order non-negative floats), `vpminsd`
+of the three far and `tfar` (three); `vpcmpled; kortestb; je`. Ours
+(gen21's `trace_all`, 23): `kxorb %k0,%k0,%k1` (a zero mask for the bound
+compare), `lea` (the row's address), six `vmovups (%rXX,%rbx,1),%ymmN`
+through the same chosen offsets (CodeGen/FoldSelectOfLoads), six
+`vfmadd132ps`, three `vmaxps` with `tnear` in the third, three `vminps`
+with `tfar`, `vcmpleps; kortestb; je`, then `vcmpltps %ymm19,%ymm24,%k1{%k2}`
+-- the carried bound against the entry distances, item 4, which Embree
+folds into its `tfar` clamp and which here is one more instruction under
+the hit mask. The leaf check Embree does at the node (`test $0x8`) is done
+here where the popped reference is decoded. The float and integer maxima
+cost the same. Otherwise one for one.
+
+The leaf test, from the Triangle4 block's address to the early exit.
+Embree (0x5d0-0x6ef, 48 instructions): `imul $0xb0` (the block's offset),
+nine `vmovaps` of the block's vectors, three `vbroadcastss` of the ray's
+direction from the ray struct and three `vsubps (%rsi){1to4}` of its origin
+from memory (`C = v0 - org`), six `vmulps`/`vfmsub231ps` pairs (the two
+cross products, `Ng = e2 x e1` and `R = C x dir`), then for `den`, `U` and
+`V` a `vmulps` and two `vfmadd231ps` each (three dot products), `vandps`
+(`|den|`), `vandpd` (the sign), two `vxorps` (the signs onto `U`, `V`),
+`vxorps` (zero), `vcmpnltps`, `vcmpnltps{k}`, `vcmpneqps{k}`, `vaddps`,
+`vcmpleps{k}`, `kortestb; jne`. After the exit (0x706-0x73c, 11): `vmulps`
+and two `vfmadd213ps` (`T`), `vxorps`, `vmulps 0xc(%rsi){1to4}` and
+`vcmpltps`, `vmulps 0x20(%rsi){1to4}` and `vcmpleps{k}` (`|den| tnear < T
+<= |den| tfar`, the multiplies from the ray struct), `kandb; kortestb; je`.
+Ours (46 to the exit): `imul $0xb0`, nine `vmovups`, three `vsubps` (two
+reading the origin from the stack, where the ray's constants were spilled,
+one from a register; the direction stays in three registers, so there are
+no broadcasts), the same six `vmulps`/`vfmsub231ps` pairs -- the cross
+products are bit for bit Embree's since commit cc7ec269 -- the same three
+`vmulps` and six `vfmadd231ps`, two `vandps`, two `vxorps`, `vxorps`
+(zero), `vcmpleps`, `vcmpleps{k}`, `vaddps`, `vcmpneqps{k}`,
+`vcmpleps{k}`, `kortestb; je` (the skip's guard, item 5). After it (12):
+two `vmulps` (`|den| tnear`, `|den| tfar`, both operands in registers),
+two `vfmadd213ps` and a `vmulps` (`T`), `vxorps`, `vcmpltps`,
+`vcmpleps{k}`, `kandw`, `kmovd; test $0xf; je` -- the one real difference
+left in the leaf, item 10: the mask tested through a general register
+where Embree's `kortestb` tests it in place -- then `vrcp14ps`,
+`vfnmadd213ps`, `vfmadd132ps` and the masked `vmulps` of the hit. The leaf
+is Embree's within two instructions either way.
+
+**The bisect** that found item 8's loss: the compiler built at 5a52652c
+(the "after 1-3" table), cc7ec269 (the fused multiply-subtract sign) and
+bb22d1f7 (`popcount != 0` to `any`, the permute extract) in a worktree
+under the scratchpad with the repository's `deps` symlinked in, and head
+measured with the four binaries back to back, twice. Any hit on head
+(primary/ao/diffuse, million rays per second): 78.2/16.7/15.5, then
+80.1/17.0/15.8 (the sign fix, +2%), then 72.4/14.9/13.9 (the permute
+extract, -10 to -12%), and the same again with the skip (72.5/14.9/14.0,
+the skip's cost falling on the nearest hit instead: 43.0/11.1/10.1 to
+43.1/10.5/9.5). Nearest hit unchanged by the first two. The revert
+restored 81.1/15.6/14.5 with both skips in.
+
+**The prefetch, as generated** (gen21's nearest-hit kernel, the interior
+children's loop; the leaves' is the same over the other mask): `vpandq`
+(`ref & 15`), `vptestnmq` (kind is zero), `ktestb` (any such hit), `vpsllq
+$4; vpandq` (`(ref >> 4) * 256`), `vpbroadcastq; vpaddq` (the row
+addresses), `kmovd; movzbl` (the lanes as an integer), `vmovdqa64 %zmm17,
+0xc0(%rsp)` (the addresses spilled once), then per hit child `tzcnt;
+blsr; mov 0xc0(%rsp,%rcx,8),%rcx; prefetcht0 (%rcx); prefetcht0 0x40;
+prefetcht0 0x80; prefetcht0 0xc0; jne`. Embree's per hit child, inside
+its count-switched sort: `vpermt2q` (the child out of the sorted keys'
+low bits, needed anyway), `vmovq`, four `prefetcht0`. Ours costs the two
+loops' setup per node, about twenty instructions, and three per child
+beyond Embree's. The kernels grew from 413 to 456 and 258 to 306
+instructions.
+
+**What the prefetch measured.** The matching schedule without and with it,
+back to back on each mesh, one thread, least of 5, `--side 2048`, every
+ray agreeing. Not the usual conditions: another project's single-threaded
+job sat on cpu 11's sibling and the pbrt session was compiling, so this
+ran pinned to cpu 12 (Embree's own rates read about 4% under the quiet
+cpu 11 run of 11:20, both sides alike; the ratios are what to read). The
+ratio is bonsai over Embree, without the prefetch then with it:
+
+| mesh (triangles)    | rays    | nearest hit    | any hit        |
+|---------------------|---------|----------------|----------------|
+| head (17,674)       | primary | 1.13x to 1.10x | 1.78x to 1.70x |
+|                     | ao      | 0.78x to 0.73x | 1.02x to 0.91x |
+|                     | diffuse | 0.76x to 0.73x | 1.02x to 0.89x |
+| ganesha (4,323,658) | primary | 0.91x to 0.85x | 1.16x to 1.07x |
+|                     | ao      | 0.73x to 0.73x | 0.89x to 0.82x |
+|                     | diffuse | 0.73x to 0.72x | 0.86x to 0.82x |
+| dragon (7,219,045)  | primary | 1.04x to 0.99x | 1.19x to 1.14x |
+|                     | ao      | 0.77x to 0.76x | 0.87x to 0.84x |
+|                     | diffuse | 0.75x to 0.76x | 0.85x to 0.82x |
+
+A loss everywhere it is not level: 3-6% on primary rays, 3-8% on the
+any-hit query's incoherent rays, and nothing gained on the nearest-hit
+query's incoherent rays on the large meshes, which is where it was meant
+to pay. On head the tree is 1.2 MB and in cache, so the result there is
+the prefetch's own cost: two lane loops' setup, about twenty instructions
+per node, and eight per hit child. On ganesha and dragon the lines a
+child needs are evidently not what the incoherent rays wait on -- or the
+hardware already has them in flight by the time the sort has picked the
+child, and the pushed ones are popped after L1 has turned over. Either
+way, item 6's premise -- that the 0.73x-0.77x on incoherent rays is the
+misses Embree's prefetch hides -- is not borne out; what those rays wait
+on has to be read off a profile of the ao batch (`perf stat` cycles,
+instructions, branch misses and cache misses, Embree's kernel against
+ours), which is the next step. The directive stays in embree.bonsai, which
+mirrors Embree; the tuned schedule still carries it only because the user
+asked that it stay the matching schedule for now apart from the any-hit
+skip -- it is the first thing to drop from it. The tuned schedule's own
+rows from this run (the no-skip any-hit builds) were hit by a burst of
+the pbrt session's compiles midway and are not reported; its quiet
+numbers are the 11:20 table above (any hit 1.78x/1.12x/1.12x head,
+1.21x/0.98x/0.94x ganesha, 1.23x/0.95x/0.92x dragon).
 
 ## Known-open, smaller
 

@@ -1,0 +1,38 @@
+// The tuned schedule: embree.bonsai, the schedule that follows Embree's
+// BVHNIntersector1<8> step for step, with the steps dropped that measure
+// worse here. The second comparison point beside the matching one
+// (compare.sh runs both): the matching schedule says whether the compiler
+// makes of Embree's structure what Embree's hand-written code is; this one
+// says what the schedule language can do beyond it on this machine. A step
+// is changed here only once the matching schedule is level with Embree or
+// ahead, and every departure says what it measured (PLAN.md).
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/tuned.bonsai ...
+import apps/rtq/schedules/trees/bvh8;
+
+schedule {
+    // The nearest-hit query as embree.bonsai schedules it, the leaf's early
+    // exit included: it is level on primary rays and costs 5-7% on
+    // incoherent ones (2026-10-02), and stays until the matching schedule
+    // is settled.
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(564);
+    trace.skip(intersectsp_ray_tri);
+    trace.prefetch(triangles.Interior.children);
+
+    // The any-hit query without the leaf's early exit. Embree's
+    // `early_out` after a Triangle4 block's edge tests is a branch on
+    // whether any lane survived them, a coin flip on incoherent rays, and
+    // what it skips here is ten instructions: measured 2026-10-02, the skip
+    // costs 5-7% on the ao and diffuse rays of every mesh and is level on
+    // primary rays, so this schedule leaves it out.
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(564);
+    occluded.prefetch(triangles.Interior.children);
+}

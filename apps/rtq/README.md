@@ -44,8 +44,15 @@ script takes the first of `build`, `build-*` whose CMake cache found an LLVM,
 and says which):
 
 ```bash
-apps/rtq/compare.sh [--schedule embree] [--side 1024] [--repeats 5] <mesh.ply[.gz]>
+apps/rtq/compare.sh [--schedule embree,tuned] [--side 1024] [--repeats 5] <mesh.ply[.gz]>
 ```
+
+Two schedules are built and run by default, each its own table under a
+`=== schedule` line. `embree` follows Embree's traversal step for step, and
+its table says whether the compiler makes of that structure what Embree's
+hand-written code is; `tuned` departs from it where a step measures worse
+on this machine, and its table says what the schedule language can do
+beyond it. `--schedule` names one, or several separated by commas.
 
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
 scenes ship them (`~/projects/pbrt-v4-scenes/ganesha/geometry/ganesha.ply.gz`,
@@ -104,8 +111,14 @@ are the same tree.
   entry distance), its eight-wide node test and four-wide leaf test
   (`vectorize` of the loop over a node's children and of the loop over a
   leaf's triangles, named `triangles.Interior.children` and
-  `triangles.Leaf.data`), and its stack (`loopify(564)`, Embree's stack
-  depth), and the rays across the cores.
+  `triangles.Leaf.data`), its stack (`loopify(564)`, Embree's stack
+  depth), the leaf's early exit after a block's edge tests (`skip` of the
+  triangle test's early returns, Embree's `early_out`), and the prefetch of
+  every hit child's storage as the node test finds it (`prefetch` of the
+  children, Embree's `BVH::prefetch`), for both queries.
+- `schedules/tuned.bonsai`: the same without the any-hit query's early
+  exit, which measures 5-7% slower on incoherent rays (see PLAN.md); the
+  schedule that departs from Embree's where a step is measured worse.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
 
 The generated `rtq.h`, `rtq.o`, `rtq.bir` and `rtq.ll` are left in this
