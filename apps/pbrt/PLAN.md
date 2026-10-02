@@ -8704,6 +8704,23 @@ both disturbed by a build on the machine); pavilion-day 0.618 / 0.618 /
 which is pbrt's own cost for its scheme, and the fair comparison is
 against it. book at 16 spp renders the same image in both modes.
 
+**The tables on 257d658c (the storage word and the division rule; managed
+queue memory, pbrt's scheme).** Run with the machine otherwise idle, the
+rtq session having finished; pbrt's own walls to the hundredth what they
+were in the table before. 64 spp, speedup over `pbrt --gpu`, the table
+before in parentheses: killeroo-simple 1.79x (1.53), killeroo-gold 1.92x
+(1.73), book 1.71x (1.53), ganesha 1.68x (1.52), pavilion-day 1.41x
+(1.26), frame25 1.76x (1.53), lte-orb 1.40x (1.32), view-0 1.16x (1.11).
+16 spp: killeroo-simple 2.95x (2.00), killeroo-gold 2.42x (1.80), book
+2.12x (1.66), ganesha 1.83x (1.53), pavilion-day 1.56x (1.37), frame25
+2.03x (1.66), lte-orb 1.44x (1.33), view-0 1.32x (1.22). The 16 spp gains
+are the larger because what went -- the allocations inside each render,
+the per-thread multipliers -- was a fixed cost per render and a cost per
+sample drawn, both a bigger share of a short render. Every image matches
+pbrt's but pavilion-day's at 16 spp, the standing verdict. The lowest two
+are still view-0 and lte-orb, and the Dielectric kernel on pavilion-day is
+re-profiled against pbrt's next, the sampler's divisions gone.
+
 **Dielectric on pavilion-day: the sampler's divisions, and a rule.**
 pbrt's Dielectric kernel and ours, ncu over every launch of a 64 spp
 render (pbrt's kernels are all named `Kernel`, so the filter is on the
