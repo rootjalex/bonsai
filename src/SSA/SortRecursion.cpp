@@ -227,11 +227,11 @@ std::optional<Type> element_of_n(const Type &type, uint64_t n) {
 
 // The run's conditions, keys and varying values as the lanes of one source
 // each, when that is what they are: the mask of booleans, the keys (32-bit
-// floats, which is what the integer ordering below is written for), and a
-// scalar per varying position.
+// floats, which is what the integer ordering below is written for) where
+// the run has keys, and a scalar per varying position.
 struct Lanes {
     shared_ptr<Value> mask;
-    shared_ptr<Value> keys;
+    shared_ptr<Value> keys;            // null for a run without keys
     vector<shared_ptr<Value>> varying; // one per position in varying_at
     vector<Type> varying_type;         // the element type of each
 };
@@ -239,7 +239,7 @@ struct Lanes {
 std::optional<Lanes> lanes_of(const Terminator::MultiCall &call) {
     const size_t n = call.varying.size();
     if (n < 2 || (n & (n - 1)) != 0 || call.conds.size() != n ||
-        call.keys.size() != n) {
+        (!call.keys.empty() && call.keys.size() != n)) {
         return std::nullopt;
     }
     Lanes out;
@@ -258,8 +258,10 @@ std::optional<Lanes> lanes_of(const Terminator::MultiCall &call) {
         return true;
     };
     for (size_t k = 0; k < n; k++) {
-        if (!common(out.mask, call.conds[k], k) ||
-            !common(out.keys, call.keys[k], k)) {
+        if (!common(out.mask, call.conds[k], k)) {
+            return std::nullopt;
+        }
+        if (!call.keys.empty() && !common(out.keys, call.keys[k], k)) {
             return std::nullopt;
         }
         for (size_t j = 0; j < call.varying_at.size(); j++) {
@@ -269,10 +271,15 @@ std::optional<Lanes> lanes_of(const Terminator::MultiCall &call) {
         }
     }
     const std::optional<Type> mask_t = element_of_n(out.mask->get_type(), n);
-    const std::optional<Type> key_t = element_of_n(out.keys->get_type(), n);
-    if (!mask_t.has_value() || !mask_t->is_bool() || !key_t.has_value() ||
-        !key_t->is_float() || key_t->bits() != 32) {
+    if (!mask_t.has_value() || !mask_t->is_bool()) {
         return std::nullopt;
+    }
+    if (out.keys) {
+        const std::optional<Type> key_t =
+            element_of_n(out.keys->get_type(), n);
+        if (!key_t.has_value() || !key_t->is_float() || key_t->bits() != 32) {
+            return std::nullopt;
+        }
     }
     for (const shared_ptr<Value> &v : out.varying) {
         const std::optional<Type> t = element_of_n(v->get_type(), n);
@@ -307,15 +314,8 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     const auto bc = [&](const shared_ptr<Value> &v, const Type &vt) {
         return emit(vt, Instruction::Op::Bc, {v, cu32(n)});
     };
-    // A source that is an array is read whole, as the vector it holds.
-    const auto as_vector = [&](const shared_ptr<Value> &source,
-                               const Type &element) {
-        if (source->get_type().is<Vector_t>()) {
-            return source;
-        }
-        auto ramp = emit(u32xn, Instruction::Op::Ramp, {cu32(0), cu32(1)});
-        return emit(Vector_t::make(element, n), Instruction::Op::ExtractIdx,
-                    {source, std::move(ramp)});
+    const auto as_vector = [&](const shared_ptr<Value> &source, const Type &) {
+        return lanes_as_vector(func, block, source, n);
     };
     // One lane per bit of a pattern over the lanes.
     const auto lane_pattern = [&](const std::function<bool(uint32_t)> &on) {
@@ -404,6 +404,44 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
 
 } // namespace
 
+shared_ptr<Value> lanes_as_vector(Function &func,
+                                  const shared_ptr<Block> &block,
+                                  const shared_ptr<Value> &source,
+                                  uint32_t lanes) {
+    if (source->get_type().is<Vector_t>()) {
+        return source;
+    }
+    const std::optional<Type> element =
+        element_of_n(source->get_type(), lanes);
+    internal_assert(element.has_value())
+        << "The lanes of " << source->get_type() << " as a vector of "
+        << lanes;
+    const Type u32 = UInt_t::make(32);
+    auto ramp = append(func, block, Vector_t::make(u32, lanes),
+                       Instruction::Op::Ramp,
+                       {std::make_shared<Value>(Constant{u32, uint64_t(0)}),
+                        std::make_shared<Value>(Constant{u32, uint64_t(1)})});
+    return append(func, block, Vector_t::make(*element, lanes),
+                  Instruction::Op::ExtractIdx, {source, std::move(ramp)});
+}
+
+std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
+    if (!call.keys.empty()) {
+        return std::nullopt;
+    }
+    const std::optional<Lanes> lanes = lanes_of(call);
+    if (!lanes.has_value()) {
+        return std::nullopt;
+    }
+    LaneRun run;
+    run.mask = lanes->mask;
+    run.lanes = uint32_t(call.varying.size());
+    for (size_t j = 0; j < call.varying_at.size(); j++) {
+        run.values[call.varying_at[j]] = lanes->varying[j];
+    }
+    return run;
+}
+
 size_t sort_recursion(Function &func) {
     size_t sorted = 0;
     for (const auto &block : func.blocks) {
@@ -424,7 +462,8 @@ size_t sort_recursion(Function &func) {
             << "The run in " << block->name << " has " << call->conds.size()
             << " conditions for " << call->varying.size() << " calls";
         if (call->varying.size() > 1) {
-            if (const std::optional<Lanes> lanes = lanes_of(*call)) {
+            if (const std::optional<Lanes> lanes = lanes_of(*call);
+                lanes.has_value() && lanes->keys) {
                 sort_lanes(func, block, *call, *lanes);
             } else {
                 sort_network(func, block, call->keys, call->varying,

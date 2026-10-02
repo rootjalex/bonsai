@@ -1,0 +1,65 @@
+//! flags: -p ssa
+
+// The any-hit traversal of a node that holds its children's boxes, on a
+// stack: `any` over the BVH4 of child-volumes-sorted.bonsai, with the test
+// of the children vectorized and no order asked for.
+//
+// What to read for. The children's loop is one four-wide test writing the
+// mask as a vector; the run of recursive calls it feeds -- call k under lane
+// k of the mask, on child k -- is the lanes of vectors with nothing to sort,
+// and loopify writes it down the way Embree's traverseAnyHit does: the hits
+// in their stored order, each but the last pushed and the last continued
+// with. So the hit in the highest lane is descended into,
+//
+//     if (hits != 0) {
+//       <picked> = reduce<max>(select(mask, ramp(0u, 1u, 4), 0))
+//       compress_store(!stack[!count], children, mask && (lane != picked))
+//       !count += hits - 1
+//       tris_ref!top = children[picked]
+//     }                                   -- and otherwise the pop
+//
+// with one compacting store for the pushes rather than a conditional push
+// per child, and the pop where no child is hit. The order is the schedule's
+// to choose -- an `any` is the same answer in any order -- and this is the
+// order a node's children are stored in, nothing computed.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+}

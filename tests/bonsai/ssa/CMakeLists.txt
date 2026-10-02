@@ -5,6 +5,7 @@ add_bonsai_tests(
     address-across-call.bonsai
     alias-edges.bonsai
     calls.bonsai
+    child-volumes-any.bonsai
     child-volumes-sorted.bonsai
     child-volumes-vectorized.bonsai
     collapse.bonsai

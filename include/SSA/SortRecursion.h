@@ -61,6 +61,28 @@ struct SortedRun {
 };
 std::optional<SortedRun> sorted_run(const Terminator::MultiCall &call);
 
+// A run whose conditions and varying values are the lanes of one source
+// each -- the run a node that holds its children's boxes makes, before any
+// sort or without one: call k is made under lane k of `mask` on lane k of
+// each of `values`. A source is a vector of `lanes` lanes or an array of as
+// many, read whole by lanes_as_vector(). What loopify reads to write the
+// children hit with one compacting store (SSA/QueueRecursion.h); nothing for
+// a run of any other shape, or for one a sort left as a SortedRun.
+struct LaneRun {
+    std::shared_ptr<Value> mask;
+    // The source of each varying parameter's lanes, by the parameter's index.
+    std::map<size_t, std::shared_ptr<Value>> values;
+    uint32_t lanes = 0;
+};
+std::optional<LaneRun> lane_run(const Terminator::MultiCall &call);
+
+// `source`, a vector of `lanes` lanes or an array of as many, as the vector
+// of its lanes: itself, or one read of the array, appended to `block`.
+std::shared_ptr<Value> lanes_as_vector(Function &func,
+                                       const std::shared_ptr<Block> &block,
+                                       const std::shared_ptr<Value> &source,
+                                       uint32_t lanes);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai
