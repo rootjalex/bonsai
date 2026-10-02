@@ -10,6 +10,7 @@ add_bonsai_tests(
     bvh4_child_volumes.bonsai
     bvh4_child_volumes_vectorized.bonsai
     bvh4_tiled_elements.bonsai
+    bvh4_tiled_elements_vectorized.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai
     blas-tlas-sorted.bonsai

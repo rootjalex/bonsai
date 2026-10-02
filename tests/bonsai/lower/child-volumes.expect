@@ -34,9 +34,9 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
       }
     | Leaf(data : Triangle[]) with data = data ->
       if (!_holds0) {
-        foreach _iter0 in (tris as Leaf).data {
+        foreach [data] _iter0 in (tris as Leaf).data {
           if (!_holds0) {
-            _holds0 = _holds0 || intersects(r, _iter0)
+            _holds0 max= intersects(r, _iter0)
           }
         }
       }
@@ -59,9 +59,9 @@ func _traverse_tree1(r : Ray, tris : tree[[Triangle]] BVH4) -> option<Triangle> 
         }
         from (((tris as Interior).children[0u], _carry0[0u]), ((tris as Interior).children[1u], _carry0[1u]), ((tris as Interior).children[2u], _carry0[2u]), ((tris as Interior).children[3u], _carry0[3u])) where (_mask1[0u], _mask1[1u], _mask1[2u], _mask1[3u])
       | Leaf(data : Triangle[]) with data = data ->
-        foreach _iter1 in (tris as Leaf).data {
+        foreach [data] _iter1 in (tris as Leaf).data {
           if (intersects(r, _iter1) && (distmin(r, _iter1) < _best0[0])) {
-            _best0 = (distmin(r, _iter1), (ref(_iter1)))
+            _best0 argmin= (distmin(r, _iter1), (ref(_iter1)))
           }
         }
       }

@@ -30,7 +30,7 @@ func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Inst
       }
     | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
       if (intersects(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (distmin(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) < _best0[0])) {
-        foreach _iter0 in (instances as Leaf).data {
+        foreach [data] _iter0 in (instances as Leaf).data {
           let _subtree0 = _iter0.blas in
           rec(_subtree0 : tree[[Triangle]] BLAS) {
             match _subtree0 {
@@ -40,9 +40,9 @@ func _traverse_tree0(r : Ray, instances : tree[[Instance]] TLAS) -> option<(Inst
               }
             | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
               if (intersects(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) && (distmin(r, transform(_iter0.render_from_instance, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high))) < _best0[0])) {
-                foreach _iter1 in (_subtree0 as Leaf).data {
+                foreach [data] _iter1 in (_subtree0 as Leaf).data {
                   if (intersects(r, transform(_iter0.render_from_instance, _iter1)) && (distmin(r, transform(_iter0.render_from_instance, _iter1)) < _best0[0])) {
-                    _best0 = (distmin(r, transform(_iter0.render_from_instance, _iter1)), (ref(_iter0), transform(_iter0.render_from_instance, _iter1)))
+                    _best0 argmin= (distmin(r, transform(_iter0.render_from_instance, _iter1)), (ref(_iter0), transform(_iter0.render_from_instance, _iter1)))
                   }
                 }
               }

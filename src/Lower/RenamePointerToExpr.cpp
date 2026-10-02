@@ -137,7 +137,8 @@ struct Rename : public ir::Mutator {
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
         return make(
-            ir::ForEach::make(node->name, std::move(iter), std::move(body)));
+            ir::ForEach::make(node->name, std::move(iter), std::move(body),
+                              node->label));
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {

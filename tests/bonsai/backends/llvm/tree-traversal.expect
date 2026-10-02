@@ -402,9 +402,9 @@ trace:
 "!else_17.i":                                     ; preds = %"!then_14.i"
   %43 = bitcast <4 x i8> %8 to i32
   %wide.trip.count = zext i16 %extract.unpack433.i to i64
-  br label %"!for__idx0_body_21.i"
+  br label %"!for_data_body_21.i"
 
-"!for__idx0_body_21.i":                           ; preds = %"!else_17.i", %"!merge_25.i"
+"!for_data_body_21.i":                            ; preds = %"!else_17.i", %"!merge_25.i"
   %indvars.iv = phi i64 [ 0, %"!else_17.i" ], [ %indvars.iv.next, %"!merge_25.i" ]
   %"_best0$i259.sroa.0.245" = phi float [ %"_best0$i259.sroa.0.0.ph48", %"!else_17.i" ], [ %"_best0$i259.sroa.0.3", %"!merge_25.i" ]
   %"_best0$i259.sroa.5.244" = phi i32 [ %"_best0$i259.sroa.5.0.ph47", %"!else_17.i" ], [ %"_best0$i259.sroa.5.3", %"!merge_25.i" ]
@@ -424,7 +424,7 @@ trace:
   %.fca.1.load.i = load i1, ptr %.fca.1.gep.i, align 8
   br i1 %.fca.1.load.i, label %"!then_24.i", label %"!merge_25.i"
 
-"!then_24.i":                                     ; preds = %"!for__idx0_body_21.i"
+"!then_24.i":                                     ; preds = %"!for_data_body_21.i"
   %.fca.0.3.load.i = load float, ptr %.fca.0.3.gep.i, align 4
   %49 = fcmp olt float %.fca.0.3.load.i, %"_best0$i259.sroa.0.245"
   br i1 %49, label %"!then_26.i", label %"!merge_25.i"
@@ -432,12 +432,12 @@ trace:
 "!then_26.i":                                     ; preds = %"!then_24.i"
   br label %"!merge_25.i"
 
-"!merge_25.i":                                    ; preds = %"!then_26.i", %"!then_24.i", %"!for__idx0_body_21.i"
-  %"_best0$i259.sroa.5.3" = phi i32 [ %45, %"!then_26.i" ], [ %"_best0$i259.sroa.5.244", %"!then_24.i" ], [ %"_best0$i259.sroa.5.244", %"!for__idx0_body_21.i" ]
-  %"_best0$i259.sroa.0.3" = phi float [ %.fca.0.3.load.i, %"!then_26.i" ], [ %"_best0$i259.sroa.0.245", %"!then_24.i" ], [ %"_best0$i259.sroa.0.245", %"!for__idx0_body_21.i" ]
+"!merge_25.i":                                    ; preds = %"!then_26.i", %"!then_24.i", %"!for_data_body_21.i"
+  %"_best0$i259.sroa.5.3" = phi i32 [ %45, %"!then_26.i" ], [ %"_best0$i259.sroa.5.244", %"!then_24.i" ], [ %"_best0$i259.sroa.5.244", %"!for_data_body_21.i" ]
+  %"_best0$i259.sroa.0.3" = phi float [ %.fca.0.3.load.i, %"!then_26.i" ], [ %"_best0$i259.sroa.0.245", %"!then_24.i" ], [ %"_best0$i259.sroa.0.245", %"!for_data_body_21.i" ]
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
-  br i1 %exitcond.not, label %"!visit_pop.i", label %"!for__idx0_body_21.i"
+  br i1 %exitcond.not, label %"!visit_pop.i", label %"!for_data_body_21.i"
 
 "!visit_pop.i":                                   ; preds = %"!else_1.i", %"_recloop_func0!loop.i", %"!merge_2.i", %"!merge_25.i"
   %"_best0$i259.sroa.5.1" = phi i32 [ %"_best0$i259.sroa.5.3", %"!merge_25.i" ], [ %"_best0$i259.sroa.5.0.ph47", %"!merge_2.i" ], [ %"_best0$i259.sroa.5.0.ph47", %"_recloop_func0!loop.i" ], [ %"_best0$i259.sroa.5.0.ph47", %"!else_1.i" ]
@@ -602,9 +602,9 @@ trace_all:
 "!else_17.i.i":                                   ; preds = %"!then_14.i.i"
   %44 = bitcast <4 x i8> %9 to i32
   %wide.trip.count.i = zext i16 %extract.unpack433.i.i to i64
-  br label %"!for__idx0_body_21.i.i"
+  br label %"!for_data_body_21.i.i"
 
-"!for__idx0_body_21.i.i":                         ; preds = %"!merge_25.i.i", %"!else_17.i.i"
+"!for_data_body_21.i.i":                          ; preds = %"!merge_25.i.i", %"!else_17.i.i"
   %indvars.iv.i = phi i64 [ 0, %"!else_17.i.i" ], [ %indvars.iv.next.i, %"!merge_25.i.i" ]
   %"_best0$i27.sroa.0.247.i" = phi float [ %"_best0$i27.sroa.0.0.ph50.i", %"!else_17.i.i" ], [ %"_best0$i27.sroa.0.3.i", %"!merge_25.i.i" ]
   %"_best0$i27.sroa.5.246.i" = phi i32 [ %"_best0$i27.sroa.5.0.ph49.i", %"!else_17.i.i" ], [ %"_best0$i27.sroa.5.3.i", %"!merge_25.i.i" ]
@@ -624,7 +624,7 @@ trace_all:
   %.fca.1.load.i.i = load i1, ptr %.fca.1.gep.i.i, align 8
   br i1 %.fca.1.load.i.i, label %"!then_24.i.i", label %"!merge_25.i.i"
 
-"!then_24.i.i":                                   ; preds = %"!for__idx0_body_21.i.i"
+"!then_24.i.i":                                   ; preds = %"!for_data_body_21.i.i"
   %.fca.0.3.load.i.i = load float, ptr %.fca.0.3.gep.i.i, align 4
   %50 = fcmp olt float %.fca.0.3.load.i.i, %"_best0$i27.sroa.0.247.i"
   br i1 %50, label %"!then_26.i.i", label %"!merge_25.i.i"
@@ -632,12 +632,12 @@ trace_all:
 "!then_26.i.i":                                   ; preds = %"!then_24.i.i"
   br label %"!merge_25.i.i"
 
-"!merge_25.i.i":                                  ; preds = %"!then_26.i.i", %"!then_24.i.i", %"!for__idx0_body_21.i.i"
-  %"_best0$i27.sroa.5.3.i" = phi i32 [ %46, %"!then_26.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!for__idx0_body_21.i.i" ]
-  %"_best0$i27.sroa.0.3.i" = phi float [ %.fca.0.3.load.i.i, %"!then_26.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!for__idx0_body_21.i.i" ]
+"!merge_25.i.i":                                  ; preds = %"!then_26.i.i", %"!then_24.i.i", %"!for_data_body_21.i.i"
+  %"_best0$i27.sroa.5.3.i" = phi i32 [ %46, %"!then_26.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.5.246.i", %"!for_data_body_21.i.i" ]
+  %"_best0$i27.sroa.0.3.i" = phi float [ %.fca.0.3.load.i.i, %"!then_26.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!then_24.i.i" ], [ %"_best0$i27.sroa.0.247.i", %"!for_data_body_21.i.i" ]
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, %wide.trip.count.i
-  br i1 %exitcond.not.i, label %"!visit_pop.i.i", label %"!for__idx0_body_21.i.i"
+  br i1 %exitcond.not.i, label %"!visit_pop.i.i", label %"!for_data_body_21.i.i"
 
 "!visit_pop.i.i":                                 ; preds = %"!merge_2.i.i", %"!else_1.i.i", %"_recloop_func0!loop.i.i", %"!merge_25.i.i"
   %"_best0$i27.sroa.5.1.i" = phi i32 [ %"_best0$i27.sroa.5.3.i", %"!merge_25.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"_recloop_func0!loop.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"!else_1.i.i" ], [ %"_best0$i27.sroa.5.0.ph49.i", %"!merge_2.i.i" ]

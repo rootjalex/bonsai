@@ -126,9 +126,9 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %65 = fadd <3 x float> %64, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
   %_best0.repack471 = getelementptr inbounds nuw i8, ptr %_best0, i64 4
   %wide.trip.count = zext i16 %extract.unpack429 to i64
-  br label %"!for__idx0_body_21"
+  br label %"!for_data_body_21"
 
-"!for__idx0_body_21":                             ; preds = %"!else_17", %"!merge_25"
+"!for_data_body_21":                              ; preds = %"!else_17", %"!merge_25"
   %deref_temp420.unpack = phi float [ %deref_temp.unpack, %"!else_17" ], [ %deref_temp420.unpack501, %"!merge_25" ]
   %indvars.iv = phi i64 [ 0, %"!else_17" ], [ %indvars.iv.next, %"!merge_25" ]
   %66 = trunc nuw nsw i64 %indvars.iv to i32
@@ -175,7 +175,7 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %101 = fcmp oeq float %100, 0.000000e+00
   br i1 %101, label %"!merge_25", label %"!merge_1.i"
 
-"!merge_1.i":                                     ; preds = %"!for__idx0_body_21"
+"!merge_1.i":                                     ; preds = %"!for_data_body_21"
   %102 = fsub <3 x float> %extract419.unpack, %ray.o
   %103 = fsub <3 x float> %extract419.unpack463, %ray.o
   %104 = fsub <3 x float> %extract419.unpack465, %ray.o
@@ -354,11 +354,11 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   store i32 %67, ptr %_best0.repack471, align 4
   br label %"!merge_25"
 
-"!merge_25":                                      ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for__idx0_body_21", %"!then_26"
-  %deref_temp420.unpack501 = phi float [ %deref_temp420.unpack, %"!merge_10.i" ], [ %deref_temp420.unpack, %"!else_9.i" ], [ %deref_temp420.unpack, %"!merge_7.i" ], [ %deref_temp420.unpack, %"!merge_3.i" ], [ %deref_temp420.unpack, %"!then_2.i" ], [ %deref_temp420.unpack, %"!for__idx0_body_21" ], [ %204, %"!then_26" ]
+"!merge_25":                                      ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for_data_body_21", %"!then_26"
+  %deref_temp420.unpack501 = phi float [ %deref_temp420.unpack, %"!merge_10.i" ], [ %deref_temp420.unpack, %"!else_9.i" ], [ %deref_temp420.unpack, %"!merge_7.i" ], [ %deref_temp420.unpack, %"!merge_3.i" ], [ %deref_temp420.unpack, %"!then_2.i" ], [ %deref_temp420.unpack, %"!for_data_body_21" ], [ %204, %"!then_26" ]
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
-  br i1 %exitcond.not, label %"!merge_10", label %"!for__idx0_body_21"
+  br i1 %exitcond.not, label %"!merge_10", label %"!for_data_body_21"
 
 "!merge_10":                                      ; preds = %"!else_1", %tailrecurse, %"!then_9", %"!merge_2", %"!merge_25"
   ret void

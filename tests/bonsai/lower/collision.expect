@@ -39,10 +39,10 @@ func _recloop_func0(triangles1_index : u32, triangles2_index : u32, triangles1 :
       if (_t102 == 0u) {
         multirecurse _recloop_func0(<0>, <1>, triangles1, triangles2, _dyn_alloc) from { (triangles1_index, triangles2_index + 1u), (triangles1_index, triangles2_index + reinterpret_cast<_tree_layout2>(_t9.split0on_nPrims).offset) }
       } else {
-        forall _idx0 in [0u:cast<u32>(_t106):1u] {
-          forall _idx1 in [0u:cast<u32>(_t102):1u] {
-            let _t69 = triangles1.prims[reinterpret_cast<_tree_layout3>(_t1.split0on_nPrims).pOffset + _idx0] in
-            let _t77 = triangles2.prims[reinterpret_cast<_tree_layout3>(_t9.split0on_nPrims).pOffset + _idx1] in
+        forall data in [0u:cast<u32>(_t106):1u] {
+          forall data_1 in [0u:cast<u32>(_t102):1u] {
+            let _t69 = triangles1.prims[reinterpret_cast<_tree_layout3>(_t1.split0on_nPrims).pOffset + data] in
+            let _t77 = triangles2.prims[reinterpret_cast<_tree_layout3>(_t9.split0on_nPrims).pOffset + data_1] in
             if (intersects_Triangle_Triangle(_t69, _t77)) {
               append<_dyn_alloc>(build<__tuple_0>(_t69, _t77))
             }

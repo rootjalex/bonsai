@@ -37,8 +37,9 @@
 //     not compute. nested-trees.bonsai keeps that form, since it is what a
 //     tree's bounds have to be carried through when the elements are moved.
 //
-//   - `distmin(_pulled0, _iter1) < _best0[0]` and `_best0 = (distmin(_pulled0,
-//     _iter1), ..)`. The running best is a `t` found in render space and it is
+//   - `distmin(_pulled0, _iter1) < _best0[0]` and `_best0 argmin=
+//     (distmin(_pulled0, _iter1), ..)`. The running best is a `t` found in
+//     render space and it is
 //     compared against, and updated from, a `t` measured in instance space.
 //     That is sound only because `untransform` leaves the direction's length
 //     alone, so the parameter is the same on both sides -- the same fact

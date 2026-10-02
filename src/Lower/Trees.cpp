@@ -247,7 +247,15 @@ ir::Stmt lower_iterate(const ir::Expr &expr) {
     std::string name = unique_iter_name();
     ir::Stmt body =
         ir::Yield::make(ir::Var::make(expr.type().element_of(), name));
-    return ir::ForEach::make(std::move(name), expr, std::move(body));
+    // The loop over an arm's field -- a leaf's `data` -- is named for the
+    // field, as the loop over a node's children is (from_children), so that
+    // a schedule can name it: `trace.vectorize(tris.Leaf.data)`.
+    std::string label;
+    if (const ir::Access *field = expr.as<ir::Access>()) {
+        label = field->field;
+    }
+    return ir::ForEach::make(std::move(name), expr, std::move(body),
+                             std::move(label));
 }
 
 // The element a set held in a field is reached through: `i` in `i.blas`, and
@@ -430,7 +438,8 @@ struct Rewriter : public ir::Mutator {
         if (body.same_as(loop->body)) {
             return out;
         }
-        return ir::ForEach::make(loop->name, loop->iter, std::move(body));
+        return ir::ForEach::make(loop->name, loop->iter, std::move(body),
+                                 loop->label);
     }
 
     // A leaf arm's body, wrapped in whatever this rewrite makes of the bound
@@ -1767,15 +1776,22 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                                             hold(node->value)};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
 
-            // A plain write, not an Accumulate::Arg{min,max}. Filter fusion
-            // has already put the comparison against the current best into the
-            // filter this yield sits inside, so anything reaching here is
-            // better and the write is unconditional. Spelling it as an
-            // accumulate would say the same thing twice, and leave every
-            // backend to implement a compare-and-select over a tuple -- which
-            // the SSA path has no operation for, so `-p ssa` could not lower a
-            // tree query at all.
-            return ir::Store::make(loc, std::move(update));
+            // An Accumulate::Arg{min,max}, which is what the running best
+            // takes from an element: the compare-and-select over the pair.
+            // Filter fusion has put the comparison against the current best
+            // into the filter this yield sits inside too, so for one element
+            // at a time the accumulate's own compare is a repeat (and the
+            // backend's to fold). It is said here all the same, because the
+            // loop over a leaf's elements may be a parfor a schedule runs as
+            // a gang (Lower/ForEachs.cpp), and then the elements' updates
+            // are one reduction across the lanes -- the nearest of the
+            // tile's hits -- which a plain write under each lane's own test
+            // could not express (see widen_region in SSA/Vectorize.cpp).
+            return ir::Accumulate::make(loc,
+                                        dir == Extremum::Min
+                                            ? ir::Accumulate::Argmin
+                                            : ir::Accumulate::Argmax,
+                                        std::move(update));
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
@@ -2274,9 +2290,20 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
             ir::Expr p = apply_lambda(predicate, node->value);
-            ir::Expr acc = loc.to_expr();
-            ir::Expr combined = is_any ? (acc || p) : (acc && p);
-            ir::Stmt test = ir::Store::make(loc, std::move(combined));
+            // An accumulate -- the maximum of booleans is whether any is
+            // set, the minimum whether all are -- rather than a write of
+            // `a || P(x)`: the loop over a leaf's elements may be a parfor a
+            // schedule runs as a gang (Lower/ForEachs.cpp), and the
+            // elements' answers are then one reduction across the lanes,
+            // which a write of each lane's own `a || P(x)` to the shared
+            // accumulator could not be (see widen_region in
+            // SSA/Vectorize.cpp). One element at a time it is the same
+            // `a = a || P(x)`, less the short circuit: the accumulator's
+            // own test in front of each element (guard_iteration) is what
+            // stops the predicate being evaluated once the answer is known.
+            ir::Stmt test = ir::Accumulate::make(
+                loc, is_any ? ir::Accumulate::Max : ir::Accumulate::Min,
+                std::move(p));
 
             if (in_leaf_arm) {
                 // `guard_leaf` emitted the volume guards once around the arm

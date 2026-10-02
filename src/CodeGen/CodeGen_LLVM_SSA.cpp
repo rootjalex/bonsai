@@ -662,11 +662,35 @@ struct CodeGen_LLVM::SSALowering {
                     return;
                 }
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
-                    internal_assert(op != Accumulate::OpType::Argmin &&
-                                    op != Accumulate::OpType::Argmax)
-                        << "[unimplemented] a masked argmin/argmax into "
-                        << "per-lane memory: " << instr->name;
                     Expr place = operand(instr->operands[0]);
+                    if (op == Accumulate::OpType::Argmin ||
+                        op == Accumulate::OpType::Argmax) {
+                        // Each lane's pair of a key and what travels with it,
+                        // against the pair its own slot holds: the lanes that
+                        // are on and whose key is the better one write theirs
+                        // -- a store of the value under that mask, since a
+                        // lane that does not write keeps what it had.
+                        internal_assert(!instr->atomic)
+                            << "[unimplemented] an atomic argmin/argmax into "
+                            << "per-lane memory: " << instr->name;
+                        const Struct_t *pair = val.type().as<Struct_t>();
+                        internal_assert(pair != nullptr && !pair->fields.empty())
+                            << "An argmin's value is not a pair: " << val;
+                        const std::string &key = pair->fields[0].name;
+                        Expr current = Deref::make(
+                            place, place.type().is_vector() ? mask : Expr());
+                        Expr better =
+                            op == Accumulate::OpType::Argmin
+                                ? Access::make(key, val) <
+                                      Access::make(key, current)
+                                : Access::make(key, current) <
+                                      Access::make(key, val);
+                        cg.codegen_stmt(Store::make(
+                            std::move(loc), std::move(val),
+                            BinOp::make(BinOp::LAnd, std::move(mask),
+                                        std::move(better))));
+                        return;
+                    }
                     if (instr->atomic) {
                         // Indivisible per lane: each lane that is on updates
                         // its own place with its own value, as a scatter of
@@ -679,15 +703,20 @@ struct CodeGen_LLVM::SSALowering {
                     }
                     Expr current = Deref::make(
                         place, place.type().is_vector() ? mask : Expr());
+                    // Booleans' minimum and maximum are their and and or:
+                    // `all` and `any` accumulating per lane.
+                    const bool bools = val.type().element_of().is_bool();
                     Expr combined =
                         op == Accumulate::OpType::Add ? current + val
                         : op == Accumulate::OpType::Sub ? current - val
                         : op == Accumulate::OpType::Mul ? current * val
                         : op == Accumulate::OpType::Min
-                            ? Intrinsic::make(Intrinsic::OpType::min,
-                                              {current, val})
-                            : Intrinsic::make(Intrinsic::OpType::max,
-                                              {current, val});
+                            ? (bools ? BinOp::make(BinOp::LAnd, current, val)
+                                     : Intrinsic::make(Intrinsic::OpType::min,
+                                                       {current, val}))
+                        : (bools ? BinOp::make(BinOp::LOr, current, val)
+                                 : Intrinsic::make(Intrinsic::OpType::max,
+                                                   {current, val}));
                     cg.codegen_stmt(Store::make(std::move(loc),
                                                 std::move(combined),
                                                 std::move(mask)));

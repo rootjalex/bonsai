@@ -1817,7 +1817,11 @@ void Printer::visit(const ForAll *node) {
 
 void Printer::visit(const ForEach *node) {
     os << get_indent();
-    os << "foreach " << node->name << " in ";
+    os << "foreach ";
+    if (!node->label.empty()) {
+        os << "[" << node->label << "] ";
+    }
+    os << node->name << " in ";
     print_no_parens(node->iter);
     os << " {\n";
     indent++;

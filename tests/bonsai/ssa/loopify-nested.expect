@@ -37,7 +37,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   tmax$i69 : mut f32
   intersects_Ray_AABB$r0 : mut bool
   distmin_Ray_AABB$r1 : mut f32
-  _idx0 : mut u32
+  data : mut u32
   instances_index!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -154,18 +154,18 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
           continue
         } else {
           let @100 = cast<u32>(_t21) in
-          _idx0 = 0u
-          while ((*_idx0) < @100) {
+          data = 0u
+          while ((*data) < @100) {
             let @102 = instances.insts in
             let @103 = _t32.split0on_nPrims in
             let @104 = reinterpret_cast<_tree_layout6>(@103) in
             let @105 = @104.pOffset in
-            let @106 = @105 + (*_idx0) in
+            let @106 = @105 + (*data) in
             let @107 = @102[@106] in
             let _subtree0 = @107.blas in
-            _recloop_func1(_subtree0, instances, r, _best0, (*instances_index!top), (*_idx0))
-            let @109 = (*_idx0) + 1u in
-            _idx0 = @109
+            _recloop_func1(_subtree0, instances, r, _best0, (*instances_index!top), (*data))
+            let @109 = (*data) + 1u in
+            data = @109
           }
         }
       }
@@ -184,13 +184,13 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   return
 }
 
-func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*), instances_index : u32, _idx0 : u32) -> void {
+func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*), instances_index : u32, data : u32) -> void {
   intersectsp_ray_aabb$r70 : mut _option1
   tmin$i70 : mut f32
   tmax$i70 : mut f32
   intersects_Ray_AABB$r2 : mut bool
   distmin_Ray_AABB$r3 : mut f32
-  _idx1 : mut u32
+  data_1 : mut u32
   _subtree0_bnode!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -307,12 +307,12 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
           continue
         } else {
           let @100 = cast<u32>(_t80) in
-          _idx1 = 0u
-          while ((*_idx1) < @100) {
+          data_1 = 0u
+          while ((*data_1) < @100) {
             let @102 = _t91.split0on_nPrims in
             let @103 = reinterpret_cast<_tree_layout3>(@102) in
             let @104 = @103.pOffset in
-            let _t73 = @104 + (*_idx1) in
+            let _t73 = @104 + (*data_1) in
             let @106 = instances.tris in
             let @107 = @106[_t73] in
             let @108 = intersectsp_ray_tri(r, @107) in
@@ -330,14 +330,14 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
                 let @119 = @118.split0on_nPrims in
                 let @120 = reinterpret_cast<_tree_layout6>(@119) in
                 let @121 = @120.pOffset in
-                let @122 = @121 + _idx0 in
+                let @122 = @121 + data in
                 let @123 = build<__tuple_1>(@122, _t73) in
                 let @124 = build<__tuple_2>(@111, @123) in
-                _best0 = @124
+                _best0 argmin= @124
               }
             }
-            let @125 = (*_idx1) + 1u in
-            _idx1 = @125
+            let @125 = (*data_1) + 1u in
+            data_1 = @125
           }
         }
       }

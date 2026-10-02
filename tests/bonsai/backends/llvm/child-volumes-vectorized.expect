@@ -267,17 +267,17 @@ trace:
 "!else_3.i":                                      ; preds = %"!then_0.i"
   %137 = add nsw i32 %35, -8
   %.not = icmp eq i32 %137, 0
-  br i1 %.not, label %"!visit_pop.i", label %"!for__idx0_body_26.i.lr.ph"
+  br i1 %.not, label %"!visit_pop.i", label %"!for_data_body_26.i.lr.ph"
 
-"!for__idx0_body_26.i.lr.ph":                     ; preds = %"!else_3.i"
+"!for_data_body_26.i.lr.ph":                      ; preds = %"!else_3.i"
   %138 = lshr i32 %"tris_ref!top.i94131", 4
-  br label %"!for__idx0_body_26.i"
+  br label %"!for_data_body_26.i"
 
-"!for__idx0_body_26.i":                           ; preds = %"!for__idx0_body_26.i.lr.ph", %"!merge_30.i"
-  %_idx0.i102 = phi i32 [ 0, %"!for__idx0_body_26.i.lr.ph" ], [ %317, %"!merge_30.i" ]
-  %"_best0$i269.sroa.0.2101" = phi float [ %"_best0$i269.sroa.0.0.ph106", %"!for__idx0_body_26.i.lr.ph" ], [ %"_best0$i269.sroa.0.3", %"!merge_30.i" ]
-  %"_best0$i269.sroa.6.2100" = phi i32 [ %"_best0$i269.sroa.6.0.ph105", %"!for__idx0_body_26.i.lr.ph" ], [ %"_best0$i269.sroa.6.3", %"!merge_30.i" ]
-  %139 = add i32 %_idx0.i102, %138
+"!for_data_body_26.i":                            ; preds = %"!for_data_body_26.i.lr.ph", %"!merge_30.i"
+  %data.i102 = phi i32 [ 0, %"!for_data_body_26.i.lr.ph" ], [ %317, %"!merge_30.i" ]
+  %"_best0$i269.sroa.0.2101" = phi float [ %"_best0$i269.sroa.0.0.ph106", %"!for_data_body_26.i.lr.ph" ], [ %"_best0$i269.sroa.0.3", %"!merge_30.i" ]
+  %"_best0$i269.sroa.6.2100" = phi i32 [ %"_best0$i269.sroa.6.0.ph105", %"!for_data_body_26.i.lr.ph" ], [ %"_best0$i269.sroa.6.3", %"!merge_30.i" ]
+  %139 = add i32 %data.i102, %138
   %140 = sext i32 %139 to i64
   %extract_ptr.i = getelementptr inbounds [48 x i8], ptr %prims1, i64 %140
   %extract.unpack.i = load <3 x float>, ptr %extract_ptr.i, align 16
@@ -320,7 +320,7 @@ trace:
   %173 = fcmp oeq float %172, 0.000000e+00
   br i1 %173, label %"!merge_30.i", label %"!merge_1.i"
 
-"!merge_1.i":                                     ; preds = %"!for__idx0_body_26.i"
+"!merge_1.i":                                     ; preds = %"!for_data_body_26.i"
   %174 = fsub <3 x float> %extract.unpack.i, %2
   %175 = fsub <3 x float> %extract.unpack242.i, %2
   %176 = fsub <3 x float> %extract.unpack244.i, %2
@@ -497,12 +497,12 @@ trace:
 "!then_31.i":                                     ; preds = %"!merge_10.i"
   br label %"!merge_30.i"
 
-"!merge_30.i":                                    ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i74", %"!for__idx0_body_26.i", %"!then_31.i"
-  %"_best0$i269.sroa.6.3" = phi i32 [ %139, %"!then_31.i" ], [ %"_best0$i269.sroa.6.2100", %"!merge_10.i" ], [ %"_best0$i269.sroa.6.2100", %"!else_9.i" ], [ %"_best0$i269.sroa.6.2100", %"!for__idx0_body_26.i" ], [ %"_best0$i269.sroa.6.2100", %"!then_2.i74" ], [ %"_best0$i269.sroa.6.2100", %"!merge_3.i" ], [ %"_best0$i269.sroa.6.2100", %"!merge_7.i" ]
-  %"_best0$i269.sroa.0.3" = phi float [ %276, %"!then_31.i" ], [ %"_best0$i269.sroa.0.2101", %"!merge_10.i" ], [ %"_best0$i269.sroa.0.2101", %"!else_9.i" ], [ %"_best0$i269.sroa.0.2101", %"!for__idx0_body_26.i" ], [ %"_best0$i269.sroa.0.2101", %"!then_2.i74" ], [ %"_best0$i269.sroa.0.2101", %"!merge_3.i" ], [ %"_best0$i269.sroa.0.2101", %"!merge_7.i" ]
-  %317 = add nuw i32 %_idx0.i102, 1
+"!merge_30.i":                                    ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i74", %"!for_data_body_26.i", %"!then_31.i"
+  %"_best0$i269.sroa.6.3" = phi i32 [ %139, %"!then_31.i" ], [ %"_best0$i269.sroa.6.2100", %"!merge_10.i" ], [ %"_best0$i269.sroa.6.2100", %"!else_9.i" ], [ %"_best0$i269.sroa.6.2100", %"!for_data_body_26.i" ], [ %"_best0$i269.sroa.6.2100", %"!then_2.i74" ], [ %"_best0$i269.sroa.6.2100", %"!merge_3.i" ], [ %"_best0$i269.sroa.6.2100", %"!merge_7.i" ]
+  %"_best0$i269.sroa.0.3" = phi float [ %276, %"!then_31.i" ], [ %"_best0$i269.sroa.0.2101", %"!merge_10.i" ], [ %"_best0$i269.sroa.0.2101", %"!else_9.i" ], [ %"_best0$i269.sroa.0.2101", %"!for_data_body_26.i" ], [ %"_best0$i269.sroa.0.2101", %"!then_2.i74" ], [ %"_best0$i269.sroa.0.2101", %"!merge_3.i" ], [ %"_best0$i269.sroa.0.2101", %"!merge_7.i" ]
+  %317 = add nuw i32 %data.i102, 1
   %exitcond.not = icmp eq i32 %317, %137
-  br i1 %exitcond.not, label %"!visit_pop.i", label %"!for__idx0_body_26.i"
+  br i1 %exitcond.not, label %"!visit_pop.i", label %"!for_data_body_26.i"
 
 "!visit_pop.i":                                   ; preds = %"!par_cont_6!push.i", %"!merge_15.i", %"!merge_30.i", %"_recloop_func0!loop.i.lr.ph", %"!else_3.i"
   %"!count.i96129" = phi i32 [ %"!count.i96130", %"!merge_30.i" ], [ %"!count.i96130", %"!else_3.i" ], [ %"!count.i.ph109", %"_recloop_func0!loop.i.lr.ph" ], [ %133, %"!par_cont_6!push.i" ], [ %"!count.i96130", %"!merge_15.i" ]

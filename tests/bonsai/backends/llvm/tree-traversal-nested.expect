@@ -148,9 +148,9 @@ trace:
 "!else_17.i":                                     ; preds = %"!then_14.i"
   %72 = bitcast <4 x i8> %37 to i32
   %wide.trip.count158 = zext i16 %extract.unpack414.i to i64
-  br label %"!for__idx0_body_21.i"
+  br label %"!for_data_body_21.i"
 
-"!for__idx0_body_21.i":                           ; preds = %"!else_17.i", %_recloop_func1.exit
+"!for_data_body_21.i":                            ; preds = %"!else_17.i", %_recloop_func1.exit
   %indvars.iv155 = phi i64 [ 0, %"!else_17.i" ], [ %indvars.iv.next156, %_recloop_func1.exit ]
   %"_best0$i2711.sroa.0.2129" = phi float [ %"_best0$i2711.sroa.0.0.ph133", %"!else_17.i" ], [ %"_best0$i2711.sroa.0.4", %_recloop_func1.exit ]
   %"_best0$i2711.sroa.6.2128" = phi i32 [ %"_best0$i2711.sroa.6.0.ph132", %"!else_17.i" ], [ %"_best0$i2711.sroa.6.4", %_recloop_func1.exit ]
@@ -163,12 +163,12 @@ trace:
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack545.i")
   br label %"_recloop_func1!loop.i.lr.ph"
 
-"_recloop_func1!loop.i.lr.ph":                    ; preds = %"!visit.i38.outer.backedge", %"!for__idx0_body_21.i"
-  %"!count.i40.ph126" = phi i32 [ 0, %"!for__idx0_body_21.i" ], [ %294, %"!visit.i38.outer.backedge" ]
-  %"_subtree0_bnode!top.i.ph125" = phi i32 [ %extract401.unpack.i, %"!for__idx0_body_21.i" ], [ %extract531.i, %"!visit.i38.outer.backedge" ]
-  %"_best0$i2711.sroa.0.3.ph124" = phi float [ %"_best0$i2711.sroa.0.2129", %"!for__idx0_body_21.i" ], [ %"_best0$i2711.sroa.0.4", %"!visit.i38.outer.backedge" ]
-  %"_best0$i2711.sroa.6.3.ph123" = phi i32 [ %"_best0$i2711.sroa.6.2128", %"!for__idx0_body_21.i" ], [ %"_best0$i2711.sroa.6.4", %"!visit.i38.outer.backedge" ]
-  %"_best0$i2711.sroa.9.3.ph122" = phi i32 [ %"_best0$i2711.sroa.9.2127", %"!for__idx0_body_21.i" ], [ %"_best0$i2711.sroa.9.4", %"!visit.i38.outer.backedge" ]
+"_recloop_func1!loop.i.lr.ph":                    ; preds = %"!visit.i38.outer.backedge", %"!for_data_body_21.i"
+  %"!count.i40.ph126" = phi i32 [ 0, %"!for_data_body_21.i" ], [ %294, %"!visit.i38.outer.backedge" ]
+  %"_subtree0_bnode!top.i.ph125" = phi i32 [ %extract401.unpack.i, %"!for_data_body_21.i" ], [ %extract531.i, %"!visit.i38.outer.backedge" ]
+  %"_best0$i2711.sroa.0.3.ph124" = phi float [ %"_best0$i2711.sroa.0.2129", %"!for_data_body_21.i" ], [ %"_best0$i2711.sroa.0.4", %"!visit.i38.outer.backedge" ]
+  %"_best0$i2711.sroa.6.3.ph123" = phi i32 [ %"_best0$i2711.sroa.6.2128", %"!for_data_body_21.i" ], [ %"_best0$i2711.sroa.6.4", %"!visit.i38.outer.backedge" ]
+  %"_best0$i2711.sroa.9.3.ph122" = phi i32 [ %"_best0$i2711.sroa.9.2127", %"!for_data_body_21.i" ], [ %"_best0$i2711.sroa.9.4", %"!visit.i38.outer.backedge" ]
   br label %"_recloop_func1!loop.i"
 
 "_recloop_func1!loop.i":                          ; preds = %"!then_16.i58", %"_recloop_func1!loop.i.lr.ph"
@@ -250,9 +250,9 @@ trace:
 "!else_17.i57":                                   ; preds = %"!then_14.i56"
   %114 = bitcast <4 x i8> %79 to i32
   %wide.trip.count = zext i16 %extract.unpack549.i to i64
-  br label %"!for__idx1_body_21.i"
+  br label %"!for_data_1_body_21.i"
 
-"!for__idx1_body_21.i":                           ; preds = %"!else_17.i57", %"!merge_25.i"
+"!for_data_1_body_21.i":                          ; preds = %"!else_17.i57", %"!merge_25.i"
   %indvars.iv = phi i64 [ 0, %"!else_17.i57" ], [ %indvars.iv.next, %"!merge_25.i" ]
   %"_best0$i2711.sroa.0.5120" = phi float [ %"_best0$i2711.sroa.0.3.ph124", %"!else_17.i57" ], [ %"_best0$i2711.sroa.0.6", %"!merge_25.i" ]
   %"_best0$i2711.sroa.6.5119" = phi i32 [ %"_best0$i2711.sroa.6.3.ph123", %"!else_17.i57" ], [ %"_best0$i2711.sroa.6.6", %"!merge_25.i" ]
@@ -301,7 +301,7 @@ trace:
   %150 = fcmp oeq float %149, 0.000000e+00
   br i1 %150, label %"!merge_25.i", label %"!merge_1.i"
 
-"!merge_1.i":                                     ; preds = %"!for__idx1_body_21.i"
+"!merge_1.i":                                     ; preds = %"!for_data_1_body_21.i"
   %151 = fsub <3 x float> %extract533.unpack.i, %ray.o.i
   %152 = fsub <3 x float> %extract533.unpack581.i, %ray.o.i
   %153 = fsub <3 x float> %extract533.unpack583.i, %ray.o.i
@@ -478,13 +478,13 @@ trace:
 "!then_26.i":                                     ; preds = %"!merge_10.i"
   br label %"!merge_25.i"
 
-"!merge_25.i":                                    ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for__idx1_body_21.i", %"!then_26.i"
-  %"_best0$i2711.sroa.9.6" = phi i32 [ %116, %"!then_26.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_10.i" ], [ %"_best0$i2711.sroa.9.5118", %"!else_9.i" ], [ %"_best0$i2711.sroa.9.5118", %"!for__idx1_body_21.i" ], [ %"_best0$i2711.sroa.9.5118", %"!then_2.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_3.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_7.i" ]
-  %"_best0$i2711.sroa.6.6" = phi i32 [ %74, %"!then_26.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_10.i" ], [ %"_best0$i2711.sroa.6.5119", %"!else_9.i" ], [ %"_best0$i2711.sroa.6.5119", %"!for__idx1_body_21.i" ], [ %"_best0$i2711.sroa.6.5119", %"!then_2.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_3.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_7.i" ]
-  %"_best0$i2711.sroa.0.6" = phi float [ %253, %"!then_26.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_10.i" ], [ %"_best0$i2711.sroa.0.5120", %"!else_9.i" ], [ %"_best0$i2711.sroa.0.5120", %"!for__idx1_body_21.i" ], [ %"_best0$i2711.sroa.0.5120", %"!then_2.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_3.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_7.i" ]
+"!merge_25.i":                                    ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for_data_1_body_21.i", %"!then_26.i"
+  %"_best0$i2711.sroa.9.6" = phi i32 [ %116, %"!then_26.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_10.i" ], [ %"_best0$i2711.sroa.9.5118", %"!else_9.i" ], [ %"_best0$i2711.sroa.9.5118", %"!for_data_1_body_21.i" ], [ %"_best0$i2711.sroa.9.5118", %"!then_2.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_3.i" ], [ %"_best0$i2711.sroa.9.5118", %"!merge_7.i" ]
+  %"_best0$i2711.sroa.6.6" = phi i32 [ %74, %"!then_26.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_10.i" ], [ %"_best0$i2711.sroa.6.5119", %"!else_9.i" ], [ %"_best0$i2711.sroa.6.5119", %"!for_data_1_body_21.i" ], [ %"_best0$i2711.sroa.6.5119", %"!then_2.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_3.i" ], [ %"_best0$i2711.sroa.6.5119", %"!merge_7.i" ]
+  %"_best0$i2711.sroa.0.6" = phi float [ %253, %"!then_26.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_10.i" ], [ %"_best0$i2711.sroa.0.5120", %"!else_9.i" ], [ %"_best0$i2711.sroa.0.5120", %"!for_data_1_body_21.i" ], [ %"_best0$i2711.sroa.0.5120", %"!then_2.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_3.i" ], [ %"_best0$i2711.sroa.0.5120", %"!merge_7.i" ]
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
-  br i1 %exitcond.not, label %"!visit_pop.i51", label %"!for__idx1_body_21.i"
+  br i1 %exitcond.not, label %"!visit_pop.i51", label %"!for_data_1_body_21.i"
 
 "!visit_pop.i51":                                 ; preds = %"!else_1.i45", %"_recloop_func1!loop.i", %"!merge_2.i50", %"!merge_25.i"
   %"_best0$i2711.sroa.9.4" = phi i32 [ %"_best0$i2711.sroa.9.6", %"!merge_25.i" ], [ %"_best0$i2711.sroa.9.3.ph122", %"!merge_2.i50" ], [ %"_best0$i2711.sroa.9.3.ph122", %"_recloop_func1!loop.i" ], [ %"_best0$i2711.sroa.9.3.ph122", %"!else_1.i45" ]
@@ -504,7 +504,7 @@ _recloop_func1.exit:                              ; preds = %"!visit_pop.i51"
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack545.i")
   %indvars.iv.next156 = add nuw nsw i64 %indvars.iv155, 1
   %exitcond159.not = icmp eq i64 %indvars.iv.next156, %wide.trip.count158
-  br i1 %exitcond159.not, label %"!visit_pop.i", label %"!for__idx0_body_21.i"
+  br i1 %exitcond159.not, label %"!visit_pop.i", label %"!for_data_body_21.i"
 
 "!visit_pop.i":                                   ; preds = %"!else_1.i", %"_recloop_func0!loop.i", %"!merge_2.i", %_recloop_func1.exit
   %"_best0$i2711.sroa.9.1" = phi i32 [ %"_best0$i2711.sroa.9.4", %_recloop_func1.exit ], [ %"_best0$i2711.sroa.9.0.ph131", %"!merge_2.i" ], [ %"_best0$i2711.sroa.9.0.ph131", %"_recloop_func0!loop.i" ], [ %"_best0$i2711.sroa.9.0.ph131", %"!else_1.i" ]

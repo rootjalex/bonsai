@@ -31,8 +31,14 @@
 // vector[u32, 4]`; `group1_row` an array of 256-byte rows with the six
 // component vectors after the children. The interior arm's `lo` is
 // `build<vector[vec3f, 4]>(lower_x, lower_y, lower_z)` over the row's
-// fields. The leaf's loop reads `group0_prims[(a + i) / 4u]` once and takes
-// lane `(a + i) % 4u` of each of its vectors into a `build<Triangle>`.
+// fields. The leaf's loop is a loop over its tiles with a parfor over the
+// four lanes of each inside, named `data` for the arm's field
+// (Lower/ForEachs.cpp; the range begins and ends on a tile, being spelled
+// `(ref >> 4) * 4u` and `(kind - 8u) * 4u`): the body reads
+// `group0_prims[(ref >> 4u) + tile]` and takes lane `data` of each of its
+// vectors into a `build<Triangle>`, with no division or remainder, the
+// tile and the lane read off the index as spelled (Lower/TiledArrays.cpp).
+// And the argmin's update is an accumulate, `_best0 argmin= (t, ref)`.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

@@ -36,6 +36,36 @@ namespace {
 struct ExpandTiledReads : public ir::Mutator {
     using ir::Mutator::visit;
 
+    // The loops this read sits in, by index: what each ranges over, for
+    // reading a tile and a lane off an index spelled as one.
+    std::map<std::string, std::pair<ir::Expr, ir::Expr>> loops;
+
+    ir::Stmt visit(const ir::ParFor *node) override {
+        loops[node->index] = {node->slice.begin, node->slice.end};
+        ir::Stmt out = ir::Mutator::visit(node);
+        loops.erase(node->index);
+        return out;
+    }
+
+    ir::Stmt visit(const ir::ForAll *node) override {
+        loops[node->index] = {node->slice.begin, node->slice.end};
+        ir::Stmt out = ir::Mutator::visit(node);
+        loops.erase(node->index);
+        return out;
+    }
+
+    // Whether `e` is the index of a loop over exactly [0, width).
+    bool is_lane_of(const ir::Expr &e, uint32_t width) const {
+        const ir::Var *var = e.as<ir::Var>();
+        if (var == nullptr) {
+            return false;
+        }
+        const auto loop = loops.find(var->name);
+        return loop != loops.end() &&
+               get_constant_value<uint64_t>(loop->second.first) == 0 &&
+               get_constant_value<uint64_t>(loop->second.second) == width;
+    }
+
     ir::Expr visit(const ir::Extract *node) override {
         ir::Expr vec = mutate(node->vec);
         ir::Expr idx = mutate(node->idx);
@@ -51,9 +81,34 @@ struct ExpandTiledReads : public ir::Mutator {
                "not "
             << idx;
         const ir::Expr width = make_const(idx.type(), tiled->width);
+
+        // The tile and the lane: read off the index where it is spelled as
+        // a tile's times the width plus the index of a loop over the lanes
+        // -- what a loop over a tiled range becomes (Lower/ForEachs.cpp),
+        // and exact, the lane being below the width -- and otherwise
+        // divided out. Reading them off is what keeps a vectorized loop
+        // over the lanes at one tile: the tile's index is then the same for
+        // every lane, and the lane is the lane.
+        ir::Expr tile_index, lane;
+        if (const ir::BinOp *sum = idx.as<ir::BinOp>();
+            sum != nullptr && sum->op == ir::BinOp::Add) {
+            for (const auto &[product, candidate] :
+                 {std::pair{sum->a, sum->b}, std::pair{sum->b, sum->a}}) {
+                const ir::BinOp *scaled = product.as<ir::BinOp>();
+                if (scaled != nullptr && scaled->op == ir::BinOp::Mul &&
+                    get_constant_value<uint64_t>(scaled->b) == tiled->width &&
+                    is_lane_of(candidate, tiled->width)) {
+                    tile_index = scaled->a;
+                    lane = candidate;
+                }
+            }
+        }
+        if (!tile_index.defined()) {
+            tile_index = idx / width;
+            lane = idx % width;
+        }
         // One read of the tile; the lane picked out of each field vector.
-        ir::Expr tile = ir::Extract::make(tiled->tiles, idx / width);
-        const ir::Expr lane = idx % width;
+        ir::Expr tile = ir::Extract::make(tiled->tiles, tile_index);
 
         const ir::Type element_t = tiled->type.element_of();
         const auto *element = element_t.as<ir::Struct_t>();

@@ -30,7 +30,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
   intersects_Ray_AABB$r0!skip : mut boolx4
   intersects_Ray_AABB$r0!skip0 : mut boolx4
   !and_0!skip : mut boolx4
-  _idx0 : mut u32
+  data : mut u32
   tris_ref!top : mut u32
   _bound0!top : mut f32
   !live : mut bool
@@ -317,10 +317,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         }
       } else {
         let @163 = _t74 - 8u in
-        _idx0 = 0u
-        while ((*_idx0) < @163) {
+        data = 0u
+        while ((*data) < @163) {
           let @165 = (*tris_ref!top) >> 4u in
-          let _t71 = @165 + (*_idx0) in
+          let _t71 = @165 + (*data) in
           let @167 = tris.prims in
           let @168 = @167[_t71] in
           let @169 = intersectsp_ray_tri(r, @168) in
@@ -335,11 +335,11 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             if (@176) {
               let @178 = build<__tuple_0>(_t71) in
               let @179 = build<__tuple_1>(@172, @178) in
-              _best0 = @179
+              _best0 argmin= @179
             }
           }
-          let @180 = (*_idx0) + 1u in
-          _idx0 = @180
+          let @180 = (*data) + 1u in
+          data = @180
         }
       }
       let @356 = (*!count) != 0u in

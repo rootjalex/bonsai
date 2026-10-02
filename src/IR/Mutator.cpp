@@ -848,7 +848,8 @@ Stmt Mutator::visit(const ForEach *node) {
     if (iter.same_as(node->iter) && body.same_as(node->body)) {
         return node;
     }
-    return ForEach::make(node->name, std::move(iter), std::move(body));
+    return ForEach::make(node->name, std::move(iter), std::move(body),
+                         node->label);
 }
 
 Stmt Mutator::visit(const ForAll *node) {

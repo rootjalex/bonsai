@@ -84,7 +84,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   intersects_Ray_Sphere$r0 : mut bool
   distmax_Ray_Sphere$r1 : mut f32
   distmin_Ray_Sphere$r2 : mut f32
-  _idx0 : mut u16
+  data : mut u16
   intersects_Ray_Shape$r3 : mut bool
   intersectsp_ray_sphere$r21$i35 : mut _option1
   intersects_Ray_Sphere$r35 : mut bool
@@ -206,12 +206,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             continue
           } else {
             let @84 = cast<u16>(_t85) in
-            _idx0 = 0u
-            while ((*_idx0) < @84) {
+            data = 0u
+            while ((*data) < @84) {
               let @86 = _t103.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
-              let _t78 = @88 + (*_idx0) in
+              let _t78 = @88 + (*data) in
               let @90 = shapes.prims in
               let _t79 = @90[_t78] in
               let _t334 = _t79.tag in
@@ -412,12 +412,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   if (@258) {
                     let @260 = build<__tuple_0>(_t78) in
                     let @261 = build<__tuple_1>((*distmin_Ray_Shape$r4), @260) in
-                    _best0 = @261
+                    _best0 argmin= @261
                   }
                 }
               }
-              let @262 = (*_idx0) + 1u in
-              _idx0 = @262
+              let @262 = (*data) + 1u in
+              data = @262
             }
           }
         }
@@ -452,9 +452,9 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
   !count!latch!skip0 : mut u32x8
   shapes_index!top!latch!skip : mut u16x8
   !count!latch!skip : mut u32x8
-  _idx0!loop : mut u16x8
+  data!loop : mut u16x8
   !live_0 : mut boolx8
-  !exit.for__idx0_end_24 : mut boolx8
+  !exit.for_data_end_24 : mut boolx8
   intersects_Ray_Shape$r3!skip : mut boolx8
   distmin_Ray_Shape$r4!skip : mut f32x8
   shapes_index!top!loop : mut u16x8
@@ -464,7 +464,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
   !exit.visited : mut boolx8
   shapes_index!top!latch!skip3 : mut u16x8
   !count!latch!skip3 : mut u32x8
-  _idx0!loop!skip : mut u16x8
+  data!loop!skip : mut u16x8
   shapes_index!top!loop!skip : mut u16x8
   !live!loop!skip : mut boolx8
   !count!loop!skip : mut u32x8
@@ -695,11 +695,11 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
               let @84 = cast<u16x8>(_t85) in
               let @580 = u16x8(0u) in
               let @581 = boolx8(false) in
-              _idx0!loop = @580
+              data!loop = @580
               !live_0 = @303
-              !exit.for__idx0_end_24 = @581
+              !exit.for_data_end_24 = @581
               while (reduce<any>((*!live_0))) {
-                let @85 = (*_idx0!loop) < @84 in
+                let @85 = (*data!loop) < @84 in
                 let @515 = boolx8(false) in
                 let @516 = boolx8(true) in
                 let @305 = select(@85, @515, @516) in
@@ -710,7 +710,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                   let @86 = _t103.split0on_nPrims in
                   let @87 = reinterpret_cast<_tree_layout3$v8>(@86) in
                   let @88 = @87.pOffset in
-                  let _t78 = @88 + (*_idx0!loop) in
+                  let _t78 = @88 + (*data!loop) in
                   let @90 = shapes.prims in
                   let _t79 = masked_extract(@90[_t78], @307) in
                   let _t334 = _t79.tag in
@@ -979,25 +979,25 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                       if (@363) {
                         let @260 = build<__tuple_0$v8>(_t78) in
                         let @261 = build<__tuple_1$v8>(@375, @260) in
-                        masked_store(_best0, @261, @339)
+                        masked_store(_best0, @261, @339 && (@261._field0 < (*_best0)._field0))
                       }
                     }
                   }
                   let @564 = u16x8(1u) in
-                  let @262 = (*_idx0!loop) + @564 in
-                  let @376 = select(@307, @262, (*_idx0!loop)) in
-                  _idx0!loop!skip = @376
+                  let @262 = (*data!loop) + @564 in
+                  let @376 = select(@307, @262, (*data!loop)) in
+                  data!loop!skip = @376
                 } else {
-                  _idx0!loop!skip = (*_idx0!loop)
+                  data!loop!skip = (*data!loop)
                 }
-                let @377 = select(@306, (*_idx0!loop), (*_idx0!loop!skip)) in
+                let @377 = select(@306, (*data!loop), (*data!loop!skip)) in
                 let @565 = boolx8(false) in
                 let @378 = select(@306, @565, (*!live_0)) in
                 let @566 = boolx8(true) in
-                let @379 = select(@306, @566, (*!exit.for__idx0_end_24)) in
-                _idx0!loop = @377
+                let @379 = select(@306, @566, (*!exit.for_data_end_24)) in
+                data!loop = @377
                 !live_0 = @378
-                !exit.for__idx0_end_24 = @379
+                !exit.for_data_end_24 = @379
               }
               @303!join0 = @303
               shapes_index!top!latch!skip0 = (*shapes_index!top!latch!skip)

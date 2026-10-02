@@ -33,9 +33,11 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> option<Triangle> {
         }
         from ((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[0u], _carry0[0u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[1u], _carry0[1u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[2u], _carry0[2u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[3u], _carry0[3u])) where (_mask0[0u], _mask0[1u], _mask0[2u], _mask0[3u])
       } else {
-        forall _idx0 in [0u:((tris_ref & 15u) - 8u) * 4u:1u] {
-          if (intersects_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p0)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p1)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p2)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u])) && (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p0)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p1)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p2)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u])) < _best0[0])) {
-            _best0 = (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p0)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p1)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u], cast<f32x3x4>(tris.group0_prims[(((tris_ref >> 4u) * 4u) + _idx0) / 4u].p2)[(((tris_ref >> 4u) * 4u) + _idx0) % 4u])), (((tris_ref >> 4u) * 4u) + _idx0))
+        forall _idx1 in [0u:(tris_ref & 15u) - 8u:1u] {
+          parfor data in [0u:4u:1u] {
+            if (intersects_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])) && (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])) < _best0[0])) {
+              _best0 argmin= (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])), ((((tris_ref >> 4u) + _idx1) * 4u) + data))
+            }
           }
         }
       }

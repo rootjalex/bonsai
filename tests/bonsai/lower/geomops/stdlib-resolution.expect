@@ -28,7 +28,7 @@ func _traverse_tree0(q : Point, points : tree[[Point]] PointBVH) -> Point {
     | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high) ->
       if (distmin_Point_AABB(q, build<AABB>((points as Leaf).low, (points as Leaf).high)) < _best0[0]) {
         if (distmin_Point_Point(q, (points as Leaf).data) < _best0[0]) {
-          _best0 = (distmin_Point_Point(q, (points as Leaf).data), (ref((points as Leaf).data)))
+          _best0 argmin= (distmin_Point_Point(q, (points as Leaf).data), (ref((points as Leaf).data)))
         }
       }
     }

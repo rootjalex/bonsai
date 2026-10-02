@@ -84,22 +84,22 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
   } else if (intersects_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
     if (0.001f < distmax_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high)))) {
       if (distmin_Ray_AABB(r, build<AABB>(cast<f32x3>(prims.group1_index[prims_index].low), cast<f32x3>(prims.group1_index[prims_index].high))) < (*_best0)._field0) {
-        forall _idx0 in [0u:cast<u32>(prims.group1_index[prims_index].nPrims):1u] {
-          switch (prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] >> 56u) {
+        forall data in [0u:cast<u32>(prims.group1_index[prims_index].nPrims):1u] {
+          switch (prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] >> 56u) {
           case 0: { // Prim.Solo of _recloop_func0
-            let _pulled0 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
-            if (intersects_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
-              if (0.001f < distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri)) {
-                if (distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri) < (*_best0)._field0) {
-                  _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].tri), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0))))
+            let _pulled0 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data], r, Prim_Solo_pool, Prim_Inst_pool) in
+            if (intersects_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] & 72057594037927935u].tri)) {
+              if (0.001f < distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] & 72057594037927935u].tri)) {
+                if (distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] & 72057594037927935u].tri) < (*_best0)._field0) {
+                  _best0 argmin= build<__tuple_2>(distmin_Ray_Triangle(_pulled0, Prim_Solo_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] & 72057594037927935u].tri), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data, build<_ref0>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data))))
                 }
               }
             }
           } break;
           default: { // Prim.Inst of _recloop_func0
-            let _pulled1 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0], r, Prim_Solo_pool, Prim_Inst_pool) in
-            let _subtree0 = Prim_Inst_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0] & 72057594037927935u].blas in
-            _recloop_func1(_subtree0, prims, _pulled1, _best0, prims_index, _idx0)
+            let _pulled1 = untransform_Prim_Ray(prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data], r, Prim_Solo_pool, Prim_Inst_pool) in
+            let _subtree0 = Prim_Inst_pool[prims.elems[reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data] & 72057594037927935u].blas in
+            _recloop_func1(_subtree0, prims, _pulled1, _best0, prims_index, data)
           }
           }
         }
@@ -109,23 +109,23 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
   return
 }
 
-func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : mut (__tuple_2*), prims_index : u32, _idx0 : u32) -> void {
+func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, _best0 : mut (__tuple_2*), prims_index : u32, data : u32) -> void {
   if (prims.group0_bnode[_subtree0_bnode].nPrims == 0u) {
     if (intersects_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
       if (0.001f < distmax_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
         if (distmin_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
-          multirecurse _recloop_func1(<0>, prims, _pulled1, _best0, prims_index, _idx0) from { (_subtree0_bnode + 1u), (_subtree0_bnode + reinterpret_cast<_tree_layout2>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).offset) }
+          multirecurse _recloop_func1(<0>, prims, _pulled1, _best0, prims_index, data) from { (_subtree0_bnode + 1u), (_subtree0_bnode + reinterpret_cast<_tree_layout2>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).offset) }
         }
       }
     }
   } else if (intersects_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
     if (0.001f < distmax_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high)))) {
       if (distmin_Ray_AABB(_pulled1, build<AABB>(cast<f32x3>(prims.group0_bnode[_subtree0_bnode].low), cast<f32x3>(prims.group0_bnode[_subtree0_bnode].high))) < (*_best0)._field0) {
-        forall _idx1 in [0u:cast<u32>(prims.group0_bnode[_subtree0_bnode].nPrims):1u] {
-          if (intersects_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
-            if (0.001f < distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1])) {
-              if (distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]) < (*_best0)._field0) {
-                _best0 = build<__tuple_2>(distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1]), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + _idx0, build<_ref0>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + _idx1))))
+        forall data_1 in [0u:cast<u32>(prims.group0_bnode[_subtree0_bnode].nPrims):1u] {
+          if (intersects_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + data_1])) {
+            if (0.001f < distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + data_1])) {
+              if (distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + data_1]) < (*_best0)._field0) {
+                _best0 argmin= build<__tuple_2>(distmin_Ray_Triangle(_pulled1, prims.tris[reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + data_1]), build<__tuple_1>(reinterpret_cast<_tree_layout6>(prims.group1_index[prims_index].split0on_nPrims).pOffset + data, build<_ref0>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<_tree_layout3>(prims.group0_bnode[_subtree0_bnode].split0on_nPrims).pOffset + data_1))))
               }
             }
           }

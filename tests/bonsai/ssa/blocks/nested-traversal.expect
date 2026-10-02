@@ -179,37 +179,37 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
 
 !else_17(_t21 : u16, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index : u32): // preds: !then_14
   @100 = cast<u32>(_t21)
-  jmp !for__idx0_20((u32)0, @100, instances, _t32, r, _best0, instances_index)
+  jmp !for_data_20((u32)0, @100, instances, _t32, r, _best0, instances_index)
 
-!merge_18(): // preds: !_recloop_func0_multicall_cont_19, !for__idx0_end_22
+!merge_18(): // preds: !_recloop_func0_multicall_cont_19, !for_data_end_22
   jmp !merge_15()
 
 !_recloop_func0_multicall_cont_19(): // preds: !then_16
   jmp !merge_18()
 
-!for__idx0_20(_idx0 : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index : u32): // preds: !else_17, !_recloop_func1_call_cont_23
-  @101 = lt(_idx0, @100)
-  dispatch @101 [!for__idx0_end_22(), !for__idx0_body_21(instances, _t32, _idx0, r, _best0, instances_index, @100)]
+!for_data_20(data : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index : u32): // preds: !else_17, !_recloop_func1_call_cont_23
+  @101 = lt(data, @100)
+  dispatch @101 [!for_data_end_22(), !for_data_body_21(instances, _t32, data, r, _best0, instances_index, @100)]
 
-!for__idx0_body_21(instances : _tree_layout0, _t32 : _tree_layout4, _idx0 : u32, r : Ray, _best0 : (__tuple_2*), instances_index : u32, @100 : u32): // preds: !for__idx0_20
+!for_data_body_21(instances : _tree_layout0, _t32 : _tree_layout4, data : u32, r : Ray, _best0 : (__tuple_2*), instances_index : u32, @100 : u32): // preds: !for_data_20
   @102 = load_field(instances, (u32)5)
   @103 = load_field(_t32, (u32)4)
   @104 = reinterpret<_tree_layout6>(@103)
   @105 = load_field(@104, (u32)0)
-  @106 = add(@105, _idx0)
+  @106 = add(@105, data)
   @107 = extract_idx(@102, @106)
   _subtree0 = load_field(@107, (u32)0)
-  call _recloop_func1(_subtree0, instances, r, _best0, instances_index, _idx0) !_recloop_func1_call_cont_23(_idx0, @100, instances, _t32, r, _best0, instances_index)
+  call _recloop_func1(_subtree0, instances, r, _best0, instances_index, data) !_recloop_func1_call_cont_23(data, @100, instances, _t32, r, _best0, instances_index)
 
-!for__idx0_end_22(): // preds: !for__idx0_20
+!for_data_end_22(): // preds: !for_data_20
   jmp !merge_18()
 
-!_recloop_func1_call_cont_23(_idx0 : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index : u32): // preds: !for__idx0_body_21
-  @109 = add(_idx0, (u32)1)
-  jmp !for__idx0_20(@109, @100, instances, _t32, r, _best0, instances_index)
+!_recloop_func1_call_cont_23(data : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index : u32): // preds: !for_data_body_21
+  @109 = add(data, (u32)1)
+  jmp !for_data_20(@109, @100, instances, _t32, r, _best0, instances_index)
 
 ; --- _recloop_func1 ---
-func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): 
+func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32): 
   @0 = load_field(instances, (u32)3)
   _t91 = extract_idx(@0, _subtree0_bnode)
   intersects_Ray_AABB$r2 = alloca<(bool*)>()
@@ -259,14 +259,14 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   @37 = extract_idx(@36, (u32)1)
   @38 = lt(@35, @37)
   @39 = lor(@33, @38)
-  dispatch @39 [!else_1(tMin$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0), !then_0(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)]
+  dispatch @39 [!else_1(tMin$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data), !then_0(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)]
 
-!then_0(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: _recloop_func1
+!then_0(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: _recloop_func1
   @40 = make_struct<_option1>()
   store intersectsp_ray_aabb$r70 @40
-  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)
+  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)
 
-!else_1(tMin$i70 : (f32x3*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: _recloop_func1
+!else_1(tMin$i70 : (f32x3*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: _recloop_func1
   tmin$i70 = alloca<(f32*)>()
   @41 = load(tMin$i70)
   @42 = extract_idx(@41, (u32)0)
@@ -290,19 +290,19 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   @57 = extract_idx(@56, (u32)2)
   @58 = lt(@55, @57)
   @59 = lor(@54, @58)
-  dispatch @59 [!else_4(tmin$i70, tMin$i70, tmax$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0), !then_3(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)]
+  dispatch @59 [!else_4(tmin$i70, tMin$i70, tmax$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data), !then_3(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)]
 
-!merge_2(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !then_0, !merge_5
+!merge_2(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !then_0, !merge_5
   @73 = load(intersectsp_ray_aabb$r70)
   _t424 = load_field(@73, (u32)1)
-  dispatch _t424 [!else_7(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0), !then_6(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _t424, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)]
+  dispatch _t424 [!else_7(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data), !then_6(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _t424, _best0, _t91, _subtree0_bnode, instances, instances_index, data)]
 
-!then_3(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !else_1
+!then_3(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !else_1
   @60 = make_struct<_option1>()
   store intersectsp_ray_aabb$r70 @60
-  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)
+  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)
 
-!else_4(tmin$i70 : (f32*), tMin$i70 : (f32x3*), tmax$i70 : (f32*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !else_1
+!else_4(tmin$i70 : (f32*), tMin$i70 : (f32x3*), tmax$i70 : (f32*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !else_1
   @61 = load(tmin$i70)
   @62 = load(tMin$i70)
   @63 = extract_idx(@62, (u32)2)
@@ -318,12 +318,12 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   @71 = make_struct<FInterval>(@69, @70)
   @72 = make_struct<_option1>(@71, (bool)1)
   store intersectsp_ray_aabb$r70 @72
-  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)
+  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)
 
-!merge_5(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !then_3, !else_4
-  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, _idx0)
+!merge_5(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !then_3, !else_4
+  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode, instances, instances_index, data)
 
-!then_6(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _t424 : bool, _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !merge_2
+!then_6(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _t424 : bool, _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !merge_2
   @75 = load(intersectsp_ray_aabb$r70)
   extract$i2 = load_field(@75, (u32)0)
   @77 = load_field(extract$i2, (u32)0)
@@ -333,91 +333,91 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   @81 = lt((f32)0, @80)
   @82 = bwand(@79, @81)
   store intersects_Ray_AABB$r2 @82
-  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)
+  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)
 
-!else_7(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !merge_2
+!else_7(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !merge_2
   store intersects_Ray_AABB$r2 (bool)0
-  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)
+  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)
 
-!merge_8(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_6, !else_7
+!merge_8(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_6, !else_7
   @83 = load(intersects_Ray_AABB$r2)
-  dispatch @83 [!merge_10(), !then_9(_t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)]
+  dispatch @83 [!merge_10(), !then_9(_t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)]
 
-!then_9(_t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !merge_8
+!then_9(_t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !merge_8
   distmin_Ray_AABB$r3 = alloca<(f32*)>()
-  dispatch _t424 [!else_12(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0), !then_11(intersectsp_ray_aabb$r70, distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)]
+  dispatch _t424 [!else_12(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data), !then_11(intersectsp_ray_aabb$r70, distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)]
 
 !merge_10(): // preds: !merge_15, !merge_8
   ret
 
-!then_11(intersectsp_ray_aabb$r70 : (_option1*), distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_9
+!then_11(intersectsp_ray_aabb$r70 : (_option1*), distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_9
   @84 = load(intersectsp_ray_aabb$r70)
   extract$i3 = load_field(@84, (u32)0)
   @86 = load_field(extract$i3, (u32)0)
   store distmin_Ray_AABB$r3 @86
-  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)
+  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)
 
-!else_12(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_9
+!else_12(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_9
   @87 = inf()
   @88 = sub((f32)0, @87)
   store distmin_Ray_AABB$r3 @88
-  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, _idx0)
+  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode, instances, r, instances_index, data)
 
-!merge_13(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_11, !else_12
+!merge_13(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_11, !else_12
   @89 = load(distmin_Ray_AABB$r3)
   @90 = load(_best0)
   @91 = load_field(@90, (u32)0)
   @92 = lt(@89, @91)
-  dispatch @92 [!merge_15(), !then_14(_t91, _subtree0_bnode, instances, r, _best0, instances_index, _idx0)]
+  dispatch @92 [!merge_15(), !then_14(_t91, _subtree0_bnode, instances, r, _best0, instances_index, data)]
 
-!then_14(_t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !merge_13
+!then_14(_t91 : _tree_layout1, _subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !merge_13
   _t80 = load_field(_t91, (u32)2)
   @94 = eq(_t80, (u16)0)
-  dispatch @94 [!else_17(_t80, _t91, r, instances, _best0, instances_index, _idx0), !then_16(_subtree0_bnode, instances, r, _best0, instances_index, _idx0, _t91)]
+  dispatch @94 [!else_17(_t80, _t91, r, instances, _best0, instances_index, data), !then_16(_subtree0_bnode, instances, r, _best0, instances_index, data, _t91)]
 
 !merge_15(): // preds: !merge_18, !merge_13
   jmp !merge_10()
 
-!then_16(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32, _t91 : _tree_layout1): // preds: !then_14
+!then_16(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32, _t91 : _tree_layout1): // preds: !then_14
   @95 = add(_subtree0_bnode, (u32)1)
   @96 = load_field(_t91, (u32)4)
   @97 = reinterpret<_tree_layout2>(@96)
   @98 = load_field(@97, (u32)0)
   @99 = add(_subtree0_bnode, @98)
-  multicall _recloop_func1(_subtree0_bnode, instances, r, _best0, instances_index, _idx0) from { (@95), (@99) } at { 0 } !_recloop_func1_multicall_cont_19()
+  multicall _recloop_func1(_subtree0_bnode, instances, r, _best0, instances_index, data) from { (@95), (@99) } at { 0 } !_recloop_func1_multicall_cont_19()
 
-!else_17(_t80 : u16, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !then_14
+!else_17(_t80 : u16, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !then_14
   @100 = cast<u32>(_t80)
-  jmp !for__idx1_20((u32)0, @100, _t91, r, instances, _best0, instances_index, _idx0)
+  jmp !for_data_1_20((u32)0, @100, _t91, r, instances, _best0, instances_index, data)
 
-!merge_18(): // preds: !_recloop_func1_multicall_cont_19, !for__idx1_end_22
+!merge_18(): // preds: !_recloop_func1_multicall_cont_19, !for_data_1_end_22
   jmp !merge_15()
 
 !_recloop_func1_multicall_cont_19(): // preds: !then_16
   jmp !merge_18()
 
-!for__idx1_20(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !else_17, !merge_25
-  @101 = lt(_idx1, @100)
-  dispatch @101 [!for__idx1_end_22(), !for__idx1_body_21(_t91, _idx1, r, instances, _best0, instances_index, _idx0, @100)]
+!for_data_1_20(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !else_17, !merge_25
+  @101 = lt(data_1, @100)
+  dispatch @101 [!for_data_1_end_22(), !for_data_1_body_21(_t91, data_1, r, instances, _best0, instances_index, data, @100)]
 
-!for__idx1_body_21(_t91 : _tree_layout1, _idx1 : u32, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32, @100 : u32): // preds: !for__idx1_20
+!for_data_1_body_21(_t91 : _tree_layout1, data_1 : u32, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32, @100 : u32): // preds: !for_data_1_20
   @102 = load_field(_t91, (u32)4)
   @103 = reinterpret<_tree_layout3>(@102)
   @104 = load_field(@103, (u32)0)
-  _t73 = add(@104, _idx1)
+  _t73 = add(@104, data_1)
   @106 = load_field(instances, (u32)1)
   @107 = extract_idx(@106, _t73)
-  callc intersectsp_ray_tri(r, @107) !intersectsp_ray_tri_call_cont_23(_best0, instances, instances_index, _idx0, _t73, _idx1, @100, _t91, r)
+  callc intersectsp_ray_tri(r, @107) !intersectsp_ray_tri_call_cont_23(_best0, instances, instances_index, data, _t73, data_1, @100, _t91, r)
 
-!for__idx1_end_22(): // preds: !for__idx1_20
+!for_data_1_end_22(): // preds: !for_data_1_20
   jmp !merge_18()
 
-!intersectsp_ray_tri_call_cont_23(@108 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !for__idx1_body_21
+!intersectsp_ray_tri_call_cont_23(@108 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !for_data_1_body_21
   _t251 = set(@108)
   @109 = load_field(_t251, (u32)1)
-  dispatch @109 [!merge_25(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0), !then_24(_t251, _best0, instances, instances_index, _idx0, _t73, _idx1, @100, _t91, r)]
+  dispatch @109 [!merge_25(data_1, @100, _t91, r, instances, _best0, instances_index, data), !then_24(_t251, _best0, instances, instances_index, data, _t73, data_1, @100, _t91, r)]
 
-!then_24(_t251 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !intersectsp_ray_tri_call_cont_23
+!then_24(_t251 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !intersectsp_ray_tri_call_cont_23
   distmin_Ray_Triangle$r4 = alloca<(f32*)>()
   isect_$i4 = load_field(_t251, (u32)0)
   @111 = load_field(isect_$i4, (u32)3)
@@ -426,27 +426,27 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
   @113 = load(_best0)
   @114 = load_field(@113, (u32)0)
   @115 = lt(@112, @114)
-  dispatch @115 [!merge_27(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0), !then_26(distmin_Ray_Triangle$r4, instances, instances_index, _idx0, _t73, _best0, _idx1, @100, _t91, r)]
+  dispatch @115 [!merge_27(data_1, @100, _t91, r, instances, _best0, instances_index, data), !then_26(distmin_Ray_Triangle$r4, instances, instances_index, data, _t73, _best0, data_1, @100, _t91, r)]
 
-!merge_25(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !merge_27, !intersectsp_ray_tri_call_cont_23
-  @125 = add(_idx1, (u32)1)
-  jmp !for__idx1_20(@125, @100, _t91, r, instances, _best0, instances_index, _idx0)
+!merge_25(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !merge_27, !intersectsp_ray_tri_call_cont_23
+  @125 = add(data_1, (u32)1)
+  jmp !for_data_1_20(@125, @100, _t91, r, instances, _best0, instances_index, data)
 
-!then_26(distmin_Ray_Triangle$r4 : (f32*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _best0 : (__tuple_2*), _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !then_24
+!then_26(distmin_Ray_Triangle$r4 : (f32*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, _best0 : (__tuple_2*), data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !then_24
   @116 = load(distmin_Ray_Triangle$r4)
   @117 = load_field(instances, (u32)7)
   @118 = extract_idx(@117, instances_index)
   @119 = load_field(@118, (u32)4)
   @120 = reinterpret<_tree_layout6>(@119)
   @121 = load_field(@120, (u32)0)
-  @122 = add(@121, _idx0)
+  @122 = add(@121, data)
   @123 = make_struct<__tuple_1>(@122, _t73)
   @124 = make_struct<__tuple_2>(@116, @123)
-  store _best0 @124
-  jmp !merge_27(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0)
+  acc.argmin _best0 @124
+  jmp !merge_27(data_1, @100, _t91, r, instances, _best0, instances_index, data)
 
-!merge_27(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !then_26, !then_24
-  jmp !merge_25(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0)
+!merge_27(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !then_26, !then_24
+  jmp !merge_25(data_1, @100, _t91, r, instances, _best0, instances_index, data)
 
 ; --- _traverse_tree0 ---
 func _traverse_tree0(r : Ray, instances : _tree_layout0): 
@@ -723,34 +723,34 @@ _recloop_func0!loop(): // preds: !visit
 
 !else_17(_t21 : u16, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32): // preds: !then_14
   @100 = cast<u32>(_t21)
-  jmp !for__idx0_20((u32)0, @100, instances, _t32, r, _best0, instances_index!top)
+  jmp !for_data_20((u32)0, @100, instances, _t32, r, _best0, instances_index!top)
 
-!merge_18(): // preds: !_recloop_func0_multicall_cont_19, !for__idx0_end_22
+!merge_18(): // preds: !_recloop_func0_multicall_cont_19, !for_data_end_22
   jmp !merge_15()
 
 !_recloop_func0_multicall_cont_19(): 
   jmp !merge_18()
 
-!for__idx0_20(_idx0 : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32): // preds: !_recloop_func1_call_cont_23, !else_17
-  @101 = lt(_idx0, @100)
-  dispatch @101 [!for__idx0_end_22(), !for__idx0_body_21(instances, _t32, _idx0, r, _best0, instances_index!top, @100)]
+!for_data_20(data : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32): // preds: !_recloop_func1_call_cont_23, !else_17
+  @101 = lt(data, @100)
+  dispatch @101 [!for_data_end_22(), !for_data_body_21(instances, _t32, data, r, _best0, instances_index!top, @100)]
 
-!for__idx0_body_21(instances : _tree_layout0, _t32 : _tree_layout4, _idx0 : u32, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32, @100 : u32): // preds: !for__idx0_20
+!for_data_body_21(instances : _tree_layout0, _t32 : _tree_layout4, data : u32, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32, @100 : u32): // preds: !for_data_20
   @102 = load_field(instances, (u32)5)
   @103 = load_field(_t32, (u32)4)
   @104 = reinterpret<_tree_layout6>(@103)
   @105 = load_field(@104, (u32)0)
-  @106 = add(@105, _idx0)
+  @106 = add(@105, data)
   @107 = extract_idx(@102, @106)
   _subtree0 = load_field(@107, (u32)0)
-  call _recloop_func1(_subtree0, instances, r, _best0, instances_index!top, _idx0) !_recloop_func1_call_cont_23(_idx0, @100, instances, _t32, r, _best0, instances_index!top)
+  call _recloop_func1(_subtree0, instances, r, _best0, instances_index!top, data) !_recloop_func1_call_cont_23(data, @100, instances, _t32, r, _best0, instances_index!top)
 
-!for__idx0_end_22(): // preds: !for__idx0_20
+!for_data_end_22(): // preds: !for_data_20
   jmp !merge_18()
 
-!_recloop_func1_call_cont_23(_idx0 : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32): // preds: !for__idx0_body_21
-  @109 = add(_idx0, (u32)1)
-  jmp !for__idx0_20(@109, @100, instances, _t32, r, _best0, instances_index!top)
+!_recloop_func1_call_cont_23(data : u32, @100 : u32, instances : _tree_layout0, _t32 : _tree_layout4, r : Ray, _best0 : (__tuple_2*), instances_index!top : u32): // preds: !for_data_body_21
+  @109 = add(data, (u32)1)
+  jmp !for_data_20(@109, @100, instances, _t32, r, _best0, instances_index!top)
 
 !visit(instances_index!top : u32, !live : bool): // preds: !then_16, !visit_done, !visit_next, _recloop_func0
   dispatch !live [!visited(), _recloop_func0!loop()]
@@ -773,7 +773,7 @@ _recloop_func0!loop(): // preds: !visit
   jmp !visit(instances_index!top, (bool)0)
 
 ; --- _recloop_func1 ---
-func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): 
+func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32): 
   !stack = alloca<u32[64]>()
   !count = alloca<(u32*)>()
   store !count (u32)0
@@ -826,14 +826,14 @@ _recloop_func1!loop(): // preds: !visit
   @37 = extract_idx(@36, (u32)1)
   @38 = lt(@35, @37)
   @39 = lor(@33, @38)
-  dispatch @39 [!else_1(tMin$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0), !then_0(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)]
+  dispatch @39 [!else_1(tMin$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data), !then_0(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)]
 
-!then_0(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: _recloop_func1!loop
+!then_0(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: _recloop_func1!loop
   @40 = make_struct<_option1>()
   store intersectsp_ray_aabb$r70 @40
-  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)
+  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)
 
-!else_1(tMin$i70 : (f32x3*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: _recloop_func1!loop
+!else_1(tMin$i70 : (f32x3*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: _recloop_func1!loop
   tmin$i70 = alloca<(f32*)>()
   @41 = load(tMin$i70)
   @42 = extract_idx(@41, (u32)0)
@@ -857,19 +857,19 @@ _recloop_func1!loop(): // preds: !visit
   @57 = extract_idx(@56, (u32)2)
   @58 = lt(@55, @57)
   @59 = lor(@54, @58)
-  dispatch @59 [!else_4(tmin$i70, tMin$i70, tmax$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0), !then_3(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)]
+  dispatch @59 [!else_4(tmin$i70, tMin$i70, tmax$i70, tMax$i70, intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data), !then_3(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)]
 
-!merge_2(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !merge_5, !then_0
+!merge_2(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !merge_5, !then_0
   @73 = load(intersectsp_ray_aabb$r70)
   _t424 = load_field(@73, (u32)1)
-  dispatch _t424 [!else_7(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0), !then_6(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _t424, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)]
+  dispatch _t424 [!else_7(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data), !then_6(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _t424, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)]
 
-!then_3(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !else_1
+!then_3(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !else_1
   @60 = make_struct<_option1>()
   store intersectsp_ray_aabb$r70 @60
-  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)
+  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)
 
-!else_4(tmin$i70 : (f32*), tMin$i70 : (f32x3*), tmax$i70 : (f32*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !else_1
+!else_4(tmin$i70 : (f32*), tMin$i70 : (f32x3*), tmax$i70 : (f32*), tMax$i70 : (f32x3*), intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !else_1
   @61 = load(tmin$i70)
   @62 = load(tMin$i70)
   @63 = extract_idx(@62, (u32)2)
@@ -885,12 +885,12 @@ _recloop_func1!loop(): // preds: !visit
   @71 = make_struct<FInterval>(@69, @70)
   @72 = make_struct<_option1>(@71, (bool)1)
   store intersectsp_ray_aabb$r70 @72
-  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)
+  jmp !merge_5(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)
 
-!merge_5(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !else_4, !then_3
-  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, _idx0)
+!merge_5(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !else_4, !then_3
+  jmp !merge_2(intersectsp_ray_aabb$r70, r, intersects_Ray_AABB$r2, _best0, _t91, _subtree0_bnode!top, instances, instances_index, data)
 
-!then_6(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _t424 : bool, _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, _idx0 : u32): // preds: !merge_2
+!then_6(intersectsp_ray_aabb$r70 : (_option1*), r : Ray, intersects_Ray_AABB$r2 : (bool*), _t424 : bool, _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, instances_index : u32, data : u32): // preds: !merge_2
   @75 = load(intersectsp_ray_aabb$r70)
   extract$i2 = load_field(@75, (u32)0)
   @77 = load_field(extract$i2, (u32)0)
@@ -900,52 +900,52 @@ _recloop_func1!loop(): // preds: !visit
   @81 = lt((f32)0, @80)
   @82 = bwand(@79, @81)
   store intersects_Ray_AABB$r2 @82
-  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)
+  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)
 
-!else_7(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !merge_2
+!else_7(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !merge_2
   store intersects_Ray_AABB$r2 (bool)0
-  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)
+  jmp !merge_8(intersects_Ray_AABB$r2, _t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)
 
-!merge_8(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !else_7, !then_6
+!merge_8(intersects_Ray_AABB$r2 : (bool*), _t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !else_7, !then_6
   @83 = load(intersects_Ray_AABB$r2)
-  dispatch @83 [!merge_10(), !then_9(_t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)]
+  dispatch @83 [!merge_10(), !then_9(_t424, intersectsp_ray_aabb$r70, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)]
 
-!then_9(_t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !merge_8
+!then_9(_t424 : bool, intersectsp_ray_aabb$r70 : (_option1*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !merge_8
   distmin_Ray_AABB$r3 = alloca<(f32*)>()
-  dispatch _t424 [!else_12(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0), !then_11(intersectsp_ray_aabb$r70, distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)]
+  dispatch _t424 [!else_12(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data), !then_11(intersectsp_ray_aabb$r70, distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)]
 
 !merge_10(): // preds: !merge_15, !merge_8
   jmp !visit_pop()
 
-!then_11(intersectsp_ray_aabb$r70 : (_option1*), distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_9
+!then_11(intersectsp_ray_aabb$r70 : (_option1*), distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_9
   @84 = load(intersectsp_ray_aabb$r70)
   extract$i3 = load_field(@84, (u32)0)
   @86 = load_field(extract$i3, (u32)0)
   store distmin_Ray_AABB$r3 @86
-  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)
+  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)
 
-!else_12(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !then_9
+!else_12(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !then_9
   @87 = inf()
   @88 = sub((f32)0, @87)
   store distmin_Ray_AABB$r3 @88
-  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, _idx0)
+  jmp !merge_13(distmin_Ray_AABB$r3, _best0, _t91, _subtree0_bnode!top, instances, r, instances_index, data)
 
-!merge_13(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, _idx0 : u32): // preds: !else_12, !then_11
+!merge_13(distmin_Ray_AABB$r3 : (f32*), _best0 : (__tuple_2*), _t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, instances_index : u32, data : u32): // preds: !else_12, !then_11
   @89 = load(distmin_Ray_AABB$r3)
   @90 = load(_best0)
   @91 = load_field(@90, (u32)0)
   @92 = lt(@89, @91)
-  dispatch @92 [!merge_15(), !then_14(_t91, _subtree0_bnode!top, instances, r, _best0, instances_index, _idx0)]
+  dispatch @92 [!merge_15(), !then_14(_t91, _subtree0_bnode!top, instances, r, _best0, instances_index, data)]
 
-!then_14(_t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !merge_13
+!then_14(_t91 : _tree_layout1, _subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !merge_13
   _t80 = load_field(_t91, (u32)2)
   @94 = eq(_t80, (u16)0)
-  dispatch @94 [!else_17(_t80, _t91, r, instances, _best0, instances_index, _idx0), !then_16(_subtree0_bnode!top, instances, r, _best0, instances_index, _idx0, _t91)]
+  dispatch @94 [!else_17(_t80, _t91, r, instances, _best0, instances_index, data), !then_16(_subtree0_bnode!top, instances, r, _best0, instances_index, data, _t91)]
 
 !merge_15(): // preds: !merge_13, !merge_18
   jmp !merge_10()
 
-!then_16(_subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32, _t91 : _tree_layout1): // preds: !then_14
+!then_16(_subtree0_bnode!top : u32, instances : _tree_layout0, r : Ray, _best0 : (__tuple_2*), instances_index : u32, data : u32, _t91 : _tree_layout1): // preds: !then_14
   @95 = add(_subtree0_bnode!top, (u32)1)
   @96 = load_field(_t91, (u32)4)
   @97 = reinterpret<_tree_layout2>(@96)
@@ -958,38 +958,38 @@ _recloop_func1!loop(): // preds: !visit
   store !count @132
   jmp !visit(@95, (bool)1)
 
-!else_17(_t80 : u16, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !then_14
+!else_17(_t80 : u16, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !then_14
   @100 = cast<u32>(_t80)
-  jmp !for__idx1_20((u32)0, @100, _t91, r, instances, _best0, instances_index, _idx0)
+  jmp !for_data_1_20((u32)0, @100, _t91, r, instances, _best0, instances_index, data)
 
-!merge_18(): // preds: !_recloop_func1_multicall_cont_19, !for__idx1_end_22
+!merge_18(): // preds: !_recloop_func1_multicall_cont_19, !for_data_1_end_22
   jmp !merge_15()
 
 !_recloop_func1_multicall_cont_19(): 
   jmp !merge_18()
 
-!for__idx1_20(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !else_17, !merge_25
-  @101 = lt(_idx1, @100)
-  dispatch @101 [!for__idx1_end_22(), !for__idx1_body_21(_t91, _idx1, r, instances, _best0, instances_index, _idx0, @100)]
+!for_data_1_20(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !else_17, !merge_25
+  @101 = lt(data_1, @100)
+  dispatch @101 [!for_data_1_end_22(), !for_data_1_body_21(_t91, data_1, r, instances, _best0, instances_index, data, @100)]
 
-!for__idx1_body_21(_t91 : _tree_layout1, _idx1 : u32, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32, @100 : u32): // preds: !for__idx1_20
+!for_data_1_body_21(_t91 : _tree_layout1, data_1 : u32, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32, @100 : u32): // preds: !for_data_1_20
   @102 = load_field(_t91, (u32)4)
   @103 = reinterpret<_tree_layout3>(@102)
   @104 = load_field(@103, (u32)0)
-  _t73 = add(@104, _idx1)
+  _t73 = add(@104, data_1)
   @106 = load_field(instances, (u32)1)
   @107 = extract_idx(@106, _t73)
-  callc intersectsp_ray_tri(r, @107) !intersectsp_ray_tri_call_cont_23(_best0, instances, instances_index, _idx0, _t73, _idx1, @100, _t91, r)
+  callc intersectsp_ray_tri(r, @107) !intersectsp_ray_tri_call_cont_23(_best0, instances, instances_index, data, _t73, data_1, @100, _t91, r)
 
-!for__idx1_end_22(): // preds: !for__idx1_20
+!for_data_1_end_22(): // preds: !for_data_1_20
   jmp !merge_18()
 
-!intersectsp_ray_tri_call_cont_23(@108 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !for__idx1_body_21
+!intersectsp_ray_tri_call_cont_23(@108 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !for_data_1_body_21
   _t251 = set(@108)
   @109 = load_field(_t251, (u32)1)
-  dispatch @109 [!merge_25(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0), !then_24(_t251, _best0, instances, instances_index, _idx0, _t73, _idx1, @100, _t91, r)]
+  dispatch @109 [!merge_25(data_1, @100, _t91, r, instances, _best0, instances_index, data), !then_24(_t251, _best0, instances, instances_index, data, _t73, data_1, @100, _t91, r)]
 
-!then_24(_t251 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !intersectsp_ray_tri_call_cont_23
+!then_24(_t251 : _option2, _best0 : (__tuple_2*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !intersectsp_ray_tri_call_cont_23
   distmin_Ray_Triangle$r4 = alloca<(f32*)>()
   isect_$i4 = load_field(_t251, (u32)0)
   @111 = load_field(isect_$i4, (u32)3)
@@ -998,27 +998,27 @@ _recloop_func1!loop(): // preds: !visit
   @113 = load(_best0)
   @114 = load_field(@113, (u32)0)
   @115 = lt(@112, @114)
-  dispatch @115 [!merge_27(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0), !then_26(distmin_Ray_Triangle$r4, instances, instances_index, _idx0, _t73, _best0, _idx1, @100, _t91, r)]
+  dispatch @115 [!merge_27(data_1, @100, _t91, r, instances, _best0, instances_index, data), !then_26(distmin_Ray_Triangle$r4, instances, instances_index, data, _t73, _best0, data_1, @100, _t91, r)]
 
-!merge_25(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !intersectsp_ray_tri_call_cont_23, !merge_27
-  @125 = add(_idx1, (u32)1)
-  jmp !for__idx1_20(@125, @100, _t91, r, instances, _best0, instances_index, _idx0)
+!merge_25(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !intersectsp_ray_tri_call_cont_23, !merge_27
+  @125 = add(data_1, (u32)1)
+  jmp !for_data_1_20(@125, @100, _t91, r, instances, _best0, instances_index, data)
 
-!then_26(distmin_Ray_Triangle$r4 : (f32*), instances : _tree_layout0, instances_index : u32, _idx0 : u32, _t73 : u32, _best0 : (__tuple_2*), _idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !then_24
+!then_26(distmin_Ray_Triangle$r4 : (f32*), instances : _tree_layout0, instances_index : u32, data : u32, _t73 : u32, _best0 : (__tuple_2*), data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray): // preds: !then_24
   @116 = load(distmin_Ray_Triangle$r4)
   @117 = load_field(instances, (u32)7)
   @118 = extract_idx(@117, instances_index)
   @119 = load_field(@118, (u32)4)
   @120 = reinterpret<_tree_layout6>(@119)
   @121 = load_field(@120, (u32)0)
-  @122 = add(@121, _idx0)
+  @122 = add(@121, data)
   @123 = make_struct<__tuple_1>(@122, _t73)
   @124 = make_struct<__tuple_2>(@116, @123)
-  store _best0 @124
-  jmp !merge_27(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0)
+  acc.argmin _best0 @124
+  jmp !merge_27(data_1, @100, _t91, r, instances, _best0, instances_index, data)
 
-!merge_27(_idx1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, _idx0 : u32): // preds: !then_24, !then_26
-  jmp !merge_25(_idx1, @100, _t91, r, instances, _best0, instances_index, _idx0)
+!merge_27(data_1 : u32, @100 : u32, _t91 : _tree_layout1, r : Ray, instances : _tree_layout0, _best0 : (__tuple_2*), instances_index : u32, data : u32): // preds: !then_24, !then_26
+  jmp !merge_25(data_1, @100, _t91, r, instances, _best0, instances_index, data)
 
 !visit(_subtree0_bnode!top : u32, !live : bool): // preds: !then_16, !visit_done, !visit_next, _recloop_func1
   dispatch !live [!visited(), _recloop_func1!loop()]
@@ -1165,7 +1165,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   tmax$i69 : mut f32
   intersects_Ray_AABB$r0 : mut bool
   distmin_Ray_AABB$r1 : mut f32
-  _idx0 : mut u32
+  data : mut u32
   instances_index!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -1282,18 +1282,18 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
           continue
         } else {
           let @100 = cast<u32>(_t21) in
-          _idx0 = 0u
-          while ((*_idx0) < @100) {
+          data = 0u
+          while ((*data) < @100) {
             let @102 = instances.insts in
             let @103 = _t32.split0on_nPrims in
             let @104 = reinterpret_cast<_tree_layout6>(@103) in
             let @105 = @104.pOffset in
-            let @106 = @105 + (*_idx0) in
+            let @106 = @105 + (*data) in
             let @107 = @102[@106] in
             let _subtree0 = @107.blas in
-            _recloop_func1(_subtree0, instances, r, _best0, (*instances_index!top), (*_idx0))
-            let @109 = (*_idx0) + 1u in
-            _idx0 = @109
+            _recloop_func1(_subtree0, instances, r, _best0, (*instances_index!top), (*data))
+            let @109 = (*data) + 1u in
+            data = @109
           }
         }
       }
@@ -1312,13 +1312,13 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _
   return
 }
 
-func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*), instances_index : u32, _idx0 : u32) -> void {
+func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*), instances_index : u32, data : u32) -> void {
   intersectsp_ray_aabb$r70 : mut _option1
   tmin$i70 : mut f32
   tmax$i70 : mut f32
   intersects_Ray_AABB$r2 : mut bool
   distmin_Ray_AABB$r3 : mut f32
-  _idx1 : mut u32
+  data_1 : mut u32
   _subtree0_bnode!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -1435,12 +1435,12 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
           continue
         } else {
           let @100 = cast<u32>(_t80) in
-          _idx1 = 0u
-          while ((*_idx1) < @100) {
+          data_1 = 0u
+          while ((*data_1) < @100) {
             let @102 = _t91.split0on_nPrims in
             let @103 = reinterpret_cast<_tree_layout3>(@102) in
             let @104 = @103.pOffset in
-            let _t73 = @104 + (*_idx1) in
+            let _t73 = @104 + (*data_1) in
             let @106 = instances.tris in
             let @107 = @106[_t73] in
             let @108 = intersectsp_ray_tri(r, @107) in
@@ -1458,14 +1458,14 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, r : Ray, _
                 let @119 = @118.split0on_nPrims in
                 let @120 = reinterpret_cast<_tree_layout6>(@119) in
                 let @121 = @120.pOffset in
-                let @122 = @121 + _idx0 in
+                let @122 = @121 + data in
                 let @123 = build<__tuple_1>(@122, _t73) in
                 let @124 = build<__tuple_2>(@111, @123) in
-                _best0 = @124
+                _best0 argmin= @124
               }
             }
-            let @125 = (*_idx1) + 1u in
-            _idx1 = @125
+            let @125 = (*data_1) + 1u in
+            data_1 = @125
           }
         }
       }

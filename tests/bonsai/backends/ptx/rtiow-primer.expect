@@ -776,13 +776,13 @@ build_ray.exit:                                   ; preds = %__nv_tanf.exit, %__
 
 "!then_16.i":                                     ; preds = %"!merge_2.i188"
   %457 = icmp eq i16 %extract.unpack762.i, 0
-  br i1 %457, label %"!then_18.i", label %"!for__idx0_22.i.preheader"
+  br i1 %457, label %"!then_18.i", label %"!for_d_22.i.preheader"
 
-"!for__idx0_22.i.preheader":                      ; preds = %"!then_16.i"
+"!for_d_22.i.preheader":                          ; preds = %"!then_16.i"
   %458 = insertelement <2 x i8> poison, i8 %extract.unpack764.unpack.i, i64 0
   %459 = insertelement <2 x i8> %458, i8 %extract.unpack764.unpack772.i, i64 1
   %460 = bitcast <2 x i8> %459 to i16
-  br label %"!for__idx0_body_23.i"
+  br label %"!for_d_body_23.i"
 
 "!then_18.i":                                     ; preds = %"!then_16.i"
   %461 = add i16 %"spheres_index!top.i295", 1
@@ -796,11 +796,11 @@ build_ray.exit:                                   ; preds = %__nv_tanf.exit, %__
   %467 = add i32 %"!count.i296", 1
   br label %"_recloop_func0!loop.i"
 
-"!for__idx0_body_23.i":                           ; preds = %"!for__idx0_22.i.preheader", %"!merge_32.i"
-  %_idx0.i302 = phi i16 [ 0, %"!for__idx0_22.i.preheader" ], [ %497, %"!merge_32.i" ]
-  %"_best0$i4879.i.sroa.0.2301" = phi float [ %"_best0$i4879.i.sroa.0.0.ph304", %"!for__idx0_22.i.preheader" ], [ %"_best0$i4879.i.sroa.0.3", %"!merge_32.i" ]
-  %"_best0$i4879.i.sroa.7.2300" = phi i16 [ %"_best0$i4879.i.sroa.7.0.ph303", %"!for__idx0_22.i.preheader" ], [ %"_best0$i4879.i.sroa.7.3", %"!merge_32.i" ]
-  %468 = add i16 %_idx0.i302, %460
+"!for_d_body_23.i":                               ; preds = %"!for_d_22.i.preheader", %"!merge_32.i"
+  %d.i302 = phi i16 [ 0, %"!for_d_22.i.preheader" ], [ %497, %"!merge_32.i" ]
+  %"_best0$i4879.i.sroa.0.2301" = phi float [ %"_best0$i4879.i.sroa.0.0.ph304", %"!for_d_22.i.preheader" ], [ %"_best0$i4879.i.sroa.0.3", %"!merge_32.i" ]
+  %"_best0$i4879.i.sroa.7.2300" = phi i16 [ %"_best0$i4879.i.sroa.7.0.ph303", %"!for_d_22.i.preheader" ], [ %"_best0$i4879.i.sroa.7.3", %"!merge_32.i" ]
+  %468 = add i16 %d.i302, %460
   %469 = sext i16 %468 to i64
   %extract_ptr741.i = getelementptr inbounds [80 x i8], ptr %.generic, i64 %469
   %"@81.s.i" = load %struct.Sphere, ptr %extract_ptr741.i, align 16, !invariant.load !7
@@ -825,7 +825,7 @@ build_ray.exit:                                   ; preds = %__nv_tanf.exit, %__
   %486 = fcmp uge float %485, 0.000000e+00
   br i1 %486, label %"!else_26.i", label %"!merge_32.i"
 
-"!else_26.i":                                     ; preds = %"!for__idx0_body_23.i"
+"!else_26.i":                                     ; preds = %"!for_d_body_23.i"
   %487 = tail call float @llvm.sqrt.f32(float %485)
   %488 = fsub float %478, %487
   %489 = fdiv float %488, %422
@@ -846,12 +846,12 @@ build_ray.exit:                                   ; preds = %__nv_tanf.exit, %__
   %spec.select265 = select i1 %or.cond264, float %min744.i, float %"_best0$i4879.i.sroa.0.2301"
   br label %"!merge_32.i"
 
-"!merge_32.i":                                    ; preds = %"!else_26.i", %"!for__idx0_body_23.i"
-  %"_best0$i4879.i.sroa.7.3" = phi i16 [ %"_best0$i4879.i.sroa.7.2300", %"!for__idx0_body_23.i" ], [ %spec.select, %"!else_26.i" ]
-  %"_best0$i4879.i.sroa.0.3" = phi float [ %"_best0$i4879.i.sroa.0.2301", %"!for__idx0_body_23.i" ], [ %spec.select265, %"!else_26.i" ]
-  %497 = add nuw i16 %_idx0.i302, 1
+"!merge_32.i":                                    ; preds = %"!else_26.i", %"!for_d_body_23.i"
+  %"_best0$i4879.i.sroa.7.3" = phi i16 [ %"_best0$i4879.i.sroa.7.2300", %"!for_d_body_23.i" ], [ %spec.select, %"!else_26.i" ]
+  %"_best0$i4879.i.sroa.0.3" = phi float [ %"_best0$i4879.i.sroa.0.2301", %"!for_d_body_23.i" ], [ %spec.select265, %"!else_26.i" ]
+  %497 = add nuw i16 %d.i302, 1
   %exitcond345.not = icmp eq i16 %497, %extract.unpack762.i
-  br i1 %exitcond345.not, label %"!visit_pop.i", label %"!for__idx0_body_23.i"
+  br i1 %exitcond345.not, label %"!visit_pop.i", label %"!for_d_body_23.i"
 
 "!visit_pop.i":                                   ; preds = %"!merge_2.i188", %"!merge_32.i"
   %"_best0$i4879.i.sroa.7.1" = phi i16 [ %"_best0$i4879.i.sroa.7.3", %"!merge_32.i" ], [ %"_best0$i4879.i.sroa.7.0.ph303", %"!merge_2.i188" ]

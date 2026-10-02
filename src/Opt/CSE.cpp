@@ -565,7 +565,8 @@ struct Rename : public ir::Mutator {
         ir::Stmt body = mutate(node->body);
         ir::Expr iter = mutate(node->iter);
         return make(
-            ir::ForEach::make(node->name, std::move(iter), std::move(body)));
+            ir::ForEach::make(node->name, std::move(iter), std::move(body),
+                              node->label));
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {
@@ -889,7 +890,8 @@ class LVN : public ir::Mutator {
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
         pop_frame();
-        return ir::ForEach::make(node->name, std::move(iter), std::move(body));
+        return ir::ForEach::make(node->name, std::move(iter), std::move(body),
+                              node->label);
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {
@@ -1221,7 +1223,8 @@ class CopyPropagation : public ir::Mutator {
         ir::Expr iter = mutate(node->iter);
         ir::Stmt body = mutate(node->body);
         pop_frame();
-        return ir::ForEach::make(node->name, std::move(iter), std::move(body));
+        return ir::ForEach::make(node->name, std::move(iter), std::move(body),
+                              node->label);
     }
 
     ir::Stmt visit(const ir::ForAll *node) override {

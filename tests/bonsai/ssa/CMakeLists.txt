@@ -8,6 +8,7 @@ add_bonsai_tests(
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai
     child-volumes-vectorized.bonsai
+    tiled-leaf-vectorized.bonsai
     collapse.bonsai
     defer-bools.bonsai
     defer-frame.bonsai

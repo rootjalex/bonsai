@@ -31,7 +31,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   tmax$i26 : mut f32
   intersects_Ray_AABB$r0 : mut bool
   distmin_Ray_AABB$r1 : mut f32
-  _idx0 : mut u32
+  data : mut u32
   triangles_index!top : mut u32
   !live : mut bool
   !count : mut u32
@@ -153,12 +153,12 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
           continue
         } else {
           let @105 = cast<u32>(_t64) in
-          _idx0 = 0u
-          while ((*_idx0) < @105) {
+          data = 0u
+          while ((*data) < @105) {
             let @107 = _t75.split0on_nPrims in
             let @108 = reinterpret_cast<_tree_layout3>(@107) in
             let @109 = @108.pOffset in
-            let _t57 = @109 + (*_idx0) in
+            let _t57 = @109 + (*data) in
             let @111 = triangles.prims in
             let @112 = @111[_t57] in
             let @113 = intersectsp_ray_tri(ray, @112) in
@@ -173,11 +173,11 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
               if (@120) {
                 let @122 = build<__tuple_0>(_t57) in
                 let @123 = build<__tuple_1>(@116, @122) in
-                _best0 = @123
+                _best0 argmin= @123
               }
             }
-            let @124 = (*_idx0) + 1u in
-            _idx0 = @124
+            let @124 = (*data) + 1u in
+            data = @124
           }
         }
       }

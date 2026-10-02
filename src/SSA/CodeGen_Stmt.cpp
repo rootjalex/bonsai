@@ -421,13 +421,33 @@ Stmt codegen_instruction(const Instruction &instr) {
                                          instr.atomic));
                 }
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
-                    internal_assert(op != Accumulate::OpType::Argmin &&
-                                    op != Accumulate::OpType::Argmax)
-                        << "[unimplemented] a masked argmin/argmax into "
-                        << "per-lane memory";
                     Expr place = codegen_value(instr.operands[0]);
                     Expr current = Deref::make(
                         place, place.type().is_vector() ? mask : Expr());
+                    if (op == Accumulate::OpType::Argmin ||
+                        op == Accumulate::OpType::Argmax) {
+                        // Each lane's pair against its own slot's: the lanes
+                        // on whose key is the better write theirs (see
+                        // CodeGen_LLVM_SSA.cpp).
+                        const Struct_t *pair = val.type().as<Struct_t>();
+                        internal_assert(pair != nullptr && !pair->fields.empty())
+                            << "An argmin's value is not a pair: " << val;
+                        const std::string &key = pair->fields[0].name;
+                        Expr better =
+                            op == Accumulate::OpType::Argmin
+                                ? BinOp::make(BinOp::OpType::Lt,
+                                              Access::make(key, val),
+                                              Access::make(key, current))
+                                : BinOp::make(BinOp::OpType::Lt,
+                                              Access::make(key, current),
+                                              Access::make(key, val));
+                        return Store::make(
+                            std::move(loc), std::move(val),
+                            BinOp::make(BinOp::OpType::LAnd, std::move(mask),
+                                        std::move(better)));
+                    }
+                    // Booleans' minimum and maximum are their and and or.
+                    const bool bools = val.type().element_of().is_bool();
                     Expr combined =
                         op == Accumulate::OpType::Add
                             ? BinOp::make(BinOp::OpType::Add, current, val)
@@ -436,10 +456,13 @@ Stmt codegen_instruction(const Instruction &instr) {
                         : op == Accumulate::OpType::Mul
                             ? BinOp::make(BinOp::OpType::Mul, current, val)
                         : op == Accumulate::OpType::Min
-                            ? Intrinsic::make(Intrinsic::OpType::min,
-                                              {current, val})
-                            : Intrinsic::make(Intrinsic::OpType::max,
-                                              {current, val});
+                            ? (bools ? BinOp::make(BinOp::OpType::LAnd, current,
+                                                   val)
+                                     : Intrinsic::make(Intrinsic::OpType::min,
+                                                       {current, val}))
+                        : (bools ? BinOp::make(BinOp::OpType::LOr, current, val)
+                                 : Intrinsic::make(Intrinsic::OpType::max,
+                                                   {current, val}));
                     return Store::make(std::move(loc), std::move(combined),
                                        std::move(mask));
                 }

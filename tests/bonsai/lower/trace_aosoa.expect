@@ -78,8 +78,8 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
         let _t64 = reinterpret_cast<_tree_layout3>(_t17.split0on_nPrims).offset in
         multirecurse _recloop_func0(<0>, <1>, ts, ray, _best0) from { (_t64, 0u), (_t64, 1u) }
       } else {
-        forall _idx0 in [0u:cast<u32>(_t117):1u] {
-          let _t106 = reinterpret_cast<_tree_layout4>(_t17.split0on_nPrims).pOffset + _idx0 in
+        forall data in [0u:cast<u32>(_t117):1u] {
+          let _t106 = reinterpret_cast<_tree_layout4>(_t17.split0on_nPrims).pOffset + data in
           let _t443 = intersectsp_ray_tri(ray, ts.prims[_t106]) in
           if (_t443.set) {
             distmin_Ray_Triangle$r2 : mut f32
@@ -98,7 +98,7 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
               } else {
                 distmin_Ray_Triangle$r3 = (f32)inf
               }
-              _best0 = build<__tuple_1>((*distmin_Ray_Triangle$r3), build<__tuple_0>(_t106))
+              _best0 argmin= build<__tuple_1>((*distmin_Ray_Triangle$r3), build<__tuple_0>(_t106))
             }
           }
         }

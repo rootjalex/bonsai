@@ -84,7 +84,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   intersects_Ray_Sphere$r0 : mut bool
   distmax_Ray_Sphere$r1 : mut f32
   distmin_Ray_Sphere$r2 : mut f32
-  _idx0 : mut u16
+  data : mut u16
   intersects_Ray_Shape$r3 : mut bool
   intersectsp_ray_sphere$r21$i35 : mut _option1
   intersects_Ray_Sphere$r35 : mut bool
@@ -206,12 +206,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             continue
           } else {
             let @84 = cast<u16>(_t85) in
-            _idx0 = 0u
-            while ((*_idx0) < @84) {
+            data = 0u
+            while ((*data) < @84) {
               let @86 = _t103.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
-              let _t78 = @88 + (*_idx0) in
+              let _t78 = @88 + (*data) in
               let @90 = shapes.prims in
               let _t79 = @90[_t78] in
               let _t334 = _t79.tag in
@@ -412,12 +412,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                   if (@258) {
                     let @260 = build<__tuple_0>(_t78) in
                     let @261 = build<__tuple_1>((*distmin_Ray_Shape$r4), @260) in
-                    _best0 = @261
+                    _best0 argmin= @261
                   }
                 }
               }
-              let @262 = (*_idx0) + 1u in
-              _idx0 = @262
+              let @262 = (*data) + 1u in
+              data = @262
             }
           }
         }
@@ -438,7 +438,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
 }
 
 func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*), !mask : boolx8) -> void {
-  _idx0 : mut u16
+  data : mut u16
   a$i34 : mut f32x8
   intersects_Ray_Shape$r3 : mut boolx8
   distmin_Ray_Shape$r4 : mut f32x8
@@ -630,13 +630,13 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             continue
           } else {
             let @84 = cast<u16>(_t85) in
-            _idx0 = 0u
+            data = 0u
             a$i34 = @349
-            while ((*_idx0) < @84) {
+            while ((*data) < @84) {
               let @86 = _t103.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
-              let _t78 = @88 + (*_idx0) in
+              let _t78 = @88 + (*data) in
               let @90 = shapes.prims in
               let _t79 = @90[_t78] in
               let _t334 = _t79.tag in
@@ -895,12 +895,12 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                     let @496 = u16x8(_t78) in
                     let @497 = build<__tuple_0$v8>(@496) in
                     let @261 = build<__tuple_1$v8>((*distmin_Ray_Shape$r4), @497) in
-                    masked_store(_best0, @261, @312)
+                    masked_store(_best0, @261, @312 && (@261._field0 < (*_best0)._field0))
                   }
                 }
               }
-              let @262 = (*_idx0) + 1u in
-              _idx0 = @262
+              let @262 = (*data) + 1u in
+              data = @262
             }
           }
         }

@@ -287,6 +287,8 @@ vector<size_t> value_operands(const Instruction &instr) {
     case Instruction::Op::AccSub:
     case Instruction::Op::AccMin:
     case Instruction::Op::AccMax:
+    case Instruction::Op::AccArgmin:
+    case Instruction::Op::AccArgmax:
     case Instruction::Op::Store:
         return {};
 
@@ -623,6 +625,16 @@ shared_ptr<Value> accumulate_identity(Instruction::Op op, const Type &type,
         sink.push_back(inf);
         return std::make_shared<Value>(inf);
     };
+    // A boolean's extremes: `any` accumulates with the maximum, `all` with
+    // the minimum, and a lane that is off contributes false to the one and
+    // true to the other.
+    if (type.is_bool()) {
+        internal_assert(op == Instruction::Op::AccMin ||
+                        op == Instruction::Op::AccMax)
+            << "No identity for " << op_name(op) << " of a boolean";
+        return std::make_shared<Value>(
+            Constant{type, op == Instruction::Op::AccMin});
+    }
     const uint32_t bits = type.is_float() ? 0 : type.bits();
     switch (op) {
     case Instruction::Op::AccAdd:
@@ -683,7 +695,9 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                instr.op == Instruction::Op::AccMul ||
                instr.op == Instruction::Op::AccSub ||
                instr.op == Instruction::Op::AccMin ||
-               instr.op == Instruction::Op::AccMax;
+               instr.op == Instruction::Op::AccMax ||
+               instr.op == Instruction::Op::AccArgmin ||
+               instr.op == Instruction::Op::AccArgmax;
     };
 
     for (BlockId b : region.rpo) {
@@ -950,7 +964,11 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                                instr->op == Instruction::Op::AccMul ||
                                instr->op == Instruction::Op::AccSub ||
                                instr->op == Instruction::Op::AccMin ||
-                               instr->op == Instruction::Op::AccMax;
+                               instr->op == Instruction::Op::AccMax ||
+                               instr->op == Instruction::Op::AccArgmin ||
+                               instr->op == Instruction::Op::AccArgmax;
+            const bool by_key = instr->op == Instruction::Op::AccArgmin ||
+                                instr->op == Instruction::Op::AccArgmax;
 
             // An accumulate whose place stays uniform but whose value now
             // varies is a cross-lane reduction: every lane folds into the one
@@ -973,6 +991,8 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                 (div.instrs.count(instr.get()) ||
                  is_gang_wide(instr->operands[1]->get_type(), lanes))) {
                 ir::VectorReduce::OpType rop = ir::VectorReduce::Add;
+                // What the lanes' keys fold with, for an argmin or argmax.
+                Instruction::Op key_op = instr->op;
                 switch (instr->op) {
                 case Instruction::Op::AccMul:
                     rop = ir::VectorReduce::Mul;
@@ -982,6 +1002,14 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                     break;
                 case Instruction::Op::AccMax:
                     rop = ir::VectorReduce::Max;
+                    break;
+                case Instruction::Op::AccArgmin:
+                    rop = ir::VectorReduce::Min;
+                    key_op = Instruction::Op::AccMin;
+                    break;
+                case Instruction::Op::AccArgmax:
+                    rop = ir::VectorReduce::Max;
+                    key_op = Instruction::Op::AccMax;
                     break;
                 default: // AccAdd, AccSub: both fold the lanes with +
                     rop = ir::VectorReduce::Add;
@@ -993,6 +1021,8 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
 
                 // One gang vector of a component (or of the whole scalar value),
                 // masked to the identity where a lane is off, reduced to one.
+                // `masked` is the vector as reduced, after the mask.
+                shared_ptr<Value> masked;
                 const auto fold = [&](shared_ptr<Value> lanes_of) {
                     if (!is_gang_wide(lanes_of->get_type(), lanes)) {
                         lanes_of = broadcast(func, here, lanes_of, lanes, widened);
@@ -1001,7 +1031,7 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                     if (mask != nullptr) {
                         shared_ptr<Value> identity = broadcast(
                             func, here,
-                            accumulate_identity(instr->op, element, func, here,
+                            accumulate_identity(key_op, element, func, here,
                                                 widened),
                             lanes, widened);
                         auto select = std::make_shared<Instruction>(
@@ -1012,17 +1042,124 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                         widened.push_back(select);
                         lanes_of = std::make_shared<Value>(select);
                     }
+                    masked = lanes_of;
                     auto reduce = std::make_shared<Instruction>(
                         func.get_unique_name(), element, Instruction::Op::Reduce,
                         vector<shared_ptr<Value>>{lanes_of}, here);
-                    reduce->reduce = rop;
+                    // Booleans fold with or and and: the maximum of bools is
+                    // whether any is set, the minimum whether all are.
+                    reduce->reduce = !element.is_bool()           ? rop
+                                     : rop == ir::VectorReduce::Max ? ir::VectorReduce::Or
+                                     : rop == ir::VectorReduce::Min ? ir::VectorReduce::And
+                                                                    : rop;
                     widened.push_back(reduce);
                     return std::make_shared<Value>(reduce);
                 };
 
                 shared_ptr<Value> &value = instr->operands[1];
                 const Type value_type = value->get_type();
-                if (is_widened_vector(value_type)) {
+                if (by_key) {
+                    // An argmin or argmax: the value is a pair of the key and
+                    // what travels with it, one of each per lane, widened to
+                    // a struct of a gang vector of keys and the widened held
+                    // value. The keys fold to their extremum; what travels
+                    // with it is taken from the first lane holding that
+                    // extremum -- the lane a loop over the elements one by
+                    // one would have kept, since the accumulate keeps the
+                    // first of equal keys (Embree's select_min likewise) --
+                    // field by field, each a gang vector read at that lane.
+                    const Struct_t *pair = value_type.as<Struct_t>();
+                    internal_assert(pair != nullptr && pair->fields.size() >= 1 &&
+                                    is_gang_wide(pair->fields[0].type, lanes))
+                        << "The value of " << instr->name << " is a "
+                        << value_type << ", not a per-lane pair of a key and "
+                        << "what travels with it";
+                    const auto field_of = [&](const shared_ptr<Value> &of,
+                                              const Struct_t *s, uint32_t k) {
+                        auto read = std::make_shared<Instruction>(
+                            func.get_unique_name(), s->fields[k].type,
+                            Instruction::Op::LoadField,
+                            vector<shared_ptr<Value>>{
+                                of, std::make_shared<Value>(Constant{
+                                        UInt_t::make(32), uint64_t(k)})},
+                            here);
+                        widened.push_back(read);
+                        return std::make_shared<Value>(read);
+                    };
+                    const shared_ptr<Value> key = fold(field_of(value, pair, 0));
+                    // The first lane whose key is the extremum.
+                    const Type lane_t = UInt_t::make(32);
+                    const Type lanes_t = Vector_t::make(lane_t, lanes);
+                    const auto u32 = [&](uint64_t v) {
+                        return std::make_shared<Value>(Constant{lane_t, v});
+                    };
+                    auto ramp = std::make_shared<Instruction>(
+                        func.get_unique_name(), lanes_t, Instruction::Op::Ramp,
+                        vector<shared_ptr<Value>>{u32(0), u32(1)}, here);
+                    widened.push_back(ramp);
+                    auto holds = std::make_shared<Instruction>(
+                        func.get_unique_name(),
+                        Vector_t::make(Bool_t::make(), lanes), Instruction::Op::Eq,
+                        vector<shared_ptr<Value>>{
+                            masked, broadcast(func, here, key, lanes, widened)},
+                        here);
+                    widened.push_back(holds);
+                    auto candidates = std::make_shared<Instruction>(
+                        func.get_unique_name(), lanes_t, Instruction::Op::Select,
+                        vector<shared_ptr<Value>>{
+                            std::make_shared<Value>(holds),
+                            std::make_shared<Value>(ramp),
+                            broadcast(func, here, u32(lanes), lanes, widened)},
+                        here);
+                    widened.push_back(candidates);
+                    auto first = std::make_shared<Instruction>(
+                        func.get_unique_name(), lane_t, Instruction::Op::Reduce,
+                        vector<shared_ptr<Value>>{
+                            std::make_shared<Value>(candidates)},
+                        here);
+                    first->reduce = ir::VectorReduce::Min;
+                    widened.push_back(first);
+                    const shared_ptr<Value> lane = std::make_shared<Value>(first);
+                    // What travels with the key, at that lane: a gang vector's
+                    // lane, a widened struct's fields each at that lane.
+                    const std::function<shared_ptr<Value>(const shared_ptr<Value> &)>
+                        at_lane = [&](const shared_ptr<Value> &of)
+                        -> shared_ptr<Value> {
+                        const Type &t = of->get_type();
+                        if (is_gang_wide(t, lanes) && t.is<Vector_t>()) {
+                            auto read = std::make_shared<Instruction>(
+                                func.get_unique_name(), t.element_of(),
+                                Instruction::Op::ExtractIdx,
+                                vector<shared_ptr<Value>>{of, lane}, here);
+                            widened.push_back(read);
+                            return std::make_shared<Value>(read);
+                        }
+                        if (const Struct_t *s = t.as<Struct_t>();
+                            s != nullptr && is_gang_wide(t, lanes)) {
+                            vector<shared_ptr<Value>> parts;
+                            for (uint32_t k = 0; k < uint32_t(s->fields.size());
+                                 k++) {
+                                parts.push_back(at_lane(field_of(of, s, k)));
+                            }
+                            auto made = std::make_shared<Instruction>(
+                                func.get_unique_name(), narrow(t, lanes),
+                                Instruction::Op::MakeStruct, std::move(parts),
+                                here);
+                            widened.push_back(made);
+                            return std::make_shared<Value>(made);
+                        }
+                        return of; // uniform: every lane's is the same
+                    };
+                    vector<shared_ptr<Value>> parts = {key};
+                    for (uint32_t k = 1; k < uint32_t(pair->fields.size()); k++) {
+                        parts.push_back(at_lane(field_of(value, pair, k)));
+                    }
+                    auto rebuilt = std::make_shared<Instruction>(
+                        func.get_unique_name(), narrow(value_type, lanes),
+                        Instruction::Op::MakeStruct, std::move(parts), here);
+                    widened.push_back(rebuilt);
+                    value = std::make_shared<Value>(rebuilt);
+                } else if (is_widened_vector(value_type)) {
                     const Struct_t *s = value_type.as<Struct_t>();
                     vector<shared_ptr<Value>> components;
                     for (uint32_t k = 0; k < uint32_t(s->fields.size()); k++) {

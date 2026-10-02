@@ -190,9 +190,9 @@ bool is_store_instr(const Instruction::Op &op) {
     case Instruction::Op::AccArgmin:
     case Instruction::Op::AccArgmax:
     case Instruction::Op::AccMin:
+    case Instruction::Op::AccMax:
     case Instruction::Op::Store:
         return true;
-    case Instruction::Op::AccMax:
     case Instruction::Op::Abs:
     case Instruction::Op::Add:
     case Instruction::Op::AddressOf:

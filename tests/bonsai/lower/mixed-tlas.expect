@@ -30,12 +30,12 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
       }
     | Leaf(low : f32x3, high : f32x3, data : Prim[]) with data = data with AABB(low, high) ->
       if ((intersects(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)) && (0.001f < distmax(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)))) && (distmin(r, build<AABB>((prims as Leaf).low, (prims as Leaf).high)) < _best0[0])) {
-        foreach _iter0 in (prims as Leaf).data {
+        foreach [data] _iter0 in (prims as Leaf).data {
           match _iter0 {
             Solo() =>
               let _pulled0 = untransform(_iter0, r) in
               if ((intersects(_pulled0, (_iter0 as Solo).tri) && (0.001f < distmin(_pulled0, (_iter0 as Solo).tri))) && (distmin(_pulled0, (_iter0 as Solo).tri) < _best0[0])) {
-                _best0 = (distmin(_pulled0, (_iter0 as Solo).tri), (ref(_iter0), ref((_iter0 as Solo).tri)))
+                _best0 argmin= (distmin(_pulled0, (_iter0 as Solo).tri), (ref(_iter0), ref((_iter0 as Solo).tri)))
               }
             Inst() =>
               let _pulled1 = untransform(_iter0, r) in
@@ -48,9 +48,9 @@ func _traverse_tree0(r : Ray, prims : tree[[Prim]] TLAS) -> option<(Prim, Triang
                   }
                 | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
                   if ((intersects(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) && (distmin(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) < _best0[0])) {
-                    foreach _iter1 in (_subtree0 as Leaf).data {
+                    foreach [data] _iter1 in (_subtree0 as Leaf).data {
                       if ((intersects(_pulled1, _iter1) && (0.001f < distmin(_pulled1, _iter1))) && (distmin(_pulled1, _iter1) < _best0[0])) {
-                        _best0 = (distmin(_pulled1, _iter1), (ref(_iter0), ref(_iter1)))
+                        _best0 argmin= (distmin(_pulled1, _iter1), (ref(_iter0), ref(_iter1)))
                       }
                     }
                   }

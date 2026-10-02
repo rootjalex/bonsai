@@ -177,6 +177,16 @@ class Placement {
                bodies[a] == bodies[b];
     }
 
+    // Whether a value defined in `def` is in scope in `use`: `def` dominates
+    // it.
+    bool dominates(const Block &def, const Block &use) const {
+        if (&def == &use) {
+            return true;
+        }
+        const BlockId a = cfg.find(def), b = cfg.find(use);
+        return a != NO_BLOCK && b != NO_BLOCK && dom.dominates(a, b);
+    }
+
   private:
     Cfg cfg;
     DomTree dom;
@@ -267,15 +277,19 @@ std::optional<Product> product_of(const std::shared_ptr<Value> &operand,
     return std::nullopt;
 }
 
-// `value` as an operand of an instruction in `block`: a value from another
-// block reaches it as a block argument, threaded in as the builder threads
-// every cross-block operand (Block::get_value); a constant or a value of
-// this block is itself.
+// `value` as an operand of an instruction in `block`: a constant, a value of
+// this block, or a value of a block that dominates it is itself -- in scope
+// where it is used, as a rewrite's values are referenced across the blocks
+// it left (see SSA/Vectorize.cpp) -- and a value from any other block
+// reaches it as a block argument, threaded in as the builder threads every
+// cross-block operand (Block::get_value).
 std::shared_ptr<Value> in_block(const std::shared_ptr<Value> &value,
-                                Block &block) {
+                                Block &block, const Placement &placement) {
     if (const auto *held =
             std::get_if<std::shared_ptr<Instruction>>(&value->data)) {
-        if ((*held)->owner.lock().get() != &block) {
+        const std::shared_ptr<Block> owner = (*held)->owner.lock();
+        if (owner.get() != &block &&
+            !(owner != nullptr && placement.dominates(*owner, block))) {
             return block.get_value((*held)->name, (*held)->type);
         }
         return value;
@@ -403,8 +417,10 @@ void contract_fp(Function &f) {
             const std::shared_ptr<Instruction> &mul = fusion.product.mul;
             // The product's operands, here: from the block the product was
             // in, when that is another block.
-            std::shared_ptr<Value> a = in_block(mul->operands[0], *block);
-            std::shared_ptr<Value> b = in_block(mul->operands[1], *block);
+            std::shared_ptr<Value> a =
+                in_block(mul->operands[0], *block, placement);
+            std::shared_ptr<Value> b =
+                in_block(mul->operands[1], *block, placement);
             if (fusion.negate_product) {
                 a = negate(a, instr->type, instr);
             }

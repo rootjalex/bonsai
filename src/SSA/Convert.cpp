@@ -668,6 +668,12 @@ struct FunctionBuilder : Visitor {
         case Accumulate::Max: {
             return Instruction::Op::AccMax;
         }
+        case Accumulate::Argmin: {
+            return Instruction::Op::AccArgmin;
+        }
+        case Accumulate::Argmax: {
+            return Instruction::Op::AccArgmax;
+        }
         default: {
             internal_error << "TODO: handle all Accumulate ops -> SSA ops: "
                            << (int)op;
@@ -696,12 +702,10 @@ struct FunctionBuilder : Visitor {
 
         std::shared_ptr<Value> ptr = nullptr;
 
-        // Handle local variables
+        // Handle local variables: the place is the local's own storage, as
+        // for a store -- a scalar's, or a pair's, which an argmin folds into
+        // (Accumulate::Argmin on a running best and what holds it).
         if (node->loc.accesses.empty()) {
-            internal_assert(node->loc.type.is_stack_allocatable())
-                << "TODO: handle non-primitive (heap) accumulates in SSA: "
-                << Stmt(node);
-
             // Get current value from lookup
             ptr = block->get_value(node->loc.base, base_lookup_type(node->loc));
         } else {

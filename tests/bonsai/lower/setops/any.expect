@@ -22,7 +22,7 @@ func _traverse_tree0(lo : i32, hi : i32, items : tree[[Item]] ItemTree) -> bool 
         if ((lo <= (items as Leaf).idl) && ((items as Leaf).idh <= hi)) {
           _holds0 = true
         } else if ((lo <= (items as Leaf).idh) && ((items as Leaf).idl <= hi)) {
-          _holds0 = _holds0 || ((lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi))
+          _holds0 max= (lo <= (items as Leaf).data.id) & ((items as Leaf).data.id <= hi)
         }
       }
     }

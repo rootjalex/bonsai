@@ -500,7 +500,7 @@ Stmt YieldFrom::make(Expr value, std::vector<Expr> keys,
     return node;
 }
 
-Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
+Stmt ForEach::make(std::string name, Expr iter, Stmt body, std::string label) {
     internal_assert(!name.empty()) << "Undefined name in ForEach::make";
     internal_assert(iter.defined()) << "Undefined iterator in ForEach::make";
     internal_assert(iter.type().is_iterable())
@@ -511,6 +511,7 @@ Stmt ForEach::make(std::string name, Expr iter, Stmt body) {
     node->name = std::move(name);
     node->iter = std::move(iter);
     node->body = std::move(body);
+    node->label = std::move(label);
     return node;
 }
 

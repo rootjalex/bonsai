@@ -9,6 +9,7 @@ add_bonsai_tests(
     adt-tagged-index.bonsai
     child-volumes.bonsai
     child-volumes-vectorized.bonsai
+    tiled-leaf-vectorized.bonsai
     defer.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai

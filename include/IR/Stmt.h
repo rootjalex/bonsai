@@ -521,8 +521,15 @@ struct ForEach : StmtNode<ForEach> {
     std::string name;
     Expr iter; // array or vector
     Stmt body;
+    // What a schedule may call the loop this becomes, or empty: the field
+    // of the tree's arm it iterates (`data`, in `trace.vectorize(
+    // tris.Leaf.data)`), the way the loop over a node's children is named
+    // for its field (Lower/Trees.cpp). The loop lowering gives the loop's
+    // index this name (Lower/ForEachs.cpp).
+    std::string label;
 
-    static Stmt make(std::string name, Expr iter, Stmt body);
+    static Stmt make(std::string name, Expr iter, Stmt body,
+                     std::string label = "");
 
     static const IRStmtEnum node_type = IRStmtEnum::ForEach;
 };
