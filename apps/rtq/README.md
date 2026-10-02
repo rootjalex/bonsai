@@ -39,11 +39,12 @@ not built.
 ## Running
 
 From the repository root, inside the `bonsai` conda environment, with the
-compiler built (`BONSAI_BUILD_DIR` names its build directory, default
-`build`):
+compiler built (`BONSAI_BUILD_DIR` names its build directory; unset, the
+script takes the first of `build`, `build-*` whose CMake cache found an LLVM,
+and says which):
 
 ```bash
-apps/rtq/compare.sh [--schedule embree] [--side 1024] [--repeats 5] [--threads N] <mesh.ply[.gz]>
+apps/rtq/compare.sh [--schedule embree] [--side 1024] [--repeats 5] <mesh.ply[.gz]>
 ```
 
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
@@ -62,17 +63,19 @@ Embree's: a nearest-hit disagreement where the two triangles are at the
 same distance is a tie, which either side may answer either way; any other
 disagreement fails the run.
 
-The measurement is single-threaded and pinned. By default both sides run
-their rays as one plain loop on one core, and `compare.sh` picks that core
-and pins the run to it with numactl: the physical core the kernel ranks
-highest for performance (on this machine's Ryzen 9 9950X3D, a core of the
-frequency chiplet, cpus 8-15, not the V-cache one), with the memory of its
-NUMA node. A multi-threaded number mixes the kernel's cost with a pool's
-balancing, and unpinned the two sides can land on unlike cores; it is not
-the comparison. `--threads N` pins both sides to the N best-ranked physical
-cores and runs them over one TBB pool of N; `--threads 0` is the unpinned
-all-core run; `RTQ_CPUS=8,9` pins to exactly those CPUs. The driver prints
-the CPUs it was left at the top of its output.
+The measurement is single-threaded and pinned. Both sides run their rays as
+one plain loop on one core: the program's parfor over the rays is left
+unbound by the schedule, so it lowers to a sequential loop (binding it to
+the CPU threads and running on one thread measured the same, to within the
+run-to-run drift), and Embree's rays go through a loop of `rtcIntersect1`.
+`compare.sh` picks the core and pins the run to it with numactl: the
+physical core the kernel ranks highest for performance (on this machine's
+Ryzen 9 9950X3D, a core of the frequency chiplet, cpus 8-15, not the
+V-cache one), with the memory of its NUMA node. A multi-threaded number
+mixes the kernel's cost with a pool's balancing, and unpinned the two sides
+can land on unlike cores; it is not the comparison. `RTQ_CPUS=9` pins to
+that CPU instead. The driver prints the CPUs it was left at the top of its
+output.
 
 The table it prints, per batch and query: rays, million rays per second for
 each side, the speedup (Embree's time over ours), and the agreement counts.

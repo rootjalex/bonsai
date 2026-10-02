@@ -180,8 +180,9 @@ func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), triangles);
 
 // A batch of rays, each answered with the id of the triangle it hits or
 // 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), and a batch answered with
-// 1 where something is in the way. The rays are a parfor, which the
-// schedule spreads over the cores as the driver spreads Embree's.
+// 1 where something is in the way. The rays are a parfor, which a schedule
+// may spread over the cores; the comparison's schedule leaves it unbound,
+// a plain loop, since the measurement is single-threaded on both sides.
 func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
     parfor i in 0u:n {
         h = trace(rays[i]);

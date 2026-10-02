@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Build the program with a schedule and run it against Embree on a mesh.
 #
-#     apps/rtq/compare.sh [--schedule S] [--side N] [--repeats N] [--threads N] <mesh.ply[.gz]>
+#     apps/rtq/compare.sh [--schedule S] [--side N] [--repeats N] <mesh.ply[.gz]>
 #
 # Run from the repository root, inside the `bonsai` conda environment. Embree
 # is an optional dependency: a submodule at deps/embree, built by
@@ -15,27 +15,29 @@ set -euo pipefail
 # builder makes, over the same rays, each the least of several runs after a
 # warm-up; every answer is checked against Embree's.
 #
-# The measurement is single-threaded and pinned: by default (--threads 1)
-# both sides run their rays as one plain loop on one core, and that core is
-# the one the kernel ranks best -- on an AMD part with preferred-core ranking
+# The measurement is single-threaded and pinned. Both sides run their rays
+# as one plain loop on one core -- the program's parfor over the rays is
+# left unbound by the schedule and so is a sequential loop, and Embree's
+# rays go through a loop of rtcIntersect1 -- and that core is the one the
+# kernel ranks best: on an AMD part with preferred-core ranking
 # (amd_pstate_prefcore_ranking), a core of the frequency chiplet rather than
 # the cache one; without a ranking, the lowest-numbered physical core -- with
 # the memory of its NUMA node, under numactl. A multi-threaded number mixes
-# the kernel's cost with the pool's balancing, and the two sides can land on
-# unlike cores; it is not the comparison. --threads N pins to the N
-# best-ranked physical cores (no SMT siblings); --threads 0 runs on every
-# core, unpinned. RTQ_CPUS=<cpu list> pins to exactly those CPUs instead.
+# the kernel's cost with a pool's balancing, and the two sides can land on
+# unlike cores; it is not the comparison. RTQ_CPUS=<cpu> pins to that CPU
+# instead.
 #
-# Environment: BONSAI_BUILD_DIR names the compiler's build directory (default
-# `build`); BONSAI_CXX a clang++ (default `clang++`; the generated header
-# needs clang's ext_vector_type); RTQ_CPUS as above.
+# Environment: BONSAI_BUILD_DIR names the compiler's build directory (by
+# default the first of `build`, `build-*` that CMake has configured with the
+# LLVM the compiler needs, which is said when it is picked); BONSAI_CXX a
+# clang++ (default `clang++`; the generated header needs clang's
+# ext_vector_type); RTQ_CPUS as above.
 if [[ "$(pwd)" == */apps/rtq ]]; then
   cd ../..
 fi
 
 PREFIX="apps/rtq"
 SCHEDULE="embree"
-THREADS=1
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,15 +47,6 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       SCHEDULE="$2"
-      shift 2
-      ;;
-    --threads)
-      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
-        echo "--threads needs a count: 1 (one core, pinned), N (N cores, pinned), 0 (every core)" >&2
-        exit 1
-      fi
-      THREADS="$2"
-      ARGS+=("$1" "$2")
       shift 2
       ;;
     *)
@@ -88,16 +81,29 @@ if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
   echo "ext_vector_type. Set BONSAI_CXX to a clang++." >&2
   exit 1
 fi
-# TBB and zlib live beside the compiler in the conda environment; the
-# runtime's parallel loop runs on TBB where its header is reachable (see
-# runtime/bonsai_parallel.h), and the driver spreads Embree's rays with it.
-TBB_PREFIX="$(dirname "$(dirname "$(command -v "$BONSAI_CXX")")")"
-if [[ ! -f "$TBB_PREFIX/include/tbb/parallel_for.h" ]]; then
-  echo "no TBB beside $BONSAI_CXX; activate the bonsai conda environment" >&2
-  exit 1
-fi
+# zlib, for gzipped meshes, lives beside the compiler in the conda
+# environment.
+TOOLCHAIN_PREFIX="$(dirname "$(dirname "$(command -v "$BONSAI_CXX")")")"
 
-BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
+# The compiler's build directory: the one named, or else the first of the
+# usual ones that is configured -- whose CMake cache found an LLVM. A
+# directory configured before the LLVM the compiler needs was installed has
+# `LLVM_DIR-NOTFOUND` in its cache and fails to configure when built, so it
+# is passed over rather than tried.
+if [[ -z "${BONSAI_BUILD_DIR:-}" ]]; then
+  for d in build build-*; do
+    if [[ -f "$d/CMakeCache.txt" ]] && grep -q '^LLVM_DIR:[A-Z]*=.*/cmake' "$d/CMakeCache.txt"; then
+      BONSAI_BUILD_DIR="$d"
+      break
+    fi
+  done
+  if [[ -z "${BONSAI_BUILD_DIR:-}" ]]; then
+    echo "no configured build directory among build, build-*: configure one" >&2
+    echo "(cmake -S . -B build -DLLVM_DIR=<llvm>/lib/cmake/llvm) or set BONSAI_BUILD_DIR" >&2
+    exit 1
+  fi
+  echo "compiler build directory: $BONSAI_BUILD_DIR (BONSAI_BUILD_DIR names another)"
+fi
 cmake --build "$BONSAI_BUILD_DIR" -j
 
 # `-p ssa` because sort and loopify are SSA rewrites; `--no-heap` refuses any
@@ -111,50 +117,45 @@ INPUTS=(-i $PREFIX/rtq.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai")
 "./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/rtq
 
 "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
-    -isystem "$TBB_PREFIX/include" \
     $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
     -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
-    -L"$TBB_PREFIX/lib" -Wl,-rpath,"$TBB_PREFIX/lib" -ltbb -lz \
+    -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
     -o $PREFIX/rtq.out
 
-# The cores to pin to (see the top of the file): the THREADS physical cores
-# the kernel ranks highest, one hardware thread each. A CPU is the first of
-# its core when its number is the first in its core's sibling list.
-PIN=()
-if [[ "$THREADS" -gt 0 ]]; then
-  if ! command -v numactl >/dev/null 2>&1; then
-    echo "numactl is needed to pin the measurement (or pass --threads 0 for an unpinned run)" >&2
-    exit 1
-  fi
-  if [[ -n "${RTQ_CPUS:-}" ]]; then
-    CPUS="$RTQ_CPUS"
-    HOW="RTQ_CPUS"
-  else
-    HOW="the lowest-numbered physical cores (no preferred-core ranking here)"
-    CPUS="$(for d in /sys/devices/system/cpu/cpu[0-9]*; do
-        cpu="${d##*cpu}"
-        siblings="$d/topology/core_cpus_list"
-        [[ -f "$siblings" ]] || siblings="$d/topology/thread_siblings_list"
-        first="$(sed 's/[,-].*//' "$siblings")"
-        [[ "$first" == "$cpu" ]] || continue
-        rank=0
-        if [[ -f "$d/cpufreq/amd_pstate_prefcore_ranking" ]]; then
-          rank="$(cat "$d/cpufreq/amd_pstate_prefcore_ranking")"
-        fi
-        printf '%s %s\n' "$rank" "$cpu"
-      done | sort -k1,1nr -k2,2n | head -n "$THREADS" | awk '{print $2}' | paste -sd,)"
-    if [[ -f "/sys/devices/system/cpu/cpu${CPUS%%,*}/cpufreq/amd_pstate_prefcore_ranking" ]]; then
-      HOW="the physical cores with the highest amd_pstate_prefcore_ranking"
-    fi
-  fi
-  NODE="$(basename "$(ls -d /sys/devices/system/cpu/cpu${CPUS%%,*}/node[0-9]* 2>/dev/null | head -n 1)" 2>/dev/null)"
-  NODE="${NODE#node}"
-  PIN=(numactl --physcpubind="$CPUS" --membind="${NODE:-0}")
-  echo "pinned to cpu(s) $CPUS, memory of NUMA node ${NODE:-0}: $HOW"
+# The core to pin to (see the top of the file): the physical core the kernel
+# ranks highest, one hardware thread of it. A CPU is the first of its core
+# when its number is the first in its core's sibling list.
+if ! command -v numactl >/dev/null 2>&1; then
+  echo "numactl is needed to pin the measurement to one core" >&2
+  exit 1
 fi
+if [[ -n "${RTQ_CPUS:-}" ]]; then
+  CPU="$RTQ_CPUS"
+  HOW="RTQ_CPUS"
+else
+  HOW="the lowest-numbered physical core (no preferred-core ranking here)"
+  CPU="$(for d in /sys/devices/system/cpu/cpu[0-9]*; do
+      cpu="${d##*cpu}"
+      siblings="$d/topology/core_cpus_list"
+      [[ -f "$siblings" ]] || siblings="$d/topology/thread_siblings_list"
+      first="$(sed 's/[,-].*//' "$siblings")"
+      [[ "$first" == "$cpu" ]] || continue
+      rank=0
+      if [[ -f "$d/cpufreq/amd_pstate_prefcore_ranking" ]]; then
+        rank="$(cat "$d/cpufreq/amd_pstate_prefcore_ranking")"
+      fi
+      printf '%s %s\n' "$rank" "$cpu"
+    done | sort -k1,1nr -k2,2n | head -n 1 | awk '{print $2}')"
+  if [[ -f "/sys/devices/system/cpu/cpu${CPU%%,*}/cpufreq/amd_pstate_prefcore_ranking" ]]; then
+    HOW="the physical core with the highest amd_pstate_prefcore_ranking"
+  fi
+fi
+NODE="$(basename "$(ls -d /sys/devices/system/cpu/cpu${CPU%%,*}/node[0-9]* 2>/dev/null | head -n 1)" 2>/dev/null)"
+NODE="${NODE#node}"
+echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW"
 
 STATUS=0
-"${PIN[@]}" ./$PREFIX/rtq.out "$@" || STATUS=$?
+numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "$@" || STATUS=$?
 
 rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
 exit $STATUS

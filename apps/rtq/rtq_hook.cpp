@@ -14,21 +14,20 @@
 // primary rays from a camera, and from their hits short ambient-occlusion
 // rays and long diffuse bounces, as Aila and Laine's ray sets are made --
 // traces each with both sides, checks that they agree, and times them, each
-// the least of several runs after a warm-up, both sides on one thread unless
-// --threads says otherwise (and then both over one TBB pool of that many).
+// the least of several runs after a warm-up, both sides on one thread: the
+// program's parfor over the rays is unbound by the schedule, a plain loop,
+// and Embree's rays go through a plain loop of rtcIntersect1.
 //
 // Embree's traversal is the reference for what the schedule should cost;
 // its answers are the reference for what the program should compute.
-// The program's parallel loop is supplied by this file (for_blocks, below) so
-// that both sides run their rays through one and the same loop.
+// Should a schedule bind the parfor to the threads, the parallel loop it
+// asks for is supplied by this file (bonsai_parallel_for, below) and runs
+// the body in place, so that the comparison stays single-threaded.
 #define BONSAI_PARALLEL_EXTERNAL
 #include "rtq.h"
 
 #include <embree4/rtcore.h>
 #include <embree4/rtcore_builder.h>
-
-#include <tbb/global_control.h>
-#include <tbb/parallel_for.h>
 
 #include <sched.h>
 #include <zlib.h>
@@ -49,27 +48,17 @@
 #include <string>
 #include <vector>
 
-// How many threads each side runs on. 1, the default, runs a batch as one
-// plain loop on the calling thread -- no pool, no splitting -- on both sides;
-// more spreads the batch in blocks over a TBB pool of that many, on both
-// sides. One loop serves Embree's rtcIntersect1 and the program's exported
-// parfor alike: the compiled code hands its parfor to bonsai_parallel_for,
-// which is defined here (BONSAI_PARALLEL_EXTERNAL, above).
-int g_threads = 1;
-
-template <typename F>
-void for_blocks(int64_t n, F &&f) {
-    if (g_threads == 1) {
-        f(int64_t(0), n);
-        return;
-    }
-    tbb::parallel_for(tbb::blocked_range<int64_t>(0, n, 64),
-                      [&](const tbb::blocked_range<int64_t> &r) { f(r.begin(), r.end()); });
-}
-
+// The measurement is single-threaded: a batch is one plain loop on the
+// calling thread, on both sides. The program's parfor over the rays is a
+// plain loop because the schedule leaves it unbound; were a schedule to bind
+// it to the threads, the compiled code would hand it to bonsai_parallel_for,
+// which is defined here (BONSAI_PARALLEL_EXTERNAL, above) to run the body in
+// place, so that the comparison stays one thread against one thread.
 extern "C" void bonsai_parallel_for(int64_t n, void *context,
                                     void (*body)(void *, int64_t, int64_t)) {
-    for_blocks(n, [&](int64_t begin, int64_t end) { body(context, begin, end); });
+    if (n > 0) {
+        body(context, 0, n);
+    }
 }
 
 namespace {
@@ -829,33 +818,29 @@ RTCRayHit to_rayhit(const Ray &r) {
     return rh;
 }
 
-// Embree over a batch: rtcIntersect1 per ray, through the same loop the
-// program's parfor runs through.
+// Embree over a batch: rtcIntersect1 per ray, one plain loop, as the
+// program's parfor over its rays is.
 void embree_intersect(RTCScene scene, const std::vector<Ray> &rays,
                       std::vector<RTCRayHit> &hits) {
     hits.resize(rays.size());
-    for_blocks(int64_t(rays.size()), [&](int64_t begin, int64_t end) {
-        for (int64_t i = begin; i < end; i++) {
-            hits[i] = to_rayhit(rays[i]);
-            rtcIntersect1(scene, &hits[i]);
-        }
-    });
+    for (size_t i = 0; i < rays.size(); i++) {
+        hits[i] = to_rayhit(rays[i]);
+        rtcIntersect1(scene, &hits[i]);
+    }
 }
 
 void embree_occluded(RTCScene scene, const std::vector<Ray> &rays,
                      std::vector<uint32_t> &blocked) {
     blocked.resize(rays.size());
-    for_blocks(int64_t(rays.size()), [&](int64_t begin, int64_t end) {
-        for (int64_t i = begin; i < end; i++) {
-            RTCRay ray = to_rayhit(rays[i]).ray;
-            rtcOccluded1(scene, &ray);
-            // Embree: an occluded ray has its tfar set to -inf.
-            blocked[i] = ray.tfar < 0.0f ? 1u : 0u;
-        }
-    });
+    for (size_t i = 0; i < rays.size(); i++) {
+        RTCRay ray = to_rayhit(rays[i]).ray;
+        rtcOccluded1(scene, &ray);
+        // Embree: an occluded ray has its tfar set to -inf.
+        blocked[i] = ray.tfar < 0.0f ? 1u : 0u;
+    }
 }
 
-// The program over a batch: the exported parfor, bound to the threads.
+// The program over a batch: the exported parfor, a plain loop.
 void bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays,
                       std::vector<uint32_t> &hits) {
     hits.resize(rays.size());
@@ -994,9 +979,9 @@ void usage() {
            "  --side N       primary rays are an N x N image (default 1024)\n"
            "  --repeats N    timed runs per measurement, the least kept "
            "(default 5)\n"
-           "  --threads N    threads for both sides (default 1: one plain loop; "
-           "0: every core)\n"
-           "  --embree-stats ask Embree to print its own tree's statistics\n";
+           "  --embree-stats ask Embree to print its own tree's statistics\n"
+           "Both sides run their rays as one plain loop on the calling "
+           "thread; compare.sh pins it.\n";
     std::exit(1);
 }
 
@@ -1005,7 +990,6 @@ void usage() {
 int main(int argc, char **argv) {
     uint32_t side = 1024;
     int repeats = 5;
-    int threads = 1;
     bool embree_stats = false;
     std::string path;
     for (int i = 1; i < argc; i++) {
@@ -1014,8 +998,6 @@ int main(int argc, char **argv) {
             side = uint32_t(std::atoi(argv[++i]));
         } else if (arg == "--repeats" && i + 1 < argc) {
             repeats = std::atoi(argv[++i]);
-        } else if (arg == "--threads" && i + 1 < argc) {
-            threads = std::atoi(argv[++i]);
         } else if (arg == "--embree-stats") {
             embree_stats = true;
         } else if (!arg.empty() && arg[0] == '-') {
@@ -1027,17 +1009,10 @@ int main(int argc, char **argv) {
     if (path.empty() || side == 0 || repeats < 1) {
         usage();
     }
-    // One thread needs no pool at all (for_blocks runs the loop in place), and
-    // leaving TBB alone then keeps Embree's build, which is not timed, on
-    // every core.
-    std::unique_ptr<tbb::global_control> control;
-    if (threads > 1) {
-        control = std::make_unique<tbb::global_control>(
-            tbb::global_control::max_allowed_parallelism, threads);
-    }
-    g_threads = threads;
-    std::cout << "threads: " << (threads > 0 ? std::to_string(threads) : "all")
-              << " on both sides; cpus allowed: " << allowed_cpus() << "\n";
+    // Embree's build, which is not timed, keeps its own pool on every core;
+    // the timed loops are the calling thread's.
+    std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus()
+              << "\n";
 
     const Mesh mesh = load_ply(path);
     std::cout << "mesh: " << path << "\n  " << mesh.triangles() << " triangles, "

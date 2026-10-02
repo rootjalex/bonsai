@@ -62,7 +62,7 @@ schedule {
             .vectorize(triangles.Leaf.data)
             .loopify(564);
 
-    // The rays across the cores, as the driver spreads Embree's with TBB.
-    trace_all.bind(i, CPUThread);
-    occluded_all.bind(i, CPUThread);
+    // The parfor over the rays is left unbound, so it lowers to a plain
+    // sequential loop: the comparison is single-threaded on both sides
+    // (compare.sh), and Embree's rays go through a loop of rtcIntersect1.
 }
