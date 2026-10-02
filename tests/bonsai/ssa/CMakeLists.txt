@@ -90,6 +90,7 @@ add_bonsai_tests(
     vectorize-short-vectors.bonsai
     vectorize-skip-address.bonsai
     vectorize-skip-arms.bonsai
+    vectorize-split-local.bonsai
     vectorize-skip-cursor.bonsai
     vectorize-soa.bonsai
     vectorize-sorted-traversal.bonsai

@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// A `mut` local of the outer loop read by a split and vectorized inner loop.
+// `base` is the pixel's, stored twice so it is memory when the schedule
+// runs, and the sample loop reads it: its address reaches the loop's body
+// threaded through the body's arguments, by its name, and the promotion the
+// vectorizer begins with turns it into a value and deletes that argument from
+// the body and from the loop's jump to it (PromoteAllocas.cpp,
+// erase_threading).
+//
+// What to read for: the loop over `s_gang` falls straight into the gang,
+// which multiplies the lanes' indices by `base` broadcast, `f32x16((*base))`
+// -- one read of the local, the pixel's, not an address per lane. Before
+// this the program did not compile: the vectorizer rebuilt the loop's jump
+// into the gang from a copy of the loop taken before the promotion, one
+// argument long -- the address the promotion had deleted -- and the
+// promotion at the end of the pipeline refused the jump (Vectorize.cpp,
+// where the loop's entry becomes a jump into the gang). This is the render's
+// sample loop under schedules/packet.bonsai, whose pixel loop keeps `mut`
+// locals the samples read.
+element Float = f32;
+
+func [[export]] run(n : i32, spp : u32, out : mut array[Float]) -> void {
+    parfor p in 0:n {
+        base : mut Float = cast[[Float]](p) * 0.25;
+        if (p & 1) == 1 {
+            base = base + 1.0;
+        }
+        parfor s in 0u:spp {
+            atomic out[p] += base * cast[[Float]](s);
+        }
+    }
+    return;
+}
+
+schedule {
+    run.split(s, s_gang, s_lane, 16, true).vectorize(s_lane);
+}

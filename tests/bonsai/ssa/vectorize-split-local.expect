@@ -1,0 +1,45 @@
+type Float = f32
+
+func [[export]] run(n : i32, spp : u32, out : mut f32[]) -> void {
+  parfor p in [0:n:1] {
+    base : mut f32
+    let @0 = cast<f32>(p) in
+    let @1 = @0 * 0.25f in
+    let @2 = p & 1 in
+    let @3 = @2 == 1 in
+    if (@3) {
+      let @5 = @1 + 1f in
+      base = @5
+    } else {
+      base = @1
+    }
+    parfor s_gang in [0u:spp:16u] {
+      let @10 = spp in
+      let @17 = u32x16(@10) in
+      let @12 = ramp(s_gang, 1u, 16) < @17 in
+      let @14 = reduce<any>(@12) in
+      if (@14) {
+        let @7 = cast<f32x16>(ramp(s_gang, 1u, 16)) in
+        let @20 = f32x16((*base)) in
+        let @8 = @20 * @7 in
+        let @21 = f32x16(0f) in
+        let @22 = select(@12, @8, @21) in
+        let @23 = reduce<+>(@22) in
+        let @24 = reduce<any>(@12) in
+        if (@24) {
+          atomic out[p] += @23
+        }
+      }
+      continue
+    }
+    continue
+  }
+  return
+}
+
+
+schedule host {
+    run.split(s, s_gang, s_lane, (i32)16, 1)
+       .vectorize(s_lane)
+
+}

@@ -1,0 +1,34 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/vectorize-split-local's program, run: a `mut` local of the pixel loop
+// read by the split and vectorized sample loop. Each pixel's answer is its
+// `base` -- a quarter of the pixel, plus one for an odd pixel -- times the
+// sum of the sample indices below twenty, 190; every product is a multiple
+// of a quarter and so exact, and the gang's atomic sums land on the same
+// number in any order. Twenty samples is one gang of sixteen and a guarded
+// chunk of four.
+element Float = f32;
+
+func [[export]] run(n : i32, spp : u32, out : mut array[Float]) -> void {
+    parfor p in 0:n {
+        base : mut Float = cast[[Float]](p) * 0.25;
+        if (p & 1) == 1 {
+            base = base + 1.0;
+        }
+        parfor s in 0u:spp {
+            atomic out[p] += base * cast[[Float]](s);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(8, 20u, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.split(s, s_gang, s_lane, 16, true).vectorize(s_lane);
+}
