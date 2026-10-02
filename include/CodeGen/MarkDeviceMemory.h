@@ -12,13 +12,24 @@
 // non-coherent load through the texture path that a scene's nodes,
 // triangles, materials and lights should all be fetched with.
 //
+// Two more kinds of root, found 2026-10-01 when every load of every OptiX
+// program read as a generic `ld.b32` against pbrt's `ld.global`: a pointer
+// a raygen program reads out of the launch parameters (`params`, the
+// constant address space), since a raygen has no parameters of its own;
+// and a pointer read out of device memory through a root -- a queue
+// header's array handles, a layout struct's tables -- since device memory
+// holds device pointers (a hit program's context travels in payload
+// registers, never in memory), followed to a fixed point.
+//
 // So, per kernel, at the end of the optimization pipeline (after inlining
 // and SROA have made the by-value structs' pointers `extractvalue`s of the
 // parameter): every such root is cast to the global address space and back,
 // which the backend's inference propagates to everything derived from it;
 // and a load whose every underlying object is a root the kernel never
 // stores to, never operates on atomically and never hands to a call is
-// tagged `!invariant.load`. Runs on the device module only.
+// tagged `!invariant.load` -- where a write through a pointer read out of
+// some memory counts against every pointer read out of that memory, since
+// two such roots may be one buffer. Runs on the device module only.
 #include <llvm/IR/PassManager.h>
 
 namespace bonsai {

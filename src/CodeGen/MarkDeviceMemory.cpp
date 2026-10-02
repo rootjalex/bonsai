@@ -5,6 +5,7 @@
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Instructions.h>
@@ -18,6 +19,9 @@ namespace bonsai {
 namespace {
 
 constexpr unsigned kGlobalAddressSpace = 1;
+// The address space OptiX's launch parameters live in (`.const params`,
+// CodeGen_OptiX.cpp): a raygen program reads its captures out of it.
+constexpr unsigned kConstantAddressSpace = 4;
 
 // The kernel parameter a value is, or the parameter a pointer inside a
 // by-value struct parameter was extracted from: `extractvalue %param, k`,
@@ -32,24 +36,37 @@ const llvm::Argument *parameter_root(const llvm::Value *v,
     return arg != nullptr && arg->getParent() == &kernel ? arg : nullptr;
 }
 
-// Whether `v` is a root: a pointer that is a kernel parameter or comes out
-// of one by extractvalue alone.
-bool is_root(const llvm::Value *v, const llvm::Function &kernel) {
-    return v->getType()->isPointerTy() && parameter_root(v, kernel) != nullptr;
-}
-
-// Every root the address `ptr` may be derived from, through GEPs, casts,
-// phis and selects; empty if any of what it may come from is not a root.
-llvm::SmallVector<const llvm::Value *, 4>
-roots_of(const llvm::Value *ptr, const llvm::Function &kernel) {
+// Whether every object an address may be derived from -- through GEPs,
+// casts, phis and selects -- is in `roots`.
+bool rooted(const llvm::Value *ptr,
+            const llvm::SmallPtrSetImpl<const llvm::Value *> &roots) {
     llvm::SmallVector<const llvm::Value *, 4> objects;
     llvm::getUnderlyingObjects(ptr, objects);
     for (const llvm::Value *object : objects) {
-        if (!is_root(object, kernel)) {
-            return {};
+        if (!roots.count(object)) {
+            return false;
         }
     }
-    return objects;
+    return !objects.empty();
+}
+
+// Whether an address bottoms out at the launch parameters: the global
+// named `params` in the constant address space (CodeGen_OptiX.cpp), whose
+// pointer fields the launch filled with device addresses. That global
+// alone: a module's other constant-space globals -- a `print`'s format
+// strings -- hold no device pointers, and a pointer into one of them cast
+// to the global space would read the wrong memory.
+bool in_launch_parameters(const llvm::Value *ptr) {
+    llvm::SmallVector<const llvm::Value *, 4> objects;
+    llvm::getUnderlyingObjects(ptr, objects);
+    for (const llvm::Value *object : objects) {
+        const auto *global = llvm::dyn_cast<llvm::GlobalVariable>(object);
+        if (global == nullptr || global->getAddressSpace() != kConstantAddressSpace ||
+            global->getName() != "params") {
+            return false;
+        }
+    }
+    return !objects.empty();
 }
 
 } // namespace
@@ -62,34 +79,95 @@ MarkDeviceMemory::run(llvm::Function &function,
     }
     llvm::LLVMContext &context = function.getContext();
 
-    // The roots, and which of them the kernel writes through -- a store, an
-    // atomic, a memory intrinsic's destination, or a pointer handed to a call
-    // the pass cannot see into (libdevice's functions take floats; a call
-    // taking a derived pointer is treated as a write, since nothing is known
-    // of it). A load through a root not in this set is a load of memory that
-    // does not change for the length of the launch.
+    // The roots: what is known to be device memory. A kernel's pointer
+    // parameters and the pointers extracted from its by-value struct
+    // parameters, since the launch put them there; a pointer read out of
+    // the launch parameters, for a raygen program, which has no parameters
+    // of its own and takes its captures from `params`; and a pointer read
+    // out of device memory -- a queue's header holds its arrays' handles,
+    // a scene's layout struct the tables' -- since what device memory holds
+    // is device pointers: nothing of a kernel's own stack is ever stored
+    // there (a hit program's context travels in payload registers, not in
+    // memory). The last kind depends on the roots before it, so to a fixed
+    // point.
     std::vector<llvm::Value *> roots;
+    llvm::SmallPtrSet<const llvm::Value *, 32> root_set;
+    const auto add_root = [&](llvm::Value *v) {
+        if (root_set.insert(v).second) {
+            roots.push_back(v);
+        }
+    };
     for (llvm::Argument &arg : function.args()) {
         if (arg.getType()->isPointerTy()) {
-            roots.push_back(&arg);
+            add_root(&arg);
         }
     }
+    for (llvm::Instruction &instr : llvm::instructions(function)) {
+        if (auto *extract = llvm::dyn_cast<llvm::ExtractValueInst>(&instr)) {
+            if (extract->getType()->isPointerTy() &&
+                parameter_root(extract, function) != nullptr) {
+                add_root(extract);
+            }
+        } else if (auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr)) {
+            if (load->getType()->isPointerTy() &&
+                in_launch_parameters(load->getPointerOperand())) {
+                add_root(load);
+            }
+        }
+    }
+    // Pointers read out of device memory, as far as they reach.
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (llvm::Instruction &instr : llvm::instructions(function)) {
+            auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr);
+            if (load == nullptr || !load->getType()->isPointerTy() ||
+                root_set.count(load) || load->isVolatile() || load->isAtomic()) {
+                continue;
+            }
+            if (rooted(load->getPointerOperand(), root_set)) {
+                add_root(load);
+                grew = true;
+            }
+        }
+    }
+    if (roots.empty()) {
+        return llvm::PreservedAnalyses::all();
+    }
+
+    // Which roots the kernel writes through -- a store, an atomic, a memory
+    // intrinsic's destination, or a pointer handed to a call the pass cannot
+    // see into (libdevice's functions take floats; a call taking a derived
+    // pointer is treated as a write, since nothing is known of it). A load
+    // through a root not in this set is a load of memory that does not
+    // change for the length of the launch. Two roots may be one buffer when
+    // both were read out of the same memory -- the two slots of a
+    // double-buffered queue's header, say, one read and one pushed to -- so
+    // a write through a pointer read out of some object taints every
+    // pointer read out of that object; a kernel's parameters are distinct
+    // buffers by construction and taint only themselves.
     llvm::SmallPtrSet<const llvm::Value *, 16> written;
+    llvm::SmallPtrSet<const llvm::Value *, 16> written_sources;
+    const auto source_of = [&](const llvm::Value *root) -> const llvm::Value * {
+        const auto *load = llvm::dyn_cast<llvm::LoadInst>(root);
+        if (load == nullptr) {
+            return nullptr;
+        }
+        return llvm::getUnderlyingObject(load->getPointerOperand());
+    };
     const auto note_written = [&](const llvm::Value *ptr) {
         llvm::SmallVector<const llvm::Value *, 4> objects;
         llvm::getUnderlyingObjects(ptr, objects);
         for (const llvm::Value *object : objects) {
-            if (is_root(object, function)) {
+            if (root_set.count(object)) {
                 written.insert(object);
+                if (const llvm::Value *source = source_of(object)) {
+                    written_sources.insert(source);
+                }
             }
         }
     };
     for (llvm::Instruction &instr : llvm::instructions(function)) {
-        if (auto *extract = llvm::dyn_cast<llvm::ExtractValueInst>(&instr)) {
-            if (is_root(extract, function)) {
-                roots.push_back(extract);
-            }
-        } else if (auto *store = llvm::dyn_cast<llvm::StoreInst>(&instr)) {
+        if (auto *store = llvm::dyn_cast<llvm::StoreInst>(&instr)) {
             note_written(store->getPointerOperand());
         } else if (auto *rmw = llvm::dyn_cast<llvm::AtomicRMWInst>(&instr)) {
             note_written(rmw->getPointerOperand());
@@ -108,9 +186,13 @@ MarkDeviceMemory::run(llvm::Function &function,
             }
         }
     }
-    if (roots.empty()) {
-        return llvm::PreservedAnalyses::all();
-    }
+    const auto is_written = [&](const llvm::Value *root) {
+        if (written.count(root)) {
+            return true;
+        }
+        const llvm::Value *source = source_of(root);
+        return source != nullptr && written_sources.count(source);
+    };
 
     // The loads first, while a load's address still bottoms out at the root
     // itself: after the casts below it bottoms out at the same root through
@@ -147,13 +229,11 @@ MarkDeviceMemory::run(llvm::Function &function,
             is_texture_handle(*load)) {
             continue;
         }
-        const auto objects = roots_of(load->getPointerOperand(), function);
-        if (objects.empty()) {
-            continue;
-        }
-        bool read_only = true;
+        llvm::SmallVector<const llvm::Value *, 4> objects;
+        llvm::getUnderlyingObjects(load->getPointerOperand(), objects);
+        bool read_only = !objects.empty();
         for (const llvm::Value *object : objects) {
-            read_only = read_only && !written.count(object);
+            read_only = read_only && root_set.count(object) && !is_written(object);
         }
         if (read_only) {
             load->setMetadata(llvm::LLVMContext::MD_invariant_load, invariant);

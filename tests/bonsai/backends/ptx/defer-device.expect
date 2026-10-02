@@ -32,16 +32,22 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readno
   %4 = atomicrmw add ptr %sums_queue.generic, i32 1 syncscope("device") monotonic, align 4
   %5 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 8
   %k7.i = load ptr, ptr %5, align 8
+  %k7.i.global = addrspacecast ptr %k7.i to ptr addrspace(1)
+  %k7.i.generic = addrspacecast ptr addrspace(1) %k7.i.global to ptr
   %6 = sext i32 %4 to i64
-  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i, i64 %6
+  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i.generic, i64 %6
   store i32 %3, ptr %"@9.i", align 4, !tbaa !1
   %7 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 16
   %acc9.i = load ptr, ptr %7, align 8
-  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i, i64 %6
+  %acc9.i.global = addrspacecast ptr %acc9.i to ptr addrspace(1)
+  %acc9.i.generic = addrspacecast ptr addrspace(1) %acc9.i.global to ptr
+  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i.generic, i64 %6
   store i32 %i, ptr %"@12.i", align 4, !tbaa !1
   %8 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 24
   %_slot.i = load ptr, ptr %8, align 8
-  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i, i64 %6
+  %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
+  %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
+  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i.generic, i64 %6
   store i32 %i, ptr %"@15.i", align 4, !tbaa !1
   br label %walk.exit
 
@@ -99,16 +105,22 @@ define ptx_kernel void @_kernel_sums_1(i32 %_begin, i32 %_stride, i32 %"@9", ptr
   %8 = atomicrmw add ptr %"@14.generic", i32 1 syncscope("device") monotonic, align 4
   %9 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 8
   %k7.i = load ptr, ptr %9, align 8
+  %k7.i.global = addrspacecast ptr %k7.i to ptr addrspace(1)
+  %k7.i.generic = addrspacecast ptr addrspace(1) %k7.i.global to ptr
   %10 = sext i32 %8 to i64
-  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i, i64 %10
+  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i.generic, i64 %10
   store i32 %6, ptr %"@9.i", align 4, !tbaa !1
   %11 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 16
   %acc9.i = load ptr, ptr %11, align 8
-  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i, i64 %10
+  %acc9.i.global = addrspacecast ptr %acc9.i to ptr addrspace(1)
+  %acc9.i.generic = addrspacecast ptr addrspace(1) %acc9.i.global to ptr
+  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i.generic, i64 %10
   store i32 %7, ptr %"@12.i", align 4, !tbaa !1
   %12 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 24
   %_slot.i = load ptr, ptr %12, align 8
-  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i, i64 %10
+  %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
+  %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
+  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i.generic, i64 %10
   store i32 %extract15, ptr %"@15.i", align 4, !tbaa !1
   br label %common.ret
 
@@ -170,7 +182,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 {
 	.reg .pred 	%p<2>;
 	.reg .b32 	%r<7>;
-	.reg .b64 	%rd<14>;
+	.reg .b64 	%rd<17>;
 
 	ld.param.b32 	%r2, [_kernel_i_0_param_0];
 	ld.param.b64 	%rd3, [_kernel_i_0_param_4];
@@ -185,20 +197,23 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	add.s32 	%r5, %r1, -1;
 	atom.relaxed.gpu.global.add.u32 	%r6, [%rd1], 1;
 	ld.global.b64 	%rd5, [%rd1+8];
-	mul.wide.s32 	%rd6, %r6, 4;
-	add.s64 	%rd7, %rd5, %rd6;
-	st.b32 	[%rd7], %r5;
-	ld.global.b64 	%rd8, [%rd1+16];
-	add.s64 	%rd9, %rd8, %rd6;
-	st.b32 	[%rd9], %r1;
-	ld.global.b64 	%rd10, [%rd1+24];
-	add.s64 	%rd11, %rd10, %rd6;
-	st.b32 	[%rd11], %r1;
+	cvta.to.global.u64 	%rd6, %rd5;
+	mul.wide.s32 	%rd7, %r6, 4;
+	add.s64 	%rd8, %rd6, %rd7;
+	st.global.b32 	[%rd8], %r5;
+	ld.global.b64 	%rd9, [%rd1+16];
+	cvta.to.global.u64 	%rd10, %rd9;
+	add.s64 	%rd11, %rd10, %rd7;
+	st.global.b32 	[%rd11], %r1;
+	ld.global.b64 	%rd12, [%rd1+24];
+	cvta.to.global.u64 	%rd13, %rd12;
+	add.s64 	%rd14, %rd13, %rd7;
+	st.global.b32 	[%rd14], %r1;
 	bra.uni 	$L__BB0_3;
 $L__BB0_1:
-	mul.wide.s32 	%rd12, %r1, 4;
-	add.s64 	%rd13, %rd2, %rd12;
-	st.global.b32 	[%rd13], 0;
+	mul.wide.s32 	%rd15, %r1, 4;
+	add.s64 	%rd16, %rd2, %rd15;
+	st.global.b32 	[%rd16], 0;
 $L__BB0_3:
 	ret;
 
@@ -216,7 +231,7 @@ $L__BB0_3:
 {
 	.reg .pred 	%p<3>;
 	.reg .b32 	%r<13>;
-	.reg .b64 	%rd<28>;
+	.reg .b64 	%rd<31>;
 
 	ld.param.b32 	%r6, [_kernel_sums_1_param_0];
 	ld.param.b64 	%rd5, [_kernel_sums_1_param_6];
@@ -252,21 +267,24 @@ $L__BB0_3:
 	add.s32 	%r11, %r3, %r2;
 	atom.relaxed.gpu.global.add.u32 	%r12, [%rd2], 1;
 	ld.global.b64 	%rd19, [%rd2+8];
-	mul.wide.s32 	%rd20, %r12, 4;
-	add.s64 	%rd21, %rd19, %rd20;
-	st.b32 	[%rd21], %r10;
-	ld.global.b64 	%rd22, [%rd2+16];
-	add.s64 	%rd23, %rd22, %rd20;
-	st.b32 	[%rd23], %r11;
-	ld.global.b64 	%rd24, [%rd2+24];
-	add.s64 	%rd25, %rd24, %rd20;
-	st.b32 	[%rd25], %r4;
+	cvta.to.global.u64 	%rd20, %rd19;
+	mul.wide.s32 	%rd21, %r12, 4;
+	add.s64 	%rd22, %rd20, %rd21;
+	st.global.b32 	[%rd22], %r10;
+	ld.global.b64 	%rd23, [%rd2+16];
+	cvta.to.global.u64 	%rd24, %rd23;
+	add.s64 	%rd25, %rd24, %rd21;
+	st.global.b32 	[%rd25], %r11;
+	ld.global.b64 	%rd26, [%rd2+24];
+	cvta.to.global.u64 	%rd27, %rd26;
+	add.s64 	%rd28, %rd27, %rd21;
+	st.global.b32 	[%rd28], %r4;
 	bra.uni 	$L__BB1_4;
 $L__BB1_2:
 	cvt.s64.s32 	%rd4, %r4;
-	shl.b64 	%rd26, %rd4, 2;
-	add.s64 	%rd27, %rd1, %rd26;
-	st.global.b32 	[%rd27], %r3;
+	shl.b64 	%rd29, %rd4, 2;
+	add.s64 	%rd30, %rd1, %rd29;
+	st.global.b32 	[%rd30], %r3;
 $L__BB1_4:
 	ret;
 

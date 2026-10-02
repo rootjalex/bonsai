@@ -18,6 +18,8 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %1 = mul i32 %0, %_stride
   %i = add i32 %1, %_begin
   %out = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 8), align 8
+  %out.global = addrspacecast ptr %out to ptr addrspace(1)
+  %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
   %2 = icmp sgt i32 %i, 3
   %"_match0$r1" = zext i1 %2 to i32
   tail call void asm sideeffect "call (), _optix_hitobject_reorder, ($0, $1);", "r,r"(i32 %"_match0$r1", i32 1) #0
@@ -25,7 +27,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %4 = shl i32 %i, 1
   %"_match1$r3" = select i1 %2, i32 %3, i32 %4
   %5 = sext i32 %i to i64
-  %out21 = getelementptr inbounds [4 x i8], ptr %out, i64 %5
+  %out21 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %5
   store i32 %"_match1$r3", ptr %out21, align 4, !tbaa !1
   ret void
 }
@@ -55,7 +57,7 @@ attributes #0 = { nounwind }
 {
 	.reg .pred 	%p<2>;
 	.reg .b32 	%r<10>;
-	.reg .b64 	%rd<4>;
+	.reg .b64 	%rd<5>;
 
 	ld.const.v2.b32 	{%r4, %r5}, [params];
 	// begin inline asm
@@ -63,6 +65,7 @@ attributes #0 = { nounwind }
 	// end inline asm
 	mad.lo.s32 	%r6, %r1, %r5, %r4;
 	ld.const.b64 	%rd1, [params+8];
+	cvta.to.global.u64 	%rd2, %rd1;
 	setp.gt.s32 	%p1, %r6, 3;
 	selp.b32 	%r2, 1, 0, %p1;
 	mov.b32 	%r3, 1;
@@ -72,9 +75,9 @@ attributes #0 = { nounwind }
 	mul.lo.s32 	%r7, %r6, %r6;
 	shl.b32 	%r8, %r6, 1;
 	selp.b32 	%r9, %r7, %r8, %p1;
-	mul.wide.s32 	%rd2, %r6, 4;
-	add.s64 	%rd3, %rd1, %rd2;
-	st.b32 	[%rd3], %r9;
+	mul.wide.s32 	%rd3, %r6, 4;
+	add.s64 	%rd4, %rd2, %rd3;
+	st.global.b32 	[%rd4], %r9;
 	ret;
 
 }
