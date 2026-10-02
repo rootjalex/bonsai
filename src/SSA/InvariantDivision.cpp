@@ -1181,7 +1181,15 @@ size_t divide_by_definitions(Function &func, const Divergence *divergence,
 
 } // namespace
 
-size_t divide_by_invariants(Function &func) {
+size_t divide_by_invariants(Function &func, bool runtime_divisors) {
+    if (func.blocks.empty()) {
+        return 0;
+    }
+    if (!runtime_divisors) {
+        // The constants alone: a run-time divisor's multiplier is for a
+        // gang, and this function is no part of one (see the header).
+        return divide_by_constants(func);
+    }
     return divide_by_definitions(func, nullptr, nullptr);
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Stmt.h"
+#include "Storage.h"
 #include "Type.h"
 
 #include <algorithm>
@@ -33,6 +34,12 @@ struct Function {
         // deferred shadow ray adding into the path's radiance -- and be
         // right by construction (Cilk's reducer; pbrt's per-pixel-sample L).
         bool reducer = false;
+        // The memory this parameter's storage is in, when the parameter is a
+        // queue's array the caller provides (`queue(l, cap, ExternDevice)`,
+        // IR/Storage.h; SSA/QueueStorage.h made it one): what the generated
+        // header reads to export the array's size in bytes, since the
+        // caller allocates it.
+        std::optional<Storage> storage;
 
         Argument() {}
 

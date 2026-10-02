@@ -1,0 +1,26 @@
+//! flags: -p ssa
+
+// A queue in device memory (`DeviceGlobal`) whose drain runs on the CPU: the
+// host would read the entries, which only the device addresses -- the host
+// may touch a device queue's header (its count, by copies), never its
+// entries. Refused by the check of the schedule against the hardware
+// (SSA/QueueStorage.h); Managed memory, which both address, or a GPU drain
+// is the fix.
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root, DeviceGlobal);
+    walk.defer(walk, sums);
+}

@@ -53,6 +53,7 @@ that wants to single them out:
 |---|---|
 | `support.function.schedule.bonsai` | `.loopify`, `.bind`, `.defer`, `.sort`, `.split`, `.queue`, `.specialize`, `.vectorize`, `.skip`, `.reorder` |
 | `support.constant.layout.bonsai` | `tagged_index`, `inline`, `tight` |
+| `support.constant.storage.bonsai` | `Heap`, `Stack`, `DeviceGlobal`, `DeviceShared`, `Managed`, `ExternHost`, `ExternDevice`, `ExternManaged` -- `queue()`'s storage word |
 | `support.function.builtin.bonsai` | `fma`, `sqrt`, `cast`, `range`, `select`, ... |
 | `entity.name.type.interface.bonsai` | `IFloat`, `IVector`, any `I` + capital |
 | `storage.type.tree.bonsai` | the `tree` keyword |

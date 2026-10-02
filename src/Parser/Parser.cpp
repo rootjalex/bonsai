@@ -3750,9 +3750,10 @@ struct Parser {
         return targets;
     }
 
-    // `<name> = <func>.queue(<loop> [, <capacity>]);` -- see ir::Queue. The
-    // loop is an index of a parfor the function reaches, or `root` for the
-    // function itself.
+    // `<name> = <func>.queue(<loop> [, <capacity>] [, <storage>]);` -- see
+    // ir::Queue. The loop is an index of a parfor the function reaches, or
+    // `root` for the function itself; the storage is one of the words of
+    // IR/Storage.h, told from a capacity variable by being one of them.
     void parse_queue(ir::Schedule &schedule, const std::string &name) {
         expect(Token::Type::ASSIGN);
         const std::string owner = get_id();
@@ -3781,8 +3782,32 @@ struct Parser {
             loop.names.back() += variant;
         }
         std::optional<ir::Expr> capacity;
+        std::optional<ir::Storage> storage;
+        const auto peek_storage = [&]() -> std::optional<ir::Storage> {
+            if (peek().type != Token::Type::IDENTIFIER) {
+                return std::nullopt;
+            }
+            return ir::storage_named(std::get<std::string>(peek().value));
+        };
         if (consume(Token::Type::COMMA)) {
-            capacity = parse_expr();
+            storage = peek_storage();
+            if (storage.has_value()) {
+                get_id();
+            } else {
+                capacity = parse_expr();
+                if (consume(Token::Type::COMMA)) {
+                    storage = peek_storage();
+                    if (!storage.has_value()) {
+                        report_error()
+                            << "Queue " << name << ": after the capacity, "
+                            << "queue() takes the memory the queue lives in: "
+                               "one of Heap, Stack, DeviceGlobal, DeviceShared, "
+                               "Managed, ExternHost, ExternDevice or "
+                               "ExternManaged.";
+                    }
+                    get_id();
+                }
+            }
         }
         expect(Token::Type::RPAREN);
         expect(Token::Type::SEMICOL);
@@ -3792,7 +3817,7 @@ struct Parser {
                               "written on it would be ambiguous.";
         }
         const auto [_, inserted] = schedule.queues.emplace(
-            name, ir::Queue{owner, std::move(loop), std::move(capacity)});
+            name, ir::Queue{owner, std::move(loop), std::move(capacity), storage});
         if (!inserted) {
             report_error() << "Schedule declares the queue " << name
                            << " twice.";

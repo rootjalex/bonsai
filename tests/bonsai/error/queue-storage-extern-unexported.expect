@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/QueueStorage.cpp:266
+
+--> exported
+sums_k_0 (in ExternDevice memory) is the caller's storage, but run is not exported: its callers are functions of the program, and none of them has queue storage to pass. Export the function, or use the function's own memory (DeviceGlobal, Managed, Heap).

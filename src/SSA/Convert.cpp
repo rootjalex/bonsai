@@ -9,6 +9,7 @@
 #include "SSA/DemoteAtomics.h"
 #include "SSA/HeapArrays.h"
 #include "SSA/HoistAllocations.h"
+#include "SSA/QueueStorage.h"
 #include "SSA/ReorderLoops.h"
 #include "SSA/Specialize.h"
 #include "SSA/Stage.h"
@@ -1919,6 +1920,39 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // again after each loopify written later, over the functions that are not
     // a gang's: a loop such a loopify makes inside a gang's function has its
     // divisions guarded already.
+    // A run-time divisor's multiplier is for a gang: the functions a
+    // vectorize directive names, and every function those reach, since the
+    // gang's calls are vectorized copies of them. A function none of them
+    // reaches is scalar wherever it runs, and a scalar division by a
+    // non-constant is not optimized (the user's rule, 2026-10-02): on the
+    // GPU a thread's own multiplier was a 128-bit division expanded into a
+    // loop, 78% of a material kernel (SSA/InvariantDivision.h). Constant
+    // divisors are rewritten everywhere.
+    std::set<std::string> vectorized_reach;
+    {
+        std::vector<std::string> work;
+        for (const auto &[fname, ts] : transforms) {
+            const bool vectorizes_one =
+                std::any_of(ts.begin(), ts.end(), [](const ir::Transform &t) {
+                    return std::holds_alternative<ir::Vectorize>(t);
+                });
+            if (vectorizes_one && fmap.contains(fname) &&
+                vectorized_reach.insert(fname).second) {
+                work.push_back(fname);
+            }
+        }
+        while (!work.empty()) {
+            const std::string fname = work.back();
+            work.pop_back();
+            for (const auto &block : fmap.at(fname)->blocks) {
+                const auto *callee = block->terminator.callee();
+                if (callee != nullptr && fmap.contains(callee->name) &&
+                    vectorized_reach.insert(callee->name).second) {
+                    work.push_back(callee->name);
+                }
+            }
+        }
+    }
     bool divided = false;
     const auto divide_all = [&]() {
         for (const auto &[fname, f] : fmap) {
@@ -1927,7 +1961,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           ir::Function::Attribute::vectorized) !=
                 f->attributes.end();
             if (!gang) {
-                divide_by_invariants(*f);
+                divide_by_invariants(*f, vectorized_reach.contains(fname));
             }
         }
     };
@@ -2090,6 +2124,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         internal_assert(!q->second.loop.names.empty())
                             << s.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();
+                        spec.storage = q->second.storage;
                         if (q->second.capacity.has_value()) {
                             const auto n = get_constant_value<int64_t>(
                                 *q->second.capacity);
@@ -2289,6 +2324,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         internal_assert(!q->second.loop.names.empty())
                             << d.queue << " names no loop";
                         spec.loop = q->second.loop.names.back();
+                        spec.storage = q->second.storage;
                         if (q->second.capacity.has_value()) {
                             const auto n = get_constant_value<int64_t>(
                                 *q->second.capacity);
@@ -2579,6 +2615,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         const std::set<std::string> in_loops = called_inside_loops(fmap);
         for (const auto &[name, f] : fmap) {
             hoist_invariant_allocations(*f);
+            // Where a queue's storage finally sits is what the schedule's
+            // storage word is checked against, and an Extern queue's arrays
+            // become parameters here, before the heap pass could take them
+            // (SSA/QueueStorage.h).
+            const bool exported =
+                std::find(f->attributes.begin(), f->attributes.end(),
+                          ir::Function::Attribute::exported) != f->attributes.end();
+            place_queue_storage(*f, exported);
             heap_arrays(*f, in_loops.contains(name));
         }
     }

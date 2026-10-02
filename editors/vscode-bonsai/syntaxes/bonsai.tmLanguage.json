@@ -18,6 +18,7 @@
     { "include": "#types" },
     { "include": "#schedule-directives" },
     { "include": "#layout-words" },
+    { "include": "#storage-words" },
     { "include": "#builtin-functions" },
     { "include": "#function-call" },
     { "include": "#capitalized-names" },
@@ -210,6 +211,11 @@
     "layout-words": {
       "name": "support.constant.layout.bonsai",
       "match": "\\b(tagged_index|inline|tight)\\b"
+    },
+    "storage-words": {
+      "comment": "The memory a queue lives in: queue()'s optional last argument.",
+      "name": "support.constant.storage.bonsai",
+      "match": "\\b(Heap|Stack|DeviceGlobal|DeviceShared|Managed|ExternHost|ExternDevice|ExternManaged)\\b"
     },
     "builtin-functions": {
       "match": "\\b(abs|all|any|argmax|argmin|cast|compress|cos|count|cross|dot|exp|fma|log|max|min|permute|pow|range|rcp|select|sin|sqrt|sum)(?=\\s*(\\[\\[[^\\]]*\\]\\]\\s*)?\\()",

@@ -99,6 +99,12 @@ struct QueueSpec {
     // A constant capacity the schedule gave, if any. Without one the size is
     // inferred (see below).
     std::optional<uint64_t> capacity;
+    // The memory the schedule put the queue in, if it said (IR/Storage.h):
+    // carried on the storage this deferral makes (Instruction::storage), for
+    // the passes that decide where an allocation lives (SSA/HeapArrays,
+    // CodeGen_LLVM_SSA::device_resident_allocations) and the check of the
+    // choice against the hardware hierarchy (SSA/QueueStorage.h).
+    std::optional<ir::Storage> storage;
     // Whether a short vector of the entry is one leaf, stored packed in one
     // array (QueueLayout), rather than a leaf per component. True when no
     // directive of the schedule vectorizes a loop of the owner or of any

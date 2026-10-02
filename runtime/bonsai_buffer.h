@@ -91,6 +91,35 @@ __attribute__((used)) inline bonsai_buffer bonsai_buffer_wrap(void *host,
     return b;
 }
 
+// A buffer over device memory the driver owns -- a queue's storage a
+// schedule put in the caller's hands (`queue(l, cap, ExternDevice)`,
+// IR/Storage.h), allocated once with bonsai_cuda_malloc and sized by the
+// header's BONSAI_<function>_<buffer>_BYTES. The host has no copy; a require
+// on the host side would make one, which such a buffer never asks for.
+__attribute__((used)) inline bonsai_buffer bonsai_buffer_wrap_device(void *device,
+                                                                     uint64_t bytes) {
+    bonsai_buffer b;
+    b.host = NULL;
+    b.device = device;
+    b.bytes = bytes;
+    b.flags = 0;
+    return b;
+}
+
+// A buffer over managed memory (bonsai_cuda_malloc_managed): one address the
+// host and the device both use, so both sides are this one pointer and no
+// copy is ever made between them (`ExternManaged`, pbrt's own scheme for its
+// queues).
+__attribute__((used)) inline bonsai_buffer bonsai_buffer_wrap_managed(void *managed,
+                                                                      uint64_t bytes) {
+    bonsai_buffer b;
+    b.host = managed;
+    b.device = managed;
+    b.bytes = bytes;
+    b.flags = 0;
+    return b;
+}
+
 __attribute__((used, noreturn)) inline void
 bonsai_buffer_fail(const bonsai_buffer *b, const char *what) {
     fprintf(stderr,
@@ -108,6 +137,12 @@ bonsai_buffer_fail(const bonsai_buffer *b, const char *what) {
 __attribute__((used)) inline void *
 bonsai_buffer_require_impl(bonsai_buffer *b, int side, int explicit_stage) {
     const int may_copy = explicit_stage || *bonsai_buffer_implicit_copies_flag();
+    // Managed memory: the two sides are one address, current on both, and
+    // a copy between them would be a copy onto itself.
+    if (b->host != NULL && b->host == b->device) {
+        b->flags &= ~(uint32_t)(BONSAI_BUFFER_HOST_DIRTY | BONSAI_BUFFER_DEVICE_DIRTY);
+        return b->host;
+    }
     if (side == BONSAI_HOST) {
         if (b->host != NULL && !(b->flags & BONSAI_BUFFER_DEVICE_DIRTY)) {
             return b->host;

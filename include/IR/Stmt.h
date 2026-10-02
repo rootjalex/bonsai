@@ -246,6 +246,11 @@ struct Allocate : StmtNode<Allocate> {
         Stack,
         Device,
         Host,
+        // cudaMallocManaged: one address the host and the device both use
+        // (IR/Storage.h, Storage::Managed). Treated as Device by everything
+        // that moves data -- the copies work on it -- and allocated by
+        // bonsai_cuda_malloc_managed.
+        Managed,
     };
     Memory memory;
 

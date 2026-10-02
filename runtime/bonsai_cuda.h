@@ -98,6 +98,16 @@ const char *bonsai_cuda_device_arch(void);
 // structures' temporaries are freed after the build's own wait. Each
 // aborts with the driver's reason on failure, as the launch does.
 void *bonsai_cuda_malloc(uint64_t bytes);
+// Managed memory (cuMemAllocManaged): `bytes` at one address the host and
+// the device both use, migrated by the driver on demand -- what a schedule's
+// `Managed` storage asks for (IR/Storage.h) and what pbrt allocates its
+// queues in (CUDAMemoryResource). Freed by bonsai_cuda_free like the rest.
+void *bonsai_cuda_malloc_managed(uint64_t bytes);
+// Asks the driver to move `bytes` of managed memory at `managed` to the
+// device, on the stream, ahead of the kernels that read it: pbrt's
+// PrefetchGPUAllocations at the start of its Render, inside its timer, so a
+// driver matching it calls this where pbrt does.
+void bonsai_cuda_prefetch_to_device(void *managed, uint64_t bytes);
 void bonsai_cuda_free(void *device);
 // Waits for everything launched so far. Every launch is asynchronous; the
 // generated code calls this at the return of a function that launched
@@ -273,6 +283,8 @@ struct Driver {
     CUresult (*cuModuleLoadData)(CUmodule *, const void *);
     CUresult (*cuModuleGetFunction)(CUfunction *, CUmodule, const char *);
     CUresult (*cuMemAlloc)(CUdeviceptr *, size_t);
+    CUresult (*cuMemAllocManaged)(CUdeviceptr *, size_t, unsigned int);
+    CUresult (*cuMemPrefetchAsync)(CUdeviceptr, size_t, CUdevice, CUstream);
     CUresult (*cuMemFree)(CUdeviceptr);
     CUresult (*cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
     CUresult (*cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
@@ -350,6 +362,8 @@ inline Driver &driver() {
         // The _v2 names are the driver's entry points for the 64-bit
         // calls; the headers' `cuMemAlloc` is a macro for them.
         load(d.cuMemAlloc, "cuMemAlloc_v2");
+        load(d.cuMemAllocManaged, "cuMemAllocManaged");
+        load(d.cuMemPrefetchAsync, "cuMemPrefetchAsync");
         load(d.cuMemFree, "cuMemFree_v2");
         load(d.cuMemcpyHtoD, "cuMemcpyHtoD_v2");
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
@@ -688,6 +702,35 @@ __attribute__((used)) inline void *bonsai_cuda_malloc(uint64_t bytes) {
     check(d, d.cuMemAlloc(&device, size_t(bytes == 0 ? 1 : bytes)),
           "cuMemAlloc(" + std::to_string(bytes) + ")");
     return reinterpret_cast<void *>(device);
+}
+
+__attribute__((used)) inline void *bonsai_cuda_malloc_managed(uint64_t bytes) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("allocate managed memory");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    CUdeviceptr device = 0;
+    // CU_MEM_ATTACH_GLOBAL: reachable from any stream, as cudaMallocManaged's
+    // default.
+    constexpr unsigned attach_global = 0x1;
+    check(d,
+          d.cuMemAllocManaged(&device, size_t(bytes == 0 ? 1 : bytes),
+                              attach_global),
+          "cuMemAllocManaged(" + std::to_string(bytes) + ")");
+    return reinterpret_cast<void *>(device);
+}
+
+__attribute__((used)) inline void bonsai_cuda_prefetch_to_device(void *managed,
+                                                                 uint64_t bytes) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("prefetch managed memory to the device");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    if (bytes == 0) {
+        return;
+    }
+    check(d,
+          d.cuMemPrefetchAsync(reinterpret_cast<CUdeviceptr>(managed),
+                               size_t(bytes), d.device, null_stream),
+          "cuMemPrefetchAsync(" + std::to_string(bytes) + ")");
 }
 
 __attribute__((used)) inline void bonsai_cuda_free(void *device) {

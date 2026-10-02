@@ -211,6 +211,11 @@ struct CodeGen_LLVM : public ir::Visitor {
         ir::Type type;
         bool mutating = false;
         bool host_used = false;
+        // The caller's memory on the device, or managed (a queue's array in
+        // Extern storage, IR/Storage.h): the host never dereferences it, so
+        // its host copy is neither required nor marked written; the kernels
+        // that write it mark the device side (CodeGen_GPU_Host.cpp).
+        bool device_side = false;
         const ir::Struct_t *layout = nullptr;
     };
     // By parameter name, for the function being compiled.

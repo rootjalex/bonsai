@@ -254,6 +254,7 @@ target_sources(
     src/SSA/Contract.cpp
     src/SSA/Defer.cpp
     src/SSA/Definitions.cpp
+    src/SSA/QueueStorage.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
     src/SSA/DumpAnalysis.cpp

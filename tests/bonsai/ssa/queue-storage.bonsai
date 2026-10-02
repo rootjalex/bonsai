@@ -1,0 +1,88 @@
+//! flags: -p ssa
+
+// queue()'s optional storage word (IR/Storage.h): the memory a queue lives
+// in, and whether the function or its caller owns it. Three queues of the
+// same shape as tests/bonsai/ssa/defer-gpu-launch, placed differently.
+//
+// What to read for. `run`'s queue says `DeviceGlobal`: its arrays
+// (`sums_k_0`, `sums_k_1`, ...) and header (`sums_queue`) print the word
+// after `scratch`, which is what the residency analysis reads at code
+// generation instead of inferring the memory from the drain's binding. `hosted`'s
+// says `Heap` and its drain stays on the CPU: the arrays print the word and
+// go to the heap as a run-time-sized array would (SSA/HeapArrays). `exported_run`'s
+// says `ExternDevice`: its arrays are gone from the body and are parameters
+// of the function instead -- `tally_k_0 : mut i32[8]` and the rest, after
+// `out` -- while the header `tally_queue` stays its own, in DeviceGlobal
+// memory; the C++ header the cpp backend prints sizes each parameter with
+// `BONSAI_exported_run_<array>_BYTES`. An Extern queue's function has to be
+// exported, since the storage comes from the program's driver.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func climb(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return climb(k - 1, acc + k);
+}
+
+func crawl(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return crawl(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+func hosted(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = climb(i, 0);
+    }
+    return;
+}
+
+func [[export]] exported_run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = crawl(i, 0);
+    }
+    return;
+}
+
+// With an exported function in the program, only what it or main reaches
+// is live, and a queue's owner has to be: main runs the two that are not
+// exported. (exported_run is the driver's to call.)
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    hosted(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root, DeviceGlobal);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+
+    counts = hosted.queue(root, Heap);
+    climb.defer(climb, counts);
+
+    tally = exported_run.queue(root, 8, ExternDevice);
+    crawl.defer(crawl, tally);
+    exported_run.bind(i, GPUThread);
+    exported_run.bind(tally, GPUThread);
+    exported_run.bind(tally_rest, GPUThread);
+}

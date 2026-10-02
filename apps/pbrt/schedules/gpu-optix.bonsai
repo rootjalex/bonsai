@@ -40,25 +40,30 @@ schedule {
     render[VolPath].reorder(p, s);
     render[VolPath].split(p, p_band, p_in, pass_pixels, true);
 
-    rays = render[VolPath].queue(p_band);
+    // The queues' storage is the driver's (ExternDevice, IR/Storage.h):
+    // their arrays are parameters of `render`, allocated once per process
+    // by render_hook.cpp -- in managed memory as pbrt allocates its queues,
+    // or plain device memory, by --queue-memory -- so that nothing is
+    // allocated or freed inside a render, as nothing is in pbrt's.
+    rays = render[VolPath].queue(p_band, ExternDevice);
     li_vol_path.defer(vol_path_step, rays);
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
     vol_route.defer(vol_path_step, rays);
 
-    medium_samples = render[VolPath].queue(p_band);
+    medium_samples = render[VolPath].queue(p_band, ExternDevice);
     vol_path_step.defer(vol_medium_sample, medium_samples);
-    medium_scatters = render[VolPath].queue(p_band);
+    medium_scatters = render[VolPath].queue(p_band, ExternDevice);
     vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
 
-    escaped = render[VolPath].queue(p_band);
+    escaped = render[VolPath].queue(p_band, ExternDevice);
     vol_route.defer(escaped_contribution, escaped);
-    emissive = render[VolPath].queue(p_band);
+    emissive = render[VolPath].queue(p_band, ExternDevice);
     vol_route.defer(emissive_contribution, emissive);
-    hits = render[VolPath].queue(p_band);
+    hits = render[VolPath].queue(p_band, ExternDevice);
     vol_route.defer(vol_surface, hits);
     hits.specialize(material);
-    shadow = render[VolPath].queue(p_band);
+    shadow = render[VolPath].queue(p_band, ExternDevice);
     vol_sample_ld.defer(shadow_contribution, shadow);
 
     // The ray tracing hardware answers both queries.

@@ -517,6 +517,29 @@ Stmt codegen_instruction(const Instruction &instr) {
             Allocate::Memory memory = (instr.op == Instruction::Op::Alloca)
                                           ? Allocate::Stack
                                           : Allocate::Heap;
+            // Storage the schedule placed by name (Instruction::storage,
+            // IR/Storage.h) is in that memory: what the printed form says
+            // and what a backend that cannot allocate it refuses.
+            if (instr.storage.has_value()) {
+                switch (*instr.storage) {
+                case Storage::Heap:
+                case Storage::ExternHost:
+                    memory = Allocate::Heap;
+                    break;
+                case Storage::Stack:
+                    memory = Allocate::Stack;
+                    break;
+                case Storage::DeviceGlobal:
+                case Storage::DeviceShared:
+                case Storage::ExternDevice:
+                    memory = Allocate::Device;
+                    break;
+                case Storage::Managed:
+                case Storage::ExternManaged:
+                    memory = Allocate::Managed;
+                    break;
+                }
+            }
             // The initial value (if any) was split into a separate Store
             // instruction by the SSA builder (see SSA/Convert.cpp), so this
             // just declares storage.
@@ -2227,6 +2250,7 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
         args.push_back(ir::Function::Argument(arg.name, arg.type, Expr(),
                                               arg.mutating, arg.unaliased,
                                               arg.reducer));
+        args.back().storage = arg.storage;
     }
 
     Type ret_type = func.ret_type;

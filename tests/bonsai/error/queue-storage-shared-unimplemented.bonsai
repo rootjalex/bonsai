@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// A queue in a block's shared memory (`DeviceShared`): the word is in the
+// language, and the rule it will be checked by is stated -- pushed to and
+// drained inside one iteration of a loop bound to GPUBlock -- but the PTX
+// backend allocates no shared memory for a queue yet, so the check refuses
+// it as unimplemented rather than letting it fall through to global memory
+// (apps/pbrt/PLAN.md).
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 64]) -> void {
+    parfor i in 0:64 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root, DeviceShared);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.split(sums, sums_blk, sums_thr, 16, true);
+    run.bind(sums_blk, GPUBlock);
+    run.bind(sums_thr, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

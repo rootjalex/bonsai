@@ -605,7 +605,9 @@ class BonsaiToCpp : ir::Printer {
                                     /*is_return_type=*/false, descriptor);
                 ss << ' ';
             }
-            ss << arg.name;
+            // As a C++ identifier: a specialized queue's array is named for
+            // its leaf (`hits!Diffuse_k`), and the `!` is an underscore here.
+            ss << macro_name(arg.name);
             if ((descriptor || layout != nullptr) && definition) {
                 ss << "_buffer";
             }
@@ -622,31 +624,33 @@ class BonsaiToCpp : ir::Printer {
     // uses; the ones the function may write marked dirty there.
     void emit_buffer_unwrap(const Function &func) {
         for (const Function::Argument &arg : func.args) {
+            // The parameter's name as the signature spelled it (macro_name).
+            const std::string name = macro_name(arg.name);
             if (const Struct_t *layout =
                     CodeGen_LLVM::layout_struct_of(arg.type)) {
                 // The program's form of the layout, field by field: counts
                 // as they are, arrays asked for on the host.
-                const std::string host = arg.name + "_host";
+                const std::string host = name + "_host";
                 ss << get_indent() << layout->name << "_host " << host << ";\n";
                 for (const auto &field : layout->fields) {
                     ss << get_indent() << host << "." << field.name << " = ";
                     if (field.type.is<Array_t>()) {
                         ss << "static_cast<";
                         emit_type(ss, field.type);
-                        ss << ">(bonsai_buffer_require(" << arg.name
+                        ss << ">(bonsai_buffer_require(" << name
                            << "_buffer." << field.name << ", BONSAI_HOST))";
                     } else {
-                        ss << arg.name << "_buffer." << field.name;
+                        ss << name << "_buffer." << field.name;
                     }
                     ss << ";\n";
                     if (field.type.is<Array_t>() && arg.mutating) {
                         ss << get_indent() << "bonsai_buffer_mark_dirty("
-                           << arg.name << "_buffer." << field.name
+                           << name << "_buffer." << field.name
                            << ", BONSAI_HOST);\n";
                     }
                 }
                 ss << get_indent() << (arg.mutating ? "" : "const ")
-                   << layout->name << "_host &" << arg.name << " = " << host
+                   << layout->name << "_host &" << name << " = " << host
                    << ";\n";
                 continue;
             }
@@ -659,19 +663,19 @@ class BonsaiToCpp : ir::Printer {
             emit_type(ss, arg.type);
             if (is_dynamic_array(arg.type)) {
                 // Already a `T*`.
-                ss << ' ' << arg.name << " = static_cast<" << qualifier;
+                ss << ' ' << name << " = static_cast<" << qualifier;
                 emit_type(ss, arg.type);
-                ss << ">(bonsai_buffer_require(" << arg.name
+                ss << ">(bonsai_buffer_require(" << name
                    << "_buffer, BONSAI_HOST));\n";
             } else {
                 // A `std::array<T, N>`, referred to in place.
-                ss << " &" << arg.name << " = *static_cast<" << qualifier;
+                ss << " &" << name << " = *static_cast<" << qualifier;
                 emit_type(ss, arg.type);
-                ss << " *>(bonsai_buffer_require(" << arg.name
+                ss << " *>(bonsai_buffer_require(" << name
                    << "_buffer, BONSAI_HOST));\n";
             }
             if (arg.mutating) {
-                ss << get_indent() << "bonsai_buffer_mark_dirty(" << arg.name
+                ss << get_indent() << "bonsai_buffer_mark_dirty(" << name
                    << "_buffer, BONSAI_HOST);\n";
             }
         }
@@ -685,6 +689,16 @@ class BonsaiToCpp : ir::Printer {
     // resident anywhere between calls, and one whose length the type does
     // not say (an `array[T]`) is wrapped unsized, which is enough for a
     // host-only schedule and an error the moment a kernel needs it moved.
+    // A buffer's name as a macro: a layout field's dot, and the `!` of a
+    // specialized queue's array (`hits!Diffuse_k`, SSA/Defer.cpp), as
+    // underscores.
+    static std::string macro_name(const std::string &name) {
+        std::string macro = name;
+        std::replace(macro.begin(), macro.end(), '.', '_');
+        std::replace(macro.begin(), macro.end(), '!', '_');
+        return macro;
+    }
+
     void emit_buffer_helpers(const Program &program) {
         for (const auto &[_, func] : program.funcs) {
             if (!func->is_exported()) {
@@ -742,10 +756,63 @@ class BonsaiToCpp : ir::Printer {
             // `#if BONSAI_<function>_HAS_<buffer>`. A layout field's dot is
             // an underscore here.
             for (const std::string &name : buffer_names) {
-                std::string macro = name;
-                std::replace(macro.begin(), macro.end(), '.', '_');
-                ss << "#define BONSAI_" << func->name << "_HAS_" << macro
-                   << " 1\n";
+                ss << "#define BONSAI_" << func->name << "_HAS_"
+                   << macro_name(name) << " 1\n";
+            }
+            // A queue's array in Extern storage (IR/Storage.h) says what the
+            // driver that allocates it needs: the element's size in bytes
+            // always, and the array's when the capacity is a constant of
+            // the schedule (a run-time capacity -- a render's pass of pixels
+            // -- the driver computes as the program does and multiplies by
+            // the element).
+            for (const Function::Argument *arg : arrays) {
+                const Array_t *array = arg->type.as<Array_t>();
+                if (!arg->storage.has_value() || array == nullptr) {
+                    continue;
+                }
+                const std::string macro = macro_name(arg->name);
+                ss << "#define BONSAI_" << func->name << "_" << macro
+                   << "_ELEMENT_BYTES sizeof(";
+                emit_type(ss, array->etype);
+                ss << ")\n";
+                const std::optional<uint64_t> n =
+                    array->size.defined() ? get_constant_value(array->size)
+                                          : std::nullopt;
+                if (n.has_value()) {
+                    ss << "#define BONSAI_" << func->name << "_" << macro
+                       << "_BYTES (" << *n << "ull * sizeof(";
+                    emit_type(ss, array->etype);
+                    ss << "))\n";
+                }
+            }
+            // The Extern storage parameters as a list macro, in parameter
+            // order -- they are the last parameters, in this order -- each
+            // `X(<name>, (<element type>))`, for a driver to declare,
+            // allocate, list and pass them by expanding it three times:
+            // a render's queues are over a hundred such arrays. The type is
+            // parenthesized because it may hold a comma (`std::array<float,
+            // 3>`), which would split the macro's arguments; a driver takes
+            // the parentheses off with `#define UNPAREN(...) __VA_ARGS__`
+            // and `sizeof(UNPAREN type)`. Only when there are any: a driver
+            // compiled against every schedule's header guards its
+            // expansions with `#ifdef`.
+            const bool any_extern =
+                std::any_of(arrays.begin(), arrays.end(),
+                            [](const Function::Argument *arg) {
+                                return arg->storage.has_value();
+                            });
+            if (any_extern) {
+                ss << "#define BONSAI_" << func->name << "_EXTERN_STORAGE(X)";
+                for (const Function::Argument *arg : arrays) {
+                    const Array_t *array = arg->type.as<Array_t>();
+                    if (!arg->storage.has_value() || array == nullptr) {
+                        continue;
+                    }
+                    ss << " \\\n    X(" << macro_name(arg->name) << ", (";
+                    emit_type(ss, array->etype);
+                    ss << "))";
+                }
+                ss << "\n";
             }
             ss << '\n';
             if (arrays.empty()) {
@@ -765,7 +832,7 @@ class BonsaiToCpp : ir::Printer {
             for (int i = 0, e = func->args.size(); i < e; ++i) {
                 const Function::Argument &arg = func->args[i];
                 emit_signature_type(arg.type, /*is_mutating=*/arg.mutating);
-                ss << ' ' << arg.name;
+                ss << ' ' << macro_name(arg.name);
                 if (i + 1 != e) {
                     ss << ", ";
                 }
@@ -773,12 +840,13 @@ class BonsaiToCpp : ir::Printer {
             ss << ") {\n";
             for (const Function::Argument *arg : arrays) {
                 const Array_t *array_t = arg->type.as<Array_t>();
-                ss << "    bonsai_buffer " << arg->name
+                const std::string name = macro_name(arg->name);
+                ss << "    bonsai_buffer " << name
                    << "_buffer = bonsai_buffer_wrap(const_cast<void *>("
-                   << "static_cast<const void *>(" << arg->name
+                   << "static_cast<const void *>(" << name
                    << (is_dynamic_array(arg->type) ? "" : ".data()") << ")), ";
                 if (!is_dynamic_array(arg->type)) {
-                    ss << "sizeof(" << arg->name << ")";
+                    ss << "sizeof(" << name << ")";
                 } else if (array_t->size.defined()) {
                     std::stringstream size;
                     ir::Printer printer(size);
@@ -799,9 +867,9 @@ class BonsaiToCpp : ir::Printer {
             for (int i = 0, e = func->args.size(); i < e; ++i) {
                 const Function::Argument &arg = func->args[i];
                 if (arg.type.is<Array_t>()) {
-                    ss << '&' << arg.name << "_buffer";
+                    ss << '&' << macro_name(arg.name) << "_buffer";
                 } else {
-                    ss << arg.name;
+                    ss << macro_name(arg.name);
                 }
                 if (i + 1 != e) {
                     ss << ", ";

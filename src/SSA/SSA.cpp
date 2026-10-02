@@ -340,6 +340,9 @@ void Instruction::dump(std::ostream &os) const {
     if (scratch) {
         os << " scratch";
     }
+    if (storage.has_value()) {
+        os << " " << to_string(*storage);
+    }
     if (op == Instruction::Op::Shuffle) {
         os << "<";
         for (size_t i = 0; i < shuffle.size(); i++) {

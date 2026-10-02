@@ -36,6 +36,8 @@ add_bonsai_tests(
     buffers-cpp.bonsai
     defer-capacity.bonsai
     defer-device.bonsai
+    queue-managed.bonsai
+    queue-extern-cpp.bonsai
     device-function.bonsai
     dirty-where-touched.bonsai
     dynamic-size.bonsai

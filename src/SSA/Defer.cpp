@@ -119,6 +119,18 @@ shared_ptr<Value> scratch(shared_ptr<Value> storage) {
     return storage;
 }
 
+// Storage the schedule placed in a named memory (`queue(l, cap,
+// ExternDevice)`; IR/Storage.h) carries the choice, for the passes that
+// decide where an allocation lives and the check of the choice against the
+// hardware (SSA/QueueStorage.h). Without a choice the storage is as it was.
+shared_ptr<Value> stored_in(const std::optional<ir::Storage> &memory,
+                            shared_ptr<Value> storage) {
+    if (memory.has_value()) {
+        std::get<shared_ptr<Instruction>>(storage->data)->storage = memory;
+    }
+    return storage;
+}
+
 // Applies `edit` to every copy `block` holds of the argument `name`: its
 // entry in the parameter list, its lookup, and every value in the block that
 // names the argument. An Argument is copied by value into a Value, so there
@@ -382,6 +394,7 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
             instr_copy->atomic = instr->atomic;
             instr_copy->compact = instr->compact;
             instr_copy->scratch = instr->scratch;
+            instr_copy->storage = instr->storage;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
         }
@@ -1124,6 +1137,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // The owner has to be among them: a queue on a function nothing runs is
+    // a schedule for code that never executes, and the owner would be erased
+    // just below as a dead caller of the chain, after which every lookup of
+    // it here would fail without a word.
+    internal_assert(live.contains(queue.owner))
+        << what << ": " << queue.owner << ", the owner of " << queue.name
+        << ", is reached from no exported function and not from main, so "
+        << "nothing would ever run its queue. Export it, call it from main, "
+        << "or drop the queue.";
     // A function nothing can reach that calls into the chain would be left
     // calling a function whose shape has changed. It goes: it could never
     // have run.
@@ -3866,10 +3888,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     stores[i].push_back(undef_value(Array_t::make(leaf.type, Expr())));
                     continue;
                 }
-                stores[i].push_back(scratch(make_alloca(
-                    *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                    qname + "_" + leaf.name +
-                        (double_buffered ? "_" + std::to_string(i) : ""))));
+                stores[i].push_back(stored_in(
+                    queue.storage,
+                    scratch(make_alloca(
+                        *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                        qname + "_" + leaf.name +
+                            (double_buffered ? "_" + std::to_string(i) : "")))));
             }
         }
         // Then the bytes the bools are packed into.
@@ -3881,17 +3905,33 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 stores[i].push_back(undef_value(Array_t::make(leaf.type, Expr())));
                 continue;
             }
-            stores[i].push_back(scratch(make_alloca(
-                *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                qname + "_" + leaf.name +
-                    (double_buffered ? "_" + std::to_string(i) : ""))));
+            stores[i].push_back(stored_in(
+                queue.storage,
+                scratch(make_alloca(
+                    *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                    qname + "_" + leaf.name +
+                        (double_buffered ? "_" + std::to_string(i) : "")))));
         }
     }
-    const shared_ptr<Value> queues = scratch(
-        many ? make_alloca(*O, alloc_point,
-                           Array_t::make(queue_t, UIntImm::make(u32(), nqueues)),
-                           queue.name + "_queue")
-             : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue"));
+    // The header too, in the same memory -- except that an Extern queue's
+    // header stays the function's own, in the memory the Extern names: the
+    // arrays are what the caller provides, sized by the capacity; the header
+    // is a few words the function fills with their addresses and the count,
+    // and the caller has no business with it (SSA/QueueStorage.h).
+    const std::optional<ir::Storage> header_memory =
+        !queue.storage.has_value() ? std::nullopt
+        : *queue.storage == ir::Storage::ExternHost ? std::optional(ir::Storage::Heap)
+        : *queue.storage == ir::Storage::ExternDevice
+            ? std::optional(ir::Storage::DeviceGlobal)
+        : *queue.storage == ir::Storage::ExternManaged
+            ? std::optional(ir::Storage::Managed)
+            : queue.storage;
+    const shared_ptr<Value> queues = stored_in(
+        header_memory,
+        scratch(many ? make_alloca(*O, alloc_point,
+                                   Array_t::make(queue_t, UIntImm::make(u32(), nqueues)),
+                                   queue.name + "_queue")
+                     : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue")));
     for (size_t i = 0; i < nqueues; i++) {
         vector<shared_ptr<Value>> parts = {constant_u32(0)};
         parts.insert(parts.end(), stores[i].begin(), stores[i].end());

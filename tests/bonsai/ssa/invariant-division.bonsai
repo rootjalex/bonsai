@@ -2,39 +2,41 @@
 
 // Division by an invariant integer using multiplication (Granlund &
 // Montgomery, PLDI 1994; see SSA/InvariantDivision.h), as the SSA pipeline
-// leaves it.
+// leaves it: for a gang, and not for a scalar.
 //
 // `digits` peels the base-b digits of an index, dividing by `b` once per
 // digit, and `b` does not change while the loop runs. What to read for in the
 // golden:
 //
-//   * At the top of `digits`, before the loop: `div_multiplier(b)`, and the
-//     two shifts of the round-up method from `clz(b - 1)` -- computed once,
-//     where the divisor is.
-//   * In the loop body: no division. `next` is a `mulhi` by the multiplier,
-//     a subtraction, two shifts and an addition.
-//   * `limit`, the one division by `b` outside the loop, uses the same
-//     multiplier, since it is there.
-//   * The vectorized gang divides by a `b` each lane has its own of, and the
-//     same arithmetic widens to the gang: the multiplier is a vector, taken
-//     once per lane before the loop, and the loop body is vector multiplies
-//     and shifts where it was eight scalar divisions.
+//   * `digits` is what the vectorized `run` calls, so it is a gang's: at its
+//     top, before the loop, `div_multiplier(b)` and the two shifts of the
+//     round-up method from `clz(b - 1)`, computed once where the divisor is;
+//     in the loop body no division, `next` a `mulhi` by the multiplier, a
+//     subtraction, two shifts and an addition; `limit`, the one division by
+//     `b` outside the loop, using the same multiplier since it is there. The
+//     rewrite runs before the vectorizer, on the function whose copy becomes
+//     the gang, which is why the scalar `digits` shows it too.
+//   * The gang `digits$gang8` divides by a `b` each lane has its own of, and
+//     the same arithmetic widens: the multiplier is a vector taken once per
+//     lane before the loop, and the loop body is vector multiplies and
+//     shifts where it would be eight scalar divisions.
+//   * `digits16`, which divides by a base read from a `u16` table -- pbrt's
+//     primes, none above 7919 -- `digits32`, which divides by a `u32`, and
+//     `permuted_digits`, `digits` with a call in the loop body (pbrt's
+//     Owen-scrambled radical inverse permutes each digit through a
+//     function), are reached by nothing vectorized: scalar wherever they
+//     run, and their divisions stay divisions. Until 2026-10-02 they had
+//     multipliers like `digits`; the user's rule is that a scalar division
+//     by a non-constant is not optimized -- the multiplier costs a division
+//     twice as wide, which on the GPU was a 128-bit division expanded into
+//     a loop, 78% of a material kernel (apps/pbrt/PLAN.md) -- and the
+//     multiplier is for what a vector unit cannot do, divide every lane at
+//     once. A gang's per-lane multipliers of bounded divisors like
+//     `digits16`'s are done by double division; see
+//     vectorize-bounded-multiplier.bonsai.
 //   * The divisions by the constant `4u` in `quarters` are a shift and a
-//     mask (see divide-by-constant.bonsai for the constant case in full).
-//   * `digits16` divides by a base read from a `u16` table -- pbrt's primes,
-//     none above 7919 -- and `digits32` by a `u32`, and both keep the
-//     `div_multiplier` intrinsic all the same: on a scalar the multiplier is
-//     one hardware division twice the width, and nothing beats that. A
-//     gang's per-lane multipliers of such divisors are the ones done by
-//     double division instead; see vectorize-bounded-multiplier.bonsai.
-//   * `permuted_digits` is `digits` with a call in the loop body -- pbrt's
-//     Owen-scrambled radical inverse permutes each digit through a function
-//     -- so the loop's values pass through the call's continuation block on
-//     their way back to the header. The divisor is still the one defined
-//     before the loop, and the golden shows the same multiplier at the top
-//     and no division in the loop. (The tracer once stopped at the
-//     continuation, took its argument for a definition of its own, and left
-//     both divisions as they were.)
+//     mask, in scalar code too (see divide-by-constant.bonsai for the
+//     constant case in full).
 func digits(n : u64, b : u64) -> u64 {
     v : mut u64 = n;
     r : mut u64 = 0u;

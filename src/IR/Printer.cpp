@@ -330,6 +330,9 @@ void Printer::print(const Schedule &schedule) {
             os << ", ";
             print(*queue.capacity);
         }
+        if (queue.storage.has_value()) {
+            os << ", " << to_string(*queue.storage);
+        }
         os << ");\n";
     }
 
@@ -1604,6 +1607,13 @@ void Printer::visit(const Allocate *node) {
     if (node->value.defined()) {
         os << " := ";
         print_no_parens(node->value);
+    }
+    // Memory a schedule chose by name (IR/Storage.h): the device's, or
+    // managed. The heap and the stack print as they always have.
+    if (node->memory == Allocate::Memory::Device) {
+        os << " device";
+    } else if (node->memory == Allocate::Memory::Managed) {
+        os << " managed";
     }
     end_stmt();
 }

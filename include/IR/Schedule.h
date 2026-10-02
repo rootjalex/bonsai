@@ -7,6 +7,7 @@
 #include "Layout.h"
 #include "Provenance.h"
 #include "Resource.h"
+#include "Storage.h"
 #include "Type.h"
 
 namespace bonsai {
@@ -60,6 +61,7 @@ struct Reorder {
 //     paths = render.queue(p);          // one queue per iteration of `p`
 //     paths = render.queue(root);       // one queue per call of `render`
 //     paths = render.queue(p, 4096);    // with a capacity the schedule states
+//     paths = render.queue(p, 4096, ExternDevice);  // and the memory it lives in
 //
 // The queue is storage the owner allocates at the start of each of its
 // iterations, and a drain loop -- a `parfor` named after the queue, so that
@@ -68,11 +70,15 @@ struct Reorder {
 // which calls push one, is said by `defer` below. Without a capacity the size
 // is inferred: the number of pushes an owner iteration can make, which for a
 // linear deferral is the trip count of the producer loop (see
-// SSA/Defer.h). A capacity is a constant for now.
+// SSA/Defer.h). A capacity is a constant for now. The storage word
+// (IR/Storage.h) names the memory the storage lives in and whether the
+// function or its caller owns it; without one, the memory is what the
+// drains' binding implies.
 struct Queue {
     std::string owner;
     Location loop;
     std::optional<Expr> capacity;
+    std::optional<Storage> storage;
 };
 
 // A queue split by a value, into one queue per variant:

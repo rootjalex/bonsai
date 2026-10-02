@@ -48,7 +48,22 @@ namespace ssa {
 // under a mask is guarded against dividing by a lane's stale zero, and the
 // guard is defined inside the loop; the arithmetic this leaves behind needs no
 // guard, since nothing in it traps. Returns how many divisions were rewritten.
-size_t divide_by_invariants(Function &func);
+// `runtime_divisors`: whether a division by a run-time value that does not
+// change while its loop runs is rewritten too, or only the constant ones.
+// The caller says yes for a function the schedule vectorizes or that such
+// a function reaches -- the rewrite is done before the vectorizer runs (see
+// above), so the gang's per-lane divisor, invariant in the loop, gets its
+// multiplier once per lane and the loop body vector multiplies -- and no
+// for a scalar function, which is the user's rule (2026-10-02): a scalar
+// division by a non-constant is not optimized. The multiplier costs a
+// division twice as wide as the one it replaces, computed where the divisor
+// is defined, and on the GPU that is once per thread: for a 64-bit divisor
+// a 128-bit division LLVM's NVPTX backend expands into a bit-serial loop of
+// some two thousand instructions -- on pavilion-day seven such loops, the
+// multipliers for the sampler's digit loops, were 78% of the dielectric
+// material kernel's instructions (apps/pbrt/PLAN.md), where the backend's
+// own `div.u64` is a few dozen and pbrt divides plainly.
+size_t divide_by_invariants(Function &func, bool runtime_divisors);
 
 // Division by floating-point division, where it is exact.
 //

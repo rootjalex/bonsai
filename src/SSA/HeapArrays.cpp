@@ -203,9 +203,19 @@ size_t heap_arrays(Function &func, bool in_loop) {
                 if (instr->op != Instruction::Op::Alloca || !instr->type.is_reference()) {
                     continue;
                 }
+                // Storage the schedule placed in a memory of its own naming
+                // (IR/Storage.h) is not the heap's to take -- except what it
+                // placed on the heap, which goes there whatever its size: a
+                // queue of constant capacity would otherwise fit the frame.
+                const bool said_heap = instr->storage == ir::Storage::Heap;
+                if (instr->storage.has_value() && !said_heap) {
+                    continue;
+                }
                 const auto *array = instr->type.as<Array_t>();
-                if (array == nullptr || !array->size.defined() ||
-                    gather_free_vars(array->size).empty()) {
+                if (array == nullptr || !array->size.defined()) {
+                    continue;
+                }
+                if (!said_heap && gather_free_vars(array->size).empty()) {
                     continue; // a constant size fits the frame
                 }
                 if (any || escaped.contains(instr.get())) {

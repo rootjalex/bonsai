@@ -1051,6 +1051,7 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
             copy->atomic = instr->atomic;
             copy->compact = instr->compact;
             copy->scratch = instr->scratch;
+            copy->storage = instr->storage;
             T->instrs.push_back(copy);
             auto value = std::make_shared<Value>(copy);
             T->lookups[copy->name] = value;

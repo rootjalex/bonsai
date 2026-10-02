@@ -1,0 +1,34 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/queue-extern-cpp
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_queue_extern_cpp.cpp -I. -o $<>/main_queue_extern_cpp.o, clang++ $<>/main_queue_extern_cpp.o $<>/queue-extern-cpp.o -o $<>/queue-extern-cpp, ./$<>/queue-extern-cpp, rm $<>/queue-extern-cpp, rm $<>/main_queue_extern_cpp.o, rm $<>/queue-extern-cpp.h, rm $<>/queue-extern-cpp.o
+
+// A queue in the caller's device memory (`queue(root, 8, ExternDevice)`,
+// IR/Storage.h), driven from C++: the queue's six arrays -- the two slots'
+// `k`, `acc` and `_slot`, double-buffered -- are parameters of the exported
+// function after `out`, each a bonsai_buffer the driver allocates once with
+// bonsai_cuda_malloc, sized by the header's BONSAI_run_<array>_BYTES, and
+// wraps as device memory; the header's `_sides` table asks for them on the
+// device, so staging moves nothing and no copy happens in the calls. The
+// function allocates nothing for the queue but its header, as pbrt's
+// wavefront allocates its queues once before its timer. Same program and
+// result as correctness/gpu/defer-device.
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func [[export]] run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root, 8, ExternDevice);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

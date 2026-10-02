@@ -4961,10 +4961,15 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         internal_assert(array_t->size.defined());
         llvm::Value *size = codegen_expr(array_t->size);
 
-        if (node->memory == Allocate::Memory::Device) {
+        if (node->memory == Allocate::Memory::Device ||
+            node->memory == Allocate::Memory::Managed) {
             // Device memory (see device_resident): `bonsai_cuda_malloc(bytes)`
             // from runtime/bonsai_cuda.h, whose return is the device address,
-            // held by the host as a pointer it never dereferences.
+            // held by the host as a pointer it never dereferences; or managed
+            // memory (a schedule's `Managed`, IR/Storage.h), one address for
+            // both processors, which everything here still treats as the
+            // device's -- the copies work on it, and pbrt's queues live in
+            // it.
             llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
             llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
             llvm::Value *bytes = builder->CreateMul(
@@ -4973,7 +4978,9 @@ void CodeGen_LLVM::visit(const Allocate *node) {
                     i64, module->getDataLayout().getTypeAllocSize(etype)),
                 name + "_bytes");
             llvm::FunctionCallee device_malloc = module->getOrInsertFunction(
-                "bonsai_cuda_malloc",
+                node->memory == Allocate::Memory::Managed
+                    ? "bonsai_cuda_malloc_managed"
+                    : "bonsai_cuda_malloc",
                 llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
             rhs = builder->CreateCall(device_malloc, {bytes}, name);
         } else {
@@ -5000,7 +5007,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         internal_assert(rhs)
             << "Array allocation produced no storage: " << Stmt(node);
         frames.add_to_frame(name, rhs);
-        if (node->memory == Allocate::Memory::Device &&
+        if ((node->memory == Allocate::Memory::Device ||
+             node->memory == Allocate::Memory::Managed) &&
             device_resident_allocas.contains(name)) {
             remember_device_alloca(rhs, name);
         }
@@ -5008,7 +5016,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     }
 
     llvm::Type *value_type = codegen_type(node->loc.base_type);
-    if (node->memory == Allocate::Memory::Device) {
+    if (node->memory == Allocate::Memory::Device ||
+        node->memory == Allocate::Memory::Managed) {
         // A struct the residency analysis put on the device -- a lone
         // queue's header, whose drains run there (device_resident):
         // `bonsai_cuda_malloc` of its size, the device address held by the
@@ -5026,7 +5035,8 @@ void CodeGen_LLVM::visit(const Allocate *node) {
         llvm::Value *bytes = llvm::ConstantInt::get(
             i64, module->getDataLayout().getTypeAllocSize(value_type));
         llvm::FunctionCallee device_malloc = module->getOrInsertFunction(
-            "bonsai_cuda_malloc",
+            node->memory == Allocate::Memory::Managed ? "bonsai_cuda_malloc_managed"
+                                                      : "bonsai_cuda_malloc",
             llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
         llvm::Value *storage = builder->CreateCall(device_malloc, {bytes}, name);
         frames.add_to_frame(name, storage);

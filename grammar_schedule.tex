@@ -10,7 +10,7 @@
 \hline\\[-0.8em]
 $S$ : Schedule \;::=\; \code{schedule} \code{\{} $D^*$ \code{\}} \hfill \algcomment{a block of directives, applied in order} \\[0.3em]
 $D$ : Directive \;::=\; $f$\code{.}$T$ (\code{.}$T$)$^*$ \code{;} \hfill \algcomment{transforms of function $f$, chained} \\
-\phantom{$D$ : }\;|\; $q$ \code{=} $f$\code{.queue(}$l$ [\code{,} $n$]\code{);} \hfill \algcomment{a queue per iteration of $f$'s loop $l$ (or \code{root})} \\
+\phantom{$D$ : }\;|\; $q$ \code{=} $f$\code{.queue(}$l$ [\code{,} $n$] [\code{,} $M$]\code{);} \hfill \algcomment{a queue per iteration of $f$'s loop $l$ (or \code{root}), of capacity $n$, in memory $M$} \\
 \phantom{$D$ : }\;|\; $Q$\code{.specialize(}$x$\code{);} \hfill \algcomment{$Q$ split into a queue per variant of the drained function's $x$} \\[0.3em]
 $Q$ : Queue \;::=\; $q$ (\code{[}$v$\code{]})$^*$ \hfill \algcomment{a queue, or the one its split made for variant $v$} \\[0.3em]
 $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill \algcomment{recursion to a loop; a branching one on a stack of $n$} \\
@@ -27,6 +27,8 @@ $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill
 \phantom{$T$ : }\;|\; \code{skip(}$c^*$\code{)} \hfill \algcomment{arms a gang first asks whether any lane takes} \\[0.3em]
 $R$ : Resource \;::=\; \code{CPUThread} \;|\; \code{GPUBlock} \;|\; \code{GPUThread} \hfill \algcomment{a thread; a block of threads; a thread of a block} \\
 \phantom{$R$ : }\;|\; \code{TextureUnit} \;|\; \code{RTCore} \;|\; \code{OptixThread} \hfill \algcomment{fixed-function units} \\[0.3em]
+$M$ : Storage \;::=\; \code{Heap} \;|\; \code{Stack} \;|\; \code{DeviceGlobal} \;|\; \code{DeviceShared} \;|\; \code{Managed} \hfill \algcomment{the memory a queue lives in, owned by $f$} \\
+\phantom{$M$ : }\;|\; \code{ExternHost} \;|\; \code{ExternDevice} \;|\; \code{ExternManaged} \hfill \algcomment{the same, owned by $f$'s caller: buffer parameters} \\[0.3em]
 $l$ : Loop \;::=\; $i$ \hfill \algcomment{the index of a \code{parfor} $f$ reaches} \\[0.3em]
 $c$ : Cursor \;::=\; $x$ (\code{.}$x$)$^*$ \hfill \algcomment{a path into $f$: a match arm, a tree's interior} \\[0.3em]
 $\lambda$ : Lambda \;::=\; $|x_1 : T_1, \ldots, x_k : T_k|\ e$ \hfill \algcomment{as in the query language} \\[0.3em]

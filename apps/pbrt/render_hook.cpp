@@ -855,7 +855,8 @@ static bonsai_scene::Sampler sampler_at(bonsai_scene::Sampler s, uint32_t spp) {
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr
-            << "usage: render [--spp N] [--maxdepth D] <scene.bin> [out.pfm]\n"
+            << "usage: render [--spp N] [--maxdepth D] [--queue-memory managed|device] "
+               "<scene.bin> [out.pfm]\n"
             << "       render --cells d1-s16,d5-s64,... <scene.bin> "
                "out-{cell}.pfm\n"
             << "       render --print-differentials <scene.bin>\n"
@@ -881,6 +882,14 @@ int main(int argc, char **argv) {
     int32_t depth_override = 0;
     std::vector<Cell> cells;
     int arg = 1;
+    // Where the queues' storage lives when the schedule makes it the
+    // caller's (`queue(p_band, ExternDevice)`, apps/pbrt/schedules/
+    // gpu-optix.bonsai): `managed` is pbrt's own scheme -- cudaMallocManaged
+    // for every allocation, once, before the timer, and a prefetch to the
+    // device at the start of the render, inside it -- and `device` is plain
+    // device memory. Either way the storage is allocated once per process
+    // and the render allocates nothing for its queues.
+    std::string queue_memory = "managed";
     while (arg < argc && std::string(argv[arg]).rfind("--", 0) == 0) {
         const std::string option = argv[arg++];
         if (option == "--print-differentials") {
@@ -919,6 +928,12 @@ int main(int argc, char **argv) {
             if (!parse_cells(value, cells)) {
                 return 1;
             }
+        } else if (option == "--queue-memory") {
+            if (value != "managed" && value != "device") {
+                std::cerr << "--queue-memory takes managed or device\n";
+                return 1;
+            }
+            queue_memory = value;
         } else {
             std::cerr << "unknown option " << option << '\n';
             return 1;
@@ -2395,6 +2410,44 @@ int main(int argc, char **argv) {
     bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
     bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
+    // The queues' storage, when the schedule made it this driver's
+    // (`ExternDevice`, see --queue-memory above): one buffer per array the
+    // header lists in BONSAI_render_EXTERN_STORAGE, each of the queue's
+    // capacity times its element -- the capacity being the pass of pixels
+    // the program computes from the resolution (render.bonsai: at most a
+    // million samples a pass, the scanlines divided evenly among the
+    // passes), which is pbrt's maxQueueSize = resolution.x *
+    // scanlinesPerPass -- allocated once here and freed with the rest.
+    const uint64_t queue_capacity = [&]() -> uint64_t {
+        const uint64_t w = loaded.width, h = loaded.height;
+        const uint64_t scanlines_at_most = std::max<uint64_t>(1, 1048576 / w);
+        const uint64_t n_passes = (h + scanlines_at_most - 1) / scanlines_at_most;
+        const uint64_t scanlines_per_pass = (h + n_passes - 1) / n_passes;
+        return w * scanlines_per_pass;
+    }();
+    const auto queue_buffer = [&](size_t element_bytes) {
+        const uint64_t bytes = queue_capacity * element_bytes;
+        if (queue_memory == "device") {
+            return bonsai_buffer_wrap_device(bonsai_cuda_malloc(bytes), bytes);
+        }
+        return bonsai_buffer_wrap_managed(bonsai_cuda_malloc_managed(bytes), bytes);
+    };
+    // The list macro parenthesizes each element type, since one may hold a
+    // comma (`std::array<float, 3>`); UNPAREN takes the parentheses off.
+    // The header defines the list only when the schedule gave a queue
+    // Extern storage, so each expansion is guarded: a CPU schedule's
+    // header has none.
+#define BONSAI_UNPAREN(...) __VA_ARGS__
+#ifdef BONSAI_render_EXTERN_STORAGE
+#define BONSAI_QUEUE_DECLARE(name, type) \
+    bonsai_buffer b_##name = queue_buffer(sizeof(BONSAI_UNPAREN type));
+    BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_DECLARE)
+#undef BONSAI_QUEUE_DECLARE
+#define BONSAI_QUEUE_POINTER(name, type) , &b_##name
+#else
+    (void)queue_buffer;
+#define BONSAI_render_EXTERN_STORAGE(X)
+#endif
     bonsai_buffer *render_buffers[] = {
         &b_normal_out, &b_shading_out, &b_albedo_out, &b_radiance_out,
         &b_weight_out, &b_textures,
@@ -2426,7 +2479,9 @@ int main(int argc, char **argv) {
 #else
         &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
 #endif
-        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool};
+        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool
+        // The queues' storage, last, as the parameters are.
+        BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
     constexpr size_t render_buffer_count =
         sizeof(render_buffers) / sizeof(render_buffers[0]);
     static_assert(render_buffer_count == sizeof(render_sides),
@@ -2462,6 +2517,15 @@ int main(int argc, char **argv) {
         // nothing.
         bonsai_kernel_stats_reset();
         const auto started = std::chrono::steady_clock::now();
+        // Managed queue storage goes to the device ahead of the kernels, as
+        // pbrt's PrefetchGPUAllocations does at the start of its Render,
+        // inside its timer; device storage is there already.
+#define BONSAI_QUEUE_PREFETCH(name, type)                                      \
+    if (b_##name.host != nullptr) {                                            \
+        bonsai_cuda_prefetch_to_device(b_##name.device, b_##name.bytes);       \
+    }
+        BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_PREFETCH)
+#undef BONSAI_QUEUE_PREFETCH
         render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
@@ -2494,7 +2558,7 @@ int main(int argc, char **argv) {
                &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
                &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
-               &b_disk_pool);
+               &b_disk_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
         // waits for the device before it returns -- the generated code's
         // own wait at the return of a function that launched, pbrt's

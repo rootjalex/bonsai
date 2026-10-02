@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// A queue in the caller's memory (`ExternDevice`) on a function the program
+// itself calls: an Extern queue's arrays become parameters the caller fills,
+// and the only caller that has queue storage to pass is the program's
+// driver, through an exported function. `run` is not exported, so the check
+// (SSA/QueueStorage.h) refuses it and names the alternatives: export the
+// function, or let it own the storage (DeviceGlobal, Managed, Heap).
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(root, 8, ExternDevice);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

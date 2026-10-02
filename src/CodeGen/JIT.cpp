@@ -56,6 +56,7 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         // Device memory for the allocations only kernels touch (see
         // CodeGen_LLVM::device_resident).
         define("bonsai_cuda_malloc", &bonsai_cuda_malloc);
+        define("bonsai_cuda_malloc_managed", &bonsai_cuda_malloc_managed);
         define("bonsai_cuda_free", &bonsai_cuda_free);
         // Host reads and writes of device-resident memory (a queue's header
         // drained on the GPU): the count read between rounds, zeroed before

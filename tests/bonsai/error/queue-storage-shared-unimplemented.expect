@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/QueueStorage.cpp:195
+
+--> storage != Storage::DeviceShared
+[unimplemented] sums_k_0 (in DeviceShared memory): a queue in shared memory lives in one block's memory and must be pushed to and drained inside one iteration of a loop bound to GPUBlock; the PTX backend allocates no shared memory for a queue yet (apps/pbrt/PLAN.md)

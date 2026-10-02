@@ -586,16 +586,30 @@ struct CodeGen_LLVM::SSALowering {
                 allocated = ptr_t->etype;
             }
             // On the device when only kernels read or write it (see
-            // CodeGen_LLVM::device_resident).
+            // CodeGen_LLVM::device_resident), or where the schedule said a
+            // queue's storage lives (Instruction::storage; IR/Storage.h),
+            // which device_resident_allocations has already folded in.
             const Allocate::Memory memory =
-                cg.device_resident.contains(instr->name)  ? Allocate::Device
-                : instr->op == Instruction::Op::Alloca ? Allocate::Stack
-                                                       : Allocate::Heap;
+                instr->storage == ir::Storage::Managed ? Allocate::Managed
+                : instr->storage == ir::Storage::Heap  ? Allocate::Heap
+                : instr->storage == ir::Storage::Stack ? Allocate::Stack
+                : cg.device_resident.contains(instr->name) ? Allocate::Device
+                : instr->op == Instruction::Op::Alloca    ? Allocate::Stack
+                                                          : Allocate::Heap;
+            internal_assert(instr->storage != ir::Storage::DeviceShared)
+                << "[unimplemented] " << instr->name
+                << " is a queue in DeviceShared memory: the PTX backend "
+                   "allocates no shared memory yet (apps/pbrt/PLAN.md)";
+            internal_assert(!instr->storage.has_value() ||
+                            !ir::is_extern(*instr->storage))
+                << instr->name << " is Extern storage that was not made a "
+                << "parameter (SSA/QueueStorage.h)";
             // A stack allocation put on the device has no Free of its own
             // (SSA/HeapArrays.h frees only what it moved to the heap): the
             // backend frees its device storage at the function's returns
             // (CodeGen_LLVM::free_device_allocas).
-            if (memory == Allocate::Device && instr->op == Instruction::Op::Alloca) {
+            if ((memory == Allocate::Device || memory == Allocate::Managed) &&
+                instr->op == Instruction::Op::Alloca) {
                 cg.device_resident_allocas.insert(instr->name);
             }
             // In a block that runs once per call, a run-time size computed
@@ -1510,6 +1524,12 @@ struct CodeGen_LLVM::SSALowering {
                 continue;
             }
             const CodeGen_LLVM::ExportedBuffer &buffer = found->second;
+            // Memory the host never dereferences (ExportedBuffer::device_side):
+            // it stores the address into a header, which is no write of the
+            // buffer, and it reads nothing back.
+            if (buffer.device_side) {
+                continue;
+            }
             std::vector<llvm::Value *> descriptors{buffer.descriptor};
             if (buffer.layout != nullptr) {
                 descriptors =
@@ -1709,6 +1729,22 @@ struct CodeGen_LLVM::SSALowering {
                 resident.insert(*header);
             }
         }
+        // What the schedule placed in device or managed memory by name
+        // (`queue(l, cap, DeviceGlobal)`, Instruction::storage) is resident
+        // whatever the analysis above made of its uses: the host's touches
+        // of it, if any, are copies. SSA/QueueStorage.h has already refused
+        // a placement the hardware cannot honour, so no entry data is read
+        // on the host here.
+        for (const auto &block : func.blocks) {
+            for (const auto &instr : block->instrs) {
+                if ((instr->op == Instruction::Op::Alloca ||
+                     instr->op == Instruction::Op::Alloc) &&
+                    (instr->storage == Storage::DeviceGlobal ||
+                     instr->storage == Storage::Managed)) {
+                    resident.insert(instr->name);
+                }
+            }
+        }
         if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
             std::cerr << "; " << entry() << ": device-resident allocations:";
             for (const std::string &name : resident) {
@@ -1806,10 +1842,25 @@ struct CodeGen_LLVM::SSALowering {
             buffer.mutating = declared.mutating;
             buffer.host_used = buffer_sides.host.count(declared.name) != 0;
             buffer.layout = layout;
-            const bool device_used =
-                buffer_sides.device.count(declared.name) != 0;
+            bool device_used = buffer_sides.device.count(declared.name) != 0;
+            // A queue's array the caller provides in device or managed
+            // memory (Argument::storage, IR/Storage.h): the host never
+            // dereferences it -- it stores the address into the queue's
+            // header, which is a copy to the device -- so the name is bound
+            // to the device's pointer, and the side the header asks the
+            // caller for is the device's (both, for managed memory, which
+            // is one address).
+            const bool device_storage =
+                declared.storage.has_value() &&
+                side_of(*declared.storage) != StorageSide::Host;
+            if (device_storage) {
+                buffer.host_used = false;
+                buffer.device_side = true;
+                device_used = true;
+            }
             const uint8_t side =
-                (buffer.host_used ? 1 : 0) | (device_used ? 2 : 0);
+                (buffer.host_used ? 1 : 0) | (device_used ? 2 : 0) |
+                (declared.storage == Storage::ExternManaged ? 3 : 0);
             // A layout struct is as many buffers as it has array fields, all
             // needed where the struct is.
             sides.insert(sides.end(),
@@ -1825,6 +1876,9 @@ struct CodeGen_LLVM::SSALowering {
                                          /*mark_dirty=*/false, declared.name);
             } else if (buffer.host_used) {
                 bound = cg.buffer_require(&arg, /*device=*/false);
+                bound->setName(declared.name);
+            } else if (device_storage) {
+                bound = cg.buffer_require(&arg, /*device=*/true);
                 bound->setName(declared.name);
             } else {
                 bound = llvm::PoisonValue::get(arg.getType());

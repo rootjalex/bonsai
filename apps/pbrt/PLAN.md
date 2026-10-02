@@ -8643,6 +8643,105 @@ before: all match pbrt's but pavilion-day's at 16 spp, the standing
 verdict. The three lowest -- view-0, pavilion-day, lte-orb -- are where
 to look next, kernel by kernel against pbrt's profile.
 
+**The storage argument to `queue()` (2026-10-02).** The user's design,
+approved that morning: `queue(loop [, capacity] [, storage])`, the storage
+one of `Heap`, `Stack`, `DeviceGlobal`, `DeviceShared`, `Managed`,
+`ExternHost`, `ExternDevice`, `ExternManaged` (IR/Storage.h) -- Halide's
+two axes, placement by the loop argument as before and memory type plus
+ownership by the word; a per-thread or per-block queue is a placement, not
+a word. The deferral marks the queue's arrays and header with the word
+(Instruction::storage, carried by every copy of an instruction and printed
+by the SSA dump); the heap pass takes a `Heap` queue whatever its size and
+leaves every other word alone; the LLVM codegen's residency analysis folds
+`DeviceGlobal` and `Managed` in and allocates `Managed` with
+cuMemAllocManaged (bonsai_cuda_malloc_managed; Allocate::Memory::Managed;
+the statement printer says `device` or `managed` after such an allocation).
+The check is one pass in its own file (SSA/QueueStorage.h, after the hoist
+and before the heap pass): every access of the storage -- a load, store or
+atomic rooted at it, through the handles loaded out of the header too, and
+a loop's capture of it -- classified by where it runs, the memory's side
+against it: host memory never inside a GPU-bound loop nor captured by one;
+device memory's entries never touched by host code (the header's count the
+host may read and zero, by copies); managed anything; host storage placed
+in a CPU-thread loop never accessed by a further thread-bound loop nested
+in it; `DeviceShared` refused as unimplemented until the PTX backend
+allocates shared memory for a queue; an Extern word only on an exported
+function (the caller with storage to pass is the program's driver -- a
+queue on a function nothing live calls was, separately, a map::at crash in
+defer() and is an error naming the owner now) and only on storage that
+reaches the function's top. An Extern queue's arrays then become
+parameters of the function -- an entry-block argument each, sized by a
+constant capacity or unsized for a run-time one, carrying the word
+(Argument::storage) so that the exported prologue binds the name to the
+device pointer and the header's `_sides` says the device -- and the header
+stays the function's own allocation in the word's memory. The C++ header
+exports `BONSAI_<f>_<array>_ELEMENT_BYTES`, and `_BYTES` for a constant
+capacity; the runtime gained `bonsai_buffer_wrap_device` and
+`bonsai_buffer_wrap_managed`, and a managed buffer is never copied onto
+itself. Tests: ssa/queue-storage (the three words printed, the extern
+arrays as parameters), four error tests (host on GPU, device drained on the
+CPU, extern on an unexported owner, shared unimplemented), correctness/gpu/
+queue-managed and queue-extern-cpp (a C++ driver that allocates the six
+arrays once with bonsai_cuda_malloc and calls twice with copies forbidden).
+The GPU schedule's seven queues are in `ExternDevice` now, which makes
+291 of `render`'s parameters the queues' arrays (the specialized `hits`
+leaves among them, their `!` an underscore in the C++ header); the header
+lists them as `BONSAI_render_EXTERN_STORAGE(X)`, each `X(<name>,
+(<element type>))` -- parenthesized, since `std::array<float, 3>` holds a
+comma -- and render_hook.cpp expands the list three times, to declare and
+allocate the buffers (the capacity computed as the program computes its
+pass of pixels, pbrt's maxQueueSize), to list them for staging, and to
+pass them; `--queue-memory managed` (the default: cudaMallocManaged once,
+prefetched to the device inside the timer, pbrt's scheme) or `device`
+(cuMemAlloc). Measured against the build with the division rule alone,
+64 spp, alternating, least of three, images bit for bit: killeroo-gold
+0.392 / 0.392 / 0.392 s to managed 0.372 / 0.369 / 0.373 and device 0.376
+/ 0.371 / 0.375 (5-6%); book 0.439 / 0.439 / 0.441 to managed 0.453 /
+0.433 / 0.599 and device 0.420 / 0.421 / 0.473 (4%, the third trial of
+both disturbed by a build on the machine); pavilion-day 0.618 / 0.618 /
+0.620 to managed 0.620 / 0.625 / 0.609 and device 0.601 / 0.606 / 0.601
+(2-3%). Managed is a little behind device on the two larger scenes,
+which is pbrt's own cost for its scheme, and the fair comparison is
+against it. book at 16 spp renders the same image in both modes.
+
+**Dielectric on pavilion-day: the sampler's divisions, and a rule.**
+pbrt's Dielectric kernel and ours, ncu over every launch of a 64 spp
+render (pbrt's kernels are all named `Kernel`, so the filter is on the
+mangled name): the same L2 and DRAM traffic (ours 44.7 and 18.6 GB, pbrt's
+48.7 and 21.1), ten times the instructions (26.4 G warp instructions
+against 2.7 G; 842 G thread instructions against 83 G), warps 31.9 of 32
+active so not divergence. The SASS of one launch, instruction by
+instruction: seven copies of a 30-instruction loop of 64-bit funnel shifts,
+subtract-with-borrow and ORs, each run 64 times per entry, 78% of the
+kernel's instructions. Not the dielectric at all: `division_multiplier` in
+CodeGen_LLVM.cpp computes a Granlund-Montgomery multiplier for a run-time
+divisor with a division twice as wide -- 128 bits for the sampler's
+`u64 / base` -- which LLVM's NVPTX backend expands into a bit-serial loop,
+and SSA/InvariantDivision placed one such multiplier per digit loop of the
+Halton radical inverse, per thread, seven sampler draws along the
+dielectric path. pbrt divides plainly (`a / base`, nvcc's 64-to-32-bit
+bypass making most of them `div.u32`) and generates its samples in a
+kernel of their own. The user's rule, stated when the change was seen: "I
+didn't think we were trying to optimize scalar division by a non-constant.
+I don't think we should try to do that." So the run-time rewrite is kept
+for the functions a vectorize directive names and every function those
+reach (the rewrite runs before the vectorizer, on the functions whose
+copies become the gang; a gang's per-lane divisor, invariant in the loop,
+still gets its multiplier once per lane), and a function none of them
+reaches -- every function of a GPU program, the scalar CPU renderer's --
+has its constant divisors rewritten alone and divides by anything else.
+The invariant-division golden shows both: `digits`, which the vectorized
+`run` reaches, with its multiplier; `digits16`, `digits32` and
+`permuted_digits`, which nothing vectorized reaches, dividing. The
+render's CUDA module: 168 `mul.hi.u64` to 8 (the constants'), 365
+`div.u64` where there were none. Against the staged table's binary,
+alternating, least of three each, 64 spp: pavilion-day 0.674 / 0.683 /
+0.675 s to 0.617 / 0.619 / 0.619 (8.4%), book 0.473 / 0.479 / 0.477 to
+0.438 / 0.447 / 0.440 (7.4%), killeroo-gold 0.418 / 0.424 / 0.421 to
+0.393 / 0.387 / 0.386 (7.7%), every image bit for bit. Every material
+kernel draws samples, so every scene gains; the Dielectric kernel on
+pavilion is to be profiled again against pbrt's once the tables are run.
+
 *The device-memory pass's second gap.* The census of the render's PTX
 after the pass: the CUDA module 7572 `ld.global` (6344 `.nc`) and 419
 generic loads -- 60 in every material kernel, at its top, reading the

@@ -10,6 +10,7 @@
 
 #include "IR/Function.h"
 #include "IR/Provenance.h"
+#include "IR/Storage.h"
 #include "IR/Type.h"
 
 namespace bonsai {
@@ -32,6 +33,13 @@ struct Argument {
     // entry rather than its contents, since every continuation of the
     // iteration adds into the one place (SSA/Defer.cpp).
     bool reducer = false;
+    // Likewise: the memory this parameter's storage is in, when the
+    // parameter is a queue's array the caller provides (`queue(l, cap,
+    // ExternDevice)`, IR/Storage.h; SSA/QueueStorage.h made it one): what
+    // tells the exported prologue which side's pointer to bind the name to,
+    // and the header which side the caller has to have the buffer on. Last,
+    // after the flags lowering copies positionally (SSA/Convert.cpp).
+    std::optional<Storage> storage;
 
     void dump(std::ostream &os) const;
 };
@@ -278,6 +286,16 @@ struct Instruction {
     // the nest that reads it -- and what lets the storage be made once,
     // outside the loop (SSA/HoistAllocations.h). Only meaningful for Alloca.
     bool scratch = false;
+
+    // The memory the schedule placed this storage in, if it said: a queue's
+    // arrays and header made by a deferral whose `queue()` named one
+    // (IR/Storage.h; QueueSpec::storage). Read by the passes that decide
+    // where an allocation lives -- SSA/HeapArrays for the heap, the
+    // residency analysis of CodeGen_LLVM_SSA for the device -- which
+    // otherwise decide from how the storage is used, and checked against the
+    // hardware hierarchy by SSA/QueueStorage.h. Only meaningful for Alloca
+    // and Alloc.
+    std::optional<Storage> storage;
 
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;

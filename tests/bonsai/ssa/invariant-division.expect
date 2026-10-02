@@ -108,21 +108,10 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
   r : mut u64
   let @0 = bases[i] in
   let b = cast<u64>(@0) in
-  let @13 = div_multiplier(b) in
-  let @14 = b - 1u in
-  let @15 = clz(@14) in
-  let @16 = 64u - @15 in
-  let @17 = min(@16, 1u) in
-  let @18 = max(@16, 1u) in
-  let @19 = @18 - 1u in
   v = n
   r = 0u
   while ((*v) != 0u) {
-    let @20 = mulhi(@13, (*v)) in
-    let @21 = (*v) - @20 in
-    let @22 = @21 >> @17 in
-    let @23 = @20 + @22 in
-    let next = @23 >> @19 in
+    let next = (*v) / b in
     let @7 = (*r) * b in
     let @9 = next * b in
     let @10 = (*v) - @9 in
@@ -136,21 +125,10 @@ func digits16(n : u64, bases : u16[8], i : i32) -> u64 {
 func digits32(n : u32, b : u32) -> u32 {
   v : mut u32
   r : mut u32
-  let @11 = div_multiplier(b) in
-  let @12 = b - 1u in
-  let @13 = clz(@12) in
-  let @14 = 32u - @13 in
-  let @15 = min(@14, 1u) in
-  let @16 = max(@14, 1u) in
-  let @17 = @16 - 1u in
   v = n
   r = 0u
   while ((*v) != 0u) {
-    let @18 = mulhi(@11, (*v)) in
-    let @19 = (*v) - @18 in
-    let @20 = @19 >> @15 in
-    let @21 = @18 + @20 in
-    let next = @21 >> @17 in
+    let next = (*v) / b in
     let @5 = (*r) * b in
     let @7 = next * b in
     let @8 = (*v) - @7 in
@@ -164,27 +142,12 @@ func digits32(n : u32, b : u32) -> u32 {
 func permuted_digits(n : u64, b : u64) -> u64 {
   v : mut u64
   r : mut u64
-  let @18 = div_multiplier(b) in
-  let @19 = b - 1u in
-  let @20 = clz(@19) in
-  let @21 = 64u - @20 in
-  let @22 = min(@21, 1u) in
-  let @23 = max(@21, 1u) in
-  let @24 = @23 - 1u in
-  let @29 = mulhi(@18, 18446744073709551615u) in
-  let @30 = 18446744073709551615u - @29 in
-  let @31 = @30 >> @22 in
-  let @32 = @29 + @31 in
-  let @0 = @32 >> @24 in
+  let @0 = 18446744073709551615u / b in
   let limit = @0 - b in
   v = n
   r = 0u
   while (((*v) != 0u) && ((*r) < limit)) {
-    let @25 = mulhi(@18, (*v)) in
-    let @26 = (*v) - @25 in
-    let @27 = @26 >> @22 in
-    let @28 = @25 + @27 in
-    let next = @28 >> @24 in
+    let next = (*v) / b in
     let @10 = (*r) * b in
     let @12 = next * b in
     let @13 = (*v) - @12 in
