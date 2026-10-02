@@ -39,17 +39,27 @@ schedule {
     // Embree: stackSize = 1 + (N - 1) * maxDepth + 3 for N = 8 and a maximum
     // depth of 80 (bvh.h, bvh_intersector1.h): 564 entries, the most a
     // traversal can have waiting.
+    // Embree: TriangleMIntersector1Moeller<4> -- a leaf's Triangle4 block
+    // tested as four lanes, and the nearest of the lanes that hit taken
+    // (Intersect1EpilogM, select_min). The loop over a leaf's triangles is
+    // a loop over its blocks with a loop over the four lanes of each inside
+    // (Lower/ForEachs.cpp), named for the field; the lanes' loop is
+    // vectorized, and the argmin's update becomes one reduction across the
+    // lanes (SSA/Vectorize.cpp).
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
                distmin(r, AABB{lo[i], hi[i]}))
          .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
          .loopify(564);
 
     // Embree: traverseAnyHit -- the occlusion test pushes the hit children
     // in their stored order, "simpler in sequence traversal order", and
     // stops at the first triangle hit: `any` stops, and nothing is sorted.
-    // The children's test is the same eight-wide one.
+    // The children's test is the same eight-wide one, and the leaf's the
+    // same four-wide one.
     occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
             .loopify(564);
 
     // The rays across the cores, as the driver spreads Embree's with TBB.

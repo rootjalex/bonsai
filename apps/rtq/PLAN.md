@@ -437,6 +437,52 @@ core):
 
 Every ray agrees.
 
+**Step 6, the four-wide leaf.** `trace.vectorize(triangles.Leaf.data)`
+and the same on `occluded`: Embree's `TriangleMIntersector1Moeller<4>`,
+a Triangle4 block's four triangles tested as four lanes and the nearest
+of the lanes that hit taken (`Intersect1EpilogM`, `select_min`). The
+user's hunch held: the loop over a leaf's triangles had to be a parfor
+to be vectorized, and the argmin's update a reduction. What the compiler
+needed:
+
+- The loop over a leaf's elements, where the leaf is a slice of a tiled
+  group that begins and ends on a tile (spelled `b * 4u`, `k * 4u` in
+  the layout, through a cast or a shift), is a loop over the tiles with a
+  parfor over the lanes of each inside (Lower/ForEachs.cpp), named for
+  the arm's field as the children's loop is (`ForEach::label`,
+  Lower/Trees.cpp). The element's index is spelled as the tile's times
+  the width plus the lane, and the tiled array's lowering reads the tile
+  and the lane off that spelling with no division (Lower/TiledArrays.cpp)
+  -- exact, the lane being the index of a loop over `[0, 4)`.
+- The argmin's update is `_best0 argmin= (t, ref)`, an accumulate, where
+  it was a plain write under the fused filter's test; the quantifiers'
+  likewise (`max=` for `any`, `min=` for `all`). One element at a time
+  the backend folds the repeated compare; in a gang the vectorizer
+  reduces the lanes: the keys of the lanes that hit folded to their
+  minimum, the first lane holding it found, its reference taken, and one
+  accumulate of the pair into the running best if any lane hit
+  (SSA/Vectorize.cpp). Into per-lane memory -- the packet traversal of
+  rays, where every lane has a best of its own -- it is a store of the
+  lanes whose key beats their slot's (CodeGen_LLVM_SSA.cpp,
+  SSA/CodeGen_Stmt.cpp). The SSA builder takes an argmin or argmax
+  accumulate (SSA/Convert.cpp), and the fused-multiply-add contraction
+  takes a value from a dominating block as it is (SSA/Contract.cpp).
+
+Head (the other agent's render on another core, load 4.9):
+
+| rays    | intersect: Embree | bonsai | was   | now   | occluded: Embree | bonsai | was   | now   |
+|---------|------:|------:|------:|------:|------:|------:|------:|------:|
+| primary | 37.93 | 35.47 | 0.77x | 0.94x | 44.33 | 77.80 | 1.38x | 1.76x |
+| ao      | 13.37 |  8.85 | 0.44x | 0.66x | 14.83 | 16.68 | 0.60x | 1.13x |
+| diffuse | 12.17 |  8.26 | 0.44x | 0.68x | 13.82 | 15.53 | 0.60x | 1.12x |
+
+Every ray agrees. The any-hit query is now ahead of Embree on every
+batch; the nearest-hit query is at 0.94x on coherent rays and two thirds
+on incoherent ones, where what remains is the sort network over all
+eight lanes against Embree's count-specialized one (step 3's note), the
+compare on arrival Embree does not make on the descended child (step 4),
+and `rcp` (step 7).
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per
