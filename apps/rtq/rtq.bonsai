@@ -14,9 +14,9 @@
 // stores it (TriangleM: a vertex and two edges, with its ids), tested as
 // Embree tests it (triangle_intersector_moeller.h), and a box as Embree's
 // node test tests it (node_intersector1.h, intersectNode for an AABBNode).
-// Where Embree's arithmetic is an instruction this language has no name for
-// -- its reciprocal is `rcp14` refined by a Newton step -- the exact
-// operation is used and the difference is noted in PLAN.md.
+// Embree's reciprocals -- an estimate instruction refined by one Newton step
+// -- are `rcp`, the same instruction and the same step on this machine
+// (CodeGen_X86), so the bits agree.
 import stdlib/numerics;
 
 // Embree: RTCRay, the fields the traversal reads. `tnear` and `tfar` are the
@@ -66,12 +66,13 @@ func zero_fix(d : vec3f) -> vec3f {
 //     tFar  = min(tFarX,  tFarY,  tFarZ,  tfar)
 //     hit   = tNear <= tFar
 //
-// Embree takes the reciprocal with `rcp` (an approximate reciprocal and a
-// Newton step); this divides. Embree's AVX-512 build compares the two as
-// integers (`maxi`, `mini`, `asInt(tNear) <= asInt(tFar)`), which agrees
-// with the float comparison everywhere it matters (PLAN.md).
+// Embree takes the reciprocal with `rcp` (rcp_safe: `vrcp14ps` and one
+// Newton step over the three components padded to four), and so does this.
+// Embree's AVX-512 build compares the two as integers (`maxi`, `mini`,
+// `asInt(tNear) <= asInt(tFar)`), which agrees with the float comparison
+// everywhere it matters (PLAN.md).
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    rdir = 1.0 / zero_fix(r.d);
+    rdir = rcp(zero_fix(r.d));
     org_rdir = r.o * rdir;
     dirIsNeg = rdir < 0.0;
     near = select(dirIsNeg, b.high, b.low);
@@ -141,8 +142,9 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
         return {};
     }
     // Embree: MoellerTrumboreHitM::finalize, `rcp(absDen)` once and the
-    // three scaled by it.
-    rcpAbsDen = 1.0 / absDen;
+    // three scaled by it -- the four lanes of a Triangle4 at once, which is
+    // what this is in the vectorized leaf.
+    rcpAbsDen = rcp(absDen);
     return TriangleHit{T * rcpAbsDen, U * rcpAbsDen, V * rcpAbsDen};
 }
 

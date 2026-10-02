@@ -483,59 +483,98 @@ eight lanes against Embree's count-specialized one (step 3's note), the
 compare on arrival Embree does not make on the descended child (step 4),
 and `rcp` (step 7).
 
-## Where the loss is, and what closes it
+**Step 7, `rcp`.** The program says `rcp(zero_fix(r.d))` and
+`rcp(absDen)` where it divided, and `rcp` is a new intrinsic of the
+language (the user's choice): on x86 the estimate instruction --
+`vrcp14ps` with AVX-512VL, `rcpps` otherwise -- refined by one Newton
+step as two fused multiply-adds, `r + r * (1 - x * r)`, a scalar or a
+three-vector padded to the register's four lanes; exactly Embree's `rcp`
+and `Vec3fa` reciprocal (common/simd/vfloat4_sse2.h, math/vec3fa.h),
+which its `rcp_safe(dir)` and `MoellerTrumboreHitM::finalize` take. A
+target with no estimate to name divides (CodeGen_LLVM, CodeGen_X86;
+tests at the parse, LLVM and execution levels, the last checking the
+refinement against the exact quotient to eight ulps). The estimate is
+declared speculatable so that the ray's reciprocal direction hoists out
+of the traversal's loop as the division did; without that LLVM kept it,
+and the whole ray setup after it, at every node, and the any-hit query
+lost a fifth. The leaf's `rcp` is not computed for the any-hit query,
+whose test reads only whether the triangle was hit, as Embree's
+occluded epilog does not finalize.
 
-The scalar schedule does per child what Embree does per node, and per
-triangle what Embree does per block. In order of what they are worth:
+Head, back to back, idle (load 1.3):
 
-1. **The eight-wide node test: `trace.vectorize(triangles.Interior.children)`.**
-   The children's loop exists for this. What it needs: the cursor
-   `<tree>.<arm>.<field>` resolved to that loop (the loop is named for the
-   field, and `resolve_loops` already searches the functions `trace`
-   reaches); the vectorizer turning `lo[children]` -- a lane of a vector of
-   vectors indexed by the lane id -- into the component vectors themselves
-   (an identity shuffle LLVM folds), the mask array into a mask vector and
-   the keys into a key vector; and the sorting network and pushes reading
-   lanes of those. With the bounds already stored by component, the loads
-   come out as Embree's six vector loads. The user approved the spelling;
-   the vectorizer work is next.
+| rays    | intersect: Embree | divide | ratio | Embree | rcp   | ratio | occluded: Embree | divide | ratio | Embree | rcp   | ratio |
+|---------|------:|------:|------:|------:|------:|------:|------:|------:|------:|------:|------:|------:|
+| primary | 37.26 | 34.99 | 0.94x | 36.43 | 33.16 | 0.91x | 44.03 | 77.41 | 1.76x | 42.66 | 70.74 | 1.66x |
+| ao      | 13.07 |  8.68 | 0.66x | 12.86 |  8.46 | 0.66x | 14.49 | 16.44 | 1.13x | 14.29 | 15.86 | 1.11x |
+| diffuse | 11.90 |  8.10 | 0.68x | 11.72 |  7.90 | 0.67x | 13.52 | 15.30 | 1.13x | 13.32 | 14.77 | 1.11x |
 
-   With the mask a vector, the sort can do what Embree's does: count the
-   hits and order only those -- Embree's `traverseClosestHit` switches on
-   the count, with no sort for one hit and a three-compare network for
-   three -- instead of the full eight-lane network over misses too, which
-   the measurement above says is most of the nearest-hit query's extra
-   loss over the any-hit query's. That is a property of the sort lowering
-   (Lower/Sorts.cpp, SSA/SortRecursion.cpp) given the conditions it
-   already carries, not a new directive.
-2. **The four-wide triangle test.** Embree tests a `Triangle4` block as
-   four lanes and picks the nearest valid one. The storage is Embree's now
-   (item 7 above); what remains is the schedule: the leaf's element loop is
-   a sequential for-all today, and a four-wide test needs it as a parfor of
-   the tile's lanes with the argmin's accumulation a reduction across them
-   -- the user's note (2026-10-01): "the loop over leaves might also need
-   to be massaged into a parfor so we can vectorize it". The spelling by
-   analogy with the children is `trace.vectorize(triangles.Leaf.data)`.
-3. **The distance on the stack.** Embree pushes each child with its entry
-   distance and drops a popped entry whose distance is past the best hit
-   since found. Here a popped child is visited and its children all fail
-   against the tightened best: the pruning happens one level later. The
-   stack would carry the sort key and the pop re-test `key < best` -- which
-   is sound when the key is the pruning metric, as it is here. A loopify
-   refinement, for the user to decide.
-4. **The bounds' byte order.** Done (item 8 above): the six component
-   vectors are stored in Embree's order and `lo`, `hi` derived from them.
-5. **Scion's reference syntax.** Done (item 9 above), and Embree's
-   large-node relocation with it (item 10). The references are indices
-   where Embree's are pointers; the root is the layout's default reference,
-   row 0, where Embree stores a pointer to it. Same arithmetic per step
-   (an index times the row size against a pointer); the bits differ.
+Every ray agrees either way (the two reciprocals differ in the last
+bits, and the driver counts ties). The rcp program is a few percent
+behind the dividing one on coherent rays in this pairing, within the
+drift Embree's own numbers show between the two runs (3%); it is what
+Embree computes, so it stays.
 
-Arithmetic that cannot match: Embree's `rcp` (an approximate reciprocal
-and a Newton step) against a division, in the node test and the triangle
-test's `1 / |den|`; Embree's `T <= |den| * tfar` against the current best
-versus this program's `t < best` from the argmin. Both decide ties only;
-the driver counts them.
+## Where it stands (end of 2026-10-01), and what is left
+
+All seven steps are in: the schedule is Embree's traversal -- the
+eight-wide node test, the hits sorted and written to the stack by one
+compacting store with their bounds, the nearest descended into, a popped
+entry culled against the best, the any-hit order, the four-wide leaf with
+the nearest lane taken, and Embree's reciprocal. Every ray agrees on
+every mesh. Million rays per second, one thread pinned to cpu 11, least
+of 5, `--side 2048`, load about 1.3:
+
+| mesh (triangles)    | rays    | intersect: Embree | bonsai | ratio | occluded: Embree | bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 35.36 | 31.47 | 0.89x | 40.41 | 59.02 | 1.46x |
+|                     | ao      | 12.68 |  8.09 | 0.64x | 13.79 | 14.47 | 1.05x |
+|                     | diffuse | 11.50 |  7.52 | 0.65x | 12.81 | 13.51 | 1.05x |
+| ganesha (4,323,658) | primary | 18.19 | 13.31 | 0.73x | 20.24 | 21.80 | 1.08x |
+|                     | ao      |  5.68 |  3.59 | 0.63x |  6.04 |  5.28 | 0.88x |
+|                     | diffuse |  5.31 |  3.37 | 0.63x |  5.21 |  4.45 | 0.85x |
+| dragon (7,219,045)  | primary | 23.96 | 21.25 | 0.89x | 25.18 | 28.41 | 1.13x |
+|                     | ao      |  4.08 |  2.82 | 0.69x |  4.32 |  3.76 | 0.87x |
+|                     | diffuse |  3.64 |  2.50 | 0.69x |  3.86 |  3.22 | 0.83x |
+
+Against the first measurement: nearest-hit from 0.29-0.36x to 0.63-0.89x,
+any-hit from 0.49-0.91x to 0.83-1.46x. The numbers drift between runs by
+up to a tenth on both sides with the machine's state (the other agent's
+renders came and went during the day; Embree's own head primary any-hit
+read 40.4 to 44.3 across the day's runs), so a ratio is good to a few
+hundredths.
+
+What is left, in the order it is worth:
+
+1. **The sort over the hits is a full network.** Embree compacts the hits
+   (`vpcompressd`) and switches on their count -- one hit, no sort; two,
+   one min and max; three, three; four, five; more, an insertion sort --
+   and takes the children out of the sorted keys' low bits by one permute
+   (`vpermt2q`). Here one bitonic network of six steps runs whatever the
+   count, the children riding through it by a select per step: about
+   forty vector operations where Embree's common case is a handful. The
+   nearest-hit query's remaining gap on coherent rays is mostly this. A
+   lowering of the same sort directive: the count switch over the
+   compacted vectors, with a dynamic permute in the IR to take the
+   children and the bounds out by the sorted lanes (a `permute(v, idx)`
+   lowered to `vpermps`/`vpermt2q`, a shuffle with run-time indices,
+   which the IR does not have).
+2. **The incoherent rays.** At two thirds of Embree on ao and diffuse
+   rays for the nearest hit, and a sixth behind for any hit on the large
+   meshes, where coherent rays are at or ahead. Both sides walk the same
+   nodes and leaves, so the difference is per step: the sort (above), the
+   compare on arrival the descended child gets and Embree's does not
+   (step 4), and whatever the gang's leaf costs over Embree's hand-written
+   one -- to be read off a profile of the ao batch, node step against leaf
+   step.
+3. **The references are indices** where Embree's are pointers, and the
+   root is the layout's default reference where Embree stores a pointer
+   to it; the relocation closes holes Embree leaves. Same work per step,
+   different bits.
+
+Arithmetic that cannot match: Embree's `T <= |den| * tfar` against the
+current best versus this program's `t < best` from the argmin. It decides
+ties only; the driver counts them. (Embree's `rcp` matches since step 7.)
 
 ## Known-open, smaller
 
