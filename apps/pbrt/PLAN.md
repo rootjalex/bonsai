@@ -8596,6 +8596,39 @@ placement, the caller's memory, with a driver switch for managed memory
 as pbrt has it) is the fix for the first, and the copy per launch is to
 be traced to its source in the generated host code next.
 
+*The copy per launch, traced and removed.* The host render's IR (`-b
+llvm` writes the module as text) has fourteen `bonsai_cuda_copy_to_device`
+calls, all in the round loop: at the top of each round the host rewrites
+every queue's header struct -- 80 to 352 bytes, the count and the array
+handles -- into its device-resident storage, `CodeGen_LLVM::store_to_device`
+of a struct, which was a synchronous `cuMemcpyHtoD` from a stack
+temporary. A copy from pageable memory waits for the stream before it
+starts, asynchronous or not, so each was a wait for the kernels ahead of
+it: one per launch, in a renderer whose launches had just been made
+asynchronous. Now anything larger than a word goes through a ring of
+pinned slots in the runtime (`bonsai_cuda_store_async`, StagingRing in
+bonsai_cuda.h: 256 slots of 4 KB, the bytes copied into a slot,
+`cuMemcpyHtoDAsync` from there, an event after it saying when the slot
+may be reused -- the shape of the OptiX runtime's parameter ring and
+pbrt's paramsPool; a store larger than a slot falls back to the
+synchronous copy). The word-sized store was already a `cuMemsetD32Async`.
+nsys on killeroo-gold at 16 spp, the same process of three renders:
+synchronous `cuMemcpyHtoD` 11893 calls and 227 ms to 53 calls and 15 ms
+(what is left is the scene's upload); 13760 asynchronous ones at 1.6 µs
+each; the `cuMemcpyDtoH` total up from 305 to 490 ms, which is the same
+wait for the device moved to the one place the host still has to wait,
+the count read between rounds. Alternating against the table's binary,
+least of three each: killeroo-gold 16 spp 0.123 / 0.124 / 0.162 s against
+0.114 / 0.120 / 0.123 (7% on the least), book 64 spp 0.491 / 0.494 /
+0.492 against 0.473 / 0.476 / 0.473 (3.7%), both images bit for bit. The
+94 GPU, CUDA and PTX tests pass; no golden names the call. What the host
+still waits on per round is the 144-byte read of the rays header that
+decides whether the loop goes on (two `bonsai_cuda_copy_to_host` calls,
+383 a render here); pbrt reads nothing back and runs every one of its
+maxDepth rounds, launching over an empty queue -- comparable cost on a
+scene like this one, a schedule question rather than a codegen one, left
+as it is.
+
 *The device-memory pass's second gap.* The census of the render's PTX
 after the pass: the CUDA module 7572 `ld.global` (6344 `.nc`) and 419
 generic loads -- 60 in every material kernel, at its top, reading the

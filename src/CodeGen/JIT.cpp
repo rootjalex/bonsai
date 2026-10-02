@@ -64,6 +64,7 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         define("bonsai_cuda_copy_to_host", &bonsai_cuda_copy_to_host);
         define("bonsai_cuda_copy_to_device", &bonsai_cuda_copy_to_device);
         define("bonsai_cuda_store_word_async", &bonsai_cuda_store_word_async);
+        define("bonsai_cuda_store_async", &bonsai_cuda_store_async);
         // The wait at the return of a function that launched: every launch
         // is asynchronous (CodeGen_LLVM::wait_for_device_if_launched).
         define("bonsai_cuda_synchronize", &bonsai_cuda_synchronize);

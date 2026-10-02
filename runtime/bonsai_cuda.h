@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
@@ -119,6 +120,13 @@ void bonsai_cuda_copy_to_device_async(void *device, const void *host,
 // becomes (CodeGen_LLVM::store_to_device) -- a queue's count zeroed before
 // the round that fills it.
 void bonsai_cuda_store_word_async(void *device, uint32_t value);
+// Writes `bytes` of `host` into device memory on the stream, without the
+// host waiting: what a host store of anything larger than a word into a
+// device-resident allocation becomes -- a queue's header, rewritten at the
+// start of each round. The bytes are staged in pinned memory (a copy from
+// pageable memory waits for the stream first, synchronous or not), so
+// `host` may be reused as soon as this returns.
+void bonsai_cuda_store_async(void *device, const void *host, uint64_t bytes);
 
 // A 2D image texture as the GPU's texture units sample it, for a program
 // whose schedule bound a texture lookup to `TextureUnit`
@@ -565,6 +573,64 @@ inline KernelStats &kernel_stats() {
     return s;
 }
 
+// Small host-to-device stores without the host waiting. A copy from
+// pageable host memory waits for the stream before it starts, synchronous
+// or not (the driver stages pageable memory only after a stream sync), so
+// each round's rewrite of its queue headers -- a dozen structs of a few
+// hundred bytes, one before each drain's launch -- was a wait for the
+// kernels ahead of it: nsys on killeroo-gold at 16 spp showed one
+// `cuMemcpyHtoD` per launch, the one before a launch waiting 68 µs. So the
+// bytes go into a slot of a ring of pinned memory and from there to the
+// device on the stream, as a launch's parameters do (bonsai_optix.h's
+// ParamSlot, pbrt's paramsPool); an event recorded after the copy says
+// when the slot may be reused, and the ring is deep enough that the wait
+// for one is rare. A store larger than a slot falls back to the
+// synchronous copy. The caller holds the driver's mutex.
+constexpr unsigned CU_EVENT_DISABLE_TIMING = 0x02;
+struct StagingRing {
+    static constexpr size_t slots = 256;
+    static constexpr size_t slot_bytes = 4096;
+    char *pinned = nullptr;
+    std::vector<CUevent> done;  // per slot: null until the slot's first use
+    size_t next = 0;
+
+    bool stage(Driver &d, void *device, const void *host, size_t bytes) {
+        if (bytes > slot_bytes) {
+            return false;
+        }
+        if (pinned == nullptr) {
+            void *p = nullptr;
+            check(d, d.cuMemHostAlloc(&p, slots * slot_bytes, 0),
+                  "cuMemHostAlloc for the staging ring");
+            pinned = static_cast<char *>(p);
+            done.assign(slots, nullptr);
+        }
+        const size_t i = next;
+        next = (next + 1) % slots;
+        if (done[i] != nullptr) {
+            check(d, d.cuEventSynchronize(done[i]),
+                  "cuEventSynchronize on a staging slot");
+        } else {
+            check(d, d.cuEventCreate(&done[i], CU_EVENT_DISABLE_TIMING),
+                  "cuEventCreate for a staging slot");
+        }
+        char *slot = pinned + i * slot_bytes;
+        std::memcpy(slot, host, bytes);
+        check(d,
+              d.cuMemcpyHtoDAsync(reinterpret_cast<CUdeviceptr>(device), slot,
+                                  bytes, null_stream),
+              "cuMemcpyHtoDAsync from the staging ring");
+        check(d, d.cuEventRecord(done[i], null_stream),
+              "cuEventRecord after a staged store");
+        return true;
+    }
+};
+
+inline StagingRing &staging_ring() {
+    static StagingRing r;
+    return r;
+}
+
 inline void KernelStats::print() {
     KernelStats &s = kernel_stats();
     if (!s.pending.empty()) {
@@ -689,6 +755,19 @@ __attribute__((used)) inline void bonsai_cuda_store_word_async(void *device,
           d.cuMemsetD32Async(reinterpret_cast<CUdeviceptr>(device), value, 1,
                              null_stream),
           "cuMemsetD32Async");
+}
+
+__attribute__((used)) inline void
+bonsai_cuda_store_async(void *device, const void *host, uint64_t bytes) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("store on the device");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    if (!staging_ring().stage(d, device, host, size_t(bytes))) {
+        check(d,
+              d.cuMemcpyHtoD(reinterpret_cast<CUdeviceptr>(device), host,
+                             size_t(bytes)),
+              "cuMemcpyHtoD(" + std::to_string(bytes) + ")");
+    }
 }
 
 __attribute__((used)) inline void bonsai_kernel_stats_reset() {

@@ -4544,14 +4544,20 @@ void CodeGen_LLVM::store_to_device(llvm::Value *rhs, llvm::Value *device_address
         builder->CreateCall(store_word, {device_address, word});
         return;
     }
+    // Anything larger than a word goes through the runtime's pinned staging
+    // ring (bonsai_cuda_store_async), on the stream like the word above: a
+    // synchronous copy from this stack temporary waited for the stream
+    // first, and a queue's header is rewritten this way before every
+    // round -- one wait per launch, in a renderer whose launches are
+    // otherwise asynchronous.
     llvm::Value *temporary = create_alloca_at_entry(rhs->getType(), "device_store");
     builder->CreateStore(rhs, temporary);
-    llvm::FunctionCallee copy = module->getOrInsertFunction(
-        "bonsai_cuda_copy_to_device",
+    llvm::FunctionCallee store = module->getOrInsertFunction(
+        "bonsai_cuda_store_async",
         llvm::FunctionType::get(void_t, {ptr, ptr, i64}, /*isVarArg=*/false));
-    builder->CreateCall(copy, {device_address, temporary,
-                               llvm::ConstantInt::get(
-                                   i64, dl.getTypeAllocSize(rhs->getType()))});
+    builder->CreateCall(store, {device_address, temporary,
+                                llvm::ConstantInt::get(
+                                    i64, dl.getTypeAllocSize(rhs->getType()))});
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
