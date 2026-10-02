@@ -79,12 +79,23 @@ void bonsai_cuda_load(const char *ptx);
 // follows when no `--gpu-arch` was given.
 const char *bonsai_cuda_device_arch(void);
 
-// Device memory, for runtime/bonsai_buffer.h: `bytes` of it (never zero),
-// its release, and the two copies. Allocation and release are the
-// stream-ordered `cuMemAllocAsync`/`cuMemFreeAsync` on the null stream,
-// which take memory from and return it to the device's pool rather than
-// synchronizing the device as the plain calls do. Each aborts with the
-// driver's reason on failure, as the launch does.
+// Device memory, for runtime/bonsai_buffer.h, the OptiX runtime's
+// acceleration structures and the allocations only kernels touch: `bytes`
+// of it (never zero), its release, and the two copies. Allocation and
+// release are the plain `cuMemAlloc`/`cuMemFree`, not the stream-ordered
+// pair that takes memory from the device's pool. OptiX programs are
+// slower on queues in pool memory, and by a different amount in every
+// process: book at 64 spp rendered in 0.65 to 0.78 s with everything in
+// pool memory and in 0.49 s every time with everything in plain
+// allocations, to the same image; nsys put the whole difference in the
+// raygens (2.07x the GPU time) and none in the CUDA kernels, and moving
+// the acceleration structures alone to plain memory left the swing, so
+// it is the queues the raygens read and write. What the plain calls cost
+// is a wait for the device, which no caller here minds: every allocation
+// is made before a render's launches or after the wait that ends them
+// (CodeGen_LLVM::wait_for_device_if_launched), and the acceleration
+// structures' temporaries are freed after the build's own wait. Each
+// aborts with the driver's reason on failure, as the launch does.
 void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
 // Waits for everything launched so far. Every launch is asynchronous; the
@@ -253,8 +264,8 @@ struct Driver {
     CUresult (*cuCtxSetCurrent)(CUcontext);
     CUresult (*cuModuleLoadData)(CUmodule *, const void *);
     CUresult (*cuModuleGetFunction)(CUfunction *, CUmodule, const char *);
-    CUresult (*cuMemAllocAsync)(CUdeviceptr *, size_t, CUstream);
-    CUresult (*cuMemFreeAsync)(CUdeviceptr, CUstream);
+    CUresult (*cuMemAlloc)(CUdeviceptr *, size_t);
+    CUresult (*cuMemFree)(CUdeviceptr);
     CUresult (*cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
     CUresult (*cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
     CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned,
@@ -328,8 +339,10 @@ inline Driver &driver() {
         load(d.cuCtxSetCurrent, "cuCtxSetCurrent");
         load(d.cuModuleLoadData, "cuModuleLoadData");
         load(d.cuModuleGetFunction, "cuModuleGetFunction");
-        load(d.cuMemAllocAsync, "cuMemAllocAsync");
-        load(d.cuMemFreeAsync, "cuMemFreeAsync");
+        // The _v2 names are the driver's entry points for the 64-bit
+        // calls; the headers' `cuMemAlloc` is a macro for them.
+        load(d.cuMemAlloc, "cuMemAlloc_v2");
+        load(d.cuMemFree, "cuMemFree_v2");
         load(d.cuMemcpyHtoD, "cuMemcpyHtoD_v2");
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
@@ -606,10 +619,8 @@ __attribute__((used)) inline void *bonsai_cuda_malloc(uint64_t bytes) {
     Driver &d = ready("allocate device memory");
     std::lock_guard<std::mutex> lock(d.mutex);
     CUdeviceptr device = 0;
-    check(d,
-          d.cuMemAllocAsync(&device, size_t(bytes == 0 ? 1 : bytes),
-                            null_stream),
-          "cuMemAllocAsync(" + std::to_string(bytes) + ")");
+    check(d, d.cuMemAlloc(&device, size_t(bytes == 0 ? 1 : bytes)),
+          "cuMemAlloc(" + std::to_string(bytes) + ")");
     return reinterpret_cast<void *>(device);
 }
 
@@ -622,9 +633,7 @@ __attribute__((used)) inline void bonsai_cuda_free(void *device) {
     }
     Driver &d = ready("free device memory");
     std::lock_guard<std::mutex> lock(d.mutex);
-    check(d,
-          d.cuMemFreeAsync(reinterpret_cast<CUdeviceptr>(device), null_stream),
-          "cuMemFreeAsync");
+    check(d, d.cuMemFree(reinterpret_cast<CUdeviceptr>(device)), "cuMemFree");
 }
 
 __attribute__((used)) inline void bonsai_cuda_synchronize() {
@@ -829,8 +838,8 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
         // A zero-length array is a valid pointer with nothing behind it;
         // an allocation of zero bytes is an error, so it is a byte.
         const size_t bytes = buffer.bytes == 0 ? 1 : size_t(buffer.bytes);
-        check(d, d.cuMemAllocAsync(&device_memory[b], bytes, null_stream),
-              "cuMemAllocAsync(" + std::to_string(bytes) + ")");
+        check(d, d.cuMemAlloc(&device_memory[b], bytes),
+              "cuMemAlloc(" + std::to_string(bytes) + ")");
         if (buffer.bytes != 0) {
             check(d,
                   d.cuMemcpyHtoD(device_memory[b], buffer.host,
@@ -875,8 +884,7 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                                  size_t(buffer.bytes)),
                   "cuMemcpyDtoH");
         }
-        check(d, d.cuMemFreeAsync(device_memory[b], null_stream),
-              "cuMemFreeAsync");
+        check(d, d.cuMemFree(device_memory[b]), "cuMemFree");
         *static_cast<void **>(params[buffer.param]) = buffer.host;
     }
 }

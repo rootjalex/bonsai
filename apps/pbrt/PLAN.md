@@ -4213,8 +4213,11 @@ capture that is a pointer to a struct the kernel never writes travels as
 the struct itself, one kernel parameter, not memory to allocate and copy
 around every launch (`CodeGen_GPU_Host::capture_written`, the `by_value`
 flags `CodeGen_PTX::add_kernel` takes): the camera, the sampler, the
-integrator, the filter all go this way. Device memory is
-`cuMemAllocAsync`/`cuMemFreeAsync` on the null stream, everywhere. The
+integrator, the filter all go this way. Device memory was
+`cuMemAllocAsync`/`cuMemFreeAsync` on the null stream, everywhere, until
+the pool's memory turned out to slow the OptiX programs by a different
+amount in every process (2026-10-01, "Measured, and what the measurement
+showed instead"); it is `cuMemAlloc`/`cuMemFree` now. The
 PTX module is loaded by `bonsai_gpu_prepare()`, which the header declares
 under `BONSAI_HAS_GPU` and the driver calls before anything is timed. The
 `-b cuda` text backend, its runtime header and its stale goldens are gone;
@@ -8332,6 +8335,216 @@ inflated by host latency, but the wall time is the measure). The
 medium drains still launch, empty, in a scene without media: the
 absent-variant question stays open for the materials and the media
 alike.
+
+**The eight-scene table at 16 spp, re-run (2026-10-01, 16:00-16:26),
+and what it found.** Built from a clean worktree at e5d7647f (the branch
+had moved on under another agent's commits) into
+apps/pbrt/compare-out-gpu16-1001, read against the 29th's table:
+
+    16 spp, gpu-optix (wavefront on the RT cores) vs pbrt --gpu
+                          09-29            today
+    killeroo-simple       2.17x            2.39x
+    killeroo-gold         1.77x            1.90x
+    book                  1.74x            1.11x   (0.133 s -> 0.208)
+    ganesha               1.49x            1.49x
+    pavilion-day          0.66x            0.85x   (lit-pixel FAILED, the tolerance artifact above)
+    zero-day frame25      1.70x            1.38x   (0.200 s -> 0.238)
+    lte-orb-simple-ball   0.69x            1.31x   (the measured BSDF's halving search, 09-29 evening)
+    landscape view-0      1.12x            1.14x
+
+The megakernel schedules are unchanged or a little better everywhere.
+Two cells went backwards, book and zero-day, both at 16 spp where the
+renders are short, while book at 64 spp had gained a third. The
+per-kernel profiles say where: on book, the closest-hit raygen's 192
+launches went from 35 ms to 88 and the shadow raygen's from 8 to 47 --
+the same per-band work as at 64 spp, where the same launches average a
+third of that -- and nine kernels that used to be launched only when
+their queue held something (the medium drains, the five absent material
+variants, the escaped and emissive drains) are now launched every round,
+192 times each. That is the launch shape's other half: a drain launched
+over its capacity is launched whether or not it has work, and every CUDA
+launch still ended in a host `cuCtxSynchronize`, so a 16-sample book
+went from some 530 CUDA launches to 2,180, each a round trip of about
+40 µs between host and device -- 70 ms, the regression -- during which
+the GPU sat idle and the event-timed raygens, bracketing that idleness,
+read as slow. At 64 spp the same cost is paid four times over but was
+hidden behind the shadow split's larger gain.
+
+*The fix is the one pbrt's shape implies and the runtime already had
+for the raygens*: a CUDA launch is asynchronous too (runtime/
+bonsai_cuda.h, bonsai_cuda_launch), the host waiting only where it
+reads something back -- a count between rounds, the film at the end,
+each a copy that waits on the stream -- and once more as the process
+exits, so that a device `print` nothing reads is still flushed
+(drain_at_exit; correctness/gpu/print). The wait after a launch stays
+for a buffer that has to come back, and under BONSAI_CUDA_SYNC=1, which
+puts it back everywhere so that a kernel's fault is reported at its own
+launch. Then an empty capacity launch costs its idle sweep, 5-10 µs of
+GPU, and the host enqueue, not a round trip; skipping the absent
+variants outright (pbrt's `haveBasicEvalMaterial`) remains the
+question above, now a few percent rather than the regression.
+
+*Measured, 16 spp (17:44-18:15, apps/pbrt/compare-out-gpu16-async2).*
+One correction on the way: with every launch asynchronous the render
+returns with its last kernels still in the stream, and the clock around
+it stopped early -- a megakernel schedule's whole band, and the
+wavefront's film pass -- so the first asynchronous table read the
+megakernels at 0.000 s. render_hook.cpp now waits for the device before
+it stops the clock (bonsai_cuda_synchronize; pbrt's GPUWait at the end
+of Render), and the film's copy after it needs no wait of its own.
+With that, against the 29th's table and this morning's synchronous one:
+
+    16 spp, gpu-optix      09-29    sync (this morning)   async
+    killeroo-simple        2.17x    2.39x                 2.35x
+    killeroo-gold          1.77x    1.90x                 2.02x
+    book                   1.74x    1.11x                 1.34x
+    ganesha                1.49x    1.49x                 1.57x
+    pavilion-day           0.66x    0.85x                 0.98x
+    zero-day frame25       1.70x    1.38x                 1.46x
+    lte-orb-simple-ball    0.69x    1.31x                 1.36x
+    landscape view-0       1.12x    1.14x                 1.19x
+
+Every image matches pbrt's (pavilion-day's lit-pixel FAILED is the
+tolerance artifact above), the megakernel schedules are where they
+were, and the asynchronous launches recovered most of what the
+synchronous capacity launches had cost: book from 0.208 s to 0.172,
+zero-day from 0.238 to 0.232. Both are still short of the 29th (0.133
+and 0.200): what remains is the empty launches themselves -- on book at
+16 spp, 192 rounds times nine kernels whose queues hold nothing, each an
+idle sweep of 1,915 blocks and a host enqueue, some 25-35 ms -- which
+pbrt does not pay because it launches a material kernel only for the
+material types the scene has and the medium kernels only with media.
+That is the absent-variant question, now the whole of the 16-spp gap on
+those two scenes.
+
+*Measured, 64 spp (18:07-18:30, apps/pbrt/compare-out-gpu64-async2),
+against the 29th:*
+
+    64 spp, gpu-optix      09-29    async
+    killeroo-simple        1.47x    1.47x
+    killeroo-gold          1.35x    1.71x
+    book                   1.01x    1.01x
+    ganesha                1.42x    1.50x
+    pavilion-day           0.68x    0.85x
+    zero-day frame25       1.22x    1.47x
+    lte-orb-simple-ball    0.62x    1.29x
+    landscape view-0       0.97x    1.06x
+
+Every image matches pbrt's; the megakernels are where they were or a
+little better. Book at 1.01x is the surprise after this morning's
+0.549 s (1.33x) with the shadow split, so the two binaries -- this
+morning's synchronous one and the asynchronous one -- were run against
+each other in one sitting on the same scene file, alternating, least of
+three each:
+
+    sync   0.769 s   0.713 s
+    async  0.735 s   0.653 s
+
+So the asynchronous launches are the faster build by 5-8% on book at 64
+spp as well, the images bit for bit the same, and nsys has it the same
+way: 644 ms of span against 737, 86 ms of gaps against 131, no overlap
+between launches in either. What changed is the machine, not the
+build: the same synchronous binary that rendered book in 0.549 s at
+13:45 renders it in 0.71-0.77 s at 18:40, its closest-hit raygen at 324
+µs a launch where the profile at 13:45 had it at 180, while pbrt's own
+closest-hit kernel is 217 ms in both sessions to the millisecond and our
+CUDA kernels too (the Diffuse kernel 98 ms both times). The scene file
+is byte for byte the one of the 29th; the image is bit for bit the
+morning's. Something in the GPU's state between 13:45 and 18:40 slows
+our raygens -- and only ours -- by 1.8x. pbrt's memory is managed
+(cudaMallocManaged, 2 MB pages by the driver's placement) and ours comes
+from the stream-ordered pool (cuMemAllocAsync) in whatever pages the
+driver has free after an afternoon of another process's 30 GB
+allocations; a traversal is the one thing here that walks a tree of
+pointers through memory, which is where a TLB would show. An open
+slowdown to pin down, with the allocator the first suspect: a render of
+the same binary after the GPU has been idle long enough to defragment,
+or with the big buffers taken from cuMemAlloc, would tell.
+
+The asynchronous launches and the timer's wait are committed; every
+table above is read against its own session's pbrt.
+
+**Two more pieces the same evening (2026-10-01).** *A function that
+launched waits before it returns.* Once the test runner was rebuilt with
+the asynchronous runtime, correctness/gpu/print failed: a kernel's
+`print` reaches the host when the stream drains, and nothing drained it
+before the runner captured the output; an exit-time drain cannot be the
+answer (the runner captures before exit, and a device print would land
+after whatever the host printed next). So the generated code waits for
+the device at the return of any host function that launched a kernel
+(CodeGen_LLVM::launched_on_device, set where CodeGen_GPU_Host.cpp emits
+a launch; wait_for_device_if_launched at every Return; the JIT given the
+symbol): what a function's kernels did is done when the call is, a
+device print lands in program order, and a clock around `render`
+measures the render -- pbrt's GPUWait at the end of Render, one wait per
+call rather than per kernel. The exit drain and render_hook.cpp's own
+wait went with it. Golden: backends/llvm/gpu-launch-buffers gained the
+call.
+
+*Every load of an OptiX program was generic.* MarkDeviceMemory
+(include/CodeGen/MarkDeviceMemory.h) rooted its address-space casts and
+its `!invariant.load` tags at a kernel's pointer parameters; a raygen
+program has none -- it reads its captures out of `params` -- so none of
+its loads became `ld.global`, and a pointer read out of device memory (a
+queue header's array handles, read by the material kernels) was generic
+too. The pass now roots both: a pointer read out of the global named
+`params` (that global alone; a module's other constant-space globals, a
+print's format strings, hold no device pointers, and the first attempt
+that took any constant-space global sent vprintf a wrong address), and a
+pointer read through a root, to a fixed point, since device memory holds
+device pointers. A write through a pointer read out of some memory
+taints every pointer read out of that memory for the invariant tag (two
+such roots may be one buffer: the two slots of a double-buffered
+header). backends/ptx/rtcore-any: 41 generic loads to 15, 21 of them
+`ld.global.nc`; raygen and reorder's parameter root and defer-device's
+loaded pointers now `cvta.to.global` + `st.global`.
+
+*Measured, and what the measurement showed instead.* book at 64 spp with
+both: 0.484 s under gpu_compare (1.51x pbrt, the image bit for bit the
+asynchronous build's); then, two minutes later, the same binary against
+the one without the pass, alternating, least of three each: 0.649 /
+0.669, 0.649 / 0.654 -- equal, and 35% slower than the 0.484 just
+measured. nsys on single renders: the pass's build has the closest-hit
+raygen at 296 µs a launch against 366 without, every CUDA kernel equal
+to the tenth of a millisecond (Diffuse 98.2 and 98.3 ms, the camera
+kernel 48.3 both). So the pass is neutral to positive within a noise
+that only the OptiX traversal kernels have: the material and camera
+kernels do not move between runs, pbrt's closest-hit kernel does not
+move between sessions (217 ms in the morning and the evening), and ours
+swings between 180 and 370 µs a launch from one process to the next.
+The one thing that differs from process to process for a traversal and
+not for a streaming kernel is where the acceleration structure and the
+scene's buffers land: ours come from the stream-ordered pool
+(cuMemAllocAsync), pbrt's from plain allocations. A first A/B of the
+two allocators was void -- the experiment binary had not taken the
+patched runtime header, and compared the pool against itself: 0.514 /
+0.654 / 0.645 s against 0.734 / 0.645 / 0.648, which at least measures
+the swing of one binary from process to process at a third. Redone with
+the override checked in the binary (`strings` finds `cuMemAlloc_v2` in
+the one and not the other), alternating, least of three each: the pool
+0.775 / 0.666 / 0.646 s, plain cuMemAlloc 0.489 / 0.489 / 0.490, the
+images bit for bit the same. nsys on one render of each puts the whole
+of it in the OptiX programs: 1483 ms of raygen against 718 (2.07x),
+every CUDA kernel equal to the tenth of a millisecond (Diffuse 478.1
+against 478.0, the camera kernel 241.3 against 241.2). And it is not the
+acceleration structure: a third binary with only the structures'
+storage (the GAS and the IAS, `build` in bonsai_optix.h) from cuMemAlloc
+and the queues still from the pool swings as the pool does -- 0.487 /
+0.672 / 0.676 against the same session's pool 0.647 / 0.729 / 0.739 and
+plain 0.515 / 0.491 / 0.490. So it is the queues the raygens read and
+write that the OptiX programs are slow on when they are pool memory, by
+an amount set per process; why the hardware minds for a raygen and not
+for a CUDA kernel streaming the same queues is not known from here (the
+page size the pool maps with, against a traversal's poorer latency
+hiding, is the guess; the driver's documentation says nothing). The
+runtime takes its device memory from `cuMemAlloc`/`cuMemFree` now
+(runtime/bonsai_cuda.h, the launch's buffer copies too), which is where
+pbrt's comes from; what the plain calls cost, a wait for the device, no
+caller here pays twice: every allocation is before a render's launches
+or after the wait that ends them, the builds' temporaries after the
+build's own wait. The determinism of `optixAccelBuild`, the other
+suspect, is moot for this swing and was not examined. The GPU and defer
+tests pass unchanged (the runtime is linked into the test runner).
 
 (3) *The device.* `render.bind(p, GPUBlock); render.bind(s, GPUThread)`
 on the producer nest is the camera-ray kernel, `render.bind(rays,
