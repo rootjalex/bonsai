@@ -87,10 +87,11 @@ const char *bonsai_cuda_device_arch(void);
 // driver's reason on failure, as the launch does.
 void *bonsai_cuda_malloc(uint64_t bytes);
 void bonsai_cuda_free(void *device);
-// Waits for everything launched so far. Every launch is asynchronous, so a
-// clock around a render has to call this before it stops, as pbrt's does
-// (GPUWait at the end of Render); nothing in a program needs it, since what
-// a program reads back is a copy that waits on the stream by itself. A
+// Waits for everything launched so far. Every launch is asynchronous; the
+// generated code calls this at the return of a function that launched
+// (CodeGen_LLVM::wait_for_device_if_launched), so a caller sees the
+// kernels' work done, a device `print` flushed, and a clock around the
+// call measures the render -- pbrt's GPUWait at the end of Render. A
 // program with no device does nothing.
 void bonsai_cuda_synchronize();
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
@@ -414,18 +415,11 @@ inline void check(Driver &d, CUresult r, const std::string &what) {
 // Every launch is asynchronous (bonsai_cuda_launch, bonsai_optix_launch):
 // the host issues a band's kernels one after another into the stream and
 // waits only where it reads something back -- a queue's count between
-// rounds, the film at the end -- which is pbrt's shape, one wait per band
-// rather than one per kernel. What nothing reads back is a device `print`:
-// its text reaches the host when the stream drains, so the stream is
-// drained once more as the process exits, after the last launch of a
-// program that only printed (correctness/gpu/print).
-inline void drain_at_exit() {
-    Driver &d = driver();
-    if (d.ok && d.context != nullptr &&
-        d.cuCtxSetCurrent(d.context) == CUDA_SUCCESS) {
-        d.cuCtxSynchronize();
-    }
-}
+// rounds, the film at the end -- and once at the return of a function that
+// launched (bonsai_cuda_synchronize, which the generated code calls there:
+// CodeGen_LLVM::wait_for_device_if_launched), so that what its kernels did
+// is done when the call is, a device `print` included. pbrt's shape: one
+// wait per band and one at the end of Render, not one per kernel.
 
 // BONSAI_CUDA_SYNC=1 puts the wait back after every CUDA launch, so that a
 // kernel's fault is reported at the launch it belongs to rather than at the
@@ -443,7 +437,6 @@ inline Driver &ready(const char *what) {
     if (d.context == nullptr) {
         check(d, d.cuDevicePrimaryCtxRetain(&d.context, d.device),
               "cuDevicePrimaryCtxRetain");
-        std::atexit(drain_at_exit);
     }
     check(d, d.cuCtxSetCurrent(d.context), "cuCtxSetCurrent");
     return d;

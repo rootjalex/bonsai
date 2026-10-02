@@ -1018,6 +1018,15 @@ struct CodeGen_LLVM : public ir::Visitor {
     std::vector<llvm::Value *> device_alloca_slots;
     void remember_device_alloca(llvm::Value *storage, const std::string &name);
     void free_device_allocas();
+    // Whether this function launched a kernel (CodeGen_GPU_Host.cpp). Every
+    // launch is asynchronous (runtime/bonsai_cuda.h), so a function that
+    // launched waits for the device before it returns: what its kernels
+    // did -- a device `print`, a buffer the caller reads -- is done when the
+    // call is, and a device print lands before whatever the host prints
+    // next. pbrt's GPUWait at the end of Render; one wait per call of the
+    // function, not per kernel. Reset per function.
+    bool launched_on_device = false;
+    void wait_for_device_if_launched();
     // The functions some loop calls, directly or through another call
     // (ir::ssa::called_inside_loops): an allocation at the top of one of
     // these is made per iteration of that loop.

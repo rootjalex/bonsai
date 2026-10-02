@@ -1706,6 +1706,7 @@ struct CodeGen_LLVM::SSALowering {
         cg.device_resident = device_resident_allocations();
         cg.device_resident_allocas.clear();
         cg.device_alloca_slots.clear();
+        cg.launched_on_device = false;
 
         cg.frames.push_frame();
         llvm::BasicBlock *entry_bb =
@@ -1866,14 +1867,17 @@ struct CodeGen_LLVM::SSALowering {
                 },
                 [&](const Terminator::Return &r) {
                     if (!r.value) {
+                        cg.wait_for_device_if_launched();
                         cg.free_device_allocas();
                         cg.builder->CreateRetVoid();
                         return;
                     }
                     llvm::Value *value = cg.codegen_expr(operand(r.value));
-                    // The device storage of the function's resident stack
-                    // allocations, given back on the way out (see
-                    // CodeGen_LLVM::device_alloca_slots).
+                    // On the way out: the device waited for, when this
+                    // function launched (CodeGen_LLVM::launched_on_device),
+                    // and the device storage of its resident stack
+                    // allocations given back (device_alloca_slots).
+                    cg.wait_for_device_if_launched();
                     cg.free_device_allocas();
                     if (cg.current_sret) {
                         // Returned through the hidden pointer; see

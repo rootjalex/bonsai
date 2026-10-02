@@ -41,6 +41,7 @@ _kernel_i_0_launch:                               ; preds = %run
   br label %_kernel_i_0_launched
 
 _kernel_i_0_launched:                             ; preds = %_kernel_i_0_launch, %run
+  call void @bonsai_cuda_synchronize()
   ret void
 }
 
@@ -49,6 +50,8 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_cuda_synchronize() local_unnamed_addr
 
 define void @bonsai_gpu_prepare() local_unnamed_addr {
 prepare:

@@ -4960,6 +4960,16 @@ void CodeGen_LLVM::free_device_allocas() {
     }
 }
 
+void CodeGen_LLVM::wait_for_device_if_launched() {
+    if (!launched_on_device) {
+        return;
+    }
+    llvm::FunctionCallee wait = module->getOrInsertFunction(
+        "bonsai_cuda_synchronize",
+        llvm::FunctionType::get(void_t, {}, /*isVarArg=*/false));
+    builder->CreateCall(wait, {});
+}
+
 void CodeGen_LLVM::visit(const Free *node) {
     // Storage an Allocate made on the heap, given back before the function
     // returns (SSA/HeapArrays.h). An array handle names its elements'

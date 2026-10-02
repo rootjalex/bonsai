@@ -718,6 +718,9 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
                              llvm::ConstantInt::get(i64_t, n), buffers,
                              llvm::ConstantInt::get(i64_t, copies.size())});
     }
+    // The launch is asynchronous; the function waits for the device before
+    // it returns (CodeGen_LLVM::wait_for_device_if_launched).
+    this->launched_on_device = true;
 
     // What the kernel may have written is current on the device now and
     // stale on the host. It stays where it is: a host block that touches it
