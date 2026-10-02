@@ -1,0 +1,87 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @eight(<8 x float> noundef %v, <8 x i32> noundef %i) local_unnamed_addr #0 {
+eight_entry:
+  %0 = extractelement <8 x i32> %i, i64 0
+  %1 = extractelement <8 x float> %v, i32 %0
+  %2 = insertelement <8 x float> poison, float %1, i64 0
+  %3 = extractelement <8 x i32> %i, i64 1
+  %4 = extractelement <8 x float> %v, i32 %3
+  %5 = insertelement <8 x float> %2, float %4, i64 1
+  %6 = extractelement <8 x i32> %i, i64 2
+  %7 = extractelement <8 x float> %v, i32 %6
+  %8 = insertelement <8 x float> %5, float %7, i64 2
+  %9 = extractelement <8 x i32> %i, i64 3
+  %10 = extractelement <8 x float> %v, i32 %9
+  %11 = insertelement <8 x float> %8, float %10, i64 3
+  %12 = extractelement <8 x i32> %i, i64 4
+  %13 = extractelement <8 x float> %v, i32 %12
+  %14 = insertelement <8 x float> %11, float %13, i64 4
+  %15 = extractelement <8 x i32> %i, i64 5
+  %16 = extractelement <8 x float> %v, i32 %15
+  %17 = insertelement <8 x float> %14, float %16, i64 5
+  %18 = extractelement <8 x i32> %i, i64 6
+  %19 = extractelement <8 x float> %v, i32 %18
+  %20 = insertelement <8 x float> %17, float %19, i64 6
+  %21 = extractelement <8 x i32> %i, i64 7
+  %22 = extractelement <8 x float> %v, i32 %21
+  %permute = insertelement <8 x float> %20, float %22, i64 7
+  ret <8 x float> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @packed(<8 x float> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
+packed_entry:
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %v, <8 x i1> %0, <8 x float> zeroinitializer)
+  ret <8 x float> %compress
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x i64> @packed_wide(<8 x i64> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
+packed_wide_entry:
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %compress = tail call <8 x i64> @llvm.experimental.vector.compress.v8i64(<8 x i64> %v, <8 x i1> %0, <8 x i64> zeroinitializer)
+  ret <8 x i64> %compress
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x i64> @wide(<8 x i64> noundef %v, <8 x i32> noundef %i) local_unnamed_addr #0 {
+wide_entry:
+  %0 = extractelement <8 x i32> %i, i64 0
+  %1 = extractelement <8 x i64> %v, i32 %0
+  %2 = insertelement <8 x i64> poison, i64 %1, i64 0
+  %3 = extractelement <8 x i32> %i, i64 1
+  %4 = extractelement <8 x i64> %v, i32 %3
+  %5 = insertelement <8 x i64> %2, i64 %4, i64 1
+  %6 = extractelement <8 x i32> %i, i64 2
+  %7 = extractelement <8 x i64> %v, i32 %6
+  %8 = insertelement <8 x i64> %5, i64 %7, i64 2
+  %9 = extractelement <8 x i32> %i, i64 3
+  %10 = extractelement <8 x i64> %v, i32 %9
+  %11 = insertelement <8 x i64> %8, i64 %10, i64 3
+  %12 = extractelement <8 x i32> %i, i64 4
+  %13 = extractelement <8 x i64> %v, i32 %12
+  %14 = insertelement <8 x i64> %11, i64 %13, i64 4
+  %15 = extractelement <8 x i32> %i, i64 5
+  %16 = extractelement <8 x i64> %v, i32 %15
+  %17 = insertelement <8 x i64> %14, i64 %16, i64 5
+  %18 = extractelement <8 x i32> %i, i64 6
+  %19 = extractelement <8 x i64> %v, i32 %18
+  %20 = insertelement <8 x i64> %17, i64 %19, i64 6
+  %21 = extractelement <8 x i32> %i, i64 7
+  %22 = extractelement <8 x i64> %v, i32 %21
+  %permute = insertelement <8 x i64> %20, i64 %22, i64 7
+  ret <8 x i64> %permute
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float>, <8 x i1>, <8 x float>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x i64> @llvm.experimental.vector.compress.v8i64(<8 x i64>, <8 x i1>, <8 x i64>) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(none) }

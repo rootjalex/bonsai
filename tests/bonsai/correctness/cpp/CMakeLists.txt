@@ -12,6 +12,7 @@ add_bonsai_tests(
     bvh4_tiled_elements.bonsai
     bvh4_tiled_elements_vectorized.bonsai
     rcp.bonsai
+    permute.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai
     blas-tlas-sorted.bonsai

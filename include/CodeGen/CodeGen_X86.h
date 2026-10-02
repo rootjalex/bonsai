@@ -72,6 +72,18 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     // division.
     llvm::Value *reciprocal(llvm::Value *x, const std::string &name) override;
 
+    // A vector permuted by a vector of indices as the one instruction the
+    // machine has for the shape: `vpermd` for eight 32-bit lanes (AVX2) and
+    // sixteen (AVX-512F), `vpermilps` for four (AVX); `vpermq` for eight
+    // 64-bit lanes (AVX-512F) and four (AVX-512VL), `vpermilpd` for two
+    // (AVX), and on AVX2 alone four 64-bit lanes as pairs of 32-bit halves
+    // through `vpermd`; `vpermw` for 16-bit lanes (AVX-512BW). Embree's
+    // `permute` and `permutex2var` (common/simd/vint8_avx2.h,
+    // vllong4_avx2.h) are these. Any other shape is the base's extract per
+    // lane.
+    llvm::Value *dynamic_shuffle(llvm::Value *vec, llvm::Value *indices,
+                                 const std::string &name) override;
+
     // glibc's libmvec: the vector entry points of libm, asked for rather
     // than assumed (see the definition). Only on Linux, which is where glibc
     // is; a host without it has no vector maths library and says nothing.

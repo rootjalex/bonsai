@@ -3637,6 +3637,18 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = reciprocal(codegen_expr(node->args[0]), "rcp");
         return;
     }
+    case Intrinsic::permute: {
+        internal_assert(node->args.size() == 2);
+        value = dynamic_shuffle(codegen_expr(node->args[0]),
+                                codegen_expr(node->args[1]), "permute");
+        return;
+    }
+    case Intrinsic::compress: {
+        internal_assert(node->args.size() == 2);
+        value = compress_lanes(codegen_expr(node->args[0]),
+                               codegen_expr(node->args[1]), "compress");
+        return;
+    }
     case Intrinsic::sqrt: {
         intrin = llvm::Intrinsic::sqrt;
         break;
@@ -3696,6 +3708,36 @@ llvm::Value *CodeGen_LLVM::reciprocal(llvm::Value *x, const std::string &name) {
     // No estimate instruction named for this target: the quotient itself.
     return builder->CreateFDiv(llvm::ConstantFP::get(x->getType(), 1.0), x,
                                name);
+}
+
+llvm::Value *CodeGen_LLVM::dynamic_shuffle(llvm::Value *vec,
+                                           llvm::Value *indices,
+                                           const std::string &name) {
+    // No permute instruction named for this target: a lane at a time, each
+    // an extract at its index and an insert at its place.
+    auto *it = llvm::cast<llvm::FixedVectorType>(indices->getType());
+    const unsigned lanes = unsigned(it->getNumElements());
+    llvm::Type *result_t =
+        llvm::FixedVectorType::get(vec->getType()->getScalarType(), lanes);
+    llvm::Value *result = llvm::PoisonValue::get(result_t);
+    for (unsigned k = 0; k < lanes; k++) {
+        llvm::Value *idx = builder->CreateExtractElement(indices, uint64_t(k));
+        result = builder->CreateInsertElement(result, extract_lane(vec, idx),
+                                              uint64_t(k));
+    }
+    result->setName(name);
+    return result;
+}
+
+llvm::Value *CodeGen_LLVM::compress_lanes(llvm::Value *vec, llvm::Value *mask,
+                                          const std::string &name) {
+    // The lanes past the ones packed are zero: the zeroing form of the
+    // instruction, where a value to merge into would cost a count of the
+    // lanes on and a mask made from it.
+    return builder->CreateIntrinsic(
+        vec->getType(), llvm::Intrinsic::experimental_vector_compress,
+        {vec, mask, llvm::Constant::getNullValue(vec->getType())}, nullptr,
+        name);
 }
 
 void CodeGen_LLVM::visit(const Lambda *node) {

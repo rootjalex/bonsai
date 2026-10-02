@@ -1,0 +1,20 @@
+type idx8 = u32x8
+type vec8f = f32x8
+
+func constant(v : f32x8) -> f32x8 {
+  return shuffle(v, {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u})
+}
+
+func dynamic(v : f32x8, i : u32x8) -> f32x8 {
+  return permute(v, i)
+}
+
+func narrower(v : f32x8, i : u32x4) -> f32x4 {
+  return permute(v, i)
+}
+
+func packed(v : f32x8, m : u32x8) -> f32x8 {
+  return compress(v, m != u32x8(0u))
+}
+
+

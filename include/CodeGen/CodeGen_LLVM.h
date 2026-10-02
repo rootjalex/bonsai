@@ -611,6 +611,21 @@ struct CodeGen_LLVM : public ir::Visitor {
     // does not, the division `1 / x`.
     virtual llvm::Value *reciprocal(llvm::Value *x, const std::string &name);
 
+    // `vec` permuted by `indices`, a vector of as many integer lanes
+    // (ir::Intrinsic::permute): lane k of the result is lane indices[k] of
+    // `vec`. The machine's variable permute where it has one (see
+    // CodeGen_X86); here, an extract at each index and an insert at each
+    // lane, which LLVM legalises into a store of the vector and a load per
+    // lane.
+    virtual llvm::Value *dynamic_shuffle(llvm::Value *vec, llvm::Value *indices,
+                                         const std::string &name);
+    // The lanes of `vec` that `mask` has on, packed to the front in lane
+    // order, the rest zero (ir::Intrinsic::compress): LLVM's vector.compress,
+    // which is `vpcompressd` into a zeroed register on AVX-512 and a store
+    // and a load per lane where the machine has nothing.
+    llvm::Value *compress_lanes(llvm::Value *vec, llvm::Value *mask,
+                                const std::string &name);
+
     // The address of one element per lane of an array: `base` plus each
     // lane's index, scaled, in 32-bit addressing (ISPC's model).
     llvm::Value *element_addresses(llvm::Type *element, llvm::Value *base,

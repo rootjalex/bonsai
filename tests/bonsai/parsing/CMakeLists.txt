@@ -8,6 +8,7 @@ add_bonsai_tests(
     bitwise.bonsai
     call.bonsai
     rcp.bonsai
+    permute-compress.bonsai
     export.bonsai
     extract-access.bonsai
     function-type.bonsai

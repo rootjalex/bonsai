@@ -279,6 +279,103 @@ llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
     return refined;
 }
 
+llvm::Value *CodeGen_X86::dynamic_shuffle(llvm::Value *vec,
+                                          llvm::Value *indices,
+                                          const std::string &name) {
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(vec->getType());
+    auto *it = llvm::dyn_cast<llvm::FixedVectorType>(indices->getType());
+    if (vt == nullptr || it == nullptr ||
+        vt->getNumElements() != it->getNumElements()) {
+        return CodeGen_LLVM::dynamic_shuffle(vec, indices, name);
+    }
+    const unsigned lanes = unsigned(vt->getNumElements());
+    const unsigned bits =
+        unsigned(vt->getElementType()->getPrimitiveSizeInBits());
+    const bool avx = has_feature("avx"), avx2 = has_feature("avx2");
+    const bool f = has_feature("avx512f"), vl = has_feature("avx512vl");
+    const bool bw = has_feature("avx512bw");
+
+    // The instruction's own types: the value as the lanes it permutes --
+    // integers of the element's width, or floats where it takes those --
+    // and the indices as integers of the width it reads them at, shifted
+    // where it reads a bit other than the lowest.
+    const auto as = [&](llvm::Value *v, llvm::Type *elem) {
+        return builder->CreateBitCast(v, llvm::FixedVectorType::get(elem, lanes));
+    };
+    const auto index_as = [&](llvm::Type *elem, unsigned shift) {
+        llvm::Value *i = builder->CreateIntCast(
+            indices, llvm::FixedVectorType::get(elem, lanes), /*isSigned=*/false);
+        if (shift != 0) {
+            i = builder->CreateShl(i, llvm::ConstantInt::get(i->getType(), shift));
+        }
+        return i;
+    };
+    const auto permute = [&](llvm::Intrinsic::ID id, llvm::Type *elem,
+                             llvm::Type *index_elem, unsigned shift) {
+        llvm::Value *r = builder->CreateIntrinsic(
+            id, {}, {as(vec, elem), index_as(index_elem, shift)}, nullptr, name);
+        return builder->CreateBitCast(r, vt);
+    };
+
+    if (bits == 32) {
+        if (lanes == 8 && avx2) {
+            return permute(llvm::Intrinsic::x86_avx2_permd, i32_t, i32_t, 0);
+        }
+        if (lanes == 16 && f) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_si_512, i32_t,
+                           i32_t, 0);
+        }
+        if (lanes == 4 && avx) {
+            return permute(llvm::Intrinsic::x86_avx_vpermilvar_ps, f32_t,
+                           i32_t, 0);
+        }
+    } else if (bits == 64) {
+        if (lanes == 8 && f) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_di_512, i64_t,
+                           i64_t, 0);
+        }
+        if (lanes == 4 && vl) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_di_256, i64_t,
+                           i64_t, 0);
+        }
+        if (lanes == 2 && avx) {
+            // vpermilpd selects by bit one of each index.
+            return permute(llvm::Intrinsic::x86_avx_vpermilvar_pd, f64_t,
+                           i64_t, 1);
+        }
+        if (lanes == 4 && avx2) {
+            // No variable 64-bit permute before AVX-512VL: vpermd over the
+            // 32-bit halves, lane k of the result being halves 2 i[k] and
+            // 2 i[k] + 1 (Embree's vllong4 permute on AVX2).
+            llvm::Value *halves =
+                builder->CreateBitCast(vec, llvm::FixedVectorType::get(i32_t, 8));
+            llvm::Value *even = index_as(i32_t, 1);
+            llvm::Value *odd = builder->CreateAdd(
+                even, llvm::ConstantInt::get(even->getType(), 1));
+            llvm::Value *pairs = builder->CreateShuffleVector(
+                even, odd, llvm::ArrayRef<int>{0, 4, 1, 5, 2, 6, 3, 7});
+            llvm::Value *r = builder->CreateIntrinsic(
+                llvm::Intrinsic::x86_avx2_permd, {}, {halves, pairs}, nullptr,
+                name);
+            return builder->CreateBitCast(r, vt);
+        }
+    } else if (bits == 16 && bw) {
+        if (lanes == 32 && f) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_hi_512, i16_t,
+                           i16_t, 0);
+        }
+        if (lanes == 16 && vl) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_hi_256, i16_t,
+                           i16_t, 0);
+        }
+        if (lanes == 8 && vl) {
+            return permute(llvm::Intrinsic::x86_avx512_permvar_hi_128, i16_t,
+                           i16_t, 0);
+        }
+    }
+    return CodeGen_LLVM::dynamic_shuffle(vec, indices, name);
+}
+
 void CodeGen_X86::probe_host_libraries() {
     if (!llvm::Triple(llvm::sys::getDefaultTargetTriple()).isOSLinux()) {
         return;

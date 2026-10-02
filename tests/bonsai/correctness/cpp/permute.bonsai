@@ -1,0 +1,65 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/permute
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_permute.cpp -I. -o tests/bonsai/correctness/cpp/main_permute.o, clang++ tests/bonsai/correctness/cpp/main_permute.o tests/bonsai/correctness/cpp/permute.o -o tests/bonsai/correctness/cpp/permute, ./tests/bonsai/correctness/cpp/permute, rm tests/bonsai/correctness/cpp/permute, rm tests/bonsai/correctness/cpp/main_permute.o, rm tests/bonsai/correctness/cpp/permute.h, rm tests/bonsai/correctness/cpp/permute.o
+
+// The driver is compiled with -march=native because the vectors here are
+// 256 and 512 bits wide: the generated code follows the host and takes
+// them in ymm and zmm registers, and a caller compiled for the generic
+// x86-64 would pass them in memory instead (clang says so: "AVX vector
+// argument ... changes the ABI"), which came out as every lane wrong.
+//
+// The variable permute and the compress run on the host, in every shape
+// CodeGen_X86::dynamic_shuffle names an instruction for -- eight, sixteen
+// and four 32-bit lanes; eight, four and two 64-bit lanes; sixteen 16-bit
+// lanes -- and in one it does not, a permute to fewer lanes than its
+// vector has, which is the extract per lane. The driver (main_permute.cpp)
+// checks every lane against the definition: lane k of a permute is the
+// lane its index names, and a compress has the lanes the mask had on, in
+// their order, then zeros. Each shape goes through whichever instruction
+// the host has, or the fallback where it has none, so the test passes on
+// any x86-64 and says the same thing on each.
+func [[export]] permute_f32x8(v : vector[f32, 8], i : vector[u32, 8]) -> vector[f32, 8] {
+    return permute(v, i);
+}
+
+func [[export]] permute_u32x16(v : vector[u32, 16], i : vector[u32, 16]) -> vector[u32, 16] {
+    return permute(v, i);
+}
+
+func [[export]] permute_f32x4(v : vector[f32, 4], i : vector[u32, 4]) -> vector[f32, 4] {
+    return permute(v, i);
+}
+
+func [[export]] permute_u64x8(v : vector[u64, 8], i : vector[u32, 8]) -> vector[u64, 8] {
+    return permute(v, i);
+}
+
+func [[export]] permute_u64x4(v : vector[u64, 4], i : vector[u32, 4]) -> vector[u64, 4] {
+    return permute(v, i);
+}
+
+func [[export]] permute_u64x2(v : vector[u64, 2], i : vector[u32, 2]) -> vector[u64, 2] {
+    return permute(v, i);
+}
+
+func [[export]] permute_u16x16(v : vector[u16, 16], i : vector[u16, 16]) -> vector[u16, 16] {
+    return permute(v, i);
+}
+
+// Fewer lanes out than in: no instruction, the extract per lane.
+func [[export]] permute_narrow(v : vector[f32, 8], i : vector[u32, 4]) -> vector[f32, 4] {
+    return permute(v, i);
+}
+
+// The mask comes in as integers and is made where it is used, since a
+// vector of booleans has no settled C++ spelling at a call boundary.
+func [[export]] compress_f32x8(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u);
+}
+
+func [[export]] compress_u64x8(v : vector[u64, 8], m : vector[u32, 8]) -> vector[u64, 8] {
+    return compress(v, m != 0u);
+}
+
+func [[export]] compress_u32x16(v : vector[u32, 16], m : vector[u32, 16]) -> vector[u32, 16] {
+    return compress(v, m != 0u);
+}

@@ -106,6 +106,7 @@ struct Parser {
             "atanh",
             "atan2",
             "clz",
+            "compress",
             "cos",
             "cosh",
             "cross",
@@ -2348,6 +2349,7 @@ struct Parser {
             {"atanh", 1, ir::Intrinsic::atanh},
             {"atan2", 2, ir::Intrinsic::atan2},
             {"clz", 1, ir::Intrinsic::clz},
+            {"compress", 2, ir::Intrinsic::compress},
             {"cos", 1, ir::Intrinsic::cos},
             {"cosh", 1, ir::Intrinsic::cosh},
             {"cross", 2, ir::Intrinsic::cross},
@@ -2779,9 +2781,16 @@ struct Parser {
             if (name == "permute") {
                 internal_assert(args.size() == 2)
                     << "permute takes two arguments, received: " << args.size();
-                internal_assert(args[1].is<ir::Build>())
-                    << "permute expects the second argument to be a list "
-                    << "of indexes instead received: " << args[1];
+                // A list of indices, `permute(v, {2, 0, 1})`, is a shuffle
+                // with an expression per lane of the result; one vector of
+                // indices computed by the program is the machine's variable
+                // permute (ir::Intrinsic::permute), lane k of the result
+                // being the lane of `v` that `indices[k]` names.
+                if (!args[1].is<ir::Build>()) {
+                    return ir::Intrinsic::make(
+                        ir::Intrinsic::permute,
+                        {std::move(args[0]), std::move(args[1])});
+                }
                 return ir::VectorShuffle::make(std::move(args[0]),
                                                args[1].as<ir::Build>()->values);
             } else if (name == "select") {

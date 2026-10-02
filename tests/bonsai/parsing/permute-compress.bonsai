@@ -1,0 +1,26 @@
+//! flags: -p core
+
+// `permute(v, i)` with a vector of indices the program computes is the
+// machine's variable permute (ir::Intrinsic::permute): lane k of the result
+// is lane i[k] of v, and the result has the indices' lanes and v's element,
+// so it may be narrower than v. With a list of indices it is the constant
+// shuffle it always was. `compress(v, m)` packs the lanes of v the mask has
+// on to the front, the rest zero (ir::Intrinsic::compress), to v's own type.
+element vec8f = vector[f32, 8];
+element idx8 = vector[u32, 8];
+
+func dynamic(v : vec8f, i : idx8) -> vec8f {
+    return permute(v, i);
+}
+
+func narrower(v : vec8f, i : vector[u32, 4]) -> vector[f32, 4] {
+    return permute(v, i);
+}
+
+func constant(v : vec8f) -> vec8f {
+    return permute(v, {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u});
+}
+
+func packed(v : vec8f, m : idx8) -> vec8f {
+    return compress(v, m != 0u);
+}

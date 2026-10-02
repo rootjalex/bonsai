@@ -1,0 +1,29 @@
+//! flags: -b llvm
+
+// The variable permute and the compress on the generic x86-64 this
+// directory pins, which has neither instruction: the permute is an extract
+// per lane at its index and an insert at its place
+// (CodeGen_LLVM::dynamic_shuffle), which LLVM legalises into a store of the
+// vector and a load per lane, and the compress is LLVM's vector.compress,
+// which LLVM expands the same way for a machine without one.
+// permute-avx512.bonsai is this program on a machine that has them;
+// correctness/cpp/permute.bonsai runs the host's.
+
+// Eight 32-bit lanes, the shape of a BVH8 node's eight bounds.
+func [[export]] eight(v : vector[f32, 8], i : vector[u32, 8]) -> vector[f32, 8] {
+    return permute(v, i);
+}
+
+// Eight 64-bit lanes, the shape of its eight children.
+func [[export]] wide(v : vector[u64, 8], i : vector[u32, 8]) -> vector[u64, 8] {
+    return permute(v, i);
+}
+
+// The hits of a mask packed to the front, over each.
+func [[export]] packed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u);
+}
+
+func [[export]] packed_wide(v : vector[u64, 8], m : vector[u32, 8]) -> vector[u64, 8] {
+    return compress(v, m != 0u);
+}

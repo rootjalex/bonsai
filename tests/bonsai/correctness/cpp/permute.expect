@@ -1,0 +1,15 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_permute.cpp -I. -o tests/bonsai/correctness/cpp/main_permute.o
+[test] clang++ tests/bonsai/correctness/cpp/main_permute.o tests/bonsai/correctness/cpp/permute.o -o tests/bonsai/correctness/cpp/permute
+[test] ./tests/bonsai/correctness/cpp/permute
+permute f32x8 ok
+compress f32x8 ok (4 packed)
+permute u32x16 ok
+compress u32x16 ok (6 packed)
+permute f32x4 ok
+permute u64x8 ok
+compress u64x8 ok (4 packed)
+permute u64x4 ok
+permute u64x2 ok
+permute u16x16 ok
+permute f32x8 to four ok
+all ok

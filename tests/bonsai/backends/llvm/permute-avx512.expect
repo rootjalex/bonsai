@@ -1,0 +1,94 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @eight(<8 x float> noundef %v, <8 x i32> noundef %i) local_unnamed_addr #0 {
+eight_entry:
+  %0 = bitcast <8 x float> %v to <8 x i32>
+  %permute = tail call <8 x i32> @llvm.x86.avx2.permd(<8 x i32> %0, <8 x i32> %i)
+  %1 = bitcast <8 x i32> %permute to <8 x float>
+  ret <8 x float> %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x float> @four(<4 x float> noundef %v, <4 x i32> noundef %i) local_unnamed_addr #0 {
+four_entry:
+  %permute = tail call <4 x float> @llvm.x86.avx.vpermilvar.ps(<4 x float> %v, <4 x i32> %i)
+  ret <4 x float> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <16 x i16> @halves(<16 x i16> noundef %v, <16 x i16> noundef %i) local_unnamed_addr #0 {
+halves_entry:
+  %permute = tail call <16 x i16> @llvm.x86.avx512.permvar.hi.256(<16 x i16> %v, <16 x i16> %i)
+  ret <16 x i16> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @packed(<8 x float> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
+packed_entry:
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %v, <8 x i1> %0, <8 x float> zeroinitializer)
+  ret <8 x float> %compress
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <16 x i32> @sixteen(<16 x i32> noundef %v, <16 x i32> noundef %i) local_unnamed_addr #0 {
+sixteen_entry:
+  %permute = tail call <16 x i32> @llvm.x86.avx512.permvar.si.512(<16 x i32> %v, <16 x i32> %i)
+  ret <16 x i32> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x i64> @wide(<8 x i64> noundef %v, <8 x i32> noundef %i) local_unnamed_addr #0 {
+wide_entry:
+  %0 = zext <8 x i32> %i to <8 x i64>
+  %permute = tail call <8 x i64> @llvm.x86.avx512.permvar.di.512(<8 x i64> %v, <8 x i64> %0)
+  ret <8 x i64> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x i64> @wide_four(<4 x i64> noundef %v, <4 x i32> noundef %i) local_unnamed_addr #0 {
+wide_four_entry:
+  %0 = zext <4 x i32> %i to <4 x i64>
+  %permute = tail call <4 x i64> @llvm.x86.avx512.permvar.di.256(<4 x i64> %v, <4 x i64> %0)
+  ret <4 x i64> %permute
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <2 x i64> @wide_two(<2 x i64> noundef %v, <2 x i32> noundef %i) local_unnamed_addr #0 {
+wide_two_entry:
+  %0 = bitcast <2 x i64> %v to <2 x double>
+  %1 = zext <2 x i32> %i to <2 x i64>
+  %2 = shl nuw nsw <2 x i64> %1, splat (i64 1)
+  %permute = tail call <2 x double> @llvm.x86.avx.vpermilvar.pd(<2 x double> %0, <2 x i64> %2)
+  %3 = bitcast <2 x double> %permute to <2 x i64>
+  ret <2 x i64> %3
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x i32> @llvm.x86.avx2.permd(<8 x i32>, <8 x i32>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <4 x float> @llvm.x86.avx.vpermilvar.ps(<4 x float>, <4 x i32>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <16 x i16> @llvm.x86.avx512.permvar.hi.256(<16 x i16>, <16 x i16>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float>, <8 x i1>, <8 x float>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <16 x i32> @llvm.x86.avx512.permvar.si.512(<16 x i32>, <16 x i32>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x i64> @llvm.x86.avx512.permvar.di.512(<8 x i64>, <8 x i64>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <4 x i64> @llvm.x86.avx512.permvar.di.256(<4 x i64>, <4 x i64>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <2 x double> @llvm.x86.avx.vpermilvar.pd(<2 x double>, <2 x i64>) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(none) }

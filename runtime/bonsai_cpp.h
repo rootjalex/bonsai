@@ -122,5 +122,31 @@ __attribute__((always_inline)) T div_multiplier(const T &d) {
     }
 }
 
+// The variable permute and the compress (include/IR/Expr.h,
+// Intrinsic::permute and Intrinsic::compress), a lane at a time: C++ has no
+// instruction to name for either, and the C++ backend never sees a gang.
+template <typename T, size_t N, typename I, size_t M>
+__attribute__((always_inline)) vector<T, M>
+bonsai_permute(const vector<T, N> &v, const vector<I, M> &indices) {
+    vector<T, M> out;
+    for (size_t k = 0; k < M; k++) {
+        out[k] = v[size_t(indices[k])];
+    }
+    return out;
+}
+
+template <typename T, size_t N>
+__attribute__((always_inline)) vector<T, N>
+bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask) {
+    vector<T, N> out; // zero past the lanes packed
+    size_t next = 0;
+    for (size_t k = 0; k < N; k++) {
+        if (mask[k]) {
+            out[next++] = v[k];
+        }
+    }
+    return out;
+}
+
 // Temp hack.
 using bool3 = vector<bool, 3>;

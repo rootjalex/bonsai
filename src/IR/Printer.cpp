@@ -1147,6 +1147,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "atan2";
     case Intrinsic::clz:
         return "clz";
+    case Intrinsic::compress:
+        return "compress";
     case Intrinsic::cos:
         return "cos";
     case Intrinsic::cosh:
@@ -1171,6 +1173,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "mulhi";
     case Intrinsic::norm:
         return "norm";
+    case Intrinsic::permute:
+        return "permute";
     case Intrinsic::pow:
         return "pow";
     case Intrinsic::rand:

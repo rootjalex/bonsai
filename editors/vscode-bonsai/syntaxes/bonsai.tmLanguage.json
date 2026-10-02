@@ -212,7 +212,7 @@
       "match": "\\b(tagged_index|inline|tight)\\b"
     },
     "builtin-functions": {
-      "match": "\\b(abs|all|any|argmax|argmin|cast|cos|count|cross|dot|exp|fma|log|max|min|pow|range|rcp|select|sin|sqrt|sum)(?=\\s*(\\[\\[[^\\]]*\\]\\]\\s*)?\\()",
+      "match": "\\b(abs|all|any|argmax|argmin|cast|compress|cos|count|cross|dot|exp|fma|log|max|min|permute|pow|range|rcp|select|sin|sqrt|sum)(?=\\s*(\\[\\[[^\\]]*\\]\\]\\s*)?\\()",
       "captures": {
         "1": { "name": "support.function.builtin.bonsai" }
       }

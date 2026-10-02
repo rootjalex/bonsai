@@ -11,6 +11,7 @@ add_bonsai_tests(
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     rcp.bonsai
+    permute.bonsai
     defer.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai
@@ -73,4 +74,15 @@ add_bonsai_tests(
     vectorize_union.bonsai
     vectorize_varying_memory.bonsai
     vectorize_vector_index.bonsai
+)
+
+# The same pinning on a machine with AVX-512 (Zen 4, which has every
+# AVX-512 extension the backend asks after), for what the x86 backend emits
+# only where the instructions exist. A file's own `--mcpu` would not do: the
+# directory's flags come after it on the command line and win.
+add_bonsai_tests(
+    LABELS backends llvm
+    FLAGS --triple x86_64-unknown-linux-gnu --mcpu znver4
+    FILES
+    permute-avx512.bonsai
 )

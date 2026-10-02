@@ -1,0 +1,48 @@
+//! flags: -b llvm
+
+// The variable permute as the one instruction the machine has for each
+// shape (CodeGen_X86::dynamic_shuffle), on a machine with AVX-512 -- Zen 4,
+// which CMakeLists.txt pins for this file where the directory's other
+// goldens are the generic x86-64's: eight
+// 32-bit lanes are `vpermd` (`llvm.x86.avx2.permd`, the value's bits as
+// integers around it), sixteen `vpermd zmm` (`llvm.x86.avx512.permvar.si.
+// 512`), four `vpermilps` (`llvm.x86.avx.vpermilvar.ps`); eight 64-bit
+// lanes are `vpermq zmm` (`llvm.x86.avx512.permvar.di.512`) and four
+// `vpermq ymm` (`llvm.x86.avx512.permvar.di.256`), their 32-bit indices
+// widened to the instruction's 64; two are `vpermilpd`, whose selector is
+// bit one of each index (`llvm.x86.avx.vpermilvar.pd`, the index shifted
+// up by one); sixteen-bit lanes are `vpermw` (`llvm.x86.avx512.permvar.hi.
+// 256`). The compress is LLVM's vector.compress, `vpcompressd` into a
+// zeroed register once the backend has seen it. permute.bonsai is this
+// program on the generic x86-64, which has none of them.
+func [[export]] eight(v : vector[f32, 8], i : vector[u32, 8]) -> vector[f32, 8] {
+    return permute(v, i);
+}
+
+func [[export]] sixteen(v : vector[u32, 16], i : vector[u32, 16]) -> vector[u32, 16] {
+    return permute(v, i);
+}
+
+func [[export]] four(v : vector[f32, 4], i : vector[u32, 4]) -> vector[f32, 4] {
+    return permute(v, i);
+}
+
+func [[export]] wide(v : vector[u64, 8], i : vector[u32, 8]) -> vector[u64, 8] {
+    return permute(v, i);
+}
+
+func [[export]] wide_four(v : vector[u64, 4], i : vector[u32, 4]) -> vector[u64, 4] {
+    return permute(v, i);
+}
+
+func [[export]] wide_two(v : vector[u64, 2], i : vector[u32, 2]) -> vector[u64, 2] {
+    return permute(v, i);
+}
+
+func [[export]] halves(v : vector[u16, 16], i : vector[u16, 16]) -> vector[u16, 16] {
+    return permute(v, i);
+}
+
+func [[export]] packed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u);
+}

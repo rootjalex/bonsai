@@ -542,6 +542,16 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // ceiling of log2 is taken -- which is what division by an invariant
         // integer needs of its divisor (see SSA/InvariantDivision.h).
         clz,
+        // `compress(v, mask)`: the lanes of `v` the mask has on, packed to
+        // the front of a vector of v's type in their lane order, the lanes
+        // past them zero. The register form of the compacting store (see
+        // ir::Store::compact): AVX-512's `vpcompressd`/`vpcompressq`, and
+        // LLVM's vector.compress where the machine has nothing. What a
+        // traversal does to the children a ray hit before sorting them, so
+        // that a network over the first `popcount(mask)` lanes orders the
+        // hits alone (Embree's bvh_traverser1.h, `vint8::compact`; see
+        // SSA/SortRecursion.cpp).
+        compress,
         cos,
         cosh,
         cross,
@@ -570,6 +580,17 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // widening multiply.
         mulhi,
         norm,
+        // `permute(v, indices)`: lane k of the result is lane `indices[k]`
+        // of `v`, the indices a vector computed at run time -- where
+        // ir::Shuffle's are constants the backend lowers by shape. Halide's
+        // `dynamic_shuffle`; the machine's variable permute, `vpermps`,
+        // `vpermd`, `vpermq` on x86 (CodeGen_X86::dynamic_shuffle), and an
+        // extract per lane where there is none. The indices must be in
+        // range, `0 <= indices[k] < lanes(v)`; the result has the indices'
+        // lanes and v's element. What takes a node's children and bounds
+        // out by their sorted order in one instruction each
+        // (SSA/SortRecursion.cpp), as Embree's `permuteExtract` does.
+        permute,
         pow,
         rand,
         // The reciprocal of a float, or of each lane of a vector of them, as

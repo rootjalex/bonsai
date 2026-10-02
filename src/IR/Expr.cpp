@@ -1348,6 +1348,34 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type();
             break;
         }
+        case Intrinsic::compress: {
+            // A vector and a mask of as many lanes, to the vector's type.
+            internal_assert(args.size() == 2)
+                << "compress takes a vector and a mask";
+            const Type &vt = args[0].type();
+            const Type &mt = args[1].type();
+            internal_assert(vt.is_vector() && mt.is_vector() &&
+                            mt.lanes() == vt.lanes() &&
+                            mt.element_of().is_bool())
+                << "compress of " << vt << " under " << mt
+                << ": wants a vector and a mask of as many lanes";
+            node->type = vt;
+            break;
+        }
+        case Intrinsic::permute: {
+            // A vector and a vector of integer indices into it, to a vector
+            // of the first's elements with the indices' lanes.
+            internal_assert(args.size() == 2)
+                << "permute takes a vector and a vector of indices";
+            const Type &vt = args[0].type();
+            const Type &it = args[1].type();
+            internal_assert(vt.is_vector() && it.is_vector() &&
+                            it.element_of().is_int_or_uint())
+                << "permute of " << vt << " by " << it
+                << ": wants a vector and a vector of integer indices";
+            node->type = Vector_t::make(vt.element_of(), it.lanes());
+            break;
+        }
         case Intrinsic::norm: {
             internal_assert(args.size() == 1);
             internal_assert(args[0].type().is<Vector_t>());

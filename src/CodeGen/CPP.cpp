@@ -1364,6 +1364,13 @@ class BonsaiToCpp : ir::Printer {
             ss << "(1.0f / (";
             print_expr_list(node->args);
             ss << "))";
+        } else if (node->op == Intrinsic::permute ||
+                   node->op == Intrinsic::compress) {
+            // A lane at a time, by the helpers in runtime/bonsai_cpp.h:
+            // C++ has no permute or compress to name.
+            ss << "bonsai_" << to_string(node->op) << "(";
+            print_expr_list(node->args);
+            ss << ")";
         } else {
             ir::Printer::visit(node);
         }
