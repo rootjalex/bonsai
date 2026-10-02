@@ -870,10 +870,79 @@ ratio is bonsai over Embree, without the prefetch then with it:
 |                     | ao      | 0.77x to 0.76x | 0.87x to 0.84x |
 |                     | diffuse | 0.75x to 0.76x | 0.85x to 0.82x |
 
-A loss everywhere it is not level: 3-6% on primary rays, 3-8% on the
-any-hit query's incoherent rays, and nothing gained on the nearest-hit
-query's incoherent rays on the large meshes, which is where it was meant
-to pay. On head the tree is 1.2 MB and in cache, so the result there is
+**Where it stands** (the two schedules as committed, both with the
+prefetch; `compare.sh` on the quiet machine at 12:36, cpu 11, least of 5,
+`--side 2048`, every ray agreeing; million rays per second):
+
+| mesh (triangles)    | rays    | intersect: Embree | embree.bonsai | ratio | occluded: Embree | embree.bonsai | ratio | tuned.bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 38.49 | 42.29 | 1.10x | 45.21 | 76.02 | 1.68x | 74.02 | 1.64x |
+|                     | ao      | 13.62 |  9.94 | 0.73x | 15.10 | 13.71 | 0.91x | 14.52 | 0.96x |
+|                     | diffuse | 12.41 |  9.02 | 0.73x | 14.07 | 12.48 | 0.89x | 13.27 | 0.94x |
+| ganesha (4,323,658) | primary | 19.20 | 16.33 | 0.85x | 21.63 | 22.89 | 1.06x | 22.92 | 1.06x |
+|                     | ao      |  6.12 |  4.42 | 0.72x |  6.58 |  5.40 | 0.82x |  5.66 | 0.86x |
+|                     | diffuse |  5.72 |  4.14 | 0.72x |  5.65 |  4.63 | 0.82x |  4.80 | 0.85x |
+| dragon (7,219,045)  | primary | 25.78 | 25.38 | 0.98x | 27.46 | 31.18 | 1.14x | 31.10 | 1.13x |
+|                     | ao      |  4.40 |  3.38 | 0.77x |  4.69 |  3.92 | 0.84x |  4.13 | 0.88x |
+|                     | diffuse |  3.95 |  3.00 | 0.76x |  4.20 |  3.45 | 0.82x |  3.61 | 0.86x |
+
+The tuned schedule's nearest-hit column is the matching one's (the same
+directives). Against the 11:20 table without the prefetch (nearest
+1.13/0.77/0.77, 0.90/0.73/0.73, 1.04/0.77/0.76; any hit 1.79/1.04/1.03,
+1.16/0.89/0.88, 1.20/0.88/0.86), the prefetch's cost reads the same on the
+quiet machine as on cpu 12.
+
+The prefetch is a loss everywhere it is not level: 3-6% on primary rays,
+3-8% on the any-hit query's incoherent rays, and nothing gained on the
+nearest-hit query's incoherent rays on the large meshes, which is where it
+was meant to pay.
+
+**The profile of the ao batch** (12:38, quiet machine, cpu 11; `perf
+record` of the driver on ganesha's ao rays, nearest hit only, `--batch ao
+--query intersect`, the two kernels told apart by symbol -- ours is the one
+function `trace_all`, Embree's `BVHNIntersector1<8,...>::intersect`; both
+sides run the same rays the same number of times, so the ratio of their
+sample shares per event is the ratio of the counts). Ours over Embree's,
+first without the prefetch, then with it:
+
+| event                              | no prefetch | with prefetch |
+|------------------------------------|------------:|--------------:|
+| cycles                             |       1.15x |         1.16x |
+| instructions                       |       0.97x |         1.25x |
+| branch misses                      |       0.87x |         0.90x |
+| L1 data load misses                |       0.92x |         0.88x |
+| demand fills from DRAM             |      12.5x  |         1.30x |
+
+(Dragon's ao rays, with the prefetch: 1.03x, 1.05x, 0.85x, 0.80x, 1.39x in
+the same order.) So on the incoherent rays our kernel executes no more
+instructions than Embree's, mispredicts fewer branches and misses L1 less
+often, and takes twelve times the demand fills from DRAM: Embree's
+prefetch is what turns its node and leaf misses into fills that arrive
+before the demand, and without one of our own every miss is paid in full.
+Our prefetch does convert them -- the demand fills drop to 1.3x Embree's --
+but costs exactly what it saves: 28% more instructions (two lane loops per
+node where Embree's prefetches ride inside its count switch), and in the
+loop the `movq 0xc0(%rsp,%rcx,8)` that reads a lane's address back from the
+512-byte spill stalls on store forwarding (Zen does not forward a 64-byte
+store to an 8-byte load inside it), which lands as 10.6% of the kernel's
+cycles on the two `prefetcht0` after it. The hottest instructions
+otherwise: the node row's second bound load (5.0%, the node miss), the
+leaf tile's load (4.7%, the leaf miss), and the instruction after the
+`vpcompressq` push (6.9%) -- the compacting store to memory is 8 uops at a
+throughput of 3 cycles on Zen 5 (88 uops and 54 cycles on Zen 4, per
+uops.info), two of them per node (children and keys), where Embree pushes
+with plain stores. Embree's own hottest: the leaf load (7.1%), its node
+fma (5.6%), its prefetches (7.2%), its sort's moves (7.5%).
+
+So item 6's premise was right about *what* the incoherent rays wait on and
+wrong about the remedy as built. What follows from it, in order: (a) a
+prefetch that costs what Embree's does -- the addresses of both arms
+blended into one vector by the kind (one loop, not two), the lanes taken
+by `vpcompressq` in a register and constant-index extracts guarded by the
+count, no spill, no store-forwarding stall; (b) the push as a register
+compress and one unmasked store of the whole vector, with a vector's slack
+past the stack's capacity, instead of the compacting store to memory; (c)
+then re-measure the incoherent rays, which the profile says should move. On head the tree is 1.2 MB and in cache, so the result there is
 the prefetch's own cost: two lane loops' setup, about twenty instructions
 per node, and eight per hit child. On ganesha and dragon the lines a
 child needs are evidently not what the incoherent rays wait on -- or the
