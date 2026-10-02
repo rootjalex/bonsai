@@ -4,9 +4,12 @@
 #include "IR/Equality.h"
 #include "Utils.h"
 
+#include <algorithm>
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace bonsai {
@@ -149,15 +152,31 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
 // are ever visited. Embree's traversal of such a node (bvh_traverser1.h,
 // traverseClosestHit) orders the hits alone.
 //
-// So a run of this shape is sorted as the vectors it is. The misses' keys
-// are set infinite, the keys are made integers that order as the floats do
-// with each lane's own index in the low bits -- Embree's `distance_i`, which
-// makes every key distinct so that the lane travels with its key -- and one
-// bitonic network of vector minimums and maximums puts them in descending
-// order: the misses first, then the hits from the farthest to the nearest in
-// the last lane. Each varying value follows its key through the network.
+// So a run of this shape is sorted as the vectors it is, and over the hits
+// alone, the way Embree's AVX-512 traversal does it
+// (traverseClosestHitAVX512VL8). The misses' keys are set infinite, and the
+// keys are made integers that order as the floats do with each lane's own
+// index in the low bits -- Embree's `distance_i`, which makes every key
+// distinct and lets a sorted key say which lane it came from. The hits'
+// keys are then compressed to the front (ir::Intrinsic::compress,
+// `vpcompressd`), and a switch on their count picks the network: nothing
+// for one hit, and for two, three and four the shortest sorting network of
+// that many inputs (Knuth, The Art of Computer Programming vol. 3, section
+// 5.3.4: one, three and five comparators in one, three and three layers),
+// each layer one shuffle, a vector minimum, a vector maximum and a select;
+// more hits than that sort all the lanes at once by Batcher's bitonic
+// network (Batcher, "Sorting Networks and their Applications", AFIPS 1968),
+// whose six layers are what the switch spares the common counts, since a
+// node a ray passes through usually hits one or two of its children. The
+// sorted keys come to one block in one shape -- descending, the misses
+// first and the hits from the farthest to the nearest in the last lane --
+// and there the children and whatever travels with them are taken out by
+// the lane index in each key's low bits with one variable permute each
+// (ir::Intrinsic::permute, `vpermq`, `vpermps`: Embree's permuteExtract),
+// rather than following the keys through every layer of the network.
+//
 // What the run is made of afterwards says it in the shape of a run: call k
-// is lane n - 1 - k of the sorted vectors (the nearest first) and is made
+// is lane n - 1 - k of the permuted vectors (the nearest first) and is made
 // when `k < hits`, the number of lanes the mask has on. A run still made as
 // calls is made in that order; one put on a stack (SSA/QueueRecursion.h)
 // reads the vectors behind those lanes and writes the hits that wait with
@@ -292,14 +311,78 @@ std::optional<Lanes> lanes_of(const Terminator::MultiCall &call) {
     return out;
 }
 
+// A new, empty block of `func`, named `stem` or the first `stem_k` not yet
+// taken (the helper SSA/QueueRecursion.cpp has, for the same purpose).
+shared_ptr<Block> fresh_block(Function &func, const string &stem) {
+    std::set<string> taken;
+    for (const auto &block : func.blocks) {
+        taken.insert(block->name);
+    }
+    string name = stem;
+    for (size_t i = 0; taken.count(name); i++) {
+        name = stem + "_" + std::to_string(i);
+    }
+    auto block = std::make_shared<Block>();
+    block->name = std::move(name);
+    block->owner = func.blocks.front()->owner;
+    return block;
+}
+
+// One layer of a sorting network: the comparators that run at once, each a
+// pair (i, j) that leaves the smaller of the two in lane i and the larger in
+// lane j.
+using Layer = vector<std::pair<uint32_t, uint32_t>>;
+
+// The shortest sorting network of `h` inputs, ascending over lanes 0 to
+// h - 1, for the few counts a switch specializes (Knuth, TAOCP vol. 3,
+// section 5.3.4, figure 49): two inputs in one comparator; three in three,
+// one after another; four in five, over three layers.
+vector<Layer> ascending_network(uint32_t h) {
+    switch (h) {
+    case 2:
+        return {{{0, 1}}};
+    case 3:
+        return {{{0, 2}}, {{0, 1}}, {{1, 2}}};
+    case 4:
+        return {{{0, 1}, {2, 3}}, {{0, 2}, {1, 3}}, {{1, 2}}};
+    default:
+        internal_error << "No specialized network for " << h << " inputs";
+        return {};
+    }
+}
+
+// Batcher's bitonic network over `n` lanes, n a power of two, descending:
+// at each layer every lane meets the partner at the bit it flips, and the
+// one of the pair the merge direction says takes the larger.
+vector<Layer> descending_bitonic(uint32_t n) {
+    vector<Layer> layers;
+    for (uint32_t k = 2; k <= n; k *= 2) {
+        for (uint32_t j = k / 2; j > 0; j /= 2) {
+            Layer layer;
+            for (uint32_t i = 0; i < n; i++) {
+                const uint32_t l = i ^ j;
+                if (l > i) {
+                    const bool i_takes_max = ((i & k) == 0) == ((i & j) == 0);
+                    layer.push_back(i_takes_max ? std::make_pair(l, i)
+                                                : std::make_pair(i, l));
+                }
+            }
+            layers.push_back(std::move(layer));
+        }
+    }
+    return layers;
+}
+
 // Sorts the run `call` in `block`, which is the lanes `lanes` describe, as
-// described above; see there.
+// described above; see there. Clears the run's keys, and moves the run to
+// the block the sorted keys arrive in: `block` ends in the switch on the
+// count of hits afterwards, and the reference `call` is spent.
 void sort_lanes(Function &func, const shared_ptr<Block> &block,
                 Terminator::MultiCall &call, const Lanes &lanes) {
     const uint32_t n = uint32_t(call.varying.size());
     const Type u32 = UInt_t::make(32), i32 = Int_t::make(32);
     const Type f32 = Float_t::make_f32(), b = Bool_t::make();
-    const Type u32xn = Vector_t::make(u32, n), i32xn = Vector_t::make(i32, n);
+    const Type i32xn = Vector_t::make(i32, n);
     const Type f32xn = Vector_t::make(f32, n), bxn = Vector_t::make(b, n);
     const auto cu32 = [&](uint64_t v) {
         return std::make_shared<Value>(Constant{u32, v});
@@ -307,99 +390,175 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     const auto ci32 = [&](int64_t v) {
         return std::make_shared<Value>(Constant{i32, v});
     };
-    const auto emit = [&](Type type, Instruction::Op op,
+    const auto emit = [&](const shared_ptr<Block> &into, Type type,
+                          Instruction::Op op,
                           vector<shared_ptr<Value>> operands) {
-        return append(func, block, std::move(type), op, std::move(operands));
+        return append(func, into, std::move(type), op, std::move(operands));
     };
-    const auto bc = [&](const shared_ptr<Value> &v, const Type &vt) {
-        return emit(vt, Instruction::Op::Bc, {v, cu32(n)});
+    const auto intrinsic = [&](const shared_ptr<Block> &into, Type type,
+                               ir::Intrinsic::OpType which,
+                               vector<shared_ptr<Value>> operands) {
+        auto v = append(func, into, std::move(type), Instruction::Op::Intrinsic,
+                        std::move(operands));
+        std::get<shared_ptr<Instruction>>(v->data)->intrinsic = which;
+        return v;
     };
-    const auto as_vector = [&](const shared_ptr<Value> &source, const Type &) {
-        return lanes_as_vector(func, block, source, n);
+    const auto bc = [&](const shared_ptr<Block> &into,
+                        const shared_ptr<Value> &v, const Type &vt) {
+        return emit(into, vt, Instruction::Op::Bc, {v, cu32(n)});
     };
     // One lane per bit of a pattern over the lanes.
-    const auto lane_pattern = [&](const std::function<bool(uint32_t)> &on) {
+    const auto lane_pattern = [&](const shared_ptr<Block> &into,
+                                  const std::function<bool(uint32_t)> &on) {
         vector<shared_ptr<Value>> bits;
         for (uint32_t i = 0; i < n; i++) {
             bits.push_back(std::make_shared<Value>(Constant{b, on(i)}));
         }
-        return emit(bxn, Instruction::Op::MakeStruct, std::move(bits));
+        return emit(into, bxn, Instruction::Op::MakeStruct, std::move(bits));
     };
-    const auto shuffle = [&](const shared_ptr<Value> &v,
+    const auto shuffle = [&](const shared_ptr<Block> &into,
+                             const shared_ptr<Value> &v,
                              const vector<int> &perm) {
         auto instr = std::make_shared<Instruction>(
             func.get_unique_name(), v->get_type(), Instruction::Op::Shuffle,
-            vector<shared_ptr<Value>>{v}, block);
+            vector<shared_ptr<Value>>{v}, into);
         instr->shuffle = perm;
-        block->instrs.push_back(instr);
+        into->instrs.push_back(instr);
         return std::make_shared<Value>(std::move(instr));
     };
+    // One layer of a network over the keys `x`: every lane meets its
+    // partner, and of each pair the lane the comparator puts the larger in
+    // takes the maximum, the other the minimum; a lane in no comparator
+    // meets itself and keeps its key.
+    const auto layer = [&](const shared_ptr<Block> &into, shared_ptr<Value> x,
+                           const Layer &comparators) {
+        vector<int> perm(n);
+        vector<bool> takes_max(n, false);
+        for (uint32_t i = 0; i < n; i++) {
+            perm[i] = int(i);
+        }
+        for (const auto &[i, j] : comparators) {
+            perm[i] = int(j);
+            perm[j] = int(i);
+            takes_max[j] = true;
+        }
+        auto partner = shuffle(into, x, perm);
+        auto lo = emit(into, i32xn, Instruction::Op::Min, {x, partner});
+        auto hi = emit(into, i32xn, Instruction::Op::Max, {x, partner});
+        auto wants_max =
+            lane_pattern(into, [&](uint32_t i) { return takes_max[i]; });
+        return emit(into, i32xn, Instruction::Op::Select, {wants_max, hi, lo});
+    };
+    // Lane i to lane n - 1 - i.
+    vector<int> reversed(n);
+    for (uint32_t i = 0; i < n; i++) {
+        reversed[i] = int(n - 1 - i);
+    }
 
-    const shared_ptr<Value> mask = as_vector(lanes.mask, b);
-    const shared_ptr<Value> keys = as_vector(lanes.keys, f32);
+    const shared_ptr<Value> mask = lanes_as_vector(func, block, lanes.mask, n);
+    const shared_ptr<Value> keys = lanes_as_vector(func, block, lanes.keys, n);
     vector<shared_ptr<Value>> values;
     for (size_t j = 0; j < lanes.varying.size(); j++) {
-        values.push_back(as_vector(lanes.varying[j], lanes.varying_type[j]));
+        values.push_back(lanes_as_vector(func, block, lanes.varying[j], n));
     }
 
     // The misses infinitely far, whatever their keys say: they sort first in
     // descending order, out of the hits' way.
-    auto inf = emit(f32, Instruction::Op::Inf, {});
-    auto far = emit(f32xn, Instruction::Op::Select, {mask, keys, bc(inf, f32xn)});
+    auto inf = emit(block, f32, Instruction::Op::Inf, {});
+    auto far = emit(block, f32xn, Instruction::Op::Select,
+                    {mask, keys, bc(block, inf, f32xn)});
     // As integers that order as the floats do -- a negative float's magnitude
     // bits flipped, so that the more negative is the smaller -- with the
     // lane's own index in the low bits: Embree's `distance_i`. No two lanes
     // are then equal, so a minimum or maximum is one lane's key exactly, and
-    // whether a lane kept its own says whether it kept its own child.
-    auto bits = emit(i32xn, Instruction::Op::Reinterpret, {far});
-    auto sign = emit(i32xn, Instruction::Op::Shr, {bits, bc(ci32(31), i32xn)});
-    auto flip = emit(i32xn, Instruction::Op::BwAnd,
-                     {sign, bc(ci32(0x7fffffff), i32xn)});
-    auto ordered = emit(i32xn, Instruction::Op::Xor, {bits, flip});
-    auto lane = emit(i32xn, Instruction::Op::Ramp, {ci32(0), ci32(1)});
-    auto high = emit(i32xn, Instruction::Op::BwAnd,
-                     {ordered, bc(ci32(-int64_t(n)), i32xn)});
-    shared_ptr<Value> packed = emit(i32xn, Instruction::Op::BwOr, {high, lane});
+    // a sorted key says which lane it came from.
+    auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {far});
+    auto sign = emit(block, i32xn, Instruction::Op::Shr,
+                     {bits, bc(block, ci32(31), i32xn)});
+    auto flip = emit(block, i32xn, Instruction::Op::BwAnd,
+                     {sign, bc(block, ci32(0x7fffffff), i32xn)});
+    auto ordered = emit(block, i32xn, Instruction::Op::Xor, {bits, flip});
+    auto lane = emit(block, i32xn, Instruction::Op::Ramp, {ci32(0), ci32(1)});
+    auto high = emit(block, i32xn, Instruction::Op::BwAnd,
+                     {ordered, bc(block, ci32(-int64_t(n)), i32xn)});
+    auto packed = emit(block, i32xn, Instruction::Op::BwOr, {high, lane});
 
-    // The bitonic network over the lanes, descending: at each step every lane
-    // meets its partner, and the one of the pair that wants the larger takes
-    // the maximum, the other the minimum.
-    for (uint32_t k = 2; k <= n; k *= 2) {
-        for (uint32_t j = k / 2; j > 0; j /= 2) {
-            vector<int> perm(n);
-            for (uint32_t i = 0; i < n; i++) {
-                perm[i] = int(i ^ j);
-            }
-            auto partner = shuffle(packed, perm);
-            auto lo = emit(i32xn, Instruction::Op::Min, {packed, partner});
-            auto hi = emit(i32xn, Instruction::Op::Max, {packed, partner});
-            auto wants_max = lane_pattern([&](uint32_t i) {
-                return ((i & k) == 0) == ((i & j) == 0);
-            });
-            auto next = emit(i32xn, Instruction::Op::Select, {wants_max, hi, lo});
-            auto moved = emit(bxn, Instruction::Op::Ne, {next, packed});
-            for (shared_ptr<Value> &v : values) {
-                auto theirs = shuffle(v, perm);
-                v = emit(v->get_type(), Instruction::Op::Select,
-                         {moved, std::move(theirs), v});
-            }
-            packed = std::move(next);
+    // How many calls are made: the lanes the mask has on. Their keys, packed
+    // to the front in lane order, are what the short networks sort.
+    auto hits = emit(block, u32, Instruction::Op::Popcount, {mask});
+    auto compressed =
+        intrinsic(block, i32xn, ir::Intrinsic::compress, {packed, mask});
+
+    // Where the sorted keys arrive, in one shape whatever sorted them:
+    // descending, the hits in the last `hits` lanes from the farthest to the
+    // nearest. The run is made there.
+    auto join = fresh_block(func, block->name + "!sorted");
+    const shared_ptr<Value> sorted =
+        join->add_argument(Argument{i32xn, func.get_unique_name()});
+    const auto arrive = [&](const shared_ptr<Block> &from,
+                            const shared_ptr<Value> &with) {
+        from->terminator.data = Terminator::Jump{join->name, {with}};
+        func.blocks.push_back(from);
+        return Terminator::Jump{from->name, {}};
+    };
+
+    // The switch on the count: target k for k hits, the last target for
+    // every count past the ones specialized.
+    vector<Terminator::Jump> targets;
+    {
+        // No hit, or one: nothing to order. The one hit is lane 0 of the
+        // compressed keys and belongs in the last lane; with none, nothing
+        // is read.
+        auto one = fresh_block(func, block->name + "!sort1");
+        const Terminator::Jump to =
+            arrive(one, shuffle(one, compressed, reversed));
+        targets.push_back(to);
+        targets.push_back(to);
+    }
+    const uint32_t specialized = std::min<uint32_t>(n, 4);
+    for (uint32_t h = 2; h <= specialized; h++) {
+        // The shortest network of h inputs over the first h lanes,
+        // ascending, then reversed into the shape above.
+        auto block_h = fresh_block(func, block->name + "!sort" + std::to_string(h));
+        shared_ptr<Value> x = compressed;
+        for (const Layer &comparators : ascending_network(h)) {
+            x = layer(block_h, x, comparators);
         }
+        targets.push_back(arrive(block_h, shuffle(block_h, x, reversed)));
+    }
+    if (specialized < n) {
+        // Every count past them: all the lanes at once, the misses' infinite
+        // keys and the hits' together, by the bitonic network descending --
+        // which is the shape above already.
+        auto all = fresh_block(func, block->name + "!sortall");
+        shared_ptr<Value> x = packed;
+        for (const Layer &comparators : descending_bitonic(n)) {
+            x = layer(all, x, comparators);
+        }
+        targets.push_back(arrive(all, x));
     }
 
-    // How many calls are made: the lanes the mask has on, which are the last
-    // `hits` lanes of the sorted vectors.
-    auto hits = emit(u32, Instruction::Op::Popcount, {mask});
-
+    // In the join: the children and what travels with them, taken out by
+    // the sorted order -- the lane index in each key's low bits -- with one
+    // variable permute each.
+    auto idx = emit(join, i32xn, Instruction::Op::BwAnd,
+                    {sorted, bc(join, ci32(int64_t(n) - 1), i32xn)});
+    for (shared_ptr<Value> &v : values) {
+        v = intrinsic(join, v->get_type(), ir::Intrinsic::permute, {v, idx});
+    }
     // The run in the sorted order: the nearest -- the last lane -- first.
     for (uint32_t k = 0; k < n; k++) {
         for (size_t j = 0; j < values.size(); j++) {
             call.varying[k][j] =
-                emit(lanes.varying_type[j], Instruction::Op::ExtractIdx,
+                emit(join, lanes.varying_type[j], Instruction::Op::ExtractIdx,
                      {values[j], cu32(n - 1 - k)});
         }
-        call.conds[k] = emit(b, Instruction::Op::Lt, {cu32(k), hits});
+        call.conds[k] = emit(join, b, Instruction::Op::Lt, {cu32(k), hits});
     }
+    call.keys.clear();
+    join->terminator.data = std::move(block->terminator.data);
+    block->terminator.data = Terminator::Dispatch{hits, std::move(targets)};
+    func.blocks.push_back(join);
 }
 
 } // namespace
@@ -444,7 +603,10 @@ std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
 
 size_t sort_recursion(Function &func) {
     size_t sorted = 0;
-    for (const auto &block : func.blocks) {
+    // Over a copy of the list: a run sorted as lanes adds the blocks of its
+    // switch to the function.
+    const vector<shared_ptr<Block>> blocks = func.blocks;
+    for (const auto &block : blocks) {
         auto *call =
             std::get_if<Terminator::MultiCall>(&block->terminator.data);
         if (call == nullptr || call->keys.empty()) {
@@ -464,11 +626,14 @@ size_t sort_recursion(Function &func) {
         if (call->varying.size() > 1) {
             if (const std::optional<Lanes> lanes = lanes_of(*call);
                 lanes.has_value() && lanes->keys) {
+                // Clears the keys itself and moves the run out of `block`,
+                // which ends in a switch afterwards: `call` is spent.
                 sort_lanes(func, block, *call, *lanes);
-            } else {
-                sort_network(func, block, call->keys, call->varying,
-                             call->conds);
+                sorted++;
+                continue;
             }
+            sort_network(func, block, call->keys, call->varying,
+                         call->conds);
             sorted++;
         }
         call->keys.clear();

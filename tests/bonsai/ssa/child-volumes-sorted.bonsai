@@ -22,11 +22,18 @@
 // are the lanes of one vector each, so the run is sorted as those vectors
 // (SSA/SortRecursion.cpp, sort_lanes). The misses' keys are made infinite,
 // the keys become integers that order as the floats do with the lane in the
-// low bits -- Embree's `distance_i` -- and a bitonic network of vector
-// minimums and maximums puts them in descending order, the children
-// following their keys (`shuffle`, `min`, `max`, `select`): the misses in
-// the first lanes, then the hits from the farthest to the nearest in the
-// last. Then loopify puts the run on a stack with one compacting store:
+// low bits -- Embree's `distance_i` -- the hits' keys are packed to the
+// front (`compress`), and a `switch` on their count (`reduce<+>` of the
+// mask) picks the network, as Embree's traverseClosestHit does: nothing
+// for one hit, the shortest network of two or three inputs for those, and
+// for four the bitonic network over all the lanes of the unpacked keys,
+// each layer a `shuffle`, a `min`, a `max` and a `select`. Every case
+// leaves the keys in one shape (`slice(.., 3, -1, 4)` reverses the packed
+// ones into it): descending, the misses in the first lanes and the hits
+// from the farthest to the nearest in the last. The children and the
+// carried bounds do not follow the keys through the network; they are taken
+// out once by the lane in each sorted key's low bits (`permute`). Then
+// loopify puts the run on a stack with one compacting store:
 //
 //     if (hits != 0) {
 //       compress_store(!stack[!count], <sorted children>, <lanes 4-hits .. 2>)

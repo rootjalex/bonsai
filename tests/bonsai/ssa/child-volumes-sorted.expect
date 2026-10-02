@@ -28,6 +28,7 @@ extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Tria
 
 func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r : Ray, tris : _tree_layout0) -> void {
   data : mut u32
+  @202 : mut i32x4
   tris_ref!top : mut u32
   _bound0!top : mut f32
   !live : mut bool
@@ -84,11 +85,11 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @33 = _t112$i15$i27 / @32 in
           let @35 = 2f * @33 in
           let @36 = 1f + @35 in
-          let @262 = @28 * f32x3(@36) in
-          let @38 = @262[1u] in
+          let @277 = @28 * f32x3(@36) in
+          let @38 = @277[1u] in
           let @40 = @26[0u] in
           let @41 = @38 < @40 in
-          let @43 = @262[0u] in
+          let @43 = @277[0u] in
           let @45 = @26[1u] in
           let @46 = @43 < @45 in
           let @47 = @41 || @46 in
@@ -99,10 +100,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @50 = @26[0u] in
             let @52 = @26[1u] in
             let @53 = max(@50, @52) in
-            let @55 = @262[0u] in
-            let @57 = @262[1u] in
+            let @55 = @277[0u] in
+            let @57 = @277[1u] in
             let @58 = min(@55, @57) in
-            let @60 = @262[2u] in
+            let @60 = @277[2u] in
             let @62 = @60 < @53 in
             let @65 = @26[2u] in
             let @66 = @58 < @65 in
@@ -115,7 +116,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             } else {
               let @71 = @26[2u] in
               let @72 = max(@53, @71) in
-              let @75 = @262[2u] in
+              let @75 = @277[2u] in
               let @76 = min(@58, @75) in
               let @79 = build<FInterval>(@72, @76) in
               let @80 = build<_option1>(@79, true) in
@@ -194,54 +195,86 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         let @197 = i32x4(-4) in
         let @198 = @195 & @197 in
         let @199 = @198 | ramp(0, 1, 4) in
-        let @200 = shuffle({@199}, {1, 0, 3, 2}) in
-        let @201 = min(@199, @200) in
-        let @202 = max(@199, @200) in
-        let @203 = build<boolx4>(true, false, false, true) in
-        let @204 = select(@203, @202, @201) in
-        let @205 = @204 != @199 in
-        let @206 = shuffle({_t41}, {1, 0, 3, 2}) in
-        let @207 = select(@205, @206, _t41) in
-        let @208 = shuffle({@186}, {1, 0, 3, 2}) in
-        let @209 = select(@205, @208, @186) in
-        let @210 = shuffle({@204}, {2, 3, 0, 1}) in
-        let @211 = min(@204, @210) in
-        let @212 = max(@204, @210) in
-        let @213 = build<boolx4>(true, true, false, false) in
-        let @214 = select(@213, @212, @211) in
-        let @215 = @214 != @204 in
-        let @216 = shuffle({@207}, {2, 3, 0, 1}) in
-        let @217 = select(@215, @216, @207) in
-        let @218 = shuffle({@209}, {2, 3, 0, 1}) in
-        let @219 = select(@215, @218, @209) in
-        let @220 = shuffle({@214}, {1, 0, 3, 2}) in
-        let @221 = min(@214, @220) in
-        let @222 = max(@214, @220) in
-        let @223 = build<boolx4>(true, false, true, false) in
-        let @224 = select(@223, @222, @221) in
-        let @225 = @224 != @214 in
-        let @226 = shuffle({@217}, {1, 0, 3, 2}) in
-        let @227 = select(@225, @226, @217) in
-        let @228 = shuffle({@219}, {1, 0, 3, 2}) in
-        let @229 = select(@225, @228, @219) in
-        let @230 = reduce<+>(cast<u32x4>(@182)) in
-        let @248 = @230 != 0u in
-        if (@248) {
-          let @251 = 4u - @230 in
-          let @252 = u32x4(@251) in
-          let @253 = @252 <= ramp(0u, 1u, 4) in
-          let @254 = build<boolx4>(true, true, true, false) in
-          let @255 = @253 && @254 in
-          let @256 = @230 - 1u in
-          compress_store(!stack[(*!count)], @227, @255)
-          compress_store(!stack0[(*!count)], @229, @255)
-          let @259 = (*!count) + @256 in
-          let @260 = @227[3u] in
-          let @261 = @229[3u] in
-          tris_ref!top = @260
-          _bound0!top = @261
+        let @200 = reduce<+>(cast<u32x4>(@182)) in
+        let @201 = compress(@199, @182) in
+        switch (@200) {
+        case 0: {
+          let @203 = slice(@201, 3, -1, 4) in
+          @202 = @203
+        } break;
+        case 1: {
+          let @203 = slice(@201, 3, -1, 4) in
+          @202 = @203
+        } break;
+        case 2: {
+          let @204 = shuffle({@201}, {1, 0, 2, 3}) in
+          let @205 = min(@201, @204) in
+          let @206 = max(@201, @204) in
+          let @207 = build<boolx4>(false, true, false, false) in
+          let @208 = select(@207, @206, @205) in
+          let @209 = slice(@208, 3, -1, 4) in
+          @202 = @209
+        } break;
+        case 3: {
+          let @210 = shuffle({@201}, {2, 1, 0, 3}) in
+          let @211 = min(@201, @210) in
+          let @212 = max(@201, @210) in
+          let @213 = build<boolx4>(false, false, true, false) in
+          let @214 = select(@213, @212, @211) in
+          let @215 = shuffle({@214}, {1, 0, 2, 3}) in
+          let @216 = min(@214, @215) in
+          let @217 = max(@214, @215) in
+          let @218 = build<boolx4>(false, true, false, false) in
+          let @219 = select(@218, @217, @216) in
+          let @220 = transpose(@219, 2) in
+          let @221 = min(@219, @220) in
+          let @222 = max(@219, @220) in
+          let @223 = build<boolx4>(false, false, true, false) in
+          let @224 = select(@223, @222, @221) in
+          let @225 = slice(@224, 3, -1, 4) in
+          @202 = @225
+        } break;
+        default: {
+          let @226 = shuffle({@201}, {1, 0, 3, 2}) in
+          let @227 = min(@201, @226) in
+          let @228 = max(@201, @226) in
+          let @229 = build<boolx4>(false, true, false, true) in
+          let @230 = select(@229, @228, @227) in
+          let @231 = shuffle({@230}, {2, 3, 0, 1}) in
+          let @232 = min(@230, @231) in
+          let @233 = max(@230, @231) in
+          let @234 = build<boolx4>(false, false, true, true) in
+          let @235 = select(@234, @233, @232) in
+          let @236 = transpose(@235, 2) in
+          let @237 = min(@235, @236) in
+          let @238 = max(@235, @236) in
+          let @239 = build<boolx4>(false, false, true, false) in
+          let @240 = select(@239, @238, @237) in
+          let @241 = slice(@240, 3, -1, 4) in
+          @202 = @241
+        }
+        }
+        let @242 = i32x4(3) in
+        let @243 = (*@202) & @242 in
+        let @244 = permute(_t41, @243) in
+        let @245 = permute(@186, @243) in
+        let @263 = @200 != 0u in
+        if (@263) {
+          let @266 = 4u - @200 in
+          let @267 = u32x4(@266) in
+          let @268 = @267 <= ramp(0u, 1u, 4) in
+          let @269 = build<boolx4>(true, true, true, false) in
+          let @270 = @268 && @269 in
+          let @271 = @200 - 1u in
+          compress_store(!stack[(*!count)], @244, @270)
+          compress_store(!stack0[(*!count)], @245, @270)
+          let @274 = (*!count) + @271 in
+          let @275 = @244[3u] in
+          let @276 = @245[3u] in
+          tris_ref!top = @275
+          _bound0!top = @276
           !live = true
-          !count = @259
+          !count = @274
           continue
         }
       } else {
@@ -271,16 +304,30 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           data = @180
         }
       }
+      let @259 = (*!count) != 0u in
+      if (@259) {
+        let @260 = (*!count) - 1u in
+        let @261 = !stack[@260] in
+        let @262 = !stack0[@260] in
+        tris_ref!top = @261
+        _bound0!top = @262
+        !live = true
+        !count = @260
+        continue
+      } else {
+        !live = false
+        continue
+      }
     }
-    let @244 = (*!count) != 0u in
-    if (@244) {
-      let @245 = (*!count) - 1u in
-      let @246 = !stack[@245] in
-      let @247 = !stack0[@245] in
-      tris_ref!top = @246
-      _bound0!top = @247
+    let @259 = (*!count) != 0u in
+    if (@259) {
+      let @260 = (*!count) - 1u in
+      let @261 = !stack[@260] in
+      let @262 = !stack0[@260] in
+      tris_ref!top = @261
+      _bound0!top = @262
       !live = true
-      !count = @245
+      !count = @260
     } else {
       !live = false
     }
