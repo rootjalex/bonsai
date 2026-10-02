@@ -278,6 +278,58 @@ index as it is and refuses another type with a message naming the loop's
 | ao      | 13.60 |  4.79 | 0.29x | 0.35x | 15.09 |  7.59 | 0.50x |
 | diffuse | 12.36 |  4.34 | 0.29x | 0.35x | 14.04 |  6.89 | 0.49x |
 
+**Step 2, the eight-wide node test:**
+`trace.vectorize(triangles.Interior.children)` (and the same on
+`occluded`). The loop over the children, which the tree lowering makes and
+the sort fills with the keys, is vectorized: its eight iterations are the
+gang's eight lanes, so the node's six bound vectors are loaded once and the
+slab test is Embree's `intersectNode` -- the ray broadcast, six fused
+multiply-subtracts, the maxes and mins, one compare -- with the mask and
+the keys coming out as vectors, stored once each. Every ray agrees.
+
+What the compiler needed (SSA/Vectorize.cpp, SSA/SplitAggregates.cpp,
+SSA/Convert.cpp, SSA/Linearize.cpp, SSA/CodeGen_Stmt.cpp,
+CodeGen/CodeGen_LLVM.cpp):
+
+- A lane's element of a vector the gang shares, read at the lane's own
+  index (`lo[children]`), is the vector itself: of a vector of vectors
+  -- held as one vector per component -- the struct of those components
+  that a per-lane `vec3f` is carried as, by a reinterpretation the LLVM
+  backend does member for member; of a vector of scalars, a shuffle of
+  the lanes the ramp names. Not the chain of eight compares and selects a
+  computed index into a short vector becomes.
+- A vectorized loop whose continuation takes arguments: the body's exit
+  hands them on as the header did. (This was the known limitation of two
+  parfors in one function; `ssa/vectorize-two-parfors.bonsai` now pins
+  the fixed behaviour.)
+- The short-circuit `&&` (the slab test, and only where it hit, the
+  comparison with the best) defined both its values under the merge
+  parameter's own name, which to the analyses -- values are told apart by
+  name -- made the merge a pass-through and lost the arm's value in the
+  gang; each definition keeps its own name now, and the merge is a proper
+  blend. And the linearizer's `any` guard in front of an arm whose mask
+  was that merge parameter kept the parameter after it was blended away;
+  the guard is rewritten with the arm.
+- The printer spells a constant of a vector type as a broadcast.
+
+Head, with the other agent's render running on another core (load 3.8;
+Embree's own numbers are down a tenth from the idle runs above):
+
+| rays    | intersect: Embree | bonsai | ratio | occluded: Embree | bonsai | was   | now   |
+|---------|------:|------:|------:|------:|------:|------:|------:|
+| primary | 35.08 | 11.86 | 0.34x | 39.91 | 46.47 | 0.90x | 1.16x |
+| ao      | 12.59 |  4.13 | 0.33x | 13.67 |  8.38 | 0.50x | 0.61x |
+| diffuse | 11.43 |  3.73 | 0.33x | 12.70 |  7.61 | 0.49x | 0.60x |
+
+Reading it: the any-hit query, which has nothing after the node test but
+the pushes, gains a fifth to a quarter and passes Embree on coherent
+primary rays. The nearest-hit query does not move: its node step is
+dominated by what follows the test -- the full eight-lane sorting network
+over the keys, references and mask bits, misses included, and eight
+conditional pushes -- which is step 3. A profile of the run (perf, head,
+cpu 11) puts the nearest-hit kernel at twice the any-hit kernel's time for
+the same rays.
+
 ## Where the loss is, and what closes it
 
 The scalar schedule does per child what Embree does per node, and per

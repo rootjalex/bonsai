@@ -98,8 +98,9 @@ are the same tree.
   The driver checks the sizes and offsets against Embree's at compile
   time, and relocates the largest nodes after the build as Embree does.
 - `schedules/embree.bonsai`: the traversal's order (`sort` by each child's
-  entry distance) and stack (`loopify(564)`, Embree's stack depth), and the
-  rays across the cores.
+  entry distance), its eight-wide node test (`vectorize` of the loop over a
+  node's children, named `triangles.Interior.children`) and stack
+  (`loopify(564)`, Embree's stack depth), and the rays across the cores.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
 
 The generated `rtq.h`, `rtq.o`, `rtq.bir` and `rtq.ll` are left in this

@@ -8,7 +8,8 @@
 // The tree is Embree's (trees/bvh8.bonsai): a node holds its eight
 // children's boxes, so a traversal tests the eight at the node, in a loop
 // over the children the tree lowering makes (Lower/Trees.cpp,
-// from_children). What this file adds is the order and the stack.
+// from_children). What this file adds is the order, the eight-wide test and
+// the stack.
 import apps/rtq/schedules/trees/bvh8;
 
 schedule {
@@ -24,18 +25,28 @@ schedule {
     // `i` is that loop's index, in its type, so that the key's reads of the
     // child's box are the test's reads and the slab test is done once.
     //
+    // Embree: intersectNode -- the eight children's boxes tested at once,
+    // the node's six bound vectors against the ray broadcast. The loop over
+    // the children, named by the field through the arm, is vectorized: its
+    // eight iterations are the eight lanes, a lane's box is the stored
+    // vectors themselves (SSA/Vectorize.cpp), and the mask and the keys come
+    // out as vectors.
+    //
     // Embree: stackSize = 1 + (N - 1) * maxDepth + 3 for N = 8 and a maximum
     // depth of 80 (bvh.h, bvh_intersector1.h): 564 entries, the most a
     // traversal can have waiting.
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
                distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
          .loopify(564);
 
     // Embree: traverseAnyHit -- the occlusion test pushes the hit children
     // in their stored order, "simpler in sequence traversal order", and
     // stops at the first triangle hit: `any` stops, and nothing is sorted.
-    occluded.loopify(564);
+    // The children's test is the same eight-wide one.
+    occluded.vectorize(triangles.Interior.children)
+            .loopify(564);
 
     // The rays across the cores, as the driver spreads Embree's with TBB.
     trace_all.bind(i, CPUThread);
