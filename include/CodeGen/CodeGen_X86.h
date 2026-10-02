@@ -84,17 +84,16 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     llvm::Value *dynamic_shuffle(llvm::Value *vec, llvm::Value *indices,
                                  const std::string &name) override;
 
-    // Whether dynamic_shuffle above has an instruction for a vector of
-    // `lanes` lanes of `bits` bits on this machine.
-    bool has_permute(unsigned bits, unsigned lanes) const;
-
-    // One lane of a vector at an index computed at run time: the index
-    // broadcast, the vector permuted by it and lane zero taken -- a permute
-    // and a move -- where LLVM's variable extract stores the vector to the
-    // stack and loads the lane back, and the load waits on the store.
-    // A leaf's argmin picks the nearest lane's triangle this way. A constant
-    // index and a shape without a permute keep the base's extract.
-    llvm::Value *extract_lane(llvm::Value *vec, llvm::Value *idx) override;
+    // Not overridden here: extract_lane, one lane at a run-time index. LLVM
+    // lowers it as a store of the vector to the stack and a load of the lane,
+    // and this once replaced that with the index broadcast, a permute by it
+    // and lane zero taken. Measured in apps/rtq's any-hit traversal, where
+    // the child a ray descends into is the lane the mask's first bit names,
+    // the permute was 10-12% slower: the store does not wait on the index and
+    // the load is forwarded from it, a few cycles after the index is known,
+    // where the broadcast, its widening to the lanes' width and the permute
+    // are each a few cycles on the one chain the traversal waits on -- the
+    // next node's address. In the leaf's argmin the two were level.
 
     // glibc's libmvec: the vector entry points of libm, asked for rather
     // than assumed (see the definition). Only on Linux, which is where glibc

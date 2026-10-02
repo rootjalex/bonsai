@@ -279,38 +279,6 @@ llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
     return refined;
 }
 
-bool CodeGen_X86::has_permute(unsigned bits, unsigned lanes) const {
-    // The shapes dynamic_shuffle names an instruction for, in one place.
-    if (bits == 32) {
-        return (lanes == 8 && has_feature("avx2")) ||
-               (lanes == 16 && has_feature("avx512f")) ||
-               (lanes == 4 && has_feature("avx"));
-    }
-    if (bits == 64) {
-        return (lanes == 8 && has_feature("avx512f")) ||
-               (lanes == 4 && (has_feature("avx512vl") || has_feature("avx2"))) ||
-               (lanes == 2 && has_feature("avx"));
-    }
-    if (bits == 16 && has_feature("avx512bw")) {
-        return (lanes == 32 && has_feature("avx512f")) ||
-               ((lanes == 16 || lanes == 8) && has_feature("avx512vl"));
-    }
-    return false;
-}
-
-llvm::Value *CodeGen_X86::extract_lane(llvm::Value *vec, llvm::Value *idx) {
-    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(vec->getType());
-    if (llvm::isa<llvm::Constant>(idx) || vt == nullptr ||
-        !has_permute(unsigned(vt->getElementType()->getPrimitiveSizeInBits()),
-                     unsigned(vt->getNumElements()))) {
-        return CodeGen_LLVM::extract_lane(vec, idx);
-    }
-    llvm::Value *every_lane =
-        builder->CreateVectorSplat(unsigned(vt->getNumElements()), idx);
-    llvm::Value *picked = dynamic_shuffle(vec, every_lane, "picked_lane");
-    return builder->CreateExtractElement(picked, uint64_t(0));
-}
-
 llvm::Value *CodeGen_X86::dynamic_shuffle(llvm::Value *vec,
                                           llvm::Value *indices,
                                           const std::string &name) {
