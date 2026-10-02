@@ -57,6 +57,9 @@ enum MaterialTag : uint32_t {
     // (`conductor_spectra` or `reflectance`), plus the metal's own roughness
     // below.
     CoatedConductor = 6,
+    // A thin sheet of dielectric (PBRT's ThinDielectricMaterial): `eta`
+    // alone, no roughness; two specular lobes, the inter-reflections summed.
+    ThinDielectric = 8,
     // PBRT's `Material "interface"` (and its deprecated spellings `""` and
     // `"none"`), for which `Material::Create` returns no material at all: a
     // surface that scatters nothing and exists only to bound a participating
@@ -381,6 +384,12 @@ struct InfiniteLight {
     // image and this is the uniform light above.
     uint32_t resolution = 0;
     uint32_t first_texel = 0;
+    // Which illuminant the texels' fits are multiplied by: the image's colour
+    // space's (PBRT builds an RGBIlluminantSpectrum against the image's
+    // space). Zero is D65 -- sRGB's and DCI-P3's, which the renderer's driver
+    // has -- and k > 0 is entry k - 1 of `env_illuminants` below, the dense
+    // spectrum of another space's illuminant (ACES2065-1's D60).
+    uint32_t illuminant = 0;
     // PBRT's `renderFromLight`, already inverted -- 4x4 in row order. The only
     // thing done with it is ApplyInverse, so the direction it is used in is the
     // one handed over. Identity when the scene wrapped the light in no
@@ -725,6 +734,11 @@ struct Scene {
     // perfectly good answer to "what does this reflect" and a catastrophic one
     // to "how often should this be sampled".
     std::vector<float> env_sampling;
+    // The illuminants of the environment maps' colour spaces other than D65,
+    // 471 values each over 360 to 830 nm, end to end: what an image light's
+    // `illuminant - 1` indexes (ACES2065-1's D60 for a sky in ACES). Small,
+    // so in the scene file itself.
+    std::vector<float> env_illuminants;
     // The image textures, their pyramid levels, and every level's texels laid
     // end to end. The texels go in the sidecar beside the environment maps and
     // for the same reason: a 2048x2048 pyramid is seventeen million numbers.
@@ -1027,6 +1041,10 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::CoatedConductor:
             out << "  coatedconductor";
             break;
+        case MaterialTag::ThinDielectric:
+            out << "  thindielectric";
+            detail::put(out, &m.eta, 1);
+            break;
         case MaterialTag::Interface:
             out << "  interface";
             break;
@@ -1110,6 +1128,11 @@ inline bool write(const char *path, const Scene &scene) {
         detail::put(out, &m.g, 1);
         out << " emissive " << m.emissive << '\n';
     }
+    out << "envilluminants " << scene.env_illuminants.size() << '\n';
+    for (size_t i = 0; i < scene.env_illuminants.size(); i++) {
+        detail::put(out, &scene.env_illuminants[i], 1);
+        out << (i % 8 == 7 || i + 1 == scene.env_illuminants.size() ? '\n' : ' ');
+    }
     out << "mediumspectra " << scene.medium_spectra.size() << '\n';
     for (size_t i = 0; i < scene.medium_spectra.size(); i++) {
         detail::put(out, &scene.medium_spectra[i], 1);
@@ -1172,7 +1195,8 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, l.direction, 3);
         }
         if (l.resolution != 0) {
-            out << " resolution " << l.resolution << " first " << l.first_texel;
+            out << " resolution " << l.resolution << " first " << l.first_texel
+                << " illuminant " << l.illuminant;
             if (l.portal != 0) {
                 out << " points";
                 detail::put(out, l.portal_points, 12);
@@ -1625,6 +1649,9 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MaterialTag::DiffuseTransmission;
         } else if (word == "coatedconductor") {
             m.tag = MaterialTag::CoatedConductor;
+        } else if (word == "thindielectric") {
+            m.tag = MaterialTag::ThinDielectric;
+            floats(&m.eta, 1);
         } else if (word == "interface") {
             m.tag = MaterialTag::Interface;
         } else {
@@ -1819,6 +1846,17 @@ inline bool read(const char *path, Scene &scene) {
         in >> m.emissive;
         scene.media.push_back(m);
     }
+    if (!(in >> word) || word != "envilluminants") {
+        return false;
+    }
+    in >> count;
+    scene.env_illuminants.assign(count, 0.f);
+    for (size_t i = 0; i < count; i++) {
+        floats(&scene.env_illuminants[i], 1);
+    }
+    if (count % 471 != 0) {
+        return false; // 471 values per illuminant, 360 to 830 nm
+    }
     if (!(in >> word) || word != "mediumspectra") {
         return false;
     }
@@ -1955,6 +1993,10 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             in >> l.first_texel;
+            if (!tagged("illuminant")) {
+                return false;
+            }
+            in >> l.illuminant;
             if (l.portal != 0) {
                 if (!tagged("points")) {
                     return false;

@@ -1506,6 +1506,10 @@ int main(int argc, char **argv) {
             glass.remap = m.remap != 0;
             glass.eta = m.eta;
             Material_Dielectric(material, glass);
+        } else if (m.tag == bonsai_scene::MaterialTag::ThinDielectric) {
+            ThinDielectricMaterial sheet;
+            sheet.eta = m.eta;
+            Material_ThinDielectric(material, sheet);
         } else if (m.tag == bonsai_scene::MaterialTag::DiffuseTransmission) {
             DiffuseTransmissionMaterial leaf;
             leaf.reflectance = reflectance;
@@ -2156,6 +2160,7 @@ int main(int argc, char **argv) {
             door.scale = l.scale;
             door.resolution = int32_t(l.resolution);
             door.first_texel = int32_t(l.first_texel);
+            door.illuminant = int32_t(l.illuminant);
             door.scene_radius = loaded.scene_radius;
             const size_t res = l.resolution;
             door.dist.first_value = int32_t(env_dist_values.size());
@@ -2202,6 +2207,7 @@ int main(int argc, char **argv) {
             img.scale = l.scale;
             img.resolution = int32_t(l.resolution);
             img.first_texel = int32_t(l.first_texel);
+            img.illuminant = int32_t(l.illuminant);
             img.scene_radius = loaded.scene_radius;
             img.dist = env_dists[next_dist++];
             img.compensated = env_dists[next_dist++];
@@ -2311,6 +2317,12 @@ int main(int argc, char **argv) {
     std::copy(CIE_Y, CIE_Y + CIE_SAMPLES, y.begin());
     std::copy(CIE_Z, CIE_Z + CIE_SAMPLES, z.begin());
     std::copy(CIE_D65_FILM, CIE_D65_FILM + CIE_SAMPLES, d65.begin());
+    // The environment maps' illuminants (render.bonsai's `env_illuminants`):
+    // D65 first, as entry zero, then the ones the converter dumped for images
+    // in another colour space (ACES2065-1's D60), 471 values each.
+    std::vector<float> env_illuminants(d65.begin(), d65.end());
+    env_illuminants.insert(env_illuminants.end(), loaded.env_illuminants.begin(),
+                           loaded.env_illuminants.end());
 
     // The pixel sensor's three response curves and its output matrix, from the
     // scene. scene_dump ships them for every scene -- the default sensor's
@@ -2410,6 +2422,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
     bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
+    bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
     // header lists in BONSAI_render_EXTERN_STORAGE, each of the queue's
@@ -2471,7 +2484,8 @@ int main(int argc, char **argv) {
         &b_media, &b_medium_spectra, &b_primes, &b_digit_permutations,
         &b_digit_permutation_offsets, &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
-        &b_env_sat, &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
+        &b_env_sat, &b_env_illuminants, &b_lights, &b_light_tree,
+        &b_light_bit_trails, &b_materials,
         &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
 #ifdef BONSAI_HAS_OPTIX
@@ -2555,7 +2569,8 @@ int main(int argc, char **argv) {
                &b_digit_permutations, &b_digit_permutation_offsets,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
                &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_env_sat,
-               &b_lights, &b_light_tree, &b_light_bit_trails, &b_materials,
+               &b_env_illuminants, &b_lights, &b_light_tree, &b_light_bit_trails,
+               &b_materials,
                &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));

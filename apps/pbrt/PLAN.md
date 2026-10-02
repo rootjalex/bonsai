@@ -8744,6 +8744,33 @@ interaction draws computed in the step before, carried in the entry
 (pbrt's RaySamples, some ten floats), in a kernel of their own or in the
 trace's raygen.
 
+**More scenes: the environment map's colour space, and a thin dielectric
+(2026-10-02).** The survey of the 26th filed twelve scenes under "an
+environment map in a colour space other than sRGB". That is done as pbrt
+does it: the converter fits each texel with the *image's* colour space's
+RGB-to-spectrum table (`table_of` in scene_dump.cpp; sRGB, DCI-P3 and
+ACES2065-1 are linked from pbrt's library, Rec.2020 is not and is refused
+by name) and writes the space's illuminant into the scene file once per
+space (`env_illuminants`, 471 values, `illuminant` on the light; D65 is
+index zero and the driver's own, so an sRGB scene's numbers are untouched);
+the program multiplies a map's fit by its light's illuminant
+(`spectrum_at_dense_in`), and pbrt's photometric normalization of the
+light's scale is over the image's illuminant too. pavilion-day, an sRGB
+sky, renders bit for bit what it did. What the survey could not see,
+because scene_dump stops at its first refusal: every one of the twelve has
+something else behind the colour space. bistro's three name the `zsobol`
+sampler (pbrt's default, which 27 more files of the set leave unnamed);
+sportscar-sky's PLY holds quads, which pbrt reads as bilinear patches;
+villa-daylight asked for `thindielectric` -- done, pbrt's two-lobe sheet
+transliterated (bxdf.bonsai's ThinDielectricBxDF, a `ThinDielectric`
+material variant, the tag in the scene file; book, whose material tags all
+moved, bit for bit what it was) -- and then for a `wrinkled` texture, which
+is Perlin noise, with an `uber` material behind that. So the ACES path is
+unexercised by a render until one of those lands; the survey's counts were
+counts of first refusals. Next by scenes unlocked, in order: the `zsobol`
+sampler (bistro, and pbrt's default), the noise textures (`wrinkled`,
+`fbm`, `windy`, `marble`), the portal light, the bilinear patch.
+
 **Dielectric on pavilion-day: the sampler's divisions, and a rule.**
 pbrt's Dielectric kernel and ours, ncu over every launch of a 64 spp
 render (pbrt's kernels are all named `Kernel`, so the filter is on the

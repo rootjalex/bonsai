@@ -96,6 +96,14 @@
 namespace pbrt {
 extern const float sRGBToSpectrumTable_Scale[64];
 extern const RGBToSpectrumTable::CoefficientArray sRGBToSpectrumTable_Data;
+// And the other colour spaces' tables PBRT generates and links, for an
+// environment map in one of them (a sky in ACES2065-1, as the bistro,
+// sportscar and villa scenes have). Rec.2020's is not in the library this
+// builds against, so a Rec.2020 image is refused.
+extern const float DCI_P3ToSpectrumTable_Scale[64];
+extern const RGBToSpectrumTable::CoefficientArray DCI_P3ToSpectrumTable_Data;
+extern const float ACES2065_1ToSpectrumTable_Scale[64];
+extern const RGBToSpectrumTable::CoefficientArray ACES2065_1ToSpectrumTable_Data;
 } // namespace pbrt
 
 namespace {
@@ -671,7 +679,61 @@ struct Sigmoid {
     float c0, c1, c2;
 };
 
-Sigmoid srgb_to_sigmoid(float r, float g, float b) {
+// A colour space's RGB-to-spectrum table, by its two arrays.
+struct SpectrumTable {
+    const float *scale;
+    const pbrt::RGBToSpectrumTable::CoefficientArray *data;
+};
+
+// The table of `space`, or a failure naming the space: sRGB, DCI-P3 and
+// ACES2065-1 are linked; Rec.2020 is not (see the declarations above).
+SpectrumTable table_of(const pbrt::RGBColorSpace *space, const std::string &what) {
+    if (space == pbrt::RGBColorSpace::sRGB) {
+        return {pbrt::sRGBToSpectrumTable_Scale, &pbrt::sRGBToSpectrumTable_Data};
+    }
+    if (space == pbrt::RGBColorSpace::DCI_P3) {
+        return {pbrt::DCI_P3ToSpectrumTable_Scale, &pbrt::DCI_P3ToSpectrumTable_Data};
+    }
+    if (space == pbrt::RGBColorSpace::ACES2065_1) {
+        return {pbrt::ACES2065_1ToSpectrumTable_Scale,
+                &pbrt::ACES2065_1ToSpectrumTable_Data};
+    }
+    fail(what + ": its colour space is " +
+         (space == pbrt::RGBColorSpace::Rec2020 ? std::string("Rec.2020")
+                                                : std::string("not a named one")) +
+         ", whose RGB-to-spectrum table this converter does not have; sRGB, "
+         "DCI-P3 and ACES2065-1 are supported");
+    return {nullptr, nullptr};
+}
+
+// Which illuminant an image light in `space` multiplies its fits by (PBRT's
+// RGBIlluminantSpectrum against the image's colour space): zero for D65,
+// which the renderer's driver has and which sRGB and DCI-P3 use; for another
+// space, its illuminant densely sampled over 360 to 830 nm, appended to
+// `out.env_illuminants` once per space and named by index plus one
+// (bonsai_scene::InfiniteLight::illuminant).
+uint32_t illuminant_index(const pbrt::RGBColorSpace *space, bonsai_scene::Scene &out) {
+    if (space == pbrt::RGBColorSpace::sRGB || space == pbrt::RGBColorSpace::DCI_P3) {
+        return 0;
+    }
+    static std::map<const pbrt::RGBColorSpace *, uint32_t> dumped;
+    const auto found = dumped.find(space);
+    if (found != dumped.end()) {
+        return found->second;
+    }
+    constexpr int first = 360, last = 830;
+    out.env_illuminants.reserve(out.env_illuminants.size() + (last - first + 1));
+    for (int lambda = first; lambda <= last; lambda++) {
+        out.env_illuminants.push_back(float(space->illuminant(float(lambda))));
+    }
+    const uint32_t index = uint32_t(out.env_illuminants.size() / (last - first + 1));
+    dumped[space] = index;
+    return index;
+}
+
+// PBRT: `RGBToSpectrumTable::operator()`, the trilinear lookup of the sigmoid
+// that fits an RGB in the table's colour space.
+Sigmoid fit_sigmoid(const SpectrumTable &table, float r, float g, float b) {
     constexpr int res = 64;
     r = std::min(std::max(r, 0.f), 1.f);
     g = std::min(std::max(g, 0.f), 1.f);
@@ -696,19 +758,18 @@ Sigmoid srgb_to_sigmoid(float r, float g, float b) {
     const int yi = std::min(int(y), res - 2);
     int zi = 0;
     for (int i = 1; i < res - 1; i++) {
-        if (pbrt::sRGBToSpectrumTable_Scale[i] < z) {
+        if (table.scale[i] < z) {
             zi = i;
         }
     }
     const float dx = x - xi;
     const float dy = y - yi;
-    const float z0 = pbrt::sRGBToSpectrumTable_Scale[zi];
-    const float z1 = pbrt::sRGBToSpectrumTable_Scale[zi + 1];
+    const float z0 = table.scale[zi];
+    const float z1 = table.scale[zi + 1];
     const float dz = (z - z0) / (z1 - z0);
 
     const auto co = [&](int ddx, int ddy, int ddz, int i) {
-        return pbrt::sRGBToSpectrumTable_Data[maxc][zi + ddz][yi + ddy]
-                                             [xi + ddx][i];
+        return (*table.data)[maxc][zi + ddz][yi + ddy][xi + ddx][i];
     };
     const auto lerp = [](float t, float a, float bb) {
         return (1 - t) * a + t * bb;
@@ -1695,9 +1756,25 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
+    if (m.name == "thindielectric") {
+        // PBRT: ThinDielectricMaterial::Create -- the one parameter is `eta`,
+        // 1.5 by default; a spectral one is refused as on dielectric.
+        out.tag = bonsai_scene::MaterialTag::ThinDielectric;
+        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
+        if (eta != nullptr) {
+            if (eta->type != "float" || eta->floats.size() != 1) {
+                fail("only a scalar `float eta` is supported on thindielectric, "
+                     "not a named spectrum -- a spectral index terminates the "
+                     "secondary wavelengths, which nothing here does");
+            }
+            out.eta = eta->floats[0];
+        }
+        return out;
+    }
+
     fail("only the diffuse, coateddiffuse, coatedconductor, dielectric, "
-         "conductor, measured and diffusetransmission materials are "
-         "supported, scene asks for \"" +
+         "thindielectric, conductor, measured and diffusetransmission "
+         "materials are supported, scene asks for \"" +
          m.name + "\"");
 }
 
@@ -2950,6 +3027,7 @@ void dump_light_tree(const std::vector<pbrt::Light> &lights,
 // sampling.bonsai); the summed-area table over the values is the driver's.
 // `portal` is in render space already, `out_light` carries the scale.
 static void emit_portal_light(const pbrt::Image &equal_area,
+                              const SpectrumTable &table,
                               const pbrt::Transform &render_from_light,
                               const std::vector<pbrt::Point3f> &portal,
                               bonsai_scene::InfiniteLight out_light,
@@ -3021,9 +3099,9 @@ static void emit_portal_light(const pbrt::Image &equal_area,
             const float texel_scale = 2 * m;
             const Sigmoid rsp =
                 texel_scale != 0.f
-                    ? srgb_to_sigmoid(r / texel_scale, g / texel_scale,
-                                      b / texel_scale)
-                    : srgb_to_sigmoid(0.f, 0.f, 0.f);
+                    ? fit_sigmoid(table, r / texel_scale, g / texel_scale,
+                                  b / texel_scale)
+                    : fit_sigmoid(table, 0.f, 0.f, 0.f);
             out.env_texels.push_back(rsp.c0);
             out.env_texels.push_back(rsp.c1);
             out.env_texels.push_back(rsp.c2);
@@ -3221,7 +3299,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             out_light.scale =
                 float(scale / pbrt::SpectrumToPhotometric(
                                   &pbrt::RGBColorSpace::sRGB->illuminant));
-            emit_portal_light(one,
+            emit_portal_light(one, table_of(pbrt::RGBColorSpace::sRGB, "a uniform portal light"),
                               scene.GetCamera().GetCameraTransform().RenderFromWorld() *
                                   light.ctm,
                               portal, out_light, out);
@@ -3260,15 +3338,16 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                                 "equal-area octahedral one, and this is " +
                      std::to_string(res.x) + "x" + std::to_string(res.y));
             }
-            // The colour space the texels are fitted against. Only sRGB is
-            // implemented -- `illuminant_d65` in the renderer is sRGB's
-            // illuminant -- so another one is refused rather than silently read
-            // as sRGB.
+            // The colour space the texels are fitted against -- the image's
+            // own, as PBRT's RGBIlluminantSpectrum is built against it: its
+            // RGB-to-spectrum table for the fit, its illuminant for the
+            // renderer to multiply the fit by (`illuminant` on the light; the
+            // bistro, sportscar and villa skies are ACES2065-1, whose
+            // illuminant is D60 rather than D65). A space whose table is not
+            // linked is refused by name.
             const pbrt::RGBColorSpace *image_space = im.metadata.GetColorSpace();
-            if (image_space != pbrt::RGBColorSpace::sRGB) {
-                fail(resolved + ": an environment map in a colour space other "
-                                "than sRGB is not supported");
-            }
+            const SpectrumTable table = table_of(image_space, resolved);
+            out_light.illuminant = illuminant_index(image_space, out);
             const pbrt::ImageChannelDesc desc =
                 im.image.GetChannelDesc({"R", "G", "B"});
             if (!desc) {
@@ -3280,9 +3359,9 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 // channelDesc)`, the scale divided as for the image light.
                 out_light.scale =
                     float(scale / pbrt::SpectrumToPhotometric(
-                                      &pbrt::RGBColorSpace::sRGB->illuminant));
+                                      &image_space->illuminant));
                 emit_portal_light(
-                    im.image.SelectChannels(desc, alloc),
+                    im.image.SelectChannels(desc, alloc), table,
                     scene.GetCamera().GetCameraTransform().RenderFromWorld() *
                         light.ctm,
                     portal, out_light, out);
@@ -3333,9 +3412,9 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                     const float texel_scale = 2 * m;
                     const Sigmoid rsp =
                         texel_scale != 0.f
-                            ? srgb_to_sigmoid(r / texel_scale, g / texel_scale,
-                                              b / texel_scale)
-                            : srgb_to_sigmoid(0.f, 0.f, 0.f);
+                            ? fit_sigmoid(table, r / texel_scale, g / texel_scale,
+                                          b / texel_scale)
+                            : fit_sigmoid(table, 0.f, 0.f, 0.f);
                     out.env_texels.push_back(rsp.c0);
                     out.env_texels.push_back(rsp.c1);
                     out.env_texels.push_back(rsp.c2);
@@ -3343,12 +3422,11 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 }
             }
             // PBRT: `scale /= SpectrumToPhotometric(&colorSpace->illuminant)`
-            // for the image case -- over the colour space's illuminant and not
-            // over the image, which is the same division the no-L uniform case
-            // makes.
+            // for the image case -- over the image's colour space's illuminant
+            // and not over the image, which is the same division the no-L
+            // uniform case makes.
             out_light.scale =
-                float(scale / pbrt::SpectrumToPhotometric(
-                                  &pbrt::RGBColorSpace::sRGB->illuminant));
+                float(scale / pbrt::SpectrumToPhotometric(&image_space->illuminant));
             // PBRT: `renderFromLight`, inverted here because ApplyInverse is
             // the only use it has. `renderFromWorld * ctm` is what
             // BasicSceneBuilder would have built.

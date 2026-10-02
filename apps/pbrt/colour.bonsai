@@ -48,6 +48,15 @@ func spectrum_at_dense(table : array[Float, 471],
     return table[o];
 }
 
+// The same, for one of several dense spectra laid end to end in an array
+// without a size -- the environment maps' illuminants (render.bonsai's
+// `env_illuminants`), 471 values each from `first`.
+func spectrum_at_dense_in(table : array[Float], first : i32,
+                          w : SampledWavelengths) -> vec4f {
+    o = cast[[vector[i32, 4]]](round(w.lambda) - 360.0) + first;
+    return table[o];
+}
+
 // pbrt: SampledSpectrum::ToXYZ followed by RGBColorSpace::ToRGB.
 //
 // Each of X, Y and Z is the spectrum against that matching curve, averaged

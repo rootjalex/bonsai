@@ -714,6 +714,57 @@ func dielectric_flags(b : DielectricBxDF) -> i32 {
                          flag_glossy());
 }
 
+// pbrt: ThinDielectricBxDF -- a thin sheet of dielectric: reflection off the
+// front, and transmission straight through (`wi = -wo`), the reflections
+// between the two interfaces summed into R by the geometric series
+// R + T^2 R / (1 - R^2). Both lobes are deltas, so `f` and `PDF` are zero
+// and everything happens in Sample_f, chosen between by `uc` in proportion
+// to R and T.
+element ThinDielectricBxDF {
+    eta : Float;
+}
+
+func thin_dielectric_f(t : ThinDielectricBxDF, wo : vec3f, wi : vec3f) -> vec4f {
+    return vec4f{0.0, 0.0, 0.0, 0.0};
+}
+
+func thin_dielectric_pdf(t : ThinDielectricBxDF, wo : vec3f, wi : vec3f) -> Float {
+    return 0.0;
+}
+
+// pbrt: ThinDielectricBxDF::Flags -- both lobes, both specular.
+func thin_dielectric_flags(t : ThinDielectricBxDF) -> i32 {
+    return flag_reflection() | flag_transmission() | flag_specular();
+}
+
+// pbrt: ThinDielectricBxDF::Sample_f, in either transport mode (the thin
+// sheet changes no medium, so there is no eta-squared factor).
+func thin_dielectric_sample_f(t : ThinDielectricBxDF, wo : vec3f, uc : Float,
+                              sample_flags : i32) -> option[BSDFSample] {
+    r0 = fr_dielectric(abs_cos_theta(wo), t.eta);
+    t0 = 1.0 - r0;
+    // pbrt: `if (R < 1) { R += Sqr(T) * R / (1 - Sqr(R)); T = 1 - R; }`
+    refl = select(r0 < 1.0, r0 + sqr(t0) * r0 / (1.0 - sqr(r0)), r0);
+    trans = 1.0 - refl;
+    pr = select((sample_flags & sample_reflection()) == 0, 0.0, refl);
+    pt = select((sample_flags & sample_transmission()) == 0, 0.0, trans);
+    if (pr == 0.0) && (pt == 0.0) {
+        return {};
+    }
+    if uc < pr / (pr + pt) {
+        wi = vec3f{-wo.x, -wo.y, wo.z};
+        fr = refl / abs_cos_theta(wi);
+        s : BSDFSample = {vec4f{fr, fr, fr, fr}, wi, pr / (pr + pt),
+                          flag_specular() | flag_reflection(), 1.0, false};
+        return s;
+    }
+    wi = -wo;
+    ft = trans / abs_cos_theta(wi);
+    s : BSDFSample = {vec4f{ft, ft, ft, ft}, wi, pt / (pr + pt),
+                      flag_specular() | flag_transmission(), 1.0, false};
+    return s;
+}
+
 // pbrt: ConductorBxDF, a microfacet reflector with a complex index.
 //
 // The same Trowbridge-Reitz distribution the dielectric's interface uses, over
@@ -1994,6 +2045,14 @@ element DielectricMaterial {
     eta : Float;
 }
 
+// pbrt: ThinDielectricMaterial -- a sheet of glass too thin to refract
+// through: light leaves on the far side in the direction it arrived, and the
+// two interfaces' reflections are summed. No roughness; the one parameter is
+// the index of refraction (a scalar here, as on Dielectric).
+element ThinDielectricMaterial {
+    eta : Float;
+}
+
 // pbrt: DiffuseTransmissionMaterial. Two reflectances -- one for each side of
 // the leaf -- and pbrt's `scale`, applied to both before they are clamped to
 // [0, 1] in GetBxDF.
@@ -2096,6 +2155,7 @@ element Material =
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
     | CoatedConductor(cc : CoatedConductorMaterial)
     | Dielectric(g : DielectricMaterial)
+    | ThinDielectric(td : ThinDielectricMaterial)
     | Conductor(c : ConductorMaterial)
     | DiffuseTransmission(dt : DiffuseTransmissionMaterial)
     // pbrt: MeasuredMaterial, which is nothing but the index of the table --
@@ -2218,6 +2278,8 @@ element BxDF =
     | Layered(b : LayeredBxDF)
     // The same `DielectricBxDF` a Layered one has on top of it, on its own.
     | Boundary(g : DielectricBxDF)
+    // A thin sheet of it: two specular lobes and nothing else.
+    | Thin(t : ThinDielectricBxDF)
     | Metal(c : ConductorBxDF)
     | Table(t : MeasuredBxDF)
     // A Lambertian lobe on each side: a leaf.
@@ -2320,6 +2382,14 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             b : DielectricBxDF = {g.eta, distrib};
             return Boundary(b);
         }
+        ThinDielectric(td) => {
+            // pbrt: ThinDielectricMaterial::GetBxDF -- the index alone (a zero
+            // index is read as one there; a scalar here is never zero).
+            // Regularize is a TODO in pbrt's ThinDielectricBxDF, so nothing
+            // here either.
+            t : ThinDielectricBxDF = {td.eta};
+            return Thin(t);
+        }
     }
 }
 
@@ -2384,6 +2454,18 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        // The thin sheet the same way: two deltas, `uc` choosing between them.
+        Thin(t) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = thin_dielectric_sample_f(t, wo, uc[i], sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
         // And again for a conductor, which answers `none` to every sample when
         // it is smooth -- its lobe is a delta and `uc` never selects it, since
         // there is nothing to select. pbrt counts those as zero the same way.
@@ -2426,6 +2508,7 @@ func bxdf_flags(b : BxDF) -> i32 {
         Translucent(dt) => return diffuse_transmission_flags(dt);
         Layered(l) => return coated_flags(l);
         Boundary(g) => return dielectric_flags(g);
+        Thin(t) => return thin_dielectric_flags(t);
         Metal(c) => return conductor_flags(c);
         Table(t) => return measured_flags();
     }
@@ -2447,6 +2530,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
         Translucent(dt) => return diffuse_transmission_f(dt, wo, wi);
         Layered(l) => return coated_f(l, wo, wi, seed);
         Boundary(g) => return dielectric_f(g, wo, wi, radiance_mode());
+        Thin(t) => return thin_dielectric_f(t, wo, wi);
         Metal(c) => return conductor_f(c, wo, wi);
         Table(t) => return measured_f(t, wo, wi);
     }
@@ -2470,6 +2554,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
             return diffuse_transmission_pdf(dt, wo, wi, sample_all());
         Layered(l) => return coated_pdf(l, wo, wi, seed);
         Boundary(g) => return dielectric_pdf(g, wo, wi, sample_all());
+        Thin(t) => return thin_dielectric_pdf(t, wo, wi);
         Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
         Table(t) => return measured_pdf(t, wo, wi, sample_all());
     }
@@ -2494,6 +2579,7 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
         Boundary(g) =>
             return dielectric_sample_f(g, wo, uc, u, radiance_mode(),
                                        sample_all());
+        Thin(t) => return thin_dielectric_sample_f(t, wo, uc, sample_all());
         // No `uc`: a conductor has one lobe, so there is no branch to choose
         // between and pbrt's Sample_f does not read it.
         Metal(c) => return conductor_sample_f(c, wo, u, sample_all());

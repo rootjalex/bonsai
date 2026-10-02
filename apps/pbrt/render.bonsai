@@ -199,6 +199,13 @@ extern env_dist_marg_cdf : array[Float];
 // pbrt: the SummedAreaTable of every portal light's WindowedPiecewiseConstant2D
 // (sampling.bonsai), end to end; its values are in `env_dist_values`.
 extern env_sat : array[Float];
+// The illuminants of the environment maps' colour spaces, 471 values each
+// over 360 to 830 nm, end to end: D65 first, which is sRGB's and DCI-P3's,
+// then whatever the scene's images brought (ACES's D60). A map's texel is
+// its fit times its space's illuminant (pbrt's RGBIlluminantSpectrum, built
+// against the image's colour space); an image in another space than sRGB
+// used to be refused by the converter.
+extern env_illuminants : array[Float];
 
 element ImageInfiniteLight {
     // pbrt: `renderFromLight` and its inverse. Both, because both are used:
@@ -213,6 +220,11 @@ element ImageInfiniteLight {
     resolution : i32;
     // Where this light's texels begin, so two maps can share the array.
     first_texel : i32;
+    // pbrt: the image's colour space's illuminant, which every texel's
+    // RGBIlluminantSpectrum is the fit times -- D65 for an sRGB or DCI-P3
+    // image, D60 for an ACES one. Which dense spectrum of `env_illuminants`,
+    // by index; the driver puts D65 first.
+    illuminant : i32;
     // pbrt: sceneRadius, for the point a shadow ray towards the sky stops at.
     scene_radius : Float;
     // pbrt: `distribution` and `compensatedDistribution`.
@@ -274,9 +286,11 @@ element PortalLight {
     p2 : vec3f;
     scale : Float;
     // The rectified image: square, its texels in `env_texels` from
-    // `first_texel`, fitted as the environment map's are.
+    // `first_texel`, fitted as the environment map's are, against the same
+    // illuminant (see ImageInfiniteLight).
     resolution : i32;
     first_texel : i32;
+    illuminant : i32;
     scene_radius : Float;
     // pbrt: `distribution`, over the texel average times d(u,v)/dw.
     dist : WindowedDist2D;
@@ -369,9 +383,9 @@ func image_le(img : ImageInfiniteLight, uv : vec2f,
     fit : SigmoidPolynomial = {texel.x, texel.y, texel.z};
     // pbrt: `scale * RGBIlluminantSpectrum(cs, rgb).Sample(lambda)`, which is
     // the light's scale times the fit's own scale times the fit times the
-    // colour space's illuminant.
+    // image's colour space's illuminant.
     return img.scale * texel.w * spectrum_at(fit, lambda) *
-           spectrum_at_dense(illuminant_d65, lambda);
+           spectrum_at_dense_in(env_illuminants, img.illuminant * 471, lambda);
 }
 
 // pbrt: ImageInfiniteLight::Le. The ray's direction, taken back into the
@@ -451,7 +465,7 @@ func portal_lookup(door : PortalLight, uv : vec2f,
     texel = env_texels[door.first_texel + y * door.resolution + x];
     fit : SigmoidPolynomial = {texel.x, texel.y, texel.z};
     return door.scale * texel.w * spectrum_at(fit, lambda) *
-           spectrum_at_dense(illuminant_d65, lambda);
+           spectrum_at_dense_in(env_illuminants, door.illuminant * 471, lambda);
 }
 
 // pbrt: PortalImageInfiniteLight::Le -- the sky along a ray that hit nothing,
