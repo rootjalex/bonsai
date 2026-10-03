@@ -687,11 +687,13 @@ network and the children's selects through it.
    through to each arm's row address with the widest arm's bytes (256,
    node and leaf alike, as `BVH::prefetch` fetches four lines of either),
    SSA/Linearize.cpp predicates it like a store, and
-   CodeGen_LLVM::emit_prefetch issues it per lane as a `tzcnt`/`blsr` loop
-   over the mask with four `prefetcht0` per hit child, the pointer vector
-   spilled once before the loop. Two loops per node, one per arm (the
-   interior children's and the leaves'), eight `prefetcht0` in each
-   kernel. Measured below.
+   CodeGen_LLVM::emit_prefetch issues it per lane with four `prefetcht0`
+   per hit child -- first as a `tzcnt`/`blsr` loop over the mask with the
+   pointer vector spilled once before the loop (measured below, a loss),
+   then as Embree's sequence: the addresses compressed in a register and
+   each lane's taken out at a constant index behind a test on the count
+   (the evening section below). On the one-arena layout one prefetch
+   statement per node, no switch on the kind.
 7. *The any-hit kernel's register pressure.* It reloads its six node
    constants (the broadcast reciprocal direction and origin) from the stack
    every node; the leaf's temporaries and the ray's constants fill the
@@ -1050,6 +1052,96 @@ and 0.92x-1.00x on the any hit, with the layout now Embree's and the
 schedule Embree's step for step, so it is the code generation's: the push
 as a compacting store to memory and the prefetch's per-child cost, next,
 in that order.
+
+## The push and the prefetch without memory in the way (evening of 2026-10-02)
+
+The two code-generation differences the profile of 12:38 named, fixed
+in the order given, both measured back to back against the arena builds
+of 17:10 (gen25/gen26 against gen27/gen28 in the scratchpad), every ray
+agreeing.
+
+**The push.** A compacting store with slack past its slots
+(ir::Store::slack, `compress_store_whole(` in the Stmt form, `compact
+whole` in the SSA dump): the lanes that are on packed to the front in a
+register and the whole vector stored, the lanes past the count landing
+in slots nothing reads. loopify (SSA/QueueRecursion.cpp) allocates each
+stack a vector longer than the size asked for -- the widest run's lanes,
+`!stack : mut u32[68]` for a size of 64 and four lanes -- and sets the
+flag on both pushes, the sorted run's and the lane run's. On x86 the
+push is now `vpcompressq %zmm22,%zmm0{%k1}{z}; vmovdqu64
+%zmm0,0x128(%rsp,%r15,8)` where it was `vpcompressq %zmm22,
+0x168(%rsp,%r15,8){%k1}`, the 8-uop, 3-cycle (Zen 5) or 88-uop (Zen 4)
+compacting store to memory. Embree's push is a scalar store per child
+from its count switch; ours stays one store per stack per node.
+
+**The prefetch.** CodeGen_LLVM::emit_prefetch takes the lanes as Embree's
+traversal takes the hit children out of a node: the addresses as
+integers compressed in a register (`vpcompressq`), the mask counted
+(`popcnt`), and a chain of blocks, one per lane, each entered when the
+count exceeds the lane's number, taking the lane's address out at a
+constant index (`vmovq`, `vpextrq`, a `vextracti32x4` first for the
+upper lanes) and fetching its four lines. One misprediction per node at
+the lane past the last, as Embree's count switch takes; no spill, no
+store-forwarding stall. On the arena there is one such chain per node
+(no switch on the kind): the nearest-hit kernel is 508 instructions with
+32 `prefetcht0`, the any-hit kernel 328 with 32, the chain's eight lanes
+unrolled where the loop was one body (432 and 273 before).
+
+**What it measured** (ratio bonsai over Embree, before then after,
+primary/ao/diffuse; cpu 11, least of 5, `--side 2048`):
+
+| mesh    | nearest hit, both schedules | any hit, embree.bonsai | any hit, tuned.bonsai |
+|---------|-----------------------------|------------------------|-----------------------|
+| head    | 1.13/0.74/0.73 to 1.23/0.78/0.77 | 1.80/1.00/0.99 to 1.84/0.99/0.97 | 1.79/1.08/1.06 to 1.81/1.07/1.05 |
+| ganesha | 0.88/0.76/0.78 to 0.92/0.78/0.78 | 1.18/0.94/0.93 to 1.18/0.92/0.92 | 1.17/0.97/0.95 to 1.16/0.97/0.95 |
+| dragon  | 1.03/0.80/0.81 to 1.08/0.83/0.83 | 1.24/0.93/0.92 to 1.24/0.93/0.91 | 1.22/0.96/0.95 to 1.14/0.92/0.90 (its block ran last; see the official table) |
+
+The nearest hit gains 4-9% on primary rays and 0-5% on incoherent ones
+on every mesh. The profile of ganesha's ao rays, ours over Embree's
+kernel per event, closes the loop on the 12:38 table: cycles 1.16x to
+1.06x, instructions 1.25x to 1.07x, branch misses 0.90x to 0.89x, L1
+misses 0.88x to 0.80x, demand fills from DRAM 1.30x to 1.12x. The
+prefetch now costs about what Embree's does and converts the misses as
+Embree's does; what is left of the nearest-hit gap on incoherent rays
+(0.78x-0.83x) is no longer in these two places.
+
+The any hit is level on primary rays and 1-2% down on incoherent ones
+with the matching schedule. Its profile on ganesha's ao rays, before then
+after: cycles 1.08x to 1.10x, instructions 1.29x to 1.28x, branch misses
+1.08x to 1.11x, L1 misses 0.94x to 0.92x, DRAM fills 1.43x to 1.27x --
+fewer instructions and fewer fills, 3% more branch misses, and the
+cycles follow the misses. The hottest instructions after: the first
+lane's `prefetcht0` pair (8.2% and 5.8%, behind the `vmovq` that waits
+on the compress), the leaf tile's load (8.2%), the push's `vmovdqu64`
+(4.5%, behind its compress). The any-hit kernel's own 1.28x instructions
+and 1.1x branch misses against Embree's are the matching schedule's
+(the leaf skip, measured 5-7% on these rays) and the sort-free run's
+shape, not these two fixes; the matching schedule keeps both by
+direction. Where the any hit's remaining 0.92x on incoherent rays sits
+is the next profile.
+
+**The official table** (17:34, `compare.sh --side 2048` on each mesh,
+cpu 11 quiet, least of 5, million rays per second; the nearest hit is
+the tuned schedule's too, within 0.01x):
+
+| mesh (triangles)    | rays    | intersect: Embree | bonsai | ratio | occluded: Embree | embree.bonsai | ratio | tuned.bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 38.43 | 47.26 | 1.23x | 45.17 | 83.48 | 1.85x | 82.42 | 1.83x |
+|                     | ao      | 13.61 | 10.58 | 0.78x | 15.02 | 14.90 | 0.99x | 16.15 | 1.07x |
+|                     | diffuse | 12.37 |  9.59 | 0.78x | 14.02 | 13.60 | 0.97x | 14.76 | 1.05x |
+| ganesha (4,323,658) | primary | 19.20 | 17.77 | 0.93x | 21.62 | 25.36 | 1.17x | 25.15 | 1.16x |
+|                     | ao      |  6.10 |  4.82 | 0.79x |  6.58 |  6.06 | 0.92x |  6.32 | 0.96x |
+|                     | diffuse |  5.73 |  4.52 | 0.79x |  5.64 |  5.17 | 0.92x |  5.35 | 0.95x |
+| dragon (7,219,045)  | primary | 25.74 | 28.02 | 1.09x | 27.43 | 34.13 | 1.24x | 33.47 | 1.22x |
+|                     | ao      |  4.40 |  3.66 | 0.83x |  4.68 |  4.31 | 0.92x |  4.52 | 0.96x |
+|                     | diffuse |  3.95 |  3.28 | 0.83x |  4.20 |  3.81 | 0.91x |  4.19 | 0.95x |
+
+(The tuned dragon row of the back-to-back table above, 1.14/0.92/0.90,
+was its last block and is not borne out here: 1.22/0.96/0.95, the same
+as before the fixes.) Note that `compare.sh` without `--side` runs
+1024-wide batches, a quarter of the rays, and the incoherent ratios
+read higher there (ganesha ao 0.85x nearest, 0.94x any hit at 17:32);
+the tables in this plan are all `--side 2048`.
 
 ## Known-open, smaller
 
