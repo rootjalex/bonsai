@@ -1476,6 +1476,72 @@ prefetch's own compress of the addresses. The matching schedule's
 leaf skip and the sort-free run's shape are the rest of the any hit's
 1.28x ops.
 
+## The rulings on the non-generic list, and the order of work (night of 2026-10-02)
+
+Read against the list above, in the order they are to be done.
+
+1. **The SSA compress gets a "front only" flag.** `ir::Intrinsic::compress`
+   carries, as `Store::slack` does, that nothing reads past the packed
+   lanes; SortRecursion's one-hit arm and QueueRecursion's `!one` block
+   set it, CodeGen_LLVM lowers it with `compress_lanes(...,
+   zero_rest=false)` (and CodeGen_X86::dynamic_shuffle must see it), and
+   the two zero idioms per one-hit node go. Tests at the ssa, llvm and
+   execution levels.
+2. **The found flag: thread the constant edges in SSA.** The repository
+   has a jump threading pass, but it is `Opt/JumpThreading`, a statement
+   pass that replicates code between two tests of one condition
+   (Mueller and Whalley), run before the SSA loop exists; QueueRecursion
+   wrote the `!live` header argument expecting LLVM's jump threading to
+   turn the constant edges into direct branches, and LLVM's refuses to
+   thread through a loop header (`ThreadAcrossLoopHeaders` is off: it
+   would make the loop irreducible), which `!visit` is. The fix is an
+   SSA rule: a jump into an instruction-free block whose terminator
+   dispatches on one of its arguments, passing a constant there, goes
+   straight to the chosen successor; every edge left passes true, the
+   argument folds, the dispatch goes. No copy, no new loop entry. The
+   any hit's found flag is the same mechanism.
+3. **Loopify never tests the prune at a direct descent.** The ruling: the
+   entry test is the argmin's or argmax's pruning condition, which the
+   children's mask has already tested against a bounding volume, so the
+   descent is always safe without it -- and it is correctness-neutral
+   besides, since pruning only avoids subtrees that cannot improve the
+   best. Build it as Embree's two nested loops, reducible: `!visit`
+   (dispatch on live, then the prune test) and `!body` (the node test
+   onward); the one-hit arm and the sorted run's first jump to `!body`,
+   pops to `!visit`. The descent then carries no distance at all, which
+   removes the key's compress and extract from the one-hit arm.
+4. **Read-only in the type system, then the lane as a scalar load.** All
+   data but reducers and `mut` arrays is read-only; the SSA `Ptr_t`
+   does not say so yet (mutability lives per parameter in
+   `ir::Function_t::ArgSig::is_mutable`, Lower/Mutability makes `mut`
+   things pointers, CodeGen_LLVM sets NoAlias/ReadOnly on some
+   parameters). First verify the compiler rejects aliasing -- two `mut`
+   parameters bound to one storage, a `mut` parameter over an extern the
+   callee reads -- and add the rejection if it does not; then the
+   immutability bit on the storage type, `!invariant.load` and
+   `readonly` in LLVM, and two rules: `ExtractIdx(Load(p), i)` is
+   `Load(p + i)` on immutable storage, and `ExtractIdx(compress(v, m),
+   0)` is `ExtractIdx(v, cttz(m))` where `m != 0` is known. Together they
+   are Embree's `child(bsf(mask))`, one scalar load off the row. Values
+   in registers keep compress and lane 0 (the permute by index measured
+   worse, above).
+5. **The sign flip: a constant-interval analysis.** A linear dataflow
+   analysis over the SSA after Halide's `ConstantInterval` and
+   `constant_integer_bounds` (fetch them; Halide is not on disk),
+   extended to floats; weak through diverging control flow (union at
+   block arguments, top for loop-carried ones), and the division pass's
+   own `upper_bound` becomes a client of it. The sort drops the flip when
+   the key's lower bound is at least zero. The program clamps `tnear` and
+   `tfar` to zero at ray setup as Embree's TravRay does; since the key is
+   formed in the box-test callee from a field of the ray, the callee's
+   summary takes the call site's argument intervals (field-sensitive,
+   memoized) or the clamp sits in the box test.
+6. **The C++ backend is not a concern and is never benchmarked.** Checked:
+   `-b cpp` compiles through CodeGen_LLVM to the `.o` and writes only a
+   header; a function whose SSA was kept is generated straight from it
+   (`-v` says "generated from SSA" per function); the relooper makes only
+   what `-p ssa` prints. compare.sh's `rtq.o` is the LLVM path already.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also
