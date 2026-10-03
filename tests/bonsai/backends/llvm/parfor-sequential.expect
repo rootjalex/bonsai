@@ -12,38 +12,38 @@ add_one:
   %extract_ptr.1 = getelementptr inbounds nuw i8, ptr %a, i64 4
   %extract.1 = load float, ptr %extract_ptr.1, align 4
   %1 = fadd float %extract.1, 1.000000e+00
-  %out1.1 = getelementptr inbounds nuw i8, ptr %out, i64 4
-  store float %1, ptr %out1.1, align 4, !tbaa !0
+  %out2.1 = getelementptr inbounds nuw i8, ptr %out, i64 4
+  store float %1, ptr %out2.1, align 4, !tbaa !0
   %extract_ptr.2 = getelementptr inbounds nuw i8, ptr %a, i64 8
   %extract.2 = load float, ptr %extract_ptr.2, align 4
   %2 = fadd float %extract.2, 1.000000e+00
-  %out1.2 = getelementptr inbounds nuw i8, ptr %out, i64 8
-  store float %2, ptr %out1.2, align 4, !tbaa !0
+  %out2.2 = getelementptr inbounds nuw i8, ptr %out, i64 8
+  store float %2, ptr %out2.2, align 4, !tbaa !0
   %extract_ptr.3 = getelementptr inbounds nuw i8, ptr %a, i64 12
   %extract.3 = load float, ptr %extract_ptr.3, align 4
   %3 = fadd float %extract.3, 1.000000e+00
-  %out1.3 = getelementptr inbounds nuw i8, ptr %out, i64 12
-  store float %3, ptr %out1.3, align 4, !tbaa !0
+  %out2.3 = getelementptr inbounds nuw i8, ptr %out, i64 12
+  store float %3, ptr %out2.3, align 4, !tbaa !0
   %extract_ptr.4 = getelementptr inbounds nuw i8, ptr %a, i64 16
   %extract.4 = load float, ptr %extract_ptr.4, align 4
   %4 = fadd float %extract.4, 1.000000e+00
-  %out1.4 = getelementptr inbounds nuw i8, ptr %out, i64 16
-  store float %4, ptr %out1.4, align 4, !tbaa !0
+  %out2.4 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  store float %4, ptr %out2.4, align 4, !tbaa !0
   %extract_ptr.5 = getelementptr inbounds nuw i8, ptr %a, i64 20
   %extract.5 = load float, ptr %extract_ptr.5, align 4
   %5 = fadd float %extract.5, 1.000000e+00
-  %out1.5 = getelementptr inbounds nuw i8, ptr %out, i64 20
-  store float %5, ptr %out1.5, align 4, !tbaa !0
+  %out2.5 = getelementptr inbounds nuw i8, ptr %out, i64 20
+  store float %5, ptr %out2.5, align 4, !tbaa !0
   %extract_ptr.6 = getelementptr inbounds nuw i8, ptr %a, i64 24
   %extract.6 = load float, ptr %extract_ptr.6, align 4
   %6 = fadd float %extract.6, 1.000000e+00
-  %out1.6 = getelementptr inbounds nuw i8, ptr %out, i64 24
-  store float %6, ptr %out1.6, align 4, !tbaa !0
+  %out2.6 = getelementptr inbounds nuw i8, ptr %out, i64 24
+  store float %6, ptr %out2.6, align 4, !tbaa !0
   %extract_ptr.7 = getelementptr inbounds nuw i8, ptr %a, i64 28
   %extract.7 = load float, ptr %extract_ptr.7, align 4
   %7 = fadd float %extract.7, 1.000000e+00
-  %out1.7 = getelementptr inbounds nuw i8, ptr %out, i64 28
-  store float %7, ptr %out1.7, align 4, !tbaa !0
+  %out2.7 = getelementptr inbounds nuw i8, ptr %out, i64 28
+  store float %7, ptr %out2.7, align 4, !tbaa !0
   ret void
 }
 
@@ -56,14 +56,14 @@ scale:
   br i1 %0, label %"!par_body_0.preheader", label %i1_pf_exit, !prof !3
 
 "!par_body_0.preheader":                          ; preds = %scale
-  %out4 = ptrtoaddr ptr %out to i64
-  %a5 = ptrtoaddr ptr %a to i64
+  %out5 = ptrtoaddr ptr %out to i64
+  %a6 = ptrtoaddr ptr %a to i64
   %wide.trip.count = zext nneg i32 %n to i64
   %min.iters.check = icmp ult i32 %n, 8
-  %1 = sub i64 %a5, %out4
+  %1 = sub i64 %a6, %out5
   %diff.check = icmp ugt i64 %1, -32
   %or.cond = select i1 %min.iters.check, i1 true, i1 %diff.check, !prof !4
-  br i1 %or.cond, label %"!par_body_0.preheader7", label %vector.ph, !prof !4
+  br i1 %or.cond, label %"!par_body_0.preheader8", label %vector.ph, !prof !4
 
 vector.ph:                                        ; preds = %"!par_body_0.preheader"
   %n.vec = and i64 %wide.trip.count, 2147483640
@@ -74,9 +74,9 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %2 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %index
   %3 = getelementptr inbounds nuw i8, ptr %2, i64 16
   %wide.load = load <4 x float>, ptr %2, align 4
-  %wide.load6 = load <4 x float>, ptr %3, align 4
+  %wide.load7 = load <4 x float>, ptr %3, align 4
   %4 = fmul <4 x float> %wide.load, splat (float 3.000000e+00)
-  %5 = fmul <4 x float> %wide.load6, splat (float 3.000000e+00)
+  %5 = fmul <4 x float> %wide.load7, splat (float 3.000000e+00)
   %6 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %index
   %7 = getelementptr inbounds nuw i8, ptr %6, i64 16
   store <4 x float> %4, ptr %6, align 4, !tbaa !0
@@ -87,29 +87,29 @@ vector.body:                                      ; preds = %vector.body, %vecto
 
 middle.block:                                     ; preds = %vector.body
   %cmp.n = icmp eq i64 %n.vec, %wide.trip.count
-  br i1 %cmp.n, label %i1_pf_exit, label %"!par_body_0.preheader7", !prof !8
+  br i1 %cmp.n, label %i1_pf_exit, label %"!par_body_0.preheader8", !prof !8
 
-"!par_body_0.preheader7":                         ; preds = %"!par_body_0.preheader", %middle.block
+"!par_body_0.preheader8":                         ; preds = %"!par_body_0.preheader", %middle.block
   %indvars.iv.ph = phi i64 [ 0, %"!par_body_0.preheader" ], [ %n.vec, %middle.block ]
   %xtraiter = and i64 %wide.trip.count, 3
   %lcmp.mod.not = icmp eq i64 %xtraiter, 0
   br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !9
 
-"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader7", %"!par_body_0.prol"
-  %indvars.iv.prol = phi i64 [ %indvars.iv.next.prol, %"!par_body_0.prol" ], [ %indvars.iv.ph, %"!par_body_0.preheader7" ]
-  %prol.iter = phi i64 [ %prol.iter.next, %"!par_body_0.prol" ], [ 0, %"!par_body_0.preheader7" ]
+"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader8", %"!par_body_0.prol"
+  %indvars.iv.prol = phi i64 [ %indvars.iv.next.prol, %"!par_body_0.prol" ], [ %indvars.iv.ph, %"!par_body_0.preheader8" ]
+  %prol.iter = phi i64 [ %prol.iter.next, %"!par_body_0.prol" ], [ 0, %"!par_body_0.preheader8" ]
   %extract_ptr.prol = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.prol
   %extract.prol = load float, ptr %extract_ptr.prol, align 4
   %9 = fmul float %extract.prol, 3.000000e+00
-  %out1.prol = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.prol
-  store float %9, ptr %out1.prol, align 4, !tbaa !0
+  %out2.prol = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.prol
+  store float %9, ptr %out2.prol, align 4, !tbaa !0
   %indvars.iv.next.prol = add nuw nsw i64 %indvars.iv.prol, 1
   %prol.iter.next = add i64 %prol.iter, 1
   %prol.iter.cmp.not = icmp eq i64 %prol.iter.next, %xtraiter
   br i1 %prol.iter.cmp.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !10, !llvm.loop !11
 
-"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader7"
-  %indvars.iv.unr = phi i64 [ %indvars.iv.ph, %"!par_body_0.preheader7" ], [ %indvars.iv.next.prol, %"!par_body_0.prol" ]
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader8"
+  %indvars.iv.unr = phi i64 [ %indvars.iv.ph, %"!par_body_0.preheader8" ], [ %indvars.iv.next.prol, %"!par_body_0.prol" ]
   %10 = sub nsw i64 %indvars.iv.ph, %wide.trip.count
   %11 = icmp ugt i64 %10, -4
   br i1 %11, label %i1_pf_exit, label %"!par_body_0", !prof !13
@@ -119,26 +119,26 @@ middle.block:                                     ; preds = %vector.body
   %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
   %extract = load float, ptr %extract_ptr, align 4
   %12 = fmul float %extract, 3.000000e+00
-  %out1 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv
-  store float %12, ptr %out1, align 4, !tbaa !0
+  %out2 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv
+  store float %12, ptr %out2, align 4, !tbaa !0
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %extract_ptr.1 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.next
   %extract.1 = load float, ptr %extract_ptr.1, align 4
   %13 = fmul float %extract.1, 3.000000e+00
-  %out1.1 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next
-  store float %13, ptr %out1.1, align 4, !tbaa !0
+  %out2.1 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next
+  store float %13, ptr %out2.1, align 4, !tbaa !0
   %indvars.iv.next.1 = add nuw nsw i64 %indvars.iv, 2
   %extract_ptr.2 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.next.1
   %extract.2 = load float, ptr %extract_ptr.2, align 4
   %14 = fmul float %extract.2, 3.000000e+00
-  %out1.2 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next.1
-  store float %14, ptr %out1.2, align 4, !tbaa !0
+  %out2.2 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next.1
+  store float %14, ptr %out2.2, align 4, !tbaa !0
   %indvars.iv.next.2 = add nuw nsw i64 %indvars.iv, 3
   %extract_ptr.3 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.next.2
   %extract.3 = load float, ptr %extract_ptr.3, align 4
   %15 = fmul float %extract.3, 3.000000e+00
-  %out1.3 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next.2
-  store float %15, ptr %out1.3, align 4, !tbaa !0
+  %out2.3 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next.2
+  store float %15, ptr %out2.3, align 4, !tbaa !0
   %indvars.iv.next.3 = add nuw nsw i64 %indvars.iv, 4
   %exitcond.not.3 = icmp eq i64 %indvars.iv.next.3, %wide.trip.count
   br i1 %exitcond.not.3, label %i1_pf_exit, label %"!par_body_0", !prof !14, !llvm.loop !15

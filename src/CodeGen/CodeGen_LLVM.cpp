@@ -2976,8 +2976,8 @@ void CodeGen_LLVM::visit(const Extract *node) {
         value = extract_lane(vec, idx);
     } else if (vec_expr.type().is<Array_t>()) {
         llvm::Type *etype = codegen_type(vec_expr.type().element_of());
-        llvm::Value *ptr =
-            builder->CreateInBoundsGEP(etype, vec, idx, "extract_ptr");
+        llvm::Value *ptr = builder->CreateInBoundsGEP(
+            etype, vec, widen_index(idx, node->idx.type()), "extract_ptr");
         // An element of a device-resident array read on the host -- one of
         // a queue's two headers, for the round's count -- comes back by a
         // copy (device_root_of).
@@ -4065,9 +4065,9 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
                 llvm_t = codegen_type(bonsai_type);
 
                 ptr = builder->CreateInBoundsGEP(
-                    codegen_type(bonsai_type), // The LLVM element type
-                    ptr,                       // The pointer to the container
-                    llvm_idx,                  // GEP indices
+                    codegen_type(bonsai_type),         // The LLVM element type
+                    ptr,                               // The pointer to the container
+                    widen_index(llvm_idx, idx.type()), // GEP indices
                     "ptr_array_deref");
             } else {
                 internal_assert(std::holds_alternative<std::string>(access));
@@ -5934,7 +5934,8 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
 
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
-            etype, base, codegen_expr(ramp->base), name + "_base");
+            etype, base, widen_index(codegen_expr(ramp->base), ramp->base.type()),
+            name + "_base");
         // The *element's* alignment, not the vector's. A run of eight floats
         // inside an array of floats is aligned to a float; nothing about it
         // says it starts on a 32-byte boundary, and `a[i:i+8]` for odd `i`
@@ -6039,7 +6040,8 @@ void CodeGen_LLVM::create_vector_store(llvm::Value *value, llvm::Type *etype,
 
     if (const Ramp *ramp = as_dense_ramp(index)) {
         llvm::Value *first = builder->CreateInBoundsGEP(
-            etype, base, codegen_expr(ramp->base), "store_base");
+            etype, base, widen_index(codegen_expr(ramp->base), ramp->base.type()),
+            "store_base");
         // The element's alignment, as in create_vector_load above.
         if (mask == nullptr) {
             llvm::StoreInst *store = builder->CreateStore(value, first);
@@ -6795,7 +6797,8 @@ void CodeGen_LLVM::declare_struct_types(
 
 llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
-                                                  llvm::Value *idx) {
+                                                  llvm::Value *idx,
+                                                  bool index_is_signed) {
     const llvm::DataLayout &d = module->getDataLayout();
     auto frame_value = frames.from_frames(buffer);
     internal_assert(frame_value.has_value()) << buffer;
@@ -6825,14 +6828,19 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
         return element_addresses(load_type, base_addr, idx, buffer + "_ptrs");
     }
 
-    // Promote a scalar index to 64-bit on targets that use 64-bit pointers.
-    // A GEP sign-extends its index to the pointer's width anyway, so this
-    // changes nothing about the address; it is only kept for the IR to read
-    // as it always has.
+    // Widen a scalar index to the pointer's width by the index's own
+    // signedness. A GEP sign-extends an index narrower than the pointer, which
+    // is the right address for a signed index and for an unsigned one below
+    // 2^31, and a negative offset for an unsigned one past it -- a `u32` byte
+    // offset into a pool of more than two gigabytes, which bistro's textures
+    // are once an 8-bit image is kept as its bytes, and where the GPU faulted
+    // on the first normal map past the two-gigabyte mark. So an unsigned index
+    // is zero-extended here before the GEP sees it. (The lanes of a gang's
+    // gather are addressed in 32 bits on purpose and keep the limit; see
+    // element_addresses.)
     if (d.getPointerSize() == 8) {
-        // TODO: is isSigned always true for us?
         idx = builder->CreateIntCast(idx, llvm::Type::getInt64Ty(*context),
-                                     /* isSigned */ true);
+                                     index_is_signed);
     }
 
     return builder->CreateInBoundsGEP(load_type, base_addr, idx);
@@ -6842,7 +6850,23 @@ llvm::Value *CodeGen_LLVM::codegen_buffer_pointer(const std::string &buffer,
                                                   const Type &type,
                                                   const Expr &idx) {
     llvm::Value *offset = idx.defined() ? codegen_expr(idx) : nullptr;
-    return codegen_buffer_pointer(buffer, type, offset);
+    const bool index_is_signed = !idx.defined() || !idx.type().is_uint();
+    return codegen_buffer_pointer(buffer, type, offset, index_is_signed);
+}
+
+llvm::Value *CodeGen_LLVM::widen_index(llvm::Value *idx, const Type &index_type) {
+    auto *it = llvm::dyn_cast<llvm::IntegerType>(idx->getType());
+    if (it == nullptr) {
+        return idx;
+    }
+    const unsigned pointer_bits =
+        module->getDataLayout().getPointerSizeInBits();
+    if (it->getBitWidth() >= pointer_bits) {
+        return idx;
+    }
+    return builder->CreateIntCast(
+        idx, llvm::IntegerType::get(*context, pointer_bits),
+        /*isSigned=*/!index_type.is_uint(), idx->getName() + "_wide");
 }
 
 llvm::Value *CodeGen_LLVM::codegen_expr(const Expr &e) {
@@ -6940,9 +6964,9 @@ llvm::Value *CodeGen_LLVM::codegen_write_loc(const ir::WriteLoc &wloc) {
             // Get lvalue to loc[`idx`]
             bonsai_type = bonsai_type.element_of();
             loc = builder->CreateInBoundsGEP(
-                codegen_type(bonsai_type), // The LLVM element type
-                loc,                       // The pointer to the container
-                llvm_idx,                  // GEP indices
+                codegen_type(bonsai_type),         // The LLVM element type
+                loc,                               // The pointer to the container
+                widen_index(llvm_idx, idx.type()), // GEP indices
                 name);
         }
     }

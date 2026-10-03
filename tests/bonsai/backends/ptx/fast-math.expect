@@ -16,23 +16,23 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %i = add i32 %0, %_begin
-  %1 = sext i32 %i to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a.generic, i64 %1
+  %i_wide = sext i32 %i to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a.generic, i64 %i_wide
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !3
-  %extract_ptr1 = getelementptr inbounds [4 x i8], ptr %b.generic, i64 %1
-  %extract2 = load float, ptr %extract_ptr1, align 4, !invariant.load !3
-  %2 = fdiv float %extract, %extract2
-  %3 = fdiv float 1.000000e+00, %extract
-  %4 = fadd float %3, %2
-  %5 = tail call float @llvm.sqrt.f32(float %extract2)
-  %6 = fadd float %5, %4
-  %7 = tail call float @llvm.nvvm.sin.approx.ftz.f(float %extract) #5
-  %8 = fadd float %7, %6
-  %9 = fmul float %extract2, f0x3FB8AA3B
-  %10 = tail call float @llvm.nvvm.ex2.approx.ftz.f32(float %9)
-  %11 = fadd float %10, %8
-  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
-  store float %11, ptr %out3, align 4, !tbaa !4
+  %extract_ptr2 = getelementptr inbounds [4 x i8], ptr %b.generic, i64 %i_wide
+  %extract3 = load float, ptr %extract_ptr2, align 4, !invariant.load !3
+  %1 = fdiv float %extract, %extract3
+  %2 = fdiv float 1.000000e+00, %extract
+  %3 = fadd float %2, %1
+  %4 = tail call float @llvm.sqrt.f32(float %extract3)
+  %5 = fadd float %4, %3
+  %6 = tail call float @llvm.nvvm.sin.approx.ftz.f(float %extract) #5
+  %7 = fadd float %6, %5
+  %8 = fmul float %extract3, f0x3FB8AA3B
+  %9 = tail call float @llvm.nvvm.ex2.approx.ftz.f32(float %8)
+  %10 = fadd float %9, %7
+  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
+  store float %10, ptr %out5, align 4, !tbaa !4
   ret void
 }
 

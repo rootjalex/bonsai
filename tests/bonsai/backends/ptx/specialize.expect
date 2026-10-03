@@ -17,14 +17,14 @@ define ptx_kernel void @"_kernel_i$Clamp_0"(i32 %_begin, i32 %_stride, ptr nofre
   %0 = mul i32 %_stride, %tid
   %"i!Clamp" = add i32 %0, %_begin
   %"@53.payload" = extractvalue %struct.Mode %mode_value, 2
-  %1 = sext i32 %"i!Clamp" to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %1
+  %"i!Clamp_wide" = sext i32 %"i!Clamp" to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %"i!Clamp_wide"
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
-  %2 = extractvalue [1 x i32] %"@53.payload", 0
-  %3 = bitcast i32 %2 to float
-  %max_lt = fcmp olt float %extract, %3
-  %max = select i1 %max_lt, float %3, float %extract
-  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
+  %1 = extractvalue [1 x i32] %"@53.payload", 0
+  %2 = bitcast i32 %1 to float
+  %max_lt = fcmp olt float %extract, %2
+  %max = select i1 %max_lt, float %2, float %extract
+  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %"i!Clamp_wide"
   store float %max, ptr %out5, align 4, !tbaa !2
   ret void
 }
@@ -43,14 +43,14 @@ define ptx_kernel void @"_kernel_i$Sum_1"(i32 %_begin, i32 %_stride, ptr nofree 
   %0 = mul i32 %_stride, %tid
   %"i!Sum" = add i32 %0, %_begin
   %"@49.payload" = extractvalue %struct.Mode %mode_value, 2
-  %1 = sext i32 %"i!Sum" to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %1
+  %"i!Sum_wide" = sext i32 %"i!Sum" to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %"i!Sum_wide"
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
-  %2 = extractvalue [1 x i32] %"@49.payload", 0
-  %3 = bitcast i32 %2 to float
-  %4 = fmul float %extract, %3
-  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
-  store float %4, ptr %out5, align 4, !tbaa !2
+  %1 = extractvalue [1 x i32] %"@49.payload", 0
+  %2 = bitcast i32 %1 to float
+  %3 = fmul float %extract, %2
+  %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %"i!Sum_wide"
+  store float %3, ptr %out5, align 4, !tbaa !2
   ret void
 }
 

@@ -33,8 +33,8 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeo
   %15 = fadd float %14, -1.000000e+00
   %16 = shl i32 %b, 2
   %17 = add i32 %16, %tid
-  %18 = sext i32 %17 to i64
-  %out8 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %18
+  %_wide = sext i32 %17 to i64
+  %out8 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %_wide
   store float %15, ptr %out8, align 4, !tbaa !1
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
   ret void
@@ -69,8 +69,8 @@ define ptx_kernel void @_kernel_i_1(i32 %_begin, i32 %_stride, ptr nofree writeo
   %9 = or disjoint i32 %8, 1065353216
   %10 = bitcast i32 %9 to float
   %11 = fadd float %10, -1.000000e+00
-  %12 = sext i32 %i to i64
-  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %12
+  %i_wide = sext i32 %i to i64
+  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store float %11, ptr %out3, align 4, !tbaa !1
   ret void
 }

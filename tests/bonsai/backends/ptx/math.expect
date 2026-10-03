@@ -236,8 +236,8 @@ __nv_powf.exit:                                   ; preds = %__nv_isnanf.exit2.i
   %160 = fmul float %159, 5.000000e-01
   %161 = fadd float %z.i.i.0.i, %160
   %162 = fadd float %.6.i, %161
-  %163 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %163
+  %i_wide = sext i32 %i to i64
+  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store float %162, ptr %out1, align 4, !tbaa !7
   ret void
 }

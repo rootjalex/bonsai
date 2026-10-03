@@ -26,8 +26,8 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %3 = mul i32 %i, %i
   %4 = shl i32 %i, 1
   %"_match1$r3" = select i1 %2, i32 %3, i32 %4
-  %5 = sext i32 %i to i64
-  %out21 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %5
+  %i18_wide = sext i32 %i to i64
+  %out21 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i18_wide
   store i32 %"_match1$r3", ptr %out21, align 4, !tbaa !1
   ret void
 }

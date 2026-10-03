@@ -21,97 +21,51 @@ scale:
   br i1 %.not.i, label %_traverse_array1.exit, label %"!par_body_0.i.preheader", !prof !3
 
 "!par_body_0.i.preheader":                        ; preds = %scale
-  %0 = add i32 %n, 2147483647
-  %or.cond = icmp ult i32 %0, -2147483641
-  br i1 %or.cond, label %"!par_body_0.i.preheader3", label %vector.ph, !prof !4
+  %min.iters.check = icmp ult i32 %n, 8
+  br i1 %min.iters.check, label %"!par_body_0.i.preheader2", label %vector.ph, !prof !4
 
 vector.ph:                                        ; preds = %"!par_body_0.i.preheader"
-  %n.vec = and i32 %n, -8
+  %n.vec = and i64 %size64.i, 4294967288
   %broadcast.splatinsert = insertelement <4 x float> poison, float %k, i64 0
   %broadcast.splat = shufflevector <4 x float> %broadcast.splatinsert, <4 x float> poison, <4 x i32> zeroinitializer
   br label %vector.body
 
 vector.body:                                      ; preds = %vector.body, %vector.ph
-  %index = phi i32 [ 0, %vector.ph ], [ %index.next, %vector.body ]
-  %1 = sext i32 %index to i64
-  %2 = getelementptr inbounds [4 x i8], ptr %a, i64 %1
-  %3 = getelementptr inbounds nuw i8, ptr %2, i64 16
-  %wide.load = load <4 x float>, ptr %2, align 4
-  %wide.load1 = load <4 x float>, ptr %3, align 4
-  %4 = fmul <4 x float> %broadcast.splat, %wide.load
-  %5 = fmul <4 x float> %broadcast.splat, %wide.load1
-  %6 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %1
-  %7 = getelementptr inbounds nuw i8, ptr %6, i64 16
-  store <4 x float> %4, ptr %6, align 4, !tbaa !5
-  store <4 x float> %5, ptr %7, align 4, !tbaa !5
-  %index.next = add nuw i32 %index, 8
-  %8 = icmp eq i32 %index.next, %n.vec
-  br i1 %8, label %middle.block, label %vector.body, !llvm.loop !7
+  %index = phi i64 [ 0, %vector.ph ], [ %index.next, %vector.body ]
+  %0 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %index
+  %1 = getelementptr inbounds nuw i8, ptr %0, i64 16
+  %wide.load = load <4 x float>, ptr %0, align 4
+  %wide.load1 = load <4 x float>, ptr %1, align 4
+  %2 = fmul <4 x float> %broadcast.splat, %wide.load
+  %3 = fmul <4 x float> %broadcast.splat, %wide.load1
+  %4 = getelementptr inbounds nuw [4 x i8], ptr %_alloc1_untyped.i, i64 %index
+  %5 = getelementptr inbounds nuw i8, ptr %4, i64 16
+  store <4 x float> %2, ptr %4, align 4, !tbaa !5
+  store <4 x float> %3, ptr %5, align 4, !tbaa !5
+  %index.next = add nuw i64 %index, 8
+  %6 = icmp eq i64 %index.next, %n.vec
+  br i1 %6, label %middle.block, label %vector.body, !llvm.loop !7
 
 middle.block:                                     ; preds = %vector.body
-  %cmp.n = icmp eq i32 %n, %n.vec
-  br i1 %cmp.n, label %_traverse_array1.exit, label %"!par_body_0.i.preheader3", !prof !10
+  %cmp.n = icmp eq i64 %n.vec, %size64.i
+  br i1 %cmp.n, label %_traverse_array1.exit, label %"!par_body_0.i.preheader2", !prof !10
 
-"!par_body_0.i.preheader3":                       ; preds = %"!par_body_0.i.preheader", %middle.block
-  %_i02.i.ph = phi i32 [ 0, %"!par_body_0.i.preheader" ], [ %n.vec, %middle.block ]
-  %xtraiter = and i32 %n, 3
-  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
-  br i1 %lcmp.mod.not, label %"!par_body_0.i.prol.loopexit", label %"!par_body_0.i.prol", !prof !11
+"!par_body_0.i.preheader2":                       ; preds = %"!par_body_0.i.preheader", %middle.block
+  %indvars.iv.i.ph = phi i64 [ 0, %"!par_body_0.i.preheader" ], [ %n.vec, %middle.block ]
+  br label %"!par_body_0.i"
 
-"!par_body_0.i.prol":                             ; preds = %"!par_body_0.i.preheader3", %"!par_body_0.i.prol"
-  %_i02.i.prol = phi i32 [ %11, %"!par_body_0.i.prol" ], [ %_i02.i.ph, %"!par_body_0.i.preheader3" ]
-  %prol.iter = phi i32 [ %prol.iter.next, %"!par_body_0.i.prol" ], [ 0, %"!par_body_0.i.preheader3" ]
-  %9 = sext i32 %_i02.i.prol to i64
-  %extract_ptr.i.prol = getelementptr inbounds [4 x i8], ptr %a, i64 %9
-  %extract.i.prol = load float, ptr %extract_ptr.i.prol, align 4
-  %10 = fmul float %k, %extract.i.prol
-  %_alloc11.i.prol = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %9
-  store float %10, ptr %_alloc11.i.prol, align 4, !tbaa !5
-  %11 = add nuw i32 %_i02.i.prol, 1
-  %prol.iter.next = add i32 %prol.iter, 1
-  %prol.iter.cmp.not = icmp eq i32 %prol.iter.next, %xtraiter
-  br i1 %prol.iter.cmp.not, label %"!par_body_0.i.prol.loopexit", label %"!par_body_0.i.prol", !prof !12, !llvm.loop !13
-
-"!par_body_0.i.prol.loopexit":                    ; preds = %"!par_body_0.i.prol", %"!par_body_0.i.preheader3"
-  %_i02.i.unr = phi i32 [ %_i02.i.ph, %"!par_body_0.i.preheader3" ], [ %11, %"!par_body_0.i.prol" ]
-  %12 = sub i32 %_i02.i.ph, %n
-  %13 = icmp ugt i32 %12, -4
-  br i1 %13, label %_traverse_array1.exit, label %"!par_body_0.i", !prof !15
-
-"!par_body_0.i":                                  ; preds = %"!par_body_0.i.prol.loopexit", %"!par_body_0.i"
-  %_i02.i = phi i32 [ %25, %"!par_body_0.i" ], [ %_i02.i.unr, %"!par_body_0.i.prol.loopexit" ]
-  %14 = sext i32 %_i02.i to i64
-  %extract_ptr.i = getelementptr inbounds [4 x i8], ptr %a, i64 %14
+"!par_body_0.i":                                  ; preds = %"!par_body_0.i.preheader2", %"!par_body_0.i"
+  %indvars.iv.i = phi i64 [ %indvars.iv.next.i, %"!par_body_0.i" ], [ %indvars.iv.i.ph, %"!par_body_0.i.preheader2" ]
+  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.i
   %extract.i = load float, ptr %extract_ptr.i, align 4
-  %15 = fmul float %k, %extract.i
-  %_alloc11.i = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %14
-  store float %15, ptr %_alloc11.i, align 4, !tbaa !5
-  %16 = add nuw i32 %_i02.i, 1
-  %17 = sext i32 %16 to i64
-  %extract_ptr.i.1 = getelementptr inbounds [4 x i8], ptr %a, i64 %17
-  %extract.i.1 = load float, ptr %extract_ptr.i.1, align 4
-  %18 = fmul float %k, %extract.i.1
-  %_alloc11.i.1 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %17
-  store float %18, ptr %_alloc11.i.1, align 4, !tbaa !5
-  %19 = add nuw i32 %_i02.i, 2
-  %20 = sext i32 %19 to i64
-  %extract_ptr.i.2 = getelementptr inbounds [4 x i8], ptr %a, i64 %20
-  %extract.i.2 = load float, ptr %extract_ptr.i.2, align 4
-  %21 = fmul float %k, %extract.i.2
-  %_alloc11.i.2 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %20
-  store float %21, ptr %_alloc11.i.2, align 4, !tbaa !5
-  %22 = add nuw i32 %_i02.i, 3
-  %23 = sext i32 %22 to i64
-  %extract_ptr.i.3 = getelementptr inbounds [4 x i8], ptr %a, i64 %23
-  %extract.i.3 = load float, ptr %extract_ptr.i.3, align 4
-  %24 = fmul float %k, %extract.i.3
-  %_alloc11.i.3 = getelementptr inbounds [4 x i8], ptr %_alloc1_untyped.i, i64 %23
-  store float %24, ptr %_alloc11.i.3, align 4, !tbaa !5
-  %25 = add nuw i32 %_i02.i, 4
-  %exitcond.not.i.3 = icmp eq i32 %25, %n
-  br i1 %exitcond.not.i.3, label %_traverse_array1.exit, label %"!par_body_0.i", !prof !16, !llvm.loop !17
+  %7 = fmul float %k, %extract.i
+  %_alloc12.i = getelementptr inbounds nuw [4 x i8], ptr %_alloc1_untyped.i, i64 %indvars.iv.i
+  store float %7, ptr %_alloc12.i, align 4, !tbaa !5
+  %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
+  %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, %size64.i
+  br i1 %exitcond.not.i, label %_traverse_array1.exit, label %"!par_body_0.i", !prof !11, !llvm.loop !12
 
-_traverse_array1.exit:                            ; preds = %"!par_body_0.i.prol.loopexit", %"!par_body_0.i", %middle.block, %scale
+_traverse_array1.exit:                            ; preds = %"!par_body_0.i", %middle.block, %scale
   ret ptr %_alloc1_untyped.i
 }
 
@@ -126,17 +80,12 @@ attributes #0 = { mustprogress nofree nounwind willreturn allockind("alloc,unini
 !1 = !{!"i32", !2, i64 0}
 !2 = !{!"bonsai"}
 !3 = !{!"branch_weights", i32 0, i32 1}
-!4 = !{!"branch_weights", i32 255, i32 16129}
+!4 = !{!"branch_weights", i32 1, i32 127}
 !5 = !{!6, !6, i64 0}
 !6 = !{!"f32", !2, i64 0}
 !7 = distinct !{!7, !8, !9}
 !8 = !{!"llvm.loop.isvectorized", i32 1}
 !9 = !{!"llvm.loop.unroll.runtime.disable"}
 !10 = !{!"branch_weights", i32 1, i32 7}
-!11 = !{!"branch_weights", i32 127, i32 1}
-!12 = !{!"branch_weights", i32 1, i32 1}
-!13 = distinct !{!13, !14}
-!14 = !{!"llvm.loop.unroll.disable"}
-!15 = !{!"branch_weights", i32 1, i32 127}
-!16 = !{!"branch_weights", i32 0, i32 1073741824}
-!17 = distinct !{!17, !8}
+!11 = !{!"branch_weights", i32 0, i32 1073741824}
+!12 = distinct !{!12, !9, !8}

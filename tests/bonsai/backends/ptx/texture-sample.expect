@@ -20,19 +20,19 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %4 = add i32 %3, %i
   %5 = and i32 %4, -2
   %6 = sub i32 %i, %5
-  %7 = sext i32 %6 to i64
-  %extract_ptr = getelementptr inbounds [8 x i8], ptr %handles.generic, i64 %7
+  %_wide = zext i32 %6 to i64
+  %extract_ptr = getelementptr inbounds nuw [8 x i8], ptr %handles.generic, i64 %_wide
   %extract = load i64, ptr %extract_ptr, align 8
   %tex = tail call { float, float, float, float } @llvm.nvvm.tex.unified.2d.grad.v4f32.f32(i64 %extract, float %2, float 5.000000e-01, float f0x3C23D70A, float 0.000000e+00, float 0.000000e+00, float f0x3C23D70A)
-  %8 = extractvalue { float, float, float, float } %tex, 0
-  %9 = extractvalue { float, float, float, float } %tex, 1
-  %10 = extractvalue { float, float, float, float } %tex, 2
-  %11 = insertelement <3 x float> poison, float %8, i64 0
-  %12 = insertelement <3 x float> %11, float %9, i64 1
-  %13 = insertelement <3 x float> %12, float %10, i64 2
-  %14 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [16 x i8], ptr %out.generic, i64 %14
-  store <3 x float> %13, ptr %out1, align 16, !tbaa !1
+  %7 = extractvalue { float, float, float, float } %tex, 0
+  %8 = extractvalue { float, float, float, float } %tex, 1
+  %9 = extractvalue { float, float, float, float } %tex, 2
+  %10 = insertelement <3 x float> poison, float %7, i64 0
+  %11 = insertelement <3 x float> %10, float %8, i64 1
+  %12 = insertelement <3 x float> %11, float %9, i64 2
+  %i_wide = sext i32 %i to i64
+  %out1 = getelementptr inbounds [16 x i8], ptr %out.generic, i64 %i_wide
+  store <3 x float> %12, ptr %out1, align 16, !tbaa !1
   ret void
 }
 
@@ -88,7 +88,7 @@ attributes #2 = { mustprogress nocallback nofree nounwind willreturn memory(read
 	add.s32 	%r8, %r7, %r4;
 	and.b32 	%r9, %r8, -2;
 	sub.s32 	%r10, %r4, %r9;
-	mul.wide.s32 	%rd5, %r10, 8;
+	mul.wide.u32 	%rd5, %r10, 8;
 	add.s64 	%rd6, %rd4, %rd5;
 	ld.global.b64 	%rd7, [%rd6];
 	mov.b32 	%r11, 0f00000000;

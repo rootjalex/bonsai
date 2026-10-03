@@ -13,8 +13,8 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, i32 %base, ptr no
   %0 = mul i32 %_stride, %ctaid
   %i = add i32 %0, %_begin
   %1 = add i32 %i, %base
-  %2 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %2
+  %i_wide = sext i32 %i to i64
+  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store i32 %1, ptr %out1, align 4, !tbaa !1
   ret void
 }

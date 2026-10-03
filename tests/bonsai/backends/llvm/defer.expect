@@ -4,163 +4,163 @@ source_filename = "bonsai_module"
 %struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
 define void @run(ptr noundef %out_buffer) local_unnamed_addr {
-fill.exit45.7:
-  %sums_queue1129 = alloca [2 x %struct.Queue_sums], align 16
-  %sums_i_130 = alloca [8 x i32], align 4
-  %sums_acc_131 = alloca [8 x i32], align 4
-  %sums_n_132 = alloca [8 x i32], align 4
-  %sums_i_033 = alloca [8 x i32], align 4
-  %sums_acc_034 = alloca [8 x i32], align 4
-  %sums_n_035 = alloca [8 x i32], align 4
+fill.exit53.7:
+  %sums_queue1135 = alloca [2 x %struct.Queue_sums], align 16
+  %sums_i_136 = alloca [8 x i32], align 4
+  %sums_acc_137 = alloca [8 x i32], align 4
+  %sums_n_138 = alloca [8 x i32], align 4
+  %sums_i_039 = alloca [8 x i32], align 4
+  %sums_acc_040 = alloca [8 x i32], align 4
+  %sums_n_041 = alloca [8 x i32], align 4
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  store i32 0, ptr %sums_queue1129, align 16
-  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 8
-  store ptr %sums_n_035, ptr %.fca.1.gep, align 8
-  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 16
-  store ptr %sums_acc_034, ptr %.fca.2.gep, align 16
-  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 24
-  store ptr %sums_i_033, ptr %.fca.3.gep, align 8
-  %sums_queue13 = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 32
+  store i32 0, ptr %sums_queue1135, align 16
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 8
+  store ptr %sums_n_041, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 16
+  store ptr %sums_acc_040, ptr %.fca.2.gep, align 16
+  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 24
+  store ptr %sums_i_039, ptr %.fca.3.gep, align 8
+  %sums_queue13 = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 32
   store i32 0, ptr %sums_queue13, align 16
-  %.fca.1.gep49 = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 40
-  store ptr %sums_n_132, ptr %.fca.1.gep49, align 8
-  %.fca.2.gep51 = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 48
-  store ptr %sums_acc_131, ptr %.fca.2.gep51, align 16
-  %.fca.3.gep53 = getelementptr inbounds nuw i8, ptr %sums_queue1129, i64 56
-  store ptr %sums_i_130, ptr %.fca.3.gep53, align 8
+  %.fca.1.gep57 = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 40
+  store ptr %sums_n_138, ptr %.fca.1.gep57, align 8
+  %.fca.2.gep59 = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 48
+  store ptr %sums_acc_137, ptr %.fca.2.gep59, align 16
+  %.fca.3.gep61 = getelementptr inbounds nuw i8, ptr %sums_queue1135, i64 56
+  store ptr %sums_i_136, ptr %.fca.3.gep61, align 8
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store i32 0, ptr %out, align 4, !tbaa !0
-  %0 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %1 = sext i32 %0 to i64
-  %"@9.i38.1" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %1
-  store i32 0, ptr %"@9.i38.1", align 4, !tbaa !0
-  %"@12.i40.1" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %1
-  store i32 1, ptr %"@12.i40.1", align 4, !tbaa !0
-  %"@15.i42.1" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %1
-  store i32 1, ptr %"@15.i42.1", align 4, !tbaa !0
-  %2 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %3 = sext i32 %2 to i64
-  %"@9.i38.2" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %3
-  store i32 1, ptr %"@9.i38.2", align 4, !tbaa !0
-  %"@12.i40.2" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %3
-  store i32 2, ptr %"@12.i40.2", align 4, !tbaa !0
-  %"@15.i42.2" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %3
-  store i32 2, ptr %"@15.i42.2", align 4, !tbaa !0
-  %4 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %5 = sext i32 %4 to i64
-  %"@9.i38.3" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %5
-  store i32 2, ptr %"@9.i38.3", align 4, !tbaa !0
-  %"@12.i40.3" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %5
-  store i32 3, ptr %"@12.i40.3", align 4, !tbaa !0
-  %"@15.i42.3" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %5
-  store i32 3, ptr %"@15.i42.3", align 4, !tbaa !0
-  %6 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %7 = sext i32 %6 to i64
-  %"@9.i38.4" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %7
-  store i32 3, ptr %"@9.i38.4", align 4, !tbaa !0
-  %"@12.i40.4" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %7
-  store i32 4, ptr %"@12.i40.4", align 4, !tbaa !0
-  %"@15.i42.4" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %7
-  store i32 4, ptr %"@15.i42.4", align 4, !tbaa !0
-  %8 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %9 = sext i32 %8 to i64
-  %"@9.i38.5" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %9
-  store i32 4, ptr %"@9.i38.5", align 4, !tbaa !0
-  %"@12.i40.5" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %9
-  store i32 5, ptr %"@12.i40.5", align 4, !tbaa !0
-  %"@15.i42.5" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %9
-  store i32 5, ptr %"@15.i42.5", align 4, !tbaa !0
-  %10 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %11 = sext i32 %10 to i64
-  %"@9.i38.6" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %11
-  store i32 5, ptr %"@9.i38.6", align 4, !tbaa !0
-  %"@12.i40.6" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %11
-  store i32 6, ptr %"@12.i40.6", align 4, !tbaa !0
-  %"@15.i42.6" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %11
-  store i32 6, ptr %"@15.i42.6", align 4, !tbaa !0
-  %12 = atomicrmw add ptr %sums_queue1129, i32 1 monotonic, align 4
-  %13 = sext i32 %12 to i64
-  %"@9.i38.7" = getelementptr inbounds [4 x i8], ptr %sums_n_035, i64 %13
-  store i32 6, ptr %"@9.i38.7", align 4, !tbaa !0
-  %"@12.i40.7" = getelementptr inbounds [4 x i8], ptr %sums_acc_034, i64 %13
-  store i32 7, ptr %"@12.i40.7", align 4, !tbaa !0
-  %"@15.i42.7" = getelementptr inbounds [4 x i8], ptr %sums_i_033, i64 %13
-  store i32 7, ptr %"@15.i42.7", align 4, !tbaa !0
-  %"@7.count56" = load i32, ptr %sums_queue1129, align 16
-  %14 = icmp eq i32 %"@7.count56", 0
-  br i1 %14, label %"!par_cont_1", label %"sums!batch"
+  %0 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.1 = zext i32 %0 to i64
+  %"@9.i45.1" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.1
+  store i32 0, ptr %"@9.i45.1", align 4, !tbaa !0
+  %"@12.i47.1" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.1
+  store i32 1, ptr %"@12.i47.1", align 4, !tbaa !0
+  %"@15.i49.1" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.1
+  store i32 1, ptr %"@15.i49.1", align 4, !tbaa !0
+  %1 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.2 = zext i32 %1 to i64
+  %"@9.i45.2" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.2
+  store i32 1, ptr %"@9.i45.2", align 4, !tbaa !0
+  %"@12.i47.2" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.2
+  store i32 2, ptr %"@12.i47.2", align 4, !tbaa !0
+  %"@15.i49.2" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.2
+  store i32 2, ptr %"@15.i49.2", align 4, !tbaa !0
+  %2 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.3 = zext i32 %2 to i64
+  %"@9.i45.3" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.3
+  store i32 2, ptr %"@9.i45.3", align 4, !tbaa !0
+  %"@12.i47.3" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.3
+  store i32 3, ptr %"@12.i47.3", align 4, !tbaa !0
+  %"@15.i49.3" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.3
+  store i32 3, ptr %"@15.i49.3", align 4, !tbaa !0
+  %3 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.4 = zext i32 %3 to i64
+  %"@9.i45.4" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.4
+  store i32 3, ptr %"@9.i45.4", align 4, !tbaa !0
+  %"@12.i47.4" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.4
+  store i32 4, ptr %"@12.i47.4", align 4, !tbaa !0
+  %"@15.i49.4" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.4
+  store i32 4, ptr %"@15.i49.4", align 4, !tbaa !0
+  %4 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.5 = zext i32 %4 to i64
+  %"@9.i45.5" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.5
+  store i32 4, ptr %"@9.i45.5", align 4, !tbaa !0
+  %"@12.i47.5" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.5
+  store i32 5, ptr %"@12.i47.5", align 4, !tbaa !0
+  %"@15.i49.5" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.5
+  store i32 5, ptr %"@15.i49.5", align 4, !tbaa !0
+  %5 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.6 = zext i32 %5 to i64
+  %"@9.i45.6" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.6
+  store i32 5, ptr %"@9.i45.6", align 4, !tbaa !0
+  %"@12.i47.6" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.6
+  store i32 6, ptr %"@12.i47.6", align 4, !tbaa !0
+  %"@15.i49.6" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.6
+  store i32 6, ptr %"@15.i49.6", align 4, !tbaa !0
+  %6 = atomicrmw add ptr %sums_queue1135, i32 1 monotonic, align 4
+  %_wide.i44.7 = zext i32 %6 to i64
+  %"@9.i45.7" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_041, i64 %_wide.i44.7
+  store i32 6, ptr %"@9.i45.7", align 4, !tbaa !0
+  %"@12.i47.7" = getelementptr inbounds nuw [4 x i8], ptr %sums_acc_040, i64 %_wide.i44.7
+  store i32 7, ptr %"@12.i47.7", align 4, !tbaa !0
+  %"@15.i49.7" = getelementptr inbounds nuw [4 x i8], ptr %sums_i_039, i64 %_wide.i44.7
+  store i32 7, ptr %"@15.i49.7", align 4, !tbaa !0
+  %"@7.count64" = load i32, ptr %sums_queue1135, align 16
+  %7 = icmp eq i32 %"@7.count64", 0
+  br i1 %7, label %"!par_cont_1", label %"sums!batch"
 
-"!par_cont_1":                                    ; preds = %sums1_pf_exit, %fill.exit45.7
+"!par_cont_1":                                    ; preds = %sums1_pf_exit, %fill.exit53.7
   ret void
 
-"sums!batch":                                     ; preds = %fill.exit45.7, %sums1_pf_exit
-  %"@7.count59" = phi i32 [ %"@7.count", %sums1_pf_exit ], [ %"@7.count56", %fill.exit45.7 ]
-  %extract_ptr58 = phi ptr [ %extract_ptr, %sums1_pf_exit ], [ %sums_queue1129, %fill.exit45.7 ]
-  %15 = phi i32 [ %30, %sums1_pf_exit ], [ 0, %fill.exit45.7 ]
-  %"sums!round257" = phi i32 [ %29, %sums1_pf_exit ], [ 0, %fill.exit45.7 ]
-  %16 = xor i32 %15, 1
-  %17 = zext nneg i32 %16 to i64
-  %sums_queue14 = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1129, i64 %17
-  store i32 0, ptr %sums_queue14, align 16, !tbaa !3
+"sums!batch":                                     ; preds = %fill.exit53.7, %sums1_pf_exit
+  %"@7.count67" = phi i32 [ %"@7.count", %sums1_pf_exit ], [ %"@7.count64", %fill.exit53.7 ]
+  %extract_ptr66 = phi ptr [ %extract_ptr, %sums1_pf_exit ], [ %sums_queue1135, %fill.exit53.7 ]
+  %8 = phi i32 [ %18, %sums1_pf_exit ], [ 0, %fill.exit53.7 ]
+  %"sums!round265" = phi i32 [ %17, %sums1_pf_exit ], [ 0, %fill.exit53.7 ]
+  %9 = xor i32 %8, 1
+  %_wide14 = zext nneg i32 %9 to i64
+  %sums_queue15 = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1135, i64 %_wide14
+  store i32 0, ptr %sums_queue15, align 16, !tbaa !3
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  %extract17.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr58, i64 8
-  %extract17.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr58, i64 16
-  %extract17.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr58, i64 24
-  %18 = getelementptr inbounds nuw i8, ptr %sums_queue14, i64 8
-  %19 = getelementptr inbounds nuw i8, ptr %sums_queue14, i64 16
-  %20 = getelementptr inbounds nuw i8, ptr %sums_queue14, i64 24
+  %extract19.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr66, i64 8
+  %extract19.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr66, i64 16
+  %extract19.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr66, i64 24
+  %10 = getelementptr inbounds nuw i8, ptr %sums_queue15, i64 8
+  %11 = getelementptr inbounds nuw i8, ptr %sums_queue15, i64 16
+  %12 = getelementptr inbounds nuw i8, ptr %sums_queue15, i64 24
+  %wide.trip.count = zext i32 %"@7.count67" to i64
   br label %"sums!run"
 
 "sums!run":                                       ; preds = %"sums!batch", %fill.exit
-  %sums55 = phi i32 [ 0, %"sums!batch" ], [ %28, %fill.exit ]
-  %extract17.fca.1.load = load ptr, ptr %extract17.fca.1.gep, align 8
-  %extract17.fca.2.load = load ptr, ptr %extract17.fca.2.gep, align 8
-  %extract17.fca.3.load = load ptr, ptr %extract17.fca.3.gep, align 8
-  %21 = sext i32 %sums55 to i64
-  %extract_ptr18 = getelementptr inbounds [4 x i8], ptr %extract17.fca.1.load, i64 %21
-  %extract19 = load i32, ptr %extract_ptr18, align 4
-  %extract_ptr22 = getelementptr inbounds [4 x i8], ptr %extract17.fca.2.load, i64 %21
-  %extract23 = load i32, ptr %extract_ptr22, align 4
-  %extract_ptr27 = getelementptr inbounds [4 x i8], ptr %extract17.fca.3.load, i64 %21
-  %extract28 = load i32, ptr %extract_ptr27, align 4
-  %22 = icmp slt i32 %extract19, 1
-  br i1 %22, label %"!then_0.i", label %"!merge_1.i"
+  %indvars.iv = phi i64 [ 0, %"sums!batch" ], [ %indvars.iv.next, %fill.exit ]
+  %extract19.fca.1.load = load ptr, ptr %extract19.fca.1.gep, align 8
+  %extract19.fca.2.load = load ptr, ptr %extract19.fca.2.gep, align 8
+  %extract19.fca.3.load = load ptr, ptr %extract19.fca.3.gep, align 8
+  %extract_ptr20 = getelementptr inbounds nuw [4 x i8], ptr %extract19.fca.1.load, i64 %indvars.iv
+  %extract21 = load i32, ptr %extract_ptr20, align 4
+  %extract_ptr26 = getelementptr inbounds nuw [4 x i8], ptr %extract19.fca.2.load, i64 %indvars.iv
+  %extract27 = load i32, ptr %extract_ptr26, align 4
+  %extract_ptr33 = getelementptr inbounds nuw [4 x i8], ptr %extract19.fca.3.load, i64 %indvars.iv
+  %extract34 = load i32, ptr %extract_ptr33, align 4
+  %13 = icmp slt i32 %extract21, 1
+  br i1 %13, label %"!then_0.i", label %"!merge_1.i"
 
 "!then_0.i":                                      ; preds = %"sums!run"
-  %23 = sext i32 %extract28 to i64
-  %out14.i = getelementptr inbounds [4 x i8], ptr %out, i64 %23
-  store i32 %extract23, ptr %out14.i, align 4, !tbaa !0
+  %i3_wide.i = sext i32 %extract34 to i64
+  %out16.i = getelementptr inbounds [4 x i8], ptr %out, i64 %i3_wide.i
+  store i32 %extract27, ptr %out16.i, align 4, !tbaa !0
   br label %fill.exit
 
 "!merge_1.i":                                     ; preds = %"sums!run"
-  %24 = add nsw i32 %extract19, -1
-  %25 = add i32 %extract23, %extract19
-  %26 = atomicrmw add ptr %sums_queue14, i32 1 monotonic, align 4
-  %n9.i = load ptr, ptr %18, align 8
-  %27 = sext i32 %26 to i64
-  %"@9.i" = getelementptr inbounds [4 x i8], ptr %n9.i, i64 %27
-  store i32 %24, ptr %"@9.i", align 4, !tbaa !0
-  %acc11.i = load ptr, ptr %19, align 16
-  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc11.i, i64 %27
-  store i32 %25, ptr %"@12.i", align 4, !tbaa !0
-  %i13.i = load ptr, ptr %20, align 8
-  %"@15.i" = getelementptr inbounds [4 x i8], ptr %i13.i, i64 %27
-  store i32 %extract28, ptr %"@15.i", align 4, !tbaa !0
+  %14 = add nsw i32 %extract21, -1
+  %15 = add i32 %extract27, %extract21
+  %16 = atomicrmw add ptr %sums_queue15, i32 1 monotonic, align 4
+  %n9.i = load ptr, ptr %10, align 8
+  %_wide.i = zext i32 %16 to i64
+  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %n9.i, i64 %_wide.i
+  store i32 %14, ptr %"@9.i", align 4, !tbaa !0
+  %acc11.i = load ptr, ptr %11, align 16
+  %"@12.i" = getelementptr inbounds nuw [4 x i8], ptr %acc11.i, i64 %_wide.i
+  store i32 %15, ptr %"@12.i", align 4, !tbaa !0
+  %i14.i = load ptr, ptr %12, align 8
+  %"@15.i" = getelementptr inbounds nuw [4 x i8], ptr %i14.i, i64 %_wide.i
+  store i32 %extract34, ptr %"@15.i", align 4, !tbaa !0
   br label %fill.exit
 
 fill.exit:                                        ; preds = %"!then_0.i", %"!merge_1.i"
-  %28 = add nuw i32 %sums55, 1
-  %exitcond.not = icmp eq i32 %28, %"@7.count59"
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
   br i1 %exitcond.not, label %sums1_pf_exit, label %"sums!run", !prof !5
 
 sums1_pf_exit:                                    ; preds = %fill.exit
-  %29 = add i32 %"sums!round257", 1
-  %30 = and i32 %29, 1
-  %31 = zext nneg i32 %30 to i64
-  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1129, i64 %31
+  %17 = add i32 %"sums!round265", 1
+  %18 = and i32 %17, 1
+  %_wide = zext nneg i32 %18 to i64
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue1135, i64 %_wide
   %"@7.count" = load i32, ptr %extract_ptr, align 16
-  %32 = icmp eq i32 %"@7.count", 0
-  br i1 %32, label %"!par_cont_1", label %"sums!batch"
+  %19 = icmp eq i32 %"@7.count", 0
+  br i1 %19, label %"!par_cont_1", label %"sums!batch"
 }
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr

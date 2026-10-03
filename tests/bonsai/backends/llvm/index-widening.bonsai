@@ -1,0 +1,31 @@
+//! flags: -p ssa -b llvm
+
+// How a scalar index is widened to the pointer's width before it reaches the
+// address (CodeGen_LLVM::codegen_buffer_pointer): by the index's own
+// signedness. A `u32` index is zero-extended and an `i32` one sign-extended;
+// a 64-bit index is used as it is.
+//
+// What to read for in the golden: `byte_at_u32`'s address is a
+// `getelementptr` through a `zext i32` of the index, `byte_at_i32`'s through
+// a `sext i32`, and `byte_at_u64`'s through the index itself.
+//
+// Before this every scalar index was sign-extended whatever its type, which
+// is the same address for any index below 2^31 and a negative offset past it
+// -- a `u32` offset into a byte pool of more than two gigabytes, which is
+// what bistro's textures are once an 8-bit image is kept as its bytes: 3.3 GB
+// of them, with the normal maps past the two-gigabyte mark, and the GPU
+// faulted on the first one. The lanes of a gang's gather are another matter:
+// they are addressed in 32 bits on purpose (element_addresses) and keep that
+// limit.
+
+func [[export]] byte_at_u32(bytes : array[u8], i : u32) -> u32 {
+    return cast[[u32]](bytes[i]);
+}
+
+func [[export]] byte_at_i32(bytes : array[u8], i : i32) -> u32 {
+    return cast[[u32]](bytes[i]);
+}
+
+func [[export]] byte_at_u64(bytes : array[u8], i : u64) -> u32 {
+    return cast[[u32]](bytes[i]);
+}

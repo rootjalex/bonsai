@@ -22,32 +22,32 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readno
   br i1 %1, label %"!then_0.i", label %"!merge_1.i"
 
 "!then_0.i":                                      ; preds = %"!par_body_0"
-  %2 = sext i32 %i to i64
-  %ptr_array_deref1 = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %2
+  %i_wide = sext i32 %i to i64
+  %ptr_array_deref1 = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %i_wide
   store i32 0, ptr %ptr_array_deref1, align 4, !tbaa !1
   br label %walk.exit
 
 "!merge_1.i":                                     ; preds = %"!par_body_0"
-  %3 = add nsw i32 %i, -1
-  %4 = atomicrmw add ptr %sums_queue.generic, i32 1 syncscope("device") monotonic, align 4
-  %5 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 8
-  %k7.i = load ptr, ptr %5, align 8
+  %2 = add nsw i32 %i, -1
+  %3 = atomicrmw add ptr %sums_queue.generic, i32 1 syncscope("device") monotonic, align 4
+  %4 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 8
+  %k7.i = load ptr, ptr %4, align 8
   %k7.i.global = addrspacecast ptr %k7.i to ptr addrspace(1)
   %k7.i.generic = addrspacecast ptr addrspace(1) %k7.i.global to ptr
-  %6 = sext i32 %4 to i64
-  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i.generic, i64 %6
-  store i32 %3, ptr %"@9.i", align 4, !tbaa !1
-  %7 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 16
-  %acc9.i = load ptr, ptr %7, align 8
+  %_wide.i = zext i32 %3 to i64
+  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %k7.i.generic, i64 %_wide.i
+  store i32 %2, ptr %"@9.i", align 4, !tbaa !1
+  %5 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 16
+  %acc9.i = load ptr, ptr %5, align 8
   %acc9.i.global = addrspacecast ptr %acc9.i to ptr addrspace(1)
   %acc9.i.generic = addrspacecast ptr addrspace(1) %acc9.i.global to ptr
-  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i.generic, i64 %6
+  %"@12.i" = getelementptr inbounds nuw [4 x i8], ptr %acc9.i.generic, i64 %_wide.i
   store i32 %i, ptr %"@12.i", align 4, !tbaa !1
-  %8 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 24
-  %_slot.i = load ptr, ptr %8, align 8
+  %6 = getelementptr inbounds nuw i8, ptr %sums_queue.generic, i64 24
+  %_slot.i = load ptr, ptr %6, align 8
   %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
   %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
-  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i.generic, i64 %6
+  %"@15.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.generic, i64 %_wide.i
   store i32 %i, ptr %"@15.i", align 4, !tbaa !1
   br label %walk.exit
 
@@ -77,57 +77,57 @@ define ptx_kernel void @_kernel_sums_1(i32 %_begin, i32 %_stride, i32 %"@9", ptr
   br i1 %1, label %"sums!run", label %common.ret
 
 "sums!run":                                       ; preds = %"sums!run!inqueue"
-  %2 = sext i32 %"@9" to i64
-  %extract_ptr = getelementptr inbounds [32 x i8], ptr %sums_queue.generic, i64 %2
+  %"@92_wide" = zext i32 %"@9" to i64
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %sums_queue.generic, i64 %"@92_wide"
   %extract = load %struct.Queue_sums, ptr %extract_ptr, align 8, !invariant.load !6
   %k = extractvalue %struct.Queue_sums %extract, 1
   %k.global = addrspacecast ptr %k to ptr addrspace(1)
   %k.generic = addrspacecast ptr addrspace(1) %k.global to ptr
-  %3 = sext i32 %sums to i64
-  %extract_ptr6 = getelementptr inbounds [4 x i8], ptr %k.generic, i64 %3
+  %sums1_wide = zext i32 %sums to i64
+  %extract_ptr6 = getelementptr inbounds nuw [4 x i8], ptr %k.generic, i64 %sums1_wide
   %extract7 = load i32, ptr %extract_ptr6, align 4, !invariant.load !6
   %acc = extractvalue %struct.Queue_sums %extract, 2
   %acc.global = addrspacecast ptr %acc to ptr addrspace(1)
   %acc.generic = addrspacecast ptr addrspace(1) %acc.global to ptr
-  %extract_ptr10 = getelementptr inbounds [4 x i8], ptr %acc.generic, i64 %3
-  %extract11 = load i32, ptr %extract_ptr10, align 4, !invariant.load !6
+  %extract_ptr12 = getelementptr inbounds nuw [4 x i8], ptr %acc.generic, i64 %sums1_wide
+  %extract13 = load i32, ptr %extract_ptr12, align 4, !invariant.load !6
   %_slot = extractvalue %struct.Queue_sums %extract, 3
   %_slot.global = addrspacecast ptr %_slot to ptr addrspace(1)
   %_slot.generic = addrspacecast ptr addrspace(1) %_slot.global to ptr
-  %extract_ptr14 = getelementptr inbounds [4 x i8], ptr %_slot.generic, i64 %3
-  %extract15 = load i32, ptr %extract_ptr14, align 4, !invariant.load !6
-  %4 = icmp slt i32 %extract7, 1
-  br i1 %4, label %"!then_0.i", label %"!merge_1.i"
+  %extract_ptr18 = getelementptr inbounds nuw [4 x i8], ptr %_slot.generic, i64 %sums1_wide
+  %extract19 = load i32, ptr %extract_ptr18, align 4, !invariant.load !6
+  %2 = icmp slt i32 %extract7, 1
+  br i1 %2, label %"!then_0.i", label %"!merge_1.i"
 
 "!then_0.i":                                      ; preds = %"sums!run"
-  %5 = sext i32 %extract15 to i64
-  %ptr_array_deref = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %5
-  store i32 %extract11, ptr %ptr_array_deref, align 4, !tbaa !1
+  %extract19_wide = sext i32 %extract19 to i64
+  %ptr_array_deref = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %extract19_wide
+  store i32 %extract13, ptr %ptr_array_deref, align 4, !tbaa !1
   br label %common.ret
 
 "!merge_1.i":                                     ; preds = %"sums!run"
-  %6 = add nsw i32 %extract7, -1
-  %7 = add i32 %extract11, %extract7
-  %8 = atomicrmw add ptr %"@14.generic", i32 1 syncscope("device") monotonic, align 4
-  %9 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 8
-  %k7.i = load ptr, ptr %9, align 8
+  %3 = add nsw i32 %extract7, -1
+  %4 = add i32 %extract13, %extract7
+  %5 = atomicrmw add ptr %"@14.generic", i32 1 syncscope("device") monotonic, align 4
+  %6 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 8
+  %k7.i = load ptr, ptr %6, align 8
   %k7.i.global = addrspacecast ptr %k7.i to ptr addrspace(1)
   %k7.i.generic = addrspacecast ptr addrspace(1) %k7.i.global to ptr
-  %10 = sext i32 %8 to i64
-  %"@9.i" = getelementptr inbounds [4 x i8], ptr %k7.i.generic, i64 %10
-  store i32 %6, ptr %"@9.i", align 4, !tbaa !1
-  %11 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 16
-  %acc9.i = load ptr, ptr %11, align 8
+  %_wide.i = zext i32 %5 to i64
+  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %k7.i.generic, i64 %_wide.i
+  store i32 %3, ptr %"@9.i", align 4, !tbaa !1
+  %7 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 16
+  %acc9.i = load ptr, ptr %7, align 8
   %acc9.i.global = addrspacecast ptr %acc9.i to ptr addrspace(1)
   %acc9.i.generic = addrspacecast ptr addrspace(1) %acc9.i.global to ptr
-  %"@12.i" = getelementptr inbounds [4 x i8], ptr %acc9.i.generic, i64 %10
-  store i32 %7, ptr %"@12.i", align 4, !tbaa !1
-  %12 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 24
-  %_slot.i = load ptr, ptr %12, align 8
+  %"@12.i" = getelementptr inbounds nuw [4 x i8], ptr %acc9.i.generic, i64 %_wide.i
+  store i32 %4, ptr %"@12.i", align 4, !tbaa !1
+  %8 = getelementptr inbounds nuw i8, ptr %"@14.generic", i64 24
+  %_slot.i = load ptr, ptr %8, align 8
   %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
   %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
-  %"@15.i" = getelementptr inbounds [4 x i8], ptr %_slot.i.generic, i64 %10
-  store i32 %extract15, ptr %"@15.i", align 4, !tbaa !1
+  %"@15.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.generic, i64 %_wide.i
+  store i32 %extract19, ptr %"@15.i", align 4, !tbaa !1
   br label %common.ret
 
 common.ret:                                       ; preds = %"!merge_1.i", %"!then_0.i", %"sums!run!inqueue"
@@ -144,10 +144,10 @@ define ptx_kernel void @_kernel_sums_rest_2(i32 %_begin, i32 %_stride, ptr nofre
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %sums_rest = add i32 %0, %_begin
-  %1 = sext i32 %sums_rest to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %1
+  %sums_rest_wide = sext i32 %sums_rest to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %sums_result.generic, i64 %sums_rest_wide
   %extract = load i32, ptr %extract_ptr, align 4, !invariant.load !6
-  %out2 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %1
+  %out2 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %sums_rest_wide
   store i32 %extract, ptr %out2, align 4, !tbaa !1
   ret void
 }
@@ -204,7 +204,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	atom.relaxed.gpu.global.add.u32 	%r6, [%rd1], 1;
 	ld.global.b64 	%rd5, [%rd1+8];
 	cvta.to.global.u64 	%rd6, %rd5;
-	mul.wide.s32 	%rd7, %r6, 4;
+	mul.wide.u32 	%rd7, %r6, 4;
 	add.s64 	%rd8, %rd6, %rd7;
 	st.global.b32 	[%rd8], %r5;
 	ld.global.b64 	%rd9, [%rd1+16];
@@ -255,13 +255,13 @@ $L__BB0_3:
 	setp.ge.u32 	%p1, %r1, %r9;
 	@%p1 bra 	$L__BB1_4;
 	ld.param.b32 	%r5, [_kernel_sums_1_param_2];
-	mul.wide.s32 	%rd10, %r5, 32;
+	mul.wide.u32 	%rd10, %r5, 32;
 	add.s64 	%rd11, %rd3, %rd10;
 	ld.global.nc.b64 	%rd12, [%rd11+24];
 	ld.global.nc.b64 	%rd13, [%rd11+16];
 	ld.global.nc.b64 	%rd14, [%rd11+8];
 	cvta.to.global.u64 	%rd15, %rd14;
-	mul.wide.s32 	%rd16, %r1, 4;
+	mul.wide.u32 	%rd16, %r1, 4;
 	add.s64 	%rd17, %rd15, %rd16;
 	ld.global.nc.b32 	%r2, [%rd17];
 	cvta.to.global.u64 	%rd18, %rd13;
@@ -277,7 +277,7 @@ $L__BB0_3:
 	atom.relaxed.gpu.global.add.u32 	%r12, [%rd2], 1;
 	ld.global.b64 	%rd22, [%rd2+8];
 	cvta.to.global.u64 	%rd23, %rd22;
-	mul.wide.s32 	%rd24, %r12, 4;
+	mul.wide.u32 	%rd24, %r12, 4;
 	add.s64 	%rd25, %rd23, %rd24;
 	st.global.b32 	[%rd25], %r10;
 	ld.global.b64 	%rd26, [%rd2+16];

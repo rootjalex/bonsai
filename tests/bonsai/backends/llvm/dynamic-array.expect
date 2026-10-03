@@ -39,7 +39,7 @@ continue:                                         ; preds = %unlock-mutex, %main
   %5 = call i32 @pthread_mutex_unlock(ptr %x.mutex_ptr3)
   %deref_temp9 = load %struct.__dyn_array0, ptr %x, align 64
   %buffer10 = extractvalue %struct.__dyn_array0 %deref_temp9, 0
-  %extract_ptr = getelementptr inbounds i32, ptr %buffer10, i32 0
+  %extract_ptr = getelementptr inbounds i32, ptr %buffer10, i64 0
   %extract = load i32, ptr %extract_ptr, align 4
   ret i32 %extract
 

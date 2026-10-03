@@ -42,6 +42,7 @@ add_bonsai_tests(
     rand-par.bonsai
     rand.bonsai
     sub-word-gather.bonsai
+    index-widening.bonsai
     short-circuit.bonsai
     simple.bonsai
     sret.bonsai

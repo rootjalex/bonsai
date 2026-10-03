@@ -58,11 +58,11 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr
   br i1 %31, label %if_lane, label %if_lane_after
 
 "!par_body_2!leader":                             ; preds = %reduce_warps_after
-  %32 = sext i32 %p to i64
-  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %32
+  %p_wide = sext i32 %p to i64
+  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %p_wide
   %acc_base = load i32, ptr %out3, align 4
-  %33 = add i32 %acc_base, %.lcssa
-  store i32 %33, ptr %out3, align 4
+  %32 = add i32 %acc_base, %.lcssa
+  store i32 %32, ptr %out3, align 4
   br label %"!par_body_2!done"
 
 "!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after
@@ -71,21 +71,21 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr
 
 if_lane:                                          ; preds = %"!par_body_0"
   %warp = lshr exact i32 %tid, 5
-  %34 = zext nneg i32 %warp to i64
-  %35 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %34
-  %36 = extractvalue { i32, i1 } %30, 1
-  %37 = extractvalue { i32, i1 } %30, 0
-  %38 = select i1 %36, i32 %37, i32 0
-  %39 = add i32 %29, %38
-  store i32 %39, ptr addrspace(3) %35, align 4
+  %33 = zext nneg i32 %warp to i64
+  %34 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %33
+  %35 = extractvalue { i32, i1 } %30, 1
+  %36 = extractvalue { i32, i1 } %30, 0
+  %37 = select i1 %35, i32 %36, i32 0
+  %38 = add i32 %29, %37
+  store i32 %38, ptr addrspace(3) %34, align 4
   br label %if_lane_after
 
 if_lane_after:                                    ; preds = %if_lane, %"!par_body_0"
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  %40 = add nsw i32 %nwarps, -1
+  %39 = add nsw i32 %nwarps, -1
   %xtraiter = and i32 %nwarps, 7
-  %41 = icmp ult i32 %40, 7
-  br i1 %41, label %reduce_warps.epil.preheader, label %if_lane_after.new
+  %40 = icmp ult i32 %39, 7
+  br i1 %40, label %reduce_warps.epil.preheader, label %if_lane_after.new
 
 if_lane_after.new:                                ; preds = %if_lane_after
   %unroll_iter = and i32 %nwarps, 120
@@ -93,47 +93,47 @@ if_lane_after.new:                                ; preds = %if_lane_after
 
 reduce_warps:                                     ; preds = %reduce_warps, %if_lane_after.new
   %w = phi i32 [ 0, %if_lane_after.new ], [ %w_next.7, %reduce_warps ]
-  %total = phi i32 [ 0, %if_lane_after.new ], [ %80, %reduce_warps ]
+  %total = phi i32 [ 0, %if_lane_after.new ], [ %79, %reduce_warps ]
   %niter = phi i32 [ 0, %if_lane_after.new ], [ %niter.next.7, %reduce_warps ]
-  %42 = zext nneg i32 %w to i64
-  %43 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %42
-  %44 = load i32, ptr addrspace(3) %43, align 16
-  %45 = add i32 %44, %total
-  %46 = zext nneg i32 %w to i64
-  %47 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %46
-  %48 = getelementptr inbounds nuw i8, ptr addrspace(3) %47, i64 4
-  %49 = load i32, ptr addrspace(3) %48, align 4
-  %50 = add i32 %49, %45
-  %51 = zext nneg i32 %w to i64
-  %52 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %51
-  %53 = getelementptr inbounds nuw i8, ptr addrspace(3) %52, i64 8
-  %54 = load i32, ptr addrspace(3) %53, align 8
-  %55 = add i32 %54, %50
-  %56 = zext nneg i32 %w to i64
-  %57 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %56
-  %58 = getelementptr inbounds nuw i8, ptr addrspace(3) %57, i64 12
-  %59 = load i32, ptr addrspace(3) %58, align 4
-  %60 = add i32 %59, %55
-  %61 = zext nneg i32 %w to i64
-  %62 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %61
-  %63 = getelementptr inbounds nuw i8, ptr addrspace(3) %62, i64 16
-  %64 = load i32, ptr addrspace(3) %63, align 16
-  %65 = add i32 %64, %60
-  %66 = zext nneg i32 %w to i64
-  %67 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %66
-  %68 = getelementptr inbounds nuw i8, ptr addrspace(3) %67, i64 20
-  %69 = load i32, ptr addrspace(3) %68, align 4
-  %70 = add i32 %69, %65
-  %71 = zext nneg i32 %w to i64
-  %72 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %71
-  %73 = getelementptr inbounds nuw i8, ptr addrspace(3) %72, i64 24
-  %74 = load i32, ptr addrspace(3) %73, align 8
-  %75 = add i32 %74, %70
-  %76 = zext nneg i32 %w to i64
-  %77 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %76
-  %78 = getelementptr inbounds nuw i8, ptr addrspace(3) %77, i64 28
-  %79 = load i32, ptr addrspace(3) %78, align 4
-  %80 = add i32 %79, %75
+  %41 = zext nneg i32 %w to i64
+  %42 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %41
+  %43 = load i32, ptr addrspace(3) %42, align 16
+  %44 = add i32 %43, %total
+  %45 = zext nneg i32 %w to i64
+  %46 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %45
+  %47 = getelementptr inbounds nuw i8, ptr addrspace(3) %46, i64 4
+  %48 = load i32, ptr addrspace(3) %47, align 4
+  %49 = add i32 %48, %44
+  %50 = zext nneg i32 %w to i64
+  %51 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %50
+  %52 = getelementptr inbounds nuw i8, ptr addrspace(3) %51, i64 8
+  %53 = load i32, ptr addrspace(3) %52, align 8
+  %54 = add i32 %53, %49
+  %55 = zext nneg i32 %w to i64
+  %56 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %55
+  %57 = getelementptr inbounds nuw i8, ptr addrspace(3) %56, i64 12
+  %58 = load i32, ptr addrspace(3) %57, align 4
+  %59 = add i32 %58, %54
+  %60 = zext nneg i32 %w to i64
+  %61 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %60
+  %62 = getelementptr inbounds nuw i8, ptr addrspace(3) %61, i64 16
+  %63 = load i32, ptr addrspace(3) %62, align 16
+  %64 = add i32 %63, %59
+  %65 = zext nneg i32 %w to i64
+  %66 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %65
+  %67 = getelementptr inbounds nuw i8, ptr addrspace(3) %66, i64 20
+  %68 = load i32, ptr addrspace(3) %67, align 4
+  %69 = add i32 %68, %64
+  %70 = zext nneg i32 %w to i64
+  %71 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %70
+  %72 = getelementptr inbounds nuw i8, ptr addrspace(3) %71, i64 24
+  %73 = load i32, ptr addrspace(3) %72, align 8
+  %74 = add i32 %73, %69
+  %75 = zext nneg i32 %w to i64
+  %76 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %75
+  %77 = getelementptr inbounds nuw i8, ptr addrspace(3) %76, i64 28
+  %78 = load i32, ptr addrspace(3) %77, align 4
+  %79 = add i32 %78, %74
   %w_next.7 = add nuw nsw i32 %w, 8
   %niter.next.7 = add i32 %niter, 8
   %niter.ncmp.7 = icmp eq i32 %niter.next.7, %unroll_iter
@@ -145,28 +145,28 @@ reduce_warps_after.unr-lcssa:                     ; preds = %reduce_warps
 
 reduce_warps.epil.preheader:                      ; preds = %reduce_warps_after.unr-lcssa, %if_lane_after
   %w.epil.init = phi i32 [ 0, %if_lane_after ], [ %w_next.7, %reduce_warps_after.unr-lcssa ]
-  %total.epil.init = phi i32 [ 0, %if_lane_after ], [ %80, %reduce_warps_after.unr-lcssa ]
+  %total.epil.init = phi i32 [ 0, %if_lane_after ], [ %79, %reduce_warps_after.unr-lcssa ]
   %lcmp.mod5 = icmp ne i32 %xtraiter, 0
   tail call void @llvm.assume(i1 %lcmp.mod5)
   br label %reduce_warps.epil
 
 reduce_warps.epil:                                ; preds = %reduce_warps.epil, %reduce_warps.epil.preheader
   %w.epil = phi i32 [ %w.epil.init, %reduce_warps.epil.preheader ], [ %w_next.epil, %reduce_warps.epil ]
-  %total.epil = phi i32 [ %total.epil.init, %reduce_warps.epil.preheader ], [ %84, %reduce_warps.epil ]
+  %total.epil = phi i32 [ %total.epil.init, %reduce_warps.epil.preheader ], [ %83, %reduce_warps.epil ]
   %epil.iter = phi i32 [ 0, %reduce_warps.epil.preheader ], [ %epil.iter.next, %reduce_warps.epil ]
-  %81 = zext nneg i32 %w.epil to i64
-  %82 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %81
-  %83 = load i32, ptr addrspace(3) %82, align 4
-  %84 = add i32 %83, %total.epil
+  %80 = zext nneg i32 %w.epil to i64
+  %81 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %80
+  %82 = load i32, ptr addrspace(3) %81, align 4
+  %83 = add i32 %82, %total.epil
   %w_next.epil = add nuw nsw i32 %w.epil, 1
   %epil.iter.next = add i32 %epil.iter, 1
   %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
   br i1 %epil.iter.cmp.not, label %reduce_warps_after, label %reduce_warps.epil, !llvm.loop !1
 
 reduce_warps_after:                               ; preds = %reduce_warps.epil, %reduce_warps_after.unr-lcssa
-  %.lcssa = phi i32 [ %80, %reduce_warps_after.unr-lcssa ], [ %84, %reduce_warps.epil ]
-  %85 = icmp eq i32 %tid, 0
-  br i1 %85, label %"!par_body_2!leader", label %"!par_body_2!done"
+  %.lcssa = phi i32 [ %79, %reduce_warps_after.unr-lcssa ], [ %83, %reduce_warps.epil ]
+  %84 = icmp eq i32 %tid, 0
+  br i1 %84, label %"!par_body_2!leader", label %"!par_body_2!done"
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)

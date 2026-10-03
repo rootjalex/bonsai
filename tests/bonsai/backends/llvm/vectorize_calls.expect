@@ -58,8 +58,8 @@ define void @store_to(ptr noundef %out_buffer, i32 noundef %i, float noundef %v)
 store_to:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  %0 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %0
+  %i_wide = sext i32 %i to i64
+  %out1 = getelementptr inbounds [4 x i8], ptr %out, i64 %i_wide
   store float %v, ptr %out1, align 4, !tbaa !0
   ret void
 }

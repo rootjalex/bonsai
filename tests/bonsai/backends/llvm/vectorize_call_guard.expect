@@ -8,11 +8,11 @@ scale:
   %1 = fmul float %x, %x
   %2 = fptoui float %1 to i32
   %3 = and i32 %2, 3
-  %4 = zext nneg i32 %3 to i64
-  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %t, i64 %4
+  %_wide = zext nneg i32 %3 to i64
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %t, i64 %_wide
   %extract = load float, ptr %extract_ptr, align 4
-  %5 = fadd float %0, %extract
-  ret float %5
+  %4 = fadd float %0, %extract
+  ret float %4
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read)

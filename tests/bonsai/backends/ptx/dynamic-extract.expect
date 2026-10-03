@@ -19,8 +19,8 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, i32 %axis, ptr no
   %lane = select i1 %lane_is, float %2, float %1
   %lane_is1 = icmp eq i32 %axis, 2
   %lane2 = select i1 %lane_is1, float %3, float %lane
-  %4 = sext i32 %i to i64
-  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %4
+  %i_wide = sext i32 %i to i64
+  %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store float %lane2, ptr %out3, align 4, !tbaa !1
   ret void
 }

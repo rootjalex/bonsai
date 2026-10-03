@@ -20,8 +20,8 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, %struct.Affine %a
   %3 = fptosi float %2 to i32
   %a.offset = extractvalue %struct.Affine %a, 1
   %4 = add i32 %a.offset, %3
-  %5 = sext i32 %i to i64
-  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %5
+  %i_wide = sext i32 %i to i64
+  %out1 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store i32 %4, ptr %out1, align 4, !tbaa !1
   ret void
 }

@@ -378,8 +378,17 @@ struct CodeGen_LLVM : public ir::Visitor {
     llvm::Value *codegen_buffer_pointer(const std::string &buffer,
                                         const ir::Type &type,
                                         const ir::Expr &idx);
+    // `index_is_signed` says how `idx` is widened to the pointer's width: a
+    // GEP sign-extends an index narrower than the pointer, which is wrong for
+    // an unsigned index past 2^31, so an unsigned one is zero-extended first.
     llvm::Value *codegen_buffer_pointer(const std::string &buffer,
-                                        const ir::Type &type, llvm::Value *idx);
+                                        const ir::Type &type, llvm::Value *idx,
+                                        bool index_is_signed);
+    // A scalar index of the program, widened to the pointer's width by its
+    // own signedness before it reaches a GEP (see codegen_buffer_pointer).
+    // A vector of lane indices is left as it is: the lanes of a gather are
+    // addressed in 32 bits on purpose (element_addresses).
+    llvm::Value *widen_index(llvm::Value *idx, const ir::Type &index_type);
     void add_tbaa_metadata(llvm::Instruction *inst, const std::string &buffer,
                            const ir::Expr &index);
 

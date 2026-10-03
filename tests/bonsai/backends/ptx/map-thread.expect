@@ -16,14 +16,14 @@ define ptx_kernel void @_kernel__i0_0(i32 %_begin, i32 %_stride, ptr nofree read
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %_i0 = add i32 %0, %_begin
-  %1 = sext i32 %_i0 to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %fs.generic, i64 %1
+  %_i0_wide = sext i32 %_i0 to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %fs.generic, i64 %_i0_wide
   %extract = load i32, ptr %extract_ptr, align 4, !invariant.load !1
   store i32 %extract, ptr %_print_args, align 16
-  %2 = call i32 @vprintf(ptr nonnull @0, ptr nonnull %_print_args)
-  %3 = add i32 %extract, 1
-  %_alloc01 = getelementptr inbounds [4 x i8], ptr %_alloc0.generic, i64 %1
-  store i32 %3, ptr %_alloc01, align 4, !tbaa !2
+  %1 = call i32 @vprintf(ptr nonnull @0, ptr nonnull %_print_args)
+  %2 = add i32 %extract, 1
+  %_alloc02 = getelementptr inbounds [4 x i8], ptr %_alloc0.generic, i64 %_i0_wide
+  store i32 %2, ptr %_alloc02, align 4, !tbaa !2
   ret void
 }
 

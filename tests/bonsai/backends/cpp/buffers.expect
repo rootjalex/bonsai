@@ -52,50 +52,47 @@ combine_entry:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %.not = icmp eq i32 %n, 0
-  br i1 %.not, label %i0_for_end, label %i0_for.preheader14, !prof !0
+  br i1 %.not, label %i0_for_end, label %i0_for.preheader, !prof !0
 
-i0_for.preheader14:                               ; preds = %combine_entry
-  %xtraiter = and i32 %n, 1
-  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
+i0_for.preheader:                                 ; preds = %combine_entry
+  %wide.trip.count = zext i32 %n to i64
+  %xtraiter = and i64 %wide.trip.count, 1
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
   br i1 %lcmp.mod.not, label %i0_for.prol.loopexit, label %i0_for.prol
 
-i0_for.prol:                                      ; preds = %i0_for.preheader14
+i0_for.prol:                                      ; preds = %i0_for.preheader
   %extract.prol = load float, ptr %a, align 4
-  %extract2.prol = load float, ptr %weights, align 4
-  %0 = fmul float %extract.prol, %extract2.prol
+  %extract3.prol = load float, ptr %weights, align 4
+  %0 = fmul float %extract.prol, %extract3.prol
   store float %0, ptr %out, align 4, !tbaa !1
   br label %i0_for.prol.loopexit
 
-i0_for.prol.loopexit:                             ; preds = %i0_for.prol, %i0_for.preheader14
-  %.unr = phi i32 [ 0, %i0_for.preheader14 ], [ 1, %i0_for.prol ]
+i0_for.prol.loopexit:                             ; preds = %i0_for.prol, %i0_for.preheader
+  %indvars.iv.unr = phi i64 [ 0, %i0_for.preheader ], [ 1, %i0_for.prol ]
   %1 = icmp eq i32 %n, 1
   br i1 %1, label %i0_for_end, label %i0_for
 
 i0_for:                                           ; preds = %i0_for.prol.loopexit, %i0_for
-  %2 = phi i32 [ %12, %i0_for ], [ %.unr, %i0_for.prol.loopexit ]
-  %3 = sext i32 %2 to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a, i64 %3
+  %indvars.iv = phi i64 [ %indvars.iv.next.1, %i0_for ], [ %indvars.iv.unr, %i0_for.prol.loopexit ]
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
   %extract = load float, ptr %extract_ptr, align 4
-  %4 = and i32 %2, 3
-  %5 = zext nneg i32 %4 to i64
-  %extract_ptr1 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %5
-  %extract2 = load float, ptr %extract_ptr1, align 4
-  %6 = fmul float %extract, %extract2
-  %out3 = getelementptr inbounds [4 x i8], ptr %out, i64 %3
-  store float %6, ptr %out3, align 4, !tbaa !1
-  %7 = add nuw i32 %2, 1
-  %8 = sext i32 %7 to i64
-  %extract_ptr.1 = getelementptr inbounds [4 x i8], ptr %a, i64 %8
+  %_wide1 = and i64 %indvars.iv, 3
+  %extract_ptr2 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %_wide1
+  %extract3 = load float, ptr %extract_ptr2, align 4
+  %2 = fmul float %extract, %extract3
+  %out5 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv
+  store float %2, ptr %out5, align 4, !tbaa !1
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %extract_ptr.1 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.next
   %extract.1 = load float, ptr %extract_ptr.1, align 4
-  %9 = and i32 %7, 3
-  %10 = zext nneg i32 %9 to i64
-  %extract_ptr1.1 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %10
-  %extract2.1 = load float, ptr %extract_ptr1.1, align 4
-  %11 = fmul float %extract.1, %extract2.1
-  %out3.1 = getelementptr inbounds [4 x i8], ptr %out, i64 %8
-  store float %11, ptr %out3.1, align 4, !tbaa !1
-  %12 = add nuw i32 %2, 2
-  %exitcond.not.1 = icmp eq i32 %12, %n
+  %_wide1.1 = and i64 %indvars.iv.next, 3
+  %extract_ptr2.1 = getelementptr inbounds nuw [4 x i8], ptr %weights, i64 %_wide1.1
+  %extract3.1 = load float, ptr %extract_ptr2.1, align 4
+  %3 = fmul float %extract.1, %extract3.1
+  %out5.1 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %indvars.iv.next
+  store float %3, ptr %out5.1, align 4, !tbaa !1
+  %indvars.iv.next.1 = add nuw nsw i64 %indvars.iv, 2
+  %exitcond.not.1 = icmp eq i64 %indvars.iv.next.1, %wide.trip.count
   br i1 %exitcond.not.1, label %i0_for_end, label %i0_for, !llvm.loop !4
 
 i0_for_end:                                       ; preds = %i0_for.prol.loopexit, %i0_for, %combine_entry
@@ -109,68 +106,80 @@ total_entry:
   br i1 %.not, label %i1_for_end, label %i1_for.preheader, !prof !0
 
 i1_for.preheader:                                 ; preds = %total_entry
-  %xtraiter = and i32 %n, 3
-  %0 = icmp ult i32 %n, 4
+  %wide.trip.count = zext i32 %n to i64
+  %xtraiter = and i64 %wide.trip.count, 7
+  %0 = icmp ult i32 %n, 8
   br i1 %0, label %i1_for.epil.preheader, label %i1_for.preheader.new
 
 i1_for.preheader.new:                             ; preds = %i1_for.preheader
-  %unroll_iter = and i32 %n, -4
+  %unroll_iter = and i64 %wide.trip.count, 4294967288
   br label %i1_for
 
 i1_for:                                           ; preds = %i1_for, %i1_for.preheader.new
-  %acc.0 = phi float [ 0.000000e+00, %i1_for.preheader.new ], [ %12, %i1_for ]
-  %1 = phi i32 [ 0, %i1_for.preheader.new ], [ %13, %i1_for ]
-  %niter = phi i32 [ 0, %i1_for.preheader.new ], [ %niter.next.3, %i1_for ]
-  %2 = sext i32 %1 to i64
-  %extract_ptr = getelementptr inbounds [4 x i8], ptr %a, i64 %2
+  %indvars.iv = phi i64 [ 0, %i1_for.preheader.new ], [ %indvars.iv.next.7, %i1_for ]
+  %acc.0 = phi float [ 0.000000e+00, %i1_for.preheader.new ], [ %15, %i1_for ]
+  %niter = phi i64 [ 0, %i1_for.preheader.new ], [ %niter.next.7, %i1_for ]
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
   %extract = load float, ptr %extract_ptr, align 4
-  %3 = fadd float %acc.0, %extract
-  %4 = sext i32 %1 to i64
-  %5 = getelementptr [4 x i8], ptr %a, i64 %4
-  %extract_ptr.1 = getelementptr i8, ptr %5, i64 4
+  %1 = fadd float %acc.0, %extract
+  %2 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.1 = getelementptr inbounds nuw i8, ptr %2, i64 4
   %extract.1 = load float, ptr %extract_ptr.1, align 4
-  %6 = fadd float %3, %extract.1
-  %7 = sext i32 %1 to i64
-  %8 = getelementptr [4 x i8], ptr %a, i64 %7
-  %extract_ptr.2 = getelementptr i8, ptr %8, i64 8
+  %3 = fadd float %1, %extract.1
+  %4 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.2 = getelementptr inbounds nuw i8, ptr %4, i64 8
   %extract.2 = load float, ptr %extract_ptr.2, align 4
-  %9 = fadd float %6, %extract.2
-  %10 = sext i32 %1 to i64
-  %11 = getelementptr [4 x i8], ptr %a, i64 %10
-  %extract_ptr.3 = getelementptr i8, ptr %11, i64 12
+  %5 = fadd float %3, %extract.2
+  %6 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.3 = getelementptr inbounds nuw i8, ptr %6, i64 12
   %extract.3 = load float, ptr %extract_ptr.3, align 4
-  %12 = fadd float %9, %extract.3
-  %13 = add nuw i32 %1, 4
-  %niter.next.3 = add i32 %niter, 4
-  %niter.ncmp.3 = icmp eq i32 %niter.next.3, %unroll_iter
-  br i1 %niter.ncmp.3, label %i1_for_end.loopexit.unr-lcssa, label %i1_for
+  %7 = fadd float %5, %extract.3
+  %8 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.4 = getelementptr inbounds nuw i8, ptr %8, i64 16
+  %extract.4 = load float, ptr %extract_ptr.4, align 4
+  %9 = fadd float %7, %extract.4
+  %10 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.5 = getelementptr inbounds nuw i8, ptr %10, i64 20
+  %extract.5 = load float, ptr %extract_ptr.5, align 4
+  %11 = fadd float %9, %extract.5
+  %12 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.6 = getelementptr inbounds nuw i8, ptr %12, i64 24
+  %extract.6 = load float, ptr %extract_ptr.6, align 4
+  %13 = fadd float %11, %extract.6
+  %14 = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv
+  %extract_ptr.7 = getelementptr inbounds nuw i8, ptr %14, i64 28
+  %extract.7 = load float, ptr %extract_ptr.7, align 4
+  %15 = fadd float %13, %extract.7
+  %indvars.iv.next.7 = add nuw nsw i64 %indvars.iv, 8
+  %niter.next.7 = add i64 %niter, 8
+  %niter.ncmp.7 = icmp eq i64 %niter.next.7, %unroll_iter
+  br i1 %niter.ncmp.7, label %i1_for_end.loopexit.unr-lcssa, label %i1_for
 
 i1_for_end.loopexit.unr-lcssa:                    ; preds = %i1_for
-  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
   br i1 %lcmp.mod.not, label %i1_for_end, label %i1_for.epil.preheader
 
 i1_for.epil.preheader:                            ; preds = %i1_for_end.loopexit.unr-lcssa, %i1_for.preheader
-  %acc.0.epil.init = phi float [ 0.000000e+00, %i1_for.preheader ], [ %12, %i1_for_end.loopexit.unr-lcssa ]
-  %.epil.init = phi i32 [ 0, %i1_for.preheader ], [ %13, %i1_for_end.loopexit.unr-lcssa ]
-  %lcmp.mod3 = icmp ne i32 %xtraiter, 0
-  tail call void @llvm.assume(i1 %lcmp.mod3)
+  %indvars.iv.epil.init = phi i64 [ 0, %i1_for.preheader ], [ %indvars.iv.next.7, %i1_for_end.loopexit.unr-lcssa ]
+  %acc.0.epil.init = phi float [ 0.000000e+00, %i1_for.preheader ], [ %15, %i1_for_end.loopexit.unr-lcssa ]
+  %lcmp.mod4 = icmp ne i64 %xtraiter, 0
+  tail call void @llvm.assume(i1 %lcmp.mod4)
   br label %i1_for.epil
 
 i1_for.epil:                                      ; preds = %i1_for.epil, %i1_for.epil.preheader
-  %acc.0.epil = phi float [ %16, %i1_for.epil ], [ %acc.0.epil.init, %i1_for.epil.preheader ]
-  %14 = phi i32 [ %17, %i1_for.epil ], [ %.epil.init, %i1_for.epil.preheader ]
-  %epil.iter = phi i32 [ %epil.iter.next, %i1_for.epil ], [ 0, %i1_for.epil.preheader ]
-  %15 = sext i32 %14 to i64
-  %extract_ptr.epil = getelementptr inbounds [4 x i8], ptr %a, i64 %15
+  %indvars.iv.epil = phi i64 [ %indvars.iv.epil.init, %i1_for.epil.preheader ], [ %indvars.iv.next.epil, %i1_for.epil ]
+  %acc.0.epil = phi float [ %acc.0.epil.init, %i1_for.epil.preheader ], [ %16, %i1_for.epil ]
+  %epil.iter = phi i64 [ 0, %i1_for.epil.preheader ], [ %epil.iter.next, %i1_for.epil ]
+  %extract_ptr.epil = getelementptr inbounds nuw [4 x i8], ptr %a, i64 %indvars.iv.epil
   %extract.epil = load float, ptr %extract_ptr.epil, align 4
   %16 = fadd float %acc.0.epil, %extract.epil
-  %17 = add nuw i32 %14, 1
-  %epil.iter.next = add i32 %epil.iter, 1
-  %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
+  %indvars.iv.next.epil = add nuw nsw i64 %indvars.iv.epil, 1
+  %epil.iter.next = add i64 %epil.iter, 1
+  %epil.iter.cmp.not = icmp eq i64 %epil.iter.next, %xtraiter
   br i1 %epil.iter.cmp.not, label %i1_for_end, label %i1_for.epil, !llvm.loop !6
 
 i1_for_end:                                       ; preds = %i1_for_end.loopexit.unr-lcssa, %i1_for.epil, %total_entry
-  %acc.1 = phi float [ 0.000000e+00, %total_entry ], [ %12, %i1_for_end.loopexit.unr-lcssa ], [ %16, %i1_for.epil ]
+  %acc.1 = phi float [ 0.000000e+00, %total_entry ], [ %15, %i1_for_end.loopexit.unr-lcssa ], [ %16, %i1_for.epil ]
   ret float %acc.1
 }
 
