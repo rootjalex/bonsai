@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// An edge that decides a dispatch is threaded past it (SSA/Simplify.cpp,
+// thread_argument_dispatches). After the first `if`, `b` and `y` are the
+// arguments of the merge block, and the second `if` is that block's
+// dispatch on `b` with nothing in between. The edge from the first `if`'s
+// arm passes `b = true`, so it knows which way the second `if` goes, and
+// goes there: `return y + 1` with `y = x * 2`. The edge from the first
+// `if`'s other side passes `d`, known only at run time, so the merge block
+// and its test stay for that edge alone -- `if d` -- and the two arms, which
+// read `y`, take a copy of it from whichever edge enters them (`@N : i32`
+// in the dump, under a fresh name since the block the argument belonged to
+// is still there).
+//
+// What to read for: no block tests `b`; `pick` is `if c { .. return x * 2
+// + 1 } else if d { return x + 1 } else { return x - 1 }`. The shape is a
+// traversal's loop header in small -- `!visit(node, live): dispatch live
+// [exit, body]`, where every edge but one passes `live = true` -- which is
+// what the rule is for (ssa/loopify-queue.bonsai).
+func [[export]] pick(c : bool, d : bool, x : i32) -> i32 {
+    b : mut = d;
+    y : mut = x;
+    if c {
+        b = true;
+        y = x * 2;
+    }
+    if b {
+        return y + 1;
+    }
+    return y - 1;
+}

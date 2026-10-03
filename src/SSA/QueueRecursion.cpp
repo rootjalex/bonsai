@@ -687,11 +687,17 @@ void queue_recursion(Function &func, size_t size) {
     // The current node is an argument of the loop header, and so is `live`,
     // which stands in for the `break` the statement form has no way to write:
     // the header tests it, the edge that has run out of stack passes false,
-    // every other edge passes true, and LLVM's jump threading turns the
-    // constant edges into direct branches. What this buys over pushing every
-    // call and popping the next is a push and a pop fewer at every node with
-    // children -- the near child never touches the stack -- and on a
-    // traversal that is most of the nodes.
+    // every other edge passes true. The test is not what runs: the
+    // simplifier threads each edge that passes a constant straight to the
+    // target it picks (SSA/Simplify.cpp, thread_argument_dispatches), so the
+    // body becomes the header, the edge that ran out of stack goes to the
+    // exit, and the header with its test goes -- where it survives at all,
+    // it is for the edges that pass a value only known at run time, an
+    // accumulator that may have settled. (LLVM's own jump threading would
+    // not do it: it refuses to thread through a loop header.) What the
+    // shape buys over pushing every call and popping the next is a push and
+    // a pop fewer at every node with children -- the near child never
+    // touches the stack -- and on a traversal that is most of the nodes.
 
     // insert_preheader only carries what a loop changes, and this one has no
     // back edge yet, so the body takes no arguments: it names the entry's

@@ -8,9 +8,13 @@
 //   * `!stack` and `!stack0`, one per parameter the recursion changes. `out`
 //     is the same at every node, so it stays a parameter rather than being
 //     pushed sixteen times over.
-//   * `node!top` and `depth!top`, the node being visited, and `!live`, the
-//     loop's condition: `while ((*!live))`. The root is the first node, and
-//     the stack starts empty.
+//   * `node!top` and `depth!top`, the node being visited, carried round a
+//     `do { .. } while (true)`: the root is the first node, the stack starts
+//     empty, and the loop is left by the `return` where the stack has run
+//     out. The header once tested a `!live` argument every edge but that one
+//     passed as `true`; the simplifier threads such edges straight to the
+//     body (SSA/Simplify.cpp, thread_argument_dispatches), and the test is
+//     gone.
 //   * no call to `visit` anywhere in `visit`. The two calls here are a chain
 //     rather than one `from`, so the first is written to the stack and the
 //     count stepped, and the second -- the last thing the node does -- simply

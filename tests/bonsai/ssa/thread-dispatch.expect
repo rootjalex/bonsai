@@ -1,0 +1,21 @@
+func [[export]] pick(c : bool, d : bool, x : i32) -> i32 {
+  @7 : mut i32
+  if (c) {
+    let @0 = x << 1 in
+    @7 = @0
+  } else {
+    let b = d in
+    let y = x in
+    if (b) {
+      @7 = y
+    } else {
+      let @6 = x in
+      let @5 = @6 - 1 in
+      return @5
+    }
+  }
+  let @3 = (*@7) + 1 in
+  return @3
+}
+
+

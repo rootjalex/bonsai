@@ -1263,17 +1263,18 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
         if (!d)
             continue;
 
-        // Find a latch whose header is this block
-        std::string latch;
+        // The latches whose header is this block: every block with a back
+        // edge to it, since a loop may close in several places -- a
+        // traversal's loop comes back from each push and from the pop.
+        std::set<std::string> latches;
         for (auto &[bname, bi] : info) {
             if (bi.loop_header == name &&
                 (bi.role == BlockInfo::Role::InfLoopLatch ||
                  bi.role == BlockInfo::Role::DoWhileLatch)) {
-                latch = bname;
-                break;
+                latches.insert(bname);
             }
         }
-        if (latch.empty())
+        if (latches.empty())
             continue;
 
         // A switch at the top of a loop's body is not the loop's test (see
@@ -1285,16 +1286,37 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
         const std::string &t0 = d->targets[0].name;
         const std::string &t1 = d->targets[1].name;
 
-        // Body arm is whichever can reach the latch without going round the
+        // Body arm is whichever can reach a latch without going round the
         // loop again -- stopping at the header, since a path that comes back
-        // through it can reach the latch from either arm.
-        const bool t0_is_body = reachable(t0, block_map, name).count(latch) > 0;
-        const bool t1_is_body = reachable(t1, block_map, name).count(latch) > 0;
+        // through it can reach a latch from either arm. Any latch, not one of
+        // them: an arm that reaches no latch at all is the way out, and an
+        // arm that reaches some latch is in the loop whichever latch it is.
+        const auto reaches_a_latch = [&](const std::string &from) {
+            const std::set<std::string> seen = reachable(from, block_map, name);
+            return std::any_of(latches.begin(), latches.end(),
+                               [&](const std::string &latch) {
+                                   return seen.count(latch) > 0;
+                               });
+        };
+        const bool t0_is_body = reaches_a_latch(t0);
+        const bool t1_is_body = reaches_a_latch(t1);
 
-        internal_assert(t0_is_body ^ t1_is_body)
+        // Both arms reaching a latch means the dispatch is not the loop's
+        // test but the first branch of its body, and the loop is left some
+        // other way -- by the returns inside it. That is the shape a
+        // traversal's loop takes once the header's test of its `live`
+        // argument has been threaded away (SSA/Simplify.cpp,
+        // thread_argument_dispatches): the body's first dispatch heads the
+        // loop, the Interior arm comes back through the pushes and the Leaf
+        // arm through the pop, and the pop's other way out is the function's
+        // return. Pass 3 makes such a block the header of a `while (true)`.
+        if (t0_is_body && t1_is_body) {
+            continue;
+        }
+        internal_assert(t0_is_body || t1_is_body)
             << "Can't determine while body for header: " << name
-            << " (neither or both of " << t0 << " and " << t1
-            << " reach its latch " << latch << ")";
+            << " (neither of " << t0 << " and " << t1
+            << " reaches a latch of its loop)";
 
         info[name].role = BlockInfo::Role::WhileHeader;
         info[name].loop_body = t0_is_body ? t0 : t1;

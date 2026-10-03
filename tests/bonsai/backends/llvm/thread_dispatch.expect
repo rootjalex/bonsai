@@ -1,0 +1,30 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i32 @pick(i1 noundef %c, i1 noundef %d, i32 noundef %x) local_unnamed_addr #0 {
+pick:
+  br i1 %c, label %"!then_0", label %"!merge_1"
+
+"!then_0":                                        ; preds = %pick
+  %0 = shl i32 %x, 1
+  br label %"!then_2"
+
+"!merge_1":                                       ; preds = %pick
+  br i1 %d, label %"!then_2", label %"!merge_3"
+
+common.ret:                                       ; preds = %"!merge_3", %"!then_2"
+  %common.ret.op = phi i32 [ %1, %"!then_2" ], [ %2, %"!merge_3" ]
+  ret i32 %common.ret.op
+
+"!then_2":                                        ; preds = %"!then_0", %"!merge_1"
+  %"@7" = phi i32 [ %x, %"!merge_1" ], [ %0, %"!then_0" ]
+  %1 = add i32 %"@7", 1
+  br label %common.ret
+
+"!merge_3":                                       ; preds = %"!merge_1"
+  %2 = add i32 %x, -1
+  br label %common.ret
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

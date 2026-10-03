@@ -23,15 +23,13 @@ type vec4f = f32x4
 extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : [[packed]] struct _tree_layout1{ children : [[packed]] u32x4; lo : [[packed]] f32x3x4; hi : [[packed]] f32x3x4 }[nCount] }
 
 func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree_layout0) -> void {
-  data : mut u32
   tris_ref!top : mut u32
-  !live : mut bool
   !count : mut u32
+  data : mut u32
   !stack : mut u32[68]
   tris_ref!top = tris_ref
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
@@ -190,7 +188,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @220 = compress(_t40, @218) in
           let @221 = @220[0u] in
           tris_ref!top = @221
-          !live = true
           continue
         } break;
         default: {
@@ -205,7 +202,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @232 = (*!count) + @230 in
           let @233 = _t40[@226] in
           tris_ref!top = @233
-          !live = true
           !count = @232
           continue
         }
@@ -234,12 +230,10 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         let @215 = (*!count) - 1u in
         let @216 = !stack[@215] in
         tris_ref!top = @216
-        !live = true
         !count = @215
         continue
       } else {
-        !live = false
-        continue
+        return
       }
     }
     let @214 = (*!count) != 0u in
@@ -247,13 +241,12 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
       let @215 = (*!count) - 1u in
       let @216 = !stack[@215] in
       tris_ref!top = @216
-      !live = true
       !count = @215
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> bool {

@@ -1698,6 +1698,81 @@ pointer types and the lane as a scalar load off the row (item 4: the
 for the sign flip (item 5). And, when a machine without a compress is
 measured, the bit-scan strategy behind `lane_sort_strategy`.
 
+## The header's test threaded away, and what it was worth (2026-10-03)
+
+Item 2 of the rulings: the loop a traversal becomes has a header
+`!visit(node, live, count): dispatch live [exit, body]` into which every
+edge but the one that ran out of stack passes `true`, and the plan's
+reading was that the header tested `live` once per node and once per leaf
+tile. Built as the general SSA rule the ruling asked for
+(SSA/Simplify.cpp, thread_argument_dispatches): an edge into a block that
+has no instructions and dispatches on one of its own arguments, passing a
+constant there, goes straight to the target the constant picks, and the
+targets take over the arguments their subtrees read -- Mueller and
+Whalley's threading without the replication, since the block replicated
+holds nothing but the branch; the one thing LLVM's own jump threading
+refuses to do, because the block is a loop header, and the one case where
+that is harmless, because the header's targets are entered from it alone,
+so the target becomes the header and the loop keeps one entry. Edges that
+pass a run-time value keep the block, which then dispatches for them
+alone (the arguments move under fresh names); where every edge left
+agrees on a constant, the block's dispatch folds to that jump. In both
+kernels every edge was a constant -- the one-hit arm and the pushes come
+straight from the node test, with nothing between that could have settled
+the accumulator -- so `!visit` is gone: `_recloop_func0!loop(top, count)`
+is the header, with the entry, the one-hit arm, the push and the pop as
+its predecessors, and the stack running out goes to `!visited` and its
+return. In the statement form (`-p ssa`) the loop reads `do { .. continue
+.. return } while (true)` where it read `while ((*!live))`.
+
+The relooper needed a correction for that shape, and not the `break` the
+header's comment in QueueRecursion had assumed the statement form lacked:
+a traversal's loop is always left by its return, so no `break` arises.
+What broke was pass 2 of its classification: it found one latch for a
+header and asked which arm of the header's two-way dispatch reaches it;
+with several latches -- each push and the pop all jump back now -- each
+arm reached a different one, and it took the body's first branch for a
+`while` whose exit was the pop path. It now asks whether an arm reaches
+any latch of the loop, and a header whose both arms do is the first
+branch of a `while (true)` (pass 3).
+
+**What it measured**: nothing, to within the noise. Back to back from two
+scratch worktrees on the quiet machine (cpu 11, `--side 2048`, least of
+five, every ray agreeing with Embree): head 57.9 -> 58.7 / 13.8 -> 13.9 /
+12.3 -> 12.3 million rays per second on the nearest hit's primary/ao/
+diffuse rays, ganesha 22.2 -> 22.1 / 6.10 -> 6.07 / 5.67 -> 5.67, dragon
+32.5 -> 32.5 / 4.46 -> 4.46 / 3.95 -> 3.95; the any hit the same to the
+second decimal. The machine code says why: the old listing has no test of
+`live` anywhere -- LLVM's SimplifyCFG folds a conditional branch on a phi
+of constants (FoldCondBranchOnPHI) even at a loop header, which its
+JumpThreading pass declines -- so the x86 kernels already ran without it,
+and the plan's accounting of a test per node and per leaf tile was wrong.
+What the rule changes is the IR that is read and the statement form that
+is printed, and the loop structure LLVM is handed: it now sees the pushes'
+back edges and the pop's as two loops, one inside the other, which is
+Embree's shape and what item 3 builds on. Kept for that; the plan's
+remaining list is re-counted against the listings below rather than
+against this reading.
+
+**Tests.** A three-level test of the rule on its own, apart from
+traversals: ssa/thread-dispatch (a merged `b` and `y`, one edge passing `b
+= true` and threaded past the second `if`, the other passing a run-time
+`d` and keeping the test, the arms taking `y` under a fresh name),
+backends/llvm/thread_dispatch (`c` tested once, `d` once, `b` never) and
+correctness/cpp/thread_dispatch (all four combinations against the
+function as written). The loopify, quantifier, sort and traversal goldens
+under ssa, the LLVM traversal goldens and the PTX rtiow-primer re-blessed
+and read; ssa/loopify-queue's description rewritten; the full suite 1272
+of 1272.
+
+**Next**, as before: item 3, the entry cull skipped on a direct descent
+-- the lowering marks the gate it writes at a node's entry (the argmin's
+`improves_on` and the quantifier's `still_undecided`, Lower/Trees.cpp)
+with a provenance, and loopify sends the edges that know the gate passes
+(every descent: the parent's test of the child's box decided it) to the
+block inside it, so the pop alone runs the test, as Embree's pop cull
+does; then items 4 and 5.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

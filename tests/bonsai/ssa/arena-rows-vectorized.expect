@@ -30,21 +30,19 @@ type vec4f = f32x4
 extern tris : [[packed]] struct _tree_layout0{ bytes : u32; group0_arena : [[packed]] struct _tree_layout1{ byte : u8 }[bytes] }
 
 func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r : Ray, tris : _tree_layout0) -> void {
+  tris_ref!top : mut u32
+  _bound0!top : mut f32
+  !count : mut u32
   intersects_Ray_AABB$r0!skip : mut boolx4
   intersects_Ray_AABB$r0!skip0 : mut boolx4
   !and_0!skip : mut boolx4
   _idx1 : mut u32
-  tris_ref!top : mut u32
-  _bound0!top : mut f32
-  !live : mut bool
-  !count : mut u32
   !stack : mut u32[64]
   !stack0 : mut f32[64]
   tris_ref!top = tris_ref
   _bound0!top = _bound0
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = (*_best0) in
     let @1 = @0._field0 in
     let @2 = (*_bound0!top) < @1 in
@@ -357,7 +355,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           let @345 = @344[0u] in
           tris_ref!top = @343
           _bound0!top = @345
-          !live = true
           continue
         } break;
         case 2: {
@@ -378,7 +375,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           let @580 = (*!count) + 1u in
           tris_ref!top = @352
           _bound0!top = @353
-          !live = true
           !count = @580
           continue
         } break;
@@ -412,7 +408,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           let @588 = @584 + 1u in
           tris_ref!top = @369
           _bound0!top = @370
-          !live = true
           !count = @588
           continue
         } break;
@@ -460,7 +455,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           let @600 = @596 + 1u in
           tris_ref!top = @397
           _bound0!top = @398
-          !live = true
           !count = @600
           continue
         }
@@ -536,13 +530,12 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
       let @576 = !stack0[@574] in
       tris_ref!top = @575
       _bound0!top = @576
-      !live = true
       !count = @574
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {

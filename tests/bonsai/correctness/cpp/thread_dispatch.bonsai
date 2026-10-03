@@ -1,0 +1,20 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/thread_dispatch
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_thread_dispatch.cpp -I. -o tests/bonsai/correctness/cpp/main_thread_dispatch.o, clang++ tests/bonsai/correctness/cpp/main_thread_dispatch.o tests/bonsai/correctness/cpp/thread_dispatch.o -o tests/bonsai/correctness/cpp/thread_dispatch, ./tests/bonsai/correctness/cpp/thread_dispatch, rm tests/bonsai/correctness/cpp/thread_dispatch, rm tests/bonsai/correctness/cpp/main_thread_dispatch.o, rm tests/bonsai/correctness/cpp/thread_dispatch.h, rm tests/bonsai/correctness/cpp/thread_dispatch.o
+
+// An edge that decides a dispatch threaded past it (see
+// ssa/thread-dispatch.bonsai), run: every combination of `c` and `d`
+// against the function as written. The arm that sets `b` must still reach
+// the `y + 1` return with its own `y`, and the other side must still ask
+// `d`.
+func [[export]] pick(c : bool, d : bool, x : i32) -> i32 {
+    b : mut = d;
+    y : mut = x;
+    if c {
+        b = true;
+        y = x * 2;
+    }
+    if b {
+        return y + 1;
+    }
+    return y - 1;
+}

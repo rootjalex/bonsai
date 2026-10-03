@@ -1,0 +1,21 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR of ssa/thread-dispatch.bonsai: an edge that
+// decides a dispatch threaded past it (SSA/Simplify.cpp,
+// thread_argument_dispatches). What to read for in `pick`: `c` is tested
+// once and `d` once, each on its own path, and nothing tests `b` -- the
+// arm that set `b = true` branches straight to the `y + 1` return with
+// `x * 2` in hand, and only the other side asks `d`. Before the rule the
+// merge block tested `b` on both paths, one of which had just set it.
+func [[export]] pick(c : bool, d : bool, x : i32) -> i32 {
+    b : mut = d;
+    y : mut = x;
+    if c {
+        b = true;
+        y = x * 2;
+    }
+    if b {
+        return y + 1;
+    }
+    return y - 1;
+}

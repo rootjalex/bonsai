@@ -835,6 +835,32 @@ void remove_dead(Function &func) {
 
 namespace {
 
+// The target a dispatch on the constant `v` takes, of `targets` of them:
+// target 0 on false or zero, target k on k; nothing when `v` is not a
+// constant or names no target.
+std::optional<size_t> dispatch_choice(const ValuePtr &v, size_t targets) {
+    const Constant *c = constant_of(v);
+    if (c == nullptr) {
+        return std::nullopt;
+    }
+    const std::optional<uint64_t> which = std::visit(
+        overloads{
+            [](bool b) -> std::optional<uint64_t> { return b ? 1 : 0; },
+            [](int64_t i) -> std::optional<uint64_t> {
+                return i < 0 ? std::nullopt : std::optional<uint64_t>(i);
+            },
+            [](uint64_t u) -> std::optional<uint64_t> { return u; },
+            [](const auto &) -> std::optional<uint64_t> {
+                return std::nullopt;
+            },
+        },
+        c->data);
+    if (!which.has_value() || *which >= targets) {
+        return std::nullopt;
+    }
+    return size_t(*which);
+}
+
 // A dispatch on a constant is a jump to the target it names: what a
 // specialized copy's match on its variant becomes once the tag is read off
 // the struct that fixed it (the LoadField rule). The arms nothing reaches
@@ -846,24 +872,9 @@ bool fold_constant_dispatches(Function &func) {
         if (d == nullptr) {
             continue;
         }
-        const Constant *c = constant_of(d->cond);
-        if (c == nullptr) {
-            continue;
-        }
-        // Target 0 is taken on false or zero, target k on k.
-        const std::optional<uint64_t> which = std::visit(
-            overloads{
-                [](bool b) -> std::optional<uint64_t> { return b ? 1 : 0; },
-                [](int64_t i) -> std::optional<uint64_t> {
-                    return i < 0 ? std::nullopt : std::optional<uint64_t>(i);
-                },
-                [](uint64_t u) -> std::optional<uint64_t> { return u; },
-                [](const auto &) -> std::optional<uint64_t> {
-                    return std::nullopt;
-                },
-            },
-            c->data);
-        if (!which.has_value() || *which >= d->targets.size()) {
+        const std::optional<size_t> which =
+            dispatch_choice(d->cond, d->targets.size());
+        if (!which.has_value()) {
             continue;
         }
         Terminator::Jump taken = d->targets[*which];
@@ -871,6 +882,261 @@ bool fold_constant_dispatches(Function &func) {
         any = true;
     }
     return any;
+}
+
+// The value `v` with the arguments named in `with` replaced by what the map
+// says; `v` itself when it is not one of them.
+ValuePtr substitute_argument(const ValuePtr &v,
+                             const std::map<std::string, ValuePtr> &with) {
+    const auto *arg = v ? std::get_if<Argument>(&v->data) : nullptr;
+    if (arg == nullptr) {
+        return v;
+    }
+    const auto it = with.find(arg->name);
+    return it == with.end() ? v : it->second;
+}
+
+// An edge that decides a dispatch is threaded past it: a jump into a block
+// that has no instructions and dispatches on one of its own arguments,
+// passing a constant there, goes straight to the target the constant picks,
+// and that target takes over the arguments the block was carrying. The
+// loop a traversal becomes (SSA/QueueRecursion.cpp) has a header of exactly
+// this shape -- `!visit(node, live, count): dispatch live [exit, body]` --
+// into which every edge but the one that ran out of stack passes `true`,
+// so the header's test of `live` ran once per node and once per leaf tile
+// for a value every edge knew; after this the edges that know go straight
+// to the body, the one that does not goes straight to the exit, and the
+// header, with no edge left, goes. (Mueller and Whalley's "Avoiding
+// Conditional Branches by Code Replication", PLDI 1995, is the idea, done
+// here without the replication: the block replicated has nothing in it but
+// the branch.) LLVM's own jump threading will not do this one, because the
+// block is a loop header and threading through a header can make a loop
+// irreducible (ThreadAcrossLoopHeaders is off by default). Here it cannot:
+// a target is entered from the block alone, so an edge that goes to the
+// target instead makes the target the header, with one entry still.
+//
+// The block's arguments move to the targets. Each target takes a copy of
+// every argument that is read in a block it dominates, and those reads are
+// pointed at the copy; a read in a block no one target dominates -- one
+// reached from two of them -- would need a merge nothing here can write,
+// and a block with such a read is left alone, as is a block whose targets
+// have another way in. A target's own jump arguments, computed from the
+// block's arguments, are rewritten on each threaded edge in terms of what
+// that edge passes. Edges that pass no constant keep the block, and where
+// they all pass one constant its dispatch becomes the jump that constant
+// picks. One block per pass over the function, the graph rebuilt between,
+// since each threading changes what the next one would read; returns
+// whether any was threaded.
+bool thread_argument_dispatches(Function &func) {
+    bool any = false;
+    for (;;) {
+        const Cfg cfg(func);
+        const DomTree dom = compute_dominator_tree(cfg);
+        bool threaded = false;
+        for (const BlockId b : cfg.rpo) {
+            const shared_ptr<Block> &block = cfg.block(b);
+            if (block.get() == func.blocks.front().get() ||
+                !block->instrs.empty()) {
+                continue; // the entry's arguments are the parameters
+            }
+            auto *d = std::get_if<Terminator::Dispatch>(&block->terminator.data);
+            if (d == nullptr || d->targets.empty()) {
+                continue;
+            }
+            const auto *cond = std::get_if<Argument>(&d->cond->data);
+            if (cond == nullptr) {
+                continue;
+            }
+            size_t which_arg = block->args.size();
+            for (size_t i = 0; i < block->args.size(); i++) {
+                if (block->args[i].name == cond->name) {
+                    which_arg = i;
+                }
+            }
+            if (which_arg == block->args.size()) {
+                continue;
+            }
+
+            // The targets: distinct blocks, not this one, entered from this
+            // one alone.
+            vector<shared_ptr<Block>> targets;
+            bool fit = true;
+            for (const Terminator::Jump &t : d->targets) {
+                const BlockId tb = cfg.find(t.name);
+                if (tb == NO_BLOCK || tb == b || !dom.contains(tb)) {
+                    fit = false;
+                    break;
+                }
+                for (const BlockId p : cfg.preds[tb]) {
+                    fit = fit && p == b;
+                }
+                for (const auto &seen : targets) {
+                    fit = fit && seen.get() != cfg.block(tb).get();
+                }
+                targets.push_back(cfg.block(tb));
+            }
+            if (!fit) {
+                continue;
+            }
+
+            // The edges in, and which of them pass a constant where the
+            // dispatch reads.
+            struct Edge {
+                Terminator::Jump *jump;
+                size_t which; // the target the constant picks
+            };
+            vector<Edge> constant_edges;
+            size_t edges = cfg.preds[b].size();
+            for (const BlockId p : cfg.preds[b]) {
+                for (Terminator::Jump *jump : jumps_of(*cfg.block(p))) {
+                    if (jump->name != block->name ||
+                        jump->args.size() != block->args.size()) {
+                        continue;
+                    }
+                    const std::optional<size_t> which =
+                        dispatch_choice(jump->args[which_arg], targets.size());
+                    if (which.has_value()) {
+                        constant_edges.push_back(Edge{jump, *which});
+                    }
+                }
+            }
+            // A predecessor with two edges in appears twice in `preds` and
+            // yields its jumps twice above; one entry per edge either way.
+            std::sort(constant_edges.begin(), constant_edges.end(),
+                      [](const Edge &x, const Edge &y) {
+                          return x.jump < y.jump;
+                      });
+            constant_edges.erase(
+                std::unique(constant_edges.begin(), constant_edges.end(),
+                            [](const Edge &x, const Edge &y) {
+                                return x.jump == y.jump;
+                            }),
+                constant_edges.end());
+            if (constant_edges.empty()) {
+                continue;
+            }
+            const bool dies = constant_edges.size() == edges;
+
+            // Where the block's arguments are read, outside it: each read
+            // must sit under exactly one target.
+            std::set<std::string> names;
+            for (const Argument &a : block->args) {
+                names.insert(a.name);
+            }
+            // needed[m] = the arguments target m's subtree reads.
+            vector<std::set<size_t>> needed(targets.size());
+            for (const BlockId x : cfg.rpo) {
+                if (x == b) {
+                    continue;
+                }
+                std::set<std::string> read;
+                for_each_value(*cfg.block(x), [&](ValuePtr &v) {
+                    if (const auto *a = std::get_if<Argument>(&v->data);
+                        a != nullptr && names.contains(a->name)) {
+                        read.insert(a->name);
+                    }
+                });
+                if (read.empty()) {
+                    continue;
+                }
+                size_t under = targets.size();
+                for (size_t m = 0; m < targets.size(); m++) {
+                    if (dom.dominates(cfg.id(*targets[m]), x)) {
+                        under = m;
+                    }
+                }
+                if (under == targets.size()) {
+                    fit = false;
+                    break;
+                }
+                for (size_t j = 0; j < block->args.size(); j++) {
+                    if (read.contains(block->args[j].name)) {
+                        needed[under].insert(j);
+                    }
+                }
+            }
+            if (!fit) {
+                continue;
+            }
+
+            // Each target takes the arguments its subtree reads, under the
+            // block's own names where the block is about to go and fresh
+            // ones where it stays, and its subtree reads the copies.
+            const vector<Terminator::Jump> original = d->targets;
+            for (size_t m = 0; m < targets.size(); m++) {
+                std::map<std::string, ValuePtr> copies;
+                for (const size_t j : needed[m]) {
+                    Argument copy = block->args[j];
+                    if (!dies) {
+                        copy.name = func.get_unique_name();
+                    }
+                    copies[block->args[j].name] = targets[m]->add_argument(copy);
+                    d->targets[m].args.push_back(
+                        std::make_shared<Value>(block->args[j]));
+                }
+                if (copies.empty()) {
+                    continue;
+                }
+                const BlockId tb = cfg.id(*targets[m]);
+                for (const BlockId x : cfg.rpo) {
+                    if (dom.dominates(tb, x)) {
+                        for_each_value(*cfg.block(x), [&](ValuePtr &v) {
+                            v = substitute_argument(v, copies);
+                        });
+                    }
+                }
+            }
+            // The edges that know where they go, sent there, passing what
+            // the target's jump would have computed from the block's
+            // arguments and the copies the target now takes.
+            for (const Edge &e : constant_edges) {
+                std::map<std::string, ValuePtr> passed;
+                for (size_t j = 0; j < block->args.size(); j++) {
+                    passed[block->args[j].name] = e.jump->args[j];
+                }
+                vector<ValuePtr> args;
+                for (const ValuePtr &v : original[e.which].args) {
+                    args.push_back(substitute_argument(v, passed));
+                }
+                for (const size_t j : needed[e.which]) {
+                    args.push_back(e.jump->args[j]);
+                }
+                e.jump->name = targets[e.which]->name;
+                e.jump->args = std::move(args);
+            }
+            // The edges left: where they all pass one constant, the dispatch
+            // is that target's jump.
+            if (!dies) {
+                std::optional<size_t> agreed;
+                bool agree = true;
+                refresh_preds(func);
+                for (const auto &weak : block->preds) {
+                    const shared_ptr<Block> pred = weak.lock();
+                    const ValuePtr passed =
+                        pred ? passed_to(*pred, *block, which_arg) : nullptr;
+                    const std::optional<size_t> which =
+                        dispatch_choice(passed, targets.size());
+                    if (!which.has_value() ||
+                        (agreed.has_value() && *agreed != *which)) {
+                        agree = false;
+                        break;
+                    }
+                    agreed = which;
+                }
+                if (agree && agreed.has_value()) {
+                    Terminator::Jump taken = d->targets[*agreed];
+                    block->terminator.data = std::move(taken);
+                }
+            }
+            remove_unreachable_blocks(func);
+            threaded = true;
+            any = true;
+            break;
+        }
+        if (!threaded) {
+            return any;
+        }
+    }
 }
 
 } // namespace
@@ -941,6 +1207,9 @@ void simplify(Function &func) {
     }
     if (fold_constant_dispatches(func)) {
         remove_unreachable_blocks(func);
+        remove_dead(func);
+    }
+    if (thread_argument_dispatches(func)) {
         remove_dead(func);
     }
 }

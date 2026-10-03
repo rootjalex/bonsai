@@ -9,15 +9,13 @@ type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
 extern items : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Item{ id : i32 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ idl : i32; idh : i32; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (bool*), lo : i32, hi : i32) -> void {
-  data : mut u32
   items_index!top : mut u32
-  !live : mut bool
   !count : mut u32
+  data : mut u32
   !stack : mut u32[8]
   items_index!top = items_index
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
@@ -56,7 +54,6 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
             !stack[(*!count)] = @28
             let @71 = (*!count) + 1u in
             items_index!top = @24
-            !live = true
             !count = @71
             continue
           }
@@ -117,25 +114,22 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
       let @67 = (*!count) - 1u in
       let @68 = !stack[@67] in
       items_index!top = @68
-      !live = true
       !count = @67
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (bool*), lo : i32, hi : i32) -> void {
-  data : mut u32
   items_index!top : mut u32
-  !live : mut bool
   !count : mut u32
+  data : mut u32
   !stack : mut u32[8]
   items_index!top = items_index
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = (*_holds1) in
     if (@0) {
       let @1 = items.group0_index in
@@ -172,7 +166,6 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
             !stack[(*!count)] = @28
             let @60 = (*!count) + 1u in
             items_index!top = @24
-            !live = true
             !count = @60
             continue
           } else {
@@ -222,25 +215,22 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
       let @56 = (*!count) - 1u in
       let @57 = !stack[@56] in
       items_index!top = @57
-      !live = true
       !count = @56
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32, _best0 : mut (i32*)) -> void {
-  data : mut u32
   items_index!top : mut u32
-  !live : mut bool
   !count : mut u32
+  data : mut u32
   !stack : mut u32[8]
   items_index!top = items_index
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = items.group0_index in
     let _t106 = @0[(*items_index!top)] in
     let @2 = _t106.idh in
@@ -263,7 +253,6 @@ func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32
             !stack[(*!count)] = @14
             let @36 = (*!count) + 1u in
             items_index!top = @10
-            !live = true
             !count = @36
             continue
           } else {
@@ -299,13 +288,12 @@ func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32
       let @32 = (*!count) - 1u in
       let @33 = !stack[@32] in
       items_index!top = @33
-      !live = true
       !count = @32
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _traverse_tree0(lo : i32, hi : i32, items : _tree_layout0) -> bool {

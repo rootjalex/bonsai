@@ -80,8 +80,8 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), t : (Triangle*)) -> void {
 }
 
 func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
-  intersectsp_ray_sphere$r34 : mut _option1
-  intersects_Ray_Sphere$r0 : mut bool
+  shapes_index!top : mut u16
+  !count : mut u32
   distmax_Ray_Sphere$r1 : mut f32
   distmin_Ray_Sphere$r2 : mut f32
   data : mut u16
@@ -92,19 +92,17 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   intersectsp_ray_sphere$r17$i36 : mut _option1
   distmin_Ray_Sphere$r36 : mut f32
   distmin_Ray_Triangle$r37 : mut f32
-  shapes_index!top : mut u16
-  !live : mut bool
-  !count : mut u32
   !stack : mut u16[64]
   shapes_index!top = shapes_index
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = shapes.group0_index in
     let _t103 = @0[(*shapes_index!top)] in
+    intersects_Ray_Sphere$r0 : mut bool
     let @2 = _t103.center in
     let @3 = cast<f32x3>(@2) in
     let _t290$i34 = _t103.radius in
+    intersectsp_ray_sphere$r34 : mut _option1
     let _t494 = r.o in
     let oc$i34 = @3 - _t494 in
     let _t285$i34 = r.d in
@@ -144,9 +142,11 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @41 = build<_option1>(interval$i34, true) in
       intersectsp_ray_sphere$r34 = @41
     }
-    let _t503 = (*intersectsp_ray_sphere$r34).set in
+    let @42 = (*intersectsp_ray_sphere$r34) in
+    let _t503 = @42.set in
     if (_t503) {
-      let extract$i0 = (*intersectsp_ray_sphere$r34).value in
+      let @44 = (*intersectsp_ray_sphere$r34) in
+      let extract$i0 = @44.value in
       let @46 = extract$i0.low in
       let @47 = r.tmax in
       let @48 = @46 < @47 in
@@ -157,9 +157,11 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
     } else {
       intersects_Ray_Sphere$r0 = false
     }
-    if ((*intersects_Ray_Sphere$r0)) {
+    let @52 = (*intersects_Ray_Sphere$r0) in
+    if (@52) {
       if (_t503) {
-        let extract$i1 = (*intersectsp_ray_sphere$r34).value in
+        let @53 = (*intersectsp_ray_sphere$r34) in
+        let extract$i1 = @53.value in
         let @55 = extract$i1.high in
         distmax_Ray_Sphere$r1 = @55
       } else {
@@ -169,7 +171,8 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @58 = 0.001f < (*distmax_Ray_Sphere$r1) in
       if (@58) {
         if (_t503) {
-          let extract$i2 = (*intersectsp_ray_sphere$r34).value in
+          let @59 = (*intersectsp_ray_sphere$r34) in
+          let extract$i2 = @59.value in
           let @61 = extract$i2.low in
           distmin_Ray_Sphere$r2 = @61
         } else {
@@ -201,7 +204,6 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             !stack[(*!count)] = @267
             let @275 = (*!count) + 1u in
             shapes_index!top = @266
-            !live = true
             !count = @275
             continue
           } else {
@@ -428,13 +430,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @271 = (*!count) - 1u in
       let @272 = !stack[@271] in
       shapes_index!top = @272
-      !live = true
       !count = @271
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : Ray$v8, _best0 : mut (__tuple_1$v8*)) -> void {

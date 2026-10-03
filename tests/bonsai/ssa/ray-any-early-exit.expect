@@ -23,6 +23,8 @@ type vec4f = f32x4
 extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_index : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; axis : u8; pad0 : u8; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*), r : Ray) -> void {
+  tris_index!top : mut u32
+  !count : mut u32
   intersectsp_ray_aabb$r66 : mut _option0
   tmin$i66 : mut f32
   tmax$i66 : mut f32
@@ -32,14 +34,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
   tmax$i67 : mut f32
   intersects_Ray_AABB$r1 : mut bool
   data : mut u32
-  tris_index!top : mut u32
-  !live : mut bool
-  !count : mut u32
   !stack : mut u32[8]
   tris_index!top = tris_index
-  !live = true
   !count = 0u
-  while ((*!live)) {
+  do {
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
@@ -133,7 +131,6 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           !stack[(*!count)] = @92
           let @194 = (*!count) + 1u in
           tris_index!top = @88
-          !live = true
           !count = @194
           continue
         }
@@ -242,13 +239,12 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
       let @190 = (*!count) - 1u in
       let @191 = !stack[@190] in
       tris_index!top = @191
-      !live = true
       !count = @190
+      continue
     } else {
-      !live = false
+      return
     }
-  }
-  return
+  } while (true)
 }
 
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> bool {

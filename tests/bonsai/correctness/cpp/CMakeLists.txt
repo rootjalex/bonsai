@@ -38,6 +38,7 @@ add_bonsai_tests(
     vectorize_call_guard.bonsai
     vectorize_calls.bonsai
     vectorize_pure_call.bonsai
+    thread_dispatch.bonsai
     vectorize_divergent.bonsai
     vectorize_gather.bonsai
     vectorize_gather_struct.bonsai

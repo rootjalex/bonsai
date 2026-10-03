@@ -56,6 +56,7 @@ add_bonsai_tests(
     tree-traversal-mixed.bonsai
     tree-traversal-nested.bonsai
     tree-traversal-recursive.bonsai
+    thread_dispatch.bonsai
     type_coercion_primitive.bonsai
     vectorize_add_one.bonsai
     vectorize_call_guard.bonsai

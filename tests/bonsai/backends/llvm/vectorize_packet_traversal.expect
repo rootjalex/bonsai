@@ -136,26 +136,26 @@ hit_z_all:
   %19 = fcmp uge <8 x float> %16, zeroinitializer
   %20 = fcmp uge <8 x float> %17, zeroinitializer
   %21 = fcmp uge <8 x float> %18, zeroinitializer
-  br label %"!visit.i.outer"
+  br label %"_recloop_func0$gang8_v2_p3$masked!loop.i"
 
-"!visit.i.outer":                                 ; preds = %"!visit.i.outer.backedge", %hit_z_all
-  %"shapes_index!top.i.ph" = phi i16 [ 0, %hit_z_all ], [ %"shapes_index!top.i.ph.be", %"!visit.i.outer.backedge" ]
-  %"!mask!top.i.ph" = phi <8 x i1> [ splat (i1 true), %hit_z_all ], [ %"!mask!top.i.ph.be", %"!visit.i.outer.backedge" ]
-  %"!count.i.ph" = phi i32 [ 0, %hit_z_all ], [ %"!count.i.ph.be", %"!visit.i.outer.backedge" ]
-  %"shapes_index!top_wide.i" = zext i16 %"shapes_index!top.i.ph" to i64
+"_recloop_func0$gang8_v2_p3$masked!loop.i":       ; preds = %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge", %hit_z_all
+  %"shapes_index!top.i" = phi i16 [ 0, %hit_z_all ], [ %"shapes_index!top.i.be", %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge" ]
+  %"!mask!top.i" = phi <8 x i1> [ splat (i1 true), %hit_z_all ], [ %"!mask!top.i.be", %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge" ]
+  %"!count.i" = phi i32 [ 0, %hit_z_all ], [ %"!count.i.be", %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge" ]
+  %"shapes_index!top_wide.i" = zext i16 %"shapes_index!top.i" to i64
   %extract_ptr.i = getelementptr inbounds nuw [20 x i8], ptr %group0_index2, i64 %"shapes_index!top_wide.i"
-  %extract.unpack.elt169.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
-  %extract.unpack.elt171.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 8
-  %extract.elt160.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.elt162.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
-  %extract.elt164.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 17
-  %extract.elt166.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 18
   %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
+  %extract.unpack.elt169.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
   %extract.unpack.unpack170.i = load float, ptr %extract.unpack.elt169.i, align 1
+  %extract.unpack.elt171.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 8
   %extract.unpack.unpack172.i = load float, ptr %extract.unpack.elt171.i, align 1
+  %extract.elt160.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
   %extract.unpack161.i = load float, ptr %extract.elt160.i, align 1
+  %extract.elt162.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
   %extract.unpack163.i = load i8, ptr %extract.elt162.i, align 1
+  %extract.elt164.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 17
   %extract.unpack165.i = load i8, ptr %extract.elt164.i, align 1
+  %extract.elt166.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 18
   %22 = load <2 x i8>, ptr %extract.elt166.i, align 1
   %.splatinsert.i = insertelement <8 x float> poison, float %extract.unpack.unpack.i, i64 0
   %.splat.i = shufflevector <8 x float> %.splatinsert.i, <8 x float> poison, <8 x i32> zeroinitializer
@@ -184,7 +184,7 @@ hit_z_all:
   %39 = fmul <8 x float> %15, %37
   %40 = fsub <8 x float> %38, %39
   %41 = fcmp uge <8 x float> %40, zeroinitializer
-  %42 = and <8 x i1> %"!mask!top.i.ph", %41
+  %42 = and <8 x i1> %"!mask!top.i", %41
   %43 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %40)
   %44 = fsub <8 x float> %30, %43
   %45 = fdiv <8 x float> %44, %15
@@ -195,19 +195,19 @@ hit_z_all:
   %max_lt.i = fcmp olt <8 x float> %45, %47
   %max.i = select <8 x i1> %max_lt.i, <8 x float> %47, <8 x float> %45
   %48 = select <8 x i1> %42, <8 x float> %min.i, <8 x float> zeroinitializer
-  %49 = fcmp olt <8 x float> %48, %extract_tmax
-  %50 = fcmp ogt <8 x float> %max.i, zeroinitializer
-  %51 = select <8 x i1> %42, <8 x i1> %50, <8 x i1> zeroinitializer
-  %52 = and <8 x i1> %49, %51
-  %53 = xor <8 x i1> %"!mask!top.i.ph", %42
-  %not.177.i.reass.reass = xor <8 x i1> %53, splat (i1 true)
-  %54 = select <8 x i1> %not.177.i.reass.reass, <8 x i1> %52, <8 x i1> zeroinitializer
-  %55 = and <8 x i1> %"!mask!top.i.ph", %54
+  %49 = xor <8 x i1> %"!mask!top.i", %42
+  %50 = fcmp olt <8 x float> %48, %extract_tmax
+  %51 = fcmp ogt <8 x float> %max.i, zeroinitializer
+  %52 = select <8 x i1> %42, <8 x i1> %51, <8 x i1> zeroinitializer
+  %53 = and <8 x i1> %50, %52
+  %not.177.i = xor <8 x i1> %49, splat (i1 true)
+  %54 = select <8 x i1> %not.177.i, <8 x i1> %53, <8 x i1> zeroinitializer
+  %55 = and <8 x i1> %"!mask!top.i", %54
   %56 = bitcast <8 x i1> %55 to i8
   %.not.i = icmp eq i8 %56, 0
   br i1 %.not.i, label %"!visit_pop.i", label %"!then_6.i"
 
-"!then_6.i":                                      ; preds = %"!visit.i.outer"
+"!then_6.i":                                      ; preds = %"_recloop_func0$gang8_v2_p3$masked!loop.i"
   %57 = fcmp ogt <8 x float> %max.i, splat (float 1.000000e-03)
   %58 = select <8 x i1> %42, <8 x i1> %57, <8 x i1> zeroinitializer
   %59 = and <8 x i1> %58, %55
@@ -234,9 +234,9 @@ hit_z_all:
   %66 = icmp eq i8 %extract.unpack165.i, 0
   %.splatinsert136.i = insertelement <8 x i1> poison, i1 %66, i64 0
   %.splat137.i = shufflevector <8 x i1> %.splatinsert136.i, <8 x i1> poison, <8 x i32> zeroinitializer
-  %67 = add i16 %"shapes_index!top.i.ph", 1
+  %67 = add i16 %"shapes_index!top.i", 1
   %68 = bitcast <2 x i8> %22 to i16
-  %69 = add i16 %"shapes_index!top.i.ph", %68
+  %69 = add i16 %"shapes_index!top.i", %68
   %70 = select <8 x i1> %.splat135.i, <8 x i1> %20, <8 x i1> %21
   %71 = select <8 x i1> %.splat137.i, <8 x i1> %19, <8 x i1> %70
   %72 = and <8 x i1> %71, %62
@@ -247,19 +247,19 @@ hit_z_all:
   %77 = icmp samesign ult i8 %73, %76
   %78 = select i1 %77, i16 %67, i16 %69
   %79 = select i1 %77, i16 %69, i16 %67
-  %"!count_wide.i" = zext i32 %"!count.i.ph" to i64
+  %"!count_wide.i" = zext i32 %"!count.i" to i64
   %"!stack139.i" = getelementptr inbounds nuw [2 x i8], ptr %"!stack159.i", i64 %"!count_wide.i"
   store i16 %79, ptr %"!stack139.i", align 2, !tbaa !0
   %"!stack0141.i" = getelementptr inbounds nuw i8, ptr %"!stack0158.i", i64 %"!count_wide.i"
   store <8 x i1> %62, ptr %"!stack0141.i", align 1, !tbaa !3
-  %80 = add i32 %"!count.i.ph", 1
-  br label %"!visit.i.outer.backedge"
+  %80 = add i32 %"!count.i", 1
+  br label %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge"
 
-"!visit.i.outer.backedge":                        ; preds = %"!then_18.i", %"!visit_next.i"
-  %"shapes_index!top.i.ph.be" = phi i16 [ %extract77.i, %"!visit_next.i" ], [ %78, %"!then_18.i" ]
-  %"!mask!top.i.ph.be" = phi <8 x i1> [ %extract80.i, %"!visit_next.i" ], [ %62, %"!then_18.i" ]
-  %"!count.i.ph.be" = phi i32 [ %151, %"!visit_next.i" ], [ %80, %"!then_18.i" ]
-  br label %"!visit.i.outer"
+"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge": ; preds = %"!then_18.i", %"!visit_next.i"
+  %"shapes_index!top.i.be" = phi i16 [ %extract77.i, %"!visit_next.i" ], [ %78, %"!then_18.i" ]
+  %"!mask!top.i.be" = phi <8 x i1> [ %extract80.i, %"!visit_next.i" ], [ %62, %"!then_18.i" ]
+  %"!count.i.be" = phi i32 [ %151, %"!visit_next.i" ], [ %80, %"!then_18.i" ]
+  br label %"_recloop_func0$gang8_v2_p3$masked!loop.i"
 
 "!else_19.i":                                     ; preds = %"!then_16.i"
   %81 = bitcast <2 x i8> %22 to i16
@@ -406,18 +406,18 @@ hit_z_all:
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
   br i1 %exitcond.not, label %"!visit_pop.i", label %"!for_data_body_23.i"
 
-"!visit_pop.i":                                   ; preds = %"!merge_36.i", %"!then_11.i", %"!then_6.i", %"!visit.i.outer"
-  %.not180.i = icmp eq i32 %"!count.i.ph", 0
+"!visit_pop.i":                                   ; preds = %"!merge_36.i", %"!then_11.i", %"!then_6.i", %"_recloop_func0$gang8_v2_p3$masked!loop.i"
+  %.not180.i = icmp eq i32 %"!count.i", 0
   br i1 %.not180.i, label %"_recloop_func0$gang8_v2_p3$masked.exit", label %"!visit_next.i"
 
 "!visit_next.i":                                  ; preds = %"!visit_pop.i"
-  %151 = add i32 %"!count.i.ph", -1
+  %151 = add i32 %"!count.i", -1
   %_wide.i = zext i32 %151 to i64
   %extract_ptr76.i = getelementptr inbounds nuw [2 x i8], ptr %"!stack159.i", i64 %_wide.i
   %extract77.i = load i16, ptr %extract_ptr76.i, align 2
   %extract_ptr79.i = getelementptr inbounds nuw i8, ptr %"!stack0158.i", i64 %_wide.i
   %extract80.i = load <8 x i1>, ptr %extract_ptr79.i, align 1
-  br label %"!visit.i.outer.backedge"
+  br label %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge"
 
 "_recloop_func0$gang8_v2_p3$masked.exit":         ; preds = %"!visit_pop.i"
   call void @llvm.lifetime.end.p0(ptr nonnull %_ret126.i)
