@@ -42,3 +42,16 @@ func [[export]] sub_neg(a : Float, b : Float, c : Float) -> Float =
     c - (-(a * b));
 
 func [[export]] neg_only(a : Float, b : Float) -> Float = -(a * b);
+
+// A loop variable read in a product and assigned again below it, in the same
+// block: the fma takes the phi's value, the `o` the multiply read, and not
+// the `o * omega` that follows it (SSA/Contract.cpp, `in_block`).
+func [[export]] rebound(k : Float, omega : Float, n : i32) -> Float {
+    total : mut Float = 0.0;
+    o : mut Float = 1.0;
+    for i in 0:n {
+        total = total + o * k;
+        o = o * omega;
+    }
+    return total + o * k;
+}

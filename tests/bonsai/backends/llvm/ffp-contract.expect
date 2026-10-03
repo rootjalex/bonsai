@@ -50,6 +50,73 @@ no_pair:
   ret float %1
 }
 
+; Function Attrs: nofree norecurse nosync nounwind memory(none)
+define float @rebound(float noundef %k, float noundef %omega, i32 noundef %n) local_unnamed_addr #1 {
+rebound:
+  %0 = icmp sgt i32 %n, 0
+  br i1 %0, label %"!for_i_body_1.preheader", label %"!for_i_end_2"
+
+"!for_i_body_1.preheader":                        ; preds = %rebound
+  %xtraiter = and i32 %n, 7
+  %1 = icmp ult i32 %n, 8
+  br i1 %1, label %"!for_i_body_1.epil.preheader", label %"!for_i_body_1.preheader.new"
+
+"!for_i_body_1.preheader.new":                    ; preds = %"!for_i_body_1.preheader"
+  %unroll_iter = and i32 %n, 2147483640
+  br label %"!for_i_body_1"
+
+"!for_i_body_1":                                  ; preds = %"!for_i_body_1", %"!for_i_body_1.preheader.new"
+  %o11 = phi float [ 1.000000e+00, %"!for_i_body_1.preheader.new" ], [ %17, %"!for_i_body_1" ]
+  %total10 = phi float [ 0.000000e+00, %"!for_i_body_1.preheader.new" ], [ %16, %"!for_i_body_1" ]
+  %niter = phi i32 [ 0, %"!for_i_body_1.preheader.new" ], [ %niter.next.7, %"!for_i_body_1" ]
+  %2 = tail call float @llvm.fma.f32(float %o11, float %k, float %total10)
+  %3 = fmul float %omega, %o11
+  %4 = tail call float @llvm.fma.f32(float %3, float %k, float %2)
+  %5 = fmul float %omega, %3
+  %6 = tail call float @llvm.fma.f32(float %5, float %k, float %4)
+  %7 = fmul float %omega, %5
+  %8 = tail call float @llvm.fma.f32(float %7, float %k, float %6)
+  %9 = fmul float %omega, %7
+  %10 = tail call float @llvm.fma.f32(float %9, float %k, float %8)
+  %11 = fmul float %omega, %9
+  %12 = tail call float @llvm.fma.f32(float %11, float %k, float %10)
+  %13 = fmul float %omega, %11
+  %14 = tail call float @llvm.fma.f32(float %13, float %k, float %12)
+  %15 = fmul float %omega, %13
+  %16 = tail call float @llvm.fma.f32(float %15, float %k, float %14)
+  %17 = fmul float %omega, %15
+  %niter.next.7 = add i32 %niter, 8
+  %niter.ncmp.7 = icmp eq i32 %niter.next.7, %unroll_iter
+  br i1 %niter.ncmp.7, label %"!for_i_end_2.loopexit.unr-lcssa", label %"!for_i_body_1"
+
+"!for_i_end_2.loopexit.unr-lcssa":                ; preds = %"!for_i_body_1"
+  %lcmp.mod.not = icmp eq i32 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!for_i_end_2", label %"!for_i_body_1.epil.preheader"
+
+"!for_i_body_1.epil.preheader":                   ; preds = %"!for_i_end_2.loopexit.unr-lcssa", %"!for_i_body_1.preheader"
+  %o11.epil.init = phi float [ 1.000000e+00, %"!for_i_body_1.preheader" ], [ %17, %"!for_i_end_2.loopexit.unr-lcssa" ]
+  %total10.epil.init = phi float [ 0.000000e+00, %"!for_i_body_1.preheader" ], [ %16, %"!for_i_end_2.loopexit.unr-lcssa" ]
+  %lcmp.mod19 = icmp ne i32 %xtraiter, 0
+  tail call void @llvm.assume(i1 %lcmp.mod19)
+  br label %"!for_i_body_1.epil"
+
+"!for_i_body_1.epil":                             ; preds = %"!for_i_body_1.epil", %"!for_i_body_1.epil.preheader"
+  %o11.epil = phi float [ %19, %"!for_i_body_1.epil" ], [ %o11.epil.init, %"!for_i_body_1.epil.preheader" ]
+  %total10.epil = phi float [ %18, %"!for_i_body_1.epil" ], [ %total10.epil.init, %"!for_i_body_1.epil.preheader" ]
+  %epil.iter = phi i32 [ %epil.iter.next, %"!for_i_body_1.epil" ], [ 0, %"!for_i_body_1.epil.preheader" ]
+  %18 = tail call float @llvm.fma.f32(float %o11.epil, float %k, float %total10.epil)
+  %19 = fmul float %omega, %o11.epil
+  %epil.iter.next = add i32 %epil.iter, 1
+  %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
+  br i1 %epil.iter.cmp.not, label %"!for_i_end_2", label %"!for_i_body_1.epil", !llvm.loop !0
+
+"!for_i_end_2":                                   ; preds = %"!for_i_end_2.loopexit.unr-lcssa", %"!for_i_body_1.epil", %rebound
+  %total.lcssa = phi float [ 0.000000e+00, %rebound ], [ %16, %"!for_i_end_2.loopexit.unr-lcssa" ], [ %18, %"!for_i_body_1.epil" ]
+  %o.lcssa = phi float [ 1.000000e+00, %rebound ], [ %17, %"!for_i_end_2.loopexit.unr-lcssa" ], [ %19, %"!for_i_body_1.epil" ]
+  %20 = tail call float @llvm.fma.f32(float %o.lcssa, float %k, float %total.lcssa)
+  ret float %20
+}
+
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @sub_neg(float noundef %a, float noundef %b, float noundef %c) local_unnamed_addr #0 {
 sub_neg:
@@ -58,10 +125,18 @@ sub_neg:
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fma.f32(float, float, float) #1
+declare float @llvm.fma.f32(float, float, float) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.sqrt.f32(float) #1
+declare float @llvm.sqrt.f32(float) #2
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
+declare void @llvm.assume(i1 noundef) #3
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #1 = { nofree norecurse nosync nounwind memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+
+!0 = distinct !{!0, !1}
+!1 = !{!"llvm.loop.unroll.disable"}
