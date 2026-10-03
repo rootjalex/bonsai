@@ -2010,7 +2010,10 @@ element CoatedDiffuseMaterial {
     reflectance : Reflectance;
     u_roughness, v_roughness : FloatParam;
     remap : bool;
-    thickness : Float;
+    // pbrt: `thickness` and `g` are FloatTextures like the roughnesses
+    // (CoatedDiffuseMaterial::Create), read at the hit; a number stays a
+    // number here, as every FloatParam does.
+    thickness : FloatParam;
     eta : Float;
     // The medium between the interfaces. pbrt's default is a spectrum that is
     // exactly zero, which is a different thing from an RGB of (0, 0, 0) fitted
@@ -2018,7 +2021,7 @@ element CoatedDiffuseMaterial {
     // which it is. So the flag says whether the scene named one at all.
     medium_albedo : SigmoidPolynomial;
     has_medium : bool;
-    g : Float;
+    g : FloatParam;
     max_depth, n_samples : i32;
 }
 
@@ -2094,14 +2097,14 @@ element ConductorMaterial {
 // below.
 element CoatedConductorMaterial {
     interface_u_roughness, interface_v_roughness : FloatParam;
-    thickness : Float;
+    thickness : FloatParam;
     interface_eta : Float;
     conductor_u_roughness, conductor_v_roughness : FloatParam;
     index : ConductorIndex;
     remap : bool;
     medium_albedo : SigmoidPolynomial;
     has_medium : bool;
-    g : Float;
+    g : FloatParam;
     max_depth, n_samples : i32;
 }
 
@@ -2209,9 +2212,12 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
     medium = select(m.has_medium,
                     min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
                     vec4f{0.0, 0.0, 0.0, 0.0});
-    return make_coated_diffuse(top, bottom, m.thickness, medium,
-                               min(max(m.g, -1.0), 1.0), m.max_depth,
-                               m.n_samples);
+    // pbrt: `Float thick = texEval(thickness, ctx)`, `Float gg = texEval(g,
+    // ctx)`, the latter clamped to [-1, 1].
+    return make_coated_diffuse(top, bottom, float_param_at(m.thickness, ctx),
+                               medium,
+                               min(max(float_param_at(m.g, ctx), -1.0), 1.0),
+                               m.max_depth, m.n_samples);
 }
 
 // pbrt: CoatedConductorMaterial::GetBxDF, then the `Regularize` the path
@@ -2256,8 +2262,10 @@ func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
     medium = select(m.has_medium,
                     min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
                     zero);
-    return make_layered(top, ConductorBase(bottom), m.thickness, medium,
-                        min(max(m.g, -1.0), 1.0), m.max_depth, m.n_samples);
+    return make_layered(top, ConductorBase(bottom),
+                        float_param_at(m.thickness, ctx), medium,
+                        min(max(float_param_at(m.g, ctx), -1.0), 1.0),
+                        m.max_depth, m.n_samples);
 }
 
 // pbrt: BxDF, the TaggedPointer a BSDF holds. A variant here, as everything

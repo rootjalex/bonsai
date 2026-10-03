@@ -2073,8 +2073,11 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // falls back to `roughness` for each independently, which is not the
         // same as falling back to `roughness` only when neither is given.
         material_roughness(m, out);
-        out.thickness = material_float(m, "thickness", 0.01f);
-        out.g = material_float(m, "g", 0.f);
+        // PBRT: `thickness` and `g` are FloatTextures, 0.01 and 0 by default
+        // (watercolor gives a thickness as an image).
+        out.thickness_texture =
+            material_float_or_texture(m, "thickness", 0.01f, &out.thickness);
+        out.g_texture = material_float_or_texture(m, "g", 0.f, &out.g);
         // `eta` is a spectrum in PBRT unless the scene writes it as a bare
         // float, and a spectral one terminates the secondary wavelengths --
         // which changes what every later stage of the render integrates over.
@@ -2126,8 +2129,9 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         material_roughness_prefixed(m, "interface.", &out.u_roughness,
                                     &out.v_roughness, &out.u_roughness_texture,
                                     &out.v_roughness_texture);
-        out.thickness = material_float(m, "thickness", 0.01f);
-        out.g = material_float(m, "g", 0.f);
+        out.thickness_texture =
+            material_float_or_texture(m, "thickness", 0.01f, &out.thickness);
+        out.g_texture = material_float_or_texture(m, "g", 0.f, &out.g);
         const CapturingBuilder::MaterialInfo::Value *ieta =
             m.find("interface.eta");
         if (ieta != nullptr) {

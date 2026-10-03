@@ -1617,11 +1617,11 @@ int main(int argc, char **argv) {
             coated.u_roughness = FloatParam{m.u_roughness, m.u_roughness_texture};
             coated.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
             coated.remap = m.remap != 0;
-            coated.thickness = m.thickness;
+            coated.thickness = FloatParam{m.thickness, m.thickness_texture};
             coated.eta = m.eta;
             coated.medium_albedo = albedo_of(m.medium_albedo);
             coated.has_medium = m.has_medium != 0;
-            coated.g = m.g;
+            coated.g = FloatParam{m.g, m.g_texture};
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedDiffuse(material, coated);
@@ -1631,7 +1631,7 @@ int main(int argc, char **argv) {
                 FloatParam{m.u_roughness, m.u_roughness_texture};
             coated.interface_v_roughness =
                 FloatParam{m.v_roughness, m.v_roughness_texture};
-            coated.thickness = m.thickness;
+            coated.thickness = FloatParam{m.thickness, m.thickness_texture};
             coated.interface_eta = m.eta;
             coated.conductor_u_roughness = FloatParam{
                 m.conductor_u_roughness, m.conductor_u_roughness_texture};
@@ -1645,7 +1645,7 @@ int main(int argc, char **argv) {
             coated.remap = m.remap != 0;
             coated.medium_albedo = albedo_of(m.medium_albedo);
             coated.has_medium = m.has_medium != 0;
-            coated.g = m.g;
+            coated.g = FloatParam{m.g, m.g_texture};
             coated.max_depth = m.max_depth;
             coated.n_samples = m.n_samples;
             Material_CoatedConductor(material, coated);

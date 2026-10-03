@@ -395,6 +395,11 @@ struct Material {
     float medium_albedo[3] = {0.f, 0.f, 0.f};
     uint32_t has_medium = 0;
     float g = 0.f;
+    // PBRT's `thickness` and `g` are FloatTextures, as the roughnesses are:
+    // the constants above, or an index into `textures`, and -1 when the scene
+    // gave a number.
+    int32_t thickness_texture = -1;
+    int32_t g_texture = -1;
     int32_t max_depth = 10;
     int32_t n_samples = 1;
 };
@@ -1264,6 +1269,8 @@ inline bool write(const char *path, const Scene &scene) {
             out << " hasalbedo " << m.has_medium;
             out << " g";
             detail::put(out, &m.g, 1);
+            out << " thicknesstex " << m.thickness_texture << " gtex "
+                << m.g_texture;
             out << " maxdepth " << m.max_depth;
             out << " nsamples " << m.n_samples;
         }
@@ -2033,6 +2040,18 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             floats(&m.g, 1);
+            if (!tagged("thicknesstex")) {
+                return false;
+            }
+            in >> m.thickness_texture;
+            if (!tagged("gtex")) {
+                return false;
+            }
+            in >> m.g_texture;
+            if (m.thickness_texture >= int32_t(scene.textures.size()) ||
+                m.g_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
             if (!tagged("maxdepth")) {
                 return false;
             }

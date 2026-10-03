@@ -9240,8 +9240,20 @@ order; measured with the GPU disturbed by another process on pbrt's side
 (two of its five runs), so the ratio wants a quiet re-run first. watercolor
 gets past the patch to its last refusal, a
 coating's `thickness` given as a texture (pbrt's CoatedDiffuse and
-CoatedConductor take `thickness` and `g` as FloatTextures; here they are
+CoatedConductor take `thickness` and `g` as FloatTextures; here they were
 numbers).
+
+*A coating's thickness and asymmetry as textures (2026-10-03).* pbrt's
+CoatedDiffuseMaterial and CoatedConductorMaterial read `thickness` (0.01)
+and `g` (0) with GetFloatTexture, like the roughnesses, and evaluate them
+at the hit (`texEval(thickness, ctx)`, `Clamp(texEval(g, ctx), -1, 1)`);
+here both were plain numbers, and watercolor's "Dents" gives its thickness
+as an image. Both are FloatParams now -- a number stays a number, a
+texture is read where the roughnesses are -- in the two material records,
+the scene file (`thicknesstex`, `gtex`) and the converter. With it
+watercolor camera-1 converts whole for the first time: 24,433,420 shapes
+(the PLY quads among them as patches) and 54 instances of 6 objects, a
+7.3 GB scene text.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`
