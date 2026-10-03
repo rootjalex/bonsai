@@ -304,9 +304,18 @@ struct Store : StmtNode<Store> {
     // that the lanes that push fill a queue densely (see lower_pushes in
     // SSA/Defer.cpp). Requires a mask.
     bool compact = false;
+    // A compacting store whose run of slots has a vector's slack past the
+    // last one the count claims -- the slots above a traversal's stack top,
+    // which hold nothing live and exist because the stack was allocated a
+    // vector longer than its capacity (SSA/QueueRecursion.cpp). The
+    // compaction may then write the whole vector: the lanes packed in a
+    // register (`vpcompressq zmm{k}{z}`) and one plain store, where the
+    // compacting store to memory is 8 uops at a throughput of 3 cycles on
+    // Zen 5 and 88 uops on Zen 4 (uops.info). Only with `compact`.
+    bool slack = false;
 
     static Stmt make(WriteLoc loc, Expr value, Expr mask = Expr(),
-                     bool compact = false);
+                     bool compact = false, bool slack = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::Store;
 };

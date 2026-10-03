@@ -729,7 +729,7 @@ Stmt Mutator::visit(const Store *node) {
         return node;
     }
     return Store::make(std::move(loc), std::move(value), std::move(mask),
-                       node->compact);
+                       node->compact, node->slack);
 }
 
 Stmt Mutator::visit(const Accumulate *node) {

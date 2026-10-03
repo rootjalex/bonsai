@@ -3834,50 +3834,47 @@ void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
         return;
     }
 
-    // A pointer per lane, the lanes that are on taken one at a time. The
-    // mask's bits as one integer, tested for any bit before the loop and
-    // for the bits left at its end; in the loop, the lowest set bit is the
-    // lane (cttz, defined since the word is not zero here), that lane's
-    // pointer is read and its lines fetched, and the bit is cleared
-    // (`x & (x - 1)`, blsr). The pointers are written to a stack slot once,
-    // before the loop, and the lane's read from it by index: a lane taken
-    // out of the register at a run-time index is legalised to the same
-    // store and load, but with the store inside the loop, once per lane.
+    // A pointer per lane, the lanes that are on taken one at a time, as
+    // Embree's traversal takes the hit children out of a node: the
+    // addresses of the lanes that are on packed to the front of the vector
+    // (`vpcompressq` in a register), their number counted from the mask,
+    // and then, for each lane in turn, behind a test that there are that
+    // many, the address taken out at a constant index -- a `vmovq` or a
+    // `vpextrq`, an `vextracti32x4` first for the upper lanes -- and its
+    // lines fetched. One misprediction per node, at the lane past the last,
+    // the same as Embree's count switch takes; no memory in the way. A
+    // loop over the set bits of the mask with the lanes' addresses read
+    // back from a stack slot was tried first, and the read waited on the
+    // 64-byte store of the slot for every lane.
     const unsigned lanes = vt->getNumElements();
     llvm::Type *bits_t = llvm::IntegerType::get(*context, lanes);
     llvm::Value *bits = mask != nullptr
                             ? builder->CreateBitCast(mask, bits_t)
                             : llvm::ConstantInt::getAllOnesValue(bits_t);
-    llvm::Type *word_t = lanes > 32 ? i64_t : i32_t;
-    llvm::Value *word = builder->CreateZExt(bits, word_t, "prefetch_lanes");
-    llvm::Value *zero = llvm::ConstantInt::get(word_t, 0);
-    llvm::Value *one = llvm::ConstantInt::get(word_t, 1);
-    llvm::Value *slot = create_alloca_at_entry(vt, "prefetch_addresses");
-    builder->CreateStore(ptr, slot);
-
-    llvm::BasicBlock *from = builder->GetInsertBlock();
-    llvm::BasicBlock *loop_bb = llvm::BasicBlock::Create(
-        *context, "prefetch_lane", current_function);
+    llvm::Value *count = builder->CreateZExt(
+        builder->CreateIntrinsic(bits_t, llvm::Intrinsic::ctpop, {bits}),
+        i32_t, "prefetch_count");
+    // The addresses as integers, which the compress has an instruction for.
+    llvm::Type *words_t = llvm::FixedVectorType::get(i64_t, lanes);
+    llvm::Value *words = builder->CreatePtrToInt(ptr, words_t);
+    if (mask != nullptr) {
+        words = compress_lanes(words, mask, "prefetch_addresses");
+    }
     llvm::BasicBlock *done_bb = llvm::BasicBlock::Create(
         *context, "prefetch_done", current_function);
-    builder->CreateCondBr(builder->CreateICmpNE(word, zero), loop_bb, done_bb);
-
-    builder->SetInsertPoint(loop_bb);
-    llvm::PHINode *remaining =
-        builder->CreatePHI(word_t, 2, "prefetch_remaining");
-    remaining->addIncoming(word, from);
-    llvm::Value *lane = builder->CreateIntrinsic(
-        word_t, llvm::Intrinsic::cttz, {remaining, builder->getTrue()},
-        nullptr, "prefetch_which");
-    llvm::Value *at = builder->CreateInBoundsGEP(vt->getElementType(), slot,
-                                                 lane, "prefetch_slot");
-    llvm::Value *address =
-        builder->CreateLoad(vt->getElementType(), at, "prefetch_address");
-    lines_at(address);
-    llvm::Value *rest = builder->CreateAnd(
-        remaining, builder->CreateSub(remaining, one), "prefetch_rest");
-    remaining->addIncoming(rest, builder->GetInsertBlock());
-    builder->CreateCondBr(builder->CreateICmpNE(rest, zero), loop_bb, done_bb);
+    for (unsigned k = 0; k < lanes; k++) {
+        llvm::BasicBlock *fetch_bb = llvm::BasicBlock::Create(
+            *context, "prefetch_lane", current_function);
+        builder->CreateCondBr(
+            builder->CreateICmpUGT(count, llvm::ConstantInt::get(i32_t, k)),
+            fetch_bb, done_bb);
+        builder->SetInsertPoint(fetch_bb);
+        llvm::Value *address = builder->CreateIntToPtr(
+            builder->CreateExtractElement(words, uint64_t(k)),
+            vt->getElementType(), "prefetch_address");
+        lines_at(address);
+    }
+    builder->CreateBr(done_bb);
     builder->SetInsertPoint(done_bb);
 }
 
@@ -5345,7 +5342,8 @@ void CodeGen_LLVM::visit(const Store *node) {
     // push does with each field of its entries, so the lanes that push fill
     // the queue densely (see lower_pushes in SSA/Defer.cpp).
     if (node->compact) {
-        create_compress_store_at(rhs, dest, codegen_expr(node->mask));
+        create_compress_store_at(rhs, dest, codegen_expr(node->mask),
+                                 node->slack);
         return;
     }
 
@@ -6142,7 +6140,7 @@ void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,
 
 void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
                                             llvm::Value *dest,
-                                            llvm::Value *mask) {
+                                            llvm::Value *mask, bool whole) {
     const uint32_t lanes = vector_lanes(mask->getType());
     // A uniform value: every lane that is on writes its own copy of it.
     if (!value->getType()->isVectorTy()) {
@@ -6162,8 +6160,19 @@ void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
     // The slots are consecutive elements, aligned as one element is (see
     // create_vector_store); without saying so the intrinsic assumes one byte.
     llvm::Type *element = value->getType()->getScalarType();
-    builder->CreateMaskedCompressStore(
-        value, dest, module->getDataLayout().getABITypeAlign(element), mask);
+    const llvm::Align align = module->getDataLayout().getABITypeAlign(element);
+    // With slack past the slots (ir::Store::slack): the lanes that are on
+    // packed to the front in a register and the whole vector stored, the
+    // lanes past the count landing in slots nothing reads -- a register
+    // `vpcompressq` and a `vmovdqu64` where the compacting store to memory
+    // is microcoded.
+    if (whole) {
+        llvm::Value *packed = compress_lanes(value, mask, "compress_whole");
+        llvm::StoreInst *store = builder->CreateStore(packed, dest);
+        store->setAlignment(align);
+        return;
+    }
+    builder->CreateMaskedCompressStore(value, dest, align, mask);
 }
 
 void CodeGen_LLVM::create_scatter_at(llvm::Value *value, llvm::Value *ptrs,

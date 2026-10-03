@@ -640,9 +640,11 @@ struct CodeGen_LLVM : public ir::Visitor {
     // address, or one per lane -- a vector of pointers -- and `mask`, when
     // given, which lanes want theirs (one bool for a scalar address). No
     // machine prefetches a vector of addresses, so the lanes are taken one
-    // at a time: a loop over the set bits of the mask, each lane's number
-    // the lowest bit set (`tzcnt`) and that bit cleared after (`blsr`),
-    // Embree's `bscf` loop over the children a ray hit (bvh_traverser1.h).
+    // at a time, as Embree's traversal takes the hit children out of a node
+    // (bvh_traverser1.h): the addresses of the lanes that are on packed to
+    // the front of the vector (compress_lanes), their number counted, and
+    // each lane in turn, behind a test that there are that many, taken out
+    // at a constant index and its lines fetched.
     void emit_prefetch(llvm::Value *ptr, uint64_t bytes, llvm::Value *mask);
 
     // The address of one element per lane of an array: `base` plus each
@@ -919,8 +921,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     // consecutive slots from it, in lane order (LLVM's masked.compressstore,
     // `vpcompressd` to memory). What a gang's push writes each field of its
     // entries with (see lower_pushes in SSA/Defer.cpp).
+    // `whole`: the slots have a vector's slack past the ones claimed, so the
+    // compaction is a register compress and one plain store (ir::Store::slack).
     void create_compress_store_at(llvm::Value *value, llvm::Value *dest,
-                                  llvm::Value *mask);
+                                  llvm::Value *mask, bool whole);
 
     // A scatter: `ptrs` is one address per lane, at each of which memory
     // holds a `pointee`, and `value` is what the lanes write there -- a

@@ -1050,6 +1050,7 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
             copy->shuffle = instr->shuffle;
             copy->atomic = instr->atomic;
             copy->compact = instr->compact;
+            copy->slack = instr->slack;
             copy->scratch = instr->scratch;
             copy->storage = instr->storage;
             T->instrs.push_back(copy);

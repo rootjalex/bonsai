@@ -276,6 +276,10 @@ struct Instruction {
     // compacting push of a gang writes each field of its entries this way
     // (see lower_pushes in SSA/Defer.cpp).
     bool compact = false;
+    // With `compact`: the run of slots has a vector's slack past the last
+    // one claimed, so the whole vector may be written -- a register compress
+    // and one store (see ir::Store::slack).
+    bool slack = false;
 
     // Whether the storage an Alloca makes is dead when an iteration of any
     // loop around it begins: what it holds then is never read, every read in

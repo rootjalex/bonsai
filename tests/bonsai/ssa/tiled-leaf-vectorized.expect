@@ -37,8 +37,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
   _bound0!top : mut f32
   !live : mut bool
   !count : mut u32
-  !stack : mut u32[64]
-  !stack0 : mut f32[64]
+  !stack : mut u32[68]
+  !stack0 : mut f32[68]
   tris_ref!top = tris_ref
   _bound0!top = _bound0
   !live = true
@@ -371,8 +371,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @482 = build<boolx4>(true, true, true, false) in
           let @483 = @481 && @482 in
           let @484 = @270 - 1u in
-          compress_store(!stack[(*!count)], @314, @483)
-          compress_store(!stack0[(*!count)], @315, @483)
+          compress_store_whole(!stack[(*!count)], @314, @483)
+          compress_store_whole(!stack0[(*!count)], @315, @483)
           let @487 = (*!count) + @484 in
           let @488 = @314[3u] in
           let @489 = @315[3u] in

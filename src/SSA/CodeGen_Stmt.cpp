@@ -516,7 +516,7 @@ Stmt codegen_instruction(const Instruction &instr) {
                             ? codegen_value(instr.operands[2])
                             : Expr();
             return Store::make(std::move(loc), std::move(val), std::move(mask),
-                               instr.compact);
+                               instr.compact, instr.slack);
         }
         case Instruction::Op::Alloc:
         case Instruction::Op::Alloca: {

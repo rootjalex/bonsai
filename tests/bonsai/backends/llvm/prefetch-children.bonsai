@@ -4,19 +4,23 @@
 // program, the children's gang prefetching each hit child's storage.
 //
 // What to read for. In the traversal, after the four-wide node test, two
-// loops of `llvm.prefetch` -- one for the children that are interior nodes,
+// runs of `llvm.prefetch` -- one for the children that are interior nodes,
 // one for the leaves, each over the lanes of its arm's mask
-// (CodeGen_LLVM::emit_prefetch): the vector of row addresses is written
-// to a stack slot once (`prefetch_addresses`) and the mask's bits made an
-// integer (`prefetch_lanes`), tested for any; in the loop the lowest set
-// bit is the lane (`cttz`, `prefetch_which`), that lane's pointer is read
-// from the slot (`prefetch_address`), and its lines are fetched --
+// (CodeGen_LLVM::emit_prefetch): the vector of row addresses, as integers,
+// is packed to the front by the mask (`vector.compress`,
+// `prefetch_addresses`) and the mask's bits counted (`ctpop`); then a
+// chain of blocks, one per lane (`prefetch_lane`), each entered when the
+// count exceeds the lane's number, taking that lane's address out at a
+// constant index (`prefetch_address`) and fetching its lines --
 // `llvm.prefetch(p, 0, 3, 1)`, a read of high locality, at the row and at
 // the row plus 64 and 128, the three lines of the 160 bytes the widest arm
-// holds -- and the bit is cleared (`prefetch_rest`, `x & (x - 1)`).
-// Embree's `bscf` loop over the hit children (bvh_traverser1.h), with
-// `BVH::prefetch`'s lines for each. On x86 the loop is `tzcnt`, `blsr`, a
-// load and three `prefetcht0` per hit child.
+// holds. Embree's traversal takes the hit children out of a node the same
+// way (bvh_traverser1.h: `vcompress`, a switch on the count), with
+// `BVH::prefetch`'s lines for each. On x86 that is one `vpcompressq` in a
+// register, then per hit child a compare, an extract and three
+// `prefetcht0`; nothing goes through memory. (A loop over the set bits of
+// the mask reading each lane's address back from a stack slot waited on
+// the slot's 64-byte store for every lane.)
 import stdlib/numerics;
 
 element Ray {

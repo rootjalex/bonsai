@@ -297,11 +297,14 @@ bool mentions_lanes(const Type &type, uint32_t lanes) {
 
 } // namespace
 
-Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact) {
+Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact,
+                 bool slack) {
     internal_assert(loc.defined()) << "Undefined write location in Store::make";
     internal_assert(value.defined()) << "Undefined value in Store::make";
     internal_assert(!compact || mask.defined())
         << "A compacting store has to say which lanes it compacts: " << loc;
+    internal_assert(!slack || compact)
+        << "Slack past the slots is a compacting store's to use: " << loc;
     if (mask.defined() && mask.type().defined() && value.type().defined()) {
         internal_assert(mask.type().is_bool() && mask.type().is_vector())
             << "Store mask must be a boolean vector, got: " << mask.type();
@@ -317,6 +320,7 @@ Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact) {
     node->value = std::move(value);
     node->mask = std::move(mask);
     node->compact = compact;
+    node->slack = slack;
     return node;
 }
 

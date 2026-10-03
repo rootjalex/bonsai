@@ -8,7 +8,10 @@
 // the keys stored once each as a vector; after it, the sort of the hits as
 // vector `smin`/`smax` and shuffles over the keys with the lane in their low
 // bits, and the waiting children written to the stack by one
-// `masked.compressstore`.
+// `vector.compress` and a plain store of the whole vector -- the stack is
+// allocated a vector longer than its capacity (`[68 x i32]` for a size of
+// 64 and four lanes) so the lanes past the count land in slots nothing
+// reads, where a `masked.compressstore` is microcoded on x86.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

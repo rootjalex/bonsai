@@ -757,7 +757,8 @@ struct CodeGen_LLVM::SSALowering {
                             ? operand(instr->operands[2])
                             : Expr();
             cg.codegen_stmt(Store::make(std::move(loc), std::move(val),
-                                        std::move(mask), instr->compact));
+                                        std::move(mask), instr->compact,
+                                        instr->slack));
             return;
         }
         if (instr->op == Instruction::Op::Intrinsic &&

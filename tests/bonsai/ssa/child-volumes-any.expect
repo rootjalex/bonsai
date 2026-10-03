@@ -27,7 +27,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
   tris_ref!top : mut u32
   !live : mut bool
   !count : mut u32
-  !stack : mut u32[64]
+  !stack : mut u32[68]
   tris_ref!top = tris_ref
   !live = true
   !count = 0u
@@ -192,7 +192,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @227 = ramp(0u, 1u, 4) != @226 in
           let @228 = @218 && @227 in
           let @229 = @219 - 1u in
-          compress_store(!stack[(*!count)], _t40, @228)
+          compress_store_whole(!stack[(*!count)], _t40, @228)
           let @231 = (*!count) + @229 in
           let @232 = _t40[@225] in
           tris_ref!top = @232

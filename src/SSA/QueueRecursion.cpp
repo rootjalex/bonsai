@@ -625,12 +625,35 @@ void queue_recursion(Function &func, size_t size) {
         shared_ptr<Value> storage;
     };
     vector<Stack> stacks;
+    // A run's push writes the waiting lanes to the stack with one compacting
+    // store (below). Given a vector of slack past the stack's capacity, that
+    // store may write the whole vector -- the lanes packed in a register and
+    // one plain store (ir::Store::slack) -- rather than compact to memory,
+    // which is 8 uops at a throughput of 3 cycles on Zen 5 and 88 uops on
+    // Zen 4 (uops.info); the slots past the count hold nothing live. So each
+    // stack is the widest run longer than the size asked for.
+    uint32_t slack = 0;
+    {
+        const BlockMap blocks = make_block_map(func);
+        for (const string &name : recursive) {
+            const auto call = called_by(*blocks.at(name));
+            if (!call) {
+                continue;
+            }
+            if (call->sorted.has_value()) {
+                slack = std::max(slack, call->sorted->lanes);
+            }
+            if (call->lanes.has_value()) {
+                slack = std::max(slack, call->lanes->lanes);
+            }
+        }
+    }
     for (size_t i = 0; i < params.size(); i++) {
         if (!varies[i]) {
             continue;
         }
-        const Type array_type =
-            Array_t::make(params[i].type, make_const(count_type, size));
+        const Type array_type = Array_t::make(
+            params[i].type, make_const(count_type, size + slack));
         stacks.push_back(
             {i, append(func, entry, array_type, Instruction::Op::Alloca, {},
                        new_storage_name(func, "!stack"))});
@@ -922,8 +945,9 @@ void queue_recursion(Function &func, size_t size) {
         // not hit in the lowest -- is written down with one compacting store
         // per stack rather than a conditional push per child: the lanes of
         // the hits that wait, farthest first, go into consecutive slots from
-        // the top (LLVM's masked.compressstore, `vpcompressq`), the count
-        // advances once by their number, and the nearest is descended into.
+        // the top (packed in a register, `vpcompressq`, and stored whole
+        // into the stack's slack; ir::Store::slack), the count advances
+        // once by their number, and the nearest is descended into.
         // Where no child is hit there is nothing to write and nothing to
         // descend into, and the next node comes off the stack: Embree's `if
         // (mask == 0) goto pop` in front of its traverseClosestHit.
@@ -982,6 +1006,9 @@ void queue_recursion(Function &func, size_t size) {
                     vector<shared_ptr<Value>>{slot, values->second, waiting},
                     push);
                 store->compact = true;
+                // The stack has a vector of slack past its capacity (see
+                // its allocation), so the whole vector may be written.
+                store->slack = true;
                 push->instrs.push_back(store);
             }
             append_store(push, count,
@@ -1099,6 +1126,7 @@ void queue_recursion(Function &func, size_t size) {
                                               waiting},
                     push);
                 store->compact = true;
+                store->slack = true; // as above
                 push->instrs.push_back(store);
             }
             append_store(push, count,
