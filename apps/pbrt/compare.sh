@@ -454,7 +454,8 @@ if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
   fi
   OPTIX_FLAGS=(-isystem "$OPTIX_SDK/include" -isystem "$CUDA_DIR/include")
 fi
-"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
+"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+    $PREFIX/render_hook.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$WORK/render.out"
 # --no-implicit-copies: the driver stages every buffer before its timer
 # starts, and a copy the compiled render would make inside the timed region

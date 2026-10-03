@@ -9319,6 +9319,50 @@ over 5e-3 where it was 60.8% (mean 2.0e-3), normals still 0 off -- the
 level the other volpath scenes with specular glass sit at, the rest being
 which way each glass path went.
 
+*The geometry sidecar: FlatBuffers (2026-10-03).* The user asked how long
+conversion and re-reading take and whether protobuf should replace the
+text. The numbers: the renderer parsed every scene's text at 80-90 MB/s
+(bmw-m6's 0.11 GB in 1.2 s, villa's 0.38 GB in 4.1 s, sportscar's 0.79 GB
+in 8.9 s, watercolor's 7.3 GB in 91.6 s), decimal floats through iostream
+and nothing to do with the disk, while the binary sidecars read at disk
+speed; the conversion is pbrt's own parse of the .pbrt and PLY files
+(watercolor 79 s) and no format changes that. The user wanted a
+well-established library rather than a format of our own, and the fit is
+FlatBuffers rather than protobuf: a vector of structs is stored as the
+records themselves and read in place, there is a schema and a verifier,
+and since 23.5 there are 64-bit vectors, where protobuf decodes field by
+field and caps a message at 2 GB. So the geometry -- meshes, vertices,
+indices, every shape, the two trees, the instance definitions and
+placements, the primitives -- is now the FlatBuffer `<scene>.txt.geo`
+(scene_geometry.fbs; scene_io.h's write_geometry and read_geometry), the
+text keeping a `geometry <bytes>` line in their place and everything
+small and human-readable as it was. A shape is one of four structs of its
+own size, in a vector per kind, with a kind and a slot per shape giving
+the order the primitives and the light ordinals index; the 64-bit vectors
+are the root table's own, as FlatBuffers requires, which is why the two
+shape lists are flattened into it. The header is generated at build time
+by scene_schema.sh (flatc from the conda environment's `flatbuffers`,
+25.12; the output is git-ignored beside render.h) and every script that
+compiles scene_dump.cpp or render_hook.cpp calls it for the flags. The
+reader verifies the buffer, refuses another record version, and checks
+every index once the lights are in, as the text reader did while it read.
+bilinear-patch (patches, triangles, an emitter) and instances (instances,
+triangles) through the new path render digit for digit what they did;
+disk (spheres, disks, a mirrored transform) is at its one silhouette pixel
+and 0.99999x; watercolor camera-1 on the GPU gives the same statistics as
+through the text (1.01006x, 10.6% within 1e-3). The numbers, before and
+after, the converter rebuilt from the previous commit for the before
+column: conversion bmw-m6 0.96 -> 0.47 s, villa 5.88 -> 4.14 s, sportscar
+5.24 -> 1.50 s (what remains is pbrt's parse and our tree build); the
+renderer's read bmw-m6 1.158 -> 0.093 s, villa 4.094 -> 0.352 s, sportscar
+8.876 -> 0.320 s, watercolor 91.615 -> 3.220 s (of which the verifier's
+walk over 2.8 GB is most, and the unpack into the pools after it is 2.83 s
+either way); on disk bmw-m6 114 MB of text -> 0.13 MB + 53 MB, villa
+380 MB -> 0.4 MB + 175 MB, sportscar 792 MB -> 0.25 MB + 321 MB, watercolor
+7.3 GB -> 0.54 MB + 2.80 GB. The 28x on watercolor is the reader; the
+2x-3x on conversion is the writer no longer formatting a decimal per
+number.
+
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`
 died in the pipeline's last promotion, "jump from `_split_s_gang` to

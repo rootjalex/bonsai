@@ -20,10 +20,16 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
+
+// The geometry sidecar's record types, generated from scene_geometry.fbs by
+// scene_schema.sh (flatc); the header is a build product, found beside this
+// file, and brings FlatBuffers' own headers with it.
+#include "scene_geometry_generated.h"
 
 namespace bonsai_scene {
 
@@ -981,6 +987,446 @@ inline std::string pl_path(const char *scene_path) {
     return std::string(scene_path) + ".pl";
 }
 
+// Where the geometry lives: the FlatBuffer beside the scene file
+// (scene_geometry.fbs). The meshes, their vertices, every shape, the trees
+// and the instances are arrays of fixed-layout records, and the text form
+// of them parsed at 80-90 MB/s -- watercolor's 24 million shapes took 91.6 s
+// to read before a render of 0.9 s. As a FlatBuffer they are read in place
+// and copied into the vectors below at memory speed.
+inline std::string geo_path(const char *scene_path) {
+    return std::string(scene_path) + ".geo";
+}
+
+namespace detail {
+
+// Bumped whenever a record in scene_geometry.fbs changes layout; a sidecar
+// of another version is refused rather than misread, as a text file with a
+// missing tag is.
+constexpr uint32_t kGeometryVersion = 1;
+
+inline geo::Placement placement_of(const Shape &s) {
+    return geo::Placement(s.material, s.light, s.light_ordinal, s.alpha,
+                          s.medium_inside, s.medium_outside);
+}
+
+inline void place(const geo::Placement &at, Shape &s) {
+    s.material = at.material();
+    s.light = at.light();
+    s.light_ordinal = at.light_ordinal();
+    s.alpha = at.alpha();
+    s.medium_inside = at.medium_inside();
+    s.medium_outside = at.medium_outside();
+}
+
+inline flatbuffers::span<const float, 3> span3(const float *v) {
+    return flatbuffers::span<const float, 3>(v, 3);
+}
+inline flatbuffers::span<const float, 16> span16(const float *v) {
+    return flatbuffers::span<const float, 16>(v, 16);
+}
+
+// A shape list as the sidecar holds it: the kind and the slot of every shape
+// in the order the list had, and a vector per kind the slots index. One
+// record per shape of its own size, where the text wrote a line per shape
+// and `Shape` holds every kind's fields.
+struct ShapeColumns {
+    std::vector<uint8_t> kinds;
+    std::vector<uint32_t> slots;
+    std::vector<geo::Triangle> triangles;
+    std::vector<geo::Patch> patches;
+    std::vector<geo::Sphere> spheres;
+    std::vector<geo::Disk> disks;
+};
+
+inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
+    ShapeColumns c;
+    c.kinds.reserve(shapes.size());
+    c.slots.reserve(shapes.size());
+    for (const Shape &s : shapes) {
+        c.kinds.push_back(uint8_t(s.tag));
+        const geo::Placement at = placement_of(s);
+        switch (s.tag) {
+        case ShapeTag::Sphere:
+            c.slots.push_back(uint32_t(c.spheres.size()));
+            c.spheres.emplace_back(span3(s.center), s.radius, s.flip, at);
+            break;
+        case ShapeTag::Disk:
+            c.slots.push_back(uint32_t(c.disks.size()));
+            c.disks.emplace_back(s.height, s.radius, s.inner_radius, s.phi_max,
+                                 s.flip, s.reverse, span16(s.render_from_object),
+                                 span16(s.object_from_render), at);
+            break;
+        case ShapeTag::Patch:
+            c.slots.push_back(uint32_t(c.patches.size()));
+            c.patches.emplace_back(s.mesh, s.tri, s.patch_area, at);
+            break;
+        default:
+            c.slots.push_back(uint32_t(c.triangles.size()));
+            c.triangles.emplace_back(s.mesh, s.tri, at);
+            break;
+        }
+    }
+    return c;
+}
+
+inline std::vector<geo::Node> nodes_of(const std::vector<Node> &nodes) {
+    std::vector<geo::Node> out;
+    out.reserve(nodes.size());
+    for (const Node &n : nodes) {
+        out.emplace_back(span3(n.low), span3(n.high), n.offset, n.n_prims, n.axis);
+    }
+    return out;
+}
+
+// The sidecar written: every 64-bit vector first -- FlatBuffers places the
+// 64-bit-addressed data ahead of the 32-bit-addressed and its builder keeps
+// that order -- then the small vectors and the table. `bytes` is the size
+// the scene text records, which the reader checks the file against.
+inline bool write_geometry(const char *path, const Scene &scene,
+                           uint64_t *bytes) {
+    flatbuffers::FlatBufferBuilder64 fbb;
+    const auto indices = fbb.CreateVector64(scene.indices);
+    const auto positions = fbb.CreateVector64(scene.positions);
+    const auto normals = fbb.CreateVector64(scene.normals);
+    const auto uvs = fbb.CreateVector64(scene.uvs);
+    const ShapeColumns top = columns_of(scene.shapes);
+    const auto shape_kinds = fbb.CreateVector64(top.kinds);
+    const auto shape_slots = fbb.CreateVector64(top.slots);
+    const auto triangles = fbb.CreateVectorOfStructs64(top.triangles);
+    const auto patches = fbb.CreateVectorOfStructs64(top.patches);
+    const auto spheres = fbb.CreateVectorOfStructs64(top.spheres);
+    const auto disks = fbb.CreateVectorOfStructs64(top.disks);
+    const auto nodes = fbb.CreateVectorOfStructs64(nodes_of(scene.nodes));
+    const ShapeColumns inst = columns_of(scene.instance_shapes);
+    const auto instance_shape_kinds = fbb.CreateVector64(inst.kinds);
+    const auto instance_shape_slots = fbb.CreateVector64(inst.slots);
+    const auto instance_triangles = fbb.CreateVectorOfStructs64(inst.triangles);
+    const auto instance_patches = fbb.CreateVectorOfStructs64(inst.patches);
+    const auto instance_spheres = fbb.CreateVectorOfStructs64(inst.spheres);
+    const auto instance_disks = fbb.CreateVectorOfStructs64(inst.disks);
+    const auto instance_nodes =
+        fbb.CreateVectorOfStructs64(nodes_of(scene.instance_nodes));
+    std::vector<geo::Prim> prim_records;
+    prim_records.reserve(scene.prims.size());
+    for (const Prim &p : scene.prims) {
+        prim_records.emplace_back(p.kind, p.index);
+    }
+    const auto prims = fbb.CreateVectorOfStructs64(prim_records);
+
+    std::vector<geo::Mesh> mesh_records;
+    mesh_records.reserve(scene.meshes.size());
+    for (const Mesh &m : scene.meshes) {
+        mesh_records.emplace_back(m.first_index, m.first_vertex, m.first_normal,
+                                  m.first_uv, m.has_normals, m.has_uv, m.flip);
+    }
+    const auto meshes = fbb.CreateVectorOfStructs(mesh_records);
+    std::vector<geo::Definition> definition_records;
+    definition_records.reserve(scene.definitions.size());
+    for (const Definition &d : scene.definitions) {
+        definition_records.emplace_back(d.first_shape, d.shape_count, d.root_node);
+    }
+    const auto definitions = fbb.CreateVectorOfStructs(definition_records);
+    std::vector<geo::Instance> instance_records;
+    instance_records.reserve(scene.instances.size());
+    for (const Instance &i : scene.instances) {
+        instance_records.emplace_back(i.definition, span16(i.render_from_instance),
+                                      span16(i.instance_from_render));
+    }
+    const auto instances = fbb.CreateVectorOfStructs(instance_records);
+
+    geo::GeometryBuilder gb(fbb);
+    gb.add_version(kGeometryVersion);
+    gb.add_meshes(meshes);
+    gb.add_indices(indices);
+    gb.add_positions(positions);
+    gb.add_normals(normals);
+    gb.add_uvs(uvs);
+    gb.add_shape_kinds(shape_kinds);
+    gb.add_shape_slots(shape_slots);
+    gb.add_triangles(triangles);
+    gb.add_patches(patches);
+    gb.add_spheres(spheres);
+    gb.add_disks(disks);
+    gb.add_nodes(nodes);
+    gb.add_instance_shape_kinds(instance_shape_kinds);
+    gb.add_instance_shape_slots(instance_shape_slots);
+    gb.add_instance_triangles(instance_triangles);
+    gb.add_instance_patches(instance_patches);
+    gb.add_instance_spheres(instance_spheres);
+    gb.add_instance_disks(instance_disks);
+    gb.add_instance_nodes(instance_nodes);
+    gb.add_definitions(definitions);
+    gb.add_instances(instances);
+    gb.add_prims(prims);
+    fbb.Finish(gb.Finish(), geo::GeometryIdentifier());
+
+    std::ofstream out(geo_path(path), std::ios::binary);
+    out.write(reinterpret_cast<const char *>(fbb.GetBufferPointer()),
+              std::streamsize(fbb.GetSize()));
+    *bytes = uint64_t(fbb.GetSize());
+    return bool(out);
+}
+
+// A shape list back from its columns. False where a slot points past its
+// vector, which no writer of this file produces.
+template <typename Kinds, typename Slots, typename Tris, typename Patches,
+          typename Spheres, typename Disks>
+inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
+                      const Patches *patches, const Spheres *spheres,
+                      const Disks *disks, std::vector<Shape> &out) {
+    out.clear();
+    if (kinds == nullptr || slots == nullptr) {
+        return true;
+    }
+    if (kinds->size() != slots->size()) {
+        return false;
+    }
+    out.resize(kinds->size());
+    for (size_t i = 0; i < out.size(); i++) {
+        Shape &s = out[i];
+        const uint32_t slot = slots->Get(i);
+        switch (kinds->Get(i)) {
+        case ShapeTag::Sphere: {
+            if (spheres == nullptr || slot >= spheres->size()) {
+                return false;
+            }
+            const geo::Sphere *r = spheres->Get(slot);
+            s.tag = ShapeTag::Sphere;
+            std::memcpy(s.center, r->center()->data(), sizeof(s.center));
+            s.radius = r->radius();
+            s.flip = r->flip();
+            place(r->at(), s);
+            break;
+        }
+        case ShapeTag::Disk: {
+            if (disks == nullptr || slot >= disks->size()) {
+                return false;
+            }
+            const geo::Disk *r = disks->Get(slot);
+            s.tag = ShapeTag::Disk;
+            s.height = r->height();
+            s.radius = r->radius();
+            s.inner_radius = r->inner_radius();
+            s.phi_max = r->phi_max();
+            s.flip = r->flip();
+            s.reverse = r->reverse();
+            std::memcpy(s.render_from_object, r->render_from_object()->data(),
+                        sizeof(s.render_from_object));
+            std::memcpy(s.object_from_render, r->object_from_render()->data(),
+                        sizeof(s.object_from_render));
+            place(r->at(), s);
+            break;
+        }
+        case ShapeTag::Patch: {
+            if (patches == nullptr || slot >= patches->size()) {
+                return false;
+            }
+            const geo::Patch *r = patches->Get(slot);
+            s.tag = ShapeTag::Patch;
+            s.mesh = r->mesh();
+            s.tri = r->patch();
+            s.patch_area = r->area();
+            place(r->at(), s);
+            break;
+        }
+        case ShapeTag::Triangle: {
+            if (tris == nullptr || slot >= tris->size()) {
+                return false;
+            }
+            const geo::Triangle *r = tris->Get(slot);
+            s.tag = ShapeTag::Triangle;
+            s.mesh = r->mesh();
+            s.tri = r->tri();
+            place(r->at(), s);
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename Nodes>
+inline void nodes_from(const Nodes *in, std::vector<Node> &out) {
+    out.clear();
+    if (in == nullptr) {
+        return;
+    }
+    out.resize(in->size());
+    for (size_t i = 0; i < out.size(); i++) {
+        const geo::Node *r = in->Get(i);
+        std::memcpy(out[i].low, r->low()->data(), sizeof(out[i].low));
+        std::memcpy(out[i].high, r->high()->data(), sizeof(out[i].high));
+        out[i].offset = r->offset();
+        out[i].n_prims = r->n_prims();
+        out[i].axis = r->axis();
+    }
+}
+
+template <typename T, typename V>
+inline void copy_from(const V *in, std::vector<T> &out) {
+    out.clear();
+    if (in != nullptr) {
+        out.assign(in->data(), in->data() + in->size());
+    }
+}
+
+// The sidecar read: the whole file into memory, verified -- FlatBuffers'
+// verifier walks the table and bounds every vector, which for vectors of
+// structs is a size check each -- and copied out into the scene's vectors.
+// `bytes` is what the scene text said the file is.
+inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
+    std::ifstream in(geo_path(path), std::ios::binary | std::ios::ate);
+    if (!in) {
+        return false;
+    }
+    const std::streamoff size = in.tellg();
+    if (size < 0 || uint64_t(size) != bytes) {
+        return false;
+    }
+    in.seekg(0);
+    std::vector<uint8_t> buf(static_cast<size_t>(size));
+    in.read(reinterpret_cast<char *>(buf.data()), size);
+    if (in.gcount() != size) {
+        return false;
+    }
+    flatbuffers::Verifier::Options opts;
+    // The default is FlatBuffers' 32-bit limit; the 64-bit vectors may pass it.
+    opts.max_size = buf.size() + 1;
+    flatbuffers::Verifier verifier(buf.data(), buf.size(), opts);
+    if (!geo::VerifyGeometryBuffer(verifier)) {
+        return false;
+    }
+    const geo::Geometry *g = geo::GetGeometry(buf.data());
+    if (g->version() != kGeometryVersion) {
+        return false;
+    }
+
+    scene.meshes.clear();
+    if (g->meshes() != nullptr) {
+        scene.meshes.reserve(g->meshes()->size());
+        for (const geo::Mesh *m : *g->meshes()) {
+            Mesh out;
+            out.first_index = m->first_index();
+            out.first_vertex = m->first_vertex();
+            out.first_normal = m->first_normal();
+            out.first_uv = m->first_uv();
+            out.has_normals = m->has_normals();
+            out.has_uv = m->has_uv();
+            out.flip = m->flip();
+            scene.meshes.push_back(out);
+        }
+    }
+    copy_from(g->indices(), scene.indices);
+    copy_from(g->positions(), scene.positions);
+    copy_from(g->normals(), scene.normals);
+    copy_from(g->uvs(), scene.uvs);
+    if (!shapes_of(g->shape_kinds(), g->shape_slots(), g->triangles(),
+                   g->patches(), g->spheres(), g->disks(), scene.shapes)) {
+        return false;
+    }
+    nodes_from(g->nodes(), scene.nodes);
+    if (!shapes_of(g->instance_shape_kinds(), g->instance_shape_slots(),
+                   g->instance_triangles(), g->instance_patches(),
+                   g->instance_spheres(), g->instance_disks(),
+                   scene.instance_shapes)) {
+        return false;
+    }
+    nodes_from(g->instance_nodes(), scene.instance_nodes);
+    scene.definitions.clear();
+    if (g->definitions() != nullptr) {
+        for (const geo::Definition *d : *g->definitions()) {
+            Definition out;
+            out.first_shape = d->first_shape();
+            out.shape_count = d->shape_count();
+            out.root_node = d->root_node();
+            scene.definitions.push_back(out);
+        }
+    }
+    scene.instances.clear();
+    if (g->instances() != nullptr) {
+        for (const geo::Instance *i : *g->instances()) {
+            Instance out;
+            out.definition = i->definition();
+            std::memcpy(out.render_from_instance, i->render_from_instance()->data(),
+                        sizeof(out.render_from_instance));
+            std::memcpy(out.instance_from_render, i->instance_from_render()->data(),
+                        sizeof(out.instance_from_render));
+            scene.instances.push_back(out);
+        }
+    }
+    scene.prims.clear();
+    if (g->prims() != nullptr) {
+        scene.prims.resize(g->prims()->size());
+        for (size_t i = 0; i < scene.prims.size(); i++) {
+            const geo::Prim *p = g->prims()->Get(i);
+            scene.prims[i].kind = p->kind();
+            scene.prims[i].index = p->index();
+        }
+    }
+    return true;
+}
+
+// What the text reader checked about the geometry as it read it, checked
+// once it is all in: every index a shape, a definition, an instance or a
+// primitive carries points at something that exists. The lights are read
+// after the geometry, which is why this runs where the shapes' section used
+// to be read.
+inline bool validate_geometry(const Scene &scene) {
+    const auto shapes_ok = [&](const std::vector<Shape> &shapes) {
+        for (const Shape &s : shapes) {
+            if ((s.tag == ShapeTag::Triangle || s.tag == ShapeTag::Patch) &&
+                s.mesh >= scene.meshes.size()) {
+                return false;
+            }
+            if (s.material >= scene.materials.size() ||
+                s.light >= int32_t(scene.lights.size()) ||
+                s.alpha >= int32_t(scene.textures.size()) ||
+                s.medium_inside >= int32_t(scene.media.size()) ||
+                s.medium_outside >= int32_t(scene.media.size())) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!shapes_ok(scene.shapes) || !shapes_ok(scene.instance_shapes)) {
+        return false;
+    }
+    for (const Definition &d : scene.definitions) {
+        if (size_t(d.first_shape) + d.shape_count > scene.instance_shapes.size()) {
+            return false;
+        }
+        if (!scene.instance_nodes.empty() &&
+            d.root_node >= scene.instance_nodes.size()) {
+            return false;
+        }
+    }
+    for (const Instance &i : scene.instances) {
+        if (i.definition >= scene.definitions.size()) {
+            return false;
+        }
+    }
+    for (const Prim &p : scene.prims) {
+        if (p.kind != PrimShape && p.kind != PrimInstance) {
+            return false;
+        }
+        const size_t limit = p.kind == PrimShape ? scene.shapes.size()
+                                                 : scene.instances.size();
+        if (p.index >= limit) {
+            return false;
+        }
+    }
+    // A tree of PBRT's names every shape and every instance exactly once.
+    if (!scene.nodes.empty() &&
+        scene.prims.size() != scene.shapes.size() + scene.instances.size()) {
+        return false;
+    }
+    return true;
+}
+
+} // namespace detail
+
 inline bool write(const char *path, const Scene &scene) {
     if (!scene.env_texels.empty()) {
         std::ofstream env(env_path(path), std::ios::binary);
@@ -1324,29 +1770,14 @@ inline bool write(const char *path, const Scene &scene) {
         }
     }
 
-    out << "meshes " << scene.meshes.size() << '\n';
-    for (const Mesh &m : scene.meshes) {
-        out << "  mesh " << m.first_index << ' ' << m.first_vertex << ' '
-            << m.first_normal << ' ' << m.first_uv << " normals "
-            << m.has_normals << " uv " << m.has_uv << " flip " << m.flip
-            << '\n';
+    // The geometry -- meshes, vertices, shapes, trees, instances, primitives
+    // -- is the FlatBuffer beside this file (write_geometry); the text keeps
+    // its size, which the reader checks the sidecar against.
+    uint64_t geometry_bytes = 0;
+    if (!detail::write_geometry(path, scene, &geometry_bytes)) {
+        return false;
     }
-    out << "indices " << scene.indices.size() << '\n';
-    for (const uint32_t i : scene.indices) {
-        out << ' ' << i;
-    }
-    out << '\n';
-    const auto pool = [&](const char *name, const std::vector<float> &values,
-                          int per) {
-        out << name << ' ' << values.size() / per << '\n';
-        for (size_t i = 0; i < values.size(); i += per) {
-            detail::put(out, values.data() + i, per);
-            out << '\n';
-        }
-    };
-    pool("positions", scene.positions, 3);
-    pool("normals", scene.normals, 3);
-    pool("uvs", scene.uvs, 2);
+    out << "geometry " << geometry_bytes << '\n';
 
     out << "lights " << scene.lights.size() << '\n';
     for (const Light &l : scene.lights) {
@@ -1393,54 +1824,6 @@ inline bool write(const char *path, const Scene &scene) {
         out << '\n';
     }
 
-    const auto put_shapes = [&](const char *name,
-                                const std::vector<Shape> &shapes) {
-        out << name << ' ' << shapes.size() << '\n';
-        for (const Shape &s : shapes) {
-            if (s.tag == ShapeTag::Sphere) {
-                out << "  sphere";
-                detail::put(out, s.center, 3);
-                detail::put(out, &s.radius, 1);
-                out << " flip " << s.flip;
-            } else if (s.tag == ShapeTag::Disk) {
-                out << "  disk";
-                detail::put(out, &s.height, 1);
-                detail::put(out, &s.radius, 1);
-                detail::put(out, &s.inner_radius, 1);
-                detail::put(out, &s.phi_max, 1);
-                out << " flip " << s.flip << " reverse " << s.reverse
-                    << " render_from_object";
-                detail::put(out, s.render_from_object, 16);
-                out << " object_from_render";
-                detail::put(out, s.object_from_render, 16);
-            } else if (s.tag == ShapeTag::Patch) {
-                out << "  blp " << s.mesh << ' ' << s.tri << " area";
-                detail::put(out, &s.patch_area, 1);
-            } else {
-                out << "  tri " << s.mesh << ' ' << s.tri;
-            }
-            out << " material " << s.material << " light " << s.light
-                << " ordinal " << s.light_ordinal << " alpha " << s.alpha
-                << " inside " << s.medium_inside << " outside "
-                << s.medium_outside << '\n';
-        }
-    };
-    const auto put_nodes = [&](const char *name,
-                               const std::vector<Node> &nodes) {
-        out << name << ' ' << nodes.size() << '\n';
-        for (const Node &n : nodes) {
-            out << (n.n_prims == 0 ? "  interior" : "  leaf");
-            detail::put(out, n.low, 3);
-            detail::put(out, n.high, 3);
-            if (n.n_prims == 0) {
-                out << " axis " << n.axis << " right " << n.offset;
-            } else {
-                out << " first " << n.offset << " count " << n.n_prims;
-            }
-            out << '\n';
-        }
-    };
-
     out << "light_tree " << scene.light_sampler << ' '
         << scene.light_tree.size() << '\n';
     for (const LightTreeNode &n : scene.light_tree) {
@@ -1460,29 +1843,8 @@ inline bool write(const char *path, const Scene &scene) {
     }
     out << '\n';
 
-    put_shapes("shapes", scene.shapes);
-    put_nodes("nodes", scene.nodes);
-
-    put_shapes("instance_shapes", scene.instance_shapes);
-    out << "definitions " << scene.definitions.size() << '\n';
-    for (const Definition &d : scene.definitions) {
-        out << "  first " << d.first_shape << " count " << d.shape_count
-            << " root " << d.root_node << '\n';
-    }
-    out << "instances " << scene.instances.size() << '\n';
-    for (const Instance &i : scene.instances) {
-        out << "  definition " << i.definition << " render_from_instance";
-        detail::put(out, i.render_from_instance, 16);
-        out << " instance_from_render";
-        detail::put(out, i.instance_from_render, 16);
-        out << '\n';
-    }
-    put_nodes("instance_nodes", scene.instance_nodes);
-    out << "prims " << scene.prims.size() << '\n';
-    for (const Prim &p : scene.prims) {
-        out << (p.kind == PrimShape ? "  shape " : "  instance ") << p.index
-            << '\n';
-    }
+    // The shapes, the trees, the instance definitions and placements and the
+    // primitives are in the geometry sidecar, written above.
     return bool(out);
 }
 
@@ -2166,55 +2528,16 @@ inline bool read(const char *path, Scene &scene) {
         }
     }
 
-    if (!(in >> word) || word != "meshes") {
+    // The geometry, from the FlatBuffer beside this file (read_geometry):
+    // meshes, vertices, shapes, trees, instances and primitives at once. Its
+    // indices into the lights are checked after the lights are read
+    // (validate_geometry, below).
+    if (!(in >> word) || word != "geometry") {
         return false;
     }
-    in >> count;
-    scene.meshes.clear();
-    for (size_t i = 0; i < count; i++) {
-        if (!tagged("mesh")) {
-            return false;
-        }
-        Mesh m;
-        in >> m.first_index >> m.first_vertex >> m.first_normal >> m.first_uv;
-        if (!tagged("normals")) {
-            return false;
-        }
-        in >> m.has_normals;
-        if (!tagged("uv")) {
-            return false;
-        }
-        in >> m.has_uv;
-        if (!tagged("flip")) {
-            return false;
-        }
-        in >> m.flip;
-        scene.meshes.push_back(m);
-    }
-
-    if (!(in >> word) || word != "indices") {
-        return false;
-    }
-    in >> count;
-    scene.indices.assign(count, 0);
-    for (size_t i = 0; i < count; i++) {
-        in >> scene.indices[i];
-    }
-    const auto pool = [&](const char *name, std::vector<float> &values,
-                          int per) {
-        if (!(in >> word) || word != name) {
-            return false;
-        }
-        size_t n = 0;
-        in >> n;
-        values.assign(n * per, 0.f);
-        for (size_t i = 0; i < n * size_t(per); i++) {
-            in >> values[i];
-        }
-        return true;
-    };
-    if (!pool("positions", scene.positions, 3) ||
-        !pool("normals", scene.normals, 3) || !pool("uvs", scene.uvs, 2)) {
+    uint64_t geometry_bytes = 0;
+    in >> geometry_bytes;
+    if (!detail::read_geometry(path, geometry_bytes, scene)) {
         return false;
     }
 
@@ -2352,242 +2675,10 @@ inline bool read(const char *path, Scene &scene) {
         scene.light_bit_trails.push_back(t);
     }
 
-    const auto get_shapes = [&](const char *name,
-                                std::vector<Shape> &shapes) {
-        if (!tagged(name)) {
-            return false;
-        }
-        in >> count;
-        shapes.clear();
-        for (size_t i = 0; i < count; i++) {
-            if (!(in >> word)) {
-                return false;
-            }
-            Shape s;
-            if (word == "sphere") {
-                s.tag = ShapeTag::Sphere;
-                floats(s.center, 3);
-                floats(&s.radius, 1);
-                if (!tagged("flip")) {
-                    return false;
-                }
-                in >> s.flip;
-            } else if (word == "tri") {
-                s.tag = ShapeTag::Triangle;
-                in >> s.mesh >> s.tri;
-                if (s.mesh >= scene.meshes.size()) {
-                    return false;
-                }
-            } else if (word == "blp") {
-                s.tag = ShapeTag::Patch;
-                in >> s.mesh >> s.tri;
-                if (s.mesh >= scene.meshes.size()) {
-                    return false;
-                }
-                if (!tagged("area")) {
-                    return false;
-                }
-                floats(&s.patch_area, 1);
-            } else if (word == "disk") {
-                s.tag = ShapeTag::Disk;
-                floats(&s.height, 1);
-                floats(&s.radius, 1);
-                floats(&s.inner_radius, 1);
-                floats(&s.phi_max, 1);
-                if (!tagged("flip")) {
-                    return false;
-                }
-                in >> s.flip;
-                if (!tagged("reverse")) {
-                    return false;
-                }
-                in >> s.reverse;
-                if (!tagged("render_from_object")) {
-                    return false;
-                }
-                floats(s.render_from_object, 16);
-                if (!tagged("object_from_render")) {
-                    return false;
-                }
-                floats(s.object_from_render, 16);
-            } else {
-                return false;
-            }
-            if (!tagged("material")) {
-                return false;
-            }
-            in >> s.material;
-            if (s.material >= scene.materials.size()) {
-                return false;
-            }
-            if (!tagged("light")) {
-                return false;
-            }
-            in >> s.light;
-            if (s.light >= int32_t(scene.lights.size())) {
-                return false;
-            }
-            if (!tagged("ordinal")) {
-                return false;
-            }
-            in >> s.light_ordinal;
-            if (!tagged("alpha")) {
-                return false;
-            }
-            in >> s.alpha;
-            if (s.alpha >= int32_t(scene.textures.size())) {
-                return false;
-            }
-            if (!tagged("inside")) {
-                return false;
-            }
-            in >> s.medium_inside;
-            if (!tagged("outside")) {
-                return false;
-            }
-            in >> s.medium_outside;
-            if (s.medium_inside >= int32_t(scene.media.size()) ||
-                s.medium_outside >= int32_t(scene.media.size())) {
-                return false;
-            }
-            shapes.push_back(s);
-        }
-        return bool(in);
-    };
-    const auto get_nodes = [&](const char *name, std::vector<Node> &nodes) {
-        if (!tagged(name)) {
-            return false;
-        }
-        in >> count;
-        nodes.clear();
-        for (size_t i = 0; i < count; i++) {
-            if (!(in >> word)) {
-                return false;
-            }
-            Node n = {};
-            const bool interior = word == "interior";
-            if (!interior && word != "leaf") {
-                return false;
-            }
-            floats(n.low, 3);
-            floats(n.high, 3);
-            std::string a, b;
-            uint32_t x = 0, y = 0;
-            in >> a >> x >> b >> y;
-            if (interior) {
-                if (a != "axis" || b != "right") {
-                    return false;
-                }
-                n.axis = uint16_t(x);
-                n.offset = y;
-                n.n_prims = 0;
-            } else {
-                if (a != "first" || b != "count") {
-                    return false;
-                }
-                n.offset = x;
-                n.n_prims = uint16_t(y);
-            }
-            nodes.push_back(n);
-        }
-        return bool(in);
-    };
 
-    if (!get_shapes("shapes", scene.shapes) ||
-        !get_nodes("nodes", scene.nodes) ||
-        !get_shapes("instance_shapes", scene.instance_shapes)) {
-        return false;
-    }
-
-    if (!tagged("definitions")) {
-        return false;
-    }
-    in >> count;
-    scene.definitions.clear();
-    for (size_t i = 0; i < count; i++) {
-        Definition d;
-        if (!tagged("first")) {
-            return false;
-        }
-        in >> d.first_shape;
-        if (!tagged("count")) {
-            return false;
-        }
-        in >> d.shape_count;
-        if (!tagged("root")) {
-            return false;
-        }
-        in >> d.root_node;
-        if (size_t(d.first_shape) + d.shape_count >
-            scene.instance_shapes.size()) {
-            return false;
-        }
-        scene.definitions.push_back(d);
-    }
-
-    if (!tagged("instances")) {
-        return false;
-    }
-    in >> count;
-    scene.instances.clear();
-    for (size_t i = 0; i < count; i++) {
-        Instance inst;
-        if (!tagged("definition")) {
-            return false;
-        }
-        in >> inst.definition;
-        if (inst.definition >= scene.definitions.size()) {
-            return false;
-        }
-        if (!tagged("render_from_instance")) {
-            return false;
-        }
-        floats(inst.render_from_instance, 16);
-        if (!tagged("instance_from_render")) {
-            return false;
-        }
-        floats(inst.instance_from_render, 16);
-        scene.instances.push_back(inst);
-    }
-
-    if (!get_nodes("instance_nodes", scene.instance_nodes)) {
-        return false;
-    }
-    for (const Definition &d : scene.definitions) {
-        if (!scene.instance_nodes.empty() &&
-            d.root_node >= scene.instance_nodes.size()) {
-            return false;
-        }
-    }
-
-    if (!tagged("prims")) {
-        return false;
-    }
-    in >> count;
-    scene.prims.clear();
-    for (size_t i = 0; i < count; i++) {
-        Prim p;
-        if (!(in >> word)) {
-            return false;
-        }
-        if (word == "shape") {
-            p.kind = PrimShape;
-        } else if (word == "instance") {
-            p.kind = PrimInstance;
-        } else {
-            return false;
-        }
-        in >> p.index;
-        const size_t limit = p.kind == PrimShape ? scene.shapes.size()
-                                                 : scene.instances.size();
-        if (p.index >= limit) {
-            return false;
-        }
-        scene.prims.push_back(p);
-    }
-    // A tree of PBRT's names every shape and every instance exactly once.
-    if (!scene.nodes.empty() &&
-        scene.prims.size() != scene.shapes.size() + scene.instances.size()) {
+    // The geometry was read with the meshes above (read_geometry); now that
+    // the lights are in as well, every index it carries is checked.
+    if (!detail::validate_geometry(scene)) {
         return false;
     }
 

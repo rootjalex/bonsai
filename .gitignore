@@ -99,6 +99,8 @@ eval/__pycache__/
 # .bonsai first, and what comes out is by definition current. A committed copy
 # could only ever drift from what the compiler actually produces.
 apps/pbrt/render.h
+# flatc's output from apps/pbrt/scene_geometry.fbs (scene_schema.sh).
+apps/pbrt/scene_geometry_generated.h
 apps/rtiow/cpu/main.h
 apps/rtq/rtq.h
 

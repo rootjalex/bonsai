@@ -58,7 +58,15 @@ before it.
   side's kernel time, a group of bars per scene and a row of panels per
   table (sample count); a bar whose image did not match pbrt's is hatched.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
-  scene with pbrt's own parser and writes it in the driver's format.
+  scene with pbrt's own parser and writes it in the driver's format: a text
+  file for the small parts (camera, materials, lights, textures, spectra)
+  and binary sidecars beside it -- `.geo` for the geometry (meshes,
+  vertices, shapes, trees, instances; a FlatBuffer, `scene_geometry.fbs`),
+  `.tex` for texels, `.env` for environment maps, `.pl` for measured BRDFs.
+- `scene_schema.sh`: runs `flatc` on `scene_geometry.fbs` and prints the
+  compiler flags the scene reader needs; every script that compiles
+  `scene_dump.cpp` or `render_hook.cpp` calls it. Needs the `flatbuffers`
+  package of the conda environment.
 - `check_hits.sh`, `check_differentials.sh`: per-hit and per-differential
   probes against pbrt, for finding where a bit differs.
 

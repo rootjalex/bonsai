@@ -68,8 +68,12 @@ LINK_ARGS=$(tr ' ' '\n' < "$LINK" |
 # link line reaches it through a -L that cmake supplies separately.
 STUBS="$(dirname "$(sed -n 's/^CMAKE_CXX_COMPILER:FILEPATH=//p' "$PBRT_BUILD/CMakeCache.txt")")/../lib/stubs"
 
+# The scene file's geometry sidecar is a FlatBuffer; its header is generated
+# here and FlatBuffers' own headers found through flatc (scene_schema.sh).
+SCHEMA_FLAGS=$(bash "$PREFIX/scene_schema.sh")
+
 # shellcheck disable=SC2086
-"$CXX" $CXX_OPTS $CXX_DEFS $CXX_INCS -I"$PREFIX" \
+"$CXX" $CXX_OPTS $CXX_DEFS $CXX_INCS -I"$PREFIX" $SCHEMA_FLAGS \
     -c "$PREFIX/scene_dump.cpp" -o "$PREFIX/scene_dump.o"
 
 # The link runs from pbrt's build directory, because the library paths in its

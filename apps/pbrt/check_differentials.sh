@@ -63,7 +63,8 @@ BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
 "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
     -i "$PREFIX/render.bonsai" -i "$PREFIX/schedules/scalar.bonsai" \
     -b cpp -o "$PREFIX/render"
-"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" "$PREFIX/render_hook.cpp" \
+"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" $(bash "$PREFIX/scene_schema.sh") \
+    "$PREFIX/render_hook.cpp" \
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
 "$WORK/scene_dump" --print-differentials "$SCENE" "$WORK/diff-scene.txt" \

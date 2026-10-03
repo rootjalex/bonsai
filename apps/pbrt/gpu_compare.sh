@@ -227,7 +227,8 @@ for s in $SCHEDULES; do
   "$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
       --gpu-max-registers 128 -i $PREFIX/render.bonsai \
       -i "$PREFIX/schedules/$s.bonsai" -b cpp -o $PREFIX/render
-  "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
+  "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+      $PREFIX/render_hook.cpp \
       $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$OUT/$s/render.out"
   rm -f $PREFIX/render.o
 done

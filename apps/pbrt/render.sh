@@ -148,7 +148,8 @@ fi
 "./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
-"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $PREFIX/render_hook.cpp \
+"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+    $PREFIX/render_hook.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o $PREFIX/render.out
 
 ./$PREFIX/render.out --no-implicit-copies "$PREFIX/scene.txt" "$OUT"

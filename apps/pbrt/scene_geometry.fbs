@@ -1,0 +1,151 @@
+// The geometry of a converted scene, as a FlatBuffer beside the scene text
+// (`<scene>.txt.geo`): what scene_dump writes and the renderer's driver
+// reads back (scene_io.h, write_geometry and read_geometry).
+//
+// Why a sidecar, and why FlatBuffers. The scene text parsed at 80-90 MB/s
+// whatever the scene -- decimal floats through iostream -- which for
+// watercolor's 24 million shapes was 91.6 s of reading before a 0.9 s
+// render. Everything large in a scene is an array of fixed-layout records,
+// and FlatBuffers stores a vector of structs as the records themselves, read
+// in place: a read is the file's bytes and a copy into the renderer's own
+// vectors, at memory speed. Protobuf would decode field by field and is
+// capped at 2 GB a message; this has 64-bit vectors (`vector64`, since
+// FlatBuffers 23.5) for the arrays that can pass that, and they must be the
+// root table's own, which is why the two shape lists are flattened into it
+// rather than nested. The small, human-readable parts of a scene -- camera,
+// materials, lights, textures, spectra -- stay in the text, as the texels
+// and the environment map already lived in binary sidecars of their own.
+//
+// The header this generates is not committed: scene_schema.sh runs flatc
+// and prints the flags a program including scene_io.h needs (the generated
+// header's directory and FlatBuffers' own include directory).
+//
+// The structs mirror scene_io.h's records field for field, in the same
+// order, so that the copy either way is a line per field. A shape is one of
+// four kinds, kept in a vector per kind with the kinds and each shape's slot
+// in its vector giving the order the text had -- which the primitives, the
+// lights' ordinals and the trees' leaves all index by.
+
+namespace bonsai_scene.geo;
+
+// bonsai_scene::Mesh.
+struct Mesh {
+    first_index : uint32;
+    first_vertex : uint32;
+    first_normal : uint32;
+    first_uv : uint32;
+    has_normals : uint32;
+    has_uv : uint32;
+    flip : uint32;
+}
+
+// What every shape carries besides its geometry: bonsai_scene::Shape's
+// material, light, light_ordinal, alpha, medium_inside, medium_outside.
+struct Placement {
+    material : uint32;
+    light : int32;
+    light_ordinal : int32;
+    alpha : int32;
+    medium_inside : int32;
+    medium_outside : int32;
+}
+
+struct Triangle {
+    mesh : uint32;
+    tri : uint32;
+    at : Placement;
+}
+
+struct Patch {
+    mesh : uint32;
+    patch : uint32;
+    area : float;
+    at : Placement;
+}
+
+struct Sphere {
+    center : [float : 3];
+    radius : float;
+    flip : uint32;
+    at : Placement;
+}
+
+struct Disk {
+    height : float;
+    radius : float;
+    inner_radius : float;
+    phi_max : float;
+    flip : uint32;
+    reverse : uint32;
+    render_from_object : [float : 16];
+    object_from_render : [float : 16];
+    at : Placement;
+}
+
+// bonsai_scene::Node: a BVH node, `n_prims` zero for an interior node whose
+// second child is at `offset`, else a leaf of `n_prims` primitives from
+// `offset`.
+struct Node {
+    low : [float : 3];
+    high : [float : 3];
+    offset : uint32;
+    n_prims : uint16;
+    axis : uint16;
+}
+
+// bonsai_scene::Prim: `kind` is PrimShape (0) or PrimInstance (1).
+struct Prim {
+    kind : uint32;
+    index : uint32;
+}
+
+struct Instance {
+    definition : uint32;
+    render_from_instance : [float : 16];
+    instance_from_render : [float : 16];
+}
+
+struct Definition {
+    first_shape : uint32;
+    shape_count : uint32;
+    root_node : uint32;
+}
+
+// The shape kinds, as bonsai_scene::ShapeTag numbers them: 0 sphere, 1
+// triangle, 2 disk, 3 patch.
+table Geometry {
+    // Bumped when a record's layout changes; the reader refuses another.
+    version : uint32;
+
+    meshes : [Mesh];
+    indices : [uint32] (vector64);
+    positions : [float] (vector64);
+    normals : [float] (vector64);
+    uvs : [float] (vector64);
+
+    // The scene's own shapes, in order: kind and slot per shape, and the four
+    // vectors the slots index.
+    shape_kinds : [ubyte] (vector64);
+    shape_slots : [uint32] (vector64);
+    triangles : [Triangle] (vector64);
+    patches : [Patch] (vector64);
+    spheres : [Sphere] (vector64);
+    disks : [Disk] (vector64);
+    nodes : [Node] (vector64);
+
+    // The instance definitions' shapes, the same way.
+    instance_shape_kinds : [ubyte] (vector64);
+    instance_shape_slots : [uint32] (vector64);
+    instance_triangles : [Triangle] (vector64);
+    instance_patches : [Patch] (vector64);
+    instance_spheres : [Sphere] (vector64);
+    instance_disks : [Disk] (vector64);
+    instance_nodes : [Node] (vector64);
+
+    definitions : [Definition];
+    instances : [Instance];
+    prims : [Prim] (vector64);
+}
+
+root_type Geometry;
+file_identifier "BGEO";
