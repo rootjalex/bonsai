@@ -13,6 +13,7 @@ add_bonsai_tests(
     prefetch-children.bonsai
     rcp.bonsai
     permute.bonsai
+    stored-lane.bonsai
     defer.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai

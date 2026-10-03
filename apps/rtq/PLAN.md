@@ -1894,6 +1894,113 @@ goldens; the whole of correctness/cpp (140) passes; full suite 1278 of
 1278. The pbrt scalar schedule, which the peer session found broken by an
 intermediate state of this (a loop left to two places), compiles.
 
+## Read-only storage in the types, and the lane read off the row (2026-10-03)
+
+Item 4 of the rulings, with the user's direction that externs are always
+immutable and that this should reach LLVM. Built in four parts.
+
+**1. The storage says so.** `Array_t::readonly` and `Ptr_t::readonly`
+(include/IR/Expr.h, include/IR/Type.h; `Type::is_readonly()`,
+`as_readonly()`): a reference or pointer to storage nothing in the
+program writes. Printed `const u8[bytes]`, `(const _tree_layout3*)`;
+`same_as` and the interning tell the two types apart, `equals()` ignores
+the mark as it ignores an array's size and a vector's packedness. An
+extern is such storage -- there is no `extern mut`, the host fills it
+before the program runs and holds it still while it does -- so the parser
+marks every extern's declared type (Parser.cpp, parse_extern) and the
+layout lowering marks every group array and the row reinterprets it
+writes (Layouts.cpp, layout_to_structs, address_of_row). The mark
+travels: Convert's GEP and FieldPtr inherit it from their base,
+Vectorize's widening keeps it, and `PtrTo::make` gives a read-only
+pointer to a place whose access chain is rooted in read-only storage.
+Not a parameter's: a function that does not write through a parameter
+says nothing about another parameter aliasing it, so the aliasing
+question the rulings raised never arises -- the mark is on the storage,
+not on who holds it.
+
+**2. LLVM is told.** `CodeGen_LLVM::mark_invariant` puts
+`!invariant.load` on a dereference, an array element read and a dense
+vector load whose pointer or array is read-only; the gathers are left
+(the metadata is a load's). MarkDeviceMemory strips it from a texture
+handle's load (NVPTX's ReplaceImageHandles asserts on the `ld.global.nc`
+the tag makes of it; the pass already kept its own tag off those).
+
+**3. The lane read off the row.** SSA/Simplify.cpp, two ExtractIdx
+rules. (A) A lane of a vector of scalars loaded from read-only storage --
+through `load`, `load_field` of a stored struct, an element of a
+read-only array, and the cast that reads a layout's packed vector as the
+ordinary one -- at a lane only known when it runs, is a scalar load at
+the lane's address: `reinterpret_cast<const u64[8]>((&row.children))[i]`.
+A lane known at compile time is left alone (one instruction off the
+register the vector's other uses hold anyway), and so is a vector of
+vectors (stored one component at a time). (B) Lane 0 of a compress with
+no fill that nothing else reads is the lane the mask's lowest set bit
+names, `v[ctz(reinterpret<u8>(m))]`, with `ctz` a new intrinsic
+(llvm.cttz; `tzcnt`); with no bit on both are unspecified, so no
+condition on the mask. The single-use test matters: without it the sorted
+arms' packed keys, read at lanes 0, 1 and 2, took the count path for lane
+0, the keys went to general registers, LLVM did the insertion sort as
+`cmp`/`cmov` and the kernel grew by 68 instructions. A four-lane mask has
+no integer to count and keeps the compress (child-volumes-sorted);
+eight lanes count (child-volumes-sorted-wide, the rtq kernels).
+
+**4. What the kernel does now.** The two-hit arm is Embree's sequence:
+`vpcompressd` the keys, `vpextrd`/`vmovd` the two, `cmp`/`cmovl`/`cmovg`,
+`and $7` each, `mov (%node,%idx,8)` for the near and the far child off
+the row, the far bound off a spilled `tnear` (`vmovaps %ymm,(%rsp)`;
+`vmovd (%rsp,%idx,4)` -- the one spill left, off the chain), the push,
+the jump. The one-hit arm: `tzcnt %edx,%eax; mov (%rsi,%rax,8),%rsi`,
+Embree's `bsf` and `node->child(r)`. trace_all 502 -> 555 instructions
+(the sort in general registers costs movs and cmovs; `vpminsd`/`vpmaxsd`
+24 -> 14, `cmov` 0 -> 20, `vmovd` 1 -> 14) and occluded_all 329 -> 326.
+More instructions, and faster: the `vmovdqa64 %zmm,(%rsp)` of the
+children and the `mov (%rsp,%rbx,8)` that waited on it were on the chain
+to the next node's address, and they are gone.
+
+**Measured** (cpu 11, `--side 2048`, least of 5, two worktrees back to
+back, every ray agreeing on every run). Nearest hit, matching schedule,
+million rays per second and the ratio to Embree:
+
+| mesh | primary | ao | diffuse |
+|---|---|---|---|
+| head | 58.2 -> 61.8 (0.91 -> 0.96x) | 13.9 -> 14.4 (0.89 -> 0.91x) | 12.4 -> 12.8 (0.89 -> 0.91x) |
+| ganesha | 21.9 -> 23.2 (0.90 -> 0.96x) | 6.12 -> 6.36 (0.92 -> 0.96x) | 5.68 -> 5.90 (0.92 -> 0.95x) |
+| dragon | 32.3 -> 33.4 (0.94 -> 0.97x) | 4.48 -> 4.60 (0.95 -> 0.98x) | 3.97 -> 4.07 (0.95 -> 0.98x) |
+
+Any hit, matching schedule: head 86.6 -> 90.4 (1.01 -> 1.05x) / 16.0 ->
+17.1 (0.90 -> 0.96x) / 14.6 -> 15.6 (0.90 -> 0.95x); ganesha 26.6 -> 28.5
+(0.92 -> 0.97x) / 6.58 -> 6.99 (0.91 -> 0.97x) / 5.65 -> 5.95 (0.92 ->
+0.96x); dragon 35.7 -> 37.5 (0.93 -> 0.99x) / 4.75 -> 4.95 (0.93 ->
+0.97x) / 4.19 -> 4.37 (0.93 -> 0.97x). The tuned schedule's any hit is at
+or above Embree on every incoherent set now: head 1.06x / 1.06x, ganesha
+1.02x / 1.00x, dragon 1.03x / 1.02x; its nearest hit on dragon's primary
+rays 1.00x. The first item since the arms to move the time, and by the
+same 3-6% on every mesh and ray set -- what items 2 and 3 pointed at:
+the chain to the next node's address, not the scalar instruction count.
+
+**Left out, on purpose.** The constant-lane case of rule A (measure it
+if a kernel ever shows an `extract` of a stored vector on its chain); a
+lane of a stored vector of vectors (a scalar load per component, built
+back into the short vector); the parameter case of the mark (a `const`
+view a callee may trust needs the aliasing contract the rulings asked
+about, which no exported boundary states yet); CSE of the address
+arithmetic the rules make (LLVM merges it).
+
+**Tests.** ssa/stored-lane (the four shapes: a run-time lane, a single-use
+compress's lane 0, a compress read twice, a constant lane),
+backends/llvm/stored-lane (`!invariant.load`, `llvm.cttz`),
+correctness/cpp/stored_lane (run; a main passing a `uint32_t8` must be
+compiled with `-march=native` or the vector ABI differs and the mask
+arrives in halves); child-volumes-sorted and -wide read the new arms;
+every lower/ssa/llvm golden that prints an extern's type gains `const`;
+the suite is 1288 of 1288. Also in this stretch: the inliner's name
+collision the pbrt session hit (ssa/inline-names,
+correctness/llvm/inline-names; commit 301a11e1).
+
+**Next**, as before: an IBS re-profile of ops and cycles per node visit
+against Embree, now that the chain has changed; then item 5, the
+constant-interval analysis for the key's sign flip.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

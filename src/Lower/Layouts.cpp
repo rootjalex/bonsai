@@ -71,7 +71,8 @@ ir::Type stored_type(const ir::Type &type,
         if (etype.same_as(as_array->etype)) {
             return type;
         }
-        return ir::Array_t::make(std::move(etype), as_array->size);
+        return ir::Array_t::make(std::move(etype), as_array->size,
+                                 as_array->readonly);
     }
     // A variant whose arm holds a tree -- `Inst(render_from_instance, blas)`
     // beside `Solo(tri)` -- is stored with that arm holding the reference,
@@ -504,12 +505,17 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                         << "Two groups named " << node->declared_name;
                     fields.emplace_back(
                         std::move(field_name),
-                        ir::Array_t::make(std::move(tile_t), std::move(tiles)));
+                        ir::Array_t::make(std::move(tile_t), std::move(tiles),
+                                          /*readonly=*/true));
                     break;
                 }
+                // A layout is an extern's storage: the host's, filled before
+                // the program runs and written by nothing in it, so every
+                // group is read-only storage (Type::is_readonly), and so is
+                // every address formed inside one below.
                 ir::Type base_t = layout_to_structs(node->inner, ltmap);
-                ir::Type group_t =
-                    ir::Array_t::make(std::move(base_t), node->size);
+                ir::Type group_t = ir::Array_t::make(
+                    std::move(base_t), node->size, /*readonly=*/true);
                 // Named for its index variable, or for itself when it has
                 // none -- an indirect group is reached by a lookup, not
                 // walked, and need not name an index (`indirect group
@@ -654,8 +660,9 @@ ir::Expr address_of_row(const ir::Expr &row) {
         first != nullptr && first->vec.type().is_reference() &&
         get_constant_value<uint64_t>(opt::Simplify::simplify(first->idx)) ==
             0) {
-        return ir::Cast::make(ir::Ptr_t::make(row.type()), first->vec,
-                              ir::Cast::Mode::Reinterpret);
+        return ir::Cast::make(
+            ir::Ptr_t::make(row.type(), first->vec.type().is_readonly()),
+            first->vec, ir::Cast::Mode::Reinterpret);
     }
     return ir::PtrTo::make(row);
 }
@@ -698,7 +705,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             // is the address itself (PtrTo::make), which is what a prefetch
             // of the reference fetches.
             row = ir::Extract::make(
-                ir::Cast::make(ir::Array_t::make(shaped->second, ir::Expr()),
+                ir::Cast::make(ir::Array_t::make(shaped->second, ir::Expr(),
+                                                 /*readonly=*/true),
                                ir::PtrTo::make(std::move(row)),
                                ir::Cast::Mode::Reinterpret),
                 ir::UIntImm::make(ir::UInt_t::make(32), 0));
@@ -781,7 +789,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                             // reinterpreted as the array -- not dereferenced,
                             // which would read a handle out of the bytes.
                             rows = ir::Cast::make(
-                                ir::Array_t::make(tile_t->second, ir::Expr()),
+                                ir::Array_t::make(tile_t->second, ir::Expr(),
+                                                  /*readonly=*/true),
                                 address_of_row(base), ir::Cast::Mode::Reinterpret);
                         } else {
                             rows = ir::Access::make(field_name, base);
@@ -2250,7 +2259,8 @@ void apply_array_layouts(ir::Program &program,
         if (packed.same_as(array->etype)) {
             continue; // the rules change nothing about this element
         }
-        const ir::Type stored = ir::Array_t::make(packed, array->size);
+        const ir::Type stored =
+            ir::Array_t::make(packed, array->size, array->readonly);
         found->type = stored;
         // Every parameter first, then every body: a call in one body names
         // another function by its parameters' types.

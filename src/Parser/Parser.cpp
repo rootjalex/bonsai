@@ -1017,7 +1017,13 @@ struct Parser {
         }
         // TODO: should we support defaults? that makes passing in args harder.
         expect(Token::Type::COL);
-        ir::Type type = parse_type();
+        // An extern is storage the host filled before the program runs and
+        // holds still while it does; the program cannot write it (there is
+        // no `extern mut`), so an array declared here is read-only storage,
+        // which every read of it may be told (Type::is_readonly). A set's
+        // storage is the layout's, made read-only where the layout is
+        // lowered (Lower/Layouts.cpp).
+        ir::Type type = parse_type().as_readonly();
         expect(Token::Type::SEMICOL);
         add_type_to_frame(name, type, /* mutable */ false);
         program.externs.emplace_back(name, std::move(type));
@@ -2360,6 +2366,7 @@ struct Parser {
             {"atanh", 1, ir::Intrinsic::atanh},
             {"atan2", 2, ir::Intrinsic::atan2},
             {"clz", 1, ir::Intrinsic::clz},
+            {"ctz", 1, ir::Intrinsic::ctz},
             // compress() takes a vector and a mask, and a fill for the lanes
             // past the packed ones if the program says what they hold.
             {"compress", 2, ir::Intrinsic::compress, /*skippable=*/true},

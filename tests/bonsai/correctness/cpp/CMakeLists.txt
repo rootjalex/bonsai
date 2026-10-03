@@ -15,6 +15,7 @@ add_bonsai_tests(
     bvh4_arena.bonsai
     rcp.bonsai
     permute.bonsai
+    stored_lane.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai
     blas-tlas-sorted.bonsai

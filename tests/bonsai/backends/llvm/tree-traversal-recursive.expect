@@ -27,7 +27,7 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %extract.unpack.elt439 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 4
   %3 = load <2 x float>, ptr %extract.unpack.elt439, align 1
   %extract.elt428 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 12
-  %extract.unpack429 = load i16, ptr %extract.elt428, align 1
+  %extract.unpack429 = load i16, ptr %extract.elt428, align 1, !invariant.load !0
   %extract.elt434 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %extract.unpack435.unpack = load float, ptr %extract.elt434, align 1
   %extract.unpack435.elt444 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 20
@@ -452,3 +452,5 @@ declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #2
 attributes #0 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #2 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{}

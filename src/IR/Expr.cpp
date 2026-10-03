@@ -1302,6 +1302,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             break;
         }
         case Intrinsic::clz:
+        case Intrinsic::ctz:
         case Intrinsic::div_multiplier: {
             // Integer to integer of the same type: a count of bits fits the
             // type it counts, and the multiplier has the divisor's width.
@@ -2031,6 +2032,11 @@ Expr PtrTo::make(Expr expr) {
     // lane's place holds, and its address a vector of pointers to that. A
     // short vector that is simply a value -- a `vec3f` -- has an ordinary
     // pointer to the whole of it.
+    //
+    // And the address of a place in read-only storage -- a chain rooted at
+    // an array or a pointer marked so, or at a dereference of one -- is a
+    // read-only pointer (see Type::is_readonly).
+    bool readonly = false;
     const bool per_lane_place = [&] {
         Expr root = expr;
         bool stepped_per_lane = false;
@@ -2044,19 +2050,22 @@ Expr PtrTo::make(Expr expr) {
                 root = root.as<Access>()->value;
             }
         }
+        readonly = root.type().is_readonly();
         if (const Deref *deref = root.as<Deref>()) {
             stepped_per_lane = stepped_per_lane ||
                                (deref->expr.type().is<Vector_t>() &&
                                 deref->expr.type().element_of().is<Ptr_t>());
+            readonly = deref->expr.type().is_readonly();
         }
         return stepped_per_lane && expr.type().is<Vector_t>();
     }();
 
     PtrTo *node = new PtrTo;
-    node->type = per_lane_place
-                     ? Vector_t::make(Ptr_t::make(expr.type().element_of()),
-                                      expr.type().lanes())
-                     : Ptr_t::make(expr.type());
+    node->type =
+        per_lane_place
+            ? Vector_t::make(Ptr_t::make(expr.type().element_of(), readonly),
+                             expr.type().lanes())
+            : Ptr_t::make(expr.type(), readonly);
     node->expr = std::move(expr);
     return node;
 }

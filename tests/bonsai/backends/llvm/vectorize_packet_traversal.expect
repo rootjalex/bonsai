@@ -150,11 +150,11 @@ hit_z_all:
   %extract.unpack.elt171.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 8
   %extract.unpack.unpack172.i = load float, ptr %extract.unpack.elt171.i, align 1
   %extract.elt160.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.unpack161.i = load float, ptr %extract.elt160.i, align 1
+  %extract.unpack161.i = load float, ptr %extract.elt160.i, align 1, !invariant.load !0
   %extract.elt162.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
-  %extract.unpack163.i = load i8, ptr %extract.elt162.i, align 1
+  %extract.unpack163.i = load i8, ptr %extract.elt162.i, align 1, !invariant.load !0
   %extract.elt164.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 17
-  %extract.unpack165.i = load i8, ptr %extract.elt164.i, align 1
+  %extract.unpack165.i = load i8, ptr %extract.elt164.i, align 1, !invariant.load !0
   %extract.elt166.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 18
   %22 = load <2 x i8>, ptr %extract.elt166.i, align 1
   %.splatinsert.i = insertelement <8 x float> poison, float %extract.unpack.unpack.i, i64 0
@@ -249,9 +249,9 @@ hit_z_all:
   %79 = select i1 %77, i16 %69, i16 %67
   %"!count_wide.i" = zext i32 %"!count.i" to i64
   %"!stack139.i" = getelementptr inbounds nuw [2 x i8], ptr %"!stack159.i", i64 %"!count_wide.i"
-  store i16 %79, ptr %"!stack139.i", align 2, !tbaa !0
+  store i16 %79, ptr %"!stack139.i", align 2, !tbaa !1
   %"!stack0141.i" = getelementptr inbounds nuw i8, ptr %"!stack0158.i", i64 %"!count_wide.i"
-  store <8 x i1> %62, ptr %"!stack0141.i", align 1, !tbaa !3
+  store <8 x i1> %62, ptr %"!stack0141.i", align 1, !tbaa !4
   %80 = add i32 %"!count.i", 1
   br label %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge"
 
@@ -858,8 +858,9 @@ attributes #5 = { nocallback nocreateundeforpoison nofree nosync nounwind specul
 attributes #6 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #7 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 
-!0 = !{!1, !1, i64 0}
-!1 = !{!"u16", !2, i64 0}
-!2 = !{!"bonsai"}
-!3 = !{!4, !4, i64 0}
-!4 = !{!"bool", !2, i64 0}
+!0 = !{}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u16", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!5, !5, i64 0}
+!5 = !{!"bool", !3, i64 0}

@@ -34,7 +34,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %extract.unpack572.elt587 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %4 = load <2 x float>, ptr %extract.unpack572.elt587, align 1
   %extract.elt573 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 24
-  %extract.unpack574 = load i16, ptr %extract.elt573, align 1
+  %extract.unpack574 = load i16, ptr %extract.elt573, align 1, !invariant.load !0
   %extract.elt579 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 28
   %5 = load i32, ptr %extract.elt579, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
@@ -166,7 +166,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %extract.unpack717.elt732 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %4 = load <2 x float>, ptr %extract.unpack717.elt732, align 1
   %extract.elt718 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 24
-  %extract.unpack719 = load i16, ptr %extract.elt718, align 1
+  %extract.unpack719 = load i16, ptr %extract.elt718, align 1, !invariant.load !0
   %extract.elt724 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 28
   %5 = load <4 x i8>, ptr %extract.elt724, align 1
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
@@ -646,3 +646,5 @@ declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #2
 attributes #0 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #2 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+
+!0 = !{}

@@ -78,6 +78,22 @@ __attribute__((always_inline)) T clz(const T &v) {
     }
 }
 
+// Trailing zero bits, and the width for zero.
+template <typename T>
+__attribute__((always_inline)) T ctz(const T &v) {
+    static_assert(std::is_integral_v<T>);
+    using U = std::make_unsigned_t<T>;
+    constexpr int width = std::numeric_limits<U>::digits;
+    if (v == 0) {
+        return T(width);
+    }
+    if constexpr (width <= 32) {
+        return T(__builtin_ctz(U(v)));
+    } else {
+        return T(__builtin_ctzll(U(v)));
+    }
+}
+
 // The top half of the full product.
 template <typename T>
 __attribute__((always_inline)) T mulhi(const T &a, const T &b) {

@@ -86,7 +86,7 @@ trace:
   %extract.unpack467.elt480.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
   %38 = load <2 x float>, ptr %extract.unpack467.elt480.i, align 1
   %extract.elt468.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 24
-  %extract.unpack469.i = load i16, ptr %extract.elt468.i, align 1
+  %extract.unpack469.i = load i16, ptr %extract.elt468.i, align 1, !invariant.load !0
   %extract.elt472.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 28
   %39 = load <4 x i8>, ptr %extract.elt472.i, align 1
   %40 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
@@ -145,7 +145,7 @@ trace:
   %71 = add i32 %"instances_index!top.i", %70
   %"!count_wide.i" = zext i32 %"!count.i" to i64
   %"!stack439.i" = getelementptr inbounds nuw [4 x i8], ptr %"!stack465.i", i64 %"!count_wide.i"
-  store i32 %71, ptr %"!stack439.i", align 4, !tbaa !0
+  store i32 %71, ptr %"!stack439.i", align 4, !tbaa !1
   %72 = add i32 %"!count.i", 1
   br label %"_recloop_func0!loop.i"
 
@@ -188,7 +188,7 @@ trace:
   %extract.unpack606.elt619.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i39, i64 16
   %77 = load <2 x float>, ptr %extract.unpack606.elt619.i, align 1
   %extract.elt607.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i39, i64 24
-  %extract.unpack608.i = load i16, ptr %extract.elt607.i, align 1
+  %extract.unpack608.i = load i16, ptr %extract.elt607.i, align 1, !invariant.load !0
   %extract.elt611.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i39, i64 28
   %78 = load <4 x i8>, ptr %extract.elt611.i, align 1
   %79 = insertelement <3 x float> poison, float %extract.unpack.unpack.i40, i64 0
@@ -247,7 +247,7 @@ trace:
   %110 = add i32 %"_subtree0_bnode!top.i", %109
   %"!count_wide.i61" = zext i32 %"!count.i38" to i64
   %"!stack575.i" = getelementptr inbounds nuw [4 x i8], ptr %"!stack604.i", i64 %"!count_wide.i61"
-  store i32 %110, ptr %"!stack575.i", align 4, !tbaa !0
+  store i32 %110, ptr %"!stack575.i", align 4, !tbaa !1
   %111 = add i32 %"!count.i38", 1
   br label %"_recloop_func1!loop.i"
 
@@ -599,6 +599,7 @@ attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync no
 attributes #1 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #2 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
-!0 = !{!1, !1, i64 0}
-!1 = !{!"u32", !2, i64 0}
-!2 = !{!"bonsai"}
+!0 = !{}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u32", !3, i64 0}
+!3 = !{!"bonsai"}

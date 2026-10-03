@@ -1,14 +1,14 @@
 type Float = f32
 
-extern scale : f32[4]
-extern offset : f32[4]
-extern bias : f32[4]
+extern scale : const f32[4]
+extern offset : const f32[4]
+extern bias : const f32[4]
 
-func biased(i : u32, scale : f32[4], bias : f32[4]) -> f32 {
+func biased(i : u32, scale : const f32[4], bias : const f32[4]) -> f32 {
   return bias[i] + (scale[i] * 100f)
 }
 
-func [[export]] both(i : u32, scale : f32[4], offset : f32[4], bias : f32[4]) -> f32 {
+func [[export]] both(i : u32, scale : const f32[4], offset : const f32[4], bias : const f32[4]) -> f32 {
   let _t0 = scale[i] in
   return (offset[i] + (_t0 * 10f)) + (bias[i] + (_t0 * 100f))
 }

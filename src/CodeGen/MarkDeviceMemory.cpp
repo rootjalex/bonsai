@@ -250,8 +250,14 @@ MarkDeviceMemory::run(llvm::Function &function,
     llvm::MDNode *invariant = llvm::MDNode::get(context, {});
     for (llvm::Instruction &instr : llvm::instructions(function)) {
         auto *load = llvm::dyn_cast<llvm::LoadInst>(&instr);
-        if (load == nullptr || load->isVolatile() || load->isAtomic() ||
-            is_texture_handle(*load)) {
+        if (load == nullptr || load->isVolatile() || load->isAtomic()) {
+            continue;
+        }
+        if (is_texture_handle(*load)) {
+            // Including the tag the code generator put on it for reading an
+            // extern's storage (CodeGen_LLVM::mark_invariant), which knows
+            // the storage but not what the loaded word is for.
+            load->setMetadata(llvm::LLVMContext::MD_invariant_load, nullptr);
             continue;
         }
         llvm::SmallVector<const llvm::Value *, 4> objects;

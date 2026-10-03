@@ -1,20 +1,20 @@
 type Float = f32
 
-extern first : f32[4]
-extern second : f32[4]
-extern third : f32[4]
+extern first : const f32[4]
+extern second : const f32[4]
+extern third : const f32[4]
 
-func backwards(i : u32, first : f32[4], second : f32[4], third : f32[4]) -> f32 {
+func backwards(i : u32, first : const f32[4], second : const f32[4], third : const f32[4]) -> f32 {
   return ((third[i] * 100f) + (second[i] * 10f)) + first[i]
 }
 
-func [[export]] both(i : u32, first : f32[4], second : f32[4], third : f32[4]) -> f32 {
+func [[export]] both(i : u32, first : const f32[4], second : const f32[4], third : const f32[4]) -> f32 {
   let _t0 = third[i] in
   let _t1 = first[i] in
   return (((_t0 * 100f) + (second[i] * 10f)) + _t1) + ((_t0 * 10f) + _t1)
 }
 
-func skipping(i : u32, first : f32[4], third : f32[4]) -> f32 {
+func skipping(i : u32, first : const f32[4], third : const f32[4]) -> f32 {
   return (third[i] * 10f) + first[i]
 }
 

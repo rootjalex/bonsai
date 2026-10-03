@@ -1,0 +1,37 @@
+extern rows : const f32x8[]
+
+func [[export]] first(i : u32, m : u32x8, rows : const f32x8[]) -> f32 {
+  let @1 = u32x8(0u) in
+  let @2 = m != @1 in
+  let @5 = reinterpret_cast<u8>(@2) in
+  let @6 = ctz(@5) in
+  let @7 = cast<u32>(@6) in
+  let @9 = reinterpret_cast<const f32[8]>((&rows[i])) in
+  let @11 = @9[@7] in
+  return @11
+}
+
+func [[export]] pick(i : u32, lane : u32, rows : const f32x8[]) -> f32 {
+  let @3 = reinterpret_cast<const f32[8]>((&rows[i])) in
+  let @5 = @3[lane] in
+  return @5
+}
+
+func [[export]] third(i : u32, rows : const f32x8[]) -> f32 {
+  let @0 = rows[i] in
+  let @1 = @0[2u] in
+  return @1
+}
+
+func [[export]] two(i : u32, m : u32x8, rows : const f32x8[]) -> f32 {
+  let @0 = rows[i] in
+  let @1 = u32x8(0u) in
+  let @2 = m != @1 in
+  let c = compress(@0, @2) in
+  let @4 = c[0u] in
+  let @5 = c[1u] in
+  let @6 = @4 + @5 in
+  return @6
+}
+
+

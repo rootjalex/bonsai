@@ -501,6 +501,9 @@ void Printer::visit(const String_t *node) { os << "string"; }
 
 void Printer::visit(const Ptr_t *node) {
     os << "(";
+    if (node->readonly) {
+        os << "const ";
+    }
     print(node->etype);
     os << "*)";
 }
@@ -558,6 +561,9 @@ void Printer::visit(const Tuple_t *node) {
 }
 
 void Printer::visit(const Array_t *node) {
+    if (node->readonly) {
+        os << "const ";
+    }
     print(node->etype);
     os << "[";
     ir::Expr size = node->size;
@@ -1136,6 +1142,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "atan2";
     case Intrinsic::clz:
         return "clz";
+    case Intrinsic::ctz:
+        return "ctz";
     case Intrinsic::compress:
         return "compress";
     case Intrinsic::cos:

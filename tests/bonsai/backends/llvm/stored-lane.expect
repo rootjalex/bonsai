@@ -1,0 +1,64 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+define float @first(i32 noundef %i, <8 x i32> noundef %m, ptr noundef %rows_buffer) local_unnamed_addr {
+first:
+  %rows = tail call ptr @bonsai_buffer_require(ptr %rows_buffer, i32 1)
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %1 = bitcast <8 x i1> %0 to i8
+  %2 = tail call range(i8 0, 9) i8 @llvm.cttz.i8(i8 %1, i1 false)
+  %i_wide = zext i32 %i to i64
+  %ptr_array_deref = getelementptr inbounds nuw [32 x i8], ptr %rows, i64 %i_wide
+  %_wide = zext nneg i8 %2 to i64
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %ptr_array_deref, i64 %_wide
+  %extract = load float, ptr %extract_ptr, align 4, !invariant.load !0
+  ret float %extract
+}
+
+define float @pick(i32 noundef %i, i32 noundef %lane, ptr noundef %rows_buffer) local_unnamed_addr {
+pick:
+  %rows = tail call ptr @bonsai_buffer_require(ptr %rows_buffer, i32 1)
+  %i_wide = zext i32 %i to i64
+  %ptr_array_deref = getelementptr inbounds nuw [32 x i8], ptr %rows, i64 %i_wide
+  %lane_wide = zext i32 %lane to i64
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %ptr_array_deref, i64 %lane_wide
+  %extract = load float, ptr %extract_ptr, align 4, !invariant.load !0
+  ret float %extract
+}
+
+define float @third(i32 noundef %i, ptr noundef %rows_buffer) local_unnamed_addr {
+third:
+  %rows = tail call ptr @bonsai_buffer_require(ptr %rows_buffer, i32 1)
+  %i_wide = zext i32 %i to i64
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %rows, i64 %i_wide
+  %0 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 8
+  %1 = load float, ptr %0, align 8
+  ret float %1
+}
+
+define float @two(i32 noundef %i, <8 x i32> noundef %m, ptr noundef %rows_buffer) local_unnamed_addr {
+two:
+  %rows = tail call ptr @bonsai_buffer_require(ptr %rows_buffer, i32 1)
+  %i_wide = zext i32 %i to i64
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %rows, i64 %i_wide
+  %extract = load <8 x float>, ptr %extract_ptr, align 32, !invariant.load !0
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %extract, <8 x i1> %0, <8 x float> poison)
+  %1 = extractelement <8 x float> %compress, i64 0
+  %2 = extractelement <8 x float> %compress, i64 1
+  %3 = fadd float %1, %2
+  ret float %3
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare i8 @llvm.cttz.i8(i8, i1 immarg) #0
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(none)
+declare <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float>, <8 x i1>, <8 x float>) #1
+
+attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(none) }
+
+!0 = !{}

@@ -14,7 +14,7 @@ type __tuple_2 = struct __tuple_2{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : const [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : const [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 type _tree_layout1 = [[packed]] struct _tree_layout1{ left : u32; right : u32 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
@@ -23,7 +23,7 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; iCount : u32; group0_ichild : const [[packed]] struct _tree_layout1{ left : u32; right : u32 }[iCount]; nCount : u32; group1_index : const [[packed]] struct _tree_layout2{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(tris_index : u32, tris : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
   if (tris.group1_index[tris_index].nPrims == 0u) {

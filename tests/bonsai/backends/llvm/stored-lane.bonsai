@@ -1,0 +1,29 @@
+//! flags: -p ssa -b llvm
+
+// ssa/stored-lane.bonsai through the LLVM backend. What to look for: every
+// read of the extern carries `!invariant.load` (CodeGen_LLVM::mark_invariant
+// -- the storage is nothing the program writes, so LLVM may hoist the load
+// past any store, merge it with another of the same address, or make it
+// again rather than spill it); `pick` is one `load float` at the lane's
+// address with no vector loaded; `first` counts the mask's trailing zeros
+// (`llvm.cttz`) and loads that lane the same way; `two` keeps its compress
+// and reads two lanes of it; `third` loads the vector and takes lane 2.
+
+extern rows : array[vector[f32, 8]];
+
+func [[export]] pick(i : u32, lane : u32) -> f32 {
+    return rows[i][lane];
+}
+
+func [[export]] first(i : u32, m : vector[u32, 8]) -> f32 {
+    return compress(rows[i], m != 0u)[0u];
+}
+
+func [[export]] two(i : u32, m : vector[u32, 8]) -> f32 {
+    c = compress(rows[i], m != 0u);
+    return c[0u] + c[1u];
+}
+
+func [[export]] third(i : u32) -> f32 {
+    return rows[i][2u];
+}

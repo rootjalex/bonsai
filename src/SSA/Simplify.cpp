@@ -220,10 +220,25 @@ namespace {
 
 using Replacements = std::map<const Instruction *, ValuePtr>;
 
+// How many times each instruction's value is read (defined below).
+using UseCounts = std::map<const Instruction *, size_t>;
+UseCounts use_counts(const Function &func);
+
 struct Simplifier {
     explicit Simplifier(Function &func) : func(func) {}
 
     Function &func;
+    // The use counts as the pass began, for a rule that asks whether a value
+    // is read anywhere else. Built on first use; a rule's rewrites only take
+    // uses away from what they replace.
+    std::optional<UseCounts> uses;
+    size_t uses_of(const Instruction *d) {
+        if (!uses.has_value()) {
+            uses = use_counts(func);
+        }
+        const auto it = uses->find(d);
+        return it == uses->end() ? 0 : it->second;
+    }
     // Where a rule's new instructions go: before instruction `at` of `block`.
     shared_ptr<Block> block;
     size_t at = 0;
@@ -335,15 +350,161 @@ struct Simplifier {
         if (ValuePtr v = rule(op, type, operands)) {
             return v;
         }
-        auto instr = std::make_shared<Instruction>(
+        return insert(std::make_shared<Instruction>(
             func.get_unique_name(), std::move(type), op, std::move(operands),
-            block);
+            block));
+    }
+
+    // An intrinsic over `operands`, as a new instruction before the current
+    // one.
+    ValuePtr make_intrinsic(ir::Intrinsic::OpType which, Type type,
+                            vector<ValuePtr> operands) {
+        auto instr = std::make_shared<Instruction>(
+            func.get_unique_name(), std::move(type), Instruction::Op::Intrinsic,
+            std::move(operands), block);
+        instr->intrinsic = which;
+        return insert(std::move(instr));
+    }
+
+    ValuePtr insert(shared_ptr<Instruction> instr) {
         block->instrs.insert(block->instrs.begin() + at, instr);
         at++;
         made.insert(instr.get());
         auto v = std::make_shared<Value>(instr);
         block->lookups[instr->name] = v;
         return v;
+    }
+
+    // The address of the struct value `s` in read-only storage, when that is
+    // where it was read from -- an element of an extern's layout, a field of
+    // one -- and null otherwise. The address is formed here, before the
+    // current instruction, from the operands of the read.
+    ValuePtr stored_struct_address(const ValuePtr &s) {
+        const Instruction *d = def_of(s);
+        if (d == nullptr || !d->type.is<Struct_t>()) {
+            return nullptr;
+        }
+        switch (d->op) {
+        case Instruction::Op::Load:
+            if (d->operands.size() == 1 &&
+                d->operands[0]->get_type().is<Ptr_t>() &&
+                d->operands[0]->get_type().is_readonly()) {
+                return d->operands[0];
+            }
+            return nullptr;
+        case Instruction::Op::ExtractIdx:
+            // One element of a read-only array, at one index.
+            if (d->operands.size() == 2 &&
+                d->operands[0]->get_type().is<Array_t>() &&
+                d->operands[0]->get_type().is_readonly() &&
+                d->operands[1]->get_type().is_scalar()) {
+                return make(Instruction::Op::GEP,
+                            Ptr_t::make(d->type, /*readonly=*/true),
+                            {d->operands[0], d->operands[1]});
+            }
+            return nullptr;
+        case Instruction::Op::LoadField:
+            if (d->operands.size() == 2) {
+                return stored_field_address(d);
+            }
+            return nullptr;
+        default:
+            return nullptr;
+        }
+    }
+
+    // The address of the field a LoadField reads, when the struct it reads
+    // it from is in read-only storage; null otherwise.
+    ValuePtr stored_field_address(const Instruction *load_field) {
+        ValuePtr owner = stored_struct_address(load_field->operands[0]);
+        if (owner == nullptr) {
+            return nullptr;
+        }
+        const Struct_t *s = owner->get_type().as<Ptr_t>()->etype.as<Struct_t>();
+        const Constant *c = constant_of(load_field->operands[1]);
+        if (s == nullptr || c == nullptr ||
+            !std::holds_alternative<uint64_t>(c->data) ||
+            std::get<uint64_t>(c->data) >= s->fields.size()) {
+            return nullptr;
+        }
+        // Typed as the field is stored -- a layout's `[[packed]] f32x8` --
+        // rather than as the load reads it.
+        const Type &stored = s->fields[std::get<uint64_t>(c->data)].type;
+        return make(Instruction::Op::FieldPtr,
+                    Ptr_t::make(stored, /*readonly=*/true),
+                    {owner, load_field->operands[1]});
+    }
+
+    // The address of the vector `v` in read-only storage, when it was loaded
+    // whole from there; null otherwise. Looks through the cast that reads a
+    // layout's packed vector as the ordinary one -- the same lanes at the
+    // same places in memory.
+    ValuePtr stored_vector_address(const ValuePtr &v) {
+        const Instruction *d = def_of(v);
+        if (d == nullptr || !d->type.is<Vector_t>()) {
+            return nullptr;
+        }
+        switch (d->op) {
+        case Instruction::Op::Load:
+            if (d->operands.size() == 1 &&
+                d->operands[0]->get_type().is<Ptr_t>() &&
+                d->operands[0]->get_type().is_readonly()) {
+                return d->operands[0];
+            }
+            return nullptr;
+        case Instruction::Op::Cast: {
+            if (d->operands.size() != 1) {
+                return nullptr;
+            }
+            const Type &from = d->operands[0]->get_type();
+            if (!from.is<Vector_t>() || from.lanes() != d->type.lanes() ||
+                !equals(from.element_of(), d->type.element_of())) {
+                return nullptr;
+            }
+            return stored_vector_address(d->operands[0]);
+        }
+        case Instruction::Op::ExtractIdx:
+            // One element of a read-only array of vectors, at one index.
+            if (d->operands.size() == 2 &&
+                d->operands[0]->get_type().is<Array_t>() &&
+                d->operands[0]->get_type().is_readonly() &&
+                d->operands[1]->get_type().is_scalar()) {
+                return make(Instruction::Op::GEP,
+                            Ptr_t::make(d->type, /*readonly=*/true),
+                            {d->operands[0], d->operands[1]});
+            }
+            return nullptr;
+        case Instruction::Op::LoadField:
+            if (d->operands.size() == 2) {
+                return stored_field_address(d);
+            }
+            return nullptr;
+        default:
+            return nullptr;
+        }
+    }
+
+    // The lane a mask with one bit on names, as an index of `index_type`:
+    // the mask read as an integer and its trailing zeros counted (`kmov`,
+    // `tzcnt`; Embree's `bsf` on its movemask). Only where the mask's lanes
+    // are the bits of an integer type; a shorter mask has no integer to
+    // count, and stays with the compress.
+    ValuePtr lowest_lane(const ValuePtr &mask, const Type &index_type) {
+        const Type &mt = mask->get_type();
+        if (!mt.is<Vector_t>() || !mt.element_of().is<Bool_t>()) {
+            return nullptr;
+        }
+        const uint32_t n = mt.lanes();
+        if (n != 8 && n != 16 && n != 32 && n != 64) {
+            return nullptr;
+        }
+        const Type bits_t = UInt_t::make(n);
+        ValuePtr bits = make(Instruction::Op::Reinterpret, bits_t, {mask});
+        ValuePtr zeros = make_intrinsic(ir::Intrinsic::ctz, bits_t, {bits});
+        if (equals(bits_t, index_type)) {
+            return zeros;
+        }
+        return make(Instruction::Op::Cast, index_type, {zeros});
     }
 
     // Of two operands that are the same expression, the one to keep: the
@@ -640,6 +801,75 @@ struct Simplifier {
                                       {da->operands[0]});
                 return make(Instruction::Op::LAnd, Bool_t::make(),
                             {not_a, db->operands[0]});
+            }
+            break;
+        }
+        case Instruction::Op::ExtractIdx: {
+            if (ops.size() != 2 || !ops[0]->get_type().is<Vector_t>() ||
+                !ops[1]->get_type().is_scalar()) {
+                break;
+            }
+            // A lane of a vector that lives in read-only storage, at a lane
+            // only known when it runs, is read from the storage: a layout
+            // row's `children[i]`, with `i` the low bits of a sorted key,
+            // becomes a scalar load at the lane's address -- the child a
+            // traversal descends into read off the node, as Embree's
+            // `node->child(i)` is. The vector form kept the children in a
+            // register, and since no instruction reads a register's lane at
+            // a run-time index, spilled it to read one (`vmovdqa64 %zmm,
+            // (%rsp)`; `mov (%rsp,%rbx,8)`): a store the load waits on, on
+            // the chain to the next node's address. A lane known at compile
+            // time is one instruction off the register, which the vector's
+            // other uses hold anyway, and is left alone. Sound because
+            // nothing writes the storage (Type::is_readonly), so the read
+            // may be made where the lane is wanted rather than where the
+            // vector was loaded; the vector's other uses keep it. A vector
+            // of scalars only: a vector of vectors is stored one component
+            // at a time (see the Vector_t visitor in CodeGen/CodeGen_LLVM.
+            // cpp), so its lane is not at one address.
+            if (constant_of(ops[1]) == nullptr &&
+                ops[0]->get_type().element_of().is_scalar()) {
+                if (ValuePtr whole = stored_vector_address(ops[0])) {
+                    const Type stored = whole->get_type().as<Ptr_t>()->etype;
+                    const Type element = stored.element_of();
+                    const Type view_t = Array_t::make(
+                        element,
+                        UIntImm::make(UInt_t::make(32), stored.lanes()),
+                        /*readonly=*/true);
+                    ValuePtr view =
+                        make(Instruction::Op::Reinterpret, view_t, {whole});
+                    ValuePtr at =
+                        make(Instruction::Op::GEP,
+                             Ptr_t::make(element, /*readonly=*/true),
+                             {view, ops[1]});
+                    return make(Instruction::Op::Load, type, {at});
+                }
+            }
+            // Lane 0 of a compress that leaves the lanes past the packed
+            // ones unspecified, and that nothing else reads, is the lane
+            // the mask's lowest set bit names: `compress(v, m)[0]` is
+            // `v[ctz(m)]` -- the one child a traversal's one-hit arm
+            // descends into, Embree's `bsf` and `node->child(r)` where the
+            // compress read the vector through `vpcompressq` and a `vmovq`.
+            // With no bit on, both are unspecified (`v[lanes]` is out of
+            // range as the compress's lane 0 is nothing), so no condition on
+            // the mask is needed; a compress with a fill is left alone, its
+            // lane 0 being the fill then. The lane is a run-time one, so the
+            // rule above reads it off the storage where the vector lives
+            // there. A compress read at other lanes too -- the sorted arms'
+            // packed keys, read at 0, 1 and 2 -- is made anyway, and its
+            // lane 0 is then one instruction off the register, where the
+            // lane named by a count would go through the stack.
+            if (const Instruction *d = def_of(ops[0]);
+                d != nullptr && d->op == Instruction::Op::Intrinsic &&
+                d->intrinsic == ir::Intrinsic::compress &&
+                d->operands.size() == 2 && is_zero(ops[1]) &&
+                uses_of(d) == 1) {
+                if (ValuePtr lane =
+                        lowest_lane(d->operands[1], ops[1]->get_type())) {
+                    return make(Instruction::Op::ExtractIdx, type,
+                                {d->operands[0], lane});
+                }
             }
             break;
         }

@@ -95,6 +95,19 @@ struct Type : public IRHandle<IRTypeNode> {
     // an array handle, or an aggregate with one inside. What a store of the
     // value lets escape, and what a call may write through.
     bool carries_reference() const;
+    // Whether a value of this type refers to storage nothing in the program
+    // writes: an array handle or a pointer marked so (Array_t::readonly,
+    // Ptr_t::readonly), or one of those per lane. An extern's storage is
+    // such -- an extern is never `mut`, and the host holds its memory still
+    // while the program runs -- and so is every address formed inside it.
+    // What lets a read of it be moved past a store, and be told to LLVM as
+    // an invariant load. Not a parameter's: a function that does not write
+    // through its parameter says nothing about what another parameter
+    // aliasing it does.
+    bool is_readonly() const;
+    // This type with that mark on it: a reference or pointer type made
+    // read-only, and anything else as it is.
+    Type as_readonly() const;
 
     // Type casts
     // Rewrites (through vectors) to boolean base.
@@ -205,8 +218,12 @@ struct String_t : TypeNode<String_t> {
 
 struct Ptr_t : TypeNode<Ptr_t> {
     Type etype;
+    // Whether what it points at is storage nothing in the program writes
+    // (see Array_t::readonly, where the bit originates). Printed
+    // `(const T*)`.
+    bool readonly = false;
 
-    static Type make(Type etype);
+    static Type make(Type etype, bool readonly = false);
 
     static const IRTypeEnum node_type = IRTypeEnum::Ptr_t;
 };

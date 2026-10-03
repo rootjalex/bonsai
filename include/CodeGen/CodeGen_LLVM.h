@@ -918,11 +918,20 @@ struct CodeGen_LLVM : public ir::Visitor {
     // `length`, when known, is how many elements the array holds: what lets a
     // byte or halfword element be gathered as part of a whole word without
     // reading past the array's end (see gather_sub_word_elements).
+    // `invariant` says the array is read-only storage (Type::is_readonly),
+    // which a dense load is told (mark_invariant).
     llvm::Value *create_vector_load(llvm::Type *etype, llvm::Value *base,
                                     const ir::Expr &index, uint32_t lanes,
                                     const ir::Expr &mask,
                                     const std::string &name,
-                                    llvm::Value *length = nullptr);
+                                    llvm::Value *length = nullptr,
+                                    bool invariant = false);
+    // Tells LLVM a load reads storage nothing in the program writes
+    // (`!invariant.load`), when `through` -- the pointer's or array's type
+    // the load reads through -- says so (Type::is_readonly): an extern's
+    // storage. What lets the load be hoisted past any store, merged with
+    // another of the same address, or made again rather than spilled.
+    void mark_invariant(llvm::LoadInst *load, const ir::Type &through);
     void create_vector_store(llvm::Value *value, llvm::Type *etype,
                              llvm::Value *base, const ir::Expr &index,
                              uint32_t lanes, const ir::Expr &mask);

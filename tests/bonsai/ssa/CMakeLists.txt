@@ -67,6 +67,7 @@ add_bonsai_tests(
     short-circuit.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
+    stored-lane.bonsai
     specialize.bonsai
     specialize-bool.bonsai
     specialize-first.bonsai

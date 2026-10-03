@@ -2944,7 +2944,8 @@ void CodeGen_LLVM::visit(const Extract *node) {
         // every lane's address is one the program would have read anyway;
         // masked, the disabled lanes do not touch memory (see Extract::mask).
         value = create_vector_load(codegen_type(element), vec, node->idx,
-                                   lanes, node->mask, "extract", length);
+                                   lanes, node->mask, "extract", length,
+                                   vec_expr.type().is_readonly());
         return;
     }
 
@@ -2986,6 +2987,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
             return;
         }
         llvm::LoadInst *load = create_aligned_load(etype, ptr, "extract");
+        mark_invariant(load, vec_expr.type());
         value = load;
     } else {
         internal_error << "[unimplemented] codegen of Extract on type: "
@@ -3389,6 +3391,12 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         // llvm.ctlz's second argument says whether a zero is poison. It is
         // not: clz of zero is the width, as the intrinsic is defined.
         intrin = llvm::Intrinsic::ctlz;
+        add_false_arg = true;
+        break;
+    }
+    case Intrinsic::ctz: {
+        // Likewise llvm.cttz: ctz of zero is the width.
+        intrin = llvm::Intrinsic::cttz;
         add_false_arg = true;
         break;
     }
@@ -4145,6 +4153,7 @@ void CodeGen_LLVM::visit(const Deref *node) {
         llvm::LoadInst *load =
             create_aligned_load(loaded_type, pointer_value, "deref_temp");
         add_tbaa(load, node->type);
+        mark_invariant(load, node->expr.type());
         value = load;
     } else if (pointer_value->getType()->isVectorTy()) {
         // One pointer per lane, every lane on: a gather, of scalars. An
@@ -5896,6 +5905,13 @@ llvm::LoadInst *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
     return load;
 }
 
+void CodeGen_LLVM::mark_invariant(llvm::LoadInst *load, const Type &through) {
+    if (through.is_readonly()) {
+        load->setMetadata(llvm::LLVMContext::MD_invariant_load,
+                          llvm::MDNode::get(*context, {}));
+    }
+}
+
 namespace {
 
 // A Ramp of stride one addresses `lanes` contiguous elements, which is an
@@ -5917,7 +5933,8 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
                                               const Expr &index, uint32_t lanes,
                                               const Expr &mask_expr,
                                               const std::string &name,
-                                              llvm::Value *length) {
+                                              llvm::Value *length,
+                                              bool invariant) {
     // A boolean occupies a byte in memory -- that is what the scalar path
     // stores and what the C++ side of an exported function sees -- while a
     // vector of i1 is bit-packed. So booleans are loaded a byte per lane and
@@ -5950,6 +5967,10 @@ llvm::Value *CodeGen_LLVM::create_vector_load(llvm::Type *etype,
         if (mask == nullptr) {
             llvm::LoadInst *load = builder->CreateLoad(vtype, first, name);
             load->setAlignment(align);
+            if (invariant) {
+                load->setMetadata(llvm::LLVMContext::MD_invariant_load,
+                                  llvm::MDNode::get(*context, {}));
+            }
             return load;
         }
         // A disabled lane must not touch memory at all, so the disabled

@@ -8,7 +8,7 @@ type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
 type Sphere = struct Sphere{ center : f32x3; radius : f32 }
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
 type _tree_layout1 = [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{  }
@@ -18,7 +18,7 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-extern tris : [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
 
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> option<Triangle> {
   _best0 : mut (f32, (u32)) := ((f32)inf, ())

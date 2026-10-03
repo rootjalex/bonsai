@@ -101,10 +101,10 @@ bool is_widened_vector(const Type &type) {
 // becomes an array of gang-wide elements.
 Type widen_pointee(const Type &type, uint32_t lanes) {
     if (const Ptr_t *p = type.as<Ptr_t>()) {
-        return Ptr_t::make(widen(p->etype, lanes));
+        return Ptr_t::make(widen(p->etype, lanes), p->readonly);
     }
     if (const Array_t *a = type.as<Array_t>()) {
-        return Array_t::make(widen(a->etype, lanes), a->size);
+        return Array_t::make(widen(a->etype, lanes), a->size, a->readonly);
     }
     internal_error << "widen_pointee of a type that addresses nothing: "
                    << type;
@@ -798,8 +798,10 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                 const Type scalar = element.element_of();
                 const Type index_type = instr->operands[1]->get_type();
                 const Type scalar_index = index_type.element_of();
+                const bool readonly = array->get_type().is_readonly();
                 auto flat = std::make_shared<Instruction>(
-                    func.get_unique_name(), Array_t::make(scalar, Expr()),
+                    func.get_unique_name(),
+                    Array_t::make(scalar, Expr(), readonly),
                     Instruction::Op::Reinterpret,
                     vector<shared_ptr<Value>>{array}, block.shared_from_this());
                 widened.push_back(flat);
@@ -834,7 +836,7 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                 instr->operands[0] = std::make_shared<Value>(flat);
                 instr->operands[1] = std::make_shared<Value>(at);
                 instr->type = instr->op == Instruction::Op::GEP
-                                  ? widen(Ptr_t::make(scalar), lanes)
+                                  ? widen(Ptr_t::make(scalar, readonly), lanes)
                                   : widen(scalar, lanes);
                 widened.push_back(instr);
                 continue;
@@ -869,15 +871,16 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                         },
                     },
                     c->data);
-                const Struct_t *components =
-                    instr->operands[0]->get_type().as<Ptr_t>()->etype.as<Struct_t>();
+                const Ptr_t *base_ptr = instr->operands[0]->get_type().as<Ptr_t>();
+                const Struct_t *components = base_ptr->etype.as<Struct_t>();
                 internal_assert(k < components->fields.size())
                     << instr->name << " addresses component " << k << " of "
                     << instr->operands[0]->get_type();
                 instr->op = Instruction::Op::FieldPtr;
                 instr->operands[1] =
                     std::make_shared<Value>(Constant{UInt_t::make(32), k});
-                instr->type = Ptr_t::make(components->fields[k].type);
+                instr->type = Ptr_t::make(components->fields[k].type,
+                                          base_ptr->readonly);
                 widened.push_back(instr);
                 continue;
             }

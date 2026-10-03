@@ -351,7 +351,7 @@ trace:
   %extract.unpack.elt502.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
   %5 = load <2 x float>, ptr %extract.unpack.elt502.i, align 1
   %extract.elt491.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.unpack492.i = load i16, ptr %extract.elt491.i, align 1
+  %extract.unpack492.i = load i16, ptr %extract.elt491.i, align 1, !invariant.load !0
   %extract.elt497.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
   %extract.unpack498.unpack.i = load float, ptr %extract.elt497.i, align 1
   %extract.unpack498.elt507.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 20
@@ -414,7 +414,7 @@ trace:
   %39 = add i32 %"triangles_index!top.i", %38
   %"!count_wide.i" = zext i32 %"!count.i" to i64
   %"!stack461.i" = getelementptr inbounds nuw [4 x i8], ptr %"!stack490.i", i64 %"!count_wide.i"
-  store i32 %39, ptr %"!stack461.i", align 4, !tbaa !0
+  store i32 %39, ptr %"!stack461.i", align 4, !tbaa !1
   %40 = add i32 %"!count.i", 1
   br label %"_recloop_func0!loop.i"
 
@@ -514,7 +514,7 @@ trace_all:
   %mallocsize.i = shl nuw nsw i64 %size64.i, 6
   %_alloc0_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
   %.not.i = icmp eq i32 %n, 0
-  br i1 %.not.i, label %_traverse_array0.exit, label %"!par_body_0.lr.ph.i", !prof !3
+  br i1 %.not.i, label %_traverse_array0.exit, label %"!par_body_0.lr.ph.i", !prof !4
 
 "!par_body_0.lr.ph.i":                            ; preds = %trace_all
   %.fca.1.gep484.i.i = getelementptr inbounds nuw i8, ptr %_ret.i.i, i64 16
@@ -550,7 +550,7 @@ trace_all:
   %extract.unpack.elt502.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 4
   %5 = load <2 x float>, ptr %extract.unpack.elt502.i.i, align 1
   %extract.elt491.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 12
-  %extract.unpack492.i.i = load i16, ptr %extract.elt491.i.i, align 1
+  %extract.unpack492.i.i = load i16, ptr %extract.elt491.i.i, align 1, !invariant.load !0
   %extract.elt497.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 16
   %extract.unpack498.unpack.i.i = load float, ptr %extract.elt497.i.i, align 1
   %extract.unpack498.elt507.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 20
@@ -613,7 +613,7 @@ trace_all:
   %39 = add i32 %"triangles_index!top.i.i", %38
   %"!count_wide.i.i" = zext i32 %"!count.i.i" to i64
   %"!stack461.i.i" = getelementptr inbounds nuw [4 x i8], ptr %"!stack490.i.i", i64 %"!count_wide.i.i"
-  store i32 %39, ptr %"!stack461.i.i", align 4, !tbaa !0
+  store i32 %39, ptr %"!stack461.i.i", align 4, !tbaa !1
   %40 = add i32 %"!count.i.i", 1
   br label %"_recloop_func0!loop.i.i"
 
@@ -698,7 +698,7 @@ _recloop_func0.exit.i:                            ; preds = %"!visit_pop.i.i"
   store %struct._option0 %"_best0_result$i27.i", ptr %_alloc015.i, align 16
   %indvars.iv.next51.i = add nuw nsw i64 %indvars.iv50.i, 1
   %exitcond54.not.i = icmp eq i64 %indvars.iv.next51.i, %size64.i
-  br i1 %exitcond54.not.i, label %_traverse_array0.exit, label %"!par_body_0.i", !prof !4
+  br i1 %exitcond54.not.i, label %_traverse_array0.exit, label %"!par_body_0.i", !prof !5
 
 _traverse_array0.exit:                            ; preds = %"!merge_4.i", %trace_all
   ret ptr %_alloc0_untyped.i
@@ -740,8 +740,9 @@ attributes #3 = { nocallback nofree nosync nounwind willreturn memory(argmem: re
 attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 attributes #5 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
-!0 = !{!1, !1, i64 0}
-!1 = !{!"u32", !2, i64 0}
-!2 = !{!"bonsai"}
-!3 = !{!"branch_weights", i32 0, i32 1}
-!4 = !{!"branch_weights", i32 0, i32 1073741824}
+!0 = !{}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!"branch_weights", i32 0, i32 1}
+!5 = !{!"branch_weights", i32 0, i32 1073741824}

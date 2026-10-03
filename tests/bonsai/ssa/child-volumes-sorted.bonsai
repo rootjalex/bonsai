@@ -29,14 +29,21 @@
 // itself with the count a constant: for no hit, straight on to what follows
 // the run (the pop); for one hit, no sort and no run at all -- a run of one
 // call is a call, its arguments lane 0 of each vector packed by the mask
-// (`compress(_t41, @182)[0u]`), descended into with nothing written to the
-// stack; for two, three and four hits the packed keys read out as scalars
-// (`@198[0u]`, `@198[1u]`, ...) and sorted by insertion, a `min` and a
-// `max` against each key already placed (Embree's dist_A0/B0, then
-// A1/B1/C1, then A2 to D2), each sorted key's low bits naming the lane the
-// child and its carried bound are read from (`_t41[@208]`), and a run of
-// exactly that many calls, nearest first, which loopify writes as scalar
-// pushes at constant offsets from the top and a descent into the first:
+// (`compress(_t41, @182)[0u]`; with eight lanes the mask is a byte and the
+// lane is its trailing zeros counted, see child-volumes-sorted-wide, but a
+// four-lane mask has no integer to count and keeps the compress), descended
+// into with nothing written to the stack; for two, three and four hits the
+// packed keys read out as scalars (`@198[0u]`, `@198[1u]`, ...) and sorted
+// by insertion, a `min` and a `max` against each key already placed
+// (Embree's dist_A0/B0, then A1/B1/C1, then A2 to D2), each sorted key's
+// low bits naming the lane the child and its carried bound are read from --
+// the child off the node's row in the layout, which is storage nothing
+// writes (`reinterpret_cast<const u32[4]>((&@142[@143].children))[@208]`, a
+// scalar load at the lane's address, Embree's `node->child(i)`; the
+// children vector is loaded whole for the box test only), the bound a lane
+// of the distances computed (`@186[@208]`) -- and a run of exactly that
+// many calls, nearest first, which loopify writes as scalar pushes at
+// constant offsets from the top and a descent into the first:
 //
 //     case 2:
 //       !stack[!count] = <the far child>      -- Embree's stackPtr[0].ptr

@@ -542,6 +542,13 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // ceiling of log2 is taken -- which is what division by an invariant
         // integer needs of its divisor (see SSA/InvariantDivision.h).
         clz,
+        // The number of trailing zero bits of an integer, and the width of
+        // the type for zero: llvm.cttz. The index of the lowest bit set --
+        // the one lane a mask with one bit on names, read straight from the
+        // mask as an integer (`kmov`, `tzcnt`; Embree's `bsf`) where a
+        // compress of the vector and a read of lane 0 would be
+        // (SSA/Simplify.cpp).
+        ctz,
         // `compress(v, mask)`: the lanes of `v` the mask has on, packed to
         // the front of a vector of v's type in their lane order; the lanes
         // past them -- from the `popcount(mask)`th on -- hold whatever they
@@ -988,8 +995,16 @@ struct AtomicAdd : ExprNode<AtomicAdd> {
 struct Array_t : TypeNode<Array_t> {
     Type etype;
     Expr size;
+    // Whether the elements are storage nothing in the program writes: an
+    // extern's, which the host filled before the program ran and holds
+    // still while it runs (an extern is never `mut`; see Type::is_readonly).
+    // Printed `const T[n]`. A reference into such storage -- a row's
+    // address, a group reinterpreted as its rows -- carries the bit on, so
+    // that a read through it may be moved past any store and told to LLVM
+    // as invariant (SSA/Simplify.cpp, CodeGen/CodeGen_LLVM.cpp).
+    bool readonly = false;
 
-    static Type make(Type etype, Expr size);
+    static Type make(Type etype, Expr size, bool readonly = false);
 
     static const IRTypeEnum node_type = IRTypeEnum::Array_t;
 };

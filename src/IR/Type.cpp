@@ -138,6 +138,32 @@ bool Type::is_vector() const {
 
 bool Type::is_reference() const { return this->is<Array_t, DynArray_t>(); }
 
+bool Type::is_readonly() const {
+    if (const Array_t *a = this->as<Array_t>()) {
+        return a->readonly;
+    }
+    if (const Ptr_t *p = this->as<Ptr_t>()) {
+        return p->readonly;
+    }
+    if (const Vector_t *v = this->as<Vector_t>()) {
+        return v->etype.is<Ptr_t>() && v->etype.is_readonly();
+    }
+    return false;
+}
+
+Type Type::as_readonly() const {
+    if (const Array_t *a = this->as<Array_t>()) {
+        return Array_t::make(a->etype, a->size, /*readonly=*/true);
+    }
+    if (const Ptr_t *p = this->as<Ptr_t>()) {
+        return Ptr_t::make(p->etype, /*readonly=*/true);
+    }
+    if (const Vector_t *v = this->as<Vector_t>(); v && v->etype.is<Ptr_t>()) {
+        return Vector_t::make(v->etype.as_readonly(), v->lanes, v->packed);
+    }
+    return *this;
+}
+
 bool Type::carries_reference() const {
     if (is<Ptr_t>() || is_reference()) {
         return true;
@@ -315,7 +341,8 @@ bool same_exactly(const Type &a, const Type &b) {
         return a.as<Float_t>()->exponent == b.as<Float_t>()->exponent &&
                a.as<Float_t>()->mantissa == b.as<Float_t>()->mantissa;
     case IRTypeEnum::Ptr_t:
-        return a.as<Ptr_t>()->etype.same_as(b.as<Ptr_t>()->etype);
+        return a.as<Ptr_t>()->etype.same_as(b.as<Ptr_t>()->etype) &&
+               a.as<Ptr_t>()->readonly == b.as<Ptr_t>()->readonly;
     case IRTypeEnum::Ref_t:
         return a.as<Ref_t>()->name == b.as<Ref_t>()->name;
     case IRTypeEnum::ElementRef_t:
@@ -352,7 +379,7 @@ bool same_exactly(const Type &a, const Type &b) {
         return same_pointers(a.as<Tuple_t>()->etypes, b.as<Tuple_t>()->etypes);
     case IRTypeEnum::Array_t: {
         const Array_t *x = a.as<Array_t>(), *y = b.as<Array_t>();
-        return x->etype.same_as(y->etype) &&
+        return x->etype.same_as(y->etype) && x->readonly == y->readonly &&
                x->size.defined() == y->size.defined() &&
                (!x->size.defined() || equals(x->size, y->size));
     }
@@ -494,10 +521,11 @@ Type String_t::make() {
     return global_str;
 }
 
-Type Ptr_t::make(Type etype) {
+Type Ptr_t::make(Type etype, bool readonly) {
     internal_assert(etype.defined()) << "Ptr_t::make received undefined etype";
     Ptr_t *node = new Ptr_t;
     node->etype = std::move(etype);
+    node->readonly = readonly;
     return intern(node);
 }
 
@@ -580,7 +608,7 @@ Type Tuple_t::make(std::vector<Type> etypes) {
     return intern(node);
 }
 
-Type Array_t::make(Type etype, Expr size) {
+Type Array_t::make(Type etype, Expr size, bool readonly) {
     internal_assert(etype.defined())
         << "Array_t::make received undefined etype";
     if (size.defined()) {
@@ -590,6 +618,7 @@ Type Array_t::make(Type etype, Expr size) {
     Array_t *node = new Array_t;
     node->etype = std::move(etype);
     node->size = std::move(size);
+    node->readonly = readonly;
     return intern(node);
 }
 

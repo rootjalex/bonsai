@@ -650,8 +650,9 @@ struct FunctionBuilder : Visitor {
                     << current << " in " << loc.base;
                 const auto idx = find_struct_index(field, struct_t->fields);
                 current = get_field_type(current, field);
+                const bool readonly = ptr->get_type().is_readonly();
                 ptr = block->make_instruction(
-                    Ptr_t::make(current), Instruction::Op::FieldPtr,
+                    Ptr_t::make(current, readonly), Instruction::Op::FieldPtr,
                     {std::move(ptr), make_constant(u32, (uint64_t)idx)});
             } else {
                 Expr idx = std::get<Expr>(value);
@@ -660,11 +661,12 @@ struct FunctionBuilder : Visitor {
                 // the PtrTo visitor below types the GEPs it builds. The type
                 // is what tells a later pass what a store through it writes,
                 // and what a vectorized index turns it into: a per-lane index
-                // makes it a vector of element addresses, a scatter.
+                // makes it a vector of element addresses, a scatter. An
+                // address formed inside read-only storage is read-only.
                 Type element;
                 if (current.defined()) {
                     current = current.element_of();
-                    element = Ptr_t::make(current);
+                    element = Ptr_t::make(current, ptr->get_type().is_readonly());
                 }
                 ptr = block->make_instruction(element, Instruction::Op::GEP,
                                               {std::move(ptr), std::move(i)});
@@ -1416,16 +1418,19 @@ struct FunctionBuilder : Visitor {
                 } else {
                     return nullptr;
                 }
+                const bool readonly = base->get_type().is_readonly();
                 base = block->make_instruction(
-                    Ptr_t::make(current), Instruction::Op::FieldPtr,
+                    Ptr_t::make(current, readonly), Instruction::Op::FieldPtr,
                     {std::move(base), make_constant(u32, (uint64_t)idx)});
             } else {
                 if (!current.is_reference()) {
                     return nullptr; // a lane of a vector, which is a value
                 }
                 current = current.element_of();
+                // An address formed inside read-only storage is read-only.
+                const bool readonly = base->get_type().is_readonly();
                 base = block->make_instruction(
-                    Ptr_t::make(current), Instruction::Op::GEP,
+                    Ptr_t::make(current, readonly), Instruction::Op::GEP,
                     {std::move(base), get_value(std::get<Expr>(*it))});
             }
         }

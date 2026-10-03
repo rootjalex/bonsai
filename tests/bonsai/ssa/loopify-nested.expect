@@ -17,7 +17,7 @@ type __tuple_3 = struct __tuple_3{ _field0 : struct Point{ vec : f32x3 }; _field
 type _option0 = struct _option0{ value : struct __tuple_0{ _field0 : struct Instance{ blas : u32 }; _field1 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }; set : bool = false }
 type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
 type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
-type _tree_layout0 = [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[bCount]; iCount : u32; insts : struct Instance{ blas : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : const [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[bCount]; iCount : u32; insts : struct Instance{ blas : u32 }[iCount]; nCount : u32; group1_index : const [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 type _tree_layout1 = [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }
 type _tree_layout2 = [[packed]] struct _tree_layout2{ offset : u32 }
 type _tree_layout3 = [[packed]] struct _tree_layout3{ pOffset : u32 }
@@ -29,7 +29,7 @@ type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-extern instances : [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[bCount]; iCount : u32; insts : struct Instance{ blas : u32 }[iCount]; nCount : u32; group1_index : [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
+extern instances : [[packed]] struct _tree_layout0{ tCount : u32; tris : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[tCount]; bCount : u32; group0_bnode : const [[packed]] struct _tree_layout1{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[bCount]; iCount : u32; insts : struct Instance{ blas : u32 }[iCount]; nCount : u32; group1_index : const [[packed]] struct _tree_layout4{ low : [[packed]] f32x3; high : [[packed]] f32x3; nPrims : u16; pad0 : u16; split0on_nPrims : [[packed]] u8x4 }[nCount] }
 
 func _recloop_func0(instances_index : u32, instances : _tree_layout0, r : Ray, _best0 : mut (__tuple_2*)) -> void {
   instances_index!top : mut u32

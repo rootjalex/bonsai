@@ -26,6 +26,15 @@
 // written in a loop. For its sake the stack is allocated a vector of slack
 // past its 64 entries (`!stack : mut u32[72]`), where the four-wide node's
 // stacks, whose every arm pushes scalars, have none.
+//
+// The one-hit arm differs from the four-wide node's too: an eight-lane mask
+// is a byte, so the one lane it has on is its trailing zeros counted
+// (`ctz(reinterpret_cast<u8>(@198))`, Embree's `bsf`) rather than lane 0 of
+// a compress, and the child is read off the node's row at that lane
+// (`reinterpret_cast<const u32[8]>((&@142[@143].children))[@347]`, Embree's
+// `node->child(r)`), the layout being storage nothing writes; its bound is
+// that lane of the distances computed (SSA/Simplify.cpp, the ExtractIdx
+// rules).
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_stored_lane.cpp -I. -o tests/bonsai/correctness/cpp/main_stored_lane.o
+[test] clang++ tests/bonsai/correctness/cpp/main_stored_lane.o tests/bonsai/correctness/cpp/stored_lane.o -o tests/bonsai/correctness/cpp/stored_lane
+[test] ./tests/bonsai/correctness/cpp/stored_lane
+15
+20
+12
+6
+22

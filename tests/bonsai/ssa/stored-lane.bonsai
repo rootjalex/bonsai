@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// An extern is storage nothing in the program writes -- the host filled it
+// before the program ran and holds it still while it runs -- and its type
+// says so: `const vector[f32, 8][]` (Type::is_readonly; the parser marks
+// every extern, the layout lowering every layout group). What that permits
+// (SSA/Simplify.cpp, the ExtractIdx rules):
+//
+// `pick`: a lane of a stored vector at a lane only known when it runs is
+// read from the storage -- `load(@n)` at the lane's address, the row
+// reinterpreted as `const f32[8]` and stepped into -- rather than the
+// vector loaded whole and the lane taken out of the register, which no
+// instruction does at a run-time index, so the register went through the
+// stack. A traversal's `children[i]` with `i` the low bits of a sorted key
+// is this read; Embree's `node->child(i)`.
+//
+// `first`: lane 0 of a compress nothing else reads is the lane the mask's
+// lowest set bit names, `ctz` of the mask as an integer, and then the read
+// above: a traversal's one-hit arm, Embree's `bsf` and `node->child(r)`.
+//
+// `two`: a compress read at two lanes is made, and both lanes come off its
+// register. `third`: a lane known at compile time comes off the register
+// too, one instruction, with nothing to gain from a load.
+//
+// backends/llvm/stored-lane.bonsai has the loads marked invariant;
+// correctness/cpp/stored_lane.bonsai runs them.
+
+extern rows : array[vector[f32, 8]];
+
+func [[export]] pick(i : u32, lane : u32) -> f32 {
+    return rows[i][lane];
+}
+
+func [[export]] first(i : u32, m : vector[u32, 8]) -> f32 {
+    return compress(rows[i], m != 0u)[0u];
+}
+
+func [[export]] two(i : u32, m : vector[u32, 8]) -> f32 {
+    c = compress(rows[i], m != 0u);
+    return c[0u] + c[1u];
+}
+
+func [[export]] third(i : u32) -> f32 {
+    return rows[i][2u];
+}
