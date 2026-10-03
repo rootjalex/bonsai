@@ -2001,6 +2001,83 @@ correctness/llvm/inline-names; commit 301a11e1).
 against Embree, now that the chain has changed; then item 5, the
 constant-interval analysis for the key's sign flip.
 
+## The kernels counted again after item 4 (2026-10-03)
+
+The profile of the night of 2026-10-02 redone on the committed compiler
+(a3c16034): ganesha's ao rays, `--side 2048`, cpu 11 quiet, the driver
+built with the matching schedule and kept (scratchpad build_rtq.sh), one
+`perf record` per kernel and event -- AMD IBS at one sample per 100003
+dispatched-and-retired ops (`ibs_op/cnt_ctl=1/`, no skid, so a block's
+sample count is its execution count times its op count) and `cycles:u`
+at one per 200003 -- and `perf annotate -n` read per block (scratchpad
+blocks.py; `annot-*`, `*-ibs-*.lst`, `ibs-tables.txt`). Embree's intersect
+symbol in the any-hit run holds the untimed primary pass alone, and that
+is taken off its counts in the nearest-hit run, instruction by
+instruction.
+
+**The same nodes.** The node test's instructions run once per node
+visit and are one op each, so their mean sample count is the visits:
+nearest hit 712.2 ours against 710.9 Embree, any hit 675.7 against
+678.9. Pops 265 against 267, leaves 127 against 138. The two traversals
+visit the same nodes, as the agreement check says they must, and every
+number below is per node visit on that count.
+
+**Ops and cycles per node visit**, ours against Embree's:
+
+| | nearest hit, ops | nearest hit, cycles | any hit, ops | any hit, cycles |
+|---|---:|---:|---:|---:|
+| ray setup and epilogue | 8.0 vs 7.3 | 3.4 vs 3.9 | 7.7 vs 7.6 | 4.5 vs 4.3 |
+| pop and the kind dispatch | 4.2 vs 2.9 | 5.2 vs 4.5 | 2.1 vs 1.4 | 5.0 vs 3.5 |
+| node test | 25.5 vs 23.1 | 26.1 vs 25.9 | 25.4 vs 22.0 | 26.2 vs 29.5 |
+| after the test, and the one-hit descent | 15.4 vs 14.8 | 16.7 vs 17.4 | 15.2 vs 11.1 | 17.4 vs 15.2 |
+| the sorted arms (nearest) / the pushes (any) | 9.9 vs 5.7 | 13.4 vs 7.3 | 6.6 vs 2.9 | 9.6 vs 5.1 |
+| leaf | 11.9 vs 13.8 | 19.9 vs 22.2 | 11.7 vs 11.9 | 19.3 vs 20.9 |
+| **total** | **75.2 vs 67.5** | **84.9 vs 81.2** | **68.8 vs 57.0** | **82.0 vs 78.4** |
+
+Nearest hit: 1.11x the ops (1.35x before the arms, 1.64x before that),
+1.046x the cycles, 0.89 against 0.83 instructions per cycle. Any hit:
+1.21x the ops, 1.046x the cycles. The cycles are the measured rates
+within the sampling's own cost.
+
+**Where the cycles are.** In the nearest hit the node test is level
+(26.1 against 25.9: our two extra ops there -- the separate `tNear <
+best` compare where Embree folds the best into `tFar`'s min as
+`ray.tfar`, the `addq` that makes an address of an offset reference,
+and one `vmovaps 0xc0(%rsp)` reload of a broadcast the allocator
+spilled -- cost no time), the leaf is in our favour by 2.3, the pop and
+the after-test path are within one, and the whole gap and more, 6.1
+cycles of the 3.7, sits in the sorted arms: 13.4 against 7.3. Those
+arms are now the sequence Embree runs, so what is left is what each
+executes before it: our keys are five ops -- distmin's `select(hit,
+tNear, inf)`, then the sign flip's `vandps`, `vpmovd2m` and masked
+`vxorps`, then `vorps` with the lane -- where Embree's `distance_i` is
+one `vpternlogd`, and the second child's prefetch waits on the compress
+(`vpextrq $1`, 6.1 cycles in its block against 1.8 ops). The chain from
+the mask to the near child's address runs blend, and, mask move, xor,
+or, compress, extract, cmp/cmov, and, load; Embree's runs ternlog,
+compress, permute, move. Item 5 takes the three flip ops out of it, and
+the `vpmovd2m` is the costly one (a vector-to-mask move on the chain);
+a rule `compress(select(c, x, y), m)` -> `compress(x, m)` where `m`
+implies `c` (the live mask is `hit && nearer`) takes the blend out, the
+compress's rest being unspecified anyway. In the any hit the node test
+is in our favour by 3.3 cycles, and the after-test path and the pushes
+cost 6.7 more: the one compacting store of the waiting children
+(`lzcnt`, `xorb $7`, `vpbroadcastd`, `vpcmpneqd`, `vpcompressq`, a
+64-byte store: 9.6 cycles) against Embree's loop of scalar pushes by
+`tzcnt` and `blsr` (5.1), and `vpandq`/`vpaddq` making addresses of the
+eight references before the prefetch where Embree's children are
+pointers already.
+
+**Candidates this leaves, in order.** Item 5 as ruled (the flip), with
+the dead blend's rule beside it. The any hit's pushes as scalar pushes
+by the count, the way the nearest hit's arms became (a `tzcnt`/`blsr`
+run, or arms by count without a sort). The best folded into the box
+test's `tFar` in place of `r.tfar` (the query's carried bound is the
+ray's far plane; one compare for two). References as pointers would
+take `addq`, `vpandq` and `vpaddq` out of every visit, but a reference
+is an index by design (it relocates; see the layout notes), so that
+stays as it is.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also
