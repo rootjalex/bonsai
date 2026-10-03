@@ -16,7 +16,13 @@
 // traces each with both sides, checks that they agree, and times them, each
 // the least of several runs after a warm-up, both sides on one thread: the
 // program's parfor over the rays is unbound by the schedule, a plain loop,
-// and Embree's rays go through a plain loop of rtcIntersect1.
+// and Embree's rays go through a plain loop of rtcIntersect1 over an array
+// of its ray structs made before the clock starts and reset between runs
+// off the clock (a struct written field by field just before the call
+// stalls Embree's first load of it, which is the driver's cost, not the
+// traversal's). The tree's storage is mapped the way Embree maps its own
+// (os_malloc: 2 MB pages where the kernel gives them), so that the two
+// traversals pay the same for their page walks.
 //
 // Embree's traversal is the reference for what the schedule should cost;
 // its answers are the reference for what the program should compute.
@@ -30,6 +36,7 @@
 #include <embree4/rtcore_builder.h>
 
 #include <sched.h>
+#include <sys/mman.h>
 #include <zlib.h>
 
 #include <algorithm>
@@ -578,12 +585,100 @@ void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
     b.rows.swap(moved);
 }
 
+// Memory mapped as Embree maps its own tree's (common/sys/alloc.cpp,
+// os_malloc, which its FastAllocator takes every block from): a 2 MB huge
+// page mapping where the size wastes at most 1.5% of the last page and the
+// system has pages set aside (MAP_HUGETLB), else a plain mapping advised
+// for transparent huge pages (MADV_HUGEPAGE), which is what Embree gets on
+// a machine with none set aside -- and this machine's kernel backs it with
+// 2 MB pages. The same calls, so the two trees sit on the same page size
+// and pay the same for their TLB; with the arena in a std::vector, on 4 KB
+// pages, it took thirteen times Embree's TLB reloads (PLAN.md).
+struct OsMemory {
+    void *ptr = nullptr;
+    size_t bytes = 0;
+    bool hugepages = false;
+
+    OsMemory() = default;
+    OsMemory(const OsMemory &) = delete;
+    OsMemory &operator=(const OsMemory &) = delete;
+    OsMemory(OsMemory &&o) noexcept : ptr(o.ptr), bytes(o.bytes), hugepages(o.hugepages) {
+        o.ptr = nullptr;
+        o.bytes = 0;
+    }
+    OsMemory &operator=(OsMemory &&o) noexcept {
+        if (this != &o) {
+            release();
+            ptr = o.ptr;
+            bytes = o.bytes;
+            hugepages = o.hugepages;
+            o.ptr = nullptr;
+            o.bytes = 0;
+        }
+        return *this;
+    }
+    ~OsMemory() { release(); }
+
+    void allocate(size_t n) {
+        release();
+        constexpr size_t kPage2M = size_t(2) << 20, kPage4K = 4096;
+        bytes = n;
+        if (n == 0) {
+            return;
+        }
+        // RTQ_PAGES=4k asks for plain pages instead, for measuring what the
+        // page size is worth; Embree's tree keeps its own.
+        const char *pages = std::getenv("RTQ_PAGES");
+        const bool plain = pages != nullptr && std::string(pages) == "4k";
+        if (plain) {
+            void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+                           -1, 0);
+            if (p == MAP_FAILED) {
+                throw std::bad_alloc();
+            }
+            madvise(p, n, MADV_NOHUGEPAGE);
+            ptr = p;
+            return;
+        }
+        // Embree's isHugePageCandidate: at most 1.5% of the last page wasted.
+        const size_t hbytes = (n + kPage2M - 1) & ~(kPage2M - 1);
+        if (66 * (hbytes - n) < n) {
+            void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+            if (p != MAP_FAILED) {
+                ptr = p;
+                hugepages = true;
+                return;
+            }
+        }
+        void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+                       -1, 0);
+        if (p == MAP_FAILED) {
+            throw std::bad_alloc();
+        }
+        ptr = p;
+        hugepages = false;
+        madvise(p, n, MADV_HUGEPAGE);
+        (void)kPage4K;
+    }
+    void release() {
+        if (ptr != nullptr) {
+            // Embree's os_free: the length rounded to the page size mapped.
+            const size_t page = hugepages ? (size_t(2) << 20) : 4096;
+            munmap(ptr, (bytes + page - 1) & ~(page - 1));
+        }
+        ptr = nullptr;
+        bytes = 0;
+        hugepages = false;
+    }
+};
+
 struct Tree {
     std::unique_ptr<Building> building;
     _tree_layout0 layout{};
     // The one storage: every node row and every leaf block, at the offsets
     // the references carry.
-    std::vector<uint8_t> arena;
+    OsMemory arena;
     bonsai_buffer arena_buffer{};
     uint64_t nodes = 0, leaves = 0, blocks = 0, leaf_prims = 0;
 };
@@ -714,16 +809,11 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     const auto block_offset = [&](uint64_t block) {
         return rows_bytes + block * sizeof(TriangleBlock);
     };
-    // Aligned to a cache line, as Embree's allocator blocks are, so that a
+    // Mapped as Embree maps its blocks (OsMemory above): page-aligned, so a
     // row's offsets keep Embree's alignment (32 bytes for a node, 16 for a
-    // block): the vector is over-allocated and the arena begins at its first
-    // 64-byte boundary.
-    constexpr uint64_t kArenaAlign = 64;
-    tree.arena.assign(total + kArenaAlign, 0);
-    uint8_t *const arena =
-        tree.arena.data() +
-        ((kArenaAlign - reinterpret_cast<uintptr_t>(tree.arena.data()) % kArenaAlign) %
-         kArenaAlign);
+    // block), and zero-filled by the kernel.
+    tree.arena.allocate(total);
+    uint8_t *const arena = static_cast<uint8_t *>(tree.arena.ptr);
     for (uint64_t row = 0; row < tree.nodes; row++) {
         NodeRow n = b.rows[row];
         for (int i = 0; i < 8; i++) {
@@ -870,24 +960,58 @@ RTCRayHit to_rayhit(const Ray &r) {
 }
 
 // Embree over a batch: rtcIntersect1 per ray, one plain loop, as the
-// program's parfor over its rays is.
-void embree_intersect(RTCScene scene, const std::vector<Ray> &rays,
-                      std::vector<RTCRayHit> &hits) {
+// program's parfor over its rays is. The array of Embree's ray structs is
+// made once, before the clock starts, and what a query writes -- the hit,
+// and tfar, which a query shortens -- is reset between runs, off the clock:
+// a struct written field by field right before the call makes Embree's
+// first 16-byte load of it wait on the stores (a load across several fresh
+// narrow stores is not forwarded), which cost its kernel 9% of its cycles
+// on primary rays and is the driver's doing, not the traversal's.
+void embree_rayhits(const std::vector<Ray> &rays, std::vector<RTCRayHit> &hits) {
     hits.resize(rays.size());
     for (size_t i = 0; i < rays.size(); i++) {
         hits[i] = to_rayhit(rays[i]);
-        rtcIntersect1(scene, &hits[i]);
     }
 }
 
-void embree_occluded(RTCScene scene, const std::vector<Ray> &rays,
-                     std::vector<uint32_t> &blocked) {
+void reset_rayhits(const std::vector<Ray> &rays, std::vector<RTCRayHit> &hits) {
+    for (size_t i = 0; i < rays.size(); i++) {
+        hits[i].ray.tfar = rays[i].tfar;
+        hits[i].hit.geomID = RTC_INVALID_GEOMETRY_ID;
+        hits[i].hit.primID = RTC_INVALID_GEOMETRY_ID;
+    }
+}
+
+void embree_intersect(RTCScene scene, std::vector<RTCRayHit> &hits) {
+    for (RTCRayHit &rh : hits) {
+        rtcIntersect1(scene, &rh);
+    }
+}
+
+void embree_rays(const std::vector<Ray> &rays, std::vector<RTCRay> &out) {
+    out.resize(rays.size());
+    for (size_t i = 0; i < rays.size(); i++) {
+        out[i] = to_rayhit(rays[i]).ray;
+    }
+}
+
+void reset_rays(const std::vector<Ray> &rays, std::vector<RTCRay> &out) {
+    for (size_t i = 0; i < rays.size(); i++) {
+        out[i].tfar = rays[i].tfar;
+    }
+}
+
+void embree_occluded(RTCScene scene, std::vector<RTCRay> &rays) {
+    for (RTCRay &ray : rays) {
+        rtcOccluded1(scene, &ray);
+    }
+}
+
+// Embree: an occluded ray has its tfar set to -inf.
+void blocked_of(const std::vector<RTCRay> &rays, std::vector<uint32_t> &blocked) {
     blocked.resize(rays.size());
     for (size_t i = 0; i < rays.size(); i++) {
-        RTCRay ray = to_rayhit(rays[i]).ray;
-        rtcOccluded1(scene, &ray);
-        // Embree: an occluded ray has its tfar set to -inf.
-        blocked[i] = ray.tfar < 0.0f ? 1u : 0u;
+        blocked[i] = rays[i].tfar < 0.0f ? 1u : 0u;
     }
 }
 
@@ -931,19 +1055,27 @@ std::string allowed_cpus() {
 }
 
 // Seconds for `f`, the least of `repeats` runs after one unmeasured warm-up
-// (bonsai-benchmark-repeats: never one run).
-template <typename F>
-double timed(int repeats, F &&f) {
+// (bonsai-benchmark-repeats: never one run), `setup` run before each off
+// the clock.
+template <typename S, typename F>
+double timed(int repeats, S &&setup, F &&f) {
     using clock = std::chrono::steady_clock;
+    setup();
     f();
     double best = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
+        setup();
         const auto start = clock::now();
         f();
         const auto end = clock::now();
         best = std::min(best, std::chrono::duration<double>(end - start).count());
     }
     return best;
+}
+
+template <typename F>
+double timed(int repeats, F &&f) {
+    return timed(repeats, [] {}, std::forward<F>(f));
 }
 
 // The distance along the ray to a triangle, in double precision, for
@@ -1104,7 +1236,8 @@ int main(int argc, char **argv) {
     // The ray sets: the camera's, then from what it saw.
     const std::vector<Ray> primary = primary_rays(mesh, side);
     std::vector<RTCRayHit> primary_hits;
-    embree_intersect(scene, primary, primary_hits);
+    embree_rayhits(primary, primary_hits);
+    embree_intersect(scene, primary_hits);
     const std::vector<Ray> ao = secondary_rays(primary, primary_hits, mesh, 0.1f, 1);
     const std::vector<Ray> diffuse = secondary_rays(primary, primary_hits, mesh, 0.0f, 2);
 
@@ -1123,11 +1256,14 @@ int main(int argc, char **argv) {
             continue;
         }
         std::vector<RTCRayHit> embree_hits;
+        std::vector<RTCRay> embree_rays_of;
         std::vector<uint32_t> embree_blocked, our_hits, our_blocked;
 
         if (only_query.empty() || only_query == "intersect") {
-            const double te =
-                timed(repeats, [&] { embree_intersect(scene, rays, embree_hits); });
+            embree_rayhits(rays, embree_hits);
+            const double te = timed(
+                repeats, [&] { reset_rayhits(rays, embree_hits); },
+                [&] { embree_intersect(scene, embree_hits); });
             const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
             const Agreement hit = compare_hits(mesh, rays, embree_hits, our_hits);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
@@ -1139,8 +1275,11 @@ int main(int argc, char **argv) {
         }
 
         if (only_query.empty() || only_query == "occluded") {
-            const double oe =
-                timed(repeats, [&] { embree_occluded(scene, rays, embree_blocked); });
+            embree_rays(rays, embree_rays_of);
+            const double oe = timed(
+                repeats, [&] { reset_rays(rays, embree_rays_of); },
+                [&] { embree_occluded(scene, embree_rays_of); });
+            blocked_of(embree_rays_of, embree_blocked);
             const double ob =
                 timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
             const Agreement occ = compare_occluded(embree_blocked, our_blocked);

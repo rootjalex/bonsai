@@ -1329,6 +1329,153 @@ order above; 1 and 2 are where the incoherent-ray gap mostly is, and
 each is measured on head, ganesha and dragon against gen27 as the
 earlier fixes were.
 
+## The generic ones built, the driver made fair, and what is not generic (later on 2026-10-02)
+
+The user asked for the generic compiler optimizations in the list to be
+implemented, the allocation to match Embree's exactly, and the rest
+named with the clean way to do them. Built, with tests at the IR, LLVM
+and execution levels, the full suite at 1266 of 1266:
+
+1. **A run of one call is a call** (SSA/SortRecursion.cpp,
+   SSA/QueueRecursion.cpp). The sorted run's count switch has two new
+   arms: zero hits go straight to what follows the run (the pop), not
+   through the join's permutes; one hit is a `Terminator::Call` whose
+   varying arguments are lane 0 of each vector packed by the mask
+   (`compress` + `extract 0`), which loopify takes straight to the
+   child with nothing written to the stack. The lane run (any hit) is
+   dispatched the same way, a switch on the count with a one-hit arm
+   (`compress(children, mask)[0]`) in place of the `lzcnt`, the
+   compacting store of nothing and the spill-and-reload extract. On x86
+   the one-hit path of the nearest hit is now `vpcompressq; vmovq` for
+   the child and `vcompressps; vucomiss` for its key and the cull.
+2. **A call to a callee safe with every lane off needs no test**
+   (SSA/Linearize.cpp, SSA/Linearize.h, SSA/Vectorize.cpp):
+   `safe_with_all_lanes_off`, ispc's SafeToRunWithMaskAllOff applied
+   through a call -- nothing in the callee touches memory but its own
+   locals and the result slots its caller passes it, no effect, no
+   loop over lanes, callees likewise -- and `must_skip` no longer
+   forces a gadget for such a call, nor `specialize_calls` a test of
+   its own. Two refinements the slab test needed on the way: a lane
+   extract from a value in registers (a node's eight boxes at the
+   lane's index) is not memory, since LLVM clamps the index where it
+   goes through a stack slot; and a load at an address no lane had a
+   hand in (`lane_independent`: uniform parameters, constants,
+   arithmetic and loads over them, never a reduction's result) is
+   valid whether or not a lane is on -- the accumulator's bound, the
+   node's row. With these the slab test's `intersects && distmin <
+   bound` is one compare, one `kortest` and one branch per node, as
+   Embree's, where it was two of each and a `kxorb`.
+3. **The sort's +inf blend** only in the all-lanes arm
+   (SSA/SortRecursion.cpp): the compress drops the misses.
+4. **No zero idiom before a compress nothing reads past the count**
+   (CodeGen_LLVM::compress_lanes, `zero_rest`): the prefetch's and the
+   slack store's take a poison passthru.
+5. **The arena mapped as Embree maps its blocks** (rtq_hook.cpp,
+   OsMemory): Embree's `os_malloc` call for call -- `MAP_HUGETLB`
+   where the size wastes under 1.5% of a 2 MB page and the system has
+   pages set aside, else a plain mapping with `MADV_HUGEPAGE`, which
+   is what Embree gets here (`hugepages = enabled` in its report, THP
+   in madvise mode) -- and freed as `os_free` does. `RTQ_PAGES=4k`
+   keeps plain pages for measuring the difference.
+6. **The driver made fair**: Embree's ray structs are made before the
+   clock and reset between runs off it (`timed` takes a setup), where
+   each was written field by field right before `rtcIntersect1` and
+   Embree's first 16-byte load of it waited on the stores.
+
+**What the fairness fix was worth to Embree** (its own rates, million
+rays per second, old driver to new, cpu 11): head primary 38.3 to
+63.9 (+67%), any hit 45.0 to 84.9 (+89%); ao 13.6 to 15.7 and 15.0
+to 17.8; ganesha primary 19.1 to 24.1 (+26%) and 21.5 to 29.3 (+36%),
+ao 6.1 to 6.6 and 6.5 to 7.2; dragon primary 25.7 to 34.4 (+34%) and
+27.4 to 38.3 (+40%), ao 4.4 to 4.7 and 4.7 to 5.1. So the earlier
+tables' primary-ray ratios above 1.0x were the driver's artifact, not
+the traversal's; the incoherent ones were off by a tenth. Every table
+before this section carries that; the ones from here on do not.
+
+**The compiler change alone** (our rates, gen27/gen26 to gen29/gen30,
+both on 4 KB pages, million rays per second, primary/ao/diffuse):
+
+| mesh    | nearest hit                     | any hit, matching               | any hit, tuned                  |
+|---------|----------------------------------|---------------------------------|---------------------------------|
+| head    | 44.1/10.0/9.1 to 51.2/12.8/11.4 (+16/+28/+24%) | 82.6/14.8/13.5 to 84.9/15.9/14.5 (+3/+8/+7%) | 80.0/16.2/14.8 to 83.4/17.4/15.8 (+4/+8/+7%) |
+| ganesha | 17.6/4.78/4.47 to 19.9/5.62/5.18 (+13/+18/+16%) | 25.2/6.02/5.15 to 26.1/6.38/5.42 (+3/+6/+5%) | 25.2/6.35/5.36 to 26.2/6.73/5.65 (+4/+6/+5%) |
+| dragon  | 27.9/3.66/3.27 to 29.6/4.11/3.63 (+6/+12/+11%) | 34.0/4.31/3.81 to 34.5/4.54/3.98 (+2/+5/+4%) | 33.6/4.53/3.97 to 34.2/4.78/4.19 (+2/+6/+6%) |
+
+Ops per node visit on ganesha's ao rays (IBS, as above): nearest hit
+105 to 88 against Embree's 65, any hit 81 to 73 against 54. **The
+pages** (gen29, 4 KB to Embree's 2 MB): head level; ganesha +1.3/+2.5/
++3.3% nearest hit and +3.4% any hit on ao; dragon +2.3/+3.6/+4.1% and
++4.4% -- more than the 1% the TLB counts suggested, the page walks
+being on the critical path of a dependent chain of misses.
+
+**The official table** (18:45, `compare.sh --side 2048`, the new
+driver, cpu 11 quiet, least of 5, million rays per second; the nearest
+hit is the tuned schedule's too):
+
+| mesh (triangles)    | rays    | intersect: Embree | bonsai | ratio | occluded: Embree | embree.bonsai | ratio | tuned.bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 64.11 | 51.42 | 0.80x | 85.99 | 85.25 | 0.99x | 82.54 | 0.96x |
+|                     | ao      | 15.73 | 12.81 | 0.81x | 17.87 | 15.95 | 0.89x | 17.25 | 0.97x |
+|                     | diffuse | 14.02 | 11.41 | 0.81x | 16.31 | 14.50 | 0.89x | 15.70 | 0.96x |
+| ganesha (4,323,658) | primary | 24.11 | 20.22 | 0.84x | 29.38 | 26.67 | 0.91x | 26.65 | 0.91x |
+|                     | ao      |  6.65 |  5.76 | 0.87x |  7.25 |  6.59 | 0.91x |  6.97 | 0.96x |
+|                     | diffuse |  6.19 |  5.34 | 0.86x |  6.20 |  5.68 | 0.92x |  5.91 | 0.96x |
+| dragon (7,219,045)  | primary | 34.61 | 30.34 | 0.88x | 38.37 | 35.50 | 0.93x | 35.10 | 0.91x |
+|                     | ao      |  4.71 |  4.26 | 0.90x |  5.11 |  4.76 | 0.93x |  5.00 | 0.97x |
+|                     | diffuse |  4.19 |  3.79 | 0.90x |  4.53 |  4.19 | 0.93x |  4.40 | 0.97x |
+
+**What is not a generic rewrite, and the clean way to each:**
+
+- *The cull of the child descended into* (item 4). The argmin's prune
+  test sits at the head of the loop body, which both the pop and the
+  direct descent enter, so the child the node test just proved under
+  the bound is tested again (`vucomiss; ja` in the one-hit arm). The
+  clean fix is in loopify: the body gets two entries, the pop's at the
+  test and the descent's past it, which is sound where the run's lane
+  condition includes the compare of the same key against the same
+  bound -- a fact the sorted run can carry (SortedRun gains the
+  condition's compare) rather than one to rediscover by threading.
+- *The sort key's sign flip* (item 3, the rest). The keys are the
+  masked gang variant of `distmin`'s result, a call's return, so
+  "non-negative" has to cross a function boundary: an interprocedural
+  range summary of return values (returns non-negative: `max(.., c >=
+  0)`, `abs`, `inf`, selects of such), plus the program clamping
+  `tnear` and `tfar` to zero at the ray's setup as Embree's TravRay
+  does. Two instructions per multi-hit node; and the `(bits & ~7) |
+  lane` as one `vpternlogd` is LLVM's to form once both constants sit
+  in registers, which its allocation here declines.
+- *The any hit's found flag* (item 6a). The quantifier's early exit
+  is the monotone accumulator's `alive` argument into the loop head,
+  tested there once per node and once per leaf tile. The clean fix is
+  an SSA simplification: an edge whose argument is a constant that
+  decides the target's first dispatch is threaded past it. General,
+  small, and not written yet.
+- *A lane extract at a run-time index from a vector loaded from
+  storage the function never writes* (item 6b) is a scalar load at
+  the lane's address, Embree's `movq (%rax,%rdi,8)`. The one-hit arm
+  removed the common case; the push block of two or more hits still
+  spills and reloads. The clean rule needs the backend to know the
+  storage is never written here -- the layout's groups are read-only
+  unless `mut`, a fact the SSA's pointer types do not carry yet.
+- *The waiting-lane mask from the count* (item 5): the scalar form is
+  as many ops as the vector compare; dropped.
+- *The relooper*: with arms that leave the count switch differently,
+  CodeGen_Stmt now duplicates the sort's join into each network arm
+  (the `ssa/*` goldens grew by about 80 lines); the LLVM path is
+  direct and unaffected. A switch whose arms `break` to a shared tail
+  is the structure to recognise.
+- *Two zero idioms per one-hit node* remain on the SSA-level
+  compresses (the children's and the key's), whose rest nothing
+  reads; a "don't care" on `ir::Intrinsic::compress` would drop them.
+
+What remains per node against Embree's one-hit case (`vpcompressd;
+vpermt2q; vmovq` and its prefetch): our two compresses and two
+extracts for the child and its key, the redundant cull, the base add,
+the key's +inf select the program writes (`distmin`'s), and the
+prefetch's own compress of the addresses. The matching schedule's
+leaf skip and the sort-free run's shape are the rest of the any hit's
+1.28x ops.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

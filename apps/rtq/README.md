@@ -84,6 +84,16 @@ can land on unlike cores; it is not the comparison. `RTQ_CPUS=9` pins to
 that CPU instead. The driver prints the CPUs it was left at the top of its
 output.
 
+The tree's storage is mapped the way Embree's allocator maps its own
+(`os_malloc`: 2 MB huge pages where the system has them set aside, else a
+plain mapping advised for transparent huge pages, which this machine backs
+with 2 MB pages), so the two traversals pay the same for their page walks;
+`RTQ_PAGES=4k` maps it on plain pages instead, for measuring what the page
+size is worth. Embree's rays are converted to its structs before the clock
+starts and reset between runs off the clock: a struct written field by
+field right before `rtcIntersect1` stalls Embree's first load of it, which
+is the driver's cost, not the traversal's.
+
 The table it prints, per batch and query: rays, million rays per second for
 each side, the speedup (Embree's time over ours), and the agreement counts.
 `--embree-stats` asks Embree to print its own tree's statistics (node and

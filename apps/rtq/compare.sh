@@ -38,7 +38,8 @@ set -euo pipefail
 # default the first of `build`, `build-*` that CMake has configured with the
 # LLVM the compiler needs, which is said when it is picked); BONSAI_CXX a
 # clang++ (default `clang++`; the generated header needs clang's
-# ext_vector_type); RTQ_CPUS as above.
+# ext_vector_type); RTQ_CPUS as above; RTQ_PAGES=4k maps the tree's storage
+# on plain pages instead of Embree's 2 MB ones (see rtq_hook.cpp, OsMemory).
 if [[ "$(pwd)" == */apps/rtq ]]; then
   cd ../..
 fi
