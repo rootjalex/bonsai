@@ -320,7 +320,16 @@ element TriangleHit {
 // is permuted into z, and the vertices are sheared so that the edge tests are
 // exact in sign. The error bounds at the end are pbrt's, and they are what
 // keeps a ray from slipping between two triangles that share an edge.
-func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit] {
+//
+// `strict` says whether a candidate is refused where pbrt's test refuses it
+// -- outside the triangle by the edge signs, behind the ray or past tmax,
+// or nearer than its error bound allows -- which is the test for a ray
+// looking for a hit (triangle_hit). With it false only a degenerate triangle
+// or a ray in its plane is refused, and the answer is where the ray meets
+// the plane in the triangle's barycentrics: what the geometry of a hit the
+// hardware already reported is read from (surface_geometry).
+func [[inline]] triangle_test(ray : Ray, tmax : Float, tri : Triangle,
+                              strict : bool) -> option[TriangleHit] {
     p0 = triangle_p(tri, 0u);
     p1 = triangle_p(tri, 1u);
     p2 = triangle_p(tri, 2u);
@@ -367,7 +376,7 @@ func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit
     // TODO: pbrt falls back to double precision when an edge function is
     // exactly zero, which is where a ray meets a shared edge.
 
-    if ((e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0))
+    if (strict && (e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0))
         return {};
     det = e0 + e1 + e2;
     if (det == 0)
@@ -378,9 +387,9 @@ func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit
     p2t.z *= Sz;
 
     tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
-    if (det < 0 && (tScaled >= 0 || tScaled < tmax * det))
+    if (strict && det < 0 && (tScaled >= 0 || tScaled < tmax * det))
         return {};
-    else if (det > 0 && (tScaled <= 0 || tScaled > tmax * det))
+    else if (strict && det > 0 && (tScaled <= 0 || tScaled > tmax * det))
         return {};
 
     invDet = 1 / det;
@@ -397,12 +406,17 @@ func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit
     deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
     maxE = max(abs(vec3f{e0, e1, e2}));
     deltaT = 3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * abs(invDet);
-    if (t <= deltaT)
+    // EXPERIMENT: the hardware's acceptance -- t past 1e-7 and no error bound.
+    if (strict && t <= 0.0000001)
         return {};
 
     hit : TriangleHit = {t, vec3f{e0 * invDet, e1 * invDet, e2 * invDet}};
     return hit;
 }
+
+// pbrt: IntersectTriangle as a ray asks it, every refusal in force.
+func triangle_hit(ray : Ray, tmax : Float, tri : Triangle) -> option[TriangleHit] =
+    triangle_test(ray, tmax, tri, true);
 
 // The distance alone, which is all the tree query needs.
 func triangle_t(ray : Ray, tmax : Float, tri : Triangle) -> option[Float] {
@@ -1077,6 +1091,36 @@ func offset_ray_origin(p : vec3f, p_error : vec3f, n : vec3f,
                select(offset.y < 0.0, next_float_down(po.y), po.y)),
         select(offset.z > 0.0, next_float_up(po.z),
                select(offset.z < 0.0, next_float_down(po.z), po.z))};
+}
+
+// Whether a hit the traversal reported is one pbrt's own test refuses --
+// behind the ray, past its bound, or nearer than the error bound allows.
+// The RT cores' triangle test has no such bound: a ray spawned off a face is
+// pushed out by pbrt's per-component error, and where the face lies near a
+// coordinate plane of render space (pbrt's camera-centred world) that push
+// is a few ulps of a small coordinate while the hardware rounds at the scale
+// of the face's largest ones, so it hands the ray the face it just left at a
+// distance of zero. pbrt's CPU drops that hit by its bound; pbrt's GPU does
+// not and loops forever re-spawning there, and so did this renderer. Only a
+// triangle can be refused this way: the other shapes are tested by this
+// program's own code, which already refuses as pbrt refuses.
+func hit_refused(sh : Shape, r : Ray) -> bool {
+    match sh {
+        Tri(tri) => return !cast[[bool]](triangle_hit(r, inf, tri));
+        Sph(s) => return false;
+        Dsk(d) => return false;
+        Blp(b) => return false;
+    }
+}
+
+// The origin for a ray leaving a surface the hardware re-found (hit_refused):
+// pbrt's offset, with the error bound taken at the scale of the point's
+// largest coordinate on every axis rather than per axis, which is the scale
+// the hardware's test rounds at. The push clears the surface; every other
+// spawn keeps pbrt's own bound and is pbrt's to the bit.
+func wide_error(p : vec3f) -> vec3f {
+    e = gamma(7) * max(max(abs(p.x), abs(p.y)), abs(p.z));
+    return vec3f{e, e, e};
 }
 
 // pbrt: Interaction::SpawnRay. The geometric normal rather than the shading
@@ -2388,6 +2432,18 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             hit = triangle_hit(r, inf, tri);
             if hit {
                 return triangle_geometry(tri, (*hit).b);
+            }
+            // The shape is the query's hit, so this is a hit the hardware's
+            // test reported and pbrt's software test refuses -- nearer than
+            // its error bound allows, or on an edge the two tests round apart
+            // (the RT cores report from 1e-7 on, as pbrt's do). The geometry
+            // is still this triangle's at the ray's point in its plane: the
+            // same projection without the refusals. Answering `missed` here
+            // put the hit at the ray's own origin, and a shadow ray crossing
+            // a medium boundary re-spawned from there forever.
+            lax = triangle_test(r, inf, tri, false);
+            if lax {
+                return triangle_geometry(tri, (*lax).b);
             }
             return missed;
         }

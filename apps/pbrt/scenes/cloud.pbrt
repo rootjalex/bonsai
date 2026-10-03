@@ -1,0 +1,51 @@
+# A procedural cloud: pbrt's `cloud` medium, whose density is Perlin noise --
+# five octaves over the point, twice perturbed by the noise's gradient --
+# thinned with height and clamped to one, over the unit cube at its
+# declaration, inside a sphere with no BSDF; pbrt-v4-scenes/clouds with the
+# sky image replaced by a uniform one, and a floor under it so that the
+# comparison has surfaces to check and shadow rays that cross the cloud. One
+# majorant segment per ray, the coefficients themselves, since the density
+# never exceeds one.
+
+Integrator "volpath"
+    "integer maxdepth" [ 20 ]
+
+LookAt .5 .8 -.5   .5 .7 .5   0 1 0
+Camera "perspective"
+    "float fov" [ 35 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "cloud.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+LightSource "infinite"
+    "rgb L" [ 0.7 0.8 1.0 ]
+    "float scale" [ 0.5 ]
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.3 0.28 0.25 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 -0.6 -20   20 -0.6 -20   20 -0.6 20   -20 -0.6 20 ]
+AttributeEnd
+
+MakeNamedMedium "c"
+    "string type" [ "cloud" ]
+    "spectrum sigma_s" [ 200 10 900 10 ]
+    "spectrum sigma_a" [ 200 .01 900 .01 ]
+    "float density" [ 2 ]
+
+MediumInterface "c" ""
+Material ""
+Translate .5 .5 .5
+Shape "sphere"
+    "float radius" [ 1 ]

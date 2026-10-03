@@ -1707,7 +1707,39 @@ int main(int argc, char **argv) {
     media.reserve(loaded.media.size());
     for (const bonsai_scene::Medium &m : loaded.media) {
         Medium medium;
-        Medium_Homogeneous(medium, m.spectra, m.g, m.emissive != 0);
+        const auto grid = [](const bonsai_scene::GridRef &g) {
+            return Grid3{g.nx, g.ny, g.nz, g.at};
+        };
+        const float3 low{m.low[0], m.low[1], m.low[2]};
+        const float3 high{m.high[0], m.high[1], m.high[2]};
+        switch (m.tag) {
+        case bonsai_scene::MediumTag::Homogeneous:
+            Medium_Homogeneous(medium, m.spectra, m.g, m.emissive != 0);
+            break;
+        case bonsai_scene::MediumTag::UniformGrid:
+            Medium_UniformGrid(medium, m.spectra, m.g, m.emissive != 0, low, high,
+                               to_bonsai(m.render_from_medium),
+                               to_bonsai(m.medium_from_render), grid(m.density),
+                               grid(m.temperature), grid(m.le_scale),
+                               m.temperature_scale, m.temperature_offset,
+                               grid(m.majorant));
+            break;
+        case bonsai_scene::MediumTag::RGBGrid:
+            Medium_RGBGrid(medium, m.g, low, high, to_bonsai(m.render_from_medium),
+                           to_bonsai(m.medium_from_render), grid(m.sigma_a),
+                           grid(m.sigma_s), grid(m.le), m.sigma_scale,
+                           m.le_scale_value, grid(m.majorant));
+            break;
+        case bonsai_scene::MediumTag::Cloud:
+            Medium_Cloud(medium, m.spectra, m.g, low, high,
+                         to_bonsai(m.render_from_medium),
+                         to_bonsai(m.medium_from_render), m.cloud_density,
+                         m.wispiness, m.frequency);
+            break;
+        default:
+            fprintf(stderr, "unknown medium kind %u\n", unsigned(m.tag));
+            return 1;
+        }
         media.push_back(medium);
     }
 
@@ -2638,6 +2670,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_material_normal_map = buffer_of(material_normal_map);
     bonsai_buffer b_media = buffer_of(media);
     bonsai_buffer b_medium_spectra = buffer_of(loaded.medium_spectra);
+    bonsai_buffer b_medium_grid = buffer_of(loaded.medium_grid);
     bonsai_buffer b_rho_uc = buffer_of(rho_uc);
     bonsai_buffer b_rho_ux = buffer_of(rho_ux);
     bonsai_buffer b_rho_uy = buffer_of(rho_uy);
@@ -2709,7 +2742,8 @@ int main(int argc, char **argv) {
         // come in the order the compiler met their declarations, which is
         // render.bonsai's import order, and media.bonsai is imported between
         // those two.
-        &b_media, &b_medium_spectra, &b_primes, &b_digit_permutations,
+        &b_media, &b_medium_spectra, &b_medium_grid, &b_primes,
+        &b_digit_permutations,
         &b_digit_permutation_offsets, &b_sobol_matrices,
         &b_zsobol_permutations, &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
@@ -2800,7 +2834,7 @@ int main(int argc, char **argv) {
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
                &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
-               &b_medium_spectra, &b_primes,
+               &b_medium_spectra, &b_medium_grid, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
                &b_sobol_matrices, &b_zsobol_permutations,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,

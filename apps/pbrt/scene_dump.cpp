@@ -85,6 +85,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -409,14 +410,23 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
                 kind = p->strings[0];
             }
         }
-        if (kind != "homogeneous") {
+        if (kind == "nanovdb") {
+            fail(where(loc) + "MakeNamedMedium \"" + name +
+                 "\" of type \"nanovdb\": a NanoVDB grid is a sparse set of "
+                 "voxels, and how it is stored -- the file's own layout through "
+                 "the layout language, or a re-layout by this converter -- is "
+                 "not decided yet (PLAN.md, \"grid media\"); `homogeneous`, "
+                 "`uniformgrid`, `rgbgrid` and `cloud` convert");
+        }
+        if (kind != "homogeneous" && kind != "uniformgrid" && kind != "rgbgrid" &&
+            kind != "cloud") {
             fail(where(loc) + "MakeNamedMedium \"" + name + "\" of type \"" +
-                 kind + "\": only `homogeneous` media are implemented -- "
-                 "`uniformgrid`, `rgbgrid`, `nanovdb` and `cloud` are the "
-                 "next phases of volpath (PLAN.md)");
+                 kind + "\": PBRT has no such medium");
         }
         MediumInfo info;
         info.name = name;
+        info.ctm = ctm;
+        info.ctm_is_tracked = ctm_is_tracked;
         // The vector holds pointers, so a copy still refers to the parameters
         // the base is about to take; reading them here does not consume them.
         info.params = pbrt::ParameterDictionary(
@@ -492,6 +502,11 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     struct MediumInfo {
         std::string name;
         pbrt::ParameterDictionary params;
+        // The transform at the directive: PBRT's `renderFromMedium` is
+        // render-from-world times this, and a grid medium or a cloud is
+        // placed by it (a homogeneous medium has no place).
+        pbrt::Transform ctm;
+        bool ctm_is_tracked = true;
     };
     std::vector<MediumInfo> media;
     // PBRT's default film, from BasicSceneBuilder's own initialization.
@@ -4696,12 +4711,29 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     }
 
     // A medium a shape's interface or the camera names, converted on first
-    // use as the materials below are. PBRT: HomogeneousMedium::Create -- a
-    // `preset` or the two coefficients (each a constant one when absent),
-    // both scaled by `scale`; `Le` with `Lescale` divided by its photometric
-    // integral, or nothing; and `g`. The spectra are tabulated at the
-    // integer nanometres a DenselySampledSpectrum holds, which is how the
-    // medium keeps them (see Medium in scene_io.h).
+    // use as the materials below are: PBRT's Medium::Create, by `type`.
+    //
+    // Every kind reads sigma_a and sigma_s the same way -- a `preset` for the
+    // homogeneous medium alone, else the two spectra, each a constant one when
+    // absent -- and `g`. The spectra are tabulated at the integer nanometres a
+    // DenselySampledSpectrum holds, which is how PBRT's media keep them (see
+    // Medium in scene_io.h): three runs, sigma_a and sigma_s scaled by `scale`
+    // where the kind's constructor scales them, then Le -- scaled by `Lescale`
+    // over its photometric integral for a homogeneous medium, as given for a
+    // grid whose Lescale is a grid of its own, zeros for a cloud, which emits
+    // nothing.
+    //
+    // A grid medium or a cloud is placed by PBRT's `renderFromMedium`:
+    // render-from-world times the CTM at the MakeNamedMedium
+    // (BasicSceneBuilder::RenderFromObject; the start transform of an animated
+    // one). Both directions are written, the inverse being PBRT's own mInv, so
+    // that the renderer's pull of a ray into the medium's space rounds as
+    // PBRT's ApplyInverse does. The grids go into `out.medium_grid`, and the
+    // majorant grid each constructor builds is built here with PBRT's own
+    // SampledGrid, so that its maxima are PBRT's to the bit: a majorant is part
+    // of the random walk and not only of its cost -- a different bound is a
+    // different sequence of tentative collisions, and a different picture per
+    // pixel.
     std::map<std::string, int32_t> medium_index;
     const auto medium_for = [&](const std::string &name) -> int32_t {
         if (name.empty()) {
@@ -4723,61 +4755,327 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
         pbrt::Allocator alloc;
         const pbrt::ParameterDictionary &params = info->params;
+        const std::string kind = params.GetOneString("type", "");
+        const std::string what = "the " + kind + " medium \"" + name + "\"";
+
+        // The two coefficient spectra of every kind but the rgbgrid, whose
+        // sigma_a and sigma_s are arrays of RGB and are read below.
         pbrt::Spectrum sig_a = nullptr, sig_s = nullptr;
-        const std::string preset = params.GetOneString("preset", "");
-        if (!preset.empty() &&
-            !pbrt::GetMediumScatteringProperties(preset, &sig_a, &sig_s, alloc)) {
-            fail("the medium \"" + name + "\" names the preset \"" + preset +
-                 "\", which PBRT does not have either");
-        }
-        if (!sig_a) {
-            sig_a = params.GetOneSpectrum("sigma_a", nullptr,
-                                          pbrt::SpectrumType::Unbounded, alloc);
+        if (kind != "rgbgrid") {
+            const std::string preset = params.GetOneString("preset", "");
+            if (kind == "homogeneous" && !preset.empty() &&
+                !pbrt::GetMediumScatteringProperties(preset, &sig_a, &sig_s, alloc)) {
+                fail(what + " names the preset \"" + preset +
+                     "\", which PBRT does not have either");
+            }
             if (!sig_a) {
-                sig_a = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+                sig_a = params.GetOneSpectrum("sigma_a", nullptr,
+                                              pbrt::SpectrumType::Unbounded, alloc);
+                if (!sig_a) {
+                    sig_a = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+                }
             }
-        }
-        if (!sig_s) {
-            sig_s = params.GetOneSpectrum("sigma_s", nullptr,
-                                          pbrt::SpectrumType::Unbounded, alloc);
             if (!sig_s) {
-                sig_s = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+                sig_s = params.GetOneSpectrum("sigma_s", nullptr,
+                                              pbrt::SpectrumType::Unbounded, alloc);
+                if (!sig_s) {
+                    sig_s = alloc.new_object<pbrt::ConstantSpectrum>(1.f);
+                }
             }
-        }
-        pbrt::Spectrum le = params.GetOneSpectrum(
-            "Le", nullptr, pbrt::SpectrumType::Illuminant, alloc);
-        pbrt::Float le_scale = params.GetOneFloat("Lescale", 1.f);
-        if (!le || le.MaxValue() == 0) {
-            le = alloc.new_object<pbrt::ConstantSpectrum>(0.f);
-        } else {
-            le_scale /= pbrt::SpectrumToPhotometric(le);
         }
         const pbrt::Float sigma_scale = params.GetOneFloat("scale", 1.f);
 
         bonsai_scene::Medium medium;
-        medium.tag = bonsai_scene::MediumTag::Homogeneous;
-        medium.spectra = uint32_t(out.medium_spectra.size());
         medium.g = params.GetOneFloat("g", 0.f);
+
         // PBRT: DenselySampledSpectrum's constructor, `spec(lambda)` at each
-        // integer wavelength from 360 to 830, then Scale.
-        float le_max = 0.f;
-        for (const auto &[spec, scale] :
-             {std::pair<pbrt::Spectrum, pbrt::Float>{sig_a, sigma_scale},
-              std::pair<pbrt::Spectrum, pbrt::Float>{sig_s, sigma_scale},
-              std::pair<pbrt::Spectrum, pbrt::Float>{le, le_scale}}) {
-            for (int lambda = 360; lambda < 360 + bonsai_scene::kMediumSpectrumSamples;
-                 lambda++) {
-                out.medium_spectra.push_back(
-                    float(spec(pbrt::Float(lambda)) * scale));
+        // integer wavelength from 360 to 830, then Scale. Returns the largest
+        // value of Le's run, for `emissive`.
+        const auto push_spectra = [&](pbrt::Spectrum a, pbrt::Spectrum s,
+                                      pbrt::Spectrum e, pbrt::Float a_scale,
+                                      pbrt::Float e_scale) -> float {
+            medium.spectra = uint32_t(out.medium_spectra.size());
+            float le_max = 0.f;
+            for (const auto &[spec, scale] :
+                 {std::pair<pbrt::Spectrum, pbrt::Float>{a, a_scale},
+                  std::pair<pbrt::Spectrum, pbrt::Float>{s, a_scale},
+                  std::pair<pbrt::Spectrum, pbrt::Float>{e, e_scale}}) {
+                for (int lambda = 360;
+                     lambda < 360 + bonsai_scene::kMediumSpectrumSamples; lambda++) {
+                    out.medium_spectra.push_back(
+                        float(spec(pbrt::Float(lambda)) * scale));
+                }
             }
+            for (int i = 0; i < bonsai_scene::kMediumSpectrumSamples; i++) {
+                le_max = std::max(
+                    le_max,
+                    out.medium_spectra[medium.spectra +
+                                       2 * bonsai_scene::kMediumSpectrumSamples +
+                                       size_t(i)]);
+            }
+            return le_max;
+        };
+        // The box and the transform of a placed medium (every kind but the
+        // homogeneous one).
+        const auto place = [&]() {
+            if (!info->ctm_is_tracked) {
+                fail(what + " is placed by a named coordinate system, which is "
+                            "not supported: scene_dump follows the transform "
+                            "stack itself and does not follow that directive");
+            }
+            const pbrt::Point3f p0 =
+                params.GetOnePoint3f("p0", pbrt::Point3f(0.f, 0.f, 0.f));
+            const pbrt::Point3f p1 =
+                params.GetOnePoint3f("p1", pbrt::Point3f(1.f, 1.f, 1.f));
+            for (int c = 0; c < 3; c++) {
+                medium.low[c] = float(p0[c]);
+                medium.high[c] = float(p1[c]);
+            }
+            const pbrt::Transform render_from_medium =
+                scene.GetCamera().GetCameraTransform().RenderFromWorld() * info->ctm;
+            write_frame(medium.render_from_medium, render_from_medium);
+            // PBRT's `Inverse(t)` is `Transform(t.mInv, t.m)`: the inverse PBRT
+            // itself carries, not one computed again here.
+            write_frame(medium.medium_from_render, pbrt::Inverse(render_from_medium));
+            return pbrt::Bounds3f(p0, p1);
+        };
+        // A grid into the pool, `channels` floats per voxel.
+        const auto push_grid = [&](const std::vector<float> &values, int nx, int ny,
+                                   int nz) {
+            bonsai_scene::GridRef g;
+            g.nx = nx;
+            g.ny = ny;
+            g.nz = nz;
+            g.at = uint32_t(out.medium_grid.size());
+            out.medium_grid.insert(out.medium_grid.end(), values.begin(),
+                                   values.end());
+            return g;
+        };
+        // PBRT: MajorantGrid::VoxelBounds, the cell of a 16x16x16 grid over
+        // the unit cube; the constructors take each cell's maximum over it.
+        constexpr int kMajorantRes = 16;
+        const auto cell_bounds = [](int x, int y, int z) {
+            return pbrt::Bounds3f(
+                pbrt::Point3f(pbrt::Float(x) / kMajorantRes,
+                              pbrt::Float(y) / kMajorantRes,
+                              pbrt::Float(z) / kMajorantRes),
+                pbrt::Point3f(pbrt::Float(x + 1) / kMajorantRes,
+                              pbrt::Float(y + 1) / kMajorantRes,
+                              pbrt::Float(z + 1) / kMajorantRes));
+        };
+        const auto grid_dims = [&](size_t n, int *nx, int *ny, int *nz) {
+            *nx = params.GetOneInt("nx", 1);
+            *ny = params.GetOneInt("ny", 1);
+            *nz = params.GetOneInt("nz", 1);
+            if (*nx <= 0 || *ny <= 0 || *nz <= 0 ||
+                n != size_t(*nx) * size_t(*ny) * size_t(*nz)) {
+                fail(what + " has " + std::to_string(n) +
+                     " values; expected nx*ny*nz = " +
+                     std::to_string(*nx * *ny * *nz));
+            }
+        };
+
+        if (kind == "homogeneous") {
+            // PBRT: HomogeneousMedium::Create -- `Le` with `Lescale` divided by
+            // its photometric integral, or nothing.
+            pbrt::Spectrum le = params.GetOneSpectrum(
+                "Le", nullptr, pbrt::SpectrumType::Illuminant, alloc);
+            pbrt::Float le_scale = params.GetOneFloat("Lescale", 1.f);
+            if (!le || le.MaxValue() == 0) {
+                le = alloc.new_object<pbrt::ConstantSpectrum>(0.f);
+            } else {
+                le_scale /= pbrt::SpectrumToPhotometric(le);
+            }
+            medium.tag = bonsai_scene::MediumTag::Homogeneous;
+            medium.emissive =
+                push_spectra(sig_a, sig_s, le, sigma_scale, le_scale) > 0.f ? 1u : 0u;
+        } else if (kind == "uniformgrid") {
+            // PBRT: GridMedium::Create and the constructor.
+            const std::vector<pbrt::Float> density = params.GetFloatArray("density");
+            const std::vector<pbrt::Float> temperature =
+                params.GetFloatArray("temperature");
+            if (density.empty()) {
+                fail(what + " has no \"density\"");
+            }
+            if (!temperature.empty() && temperature.size() != density.size()) {
+                fail(what + " gives " + std::to_string(density.size()) +
+                     " density values and " + std::to_string(temperature.size()) +
+                     " temperatures");
+            }
+            int nx = 0, ny = 0, nz = 0;
+            grid_dims(density.size(), &nx, &ny, &nz);
+            pbrt::Spectrum le = params.GetOneSpectrum(
+                "Le", nullptr, pbrt::SpectrumType::Illuminant, alloc);
+            if (le && !temperature.empty()) {
+                fail(what + " gives both \"Le\" and \"temperature\", which PBRT "
+                            "refuses too");
+            }
+            pbrt::Float le_norm = 1.f;
+            if (!le || le.MaxValue() == 0) {
+                le = alloc.new_object<pbrt::ConstantSpectrum>(0.f);
+            } else {
+                le_norm = 1 / pbrt::SpectrumToPhotometric(le);
+            }
+            std::vector<pbrt::Float> le_scale = params.GetFloatArray("Lescale");
+            int lx = 1, ly = 1, lz = 1;
+            if (le_scale.empty()) {
+                le_scale = {le_norm};
+            } else {
+                if (le_scale.size() != density.size()) {
+                    fail(what + " gives " + std::to_string(le_scale.size()) +
+                         " \"Lescale\" values for " +
+                         std::to_string(density.size()) + " voxels");
+                }
+                for (pbrt::Float &v : le_scale) {
+                    v *= le_norm;
+                }
+                lx = nx;
+                ly = ny;
+                lz = nz;
+            }
+            medium.tag = bonsai_scene::MediumTag::UniformGrid;
+            place();
+            medium.temperature_offset = params.GetOneFloat(
+                "temperatureoffset", params.GetOneFloat("temperaturecutoff", 0.f));
+            medium.temperature_scale = params.GetOneFloat("temperaturescale", 1.f);
+            const float le_max = push_spectra(sig_a, sig_s, le, sigma_scale, 1.f);
+            // PBRT: `isEmissive = temperatureGrid ? true : (Le_spec.MaxValue() > 0)`.
+            medium.emissive = (!temperature.empty() || le_max > 0.f) ? 1u : 0u;
+            medium.density = push_grid(density, nx, ny, nz);
+            if (!temperature.empty()) {
+                medium.temperature = push_grid(temperature, nx, ny, nz);
+            }
+            medium.le_scale = push_grid(le_scale, lx, ly, lz);
+            // The majorant grid: `densityGrid.MaxValue(bounds)` per cell, by
+            // PBRT's own SampledGrid.
+            const pbrt::SampledGrid<pbrt::Float> density_grid(density, nx, ny, nz,
+                                                              alloc);
+            std::vector<float> majorant(size_t(kMajorantRes) * kMajorantRes *
+                                        kMajorantRes);
+            for (int z = 0; z < kMajorantRes; z++) {
+                for (int y = 0; y < kMajorantRes; y++) {
+                    for (int x = 0; x < kMajorantRes; x++) {
+                        majorant[size_t(x) + kMajorantRes * (size_t(y) +
+                                                             kMajorantRes * size_t(z))] =
+                            float(density_grid.MaxValue(cell_bounds(x, y, z)));
+                    }
+                }
+            }
+            medium.majorant = push_grid(majorant, kMajorantRes, kMajorantRes,
+                                        kMajorantRes);
+        } else if (kind == "rgbgrid") {
+            // PBRT: RGBGridMedium::Create and the constructor.
+            const std::vector<pbrt::RGB> rgb_a = params.GetRGBArray("sigma_a");
+            const std::vector<pbrt::RGB> rgb_s = params.GetRGBArray("sigma_s");
+            const std::vector<pbrt::RGB> rgb_le = params.GetRGBArray("Le");
+            if (rgb_a.empty() && rgb_s.empty()) {
+                fail(what + " needs \"sigma_a\" and/or \"sigma_s\"");
+            }
+            const size_t n = rgb_a.empty() ? rgb_s.size() : rgb_a.size();
+            if (!rgb_s.empty() && rgb_s.size() != n) {
+                fail(what + " gives " + std::to_string(rgb_a.size()) +
+                     " sigma_a values and " + std::to_string(rgb_s.size()) +
+                     " sigma_s values");
+            }
+            if (!rgb_le.empty() && rgb_a.empty()) {
+                fail(what + " gives \"Le\" without \"sigma_a\", which PBRT refuses too");
+            }
+            if (!rgb_le.empty() && rgb_le.size() != n) {
+                fail(what + " gives " + std::to_string(rgb_le.size()) +
+                     " \"Le\" values for " + std::to_string(n) + " voxels");
+            }
+            int nx = 0, ny = 0, nz = 0;
+            grid_dims(n, &nx, &ny, &nz);
+            const pbrt::RGBColorSpace *space = params.ColorSpace();
+            const SpectrumTable table = table_of(space, what);
+            // The renderer multiplies an emission voxel's fit by the D65
+            // illuminant, which is sRGB's and DCI-P3's (illuminant_index).
+            if (!rgb_le.empty() && illuminant_index(space, out) != 0) {
+                fail(what + " emits in a colour space whose illuminant is not "
+                            "D65, which the grid media do not carry yet");
+            }
+            // PBRT: RGBUnboundedSpectrum's constructor (RGBIlluminantSpectrum's
+            // is the same, plus the illuminant): twice the largest component,
+            // and the colour space's sigmoid coefficients for the colour
+            // divided by it -- the scale and the three coefficients per voxel.
+            const auto rgb_grid = [&](const std::vector<pbrt::RGB> &rgbs) {
+                bonsai_scene::GridRef none;
+                if (rgbs.empty()) {
+                    return none;
+                }
+                std::vector<float> fitted;
+                fitted.reserve(rgbs.size() * 4);
+                for (const pbrt::RGB &c : rgbs) {
+                    const pbrt::Float m = std::max({c.r, c.g, c.b});
+                    const pbrt::Float scale = 2 * m;
+                    const pbrt::RGB unit = scale ? c / scale : pbrt::RGB(0, 0, 0);
+                    const Sigmoid fit = fit_sigmoid(table, float(unit.r),
+                                                    float(unit.g), float(unit.b));
+                    fitted.push_back(float(scale));
+                    fitted.push_back(fit.c0);
+                    fitted.push_back(fit.c1);
+                    fitted.push_back(fit.c2);
+                }
+                return push_grid(fitted, nx, ny, nz);
+            };
+            medium.tag = bonsai_scene::MediumTag::RGBGrid;
+            place();
+            medium.sigma_scale = sigma_scale;
+            medium.le_scale_value = params.GetOneFloat("Lescale", 1.f);
+            medium.sigma_a = rgb_grid(rgb_a);
+            medium.sigma_s = rgb_grid(rgb_s);
+            medium.le = rgb_grid(rgb_le);
+            // The majorant grid: `sigmaScale * (max sigma_a + max sigma_s)` per
+            // cell, each maximum over PBRT's own grid of its own spectra, a
+            // grid absent counting one.
+            const auto spectra_of = [&](const std::vector<pbrt::RGB> &rgbs) {
+                std::vector<pbrt::RGBUnboundedSpectrum> spectra;
+                spectra.reserve(rgbs.size());
+                for (const pbrt::RGB &c : rgbs) {
+                    spectra.emplace_back(*space, c);
+                }
+                return spectra;
+            };
+            const std::vector<pbrt::RGBUnboundedSpectrum> spectra_a = spectra_of(rgb_a);
+            const std::vector<pbrt::RGBUnboundedSpectrum> spectra_s = spectra_of(rgb_s);
+            std::optional<pbrt::SampledGrid<pbrt::RGBUnboundedSpectrum>> grid_a, grid_s;
+            if (!spectra_a.empty()) {
+                grid_a.emplace(spectra_a, nx, ny, nz, alloc);
+            }
+            if (!spectra_s.empty()) {
+                grid_s.emplace(spectra_s, nx, ny, nz, alloc);
+            }
+            const auto max_of = [](pbrt::RGBUnboundedSpectrum s) { return s.MaxValue(); };
+            std::vector<float> majorant(size_t(kMajorantRes) * kMajorantRes *
+                                        kMajorantRes);
+            for (int z = 0; z < kMajorantRes; z++) {
+                for (int y = 0; y < kMajorantRes; y++) {
+                    for (int x = 0; x < kMajorantRes; x++) {
+                        const pbrt::Bounds3f cell = cell_bounds(x, y, z);
+                        const pbrt::Float max_sigma_t =
+                            (grid_a ? grid_a->MaxValue(cell, max_of) : 1) +
+                            (grid_s ? grid_s->MaxValue(cell, max_of) : 1);
+                        majorant[size_t(x) + kMajorantRes * (size_t(y) +
+                                                             kMajorantRes * size_t(z))] =
+                            float(sigma_scale * max_sigma_t);
+                    }
+                }
+            }
+            medium.majorant = push_grid(majorant, kMajorantRes, kMajorantRes,
+                                        kMajorantRes);
+        } else if (kind == "cloud") {
+            // PBRT: CloudMedium::Create -- no `scale`, no emission.
+            medium.tag = bonsai_scene::MediumTag::Cloud;
+            place();
+            medium.cloud_density = params.GetOneFloat("density", 1.f);
+            medium.wispiness = params.GetOneFloat("wispiness", 1.f);
+            medium.frequency = params.GetOneFloat("frequency", 5.f);
+            push_spectra(sig_a, sig_s, alloc.new_object<pbrt::ConstantSpectrum>(0.f),
+                         1.f, 1.f);
+            medium.emissive = 0u;
+        } else {
+            fail(what + " is of a kind this converter does not have");
         }
-        for (int i = 0; i < bonsai_scene::kMediumSpectrumSamples; i++) {
-            le_max = std::max(
-                le_max, out.medium_spectra[medium.spectra +
-                                           2 * bonsai_scene::kMediumSpectrumSamples +
-                                           size_t(i)]);
-        }
-        medium.emissive = le_max > 0.f ? 1u : 0u;
         const int32_t at = int32_t(out.media.size());
         out.media.push_back(medium);
         medium_index.emplace(name, at);

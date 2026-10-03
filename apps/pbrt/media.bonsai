@@ -1,32 +1,92 @@
 // pbrt: participating media (media.h), as the volpath integrator samples them.
 //
-// Only HomogeneousMedium so far: one set of coefficients everywhere, so its
-// majorant is exact and a ray through it has a single majorant segment. The
-// grid media (a DDA over a majorant grid) and NanoVDB are the next phases of
-// volpath -- see apps/pbrt/PLAN.md, "volpath" -- and arrive as arms of
-// `Medium` and segment sources for the same sampling loop.
+// Four of pbrt's five media: HomogeneousMedium, GridMedium (`uniformgrid`),
+// RGBGridMedium (`rgbgrid`) and CloudMedium. NanoVDBMedium is the fifth and
+// waits on how a sparse voxel grid is to be stored (PLAN.md, "grid media"):
+// its program side is a point lookup into a set of voxels keyed by an integer
+// coordinate, and the file's own layout is the layout language's to describe.
+//
+// What a medium answers is what pbrt's Medium interface answers: its
+// properties at a point (SamplePoint), and the majorant segments along a ray
+// (SampleRay) -- one segment with the exact coefficients for a homogeneous
+// medium or a cloud, and for a grid the cells of a coarse majorant grid that a
+// DDA walks the ray through, each cell carrying the maximum of the density
+// inside it. The loop over those segments that samples tentative collisions
+// is the integrator's (render.bonsai, vol_medium_step and vol_shadow_track),
+// which is pbrt's SampleT_maj.
 //
 // A medium is named by index, -1 for none, and travels beside a ray rather
 // than inside it: stdlib's `Ray` is every test's ray, and the integrator
 // already carries a ray's differentials the same way.
 import stdlib/numerics;
 import apps/pbrt/bxdf;
+import apps/pbrt/colour;
 import apps/pbrt/interval;
 import apps/pbrt/rng;
 import apps/pbrt/sampling;
 import apps/pbrt/spectrum;
+import apps/pbrt/textures;
+import apps/pbrt/transform;
 
-// pbrt: HomogeneousMedium -- its three DenselySampledSpectra, kept as runs of
+// pbrt: SampledGrid<Float>, and MajorantGrid -- `nx * ny * nz` values laid in
+// `medium_grid` from `at`, x fastest, as pbrt's `values[(z * ny + y) * nx +
+// x]`. An `rgbgrid`'s grids hold four floats per voxel instead, an
+// RGBUnboundedSpectrum: its scale and its three sigmoid coefficients. A grid
+// whose `nx` is zero is one the medium does not have -- pbrt's
+// pstd::optional<SampledGrid>.
+element Grid3 {
+    nx, ny, nz : i32;
+    at : u32;
+}
+
+// pbrt: the Medium TaggedPointer, one arm per kind.
+//
+// Homogeneous: its three DenselySampledSpectra, kept as runs of
 // `medium_spectrum_samples()` floats in `medium_spectra` starting at
 // `spectra`: sigma_a, then sigma_s, then Le, each already scaled the way
 // HomogeneousMedium::Create scales it (scene_dump.cpp). `g` is the
 // Henyey-Greenstein phase function's asymmetry; `emissive` is
 // Medium::IsEmissive, `Le_spec.MaxValue() > 0`.
+//
+// UniformGrid: pbrt's GridMedium. The same three spectra (sigma_a and sigma_s
+// scaled by `scale`; Le as given, its scale being a grid), a density grid
+// over the box `low`..`high` of the medium's own space, which
+// `render_from_medium` places in the scene -- `medium_from_render` is pbrt's
+// mInv, taken from pbrt's own Transform by the converter -- an optional
+// temperature grid for a blackbody emission with pbrt's offset and scale, the
+// `Lescale` grid (one voxel when the scene gave a number), and the 16x16x16
+// majorant grid pbrt's constructor builds, each cell the maximum of the
+// density over it. `emissive` is pbrt's isEmissive: a temperature grid, or
+// an Le with a value in it.
+//
+// RGBGrid: pbrt's RGBGridMedium. sigma_a, sigma_s and Le as grids of RGB
+// spectra, any of them absent (a coefficient of one then, and no emission),
+// the two scales, and the majorant grid with `sigmaScale * (max sigma_a +
+// max sigma_s)` per cell.
+//
+// Cloud: pbrt's CloudMedium, a procedural density over its box -- Perlin
+// noise, nothing stored -- with one majorant segment over the box, the
+// density being clamped to one.
 element Medium =
-    | Homogeneous(spectra : u32, g : Float, emissive : bool);
+    | Homogeneous(spectra : u32, g : Float, emissive : bool)
+    | UniformGrid(spectra : u32, g : Float, emissive : bool,
+                  low : vec3f, high : vec3f,
+                  render_from_medium : Transform, medium_from_render : Transform,
+                  density : Grid3, temperature : Grid3, le_scale : Grid3,
+                  temperature_scale : Float, temperature_offset : Float,
+                  majorant : Grid3)
+    | RGBGrid(g : Float, low : vec3f, high : vec3f,
+              render_from_medium : Transform, medium_from_render : Transform,
+              sigma_a : Grid3, sigma_s : Grid3, le : Grid3,
+              sigma_scale : Float, le_scale : Float, majorant : Grid3)
+    | Cloud(spectra : u32, g : Float, low : vec3f, high : vec3f,
+            render_from_medium : Transform, medium_from_render : Transform,
+            density : Float, wispiness : Float, frequency : Float);
 
 extern media : array[Medium];
 extern medium_spectra : array[Float];
+// Every grid of every grid medium, laid end to end (see Grid3).
+extern medium_grid : array[Float];
 
 // 360 to 830 nm at one nanometre, which is what a DenselySampledSpectrum holds.
 func medium_spectrum_samples() -> u32 = 471u;
@@ -49,13 +109,147 @@ element MediumProperties {
     le : vec4f;
 }
 
-// pbrt: HomogeneousMedium::SamplePoint -- the same everywhere, so the point
-// is not even an argument. `Le_spec.Sample(lambda)` is taken whether or not
-// the medium emits, as pbrt takes it: the table holds zeros where it does not.
-func medium_sample_point(m : Medium, lambda : SampledWavelengths)
+// pbrt: Bounds3f::Offset -- where `p` sits in the box, zero at `low` and one
+// at `high`; an axis of no extent is left as the difference.
+func box_offset(low : vec3f, high : vec3f, p : vec3f) -> vec3f {
+    o = p - low;
+    return select(high > low, o / (high - low), o);
+}
+
+// pbrt: SampledGrid::Lookup(Point3i) -- one voxel, zero outside the grid.
+func grid_voxel(g : Grid3, x : i32, y : i32, z : i32) -> Float {
+    inside = (x >= 0) & (x < g.nx) & (y >= 0) & (y < g.ny) & (z >= 0) &
+             (z < g.nz);
+    if !inside {
+        return 0.0;
+    }
+    return medium_grid[g.at + cast[[u32]]((z * g.ny + y) * g.nx + x)];
+}
+
+// pbrt: the first lines of SampledGrid::Lookup(Point3f) -- the samples sit at
+// the voxel centres, `p * n - .5`, so the cell is the floor of that and the
+// weights the fraction above it.
+element GridCell {
+    x, y, z : i32;
+    dx, dy, dz : Float;
+}
+
+func grid_cell(g : Grid3, p : vec3f) -> GridCell {
+    sx = p.x * cast[[Float]](g.nx) - 0.5;
+    sy = p.y * cast[[Float]](g.ny) - 0.5;
+    sz = p.z * cast[[Float]](g.nz) - 0.5;
+    fx = floor_f(sx);
+    fy = floor_f(sy);
+    fz = floor_f(sz);
+    cell : GridCell = {cast[[i32]](fx), cast[[i32]](fy), cast[[i32]](fz),
+                       sx - fx, sy - fy, sz - fz};
+    return cell;
+}
+
+// pbrt: SampledGrid<Float>::Lookup -- the eight voxels about `p` trilinearly
+// interpolated, x first, then y, then z, with pbrt's Lerp (textures.bonsai's
+// lerp_, fused as pbrt's build fuses it).
+func grid_lookup(g : Grid3, p : vec3f) -> Float {
+    c = grid_cell(g, p);
+    d00 = lerp_(c.dx, grid_voxel(g, c.x, c.y, c.z),
+                grid_voxel(g, c.x + 1, c.y, c.z));
+    d10 = lerp_(c.dx, grid_voxel(g, c.x, c.y + 1, c.z),
+                grid_voxel(g, c.x + 1, c.y + 1, c.z));
+    d01 = lerp_(c.dx, grid_voxel(g, c.x, c.y, c.z + 1),
+                grid_voxel(g, c.x + 1, c.y, c.z + 1));
+    d11 = lerp_(c.dx, grid_voxel(g, c.x, c.y + 1, c.z + 1),
+                grid_voxel(g, c.x + 1, c.y + 1, c.z + 1));
+    return lerp_(c.dz, lerp_(c.dy, d00, d10), lerp_(c.dy, d01, d11));
+}
+
+// pbrt: Lerp over two SampledSpectra, `(1 - t) * a + t * b`, the first product
+// into the fused add as lerp_ has it.
+func lerp4(t : Float, a : vec4f, b : vec4f) -> vec4f {
+    s = 1.0 - t;
+    return fma(vec4f{s, s, s, s}, a, t * b);
+}
+
+// pbrt: RGBUnboundedSpectrum::Sample at one voxel -- `scale * rsp(lambda)`,
+// the four floats the converter fitted as pbrt's constructor fits them (twice
+// the largest component, and the colour space's sigmoid coefficients for the
+// colour divided by it) -- times `illum`, which is the colour space's
+// illuminant for an RGBIlluminantSpectrum (the emission grid) and one for the
+// coefficients. A voxel outside the grid is pbrt's `T{}`, a spectrum of scale
+// zero: nothing.
+func rgb_grid_voxel(g : Grid3, x : i32, y : i32, z : i32,
+                    w : SampledWavelengths, illum : vec4f) -> vec4f {
+    inside = (x >= 0) & (x < g.nx) & (y >= 0) & (y < g.ny) & (z >= 0) &
+             (z < g.nz);
+    if !inside {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    at = g.at + 4u * cast[[u32]]((z * g.ny + y) * g.nx + x);
+    fit : SigmoidPolynomial = {medium_grid[at + 1u], medium_grid[at + 2u],
+                               medium_grid[at + 3u]};
+    return medium_grid[at] * spectrum_at(fit, w) * illum;
+}
+
+// pbrt: SampledGrid<RGB...Spectrum>::Lookup(p, convert) -- each voxel's
+// spectrum sampled first, then the eight interpolated.
+func rgb_grid_lookup(g : Grid3, p : vec3f, w : SampledWavelengths,
+                     illum : vec4f) -> vec4f {
+    c = grid_cell(g, p);
+    d00 = lerp4(c.dx, rgb_grid_voxel(g, c.x, c.y, c.z, w, illum),
+                rgb_grid_voxel(g, c.x + 1, c.y, c.z, w, illum));
+    d10 = lerp4(c.dx, rgb_grid_voxel(g, c.x, c.y + 1, c.z, w, illum),
+                rgb_grid_voxel(g, c.x + 1, c.y + 1, c.z, w, illum));
+    d01 = lerp4(c.dx, rgb_grid_voxel(g, c.x, c.y, c.z + 1, w, illum),
+                rgb_grid_voxel(g, c.x + 1, c.y, c.z + 1, w, illum));
+    d11 = lerp4(c.dx, rgb_grid_voxel(g, c.x, c.y + 1, c.z + 1, w, illum),
+                rgb_grid_voxel(g, c.x + 1, c.y + 1, c.z + 1, w, illum));
+    return lerp4(c.dz, lerp4(c.dy, d00, d10), lerp4(c.dy, d01, d11));
+}
+
+// pbrt: CloudMedium::Density -- five octaves of noise over the point, each
+// a factor of 1.99 finer and half as strong, the point first perturbed twice
+// by the noise's gradient where `wispiness` asks; thinned with height and
+// given a solid base below half, clamped to one. The medium's own space.
+func cloud_density(p : vec3f, density : Float, wispiness : Float,
+                   frequency : Float) -> Float {
+    pp : mut vec3f = frequency * p;
+    if wispiness > 0.0 {
+        vomega : mut Float = 0.05 * wispiness;
+        vlambda : mut Float = 10.0;
+        i : mut i32 = 0;
+        while i < 2 {
+            pp = pp + vomega * dnoise(vlambda * pp);
+            vomega = vomega * 0.5;
+            vlambda = vlambda * 1.99;
+            i = i + 1;
+        }
+    }
+    d : mut Float = 0.0;
+    omega : mut Float = 0.5;
+    lam : mut Float = 1.0;
+    j : mut i32 = 0;
+    while j < 5 {
+        d = d + omega * noise(lam * pp);
+        omega = omega * 0.5;
+        lam = lam * 1.99;
+        j = j + 1;
+    }
+    d = min(max((1.0 - p.y) * 4.5 * density * d, 0.0), 1.0);
+    d = d + 2.0 * max(0.0, 0.5 - p.y);
+    return min(max(d, 0.0), 1.0);
+}
+
+// pbrt: Medium::SamplePoint -- the medium's properties at `p`, a point in
+// render space. A homogeneous medium is the same everywhere; the others pull
+// the point into their own space (`renderFromMedium.ApplyInverse(p)`, which is
+// the inverse matrix applied as pbrt applies an inverse) and read their grid
+// or their noise there.
+func medium_sample_point(m : Medium, p : vec3f, lambda : SampledWavelengths)
     -> MediumProperties {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
     match m {
         Homogeneous(spectra, g, emissive) => {
+            // pbrt: `Le_spec.Sample(lambda)` is taken whether or not the medium
+            // emits, as pbrt takes it: the table holds zeros where it does not.
             mp : MediumProperties = {
                 medium_spectrum_at(spectra, lambda),
                 medium_spectrum_at(spectra + medium_spectrum_samples(), lambda),
@@ -64,20 +258,372 @@ func medium_sample_point(m : Medium, lambda : SampledWavelengths)
                                    lambda)};
             return mp;
         }
+        UniformGrid(spectra, g, emissive, low, high, render_from_medium,
+                    medium_from_render, density, temperature, le_scale,
+                    temperature_scale, temperature_offset, majorant) => {
+            // pbrt: GridMedium::SamplePoint -- the coefficients scaled by the
+            // density at the point; the emission the Lescale grid's value
+            // times a blackbody at the temperature grid's value (offset and
+            // scaled, and only above 100 K) or times Le.
+            pm = box_offset(low, high, apply_inverse_point(medium_from_render, p));
+            d = grid_lookup(density, pm);
+            sigma_a = medium_spectrum_at(spectra, lambda) * d;
+            sigma_s = medium_spectrum_at(spectra + medium_spectrum_samples(),
+                                         lambda) * d;
+            le : mut vec4f = zero;
+            if emissive {
+                scale = grid_lookup(le_scale, pm);
+                if scale > 0.0 {
+                    if temperature.nx > 0 {
+                        temp = (grid_lookup(temperature, pm) - temperature_offset) *
+                               temperature_scale;
+                        if temp > 100.0 {
+                            le = scale * blackbody_normalized(lambda.lambda, temp);
+                        }
+                    } else {
+                        le = scale * medium_spectrum_at(
+                                         spectra + 2u * medium_spectrum_samples(),
+                                         lambda);
+                    }
+                }
+            }
+            mp : MediumProperties = {sigma_a, sigma_s, g, le};
+            return mp;
+        }
+        RGBGrid(g, low, high, render_from_medium, medium_from_render, sigma_a,
+                sigma_s, le, sigma_scale, le_scale, majorant) => {
+            // pbrt: RGBGridMedium::SamplePoint -- each grid present sampled at
+            // the point and scaled, a grid absent standing for one; the
+            // emission's RGB spectra are illuminants, against the colour
+            // space's illuminant.
+            pm = box_offset(low, high, apply_inverse_point(medium_from_render, p));
+            ones = vec4f{1.0, 1.0, 1.0, 1.0};
+            sa : mut vec4f = ones;
+            if sigma_a.nx > 0 {
+                sa = rgb_grid_lookup(sigma_a, pm, lambda, ones);
+            }
+            ss : mut vec4f = ones;
+            if sigma_s.nx > 0 {
+                ss = rgb_grid_lookup(sigma_s, pm, lambda, ones);
+            }
+            emitted : mut vec4f = zero;
+            if (le.nx > 0) & (le_scale > 0.0) {
+                emitted = le_scale * rgb_grid_lookup(
+                                         le, pm, lambda,
+                                         spectrum_at_dense(illuminant_d65, lambda));
+            }
+            mp : MediumProperties = {sigma_scale * sa, sigma_scale * ss, g, emitted};
+            return mp;
+        }
+        Cloud(spectra, g, low, high, render_from_medium, medium_from_render,
+              density, wispiness, frequency) => {
+            // pbrt: CloudMedium::SamplePoint -- the noise density times the
+            // coefficients, and no emission.
+            d = cloud_density(apply_inverse_point(medium_from_render, p), density,
+                              wispiness, frequency);
+            mp : MediumProperties = {
+                d * medium_spectrum_at(spectra, lambda),
+                d * medium_spectrum_at(spectra + medium_spectrum_samples(), lambda),
+                g, zero};
+            return mp;
+        }
     }
 }
 
-// pbrt: HomogeneousMedium::SampleRay, whose one majorant segment covers the
-// whole ray with `sigma_a + sigma_s` as the majorant. Exact for a homogeneous
-// medium, which is why every sampled collision in it is real or null by the
-// medium's own coefficients and none is wasted on a bound.
-func medium_sigma_maj(m : Medium, lambda : SampledWavelengths) -> vec4f {
-    match m {
-        Homogeneous(spectra, g, emissive) =>
-            return medium_spectrum_at(spectra, lambda) +
-                   medium_spectrum_at(spectra + medium_spectrum_samples(),
-                                      lambda);
+// pbrt: RayMajorantSegment -- a stretch of the ray and the majorant over it.
+element MajorantSegment {
+    t_min, t_max : Float;
+    sigma_maj : vec4f;
+}
+
+// pbrt: a medium's MajorantIterator, both kinds in one record. `kind` is 0
+// for an iterator with nothing left, 1 for a HomogeneousMajorantIterator
+// whose one segment (`t_min`..`t_max` under `sigma_t`) is still to come, 2
+// for a DDAMajorantIterator mid-walk, whose state is pbrt's field for field:
+// the ray's parameter so far and its end, the spectrum each cell's maximum
+// scales, the grid, and per axis the parameter at which the ray crosses into
+// the next cell, the parameter a cell is wide, which way the cell index
+// moves, the index that ends the walk, and the cell the ray is in.
+element MajorantIter {
+    kind : i32;
+    t_min, t_max : Float;
+    sigma_t : vec4f;
+    grid : Grid3;
+    next_crossing : vec3f;
+    delta_t : vec3f;
+    step : vector[i32, 3];
+    voxel_limit : vector[i32, 3];
+    voxel : vector[i32, 3];
+}
+
+// pbrt: Transform::ApplyInverse(const Ray &, Float *tMax) -- the ray pulled
+// into the medium's space, with the origin's rounding error nudged off along
+// the direction and the same taken off tMax, as the camera's transform_ray
+// does forwards (camera.bonsai). The row's error bound is ApplyInverse's:
+// gamma(3) over the three products, without the translation's term the
+// forward transform's bound includes.
+element MediumRay {
+    o : vec3f;
+    d : vec3f;
+    t_max : Float;
+}
+
+func row_inverse_interval(row : vec4f, p : vec3f) -> Interval {
+    v = fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
+    err = gamma(3) * ((abs(row.x * p.x) + abs(row.y * p.y)) + abs(row.z * p.z));
+    return from_value_and_error(v, err);
+}
+
+func medium_ray(inv : Transform, o : vec3f, d : vec3f, t_max : Float)
+    -> MediumRay {
+    xi : mut Interval = row_inverse_interval(inv.r0, o);
+    yi : mut Interval = row_inverse_interval(inv.r1, o);
+    zi : mut Interval = row_inverse_interval(inv.r2, o);
+    wp = fma(inv.r3.y, o.y, inv.r3.x * o.x) + fma(inv.r3.z, o.z, inv.r3.w);
+    if wp != 1.0 {
+        w = exact(wp);
+        xi = idiv(xi, w);
+        yi = idiv(yi, w);
+        zi = idiv(zi, w);
     }
+    dm = apply_vector(inv, d);
+    len2 = sqlen_(dm);
+    t_out : mut Float = t_max;
+    if len2 > 0.0 {
+        // pbrt: `Dot(Abs(d), o.Error()) / LengthSquared(d)`, the error half
+        // the interval's width, then `o += d * dt` on both bounds and the
+        // same `dt` off tMax.
+        err = vec3f{0.5 * (xi.high - xi.low), 0.5 * (yi.high - yi.low),
+                    0.5 * (zi.high - zi.low)};
+        dt = dot_(abs(dm), err) / len2;
+        shift = dm * dt;
+        xi = iadd(xi, exact(shift.x));
+        yi = iadd(yi, exact(shift.y));
+        zi = iadd(zi, exact(shift.z));
+        t_out = t_max - dt;
+    }
+    r : MediumRay = {vec3f{mid(xi), mid(yi), mid(zi)}, dm, t_out};
+    return r;
+}
+
+// pbrt: Bounds3f::IntersectP(o, d, tMax, &t0, &t1) -- the slab test with its
+// hit interval, the far plane widened by 2 gamma(3), one axis at a time in
+// pbrt's order so that a NaN from a zero direction component falls the same
+// way. The interval starts at zero: a ray that begins inside the box begins
+// its segments at its own origin.
+element MediumSpan {
+    t0, t1 : Float;
+}
+
+func slab(low : Float, high : Float, o : Float, d : Float, so_far : MediumSpan)
+    -> MediumSpan {
+    inv = 1.0 / d;
+    near0 = (low - o) * inv;
+    far0 = (high - o) * inv;
+    swap = near0 > far0;
+    near = select(swap, far0, near0);
+    far = select(swap, near0, far0) * (1.0 + 2.0 * gamma(3));
+    span : MediumSpan = {select(near > so_far.t0, near, so_far.t0),
+                         select(far < so_far.t1, far, so_far.t1)};
+    return span;
+}
+
+func box_span(low : vec3f, high : vec3f, o : vec3f, d : vec3f, t_max : Float)
+    -> option[MediumSpan] {
+    whole : MediumSpan = {0.0, t_max};
+    sx = slab(low.x, high.x, o.x, d.x, whole);
+    if sx.t0 > sx.t1 {
+        return {};
+    }
+    sy = slab(low.y, high.y, o.y, d.y, sx);
+    if sy.t0 > sy.t1 {
+        return {};
+    }
+    sz = slab(low.z, high.z, o.z, d.z, sy);
+    if sz.t0 > sz.t1 {
+        return {};
+    }
+    return sz;
+}
+
+// pbrt: one axis of DDAMajorantIterator's constructor. `gi` is where the ray
+// enters the grid along this axis, in grid coordinates (the box as the unit
+// cube), `d` the grid-space direction. The cell is `gi * res` clamped and
+// truncated; a direction of minus zero is made plus zero before the division
+// so that the crossing falls at plus infinity, as pbrt has it.
+element DDAAxis {
+    voxel : i32;
+    delta_t : Float;
+    next_crossing : Float;
+    step : i32;
+    limit : i32;
+}
+
+func dda_axis(gi : Float, d_raw : Float, t_min : Float, res : i32) -> DDAAxis {
+    resf = cast[[Float]](res);
+    voxel = cast[[i32]](min(max(gi * resf, 0.0), resf - 1.0));
+    delta_t = 1.0 / (abs(d_raw) * resf);
+    // `-0.0 == 0.0`, so this maps both zeros to the positive one, which is
+    // all pbrt's `if (d == -0.f) d = 0.f` does.
+    d = select(d_raw == 0.0, 0.0, d_raw);
+    if d >= 0.0 {
+        next_pos = cast[[Float]](voxel + 1) / resf;
+        forward : DDAAxis = {voxel, delta_t, t_min + (next_pos - gi) / d, 1, res};
+        return forward;
+    }
+    next_pos = cast[[Float]](voxel) / resf;
+    backward : DDAAxis = {voxel, delta_t, t_min + (next_pos - gi) / d, -1, -1};
+    return backward;
+}
+
+// pbrt: DDAMajorantIterator's constructor -- the ray, already in the medium's
+// space, taken into grid space (the box's offset of the origin, the direction
+// over the box's diagonal) and the three axes set up from where it enters.
+func majorant_dda(o_m : vec3f, d_m : vec3f, t_min : Float, t_max : Float,
+                  low : vec3f, high : vec3f, grid : Grid3, sigma_t : vec4f)
+    -> MajorantIter {
+    og = box_offset(low, high, o_m);
+    dg = d_m / (high - low);
+    gi = og + dg * t_min;
+    x = dda_axis(gi.x, dg.x, t_min, grid.nx);
+    y = dda_axis(gi.y, dg.y, t_min, grid.ny);
+    z = dda_axis(gi.z, dg.z, t_min, grid.nz);
+    step : vector[i32, 3] = {x.step, y.step, z.step};
+    limit : vector[i32, 3] = {x.limit, y.limit, z.limit};
+    voxel : vector[i32, 3] = {x.voxel, y.voxel, z.voxel};
+    it : MajorantIter = {2, t_min, t_max, sigma_t, grid,
+                         vec3f{x.next_crossing, y.next_crossing, z.next_crossing},
+                         vec3f{x.delta_t, y.delta_t, z.delta_t},
+                         step, limit, voxel};
+    return it;
+}
+
+// pbrt: Medium::SampleRay -- the majorant iterator for a ray through the
+// medium: `o` and `dn` the ray normalized and `t_max` scaled by the length,
+// as SampleT_maj hands them over. A homogeneous medium's one segment covers
+// the whole ray with `sigma_a + sigma_s`, exact for it, which is why every
+// collision sampled in it is real or null by the medium's own coefficients
+// and none is wasted on a bound. The others pull the ray into their space,
+// clip it to their box -- a ray that misses the box has no segments, and
+// SampleT_maj returns a transmittance of one -- and either cover the clipped
+// stretch with one segment (the cloud, whose density is at most one) or walk
+// the majorant grid.
+func majorant_begin(m : Medium, o : vec3f, dn : vec3f, t_max : Float,
+                    lambda : SampledWavelengths) -> MajorantIter {
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    zero4 = vec4f{0.0, 0.0, 0.0, 0.0};
+    no_step : vector[i32, 3] = {0, 0, 0};
+    no_grid : Grid3 = {0, 0, 0, 0u};
+    empty : MajorantIter = {0, 0.0, 0.0, zero4, no_grid, zero3, zero3, no_step,
+                            no_step, no_step};
+    match m {
+        Homogeneous(spectra, g, emissive) => {
+            sigma_t = medium_spectrum_at(spectra, lambda) +
+                      medium_spectrum_at(spectra + medium_spectrum_samples(),
+                                         lambda);
+            whole : MajorantIter = {1, 0.0, t_max, sigma_t, no_grid, zero3, zero3,
+                                    no_step, no_step, no_step};
+            return whole;
+        }
+        UniformGrid(spectra, g, emissive, low, high, render_from_medium,
+                    medium_from_render, density, temperature, le_scale,
+                    temperature_scale, temperature_offset, majorant) => {
+            r = medium_ray(medium_from_render, o, dn, t_max);
+            span = box_span(low, high, r.o, r.d, r.t_max);
+            if !span {
+                return empty;
+            }
+            s = *span;
+            sigma_t = medium_spectrum_at(spectra, lambda) +
+                      medium_spectrum_at(spectra + medium_spectrum_samples(),
+                                         lambda);
+            return majorant_dda(r.o, r.d, s.t0, s.t1, low, high, majorant, sigma_t);
+        }
+        RGBGrid(g, low, high, render_from_medium, medium_from_render, sigma_a,
+                sigma_s, le, sigma_scale, le_scale, majorant) => {
+            r = medium_ray(medium_from_render, o, dn, t_max);
+            span = box_span(low, high, r.o, r.d, r.t_max);
+            if !span {
+                return empty;
+            }
+            s = *span;
+            // pbrt: `SampledSpectrum sigma_t(1)` -- the grid's cells hold
+            // the whole bound, scale included.
+            return majorant_dda(r.o, r.d, s.t0, s.t1, low, high, majorant,
+                                vec4f{1.0, 1.0, 1.0, 1.0});
+        }
+        Cloud(spectra, g, low, high, render_from_medium, medium_from_render,
+              density, wispiness, frequency) => {
+            r = medium_ray(medium_from_render, o, dn, t_max);
+            span = box_span(low, high, r.o, r.d, r.t_max);
+            if !span {
+                return empty;
+            }
+            s = *span;
+            sigma_t = medium_spectrum_at(spectra, lambda) +
+                      medium_spectrum_at(spectra + medium_spectrum_samples(),
+                                         lambda);
+            clipped : MajorantIter = {1, s.t0, s.t1, sigma_t, no_grid, zero3,
+                                      zero3, no_step, no_step, no_step};
+            return clipped;
+        }
+    }
+}
+
+// pbrt: RayMajorantIterator::Next -- the next segment, or nothing. For the
+// DDA: the axis whose crossing comes first (pbrt's three comparisons into a
+// table of eight), the segment up to that crossing or the end, the cell's
+// maximum times `sigma_t` as its majorant; then the step into the next cell,
+// the walk ending at the ray's end, at a crossing past it, or at the grid's
+// edge.
+func majorant_next(it : mut MajorantIter) -> option[MajorantSegment] {
+    if it.kind == 0 {
+        return {};
+    }
+    if it.kind == 1 {
+        it.kind = 0;
+        whole : MajorantSegment = {it.t_min, it.t_max, it.sigma_t};
+        return whole;
+    }
+    if it.t_min >= it.t_max {
+        return {};
+    }
+    nc = it.next_crossing;
+    // pbrt: `bits = ((nc0 < nc1) << 2) + ((nc0 < nc2) << 1) + (nc1 < nc2)`
+    // and `cmpToAxis[8] = {2, 1, 2, 1, 2, 2, 0, 0}`.
+    bits = select(nc.x < nc.y, 4, 0) + select(nc.x < nc.z, 2, 0) +
+           select(nc.y < nc.z, 1, 0);
+    axis = select(bits >= 6, 0, select((bits == 1) | (bits == 3), 1, 2));
+    on_x = axis == 0;
+    on_y = axis == 1;
+    nc_axis = select(on_x, nc.x, select(on_y, nc.y, nc.z));
+    t_exit = min(it.t_max, nc_axis);
+    v = it.voxel;
+    seg : MajorantSegment = {it.t_min, t_exit,
+                             it.sigma_t * grid_voxel(it.grid, v[0], v[1], v[2])};
+
+    st = it.step;
+    lim = it.voxel_limit;
+    dt = it.delta_t;
+    next_t : mut Float = t_exit;
+    if nc_axis > it.t_max {
+        next_t = it.t_max;
+    }
+    v0 = v[0] + select(on_x, st[0], 0);
+    v1 = v[1] + select(on_y, st[1], 0);
+    v2 = v[2] + select(on_x | on_y, 0, st[2]);
+    moved = select(on_x, v0, select(on_y, v1, v2));
+    limit = select(on_x, lim[0], select(on_y, lim[1], lim[2]));
+    if moved == limit {
+        next_t = it.t_max;
+    }
+    it.t_min = next_t;
+    advanced : vector[i32, 3] = {v0, v1, v2};
+    it.voxel = advanced;
+    it.next_crossing = vec3f{nc.x + select(on_x, dt.x, 0.0),
+                             nc.y + select(on_y, dt.y, 0.0),
+                             nc.z + select(on_x | on_y, 0.0, dt.z)};
+    return seg;
 }
 
 // pbrt: FastExp over a SampledSpectrum, one lane at a time -- the transmittance
@@ -96,6 +642,16 @@ func average4(v : vec4f) -> Float = (((v.x + v.y) + v.z) + v.w) / 4.0;
 // segment length so that `dt * sigma_maj` is a large number rather than a NaN
 // where sigma_maj is zero.
 func float_max() -> Float = 3.4028234663852886e38;
+
+// pbrt: the two lines SampleT_maj spends on a stretch of a segment nothing
+// happened in -- `T_maj *= FastExp(-dt * sigma_maj)` with an infinite `dt`
+// made the largest float first.
+func segment_passed(t_maj : vec4f, t_from : Float, t_to : Float,
+                    sigma_maj : vec4f) -> vec4f {
+    dt_raw = t_to - t_from;
+    dt = select(dt_raw == inf, float_max(), dt_raw);
+    return t_maj * fast_exp4(-dt * sigma_maj);
+}
 
 // pbrt: SampleDiscrete over three weights -- the absorb / scatter / null choice
 // at a tentative collision. `up` is nudged below the total so that a `u` of

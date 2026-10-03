@@ -2532,7 +2532,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | # | feature | scenes | n |
 |---|---|---|---|
 | 1 | `Integrator "volpath"` | bmw-m6, bunny-cloud, bunny-fur, clouds, crown, dambreak, disney-cloud, explosion, hair, head, kroken, lte-orb, sanmiguel, smoke-plume, sportscar, transparent-machines, villa, watercolor | 18 |
-| 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4, `nanovdb` x3, `cloud` x2, `uniformgrid` x1) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
+| 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4 -- **done 2026-09-22**; `uniformgrid` x1, `cloud` x2 and `rgbgrid` -- **done 2026-10-03**, the grid media paragraph below; `nanovdb` x3 -- a layout question put to the user, below) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
 | 3 | env map in a non-sRGB colour space (EXR chromaticities, ACES) | bistro, bunny-cloud, clouds, explosion, sanmiguel, sportscar, villa | 7 |
 | 4 | samplers `zsobol` (pbrt's default when a scene names none), `sobol`, `pmj02bn` | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
 | 5 | `blackbody L` on an area light (and an infinite light, in villa) -- **done 2026-09-20**, see below | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
@@ -9362,6 +9362,152 @@ either way); on disk bmw-m6 114 MB of text -> 0.13 MB + 53 MB, villa
 7.3 GB -> 0.54 MB + 2.80 GB. The 28x on watercolor is the reader; the
 2x-3x on conversion is the writer no longer formatting a decimal per
 number.
+
+*Grid media: uniformgrid, rgbgrid, cloud (2026-10-03).* Three of pbrt's
+four remaining media; `nanovdb` waits on a decision (next paragraph). The
+program side is pbrt's Medium interface in bonsai's words. `Medium`
+(media.bonsai) has four arms; a medium's properties are asked at a point
+(`medium_sample_point(m, p, lambda)`, pbrt's SamplePoint: the point pulled
+into the medium's space by pbrt's ApplyInverse association, a float grid
+read with SampledGrid's trilinear lookup at voxel centres, a temperature
+grid through a blackbody normalized per point, an RGB grid's eight voxels
+each sampled and then interpolated, the cloud's five octaves of noise over
+a point twice perturbed by DNoise); and a ray's majorant segments come from
+an iterator (`majorant_begin`, `majorant_next`: pbrt's
+HomogeneousMajorantIterator and DDAMajorantIterator in one record, the
+DDA's state field for field, the axis chosen by pbrt's three comparisons
+into its table of eight) that the integrator's walk drives. vol_medium_step
+and vol_shadow_track are SampleT_maj whole now: a zero-majorant segment
+passes without a draw, a step past a segment's end carries `T_maj` and the
+next `u` into the next segment, and each walk is still one tail-recursive
+function, which is what loopify and the GPU schedule need (gpu-optix
+compiles, 57 s). The ray is pulled into the medium's space as
+ApplyInverse(Ray, &tMax) pulls it -- the origin's interval error nudged off
+along the direction and taken off tMax, the inverse's error bound without
+the translation term the forward one carries -- and clipped by
+Bounds3f::IntersectP with its widened far plane. The converter reads the
+four kinds as pbrt's Create functions do; builds each majorant grid with
+pbrt's own SampledGrid, so the maxima are pbrt's to the bit (a majorant is
+part of the random walk, not only of its cost: another bound is another
+sequence of tentative collisions); fits an rgbgrid's voxels as
+RGBUnboundedSpectrum's constructor fits them (twice the largest component,
+the table's coefficients for the colour over it: four floats a voxel, the
+grid of spectra pbrt itself stores); carries the directive's CTM as pbrt's
+`renderFromMedium`, both matrices, the inverse being pbrt's own mInv; and
+writes the grids to a `.vol` sidecar as the texels go to `.tex`
+(smoke-plume's density alone is nine million floats). The driver builds the
+four arms. `blackbody` moved to spectrum.bonsai, shared by the lights and
+the media. Scenes: grid-medium (a 10^3 density with a hot core, under a
+translation, a turn and a non-uniform scale, inside an interface box with a
+margin so that some rays enter the box and miss the medium -- the
+no-segments case), rgb-grid (a 6^3 RGB grid with an RGB emission) and cloud
+(pbrt-v4-scenes/clouds with a uniform sky and a floor), each against pbrt
+--wavefront on the scalar schedule. homogeneous-medium is unchanged to the
+digit against HEAD run from a worktree (666 silhouette pixels, albedo
+4.95e-3 mean, radiance 1.00010x, 29.3% within 1e-3). grid-medium: radiance
+1.00039x with 35.2% of pixels within 1e-3, albedo 9.0% over 5e-3, and 127
+pixels off any silhouette whose first-hit normal is recorded on one side
+only -- pixels where every one of pbrt's 64 camera samples scattered in the
+smoke before reaching the floor and one of ours did not, or the reverse;
+rgb-grid 0.99976x, 27.2%, 22 silhouette pixels and none elsewhere; cloud
+1.00031x and 40.3% with the sky alone, 1.00074x and 0.1% once the floor is
+under it -- every camera ray then crosses the cloud before anything else,
+which is camera-medium's condition (2.3%), and the two pictures are the
+same haze. The 127 are not the grid code: the same scene with the
+medium under a translation alone gives 0 such pixels and 84.1% agreement,
+and with a density of one everywhere -- every lookup exact -- still 144 and
+19.6%; the count grows with the optical depth, which is the known parting
+of the medium walks (above: a medium ray's RNG is seeded from a hash of the
+ray and its hit distance, a shadow ray's from a hash of the ray, and a last
+bit in a spawned origin is another stream). Three absorbing variants of the
+same box settle it (sigma_s zero, so a camera sample is absorbed or reaches
+the floor by its first exponential step alone, and every differing decision
+is a differing pixel): a homogeneous medium of that density -- the path
+this change did not touch -- gives 200 such pixels and 77.6% agreement, a
+grid of ones 191 and 74.9%, the lumpy grid 75 and 81.2%. Where the parting
+starts is a question for the spawned ray's last bits, pre-existing and not
+pursued here. What smoke-plume itself needs next is not a medium: its
+silver sphere is placed by a scale, and bunny-cloud's and explosion's
+boundary spheres by rotations, where this renderer's sphere takes a
+translation alone -- the sphere as pbrt's quadric under a transform, with
+zmin/zmax/phimax, is the next feature.
+
+*The GPU hung on a medium boundary, and so does pbrt's (2026-10-03).* The
+gpu-optix schedule never finished grid-medium, rgb-grid or a homogeneous
+medium in the same box, while the translated unit box and the cloud (a
+sphere boundary) rendered; `pbrt --gpu` finished rgb-grid and hung on
+grid-medium. Capping the shadow walk's boundary crossings at 32 and marking
+a capped ray's pixel with a NaN located it: 56 pixels in the homogeneous
+control and 242 in grid-medium, in one band on the floor far left of the
+box, none in rgb-grid once the ray start below was in; a device print of a
+capped ray's state at its 31st and 32nd crossing gave the mechanism. The
+ray's origin lay exactly on the box's top face (mesh 1, triangle 9: pbrt's
+strict triangle test refused the hit, the same test without its refusals
+put it at t = -0), so the RT cores were re-reporting the face the ray had
+just left, at a distance of zero, and the walk re-spawned from the same
+point forever. Why that face and not the translated box's: render space is
+pbrt's camera-centred world, and with the camera at y = 2.5 the face at
+world y = 2.648 sits at y = 0.148 while its x and z reach 2.4 and 9.5;
+pbrt's OffsetRayOrigin pushes along the normal by the *per-component* error
+bound, gamma(7) times |y| here -- a tenth of a micron -- while the hardware's
+triangle test rounds at the scale of the face's largest coordinates, a
+micron; on the CPU pbrt's own test drops such a hit by its conservative
+bound (`t <= deltaT`), on the GPU nothing does, which is pbrt's hang too
+(rgb-grid's top at render y = 0.35 gives it three times the margin, and it
+gets through). Two changes. The compiler's OptiX trace starts its rays at
+1e-7 as pbrt's `Trace` does (optix.cu, `eps = 1e-7f`; Lower/Trees.cpp, the
+two rtcore-any goldens re-blessed), which alone fixed rgb-grid. And the
+program: a hit the hardware reports that pbrt's test refuses is recognised
+(`hit_refused`, shapes.bonsai) and the ray leaving it is pushed off by the
+bound at the scale of the point's largest coordinate on every axis
+(`wide_error`), at the shadow walk's re-spawn and vol_route's boundary skip
+-- every other spawn is pbrt's to the bit, and the hardware's hit is still
+read through the triangle's own plane (surface_geometry's `lax` test) rather
+than answered as the ray's origin, which is what had frozen the walk. With
+both in, no ray is capped in any of the scenes (the cap and the print were
+the experiment, not the code), and the GPU's radiance against pbrt's CPU
+wavefront: grid-medium 0.99967x with 34.5% within 1e-3 (our scalar's
+figures to the same digits), rgb-grid 0.99821x and 25.2%, cloud 0.99749x --
+where `pbrt --gpu` is itself 0.99881x of its CPU on the cloud and we are
+0.99868x of `pbrt --gpu`. Open and noted: a path ray's own re-hit of such a
+face on the GPU is a bounce pbrt's CPU would not take; pbrt's GPU takes it
+too.
+
+*NanoVDB: what it is, and the question (2026-10-03).* A read-only sparse
+3D grid of values -- here smoke density, and for the explosion also
+temperature -- at integer lattice points, with an affine map from that
+index space to the world, stored as one flat buffer: a wide shallow tree,
+a root table of tiles, internal nodes of 32^3 and 16^3 children, leaves of
+8^3 voxels, bitmasks saying which exist, the background (zero) where none
+does. pbrt uses it as a random-access voxel lookup only: SamplePoint reads
+the eight voxels about the index-space point and interpolates trilinearly
+(NanoVDB's SampleFromVoxels, index coordinates, floor, lerp as `a + w (b -
+a)` z then y then x), and the constructor builds a 64^3 majorant grid over
+the world bounds, each cell the maximum over its voxels with one voxel of
+slop, that the same DDA walks. Our three files: bunny_cloud 19.2 M active
+voxels in 66 k leaves (136 MB of leaf data) inside a 577x572x438 box (578
+MB dense); wdas_cloud_quarter 24.1 M voxels, 85 MB of leaves, 498x338x613
+(413 MB dense); fire two grids of 4.5 M and 4.1 M voxels, 26 and 24 MB of
+leaves, 161x364x153 (36 MB dense each). In bonsai's words it is a *set* of
+voxels keyed by an integer coordinate, abstract in the program, with one
+query on it -- the voxel at this coordinate, or the background -- and the
+three languages divide it as they divide the BVH: the tree language owns
+the pruning (three fixed-fan-out levels each saying "every voxel beneath me
+lies in this integer box", an exact-key query descending by coordinate
+bits), the layout language owns the bytes (NanoVDB's nodes, bitmasks, child
+offsets and 512-float leaves as a `schedules/trees/nanovdb.bonsai` beside
+bvh.bonsai, so the `.nvdb` buffer is loaded unconverted, as the BVH layout
+reproduces pbrt's node and rtq reproduces Embree's), and the program keeps
+the walk. The same abstraction is what uniformgrid already is with a dense
+layout. What the native layout needs that the layout language has not got:
+children indexed by coordinate bits with a fixed fan-out, a bitmask making a
+child optional with a fallback value, and a root table searched by key with
+64-bit offsets -- new constructs, which the user decides on; the interim
+would be a second layout of the same set the converter writes, a dense
+table of 8^3 bricks over the file's own leaves (136 MB for the bunny). Not
+pbrt's own nanovdb2pbrt route of densifying to 578 MB. The question is put
+to the user; until it is answered the converter refuses `nanovdb` with that
+explanation.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`

@@ -624,6 +624,17 @@ func noise(p : vec3f) -> Float {
     return lerp_(wz, y0, y1);
 }
 
+// pbrt: DNoise -- the gradient of Noise by forward differences a hundredth
+// apart, which the cloud medium (media.bonsai) perturbs its lookup point with.
+func dnoise(p : vec3f) -> vec3f {
+    delta = 0.01;
+    n = noise(p);
+    nx = noise(p + vec3f{delta, 0.0, 0.0});
+    ny = noise(p + vec3f{0.0, delta, 0.0});
+    nz = noise(p + vec3f{0.0, 0.0, delta});
+    return vec3f{(nx - n) / delta, (ny - n) / delta, (nz - n) / delta};
+}
+
 // pbrt: SmoothStep.
 func smooth_step_(x : Float, a : Float, b : Float) -> Float {
     if a == b {

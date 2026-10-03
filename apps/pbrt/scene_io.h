@@ -83,11 +83,26 @@ enum MaterialTag : uint32_t {
     Interface = 7,
 };
 
-// A participating medium, of the kinds PBRT has. Only `homogeneous` so far;
-// `uniformgrid`, `rgbgrid`, `nanovdb` and `cloud` are refused by name where
-// the scene is read (see PLAN.md, "volpath").
+// A participating medium, of the kinds PBRT has: `homogeneous`, `uniformgrid`
+// (PBRT's GridMedium), `rgbgrid` and `cloud`. `nanovdb` is refused where the
+// scene is read, pending how a sparse voxel grid is to be stored (PLAN.md,
+// "grid media").
 enum MediumTag : uint32_t {
     Homogeneous = 0,
+    UniformGrid = 1,
+    RGBGrid = 2,
+    Cloud = 3,
+};
+
+// A dense grid of a grid medium -- PBRT's SampledGrid, or the MajorantGrid --
+// as a run of `medium_grid`: `nx * ny * nz` voxels from `at`, x fastest, one
+// float each or four for an RGB spectrum (see Medium). `nx` zero is a grid
+// the medium does not have.
+struct GridRef {
+    int32_t nx = 0;
+    int32_t ny = 0;
+    int32_t nz = 0;
+    uint32_t at = 0;
 };
 
 // The three spectra a medium is made of, each tabulated at the 471 integer
@@ -107,8 +122,45 @@ struct Medium {
     // PBRT: the Henyey-Greenstein asymmetry of the phase function.
     float g = 0.f;
     // PBRT: Medium::IsEmissive, which is `Le_spec.MaxValue() > 0` -- decided
-    // here so that the renderer need not scan the table.
+    // here so that the renderer need not scan the table. For a `uniformgrid`
+    // it is PBRT's isEmissive: a temperature grid, or an Le with a value.
     uint32_t emissive = 0;
+    // The grid media and the cloud: PBRT's `bounds`, p0 and p1 in the medium's
+    // own space, and `renderFromMedium` both ways -- the inverse is PBRT's own
+    // mInv, so that the renderer's pull of a ray into the medium's space rounds
+    // as PBRT's ApplyInverse does.
+    float low[3] = {0.f, 0.f, 0.f};
+    float high[3] = {1.f, 1.f, 1.f};
+    float render_from_medium[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    float medium_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    // `uniformgrid`: the density, the optional temperature (nx zero for none)
+    // and the Lescale grid (one voxel when the scene gave a number, already
+    // divided by Le's photometric integral), one float per voxel; and the
+    // temperature's offset and scale.
+    GridRef density;
+    GridRef temperature;
+    GridRef le_scale;
+    float temperature_scale = 1.f;
+    float temperature_offset = 0.f;
+    // `rgbgrid`: sigma_a, sigma_s and Le as grids of four floats per voxel --
+    // an RGBUnboundedSpectrum's scale and its three sigmoid coefficients, as
+    // PBRT's constructor fits them -- any of the three absent; PBRT's `scale`
+    // and `Lescale`.
+    GridRef sigma_a;
+    GridRef sigma_s;
+    GridRef le;
+    float sigma_scale = 1.f;
+    float le_scale_value = 1.f;
+    // Both grid kinds: the 16x16x16 majorant grid PBRT's constructor builds,
+    // one float per cell -- the maximum of the density over the cell, or for
+    // an `rgbgrid` the scaled maximum of sigma_a plus sigma_s.
+    GridRef majorant;
+    // `cloud`: PBRT's density, wispiness and frequency.
+    float cloud_density = 1.f;
+    float wispiness = 1.f;
+    float frequency = 5.f;
 };
 
 // One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
@@ -826,6 +878,9 @@ struct Scene {
     // some shape's interface or the camera names are written.
     std::vector<Medium> media;
     std::vector<float> medium_spectra;
+    // The grid media's grids, laid end to end (see GridRef). Binary, in the
+    // `.vol` sidecar: smoke-plume's density alone is nine million floats.
+    std::vector<float> medium_grid;
     // PBRT's `CameraMedium`: the medium the camera sits in, which every camera
     // ray starts in, or -1 for none.
     int32_t camera_medium = -1;
@@ -985,6 +1040,11 @@ inline std::string texel_path(const char *scene_path) {
 
 inline std::string pl_path(const char *scene_path) {
     return std::string(scene_path) + ".pl";
+}
+
+// Where the grid media's voxels live (Scene::medium_grid).
+inline std::string vol_path(const char *scene_path) {
+    return std::string(scene_path) + ".vol";
 }
 
 // Where the geometry lives: the FlatBuffer beside the scene file
@@ -1477,6 +1537,17 @@ inline bool write(const char *path, const Scene &scene) {
             return false;
         }
     }
+    if (!scene.medium_grid.empty()) {
+        std::ofstream vol(vol_path(path), std::ios::binary);
+        if (!vol) {
+            return false;
+        }
+        vol.write(reinterpret_cast<const char *>(scene.medium_grid.data()),
+                  std::streamsize(sizeof(float) * scene.medium_grid.size()));
+        if (!vol) {
+            return false;
+        }
+    }
 
     std::ofstream out(path);
     if (!out) {
@@ -1746,16 +1817,70 @@ inline bool write(const char *path, const Scene &scene) {
     // kMediumSpectrumSamples per medium (see Medium).
     out << "media " << scene.media.size() << '\n';
     for (const Medium &m : scene.media) {
+        const auto grid = [&](const char *key, const GridRef &g) {
+            out << ' ' << key << ' ' << g.nx << ' ' << g.ny << ' ' << g.nz << ' '
+                << g.at;
+        };
+        // The box and the two matrices every placed medium has.
+        const auto frame = [&]() {
+            out << " box";
+            detail::put(out, m.low, 3);
+            detail::put(out, m.high, 3);
+            out << " renderfrommedium";
+            detail::put(out, m.render_from_medium, 16);
+            out << " mediumfromrender";
+            detail::put(out, m.medium_from_render, 16);
+        };
         switch (m.tag) {
         case MediumTag::Homogeneous:
-            out << "  homogeneous";
+            out << "  homogeneous spectra " << m.spectra << " g";
+            detail::put(out, &m.g, 1);
+            out << " emissive " << m.emissive << '\n';
+            break;
+        case MediumTag::UniformGrid:
+            out << "  uniformgrid spectra " << m.spectra << " g";
+            detail::put(out, &m.g, 1);
+            out << " emissive " << m.emissive;
+            frame();
+            grid("density", m.density);
+            grid("temperature", m.temperature);
+            grid("lescale", m.le_scale);
+            out << " temperaturescale";
+            detail::put(out, &m.temperature_scale, 1);
+            out << " temperatureoffset";
+            detail::put(out, &m.temperature_offset, 1);
+            grid("majorant", m.majorant);
+            out << '\n';
+            break;
+        case MediumTag::RGBGrid:
+            out << "  rgbgrid g";
+            detail::put(out, &m.g, 1);
+            frame();
+            grid("sigmaa", m.sigma_a);
+            grid("sigmas", m.sigma_s);
+            grid("le", m.le);
+            out << " sigmascale";
+            detail::put(out, &m.sigma_scale, 1);
+            out << " lescale";
+            detail::put(out, &m.le_scale_value, 1);
+            grid("majorant", m.majorant);
+            out << '\n';
+            break;
+        case MediumTag::Cloud:
+            out << "  cloud spectra " << m.spectra << " g";
+            detail::put(out, &m.g, 1);
+            frame();
+            out << " density";
+            detail::put(out, &m.cloud_density, 1);
+            out << " wispiness";
+            detail::put(out, &m.wispiness, 1);
+            out << " frequency";
+            detail::put(out, &m.frequency, 1);
+            out << '\n';
             break;
         default:
             return false;
         }
-        out << " spectra " << m.spectra << " g";
-        detail::put(out, &m.g, 1);
-        out << " emissive " << m.emissive << '\n';
     }
     out << "envilluminants " << scene.env_illuminants.size() << '\n';
     for (size_t i = 0; i < scene.env_illuminants.size(); i++) {
@@ -1769,6 +1894,8 @@ inline bool write(const char *path, const Scene &scene) {
             out << '\n';
         }
     }
+    // The grids themselves are in the `.vol` sidecar; this is how many floats.
+    out << "mediumgrid " << scene.medium_grid.size() << '\n';
 
     // The geometry -- meshes, vertices, shapes, trees, instances, primitives
     // -- is the FlatBuffer beside this file (write_geometry); the text keeps
@@ -2484,23 +2611,86 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         Medium m;
+        const auto grid = [&](const char *key, GridRef &g) {
+            if (!tagged(key)) {
+                return false;
+            }
+            in >> g.nx >> g.ny >> g.nz >> g.at;
+            return bool(in);
+        };
+        const auto frame = [&]() {
+            if (!tagged("box")) {
+                return false;
+            }
+            floats(m.low, 3);
+            floats(m.high, 3);
+            if (!tagged("renderfrommedium")) {
+                return false;
+            }
+            floats(m.render_from_medium, 16);
+            if (!tagged("mediumfromrender")) {
+                return false;
+            }
+            floats(m.medium_from_render, 16);
+            return true;
+        };
+        const auto one = [&](const char *key, float *value) {
+            if (!tagged(key)) {
+                return false;
+            }
+            floats(value, 1);
+            return true;
+        };
         if (word == "homogeneous") {
             m.tag = MediumTag::Homogeneous;
+        } else if (word == "uniformgrid") {
+            m.tag = MediumTag::UniformGrid;
+        } else if (word == "rgbgrid") {
+            m.tag = MediumTag::RGBGrid;
+        } else if (word == "cloud") {
+            m.tag = MediumTag::Cloud;
         } else {
             return false;
         }
-        if (!tagged("spectra")) {
+        if (m.tag != MediumTag::RGBGrid) {
+            if (!tagged("spectra")) {
+                return false;
+            }
+            in >> m.spectra;
+        }
+        if (!one("g", &m.g)) {
             return false;
         }
-        in >> m.spectra;
-        if (!tagged("g")) {
+        if (m.tag == MediumTag::Homogeneous || m.tag == MediumTag::UniformGrid) {
+            if (!tagged("emissive")) {
+                return false;
+            }
+            in >> m.emissive;
+        }
+        if (m.tag != MediumTag::Homogeneous && !frame()) {
             return false;
         }
-        floats(&m.g, 1);
-        if (!tagged("emissive")) {
-            return false;
+        if (m.tag == MediumTag::UniformGrid) {
+            if (!grid("density", m.density) || !grid("temperature", m.temperature) ||
+                !grid("lescale", m.le_scale) ||
+                !one("temperaturescale", &m.temperature_scale) ||
+                !one("temperatureoffset", &m.temperature_offset) ||
+                !grid("majorant", m.majorant)) {
+                return false;
+            }
+        } else if (m.tag == MediumTag::RGBGrid) {
+            if (!grid("sigmaa", m.sigma_a) || !grid("sigmas", m.sigma_s) ||
+                !grid("le", m.le) || !one("sigmascale", &m.sigma_scale) ||
+                !one("lescale", &m.le_scale_value) ||
+                !grid("majorant", m.majorant)) {
+                return false;
+            }
+        } else if (m.tag == MediumTag::Cloud) {
+            if (!one("density", &m.cloud_density) ||
+                !one("wispiness", &m.wispiness) || !one("frequency", &m.frequency)) {
+                return false;
+            }
         }
-        in >> m.emissive;
         scene.media.push_back(m);
     }
     if (!(in >> word) || word != "envilluminants") {
@@ -2523,8 +2713,54 @@ inline bool read(const char *path, Scene &scene) {
         floats(&scene.medium_spectra[i], 1);
     }
     for (const Medium &m : scene.media) {
-        if (size_t(m.spectra) + 3 * kMediumSpectrumSamples > count) {
+        // An rgbgrid has no spectra of its own: its coefficients are grids.
+        if (m.tag != MediumTag::RGBGrid &&
+            size_t(m.spectra) + 3 * kMediumSpectrumSamples > count) {
             return false;
+        }
+    }
+    if (!(in >> word) || word != "mediumgrid") {
+        return false;
+    }
+    in >> count;
+    scene.medium_grid.clear();
+    if (count > 0) {
+        std::ifstream vol(vol_path(path), std::ios::binary);
+        if (!vol) {
+            return false;
+        }
+        scene.medium_grid.resize(count);
+        vol.read(reinterpret_cast<char *>(scene.medium_grid.data()),
+                 std::streamsize(sizeof(float) * count));
+        if (vol.gcount() != std::streamsize(sizeof(float) * count)) {
+            return false;
+        }
+    }
+    // Every grid within the pool: a present grid has positive extents and its
+    // voxels inside, an absent one is all zeros.
+    const auto grid_ok = [&](const GridRef &g, size_t channels) {
+        if (g.nx == 0) {
+            return g.ny == 0 && g.nz == 0 && g.at == 0;
+        }
+        if (g.nx < 0 || g.ny <= 0 || g.nz <= 0) {
+            return false;
+        }
+        return size_t(g.at) + size_t(g.nx) * size_t(g.ny) * size_t(g.nz) * channels <=
+               scene.medium_grid.size();
+    };
+    for (const Medium &m : scene.media) {
+        if (m.tag == MediumTag::UniformGrid) {
+            if (m.density.nx == 0 || m.le_scale.nx == 0 || m.majorant.nx == 0 ||
+                !grid_ok(m.density, 1) || !grid_ok(m.temperature, 1) ||
+                !grid_ok(m.le_scale, 1) || !grid_ok(m.majorant, 1)) {
+                return false;
+            }
+        } else if (m.tag == MediumTag::RGBGrid) {
+            if (m.majorant.nx == 0 || !grid_ok(m.sigma_a, 4) ||
+                !grid_ok(m.sigma_s, 4) || !grid_ok(m.le, 4) ||
+                !grid_ok(m.majorant, 1)) {
+                return false;
+            }
         }
     }
 

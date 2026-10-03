@@ -11,6 +11,8 @@
 // carries radiance has to carry these, and retrofitting them later would be the
 // expensive edit.
 import stdlib/numerics;
+// For fast_exp, which the blackbody below is written with as pbrt writes it.
+import apps/pbrt/sampling;
 
 element SampledWavelengths {
     lambda : vec4f;
@@ -115,5 +117,36 @@ func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {
     // is part of the answer in floating point.
     x = fma(fma(p.c0, w.lambda, p.c1), w.lambda, p.c2);
     return sigmoid(x);
+}
+
+// pbrt: Blackbody, from util/spectrum.h -- the radiance a black body at `t`
+// kelvin emits at each of four wavelengths given in nanometres. `FastExp`, as
+// pbrt writes it, and `Pow<5>` as pbrt's template multiplies it out: the
+// square, squared, times the base.
+func blackbody(lambda : vec4f, t : Float) -> vec4f {
+    if t <= 0.0 {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    c = 299792458.0;
+    h = 6.62606957e-34;
+    kb = 1.3806488e-23;
+    l = lambda * 1e-9;
+    l2 = l * l;
+    l5 = l2 * l2 * l;
+    x = (h * c) / (l * kb * t);
+    e = vec4f{fast_exp(x.x), fast_exp(x.y), fast_exp(x.z), fast_exp(x.w)};
+    return (2.0 * h * c * c) / (l5 * (e - 1.0));
+}
+
+// pbrt: BlackbodySpectrum::Sample -- Planck's law normalized to one at the
+// wavelength Wien's law puts its peak at, `1 / Blackbody(lambdaMax, T)` with
+// lambdaMax = 2.8977721e-3 / T metres. The constructor's division, taken here
+// per call because a grid medium's temperature is a value at a point; an
+// area light's temperature is fixed, and the converter ships its
+// normalization (render.bonsai, Emission).
+func blackbody_normalized(lambda : vec4f, t : Float) -> vec4f {
+    peak_nm = (2.8977721e-3 / t) * 1e9;
+    peak = blackbody(vec4f{peak_nm, peak_nm, peak_nm, peak_nm}, t);
+    return blackbody(lambda, t) * (1.0 / peak.x);
 }
 

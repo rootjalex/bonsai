@@ -71,26 +71,8 @@ element Emission =
     | Blackbody(temperature : Float, normalization : Float)
     | Illuminant;
 
-// pbrt: Blackbody, from util/spectrum.h -- the radiance a black body at `t`
-// kelvin emits at each of four wavelengths given in nanometres. `FastExp`, as
-// pbrt writes it, and `Pow<5>` as pbrt's template multiplies it out: the
-// square, squared, times the base.
-func blackbody(lambda : vec4f, t : Float) -> vec4f {
-    if t <= 0.0 {
-        return vec4f{0.0, 0.0, 0.0, 0.0};
-    }
-    c = 299792458.0;
-    h = 6.62606957e-34;
-    kb = 1.3806488e-23;
-    l = lambda * 1e-9;
-    l2 = l * l;
-    l5 = l2 * l2 * l;
-    x = (h * c) / (l * kb * t);
-    e = vec4f{fast_exp(x.x), fast_exp(x.y), fast_exp(x.z), fast_exp(x.w)};
-    return (2.0 * h * c * c) / (l5 * (e - 1.0));
-}
-
 // pbrt: Spectrum::Sample, the emission at the four wavelengths of a hit.
+// `blackbody` is spectrum.bonsai's, shared with the grid media.
 func emission_at(e : Emission, lambda : SampledWavelengths) -> vec4f {
     match e {
         RGBIlluminant(fit) =>
@@ -2095,36 +2077,51 @@ element Transmittance {
     r_u : vec4f;
 }
 
-// pbrt: the SampleT_maj loop inside VolPathIntegrator::SampleLd, over one
-// homogeneous segment `[t_min, t_max)` of a shadow ray whose direction has
-// been normalized -- tentative collisions at exponential steps, each a null
-// collision that rescales the estimate, with roulette once it has fallen
-// below a twentieth. Tail-recursive: the next step is what this one leaves
-// behind. Returns the transmittance the segment multiplied in, `t_maj` being
-// the majorant transmittance since the last collision, which pbrt applies
-// as `T_maj / T_maj[0]` after the loop.
+// pbrt: the SampleT_maj loop inside TraceTransmittance, over the majorant
+// segments of a shadow ray whose direction has been normalized -- from
+// `t_min` within the segment `seg`, tentative collisions at exponential
+// steps, each a null collision that rescales the estimate, with roulette
+// once it has fallen below a twentieth; at a segment's end the next segment
+// (media.bonsai, majorant_next). Tail-recursive: the next step is what this
+// one leaves behind. Returns the transmittance the segments multiplied in,
+// `t_maj` being the majorant transmittance since the last collision, which
+// pbrt applies as `T_maj / T_maj[0]` after the loop.
 element MajorantTail {
     tr : Transmittance;
     t_maj : vec4f;
 }
 
-func vol_shadow_track(o : vec3f, dn : vec3f, t_min : Float, t_max : Float,
-                      m : Medium, sigma_maj : vec4f, u : Float, rng : mut RNG,
-                      tr_in : Transmittance, t_maj_in : vec4f,
+func vol_shadow_track(o : vec3f, dn : vec3f, t_min : Float, seg : MajorantSegment,
+                      it : mut MajorantIter, m : Medium, u : Float,
+                      rng : mut RNG, tr_in : Transmittance, t_maj_in : vec4f,
                       lambda : SampledWavelengths) -> MajorantTail {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
-    t = t_min + sample_exponential(u, sigma_maj.x);
-    u_next = next_float(rng);
-    if t >= t_max {
+    sigma_maj = seg.sigma_maj;
+    // pbrt: a zero-valued majorant -- the segment is transmitted by it whole
+    // and no step is drawn; otherwise the exponential step, and the next
+    // step's `u` right after it.
+    t : mut Float = seg.t_max;
+    u_after : mut Float = u;
+    if sigma_maj.x != 0.0 {
+        t = t_min + sample_exponential(u, sigma_maj.x);
+        u_after = next_float(rng);
+    }
+    if t >= seg.t_max {
         // pbrt: past the end of the segment -- the rest of it is transmitted
-        // by the majorant alone.
-        dt_raw = t_max - t_min;
-        dt = select(dt_raw == inf, float_max(), dt_raw);
-        tail : MajorantTail = {tr_in, t_maj_in * fast_exp4(-dt * sigma_maj)};
-        return tail;
+        // by the majorant alone, and the walk goes on into the next segment
+        // with the transmittance so far, or ends where the segments do.
+        t_maj = segment_passed(t_maj_in, t_min, seg.t_max, sigma_maj);
+        next = majorant_next(it);
+        if !next {
+            tail : MajorantTail = {tr_in, t_maj};
+            return tail;
+        }
+        following = *next;
+        return vol_shadow_track(o, dn, following.t_min, following, it, m, u_after,
+                                rng, tr_in, t_maj, lambda);
     }
     t_maj = t_maj_in * fast_exp4(-(t - t_min) * sigma_maj);
-    mp = medium_sample_point(m, lambda);
+    mp = medium_sample_point(m, o + t * dn, lambda);
     // pbrt: the callback -- a null collision, the ratio-tracking update, and
     // roulette on the estimate so far.
     sigma_n = max(sigma_maj - mp.sigma_a - mp.sigma_s, zero);
@@ -2150,7 +2147,7 @@ func vol_shadow_track(o : vec3f, dn : vec3f, t_min : Float, t_max : Float,
         dead : MajorantTail = {tr, ones};
         return dead;
     }
-    return vol_shadow_track(o, dn, t, t_max, m, sigma_maj, u_next, rng, tr,
+    return vol_shadow_track(o, dn, t, seg, it, m, u_after, rng, tr,
                             vec4f{1.0, 1.0, 1.0, 1.0}, lambda);
 }
 
@@ -2169,20 +2166,20 @@ func vol_shadow_segment(light_ray : Ray, medium : i32, t_hit : Float,
     d_len = sqrt(sqlen_(light_ray.d));
     dn = light_ray.d / d_len;
     m = media[medium];
-    sigma_maj = medium_sigma_maj(m, lambda);
+    // pbrt: `SampleT_maj(ray, tMax, rng.Uniform<Float>(), rng, ...)` -- the
+    // first step's `u` is drawn before the medium is asked for its segments.
     u = next_float(rng);
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
+    it : mut MajorantIter = majorant_begin(m, light_ray.o, dn, t_hit * d_len,
+                                           lambda);
+    first = majorant_next(it);
+    // pbrt: a ray with no segments -- one that misses a grid medium's box --
+    // leaves SampleT_maj with a transmittance of one.
     tail : mut MajorantTail = {tr, ones};
-    if sigma_maj.x == 0.0 {
-        // pbrt: a zero majorant -- the segment is transmitted by it whole
-        // (which for a homogeneous medium is a transmittance of one), and
-        // the ratio-tracking loop never runs.
-        dt_raw = t_hit * d_len;
-        dt = select(dt_raw == inf, float_max(), dt_raw);
-        tail = MajorantTail{tr, fast_exp4(-dt * sigma_maj)};
-    } else {
-        tail = vol_shadow_track(light_ray.o, dn, 0.0, t_hit * d_len, m,
-                                sigma_maj, u, rng, tr, ones, lambda);
+    if first {
+        seg = *first;
+        tail = vol_shadow_track(light_ray.o, dn, seg.t_min, seg, it, m, u, rng,
+                                tr, ones, lambda);
     }
     return Transmittance{tail.tr.t_ray * tail.t_maj / tail.t_maj.x,
                          tail.tr.r_l * tail.t_maj / tail.t_maj.x,
@@ -2234,8 +2231,13 @@ func vol_shadow_step(light_ray : Ray, tmax : Float, medium : i32,
         return blocked;
     }
     // pbrt: `ray = spawnTo(pLight)`, which is `si->intr.SpawnRayTo(pLight)`
-    // -- from the boundary just crossed, in the medium on its far side.
-    next_ray = spawn_ray_to_point(surf.p, surf.p_error, surf.n, p_light);
+    // -- from the boundary just crossed, in the medium on its far side. A
+    // hit pbrt's test refuses is the hardware re-finding the face the ray
+    // left (hit_refused, shapes.bonsai), and the ray is pushed clear of it
+    // instead: left as pbrt has it, the walk re-spawned there forever.
+    refused = hit_refused(prim.shape, untransform(via, light_ray));
+    next_ray = spawn_ray_to_point(
+        surf.p, select(refused, wide_error(surf.p), surf.p_error), surf.n, p_light);
     next_medium = get_medium(prim, surf.n, next_ray.d, medium);
     return vol_shadow_step(next_ray, tmax, next_medium, p_light, tracked, rng,
                            lambda);
@@ -2406,11 +2408,14 @@ element MediumEvent {
 
 // pbrt: SampleT_maj with the medium kernel's callback (wavefront/media.cpp,
 // SampleMediumInteraction; the CPU integrator's is the same but for its
-// draws), over the one majorant segment a homogeneous medium has:
-// exponential steps along the normalized ray from `t_min`, and at each
-// tentative collision the callback -- emission, then absorb / scatter / null
-// by the coefficients' share of the majorant. Tail-recursive on a null
-// collision, as the loop continues. `u` is the step's exponential sample and
+// draws), over the medium's majorant segments (media.bonsai, majorant_next):
+// exponential steps along the normalized ray from `t_min` within the segment
+// `seg`, and at each tentative collision the callback -- emission, then
+// absorb / scatter / null by the coefficients' share of the majorant.
+// Tail-recursive on a null collision, as the inner loop continues, and at a
+// segment's end into the next segment, as the outer loop does; the
+// transmittance since the last collision carries across segments as pbrt's
+// `T_maj` does. `u` is the step's exponential sample and
 // `u_mode` the event's, both drawn before the walk as the wavefront draws
 // `uDist` and `uMode` (media.cpp:58-59); the next step's `u` is drawn right
 // after the step, as SampleT_maj draws it, and a null collision draws the
@@ -2418,26 +2423,40 @@ element MediumEvent {
 // as it is, not normalized: the callback reads the outer ray's `d` for the
 // phase function, and so does this.
 func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
-                     t_max : Float, m : Medium, sigma_maj : vec4f, u : Float,
-                     u_mode : Float, rng : mut RNG, t_maj_in : vec4f,
+                     seg : MajorantSegment, it : mut MajorantIter, m : Medium,
+                     u : Float, u_mode : Float, rng : mut RNG, t_maj_in : vec4f,
                      beta : vec4f, r_u : vec4f, r_l : vec4f, l : reduce(+) vec4f,
                      depth : i32, max_depth : i32,
                      lambda : SampledWavelengths) -> MediumEvent {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     zero3 = vec3f{0.0, 0.0, 0.0};
-    t = t_min + sample_exponential(u, sigma_maj.x);
-    u_next = next_float(rng);
-    if t >= t_max {
-        // pbrt: past the end of the segment.
-        dt_raw = t_max - t_min;
-        dt = select(dt_raw == inf, float_max(), dt_raw);
-        passed : MediumEvent = {0, t_maj_in * fast_exp4(-dt * sigma_maj), beta,
-                                r_u, r_l, depth, zero3, 0.0};
-        return passed;
+    sigma_maj = seg.sigma_maj;
+    // pbrt: a zero-valued majorant -- the segment is transmitted by it whole
+    // and no step is drawn; otherwise the exponential step, and the next
+    // step's `u` right after it.
+    t : mut Float = seg.t_max;
+    u_after : mut Float = u;
+    if sigma_maj.x != 0.0 {
+        t = t_min + sample_exponential(u, sigma_maj.x);
+        u_after = next_float(rng);
+    }
+    if t >= seg.t_max {
+        // pbrt: past the end of the segment -- its rest transmitted by the
+        // majorant, and on into the next segment, or out where they end.
+        t_maj = segment_passed(t_maj_in, t_min, seg.t_max, sigma_maj);
+        next = majorant_next(it);
+        if !next {
+            passed : MediumEvent = {0, t_maj, beta, r_u, r_l, depth, zero3, 0.0};
+            return passed;
+        }
+        following = *next;
+        return vol_medium_step(ray_o, ray_d, dn, following.t_min, following, it,
+                               m, u_after, u_mode, rng, t_maj, beta, r_u, r_l, l,
+                               depth, max_depth, lambda);
     }
     t_maj = t_maj_in * fast_exp4(-(t - t_min) * sigma_maj);
     p = ray_o + t * dn;
-    mp = medium_sample_point(m, lambda);
+    mp = medium_sample_point(m, p, lambda);
 
     // pbrt: the callback. A path with nothing left is done.
     if !nonzero(beta) {
@@ -2506,7 +2525,7 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
         ended : MediumEvent = {2, t_maj, beta_n, r_u_n, r_l_n, depth, zero3, 0.0};
         return ended;
     }
-    return vol_medium_step(ray_o, ray_d, dn, t, t_max, m, sigma_maj, u_next,
+    return vol_medium_step(ray_o, ray_d, dn, t, seg, it, m, u_after,
                            u_mode_next, rng, vec4f{1.0, 1.0, 1.0, 1.0}, beta_n,
                            r_u_n, r_l_n, l, depth, max_depth, lambda);
 }
@@ -2603,24 +2622,23 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
     rng : mut RNG = set_sequence(hash_vec3_float(ray.o, t_hit), hash_vec3(ray.d));
     u_dist = next_float(rng);
     u_mode = next_float(rng);
-    // pbrt: SampleT_maj normalizes the ray and scales tMax by its length.
+    // pbrt: SampleT_maj normalizes the ray and scales tMax by its length,
+    // then asks the medium for its majorant segments along it.
     d_len = sqrt(sqlen_(ray.d));
     dn = ray.d / d_len;
     m = media[medium];
-    sigma_maj = medium_sigma_maj(m, lambda);
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
     zero3 = vec3f{0.0, 0.0, 0.0};
+    it : mut MajorantIter = majorant_begin(m, ray.o, dn, t_hit * d_len, lambda);
+    first = majorant_next(it);
+    // pbrt: a ray with no segments -- one that misses a grid medium's box --
+    // leaves SampleT_maj with a transmittance of one and the path as it was.
     event : mut MediumEvent = {0, ones, beta, r_u, r_l, depth, zero3, 0.0};
-    if sigma_maj.x == 0.0 {
-        // pbrt: a zero majorant -- the whole segment transmitted by it.
-        dt_raw = t_hit * d_len;
-        dt = select(dt_raw == inf, float_max(), dt_raw);
-        event = MediumEvent{0, fast_exp4(-dt * sigma_maj), beta, r_u, r_l,
-                            depth, zero3, 0.0};
-    } else {
-        event = vol_medium_step(ray.o, ray.d, dn, 0.0, t_hit * d_len, m,
-                                sigma_maj, u_dist, u_mode, rng, ones, beta, r_u,
-                                r_l, l, depth, max_depth, lambda);
+    if first {
+        seg = *first;
+        event = vol_medium_step(ray.o, ray.d, dn, seg.t_min, seg, it, m, u_dist,
+                                u_mode, rng, ones, beta, r_u, r_l, l, depth,
+                                max_depth, lambda);
     }
     if event.kind == 2 {
         return;
@@ -2776,7 +2794,15 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
         if wave == max_depth {
             return;
         }
-        skip_ray = spawn_ray(surf, ray.d);
+        // A hit pbrt's test refuses is the hardware re-finding the face the
+        // ray left (hit_refused, shapes.bonsai): pushed clear of it instead,
+        // so that the crossing is not spent on the same face again.
+        refused = hit_refused(prim.shape, untransform(via, ray));
+        skip_ray : Ray = {offset_ray_origin(surf.p,
+                                            select(refused, wide_error(surf.p),
+                                                   surf.p_error),
+                                            surf.n, ray.d),
+                          ray.d};
         vol_path_step(
             skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
             spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
