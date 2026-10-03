@@ -1,0 +1,52 @@
+# A normal-mapped quad under an area light, for the shading normal alone.
+#
+# pbrt's `normalmap` is the other thing every material may carry besides a
+# `displacement`, and a different thing: the image's texel *is* the shading
+# normal, in the tangent frame of the surface's uv -- `2 * rgb - 1`,
+# normalized, taken to render space through the frame whose x is dpdu and
+# whose z is the shading normal -- where a bump map is a height whose finite
+# differences tilt the normal. pbrt reads it as a plain linear image with
+# repeat wrap, bilinearly and unfiltered, and applies it before the material
+# is asked for anything.
+#
+# What the comparison checks is the gbuffer's shading normal, `ns`, which is
+# exactly the thing a normal map replaces and the one channel that can tell a
+# right normal map from a nearly right one -- the geometric normal does not
+# move. The map is one of bistro's, 2048 by 2048, over a quad whose uv runs
+# once across it; the light is there so that the radiance is checked too,
+# since a wrong frame shows in the shading before it shows in the picture.
+#
+# `volpath`, so that the GPU schedule renders it as well.
+
+LookAt 0 0 4   0 0 0   0 1 0
+Camera "perspective" "float fov" [40]
+
+Sampler "halton" "integer pixelsamples" [8]
+Integrator "volpath" "integer maxdepth" [2]
+Film "gbuffer"
+    "string filename" ["normalmap.exr"]
+    "integer xresolution" [512]
+    "integer yresolution" [512]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+AttributeBegin
+    Translate 0 3 3
+    AreaLightSource "diffuse" "rgb L" [8 8 8]
+    Material "diffuse" "rgb reflectance" [0 0 0]
+    Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+Material "diffuse"
+    "rgb reflectance" [0.6 0.55 0.5]
+    "string normalmap" "/home/ajroot/projects/pbrt-v4-scenes/bistro/textures/Antenna_Metal_Normal.png"
+
+# A quad in the xy plane facing the camera, its uv from (0, 0) at the lower
+# left to (1, 1) at the upper right, wound so its normal points at +z.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 2 3]
+    "point3 P" [ -1.5 -1.5 0   1.5 -1.5 0   1.5 1.5 0   -1.5 1.5 0 ]
+    "point2 uv" [ 0 0   1 0   1 1   0 1 ]

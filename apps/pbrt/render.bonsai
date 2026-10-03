@@ -1160,6 +1160,11 @@ extern materials : array[Material];
 // shading frame before `GetBSDF` asks the material anything, and every kind of
 // material may carry one. Negative where there is none.
 extern material_displacement : array[i32];
+// pbrt: `Material::GetNormalMap()`, the same way: the level of
+// `texture_levels` that is the material's normal map, or negative. It wins
+// over a displacement where a material has both (differentials.bonsai,
+// material_frame).
+extern material_normal_map : array[i32];
 
 // pbrt: the path integrator's fixed sample points for a reflectance estimate,
 // which are file-scope constants there. Fixed rather than drawn from the
@@ -1386,7 +1391,8 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = displaced(surf, material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[prim.material],
+                         material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
                          diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
@@ -1510,7 +1516,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: GetBSDF, once, before anything is asked of it -- differentials,
     // then the displacement, then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = displaced(surf, material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[prim.material],
+                         material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
                          diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
@@ -1800,7 +1807,8 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // displacement -- which tilts the shading frame and so has to happen before
     // the frame is built -- and only then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = displaced(surf, material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[prim.material],
+                         material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
                          hit.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
@@ -2780,7 +2788,8 @@ func vol_surface(ray : Ray, medium : i32,
 
     do_regularize = regularize && any_non_specular;
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = displaced(surf, material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[prim.material],
+                         material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(material, lambda, do_regularize, hit.uv, diffs.dudx,
                          diffs.dvdx, diffs.dudy, diffs.dvdy);

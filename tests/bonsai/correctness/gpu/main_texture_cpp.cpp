@@ -14,12 +14,12 @@ int main() {
     const float level0[16] = {1, 0, 0, 1, 0, 1, 0, 1,
                               0, 0, 1, 1, 1, 1, 1, 1};
     const float level1[4] = {0.5f, 0.5f, 0.5f, 1};
-    const float *const levels[2] = {level0, level1};
+    const void *const levels[2] = {level0, level1};
     std::vector<uint64_t> handles = {
-        bonsai_cuda_texture_create(2, widths, heights, levels, /*wrap=*/1,
-                                   /*max_anisotropy=*/8),
-        bonsai_cuda_texture_create(2, widths, heights, levels, /*wrap=*/2,
-                                   /*max_anisotropy=*/8)};
+        bonsai_cuda_texture_create(2, widths, heights, levels, /*format=*/0,
+                                   /*wrap=*/1, /*max_anisotropy=*/8),
+        bonsai_cuda_texture_create(2, widths, heights, levels, /*format=*/0,
+                                   /*wrap=*/2, /*max_anisotropy=*/8)};
 
     // The lookups: which texture, where, with what footprint.
     struct Lookup {

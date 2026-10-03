@@ -153,8 +153,8 @@ void bonsai_cuda_store_async(void *device, const void *host, uint64_t bytes);
 // Aborts with the driver's reason on failure.
 uint64_t bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
                                     const uint32_t *heights,
-                                    const float *const *texels, int32_t wrap,
-                                    int32_t max_anisotropy);
+                                    const void *const *texels, int32_t format,
+                                    int32_t wrap, int32_t max_anisotropy);
 void bonsai_cuda_texture_destroy(uint64_t texture);
 // Forgets the kernel profile gathered so far (BONSAI_KERNEL_STATS), so that
 // what is printed at exit is the profile of what runs after this call: a
@@ -193,6 +193,7 @@ using CUevent = struct CUevent_st *;
 // CUDA_TEXTURE_DESC_v1): the driver reads these by offset, so every field
 // and its padding is the header's. The enums are ints of the header's
 // values.
+constexpr int CU_AD_FORMAT_UNSIGNED_INT8 = 0x01;
 constexpr int CU_AD_FORMAT_FLOAT = 0x20;
 constexpr int CU_MEMORYTYPE_HOST = 1;
 constexpr int CU_MEMORYTYPE_ARRAY = 3;
@@ -203,6 +204,7 @@ constexpr int CU_TR_ADDRESS_MODE_BORDER = 3;
 constexpr int CU_TR_FILTER_MODE_POINT = 0;
 constexpr int CU_TR_FILTER_MODE_LINEAR = 1;
 constexpr unsigned CU_TRSF_NORMALIZED_COORDINATES = 0x02;
+constexpr unsigned CU_TRSF_SRGB = 0x10;
 
 struct CUDA_ARRAY3D_DESCRIPTOR {
     size_t Width;
@@ -837,24 +839,35 @@ __attribute__((used)) inline void bonsai_kernel_stats_render_done(double seconds
     s.entries.clear();
 }
 
+// `format` is the texels' storage, pbrt's `PixelFormat` and `ColorEncoding`
+// as the texture unit takes them: 0 is RGBA floats; 1 is RGBA bytes
+// sRGB-encoded, which the unit decodes before it filters (pbrt's GPU build
+// sets `cudaReadModeNormalizedFloat` and `texDesc.sRGB` for a U256 image,
+// textures.cpp); 2 is RGBA bytes linear, read as the byte over 255.
 __attribute__((used)) inline uint64_t
 bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
-                           const uint32_t *heights, const float *const *texels,
-                           int32_t wrap, int32_t max_anisotropy) {
+                           const uint32_t *heights, const void *const *texels,
+                           int32_t format, int32_t wrap, int32_t max_anisotropy) {
     using namespace bonsai_cuda_detail;
     Driver &d = ready("create a texture object");
     std::lock_guard<std::mutex> lock(d.mutex);
     if (levels < 1) {
         fail("a texture needs at least one level");
     }
+    if (format < 0 || format > 2) {
+        fail("a texture's format is 0 (floats), 1 (sRGB bytes) or 2 (linear "
+             "bytes), not " + std::to_string(format));
+    }
+    const bool bytes = format != 0;
+    const size_t texel_bytes = bytes ? 4 : 4 * sizeof(float);
 
     // The pyramid: one mipmapped array of `levels` levels, each filled from
-    // its rows of RGBA floats.
+    // its rows of RGBA floats or bytes.
     CUDA_ARRAY3D_DESCRIPTOR shape = {};
     shape.Width = widths[0];
     shape.Height = heights[0];
     shape.Depth = 0;
-    shape.Format = CU_AD_FORMAT_FLOAT;
+    shape.Format = bytes ? CU_AD_FORMAT_UNSIGNED_INT8 : CU_AD_FORMAT_FLOAT;
     shape.NumChannels = 4;
     shape.Flags = 0;
     CUmipmappedArray pyramid = nullptr;
@@ -869,7 +882,7 @@ bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
         CUDA_MEMCPY2D copy = {};
         copy.srcMemoryType = CU_MEMORYTYPE_HOST;
         copy.srcHost = texels[l];
-        copy.srcPitch = size_t(widths[l]) * 4 * sizeof(float);
+        copy.srcPitch = size_t(widths[l]) * texel_bytes;
         copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
         copy.dstArray = level;
         copy.WidthInBytes = copy.srcPitch;
@@ -894,7 +907,10 @@ bonsai_cuda_texture_create(int64_t levels, const uint32_t *widths,
     texture.addressMode[1] = address;
     texture.addressMode[2] = address;
     texture.filterMode = CU_TR_FILTER_MODE_LINEAR;
-    texture.flags = CU_TRSF_NORMALIZED_COORDINATES;
+    // Bytes are read as the byte over 255 (no CU_TRSF_READ_AS_INTEGER), and
+    // sRGB-encoded ones decoded by the unit before the filter.
+    texture.flags = CU_TRSF_NORMALIZED_COORDINATES |
+                    (format == 1 ? CU_TRSF_SRGB : 0u);
     texture.maxAnisotropy =
         unsigned(max_anisotropy < 1 ? 1 : max_anisotropy > 16 ? 16 : max_anisotropy);
     texture.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;

@@ -18,6 +18,7 @@
 #include "rgb2spec.h"
 #include "scene_io.h"
 #include "sobol_tables.h"
+#include "srgb_table.h"
 
 #include <algorithm>
 #include <bit>
@@ -1295,6 +1296,7 @@ int main(int argc, char **argv) {
         level.width = l.width;
         level.height = l.height;
         level.first_texel = l.first_texel;
+        level.format = l.format;
         texture_levels.push_back(level);
     }
     std::vector<float3> texture_texels;
@@ -1307,39 +1309,68 @@ int main(int argc, char **argv) {
 #endif
 #if BONSAI_render_HAS_texture_handles
     // The texture units' objects (textures.bonsai, `texture_handles`): one
-    // per image texture, over the same pyramid, RGBA floats since the units
-    // take one, two or four channels and the texels are three -- what pbrt's
-    // GPU build does in GPUSpectrumImageTexture::Create, with pbrt's default
-    // `maxanisotropy` of 8. Built from the scene's own level table and
-    // texels, which are here whatever the schedule.
+    // per image texture, over the same pyramid, RGBA since the units take
+    // one, two or four channels and the texels are three -- floats for a
+    // float image, bytes for an 8-bit one, decoded from sRGB by the unit
+    // before it filters, which is what pbrt's GPU build does in
+    // GPUSpectrumImageTexture::Create (`cudaReadModeNormalizedFloat` and
+    // `texDesc.sRGB` for a U256 image), with pbrt's default `maxanisotropy`
+    // of 8. Built from the scene's own level table and texels, which are
+    // here whatever the schedule.
     std::vector<uint64_t> texture_handles(textures.size(), 0);
 #ifdef BONSAI_HAS_GPU
     for (size_t k = 0; k < textures.size(); k++) {
         const ImageTexture &t = textures[k];
+        // pbrt's pyramid keeps the image's format on every level
+        // (Image::GeneratePyramid), and so does scene_dump.
+        const uint32_t format = loaded.texture_levels[t.first_level].format;
         std::vector<uint32_t> widths, heights;
         std::vector<std::vector<float>> rgba(t.n_levels);
-        std::vector<const float *> level_texels;
+        std::vector<std::vector<uint8_t>> rgba8(t.n_levels);
+        std::vector<const void *> level_texels;
         for (uint32_t l = 0; l < t.n_levels; l++) {
             const bonsai_scene::TextureLevel &level =
                 loaded.texture_levels[t.first_level + l];
+            if (level.format != format) {
+                fprintf(stderr,
+                        "texture %zu: level %u is stored as format %u where "
+                        "level 0 is %u; a pyramid has one format\n",
+                        k, l, level.format, format);
+                return 1;
+            }
             widths.push_back(level.width);
             heights.push_back(level.height);
-            std::vector<float> &out = rgba[l];
             const size_t n = size_t(level.width) * level.height;
-            out.resize(n * 4);
-            for (size_t i = 0; i < n; i++) {
-                const float *texel =
-                    &loaded.texture_texels[3 * (size_t(level.first_texel) + i)];
-                out[4 * i + 0] = texel[0];
-                out[4 * i + 1] = texel[1];
-                out[4 * i + 2] = texel[2];
-                out[4 * i + 3] = 1.f;
+            if (format == bonsai_scene::TexelFormat::Float) {
+                std::vector<float> &out = rgba[l];
+                out.resize(n * 4);
+                for (size_t i = 0; i < n; i++) {
+                    const float *texel =
+                        &loaded.texture_texels[3 * (size_t(level.first_texel) + i)];
+                    out[4 * i + 0] = texel[0];
+                    out[4 * i + 1] = texel[1];
+                    out[4 * i + 2] = texel[2];
+                    out[4 * i + 3] = 1.f;
+                }
+                level_texels.push_back(out.data());
+            } else {
+                std::vector<uint8_t> &out = rgba8[l];
+                out.resize(n * 4);
+                for (size_t i = 0; i < n; i++) {
+                    const uint8_t *texel =
+                        &loaded.texture_bytes[3 * (size_t(level.first_texel) + i)];
+                    out[4 * i + 0] = texel[0];
+                    out[4 * i + 1] = texel[1];
+                    out[4 * i + 2] = texel[2];
+                    out[4 * i + 3] = 255;
+                }
+                level_texels.push_back(out.data());
             }
-            level_texels.push_back(out.data());
         }
         texture_handles[k] = bonsai_cuda_texture_create(
             int64_t(t.n_levels), widths.data(), heights.data(),
-            level_texels.data(), int32_t(t.wrap), /*max_anisotropy=*/8);
+            level_texels.data(), int32_t(format), int32_t(t.wrap),
+            /*max_anisotropy=*/8);
     }
 #else
     // A host schedule that binds the lookup to the units has no units: the
@@ -1375,6 +1406,8 @@ int main(int argc, char **argv) {
                     texture_at(uint32_t(index), uv, fp[0], fp[1], fp[2], fp[3],
                                0.5f, out, textures.data(),
                                texture_levels.data(), texture_texels.data(),
+                               loaded.texture_bytes.data(),
+                               std::to_array(SRGB8_TO_LINEAR),
                                loaded.rgb_table.data());
                     if (index == 0 && k == 0) {
                         printf("lambda: %.9g %.9g %.9g %.9g\n", double(out[5]),
@@ -1455,8 +1488,12 @@ int main(int argc, char **argv) {
     // a displacement tilts the shading frame before any material is asked
     // anything, so it belongs to every kind of material and to none of them.
     std::vector<int32_t> material_displacement;
+    // And `Material::GetNormalMap()` the same way: the level of
+    // `texture_levels` that is the material's normal map, or -1.
+    std::vector<int32_t> material_normal_map;
     materials.reserve(loaded.materials.size());
     material_displacement.reserve(loaded.materials.size());
+    material_normal_map.reserve(loaded.materials.size());
     // PBRT: Material::Create returns no material for `interface` (and for
     // `none` and `""`), and the GeometricPrimitive holds that null. The scene
     // file keeps such a material as a record (MaterialTag::Interface) so
@@ -1473,6 +1510,7 @@ int main(int argc, char **argv) {
         }
         material_slot.push_back(static_cast<int32_t>(materials.size()));
         material_displacement.push_back(m.displacement_texture);
+        material_normal_map.push_back(m.normal_map);
         Material material;
         Reflectance reflectance;
         reflectance.albedo = albedo_of(m.reflectance);
@@ -2291,6 +2329,30 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unknown integrator tag %u\n", loaded.integrator);
         return 1;
     }
+#ifdef BONSAI_HAS_GPU
+    // A GPU schedule binds `render[VolPath]`'s loops to the device and no
+    // other integrator's -- `pbrt --gpu` is volpath only, and so is this,
+    // by the user's decision (2026-10-02); schedules for the other
+    // integrators are for later. A scene naming another integrator would
+    // run that arm on the host, where the copies of the device-bound queries
+    // are traps (CodeGen_LLVM's codegen_rt_trace: SIGILL, no message), so
+    // it is refused here with a sentence instead.
+    if (loaded.integrator != bonsai_scene::IntegratorTag::VolPath) {
+        const char *named = "randomwalk";
+        if (loaded.integrator == bonsai_scene::IntegratorTag::SimplePath) {
+            named = "simplepath";
+        } else if (loaded.integrator == bonsai_scene::IntegratorTag::Path) {
+            named = "path";
+        }
+        fprintf(stderr,
+                "this build renders volpath only -- pbrt --gpu is volpath only, "
+                "and the GPU schedule binds render[VolPath] alone -- and the "
+                "scene names \"%s\". Render it with a CPU schedule, or name "
+                "Integrator \"volpath\".\n",
+                named);
+        return 1;
+    }
+#endif
     const auto make_integrator = [&](int32_t max_depth) {
         Integrator integrator;
         switch (loaded.integrator) {
@@ -2398,6 +2460,10 @@ int main(int argc, char **argv) {
 #if BONSAI_render_HAS_texture_levels
     bonsai_buffer b_texture_levels = buffer_of(texture_levels);
     bonsai_buffer b_texture_texels = buffer_of(texture_texels);
+    bonsai_buffer b_texture_bytes = buffer_of(loaded.texture_bytes);
+    // pbrt's SRGBToLinearLUT, the software filter's decode of an sRGB byte
+    // (srgb_table.h, checked against pbrt's by `scene_dump --check-tables`).
+    bonsai_buffer b_srgb_to_linear = buffer_of(SRGB8_TO_LINEAR);
 #endif
 #if BONSAI_render_HAS_texture_handles
     bonsai_buffer b_texture_handles = buffer_of(texture_handles);
@@ -2444,6 +2510,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_light_bit_trails = buffer_of(loaded.light_bit_trails);
     bonsai_buffer b_materials = buffer_of(materials);
     bonsai_buffer b_material_displacement = buffer_of(material_displacement);
+    bonsai_buffer b_material_normal_map = buffer_of(material_normal_map);
     bonsai_buffer b_media = buffer_of(media);
     bonsai_buffer b_medium_spectra = buffer_of(loaded.medium_spectra);
     bonsai_buffer b_rho_uc = buffer_of(rho_uc);
@@ -2496,7 +2563,8 @@ int main(int argc, char **argv) {
         &b_normal_out, &b_shading_out, &b_albedo_out, &b_radiance_out,
         &b_weight_out, &b_textures,
 #if BONSAI_render_HAS_texture_levels
-        &b_texture_levels, &b_texture_texels,
+        &b_texture_levels, &b_texture_texels, &b_texture_bytes,
+        &b_srgb_to_linear,
 #endif
 #if BONSAI_render_HAS_texture_handles
         &b_texture_handles,
@@ -2518,7 +2586,8 @@ int main(int argc, char **argv) {
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
         &b_env_sat, &b_env_illuminants, &b_lights, &b_light_tree,
         &b_light_bit_trails, &b_materials,
-        &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
+        &b_material_displacement, &b_material_normal_map, &b_rho_uc, &b_rho_ux,
+        &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
 #ifdef BONSAI_HAS_OPTIX
         &b_geoms, &b_prims,
@@ -2584,7 +2653,8 @@ int main(int argc, char **argv) {
                &b_normal_out, &b_shading_out,
                &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
 #if BONSAI_render_HAS_texture_levels
-               &b_texture_levels, &b_texture_texels,
+               &b_texture_levels, &b_texture_texels, &b_texture_bytes,
+               &b_srgb_to_linear,
 #endif
 #if BONSAI_render_HAS_texture_handles
                &b_texture_handles,
@@ -2604,7 +2674,8 @@ int main(int argc, char **argv) {
                &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_env_sat,
                &b_env_illuminants, &b_lights, &b_light_tree, &b_light_bit_trails,
                &b_materials,
-               &b_material_displacement, &b_rho_uc, &b_rho_ux, &b_rho_uy,
+               &b_material_displacement, &b_material_normal_map, &b_rho_uc,
+               &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
@@ -2686,6 +2757,7 @@ int main(int argc, char **argv) {
                            &b_textures,
 #if BONSAI_hit_at_HAS_texture_levels
                            &b_texture_levels, &b_texture_texels,
+                           &b_texture_bytes, &b_srgb_to_linear,
 #endif
 #if BONSAI_hit_at_HAS_texture_handles
                            &b_texture_handles,

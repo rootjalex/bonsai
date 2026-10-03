@@ -8916,6 +8916,110 @@ pbrt's too. No scene of the set is unlocked by zsobol alone: bistro's three now 
 `normalmap`, kroken's seven at a constant shape `alpha`, clouds and
 explosion at their `cloud` and `nanovdb` media.
 
+**8-bit textures, and the normal map (2026-10-02).** bistro, the next
+scene by what it unlocks (three files), has a hundred and seven 2048x2048
+PNGs as colour textures and a hundred and twelve as normal maps. As this
+renderer stored texels -- three floats each, decoded on the way in -- that
+is 5.4 GB of colour levels before the pyramid and 5.6 GB of normal maps,
+in the scene file and on the device; pbrt stores an 8-bit image as the
+bytes it came with (`Image`'s `U256` format, with the file's
+`ColorEncoding`), decodes a texel as it reads it (`Image::GetChannel`: the
+`SRGBToLinearLUT` for sRGB, the byte over 255 for linear), keeps that
+format on every level of the pyramid (`Image::GeneratePyramid` converts
+back to it), and on the GPU makes a `uchar4` texture read as normalized
+floats with `texDesc.sRGB` set, so the unit decodes before it filters
+(textures.cpp, GPUSpectrumImageTexture::Create). So does this now: a
+`TextureLevel` carries its format (scene_io.h's `TexelFormat`: floats in
+`texture_texels`, or sRGB or linear bytes in `texture_bytes`, three a
+texel), scene_dump ships a U256 level's bytes as they are and a float or
+half level as floats, the software filter decodes a byte texel through
+`srgb_to_linear` -- pbrt's LUT, generated into srgb_table.h by
+make_spectrum_tables.py from pbrt's color.cpp and checked entry for entry
+by `scene_dump --check-tables` -- or divides by 255 (textures.bonsai,
+level_texel), and the driver's texture objects are `uchar4` with the sRGB
+flag for byte levels (runtime/bonsai_cuda.h, `bonsai_cuda_texture_create`
+takes a format). The numbers are the same numbers: decode-then-filter is
+what both did; bistro's textures come to 1.4 GB and 1.4 GB (the converted
+scene: 139 textures in 1,624 levels, 3.3 GB of bytes and no float texel).
+scenes/bump-lens.pbrt, the bump-mapped pool whose finite differences are
+the sharpest reader of a texel, under the scalar schedule against `pbrt
+--wavefront` (it names no integrator, so volpath; pbrt's CPU volpath
+filters its textures over a different footprint and is the wrong
+reference): 129,706 pixels hit by both, 0 normals and 0 shading normals
+disagreeing, albedo 2 pixels over tolerance, radiance mean 1.00003x.
+[GPU check]
+
+The normal map, on that storage: pbrt's `normalmap` is read as pbrt reads
+it (scene.cpp), a plain `Image` by filename, linear, its R, G and B, no
+pyramid, once per file however many materials name it -- here one level
+of `texture_levels` in the image's format, which a material carries as
+`normal_map` (`material_normal_map` beside `material_displacement`), and
+`NormalMap` (materials.h) transliterated in differentials.bonsai:
+the texel bilinearly with repeat wrap and `v` flipped, `2 rgb - 1`
+normalized, through `Frame::FromXZ(Normalize(dpdu), ns)`, then `dpdu`
+made perpendicular by Gram-Schmidt and `dpdv` as the cross product, each
+at its old length, and the common tail of BumpMap and NormalMap --
+`Normalize(Cross(dpdu, dpdv))`, face-forwarded to the geometric normal,
+`SetShadingGeometry`'s scaling loop -- factored as `shading_from`.
+`material_frame` picks the normal map first and the bump map second, as
+`GetBSDF` does. scenes/normalmap.pbrt, a quad under one of bistro's maps
+and an area light, checks the gbuffer's shading normal against pbrt's
+(the wavefront, scalar schedule): 262,144 pixels hit by both, 0 shading
+normals disagreeing, the worst 4.7e-7 off, albedo 0 over tolerance, and
+every pixel's radiance within 1e-3 of pbrt's; on the GPU schedule, where
+the map is read by software from the byte pool as pbrt --gpu reads its
+`Image` from managed memory, the same: 0 shading normals disagreeing (worst
+2.3e-5), 262,143 of 262,144 pixels within 1e-3.
+
+*bistro, and a two-gigabyte line.* bistro_cafe converts (139 textures in
+1,624 levels, 2.83 M shapes, a 1.08 GB scene text and 3.3 GB of texels)
+and `pbrt --gpu` renders it at 16 spp in 0.44 s; our GPU program faulted
+in the CoatedDiffuse kernel with CUDA_ERROR_ILLEGAL_ADDRESS, with every
+index the scene carries in range. The cause is in the backend:
+`CodeGen_LLVM::codegen_buffer_pointer` widened every scalar index to the
+pointer's width with a *sign* extension, whatever the index's type (its
+own comment asked "is isSigned always true for us?"), which is the same
+address for any index below 2^31 and a negative offset past it. A `u32`
+byte offset into a 3.3 GB pool is past it for the normal maps, which sit
+behind the colour pyramids in the pool -- the first scene to have an
+array over two gigabytes. The fix widens by the index's signedness
+(`zext` for an unsigned index, `sext` for a signed one: `widen_index`,
+applied at every scalar address the backend forms from a program index --
+the element read, the write location, the pointer-array dereference, the
+dense run's base), with backends/llvm/index-widening as the golden. The
+lanes of a gang's gather are addressed in 32 bits on purpose
+(`element_addresses`) and keep that documented limit. Forty-eight backend
+goldens moved, every one for the same reason, read one by one on a clean
+checkout of HEAD plus this change alone: `sext` to `zext` (PTX's
+`mul.wide.s32` to `mul.wide.u32`, a `u16` prime index's `cvt.s32.s16` to
+`cvt.u32.u16`), the `_wide` names, `nuw` on the GEPs, and where LLVM now
+knows an index cannot wrap, a 64-bit induction variable in place of a
+32-bit one with its overflow check gone (forall) or an unroll by eight in
+place of four (the C++ backend's buffers); no vector loop was lost. The
+fix and its goldens land in a commit of their own once the rtq session's
+in-flight change to the same file has (the shared tree); until then they
+are in the working tree. With it, bistro_cafe renders on the GPU at 16
+spp: 0.242 s against `pbrt --gpu`'s 0.44 s (1.82x; kernels 234 ms against
+334 ms, the least of three), mean radiance 0.99973x of pbrt's, and the
+picture pbrt's to the eye -- the lamp's shadow on the cobbles, the sky
+through the arch, the string lights. Per pixel it is another matter, and
+two things are open. The agreement to 1e-3 is 0.4% of lit pixels, against
+15-60% on the table's scenes: every material in bistro is a
+`coateddiffuse`, whose layered walk is seeded from the floats of the
+direction and the sample (`Hash(seed, wo)`, `Hash(uc, u)`) and so turns
+any last-bit difference into a different walk -- killeroo-coated sits at
+57% for the same reason -- and at sixteen samples that is a different
+noise realization almost everywhere; 16x16 block means agree to 2% on 42%
+of blocks and to 5% on 64%, median 2.8%, which is about what the noise of
+4,096 samples allows. The second is not noise: pbrt has 198,657 pixels of
+exactly zero where we have 28,949, the excess all in the restaurant's dark
+interior and under its awning (the lower left of the frame), where our
+pixels are dark but lit (median 3.5e-4, a tenth of them above 0.09).
+Something ends pbrt's paths there that does not end ours -- the alpha
+cutouts on 300,828 of the scene's shapes, the 102 area lights' sampling
+in an enclosed room, or the roulette -- and a scene cut out of that
+interior is the way to find which. Not chased today.
+
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`
 died in the pipeline's last promotion, "jump from `_split_s_gang` to
@@ -9086,9 +9190,10 @@ looked at here either.
   `codegen_rt_trace`, "a trap, which is what tracing on the RT cores from a
   CPU would be, and never runs") -- found 2026-10-02 through
   scenes/dielectric.pbrt, which names `path`, after an afternoon's bisect
-  of commits that were all innocent. It should be refused with a sentence,
-  by scene_dump or the driver when the schedule is a GPU one, before the
-  trap can be reached.
+  of commits that were all innocent. Refused since, with a sentence, by the
+  driver when the build is a GPU one (`BONSAI_HAS_GPU` in render_hook.cpp):
+  the user's decision is that the GPU renders volpath only for now, with
+  schedules for the other integrators to come later.
 - The `sobol` and `pmj02bn` samplers are refused (5 of the 98 scenes in
   `pbrt-v4-scenes` ask for one). `zsobol`, pbrt's default and the one the
   other 12 of the Sobol-family scenes get, is implemented (2026-10-02, below).

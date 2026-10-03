@@ -33,10 +33,23 @@ func wrap_clamp() -> u32 = 1u;
 func wrap_black() -> u32 = 2u;
 
 // One level of a pyramid: where its texels start and how they are shaped.
+// pbrt: Image::PixelFormat and ColorEncoding, as a texel is read. An 8-bit
+// image stays 8-bit and is decoded as it is read, which is what pbrt's
+// `Image::GetChannel` does with a U256 texel -- through `SRGBToLinearLUT`,
+// or over 255 for a linear encoding -- and a float image stays float; a
+// texture's levels all share one format, since pbrt's pyramid keeps the
+// image's (`Image::GeneratePyramid`). Not an optimization: bistro's
+// hundred-odd 2048x2048 PNGs are 1.4 GB as bytes and 5.6 GB as floats.
+func texel_float() -> u32 = 0u;
+func texel_srgb8() -> u32 = 1u;
+func texel_linear8() -> u32 = 2u;
+
 element TextureLevel {
     width : u32;
     height : u32;
+    // In texels, into the pool the format names.
     first_texel : u32;
+    format : u32;
 }
 
 // pbrt: ImageTexture, as the lookup needs it.
@@ -60,6 +73,13 @@ element ImageTexture {
 extern textures : array[ImageTexture];
 extern texture_levels : array[TextureLevel];
 extern texture_texels : array[vec3f];
+// The 8-bit levels' texels, three bytes each, as the image stored them.
+extern texture_bytes : array[u8];
+// pbrt: SRGBToLinearLUT, from util/color.cpp -- what an sRGB-encoded byte
+// means, for the 256 bytes there are. The driver hands it over from
+// apps/pbrt/srgb_table.h, which `scene_dump --check-tables` checks against
+// pbrt's own.
+extern srgb_to_linear : array[Float, 256];
 // The texture units' object for each texture, made by the driver from the
 // same pyramid (runtime/bonsai_cuda.h, bonsai_cuda_texture_create), for a
 // schedule that binds the lookup to them (schedules/gpu.bonsai); zero, and
@@ -96,7 +116,10 @@ func remap_texel(x : i32, y : i32, w : i32, h : i32, wrap : u32) -> TexelAt {
 }
 
 // pbrt: Image::GetChannel with a wrap mode, widened to RGB. A one-channel
-// image was widened to three on the way in, so there is one case here.
+// image was widened to three on the way in, so there is one case per
+// format here: a float texel as it is, a byte texel decoded as pbrt decodes
+// it -- `encoding.ToLinear` on a U256 pixel, which for sRGB is the table and
+// for linear is the byte over 255.
 func level_texel(level : TextureLevel, x : i32, y : i32,
                  wrap : u32) -> vec3f {
     at = remap_texel(x, y, cast[[i32]](level.width),
@@ -104,9 +127,20 @@ func level_texel(level : TextureLevel, x : i32, y : i32,
     if !at.inside {
         return vec3f{0.0, 0.0, 0.0};
     }
-    return texture_texels[level.first_texel +
-                          cast[[u32]](at.y) * level.width +
-                          cast[[u32]](at.x)];
+    texel = level.first_texel + cast[[u32]](at.y) * level.width +
+            cast[[u32]](at.x);
+    if level.format == texel_float() {
+        return texture_texels[texel];
+    }
+    byte = 3u * texel;
+    r = cast[[u32]](texture_bytes[byte]);
+    g = cast[[u32]](texture_bytes[byte + 1u]);
+    b = cast[[u32]](texture_bytes[byte + 2u]);
+    if level.format == texel_srgb8() {
+        return vec3f{srgb_to_linear[r], srgb_to_linear[g], srgb_to_linear[b]};
+    }
+    return vec3f{cast[[Float]](r) / 255.0, cast[[Float]](g) / 255.0,
+                 cast[[Float]](b) / 255.0};
 }
 
 // pbrt: Image::BilerpChannel, for all three channels at once.

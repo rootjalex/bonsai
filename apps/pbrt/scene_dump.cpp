@@ -76,6 +76,7 @@
 
 #include "cie_tables.h"
 #include "sobol_tables.h"
+#include "srgb_table.h"
 #include <pbrt/util/sobolmatrices.h>
 
 #include <algorithm>
@@ -803,6 +804,9 @@ std::map<std::string, int32_t> g_texture_index;
 // asked for, kept for `--print-differentials` to filter through PBRT's own
 // MIPMap beside this renderer's lookup.
 std::map<std::string, pbrt::MIPMap *> g_texture_mip;
+// The level each normal map image became, by filename: bistro's hundred and
+// thirty materials name a hundred and twelve maps, several times each.
+std::map<std::string, int32_t> g_normal_map_index;
 // Keyed by the pair of spectrum names, since a scene usually names the same
 // metal from several materials.
 std::map<std::string, int32_t> g_conductor_index;
@@ -1413,10 +1417,33 @@ int32_t convert_texture(const std::string &name) {
         bonsai_scene::TextureLevel level;
         level.width = uint32_t(res.x);
         level.height = uint32_t(res.y);
-        // Counted in texels, not in floats: the renderer reads this pool as
-        // an array of three-vectors.
-        level.first_texel = uint32_t(g_scene->texture_texels.size() / 3);
+        // The level is kept as PBRT keeps it: an 8-bit image stays bytes,
+        // with its encoding, decoded when a texel is read (Image::GetChannel
+        // on a U256 pixel); a float or half image, or a byte one with a
+        // gamma encoding -- which no scene here has -- goes over decoded,
+        // as floats. PBRT's pyramid has the image's format on every level
+        // (Image::GeneratePyramid converts back to it), so one texture is
+        // all bytes or all floats.
+        level.format = bonsai_scene::TexelFormat::Float;
+        if (img.Format() == pbrt::PixelFormat::U256) {
+            if (img.Encoding().Is<pbrt::sRGBColorEncoding>()) {
+                level.format = bonsai_scene::TexelFormat::SRGB8;
+            } else if (img.Encoding().Is<pbrt::LinearColorEncoding>()) {
+                level.format = bonsai_scene::TexelFormat::Linear8;
+            }
+        }
+        const bool as_bytes = level.format != bonsai_scene::TexelFormat::Float;
+        // Counted in texels, not in floats or bytes: the renderer reads each
+        // pool three channels at a time.
+        level.first_texel = uint32_t(
+            (as_bytes ? g_scene->texture_bytes.size()
+                      : g_scene->texture_texels.size()) /
+            3);
         g_scene->texture_levels.push_back(level);
+        // A U256 pixel's bytes, where PBRT's GetChannel would decode them.
+        const auto raw = [&](const pbrt::Point2i &px, int c) -> uint8_t {
+            return static_cast<const uint8_t *>(img.RawPointer(px))[c];
+        };
         // Three channels, whatever the image brought, and whatever the
         // texture was declared as.
         //
@@ -1451,7 +1478,24 @@ int32_t convert_texture(const std::string &name) {
         for (int y = 0; y < res.y; y++) {
             for (int x = 0; x < res.x; x++) {
                 const pbrt::Point2i px(x, y);
-                if (as_float && nc != 3) {
+                if (as_bytes) {
+                    // The same three rules, on the bytes as they are.
+                    if (as_float && nc != 3) {
+                        const uint8_t v = raw(px, nc == 1 ? 0 : 3);
+                        g_scene->texture_bytes.push_back(v);
+                        g_scene->texture_bytes.push_back(v);
+                        g_scene->texture_bytes.push_back(v);
+                    } else if (nc == 1) {
+                        const uint8_t v = raw(px, 0);
+                        g_scene->texture_bytes.push_back(v);
+                        g_scene->texture_bytes.push_back(v);
+                        g_scene->texture_bytes.push_back(v);
+                    } else {
+                        for (int c = 0; c < 3; c++) {
+                            g_scene->texture_bytes.push_back(raw(px, c));
+                        }
+                    }
+                } else if (as_float && nc != 3) {
                     const float v = float(img.GetChannel(px, nc == 1 ? 0 : 3));
                     g_scene->texture_texels.push_back(v);
                     g_scene->texture_texels.push_back(v);
@@ -1492,6 +1536,71 @@ int32_t convert_texture(const std::string &name) {
     return index;
 }
 
+// A material's `normalmap`, read as PBRT reads it (scene.cpp): the image by
+// filename, linear whatever it is -- a normal map's bytes are coordinates,
+// not colours, so an 8-bit PNG is not sRGB-decoded -- its R, G and B
+// channels, and no pyramid. It becomes one level of `texture_levels`, in the
+// image's own format (bytes, for a PNG), that the renderer reads bilinearly
+// with repeat wrap (differentials.bonsai, normal_map); the level's index is
+// what the material carries. One image is read once however many materials
+// name it.
+int32_t convert_normal_map(const std::string &given) {
+    std::string filename = given;
+    if (!filename.empty() && filename[0] != '/') {
+        filename = g_scene_dir + "/" + filename;
+    }
+    const auto cached = g_normal_map_index.find(filename);
+    if (cached != g_normal_map_index.end()) {
+        return cached->second;
+    }
+    pbrt::ImageAndMetadata im = pbrt::Image::Read(filename, pbrt::Allocator(),
+                                                   pbrt::ColorEncoding::Linear);
+    pbrt::ImageChannelDesc rgb = im.image.GetChannelDesc({"R", "G", "B"});
+    if (!rgb) {
+        fail("the normal map " + filename + " has no R, G and B channels");
+    }
+    const pbrt::Image img = im.image.SelectChannels(rgb);
+    const pbrt::Point2i res = img.Resolution();
+
+    bonsai_scene::TextureLevel level;
+    level.width = uint32_t(res.x);
+    level.height = uint32_t(res.y);
+    level.format = bonsai_scene::TexelFormat::Float;
+    if (img.Format() == pbrt::PixelFormat::U256) {
+        // Read as linear, so this is the encoding it has; an sRGB one could
+        // only come from a file that names its encoding, which a PNG does
+        // not.
+        level.format = img.Encoding().Is<pbrt::sRGBColorEncoding>()
+                           ? bonsai_scene::TexelFormat::SRGB8
+                           : bonsai_scene::TexelFormat::Linear8;
+    }
+    const bool as_bytes = level.format != bonsai_scene::TexelFormat::Float;
+    level.first_texel = uint32_t(
+        (as_bytes ? g_scene->texture_bytes.size() : g_scene->texture_texels.size()) /
+        3);
+    for (int y = 0; y < res.y; y++) {
+        for (int x = 0; x < res.x; x++) {
+            const pbrt::Point2i px(x, y);
+            if (as_bytes) {
+                const uint8_t *raw =
+                    static_cast<const uint8_t *>(img.RawPointer(px));
+                for (int c = 0; c < 3; c++) {
+                    g_scene->texture_bytes.push_back(raw[c]);
+                }
+            } else {
+                for (int c = 0; c < 3; c++) {
+                    g_scene->texture_texels.push_back(
+                        float(img.GetChannel(px, c)));
+                }
+            }
+        }
+    }
+    const int32_t index = int32_t(g_scene->texture_levels.size());
+    g_scene->texture_levels.push_back(level);
+    g_normal_map_index.emplace(filename, index);
+    return index;
+}
+
 // The material a shape was declared under, in the form the renderer reads.
 //
 // The defaults are PBRT's own, from DiffuseMaterial::Create and
@@ -1513,12 +1622,17 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
     // they belong to every kind and are read here rather than per material.
     //
     // A normal map is a different thing from a bump map -- it replaces the
-    // shading normal outright rather than tilting it by a gradient -- and is
-    // still refused rather than approximated by the one implemented.
-    if (m.find("normalmap") != nullptr) {
-        fail("a normal map replaces the shading normal outright, which is a "
-             "different thing from the `displacement` bump map this renderer "
-             "has");
+    // shading normal outright rather than tilting it by a gradient -- and
+    // PBRT reads it differently too: not through a Texture but as a plain
+    // `Image`, linear, by filename (scene.cpp, the normal map futures).
+    {
+        const CapturingBuilder::MaterialInfo::Value *nm = m.find("normalmap");
+        if (nm != nullptr) {
+            if (nm->type != "string" || nm->strings.empty()) {
+                fail("`normalmap` has to be a string, the image's filename");
+            }
+            out.normal_map = convert_normal_map(nm->strings[0]);
+        }
     }
     {
         const CapturingBuilder::MaterialInfo::Value *d = m.find("displacement");
@@ -1869,7 +1983,24 @@ bool check_tables() {
         printf("scene_dump: Sobol' matrices match pbrt (%d dimensions)\n",
                SOBOL_DIMENSIONS_SHIPPED);
     }
-    return ok;
+
+    // The sRGB decode of a byte, which the software texture filter runs an
+    // 8-bit texel through -- pbrt's SRGBToLinearLUT, entry for entry.
+    bool srgb_ok = true;
+    for (int i = 0; i < 256; i++) {
+        const float theirs = float(pbrt::SRGB8ToLinear(uint8_t(i)));
+        if (theirs != SRGB8_TO_LINEAR[i]) {
+            printf("scene_dump: SRGB8_TO_LINEAR differs from pbrt at %d: pbrt "
+                   "%.9g, ours %.9g\n",
+                   i, double(theirs), double(SRGB8_TO_LINEAR[i]));
+            srgb_ok = false;
+            break;
+        }
+    }
+    if (srgb_ok) {
+        printf("scene_dump: the sRGB decode table matches pbrt (256 entries)\n");
+    }
+    return ok && srgb_ok;
 }
 
 // Print what PBRT's own samplers produce, so that the ones written in bonsai
@@ -3218,6 +3349,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     g_scene = &out;
     g_texture_index.clear();
     g_texture_mip.clear();
+    g_normal_map_index.clear();
     {
         const std::string path(filename);
         const size_t slash = path.find_last_of('/');

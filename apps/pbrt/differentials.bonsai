@@ -19,6 +19,7 @@ import apps/pbrt/textures;
 import apps/pbrt/shapes;
 import apps/pbrt/camera;
 import apps/pbrt/transform;
+import apps/pbrt/frame;
 
 // pbrt: DifferenceOfProducts, which is `a*b - c*d` computed so that the
 // cancellation does not eat the answer.
@@ -349,6 +350,30 @@ func uv_derivatives(g : SurfaceGeometry, dp : Differentials) -> Differentials {
                          clamp_derivative(dvdy)};
 }
 
+// pbrt: the end of BumpMap and of NormalMap alike -- `Normalize(Cross(dpdu,
+// dpdv))` as the shading normal, then `SetShadingGeometry(ns, dpdu, dpdv,
+// dndu, dndv, false)`, whose `false` matters: the *geometric* normal decides
+// the orientation here, where a mesh's interpolated normals decided it in
+// triangle_geometry.
+func shading_from(g : SurfaceGeometry, dpdu : vec3f,
+                  dpdv : vec3f) -> SurfaceGeometry {
+    ns_raw = unit_vector_(cross_(dpdu, dpdv));
+    // pbrt: FaceForward(shading.n, n) -- the geometric normal is authoritative.
+    ns = select(dot_(ns_raw, g.n) < 0.0, -ns_raw, ns_raw);
+
+    // pbrt: SetShadingGeometry's loop, which scales the two derivatives down
+    // until the differentials can be taken in them.
+    su : mut vec3f = dpdu;
+    sv : mut vec3f = dpdv;
+    while (sqlen_(su) > 1e16) || (sqlen_(sv) > 1e16) {
+        su = su / 1e8;
+        sv = sv / 1e8;
+    }
+
+    return SurfaceGeometry{g.n, ns, su, sv, g.uv, g.dpdu, g.dpdv, g.dndu,
+                           g.dndv, g.p, g.p_error};
+}
+
 // pbrt: BumpMap, from materials.h.
 //
 // A displacement texture says how far the surface would be pushed along its
@@ -361,9 +386,7 @@ func uv_derivatives(g : SurfaceGeometry, dp : Differentials) -> Differentials {
 // the pixel can see would turn detail into noise. pbrt's 0.0005 fallback is for
 // a hit with no footprint at all.
 //
-// pbrt then does `SetShadingGeometry(ns, dpdu, dpdv, dndu, dndv, false)`, and
-// the `false` matters: the *geometric* normal decides the orientation here,
-// where a mesh's interpolated normals decided it in triangle_geometry.
+// It ends as the normal map does, in `shading_from`.
 func bump_map(t : ImageTexture, g : SurfaceGeometry,
               d : Differentials) -> SurfaceGeometry {
     du_raw = 0.5 * (abs(d.dudx) + abs(d.dudy));
@@ -382,22 +405,33 @@ func bump_map(t : ImageTexture, g : SurfaceGeometry,
 
     dpdu = g.dpdus + (u_displace - displace) / du * g.ns + displace * g.dndu;
     dpdv = g.dpdvs + (v_displace - displace) / dv * g.ns + displace * g.dndv;
+    return shading_from(g, dpdu, dpdv);
+}
 
-    ns_raw = unit_vector_(cross_(dpdu, dpdv));
-    // pbrt: FaceForward(shading.n, n) -- the geometric normal is authoritative.
-    ns = select(dot_(ns_raw, g.n) < 0.0, -ns_raw, ns_raw);
-
-    // pbrt: SetShadingGeometry's loop, which scales the two derivatives down
-    // until the differentials can be taken in them.
-    su : mut vec3f = dpdu;
-    sv : mut vec3f = dpdv;
-    while (sqlen_(su) > 1e16) || (sqlen_(sv) > 1e16) {
-        su = su / 1e8;
-        sv = sv / 1e8;
-    }
-
-    return SurfaceGeometry{g.n, ns, su, sv, g.uv, g.dpdu, g.dpdv, g.dndu,
-                           g.dndv, g.p, g.p_error};
+// pbrt: NormalMap, from materials.h.
+//
+// A normal map's texel is the shading normal itself, in the tangent frame --
+// `2 * rgb - 1`, normalized -- where a bump map's is a height whose gradient
+// tilts the normal. It is taken to render space through the frame whose x is
+// the shading `dpdu` and whose z is the shading normal (pbrt's
+// `Frame::FromXZ`), and then the two derivatives are rebuilt to give it:
+// `dpdu` made perpendicular to it by Gram-Schmidt and `dpdv` as their cross
+// product, each keeping the length it had. The map is read bilinearly with
+// repeat wrap from its one level, as pbrt reads a plain `Image`, with `v`
+// flipped as every image lookup is; there is no pyramid and no footprint, so
+// a normal map is never filtered -- pbrt's is not either.
+func normal_map(level : TextureLevel, g : SurfaceGeometry) -> SurfaceGeometry {
+    uv = vec2f{g.uv.x, 1.0 - g.uv.y};
+    rgb = texture_bilerp(level, uv, wrap_repeat());
+    ns_local = unit_vector_(vec3f{2.0 * rgb.x - 1.0, 2.0 * rgb.y - 1.0,
+                                  2.0 * rgb.z - 1.0});
+    frame = frame_from_xz(unit_vector_(g.dpdus), g.ns);
+    ns = frame_from_local(frame, ns_local);
+    ulen = sqrt(sqlen_(g.dpdus));
+    vlen = sqrt(sqlen_(g.dpdvs));
+    dpdu = unit_vector_(gram_schmidt(g.dpdus, ns)) * ulen;
+    dpdv = unit_vector_(cross_(ns, dpdu)) * vlen;
+    return shading_from(g, dpdu, dpdv);
 }
 
 // The hit a BSDF is built about: the one that came out of the shape, or that
@@ -411,4 +445,17 @@ func displaced(g : SurfaceGeometry, displacement : i32,
         return g;
     }
     return bump_map(textures[cast[[u32]](displacement)], g, d);
+}
+
+// pbrt: the top of `GetBSDF` -- the normal map if the material has one, else
+// the bump map if it has that, else the hit as the shape made it. The normal
+// map wins when both are given, as pbrt's `if (normalMap) ... else if
+// (displacement)` has it. The two indices are the material's rows of
+// `material_normal_map` and `material_displacement`, negative for none.
+func material_frame(g : SurfaceGeometry, normal_map_level : i32,
+                    displacement : i32, d : Differentials) -> SurfaceGeometry {
+    if normal_map_level >= 0 {
+        return normal_map(texture_levels[cast[[u32]](normal_map_level)], g);
+    }
+    return displaced(g, displacement, d);
 }

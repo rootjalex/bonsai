@@ -176,21 +176,40 @@ namespace WrapMode {
 enum : uint32_t { Repeat = 0, Clamp = 1, Black = 2, OctahedralSphere = 3 };
 }
 
-// One level of one texture's MIP pyramid, as a run of `texture_texels`.
+// How a texture level's texels are stored, which is how PBRT's `Image` stores
+// them: an 8-bit image (a PNG) stays 8-bit, with the encoding it came with, and
+// is decoded when a texel is read -- PBRT's `Image::GetChannel` runs a U256
+// texel through `SRGBToLinearLUT`, or divides by 255 for a linear one -- and
+// a float image (an EXR, a PFM) stays float. PBRT's MIP pyramid keeps every
+// level in the image's format (`Image::GeneratePyramid` converts back to it),
+// so a texture's levels all share one format. Keeping the bytes is not an
+// optimization but what makes the large scenes possible at all: bistro's
+// hundred-odd 2048x2048 PNGs are 1.4 GB as bytes and 5.6 GB as floats, and as
+// many normal maps again.
+namespace TexelFormat {
+enum : uint32_t {
+    Float = 0,   // three floats per texel in `texture_texels`, linear
+    SRGB8 = 1,   // three bytes per texel in `texture_bytes`, sRGB-encoded
+    Linear8 = 2, // three bytes per texel in `texture_bytes`, linear
+};
+}
+
+// One level of one texture's MIP pyramid, as a run of `texture_texels` or of
+// `texture_bytes`, by its format.
 //
-// Three floats per texel, linear, in the image's own colour space. Already
-// decoded: a PNG is sRGB-encoded and an EXR is not, and the difference is
-// resolved on the way in by PBRT's own image reader rather than carried here
-// for the renderer to have an opinion about.
+// Three channels per texel, in the image's own colour space; what the image
+// brought and what the texture was declared as are resolved on the way in by
+// PBRT's own image reader (see scene_dump.cpp), not here.
 struct TextureLevel {
     uint32_t width = 0;
     uint32_t height = 0;
-    // Counted in texels and not in floats, since the renderer reads
-    // `texture_texels` as an array of three-vectors. Getting that wrong reads
-    // three times past the end of the pool, which on a small texture is still
+    // Counted in texels and not in floats or bytes, since the renderer reads
+    // each pool three channels at a time. Getting that wrong reads three
+    // times past the end of the pool, which on a small texture is still
     // mapped memory and so shows up as an occasional segfault rather than as a
     // wrong picture.
     uint32_t first_texel = 0;
+    uint32_t format = TexelFormat::Float;
 };
 
 // PBRT's ImageTexture, as its MIP pyramid plus what the lookup needs.
@@ -246,6 +265,14 @@ struct Material {
     // the BSDF is built, which is why PBRT keeps it on the base Material and
     // applies it in GetBSDF rather than in any one material's GetBxDF.
     int32_t displacement_texture = -1;
+    // PBRT's `normalmap`, the other thing every material may carry, and the
+    // one that wins when both are given (`GetBSDF` asks for the normal map
+    // first): an image whose texel is the shading normal in the tangent
+    // frame, replacing the frame outright rather than tilting it. Not a
+    // texture -- PBRT reads it as a plain `Image`, linear, and bilinearly
+    // interpolates it with repeat wrap, no pyramid -- so this is an index
+    // into `texture_levels`, one level, or -1 for none.
+    int32_t normal_map = -1;
     // Conductor only: which pair of `conductor_eta` / `conductor_k` tables this
     // material's index of refraction is -- or, when the scene gave a
     // `reflectance` instead of `eta` and `k`, none: PBRT then takes eta as one
@@ -755,6 +782,9 @@ struct Scene {
     std::vector<ImageTexture> textures;
     std::vector<TextureLevel> texture_levels;
     std::vector<float> texture_texels;
+    // The 8-bit levels' texels, three bytes each, as the images stored them
+    // (TexelFormat::SRGB8 and Linear8).
+    std::vector<uint8_t> texture_bytes;
     // PBRT's `RGBToSpectrumTable` for the sRGB colour space: the 64 z nodes
     // followed by 3 * 64 * 64 * 64 * 3 coefficients, laid out as PBRT lays them
     // out. Empty when the scene has no textures.
@@ -862,18 +892,21 @@ inline bool write(const char *path, const Scene &scene) {
             return false;
         }
     }
-    if (!scene.texture_texels.empty() || !scene.rgb_table.empty()) {
+    if (!scene.texture_texels.empty() || !scene.rgb_table.empty() ||
+        !scene.texture_bytes.empty()) {
         std::ofstream tex(texel_path(path), std::ios::binary);
         if (!tex) {
             return false;
         }
         // The table first, so a reader can take it without knowing how many
-        // texels follow.
+        // texels follow; then the float texels, then the bytes.
         tex.write(reinterpret_cast<const char *>(scene.rgb_table.data()),
                   std::streamsize(sizeof(float) * scene.rgb_table.size()));
         tex.write(
             reinterpret_cast<const char *>(scene.texture_texels.data()),
             std::streamsize(sizeof(float) * scene.texture_texels.size()));
+        tex.write(reinterpret_cast<const char *>(scene.texture_bytes.data()),
+                  std::streamsize(scene.texture_bytes.size()));
         if (!tex) {
             return false;
         }
@@ -991,7 +1024,7 @@ inline bool write(const char *path, const Scene &scene) {
     out << "texturelevels " << scene.texture_levels.size() << '\n';
     for (const TextureLevel &l : scene.texture_levels) {
         out << "  " << l.width << ' ' << l.height << ' ' << l.first_texel
-            << '\n';
+            << ' ' << l.format << '\n';
     }
     out << "measured " << scene.measured_brdfs.size() << '\n';
     for (const MeasuredBRDF &b : scene.measured_brdfs) {
@@ -1023,6 +1056,7 @@ inline bool write(const char *path, const Scene &scene) {
     out << '\n';
     out << "rgbtable " << scene.rgb_table.size() << '\n';
     out << "texturetexels " << scene.texture_texels.size() << '\n';
+    out << "texturebytes " << scene.texture_bytes.size() << '\n';
 
     out << "materials " << scene.materials.size() << '\n';
     for (const Material &m : scene.materials) {
@@ -1068,7 +1102,8 @@ inline bool write(const char *path, const Scene &scene) {
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
         out << " reflectancetex " << m.reflectance_texture << " displacement "
-            << m.displacement_texture << " measured " << m.measured;
+            << m.displacement_texture << " normalmap " << m.normal_map
+            << " measured " << m.measured;
         if (m.tag == MaterialTag::DiffuseTransmission) {
             out << " transmittance";
             detail::put(out, m.transmittance, 3);
@@ -1535,7 +1570,7 @@ inline bool read(const char *path, Scene &scene) {
     scene.texture_levels.clear();
     for (size_t i = 0; i < count; i++) {
         TextureLevel l;
-        in >> l.width >> l.height >> l.first_texel;
+        in >> l.width >> l.height >> l.first_texel >> l.format;
         scene.texture_levels.push_back(l);
     }
 
@@ -1641,6 +1676,25 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
         }
+        if (!(in >> word) || word != "texturebytes") {
+            return false;
+        }
+        size_t bytes = 0;
+        in >> bytes;
+        scene.texture_bytes.clear();
+        if (bytes > 0) {
+            std::ifstream tex(texel_path(path), std::ios::binary);
+            if (!tex) {
+                return false;
+            }
+            tex.seekg(std::streamoff(sizeof(float) * (table_size + texels)));
+            scene.texture_bytes.resize(bytes);
+            tex.read(reinterpret_cast<char *>(scene.texture_bytes.data()),
+                     std::streamsize(bytes));
+            if (tex.gcount() != std::streamsize(bytes)) {
+                return false;
+            }
+        }
     }
 
     if (!(in >> word) || word != "materials") {
@@ -1687,6 +1741,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> m.displacement_texture;
+        if (!tagged("normalmap")) {
+            return false;
+        }
+        in >> m.normal_map;
         if (!tagged("measured")) {
             return false;
         }

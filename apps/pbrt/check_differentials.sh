@@ -57,8 +57,12 @@ bash "$PREFIX/build_scene_dump.sh" "$WORK/scene_dump"
 # The compiler from the build directory compare.sh uses, and for the same
 # reason: a machine with more than one build has one that is current.
 BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
+# The scalar schedule alongside the program, as compare.sh compiles it: the
+# tree's layout moved into schedules/trees/bvh.bonsai, which the schedules
+# import, and the program alone has no layout for its queries to lower to.
 "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
-    -i "$PREFIX/render.bonsai" -b cpp -o "$PREFIX/render"
+    -i "$PREFIX/render.bonsai" -i "$PREFIX/schedules/scalar.bonsai" \
+    -b cpp -o "$PREFIX/render"
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" "$PREFIX/render_hook.cpp" \
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
