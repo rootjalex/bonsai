@@ -8,9 +8,12 @@
 // against pbrt's own table, word for word.
 //
 // Two dimensions rather than pbrt's thousand and twenty-four, because the
-// ZSobol sampler -- the Sobol' sampler apps/pbrt implements, and pbrt's default
-// -- draws every dimension from these two under a different scramble; the plain
-// `sobol` sampler, which walks the dimensions, would need the whole table.
+// ZSobol and PaddedSobol samplers -- pbrt's default among them -- draw every
+// dimension from these two under a different scramble. The plain `sobol`
+// sampler walks the dimensions and needs the whole table, and for it
+// scene_dump, which links pbrt, copies pbrt's own array into the `.smp`
+// sidecar beside the scene (scene_io.h) -- a header of 53,248 words would be
+// a transcription nobody could check by reading.
 //
 // Dimension zero is the van der Corput sequence, each column one bit; the
 // columns past the thirty-second are zero, since a sample index's bits above

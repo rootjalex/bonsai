@@ -50,19 +50,52 @@ extern digit_permutation_offsets : array[i32, 1000];
 
 // pbrt: SobolMatrices32, from util/sobolmatrices.cpp -- the generator
 // matrices of the Sobol' sequence, fifty-two columns a dimension, one column
-// per bit of the sample index -- but only its first two dimensions, laid end
-// to end. The ZSobol sampler is the Sobol' sampler implemented here, and it
-// draws every one of its dimensions from Sobol' dimensions zero and one, told
-// apart by a scramble hashed from the dimension; the thousand and twenty-four
-// pbrt ships are what the plain `sobol` sampler would read, and it is not
-// implemented. The driver hands the table over from apps/pbrt/sobol_tables.h,
-// which `scene_dump --check-tables` checks against pbrt's own.
-extern sobol_matrices : array[u32, 104];
+// per bit of the sample index, the dimensions laid end to end. How many
+// dimensions arrive depends on the sampler the scene asked for: ZSobol and
+// PaddedSobol draw every one of their dimensions from Sobol' dimensions zero
+// and one, told apart by a scramble hashed from the dimension, and for them
+// the driver hands over the two from apps/pbrt/sobol_tables.h (which
+// `scene_dump --check-tables` checks against pbrt's own); the plain `sobol`
+// sampler walks the dimensions, one Sobol' dimension per draw, and for it the
+// converter writes pbrt's whole table -- a thousand and twenty-four
+// dimensions -- to the `.smp` sidecar beside the scene (scene_io.h), the way
+// a grid medium's voxels travel.
+extern sobol_matrices : array[u32];
 
 // pbrt: ZSobolSampler::GetSampleIndex's `permutations`, the twenty-four
 // orderings of four digits in the order pbrt lists them, each packed into one
 // word as its four digits two bits apiece, digit zero lowest.
 extern zsobol_permutations : array[u32, 24];
+
+// pbrt: VdCSobolMatrices and VdCSobolMatricesInv, from util/sobolmatrices.cpp
+// -- the matrices SobolIntervalToIndex works with to find which entry of the
+// one Sobol' sequence the whole image shares lands in a given pixel at a
+// given sample, one row of fifty-two words per power-of-two image scale
+// (twenty-five rows). Read by the `sobol` sampler alone; the converter writes
+// them to the `.smp` sidecar with the matrices above, and they are empty for
+// every other sampler.
+extern vdc_matrices : array[u64];
+extern vdc_matrices_inv : array[u64];
+
+// pbrt: pmj02bnSamples, from util/pmj02tables.cpp -- five sets of 65536
+// progressive multi-jittered (0,2) blue-noise points, each coordinate a
+// thirty-two-bit fixed-point fraction, x then y -- and BlueNoiseTextures, from
+// util/bluenoise.cpp -- forty-eight 128 by 128 tables of sixteen-bit blue
+// noise, which the sampler reads as a per-pixel offset to decorrelate the
+// points. Read by the `pmj02bn` sampler alone, written to the `.smp` sidecar
+// by the converter, empty otherwise.
+extern pmj02bn_samples : array[u32];
+extern blue_noise : array[u16];
+
+// pbrt: PMJ02BNSampler's `pixelSamples`, built by its constructor: the first
+// set's points sorted into the pixels of a tile of the image, `spp` points
+// a pixel and the point's position within the pixel kept, so that a pixel's
+// camera samples are a well-distributed subset of one blue-noise set and
+// neighbouring pixels' subsets are distinct. The tile's side depends on the
+// sample count, which `--spp` may change after the scene is written, so the
+// driver builds this as pbrt's constructor does (render_hook.cpp) from the
+// raw set above. Empty for every other sampler.
+extern pmj_pixel_samples : array[vec2f];
 
 // pbrt: OneMinusEpsilon, the largest float below one. A radical inverse that
 // reached exactly one would put a sample on the far edge of whatever it
@@ -399,6 +432,76 @@ func zsobol_sample_index(morton : u64, dimension : i32, log2_spp : i32,
     return index;
 }
 
+// pbrt: NSobolDimensions, where the `sobol` sampler's dimensions wrap round.
+func n_sobol_dimensions() -> i32 = 1024;
+
+// pbrt: SobolIntervalToIndex. Which entry of the Sobol' sequence is the
+// `frame`th to land in pixel (px, py) of an image whose side is 2^m. The
+// sequence's first two dimensions are a van der Corput pair whose leading m
+// bits are the pixel, so the index is solved for rather than searched: the
+// frame's bits shifted up past the pixel's, the pixel's bits flipped by the
+// columns the frame selects (VdCSobolMatrices), and the inverse matrix's
+// columns selected by what that leaves (VdCSobolMatricesInv), row m - 1 of
+// each. An image of one pixel (m = 0) is the sequence itself.
+func sobol_interval_to_index(m : i32, frame : u64, px : u32, py : u32) -> u64 {
+    if m == 0 {
+        return frame;
+    }
+    row = (m - 1) * 52;
+    index : mut u64 = frame << cast[[u64]](2 * m);
+    delta : mut u64 = 0u;
+    f : mut u64 = frame;
+    c : mut i32 = 0;
+    while f != 0u {
+        if (f & 1u) != 0u {
+            delta = delta ^ vdc_matrices[row + c];
+        }
+        f = f >> 1u;
+        c = c + 1;
+    }
+    b : mut u64 = ((cast[[u64]](px) << cast[[u64]](m)) | cast[[u64]](py)) ^ delta;
+    c = 0;
+    while b != 0u {
+        if (b & 1u) != 0u {
+            index = index ^ vdc_matrices_inv[row + c];
+        }
+        b = b >> 1u;
+        c = c + 1;
+    }
+    return index;
+}
+
+// pbrt: SobolSampler::SampleDimension -- Sobol' dimension `dim` of entry `a`
+// under the scene's randomization, seeded by Hash(dimension, seed): a
+// scramble of its own per dimension, as ZSobol's, but here the dimension
+// is a real Sobol' dimension rather than a scramble of the first two.
+func sobol_dimension(a : u64, dim : i32, randomize : i32, seed : i32) -> Float =
+    sobol_sample(a, dim, randomize, cast[[u32]](hash2(dim, seed)));
+
+// pbrt: BlueNoise(tableIndex, p) -- the sixteen-bit table `table` (one of
+// forty-eight, wrapping) at the pixel (wrapping at 128 each way), as a
+// fraction of 65535.
+func blue_noise_at(table : i32, px : i32, py : i32) -> Float {
+    t = table % 48;
+    x = px % 128;
+    y = py % 128;
+    return cast[[Float]](blue_noise[(t * 128 + x) * 128 + y]) / 65535.0;
+}
+
+// pbrt: GetPMJ02BNSample(setIndex, sampleIndex) -- point `index` (wrapping
+// at 65536) of set `set` (wrapping at five), each coordinate a fixed-point
+// fraction scaled by 2^-32. pbrt's CPU build scales in double and rounds the
+// result to a float, its GPU build scales in float; the two agree, since a
+// thirty-two-bit integer times a power of two rounds to the same float
+// either way.
+func pmj02bn_point(set : i32, index : i32) -> vec2f {
+    s = set % 5;
+    i = index % 65536;
+    at = (s * 65536 + i) * 2;
+    return vec2f{cast[[Float]](pmj02bn_samples[at]) * 0.00000000023283064365386963,
+                 cast[[Float]](pmj02bn_samples[at + 1]) * 0.00000000023283064365386963};
+}
+
 // Which sampler a scene asked for.
 //
 // pbrt dispatches this through a TaggedPointer over its sampler types; a
@@ -412,9 +515,16 @@ func zsobol_sample_index(morton : u64, dimension : i32, log2_spp : i32,
 // default, the sampler of every scene that names none: the Sobol' sequence's
 // first two dimensions under a different scramble per dimension, indexed by
 // the pixel's Morton code with the sample below it, so that neighbouring
-// pixels take neighbouring samples. `sobol` and `pmj02bn` remain
-// unimplemented, and a scene asking for one is refused rather than given
-// something that would look reasonable and not be pbrt's.
+// pixels take neighbouring samples. Sobol is the sequence proper: one
+// Sobol' dimension per draw, a thousand and twenty-four of them, the pixel's
+// entries found by inverting the first two (sanmiguel-entry, disney-cloud).
+// PaddedSobol takes every pair of dimensions from Sobol' dimensions zero and
+// one, as ZSobol does, but at an index permuted per pixel and per dimension
+// by a hash, so that one pixel's dimensions are padded together at random
+// rather than correlated through the sequence. PMJ02BN draws its pairs from
+// pbrt's tabulated progressive multi-jittered blue-noise sets, rotated per
+// pixel by a blue-noise offset, and its camera samples from the first set
+// sorted into the pixels of a tile (lte-orb).
 //
 // Halton's arm carries more than the others because pbrt's HaltonSampler does:
 // its constructor derives, from the film resolution, how the first two
@@ -424,7 +534,14 @@ func zsobol_sample_index(morton : u64, dimension : i32, log2_spp : i32,
 // count -- pbrt's ZSobolSampler floors a count that is not a power of two to
 // one, and renders that many -- and how many base-4 digits of the Morton index
 // it permutes, log2 of the resolution rounded up to a power of two plus half
-// the sample count's, rounded up.
+// the sample count's, rounded up. Sobol carries log2 of the film's full
+// resolution rounded up to a power of two, its constructor's `scale`; the
+// count stays as given (pbrt warns about one that is not a power of two and
+// renders it). PMJ02BN carries the side of the tile its camera samples are
+// sorted into, which pbrt's constructor derives from the count -- 65536
+// points shared among tile^2 pixels at spp a pixel, the count rounded up to
+// a power of four -- and which the driver derives, since `--spp` can change
+// the count after the scene is written.
 element Sampler =
     | Independent(spp : u32, seed : i32)
     | Stratified(x_samples : u32, y_samples : u32, seed : i32, jitter : bool)
@@ -432,7 +549,10 @@ element Sampler =
              base_scale_x : i32, base_scale_y : i32,
              base_exp_x : i32, base_exp_y : i32,
              mult_inv_x : i32, mult_inv_y : i32)
-    | ZSobol(log2_spp : i32, seed : i32, randomize : i32, base4_digits : i32);
+    | ZSobol(log2_spp : i32, seed : i32, randomize : i32, base4_digits : i32)
+    | Sobol(spp : u32, seed : i32, randomize : i32, log2_scale : i32)
+    | PaddedSobol(spp : u32, seed : i32, randomize : i32)
+    | PMJ02BN(spp : u32, seed : i32, tile : i32);
 
 func samples_per_pixel(s : Sampler) -> u32 {
     match s {
@@ -444,6 +564,9 @@ func samples_per_pixel(s : Sampler) -> u32 {
         // pbrt: ZSobolSampler::SamplesPerPixel, 1 << log2SamplesPerPixel.
         ZSobol(log2_spp, seed, randomize, base4_digits) =>
             return 1u << cast[[u32]](log2_spp);
+        Sobol(spp, seed, randomize, log2_scale) => return spp;
+        PaddedSobol(spp, seed, randomize) => return spp;
+        PMJ02BN(spp, seed, tile) => return spp;
     }
 }
 
@@ -454,6 +577,9 @@ func sampler_seed(s : Sampler) -> i32 {
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) =>
             return seed;
         ZSobol(log2_spp, seed, randomize, base4_digits) => return seed;
+        Sobol(spp, seed, randomize, log2_scale) => return seed;
+        PaddedSobol(spp, seed, randomize) => return seed;
+        PMJ02BN(spp, seed, tile) => return seed;
     }
 }
 
@@ -563,6 +689,37 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             st : SamplerState = {r, x, y, sample, 0, cast[[i64]](morton)};
             return st;
         }
+        Sobol(spp, seed, randomize, log2_scale) => {
+            zero : u64 = 0u;
+            r : RNG = {zero, zero};
+            // pbrt: SobolIntervalToIndex(Log2Int(scale), sampleIndex, pixel)
+            // -- which entry of the one sequence is this pixel's `sample`th
+            // -- and dimensions zero and one are spent on the pixel, so a
+            // draw starts at two, as Halton's does.
+            index = sobol_interval_to_index(log2_scale, cast[[u64]](sample),
+                                            cast[[u32]](x), cast[[u32]](y));
+            st : SamplerState = {r, x, y, sample, 2, cast[[i64]](index)};
+            return st;
+        }
+        PaddedSobol(spp, seed, randomize) => {
+            zero : u64 = 0u;
+            r : RNG = {zero, zero};
+            none : i64 = 0;
+            // No index to keep: every draw permutes the sample index afresh
+            // by a hash of the pixel and the dimension. The first draw is
+            // dimension zero; the pixel sample is nothing special.
+            st : SamplerState = {r, x, y, sample, 0, none};
+            return st;
+        }
+        PMJ02BN(spp, seed, tile) => {
+            zero : u64 = 0u;
+            r : RNG = {zero, zero};
+            none : i64 = 0;
+            // pbrt: dimension = max(2, dim). The first two dimensions are
+            // the pixel's, served from the sorted table rather than drawn.
+            st : SamplerState = {r, x, y, sample, 2, none};
+            return st;
+        }
         Independent(spp, seed) => return seeded_state(x, y, sample, seed);
         Stratified(x_samples, y_samples, seed, jitter) =>
             return seeded_state(x, y, sample, seed);
@@ -576,7 +733,8 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
 // far have got to. Independent and Stratified re-seed and advance by
 // `sampleIndex * 65536 + dimension`, as pbrt's do; Halton keeps its index in
 // the sequence and takes the dimension, no lower than two; ZSobol keeps its
-// index and takes the dimension as given.
+// index and takes the dimension as given; Sobol and PMJ02BN take it no lower
+// than two, as their StartPixelSample does, PaddedSobol as given.
 func start_pixel_sample_at(s : Sampler, st : SamplerState,
                            dimension : i32) -> SamplerState {
     fresh = start_pixel_sample(s, st.px, st.py, st.sample);
@@ -589,6 +747,21 @@ func start_pixel_sample_at(s : Sampler, st : SamplerState,
         ZSobol(log2_spp, seed, randomize, base4_digits) => {
             at : SamplerState = {fresh.rng, st.px, st.py, st.sample, dimension,
                                  fresh.index};
+            return at;
+        }
+        Sobol(spp, seed, randomize, log2_scale) => {
+            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
+                                 max(2, dimension), fresh.index};
+            return at;
+        }
+        PaddedSobol(spp, seed, randomize) => {
+            at : SamplerState = {fresh.rng, st.px, st.py, st.sample, dimension,
+                                 fresh.index};
+            return at;
+        }
+        PMJ02BN(spp, seed, tile) => {
+            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
+                                 max(2, dimension), fresh.index};
             return at;
         }
         Independent(spp, seed) => {
@@ -684,6 +857,37 @@ func [[inline]] get_1d(s : Sampler, st : mut SamplerState) -> Float {
             hash = cast[[u32]](hash2(st.dimension, seed));
             return sobol_sample(a, 0, randomize, hash);
         }
+        Sobol(spp, seed, randomize, log2_scale) => {
+            // The dimensions wrap at the table's end, back to two, as
+            // Halton's do at the primes'.
+            if st.dimension >= n_sobol_dimensions() {
+                st.dimension = 2;
+            }
+            dim = st.dimension;
+            st.dimension = st.dimension + 1;
+            return sobol_dimension(cast[[u64]](st.index), dim, randomize, seed);
+        }
+        PaddedSobol(spp, seed, randomize) => {
+            // pbrt: Hash(pixel, dimension, seed) does two jobs -- its low
+            // word permutes the sample index within the pixel, its high word
+            // seeds the scramble of Sobol' dimension zero.
+            hash = hash4(st.px, st.py, st.dimension, seed);
+            index = permutation_element(st.sample, spp, cast[[u32]](hash));
+            st.dimension = st.dimension + 1;
+            return sobol_sample(cast[[u64]](index), 0, randomize,
+                                cast[[u32]](hash >> 32u));
+        }
+        PMJ02BN(spp, seed, tile) => {
+            // pbrt: the sample's index permuted within the pixel, one stratum
+            // of `spp` over the unit interval, placed within its stratum by
+            // the pixel's blue noise for this dimension.
+            hash = hash4(st.px, st.py, st.dimension, seed);
+            index = permutation_element(st.sample, spp, cast[[u32]](hash));
+            delta = blue_noise_at(st.dimension, st.px, st.py);
+            st.dimension = st.dimension + 1;
+            return min((cast[[Float]](index) + delta) / cast[[Float]](spp),
+                       one_minus_epsilon());
+        }
     }
 }
 
@@ -739,6 +943,57 @@ func [[inline]] get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
                 sobol_sample(a, 0, randomize, cast[[u32]](bits)),
                 sobol_sample(a, 1, randomize, cast[[u32]](bits >> 32u))};
         }
+        Sobol(spp, seed, randomize, log2_scale) => {
+            // Two consecutive dimensions, and both have to exist before the
+            // table's end.
+            if st.dimension + 1 >= n_sobol_dimensions() {
+                st.dimension = 2;
+            }
+            dim = st.dimension;
+            st.dimension = st.dimension + 2;
+            a = cast[[u64]](st.index);
+            return vec2f{sobol_dimension(a, dim, randomize, seed),
+                         sobol_dimension(a, dim + 1, randomize, seed)};
+        }
+        PaddedSobol(spp, seed, randomize) => {
+            // One hash, one permuted index, and the pair from Sobol'
+            // dimensions zero and one: zero scrambled under the hash's low
+            // word, one under its high.
+            hash = hash4(st.px, st.py, st.dimension, seed);
+            index = permutation_element(st.sample, spp, cast[[u32]](hash));
+            st.dimension = st.dimension + 2;
+            a = cast[[u64]](index);
+            return vec2f{
+                sobol_sample(a, 0, randomize, cast[[u32]](hash)),
+                sobol_sample(a, 1, randomize, cast[[u32]](hash >> 32u))};
+        }
+        PMJ02BN(spp, seed, tile) => {
+            // pbrt: the five sets serve the dimensions in order, two
+            // dimensions a set, at the sample's own index; past the fifth the
+            // sets come round again at an index permuted per pixel and
+            // dimension. Then a Cranley-Patterson rotation by the pixel's
+            // blue noise, wrapped, which is what lets one set serve every
+            // pixel without the pixels agreeing.
+            instance = st.dimension / 2;
+            index : mut i32 = cast[[i32]](st.sample);
+            if instance >= 5 {
+                hash = hash4(st.px, st.py, st.dimension, seed);
+                index = cast[[i32]](permutation_element(st.sample, spp,
+                                                        cast[[u32]](hash)));
+            }
+            u = pmj02bn_point(instance, index);
+            ux : mut Float = u.x + blue_noise_at(st.dimension, st.px, st.py);
+            uy : mut Float = u.y + blue_noise_at(st.dimension + 1, st.px, st.py);
+            if ux >= 1.0 {
+                ux = ux - 1.0;
+            }
+            if uy >= 1.0 {
+                uy = uy - 1.0;
+            }
+            st.dimension = st.dimension + 2;
+            return vec2f{min(ux, one_minus_epsilon()),
+                         min(uy, one_minus_epsilon())};
+        }
     }
 }
 
@@ -752,7 +1007,13 @@ func [[inline]] get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
 // pixel and leaves the rest -- and it is unscrambled, because a permutation of
 // those digits would move the sample into a different pixel.
 //
-// For the other three the pixel sample is nothing special and this is Get2D --
+// Sobol's is the same idea in base two: dimensions zero and one unscrambled,
+// scaled up by the image's power-of-two side with the pixel's coordinates
+// taken off, which leaves the position within the pixel. PMJ02BN's camera
+// samples are not drawn at all: they are the pixel's share of the first
+// blue-noise set, sorted into the pixels of a tile by the driver.
+//
+// For the others the pixel sample is nothing special and this is Get2D --
 // ZSobol's included: its pixel is in the index, not in a dimension.
 func [[inline]] get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f {
     match s {
@@ -761,7 +1022,26 @@ func [[inline]] get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f {
             return vec2f{radical_inverse(0, a >> cast[[u64]](bex)),
                          radical_inverse(1, a / cast[[u64]](bsy))};
         }
+        Sobol(spp, seed, randomize, log2_scale) => {
+            a = cast[[u64]](st.index);
+            scale = cast[[Float]](1u << cast[[u32]](log2_scale));
+            ux = sobol_sample(a, 0, randomize_none(), 0u) * scale -
+                 cast[[Float]](st.px);
+            uy = sobol_sample(a, 1, randomize_none(), 0u) * scale -
+                 cast[[Float]](st.py);
+            return vec2f{clamp_f(ux, 0.0, one_minus_epsilon()),
+                         clamp_f(uy, 0.0, one_minus_epsilon())};
+        }
+        PMJ02BN(spp, seed, tile) => {
+            // pbrt: the pixel's slot in the tile, `spp` points each, this
+            // sample's among them (pmj_pixel_samples, render_hook.cpp).
+            px = st.px % tile;
+            py = st.py % tile;
+            offset = (px + py * tile) * cast[[i32]](spp);
+            return pmj_pixel_samples[offset + cast[[i32]](st.sample)];
+        }
         ZSobol(log2_spp, seed, randomize, base4_digits) => return get_2d(s, st);
+        PaddedSobol(spp, seed, randomize) => return get_2d(s, st);
         Independent(spp, seed) => return get_2d(s, st);
         Stratified(x_samples, y_samples, seed, jitter) => return get_2d(s, st);
     }

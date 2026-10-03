@@ -1,0 +1,51 @@
+# The three-spheres geometry sampled with pbrt's PaddedSobol sampler.
+#
+# `paddedsobol` takes every pair of dimensions from the Sobol' sequence's
+# first two, as zsobol does, but at an index permuted per pixel and per
+# dimension by a hash of the two and the seed -- so that one pixel's
+# dimensions are padded together at random rather than correlated through
+# one shared sequence, which is the point of it. The camera sample is an
+# ordinary pair: no dimension is spent on the pixel. The pieces are the
+# stratified sampler's hash and permuted index and zsobol's scrambles, and
+# this scene checks their combination through pbrt's gbuffer normals, which
+# agree only if every camera sample is pbrt's.
+#
+# Eight samples a pixel, a power of two that is not a power of four, and the
+# randomization left unstated, which means `fastowen`, pbrt's default.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "paddedsobol" "integer pixelsamples" [8]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]

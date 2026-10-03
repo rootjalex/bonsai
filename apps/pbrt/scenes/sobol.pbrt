@@ -1,0 +1,54 @@
+# The three-spheres geometry sampled with pbrt's Sobol sampler.
+#
+# `sobol` is the Sobol' sequence proper, the sampler sanmiguel-entry and
+# disney-cloud name: one sequence shared by the whole image, a different
+# Sobol' dimension for every draw -- a thousand and twenty-four of them --
+# and the pixel's entries found by inverting the sequence's first two
+# dimensions (SobolIntervalToIndex) rather than by a Morton code. The camera
+# sample is those two dimensions unscrambled, scaled up by the image's
+# power-of-two side with the pixel taken off. Nothing about that can be
+# approximated by drawing random numbers, so this scene is here to hold the
+# renderer to the real sequence: pbrt's gbuffer normals are the filter's
+# weighting of sixteen camera rays a pixel, and they agree only if every
+# camera sample is pbrt's.
+#
+# The randomization is left unstated, which means `fastowen`, pbrt's default
+# for this sampler. The film is 800 by 450, so the sequence is mapped onto a
+# side of 1024.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "sobol" "integer pixelsamples" [16]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]

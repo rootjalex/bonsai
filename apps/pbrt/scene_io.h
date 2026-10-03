@@ -744,6 +744,9 @@ enum SamplerTag : uint32_t {
     Stratified = 1,
     Halton = 2,
     ZSobol = 3,
+    Sobol = 4,
+    PaddedSobol = 5,
+    PMJ02BN = 6,
 };
 
 // pbrt: RandomizeStrategy, in pbrt's order -- how a low-discrepancy sampler
@@ -784,12 +787,17 @@ struct Sampler {
     int32_t base_scales[2] = {1, 1};
     int32_t base_exponents[2] = {0, 0};
     int32_t mult_inverse[2] = {0, 0};
-    // ZSobol only, besides the randomization: log2 of the film's full
-    // resolution rounded up to a power of two, which with log2 of the sample
-    // count is how many base-4 digits of a sample's Morton index the sampler
-    // permutes. Derived where pbrt's constructor derives it, from the
-    // resolution pbrt hands it (scene_dump.cpp); the sample count's part is
-    // the driver's, since `--spp` can change the count after this is written.
+    // ZSobol and Sobol, besides the randomization: log2 of the film's full
+    // resolution rounded up to a power of two. For ZSobol it is, with log2 of
+    // the sample count, how many base-4 digits of a sample's Morton index the
+    // sampler permutes; for Sobol it is the constructor's `scale`, the
+    // power-of-two side the first two dimensions of the sequence are mapped
+    // onto. Derived where pbrt's constructors derive it, from the resolution
+    // pbrt hands them (scene_dump.cpp); the sample count's part is the
+    // driver's, since `--spp` can change the count after this is written.
+    // PaddedSobol carries the randomization and the count and nothing
+    // derived; PMJ02BN the count alone -- the side of the tile its camera
+    // samples are sorted into follows from the count, in the driver.
     int32_t log2_resolution = 0;
 };
 
@@ -886,6 +894,22 @@ struct Scene {
     // The grid media's grids, laid end to end (see GridRef). Binary, in the
     // `.vol` sidecar: smoke-plume's density alone is nine million floats.
     std::vector<float> medium_grid;
+    // The tables the scene's sampler reads, when it is one of the two that
+    // read tables pbrt ships as source (sampler.bonsai's externs): the `sobol`
+    // sampler's generator matrices for all 1024 dimensions and the two van
+    // der Corput matrices SobolIntervalToIndex works with (25 rows of 52);
+    // the `pmj02bn` sampler's five sets of 65536 blue-noise points (x then y,
+    // fixed point) and its forty-eight 128x128 blue-noise textures. Binary,
+    // in the `.smp` sidecar -- 233 KB for sobol, 4.1 MB for pmj02bn -- copied
+    // from pbrt's own arrays by scene_dump, which links pbrt, so that no
+    // transcription stands between pbrt's tables and the renderer's; the two
+    // dimensions zsobol and paddedsobol read are small enough to be a header
+    // (sobol_tables.h). Empty for every other sampler.
+    std::vector<uint32_t> sobol_matrices;
+    std::vector<uint64_t> vdc_matrices;
+    std::vector<uint64_t> vdc_matrices_inv;
+    std::vector<uint32_t> pmj02bn_samples;
+    std::vector<uint16_t> blue_noise;
     // PBRT's `CameraMedium`: the medium the camera sits in, which every camera
     // ray starts in, or -1 for none.
     int32_t camera_medium = -1;
@@ -1050,6 +1074,12 @@ inline std::string pl_path(const char *scene_path) {
 // Where the grid media's voxels live (Scene::medium_grid).
 inline std::string vol_path(const char *scene_path) {
     return std::string(scene_path) + ".vol";
+}
+
+// Where the sampler's tables live (Scene::sobol_matrices and the four after
+// it), when the scene's sampler reads any.
+inline std::string smp_path(const char *scene_path) {
+    return std::string(scene_path) + ".smp";
 }
 
 // Where the geometry lives: the FlatBuffer beside the scene file
@@ -1565,6 +1595,27 @@ inline bool write(const char *path, const Scene &scene) {
             return false;
         }
     }
+    if (!scene.sobol_matrices.empty() || !scene.pmj02bn_samples.empty()) {
+        // The five tables back to back, in the order the text line counts
+        // them.
+        std::ofstream smp(smp_path(path), std::ios::binary);
+        if (!smp) {
+            return false;
+        }
+        const auto put = [&](const auto &v) {
+            using T = typename std::decay_t<decltype(v)>::value_type;
+            smp.write(reinterpret_cast<const char *>(v.data()),
+                      std::streamsize(sizeof(T) * v.size()));
+        };
+        put(scene.sobol_matrices);
+        put(scene.vdc_matrices);
+        put(scene.vdc_matrices_inv);
+        put(scene.pmj02bn_samples);
+        put(scene.blue_noise);
+        if (!smp) {
+            return false;
+        }
+    }
 
     std::ofstream out(path);
     if (!out) {
@@ -1588,6 +1639,16 @@ inline bool write(const char *path, const Scene &scene) {
         out << "sampler zsobol " << scene.sampler.samples_per_pixel << ' '
             << scene.sampler.seed << ' ' << scene.sampler.randomize << ' '
             << scene.sampler.log2_resolution << '\n';
+    } else if (scene.sampler.tag == SamplerTag::Sobol) {
+        out << "sampler sobol " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << ' ' << scene.sampler.randomize << ' '
+            << scene.sampler.log2_resolution << '\n';
+    } else if (scene.sampler.tag == SamplerTag::PaddedSobol) {
+        out << "sampler paddedsobol " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << ' ' << scene.sampler.randomize << '\n';
+    } else if (scene.sampler.tag == SamplerTag::PMJ02BN) {
+        out << "sampler pmj02bn " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << '\n';
     } else {
         out << "sampler independent " << scene.sampler.samples_per_pixel << ' '
             << scene.sampler.seed << '\n';
@@ -1913,6 +1974,12 @@ inline bool write(const char *path, const Scene &scene) {
     }
     // The grids themselves are in the `.vol` sidecar; this is how many floats.
     out << "mediumgrid " << scene.medium_grid.size() << '\n';
+    // The sampler's tables are in the `.smp` sidecar; this is how many words
+    // of each, in the order they are written there.
+    out << "samplertables " << scene.sobol_matrices.size() << ' '
+        << scene.vdc_matrices.size() << ' ' << scene.vdc_matrices_inv.size()
+        << ' ' << scene.pmj02bn_samples.size() << ' ' << scene.blue_noise.size()
+        << '\n';
 
     // The geometry -- meshes, vertices, shapes, trees, instances, primitives
     // -- is the FlatBuffer beside this file (write_geometry); the text keeps
@@ -2033,6 +2100,17 @@ inline bool read(const char *path, Scene &scene) {
         scene.sampler.tag = SamplerTag::ZSobol;
         in >> scene.sampler.samples_per_pixel >> scene.sampler.seed >>
             scene.sampler.randomize >> scene.sampler.log2_resolution;
+    } else if (word == "sobol") {
+        scene.sampler.tag = SamplerTag::Sobol;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed >>
+            scene.sampler.randomize >> scene.sampler.log2_resolution;
+    } else if (word == "paddedsobol") {
+        scene.sampler.tag = SamplerTag::PaddedSobol;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed >>
+            scene.sampler.randomize;
+    } else if (word == "pmj02bn") {
+        scene.sampler.tag = SamplerTag::PMJ02BN;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed;
     } else if (word == "independent") {
         scene.sampler.tag = SamplerTag::Independent;
         in >> scene.sampler.samples_per_pixel >> scene.sampler.seed;
@@ -2750,6 +2828,49 @@ inline bool read(const char *path, Scene &scene) {
         vol.read(reinterpret_cast<char *>(scene.medium_grid.data()),
                  std::streamsize(sizeof(float) * count));
         if (vol.gcount() != std::streamsize(sizeof(float) * count)) {
+            return false;
+        }
+    }
+    if (!(in >> word) || word != "samplertables") {
+        return false;
+    }
+    {
+        size_t counts[5];
+        for (size_t &c : counts) {
+            in >> c;
+        }
+        scene.sobol_matrices.assign(counts[0], 0);
+        scene.vdc_matrices.assign(counts[1], 0);
+        scene.vdc_matrices_inv.assign(counts[2], 0);
+        scene.pmj02bn_samples.assign(counts[3], 0);
+        scene.blue_noise.assign(counts[4], 0);
+        if (counts[0] + counts[1] + counts[2] + counts[3] + counts[4] > 0) {
+            std::ifstream smp(smp_path(path), std::ios::binary);
+            if (!smp) {
+                return false;
+            }
+            const auto get = [&](auto &v) {
+                using T = typename std::decay_t<decltype(v)>::value_type;
+                const std::streamsize bytes =
+                    std::streamsize(sizeof(T) * v.size());
+                smp.read(reinterpret_cast<char *>(v.data()), bytes);
+                return smp.gcount() == bytes;
+            };
+            if (!get(scene.sobol_matrices) || !get(scene.vdc_matrices) ||
+                !get(scene.vdc_matrices_inv) || !get(scene.pmj02bn_samples) ||
+                !get(scene.blue_noise)) {
+                return false;
+            }
+        }
+        // A sobol scene carries the whole of each of its three tables or
+        // none; a pmj02bn scene the whole of its two.
+        const bool sobol = scene.sampler.tag == SamplerTag::Sobol;
+        const bool pmj = scene.sampler.tag == SamplerTag::PMJ02BN;
+        if (scene.sobol_matrices.size() != (sobol ? 1024u * 52u : 0u) ||
+            scene.vdc_matrices.size() != (sobol ? 25u * 52u : 0u) ||
+            scene.vdc_matrices_inv.size() != (sobol ? 25u * 52u : 0u) ||
+            scene.pmj02bn_samples.size() != (pmj ? 5u * 65536u * 2u : 0u) ||
+            scene.blue_noise.size() != (pmj ? 48u * 128u * 128u : 0u)) {
             return false;
         }
     }

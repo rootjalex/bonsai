@@ -63,7 +63,9 @@ before it.
   and binary sidecars beside it -- `.geo` for the geometry (meshes,
   vertices, shapes, trees, instances; a FlatBuffer, `scene_geometry.fbs`),
   `.tex` for texels, `.env` for environment maps, `.pl` for measured BRDFs,
-  `.vol` for the grid media's voxels.
+  `.vol` for the grid media's voxels, `.smp` for the tables a `sobol` or
+  `pmj02bn` sampler reads (pbrt's full Sobol' matrices, its blue-noise
+  point sets and textures, copied from pbrt's own arrays).
 - `scene_schema.sh`: runs `flatc` on `scene_geometry.fbs` and prints the
   compiler flags the scene reader needs; every script that compiles
   `scene_dump.cpp` or `render_hook.cpp` calls it. Needs the `flatbuffers`

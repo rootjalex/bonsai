@@ -1,0 +1,516 @@
+//! flags: -b llvm -e
+
+// pbrt's SobolSampler, PaddedSobolSampler and PMJ02BNSampler, reproduced
+// exactly. Every number below is pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-sampler`.
+//
+// The three are the Sobol' family's other members and the one tabulated
+// sampler. `sobol` is the sequence proper: a different Sobol' dimension for
+// every draw and the pixel's entries found by inverting the first two
+// dimensions (SobolIntervalToIndex, checked here on its own at a film side of
+// eight, whose two van der Corput rows the test carries). `paddedsobol` takes
+// every pair from dimensions zero and one at an index permuted per pixel and
+// dimension by the stratified sampler's hash. `pmj02bn` draws nothing from a
+// sequence: its pairs come from pbrt's tabulated blue-noise point sets,
+// rotated per pixel by a tabulated blue-noise offset, and its one-dimensional
+// draws are a permuted stratum jittered by the same offset. Its camera samples
+// are the first set sorted into pixels by the driver (render_hook.cpp) and
+// are checked by scenes/pmj02bn.pbrt rather than here.
+//
+// The functions here are a copy of apps/pbrt/sampler.bonsai rather than an
+// import of it, for the reason halton.bonsai's and zsobol.bonsai's are: the
+// app takes its tables as externs, and an extern becomes a parameter that a
+// `main` with no arguments cannot supply. The tables below are the first six
+// Sobol' dimensions (the renderer's draw order reaches dimension five), the
+// two van der Corput rows for m = 3, and of the pmj02bn tables only the
+// entries these draws touch -- the first sixteen points of each set and the
+// blue noise at three pixels for dimensions two to thirteen -- which is why
+// the pixels and sample indices below are what they are.
+element Float = f32;
+element vec2f = vector[Float, 2];
+
+func one_minus_epsilon() -> Float = 0.99999994;
+
+func clamp_f(x : Float, low : Float, high : Float) -> Float =
+    min(max(x, low), high);
+
+// pbrt: MixBits, from util/hash.h.
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: MurmurHash64A -- one block and no tail for eight bytes, two blocks
+// for sixteen.
+func murmur_m() -> u64 = 0xc6a4a7935bd1e995;
+
+func murmur_block(h : u64, block : u64) -> u64 {
+    k : mut u64 = block * murmur_m();
+    k = k ^ (k >> 47u);
+    k = k * murmur_m();
+    return (h ^ k) * murmur_m();
+}
+
+func murmur_finish(h : u64) -> u64 {
+    a : mut u64 = h ^ (h >> 47u);
+    a = a * murmur_m();
+    return a ^ (a >> 47u);
+}
+
+func packed(low : i32, high : i32) -> u64 =
+    cast[[u64]](cast[[u32]](low)) | (cast[[u64]](cast[[u32]](high)) << 32u);
+
+func hash2(a : i32, b : i32) -> u64 =
+    murmur_finish(murmur_block(8u * murmur_m(), packed(a, b)));
+
+func hash4(a : i32, b : i32, c : i32, d : i32) -> u64 {
+    h = murmur_block(16u * murmur_m(), packed(a, b));
+    return murmur_finish(murmur_block(h, packed(c, d)));
+}
+
+// pbrt: PermutationElement, from util/math.h.
+func permutation_element(index : u32, l : u32, p : u32) -> u32 {
+    w : mut u32 = l - 1u;
+    w = w | (w >> 1u);
+    w = w | (w >> 2u);
+    w = w | (w >> 4u);
+    w = w | (w >> 8u);
+    w = w | (w >> 16u);
+    i : mut u32 = index;
+    do {
+        i = i ^ p;
+        i = i * 0xe170893du;
+        i = i ^ (p >> 16u);
+        i = i ^ ((i & w) >> 4u);
+        i = i ^ (p >> 8u);
+        i = i * 0x0929eb3fu;
+        i = i ^ (p >> 23u);
+        i = i ^ ((i & w) >> 1u);
+        i = i * (1u | (p >> 27u));
+        i = i * 0x6935fa69u;
+        i = i ^ ((i & w) >> 11u);
+        i = i * 0x74dcb303u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0x9e501cc3u;
+        i = i ^ ((i & w) >> 2u);
+        i = i * 0xc860a3dfu;
+        i = i & w;
+        i = i ^ (i >> 5u);
+    } while i >= l;
+    return (i + p) % l;
+}
+
+// pbrt: RandomizeStrategy, in pbrt's order.
+func randomize_none() -> i32 = 0;
+func randomize_permute_digits() -> i32 = 1;
+func randomize_fast_owen() -> i32 = 2;
+func randomize_owen() -> i32 = 3;
+
+// pbrt: SobolMatrices32, dimensions zero to five, fifty-two columns each.
+func sobol_matrix(column : i32) -> u32 {
+    table : array[u32, 312] = {
+        // Dimension zero.
+        0x80000000u, 0x40000000u, 0x20000000u, 0x10000000u, 0x08000000u,
+        0x04000000u, 0x02000000u, 0x01000000u, 0x00800000u, 0x00400000u,
+        0x00200000u, 0x00100000u, 0x00080000u, 0x00040000u, 0x00020000u,
+        0x00010000u, 0x00008000u, 0x00004000u, 0x00002000u, 0x00001000u,
+        0x00000800u, 0x00000400u, 0x00000200u, 0x00000100u, 0x00000080u,
+        0x00000040u, 0x00000020u, 0x00000010u, 0x00000008u, 0x00000004u,
+        0x00000002u, 0x00000001u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        // Dimension one.
+        0x80000000u, 0xc0000000u, 0xa0000000u, 0xf0000000u, 0x88000000u,
+        0xcc000000u, 0xaa000000u, 0xff000000u, 0x80800000u, 0xc0c00000u,
+        0xa0a00000u, 0xf0f00000u, 0x88880000u, 0xcccc0000u, 0xaaaa0000u,
+        0xffff0000u, 0x80008000u, 0xc000c000u, 0xa000a000u, 0xf000f000u,
+        0x88008800u, 0xcc00cc00u, 0xaa00aa00u, 0xff00ff00u, 0x80808080u,
+        0xc0c0c0c0u, 0xa0a0a0a0u, 0xf0f0f0f0u, 0x88888888u, 0xccccccccu,
+        0xaaaaaaaau, 0xffffffffu, 0x80000000u, 0xc0000000u, 0xa0000000u,
+        0xf0000000u, 0x88000000u, 0xcc000000u, 0xaa000000u, 0xff000000u,
+        0x80800000u, 0xc0c00000u, 0xa0a00000u, 0xf0f00000u, 0x88880000u,
+        0xcccc0000u, 0xaaaa0000u, 0xffff0000u, 0x80008000u, 0xc000c000u,
+        0xa000a000u, 0xf000f000u,
+        // Dimension two.
+        0x80000000u, 0xc0000000u, 0x60000000u, 0x90000000u, 0xe8000000u,
+        0x5c000000u, 0x8e000000u, 0xc5000000u, 0x68800000u, 0x9cc00000u,
+        0xee600000u, 0x55900000u, 0x80680000u, 0xc09c0000u, 0x60ee0000u,
+        0x90550000u, 0xe8808000u, 0x5cc0c000u, 0x8e606000u, 0xc5909000u,
+        0x6868e800u, 0x9c9c5c00u, 0xeeee8e00u, 0x5555c500u, 0x8000e880u,
+        0xc0005cc0u, 0x60008e60u, 0x9000c590u, 0xe8006868u, 0x5c009c9cu,
+        0x8e00eeeeu, 0xc5005555u, 0x68808000u, 0x9cc0c000u, 0xee606000u,
+        0x55909000u, 0x8068e800u, 0xc09c5c00u, 0x60ee8e00u, 0x9055c500u,
+        0xe880e880u, 0x5cc05cc0u, 0x8e608e60u, 0xc590c590u, 0x68686868u,
+        0x9c9c9c9cu, 0xeeeeeeeeu, 0x55555555u, 0x80000000u, 0xc0000000u,
+        0x60000000u, 0x90000000u,
+        // Dimension three.
+        0x80000000u, 0xc0000000u, 0x20000000u, 0x50000000u, 0xf8000000u,
+        0x74000000u, 0xa2000000u, 0x93000000u, 0xd8800000u, 0x25400000u,
+        0x59e00000u, 0xe6d00000u, 0x78080000u, 0xb40c0000u, 0x82020000u,
+        0xc3050000u, 0x208f8000u, 0x51474000u, 0xfbea2000u, 0x75d93000u,
+        0xa0858800u, 0x914e5400u, 0xdbe79e00u, 0x25db6d00u, 0x58800080u,
+        0xe54000c0u, 0x79e00020u, 0xb6d00050u, 0x800800f8u, 0xc00c0074u,
+        0x200200a2u, 0x50050093u, 0xf80f80d8u, 0x74074025u, 0xa20a2059u,
+        0x930930e6u, 0xd88d8878u, 0x254254b4u, 0x59e59e82u, 0xe6de6dc3u,
+        0x780f80a0u, 0xb4074091u, 0x820a20dbu, 0xc3093025u, 0x208d8858u,
+        0x514254e5u, 0xfbe59e79u, 0x75de6db6u, 0xa08f8000u, 0x91474000u,
+        0xdbea2000u, 0x25d93000u,
+        // Dimension four.
+        0x80000000u, 0x40000000u, 0x20000000u, 0xb0000000u, 0xf8000000u,
+        0xdc000000u, 0x7a000000u, 0x9d000000u, 0x5a800000u, 0x2fc00000u,
+        0xa1600000u, 0xf0b00000u, 0xda880000u, 0x6fc40000u, 0x81620000u,
+        0x40bb0000u, 0x22878000u, 0xb3c9c000u, 0xfb65a000u, 0xddb2d000u,
+        0x78022800u, 0x9c0b3c00u, 0x5a0fb600u, 0x2d0ddb00u, 0xa2878080u,
+        0xf3c9c040u, 0xdb65a020u, 0x6db2d0b0u, 0x800228f8u, 0x400b3cdcu,
+        0x200fb67au, 0xb00ddb9du, 0xf80780dau, 0xdc09c06fu, 0x7a05a081u,
+        0x9d02d040u, 0x5a8a2822u, 0x2fcf3cb3u, 0xa16db6fbu, 0xf0b6dbddu,
+        0xda8000f8u, 0x6fc000dcu, 0x8160007au, 0x40b0009du, 0x2288005au,
+        0xb3c4002fu, 0xfb6200a1u, 0xddbb00f0u, 0x780780dau, 0x9c09c06fu,
+        0x5a05a081u, 0x2d02d040u,
+        // Dimension five.
+        0x80000000u, 0x40000000u, 0x60000000u, 0x30000000u, 0xc8000000u,
+        0x24000000u, 0x56000000u, 0xfb000000u, 0xe0800000u, 0x70400000u,
+        0xa8600000u, 0x14300000u, 0x9ec80000u, 0xdf240000u, 0xb6d60000u,
+        0x8bbb0000u, 0x48008000u, 0x64004000u, 0x36006000u, 0xcb003000u,
+        0x2880c800u, 0x54402400u, 0xfe605600u, 0xef30fb00u, 0x7e48e080u,
+        0xaf647040u, 0x1eb6a860u, 0x9f8b1430u, 0xd6c81ec8u, 0xbb249f24u,
+        0x80d6d6d6u, 0x40bbbbbbu, 0x60800000u, 0x30400000u, 0xc8600000u,
+        0x24300000u, 0x56c80000u, 0xfb240000u, 0xe0d60000u, 0x70bb0000u,
+        0xa8808000u, 0x14404000u, 0x9e606000u, 0xdf303000u, 0xb648c800u,
+        0x8b642400u, 0x48b65600u, 0x648bfb00u, 0x36486080u, 0xcb643040u,
+        0x28b6c860u, 0x548b2430u};
+    return table[column];
+}
+
+// pbrt: VdCSobolMatrices[2] and VdCSobolMatricesInv[2], the rows for m = 3
+// -- a film whose side is eight -- padded with zeros to fifty-two columns as
+// the C++ array is.
+func vdc_matrix(column : i32) -> u64 {
+    table : array[u64, 52] = {
+        5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u,
+        5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u,
+        5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 4u, 6u, 5u, 7u, 0u, 0u,
+        0u, 0u, 0u, 0u};
+    return table[column];
+}
+
+func vdc_matrix_inv(column : i32) -> u64 {
+    table : array[u64, 52] = {
+        0x28u, 0x30u, 0x10u, 0x3cu, 0x22u, 0x11u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 0u, 0u, 0u};
+    return table[column];
+}
+
+// pbrt: ReverseBits32.
+func reverse_bits32(v : u32) -> u32 {
+    n : mut u32 = (v << 16u) | (v >> 16u);
+    n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
+    n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xccccccccu) >> 2u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
+    return n;
+}
+
+// pbrt: BinaryPermuteScrambler, FastOwenScrambler and OwenScrambler.
+func binary_permute_scramble(v : u32, permutation : u32) -> u32 =
+    permutation ^ v;
+
+func fast_owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = reverse_bits32(v);
+    a = a ^ (a * 0x3d20adeau);
+    a = a + seed;
+    a = a * ((seed >> 16u) | 1u);
+    a = a ^ (a * 0x05526c56u);
+    a = a ^ (a * 0x53a22864u);
+    return reverse_bits32(a);
+}
+
+func owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = v;
+    if (seed & 1u) != 0u {
+        a = a ^ 0x80000000u;
+    }
+    for b in 1:32 {
+        mask = 0xffffffffu << cast[[u32]](32 - b);
+        h = cast[[u32]](mix_bits(cast[[u64]]((a & mask) ^ seed)));
+        if (h & (1u << cast[[u32]](b))) != 0u {
+            a = a ^ (1u << cast[[u32]](31 - b));
+        }
+    }
+    return a;
+}
+
+// pbrt: SobolSample.
+func sobol_sample(a : u64, dimension : i32, randomize : i32,
+                  hash : u32) -> Float {
+    v : mut u32 = 0u;
+    bits : mut u64 = a;
+    column : mut i32 = dimension * 52;
+    while bits != 0u {
+        if (bits & 1u) != 0u {
+            v = v ^ sobol_matrix(column);
+        }
+        bits = bits >> 1u;
+        column = column + 1;
+    }
+    if randomize == randomize_permute_digits() {
+        v = binary_permute_scramble(v, hash);
+    }
+    if randomize == randomize_fast_owen() {
+        v = fast_owen_scramble(v, hash);
+    }
+    if randomize == randomize_owen() {
+        v = owen_scramble(v, hash);
+    }
+    return min(cast[[Float]](v) * 0.00000000023283064365386963,
+               one_minus_epsilon());
+}
+
+// pbrt: SobolIntervalToIndex, for m = 3 (and m = 0, the sequence itself).
+func sobol_interval_to_index(m : i32, frame : u64, px : u32, py : u32) -> u64 {
+    if m == 0 {
+        return frame;
+    }
+    index : mut u64 = frame << cast[[u64]](2 * m);
+    delta : mut u64 = 0u;
+    f : mut u64 = frame;
+    c : mut i32 = 0;
+    while f != 0u {
+        if (f & 1u) != 0u {
+            delta = delta ^ vdc_matrix(c);
+        }
+        f = f >> 1u;
+        c = c + 1;
+    }
+    b : mut u64 = ((cast[[u64]](px) << cast[[u64]](m)) | cast[[u64]](py)) ^ delta;
+    c = 0;
+    while b != 0u {
+        if (b & 1u) != 0u {
+            index = index ^ vdc_matrix_inv(c);
+        }
+        b = b >> 1u;
+        c = c + 1;
+    }
+    return index;
+}
+
+// pbrt: SobolSampler::SampleDimension.
+func sobol_dimension(a : u64, dim : i32, randomize : i32, seed : i32) -> Float =
+    sobol_sample(a, dim, randomize, cast[[u32]](hash2(dim, seed)));
+
+// One pixel sample of the sobol sampler on an 8 by 8 film at sixteen samples
+// a pixel, drawn from as the renderer draws: the wavelength (Get1D, dimension
+// two), the pixel (GetPixel2D: dimensions zero and one unscrambled, scaled by
+// eight with the pixel taken off), the time (Get1D) and the lens (Get2D).
+// The seed is zero.
+func sobol_draw(x : i32, y : i32, sample : u32, randomize : i32) -> void {
+    a = sobol_interval_to_index(3, cast[[u64]](sample), cast[[u32]](x),
+                                cast[[u32]](y));
+    print(sobol_dimension(a, 2, randomize, 0));
+    ux = sobol_sample(a, 0, randomize_none(), 0u) * 8.0 - cast[[Float]](x);
+    uy = sobol_sample(a, 1, randomize_none(), 0u) * 8.0 - cast[[Float]](y);
+    print(clamp_f(ux, 0.0, one_minus_epsilon()));
+    print(clamp_f(uy, 0.0, one_minus_epsilon()));
+    print(sobol_dimension(a, 3, randomize, 0));
+    print(sobol_dimension(a, 4, randomize, 0));
+    print(sobol_dimension(a, 5, randomize, 0));
+}
+
+// One pixel sample of the paddedsobol sampler at sixteen samples a pixel, in
+// the same order: Get1D at dimension zero, GetPixel2D (which is Get2D) at
+// one, Get1D at three, Get2D at four. Every draw hashes the pixel, the
+// dimension and the seed, permutes the sample index by the hash's low word
+// and scrambles under its high word (and, for a pair, dimension zero under
+// the low word too).
+func padded_draw(x : i32, y : i32, sample : u32, randomize : i32) -> void {
+    spp : u32 = 16u;
+    dimension : mut i32 = 0;
+
+    h0 = hash4(x, y, dimension, 0);
+    i0 = cast[[u64]](permutation_element(sample, spp, cast[[u32]](h0)));
+    dimension = dimension + 1;
+    print(sobol_sample(i0, 0, randomize, cast[[u32]](h0 >> 32u)));
+
+    h1 = hash4(x, y, dimension, 0);
+    i1 = cast[[u64]](permutation_element(sample, spp, cast[[u32]](h1)));
+    dimension = dimension + 2;
+    print(sobol_sample(i1, 0, randomize, cast[[u32]](h1)));
+    print(sobol_sample(i1, 1, randomize, cast[[u32]](h1 >> 32u)));
+
+    h3 = hash4(x, y, dimension, 0);
+    i3 = cast[[u64]](permutation_element(sample, spp, cast[[u32]](h3)));
+    dimension = dimension + 1;
+    print(sobol_sample(i3, 0, randomize, cast[[u32]](h3 >> 32u)));
+
+    h4 = hash4(x, y, dimension, 0);
+    i4 = cast[[u64]](permutation_element(sample, spp, cast[[u32]](h4)));
+    dimension = dimension + 2;
+    print(sobol_sample(i4, 0, randomize, cast[[u32]](h4)));
+    print(sobol_sample(i4, 1, randomize, cast[[u32]](h4 >> 32u)));
+}
+
+// pbrt: BlueNoiseTextures[table][x][y] for the three pixels the draws below
+// visit -- (0, 0), (1, 0) and (37, 11), in that order -- at dimensions two
+// to thirteen. The sampler divides by 65535.
+func blue_noise_at(table : i32, pixel : i32) -> Float {
+    values : array[u32, 36] = {
+        1836u, 10020u, 16556u, 50672u, 31656u, 62408u,
+        47820u, 19560u, 29676u, 32784u, 42820u, 8332u,
+        46000u, 15652u, 48048u, 65428u, 24748u, 24760u,
+        32956u, 13232u, 39360u, 28972u, 30100u, 51088u,
+        36464u, 35420u, 26332u, 35884u, 40348u, 15024u,
+        36108u, 15604u, 14932u, 34720u, 21992u, 27660u};
+    return cast[[Float]](values[pixel * 12 + table - 2]) / 65535.0;
+}
+
+// pbrt: pmj02bnSamples[set][index], the first sixteen points of each of the
+// five sets, x then y, as the fixed-point words they are stored as.
+func pmj02bn_point(set : i32, index : i32) -> vec2f {
+    words : array[u32, 160] = {
+        4142185728u, 3847968256u, 1492240593u, 1586060009u, 2414212106u,
+        11226732u, 61939836u, 2211235871u, 3036942834u, 2457066787u,
+        325255896u, 845528391u, 3258863187u, 1112753430u, 1191214335u,
+        3306246117u, 3851793875u, 539471985u, 2013172467u, 2736690563u,
+        1611629748u, 371151010u, 3615506048u, 3062468032u, 836803241u,
+        4127884074u, 2690907448u, 1708108397u, 660923716u, 1908024178u,
+        2531835726u, 3498070554u,
+        316667904u, 90015096u, 2496616853u, 2241631458u, 3683249902u,
+        1300493550u, 1560302281u, 3489281059u, 1170674231u, 1402206083u,
+        3277924538u, 3576597508u, 2259665513u, 385052486u, 127508527u,
+        2691929822u, 1615447175u, 2508712917u, 4029374679u, 593070532u,
+        1893056217u, 932027758u, 3764267697u, 3019116630u, 896311915u,
+        3874880191u, 2979931015u, 1634563236u, 558435602u, 1969761263u,
+        2694581798u, 4052773204u,
+        3310626816u, 137862016u, 1214616285u, 2291622353u, 241258916u,
+        1079070446u, 2215220528u, 3404319462u, 859817918u, 4149259606u,
+        3044575623u, 1934893522u, 2004408115u, 847924659u, 4056917153u,
+        3085144801u, 384646734u, 2689042902u, 2547823523u, 540284833u,
+        566663894u, 396732455u, 2694862025u, 2547225191u, 1469952872u,
+        1624765646u, 3593390523u, 3762863446u, 3760156284u, 1454521675u,
+        1617404078u, 3554851054u,
+        150166112u, 3059243008u, 2371292068u, 1076662702u, 1076190903u,
+        107915959u, 3236772097u, 3663733335u, 911125845u, 1698532987u,
+        2421356503u, 2488957166u, 4115615418u, 622714990u, 1426785342u,
+        3225788117u, 3770387011u, 2722871094u, 395034534u, 936265613u,
+        3080166972u, 367400935u, 1613678168u, 2211030617u, 3504867663u,
+        1886602303u, 564325739u, 3764235015u, 1913796120u, 1474696545u,
+        2689741367u, 4073395759u,
+        3728397312u, 1467766784u, 1509645696u, 3692257478u, 91368510u,
+        54842387u, 2201882050u, 2177153424u, 1174132340u, 1093305662u,
+        3328583743u, 3231631518u, 2690381597u, 349743161u, 573324442u,
+        2469888676u, 1618987279u, 2802343910u, 3784262585u, 616742508u,
+        2012703341u, 895296467u, 4140332618u, 2966975828u, 2534385700u,
+        1631169848u, 385074895u, 3761023306u, 924175717u, 1879309731u,
+        3086922331u, 4064322550u};
+    at = ((set % 5) * 16 + index) * 2;
+    return vec2f{cast[[Float]](words[at]) * 0.00000000023283064365386963,
+                 cast[[Float]](words[at + 1]) * 0.00000000023283064365386963};
+}
+
+// pbrt: PMJ02BNSampler::Get1D -- the sample's index permuted within the
+// pixel, one stratum of sixteen, placed within it by the pixel's blue noise.
+func pmj_1d(x : i32, y : i32, pixel : i32, sample : u32, dimension : i32) -> Float {
+    h = hash4(x, y, dimension, 0);
+    index = permutation_element(sample, 16u, cast[[u32]](h));
+    return min((cast[[Float]](index) + blue_noise_at(dimension, pixel)) / 16.0,
+               one_minus_epsilon());
+}
+
+// pbrt: PMJ02BNSampler::Get2D -- set `dimension / 2` at the sample's own
+// index for the first five sets and a permuted index past them, rotated by
+// the pixel's blue noise for the two dimensions and wrapped.
+func pmj_2d(x : i32, y : i32, pixel : i32, sample : u32, dimension : i32) -> vec2f {
+    instance = dimension / 2;
+    index : mut i32 = cast[[i32]](sample);
+    if instance >= 5 {
+        h = hash4(x, y, dimension, 0);
+        index = cast[[i32]](permutation_element(sample, 16u, cast[[u32]](h)));
+    }
+    u = pmj02bn_point(instance, index);
+    ux : mut Float = u.x + blue_noise_at(dimension, pixel);
+    uy : mut Float = u.y + blue_noise_at(dimension + 1, pixel);
+    if ux >= 1.0 {
+        ux = ux - 1.0;
+    }
+    if uy >= 1.0 {
+        uy = uy - 1.0;
+    }
+    return vec2f{min(ux, one_minus_epsilon()), min(uy, one_minus_epsilon())};
+}
+
+// One pixel sample of the pmj02bn sampler at sixteen samples a pixel: the
+// wavelength (Get1D at dimension two), the time (Get1D at three; the pixel
+// sample between them is the driver's table and not drawn), the lens (Get2D
+// at four), then four more pairs -- dimensions six to thirteen, the last
+// pair past the fifth set.
+func pmj_draw(x : i32, y : i32, pixel : i32, sample : u32) -> void {
+    print(pmj_1d(x, y, pixel, sample, 2));
+    print(pmj_1d(x, y, pixel, sample, 3));
+    for d in 2:7 {
+        u = pmj_2d(x, y, pixel, sample, 2 * d);
+        print(u.x);
+        print(u.y);
+    }
+}
+
+func main() -> i32 {
+    // SobolIntervalToIndex at m = 3: frames 0, 1 and 5 at four pixels, and
+    // m = 0, where the frame is the index.
+    px : array[i32, 4] = {0, 1, 5, 7};
+    py : array[i32, 4] = {0, 0, 3, 7};
+    frames : array[u64, 3] = {0u, 1u, 5u};
+    for f in 0:3 {
+        for i in 0:4 {
+            print(sobol_interval_to_index(3, frames[f], cast[[u32]](px[i]),
+                                          cast[[u32]](py[i])));
+        }
+    }
+    five : u64 = 5u;
+    print(sobol_interval_to_index(0, five, 3u, 4u));
+
+    // Dimensions two to five of the sequence unscrambled, at indices that
+    // reach past the thirty-second column.
+    xs : array[u64, 7] = {0u, 1u, 2u, 7u, 1000u, 123456789u, 1099511627781u};
+    for d in 2:6 {
+        for i in 0:7 {
+            print(sobol_sample(xs[i], d, randomize_none(), 0u));
+        }
+    }
+
+    // The sobol sampler under the default `fastowen` at the four pixels, two
+    // samples each, and under the other three randomizations at one.
+    for i in 0:4 {
+        for sample in 0:2 {
+            sobol_draw(px[i], py[i], cast[[u32]](sample), randomize_fast_owen());
+        }
+    }
+    sobol_draw(5, 3, 1u, randomize_none());
+    sobol_draw(5, 3, 1u, randomize_permute_digits());
+    sobol_draw(5, 3, 1u, randomize_owen());
+
+    // The paddedsobol sampler, likewise, at pixels (0, 0), (1, 0) and
+    // (37, 11).
+    qx : array[i32, 3] = {0, 1, 37};
+    qy : array[i32, 3] = {0, 0, 11};
+    for i in 0:3 {
+        for sample in 0:2 {
+            padded_draw(qx[i], qy[i], cast[[u32]](sample), randomize_fast_owen());
+        }
+    }
+    padded_draw(37, 11, 1u, randomize_none());
+    padded_draw(37, 11, 1u, randomize_permute_digits());
+    padded_draw(37, 11, 1u, randomize_owen());
+
+    // The pmj02bn sampler at the same three pixels.
+    for i in 0:3 {
+        for sample in 0:2 {
+            pmj_draw(qx[i], qy[i], i, cast[[u32]](sample));
+        }
+    }
+    return 0;
+}

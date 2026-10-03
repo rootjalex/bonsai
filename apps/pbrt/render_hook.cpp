@@ -875,6 +875,17 @@ static bool parse_cells(const std::string &list, std::vector<Cell> &cells) {
 // as given; a stratified one has to factor it into a grid, walking down from
 // the square root until it finds a divisor (StratifiedSampler::Create), and
 // the grid decides which stratum each sample falls in.
+// pbrt: Log2Int, Log4Int, IsPowerOf4 and RoundUpPow4 (util/math.h), as
+// PMJ02BNSampler's constructor uses them to size the tile its camera samples
+// are sorted into: 65536 points shared among tile^2 pixels at the sample
+// count rounded up to a power of four.
+static int log4_int(uint32_t v) { return (int(std::bit_width(v)) - 1) / 2; }
+static int pmj_tile_size(uint32_t spp) {
+    const bool power_of_4 = spp == (1u << (2 * log4_int(spp)));
+    const uint32_t rounded = power_of_4 ? spp : 1u << (2 * (1 + log4_int(spp)));
+    return 1 << (log4_int(65536) - log4_int(rounded));
+}
+
 static bonsai_scene::Sampler sampler_at(bonsai_scene::Sampler s, uint32_t spp) {
     if (s.tag == bonsai_scene::SamplerTag::Stratified) {
         uint32_t div = uint32_t(std::sqrt(double(spp)));
@@ -1134,6 +1145,37 @@ int main(int argc, char **argv) {
             const int32_t log4_spp = (log2_spp + 1) / 2;
             Sampler_ZSobol(sampler, log2_spp, s.seed, int32_t(s.randomize),
                            s.log2_resolution + log4_spp);
+        } else if (s.tag == bonsai_scene::SamplerTag::Sobol) {
+            // pbrt: SobolSampler's constructor warns about a count that is
+            // not a power of two and renders it as given; its `scale` was
+            // derived when the scene was converted.
+            if ((s.samples_per_pixel & (s.samples_per_pixel - 1)) != 0) {
+                std::cerr << "warning: Non power-of-two sample count "
+                          << s.samples_per_pixel
+                          << " will perform suboptimally with the "
+                             "SobolSampler.\n";
+            }
+            Sampler_Sobol(sampler, s.samples_per_pixel, s.seed,
+                          int32_t(s.randomize), s.log2_resolution);
+        } else if (s.tag == bonsai_scene::SamplerTag::PaddedSobol) {
+            if ((s.samples_per_pixel & (s.samples_per_pixel - 1)) != 0) {
+                std::cerr << "warning: Sobol samplers with non power-of-two "
+                             "sample counts ("
+                          << s.samples_per_pixel << ") are suboptimal.\n";
+            }
+            Sampler_PaddedSobol(sampler, s.samples_per_pixel, s.seed,
+                                int32_t(s.randomize));
+        } else if (s.tag == bonsai_scene::SamplerTag::PMJ02BN) {
+            // pbrt: PMJ02BNSampler's constructor; the tile's side is derived
+            // from the count here, since `--spp` may have changed it.
+            if (s.samples_per_pixel !=
+                (1u << (2 * log4_int(s.samples_per_pixel)))) {
+                std::cerr << "warning: PMJ02BNSampler results are best with "
+                             "power-of-4 samples per pixel (1, 4, 16, 64, "
+                             "...)\n";
+            }
+            Sampler_PMJ02BN(sampler, s.samples_per_pixel, s.seed,
+                            pmj_tile_size(s.samples_per_pixel));
         } else {
             Sampler_Independent(sampler, s.samples_per_pixel, s.seed);
         }
@@ -1203,6 +1245,45 @@ int main(int argc, char **argv) {
         for (int d = 0; d < 4; d++) {
             zsobol_permutations[p] |= uint32_t(ZSOBOL_PERMUTATIONS[p][d])
                                       << (2 * d);
+        }
+    }
+
+    // pbrt: PMJ02BNSampler's constructor, the part after the tile's side --
+    // the first blue-noise set's 65536 points sorted into the pixels of the
+    // tile, `spp` a pixel in the order the set lists them, each kept as its
+    // position within its pixel (sampler.bonsai's `pmj_pixel_samples`). The
+    // arithmetic is pbrt's: the point scaled from fixed point in double and
+    // rounded to a float, scaled by the tile's side, the pixel its integer
+    // part, the fraction kept. A count that is not a power of four leaves
+    // points over, which pbrt skips once a pixel is full; a pixel left short
+    // is pbrt's CHECK and an error here. Built here, before the timer, where
+    // pbrt's constructor builds it.
+    std::vector<float2> pmj_pixel_samples;
+    if (loaded.sampler.tag == bonsai_scene::SamplerTag::PMJ02BN) {
+        const uint32_t spp = loaded.sampler.samples_per_pixel;
+        const int tile = pmj_tile_size(spp);
+        pmj_pixel_samples.assign(size_t(tile) * size_t(tile) * spp,
+                                 float2{0.0f, 0.0f});
+        std::vector<uint32_t> stored(size_t(tile) * size_t(tile), 0);
+        for (size_t i = 0; i < 65536; i++) {
+            float2 p{float(double(loaded.pmj02bn_samples[2 * i]) * 0x1p-32),
+                     float(double(loaded.pmj02bn_samples[2 * i + 1]) * 0x1p-32)};
+            p.x *= float(tile);
+            p.y *= float(tile);
+            const size_t pixel = size_t(int(p.x)) + size_t(int(p.y)) * size_t(tile);
+            if (stored[pixel] == spp) {
+                continue;
+            }
+            pmj_pixel_samples[pixel * spp + stored[pixel]] =
+                float2{p.x - std::floor(p.x), p.y - std::floor(p.y)};
+            stored[pixel]++;
+        }
+        for (uint32_t n : stored) {
+            if (n != spp) {
+                std::cerr << "pmj02bn: a pixel of the tile received " << n
+                          << " of " << spp << " camera samples\n";
+                return 1;
+            }
         }
     }
 
@@ -2664,8 +2745,17 @@ int main(int argc, char **argv) {
     bonsai_buffer b_primes = buffer_of(primes);
     bonsai_buffer b_digit_permutations = buffer_of(digit_permutations);
     bonsai_buffer b_digit_permutation_offsets = buffer_of(digit_permutation_offsets);
-    bonsai_buffer b_sobol_matrices = buffer_of(SOBOL_MATRICES);
+    // The two dimensions from the header for zsobol and paddedsobol, the
+    // whole table from the scene's `.smp` sidecar for sobol (sampler.bonsai).
+    bonsai_buffer b_sobol_matrices = loaded.sobol_matrices.empty()
+                                         ? buffer_of(SOBOL_MATRICES)
+                                         : buffer_of(loaded.sobol_matrices);
     bonsai_buffer b_zsobol_permutations = buffer_of(zsobol_permutations);
+    bonsai_buffer b_vdc_matrices = buffer_of(loaded.vdc_matrices);
+    bonsai_buffer b_vdc_matrices_inv = buffer_of(loaded.vdc_matrices_inv);
+    bonsai_buffer b_pmj02bn_samples = buffer_of(loaded.pmj02bn_samples);
+    bonsai_buffer b_blue_noise = buffer_of(loaded.blue_noise);
+    bonsai_buffer b_pmj_pixel_samples = buffer_of(pmj_pixel_samples);
     bonsai_buffer b_env_texels = buffer_of(env_texels);
     bonsai_buffer b_env_dist_values = buffer_of(env_dist_values);
     bonsai_buffer b_env_dist_cond_cdf = buffer_of(env_dist_cond_cdf);
@@ -2755,7 +2845,9 @@ int main(int argc, char **argv) {
         &b_media, &b_medium_spectra, &b_medium_grid, &b_primes,
         &b_digit_permutations,
         &b_digit_permutation_offsets, &b_sobol_matrices,
-        &b_zsobol_permutations, &b_env_texels, &b_env_dist_values,
+        &b_zsobol_permutations, &b_vdc_matrices, &b_vdc_matrices_inv,
+        &b_pmj02bn_samples, &b_blue_noise, &b_pmj_pixel_samples,
+        &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
         &b_env_sat, &b_env_illuminants, &b_lights, &b_light_tree,
         &b_light_bit_trails, &b_materials,
@@ -2846,7 +2938,9 @@ int main(int argc, char **argv) {
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
                &b_medium_spectra, &b_medium_grid, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
-               &b_sobol_matrices, &b_zsobol_permutations,
+               &b_sobol_matrices, &b_zsobol_permutations, &b_vdc_matrices,
+               &b_vdc_matrices_inv, &b_pmj02bn_samples, &b_blue_noise,
+               &b_pmj_pixel_samples,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
                &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_env_sat,
                &b_env_illuminants, &b_lights, &b_light_tree, &b_light_bit_trails,
@@ -2949,7 +3043,10 @@ int main(int argc, char **argv) {
                            &b_filter_marg_cdf, &b_primes,
                            &b_digit_permutations,
                            &b_digit_permutation_offsets, &b_sobol_matrices,
-                           &b_zsobol_permutations, tree, &b_inst_pool,
+                           &b_zsobol_permutations, &b_vdc_matrices,
+                           &b_vdc_matrices_inv, &b_pmj02bn_samples,
+                           &b_blue_noise, &b_pmj_pixel_samples, tree,
+                           &b_inst_pool,
                            &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
                            &b_patch_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "

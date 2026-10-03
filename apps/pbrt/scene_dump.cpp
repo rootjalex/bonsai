@@ -78,6 +78,8 @@
 #include "cie_tables.h"
 #include "sobol_tables.h"
 #include "srgb_table.h"
+#include <pbrt/util/bluenoise.h>
+#include <pbrt/util/pmj02tables.h>
 #include <pbrt/util/sobolmatrices.h>
 
 #include <algorithm>
@@ -2661,6 +2663,168 @@ void print_sampler() {
         }
     }
 
+    // The sobol sampler. First SobolIntervalToIndex on its own, at a film
+    // side of 8 (m = 3, whose two van der Corput rows a test can carry) and
+    // of 1024 (m = 10); then dimensions two to five of the sequence
+    // unscrambled, which a test carries the columns of; then the sampler on
+    // an 8 by 8 film at sixteen samples a pixel in the renderer's draw order
+    // -- the wavelength (Get1D), the pixel (GetPixel2D), the time (Get1D)
+    // and the lens (Get2D) -- under the default `fastowen` and, at one
+    // pixel, under the other three.
+    {
+        const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {5, 3}, {7, 7}};
+        for (int m : {3, 10}) {
+            for (uint64_t frame : {0ull, 1ull, 5ull}) {
+                for (const pbrt::Point2i &p : pixels) {
+                    printf("sobol-index %d %llu %d %d: %llu\n", m,
+                           static_cast<unsigned long long>(frame), p.x, p.y,
+                           static_cast<unsigned long long>(
+                               pbrt::SobolIntervalToIndex(m, frame, p)));
+                }
+            }
+        }
+        for (int dim : {2, 3, 4, 5}) {
+            printf("sobol %d:", dim);
+            for (uint64_t a : {0ull, 1ull, 2ull, 7ull, 1000ull, 123456789ull,
+                               (1ull << 40) + 5}) {
+                printf(" %.9g", double(pbrt::SobolSample(int64_t(a), dim,
+                                                         pbrt::NoRandomizer())));
+            }
+            printf("\n");
+        }
+        const pbrt::Point2i res(8, 8);
+        const struct {
+            const char *name;
+            pbrt::RandomizeStrategy strategy;
+        } strategies[] = {
+            {"fastowen", pbrt::RandomizeStrategy::FastOwen},
+            {"none", pbrt::RandomizeStrategy::None},
+            {"permutedigits", pbrt::RandomizeStrategy::PermuteDigits},
+            {"owen", pbrt::RandomizeStrategy::Owen},
+        };
+        for (const auto &s : strategies) {
+            for (const pbrt::Point2i &p : pixels) {
+                for (int sample = 0; sample < 2; sample++) {
+                    if (s.strategy != pbrt::RandomizeStrategy::FastOwen &&
+                        !(p.x == 5 && sample == 1)) {
+                        continue;
+                    }
+                    pbrt::SobolSampler sampler(16, res, s.strategy, 0);
+                    sampler.StartPixelSample(p, sample, 0);
+                    const pbrt::Float lu = sampler.Get1D();
+                    const pbrt::Point2f pix = sampler.GetPixel2D();
+                    const pbrt::Float t = sampler.Get1D();
+                    const pbrt::Point2f lens = sampler.Get2D();
+                    printf("sobol-%s %d %d sample %d: %.9g | %.9g %.9g | %.9g "
+                           "| %.9g %.9g\n",
+                           s.name, p.x, p.y, sample, double(lu), double(pix.x),
+                           double(pix.y), double(t), double(lens.x),
+                           double(lens.y));
+                }
+            }
+        }
+    }
+
+    // The paddedsobol sampler at sixteen samples a pixel, in the renderer's
+    // draw order, under `fastowen` at three pixels and under the other three
+    // randomizations at one. Its pieces are the stratified sampler's hash
+    // and permuted index and zsobol's scrambles, all printed above.
+    {
+        const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {37, 11}};
+        const struct {
+            const char *name;
+            pbrt::RandomizeStrategy strategy;
+        } strategies[] = {
+            {"fastowen", pbrt::RandomizeStrategy::FastOwen},
+            {"none", pbrt::RandomizeStrategy::None},
+            {"permutedigits", pbrt::RandomizeStrategy::PermuteDigits},
+            {"owen", pbrt::RandomizeStrategy::Owen},
+        };
+        for (const auto &s : strategies) {
+            for (const pbrt::Point2i &p : pixels) {
+                for (int sample = 0; sample < 2; sample++) {
+                    if (s.strategy != pbrt::RandomizeStrategy::FastOwen &&
+                        !(p.x == 37 && sample == 1)) {
+                        continue;
+                    }
+                    pbrt::PaddedSobolSampler sampler(16, s.strategy, 0);
+                    sampler.StartPixelSample(p, sample, 0);
+                    const pbrt::Float lu = sampler.Get1D();
+                    const pbrt::Point2f pix = sampler.GetPixel2D();
+                    const pbrt::Float t = sampler.Get1D();
+                    const pbrt::Point2f lens = sampler.Get2D();
+                    printf("paddedsobol-%s %d %d sample %d: %.9g | %.9g %.9g | "
+                           "%.9g | %.9g %.9g\n",
+                           s.name, p.x, p.y, sample, double(lu), double(pix.x),
+                           double(pix.y), double(t), double(lens.x),
+                           double(lens.y));
+                }
+            }
+        }
+    }
+
+    // The pmj02bn sampler at sixteen samples a pixel. Its tables first, as
+    // the integers they are stored as, for the entries a test carries: the
+    // blue-noise textures at three pixels for dimensions two to thirteen,
+    // and the first sixteen points of each of the five sets. Then the
+    // sampler in the renderer's draw order and on past the fifth set --
+    // dimensions ten and up permute the index where the first five sets
+    // take the sample's own -- and the camera samples of two pixels, which
+    // are the first set sorted into pixels by the constructor.
+    {
+        const pbrt::Point2i pixels[] = {{0, 0}, {1, 0}, {37, 11}};
+        for (const pbrt::Point2i &p : pixels) {
+            printf("bluenoise %d %d:", p.x, p.y);
+            for (int dim = 2; dim < 14; dim++) {
+                printf(" %u",
+                       unsigned(pbrt::BlueNoiseTextures[dim][p.x % 128]
+                                                        [p.y % 128]));
+            }
+            printf("\n");
+        }
+        for (int set = 0; set < pbrt::nPMJ02bnSets; set++) {
+            printf("pmj02bn-set %d:", set);
+            for (int i = 0; i < 16; i++) {
+                printf(" %u %u", pbrt::pmj02bnSamples[set][i][0],
+                       pbrt::pmj02bnSamples[set][i][1]);
+            }
+            printf("\n");
+        }
+        for (const pbrt::Point2i &p : pixels) {
+            for (int sample = 0; sample < 2; sample++) {
+                pbrt::PMJ02BNSampler sampler(16, 0);
+                sampler.StartPixelSample(p, sample, 0);
+                const pbrt::Float lu = sampler.Get1D();
+                const pbrt::Point2f pix = sampler.GetPixel2D();
+                const pbrt::Float t = sampler.Get1D();
+                const pbrt::Point2f lens = sampler.Get2D();
+                printf("pmj02bn %d %d sample %d: %.9g | %.9g %.9g | %.9g | "
+                       "%.9g %.9g |",
+                       p.x, p.y, sample, double(lu), double(pix.x),
+                       double(pix.y), double(t), double(lens.x),
+                       double(lens.y));
+                // Dimensions six to thirteen: three more pairs within the
+                // five sets, then one past them.
+                for (int k = 0; k < 4; k++) {
+                    const pbrt::Point2f u = sampler.Get2D();
+                    printf(" %.9g %.9g", double(u.x), double(u.y));
+                }
+                printf("\n");
+            }
+        }
+        for (const pbrt::Point2i &p : {pbrt::Point2i(0, 0),
+                                       pbrt::Point2i(37, 11)}) {
+            pbrt::PMJ02BNSampler sampler(16, 0);
+            printf("pmj02bn-pixel %d %d:", p.x, p.y);
+            for (int sample = 0; sample < 16; sample++) {
+                sampler.StartPixelSample(p, sample, 0);
+                const pbrt::Point2f pix = sampler.GetPixel2D();
+                printf(" %.9g %.9g", double(pix.x), double(pix.y));
+            }
+            printf("\n");
+        }
+    }
+
     // The first ten primes, so a mistranscribed table is caught here rather
     // than as a wrong answer three functions later.
     printf("primes:");
@@ -4218,10 +4382,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // PBRT: Film::UsesVisibleSurface(), which only GBufferFilm answers yes to.
     out.film_visible_surface = builder.film_type == "gbuffer" ? 1u : 0u;
 
-    // The four samplers the renderer reproduces. `sobol` and `pmj02bn` are a
-    // different construction again and are refused rather than approximated: a
-    // stand-in would give noise that is not pbrt's while looking perfectly
-    // reasonable, which is the failure worth refusing.
+    // The seven samplers pbrt has, every one of them reproduced.
     //
     // The defaults below are pbrt's own, from each sampler's Create; a scene
     // that names a sampler without naming its parameters has to get the same
@@ -4229,14 +4390,37 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // one `sampler_name` starts as, so it is what a scene naming none gets.
     //
     // `--spp` overrides them, and each sampler is overridden the way its own
-    // Create overrides it. That is not one rule: an independent, halton or
-    // zsobol sampler takes the number as given -- zsobol's constructor then
-    // floors it to a power of two, which the driver does where pbrt does --
-    // and a stratified one has to factor it into a grid, because what it
-    // samples is a grid. PBRT's own reference render below reads
+    // Create overrides it. That is not one rule: an independent, halton,
+    // zsobol, sobol, paddedsobol or pmj02bn sampler takes the number as given
+    // -- zsobol's constructor then floors it to a power of two, which the
+    // driver does where pbrt does, and the two Sobol' ones and pmj02bn warn
+    // about a count that is not a power of two or four and render it -- and
+    // a stratified one has to factor it into a grid, because what it samples
+    // is a grid. PBRT's own reference render below reads
     // `Options->pixelSamples` directly through `scene.GetSampler()`, so the
     // two sides cannot drift on what the flag means -- but this side does have
     // to transcribe the same rules.
+    //
+    // pbrt: RandomizeStrategy from the `randomization` string, with each
+    // sampler's own default -- `permutedigits` for Halton, `fastowen` for the
+    // three Sobol' samplers -- and Halton refusing `fastowen`, as pbrt's does.
+    const auto randomization_of = [&](const char *fallback,
+                                      bool fast_owen_allowed) {
+        const std::string randomization =
+            builder.sampler_params.GetOneString("randomization", fallback);
+        if (randomization == "none") {
+            return bonsai_scene::RandomizeTag::RandomizeNone;
+        } else if (randomization == "permutedigits") {
+            return bonsai_scene::RandomizeTag::RandomizePermuteDigits;
+        } else if (randomization == "fastowen" && fast_owen_allowed) {
+            return bonsai_scene::RandomizeTag::RandomizeFastOwen;
+        } else if (randomization == "owen") {
+            return bonsai_scene::RandomizeTag::RandomizeOwen;
+        }
+        fail("unknown " + builder.sampler_name + " randomization \"" +
+             randomization + "\"");
+        return bonsai_scene::RandomizeTag::RandomizeNone;
+    };
     const pstd::optional<int> spp_override = pbrt::Options->pixelSamples;
     if (builder.sampler_name == "independent") {
         out.sampler.tag = bonsai_scene::SamplerTag::Independent;
@@ -4248,20 +4432,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         out.sampler.samples_per_pixel = uint32_t(
             spp_override ? *spp_override
                          : builder.sampler_params.GetOneInt("pixelsamples", 16));
-        const std::string randomization =
-            builder.sampler_params.GetOneString("randomization",
-                                                "permutedigits");
-        if (randomization == "none") {
-            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeNone;
-        } else if (randomization == "permutedigits") {
-            out.sampler.randomize =
-                bonsai_scene::RandomizeTag::RandomizePermuteDigits;
-        } else if (randomization == "owen") {
-            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeOwen;
-        } else {
-            // "fastowen" is what PBRT itself refuses for this sampler.
-            fail("unknown Halton randomization \"" + randomization + "\"");
-        }
+        out.sampler.randomize = randomization_of("permutedigits", false);
         halton_scales(x_resolution, y_resolution, out.sampler);
     } else if (builder.sampler_name == "stratified") {
         out.sampler.tag = bonsai_scene::SamplerTag::Stratified;
@@ -4293,21 +4464,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         out.sampler.samples_per_pixel = uint32_t(
             spp_override ? *spp_override
                          : builder.sampler_params.GetOneInt("pixelsamples", 16));
-        const std::string randomization =
-            builder.sampler_params.GetOneString("randomization", "fastowen");
-        if (randomization == "none") {
-            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeNone;
-        } else if (randomization == "permutedigits") {
-            out.sampler.randomize =
-                bonsai_scene::RandomizeTag::RandomizePermuteDigits;
-        } else if (randomization == "fastowen") {
-            out.sampler.randomize =
-                bonsai_scene::RandomizeTag::RandomizeFastOwen;
-        } else if (randomization == "owen") {
-            out.sampler.randomize = bonsai_scene::RandomizeTag::RandomizeOwen;
-        } else {
-            fail("unknown zsobol randomization \"" + randomization + "\"");
-        }
+        out.sampler.randomize = randomization_of("fastowen", true);
         // PBRT: ZSobolSampler's constructor, the part of it that depends on
         // the film and not on the sample count -- which `--spp` may still
         // change at the driver, where the rest is derived. The film's full
@@ -4315,10 +4472,67 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         // own arithmetic.
         out.sampler.log2_resolution = pbrt::Log2Int(
             pbrt::RoundUpPow2(std::max(x_resolution, y_resolution)));
+    } else if (builder.sampler_name == "sobol") {
+        out.sampler.tag = bonsai_scene::SamplerTag::Sobol;
+        out.sampler.samples_per_pixel = uint32_t(
+            spp_override ? *spp_override
+                         : builder.sampler_params.GetOneInt("pixelsamples", 16));
+        out.sampler.randomize = randomization_of("fastowen", true);
+        // PBRT: SobolSampler's constructor, `scale = RoundUpPow2(max(res))`
+        // -- the power-of-two side the sequence's first two dimensions are
+        // mapped onto -- kept as its log2, which is what
+        // SobolIntervalToIndex takes.
+        out.sampler.log2_resolution = pbrt::Log2Int(
+            pbrt::RoundUpPow2(std::max(x_resolution, y_resolution)));
+        // The whole of pbrt's generator matrices -- this sampler walks the
+        // dimensions, where zsobol and paddedsobol read only the first two --
+        // and the two van der Corput matrices SobolIntervalToIndex works
+        // with, copied from pbrt's own arrays into the `.smp` sidecar
+        // (scene_io.h). Twenty-five rows of the latter, m = 1 to 25, which
+        // is as far as pbrt's table goes; a film side of 2^25 would be
+        // beyond it.
+        out.sobol_matrices.assign(
+            pbrt::SobolMatrices32,
+            pbrt::SobolMatrices32 + pbrt::NSobolDimensions * pbrt::SobolMatrixSize);
+        for (int m = 0; m < 25; m++) {
+            for (int c = 0; c < pbrt::SobolMatrixSize; c++) {
+                out.vdc_matrices.push_back(pbrt::VdCSobolMatrices[m][c]);
+                out.vdc_matrices_inv.push_back(pbrt::VdCSobolMatricesInv[m][c]);
+            }
+        }
+    } else if (builder.sampler_name == "paddedsobol") {
+        out.sampler.tag = bonsai_scene::SamplerTag::PaddedSobol;
+        out.sampler.samples_per_pixel = uint32_t(
+            spp_override ? *spp_override
+                         : builder.sampler_params.GetOneInt("pixelsamples", 16));
+        out.sampler.randomize = randomization_of("fastowen", true);
+    } else if (builder.sampler_name == "pmj02bn") {
+        out.sampler.tag = bonsai_scene::SamplerTag::PMJ02BN;
+        out.sampler.samples_per_pixel = uint32_t(
+            spp_override ? *spp_override
+                         : builder.sampler_params.GetOneInt("pixelsamples", 16));
+        // PBRT: the sampler refuses a count past its table.
+        if (out.sampler.samples_per_pixel > uint32_t(pbrt::nPMJ02bnSamples)) {
+            fail("PMJ02BNSampler only supports up to " +
+                 std::to_string(pbrt::nPMJ02bnSamples) + " samples per pixel");
+        }
+        // pbrt's five blue-noise point sets and forty-eight blue-noise
+        // textures, copied from its own arrays into the `.smp` sidecar. The
+        // sorting of the first set into pixels is the driver's: it depends
+        // on the sample count, which `--spp` may change.
+        out.pmj02bn_samples.assign(
+            &pbrt::pmj02bnSamples[0][0][0],
+            &pbrt::pmj02bnSamples[0][0][0] +
+                size_t(pbrt::nPMJ02bnSets) * pbrt::nPMJ02bnSamples * 2);
+        out.blue_noise.assign(&pbrt::BlueNoiseTextures[0][0][0],
+                              &pbrt::BlueNoiseTextures[0][0][0] +
+                                  size_t(pbrt::NumBlueNoiseTextures) *
+                                      pbrt::BlueNoiseResolution *
+                                      pbrt::BlueNoiseResolution);
     } else {
-        fail("only the independent, stratified, halton and zsobol samplers "
-             "are supported, scene asks for \"" +
-             builder.sampler_name + "\"");
+        fail("unknown sampler \"" + builder.sampler_name +
+             "\": pbrt has independent, stratified, halton, zsobol, sobol, "
+             "paddedsobol and pmj02bn");
     }
     out.sampler.seed = builder.sampler_params.GetOneInt("seed", 0);
     // Not the sampler's seed: PBRT's global `--seed`, which a layered BSDF

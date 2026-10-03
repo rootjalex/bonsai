@@ -2534,7 +2534,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 1 | `Integrator "volpath"` | bmw-m6, bunny-cloud, bunny-fur, clouds, crown, dambreak, disney-cloud, explosion, hair, head, kroken, lte-orb, sanmiguel, smoke-plume, sportscar, transparent-machines, villa, watercolor | 18 |
 | 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4 -- **done 2026-09-22**; `uniformgrid` x1, `cloud` x2 and `rgbgrid` -- **done 2026-10-03**, the grid media paragraph below; `nanovdb` x3 -- a layout question put to the user, below) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
 | 3 | env map in a non-sRGB colour space (EXR chromaticities, ACES) | bistro, bunny-cloud, clouds, explosion, sanmiguel, sportscar, villa | 7 |
-| 4 | samplers `zsobol` (pbrt's default when a scene names none), `sobol`, `pmj02bn` | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
+| 4 | samplers `zsobol` (pbrt's default when a scene names none) -- **done 2026-10-02**; `sobol`, `paddedsobol`, `pmj02bn` -- **done 2026-10-03**, the samplers paragraph below | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
 | 5 | `blackbody L` on an area light (and an infinite light, in villa) -- **done 2026-09-20**, see below | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
 | 6 | `Shape "disk"` -- **done 2026-09-20**, see below | bunny-cloud, disney-cloud, explosion, killeroos gold, villa | 5 |
 | 7 | `Material "interface"` / `Material ""` (a medium boundary with no BSDF) | bunny-cloud, clouds, disney-cloud, explosion, smoke-plume | 5 |
@@ -2702,7 +2702,7 @@ Per scene, what is missing (see the converter for what is supported):
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
 | dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media -- converts as of 2026-10-03 |
-| disney-cloud | `volpath`, `sobol`, `interface`, `nanovdb` |
+| disney-cloud | `volpath`, `sobol` -- **done 2026-10-03**, `interface`, `nanovdb` |
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
@@ -2710,7 +2710,7 @@ Per scene, what is missing (see the converter for what is supported):
 | head | `volpath`, `subsurface` |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
-| lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
+| lte-orb | `pmj02bn` and `sobol` -- **done 2026-10-03**, the three scenes convert and lte-orb-silver renders (the samplers paragraph); `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium, a scaled sphere -- all done 2026-10-03: converts and renders on the GPU at 1.53x of `pbrt --gpu` (the sphere paragraph below) |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
@@ -9560,6 +9560,66 @@ table of 8^3 bricks over the file's own leaves (136 MB for the bunny). Not
 pbrt's own nanovdb2pbrt route of densifying to 578 MB. The question is put
 to the user; until it is answered the converter refuses `nanovdb` with that
 explanation.
+
+*The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
+pbrt's seven this renderer had not; every one is now reproduced
+(sampler.bonsai). `sobol` is the Sobol' sequence proper: a Sobol' dimension
+per draw out of pbrt's 1024, wrapping to two at the table's end as Halton's
+wrap at the primes', the pixel's entries found by `SobolIntervalToIndex`
+(`sobol_interval_to_index`: the frame's bits shifted past the pixel's, the
+pixel flipped by the columns the frame selects in `VdCSobolMatrices`, the
+inverse matrix's columns selected by the result, row m - 1 of each) rather
+than by a Morton code, each dimension scrambled under `Hash(dimension,
+seed)`, and the camera sample dimensions zero and one unscrambled, scaled by
+the film's power-of-two side with the pixel taken off and clamped. The arm
+carries log2 of that side, derived by the converter as the constructor
+derives `scale`, and the count as given (pbrt warns about a count that is
+not a power of two and renders it; the driver does the same). `paddedsobol`
+takes every pair from Sobol' dimensions zero and one, as zsobol does, at an
+index permuted per pixel and dimension by the stratified sampler's
+sixteen-byte hash, whose low word permutes and whose high word scrambles.
+`pmj02bn` draws nothing from a sequence: a one-dimensional draw is a
+permuted stratum jittered by the pixel's blue noise (`blue_noise_at`), a
+pair is a point of one of pbrt's five tabulated blue-noise sets -- the sets
+in order, two dimensions apiece, at the sample's own index for the first
+five and a permuted one past them -- rotated by the pixel's blue noise and
+wrapped (`pmj02bn_point`), and the camera samples are the first set sorted
+into the pixels of a tile, which pbrt's constructor does and the driver does
+as it does (render_hook.cpp: the fixed-point words scaled in double and
+rounded to float, the tile's side from the count rounded up to a power of
+four, a pixel left short an error where pbrt CHECKs), since `--spp` changes
+the count after the scene is written. The tables are pbrt's own arrays,
+copied by the converter -- which links pbrt -- into a `.smp` sidecar beside
+the scene: all of `SobolMatrices32` and the two VdC matrices for sobol (233
+KB), `pmj02bnSamples` and `BlueNoiseTextures` for pmj02bn (4.1 MB), nothing
+for the others; sobol_tables.h keeps the two dimensions zsobol and
+paddedsobol read, and `sobol_matrices` is unsized so either table fits. The
+pmj02bn pixel table (`pmj_pixel_samples`) and the four tables are externs
+after `zsobol_permutations`, in the driver's three lists. Checked three
+ways. tests/bonsai/correctness/llvm/sobol-samplers.bonsai reproduces 233 of
+pbrt's numbers from `--print-sampler` (which prints the new references):
+`SobolIntervalToIndex` at m = 3 and m = 0, dimensions two to five
+unscrambled past the thirty-second column, the three samplers in the
+renderer's draw order under every randomization, pmj02bn on past the fifth
+set -- the test carries six Sobol' dimensions, the m = 3 rows and only the
+pmj02bn entries its draws touch. scenes/sobol.pbrt, paddedsobol.pbrt (8 spp,
+the odd power of two) and pmj02bn.pbrt, three-spheres under each sampler
+against pbrt's gbuffer on the scalar schedule: 214,212 / 214,076 / 214,204
+pixels hit by both, 0 disagreeing, worst normal 1.79e-7 -- the camera
+samples are pbrt's, pmj02bn's sorted table included. And the dielectric
+scene under `volpath` at 16 spp with each sampler against `pbrt
+--wavefront`: the same number of lit pixels on both sides to the pixel
+(81,700 / 81,683 / 81,717), means 1.00011x, 1.00012x and 1.00012x with
+99.6%, 99.6% and 98.9% of touched pixels within 1e-3, the level a matching
+sample stream gives. The scene text's sampler line gains the three kinds
+and a `samplertables` line counts the sidecar's words. The three lte-orb
+scenes convert for the first time, pmj02bn having been the last thing they
+needed; lte-orb-silver at 16 spp on the scalar schedule against `pbrt
+--wavefront` renders at a mean of 1.00007x with 13.5% of touched pixels
+within 1e-3 and 84 of 1.42 M lit pixels differing in being lit at all --
+the silver's eta is a resampled spectrum (3.5e-4 relative off, the
+converter's own warning) under a glass shell, so the per-pixel figure is
+the material's, not the sampler's, which the gbuffer scenes settle.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`

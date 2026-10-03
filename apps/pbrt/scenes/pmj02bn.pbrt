@@ -1,0 +1,52 @@
+# The three-spheres geometry sampled with pbrt's PMJ02BN sampler.
+#
+# `pmj02bn` is the sampler the lte-orb scenes name. It draws nothing from a
+# sequence: its pairs come from pbrt's five tabulated sets of progressive
+# multi-jittered (0,2) blue-noise points, rotated per pixel by a tabulated
+# blue-noise offset, and its camera samples are the first set sorted into
+# the pixels of a tile -- 65536 points shared among tile^2 pixels at the
+# sample count -- each kept as its position within its pixel. That sorting
+# is pbrt's constructor, transcribed by the driver, and this scene checks it
+# through pbrt's gbuffer normals, which agree only if every camera sample is
+# pbrt's: sixteen a pixel from a tile of 64 by 64.
+#
+# Sixteen samples a pixel, a power of four, which is what the sampler is
+# built for; the tables reach the renderer through the `.smp` sidecar the
+# converter writes beside the scene.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "pmj02bn" "integer pixelsamples" [16]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]
