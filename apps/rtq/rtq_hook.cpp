@@ -359,8 +359,12 @@ RTCScene make_embree_scene(RTCDevice device, const Mesh &mesh) {
 // Embree: NodeRefPtr<8>. The low four bits say what a reference is -- 0 an
 // AABB node, tyLeaf (8) + n a leaf of n blocks -- and the rest where. Embree
 // puts a byte address there; the layout (schedules/trees/bvh8.bonsai) puts
-// the node's row or the leaf's first block. An empty child slot is
-// `emptyNode`, a leaf of no blocks, with bounds no ray meets.
+// the byte offset of the row or of the leaf's first block in one arena of
+// bytes, the same bits up to the arena's base. While the tree is being
+// built the references name rows and blocks by index, in the arrays the
+// builder's callbacks fill; they become offsets when the arena is assembled
+// (build_tree). An empty child slot is `emptyNode`, a leaf of no blocks,
+// with bounds no ray meets.
 constexpr uint64_t kTyLeaf = 8;
 constexpr uint64_t kEmptyNode = kTyLeaf;
 
@@ -373,9 +377,10 @@ uint64_t leaf_ref(uint64_t first_block, uint64_t blocks) {
 // Embree's AABBNode -- the eight children, then the bounds as six vectors of
 // eight floats in Embree's order -- and a leaf's block is Embree's Triangle4,
 // four triangles with every field a vector over the four (see
-// schedules/trees/bvh8.bonsai).
-using NodeRow = _tree_layout2;
-using TriangleBlock = _tree_layout1;
+// schedules/trees/bvh8.bonsai). Both are shapes read at an offset of the
+// arena, not arrays of the layout struct, which holds the arena alone.
+using NodeRow = _tree_layout3;
+using TriangleBlock = _tree_layout5;
 
 // What rtcBuildBVH's callbacks fill: the rows and the triangle blocks,
 // claimed by atomic counters since Embree builds in parallel.
@@ -576,7 +581,10 @@ void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
 struct Tree {
     std::unique_ptr<Building> building;
     _tree_layout0 layout{};
-    bonsai_buffer blocks_buffer{}, rows_buffer{};
+    // The one storage: every node row and every leaf block, at the offsets
+    // the references carry.
+    std::vector<uint8_t> arena;
+    bonsai_buffer arena_buffer{};
     uint64_t nodes = 0, leaves = 0, blocks = 0, leaf_prims = 0;
 };
 
@@ -688,15 +696,58 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
                       offsetof(TriangleBlock, primID) == 160,
                   "the fields sit where Embree's TriangleM<4> puts them");
 
-    tree.blocks_buffer = bonsai_buffer_wrap(
-        b.blocks.data(), b.blocks.size() * sizeof(TriangleBlock));
-    tree.rows_buffer =
-        bonsai_buffer_wrap(b.rows.data(), b.rows.size() * sizeof(NodeRow));
-    // The layout counts elements -- slots, four to a block.
-    tree.layout.pCount = uint32_t(4 * tree.blocks);
-    tree.layout.group0_prims = &tree.blocks_buffer;
-    tree.layout.nCount = uint32_t(tree.nodes);
-    tree.layout.group1_row = &tree.rows_buffer;
+    // The arena: one storage holding every row and every block, each
+    // reference the byte offset of what it names with the kind in its low
+    // four bits (schedules/trees/bvh8.bonsai). Embree's allocator hands
+    // nodes and leaves out of one address space in build order -- per thread,
+    // and in separate blocks for the two kinds -- and its relocation copies
+    // the largest nodes to fresh space. Here the rows go first, the relocated
+    // nodes in depth-first order from the root (so the root is at offset 0,
+    // where the layout's reference parameter starts) and the rest in build
+    // order, and the blocks follow in build order; rows and blocks are
+    // aligned as Embree's are (32 and 16 bytes: 256 and 176 are multiples of
+    // both). The references the build wrote name rows and blocks by index
+    // and are rewritten to offsets as the rows are copied in.
+    const uint64_t rows_bytes = tree.nodes * sizeof(NodeRow);
+    const uint64_t total = rows_bytes + tree.blocks * sizeof(TriangleBlock);
+    const auto row_offset = [](uint64_t row) { return row * sizeof(NodeRow); };
+    const auto block_offset = [&](uint64_t block) {
+        return rows_bytes + block * sizeof(TriangleBlock);
+    };
+    // Aligned to a cache line, as Embree's allocator blocks are, so that a
+    // row's offsets keep Embree's alignment (32 bytes for a node, 16 for a
+    // block): the vector is over-allocated and the arena begins at its first
+    // 64-byte boundary.
+    constexpr uint64_t kArenaAlign = 64;
+    tree.arena.assign(total + kArenaAlign, 0);
+    uint8_t *const arena =
+        tree.arena.data() +
+        ((kArenaAlign - reinterpret_cast<uintptr_t>(tree.arena.data()) % kArenaAlign) %
+         kArenaAlign);
+    for (uint64_t row = 0; row < tree.nodes; row++) {
+        NodeRow n = b.rows[row];
+        for (int i = 0; i < 8; i++) {
+            const uint64_t child = n.children[i];
+            if (child == kEmptyNode) {
+                continue;
+            }
+            n.children[i] = (child & 15) == 0
+                                ? row_offset(child >> 4)
+                                : (block_offset(child >> 4) | (child & 15));
+        }
+        std::memcpy(arena + row_offset(row), &n, sizeof(NodeRow));
+    }
+    for (uint64_t block = 0; block < tree.blocks; block++) {
+        std::memcpy(arena + block_offset(block), &b.blocks[block],
+                    sizeof(TriangleBlock));
+    }
+    b.rows.clear();
+    b.rows.shrink_to_fit();
+    b.blocks.clear();
+    b.blocks.shrink_to_fit();
+    tree.arena_buffer = bonsai_buffer_wrap(arena, total);
+    tree.layout.bytes = total;
+    tree.layout.group0_arena = &tree.arena_buffer;
     return tree;
 }
 

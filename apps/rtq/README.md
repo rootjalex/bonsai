@@ -101,15 +101,20 @@ sides' kernels told apart by symbol).
   over `extern triangles : set[Triangle]`, plus the exported batches.
 - `schedules/trees/bvh8.bonsai`: the tree -- a node holding its eight
   children as an array with one box annotation over them, a leaf holding
-  a run of triangles -- and the layout, Embree's bytes: a 256-byte node
-  row of eight 64-bit child references and the bounds as six vectors of
-  eight floats in Embree's order, the leaves as 176-byte Triangle4 blocks
-  (every field a vector over four triangles), and a reference decoded from
-  its own bits as Embree's `NodeRef` is, in Scion's spelling: the
-  reference is the layout's parameter, `switch ref[0:3]` reads its low
-  bits, `Nodes[ref[4:63]]` the rest, `prims[a : a + n]` a leaf's slice.
-  The driver checks the sizes and offsets against Embree's at compile
-  time, and relocates the largest nodes after the build as Embree does.
+  a run of triangles -- and the layout, Embree's bytes: one arena of
+  bytes holding 256-byte node rows (eight 64-bit child references, then
+  the bounds as six vectors of eight floats in Embree's order) and
+  176-byte Triangle4 blocks (every field a vector over four triangles),
+  each where its reference says. A reference is Embree's `NodeRef` with
+  a byte offset where Embree has an address: `switch ref[0:3]` reads the
+  kind from its low bits, and each arm is a lookup that brings its own
+  shape, `Interior from arena[ref[4:63] * 16u] { ... }`; a leaf is the run
+  of blocks that begins at its offset, as many as its kind bits count.
+  The driver writes rows and blocks into the arena as Embree's allocator
+  places them, checks the struct sizes and offsets against Embree's at
+  compile time, and relocates the largest nodes after the build as
+  Embree does. The one `add` of the arena's base per visit is the
+  deliberate difference from Embree's pointers (PLAN.md).
 - `schedules/embree.bonsai`: the traversal's order (`sort` by each child's
   entry distance), its eight-wide node test and four-wide leaf test
   (`vectorize` of the loop over a node's children and of the loop over a

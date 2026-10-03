@@ -961,6 +961,96 @@ the pbrt session's compiles midway and are not reported; its quiet
 numbers are the 11:20 table above (any hit 1.78x/1.12x/1.12x head,
 1.21x/0.98x/0.94x ganesha, 1.23x/0.95x/0.92x dragon).
 
+## The layout matched: one arena, references as offsets (afternoon of 2026-10-02)
+
+The user asked whether the layout matched Embree's, and it did not in
+two respects, both about the child slots rather than the rows: Embree's
+`NodeRef` holds the child's address with the kind in its low four bits,
+ours held a row number or a tile number into one of two arrays; and
+Embree's nodes and leaves share one address space, allocated in build
+order from a thread-local block allocator and the largest nodes copied
+to fresh space after the build, where ours were two arrays. The order
+of work set: the layout first, then the schedule, then the code.
+
+**The layout construct.** A lookup that brings its own shape
+(ir::Lookup::shape): `Interior from arena[ref[4:63] * 16u] { children :
+vector[u64, 8]; ... }` says the arm's row is at that byte offset of a
+group of bytes, `indirect group arena[bytes] { byte : u8; }`, laid out as
+the arm says. Inside the shape, a group of the tree's elements with no
+size, `indirect group tiles { group[4] { ... }; }`, is the run of tiles
+that begins where the row does, as many as the arm's `range(tiles, 0u,
+n)` asks for -- Embree's leaf, a pointer and a count. The references are
+byte offsets from the arena's start rather than addresses, so the tree
+stays plain data that can be copied or handed to a device; the one `add`
+of the base per visit is the deliberate difference, recorded in
+bvh8.bonsai and the README. No new keyword: `from` and `group` as they
+were, a layout after the index where there was none.
+
+**The lowering.** The row is element zero of an array of the shape that
+begins at the offset -- `(reinterpret<Row[]>(&arena[off]))[0]` -- the same
+spelling a row of a group of rows has, so that its fields are read by the
+same code; this mattered. Spelled as a dereference of a pointer to the
+row, `(*reinterpret<Row*>(&arena[off])).children`, the SSA form loaded the
+whole 256-byte row as a value and took the field out of it, LLVM split
+the aggregate load element by element and rebuilt the children vector
+with two `vpermt2q` and a broadcast, and the nearest-hit kernel ran at
+0.58x on head's ao rays; loading each field through its own address
+(`Load(FieldPtr)`) was worse still, 0.46x, with the near/far fold and
+the shared loads of the three slab tests lost. As an array element the
+code is the two-array layout's exactly, plus the base `add`. Likewise the
+leaf's run: a pointer reinterpreted as the array, not dereferenced, which
+read a handle out of the bytes and faulted. And `&a[0]` is `a`
+(PtrTo::make, as the user suggested), so both arms' prefetch addresses are
+the one offset and the prefetch is one statement with no switch on the
+kind, as `BVH::prefetch` is.
+
+**The driver** builds as before, by index, then assembles the arena: the
+relocated large nodes first in depth-first order from the root (so the
+root is at offset 0, the layout's default reference), the remaining
+rows in build order, the blocks after them, every reference rewritten to
+its offset, the arena 64-byte aligned as Embree's blocks are. The element
+reference an argmin keeps is the pair of the leaf's offset and the
+element's index in its run.
+
+**Measured** (quiet cpu 11, the two-array layout then the arena, both with
+the matching schedule and the prefetch, back to back; bonsai over
+Embree, primary/ao/diffuse):
+
+| mesh    | nearest hit, two arrays | arena          | any hit, two arrays | arena          |
+|---------|-------------------------|----------------|---------------------|----------------|
+| head    | 1.07x/0.71x/0.71x       | 1.10x/0.73x/0.73x | 1.59x/0.90x/0.88x | 1.74x/1.00x/0.99x |
+| ganesha | 0.85x/0.73x/0.73x       | 0.88x/0.76x/0.76x | 1.07x/0.83x/0.83x | 1.18x/0.93x/0.93x |
+| dragon  | 0.99x/0.76x/0.76x       | 1.03x/0.81x/0.82x | 1.13x/0.83x/0.82x | 1.24x/0.93x/0.92x |
+
+Three to six percent on the nearest hit and ten to twelve on the any hit,
+everywhere: the kind decode and the second prefetch loop were worth that
+much. The nearest-hit kernel is 432 instructions where it was 456, with
+one prefetch loop of four `prefetcht0`; the any-hit kernel 273 where it
+was 306.
+
+**Where it stands, both schedules on the arena** (`compare.sh` on the
+quiet machine at 17:10, cpu 11, least of 5, `--side 2048`, every ray
+agreeing; million rays per second; the tuned schedule's nearest hit is the
+matching one's):
+
+| mesh (triangles)    | rays    | intersect: Embree | bonsai | ratio | occluded: Embree | embree.bonsai | ratio | tuned.bonsai | ratio |
+|---------------------|---------|------:|------:|------:|------:|------:|------:|------:|------:|
+| head (17,674)       | primary | 38.30 | 43.34 | 1.13x | 45.01 | 79.78 | 1.77x | 80.99 | 1.80x |
+|                     | ao      | 13.53 | 10.03 | 0.74x | 15.03 | 15.04 | 1.00x | 16.34 | 1.09x |
+|                     | diffuse | 12.34 |  9.09 | 0.74x | 13.99 | 13.79 | 0.99x | 14.93 | 1.07x |
+| ganesha (4,323,658) | primary | 19.15 | 16.85 | 0.88x | 21.60 | 25.52 | 1.18x | 25.25 | 1.17x |
+|                     | ao      |  6.12 |  4.62 | 0.76x |  6.57 |  6.15 | 0.94x |  6.39 | 0.97x |
+|                     | diffuse |  5.71 |  4.34 | 0.76x |  5.66 |  5.25 | 0.93x |  5.39 | 0.95x |
+| dragon (7,219,045)  | primary | 25.71 | 26.36 | 1.03x | 27.39 | 34.04 | 1.24x | 33.50 | 1.22x |
+|                     | ao      |  4.41 |  3.55 | 0.80x |  4.70 |  4.36 | 0.93x |  4.53 | 0.97x |
+|                     | diffuse |  3.95 |  3.18 | 0.81x |  4.20 |  3.85 | 0.92x |  3.98 | 0.95x |
+
+What is left on the incoherent rays is 0.74x-0.81x on the nearest hit
+and 0.92x-1.00x on the any hit, with the layout now Embree's and the
+schedule Embree's step for step, so it is the code generation's: the push
+as a compacting store to memory and the prefetch's per-child cost, next,
+in that order.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

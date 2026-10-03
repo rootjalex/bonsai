@@ -1,47 +1,45 @@
-// Embree's BVH8 over Triangle4 leaves, as its bytes are -- the tree the
-// comparison against Embree runs over (see ../../README.md). Embree builds it
-// (rtcBuildBVH, in rtq_hook.cpp, with the settings of Embree's own
-// BVH8Triangle4 builder), so the splits, leaves and boxes are Embree's; this
-// file says what the bytes mean.
+// Embree's BVH8 over Triangle4 leaves, as a tree and a layout: the storage
+// Embree's intersector reads, byte for byte, in Scion's spelling (Gyurgyik,
+// Root and Kjolstad, "Decoupling Data Layouts from Bounding Volume
+// Hierarchies", PLDI 2026). Imported by every schedule in this directory;
+// what differs between them is how the traversal runs, not what it reads.
 //
-// The tree: a node holds its eight children and their boxes, the node itself
-// having none (Embree's AABBNode, kernels/bvh/bvh_node_aabb.h); a leaf holds
-// a run of triangles. `with AABB(lo, hi) on children` is what makes the
-// traversal test the children at the parent (Lower/Trees.cpp), as Embree's
-// does.
+// The tree. An interior node holds its eight children as one array with one
+// box annotation over them, `AABB(lo, hi) on children` -- Embree's AABBNode
+// bounds its children, not itself -- so the traversal tests the eight at the
+// node (Lower/Trees.cpp, from_children), which a schedule vectorizes into
+// Embree's eight-wide test. A leaf holds a run of triangles.
 //
-// The layout, in Scion's constructs (Gyurgyik, Root and Kjolstad, PLDI 2026):
+// The storage. One arena of bytes, as Embree's allocator hands out one
+// address space, holding node rows and leaf blocks wherever their reference
+// says. A reference is Embree's NodeRef: the kind in its low four bits -- 0
+// an AABB node, 8 + n a leaf of n Triangle4 blocks -- and where in the rest,
+// which Embree makes a byte address and this layout a byte offset from the
+// arena's start (`ref[4:63] * 16u`), so that the tree stays plain data that
+// can be copied or handed to a device; the one `add` of the arena's base per
+// visit is the deliberate difference (apps/rtq/PLAN.md). Each arm of the
+// switch on the kind is a lookup that brings its own shape, `Interior from
+// arena[...] { ... }` (ir::Lookup::shape): the row's bytes read as that
+// struct, so a node and a leaf can sit in one storage.
 //
-//   - The node row is Embree's 256 bytes in Embree's order: the eight child
-//     references, then the bounds as six vectors of eight floats, lower x,
-//     upper x, lower y, upper y, lower z, upper z. `lo` and `hi`, the
-//     vectors of boxes the tree speaks of, are *derived* fields assembled
-//     from the three stored components each -- Scion's `x = e`, free in the
-//     generated code, since a vector of vectors is a struct of its component
-//     vectors anyway.
+// A node row is Embree's AABBNode, 256 bytes: the eight children as 64-bit
+// references, then the bounds as six vectors of eight floats in Embree's
+// order -- lower_x, upper_x, lower_y, upper_y, lower_z, upper_z -- from
+// which the tree's `lo` and `hi` are derived, a vector of corners built from
+// its component vectors, which costs nothing (a vector of vectors is a struct
+// of its component vectors in the generated code). A leaf is Embree's
+// TriangleM<4> blocks, 176 bytes each, every field a vector over the four
+// triangles -- Scion's array-of-structs-of-arrays, a group nested in a
+// group with the inner one the tile -- a run of them beginning where the
+// reference says, as many as its kind bits count: `indirect group tiles {
+// group[4] { ... }; }` without a size is that run, and `data = range(tiles,
+// 0u, n)` the leaf's triangles.
 //
-//   - The triangles are Embree's Triangle4 blocks (kernels/geometry/
-//     triangle.h, TriangleM<4>): four triangles per 176-byte tile, every field
-//     a vector over the four -- v0.x[4], v0.y[4], v0.z[4], e1..., e2...,
-//     geomID[4], primID[4]. Scion's array-of-structs-of-arrays: a group of
-//     the elements whose rows are an anonymous group of four, the tile
-//     (ir::Group::element, Lower/TiledArrays.cpp). A leaf's `data` ranges
-//     over the elements; element k is lane k % 4 of tile k / 4.
-//
-//   - The reference is Embree's NodeRef (kernels/bvh/bvh_node_ref.h): the
-//     low four bits say what it names -- 0 a node, 8 + n a leaf of n tiles
-//     (8 alone, `emptyNode`, a leaf of none) -- and the rest say where.
-//     Spelled as Scion spells it: the reference is the layout's parameter,
-//     its default the root's, its bits read as ranges, the switch on them.
-//     A group that stores nothing: the reference is the data. Embree's
-//     "where" is a pointer; here it is an index, a row of Nodes or a tile of
-//     prims (times four, an element), which the layout language stores and
-//     which any device can read.
-//
-// What is not Embree's: a header of two counts and two pointers in front of
-// the arrays. Embree's relocation of its largest nodes after the build
-// (BVHN::layoutLargeNodes) the driver reproduces as a permutation of the
-// rows (rtq_hook.cpp, relocate_large_nodes).
+// The driver (rtq_hook.cpp) builds the tree with Embree's own builder and
+// writes rows and blocks into the arena as Embree's allocator would place
+// them, checks the struct sizes and offsets against Embree's at compile
+// time, and reproduces Embree's relocation of the largest nodes.
+
 schedule {
     tree[[Triangle]] BVH8 =
     | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
@@ -51,34 +49,32 @@ schedule {
     triangles : BVH8;
 
     layout triangles(ref : u64 = 0u) {
-        // Slots, four per tile: a leaf's tiles are padded with slots whose
-        // ids are -1 and whose vertices are zero, as Embree pads its own.
-        pCount : u32;
-        indirect group prims[pCount] {
-            group[4] {
-                v0 : vec3f;
-                e1 : vec3f;
-                e2 : vec3f;
-                geomID : u32;
-                primID : u32;
-            };
-        };
-        nCount : u32;
-        indirect group Nodes[nCount] row : u64 {
-            children : vector[u64, 8];
-            lower_x : vector[f32, 8];
-            upper_x : vector[f32, 8];
-            lower_y : vector[f32, 8];
-            upper_y : vector[f32, 8];
-            lower_z : vector[f32, 8];
-            upper_z : vector[f32, 8];
-            lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
-            hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
-        };
+        bytes : u64;
+        indirect group arena[bytes] { byte : u8; };
         switch ref[0:3] {
-            0 => Interior from Nodes[ref[4:63]];
-            _ => Leaf { data = prims[cast[[u32]](ref[4:63] * 4u)
-                                     : cast[[u32]](ref[4:63] * 4u) + cast[[u32]]((ref[0:3] - 8u) * 4u)]; };
+            0 => Interior from arena[ref[4:63] * 16u] {
+                children : vector[u64, 8];
+                lower_x : vector[f32, 8];
+                upper_x : vector[f32, 8];
+                lower_y : vector[f32, 8];
+                upper_y : vector[f32, 8];
+                lower_z : vector[f32, 8];
+                upper_z : vector[f32, 8];
+                lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles {
+                    group[4] {
+                        v0 : vec3f;
+                        e1 : vec3f;
+                        e2 : vec3f;
+                        geomID : u32;
+                        primID : u32;
+                    };
+                };
+                data = range(tiles, 0u, cast[[u32]]((ref[0:3] - 8u) * 4u));
+            };
         };
     };
 }
