@@ -5,7 +5,9 @@
 // is lane i[k] of v, and the result has the indices' lanes and v's element,
 // so it may be narrower than v. With a list of indices it is the constant
 // shuffle it always was. `compress(v, m)` packs the lanes of v the mask has
-// on to the front, the rest zero (ir::Intrinsic::compress), to v's own type.
+// on to the front (ir::Intrinsic::compress), to v's own type; the lanes
+// past them hold nothing in particular unless a third argument says what,
+// a vector of v's type or one element of it: `compress(v, m, 0.0)`.
 element vec8f = vector[f32, 8];
 element idx8 = vector[u32, 8];
 
@@ -23,4 +25,8 @@ func constant(v : vec8f) -> vec8f {
 
 func packed(v : vec8f, m : idx8) -> vec8f {
     return compress(v, m != 0u);
+}
+
+func packed_zeroed(v : vec8f, m : idx8) -> vec8f {
+    return compress(v, m != 0u, 0.0);
 }

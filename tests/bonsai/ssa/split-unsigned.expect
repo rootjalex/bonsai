@@ -31,7 +31,7 @@ func [[export]] scale_signed(n : i32, a : mut f32[n]) -> void {
 }
 
 
-schedule host {
+schedule {
     scale.split(i, io, ii, (i32)16, 0)
     scale_signed.split(i, io, ii, (i32)16, 0)
 

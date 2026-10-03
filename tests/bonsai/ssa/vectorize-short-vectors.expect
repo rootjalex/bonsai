@@ -122,7 +122,7 @@ func pick_axis(a : f32[8], axis : i32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     march.vectorize(i)
     pick_axis.vectorize(i)
 

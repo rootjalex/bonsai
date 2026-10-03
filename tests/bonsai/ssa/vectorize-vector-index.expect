@@ -58,7 +58,7 @@ func lookup(table : f32[16], first : i32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     guarded.vectorize(i)
     lookup.vectorize(i)
 

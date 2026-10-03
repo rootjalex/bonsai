@@ -38,7 +38,7 @@ func [[export]] run(n : i32, spp : u32, out : mut f32[]) -> void {
 }
 
 
-schedule host {
+schedule {
     run.split(s, s_gang, s_lane, (i32)16, 1)
        .vectorize(s_lane)
 

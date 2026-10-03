@@ -6,7 +6,6 @@
 
 #include "Function.h"
 #include "Schedule.h"
-#include "Target.h"
 #include "Type.h"
 
 namespace bonsai {
@@ -17,7 +16,6 @@ struct Function;
 }
 
 using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
-using ScheduleMap = std::map<Target, Schedule>;
 using ExternList = std::vector<TypedVar>;
 
 struct Program {
@@ -30,8 +28,12 @@ struct Program {
     FuncMap funcs;
     // All types (including aliases).
     TypeMap types;
-    // TODO: what is the right interface for this?
-    ScheduleMap schedules;
+    // What the program's `schedule` blocks said, merged into one (see
+    // ir::Schedule); empty for a program with none. The machine the
+    // schedule is compiled for is the compile's (CompilerOptions::target),
+    // not the schedule's: a schedule says what to do and the target says
+    // what the machine has.
+    Schedule schedule;
 
     // `with extent = <expr>` on an element, keyed by the element's type name,
     // recorded as a function of the element: a Lambda of one argument of the
@@ -105,9 +107,9 @@ struct Program {
     Program() {}
 
     Program(ExternList externs, FuncMap funcs, TypeMap types,
-            ScheduleMap schedules)
+            Schedule schedule)
         : externs(std::move(externs)), funcs(std::move(funcs)),
-          types(std::move(types)), schedules(std::move(schedules)) {}
+          types(std::move(types)), schedule(std::move(schedule)) {}
 
     ~Program() = default;
 

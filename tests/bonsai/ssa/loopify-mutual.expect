@@ -38,7 +38,7 @@ func step(n : i32, acc : i32) -> i32 {
 }
 
 
-schedule host {
+schedule {
     step.loopify()
 
 }

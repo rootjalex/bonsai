@@ -48,7 +48,7 @@ func wide(a : u64[8], b : u64[8], q : mut u64[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     narrow.vectorize(i)
     unbounded.vectorize(i)
     wide.vectorize(i)

@@ -86,7 +86,7 @@ func step(x : f32, n : i32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot
 }
 
 
-schedule host {
+schedule {
     q = run.queue(root);
     step.defer(step, q)
 

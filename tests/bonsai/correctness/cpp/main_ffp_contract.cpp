@@ -23,4 +23,7 @@ int main() {
     printf("%.1f\n", scaled_sub(a, b, 1.0f));
     printf("%.1f\n", scaled_rsub(a, b, 1.0f));
     printf("%.1f\n", scaled_neg(a, b, 1.0f));
+
+    // 7a = 7 + 7/4096, exactly: the loop's products are by powers of two.
+    printf("%.10f\n", rebound(a, 2.0f, 2));
 }

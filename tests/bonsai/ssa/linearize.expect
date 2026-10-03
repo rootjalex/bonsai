@@ -90,7 +90,7 @@ func uniform_outer(a : f32[8], flag : f32, out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     divergent.vectorize(i)
     nested.vectorize(i)
     one_sided.vectorize(i)

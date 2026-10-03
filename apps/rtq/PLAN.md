@@ -1542,6 +1542,162 @@ Read against the list above, in the order they are to be done.
    (`-v` says "generated from SSA" per function); the relooper makes only
    what `-p ssa` prints. compare.sh's `rtq.o` is the LLVM path already.
 
+## The arms finish by themselves, and the machine is a thing the rewrite can ask (2026-10-03)
+
+Item 1 of the list above was begun as written -- a "front only" flag on
+the compress -- and the user asked two questions over it that changed the
+work. First, whether the flag should be a lane count rather than a bit,
+so that the arms for two and three hits could be made better too. The
+answer: the flag decided one thing in the instruction, whether
+`vpcompress` merges into a zeroed register or into whatever it has, so it
+is binary by nature, and a count would change no instruction; what made
+two to four hits cost more than Embree's was the shape of the arms, which
+all converged on a join where the count was a run-time value again -- the
+sort network, a reverse of the whole vector, a permute of every value
+that travels, extracts of all eight lanes under `k < hits`, a waiting mask
+formed from the count, two register compresses and two whole-vector
+stores -- where Embree's arms each finish by themselves with the count a
+constant. Second, whether there should be an IR node for the sorted run
+lowered per backend, since the best code differs on x86, ARM and PTX. The
+answer: the node exists (a `MultiCall` with keys and conditions, which
+SortRecursion lowers and loopify reads back as a `SortedRun` or a
+`LaneRun`), the best code does differ by machine (AVX-512 and SVE have a
+compress and a variable permute; AVX2 and NEON have neither, and Embree's
+own path there is its bit-scan loop with scalar loads and a scalar stack
+sort; a GPU thread has no cross-lane vector and sorts by insertion), and
+the choice belongs in the SSA rewrite keyed on the target, as Halide's
+lowering passes consult their Target while its backends only select
+instructions -- so that the traversal reads in `-p ssa` and is pinned by a
+golden per machine, and the stack and the loop are written once. The
+decision was: a real target description first, then the per-arm pushes as
+the strategy a compress machine takes, the AVX2/NEON strategy when such a
+machine is measured. Three things were built.
+
+**1. The compress names what fills its rest, or nothing** (ir::Intrinsic,
+Expr.cpp, Parser.cpp, CodeGen_LLVM.cpp, runtime/bonsai_cpp.h). No flag:
+`compress(v, mask)` leaves the lanes past the packed ones unspecified,
+which is Embree's `compact` (`_mm256_mask_compress_epi32(v, mask, v)`,
+merging into itself), and `compress(v, mask, fill)` fills them, LLVM's
+passthru as a third operand (a vector of v's type or one element of it;
+printed and parsed as written). The traversal's every compress is the
+two-argument form; the permute tests ask for zero where they check for
+it. Read off the machine code afterwards: LLVM had already lowered the
+zero passthru as the zero-masking form, `vpcompressq %zmm22,%zmm22{%k1}{z}`,
+and the `vpxor` the earlier reading took for the passthru's zeroing is
+LLVM's own dependency-breaking idiom before a masked write, so the
+operand changed no instruction in either kernel. A semantic cleanup, not
+a speedup; the speedup is item 3.
+
+**2. `ir::Target` is a target** (include/IR/Target.h, src/IR/Target.cpp,
+src/CodeGen/ResolveTarget.cpp): the triple, the CPU, the feature string
+LLVM is given and the resolved set of features by LLVM's names, with the
+questions a rewrite asks -- `has_compress()` (avx512f with avx512vl; sve),
+`has_variable_permute()`, `vector_bits()` -- resolved once in the CLI from
+`--triple` and `--mcpu`, or from the host when neither is named, through
+LLVM's `MCSubtargetInfo` so that the CPU's implied features are in the
+set, and kept in `CompilerOptions::target`; CodeGen_LLVM::make_target_machine
+now builds its target machine from the same three strings, so the two
+never disagree. `sort_recursion(func, target)` reads it through
+`lane_sort_strategy`, one strategy today (`Compact`) for every machine,
+with the AVX2/NEON strategy named in its comment for when such a machine
+is measured. What went: the enum `Target { Host }` that keyed
+`Program::schedules`, a map with one entry -- `Program::schedule` is one
+`Schedule` now, the printer writes `schedule {`, and 142 goldens under
+ssa, lower, opt and parsing moved by that line alone (checked: nothing
+else in them changed); `CompilerOptions::target`, the output kind,
+became `backend`. Tested by the backends goldens, which name a CPU and
+now resolve it the same way the backend does.
+
+**3. The arms of the count switch finish by themselves**
+(SSA/SortRecursion.cpp, sort_lanes). For two, three and four hits the
+packed keys are read out as scalars and sorted by insertion, a minimum
+and a maximum per key already placed -- Embree's dist_A0/B0, A1/B1/C1,
+A2..D2 chains -- each sorted key's low bits name the lane the child and
+its carried bound are read from, and the arm ends in a run of exactly h
+unconditional calls, nearest first, which loopify's ordinary path writes
+as h - 1 scalar pushes at constant offsets from the top and a descent
+into the first: Embree's `stackPtr[0].ptr = ..; stackPtr[0].dist = ..;
+stackPtr++; cur = ..`. No join, no permute, no waiting mask, no compacting
+store below five hits; the one-hit arm is h = 1 of the same rule. The arm
+for five hits and up, which only a node wider than four has, keeps the
+bitonic network over all the lanes, the permutes and the compacting store
+(the `SortedRun` shape, now produced by that arm alone), as Embree's own
+fallback sorts descending and writes the stack in a loop. A four-wide
+node's stacks lose their slack (`u32[64]` where they were `u32[68]`);
+an eight-wide node keeps it for the last arm (`u32[72]`). The two-hit arm
+on Zen 5, from the keys to the descent:
+
+    vpcompressd %ymm9,%ymm9{%k1}{z}        -- the packed keys
+    vpextrd $0x1,%xmm9,%ecx ; vmovd %xmm9,%eax
+    cmp %ecx,%eax ; mov %ecx,%ebx ; cmovl %eax,%ebx ; cmovg %eax,%ecx
+    and $0x7,%ebx ; and $0x7,%ecx
+    mov 0x140(%rsp,%rbx,8),%rdx            -- the near child, off the spilled row
+    vmovaps %ymm13,0xa0(%rsp)              -- the distances spilled
+    vmovd 0xa0(%rsp,%rbx,4),%xmm13 ; vmovd 0xa0(%rsp,%rcx,4),%xmm9
+    mov 0x140(%rsp,%rcx,8),%rax            -- the far child
+    movslq %r13d,%rcx ; inc %r13d
+    mov %rax,0xae8(%rsp,%rcx,8) ; vmovd %xmm9,0x1f8(%rsp,%rcx,4)
+    vucomiss %xmm13,%xmm5 ; jbe <pop>      -- the entry cull (item 3 of the list)
+
+Twenty-two instructions where Embree's two-hit case is about fourteen
+(it indexes its permutes by the key's own low bits, so it needs no `and`,
+and its keys stay in vector registers as broadcasts, so the sort is a
+`vpminsd` and a `vpmaxsd` where ours is a compare and two `cmov`); the
+scalar loads off the spilled row and the spilled distances are what item
+4 of the list (the lane as a scalar load from read-only storage) turns
+into loads off the node itself. The kernels: trace_all 570 instructions
+static (501 before: the arms are unrolled per count where the join was
+shared), occluded_all unchanged at 327 and byte for byte the same code.
+
+**What it measured**, back to back on the quiet machine (cpu 11, `--side
+2048`, least of five, million rays per second), two scratch worktrees --
+HEAD and HEAD plus this -- so neither side carries the other session's
+in-flight compiler change; every ray agrees with Embree on every run,
+which is also the execution test of the eight-wide arms including the
+last one:
+
+| mesh    | rays    | nearest hit: Embree | before | after | before | after | any hit (matching, tuned) before | after |
+|---------|---------|------:|------:|------:|------:|------:|------:|------:|
+| head    | primary | 64.3 | 51.7 | 56.7 | 0.80x | 0.90x | 0.99x, 0.99x | 1.00x, 0.99x |
+|         | ao      | 15.8 | 12.9 | 13.7 | 0.82x | 0.86x | 0.90x, 0.98x | 0.98x, 0.98x |
+|         | diffuse | 14.0 | 11.5 | 12.2 | 0.82x | 0.86x | 0.89x, 0.99x | 1.00x, 0.98x |
+| ganesha | primary | 23.4 | 19.5 | 21.1 | 0.84x | 0.92x | 0.90x, 0.92x | 0.92x, 0.91x |
+|         | ao      |  6.4 |  5.6 |  5.8 | 0.87x | 0.92x | 0.91x, 0.96x | 0.92x, 0.96x |
+|         | diffuse |  5.9 |  5.1 |  5.4 | 0.86x | 0.92x | 0.91x, 0.95x | 0.92x, 0.90x |
+| dragon  | primary | 33.4 | 29.5 | 31.3 | 0.88x | 0.95x | 0.92x, 0.92x | 0.94x, 0.92x |
+|         | ao      |  4.6 |  4.1 |  4.2 | 0.90x | 0.93x | 0.92x, 0.96x | 0.91x, 0.98x |
+|         | diffuse |  4.1 |  3.7 |  3.8 | 0.90x | 0.93x | 0.92x, 0.96x | 0.93x, 0.96x |
+
+(head's incoherent rays are the second of two back-to-back pairs; the
+first pair's "after" run was 5% low on both sides at once, the machine's
+state.) So the nearest hit gained 8-10% on primary rays and 2-6% on
+incoherent ones -- the three- and four-hit arms are where the join cost
+most, and primary rays meet them near the root -- and the any hit, whose
+lane run was not touched, is level within the run-to-run noise. The
+matching schedule now stands at 0.90-0.95x of Embree on primary rays and
+0.86-0.93x on incoherent ones for the nearest hit, 0.92-1.00x for the any
+hit; tuned 0.90-0.98x.
+
+**Tests.** ssa/child-volumes-sorted (the arms on a four-wide node, its
+description rewritten), ssa/child-volumes-sorted-wide (new: an eight-wide
+node, whose golden has the last arm, its stack slack and the compacting
+store), the vectorized, tiled, prefetch and arena goldens re-blessed and
+read; backends/llvm's child-volumes-vectorized, tiled-leaf-vectorized and
+prefetch-children, blessed from the clean worktree; the fill operand at
+the parsing (permute-compress), LLVM (permute, permute-avx512) and
+execution (correctness/cpp/permute, which checks the fill past the packed
+lanes and only the packed lanes without one) levels; the correctness
+traversals all pass; the full suite in the clean worktree passes.
+
+**Next**, the list's order as ruled: thread the found flag's constant
+edges into the header's dispatch in SSA (item 2); loopify's two nested
+loops so a direct descent skips the entry cull (item 3: the `vucomiss;
+jbe` above, and the near child's distance with it); read-only in the
+pointer types and the lane as a scalar load off the row (item 4: the
+`0x140(%rsp,..)` loads above become `(%node,..)`); the interval analysis
+for the sign flip (item 5). And, when a machine without a compress is
+measured, the bit-scan strategy behind `lane_sort_strategy`.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -2360,7 +2360,10 @@ struct Parser {
             {"atanh", 1, ir::Intrinsic::atanh},
             {"atan2", 2, ir::Intrinsic::atan2},
             {"clz", 1, ir::Intrinsic::clz},
-            {"compress", 2, ir::Intrinsic::compress},
+            // compress() takes a vector and a mask, and a fill for the lanes
+            // past the packed ones if the program says what they hold.
+            {"compress", 2, ir::Intrinsic::compress, /*skippable=*/true},
+            {"compress", 3, ir::Intrinsic::compress},
             {"cos", 1, ir::Intrinsic::cos},
             {"cosh", 1, ir::Intrinsic::cosh},
             {"cross", 2, ir::Intrinsic::cross},
@@ -3260,7 +3263,7 @@ struct Parser {
     // block apply in the order they were written, the later block's after the
     // earlier's.
     void merge_schedule(ir::Schedule from) {
-        ir::Schedule &into = program.schedules[ir::Target::Host];
+        ir::Schedule &into = program.schedule;
         const auto once = [&](auto &into_map, auto &from_map,
                               const char *what) {
             for (auto &[name, value] : from_map) {

@@ -4057,21 +4057,21 @@ ir::Stmt build_base_scan(ir::Expr bvh_expr, const ir::BVH_t *bvh_t) {
 
 ir::Program LowerTrees::run(ir::Program program,
                             const CompilerOptions &options) const {
-    if (program.schedules.empty()) {
+    // A program without a schedule keeps its set operations as they are:
+    // there is no tree to lower them onto, and the converter below rejects
+    // a set operation it finds no tree type for.
+    if (program.schedule.empty()) {
         return program;
     }
-    internal_assert(program.schedules.size() == 1)
-        << "TODO: support selecting a schedule target!\n";
 
     // The schedule keeps its tree bindings: the layout lowering after this
     // reads them to tell the hardware's trees (ir::BVH_t::hardware), whose
     // fields store a run's start and whose layouts carry a handle, from the
     // trees it lays nodes out for.
-    ir::TypeMap tree_types = program.schedules[ir::Target::Host].tree_types;
+    ir::TypeMap tree_types = program.schedule.tree_types;
 
     LowerBVH converter(tree_types, program.extents, program.funcs);
-    converter.transforms =
-        &program.schedules[ir::Target::Host].func_transforms;
+    converter.transforms = &program.schedule.func_transforms;
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {

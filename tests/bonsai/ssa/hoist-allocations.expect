@@ -83,7 +83,7 @@ func tally(n : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : m
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(r);
     tally.defer(tally, sums)
 

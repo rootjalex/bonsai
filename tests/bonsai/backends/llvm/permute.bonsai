@@ -5,7 +5,9 @@
 // per lane at its index and an insert at its place
 // (CodeGen_LLVM::dynamic_shuffle), which LLVM legalises into a store of the
 // vector and a load per lane, and the compress is LLVM's vector.compress,
-// which LLVM expands the same way for a machine without one.
+// which LLVM expands the same way for a machine without one. A compress
+// with no fill passes `poison` for the lanes past the packed ones, since
+// nothing is said to be there; one with a fill passes the fill.
 // permute-avx512.bonsai is this program on a machine that has them;
 // correctness/cpp/permute.bonsai runs the host's.
 
@@ -26,4 +28,9 @@ func [[export]] packed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8]
 
 func [[export]] packed_wide(v : vector[u64, 8], m : vector[u32, 8]) -> vector[u64, 8] {
     return compress(v, m != 0u);
+}
+
+// The lanes past the packed ones zero.
+func [[export]] packed_zeroed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u, 0.0);
 }

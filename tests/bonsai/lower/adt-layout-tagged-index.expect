@@ -51,6 +51,6 @@ func [[export]] unit_sphere(Shape_Sph_pool : mut Sph[], Shape_Sph_fill : mut u64
 }
 
 
-schedule host {
+schedule {
 
 }

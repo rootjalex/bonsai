@@ -117,7 +117,7 @@ func [[export]] tally_one(x : f32) -> i32 {
 }
 
 
-schedule host {
+schedule {
     tally_all.vectorize(i)
 
 }

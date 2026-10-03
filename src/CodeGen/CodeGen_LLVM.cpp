@@ -183,42 +183,31 @@ CodeGen_LLVM::make_target_machine(llvm::Module &module,
     // Generated code follows the host unless the target is named explicitly.
     // Naming it is what makes output reproducible on another machine, which
     // is why the tests that diff generated code pass --triple and --mcpu.
-    std::string target_triple = options.target_triple.empty()
-                                    ? llvm::sys::getDefaultTargetTriple()
-                                    : options.target_triple;
-
-    // ...and following the host means its CPU and its instruction set, not
-    // just its pointer size. Left empty, LLVM targets a generic x86-64 -- SSE2
-    // and nothing after it -- so a machine with AVX and FMA got neither, an
-    // `fma` became a call to libm's `fmaf`, and nothing was vectorized more
-    // than four floats wide. Naming the host CPU is what `-march=native` does
-    // for a C compiler, and it is what the code this is compared against is
-    // built with.
+    // The triple, the CPU and the features were resolved once from the flags
+    // before lowering (codegen::resolve_target, ir::Target), so that the
+    // rewrites that read the machine and this target machine agree.
     //
-    // Only when nothing was named: `--triple` or `--mcpu` means the caller
-    // wants a particular machine and is probably diffing the output, and a
-    // triple that is not this machine's cannot take this machine's features.
-    std::string target_cpu = options.target_cpu;
-    std::string target_features;
-    if (target_cpu.empty() && options.target_triple.empty()) {
-        target_cpu = llvm::sys::getHostCPUName().str();
-        llvm::SubtargetFeatures features;
-        for (const auto &feature : llvm::sys::getHostCPUFeatures()) {
-            // Every feature the host has, AVX-512 included: a gang is as
-            // wide as the machine's register (sixteen lanes in a zmm), and
-            // LLVM keeps a masked gather or scatter as one instruction only
-            // on a machine with AVX-512 or Intel's fast-gather tuning, and
-            // scalarizes it everywhere else -- one extract, load and insert
-            // per lane -- which on an AMD host with the feature stripped was
-            // the whole of a gang's memory traffic. Each function is then
-            // told the width its own values need (`min-legal-vector-width`,
-            // see optimize_module), and a stack slot an aggregate lives in is
-            // aligned to the register (see create_alloca_at_entry): with the
-            // registers at 512 bits and the slots aligned to 256, a memset of
-            // a widened local once faulted.
-            features.AddFeature(feature.first(), feature.second);
-        }
-        target_features = features.getString();
+    // Following the host means its CPU and its instruction set, not just its
+    // pointer size. Left empty, LLVM targets a generic x86-64 -- SSE2 and
+    // nothing after it -- so a machine with AVX and FMA got neither, an `fma`
+    // became a call to libm's `fmaf`, and nothing was vectorized more than
+    // four floats wide. Naming the host CPU is what `-march=native` does for
+    // a C compiler, and it is what the code this is compared against is
+    // built with. Every feature the host has, AVX-512 included: a gang is as
+    // wide as the machine's register (sixteen lanes in a zmm), and LLVM
+    // keeps a masked gather or scatter as one instruction only on a machine
+    // with AVX-512 or Intel's fast-gather tuning, and scalarizes it
+    // everywhere else -- one extract, load and insert per lane -- which on
+    // an AMD host with the feature stripped was the whole of a gang's memory
+    // traffic. Each function is then told the width its own values need
+    // (`min-legal-vector-width`, see optimize_module), and a stack slot an
+    // aggregate lives in is aligned to the register (see
+    // create_alloca_at_entry): with the registers at 512 bits and the slots
+    // aligned to 256, a memset of a widened local once faulted.
+    const std::string &target_triple = options.target.triple;
+    const std::string &target_cpu = options.target.cpu;
+    const std::string &target_features = options.target.llvm_features;
+    if (options.target.follows_host) {
         follows_host = true;
         probe_host_libraries();
     }
@@ -3708,9 +3697,22 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::compress: {
-        internal_assert(node->args.size() == 2);
-        value = compress_lanes(codegen_expr(node->args[0]),
-                               codegen_expr(node->args[1]), "compress");
+        // With a third argument the lanes past the packed ones are its;
+        // without, they are whatever they are (see ir::Intrinsic::compress),
+        // which spares the zeroed register the instruction would otherwise
+        // merge into. A scalar fill is the element in every lane.
+        internal_assert(node->args.size() == 2 || node->args.size() == 3);
+        llvm::Value *vec = codegen_expr(node->args[0]);
+        llvm::Value *rest = nullptr;
+        if (node->args.size() == 3) {
+            rest = codegen_expr(node->args[2]);
+            if (!rest->getType()->isVectorTy()) {
+                rest = builder->CreateVectorSplat(
+                    unsigned(node->args[0].type().lanes()), rest);
+            }
+        }
+        value = compress_lanes(vec, codegen_expr(node->args[1]), "compress",
+                               rest);
         return;
     }
     case Intrinsic::sqrt: {
@@ -3795,15 +3797,16 @@ llvm::Value *CodeGen_LLVM::dynamic_shuffle(llvm::Value *vec,
 
 llvm::Value *CodeGen_LLVM::compress_lanes(llvm::Value *vec, llvm::Value *mask,
                                           const std::string &name,
-                                          bool zero_rest) {
-    // The lanes past the ones packed are zero: the zeroing form of the
-    // instruction, where a value to merge into would cost a count of the
-    // lanes on and a mask made from it. Where nothing reads them they are
-    // left undefined, and LLVM merges into whatever register it has rather
-    // than zeroing one first.
-    llvm::Value *rest = zero_rest
-                            ? llvm::Constant::getNullValue(vec->getType())
-                            : llvm::PoisonValue::get(vec->getType());
+                                          llvm::Value *rest) {
+    // The lanes past the ones packed are `rest`'s -- the zeroing form of
+    // the instruction for a constant zero, a merge for anything else, where
+    // a merge into a value that is not zero costs a count of the lanes on
+    // and a mask made from it. Without one they are left undefined, and
+    // LLVM merges into whatever register it has rather than zeroing one
+    // first (Embree's `compact`, `_mm256_mask_compress_epi32(v, mask, v)`).
+    if (rest == nullptr) {
+        rest = llvm::PoisonValue::get(vec->getType());
+    }
     return builder->CreateIntrinsic(
         vec->getType(), llvm::Intrinsic::experimental_vector_compress,
         {vec, mask, rest}, nullptr, name);
@@ -3863,8 +3866,7 @@ void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
     llvm::Type *words_t = llvm::FixedVectorType::get(i64_t, lanes);
     llvm::Value *words = builder->CreatePtrToInt(ptr, words_t);
     if (mask != nullptr) {
-        words = compress_lanes(words, mask, "prefetch_addresses",
-                               /*zero_rest=*/false);
+        words = compress_lanes(words, mask, "prefetch_addresses");
     }
     llvm::BasicBlock *done_bb = llvm::BasicBlock::Create(
         *context, "prefetch_done", current_function);
@@ -6173,8 +6175,7 @@ void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
     // `vpcompressq` and a `vmovdqu64` where the compacting store to memory
     // is microcoded.
     if (whole) {
-        llvm::Value *packed = compress_lanes(value, mask, "compress_whole",
-                                             /*zero_rest=*/false);
+        llvm::Value *packed = compress_lanes(value, mask, "compress_whole");
         llvm::StoreInst *store = builder->CreateStore(packed, dest);
         store->setAlignment(align);
         return;

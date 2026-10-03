@@ -162,7 +162,7 @@ func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mu
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(root);
     tally = split_run.queue(root);
     climb.defer(climb, tally)

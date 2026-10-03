@@ -125,20 +125,6 @@ std::ostream &operator<<(std::ostream &os, const Function &func) {
     return os;
 }
 
-std::ostream &operator<<(std::ostream &os, const Target &target) {
-    // TODO: flesh this out.
-    switch (target) {
-    case Target::Host: {
-        os << "host";
-        break;
-    }
-    default: {
-        internal_error << "Support for non-host target? add printing support!";
-    }
-    }
-    return os;
-}
-
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule) {
     Printer printer(os, /*verbose=*/true);
     printer.print(schedule);
@@ -200,19 +186,14 @@ void Printer::print(const Program &program) {
         os << std::endl;
     }
 
-    {
+    if (!program.schedule.empty()) {
         // Similarly, we always verbosely print the schedule.
         ScopedValue<bool> _(verbose, true);
-        for (const auto &[target, schedule] : program.schedules) {
-            os << "schedule " << target << " {\n";
-            indent++;
-            print(schedule);
-            indent--;
-            os << "\n}";
-        }
-        if (!program.schedules.empty()) {
-            os << std::endl;
-        }
+        os << "schedule {\n";
+        indent++;
+        print(program.schedule);
+        indent--;
+        os << "\n}" << std::endl;
     }
 }
 

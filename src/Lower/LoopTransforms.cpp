@@ -643,15 +643,8 @@ Stmt loopify(std::string name, Stmt stmt, std::optional<Expr> queue_size,
 
 ir::Program LoopTransforms::run(ir::Program program,
                                 const CompilerOptions &options) const {
-    if (program.schedules.empty()) {
-        return program;
-    }
-
-    internal_assert(program.schedules.size() == 1)
-        << "TODO: support selecting a schedule target!\n";
-
     ir::TransformMap transforms =
-        std::move(program.schedules[ir::Target::Host].func_transforms);
+        std::move(program.schedule.func_transforms);
 
     if (transforms.empty()) {
         return program;

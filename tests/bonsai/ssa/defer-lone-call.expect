@@ -67,7 +67,7 @@ func stupid_sum(i : i32, n : i32, a : f32[n], acc : f32, _queue_queue : mut (Que
 }
 
 
-schedule host {
+schedule {
     queue = compute.queue(root);
     stupid_sum.defer(stupid_sum, queue)
 

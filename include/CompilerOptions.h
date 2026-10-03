@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IR/Program.h"
+#include "IR/Target.h"
 
 namespace bonsai {
 
@@ -26,7 +27,14 @@ enum class BackendOptimizationLevel {
 // Contains information about how the compiler should be executed.
 struct CompilerOptions {
     // The targeted backend for the compiler.
-    BackendTarget target;
+    BackendTarget backend;
+
+    // The machine the code is for (see ir::Target), resolved from
+    // `target_triple` and `target_cpu` below once the flags are parsed
+    // (codegen::resolve_target) -- this machine when neither is named. What
+    // the rewrites that choose by the machine read, and what the backend
+    // builds its target machine from.
+    ir::Target target;
 
     // Whether this code should be executed after lowering. This will return a
     // failure if the chosen backend does not support execution.

@@ -42,3 +42,18 @@ func [[export]] scaled_rsub(a : Float, b : Float, c : Float) -> Float =
 
 func [[export]] scaled_neg(a : Float, b : Float, c : Float) -> Float =
     (-(a * b) + c) * 16777216.0;
+
+// A loop variable read in a product and assigned again below it, in the same
+// block. The fma must take the `o` the multiply read, not the `o * omega`
+// after it; with omega 2 and n 2 the sum is `k + 2k`, and the sum after the
+// loop adds `4k`, so the answer is 7k. Every product here is exact, so
+// contraction changes nothing but whether the code compiles and runs.
+func [[export]] rebound(k : Float, omega : Float, n : i32) -> Float {
+    total : mut Float = 0.0;
+    o : mut Float = 1.0;
+    for i in 0:n {
+        total = total + o * k;
+        o = o * omega;
+    }
+    return total + o * k;
+}

@@ -161,6 +161,7 @@ target_sources(
     src/CodeGen/CodeGen_LLVM_SSA.cpp
     src/CodeGen/CodeGen_PTX.cpp
     src/CodeGen/CodeGen_X86.cpp
+    src/CodeGen/ResolveTarget.cpp
     # The CUDA runtime, in the compiler too: the JIT runs programs whose
     # bound loops launch through it, and the PTX backend asks it which GPU
     # this machine has. It loads the driver with dlopen, so this depends on
@@ -185,6 +186,7 @@ target_sources(
     src/IR/Printer.cpp
     src/IR/Provenance.cpp
     src/IR/Stmt.cpp
+    src/IR/Target.cpp
     src/IR/Type.cpp
     src/IR/TypeEnforcement.cpp
     src/IR/ValidateLayout.cpp
@@ -295,6 +297,7 @@ target_sources(
     include/CodeGen/CodeGen_GPU_Host.h
     include/CodeGen/CodeGen_LLVM.h
     include/CodeGen/CodeGen_PTX.h
+    include/CodeGen/ResolveTarget.h
     include/CodeGen/CodeGen_X86.h
     include/CodeGen/ExpandVectorMulHigh.h
     include/CodeGen/FoldSelectOfLoads.h

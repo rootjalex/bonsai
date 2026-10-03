@@ -12,9 +12,11 @@
 // widened to the instruction's 64; two are `vpermilpd`, whose selector is
 // bit one of each index (`llvm.x86.avx.vpermilvar.pd`, the index shifted
 // up by one); sixteen-bit lanes are `vpermw` (`llvm.x86.avx512.permvar.hi.
-// 256`). The compress is LLVM's vector.compress, `vpcompressd` into a
-// zeroed register once the backend has seen it. permute.bonsai is this
-// program on the generic x86-64, which has none of them.
+// 256`). The compress is LLVM's vector.compress, `vpcompressd` once the
+// backend has seen it -- merging into whichever register it has when no
+// fill is named (`poison` past the packed lanes), into a zeroed one for a
+// fill of zero. permute.bonsai is this program on the generic x86-64,
+// which has none of them.
 func [[export]] eight(v : vector[f32, 8], i : vector[u32, 8]) -> vector[f32, 8] {
     return permute(v, i);
 }
@@ -45,4 +47,8 @@ func [[export]] halves(v : vector[u16, 16], i : vector[u16, 16]) -> vector[u16, 
 
 func [[export]] packed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
     return compress(v, m != 0u);
+}
+
+func [[export]] packed_zeroed(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u, 0.0);
 }

@@ -2020,7 +2020,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // now, so a function no schedule sorted has none and this does nothing to
     // it.
     for (const auto &[name, f] : fmap) {
-        sort_recursion(*f);
+        sort_recursion(*f, options.target);
         // What the network compared was built by rule; this is where it is
         // looked at (see SSA/Simplify.h).
         simplify(*f);
@@ -2795,24 +2795,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
 
 ir::Program ConvertToSSA::run(ir::Program program,
                               const CompilerOptions &options) const {
-    ir::TransformMap transforms;
-    ir::TransformOrder order;
-    ir::BranchPolicyMap policies;
-    std::map<std::string, ir::Queue> queues;
-    std::vector<ir::QueueSpecialize> queue_splits;
-    if (const auto it = program.schedules.find(ir::Target::Host);
-        it != program.schedules.end()) {
-        transforms = it->second.func_transforms;
-        order = it->second.transform_order;
-        policies = it->second.branch_policies;
-        queues = it->second.queues;
-        queue_splits = it->second.queue_specializations;
-    }
+    const ir::TransformMap &transforms = program.schedule.func_transforms;
+    const ir::TransformOrder &order = program.schedule.transform_order;
+    const ir::BranchPolicyMap &policies = program.schedule.branch_policies;
+    const std::map<std::string, ir::Queue> &queues = program.schedule.queues;
+    const std::vector<ir::QueueSpecialize> &queue_splits =
+        program.schedule.queue_specializations;
 
     ir::Program new_program;
     new_program.types = program.types;
     new_program.externs = program.externs;
-    new_program.schedules = program.schedules;
+    new_program.schedule = program.schedule;
     new_program.adt_storages = program.adt_storages;
     new_program.funcs =
         convert(std::move(program.funcs), transforms, order, policies, queues,

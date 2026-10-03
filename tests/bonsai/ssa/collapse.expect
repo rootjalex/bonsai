@@ -27,7 +27,7 @@ func grid(out : mut i32[12]) -> void {
 }
 
 
-schedule host {
+schedule {
     grid.collapse(y, x, c)
 
 }

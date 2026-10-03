@@ -113,7 +113,7 @@ func triangles(n : i32[8], out : mut i32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     step.loopify()
     triangles.vectorize(i)
 

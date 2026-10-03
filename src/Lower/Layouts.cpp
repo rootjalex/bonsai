@@ -2273,19 +2273,11 @@ void apply_array_layouts(ir::Program &program,
 
 ir::Program LowerLayouts::run(ir::Program program,
                               const CompilerOptions &options) const {
-    if (program.schedules.empty()) {
-        return program;
-    }
-    internal_assert(program.schedules.size() == 1)
-        << "TODO: support selecting a schedule target!\n";
-
     // The arrays first: they say only how an element is stored, and nothing
     // below reads them.
-    apply_array_layouts(program,
-                        program.schedules[ir::Target::Host].array_layouts);
+    apply_array_layouts(program, program.schedule.array_layouts);
 
-    ir::LayoutMap tree_layouts =
-        std::move(program.schedules[ir::Target::Host].tree_layouts);
+    ir::LayoutMap tree_layouts = std::move(program.schedule.tree_layouts);
 
     if (tree_layouts.empty()) {
         return program;
@@ -2314,8 +2306,7 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
         // And every hardware tree the schedule lays out, traced or not: the
         // handle is what the tree is.
-        for (const auto &[name, type] :
-             program.schedules[ir::Target::Host].tree_types) {
+        for (const auto &[name, type] : program.schedule.tree_types) {
             if (type.as<ir::BVH_t>()->hardware && tree_layouts.contains(name)) {
                 traced.trees.insert(name);
             }
@@ -2341,15 +2332,13 @@ ir::Program LowerLayouts::run(ir::Program program,
 
     // What a field bound to a tree is, in storage. The schedule said which
     // group holds that tree's nodes; the group says what indexing it costs.
-    for (const auto &[path, group_name] :
-         program.schedules[ir::Target::Host].tree_groups) {
+    for (const auto &[path, group_name] : program.schedule.tree_groups) {
         ir::Type index_t;
         // The hardware's tree in a field (`Element.field : OptixTree from
         // <array>`): the field stores where its run of the array starts,
         // an index into it.
-        if (const auto bound =
-                program.schedules[ir::Target::Host].tree_types.find(path);
-            bound != program.schedules[ir::Target::Host].tree_types.cend() &&
+        if (const auto bound = program.schedule.tree_types.find(path);
+            bound != program.schedule.tree_types.cend() &&
             bound->second.as<ir::BVH_t>()->hardware) {
             ltmap.field_refs[path] = ir::UInt_t::make(32);
             continue;
@@ -2475,8 +2464,8 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
 
         LowerMatches lowerer(tree_layouts, types, ltmap,
-                             program.schedules[ir::Target::Host].tree_groups,
-                             program.schedules[ir::Target::Host].tree_types);
+                             program.schedule.tree_groups,
+                             program.schedule.tree_types);
         func->body = lowerer.mutate(func->body);
     }
 

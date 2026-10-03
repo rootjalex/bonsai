@@ -85,7 +85,7 @@ func step(x : f32, total : mut (f32*), _queue_firsts : mut (Queue_firsts*), _que
 }
 
 
-schedule host {
+schedule {
     firsts = run.queue(root);
     seconds = run.queue(root);
     step.defer(first, firsts)

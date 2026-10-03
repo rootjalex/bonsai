@@ -13,7 +13,7 @@ ir::Program Pass::run(ir::Program program,
     new_program.types = run(std::move(program.types), options);
     new_program.externs = run(std::move(program.externs), options);
     new_program.funcs = run(program.funcs, options);
-    new_program.schedules = run(std::move(program.schedules), options);
+    new_program.schedule = run(std::move(program.schedule), options);
     // Carried rather than rebuilt: a pass that only means to rewrite the
     // functions should not silently drop what else the program is carrying.
     new_program.ssa_funcs = std::move(program.ssa_funcs);
@@ -36,9 +36,9 @@ ir::FuncMap Pass::run(ir::FuncMap funcs, const CompilerOptions &options) const {
     return funcs;
 }
 
-ir::ScheduleMap Pass::run(ir::ScheduleMap schedules,
-                          const CompilerOptions &options) const {
-    return schedules;
+ir::Schedule Pass::run(ir::Schedule schedule,
+                       const CompilerOptions &options) const {
+    return schedule;
 }
 
 } // namespace lower

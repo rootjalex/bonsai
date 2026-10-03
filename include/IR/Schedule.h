@@ -460,6 +460,16 @@ struct Schedule {
     // into it -- which is what lets an element with a tree in it be stored at
     // all.
     std::map<std::string, std::string> tree_groups;
+
+    // Whether no schedule block said anything: what a program without one
+    // carries.
+    bool empty() const {
+        return tree_types.empty() && tree_layouts.empty() &&
+               adt_layouts.empty() && array_layouts.empty() &&
+               func_transforms.empty() && transform_order.empty() &&
+               branch_policies.empty() && queues.empty() &&
+               queue_specializations.empty() && tree_groups.empty();
+    }
 };
 
 } // namespace ir

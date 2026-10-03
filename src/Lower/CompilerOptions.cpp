@@ -3,9 +3,9 @@
 namespace bonsai {
 
 std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
-    os << "-b " << backend_to_string(opt.target) << "\n";
+    os << "-b " << backend_to_string(opt.backend) << "\n";
     if (opt.is_execute) {
-        os << "-e " << backend_to_string(opt.target) << "\n";
+        os << "-e " << backend_to_string(opt.backend) << "\n";
     }
     for (const std::string &input : opt.input_files) {
         os << "-i " << input << "\n";
@@ -27,7 +27,7 @@ std::ostream &operator<<(std::ostream &os, const CompilerOptions &opt) {
 void verify_options(const CompilerOptions &options) {
     internal_assert(!options.input_files.empty())
         << "no input file: " << options;
-    switch (BackendTarget backend = options.target; backend) {
+    switch (BackendTarget backend = options.backend; backend) {
     case BackendTarget::NONE:
     case BackendTarget::ASM:
     case BackendTarget::CPP:

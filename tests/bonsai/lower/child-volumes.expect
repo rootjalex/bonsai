@@ -83,7 +83,7 @@ func [[export]] trace(r : Ray) -> option<Triangle> {
 }
 
 
-schedule host {
+schedule {
     tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
   | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
   | Leaf(data : Triangle[]) with data = data

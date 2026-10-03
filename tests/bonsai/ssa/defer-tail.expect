@@ -62,7 +62,7 @@ func run(out : mut i32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(root);
     fill.defer(fill, sums)
 

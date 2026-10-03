@@ -42,7 +42,7 @@ func visit(node : i32, out : mut i32[16], depth : i32) -> void {
 }
 
 
-schedule host {
+schedule {
     visit.loopify((i32)64)
 
 }

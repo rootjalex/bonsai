@@ -13,8 +13,8 @@ class VerifyLayouts : public Pass {
   public:
     const std::string name() const override { return "verify-layouts"; }
 
-    ir::ScheduleMap run(ir::ScheduleMap schedule,
-                        const CompilerOptions &options) const override;
+    ir::Schedule run(ir::Schedule schedule,
+                     const CompilerOptions &options) const override;
 };
 
 } // namespace lower

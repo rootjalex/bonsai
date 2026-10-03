@@ -16,7 +16,7 @@ class ConvertToSSA : public lower::Pass {
   public:
     const std::string name() const override { return "convert-to-ssa"; }
 
-    // Reads schedule transforms (e.g. `vectorize`) off `program.schedules`
+    // Reads schedule transforms (e.g. `vectorize`) off `program.schedule`
     // and applies the SSA-level rewrites from SSA/Rewrite.h to the relevant
     // functions.
     ir::Program run(ir::Program program,

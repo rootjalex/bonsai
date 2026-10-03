@@ -128,7 +128,7 @@ func [[noinline]] tabled$gang8_v0$masked(x : f32x8, t : f32[4], !mask : boolx8) 
 }
 
 
-schedule host {
+schedule {
     pick_all.vectorize(i)
 
 }

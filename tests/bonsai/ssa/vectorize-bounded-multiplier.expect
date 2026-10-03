@@ -163,7 +163,7 @@ func wide(ns : u64[8], bases : u64[8], out : mut u64[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     digits.vectorize(i)
     wide.vectorize(i)
 

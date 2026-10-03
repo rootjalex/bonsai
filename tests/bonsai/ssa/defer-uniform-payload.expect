@@ -124,7 +124,7 @@ func tally(n : i32, acc : i32, max_depth : i32, _queue_sums : mut (Queue_sums*),
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(root);
     run.specialize(limits)
     tally.defer(tally, sums)

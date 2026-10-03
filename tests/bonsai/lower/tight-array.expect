@@ -16,7 +16,7 @@ func [[export]] weighted(i : u32, weights : f32[]) -> f32 {
 }
 
 
-schedule host {
+schedule {
     layout positions {
       tight(root);
     };

@@ -36,7 +36,7 @@ func unmasked(x : f32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     angles.vectorize(i)
     unmasked.vectorize(i)
 

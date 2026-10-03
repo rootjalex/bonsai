@@ -203,7 +203,7 @@ func walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx1
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(root);
     run.split(sums, sums_gang, sums_lane, (i32)16, 1)
        .vectorize(sums_lane)

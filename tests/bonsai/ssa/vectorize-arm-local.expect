@@ -43,7 +43,7 @@ func [[export]] clip_all(inp : f32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     clip_all.vectorize(i)
 
 }

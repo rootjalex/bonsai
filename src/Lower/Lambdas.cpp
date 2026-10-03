@@ -208,7 +208,7 @@ ir::Program lower_program(const ir::Program &old_program) {
 ir::Program LowerLambdas::run(ir::Program program,
                               const CompilerOptions &options) const {
     ir::Program new_program = lower_program(program);
-    new_program.schedules = std::move(program.schedules);
+    new_program.schedule = std::move(program.schedule);
     return new_program;
 }
 

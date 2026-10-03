@@ -21,8 +21,8 @@ struct Pass {
     virtual ir::ExternList run(ir::ExternList externs,
                                const CompilerOptions &) const;
     virtual ir::FuncMap run(ir::FuncMap funcs, const CompilerOptions &) const;
-    virtual ir::ScheduleMap run(ir::ScheduleMap schedules,
-                                const CompilerOptions &) const;
+    virtual ir::Schedule run(ir::Schedule schedule,
+                             const CompilerOptions &) const;
 
     virtual ~Pass() = default;
 };

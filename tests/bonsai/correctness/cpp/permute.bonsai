@@ -51,15 +51,26 @@ func [[export]] permute_narrow(v : vector[f32, 8], i : vector[u32, 4]) -> vector
 }
 
 // The mask comes in as integers and is made where it is used, since a
-// vector of booleans has no settled C++ spelling at a call boundary.
+// vector of booleans has no settled C++ spelling at a call boundary. With a
+// fill the lanes past the packed ones are the fill's, and the driver checks
+// them; without one they hold nothing in particular, and the driver checks
+// the packed lanes alone.
 func [[export]] compress_f32x8(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
-    return compress(v, m != 0u);
+    return compress(v, m != 0u, 0.0);
 }
 
 func [[export]] compress_u64x8(v : vector[u64, 8], m : vector[u32, 8]) -> vector[u64, 8] {
-    return compress(v, m != 0u);
+    return compress(v, m != 0u, cast[[u64]](0u));
 }
 
 func [[export]] compress_u32x16(v : vector[u32, 16], m : vector[u32, 16]) -> vector[u32, 16] {
+    return compress(v, m != 0u, 0u);
+}
+
+func [[export]] compress_front_f32x8(v : vector[f32, 8], m : vector[u32, 8]) -> vector[f32, 8] {
+    return compress(v, m != 0u);
+}
+
+func [[export]] compress_front_u64x8(v : vector[u64, 8], m : vector[u32, 8]) -> vector[u64, 8] {
     return compress(v, m != 0u);
 }

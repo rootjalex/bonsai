@@ -3,11 +3,13 @@
 [test] ./tests/bonsai/correctness/cpp/permute
 permute f32x8 ok
 compress f32x8 ok (4 packed)
+compress f32x8, no fill ok (4 packed)
 permute u32x16 ok
 compress u32x16 ok (6 packed)
 permute f32x4 ok
 permute u64x8 ok
 compress u64x8 ok (4 packed)
+compress u64x8, no fill ok (4 packed)
 permute u64x4 ok
 permute u64x2 ok
 permute u16x16 ok

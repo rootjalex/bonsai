@@ -103,7 +103,7 @@ func walk(n : i32, p : f32x3, s : f32x4, _queue_sums : mut (Queue_sums*), _resul
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(root);
     walk.defer(walk, sums)
 

@@ -35,7 +35,7 @@ func [[export]] run(flag : bool, values : f32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     run.specialize(flag)
        .bind(i, CPUThread)
 

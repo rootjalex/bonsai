@@ -1,6 +1,7 @@
 #include "CLI/CLI.h"
 
 #include "Bonsai.h"
+#include "CodeGen/ResolveTarget.h"
 #include "IR/Printer.h"
 
 #include <fstream>
@@ -48,7 +49,7 @@ std::string command_help() {
 // Executes the Bonsai `program` with the provide compiler `options`. Upon
 // success, returns zero.
 int execute(const ir::Program &program, const CompilerOptions &options) {
-    switch (options.target) {
+    switch (options.backend) {
     case BackendTarget::NONE: {
         if (options.output_file.empty()) {
 
@@ -216,10 +217,14 @@ Flags parse(const std::vector<std::string> &args) {
         internal_error << "unexpected argument: " << arg;
     }
 
-    options.target = target.has_value() ? *target : BackendTarget::NONE;
+    options.backend = target.has_value() ? *target : BackendTarget::NONE;
     if (options.passes.empty()) {
         options.passes = {"default"};
     }
+    // The machine, from the flags or from this one, resolved here so that
+    // lowering and the backend read the same answer.
+    options.target =
+        codegen::resolve_target(options.target_triple, options.target_cpu);
     return {options, false};
 }
 

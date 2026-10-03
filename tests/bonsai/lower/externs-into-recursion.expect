@@ -18,6 +18,6 @@ func walk(lo : u32, hi : u32, out : mut f32[], bias : f32[], scale : f32[]) -> v
 }
 
 
-schedule host {
+schedule {
 
 }

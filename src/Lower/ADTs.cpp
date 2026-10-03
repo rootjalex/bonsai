@@ -709,14 +709,8 @@ void declare_pools(ir::Program &program, const LayoutMap &layouts) {
 
 ir::Program LowerADTs::run(ir::Program program,
                            const CompilerOptions &options) const {
-    // What the schedule asked for, if anything. Keyed per target, so the same
-    // program can store a variant one way on a CPU and another on a device --
-    // an index travels to one and a pointer does not.
-    ir::AdtLayoutMap chosen;
-    if (const auto it = program.schedules.find(ir::Target::Host);
-        it != program.schedules.end()) {
-        chosen = it->second.adt_layouts;
-    }
+    // What the schedule asked for, if anything.
+    ir::AdtLayoutMap chosen = program.schedule.adt_layouts;
 
     LayoutMap layouts;
     for (const auto &[name, type] : program.types) {

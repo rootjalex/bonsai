@@ -157,7 +157,7 @@ func process4(w : i32) -> i32[w] {
 }
 
 
-schedule host {
+schedule {
     process1.collapse(i0, i1, i_a)
     process2.collapse(i0, i1, i_b)
     process3.collapse(i0, i1, i_c)

@@ -211,12 +211,7 @@ struct ApplyPrefetch : public Mutator {
 
 Program LowerPrefetches::run(Program program,
                              const CompilerOptions &options) const {
-    if (program.schedules.empty()) {
-        return program;
-    }
-    internal_assert(program.schedules.size() == 1)
-        << "TODO: support selecting a schedule target!\n";
-    TransformMap &transforms = program.schedules[Target::Host].func_transforms;
+    TransformMap &transforms = program.schedule.func_transforms;
 
     for (const auto &[name, ts] : transforms) {
         auto fiter = program.funcs.find(name);

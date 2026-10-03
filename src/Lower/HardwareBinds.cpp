@@ -37,13 +37,7 @@ struct RenameVars : public ir::Mutator {
 
 ir::Program LowerHardwareBinds::run(ir::Program program,
                                     const CompilerOptions &) const {
-    if (program.schedules.empty()) {
-        return program;
-    }
-    internal_assert(program.schedules.size() == 1)
-        << "TODO: support selecting a schedule target!\n";
-    const ir::TransformMap &transforms =
-        program.schedules[ir::Target::Host].func_transforms;
+    const ir::TransformMap &transforms = program.schedule.func_transforms;
 
     for (const auto &[name, ts] : transforms) {
         for (const ir::Transform &t : ts) {

@@ -119,7 +119,7 @@ func step(x : i32, depth : i32, total : mut (i32*), _queue_paths : mut (Queue_pa
 }
 
 
-schedule host {
+schedule {
     paths = run.queue(root);
     run.defer(step, paths)
     step.defer(step, paths)

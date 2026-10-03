@@ -20,7 +20,7 @@ func process(n : i32, a : f32[n]) -> f32[n] {
 }
 
 
-schedule host {
+schedule {
     process.split(i0, io, ii, (i32)16, 0)
 
 }

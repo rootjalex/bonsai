@@ -20,35 +20,40 @@
 // The sort orders the four children by the distance at which the ray enters
 // each box, and only the children hit: the mask, the keys and the children
 // are the lanes of one vector each, so the run is sorted as those vectors
-// (SSA/SortRecursion.cpp, sort_lanes). The misses' keys are made infinite,
-// the keys become integers that order as the floats do with the lane in the
-// low bits -- Embree's `distance_i` -- the hits' keys are packed to the
-// front (`compress`), and a `switch` on their count (`reduce<+>` of the
-// mask) picks the network, as Embree's traverseClosestHit does: for no
-// hit, straight on to what follows the run (the pop); for one hit, no
-// network and no run at all -- a run of one call is a call, its arguments
-// lane 0 of each vector packed by the mask (`compress(_t41, @182)[0u]`),
-// descended into with nothing written to the stack; the shortest network
-// of two or three inputs for those, and for four the bitonic network over
-// all the lanes of the keys with the misses' made infinite there, each
-// layer a `shuffle`, a `min`, a `max` and a `select`. Every case
-// leaves the keys in one shape (`slice(.., 3, -1, 4)` reverses the packed
-// ones into it): descending, the misses in the first lanes and the hits
-// from the farthest to the nearest in the last. The children and the
-// carried bounds do not follow the keys through the network; they are taken
-// out once by the lane in each sorted key's low bits (`permute`). Then
-// loopify puts the run on a stack with one compacting store:
+// (SSA/SortRecursion.cpp, sort_lanes), the way Embree's AVX-512 traversal
+// does it (traverseClosestHitAVX512VL8). The keys become integers that
+// order as the floats do with the lane in the low bits -- Embree's
+// `distance_i` -- the hits' keys are packed to the front (`compress`; the
+// lanes past them are never read, so nothing fills them), and a `switch` on
+// their count (`reduce<+>` of the mask) picks an arm that finishes by
+// itself with the count a constant: for no hit, straight on to what follows
+// the run (the pop); for one hit, no sort and no run at all -- a run of one
+// call is a call, its arguments lane 0 of each vector packed by the mask
+// (`compress(_t41, @182)[0u]`), descended into with nothing written to the
+// stack; for two, three and four hits the packed keys read out as scalars
+// (`@198[0u]`, `@198[1u]`, ...) and sorted by insertion, a `min` and a
+// `max` against each key already placed (Embree's dist_A0/B0, then
+// A1/B1/C1, then A2 to D2), each sorted key's low bits naming the lane the
+// child and its carried bound are read from (`_t41[@208]`), and a run of
+// exactly that many calls, nearest first, which loopify writes as scalar
+// pushes at constant offsets from the top and a descent into the first:
 //
-//     if (hits != 0) {
-//       compress_store(!stack[!count], <sorted children>, <lanes 4-hits .. 2>)
-//       !count += hits - 1
-//       tris_ref!top = <lane 3, the nearest>
-//     }                                   -- and otherwise the pop
+//     case 2:
+//       !stack[!count] = <the far child>      -- Embree's stackPtr[0].ptr
+//       !stack0[!count] = <its bound>         -- and stackPtr[0].dist
+//       !count += 1                           -- stackPtr++
+//       tris_ref!top = <the near child>       -- cur
 //
-// a child whose box the ray missed is neither descended into nor pushed, and
-// no push is a branch. That is Embree's BVHNIntersector1 -- intersect the
-// node's children, sort the hits by distance, push them and continue with
-// the nearest -- as the composition of a tree declaration and two
+// No lane is permuted, no mask of the lanes that wait is formed from the
+// count, and no compacting store is made; a child whose box the ray missed
+// is neither descended into nor pushed, and no push is a branch. (A node of
+// more than four children keeps a last arm for five hits and up: the
+// bitonic network over all the lanes with the misses' keys made infinite,
+// the children taken out by one `permute` each and the waiting ones
+// written by one compacting store, as Embree's own fallback sorts and
+// writes them in a loop.) That is Embree's BVHNIntersector1 -- intersect
+// the node's children, sort the hits by distance, push them and continue
+// with the nearest -- as the composition of a tree declaration and two
 // directives.
 //
 // What is not here: Embree also carries each pushed child's entry distance

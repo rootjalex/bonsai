@@ -61,7 +61,7 @@ func trace(r : Ray, tris : _tree_layout0) -> _option0 {
 }
 
 
-schedule host {
+schedule {
     tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] TriBVH
   | Interior(low : f32x3, high : f32x3, left : (const TriBVH&), right : (const TriBVH&)) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high)

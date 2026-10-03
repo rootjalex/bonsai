@@ -35,7 +35,7 @@ eight_entry:
 define <8 x float> @packed(<8 x float> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
 packed_entry:
   %0 = icmp ne <8 x i32> %m, zeroinitializer
-  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %v, <8 x i1> %0, <8 x float> zeroinitializer)
+  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %v, <8 x i1> %0, <8 x float> poison)
   ret <8 x float> %compress
 }
 
@@ -43,8 +43,16 @@ packed_entry:
 define <8 x i64> @packed_wide(<8 x i64> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
 packed_wide_entry:
   %0 = icmp ne <8 x i32> %m, zeroinitializer
-  %compress = tail call <8 x i64> @llvm.experimental.vector.compress.v8i64(<8 x i64> %v, <8 x i1> %0, <8 x i64> zeroinitializer)
+  %compress = tail call <8 x i64> @llvm.experimental.vector.compress.v8i64(<8 x i64> %v, <8 x i1> %0, <8 x i64> poison)
   ret <8 x i64> %compress
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <8 x float> @packed_zeroed(<8 x float> noundef %v, <8 x i32> noundef %m) local_unnamed_addr #0 {
+packed_zeroed_entry:
+  %0 = icmp ne <8 x i32> %m, zeroinitializer
+  %compress = tail call <8 x float> @llvm.experimental.vector.compress.v8f32(<8 x float> %v, <8 x i1> %0, <8 x float> zeroinitializer)
+  ret <8 x float> %compress
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)

@@ -104,7 +104,7 @@ func fill(n : i32, acc : i32, out : mut i32[4], i : i32) -> void {
 }
 
 
-schedule host {
+schedule {
     countdown.loopify()
     fill.loopify()
 

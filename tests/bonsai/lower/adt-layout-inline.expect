@@ -33,6 +33,6 @@ func [[export]] size(s : (Shape*)) -> f32 {
 }
 
 
-schedule host {
+schedule {
 
 }

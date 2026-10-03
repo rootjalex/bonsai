@@ -65,7 +65,7 @@ func small(a : u32[8], d : u32, out : mut u32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     parts.vectorize(i)
     scale.vectorize(i)
     small.vectorize(i)

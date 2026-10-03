@@ -20,7 +20,7 @@ func run(out : mut f32[], hist : mut f32[], perm : u32[], x : f32[], n : u32, of
 }
 
 
-schedule host {
+schedule {
     run.bind(i, CPUThread)
 
 }

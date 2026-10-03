@@ -87,7 +87,7 @@ func trace_step(x : i32, depth : i32, total : mut (i32*), _queue_rays : mut (Que
 }
 
 
-schedule host {
+schedule {
     hits = run.queue(root);
     rays = run.queue(root);
     run.defer(trace_step, rays)

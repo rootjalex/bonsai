@@ -122,9 +122,12 @@ struct CodeGen_LLVM : public ir::Visitor {
     // every pass manager that runs over the module, so the two agree.
     llvm::TargetLibraryInfoImpl target_library_info(const llvm::Triple &triple);
 
-  protected:
-    /** Initialize internal llvm state for the enabled targets. */
+    /** Initialize internal llvm state for the enabled targets. Once per
+     * process; also what resolving the target before lowering needs
+     * (codegen::resolve_target). */
     static void init_llvm();
+
+  protected:
     /** Grab all the context specific internal state. */
     virtual void init_context();
     /** Initialize the CodeGen_LLVM internal state to compile a fresh
@@ -628,15 +631,16 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual llvm::Value *dynamic_shuffle(llvm::Value *vec, llvm::Value *indices,
                                          const std::string &name);
     // The lanes of `vec` that `mask` has on, packed to the front in lane
-    // order, the rest zero (ir::Intrinsic::compress): LLVM's vector.compress,
-    // which is `vpcompressd` into a zeroed register on AVX-512 and a store
-    // and a load per lane where the machine has nothing. With `zero_rest`
-    // off the rest are whatever they are -- for a caller that reads only
-    // the lanes packed (a prefetch, a store into slack), which spares the
-    // zeroing of the destination LLVM puts before the instruction.
+    // order, the rest `rest`'s lanes (ir::Intrinsic::compress): LLVM's
+    // vector.compress, which is `vpcompressd` into a register holding
+    // `rest` on AVX-512 and a store and a load per lane where the machine
+    // has nothing. Without a `rest` the lanes past the packed ones are
+    // whatever they are -- for a caller that reads only the lanes packed (a
+    // prefetch, a store into slack, a traversal's one child), which spares
+    // the zeroing of the destination LLVM puts before the instruction.
     llvm::Value *compress_lanes(llvm::Value *vec, llvm::Value *mask,
                                 const std::string &name,
-                                bool zero_rest = true);
+                                llvm::Value *rest = nullptr);
 
     // Brings the `bytes` bytes at `ptr` into the first-level cache, a line
     // at a time (ir::Intrinsic::prefetch): llvm.prefetch for a read with

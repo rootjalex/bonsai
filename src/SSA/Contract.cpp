@@ -278,25 +278,30 @@ std::optional<Product> product_of(const std::shared_ptr<Value> &operand,
     return std::nullopt;
 }
 
-// `value` as an operand of an instruction in `block`: a constant, a value of
-// this block, or a value of a block that dominates it is itself -- in scope
-// where it is used, as a rewrite's values are referenced across the blocks
-// it left (see SSA/Vectorize.cpp) -- and a value from any other block
-// reaches it as a block argument, threaded in as the builder threads every
-// cross-block operand (Block::get_value).
+// An operand of the product, as the fma in `block` reads it: the value
+// itself. The product's block dominates the consumer's (`Placement`), so
+// everything the product read is in scope at the consumer as it stands -- a
+// constant, an instruction of a dominating block, or an argument of one --
+// the way a rewrite's values are referenced across the blocks it left (see
+// SSA/Vectorize.cpp).
+//
+// Not re-resolved by name through Block::get_value: that reads the block's
+// current binding of the name, which for a loop's variable is its last
+// assignment in the block -- `total = total + o * noise(p); o = o * omega;`
+// would fuse to `fma(o', noise, total)` with `o'` the product below it, a
+// value not yet defined where it is read. The instruction's operand holds
+// the value `o` was at the multiply, and that is what the fma takes.
 std::shared_ptr<Value> in_block(const std::shared_ptr<Value> &value,
-                                Block &block, const Placement &placement) {
+                                const Block &block,
+                                const Placement &placement) {
     if (const auto *held =
             std::get_if<std::shared_ptr<Instruction>>(&value->data)) {
         const std::shared_ptr<Block> owner = (*held)->owner.lock();
-        if (owner.get() != &block &&
-            !(owner != nullptr && placement.dominates(*owner, block))) {
-            return block.get_value((*held)->name, (*held)->type);
-        }
-        return value;
-    }
-    if (const auto *arg = std::get_if<Argument>(&value->data)) {
-        return block.get_value(arg->name, arg->type);
+        internal_assert(owner != nullptr &&
+                        (owner.get() == &block ||
+                         placement.dominates(*owner, block)))
+            << "A fused product's operand " << (*held)->name
+            << " is not in scope in block " << block.name;
     }
     return value;
 }

@@ -698,7 +698,7 @@ func [[export]] weigh_one(x : f32) -> f32 {
 }
 
 
-schedule host {
+schedule {
     weigh_all.vectorize(i)
 
 }

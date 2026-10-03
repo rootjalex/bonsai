@@ -135,10 +135,13 @@ bonsai_permute(const vector<T, N> &v, const vector<I, M> &indices) {
     return out;
 }
 
+// The lanes past the ones packed hold `fill`'s -- the vector's own where
+// the program named no fill, as Embree's `compact` merges into itself.
 template <typename T, size_t N>
 __attribute__((always_inline)) vector<T, N>
-bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask) {
-    vector<T, N> out; // zero past the lanes packed
+bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask,
+                const vector<T, N> &fill) {
+    vector<T, N> out = fill;
     size_t next = 0;
     for (size_t k = 0; k < N; k++) {
         if (mask[k]) {
@@ -146,6 +149,22 @@ bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask) {
         }
     }
     return out;
+}
+
+template <typename T, size_t N>
+__attribute__((always_inline)) vector<T, N>
+bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask, T fill) {
+    vector<T, N> filled;
+    for (size_t k = 0; k < N; k++) {
+        filled[k] = fill;
+    }
+    return bonsai_compress(v, mask, filled);
+}
+
+template <typename T, size_t N>
+__attribute__((always_inline)) vector<T, N>
+bonsai_compress(const vector<T, N> &v, const vector<bool, N> &mask) {
+    return bonsai_compress(v, mask, v);
 }
 
 // The prefetch (Intrinsic::prefetch): the `bytes` at `address` into the

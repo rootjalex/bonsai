@@ -543,14 +543,22 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // integer needs of its divisor (see SSA/InvariantDivision.h).
         clz,
         // `compress(v, mask)`: the lanes of `v` the mask has on, packed to
-        // the front of a vector of v's type in their lane order, the lanes
-        // past them zero. The register form of the compacting store (see
-        // ir::Store::compact): AVX-512's `vpcompressd`/`vpcompressq`, and
-        // LLVM's vector.compress where the machine has nothing. What a
-        // traversal does to the children a ray hit before sorting them, so
-        // that a network over the first `popcount(mask)` lanes orders the
-        // hits alone (Embree's bvh_traverser1.h, `vint8::compact`; see
-        // SSA/SortRecursion.cpp).
+        // the front of a vector of v's type in their lane order; the lanes
+        // past them -- from the `popcount(mask)`th on -- hold whatever they
+        // hold, and a reader that looks there gets no particular value.
+        // `compress(v, mask, fill)` fills them with `fill`'s lanes instead
+        // (a vector of v's type, or one element of it in every lane): LLVM's
+        // passthru, Embree's `compact(mask, a, b)`. The two-argument form is
+        // Embree's own `compact`, which merges into the vector itself, and
+        // what a traversal wants of every compress it makes: it reads the
+        // packed lanes alone, and the instruction then merges into whichever
+        // register it has rather than one zeroed first. The register form of
+        // the compacting store (see ir::Store::compact): AVX-512's
+        // `vpcompressd`/`vpcompressq`, and LLVM's vector.compress where the
+        // machine has nothing. What a traversal does to the children a ray
+        // hit before sorting them, so that a network over the first
+        // `popcount(mask)` lanes orders the hits alone (Embree's
+        // bvh_traverser1.h, `vint8::compact`; see SSA/SortRecursion.cpp).
         compress,
         cos,
         cosh,

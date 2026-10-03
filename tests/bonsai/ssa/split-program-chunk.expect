@@ -108,7 +108,7 @@ func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mu
 }
 
 
-schedule host {
+schedule {
     sums = run.queue(i_band);
     run.split(i, i_band, i_in, band, 1)
     walk.defer(walk, sums)

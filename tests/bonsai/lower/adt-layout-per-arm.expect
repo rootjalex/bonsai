@@ -52,6 +52,6 @@ func [[export]] small(_ret3 : mut (Item*), x : f32) -> void {
 }
 
 
-schedule host {
+schedule {
 
 }

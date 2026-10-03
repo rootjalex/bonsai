@@ -17,4 +17,8 @@ func packed(v : f32x8, m : u32x8) -> f32x8 {
   return compress(v, m != u32x8(0u))
 }
 
+func packed_zeroed(v : f32x8, m : u32x8) -> f32x8 {
+  return compress(v, m != u32x8(0u), 0f)
+}
+
 

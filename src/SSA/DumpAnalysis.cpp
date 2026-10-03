@@ -217,9 +217,8 @@ ir::Program DumpSSAAnalysis::run(ir::Program program,
     // at all: without it there is no loop for these analyses to report, and
     // the loop forest of a traversal is exactly what a reader comes here for.
     // Nothing else in the schedule changes the CFG at this level.
-    if (const auto it = program.schedules.find(ir::Target::Host);
-        it != program.schedules.end()) {
-        for (const auto &[name, ts] : it->second.func_transforms) {
+    {
+        for (const auto &[name, ts] : program.schedule.func_transforms) {
             if (!fmap.contains(name)) {
                 continue;
             }

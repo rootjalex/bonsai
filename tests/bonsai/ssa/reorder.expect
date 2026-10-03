@@ -126,7 +126,7 @@ func uniform(scale : i32[3], out : mut i32[12]) -> void {
 }
 
 
-schedule host {
+schedule {
     counted.reorder(y, x)
     grid.reorder(y, x)
     limit.reorder(y, x)

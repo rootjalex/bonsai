@@ -199,7 +199,7 @@ func [[noinline]] scramble(digit : u64, salt : u64) -> u64 {
 }
 
 
-schedule host {
+schedule {
     run.vectorize(i)
 
 }

@@ -7,6 +7,7 @@ add_bonsai_tests(
     calls.bonsai
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai
+    child-volumes-sorted-wide.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     skip-leaf-helper.bonsai

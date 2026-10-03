@@ -118,7 +118,7 @@ func work(x : f32) -> f32 {
 }
 
 
-schedule host {
+schedule {
     hits = run.queue(root);
     rays = run.queue(root);
     run.defer(step, rays)

@@ -169,7 +169,7 @@ func step!after!Small(@0 : Kind, k : f32) -> f32 {
 }
 
 
-schedule host {
+schedule {
     hits = run.queue(root);
     step.stage(classify, hits)
 

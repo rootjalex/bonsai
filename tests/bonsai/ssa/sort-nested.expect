@@ -438,7 +438,7 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), instances : (_tree_
 }
 
 
-schedule host {
+schedule {
     Instance.blas : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BLAS
   | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high)

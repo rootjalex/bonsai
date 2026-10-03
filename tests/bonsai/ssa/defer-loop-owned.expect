@@ -67,7 +67,7 @@ func walk(p : i32, s : i32, depth : i32, acc : i32, out : mut i32[16], _queue_pa
 }
 
 
-schedule host {
+schedule {
     paths = render.queue(p);
     walk.defer(walk, paths)
 

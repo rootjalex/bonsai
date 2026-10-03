@@ -2,10 +2,12 @@
 //
 // Every lane of every shape against the definition: lane k of a permute is
 // the lane of the vector its index names, and a compress holds the lanes
-// the mask had on, in their order, then zeros. The indices are a fixed
-// scramble with repeats, so that a lane taken twice and a lane taken never
-// both occur, and the masks have hits in the first, the last and the
-// middle lanes, so that the packing moves lanes by every distance.
+// the mask had on, in their order, then its fill -- or, with no fill
+// named, nothing in particular, and only the packed lanes are checked. The
+// indices are a fixed scramble with repeats, so that a lane taken twice and
+// a lane taken never both occur, and the masks have hits in the first, the
+// last and the middle lanes, so that the packing moves lanes by every
+// distance.
 #include "permute.h"
 
 #include <cstdint>
@@ -32,9 +34,11 @@ void check_permute(const char *what, const V &v, const I &i, const G &got,
     std::cout << what << " ok\n";
 }
 
+// `zeroed` says the compress was given a fill of zero, so the lanes past the
+// packed ones are checked for it; otherwise they may hold anything.
 template <typename V, typename M>
 void check_compress(const char *what, const V &v, const M &m, const V &got,
-                    int lanes) {
+                    int lanes, bool zeroed = true) {
     int next = 0;
     for (int k = 0; k < lanes; k++) {
         if (m[k] != 0) {
@@ -47,7 +51,7 @@ void check_compress(const char *what, const V &v, const M &m, const V &got,
             next++;
         }
     }
-    for (int k = next; k < lanes; k++) {
+    for (int k = next; zeroed && k < lanes; k++) {
         if (got[k] != 0) {
             std::cout << what << ": slot " << k << " past the " << next
                       << " packed is " << double(got[k])
@@ -79,6 +83,8 @@ int main() {
         }
         check_permute("permute f32x8", v, i, permute_f32x8(v, i), 8);
         check_compress("compress f32x8", v, m, compress_f32x8(v, m), 8);
+        check_compress("compress f32x8, no fill", v, m,
+                       compress_front_f32x8(v, m), 8, /*zeroed=*/false);
     }
     {
         uint32_t16 v, i, m;
@@ -111,6 +117,8 @@ int main() {
         }
         check_permute("permute u64x8", v, i, permute_u64x8(v, i), 8);
         check_compress("compress u64x8", v, m, compress_u64x8(v, m), 8);
+        check_compress("compress u64x8, no fill", v, m,
+                       compress_front_u64x8(v, m), 8, /*zeroed=*/false);
     }
     {
         uint64_t4 v;

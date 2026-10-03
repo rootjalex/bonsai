@@ -90,7 +90,7 @@ func uniform_arg(k : f32, out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     both_ways.vectorize(i)
     chained.vectorize(i)
     clip_all.vectorize(i)

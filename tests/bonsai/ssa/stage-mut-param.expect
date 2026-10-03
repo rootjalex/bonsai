@@ -69,7 +69,7 @@ func work(x : f32) -> f32 {
 }
 
 
-schedule host {
+schedule {
     q = run.queue(root);
     step.stage(work, q)
 

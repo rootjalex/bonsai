@@ -100,7 +100,7 @@ func uniform_meets_varying(inp : f32x3[8], origin : f32x3, out : mut f32[8]) -> 
 }
 
 
-schedule host {
+schedule {
     components.vectorize(i)
     through_a_call.vectorize(i)
     uniform_meets_varying.vectorize(i)

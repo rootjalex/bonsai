@@ -24,7 +24,7 @@ func uniform_operand(a : f32[8], scale : f32, out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     contiguous.vectorize(i)
     uniform_arithmetic.vectorize(i)
     uniform_operand.vectorize(i)

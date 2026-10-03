@@ -154,38 +154,50 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
 //
 // So a run of this shape is sorted as the vectors it is, and over the hits
 // alone, the way Embree's AVX-512 traversal does it
-// (traverseClosestHitAVX512VL8). The misses' keys are set infinite, and the
-// keys are made integers that order as the floats do with each lane's own
-// index in the low bits -- Embree's `distance_i`, which makes every key
-// distinct and lets a sorted key say which lane it came from. The hits'
-// keys are then compressed to the front (ir::Intrinsic::compress,
-// `vpcompressd`), and a switch on their count picks the network: for no
-// hit, straight on to what follows the run; for one hit no network and no
-// run at all -- a run of one call is a call, to the hit lane of each vector
-// packed to the front and read from lane 0, which loopify descends into
-// with nothing written to its stack (three node tests in five on
-// incoherent rays, and Embree's own one-hit case); for two, three and four
-// the shortest sorting network of
-// that many inputs (Knuth, The Art of Computer Programming vol. 3, section
-// 5.3.4: one, three and five comparators in one, three and three layers),
-// each layer one shuffle, a vector minimum, a vector maximum and a select;
-// more hits than that sort all the lanes at once by Batcher's bitonic
-// network (Batcher, "Sorting Networks and their Applications", AFIPS 1968),
-// whose six layers are what the switch spares the common counts, since a
-// node a ray passes through usually hits one or two of its children. The
-// sorted keys come to one block in one shape -- descending, the misses
-// first and the hits from the farthest to the nearest in the last lane --
-// and there the children and whatever travels with them are taken out by
-// the lane index in each key's low bits with one variable permute each
-// (ir::Intrinsic::permute, `vpermq`, `vpermps`: Embree's permuteExtract),
-// rather than following the keys through every layer of the network.
+// (traverseClosestHitAVX512VL8) -- the strategy a machine with a register
+// compress takes (lane_sort_strategy; ir::Target). The keys are made
+// integers that order as the floats do with each lane's own index in the
+// low bits -- Embree's `distance_i`, which makes every key distinct and
+// lets a sorted key say which lane it came from. The hits' keys are then
+// compressed to the front (ir::Intrinsic::compress, `vpcompressd`; the
+// lanes past them are never read), and a switch on their count picks the
+// arm, each arm finishing by itself with the count a constant:
 //
-// What the run is made of afterwards says it in the shape of a run: call k
-// is lane n - 1 - k of the permuted vectors (the nearest first) and is made
-// when `k < hits`, the number of lanes the mask has on. A run still made as
-// calls is made in that order; one put on a stack (SSA/QueueRecursion.h)
-// reads the vectors behind those lanes and writes the hits that wait with
-// one compacting store.
+// - no hit: straight on to what follows the run, as a run whose every
+//   condition is false goes;
+// - one hit: a run of one call is a call, to the hit lane of each vector
+//   packed to the front and read from lane 0 (one `vpcompressq` and a
+//   `vmovq`), which loopify descends into with nothing written to its
+//   stack -- three node tests in five on incoherent rays, and Embree's own
+//   one-hit case;
+// - two, three and four hits: the packed keys read out as scalars and
+//   sorted by insertion, a minimum and a maximum per key already placed
+//   (Embree's dist_A0/B0, A1/B1/C1, A2/B2/C2/D2 chains), and a run of
+//   exactly that many calls, nearest first and none conditional, each
+//   call's values taken from the vectors at the index in its key's low
+//   bits (Embree's permuteExtract). loopify writes such a run as h - 1
+//   scalar pushes at constant offsets from the stack top and descends into
+//   the first (SSA/QueueRecursion.cpp): Embree's `stackPtr[0].ptr = ...;
+//   stackPtr[1].ptr = ...; stackPtr += 2; cur = ...`. Nothing is permuted,
+//   no waiting mask is formed from the count, and no compacting store is
+//   made, since the count is a constant in the arm.
+// - more hits than that: all the lanes at once, the misses' keys made
+//   infinite so that they sort out of the hits' way, by Batcher's bitonic
+//   network (Batcher, "Sorting Networks and their Applications", AFIPS
+//   1968), descending, the misses first and the hits from the farthest to
+//   the nearest in the last lane; the children and whatever travels with
+//   them are then taken out by the lane index in each key's low bits with
+//   one variable permute each (ir::Intrinsic::permute, `vpermq`,
+//   `vpermps`), and the run says it in the shape of a run: call k is lane
+//   n - 1 - k of the permuted vectors (the nearest first) and is made when
+//   `k < hits`. loopify reads that shape (SortedRun, SSA/SortRecursion.h)
+//   and writes the hits that wait with one compacting store. Embree's
+//   fallback for five or more hits is the same shape: the keys sorted
+//   descending and written to the stack in a loop.
+//
+// The arms for the common counts are what the switch is for: a node a ray
+// passes through usually hits one or two of its children, and those pay
+// neither the network nor the join the general case needs.
 
 // A value's identity: the instruction it is, or the parameter it names.
 bool same_source(const Value &a, const Value &b) {
@@ -338,24 +350,6 @@ shared_ptr<Block> fresh_block(Function &func, const string &stem) {
 // lane j.
 using Layer = vector<std::pair<uint32_t, uint32_t>>;
 
-// The shortest sorting network of `h` inputs, ascending over lanes 0 to
-// h - 1, for the few counts a switch specializes (Knuth, TAOCP vol. 3,
-// section 5.3.4, figure 49): two inputs in one comparator; three in three,
-// one after another; four in five, over three layers.
-vector<Layer> ascending_network(uint32_t h) {
-    switch (h) {
-    case 2:
-        return {{{0, 1}}};
-    case 3:
-        return {{{0, 2}}, {{0, 1}}, {{1, 2}}};
-    case 4:
-        return {{{0, 1}, {2, 3}}, {{0, 2}, {1, 3}}, {{1, 2}}};
-    default:
-        internal_error << "No specialized network for " << h << " inputs";
-        return {};
-    }
-}
-
 // Batcher's bitonic network over `n` lanes, n a power of two, descending:
 // at each layer every lane meets the partner at the bit it flips, and the
 // one of the pair the merge direction says takes the larger.
@@ -378,10 +372,38 @@ vector<Layer> descending_bitonic(uint32_t n) {
     return layers;
 }
 
+// How a run that is the lanes of vectors is sorted and handed to loopify,
+// by the machine the code is for. The choice is made here, in the rewrite,
+// rather than in each backend, so that the traversal a schedule produces
+// reads in the SSA dump and is pinned by a golden per machine, and so that
+// the stack and the loop it builds are written once (see ir::Target).
+enum class LaneSortStrategy {
+    // Embree's compact-and-sort (bvh_traverser1.h,
+    // traverseClosestHitAVX512VL8), described above: the hits' keys packed
+    // to the front of a register in one instruction, a switch on their
+    // count, the common counts sorted as scalars and pushed one by one, the
+    // rest by a network over all the lanes. What a machine with a register
+    // compress -- AVX-512, SVE -- takes.
+    Compact,
+};
+
+LaneSortStrategy lane_sort_strategy(const Target &target) {
+    // One strategy today, whatever the machine. A machine without a register
+    // compress -- AVX2, NEON -- gets the same code with LLVM's expansion of
+    // the compress, a store and a load per lane; Embree's own traversal on
+    // such a machine is its generic traverseClosestHit (bvh_traverser1.h): a
+    // bit-scan loop over the mask (`bscf`) with a scalar load of the child at
+    // each bit, two hits a compare and a store, three and four pushed and
+    // sorted on the stack by scalar compare-exchanges. That is the strategy
+    // to write here when a machine without a compress is measured.
+    (void)target;
+    return LaneSortStrategy::Compact;
+}
+
 // Sorts the run `call` in `block`, which is the lanes `lanes` describe, as
-// described above; see there. Clears the run's keys, and moves the run to
-// the block the sorted keys arrive in: `block` ends in the switch on the
-// count of hits afterwards, and the reference `call` is spent.
+// described above; see there. Clears the run's keys, and moves the run into
+// the arms of a switch on the count of hits, which `block` ends in
+// afterwards; the reference `call` is spent.
 void sort_lanes(Function &func, const shared_ptr<Block> &block,
                 Terminator::MultiCall &call, const Lanes &lanes) {
     const uint32_t n = uint32_t(call.varying.size());
@@ -454,12 +476,6 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
             lane_pattern(into, [&](uint32_t i) { return takes_max[i]; });
         return emit(into, i32xn, Instruction::Op::Select, {wants_max, hi, lo});
     };
-    // Lane i to lane n - 1 - i.
-    vector<int> reversed(n);
-    for (uint32_t i = 0; i < n; i++) {
-        reversed[i] = int(n - 1 - i);
-    }
-
     const shared_ptr<Value> mask = lanes_as_vector(func, block, lanes.mask, n);
     const shared_ptr<Value> keys = lanes_as_vector(func, block, lanes.keys, n);
     vector<shared_ptr<Value>> values;
@@ -474,7 +490,8 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     // a sorted key says which lane it came from. The misses' keys are left
     // as they are: the compress below drops them, and only the network over
     // all the lanes (the last arm) needs them out of the hits' way, where
-    // they are made infinite.
+    // they are made infinite. The index is a bit field of the key: with the
+    // keys scalars, `key & (n - 1)` is the lane to read a child from.
     auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {keys});
     auto sign = emit(block, i32xn, Instruction::Op::Shr,
                      {bits, bc(block, ci32(31), i32xn)});
@@ -487,22 +504,27 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     auto packed = emit(block, i32xn, Instruction::Op::BwOr, {high, lane});
 
     // How many calls are made: the lanes the mask has on. Their keys, packed
-    // to the front in lane order, are what the short networks sort.
+    // to the front in lane order, are what the arms for two to four hits
+    // read; nothing reads the lanes past them, so the compress fills them
+    // with nothing (Embree's `compact`).
     auto hits = emit(block, u32, Instruction::Op::Popcount, {mask});
     auto compressed =
         intrinsic(block, i32xn, ir::Intrinsic::compress, {packed, mask});
 
-    // Where the sorted keys arrive, in one shape whatever sorted them:
-    // descending, the hits in the last `hits` lanes from the farthest to the
-    // nearest. The run is made there.
-    auto join = fresh_block(func, block->name + "!sorted");
-    const shared_ptr<Value> sorted =
-        join->add_argument(Argument{i32xn, func.get_unique_name()});
-    const auto arrive = [&](const shared_ptr<Block> &from,
-                            const shared_ptr<Value> &with) {
-        from->terminator.data = Terminator::Jump{join->name, {with}};
-        func.blocks.push_back(from);
-        return Terminator::Jump{from->name, {}};
+    // The value of each varying parameter at the lane a key names: the
+    // key's low bits are the lane (see `packed`), and the value is read
+    // from the vector there.
+    const auto at_key = [&](const shared_ptr<Block> &into,
+                            const shared_ptr<Value> &key) {
+        auto masked = emit(into, i32, Instruction::Op::BwAnd,
+                           {key, ci32(int64_t(n) - 1)});
+        auto idx = emit(into, u32, Instruction::Op::Reinterpret, {masked});
+        vector<shared_ptr<Value>> row;
+        for (size_t j = 0; j < values.size(); j++) {
+            row.push_back(emit(into, lanes.varying_type[j],
+                               Instruction::Op::ExtractIdx, {values[j], idx}));
+        }
+        return row;
     };
 
     // The switch on the count: target k for k hits, the last target for
@@ -546,19 +568,50 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     }
     const uint32_t specialized = std::min<uint32_t>(n, 4);
     for (uint32_t h = 2; h <= specialized; h++) {
-        // The shortest network of h inputs over the first h lanes,
-        // ascending, then reversed into the shape above.
-        auto block_h = fresh_block(func, block->name + "!sort" + std::to_string(h));
-        shared_ptr<Value> x = compressed;
-        for (const Layer &comparators : ascending_network(h)) {
-            x = layer(block_h, x, comparators);
+        // h hits, and h a constant here: the h packed keys read out as
+        // scalars and sorted by insertion -- each key placed with a minimum
+        // and a maximum against every key before it, Embree's chains of
+        // dist_A0 and dist_B0, then A1, B1, C1, then A2 to D2 -- and a run of
+        // exactly h calls, the nearest first and none conditional, each
+        // call's values read from the vectors at the lane its key names.
+        // loopify writes it as h - 1 scalar pushes at constant offsets from
+        // the stack top and a descent into the first (SSA/QueueRecursion
+        // .cpp), Embree's `stackPtr[0].ptr = ...; stackPtr++; cur = ...`.
+        auto block_h =
+            fresh_block(func, block->name + "!sort" + std::to_string(h));
+        vector<shared_ptr<Value>> ascending;
+        for (uint32_t k = 0; k < h; k++) {
+            shared_ptr<Value> key = emit(block_h, i32, Instruction::Op::ExtractIdx,
+                                         {compressed, cu32(k)});
+            for (shared_ptr<Value> &placed : ascending) {
+                auto lo = emit(block_h, i32, Instruction::Op::Min, {placed, key});
+                auto hi = emit(block_h, i32, Instruction::Op::Max, {placed, key});
+                placed = lo;
+                key = hi;
+            }
+            ascending.push_back(key);
         }
-        targets.push_back(arrive(block_h, shuffle(block_h, x, reversed)));
+        Terminator::MultiCall run;
+        run.call = call.call;
+        run.cont = call.cont;
+        run.drop = call.drop;
+        run.varying_at = call.varying_at;
+        for (const shared_ptr<Value> &key : ascending) {
+            run.varying.push_back(at_key(block_h, key));
+        }
+        block_h->terminator.data = std::move(run);
+        func.blocks.push_back(block_h);
+        targets.push_back(Terminator::Jump{block_h->name, {}});
     }
     if (specialized < n) {
         // Every count past them: all the lanes at once, the misses' infinite
-        // keys and the hits' together, by the bitonic network descending --
-        // which is the shape above already.
+        // keys and the hits' together, by the bitonic network descending,
+        // the misses first and the hits from the farthest to the nearest in
+        // the last lane; the children and what travels with them taken out
+        // by the sorted order -- the lane index in each key's low bits --
+        // with one variable permute each; and the run in that order, the
+        // nearest first, call k made when `k < hits`: the shape loopify
+        // reads as a SortedRun.
         auto all = fresh_block(func, block->name + "!sortall");
         // The misses infinitely far, whatever their keys say, so that they
         // sort first in descending order, out of the hits' way: the key of
@@ -567,35 +620,32 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
         auto inf_key =
             emit(all, i32xn, Instruction::Op::BwOr,
                  {bc(all, ci32(0x7f800000), i32xn), lane});
-        shared_ptr<Value> x = emit(all, i32xn, Instruction::Op::Select,
-                                   {mask, packed, inf_key});
+        shared_ptr<Value> sorted = emit(all, i32xn, Instruction::Op::Select,
+                                        {mask, packed, inf_key});
         for (const Layer &comparators : descending_bitonic(n)) {
-            x = layer(all, x, comparators);
+            sorted = layer(all, sorted, comparators);
         }
-        targets.push_back(arrive(all, x));
-    }
-
-    // In the join: the children and what travels with them, taken out by
-    // the sorted order -- the lane index in each key's low bits -- with one
-    // variable permute each.
-    auto idx = emit(join, i32xn, Instruction::Op::BwAnd,
-                    {sorted, bc(join, ci32(int64_t(n) - 1), i32xn)});
-    for (shared_ptr<Value> &v : values) {
-        v = intrinsic(join, v->get_type(), ir::Intrinsic::permute, {v, idx});
-    }
-    // The run in the sorted order: the nearest -- the last lane -- first.
-    for (uint32_t k = 0; k < n; k++) {
-        for (size_t j = 0; j < values.size(); j++) {
-            call.varying[k][j] =
-                emit(join, lanes.varying_type[j], Instruction::Op::ExtractIdx,
-                     {values[j], cu32(n - 1 - k)});
+        auto idx = emit(all, i32xn, Instruction::Op::BwAnd,
+                        {sorted, bc(all, ci32(int64_t(n) - 1), i32xn)});
+        vector<shared_ptr<Value>> permuted;
+        for (const shared_ptr<Value> &v : values) {
+            permuted.push_back(
+                intrinsic(all, v->get_type(), ir::Intrinsic::permute, {v, idx}));
         }
-        call.conds[k] = emit(join, b, Instruction::Op::Lt, {cu32(k), hits});
+        for (uint32_t k = 0; k < n; k++) {
+            for (size_t j = 0; j < values.size(); j++) {
+                call.varying[k][j] =
+                    emit(all, lanes.varying_type[j], Instruction::Op::ExtractIdx,
+                         {permuted[j], cu32(n - 1 - k)});
+            }
+            call.conds[k] = emit(all, b, Instruction::Op::Lt, {cu32(k), hits});
+        }
+        call.keys.clear();
+        all->terminator.data = std::move(block->terminator.data);
+        func.blocks.push_back(all);
+        targets.push_back(Terminator::Jump{all->name, {}});
     }
-    call.keys.clear();
-    join->terminator.data = std::move(block->terminator.data);
     block->terminator.data = Terminator::Dispatch{hits, std::move(targets)};
-    func.blocks.push_back(join);
 }
 
 } // namespace
@@ -638,7 +688,9 @@ std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
     return run;
 }
 
-size_t sort_recursion(Function &func) {
+size_t sort_recursion(Function &func, const Target &target) {
+    const LaneSortStrategy strategy = lane_sort_strategy(target);
+    internal_assert(strategy == LaneSortStrategy::Compact);
     size_t sorted = 0;
     // Over a copy of the list: a run sorted as lanes adds the blocks of its
     // switch to the function.

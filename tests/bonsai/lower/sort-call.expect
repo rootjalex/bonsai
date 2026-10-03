@@ -73,6 +73,6 @@ func weigh(k : Kind, i : i32) -> i32 {
 }
 
 
-schedule host {
+schedule {
 
 }

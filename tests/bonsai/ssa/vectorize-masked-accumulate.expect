@@ -48,7 +48,7 @@ func [[export]] sum_some(a : f32[8], sums : mut f32x3[2]) -> void {
 }
 
 
-schedule host {
+schedule {
     sum_some.vectorize(i)
 
 }

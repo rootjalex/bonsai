@@ -87,6 +87,25 @@ func [[export]] neg_sub(a : f32, b : f32, c : f32) -> f32 {
   return @2
 }
 
+func [[export]] rebound(k : f32, omega : f32, n : i32) -> f32 {
+  i : mut i32
+  total : mut f32
+  o : mut f32
+  i = 0
+  total = 0f
+  o = 1f
+  while ((*i) < n) {
+    let @4 = fma((*o), k, (*total)) in
+    let @6 = (*o) * omega in
+    let @7 = (*i) + 1 in
+    i = @7
+    total = @4
+    o = @6
+  }
+  let @11 = fma((*o), k, (*total)) in
+  return @11
+}
+
 func step(x : f32) -> f32 {
   let @0 = x < 0f in
   if (@0) {

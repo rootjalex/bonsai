@@ -535,7 +535,7 @@ ir::Program infer_types(const ir::Program &program) {
     ir::Program new_program;
     new_program.externs = program.externs;
     new_program.types = program.types;
-    new_program.schedules = program.schedules;
+    new_program.schedule = program.schedule;
     // Carried, not rebuilt: an element's extent is over that element's own
     // fields and needs no inference of its own.
     new_program.extents = program.extents;

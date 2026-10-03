@@ -141,7 +141,7 @@ func [[noinline]] tick$gang8_p0(c : mut (Counter$v8*)) -> i32x8 {
 }
 
 
-schedule host {
+schedule {
     stepping.vectorize(i)
     tally.vectorize(i)
     tally_some.vectorize(i)

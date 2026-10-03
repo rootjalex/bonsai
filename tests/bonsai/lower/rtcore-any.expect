@@ -122,7 +122,7 @@ func [[export]] trace_anyhit_matters(_rt_e0 : Tri) -> bool {
 }
 
 
-schedule host {
+schedule {
     tris : tree[[struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }]] OptixTree
   | Leaf(data : Tri[]) with data = data
     tris :       {

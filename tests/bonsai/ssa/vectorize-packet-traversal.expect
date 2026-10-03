@@ -1543,7 +1543,7 @@ func trace(r : Ray, shapes : _tree_layout0) -> _option0 {
 }
 
 
-schedule host {
+schedule {
     shapes : tree[[| Sph(s : struct Sphere{ center : f32x3; radius : f32 }) | Tri(t : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 })]] ShapeBVH
   | Interior(center : f32x3, radius : f32, left : (const ShapeBVH&), right : (const ShapeBVH&), axis : u8) with Sphere(center, radius)
   | Leaf(center : f32x3, radius : f32, data : Shape[]) with data = data with Sphere(center, radius)

@@ -406,7 +406,7 @@ func q_within(r : AABB) -> set<Point> {
 }
 
 
-schedule host {
+schedule {
     points : tree[[struct Point{ vec : f32x3 }]] PointBVH
   | Interior(low : f32x3, high : f32x3, left : (const PointBVH&), right : (const PointBVH&)) with AABB(low, high)
   | Leaf(low : f32x3, high : f32x3, data : Point) with data = data with AABB(low, high)

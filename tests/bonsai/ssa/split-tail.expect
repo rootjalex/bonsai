@@ -35,7 +35,7 @@ func scale(n : i32, a : f32[n], out : mut f32[n]) -> void {
 }
 
 
-schedule host {
+schedule {
     exact.split(i, io, ii, (i32)16, 1)
     scale.split(i, io, ii, (i32)16, 1)
 

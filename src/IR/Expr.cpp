@@ -1349,9 +1349,11 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             break;
         }
         case Intrinsic::compress: {
-            // A vector and a mask of as many lanes, to the vector's type.
-            internal_assert(args.size() == 2)
-                << "compress takes a vector and a mask";
+            // A vector and a mask of as many lanes, to the vector's type; a
+            // third argument fills the lanes past the packed ones, and is
+            // the vector's type or its element.
+            internal_assert(args.size() == 2 || args.size() == 3)
+                << "compress takes a vector and a mask, and a fill at most";
             const Type &vt = args[0].type();
             const Type &mt = args[1].type();
             internal_assert(vt.is_vector() && mt.is_vector() &&
@@ -1359,6 +1361,12 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                             mt.element_of().is_bool())
                 << "compress of " << vt << " under " << mt
                 << ": wants a vector and a mask of as many lanes";
+            if (args.size() == 3) {
+                const Type &ft = args[2].type();
+                internal_assert(equals(ft, vt) || equals(ft, vt.element_of()))
+                    << "compress of " << vt << " filled with " << ft
+                    << ": the fill is the vector's type or its element";
+            }
             node->type = vt;
             break;
         }

@@ -82,7 +82,7 @@ func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
 }
 
 
-schedule host {
+schedule {
     run.specialize(mode)
        .bind(i, CPUThread)
 

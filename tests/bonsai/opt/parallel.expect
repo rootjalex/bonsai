@@ -30,7 +30,7 @@ func main() -> i32 {
 }
 
 
-schedule host {
+schedule {
     apply_function.bind(i0, CPUThread)
 
 }

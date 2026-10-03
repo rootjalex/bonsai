@@ -166,7 +166,7 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
 }
 
 
-schedule host {
+schedule {
     capped_triangles.vectorize(i)
     sum_to.loopify()
     triangles.vectorize(i)

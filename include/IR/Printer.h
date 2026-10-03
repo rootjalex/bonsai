@@ -34,7 +34,6 @@ std::ostream &operator<<(std::ostream &os, const WriteLoc &loc);
 
 std::ostream &operator<<(std::ostream &os, const Function &func);
 
-std::ostream &operator<<(std::ostream &os, const Target &target);
 std::ostream &operator<<(std::ostream &os, const Schedule &schedule);
 std::ostream &operator<<(std::ostream &os, const Location &loc);
 std::ostream &operator<<(std::ostream &os, const std::vector<TypedVar> &vars);

@@ -1,6 +1,7 @@
 #ifndef BONSAI_SSA_SORT_RECURSION_H
 #define BONSAI_SSA_SORT_RECURSION_H
 
+#include "IR/Target.h"
 #include "SSA/SSA.h"
 
 #include <map>
@@ -39,20 +40,26 @@ namespace ssa {
 // A run whose conditions, keys and children are the lanes of vectors -- the
 // run a node that holds its children's boxes makes, from the loop over them
 // -- is sorted as those vectors, over the children that are hit alone (see
-// sort_lanes in SortRecursion.cpp), and left in the shape `sorted_run` below
+// sort_lanes in SortRecursion.cpp): a switch on the count of hits, whose
+// arms for one to four hits are plain runs of that many calls, nearest
+// first, and whose arm for more is left in the shape `sorted_run` below
 // reads back.
 //
 // Returns the number of runs it reordered, which is zero for a function whose
-// recursion no schedule sorted.
-size_t sort_recursion(Function &func);
+// recursion no schedule sorted. `target` is the machine the code is for,
+// which decides how a run that is the lanes of vectors is ordered and
+// handed to loopify (see lane_sort_strategy in SortRecursion.cpp).
+size_t sort_recursion(Function &func, const Target &target);
 
 // A run sort_recursion() ordered as vectors, read off the shape it left: call
 // k's varying values are lane `lanes - 1 - k` of one vector per varying
 // parameter -- the nearest child in the last lane, the ones behind it in the
 // lanes below, the children not hit in the lowest lanes -- and its condition
-// is `k < hits`. What loopify reads to write the waiting children to its
-// stack with one compacting store rather than a conditional push each (see
-// SSA/QueueRecursion.h). Nothing for a run of any other shape.
+// is `k < hits`. The shape of the arm for five hits and up of a node wider
+// than four, where the count is not a constant; what loopify reads to write
+// the waiting children to its stack with one compacting store rather than
+// a conditional push each (see SSA/QueueRecursion.h). Nothing for a run of
+// any other shape.
 struct SortedRun {
     // The sorted vector of each varying parameter, by the parameter's index.
     std::map<size_t, std::shared_ptr<Value>> values;
