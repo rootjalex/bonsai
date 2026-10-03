@@ -1,0 +1,157 @@
+# The texture graph, under one area light: every texture pbrt builds from
+# other textures or from its Perlin noise, each on a diffuse sphere so that
+# the gbuffer's albedo *is* the texture's value at the hit and the comparison
+# against pbrt is of the texture evaluation itself, not a sixteen-sample
+# estimate of it.
+#
+#   - `fbm`, `wrinkled` and `windy` are float textures over pbrt's noise
+#     (util/noise.cpp), each through the 3D point mapping of the transform
+#     active at the Texture directive; `marble` is the one spectrum texture
+#     among them, a palette walked by an FBm-perturbed y.
+#   - `scale`, `mix` and `directionmix` combine textures; `constant` is a
+#     number with a name. A parameter that is a texture may also be given as
+#     a value, which pbrt makes a constant texture of and which scene_dump
+#     folds the way pbrt's parser does (a `scale` whose `scale` is a constant
+#     folds into an image's own scale).
+#   - The image mappings other than uv: `planar` on the floor, from the
+#     render-space point; `spherical` and `cylindrical` on two spheres, each
+#     about the transform active where its Texture was declared.
+#
+# The bump maps are the float textures as displacements: `windy` scaled by a
+# constant through a float `scale`, and a float `mix` of `fbm` with zero.
+#
+# `volpath`, so that the GPU schedule renders it as well.
+
+LookAt 0 3.5 9   0 0.8 0   0 1 0
+Camera "perspective" "float fov" [42]
+
+Sampler "halton" "integer pixelsamples" [8]
+Integrator "volpath" "integer maxdepth" [3]
+Film "gbuffer"
+    "string filename" ["noise-textures.exr"]
+    "integer xresolution" [640]
+    "integer yresolution" [400]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+AttributeBegin
+    Translate 0 7 3
+    AreaLightSource "diffuse" "rgb L" [30 30 30]
+    Material "diffuse" "rgb reflectance" [0 0 0]
+    Shape "sphere" "float radius" [1]
+AttributeEnd
+
+# The noise textures, each in its own frame so that the point mapping is
+# exercised rather than the identity.
+AttributeBegin
+    Translate -3.2 0.8 -1.2
+    Scale 2 2 2
+    Texture "f1" "float" "fbm" "integer octaves" [6] "float roughness" [0.6]
+AttributeEnd
+AttributeBegin
+    Rotate 30 0 1 0
+    Scale 3 3 3
+    Texture "w1" "float" "wrinkled" "integer octaves" [4] "float roughness" [0.5]
+AttributeEnd
+AttributeBegin
+    Scale 4 4 4
+    Texture "wind" "float" "windy"
+AttributeEnd
+AttributeBegin
+    Translate 0 0.8 -1.2
+    Texture "m1" "spectrum" "marble"
+        "integer octaves" [8] "float roughness" [0.5]
+        "float scale" [2] "float variation" [0.3]
+AttributeEnd
+
+Texture "k" "float" "constant" "float value" [0.35]
+
+# A spectrum scaled by a float texture.
+Texture "sc" "spectrum" "scale"
+    "rgb tex" [0.8 0.5 0.2] "texture scale" "f1"
+# Two spectra mixed by a float texture.
+Texture "mx" "spectrum" "mix"
+    "rgb tex1" [0.1 0.3 0.8] "rgb tex2" [0.9 0.8 0.1] "texture amount" "w1"
+# Two spectra mixed by the shading normal's agreement with a direction.
+Texture "dm" "spectrum" "directionmix"
+    "rgb tex1" [0.8 0.1 0.1] "rgb tex2" [0.1 0.1 0.8] "vector3 dir" [0 1 0]
+# Float operands given as values, which pbrt makes constant textures of.
+Texture "fmx" "float" "mix"
+    "texture tex1" "f1" "float tex2" [0] "texture amount" "k"
+Texture "sw" "float" "scale" "texture tex" "wind" "float scale" [0.05]
+
+# The image mappings.
+Texture "pl" "spectrum" "imagemap"
+    "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/Mies-BCN_M01.png"]
+    "string mapping" "planar"
+    "vector3 v1" [0.25 0 0] "vector3 v2" [0 0 0.25]
+    "float udelta" [0.5] "float vdelta" [0.25]
+AttributeBegin
+    Translate 1.6 0.8 1.2
+    Texture "sph" "spectrum" "imagemap"
+        "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/wood.png"]
+        "string mapping" "spherical"
+AttributeEnd
+AttributeBegin
+    Translate 3.2 0.8 1.2
+    Rotate 90 1 0 0
+    Texture "cyl" "spectrum" "imagemap"
+        "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/rocks.png"]
+        "string mapping" "cylindrical"
+AttributeEnd
+# The same kind of image under the uv mapping, as the control for the three
+# above: an 8-bit sRGB image read as a spectrum.
+Texture "uvimg" "spectrum" "imagemap"
+    "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/Mies-BCN_M121.png"]
+    "float uscale" [2] "float vscale" [2]
+
+# The floor, planar-mapped.
+AttributeBegin
+    Material "diffuse" "texture reflectance" "pl"
+    Shape "trianglemesh"
+        "integer indices" [0 1 2 2 3 0]
+        "point3 P" [-7 0 -5   7 0 -5   7 0 5   -7 0 5]
+        "point2 uv" [0 0  1 0  1 1  0 1]
+AttributeEnd
+
+# Back row: fbm-scaled, wrinkled-mixed, marble.
+AttributeBegin
+    Translate -3.2 0.8 -1.2
+    Material "diffuse" "texture reflectance" "sc"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate -1.6 0.8 -1.2
+    Material "diffuse" "texture reflectance" "mx"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 0 0.8 -1.2
+    Material "diffuse" "texture reflectance" "m1" "texture displacement" "sw"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 1.6 0.8 -1.2
+    Material "diffuse" "texture reflectance" "uvimg"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+# Front row: direction mix with an fbm bump, spherical and cylindrical images.
+AttributeBegin
+    Translate 0 0.8 1.2
+    Material "diffuse" "texture reflectance" "dm" "texture displacement" "fmx"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 1.6 0.8 1.2
+    Material "diffuse" "texture reflectance" "sph"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 3.2 0.8 1.2
+    Material "diffuse" "texture reflectance" "cyl"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd

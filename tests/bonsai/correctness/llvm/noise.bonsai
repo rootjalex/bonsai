@@ -1,0 +1,203 @@
+//! flags: -b llvm -e
+
+// pbrt's Perlin noise and the two sums over it -- Noise, FBm and Turbulence
+// from util/noise.cpp -- reproduced exactly. Every number in the expected
+// output is pbrt's own, printed by `apps/pbrt/scene_dump --print-noise`, in
+// this order and to these places.
+//
+// The noise textures (`fbm`, `wrinkled`, `windy`, `marble`) are built on
+// these three, and a transcription error in any of them is a texture that
+// looks like noise and is not pbrt's. The points land in different lattice
+// cells at different fractions, one with negative coordinates, where the
+// floor and the `& 255` of the cell index are the things to get wrong; the
+// three footprints give the octave count its three shapes -- a whole number
+// of octaves, a fraction of one faded in by the smoothstep, and none, where
+// Turbulence is its 0.2 per unresolved octave alone.
+//
+// The functions are a copy of apps/pbrt/textures.bonsai rather than an
+// import of it, for the reason zsobol.bonsai's are: the app takes its
+// permutation table as an extern, and an extern becomes a parameter that a
+// `main` with no arguments cannot supply. The table below is pbrt's
+// NoisePerm (apps/pbrt/noise_table.h, generated from pbrt's noise.cpp by
+// make_spectrum_tables.py).
+import stdlib/numerics;
+
+func lerp_(t : Float, a : Float, b : Float) -> Float = fma(1.0 - t, a, t * b);
+func log2_(x : Float) -> Float =
+    log(x) * 1.442695040888963387004650940071;
+
+func floor_f(x : Float) -> Float {
+    t = cast[[Float]](cast[[i32]](x));
+    return select(t > x, t - 1.0, t);
+}
+
+func noise_perm_at(i : i32) -> i32 {
+    table : array[i32, 512] = {
+        151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225,
+        140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
+        247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32,
+        57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175,
+        74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122,
+        60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54,
+        65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169,
+        200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64,
+        52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212,
+        207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213,
+        119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9,
+        129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104,
+        218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241,
+        81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157,
+        184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93,
+        222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
+        151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225,
+        140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
+        247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32,
+        57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175,
+        74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122,
+        60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54,
+        65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169,
+        200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64,
+        52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212,
+        207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213,
+        119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9,
+        129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104,
+        218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241,
+        81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157,
+        184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93,
+        222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180
+    };
+    return table[cast[[u32]](i)];
+}
+
+func noise_grad(x : i32, y : i32, z : i32, dx : Float, dy : Float,
+                dz : Float) -> Float {
+    h = noise_perm_at(noise_perm_at(noise_perm_at(x) + y) + z) & 15;
+    u = select((h < 8) || (h == 12) || (h == 13), dx, dy);
+    v = select((h < 4) || (h == 12) || (h == 13), dy, dz);
+    return select((h & 1) != 0, -u, u) + select((h & 2) != 0, -v, v);
+}
+
+// pbrt's Pow<n> is `Pow<n/2>(t)^2 * Pow<n&1>(t)`: t^5 is (t t)(t t) t, and
+// written otherwise it is a different last bit.
+func noise_weight(t : Float) -> Float {
+    t2 = t * t;
+    t3 = t2 * t;
+    t4 = t2 * t2;
+    t5 = t4 * t;
+    return 6.0 * t5 - 15.0 * t4 + 10.0 * t3;
+}
+
+func noise_wrap(x : Float) -> Float {
+    m = 1073741824.0;
+    return select(abs(x) < m, x, x - floor_f(x / m) * m);
+}
+
+func noise(p : vec3f) -> Float {
+    x = noise_wrap(p.x);
+    y = noise_wrap(p.y);
+    z = noise_wrap(p.z);
+    fx = floor_f(x);
+    fy = floor_f(y);
+    fz = floor_f(z);
+    dx = x - fx;
+    dy = y - fy;
+    dz = z - fz;
+    ix = cast[[i32]](fx) & 255;
+    iy = cast[[i32]](fy) & 255;
+    iz = cast[[i32]](fz) & 255;
+    w000 = noise_grad(ix, iy, iz, dx, dy, dz);
+    w100 = noise_grad(ix + 1, iy, iz, dx - 1.0, dy, dz);
+    w010 = noise_grad(ix, iy + 1, iz, dx, dy - 1.0, dz);
+    w110 = noise_grad(ix + 1, iy + 1, iz, dx - 1.0, dy - 1.0, dz);
+    w001 = noise_grad(ix, iy, iz + 1, dx, dy, dz - 1.0);
+    w101 = noise_grad(ix + 1, iy, iz + 1, dx - 1.0, dy, dz - 1.0);
+    w011 = noise_grad(ix, iy + 1, iz + 1, dx, dy - 1.0, dz - 1.0);
+    w111 = noise_grad(ix + 1, iy + 1, iz + 1, dx - 1.0, dy - 1.0, dz - 1.0);
+    wx = noise_weight(dx);
+    wy = noise_weight(dy);
+    wz = noise_weight(dz);
+    x00 = lerp_(wx, w000, w100);
+    x10 = lerp_(wx, w010, w110);
+    x01 = lerp_(wx, w001, w101);
+    x11 = lerp_(wx, w011, w111);
+    y0 = lerp_(wy, x00, x10);
+    y1 = lerp_(wy, x01, x11);
+    return lerp_(wz, y0, y1);
+}
+
+func smooth_step_(x : Float, a : Float, b : Float) -> Float {
+    if a == b {
+        return select(x < a, 0.0, 1.0);
+    }
+    t = min(max((x - a) / (b - a), 0.0), 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+func noise_octaves(dpdx : vec3f, dpdy : vec3f, max_octaves : i32) -> Float {
+    len2 = max(sqlen_(dpdx), sqlen_(dpdy));
+    return min(max(-1.0 - log2_(len2) / 2.0, 0.0), cast[[Float]](max_octaves));
+}
+
+func fbm(p : vec3f, dpdx : vec3f, dpdy : vec3f, omega : Float,
+         max_octaves : i32) -> Float {
+    n = noise_octaves(dpdx, dpdy, max_octaves);
+    n_int = cast[[i32]](floor_f(n));
+    total : mut Float = 0.0;
+    freq : mut Float = 1.0;
+    o : mut Float = 1.0;
+    for i in 0:n_int {
+        total = total + o * noise(freq * p);
+        freq = freq * 1.99;
+        o = o * omega;
+    }
+    n_partial = n - cast[[Float]](n_int);
+    return total + o * smooth_step_(n_partial, 0.3, 0.7) * noise(freq * p);
+}
+
+func turbulence(p : vec3f, dpdx : vec3f, dpdy : vec3f, omega : Float,
+                max_octaves : i32) -> Float {
+    n = noise_octaves(dpdx, dpdy, max_octaves);
+    n_int = cast[[i32]](floor_f(n));
+    total : mut Float = 0.0;
+    freq : mut Float = 1.0;
+    o : mut Float = 1.0;
+    for i in 0:n_int {
+        total = total + o * abs(noise(freq * p));
+        freq = freq * 1.99;
+        o = o * omega;
+    }
+    n_partial = n - cast[[Float]](n_int);
+    total = total + o * lerp_(smooth_step_(n_partial, 0.3, 0.7), 0.2,
+                              abs(noise(freq * p)));
+    for i in n_int:max_octaves {
+        total = total + o * 0.2;
+        o = o * omega;
+    }
+    return total;
+}
+
+func main() -> i32 {
+    px : array[Float, 5] = {0.5, 1.25, -0.1, 100.375, 12.345};
+    py : array[Float, 5] = {0.5, -3.75, 0.2, 255.5, 67.89};
+    pz : array[Float, 5] = {0.5, 7.5, -0.3, -256.25, 0.0};
+    for i in 0:5 {
+        print(noise(vec3f{px[i], py[i], pz[i]}));
+    }
+
+    // The footprints: 1/64 along x, five octaves exactly; one a little under
+    // four octaves; one wider than a cell. The second vector is half the
+    // first, permuted, so that the longer of the two is always the first.
+    fx : array[Float, 3] = {0.015625, 0.02, 2.0};
+    fy : array[Float, 3] = {0.0, 0.015, 0.0};
+    fz : array[Float, 3] = {0.0, 0.01, 0.0};
+    for i in 0:5 {
+        for k in 0:3 {
+            p = vec3f{px[i], py[i], pz[i]};
+            dpdx = vec3f{fx[k], fy[k], fz[k]};
+            dpdy = vec3f{0.5 * fz[k], 0.5 * fx[k], 0.5 * fy[k]};
+            print(fbm(p, dpdx, dpdy, 0.5, 8));
+            print(turbulence(p, dpdx, dpdy, 0.6, 6));
+        }
+    }
+    return 0;
+}

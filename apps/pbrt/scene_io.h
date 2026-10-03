@@ -212,6 +212,34 @@ struct TextureLevel {
     uint32_t format = TexelFormat::Float;
 };
 
+// PBRT's FloatTexture and SpectrumTexture, the kinds of texture a material
+// parameter may be. One record with a `kind`, the way the Material record is
+// one struct with a tag: the renderer's `Texture` variant is built from it
+// by the driver. The composite kinds name their operands by index into the
+// same table, so the table is a graph -- a `mix` of a `scale` of an image --
+// which the converter keeps at most three deep, since the renderer writes
+// the depth out rather than recursing (textures.bonsai).
+namespace TextureKind {
+enum : uint32_t {
+    Image = 0,        // an image's MIP pyramid
+    Constant = 1,     // a number, or an rgb read as an albedo
+    Scale = 2,        // `tex` times the float texture `scale`
+    Mix = 3,          // `tex1` and `tex2` lerped by the float texture `amount`
+    DirectionMix = 4, // `tex1` and `tex2` lerped by |n . dir|
+    FBm = 5,          // fractional Brownian motion of Perlin noise
+    Wrinkled = 6,     // turbulence: the octaves' magnitudes
+    Windy = 7,        // a fine fbm scaled by a coarse one
+    Marble = 8,       // a colour spline through a noised height
+};
+}
+
+// PBRT's TextureMapping2D, how an image texture finds its coordinate: the
+// surface's uv scaled and offset, or one of three geometric mappings through
+// the texture's own frame.
+namespace MappingKind {
+enum : uint32_t { UV = 0, Spherical = 1, Cylindrical = 2, Planar = 3 };
+}
+
 // PBRT's ImageTexture, as its MIP pyramid plus what the lookup needs.
 //
 // The pyramid is built by PBRT's own `MIPMap`, with PBRT's own resampling
@@ -219,12 +247,28 @@ struct TextureLevel {
 // spectral fits and the BVH. What is left for the renderer is choosing a level
 // from the footprint and bilerping in it, which is the part that runs per
 // lookup and the part worth transcribing.
-struct ImageTexture {
-    // PBRT's UVMapping: `st = (su * u + du, sv * v + dv)`.
+struct Texture {
+    uint32_t kind = TextureKind::Image;
+
+    // Every kind with a frame of its own: the inverse of the transform in
+    // force when the texture was declared, composed into render space, row
+    // major, as PBRT's `Inverse(renderFromTexture)`. The identity for a uv
+    // mapping, which has no frame.
+    float texture_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                     0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+
+    // Image: the mapping. PBRT's UVMapping is `st = (su * u + du, sv * v +
+    // dv)`; its PlanarMapping is `st = (ds + p . vs, dt + p . vt)` of the
+    // point in the texture's frame.
+    uint32_t mapping = MappingKind::UV;
     float su = 1.f;
     float sv = 1.f;
     float du = 0.f;
     float dv = 0.f;
+    float vs[3] = {1.f, 0.f, 0.f};
+    float vt[3] = {0.f, 1.f, 0.f};
+    float ds = 0.f;
+    float dt = 0.f;
     // PBRT's `scale` and `invert`, applied to the filtered RGB. A `scale`
     // texture over an image one, when its scale is a constant, folds into this:
     // that is what PBRT itself does -- `SpectrumScaledTexture::Create` and its
@@ -248,6 +292,28 @@ struct ImageTexture {
     // The pyramid, as a run of `texture_levels`, coarsest last.
     uint32_t first_level = 0;
     uint32_t n_levels = 0;
+
+    // Constant: PBRT's FloatConstantTexture's `value`, and its
+    // SpectrumConstantTexture's `rgb value`, read as an albedo (the only
+    // spectrum type a material's textures have).
+    float value = 1.f;
+    float rgb[3] = {1.f, 1.f, 1.f};
+
+    // Scale, Mix and DirectionMix: the operands, as indices into this table.
+    // Scale reads `tex1` as the texture and `amount` as its float scale;
+    // Mix reads `tex1`, `tex2` and the float `amount`; DirectionMix reads
+    // `tex1`, `tex2` and `dir`, a unit direction in render space.
+    int32_t tex1 = -1;
+    int32_t tex2 = -1;
+    int32_t amount = -1;
+    float dir[3] = {0.f, 1.f, 0.f};
+
+    // The noises: PBRT's `octaves` and `roughness` (omega), and Marble's
+    // `scale` and `variation`.
+    int32_t octaves = 8;
+    float omega = 0.5f;
+    float noise_scale = 1.f;
+    float variation = 0.2f;
 };
 
 struct Material {
@@ -779,7 +845,7 @@ struct Scene {
     // The image textures, their pyramid levels, and every level's texels laid
     // end to end. The texels go in the sidecar beside the environment maps and
     // for the same reason: a 2048x2048 pyramid is seventeen million numbers.
-    std::vector<ImageTexture> textures;
+    std::vector<Texture> textures;
     std::vector<TextureLevel> texture_levels;
     std::vector<float> texture_texels;
     // The 8-bit levels' texels, three bytes each, as the images stored them
@@ -1008,18 +1074,36 @@ inline bool write(const char *path, const Scene &scene) {
     out << '\n';
 
     // Before the materials, because a material names one by index.
+    // Every field of every kind, so the reader has one shape to read.
     out << "textures " << scene.textures.size() << '\n';
-    for (const ImageTexture &t : scene.textures) {
-        out << "  uv";
+    for (const Texture &t : scene.textures) {
+        out << "  kind " << t.kind << " frame";
+        detail::put(out, t.texture_from_render, 16);
+        out << " mapping " << t.mapping << " uv";
         detail::put(out, &t.su, 1);
         detail::put(out, &t.sv, 1);
         detail::put(out, &t.du, 1);
         detail::put(out, &t.dv, 1);
+        out << " planar";
+        detail::put(out, t.vs, 3);
+        detail::put(out, t.vt, 3);
+        detail::put(out, &t.ds, 1);
+        detail::put(out, &t.dt, 1);
         out << " scale";
         detail::put(out, &t.scale, 1);
         out << " average " << t.average_channels << " invert " << t.invert
             << " wrap " << t.wrap << " levels " << t.first_level << ' '
-            << t.n_levels << '\n';
+            << t.n_levels << " value";
+        detail::put(out, &t.value, 1);
+        detail::put(out, t.rgb, 3);
+        out << " operands " << t.tex1 << ' ' << t.tex2 << ' ' << t.amount
+            << " dir";
+        detail::put(out, t.dir, 3);
+        out << " noise " << t.octaves;
+        detail::put(out, &t.omega, 1);
+        detail::put(out, &t.noise_scale, 1);
+        detail::put(out, &t.variation, 1);
+        out << '\n';
     }
     out << "texturelevels " << scene.texture_levels.size() << '\n';
     for (const TextureLevel &l : scene.texture_levels) {
@@ -1532,7 +1616,19 @@ inline bool read(const char *path, Scene &scene) {
     in >> count;
     scene.textures.clear();
     for (size_t i = 0; i < count; i++) {
-        ImageTexture t;
+        Texture t;
+        if (!tagged("kind")) {
+            return false;
+        }
+        in >> t.kind;
+        if (!tagged("frame")) {
+            return false;
+        }
+        floats(t.texture_from_render, 16);
+        if (!tagged("mapping")) {
+            return false;
+        }
+        in >> t.mapping;
         if (!tagged("uv")) {
             return false;
         }
@@ -1540,6 +1636,13 @@ inline bool read(const char *path, Scene &scene) {
         floats(&t.sv, 1);
         floats(&t.du, 1);
         floats(&t.dv, 1);
+        if (!tagged("planar")) {
+            return false;
+        }
+        floats(t.vs, 3);
+        floats(t.vt, 3);
+        floats(&t.ds, 1);
+        floats(&t.dt, 1);
         if (!tagged("scale")) {
             return false;
         }
@@ -1560,6 +1663,26 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> t.first_level >> t.n_levels;
+        if (!tagged("value")) {
+            return false;
+        }
+        floats(&t.value, 1);
+        floats(t.rgb, 3);
+        if (!tagged("operands")) {
+            return false;
+        }
+        in >> t.tex1 >> t.tex2 >> t.amount;
+        if (!tagged("dir")) {
+            return false;
+        }
+        floats(t.dir, 3);
+        if (!tagged("noise")) {
+            return false;
+        }
+        in >> t.octaves;
+        floats(&t.omega, 1);
+        floats(&t.noise_scale, 1);
+        floats(&t.variation, 1);
         scene.textures.push_back(t);
     }
 

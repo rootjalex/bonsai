@@ -2542,8 +2542,8 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` -- **done 2026-09-20**, and with it `eta`/`k` given as `rgb`, inline pairs or a `.spd` file (item 21) | bmw-m6, crown, villa, watercolor, zero-day | 5 |
 | 10 | `Material "mix"` | bmw-m6, crown, kroken, watercolor | 4 |
 | 11 | `Shape "bilinearmesh"` (and PLY holding quads) | bunny-fur, sportscar, watercolor | 3 |
-| 12 | `mix` textures (and `directionmix`) | kroken, villa, watercolor | 3 |
-| 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` | kroken, villa, watercolor | 3 |
+| 12 | `mix` textures (and `directionmix`) -- **done 2026-10-03**, the texture graph below | kroken, villa, watercolor | 3 |
+| 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` -- **done 2026-10-03** | kroken, villa, watercolor | 3 |
 | 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
 | 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) | dambreak, transparent-machines, crown | 3 |
 | 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
@@ -2552,7 +2552,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 19 | infinite light with `portal` | kroken, watercolor | 2 |
 | 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
 | 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` -- **done 2026-09-20** with item 9 | crown, killeroos | 2 |
-| 22-28 | `spot`/`point` lights, `thindielectric`, `windy`/`wrinkled` textures, partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
+| 22-28 | `spot`/`point` lights, `thindielectric` (**done 2026-10-01**), `windy`/`wrinkled` textures (**done 2026-10-03**, with `fbm` and `marble`), partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
 
 Nearest to converting today, in order: `ganesha`, `landscape`, `pbrt-book`,
 `lte-orb-simple-ball` (path, halton, only supported shapes, materials and
@@ -2716,7 +2716,7 @@ Per scene, what is missing (see the converter for what is supported):
 | sportscar | `volpath`, `bilinearmesh`, ACES env map |
 | sssdragon | `subsurface` |
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` |
-| villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` |
+| villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` -- villa-daylight converts as of 2026-10-03 (the lights-on file still wants `spot` and `point`) |
 | watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium |
 | zero-day | nothing since 2026-09-20: renders and matches (above, and the 2026-09-21 sweep) |
 
@@ -8996,9 +8996,10 @@ checkout of HEAD plus this change alone: `sext` to `zext` (PTX's
 knows an index cannot wrap, a 64-bit induction variable in place of a
 32-bit one with its overflow check gone (forall) or an unroll by eight in
 place of four (the C++ backend's buffers); no vector loop was lost. The
-fix and its goldens land in a commit of their own once the rtq session's
-in-flight change to the same file has (the shared tree); until then they
-are in the working tree. With it, bistro_cafe renders on the GPU at 16
+fix and its goldens are a7e488c2, committed once the rtq session's
+change to the same file had landed (7c56285b), with the three traversal
+goldens that both changes move re-blessed on top of theirs -- fifty-one
+in all. With it, bistro_cafe renders on the GPU at 16
 spp: 0.242 s against `pbrt --gpu`'s 0.44 s (1.82x; kernels 234 ms against
 334 ms, the least of three), mean radiance 0.99973x of pbrt's, and the
 picture pbrt's to the eye -- the lamp's shadow on the cobbles, the sky
@@ -9019,6 +9020,110 @@ Something ends pbrt's paths there that does not end ours -- the alpha
 cutouts on 300,828 of the scene's shapes, the 102 area lights' sampling
 in an enclosed room, or the roulette -- and a scene cut out of that
 interior is the way to find which. Not chased today.
+
+*The texture graph: pbrt's composite and noise textures, and the three
+other mappings (2026-10-02/03).* `Texture` was one record, an image under
+a uv mapping. It is now the ADT pbrt's TaggedPointer is -- `Image`,
+`Constant`, `Scale`, `Mix`, `DirectionMix`, `FBm`, `Wrinkled`, `Windy`,
+`Marble` (textures.bonsai), each transliterated from pbrt's textures.h and
+textures.cpp: a Scale is the product of two lookups, a Mix lerps two by a
+float texture, a DirectionMix by `(1 + n . dir) / 2`, the noises are
+pbrt's Perlin `Noise` over `NoisePerm` (noise_table.h, generated from
+pbrt's noise.cpp by make_spectrum_tables.py) summed by `FBm` and
+`Turbulence` with as many octaves as the footprint resolves, and Marble is
+the nine-colour Bezier spline over a noised y -- and a float or a spectrum
+texture is read by `eval_float` / `eval_spectrum`, the recursion unrolled
+three composites deep by hand (a texture graph is the one place pbrt
+recurses through a TaggedPointer; scene_dump refuses a deeper graph with
+a sentence). The image gained pbrt's TextureMapping2D: `UV` as before,
+and `Spherical`, `Cylindrical` and `Planar` through `texture_from_render`,
+the inverse of the transform active at the Texture directive, as
+`TextureMapping2D::Create` builds them. scene_dump converts the graph
+(convert_texture_node) with pbrt's own folds: a `scale` whose scale is a
+constant is the operand itself when the constant is one and, over an
+image, a copy of the image with the constant multiplied in
+(`MultiplyScale`), the float version trying the other order too as
+FloatScaledTexture::Create's loop does; a parameter given as a number
+rather than a texture becomes a constant texture, as GetFloatTexture
+wraps it. The driver builds each record through the generated
+constructors and numbers the image ones on their own for the texture
+units. Three things were found on the way, each by a number that did not
+match:
+
+- *A compiler bug in the contraction pass.* `fbm`'s loop -- `total =
+  total + o * noise(freq * p); o = o * omega;` -- would not compile under
+  `--ffp-contract` ("@25 is not bound in fbm"). SSA/Contract.cpp's
+  `in_block` re-resolved a fused product's operands by name through
+  Block::get_value, whose binding for a loop variable is the block's
+  *last* assignment, so the fma took the `o * omega` below it. An operand
+  is the value it holds, and the product's block dominates the consumer's
+  (Placement), so it is in scope as it stands; nothing is threaded now.
+  ffp-contract's three tests (ssa, llvm, execution) gained `rebound`
+  (7c56285b carried the fix with the rtq session's commit; 077eb54f the
+  llvm golden).
+- *The last bit of the noise.* pbrt's NoiseWeight is `6 Pow<5>(t) - 15
+  Pow<4>(t) + 10 Pow<3>(t)` with `Pow<n>` as `Pow<n/2>(t)^2 *
+  Pow<n&1>(t)`, so t^5 is `(t t)(t t) t`; written as `t^2 t^3`, two of
+  the thirty-five numbers `scene_dump --print-noise` prints (Noise, FBm
+  and Turbulence at five points and three footprints) were off in the
+  sixth place. correctness/llvm/noise holds pbrt's numbers; all
+  thirty-five match, with contraction and without.
+- *The wavefront's footprint.* Against `pbrt --wavefront`, the planar,
+  spherical and cylindrical images were 3-10% off on every pixel while
+  the uv image was exact to four places, and the fbm bump's silhouette
+  had a ring of 752 wrong shading normals. pbrt's wavefront builds its
+  MaterialEvalContext and NormalBumpEvalContext from dudx, dudy, dvdx and
+  dvdy alone (wavefront/workitems.h) and never fills dpdx and dpdy; the
+  CPU integrator's TextureEvalContext carries them. So in `pbrt --gpu` a
+  mapping whose footprint is the position's reads the finest level with
+  no filter width, and a noise has every octave it was given with no
+  fade. `texture_context` passes zeroes now, as the wavefront does.
+  Found beside it: the Diffuse material's `Clamp(reflectance, 0, 1)`,
+  which no image had ever needed and a noise-scaled reflectance needs
+  half the time.
+- *The GPU build ran out of memory.* The scalar schedule compiled in two
+  minutes; the GPU schedule was killed after thirty at 16 GB and growing,
+  in the backend. The device backend folds every function into the
+  kernels that call it unless the program marks it `[[noinline]]`
+  (CodeGen_PTX.cpp -- MarkDeviceMemory can only tag the loads it sees in
+  the kernel, and ptxas inlines everything regardless), and a leaf of the
+  graph -- the image filter, three noises and the marble -- inlined
+  through three composite levels is 1 + 3 + 9 + 27 copies per read, at
+  the twenty-odd reads a hit's materials make. The two composite levels
+  below the root are `[[noinline]]` now: a level is compiled once, the
+  root's own leaf arms stay inline so an image or a constant with nothing
+  above it pays no call, and a composite's operands are a call each --
+  what pbrt's GPU pays, its MixTexture::Evaluate reaching its operands
+  through a TaggedPointer dispatch nvcc cannot unwind. 1m26s to compile.
+
+scenes/noise-textures.pbrt -- seven diffuse spheres and a planar-mapped
+floor under one area light: fbm-scaled, wrinkled-mixed, marble with a
+windy bump, directionmix with an fbm bump, spherical and cylindrical
+images, and a uv image as the control -- against `pbrt --wavefront` at 8
+spp on the scalar schedule: 0 of 149,674 normals off, 0 shading normals
+off (worst 3e-4), albedo 0 of 148,942 over 5e-3 (mean 3.7e-5), radiance
+99.1% of pixels within 1e-3. bump-lens as before (0 and 0, albedo 2 of
+129,706). The GPU schedule (gpu-optix) against the same `pbrt
+--wavefront` reference: 0 normals off, 1 shading normal on a silhouette,
+and the albedo within 5e-3 everywhere but on the uv-mapped image sphere
+(2,000 pixels, 1.3%), where the texture unit's trilinear and anisotropic
+filter stands in for pbrt's one-level bilinear -- the three other
+mappings agree to four places because a zero footprint is the finest
+level on both sides, and so do the noises; against `pbrt --gpu` at 16
+spp (gpu_compare) the image matches, 96.4% of pixels to 1e-3, kernels
+24.2 ms against 28.1 ms. villa-daylight converts for the first time (78
+textures, 68 materials, 2,547,006 shapes, 146 instances of 14 objects;
+the `uber` the survey counted is commented out in the file) and renders
+on the GPU at 16 spp: 0.204 s against `pbrt --gpu`'s 0.41 s (2.01x;
+kernels 193 ms against 314 ms, the least of three), the picture pbrt's
+to the eye -- the glazing, the blinds' stripes on the ceiling, the
+shelves. Mean radiance 0.984x of pbrt's and 7.4% of pixels to 1e-3: the
+materials are `coateddiffuse` almost throughout, so the per-pixel figure
+is bistro's story again, but 1.6% on the mean is more than bistro's
+0.03% and is open -- the wrinkled couch bump, the windy water, the mixed
+barks, or something older in villa (its `measured` acrylic, the
+`thindielectric` glazing) are the candidates, and 16x16 block means
+against pbrt's are the way to see which.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`
@@ -9204,6 +9309,7 @@ looked at here either.
   does not and the PLY reader is not asked for them — so this is a guard rather
   than a gap.
 - `coateddiffuse` with a spectral `eta` is refused, because a spectral index
-  terminates the secondary wavelengths and nothing here does that. A displacement
-  or normal map is refused for the same kind of reason: it replaces the shading
-  frame, which here comes from the geometry alone.
+  terminates the secondary wavelengths and nothing here does that. (A
+  displacement or normal map was refused here once for replacing the shading
+  frame; both are implemented now -- differentials.bonsai's `bump_map` and
+  `normal_map`.)

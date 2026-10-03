@@ -1134,7 +1134,11 @@ func alpha_accepts(r : Ray, p : Geometric) -> bool {
         return true;
     }
     g = surface_geometry(p.shape, r);
-    a = texture_float(textures[cast[[u32]](p.alpha)], g.uv, 0.0, 0.0, 0.0, 0.0);
+    // pbrt: `alpha.Evaluate(TextureEvalContext(intr))`, the context of a bare
+    // Interaction -- its point and uv, no footprint and no normal.
+    zero = vec3f{0.0, 0.0, 0.0};
+    ctx : TextureEvalContext = {g.p, zero, zero, zero, g.uv, 0.0, 0.0, 0.0, 0.0};
+    a = eval_float(p.alpha, ctx);
     if a >= 1.0 {
         return true;
     }
@@ -1394,8 +1398,8 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     hit = material_frame(surf, material_normal_map[prim.material],
                          material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
-                         diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
+    bsdf = material_bxdf(materials[prim.material], lambda, false,
+                         texture_context(hit, diffs));
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
     fcos = bxdf_f(bsdf, frame_to_local(shading, wo),
@@ -1519,8 +1523,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     hit = material_frame(surf, material_normal_map[prim.material],
                          material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, false, hit.uv,
-                         diffs.dudx, diffs.dvdx, diffs.dudy, diffs.dvdy);
+    bsdf = material_bxdf(materials[prim.material], lambda, false,
+                         texture_context(hit, diffs));
     ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
     // Direct lighting: pick a light, pick a point on it, and connect.
@@ -1811,8 +1815,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                          material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
-                         hit.uv, diffs.dudx, diffs.dvdx, diffs.dudy,
-                         diffs.dvdy);
+                         texture_context(hit, diffs));
     flags = bxdf_flags(bsdf);
 
     // pbrt: `if (depth == 0 && visibleSurf)`, the one place the gbuffer is
@@ -2791,8 +2794,8 @@ func vol_surface(ray : Ray, medium : i32,
     hit = material_frame(surf, material_normal_map[prim.material],
                          material_displacement[prim.material], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(material, lambda, do_regularize, hit.uv, diffs.dudx,
-                         diffs.dvdx, diffs.dudy, diffs.dvdy);
+    bsdf = material_bxdf(material, lambda, do_regularize,
+                         texture_context(hit, diffs));
     flags = bxdf_flags(bsdf);
 
     // pbrt: the visible surface at the first vertex, as in `full_path_step`.
@@ -3078,10 +3081,15 @@ func [[export]] differentials_at(camera : PerspectiveCamera,
 func [[export]] texture_at(index : u32, uv : vec2f, dudx : Float, dudy : Float,
                            dvdx : Float, dvdy : Float, lambda_u : Float,
                            out : mut array[Float]) -> void {
-    t = textures[index];
+    // The context of a uv-mapped lookup: no position and no normal, which a
+    // uv image never reads and the rows never put through anything else.
+    zero = vec3f{0.0, 0.0, 0.0};
+    ctx : TextureEvalContext = {zero, zero, zero, zero, uv, dudx, dudy, dvdx,
+                                dvdy};
+    t = cast[[i32]](index);
     lambda = sample_wavelengths_visible(lambda_u);
-    out[0u] = texture_float(t, uv, dudx, dvdx, dudy, dvdy);
-    s = texture_albedo(t, uv, dudx, dvdx, dudy, dvdy, lambda);
+    out[0u] = eval_float(t, ctx);
+    s = eval_spectrum(t, ctx, lambda);
     out[1u] = s.x;
     out[2u] = s.y;
     out[3u] = s.z;
@@ -3094,7 +3102,7 @@ func [[export]] texture_at(index : u32, uv : vec2f, dudx : Float, dudy : Float,
     out[8u] = lambda.lambda.w;
     // The filtered colour before it is read as a number or fitted, for the
     // `texrgb` rows.
-    rgb = texture_rgb(t, uv, dudx, dvdx, dudy, dvdy);
+    rgb = eval_rgb(t, ctx);
     out[9u] = rgb.x;
     out[10u] = rgb.y;
     out[11u] = rgb.z;

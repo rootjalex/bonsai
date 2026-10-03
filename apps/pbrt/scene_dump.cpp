@@ -68,6 +68,7 @@
 #include <pbrt/util/image.h>
 #include <pbrt/util/math.h>
 #include <pbrt/util/mipmap.h>
+#include <pbrt/util/noise.h>
 #include <pbrt/util/primes.h>
 #include <pbrt/util/mesh.h>
 #include <pbrt/util/spectrum.h>
@@ -548,6 +549,11 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     struct TextureInfo {
         MaterialInfo params;
         std::string declared_type;
+        // The transform in force at the declaration -- PBRT's
+        // `renderFromTexture` less the camera's render-from-world, which is
+        // composed in when the texture is converted. A geometric mapping and
+        // a noise map the hit through its inverse.
+        pbrt::Transform ctm;
     };
     std::map<std::string, TextureInfo> named_textures;
     // Declaration order, which is the order a `scale` texture's operand must
@@ -562,6 +568,7 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         TextureInfo info;
         info.declared_type = type;
         info.params.name = texname;
+        info.ctm = ctm;
         for (const pbrt::ParsedParameter *p : params) {
             MaterialInfo::Value v;
             v.type = p->type;
@@ -1231,113 +1238,404 @@ uint32_t wrap_mode_from(const std::string &s) {
     return 0;
 }
 
-// One `Texture` declaration, converted -- its MIP pyramid built by PBRT and
-// shipped level by level.
-//
-// A `scale` texture over an image one folds into the image's own `scale`, which
-// is exactly what it means and saves a second lookup. A `scale` whose factor is
-// itself a texture does not fold, and is refused: multiplying two filtered
-// lookups is not the same as filtering their product, and quietly doing the
-// first would be a different renderer.
+// One `Texture` declaration, converted -- the whole graph under it, since a
+// `mix` or a `scale` names other textures. `convert_texture` is the entry,
+// returning the index of the root; `convert_texture_node` is the recursion,
+// which counts the graph's depth and refuses one deeper than the renderer
+// reads (textures.bonsai evaluates three levels of composites); the kinds
+// each have a converter below.
 int32_t convert_texture(const std::string &name);
 
-// The `scale` a chain of `scale` textures multiplies up, and the name of the
-// `imagemap` at the bottom of it.
-struct ScaleChain {
-    std::string image;
-    float scale = 1.f;
+// The transform from world to render space, from the camera, kept here for
+// the textures: a geometric mapping or a noise maps the hit through the
+// inverse of PBRT's `renderFromTexture`, which is this times the transform
+// in force at the texture's declaration (CapturingBuilder::TextureInfo::ctm).
+pbrt::Transform g_render_from_world;
+
+// The image at an Image record, and the constant scale folded into it, so a
+// `scale` over a scaled image can fold again as PBRT's does (below).
+struct ImageSource {
+    std::string name;
+    float folded_scale = 1.f;
+};
+std::map<int32_t, ImageSource> g_image_source;
+
+void write_frame(float out[16], const pbrt::Transform &t) {
+    const pbrt::SquareMatrix<4> &m = t.GetMatrix();
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            out[4 * i + j] = float(m[i][j]);
+        }
+    }
+}
+
+// PBRT: `Inverse(renderFromTexture)`, which every mapping but uv takes.
+pbrt::Transform texture_from_render_of(const pbrt::Transform &ctm) {
+    return pbrt::Inverse(g_render_from_world * ctm);
+}
+
+// A constant texture made from an inline value -- PBRT's
+// `TextureParameterDictionary::GetFloatTexture` wraps a `float tex1` in a
+// FloatConstantTexture, and `GetSpectrumTexture` an `rgb tex1` in a
+// SpectrumConstantTexture -- or from a `constant` declaration. One record per
+// distinct value, by the value's text.
+int32_t constant_float_texture(float value) {
+    const std::string key = "float:" + std::to_string(value);
+    const auto cached = g_texture_index.find(key);
+    if (cached != g_texture_index.end()) {
+        return cached->second;
+    }
+    bonsai_scene::Texture t;
+    t.kind = bonsai_scene::TextureKind::Constant;
+    t.value = value;
+    t.rgb[0] = t.rgb[1] = t.rgb[2] = value;
+    const int32_t index = int32_t(g_scene->textures.size());
+    g_scene->textures.push_back(t);
+    g_texture_index.emplace(key, index);
+    return index;
+}
+
+int32_t constant_rgb_texture(const float rgb[3]) {
+    const std::string key = "rgb:" + std::to_string(rgb[0]) + "," +
+                            std::to_string(rgb[1]) + "," +
+                            std::to_string(rgb[2]);
+    const auto cached = g_texture_index.find(key);
+    if (cached != g_texture_index.end()) {
+        return cached->second;
+    }
+    bonsai_scene::Texture t;
+    t.kind = bonsai_scene::TextureKind::Constant;
+    t.value = rgb[0];
+    t.rgb[0] = rgb[0];
+    t.rgb[1] = rgb[1];
+    t.rgb[2] = rgb[2];
+    const int32_t index = int32_t(g_scene->textures.size());
+    g_scene->textures.push_back(t);
+    g_texture_index.emplace(key, index);
+    return index;
+}
+
+int32_t convert_image_texture(const std::string &name, float folded_scale);
+
+// The converted graph under a texture: the root's index and how many
+// composites deep it is (a leaf is zero).
+struct ConvertedTexture {
+    int32_t index = -1;
+    int depth = 0;
 };
 
-ScaleChain resolve_scale_chain(const std::string &name, int depth) {
-    if (depth > 8) {
-        fail("a `scale` texture chain more than eight deep, which is a cycle");
+ConvertedTexture convert_texture_node(const std::string &name, int nesting);
+
+// A texture-typed parameter of a composite -- `tex1`, `tex2`, `amount`,
+// `tex`, `scale` -- which PBRT reads as a texture name, or as an inline
+// value wrapped in a constant texture, or as its default when absent.
+ConvertedTexture operand_texture(const CapturingBuilder::MaterialInfo &p,
+                                 const char *key, bool spectrum,
+                                 float default_value, int nesting,
+                                 const std::string &owner) {
+    const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+    if (v == nullptr) {
+        const float grey[3] = {default_value, default_value, default_value};
+        return ConvertedTexture{spectrum ? constant_rgb_texture(grey)
+                                         : constant_float_texture(default_value),
+                                0};
+    }
+    if (v->type == "texture") {
+        if (v->strings.empty()) {
+            fail("the texture \"" + owner + "\" names no texture for \"" +
+                 key + "\"");
+        }
+        return convert_texture_node(v->strings[0], nesting);
+    }
+    if (v->type == "float") {
+        if (v->floats.empty()) {
+            fail("the texture \"" + owner + "\" has an empty \"" + key + "\"");
+        }
+        if (spectrum) {
+            const float grey[3] = {v->floats[0], v->floats[0], v->floats[0]};
+            return ConvertedTexture{constant_rgb_texture(grey), 0};
+        }
+        return ConvertedTexture{constant_float_texture(v->floats[0]), 0};
+    }
+    if (v->type == "rgb" && spectrum) {
+        if (v->floats.size() != 3) {
+            fail("the texture \"" + owner + "\": \"rgb " + key +
+                 "\" takes three values");
+        }
+        const float rgb[3] = {v->floats[0], v->floats[1], v->floats[2]};
+        return ConvertedTexture{constant_rgb_texture(rgb), 0};
+    }
+    fail("the texture \"" + owner + "\": \"" + key + "\" is a `" + v->type +
+         "`, and this renderer reads a texture, a float" +
+         (spectrum ? std::string(" or an rgb") : std::string("")) + " there");
+    return ConvertedTexture{};
+}
+
+ConvertedTexture convert_texture_node(const std::string &name, int nesting) {
+    if (nesting > 8) {
+        fail("a texture graph more than eight deep under \"" + name +
+             "\", which is a cycle");
     }
     const auto it = g_builder->named_textures.find(name);
     if (it == g_builder->named_textures.end()) {
         fail("a material names the texture \"" + name +
              "\", which the scene never declared");
     }
-    const CapturingBuilder::MaterialInfo &p = it->second.params;
+    const CapturingBuilder::TextureInfo &info = it->second;
+    const CapturingBuilder::MaterialInfo &p = info.params;
+    const bool spectrum = info.declared_type != "float";
+    const auto float_of = [&](const char *key, float dflt) {
+        const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+        return (v == nullptr || v->floats.empty()) ? dflt : v->floats[0];
+    };
+    const auto int_of = [&](const char *key, int dflt) {
+        const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+        if (v == nullptr) {
+            return dflt;
+        }
+        if (!v->ints.empty()) {
+            return v->ints[0];
+        }
+        return v->floats.empty() ? dflt : int(v->floats[0]);
+    };
+
     if (p.name == "imagemap") {
-        return ScaleChain{name, 1.f};
+        return ConvertedTexture{convert_image_texture(name, 1.f), 0};
     }
-    if (p.name != "scale") {
-        fail("this renderer implements `imagemap` and `scale` textures, and "
-             "the scene asks for `" + p.name + "` in texture \"" + name + "\"");
-    }
-
-    const CapturingBuilder::MaterialInfo::Value *tex = p.find("tex");
-    if (tex == nullptr) {
-        fail("the `scale` texture \"" + name + "\" has no \"tex\"");
-    }
-    const CapturingBuilder::MaterialInfo::Value *sc = p.find("scale");
-    float factor = 1.f;
-    if (sc != nullptr) {
-        if (sc->type == "texture") {
-            // A factor given as a texture folds only when that texture is a
-            // `constant` -- a value that does not vary over the surface, so
-            // multiplying by it is exactly scaling the image, filtering and all.
-            // A varying texture as the factor is the genuine product of two
-            // filtered lookups and is still refused. PBRT scenes routinely wrap
-            // a plain number in a constant texture, which is what book.pbrt's
-            // bump scale is, so this is the common shape rather than an edge.
-            if (sc->strings.empty()) {
-                fail("the `scale` texture \"" + name +
-                     "\" names no scale texture");
-            }
-            const auto sit = g_builder->named_textures.find(sc->strings[0]);
-            if (sit == g_builder->named_textures.end()) {
-                fail("the `scale` texture \"" + name + "\" scales by \"" +
-                     sc->strings[0] + "\", which the scene never declared");
-            }
-            const CapturingBuilder::MaterialInfo &sp = sit->second.params;
-            if (sp.name != "constant") {
-                fail("the `scale` texture \"" + name +
-                     "\" scales by the texture \"" + sc->strings[0] +
-                     "\", a `" + sp.name +
-                     "` rather than a `constant`. Multiplying two filtered "
-                     "lookups is not the same as filtering their product.");
-            }
-            // PBRT's FloatConstantTexture default value is 1.
-            const CapturingBuilder::MaterialInfo::Value *val = sp.find("value");
-            factor =
-                (val != nullptr && !val->floats.empty()) ? val->floats[0] : 1.f;
-        } else {
-            if (sc->floats.empty()) {
-                fail("the `scale` texture \"" + name + "\" has a scale with no "
-                     "value");
-            }
-            factor = sc->floats[0];
+    if (p.name == "constant") {
+        // PBRT: FloatConstantTexture::Create, `value` default 1;
+        // SpectrumConstantTexture::Create, `value` a spectrum default one,
+        // read as an albedo here -- the type every spectrum texture a
+        // material names is.
+        const CapturingBuilder::MaterialInfo::Value *v = p.find("value");
+        if (!spectrum) {
+            return ConvertedTexture{constant_float_texture(float_of("value", 1.f)),
+                                    0};
         }
-    }
-
-    if (tex->type == "texture") {
-        if (tex->strings.empty()) {
-            fail("the `scale` texture \"" + name + "\" names no operand");
+        float rgb[3] = {1.f, 1.f, 1.f};
+        if (v != nullptr) {
+            if (v->type == "rgb" && v->floats.size() == 3) {
+                rgb[0] = v->floats[0];
+                rgb[1] = v->floats[1];
+                rgb[2] = v->floats[2];
+            } else if (v->type == "float" && !v->floats.empty()) {
+                rgb[0] = rgb[1] = rgb[2] = v->floats[0];
+            } else {
+                fail("the `constant` texture \"" + name +
+                     "\" has a `" + v->type +
+                     "` value; this renderer reads an rgb or a float");
+            }
         }
-        ScaleChain inner = resolve_scale_chain(tex->strings[0], depth + 1);
-        inner.scale *= factor;
-        return inner;
+        return ConvertedTexture{constant_rgb_texture(rgb), 0};
     }
-    fail("the `scale` texture \"" + name +
-         "\" scales a constant rather than an image, which this renderer does "
-         "not carry yet");
-    return ScaleChain{};
+    if (p.name == "scale") {
+        // PBRT: FloatScaledTexture::Create and its spectrum twin. The scale
+        // is a float texture, default one; `tex` defaults to one as well. A
+        // scale that is a constant folds: one leaves `tex` as it is, and over
+        // an image it is multiplied into a copy of the image (`MultiplyScale`
+        // on the copy), so the constant reaches the filtered colour before the
+        // invert and the spectrum fit, which the fit being nonlinear makes a
+        // different number from scaling after. Anything else is a Scale node,
+        // the genuine product of two lookups.
+        // A float operand that is a constant, and its value: given as a
+        // number, or as the name of a `constant` texture; absent, the
+        // default.
+        const auto constant_operand = [&](const char *key, float dflt,
+                                          float *value) {
+            const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+            *value = dflt;
+            if (v == nullptr) {
+                return true;
+            }
+            if (v->type == "texture") {
+                if (v->strings.empty()) {
+                    fail("the `scale` texture \"" + name + "\" names no `" +
+                         key + "` texture");
+                }
+                const auto it = g_builder->named_textures.find(v->strings[0]);
+                if (it == g_builder->named_textures.end()) {
+                    fail("the `scale` texture \"" + name + "\" names \"" +
+                         v->strings[0] + "\" as its `" + key +
+                         "`, which the scene never declared");
+                }
+                if (it->second.params.name != "constant") {
+                    return false;
+                }
+                const CapturingBuilder::MaterialInfo::Value *val =
+                    it->second.params.find("value");
+                *value = (val != nullptr && !val->floats.empty())
+                             ? val->floats[0]
+                             : 1.f;
+                return true;
+            }
+            if (v->floats.empty()) {
+                fail("the `scale` texture \"" + name + "\" has a `" + key +
+                     "` with no value");
+            }
+            *value = v->floats[0];
+            return true;
+        };
+        const CapturingBuilder::MaterialInfo::Value *sc = p.find("scale");
+        float cs = 1.f;
+        const bool constant_scale = constant_operand("scale", 1.f, &cs);
+        if (!constant_scale && !spectrum) {
+            // PBRT's float version tries the other order as well -- the loop
+            // over `std::swap(tex, scale)` in FloatScaledTexture::Create --
+            // so a constant `tex` folds into an image `scale` the same way,
+            // and a `tex` of one is the scale texture itself. The spectrum
+            // version has no such loop: its `tex` is a spectrum and its
+            // `scale` a float, and nothing swaps.
+            float ct = 1.f;
+            if (constant_operand("tex", 1.f, &ct)) {
+                ConvertedTexture scale =
+                    convert_texture_node(sc->strings[0], nesting + 1);
+                if (ct == 1.f) {
+                    return scale;
+                }
+                const auto source = g_image_source.find(scale.index);
+                if (source != g_image_source.end()) {
+                    return ConvertedTexture{
+                        convert_image_texture(source->second.name,
+                                              source->second.folded_scale * ct),
+                        0};
+                }
+            }
+        }
+        ConvertedTexture tex = operand_texture(p, "tex", spectrum, 1.f, nesting + 1,
+                                               name);
+        if (constant_scale) {
+            if (cs == 1.f) {
+                return tex;
+            }
+            const auto source = g_image_source.find(tex.index);
+            if (source != g_image_source.end()) {
+                return ConvertedTexture{
+                    convert_image_texture(source->second.name,
+                                          source->second.folded_scale * cs),
+                    0};
+            }
+            bonsai_scene::Texture t;
+            t.kind = bonsai_scene::TextureKind::Scale;
+            t.tex1 = tex.index;
+            t.amount = constant_float_texture(cs);
+            const int32_t index = int32_t(g_scene->textures.size());
+            g_scene->textures.push_back(t);
+            return ConvertedTexture{index, tex.depth + 1};
+        }
+        ConvertedTexture scale = convert_texture_node(sc->strings[0], nesting + 1);
+        bonsai_scene::Texture t;
+        t.kind = bonsai_scene::TextureKind::Scale;
+        t.tex1 = tex.index;
+        t.amount = scale.index;
+        const int32_t index = int32_t(g_scene->textures.size());
+        g_scene->textures.push_back(t);
+        return ConvertedTexture{index, std::max(tex.depth, scale.depth) + 1};
+    }
+    if (p.name == "mix") {
+        // PBRT: FloatMixTexture::Create -- tex1 default 0, tex2 default 1,
+        // amount default 0.5 -- and SpectrumMixTexture::Create, the same with
+        // the constant spectra zero and one.
+        ConvertedTexture t1 = operand_texture(p, "tex1", spectrum, 0.f, nesting + 1, name);
+        ConvertedTexture t2 = operand_texture(p, "tex2", spectrum, 1.f, nesting + 1, name);
+        ConvertedTexture amount =
+            operand_texture(p, "amount", false, 0.5f, nesting + 1, name);
+        bonsai_scene::Texture t;
+        t.kind = bonsai_scene::TextureKind::Mix;
+        t.tex1 = t1.index;
+        t.tex2 = t2.index;
+        t.amount = amount.index;
+        const int32_t index = int32_t(g_scene->textures.size());
+        g_scene->textures.push_back(t);
+        return ConvertedTexture{index,
+                                std::max({t1.depth, t2.depth, amount.depth}) + 1};
+    }
+    if (p.name == "directionmix") {
+        // PBRT: FloatDirectionMixTexture::Create -- `dir` default (0, 1, 0),
+        // taken to render space and normalized.
+        ConvertedTexture t1 = operand_texture(p, "tex1", spectrum, 0.f, nesting + 1, name);
+        ConvertedTexture t2 = operand_texture(p, "tex2", spectrum, 1.f, nesting + 1, name);
+        pbrt::Vector3f dir(0.f, 1.f, 0.f);
+        const CapturingBuilder::MaterialInfo::Value *d = p.find("dir");
+        if (d != nullptr && d->floats.size() == 3) {
+            dir = pbrt::Vector3f(d->floats[0], d->floats[1], d->floats[2]);
+        }
+        dir = pbrt::Normalize((g_render_from_world * info.ctm)(dir));
+        bonsai_scene::Texture t;
+        t.kind = bonsai_scene::TextureKind::DirectionMix;
+        t.tex1 = t1.index;
+        t.tex2 = t2.index;
+        t.dir[0] = float(dir.x);
+        t.dir[1] = float(dir.y);
+        t.dir[2] = float(dir.z);
+        const int32_t index = int32_t(g_scene->textures.size());
+        g_scene->textures.push_back(t);
+        return ConvertedTexture{index, std::max(t1.depth, t2.depth) + 1};
+    }
+    if (p.name == "fbm" || p.name == "wrinkled" || p.name == "windy" ||
+        p.name == "marble") {
+        // PBRT: each Create takes `TextureMapping3D::Create`, the point
+        // transform mapping by `Inverse(renderFromTexture)`; fbm and wrinkled
+        // take `octaves` (8) and `roughness` (.5); marble those and `scale`
+        // (1) and `variation` (.2). A noise is a number and marble a colour,
+        // as PBRT's parser types them.
+        if (p.name == "marble" && !spectrum) {
+            fail("the `marble` texture \"" + name +
+                 "\" is declared \"float\"; PBRT's marble is a spectrum texture");
+        }
+        if (p.name != "marble" && spectrum) {
+            fail("the `" + p.name + "` texture \"" + name +
+                 "\" is declared \"" + info.declared_type +
+                 "\"; PBRT's is a float texture");
+        }
+        bonsai_scene::Texture t;
+        t.kind = p.name == "fbm"        ? bonsai_scene::TextureKind::FBm
+                 : p.name == "wrinkled" ? bonsai_scene::TextureKind::Wrinkled
+                 : p.name == "windy"    ? bonsai_scene::TextureKind::Windy
+                                        : bonsai_scene::TextureKind::Marble;
+        write_frame(t.texture_from_render, texture_from_render_of(info.ctm));
+        t.octaves = int_of("octaves", 8);
+        t.omega = float_of("roughness", .5f);
+        t.noise_scale = float_of("scale", 1.f);
+        t.variation = float_of("variation", .2f);
+        const int32_t index = int32_t(g_scene->textures.size());
+        g_scene->textures.push_back(t);
+        return ConvertedTexture{index, 0};
+    }
+    fail("this renderer implements the `imagemap`, `constant`, `scale`, `mix`, "
+         "`directionmix`, `fbm`, `wrinkled`, `windy` and `marble` textures, "
+         "and the scene asks for `" + p.name + "` in texture \"" + name + "\"");
+    return ConvertedTexture{};
 }
 
 int32_t convert_texture(const std::string &name) {
-    const auto cached = g_texture_index.find(name);
+    const ConvertedTexture root = convert_texture_node(name, 0);
+    if (root.depth > 3) {
+        fail("the texture \"" + name + "\" is a graph " +
+             std::to_string(root.depth) +
+             " composites deep; this renderer reads three (textures.bonsai, "
+             "eval_float and eval_spectrum)");
+    }
+    return root.index;
+}
+
+// An `imagemap` declaration, converted -- its MIP pyramid built by PBRT and
+// shipped level by level -- with `folded_scale`, the constant a `scale` over
+// it multiplied in (PBRT copies the image texture and `MultiplyScale`s the
+// copy; here a copy is a second record over the same levels). One record per
+// image and scale.
+int32_t convert_image_texture(const std::string &name, float folded_scale) {
+    const std::string key = name + "@" + std::to_string(folded_scale);
+    const auto cached = g_texture_index.find(key);
     if (cached != g_texture_index.end()) {
         return cached->second;
     }
 
-    const ScaleChain chain = resolve_scale_chain(name, 0);
-    const auto it = g_builder->named_textures.find(chain.image);
+    const auto it = g_builder->named_textures.find(name);
     const CapturingBuilder::MaterialInfo &p = it->second.params;
 
     const CapturingBuilder::MaterialInfo::Value *fn = p.find("filename");
     if (fn == nullptr || fn->strings.empty()) {
-        fail("the `imagemap` texture \"" + chain.image + "\" has no filename");
+        fail("the `imagemap` texture \"" + name + "\" has no filename");
     }
     std::string filename = fn->strings[0];
     if (!filename.empty() && filename[0] != '/') {
@@ -1364,27 +1662,54 @@ int32_t convert_texture(const std::string &name) {
 
     const std::string filter = string_of("filter", "bilinear");
     if (filter != "bilinear") {
-        fail("the texture \"" + chain.image + "\" asks for the `" + filter +
+        fail("the texture \"" + name + "\" asks for the `" + filter +
              "` filter; this renderer implements `bilinear`, which is PBRT's "
              "default");
     }
+    // PBRT: TextureMapping2D::Create -- `uv` with its scales and offsets, or
+    // one of the three geometric mappings through the inverse of the
+    // texture's own transform; planar with its two axes and offsets.
+    bonsai_scene::Texture t;
+    t.kind = bonsai_scene::TextureKind::Image;
     const std::string mapping = string_of("mapping", "uv");
-    if (mapping != "uv") {
-        fail("the texture \"" + chain.image + "\" asks for the `" + mapping +
-             "` mapping; this renderer implements `uv`");
+    const auto vector_of = [&](const char *key, float x, float y, float z,
+                               float out[3]) {
+        const CapturingBuilder::MaterialInfo::Value *v = p.find(key);
+        out[0] = x;
+        out[1] = y;
+        out[2] = z;
+        if (v != nullptr && v->floats.size() == 3) {
+            out[0] = v->floats[0];
+            out[1] = v->floats[1];
+            out[2] = v->floats[2];
+        }
+    };
+    if (mapping == "uv") {
+        t.mapping = bonsai_scene::MappingKind::UV;
+        t.su = float_of("uscale", 1.f);
+        t.sv = float_of("vscale", 1.f);
+        t.du = float_of("udelta", 0.f);
+        t.dv = float_of("vdelta", 0.f);
+    } else if (mapping == "spherical" || mapping == "cylindrical" ||
+               mapping == "planar") {
+        t.mapping = mapping == "spherical"     ? bonsai_scene::MappingKind::Spherical
+                    : mapping == "cylindrical" ? bonsai_scene::MappingKind::Cylindrical
+                                               : bonsai_scene::MappingKind::Planar;
+        write_frame(t.texture_from_render, texture_from_render_of(it->second.ctm));
+        vector_of("v1", 1.f, 0.f, 0.f, t.vs);
+        vector_of("v2", 0.f, 1.f, 0.f, t.vt);
+        t.ds = float_of("udelta", 0.f);
+        t.dt = float_of("vdelta", 0.f);
+    } else {
+        fail("the texture \"" + name + "\" asks for the `" + mapping +
+             "` mapping, which PBRT has not got either");
     }
-
-    bonsai_scene::ImageTexture t;
-    t.su = float_of("uscale", 1.f);
-    t.sv = float_of("vscale", 1.f);
-    t.du = float_of("udelta", 0.f);
-    t.dv = float_of("vdelta", 0.f);
     // The `scale` textures above the image, if any, folded into the image's
     // own scale -- which is what PBRT does: a constant scale over an image
     // texture copies the image texture and multiplies its scale, so the
     // constant reaches the filtered colour before the invert and the spectrum
     // fit. See ImageTexture::scale.
-    t.scale = float_of("scale", 1.f) * chain.scale;
+    t.scale = float_of("scale", 1.f) * folded_scale;
     const CapturingBuilder::MaterialInfo::Value *inv = p.find("invert");
     t.invert = (inv != nullptr && !inv->bools.empty() && inv->bools[0]) ? 1u
                                                                        : 0u;
@@ -1470,7 +1795,7 @@ int32_t convert_texture(const std::string &name) {
         const int nc = img.NChannels();
         const bool as_float = it->second.declared_type == "float";
         if (as_float && nc != 1 && nc != 3 && nc != 4) {
-            fail("the `imagemap` texture \"" + chain.image + "\" has " +
+            fail("the `imagemap` texture \"" + name + "\" has " +
                  std::to_string(nc) +
                  " channels, which PBRT does not read as a float texture");
         }
@@ -1532,7 +1857,8 @@ int32_t convert_texture(const std::string &name) {
 
     const int32_t index = int32_t(g_scene->textures.size());
     g_scene->textures.push_back(t);
-    g_texture_index.emplace(name, index);
+    g_texture_index.emplace(key, index);
+    g_image_source[index] = ImageSource{name, folded_scale};
     return index;
 }
 
@@ -2274,6 +2600,43 @@ void print_sampler() {
         printf(" %d", pbrt::Primes[i]);
     }
     printf(" ... %d\n", pbrt::Primes[pbrt::PrimeTableSize - 1]);
+}
+
+// pbrt's Perlin noise and the two sums over it (util/noise.cpp), as numbers
+// the transliteration in textures.bonsai is checked against
+// (tests/bonsai/correctness/llvm/noise.bonsai holds these lines as its
+// expected output, so the two print bare numbers in the same order and to
+// the same six places as bonsai's `print`).
+//
+// The points land in different lattice cells at different fractions, one of
+// them with negative coordinates, where the floor and the `& 255` of the
+// cell index are the things to get wrong. The footprints give the octave
+// count its three shapes: `1/64` along one axis is `-1 - log2(1/4096) / 2`,
+// five octaves exactly; the second is a fraction under four, so the last
+// octave is faded in by the smoothstep; the third is wider than a cell, so
+// the count clamps to none and Turbulence is its 0.2 per unresolved octave
+// alone.
+void print_noise() {
+    const pbrt::Point3f points[] = {{0.5f, 0.5f, 0.5f},
+                                    {1.25f, -3.75f, 7.5f},
+                                    {-0.1f, 0.2f, -0.3f},
+                                    {100.375f, 255.5f, -256.25f},
+                                    {12.345f, 67.89f, 0.f}};
+    for (const pbrt::Point3f &p : points) {
+        printf("%.6f\n", double(pbrt::Noise(p)));
+    }
+    const pbrt::Vector3f footprints[] = {
+        {1 / 64.f, 0, 0}, {0.02f, 0.015f, 0.01f}, {2, 0, 0}};
+    for (const pbrt::Point3f &p : points) {
+        for (const pbrt::Vector3f &dpdx : footprints) {
+            // A second footprint vector that is shorter, so that the max of
+            // the two is the first and a sum that took the other would show.
+            const pbrt::Vector3f dpdy(0.5f * dpdx.z, 0.5f * dpdx.x,
+                                      0.5f * dpdx.y);
+            printf("%.6f\n", double(pbrt::FBm(p, dpdx, dpdy, 0.5f, 8)));
+            printf("%.6f\n", double(pbrt::Turbulence(p, dpdx, dpdy, 0.6f, 6)));
+        }
+    }
 }
 
 // PBRT's fixed sample points for a reflectance estimate, from the path
@@ -3350,6 +3713,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     g_texture_index.clear();
     g_texture_mip.clear();
     g_normal_map_index.clear();
+    g_image_source.clear();
     {
         const std::string path(filename);
         const size_t slash = path.find_last_of('/');
@@ -4271,6 +4635,11 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         return at;
     };
 
+    // What the textures' geometric mappings and noises compose their frames
+    // with (texture_from_render_of): PBRT's `renderFromTexture` is the
+    // camera's render-from-world times the transform at the declaration.
+    g_render_from_world = scene.GetCamera().GetCameraTransform().RenderFromWorld();
+
     // A shape names its material by index, and several shapes usually name the
     // same one, so the materials are written once and indexed rather than
     // copied per shape. The index a shape carries is this file's, not PBRT's:
@@ -4898,8 +5267,13 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 continue;
             }
             const bool is_float = declared->second.declared_type == "float";
-            const bonsai_scene::ImageTexture &shipped =
-                out.textures[size_t(index)];
+            const bonsai_scene::Texture &shipped = out.textures[size_t(index)];
+            if (shipped.kind != bonsai_scene::TextureKind::Image ||
+                shipped.mapping != bonsai_scene::MappingKind::UV) {
+                // The rows are the image filter's; a graph or a geometric
+                // mapping has nothing for them to compare.
+                continue;
+            }
             int k = 0;
             for (const pbrt::Point2f &uv : uvs) {
                 for (const float *fp : footprints) {
@@ -5338,6 +5712,7 @@ int main(int argc, char **argv) {
     bool pbrt_tree = false;
     bool tables_only = false;
     bool sampler_only = false;
+    bool noise_only = false;
     bool bsdf_only = false;
     bool shading_only = false;
     bool light_only = false;
@@ -5377,6 +5752,8 @@ int main(int argc, char **argv) {
             tables_only = true;
         } else if (arg == "--print-sampler") {
             sampler_only = true;
+        } else if (arg == "--print-noise") {
+            noise_only = true;
         } else if (arg == "--print-bsdf") {
             bsdf_only = true;
         } else if (arg == "--print-shading") {
@@ -5424,12 +5801,14 @@ int main(int argc, char **argv) {
             positional.push_back(argv[i]);
         }
     }
-    if (!tables_only && !sampler_only && !bsdf_only && !shading_only &&
-        !light_only && !shape_sample_only && positional.size() != 2) {
+    if (!tables_only && !sampler_only && !noise_only && !bsdf_only &&
+        !shading_only && !light_only && !shape_sample_only &&
+        positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--spp <n>] [--maxdepth <n>]"
              " [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler\n"
+             "       scene_dump --print-noise\n"
              "       scene_dump --print-bsdf\n"
              "       scene_dump --print-shading");
     }
@@ -5465,6 +5844,11 @@ int main(int argc, char **argv) {
     }
     if (sampler_only) {
         print_sampler();
+        pbrt::CleanupPBRT();
+        return 0;
+    }
+    if (noise_only) {
+        print_noise();
         pbrt::CleanupPBRT();
         return 0;
     }

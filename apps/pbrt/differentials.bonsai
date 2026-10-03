@@ -387,21 +387,27 @@ func shading_from(g : SurfaceGeometry, dpdu : vec3f,
 // a hit with no footprint at all.
 //
 // It ends as the normal map does, in `shading_from`.
-func bump_map(t : ImageTexture, g : SurfaceGeometry,
+func bump_map(displacement : i32, g : SurfaceGeometry,
               d : Differentials) -> SurfaceGeometry {
     du_raw = 0.5 * (abs(d.dudx) + abs(d.dudy));
     du = select(du_raw == 0.0, 0.0005, du_raw);
     dv_raw = 0.5 * (abs(d.dvdx) + abs(d.dvdy));
     dv = select(dv_raw == 0.0, 0.0005, dv_raw);
 
-    // The shifted lookups move `uv` and leave the footprint alone, exactly as
-    // pbrt's `shiftedCtx` does -- it copies the context and overwrites `p` and
-    // `uv`, so the derivatives it is filtered by are still the hit's.
-    displace = texture_float(t, g.uv, d.dudx, d.dvdx, d.dudy, d.dvdy);
-    u_displace = texture_float(t, g.uv + vec2f{du, 0.0}, d.dudx, d.dvdx,
-                               d.dudy, d.dvdy);
-    v_displace = texture_float(t, g.uv + vec2f{0.0, dv}, d.dudx, d.dvdx,
-                               d.dudy, d.dvdy);
+    // The shifted lookups move `p` and `uv` and leave the footprint alone,
+    // exactly as pbrt's `shiftedCtx` does -- it copies the context and
+    // overwrites `p` (along the shading derivative) and `uv`, so the
+    // derivatives it is filtered by are still the hit's.
+    ctx = texture_context(g, d);
+    shifted_u : TextureEvalContext =
+        {ctx.p + du * g.dpdus, ctx.dpdx, ctx.dpdy, ctx.n,
+         ctx.uv + vec2f{du, 0.0}, ctx.dudx, ctx.dudy, ctx.dvdx, ctx.dvdy};
+    shifted_v : TextureEvalContext =
+        {ctx.p + dv * g.dpdvs, ctx.dpdx, ctx.dpdy, ctx.n,
+         ctx.uv + vec2f{0.0, dv}, ctx.dudx, ctx.dudy, ctx.dvdx, ctx.dvdy};
+    displace = eval_float(displacement, ctx);
+    u_displace = eval_float(displacement, shifted_u);
+    v_displace = eval_float(displacement, shifted_v);
 
     dpdu = g.dpdus + (u_displace - displace) / du * g.ns + displace * g.dndu;
     dpdv = g.dpdvs + (v_displace - displace) / dv * g.ns + displace * g.dndv;
@@ -444,7 +450,27 @@ func displaced(g : SurfaceGeometry, displacement : i32,
     if displacement < 0 {
         return g;
     }
-    return bump_map(textures[cast[[u32]](displacement)], g, d);
+    return bump_map(displacement, g, d);
+}
+
+// pbrt: what a texture is asked about at a hit -- its position, its
+// geometric normal, and its uv with the four derivatives -- as the wavefront
+// integrator asks it. The CPU integrator's TextureEvalContext(const
+// SurfaceInteraction &) carries the position's two screen-space derivatives
+// as well; the wavefront's MaterialEvalContext and NormalBumpEvalContext
+// (wavefront/workitems.h, GetMaterialEvalContext and
+// GetNormalBumpEvalContext) are built from dudx, dudy, dvdx, dvdy alone, and
+// their dpdx and dpdy stay zero. Zero here too, since `pbrt --gpu` is what
+// this renders against: a planar, spherical or cylindrical mapping, whose
+// footprint is the position's and not the uv's, reads its image's finest
+// level with no filter width, and a noise's octave count, `-1 - log2(len2)
+// / 2` of a zero footprint, is every octave it was given with no fade.
+// Against pbrt's CPU build, the noise textures and the three mappings
+// differ by what the footprint would have filtered; the uv ones do not.
+func texture_context(g : SurfaceGeometry, d : Differentials) -> TextureEvalContext {
+    zero = vec3f{0.0, 0.0, 0.0};
+    return TextureEvalContext{g.p, zero, zero, g.n, g.uv, d.dudx, d.dudy,
+                              d.dvdx, d.dvdy};
 }
 
 // pbrt: the top of `GetBSDF` -- the normal map if the material has one, else

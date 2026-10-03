@@ -14,6 +14,7 @@ import stdlib/numerics;
 // infinity where a cast towards zero would not.
 import apps/pbrt/sampling;
 import apps/pbrt/spectrum;
+import apps/pbrt/transform;
 
 // pbrt: Lerp and Log2, with pbrt's own constant for the second -- it computes
 // a natural log and multiplies, which is not the same last bit as a log2
@@ -31,6 +32,115 @@ func log2_(x : Float) -> Float =
 func wrap_repeat() -> u32 = 0u;
 func wrap_clamp() -> u32 = 1u;
 func wrap_black() -> u32 = 2u;
+
+// pbrt: TextureEvalContext -- what a texture is asked about: the hit's
+// position with its two screen-space derivatives (for a 3D mapping and for
+// the octave count of a noise), its normal (for a direction mix), and its
+// uv with the four derivatives (for an image's footprint). A hit with no
+// footprint, as an alpha test is, leaves the derivatives zero.
+element TextureEvalContext {
+    p : vec3f;
+    dpdx : vec3f;
+    dpdy : vec3f;
+    n : vec3f;
+    uv : vec2f;
+    dudx : Float;
+    dudy : Float;
+    dvdx : Float;
+    dvdy : Float;
+}
+
+// pbrt: TexCoord2D, a 2D mapping's answer -- where in the image, and how fast
+// that moves across the pixel in each direction.
+element TexCoord2D {
+    st : vec2f;
+    dsdx : Float;
+    dsdy : Float;
+    dtdx : Float;
+    dtdy : Float;
+}
+
+// pbrt: TextureMapping2D, the four ways a surface point becomes an image
+// coordinate. `UV` is the surface's own parameterization, scaled and
+// offset; the other three are geometric, through the texture's own frame
+// -- `texture_from_render` is the inverse of the transform in force when the
+// texture was declared, which the converter composes (scene_dump.cpp).
+element Mapping2D =
+    | UV(su : Float, sv : Float, du : Float, dv : Float)
+    | Spherical(texture_from_render : Transform)
+    | Cylindrical(texture_from_render : Transform)
+    | Planar(texture_from_render : Transform, vs : vec3f, vt : vec3f,
+             ds : Float, dt : Float);
+
+// pbrt: the Map of each. Written as pbrt writes each: `Sqr(x) + Sqr(y)`,
+// the divisions as divisions, `Dot` as the fused dot.
+func map_2d(m : Mapping2D, ctx : TextureEvalContext) -> TexCoord2D {
+    match m {
+        UV(su, sv, du, dv) => {
+            return TexCoord2D{vec2f{su * ctx.uv.x + du, sv * ctx.uv.y + dv},
+                              su * ctx.dudx, su * ctx.dudy, sv * ctx.dvdx,
+                              sv * ctx.dvdy};
+        }
+        Spherical(texture_from_render) => {
+            pt = apply_point(texture_from_render, ctx.p);
+            x2y2 = pt.x * pt.x + pt.y * pt.y;
+            sqrtx2y2 = sqrt(x2y2);
+            dsdp = vec3f{-pt.y, pt.x, 0.0} / (2.0 * pi() * x2y2);
+            dtdp = (1.0 / (pi() * (x2y2 + pt.z * pt.z))) *
+                   vec3f{pt.x * pt.z / sqrtx2y2, pt.y * pt.z / sqrtx2y2,
+                         -sqrtx2y2};
+            dpdx = apply_vector(texture_from_render, ctx.dpdx);
+            dpdy = apply_vector(texture_from_render, ctx.dpdy);
+            vec = unit_vector_(pt);
+            return TexCoord2D{vec2f{spherical_theta_(vec) * inv_pi(),
+                                    spherical_phi_(vec) * (0.5 * inv_pi())},
+                              dot_(dsdp, dpdx), dot_(dsdp, dpdy),
+                              dot_(dtdp, dpdx), dot_(dtdp, dpdy)};
+        }
+        Cylindrical(texture_from_render) => {
+            pt = apply_point(texture_from_render, ctx.p);
+            x2y2 = pt.x * pt.x + pt.y * pt.y;
+            dsdp = vec3f{-pt.y, pt.x, 0.0} / (2.0 * pi() * x2y2);
+            dtdp = vec3f{0.0, 0.0, 1.0};
+            dpdx = apply_vector(texture_from_render, ctx.dpdx);
+            dpdy = apply_vector(texture_from_render, ctx.dpdy);
+            return TexCoord2D{vec2f{(pi() + atan2(pt.y, pt.x)) * (0.5 * inv_pi()),
+                                    pt.z},
+                              dot_(dsdp, dpdx), dot_(dsdp, dpdy),
+                              dot_(dtdp, dpdx), dot_(dtdp, dpdy)};
+        }
+        Planar(texture_from_render, vs, vt, ds, dt) => {
+            vec = apply_point(texture_from_render, ctx.p);
+            dpdx = apply_vector(texture_from_render, ctx.dpdx);
+            dpdy = apply_vector(texture_from_render, ctx.dpdy);
+            return TexCoord2D{vec2f{ds + dot_(vec, vs), dt + dot_(vec, vt)},
+                              dot_(vs, dpdx), dot_(vs, dpdy), dot_(vt, dpdx),
+                              dot_(vt, dpdy)};
+        }
+    }
+}
+
+// pbrt: SphericalTheta and SphericalPhi, from util/vecmath.h.
+func spherical_theta_(v : vec3f) -> Float = acos(min(max(v.z, -1.0), 1.0));
+func spherical_phi_(v : vec3f) -> Float {
+    p = atan2(v.y, v.x);
+    return select(p < 0.0, p + 2.0 * pi(), p);
+}
+
+// pbrt: TexCoord3D and PointTransformMapping, the one 3D mapping: the point
+// and its derivatives taken into the texture's frame.
+element TexCoord3D {
+    p : vec3f;
+    dpdx : vec3f;
+    dpdy : vec3f;
+}
+
+func map_3d(texture_from_render : Transform,
+            ctx : TextureEvalContext) -> TexCoord3D {
+    return TexCoord3D{apply_point(texture_from_render, ctx.p),
+                      apply_vector(texture_from_render, ctx.dpdx),
+                      apply_vector(texture_from_render, ctx.dpdy)};
+}
 
 // One level of a pyramid: where its texels start and how they are shaped.
 // pbrt: Image::PixelFormat and ColorEncoding, as a texel is read. An 8-bit
@@ -54,8 +164,8 @@ element TextureLevel {
 
 // pbrt: ImageTexture, as the lookup needs it.
 element ImageTexture {
-    // pbrt: UVMapping, `st = (su * u + du, sv * v + dv)`.
-    su, sv, du, dv : Float;
+    // pbrt: TextureMapping2D, how the hit becomes an image coordinate.
+    mapping : Mapping2D;
     // pbrt's `scale`, with any constant `scale` texture over the image folded
     // in, as pbrt folds it (see scene_io.h).
     scale : Float;
@@ -70,7 +180,43 @@ element ImageTexture {
     id : u32;
 }
 
-extern textures : array[ImageTexture];
+// pbrt: FloatTexture and SpectrumTexture, the TaggedPointers over the kinds
+// of texture, as one variant: a texture is read as a number or as a spectrum
+// by the parameter that names it, and the kinds that answer only one way --
+// a noise is a number, a marble a spectrum -- are refused the other way by
+// the converter, as pbrt's parser refuses them by declared type.
+//
+// The composite kinds name their operands by index into `textures`, which
+// makes the table a graph: a `mix` of a `scale` of an image. pbrt evaluates
+// it by recursion; here the depth is written out -- `eval_float_0` reads a
+// leaf, `eval_float_1` a composite of leaves, and so on to three deep, which
+// the converter checks (scene_dump.cpp) -- since a recursion whose two calls
+// meet in a lerp is not one the schedule can make a loop of.
+//
+// `Constant` carries both a number and an rgb: a float constant is read
+// through `value`, a spectrum one through `rgb` fitted as an albedo, which
+// is pbrt's `SpectrumType::Albedo` -- the only type a constant reaches here,
+// as every spectrum texture a material names is a reflectance or an albedo.
+// `Scale` is pbrt's FloatScaledTexture, a texture times a float texture; a
+// constant scale over an image folds into the image as pbrt folds it
+// (scene_dump.cpp), so a `Scale` node is the varying case. `Mix` lerps by a
+// float texture, `DirectionMix` by the normal's cosine with a direction in
+// render space. The noises map the hit through `texture_from_render`, the
+// inverse of the transform the texture was declared under, and count their
+// octaves from the mapped footprint (fbm, turbulence below).
+element Texture =
+    | Image(t : ImageTexture)
+    | Constant(value : Float, rgb : vec3f)
+    | Scale(tex : i32, scale : i32)
+    | Mix(tex1 : i32, tex2 : i32, amount : i32)
+    | DirectionMix(tex1 : i32, tex2 : i32, dir : vec3f)
+    | FBm(texture_from_render : Transform, octaves : i32, omega : Float)
+    | Wrinkled(texture_from_render : Transform, octaves : i32, omega : Float)
+    | Windy(texture_from_render : Transform)
+    | Marble(texture_from_render : Transform, octaves : i32, omega : Float,
+             scale : Float, variation : Float);
+
+extern textures : array[Texture];
 extern texture_levels : array[TextureLevel];
 extern texture_texels : array[vec3f];
 // The 8-bit levels' texels, three bytes each, as the image stored them.
@@ -80,6 +226,11 @@ extern texture_bytes : array[u8];
 // apps/pbrt/srgb_table.h, which `scene_dump --check-tables` checks against
 // pbrt's own.
 extern srgb_to_linear : array[Float, 256];
+// pbrt: NoisePerm, from util/noise.cpp -- Perlin's permutation of 0..255,
+// twice over so that an index up to 510 needs no wrap. The driver hands it
+// over from apps/pbrt/noise_table.h, generated from pbrt's source by
+// make_spectrum_tables.py.
+extern noise_perm : array[u8, 512];
 // The texture units' object for each texture, made by the driver from the
 // same pyramid (runtime/bonsai_cuda.h, bonsai_cuda_texture_create), for a
 // schedule that binds the lookup to them (schedules/gpu.bonsai); zero, and
@@ -254,12 +405,11 @@ func texture_filter_float_unit(handle : u64, average_channels : bool,
 //
 // `t` is flipped first. pbrt's comment says why: texture coordinates put (0,0)
 // at the lower left and image coordinates put it at the upper left.
-func texture_rgb(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
-                 dudy : Float, dvdy : Float) -> vec3f {
-    st_raw = vec2f{t.su * uv.x + t.du, t.sv * uv.y + t.dv};
-    st = vec2f{st_raw.x, 1.0 - st_raw.y};
-    dstdx = vec2f{t.su * dudx, t.sv * dvdx};
-    dstdy = vec2f{t.su * dudy, t.sv * dvdy};
+func texture_rgb(t : ImageTexture, ctx : TextureEvalContext) -> vec3f {
+    c = map_2d(t.mapping, ctx);
+    st = vec2f{c.st.x, 1.0 - c.st.y};
+    dstdx = vec2f{c.dsdx, c.dtdx};
+    dstdy = vec2f{c.dsdy, c.dtdy};
     rgb = t.scale * texture_filter(t, st, dstdx, dstdy);
     inverted = select(t.invert, vec3f{1.0, 1.0, 1.0} - rgb, rgb);
     // pbrt: ClampZero, componentwise.
@@ -274,12 +424,11 @@ func texture_rgb(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
 // -- and it is decided per image, so scene_dump decides it, and ships a float
 // texture's value in all three components. `.x` here is therefore that value
 // after the same filter, and not the red channel of the picture.
-func texture_float(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
-                   dudy : Float, dvdy : Float) -> Float {
-    st_raw = vec2f{t.su * uv.x + t.du, t.sv * uv.y + t.dv};
-    st = vec2f{st_raw.x, 1.0 - st_raw.y};
-    dstdx = vec2f{t.su * dudx, t.sv * dvdx};
-    dstdy = vec2f{t.su * dudy, t.sv * dvdy};
+func texture_float(t : ImageTexture, ctx : TextureEvalContext) -> Float {
+    c = map_2d(t.mapping, ctx);
+    st = vec2f{c.st.x, 1.0 - c.st.y};
+    dstdx = vec2f{c.dsdx, c.dtdx};
+    dstdy = vec2f{c.dsdy, c.dtdy};
     v = t.scale * texture_filter_float(t, st, dstdx, dstdy);
     // A float texture clamps only when inverted; pbrt's spectrum one clamps
     // always. Written the way each is written.
@@ -402,9 +551,563 @@ func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
 
 // pbrt: `RGBAlbedoSpectrum(cs, Clamp(rgb, 0, 1)).Sample(lambda)`, which is what
 // a `SpectrumType::Albedo` image texture -- a reflectance -- becomes.
-func texture_albedo(t : ImageTexture, uv : vec2f, dudx : Float, dvdx : Float,
-                    dudy : Float, dvdy : Float,
+func texture_albedo(t : ImageTexture, ctx : TextureEvalContext,
                     lambda : SampledWavelengths) -> vec4f {
-    rgb = texture_rgb(t, uv, dudx, dvdx, dudy, dvdy);
+    rgb = texture_rgb(t, ctx);
     return spectrum_at(rgb_to_sigmoid(rgb), lambda);
 }
+
+// pbrt: Noise, from util/noise.cpp -- Perlin's gradient noise over the
+// integer lattice, with pbrt's permutation table and its weight polynomial.
+// The coordinates are taken modulo 2^30 first so that the lattice cell fits
+// an i32; a coordinate below that in magnitude is itself, which is every
+// coordinate a scene has, and the fallback for a larger one is written as
+// the remainder rather than as fmod, which this language has not got.
+func noise_perm_at(i : i32) -> i32 = cast[[i32]](noise_perm[cast[[u32]](i)]);
+
+func noise_grad(x : i32, y : i32, z : i32, dx : Float, dy : Float,
+                dz : Float) -> Float {
+    h = noise_perm_at(noise_perm_at(noise_perm_at(x) + y) + z) & 15;
+    u = select((h < 8) || (h == 12) || (h == 13), dx, dy);
+    v = select((h < 4) || (h == 12) || (h == 13), dy, dz);
+    return select((h & 1) != 0, -u, u) + select((h & 2) != 0, -v, v);
+}
+
+// pbrt: NoiseWeight, `6 t^5 - 15 t^4 + 10 t^3` with the powers as pbrt's
+// `Pow<n>` multiplies them out -- `Pow<n/2>(t)^2 * Pow<n&1>(t)`, so t^3 is
+// (t t) t, t^4 is (t t)(t t) and t^5 is that times t -- which is the last
+// bit of every noise value, checked against pbrt's numbers by
+// tests/bonsai/correctness/llvm/noise.bonsai.
+func noise_weight(t : Float) -> Float {
+    t2 = t * t;
+    t3 = t2 * t;
+    t4 = t2 * t2;
+    t5 = t4 * t;
+    return 6.0 * t5 - 15.0 * t4 + 10.0 * t3;
+}
+
+func noise_wrap(x : Float) -> Float {
+    m = 1073741824.0;
+    return select(abs(x) < m, x, x - floor_f(x / m) * m);
+}
+
+func noise(p : vec3f) -> Float {
+    x = noise_wrap(p.x);
+    y = noise_wrap(p.y);
+    z = noise_wrap(p.z);
+    fx = floor_f(x);
+    fy = floor_f(y);
+    fz = floor_f(z);
+    dx = x - fx;
+    dy = y - fy;
+    dz = z - fz;
+    ix = cast[[i32]](fx) & 255;
+    iy = cast[[i32]](fy) & 255;
+    iz = cast[[i32]](fz) & 255;
+    w000 = noise_grad(ix, iy, iz, dx, dy, dz);
+    w100 = noise_grad(ix + 1, iy, iz, dx - 1.0, dy, dz);
+    w010 = noise_grad(ix, iy + 1, iz, dx, dy - 1.0, dz);
+    w110 = noise_grad(ix + 1, iy + 1, iz, dx - 1.0, dy - 1.0, dz);
+    w001 = noise_grad(ix, iy, iz + 1, dx, dy, dz - 1.0);
+    w101 = noise_grad(ix + 1, iy, iz + 1, dx - 1.0, dy, dz - 1.0);
+    w011 = noise_grad(ix, iy + 1, iz + 1, dx, dy - 1.0, dz - 1.0);
+    w111 = noise_grad(ix + 1, iy + 1, iz + 1, dx - 1.0, dy - 1.0, dz - 1.0);
+    wx = noise_weight(dx);
+    wy = noise_weight(dy);
+    wz = noise_weight(dz);
+    x00 = lerp_(wx, w000, w100);
+    x10 = lerp_(wx, w010, w110);
+    x01 = lerp_(wx, w001, w101);
+    x11 = lerp_(wx, w011, w111);
+    y0 = lerp_(wy, x00, x10);
+    y1 = lerp_(wy, x01, x11);
+    return lerp_(wz, y0, y1);
+}
+
+// pbrt: SmoothStep.
+func smooth_step_(x : Float, a : Float, b : Float) -> Float {
+    if a == b {
+        return select(x < a, 0.0, 1.0);
+    }
+    t = min(max((x - a) / (b - a), 0.0), 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// pbrt: FBm and Turbulence -- a sum of octaves of noise, each a factor of
+// 1.99 finer and `omega` fainter than the last, with as many octaves as the
+// footprint can resolve: `-1 - log2(len2) / 2` of them, the last one faded
+// in by a smoothstep so that the count does not jump between pixels.
+// Turbulence sums the absolute values and adds, for the octaves the footprint
+// cannot resolve, the 0.2 each would have averaged to.
+func noise_octaves(dpdx : vec3f, dpdy : vec3f, max_octaves : i32) -> Float {
+    len2 = max(sqlen_(dpdx), sqlen_(dpdy));
+    return min(max(-1.0 - log2_(len2) / 2.0, 0.0), cast[[Float]](max_octaves));
+}
+
+func fbm(p : vec3f, dpdx : vec3f, dpdy : vec3f, omega : Float,
+         max_octaves : i32) -> Float {
+    n = noise_octaves(dpdx, dpdy, max_octaves);
+    n_int = cast[[i32]](floor_f(n));
+    total : mut Float = 0.0;
+    freq : mut Float = 1.0;
+    o : mut Float = 1.0;
+    for i in 0:n_int {
+        total = total + o * noise(freq * p);
+        freq = freq * 1.99;
+        o = o * omega;
+    }
+    n_partial = n - cast[[Float]](n_int);
+    return total + o * smooth_step_(n_partial, 0.3, 0.7) * noise(freq * p);
+}
+
+func turbulence(p : vec3f, dpdx : vec3f, dpdy : vec3f, omega : Float,
+                max_octaves : i32) -> Float {
+    n = noise_octaves(dpdx, dpdy, max_octaves);
+    n_int = cast[[i32]](floor_f(n));
+    total : mut Float = 0.0;
+    freq : mut Float = 1.0;
+    o : mut Float = 1.0;
+    for i in 0:n_int {
+        total = total + o * abs(noise(freq * p));
+        freq = freq * 1.99;
+        o = o * omega;
+    }
+    n_partial = n - cast[[Float]](n_int);
+    total = total + o * lerp_(smooth_step_(n_partial, 0.3, 0.7), 0.2,
+                              abs(noise(freq * p)));
+    for i in n_int:max_octaves {
+        total = total + o * 0.2;
+        o = o * omega;
+    }
+    return total;
+}
+
+// pbrt: MarbleTexture::Evaluate's spline through its nine colours -- a cubic
+// Bezier over the four around `t` (util/math.h, EvaluateCubicBezier) --
+// and the sine of the noised height that picks the place on it.
+func marble_colour(k : i32) -> vec3f {
+    if k == 3 {
+        return vec3f{0.5, 0.5, 0.5};
+    }
+    if k == 4 {
+        return vec3f{0.6, 0.59, 0.58};
+    }
+    if k == 7 {
+        return vec3f{0.2, 0.2, 0.33};
+    }
+    return vec3f{0.58, 0.58, 0.6};
+}
+
+func marble_rgb(texture_from_render : Transform, octaves : i32, omega : Float,
+                scale : Float, variation : Float,
+                ctx : TextureEvalContext) -> vec3f {
+    c = map_3d(texture_from_render, ctx);
+    p = scale * c.p;
+    marble = p.y + variation * fbm(p, scale * c.dpdx, scale * c.dpdy, omega,
+                                   octaves);
+    t_raw = 0.5 + 0.5 * sin(marble);
+    // Nine colours, six segments.
+    first = min(cast[[i32]](floor_f(t_raw * 6.0)), 5);
+    t = t_raw * 6.0 - cast[[Float]](first);
+    c0 = marble_colour(first);
+    c1 = marble_colour(first + 1);
+    c2 = marble_colour(first + 2);
+    c3 = marble_colour(first + 3);
+    // pbrt: EvaluateCubicBezier, de Casteljau's three lerps then two then one.
+    s0 = (1.0 - t) * c0 + t * c1;
+    s1 = (1.0 - t) * c1 + t * c2;
+    s2 = (1.0 - t) * c2 + t * c3;
+    r0 = (1.0 - t) * s0 + t * s1;
+    r1 = (1.0 - t) * s1 + t * s2;
+    return 1.5 * ((1.0 - t) * r0 + t * r1);
+}
+
+// The leaves of the texture graph, read each way. A composite reaching a
+// leaf reader is the converter's error, not a case: it answers nothing.
+func eval_float_leaf(t : Texture, ctx : TextureEvalContext) -> Float {
+    match t {
+        Image(i) => return texture_float(i, ctx);
+        Constant(value, rgb) => return value;
+        FBm(texture_from_render, octaves, omega) => {
+            c = map_3d(texture_from_render, ctx);
+            return fbm(c.p, c.dpdx, c.dpdy, omega, octaves);
+        }
+        Wrinkled(texture_from_render, octaves, omega) => {
+            c = map_3d(texture_from_render, ctx);
+            return turbulence(c.p, c.dpdx, c.dpdy, omega, octaves);
+        }
+        Windy(texture_from_render) => {
+            // pbrt: WindyTexture::Evaluate -- a coarse fbm for the wind and
+            // a fine one for the waves, the first's magnitude scaling the
+            // second.
+            c = map_3d(texture_from_render, ctx);
+            wind = fbm(0.1 * c.p, 0.1 * c.dpdx, 0.1 * c.dpdy, 0.5, 3);
+            waves = fbm(c.p, c.dpdx, c.dpdy, 0.5, 6);
+            return abs(wind) * waves;
+        }
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 0.0;
+        Scale(tex, scale) => return 0.0;
+        Mix(tex1, tex2, amount) => return 0.0;
+        DirectionMix(tex1, tex2, dir) => return 0.0;
+    }
+}
+
+func eval_rgb_leaf(t : Texture, ctx : TextureEvalContext) -> vec3f {
+    match t {
+        Image(i) => return texture_rgb(i, ctx);
+        Constant(value, rgb) => return rgb;
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return marble_rgb(texture_from_render, octaves, omega, scale,
+                              variation, ctx);
+        FBm(texture_from_render, octaves, omega) => {
+            v = eval_float_leaf(t, ctx);
+            return vec3f{v, v, v};
+        }
+        Wrinkled(texture_from_render, octaves, omega) => {
+            v = eval_float_leaf(t, ctx);
+            return vec3f{v, v, v};
+        }
+        Windy(texture_from_render) => {
+            v = eval_float_leaf(t, ctx);
+            return vec3f{v, v, v};
+        }
+        Scale(tex, scale) => return vec3f{0.0, 0.0, 0.0};
+        Mix(tex1, tex2, amount) => return vec3f{0.0, 0.0, 0.0};
+        DirectionMix(tex1, tex2, dir) => return vec3f{0.0, 0.0, 0.0};
+    }
+}
+
+// pbrt: a spectrum texture's Evaluate at the wavelengths: an image's
+// filtered colour fitted as an albedo (texture_albedo), a constant's rgb
+// fitted the same way, a marble's spline colour the same way --
+// `RGBAlbedoSpectrum(*RGBColorSpace::sRGB, rgb).Sample(lambda)` in each.
+func eval_spectrum_leaf(t : Texture, ctx : TextureEvalContext,
+                        lambda : SampledWavelengths) -> vec4f {
+    match t {
+        Image(i) => return texture_albedo(i, ctx, lambda);
+        Constant(value, rgb) => return spectrum_at(rgb_to_sigmoid(rgb), lambda);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return spectrum_at(rgb_to_sigmoid(marble_rgb(texture_from_render,
+                                                         octaves, omega, scale,
+                                                         variation, ctx)),
+                               lambda);
+        FBm(texture_from_render, octaves, omega) =>
+            return vec4f{0.0, 0.0, 0.0, 0.0};
+        Wrinkled(texture_from_render, octaves, omega) =>
+            return vec4f{0.0, 0.0, 0.0, 0.0};
+        Windy(texture_from_render) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Scale(tex, scale) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Mix(tex1, tex2, amount) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        DirectionMix(tex1, tex2, dir) => return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+}
+
+// The graph, three levels deep at most. Level zero is a leaf; a level above
+// it is a composite whose operands are read one level down, or a leaf. The
+// composites are pbrt's: FloatScaledTexture's `sc == 0 ? 0 : tex * sc`,
+// FloatMixTexture's `(1 - amt) * t1 + amt * t2` with the operand an amount
+// of one or zero would multiply by zero left unread, and the direction mix
+// with `AbsDot(ctx.n, dir)` as the amount.
+//
+// The two composite levels below the root are `[[noinline]]`. The device
+// backend folds every function into the kernels that call it unless the
+// program says otherwise (CodeGen_PTX.cpp), and a leaf -- the image filter,
+// the three noises, the marble -- inlined through three composite levels is
+// 1 + 3 + 9 + 27 copies of itself per read, at the twenty-odd reads a hit's
+// materials make: the compiler ran out of memory building the material
+// kernels. As calls, a level is compiled once. The root keeps its own leaf
+// arms inline, so the common case -- an image or a constant with nothing
+// above it -- pays no call; a composite's operands are a call each, which
+// is what pbrt's GPU pays too, its MixTexture::Evaluate reaching its
+// operands through the TaggedPointer dispatch that nvcc cannot unwind.
+func eval_float_0(index : i32, ctx : TextureEvalContext) -> Float =
+    eval_float_leaf(textures[cast[[u32]](index)], ctx);
+
+func [[noinline]] eval_float_1(index : i32, ctx : TextureEvalContext) -> Float {
+    t = textures[cast[[u32]](index)];
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_0(scale, ctx);
+            if sc == 0.0 {
+                return 0.0;
+            }
+            return eval_float_0(tex, ctx) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_0(amount, ctx);
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 1.0 {
+                t1 = eval_float_0(tex1, ctx);
+            }
+            if amt != 0.0 {
+                t2 = eval_float_0(tex2, ctx);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 0.0 {
+                t1 = eval_float_0(tex1, ctx);
+            }
+            if amt != 1.0 {
+                t2 = eval_float_0(tex2, ctx);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_float_leaf(t, ctx);
+        Constant(value, rgb) => return value;
+        FBm(texture_from_render, octaves, omega) => return eval_float_leaf(t, ctx);
+        Wrinkled(texture_from_render, octaves, omega) =>
+            return eval_float_leaf(t, ctx);
+        Windy(texture_from_render) => return eval_float_leaf(t, ctx);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 0.0;
+    }
+}
+
+func [[noinline]] eval_float_2(index : i32, ctx : TextureEvalContext) -> Float {
+    t = textures[cast[[u32]](index)];
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_1(scale, ctx);
+            if sc == 0.0 {
+                return 0.0;
+            }
+            return eval_float_1(tex, ctx) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_1(amount, ctx);
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 1.0 {
+                t1 = eval_float_1(tex1, ctx);
+            }
+            if amt != 0.0 {
+                t2 = eval_float_1(tex2, ctx);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 0.0 {
+                t1 = eval_float_1(tex1, ctx);
+            }
+            if amt != 1.0 {
+                t2 = eval_float_1(tex2, ctx);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_float_leaf(t, ctx);
+        Constant(value, rgb) => return value;
+        FBm(texture_from_render, octaves, omega) => return eval_float_leaf(t, ctx);
+        Wrinkled(texture_from_render, octaves, omega) =>
+            return eval_float_leaf(t, ctx);
+        Windy(texture_from_render) => return eval_float_leaf(t, ctx);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 0.0;
+    }
+}
+
+// pbrt: FloatTexture::Evaluate, of the texture at `index` -- the root of
+// its graph.
+func eval_float(index : i32, ctx : TextureEvalContext) -> Float {
+    t = textures[cast[[u32]](index)];
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_2(scale, ctx);
+            if sc == 0.0 {
+                return 0.0;
+            }
+            return eval_float_2(tex, ctx) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_2(amount, ctx);
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 1.0 {
+                t1 = eval_float_2(tex1, ctx);
+            }
+            if amt != 0.0 {
+                t2 = eval_float_2(tex2, ctx);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut Float = 0.0;
+            t2 : mut Float = 0.0;
+            if amt != 0.0 {
+                t1 = eval_float_2(tex1, ctx);
+            }
+            if amt != 1.0 {
+                t2 = eval_float_2(tex2, ctx);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_float_leaf(t, ctx);
+        Constant(value, rgb) => return value;
+        FBm(texture_from_render, octaves, omega) => return eval_float_leaf(t, ctx);
+        Wrinkled(texture_from_render, octaves, omega) =>
+            return eval_float_leaf(t, ctx);
+        Windy(texture_from_render) => return eval_float_leaf(t, ctx);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 0.0;
+    }
+}
+
+// The same three levels for a spectrum. A composite's amount or scale is a
+// float texture, read with the float reader one level down.
+func eval_spectrum_0(index : i32, ctx : TextureEvalContext,
+                     lambda : SampledWavelengths) -> vec4f =
+    eval_spectrum_leaf(textures[cast[[u32]](index)], ctx, lambda);
+
+func [[noinline]] eval_spectrum_1(index : i32, ctx : TextureEvalContext,
+                                  lambda : SampledWavelengths) -> vec4f {
+    t = textures[cast[[u32]](index)];
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_0(scale, ctx);
+            if sc == 0.0 {
+                return zero;
+            }
+            return eval_spectrum_0(tex, ctx, lambda) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_0(amount, ctx);
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 1.0 {
+                t1 = eval_spectrum_0(tex1, ctx, lambda);
+            }
+            if amt != 0.0 {
+                t2 = eval_spectrum_0(tex2, ctx, lambda);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 0.0 {
+                t1 = eval_spectrum_0(tex1, ctx, lambda);
+            }
+            if amt != 1.0 {
+                t2 = eval_spectrum_0(tex2, ctx, lambda);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_spectrum_leaf(t, ctx, lambda);
+        Constant(value, rgb) => return eval_spectrum_leaf(t, ctx, lambda);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return eval_spectrum_leaf(t, ctx, lambda);
+        FBm(texture_from_render, octaves, omega) => return zero;
+        Wrinkled(texture_from_render, octaves, omega) => return zero;
+        Windy(texture_from_render) => return zero;
+    }
+}
+
+func [[noinline]] eval_spectrum_2(index : i32, ctx : TextureEvalContext,
+                                  lambda : SampledWavelengths) -> vec4f {
+    t = textures[cast[[u32]](index)];
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_1(scale, ctx);
+            if sc == 0.0 {
+                return zero;
+            }
+            return eval_spectrum_1(tex, ctx, lambda) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_1(amount, ctx);
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 1.0 {
+                t1 = eval_spectrum_1(tex1, ctx, lambda);
+            }
+            if amt != 0.0 {
+                t2 = eval_spectrum_1(tex2, ctx, lambda);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 0.0 {
+                t1 = eval_spectrum_1(tex1, ctx, lambda);
+            }
+            if amt != 1.0 {
+                t2 = eval_spectrum_1(tex2, ctx, lambda);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_spectrum_leaf(t, ctx, lambda);
+        Constant(value, rgb) => return eval_spectrum_leaf(t, ctx, lambda);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return eval_spectrum_leaf(t, ctx, lambda);
+        FBm(texture_from_render, octaves, omega) => return zero;
+        Wrinkled(texture_from_render, octaves, omega) => return zero;
+        Windy(texture_from_render) => return zero;
+    }
+}
+
+// pbrt: SpectrumTexture::Evaluate, of the texture at `index`.
+func eval_spectrum(index : i32, ctx : TextureEvalContext,
+                   lambda : SampledWavelengths) -> vec4f {
+    t = textures[cast[[u32]](index)];
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    match t {
+        Scale(tex, scale) => {
+            sc = eval_float_2(scale, ctx);
+            if sc == 0.0 {
+                return zero;
+            }
+            return eval_spectrum_2(tex, ctx, lambda) * sc;
+        }
+        Mix(tex1, tex2, amount) => {
+            amt = eval_float_2(amount, ctx);
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 1.0 {
+                t1 = eval_spectrum_2(tex1, ctx, lambda);
+            }
+            if amt != 0.0 {
+                t2 = eval_spectrum_2(tex2, ctx, lambda);
+            }
+            return (1.0 - amt) * t1 + amt * t2;
+        }
+        DirectionMix(tex1, tex2, dir) => {
+            amt = abs(dot_(ctx.n, dir));
+            t1 : mut vec4f = zero;
+            t2 : mut vec4f = zero;
+            if amt != 0.0 {
+                t1 = eval_spectrum_2(tex1, ctx, lambda);
+            }
+            if amt != 1.0 {
+                t2 = eval_spectrum_2(tex2, ctx, lambda);
+            }
+            return amt * t1 + (1.0 - amt) * t2;
+        }
+        Image(i) => return eval_spectrum_leaf(t, ctx, lambda);
+        Constant(value, rgb) => return eval_spectrum_leaf(t, ctx, lambda);
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return eval_spectrum_leaf(t, ctx, lambda);
+        FBm(texture_from_render, octaves, omega) => return zero;
+        Wrinkled(texture_from_render, octaves, omega) => return zero;
+        Windy(texture_from_render) => return zero;
+    }
+}
+
+// The filtered colour of the texture at `index` before it is read as a
+// number or fitted, for check_differentials.sh's `texrgb` rows: only the
+// root is read, since the rows are for the image filter.
+func eval_rgb(index : i32, ctx : TextureEvalContext) -> vec3f =
+    eval_rgb_leaf(textures[cast[[u32]](index)], ctx);

@@ -18,6 +18,7 @@
 #include "rgb2spec.h"
 #include "scene_io.h"
 #include "sobol_tables.h"
+#include "noise_table.h"
 #include "srgb_table.h"
 
 #include <algorithm>
@@ -1262,23 +1263,83 @@ int main(int argc, char **argv) {
     };
 
     // The scene's materials, with every RGB fitted. Through the generated
-    // The image textures, their levels, and the texels the levels index into.
-    // Laid out exactly as the scene wrote them; the pyramid was built by PBRT.
-    std::vector<ImageTexture> textures;
+    // The textures -- the graph of them, each record built into the variant
+    // the renderer matches on through the generated constructors -- with the
+    // image ones' levels and the texels the levels index into, laid out
+    // exactly as the scene wrote them; the pyramid was built by PBRT. An
+    // image's `id` numbers the image textures alone, which is how
+    // `texture_handles` is indexed.
+    const auto rows = [](const float m[16]) {
+        return Transform{float4{m[0], m[1], m[2], m[3]},
+                         float4{m[4], m[5], m[6], m[7]},
+                         float4{m[8], m[9], m[10], m[11]},
+                         float4{m[12], m[13], m[14], m[15]}};
+    };
+    std::vector<Texture> textures;
     textures.reserve(loaded.textures.size());
-    for (const bonsai_scene::ImageTexture &t : loaded.textures) {
-        ImageTexture tex;
-        tex.su = t.su;
-        tex.sv = t.sv;
-        tex.du = t.du;
-        tex.dv = t.dv;
-        tex.scale = t.scale;
-        tex.average_channels = t.average_channels != 0;
-        tex.invert = t.invert != 0;
-        tex.wrap = t.wrap;
-        tex.first_level = t.first_level;
-        tex.n_levels = t.n_levels;
-        tex.id = uint32_t(textures.size());
+    uint32_t image_textures = 0;
+    for (const bonsai_scene::Texture &t : loaded.textures) {
+        Texture tex;
+        switch (t.kind) {
+        case bonsai_scene::TextureKind::Image: {
+            ImageTexture img;
+            switch (t.mapping) {
+            case bonsai_scene::MappingKind::UV:
+                Mapping2D_UV(img.mapping, t.su, t.sv, t.du, t.dv);
+                break;
+            case bonsai_scene::MappingKind::Spherical:
+                Mapping2D_Spherical(img.mapping, rows(t.texture_from_render));
+                break;
+            case bonsai_scene::MappingKind::Cylindrical:
+                Mapping2D_Cylindrical(img.mapping, rows(t.texture_from_render));
+                break;
+            default:
+                Mapping2D_Planar(img.mapping, rows(t.texture_from_render),
+                                 float3{t.vs[0], t.vs[1], t.vs[2]},
+                                 float3{t.vt[0], t.vt[1], t.vt[2]}, t.ds, t.dt);
+                break;
+            }
+            img.scale = t.scale;
+            img.average_channels = t.average_channels != 0;
+            img.invert = t.invert != 0;
+            img.wrap = t.wrap;
+            img.first_level = t.first_level;
+            img.n_levels = t.n_levels;
+            img.id = image_textures++;
+            Texture_Image(tex, img);
+            break;
+        }
+        case bonsai_scene::TextureKind::Constant:
+            Texture_Constant(tex, t.value, float3{t.rgb[0], t.rgb[1], t.rgb[2]});
+            break;
+        case bonsai_scene::TextureKind::Scale:
+            Texture_Scale(tex, t.tex1, t.amount);
+            break;
+        case bonsai_scene::TextureKind::Mix:
+            Texture_Mix(tex, t.tex1, t.tex2, t.amount);
+            break;
+        case bonsai_scene::TextureKind::DirectionMix:
+            Texture_DirectionMix(tex, t.tex1, t.tex2,
+                                 float3{t.dir[0], t.dir[1], t.dir[2]});
+            break;
+        case bonsai_scene::TextureKind::FBm:
+            Texture_FBm(tex, rows(t.texture_from_render), t.octaves, t.omega);
+            break;
+        case bonsai_scene::TextureKind::Wrinkled:
+            Texture_Wrinkled(tex, rows(t.texture_from_render), t.octaves, t.omega);
+            break;
+        case bonsai_scene::TextureKind::Windy:
+            Texture_Windy(tex, rows(t.texture_from_render));
+            break;
+        case bonsai_scene::TextureKind::Marble:
+            Texture_Marble(tex, rows(t.texture_from_render), t.octaves, t.omega,
+                           t.noise_scale, t.variation);
+            break;
+        default:
+            fprintf(stderr, "texture %zu: unknown kind %u\n", textures.size(),
+                    t.kind);
+            return 1;
+        }
         textures.push_back(tex);
     }
     // The software filter's tables -- the levels and the texels they index
@@ -1317,10 +1378,13 @@ int main(int argc, char **argv) {
     // `texDesc.sRGB` for a U256 image), with pbrt's default `maxanisotropy`
     // of 8. Built from the scene's own level table and texels, which are
     // here whatever the schedule.
-    std::vector<uint64_t> texture_handles(textures.size(), 0);
+    std::vector<uint64_t> texture_handles(image_textures, 0);
 #ifdef BONSAI_HAS_GPU
-    for (size_t k = 0; k < textures.size(); k++) {
-        const ImageTexture &t = textures[k];
+    size_t k = 0;
+    for (const bonsai_scene::Texture &t : loaded.textures) {
+        if (t.kind != bonsai_scene::TextureKind::Image) {
+            continue;
+        }
         // pbrt's pyramid keeps the image's format on every level
         // (Image::GeneratePyramid), and so does scene_dump.
         const uint32_t format = loaded.texture_levels[t.first_level].format;
@@ -1367,7 +1431,7 @@ int main(int argc, char **argv) {
                 level_texels.push_back(out.data());
             }
         }
-        texture_handles[k] = bonsai_cuda_texture_create(
+        texture_handles[k++] = bonsai_cuda_texture_create(
             int64_t(t.n_levels), widths.data(), heights.data(),
             level_texels.data(), int32_t(format), int32_t(t.wrap),
             /*max_anisotropy=*/8);
@@ -1408,6 +1472,7 @@ int main(int argc, char **argv) {
                                texture_levels.data(), texture_texels.data(),
                                loaded.texture_bytes.data(),
                                std::to_array(SRGB8_TO_LINEAR),
+                               std::to_array(NOISE_PERM),
                                loaded.rgb_table.data());
                     if (index == 0 && k == 0) {
                         printf("lambda: %.9g %.9g %.9g %.9g\n", double(out[5]),
@@ -2465,6 +2530,12 @@ int main(int argc, char **argv) {
     // (srgb_table.h, checked against pbrt's by `scene_dump --check-tables`).
     bonsai_buffer b_srgb_to_linear = buffer_of(SRGB8_TO_LINEAR);
 #endif
+#if BONSAI_render_HAS_noise_perm
+    // pbrt's NoisePerm, the permutation under its Perlin noise (noise_table.h;
+    // the noise it drives is checked against pbrt's own numbers, from
+    // `scene_dump --print-noise`, by tests/bonsai/correctness/llvm/noise).
+    bonsai_buffer b_noise_perm = buffer_of(NOISE_PERM);
+#endif
 #if BONSAI_render_HAS_texture_handles
     bonsai_buffer b_texture_handles = buffer_of(texture_handles);
 #endif
@@ -2566,6 +2637,9 @@ int main(int argc, char **argv) {
         &b_texture_levels, &b_texture_texels, &b_texture_bytes,
         &b_srgb_to_linear,
 #endif
+#if BONSAI_render_HAS_noise_perm
+        &b_noise_perm,
+#endif
 #if BONSAI_render_HAS_texture_handles
         &b_texture_handles,
 #endif
@@ -2655,6 +2729,9 @@ int main(int argc, char **argv) {
 #if BONSAI_render_HAS_texture_levels
                &b_texture_levels, &b_texture_texels, &b_texture_bytes,
                &b_srgb_to_linear,
+#endif
+#if BONSAI_render_HAS_noise_perm
+               &b_noise_perm,
 #endif
 #if BONSAI_render_HAS_texture_handles
                &b_texture_handles,
@@ -2758,6 +2835,9 @@ int main(int argc, char **argv) {
 #if BONSAI_hit_at_HAS_texture_levels
                            &b_texture_levels, &b_texture_texels,
                            &b_texture_bytes, &b_srgb_to_linear,
+#endif
+#if BONSAI_hit_at_HAS_noise_perm
+                           &b_noise_perm,
 #endif
 #if BONSAI_hit_at_HAS_texture_handles
                            &b_texture_handles,

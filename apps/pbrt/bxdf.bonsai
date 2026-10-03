@@ -1968,14 +1968,12 @@ element Reflectance {
 // The reflectance at a hit. A textured one is filtered over the footprint the
 // differentials describe and then fitted to a spectrum -- in that order, which
 // is pbrt's: filtering the fit would be a different, nonlinear thing.
-func reflectance_at(r : Reflectance, lambda : SampledWavelengths, uv : vec2f,
-                    dudx : Float, dvdx : Float, dudy : Float,
-                    dvdy : Float) -> vec4f {
+func reflectance_at(r : Reflectance, lambda : SampledWavelengths,
+                    ctx : TextureEvalContext) -> vec4f {
     if r.texture < 0 {
         return spectrum_at(r.albedo, lambda);
     }
-    return texture_albedo(textures[cast[[u32]](r.texture)], uv, dudx, dvdx,
-                          dudy, dvdy, lambda);
+    return eval_spectrum(r.texture, ctx, lambda);
 }
 
 // pbrt: FloatTexture, as a material parameter -- a roughness -- is one: the
@@ -1990,23 +1988,20 @@ element FloatParam {
 
 // The parameter at a hit: the constant, or the texture filtered over the
 // footprint the differentials describe.
-func float_param_at(p : FloatParam, uv : vec2f, dudx : Float, dvdx : Float,
-                    dudy : Float, dvdy : Float) -> Float {
+func float_param_at(p : FloatParam, ctx : TextureEvalContext) -> Float {
     if p.texture < 0 {
         return p.value;
     }
-    return texture_float(textures[cast[[u32]](p.texture)], uv, dudx, dvdx,
-                         dudy, dvdy);
+    return eval_float(p.texture, ctx);
 }
 
 // pbrt: the `uRough`/`vRough` every GetBxDF with a microfacet distribution
 // begins with -- each roughness at the hit, remapped to an alpha when the
 // material says to (TrowbridgeReitzDistribution::RoughnessToAlpha).
 func alphas_at(u_roughness : FloatParam, v_roughness : FloatParam, remap : bool,
-               uv : vec2f, dudx : Float, dvdx : Float, dudy : Float,
-               dvdy : Float) -> vec2f {
-    u = float_param_at(u_roughness, uv, dudx, dvdx, dudy, dvdy);
-    v = float_param_at(v_roughness, uv, dudx, dvdx, dudy, dvdy);
+               ctx : TextureEvalContext) -> vec2f {
+    u = float_param_at(u_roughness, ctx);
+    v = float_param_at(v_roughness, ctx);
     return vec2f{select(remap, roughness_to_alpha(u), u),
                  select(remap, roughness_to_alpha(v), v)};
 }
@@ -2186,18 +2181,15 @@ element Material =
 // the top is touched -- pbrt calls Regularize on both and DiffuseBxDF's is
 // empty.
 func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
-                    regularize : bool, uv : vec2f, dudx : Float, dvdx : Float,
-                    dudy : Float, dvdy : Float) -> LayeredBxDF {
-    alpha = alphas_at(m.u_roughness, m.v_roughness, m.remap, uv, dudx, dvdx,
-                      dudy, dvdy);
+                    regularize : bool, ctx : TextureEvalContext) -> LayeredBxDF {
+    alpha = alphas_at(m.u_roughness, m.v_roughness, m.remap, ctx);
     distrib : mut TrowbridgeReitz = make_trowbridge_reitz(alpha.x, alpha.y);
     if regularize {
         distrib = regularize_distrib(distrib);
     }
     top : DielectricBxDF = {m.eta, distrib};
     bottom : DiffuseBxDF =
-        {min(max(reflectance_at(m.reflectance, lambda, uv, dudx, dvdx, dudy,
-                                dvdy), 0.0), 1.0)};
+        {min(max(reflectance_at(m.reflectance, lambda, ctx), 0.0), 1.0)};
     medium = select(m.has_medium,
                     min(max(spectrum_at(m.medium_albedo, lambda), 0.0), 1.0),
                     vec4f{0.0, 0.0, 0.0, 0.0});
@@ -2212,11 +2204,9 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
 // only the coating to widen.
 func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
                               lambda : SampledWavelengths, regularize : bool,
-                              uv : vec2f, dudx : Float, dvdx : Float,
-                              dudy : Float, dvdy : Float) -> LayeredBxDF {
+                              ctx : TextureEvalContext) -> LayeredBxDF {
     interface_alpha = alphas_at(m.interface_u_roughness,
-                                m.interface_v_roughness, m.remap, uv, dudx,
-                                dvdx, dudy, dvdy);
+                                m.interface_v_roughness, m.remap, ctx);
     interface_distrib : mut TrowbridgeReitz =
         make_trowbridge_reitz(interface_alpha.x, interface_alpha.y);
     // pbrt: `if (ieta == 0) ieta = 1`.
@@ -2231,17 +2221,14 @@ func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
             ck = spectrum_at_linear(conductor_k, base, lambda);
         }
         FromReflectance(albedo) => {
-            r = min(max(reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy,
-                                       dvdy),
-                        zero),
+            r = min(max(reflectance_at(albedo, lambda, ctx), zero),
                     vec4f{0.9999, 0.9999, 0.9999, 0.9999});
             ce = vec4f{1.0, 1.0, 1.0, 1.0};
             ck = 2.0 * sqrt(r) / sqrt(max(1.0 - r, zero));
         }
     }
     conductor_alpha = alphas_at(m.conductor_u_roughness,
-                                m.conductor_v_roughness, m.remap, uv, dudx,
-                                dvdx, dudy, dvdy);
+                                m.conductor_v_roughness, m.remap, ctx);
     conductor_distrib : mut TrowbridgeReitz =
         make_trowbridge_reitz(conductor_alpha.x, conductor_alpha.y);
     if regularize {
@@ -2296,12 +2283,16 @@ element BxDF =
 // `bsdf.Regularize()` on the value `GetBSDF` returned, once, before asking it
 // anything.
 func material_bxdf(mat : Material, lambda : SampledWavelengths,
-                   regularize : bool, uv : vec2f, dudx : Float, dvdx : Float,
-                   dudy : Float, dvdy : Float) -> BxDF {
+                   regularize : bool, ctx : TextureEvalContext) -> BxDF {
     match mat {
         Diffuse(albedo) => {
-            d : DiffuseBxDF =
-                {reflectance_at(albedo, lambda, uv, dudx, dvdx, dudy, dvdy)};
+            // pbrt: DiffuseMaterial::GetBxDF, `Clamp(texEval(reflectance,
+            // ctx, lambda), 0, 1)` -- an image's texel is never outside that,
+            // but a reflectance scaled by a noise is negative half the time.
+            zero = vec4f{0.0, 0.0, 0.0, 0.0};
+            one = vec4f{1.0, 1.0, 1.0, 1.0};
+            d : DiffuseBxDF = {
+                min(max(reflectance_at(albedo, lambda, ctx), zero), one)};
             return Lambertian(d);
         }
         DiffuseTransmission(dt) => {
@@ -2309,23 +2300,19 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             // the hit, scaled, and clamped to [0, 1] per wavelength.
             zero = vec4f{0.0, 0.0, 0.0, 0.0};
             one = vec4f{1.0, 1.0, 1.0, 1.0};
-            r = min(max(dt.scale * reflectance_at(dt.reflectance, lambda, uv,
-                                                  dudx, dvdx, dudy, dvdy),
+            r = min(max(dt.scale * reflectance_at(dt.reflectance, lambda, ctx),
                         zero),
                     one);
-            t = min(max(dt.scale * reflectance_at(dt.transmittance, lambda, uv,
-                                                  dudx, dvdx, dudy, dvdy),
+            t = min(max(dt.scale * reflectance_at(dt.transmittance, lambda, ctx),
                         zero),
                     one);
             b : DiffuseTransmissionBxDF = {r, t};
             return Translucent(b);
         }
         CoatedDiffuse(m) =>
-            return Layered(coated_bxdf_at(m, lambda, regularize, uv, dudx,
-                                          dvdx, dudy, dvdy));
+            return Layered(coated_bxdf_at(m, lambda, regularize, ctx));
         CoatedConductor(cc) =>
-            return Layered(coated_conductor_bxdf_at(cc, lambda, regularize, uv,
-                                                    dudx, dvdx, dudy, dvdy));
+            return Layered(coated_conductor_bxdf_at(cc, lambda, regularize, ctx));
         Measured(index) => {
             // pbrt: MeasuredMaterial::GetBxDF, which is one line -- the
             // wavelengths are what the BxDF needs and everything else about
@@ -2335,8 +2322,7 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         }
         Conductor(c) => {
             // pbrt: ConductorMaterial::GetBxDF.
-            alpha = alphas_at(c.u_roughness, c.v_roughness, c.remap, uv, dudx,
-                              dvdx, dudy, dvdy);
+            alpha = alphas_at(c.u_roughness, c.v_roughness, c.remap, ctx);
             distrib : mut TrowbridgeReitz =
                 make_trowbridge_reitz(alpha.x, alpha.y);
             if regularize {
@@ -2358,9 +2344,7 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
                     // Sqrt(ClampZero(1 - r))` -- the clamp short of one is
                     // what keeps a reflectance of one from dividing by zero.
                     zero = vec4f{0.0, 0.0, 0.0, 0.0};
-                    r = min(max(reflectance_at(albedo, lambda, uv, dudx, dvdx,
-                                               dudy, dvdy),
-                                zero),
+                    r = min(max(reflectance_at(albedo, lambda, ctx), zero),
                             vec4f{0.9999, 0.9999, 0.9999, 0.9999});
                     m : ConductorBxDF = {vec4f{1.0, 1.0, 1.0, 1.0},
                                          2.0 * sqrt(r) / sqrt(max(1.0 - r, zero)),
@@ -2372,8 +2356,7 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
         Dielectric(g) => {
             // pbrt: DielectricMaterial::GetBxDF. The same three lines the
             // coating of a layered material gets, which is the same class.
-            alpha = alphas_at(g.u_roughness, g.v_roughness, g.remap, uv, dudx,
-                              dvdx, dudy, dvdy);
+            alpha = alphas_at(g.u_roughness, g.v_roughness, g.remap, ctx);
             distrib : mut TrowbridgeReitz =
                 make_trowbridge_reitz(alpha.x, alpha.y);
             if regularize {
