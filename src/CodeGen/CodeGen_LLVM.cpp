@@ -2306,6 +2306,12 @@ void CodeGen_LLVM::visit(const Cast *node) {
         // -typed pointer (e.g. for reading a whole immutable array as a
         // vector). Both are address reinterprets, not size-sensitive.
         value = builder->CreateBitCast(inner, llvm_dst);
+    } else if (src.is<Ptr_t>() && dst.is<Array_t>()) {
+        // The other way: an address read as the array that begins there --
+        // a leaf's run of tiles at an offset of an arena of bytes (Lower/
+        // Layouts.cpp, ir::Lookup::shape). The array's representation is
+        // the pointer to its elements, so this too is an address reinterpret.
+        value = builder->CreateBitCast(inner, llvm_dst);
     } else if (src.is_bool() && dst.is_int_or_uint()) {
         value = builder->CreateIntCast(inner, llvm_dst,
                                        /* isSigned */ false);

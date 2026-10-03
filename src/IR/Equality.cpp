@@ -962,7 +962,17 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
             cmp != Cmp::Equals) {
             return cmp;
         }
-        return compare_exprs(l0n->index, l1n->index);
+        if (Cmp cmp = compare_exprs(l0n->index, l1n->index);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (l0n->shape.defined() != l1n->shape.defined()) {
+            return l0n->shape.defined() ? Cmp::Greater : Cmp::Less;
+        }
+        if (!l0n->shape.defined()) {
+            return Cmp::Equals;
+        }
+        return compare_layouts(l0n->shape, l1n->shape);
     }
     }
 }

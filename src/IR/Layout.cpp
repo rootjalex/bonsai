@@ -81,7 +81,7 @@ Expr Layout::count() const {
     return u64_1;
 }
 
-Layout Lookup::make(std::string group_name, Expr index) {
+Layout Lookup::make(std::string group_name, Expr index, Layout shape) {
     internal_assert(!group_name.empty())
         << "Lookup::make received an empty group name";
     internal_assert(index.defined())
@@ -90,6 +90,7 @@ Layout Lookup::make(std::string group_name, Expr index) {
     Lookup *node = new Lookup;
     node->group_name = std::move(group_name);
     node->index = std::move(index);
+    node->shape = std::move(shape);
     return node;
 }
 
@@ -180,7 +181,12 @@ Layout Chain::make(std::vector<Layout> layouts) {
 Layout Group::make(Expr size, std::string name, std::string declared_name,
                    ir::Type index_t, Layout inner, Group::Type type,
                    ir::Type element, Expr start) {
-    internal_assert(size.defined())
+    // A group of the tree's elements may have no size when it is the run of
+    // tiles that begins where a looked-up row does, bounded by the range
+    // over it (see Lookup::shape); every other group says how many rows it
+    // has.
+    internal_assert(size.defined() ||
+                    (type == Group::Type::Indirect && element.defined()))
         << "Cannot make Group with undefined size, named: " << name;
     // Groups can have no label, name can be empty and index_t can be undefined
     // (default: u32).

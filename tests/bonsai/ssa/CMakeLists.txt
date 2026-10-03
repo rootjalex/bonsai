@@ -11,6 +11,7 @@ add_bonsai_tests(
     tiled-leaf-vectorized.bonsai
     skip-leaf-helper.bonsai
     prefetch-children.bonsai
+    arena-rows-vectorized.bonsai
     collapse.bonsai
     defer-bools.bonsai
     defer-frame.bonsai

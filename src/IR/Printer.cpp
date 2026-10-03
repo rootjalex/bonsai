@@ -1968,6 +1968,10 @@ void Printer::visit(const Lookup *node) {
     os << "from " << node->group_name << "[";
     print_no_parens(node->index);
     os << "]";
+    if (node->shape.defined()) {
+        os << " ";
+        node->shape.accept(this);
+    }
 }
 
 } // namespace ir

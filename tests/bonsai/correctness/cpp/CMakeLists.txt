@@ -12,6 +12,7 @@ add_bonsai_tests(
     bvh4_tiled_elements.bonsai
     bvh4_tiled_elements_vectorized.bonsai
     bvh4_tiled_elements_prefetch.bonsai
+    bvh4_arena.bonsai
     rcp.bonsai
     permute.bonsai
     blas-tlas.bonsai

@@ -171,11 +171,29 @@ struct Materialize : LayoutNode<Materialize> {
 //
 // The variant this stands for comes from the arm that holds it, so this node
 // carries only where to look: which group, and at what index into it.
+//
+// `<variant> from <group>[<offset>] { <layout> }`: the row is at that byte
+// offset of a group of bytes, laid out as `<layout>` says -- the arm brings
+// its own shape, since the bytes have none. One storage then holds rows of
+// every shape, each where its reference says, and a reference is the byte
+// offset with the variant in its low bits: Embree's `NodeRef`, a pointer
+// with the kind tagged into its low four bits, as an offset from the
+// storage's start rather than an address, so that the tree is still plain
+// data that can be copied or handed to a device. The group named is a
+// group of bytes, `indirect group arena[bytes] { byte : u8; }`. A group of
+// the tree's elements declared inside the shape without a size --
+// `indirect group tiles { group[4] { ... }; }` -- is a run of tiles that
+// begins where the row does, as many as the arm's `range` over it asks
+// for (Embree's leaf, a pointer and a count).
 struct Lookup : LayoutNode<Lookup> {
     std::string group_name;
     Expr index;
+    // Defined when the row's layout comes with the arm (see above);
+    // undefined when it is the named group's own.
+    Layout shape;
 
-    static Layout make(std::string group_name, Expr index);
+    static Layout make(std::string group_name, Expr index,
+                       Layout shape = Layout());
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Lookup;
 };

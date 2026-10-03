@@ -1,13 +1,15 @@
 //! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch
 //! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_tiled_elements_prefetch.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_tiled_elements_prefetch.o, clang++ tests/bonsai/correctness/cpp/main_bvh4_tiled_elements_prefetch.o tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch.o -o tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch, ./tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch, rm tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch, rm tests/bonsai/correctness/cpp/main_bvh4_tiled_elements_prefetch.o, rm tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch.h, rm tests/bonsai/correctness/cpp/bvh4_tiled_elements_prefetch.o
 
-// bvh4_tiled_elements.bonsai with both of its loops vectorized: the test of
-// a node's four children as one four-wide test, and the test of a leaf's
-// tile as one four-wide test with the nearest of the lanes that hit taken
-// (ssa/tiled-leaf-vectorized.bonsai pins what the schedule makes of it).
-// The same scene, driver (main_bvh4_tiled_elements_prefetch.cpp, a copy)
-// and known answers: a tile whose lanes 2 and 3 are the zero triangle must
-// still find the nearest of lanes 0 and 1, the padding lanes missing.
+// bvh4_tiled_elements_vectorized.bonsai with the hit children prefetched in
+// both queries, `trace.prefetch(tris.Interior.children)` (ssa/prefetch-
+// children.bonsai pins what the schedule makes of it): two prefetches per
+// node here, one for the children that are rows and one for the leaves,
+// since the two live in different arrays. The same scene, driver
+// (main_bvh4_tiled_elements_prefetch.cpp, a copy) and known answers: a
+// prefetch changes no answer, and a wrong address would still answer right,
+// so what the run shows is that the fetched addresses are within the
+// storage, where a bad one could fault.
 //
 // The scene and the rays are bvh4_child_volumes's: walls facing the x axis
 // at known positions along lanes in z, a tree split in x so that a ray along
@@ -94,7 +96,9 @@ schedule {
          .vectorize(tris.Interior.children)
          .vectorize(tris.Leaf.data)
          .loopify(64);
+    trace.prefetch(tris.Interior.children);
     occluded.vectorize(tris.Interior.children)
             .vectorize(tris.Leaf.data)
             .loopify(64);
+    occluded.prefetch(tris.Interior.children);
 }

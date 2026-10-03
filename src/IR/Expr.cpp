@@ -2006,6 +2006,15 @@ Expr PtrTo::make(Expr expr) {
     if (const Deref *ref = expr.as<Deref>(); ref && !ref->mask.defined()) {
         return ref->expr;
     }
+    // Not folded here, though it is an identity: `&a[0]` is `a` itself, an
+    // array being a reference to its elements. The spelling says more than
+    // the address -- a place in `a` is being named, which is what the
+    // mutability analysis (Lower/Mutability.cpp) reads a write through the
+    // address off, and what the vectorizer's handling of places matches on.
+    // Replaced by a reinterpretation of `a` the array lost its `mut` where
+    // an atomic add went through `&fill[0]`. Where only the address is
+    // wanted, the prefetch of a reference applies the identity to compare
+    // the arms' addresses (Lower/Layouts.cpp, LowerReferencePrefetches).
 
     // The address of a per-lane place is one address per lane. A place is per
     // lane when the chain of accesses that names it is rooted at a

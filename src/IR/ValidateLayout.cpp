@@ -48,11 +48,17 @@ std::vector<Path> get_paths(const Layout &layout) {
         }
 
         // And here is that arm: the row's fields join this path and no other.
+        // A lookup that brings its own shape (a row of a group of bytes)
+        // contributes the shape's fields, not the bytes'.
         void visit(const Lookup *node) override {
             const auto named = groups->find(node->group_name);
             internal_assert(named != groups->cend())
                 << "Lookup names group " << node->group_name
                 << ", which no group in this layout declares.";
+            if (node->shape.defined()) {
+                node->shape.accept(this);
+                return;
+            }
             named->second.accept(this);
         }
 

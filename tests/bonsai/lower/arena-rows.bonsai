@@ -1,0 +1,70 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// Embree's storage as one arena of bytes, with references that are byte
+// offsets: the tree of tiled-elements.bonsai, its node rows and its leaves'
+// tiles in one `indirect group arena[bytes] { byte : u8; }`, each arm of the
+// reference's switch a lookup that brings its own shape -- `Interior from
+// arena[ref[4:63] * 16u] { children : ...; }` -- so that a node row and a
+// leaf's run of tiles sit wherever their reference says, as Embree's
+// `NodeRef` is a pointer with the kind in its low four bits (ir::Lookup).
+// The leaf's tiles are a group of elements without a size inside the shape,
+// the run that begins where the row does, as many as the `range` asks for:
+// Embree's leaf, a pointer and a count.
+//
+// What to read for. The layout struct holds `bytes` and one byte array,
+// `group0_arena`, and nothing else: no array of node rows, no array of
+// tiles. A node's row is element zero of an array of its shape beginning
+// at the offset, `reinterpret_cast<_tree_layout3[]>(&tris.group0_arena[
+// (tris_ref >> 4u) * 16u])[0u]`, so its fields are read exactly as a row of
+// a group of rows is (`.lower_x` of it); a leaf's elements come through a
+// tiled array that is the row's address reinterpreted as an array of tiles,
+// tile `k` of it at that address plus `k` tiles, with the same reads of each
+// lane as tiled-elements.bonsai makes. The reference a hit keeps is the pair
+// of the leaf's byte offset and the element's index within its run, the two
+// indices the way to an element goes through (Lower/ElementReferences.cpp).
+// Nothing in the traversal decodes a kind to choose an array: the address is
+// the same expression for both arms.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris(ref : u32 = 0u) {
+        bytes : u32;
+        indirect group arena[bytes] { byte : u8; };
+        switch ref[0:3] {
+            0 => Interior from arena[ref[4:31] * 16u] {
+                children : vector[u32, 4];
+                lower_x : vector[f32, 4];
+                upper_x : vector[f32, 4];
+                lower_y : vector[f32, 4];
+                upper_y : vector[f32, 4];
+                lower_z : vector[f32, 4];
+                upper_z : vector[f32, 4];
+                lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:31] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, (ref[0:3] - 8u) * 4u);
+            };
+        };
+    };
+}

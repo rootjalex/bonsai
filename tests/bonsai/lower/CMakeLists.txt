@@ -51,6 +51,7 @@ add_bonsai_tests(
     struct_defaults.bonsai
     tight-array.bonsai
     tiled-elements.bonsai
+    arena-rows.bonsai
     prefetch-children.bonsai
     trace_aosoa.bonsai
     trace.bonsai

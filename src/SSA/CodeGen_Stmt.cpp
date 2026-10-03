@@ -53,7 +53,8 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                     Expr base = codegen_value(i->operands[0]);
                     internal_assert(base.type().is_reference())
                         << "[unimplemented] the address of an element of "
-                        << base << ", which is not an array";
+                        << base << " : " << base.type()
+                        << ", which is not an array";
                     return PtrTo::make(
                         Extract::make(base, codegen_value(i->operands[1])));
                 }

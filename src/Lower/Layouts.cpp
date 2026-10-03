@@ -474,6 +474,21 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                            "rows rather than tiles: store the elements as an "
                            "array field instead. Group "
                         << node->declared_name;
+                    // A run of tiles with no size of its own, declared in a
+                    // lookup's shape: it begins where the row does and has
+                    // no array here, only the tile's type and its name for
+                    // the `range` over it (see ir::Lookup::shape and
+                    // field_in_layout).
+                    if (!node->size.defined()) {
+                        tile_struct(*tile, ltmap);
+                        const auto [_, added] = ltmap.groups.emplace(
+                            node->declared_name,
+                            LayoutTypeMap::Named{node->inner, "", ir::Layout(),
+                                                 ir::Type()});
+                        internal_assert(added)
+                            << "Two groups named " << node->declared_name;
+                        break;
+                    }
                     const uint32_t width = ir::tile_width(*tile);
                     ir::Type tile_t = tile_struct(*tile, ltmap);
                     ir::Expr tiles =
@@ -495,8 +510,15 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 ir::Type base_t = layout_to_structs(node->inner, ltmap);
                 ir::Type group_t =
                     ir::Array_t::make(std::move(base_t), node->size);
-                internal_assert(!node->name.empty());
-                std::string field_name = group_name(group_count++, node->name);
+                // Named for its index variable, or for itself when it has
+                // none -- an indirect group is reached by a lookup, not
+                // walked, and need not name an index (`indirect group
+                // arena[bytes] { byte : u8; }`).
+                internal_assert(!node->name.empty() ||
+                                !node->declared_name.empty());
+                std::string field_name = group_name(
+                    group_count++,
+                    node->name.empty() ? node->declared_name : node->name);
                 // A group that stores nothing -- every field computed from
                 // the index, every arm a lookup elsewhere -- is a group of
                 // references and not of rows: Embree's NodeRef, whose low
@@ -527,6 +549,15 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
             }
             case ir::IRLayoutEnum::Switch: {
                 const ir::Switch *node = l.as<ir::Switch>();
+                // An arm that is a row of a group of bytes brings its own
+                // shape (ir::Lookup::shape): the struct the bytes are read
+                // as, made here and found by the shape when the row is read.
+                for (const auto &arm : node->arms) {
+                    const ir::Lookup *lookup = arm.layout.as<ir::Lookup>();
+                    if (lookup != nullptr && lookup->shape.defined()) {
+                        layout_to_structs(lookup->shape, ltmap);
+                    }
+                }
                 // Store as vector of bytes, load and reinterpret to proper
                 // type.
                 //
@@ -609,6 +640,26 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
 // field of a layout is called this.
 const std::string kRowOfArm = "<row>";
 
+// The address of a row, where only the address is wanted. A row read at an
+// offset of a group of bytes is element zero of an array of its shape that
+// begins there (see the Lookup case of field_in_layout), and `&a[0]` is `a`
+// itself, an array being a reference to its elements: so the address is the
+// array reinterpreted as a pointer to one element, and not an element's
+// address taken -- which, once a gang holds a reference per lane, would be
+// an element of a vector of arrays. Kept here rather than in PtrTo::make
+// because the spelling `&a[0]` also tells the mutability analysis that a
+// place in `a` is written (see the note there).
+ir::Expr address_of_row(const ir::Expr &row) {
+    if (const ir::Extract *first = row.as<ir::Extract>();
+        first != nullptr && first->vec.type().is_reference() &&
+        get_constant_value<uint64_t>(opt::Simplify::simplify(first->idx)) ==
+            0) {
+        return ir::Cast::make(ir::Ptr_t::make(row.type()), first->vec,
+                              ir::Cast::Mode::Reinterpret);
+    }
+    return ir::PtrTo::make(row);
+}
+
 ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                          ir::MapStack<std::string, ir::Expr> frames,
                          const std::string &iter_name,
@@ -629,6 +680,40 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                "declared before the arm that names it.";
         ir::Expr row =
             ir::Extract::make(*rows, fill(frames, lookup->index));
+        // A row of a group of bytes, shaped as the arm says: the bytes at
+        // the offset, read as the shape's struct through its address
+        // (ir::Lookup::shape). The offset is the reference's upper bits, so
+        // the address is the same expression for every arm, as Embree's
+        // NodeRef is one pointer whatever it points at.
+        if (lookup->shape.defined()) {
+            const auto shaped = ltmap.layout_to_type.find(lookup->shape);
+            internal_assert(shaped != ltmap.layout_to_type.cend())
+                << "Unseen shape of a lookup into " << lookup->group_name
+                << ": " << lookup->shape;
+            // The row is element zero of an array of the shape that begins
+            // at the offset -- the same spelling a row of a group of rows
+            // has, `rows[i]`, so that its fields are read the same way (an
+            // array is a reference to its elements, so the address is
+            // reinterpreted as the array, not dereferenced); and `&rows[0]`
+            // is the address itself (PtrTo::make), which is what a prefetch
+            // of the reference fetches.
+            row = ir::Extract::make(
+                ir::Cast::make(ir::Array_t::make(shaped->second, ir::Expr()),
+                               ir::PtrTo::make(std::move(row)),
+                               ir::Cast::Mode::Reinterpret),
+                ir::UIntImm::make(ir::UInt_t::make(32), 0));
+            if (field == kRowOfArm) {
+                // The arm's storage: the first tile of a run declared in the
+                // shape, when the shape has one, and otherwise the row.
+                ir::Expr inner =
+                    field_in_layout(row, lookup->shape, frames, iter_name,
+                                    node_type, field, ltmap, group);
+                return inner.defined() ? inner : row;
+            }
+            return field_in_layout(std::move(row), lookup->shape, frames,
+                                   iter_name, node_type, field, ltmap,
+                                   std::move(group));
+        }
         if (field == kRowOfArm) {
             return row;
         }
@@ -669,15 +754,38 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
                 std::string field_name = group_name(
-                    group_count++,
-                    node->element.defined() ? node->declared_name : node->name);
+                    group_count++, node->element.defined() || node->name.empty()
+                                       ? node->declared_name
+                                       : node->name);
                 if (node->type == ir::Group::Type::Indirect) {
                     // Not walked into: its rows are reached only through a
                     // lookup, which supplies the index, and descending here
                     // would invent an index variable nothing binds. Put the
                     // rows in scope under the name a lookup uses instead.
                     if (!node->declared_name.empty()) {
-                        ir::Expr rows = ir::Access::make(field_name, base);
+                        ir::Expr rows;
+                        if (node->element.defined() && !node->size.defined()) {
+                            // The run of tiles that begins where the row
+                            // does (see ir::Lookup::shape): the row's
+                            // address read as an array of tiles of no
+                            // stated length, which the `range` over it
+                            // bounds.
+                            const ir::Group *tile = ir::tile_of(node->inner);
+                            internal_assert(tile != nullptr);
+                            const auto tile_t =
+                                ltmap.layout_to_type.find(tile->inner);
+                            internal_assert(tile_t != ltmap.layout_to_type.cend())
+                                << "Unseen tile of " << node->declared_name;
+                            // An array is a reference to its elements, so the
+                            // run at the row's address is that address
+                            // reinterpreted as the array -- not dereferenced,
+                            // which would read a handle out of the bytes.
+                            rows = ir::Cast::make(
+                                ir::Array_t::make(tile_t->second, ir::Expr()),
+                                address_of_row(base), ir::Cast::Mode::Reinterpret);
+                        } else {
+                            rows = ir::Access::make(field_name, base);
+                        }
                         // A group of elements in tiles is named as the array
                         // of elements it holds; a leaf's `range(prims, a, n)`
                         // and a reference's read index it as one, and
@@ -776,11 +884,14 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                             : nullptr;
                     if (tiled != nullptr) {
                         const ir::Expr &start = range->args[1];
+                        // Folded where the start is a constant -- a run
+                        // read from its own address starts at 0 -- so that
+                        // the first tile is recognisably the first.
                         return ir::Extract::make(
                             tiled->tiles,
-                            ir::BinOp::make(
+                            opt::Simplify::simplify(ir::BinOp::make(
                                 ir::BinOp::Div, start,
-                                ir::UIntImm::make(start.type(), tiled->width)));
+                                ir::UIntImm::make(start.type(), tiled->width))));
                     }
                 }
                 if (node->name == field) {
@@ -1358,17 +1469,50 @@ struct LowerReferencePrefetches : public ir::Mutator {
             rows.emplace(arm, std::move(row));
         }
 
-        ir::Stmt chain = lower_switch_tree(layout, base, tree_name, ltmap);
         static size_t counter = 0;
-        for (auto &[arm, row] : rows) {
-            ir::Stmt fetch = ir::LetStmt::make(
+        const auto fetch_of = [&](const ir::Expr &address) {
+            return ir::LetStmt::make(
                 ir::WriteLoc("_prefetch_row" + std::to_string(counter++),
                              ir::Void_t::make()),
                 ir::Intrinsic::make(
                     ir::Intrinsic::prefetch,
-                    {ir::PtrTo::make(row),
-                     ir::UIntImm::make(ir::UInt_t::make(32), bytes)}));
-            chain = FillHole(arm, std::move(fetch)).mutate(std::move(chain));
+                    {address, ir::UIntImm::make(ir::UInt_t::make(32), bytes)}));
+        };
+        // Where every arm's row is at the same address -- rows of one group
+        // of bytes at the offset the reference carries, read as each arm's
+        // shape (ir::Lookup::shape) -- the kind decides nothing about what
+        // to fetch, and there is one prefetch and no switch: Embree's
+        // `BVH::prefetch` of a NodeRef, node or leaf alike.
+        // The address of an arm's storage: the row's, or its first tile's
+        // (see address_of_row).
+        const auto address_of = [](const ir::Expr &row) {
+            return address_of_row(row);
+        };
+        // The same address however the arm reads it: the reinterpretations
+        // to each arm's shape taken off.
+        const auto stripped = [](ir::Expr address) {
+            while (const ir::Cast *cast = address.as<ir::Cast>()) {
+                if (cast->mode != ir::Cast::Mode::Reinterpret) {
+                    break;
+                }
+                address = cast->value;
+            }
+            return address;
+        };
+        const ir::Expr first = stripped(address_of(rows.begin()->second));
+        const bool one_address = std::all_of(
+            rows.begin(), rows.end(), [&](const auto &named) {
+                return ir::equals(stripped(address_of(named.second)), first);
+            });
+        ir::Stmt chain;
+        if (one_address) {
+            chain = fetch_of(first);
+        } else {
+            chain = lower_switch_tree(layout, base, tree_name, ltmap);
+            for (auto &[arm, row] : rows) {
+                chain = FillHole(arm, fetch_of(address_of(row)))
+                            .mutate(std::move(chain));
+            }
         }
         // The walk's index variable is the reference being visited; here it
         // is the one prefetched.

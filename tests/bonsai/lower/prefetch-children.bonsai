@@ -11,7 +11,7 @@
 // the prefetch of a reference as it lowers a visit of one: the reference is
 // its stored bits, `tris.group1_children[children]`, and its low four bits
 // pick the arm -- zero, an interior node whose row is `group2_Nodes[ref >>
-// 4]`; otherwise a leaf whose range starts at tile `((ref >> 4) * 4) / 4` of
+// 4]`; otherwise a leaf whose range starts at tile `((ref >> 4) << 2) / 4` of
 // `group0_prims` -- so the prefetch is an `if` on the kind with a `prefetch`
 // of the address of that arm's row in each branch, `prefetch(&row, 144)`:
 // the same byte count in both, the widest arm's, the 144 bytes of a tile

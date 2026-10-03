@@ -4259,6 +4259,9 @@ struct Parser {
     // `switch <expr>` switches on -- to go into the chain just before it.
     std::vector<ir::Layout> pending_layout_members;
     size_t layout_switch_counter = 0;
+    // How deep inside a lookup's shape the layout being parsed is (see
+    // ir::Lookup::shape): there a group of elements may have no size.
+    int in_lookup_shape = 0;
 
     // Scion's reference parameter: `layout tris(ref : u64 = 0u) { ... }`
     // declares the type a reference to a node is, and where the walk begins
@@ -4505,7 +4508,11 @@ struct Parser {
                                "the element, by its name and type, in the "
                                "element's order, and nothing else.";
                     }
-                    if (!size.defined()) {
+                    // Inside a lookup's shape a group of elements may have
+                    // no size: it is the run of tiles beginning where the
+                    // row does, as many as the arm's `range` asks for (see
+                    // ir::Lookup).
+                    if (!size.defined() && in_lookup_shape == 0) {
                         report_error() << "A group of elements says how many "
                                           "elements it holds: group "
                                        << declared_name << "[<count>]";
@@ -4515,6 +4522,13 @@ struct Parser {
                                       ir::Array_t::make(element, size),
                                       /*mutable=*/false);
                 }
+            }
+            if (!size.defined() && element.defined()) {
+                // The sizeless run of tiles above.
+                return ir::Group::make(
+                    ir::Expr(), std::move(name), std::move(declared_name),
+                    std::move(index_t), std::move(inner),
+                    ir::Group::Type::Indirect, std::move(element));
             }
             if (!size.defined()) {
                 ir::Expr isize = inner.count();
@@ -4622,7 +4636,10 @@ struct Parser {
                     node_name = get_id();
                 }
                 // `<variant> from <group>[<index>]`: the arm's fields are a
-                // row of another group rather than bits stored here.
+                // row of another group rather than bits stored here. With a
+                // layout after it, `from <bytes>[<offset>] { ... }`, the row
+                // is at that byte offset of a group of bytes and shaped as
+                // the arm says (ir::Lookup::shape).
                 if (consume(Token::Type::FROM)) {
                     if (!node_name.has_value()) {
                         report_error() << "`from` needs a variant to name what "
@@ -4632,10 +4649,17 @@ struct Parser {
                     expect(Token::Type::LBRACKET);
                     ir::Expr index = parse_expr();
                     expect(Token::Type::RBRACKET);
+                    ir::Layout shape;
+                    if (peek().type == Token::Type::LSQUIGGLE) {
+                        in_lookup_shape++;
+                        shape = parse_layout();
+                        in_lookup_shape--;
+                    }
                     expect(Token::Type::SEMICOL);
                     arms.push_back({std::move(value), std::move(node_name),
                                     ir::Lookup::make(std::move(group),
-                                                     std::move(index))});
+                                                     std::move(index),
+                                                     std::move(shape))});
                     continue;
                 }
                 ir::Layout inner = parse_layout();

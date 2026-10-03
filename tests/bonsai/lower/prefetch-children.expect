@@ -36,7 +36,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> option<Triangle> {
             if ((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[children] & 15u) == 0u) {
               let _prefetch_row0 = prefetch((&tris.group1_row[cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[children] >> 4u]), 144u) in
             } else {
-              let _prefetch_row1 = prefetch((&tris.group0_prims[((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[children] >> 4u) * 4u) / 4u]), 144u) in
+              let _prefetch_row1 = prefetch((&tris.group0_prims[((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[children] >> 4u) << 2u) / 4u]), 144u) in
             }
           }
         }
