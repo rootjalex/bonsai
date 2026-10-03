@@ -381,6 +381,13 @@ struct Material {
     uint32_t remap = 1;
     float thickness = 0.01f;
     float eta = 1.5f;
+    // Dielectric, ThinDielectric, CoatedDiffuse and CoatedConductor: PBRT's
+    // `eta` is a Spectrum. A number is `eta` above; a named glass or a
+    // spectrum given some other way is sampled onto the index tables as a
+    // conductor's is (conductor_eta, with a zero `k` beside it) and this is
+    // its index, or -1 for a number. A spectral index terminates the path's
+    // secondary wavelengths at the hit, as PBRT's does.
+    int32_t eta_spectrum = -1;
     // Mix only: the two operands by this file's material index -- written
     // before the mix, so both are below it -- and PBRT's `amount`, a float
     // texture defaulting to 0.5, as a constant or an index into `textures`.
@@ -1206,6 +1213,7 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::ThinDielectric:
             out << "  thindielectric";
             detail::put(out, &m.eta, 1);
+            out << " etaspectrum " << m.eta_spectrum;
             break;
         case MaterialTag::Interface:
             out << "  interface";
@@ -1241,6 +1249,7 @@ inline bool write(const char *path, const Scene &scene) {
             out << " remap " << m.remap;
             out << " eta";
             detail::put(out, &m.eta, 1);
+            out << " etaspectrum " << m.eta_spectrum;
         }
         if (m.tag == MaterialTag::Conductor) {
             out << " roughness";
@@ -1264,6 +1273,7 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, &m.thickness, 1);
             out << " eta";
             detail::put(out, &m.eta, 1);
+            out << " etaspectrum " << m.eta_spectrum;
             out << " albedo";
             detail::put(out, m.medium_albedo, 3);
             out << " hasalbedo " << m.has_medium;
@@ -1890,6 +1900,10 @@ inline bool read(const char *path, Scene &scene) {
         } else if (word == "thindielectric") {
             m.tag = MaterialTag::ThinDielectric;
             floats(&m.eta, 1);
+            if (!tagged("etaspectrum")) {
+                return false;
+            }
+            in >> m.eta_spectrum;
         } else if (word == "interface") {
             m.tag = MaterialTag::Interface;
         } else if (word == "mix") {
@@ -1973,6 +1987,10 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             floats(&m.eta, 1);
+            if (!tagged("etaspectrum")) {
+                return false;
+            }
+            in >> m.eta_spectrum;
         }
         if (m.tag == MaterialTag::Conductor) {
             if (!tagged("roughness")) {
@@ -2028,6 +2046,10 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             floats(&m.eta, 1);
+            if (!tagged("etaspectrum")) {
+                return false;
+            }
+            in >> m.eta_spectrum;
             if (!tagged("albedo")) {
                 return false;
             }

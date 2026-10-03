@@ -2015,6 +2015,7 @@ element CoatedDiffuseMaterial {
     // number here, as every FloatParam does.
     thickness : FloatParam;
     eta : Float;
+    eta_spectrum : i32;
     // The medium between the interfaces. pbrt's default is a spectrum that is
     // exactly zero, which is a different thing from an RGB of (0, 0, 0) fitted
     // to a sigmoid -- the fit is small and not zero, and the walk branches on
@@ -2040,7 +2041,14 @@ element CoatedDiffuseMaterial {
 element DielectricMaterial {
     u_roughness, v_roughness : FloatParam;
     remap : bool;
+    // pbrt: `eta` is a Spectrum; a scene gives it as a number (ConstantSpectrum)
+    // or as a named glass (`glass-BK7`, a PiecewiseLinearSpectrum). The
+    // number is `eta`; a spectrum is an index into the sampled index tables
+    // (`eta_spectrum`, -1 for none), read at the path's first wavelength,
+    // after which the three others are terminated (eta_at,
+    // terminates_secondary).
     eta : Float;
+    eta_spectrum : i32;
 }
 
 // pbrt: ThinDielectricMaterial -- a sheet of glass too thin to refract
@@ -2049,6 +2057,7 @@ element DielectricMaterial {
 // the index of refraction (a scalar here, as on Dielectric).
 element ThinDielectricMaterial {
     eta : Float;
+    eta_spectrum : i32;
 }
 
 // pbrt: DiffuseTransmissionMaterial. Two reflectances -- one for each side of
@@ -2099,6 +2108,7 @@ element CoatedConductorMaterial {
     interface_u_roughness, interface_v_roughness : FloatParam;
     thickness : FloatParam;
     interface_eta : Float;
+    eta_spectrum : i32;
     conductor_u_roughness, conductor_v_roughness : FloatParam;
     index : ConductorIndex;
     remap : bool;
@@ -2128,6 +2138,25 @@ extern conductor_k : array[Float];
 // Samples per nanometre, and the number of entries one spectrum occupies.
 func conductor_per_nm() -> Float = 10.0;
 func conductor_samples() -> u32 = 4701u;
+
+// pbrt: a dielectric's `eta(lambda[0])` -- the index of refraction at the
+// path's first wavelength, from the sampled tables where the scene gave a
+// spectrum (a glass's dispersion curve lives in `conductor_eta` with a zero
+// `k` beside it, since the tables are the scene's sampled indices whatever
+// the material), the constant otherwise. `if (sampledEta == 0) sampledEta =
+// 1`, pbrt's guard for a first wavelength outside the curve.
+func eta_at(eta : Float, spectrum : i32, w : SampledWavelengths) -> Float {
+    if spectrum < 0 {
+        return eta;
+    }
+    x = (w.lambda.x - 360.0) * conductor_per_nm();
+    i = cast[[i32]](x);
+    t = x - cast[[Float]](i);
+    o = cast[[u32]](spectrum) * conductor_samples() + cast[[u32]](i);
+    sampled = (1.0 - t) * conductor_eta[o] + t * conductor_eta[o + 1u];
+    return select(sampled == 0.0, 1.0, sampled);
+}
+
 
 // pbrt: PiecewiseLinearSpectrum::operator(), which interpolates between knots.
 //
@@ -2206,7 +2235,7 @@ func coated_bxdf_at(m : CoatedDiffuseMaterial, lambda : SampledWavelengths,
     if regularize {
         distrib = regularize_distrib(distrib);
     }
-    top : DielectricBxDF = {m.eta, distrib};
+    top : DielectricBxDF = {eta_at(m.eta, m.eta_spectrum, lambda), distrib};
     bottom : DiffuseBxDF =
         {min(max(reflectance_at(m.reflectance, lambda, ctx), 0.0), 1.0)};
     medium = select(m.has_medium,
@@ -2231,8 +2260,9 @@ func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
                                 m.interface_v_roughness, m.remap, ctx);
     interface_distrib : mut TrowbridgeReitz =
         make_trowbridge_reitz(interface_alpha.x, interface_alpha.y);
-    // pbrt: `if (ieta == 0) ieta = 1`.
-    ieta = select(m.interface_eta == 0.0, 1.0, m.interface_eta);
+    // pbrt: `Float ieta = interfaceEta(lambda[0]); if (ieta == 0) ieta = 1`.
+    ieta0 = eta_at(m.interface_eta, m.eta_spectrum, lambda);
+    ieta = select(ieta0 == 0.0, 1.0, ieta0);
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     ce : mut vec4f = zero;
     ck : mut vec4f = zero;
@@ -2306,6 +2336,27 @@ element BxDF =
 // `regularize` is the integrator's, and this is where it applies -- pbrt calls
 // `bsdf.Regularize()` on the value `GetBSDF` returned, once, before asking it
 // anything.
+// pbrt: `if (!eta.Is<ConstantSpectrum>()) lambda.TerminateSecondary()` -- the
+// four materials with a dielectric interface do it when their index is a
+// spectrum (DielectricMaterial, ThinDielectricMaterial, CoatedDiffuseMaterial,
+// CoatedConductorMaterial::GetBxDF); a conductor's spectral index does not
+// terminate anything, since its Fresnel term is evaluated at all four. The
+// integrator asks this before it builds the BSDF and carries the terminated
+// wavelengths on from there, as pbrt's `SampledWavelengths &lambda` does.
+func terminates_secondary(mat : Material) -> bool {
+    match mat {
+        Diffuse(albedo) => return false;
+        CoatedDiffuse(m) => return m.eta_spectrum >= 0;
+        CoatedConductor(cc) => return cc.eta_spectrum >= 0;
+        Dielectric(g) => return g.eta_spectrum >= 0;
+        ThinDielectric(td) => return td.eta_spectrum >= 0;
+        Conductor(c) => return false;
+        DiffuseTransmission(dt) => return false;
+        Measured(index) => return false;
+        Mixed(mix) => return false;
+    }
+}
+
 func material_bxdf(mat : Material, lambda : SampledWavelengths,
                    regularize : bool, ctx : TextureEvalContext) -> BxDF {
     match mat {
@@ -2394,7 +2445,7 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             if regularize {
                 distrib = regularize_distrib(distrib);
             }
-            b : DielectricBxDF = {g.eta, distrib};
+            b : DielectricBxDF = {eta_at(g.eta, g.eta_spectrum, lambda), distrib};
             return Boundary(b);
         }
         ThinDielectric(td) => {
@@ -2402,7 +2453,7 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             // index is read as one there; a scalar here is never zero).
             // Regularize is a TODO in pbrt's ThinDielectricBxDF, so nothing
             // here either.
-            t : ThinDielectricBxDF = {td.eta};
+            t : ThinDielectricBxDF = {eta_at(td.eta, td.eta_spectrum, lambda)};
             return Thin(t);
         }
     }

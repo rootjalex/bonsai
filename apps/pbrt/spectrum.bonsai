@@ -17,6 +17,21 @@ element SampledWavelengths {
     pdf : vec4f;
 }
 
+// pbrt: SampledWavelengths::TerminateSecondary -- what a dispersive
+// interface does to the path's wavelengths: the three secondary ones are
+// given a density of zero, so the film weighs them nothing (sensor_rgb_of's
+// division by the density), and the first's density is divided by four, so
+// that the one sample left carries the estimate alone. Idempotent, as
+// pbrt's is: a path already terminated is left as it is.
+func terminate_secondary(w : SampledWavelengths) -> SampledWavelengths {
+    already = (w.pdf.y == 0.0) && (w.pdf.z == 0.0) && (w.pdf.w == 0.0);
+    if already {
+        return w;
+    }
+    out : SampledWavelengths = {w.lambda, vec4f{w.pdf.x / 4.0, 0.0, 0.0, 0.0}};
+    return out;
+}
+
 // pbrt: SampleVisibleWavelengths and VisibleWavelengthsPDF. A fit to where the
 // eye actually responds, so that four samples are spent near the middle of the
 // visible range rather than spread evenly across a span whose ends contribute

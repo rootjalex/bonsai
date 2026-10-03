@@ -1619,6 +1619,7 @@ int main(int argc, char **argv) {
             coated.remap = m.remap != 0;
             coated.thickness = FloatParam{m.thickness, m.thickness_texture};
             coated.eta = m.eta;
+            coated.eta_spectrum = m.eta_spectrum;
             coated.medium_albedo = albedo_of(m.medium_albedo);
             coated.has_medium = m.has_medium != 0;
             coated.g = FloatParam{m.g, m.g_texture};
@@ -1633,6 +1634,7 @@ int main(int argc, char **argv) {
                 FloatParam{m.v_roughness, m.v_roughness_texture};
             coated.thickness = FloatParam{m.thickness, m.thickness_texture};
             coated.interface_eta = m.eta;
+            coated.eta_spectrum = m.eta_spectrum;
             coated.conductor_u_roughness = FloatParam{
                 m.conductor_u_roughness, m.conductor_u_roughness_texture};
             coated.conductor_v_roughness = FloatParam{
@@ -1668,10 +1670,12 @@ int main(int argc, char **argv) {
             glass.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
             glass.remap = m.remap != 0;
             glass.eta = m.eta;
+            glass.eta_spectrum = m.eta_spectrum;
             Material_Dielectric(material, glass);
         } else if (m.tag == bonsai_scene::MaterialTag::ThinDielectric) {
             ThinDielectricMaterial sheet;
             sheet.eta = m.eta;
+            sheet.eta_spectrum = m.eta_spectrum;
             Material_ThinDielectric(material, sheet);
         } else if (m.tag == bonsai_scene::MaterialTag::Mix) {
             // The operands by the renderer's material index -- both precede

@@ -2545,7 +2545,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 12 | `mix` textures (and `directionmix`) -- **done 2026-10-03**, the texture graph below | kroken, villa, watercolor | 3 |
 | 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` -- **done 2026-10-03** | kroken, villa, watercolor | 3 |
 | 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
-| 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) | dambreak, transparent-machines, crown | 3 |
+| 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) -- **done 2026-10-03**, the dispersion paragraph below | dambreak, transparent-machines, crown | 3 |
 | 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
 | 17 | `Material "hair"` | bunny-fur, hair | 2 |
 | 18 | `Material "subsurface"` | head, sssdragon | 2 |
@@ -2700,8 +2700,8 @@ Per scene, what is missing (see the converter for what is supported):
 | bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
 | contemporary-bathroom | `sppm` |
-| crown | `volpath`, `mix`, homogeneous media |
-| dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media |
+| crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
+| dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media -- converts as of 2026-10-03 |
 | disney-cloud | `volpath`, `sobol`, `interface`, `nanovdb` |
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
@@ -2709,13 +2709,13 @@ Per scene, what is missing (see the converter for what is supported):
 | hair | `volpath`, `curve`, `hair` |
 | head | `volpath`, `subsurface` |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
-| kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03; it then asks for a spectral `eta` on a dielectric (item 15), its last refusal |
+| kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
 | sssdragon | `subsurface` |
-| transparent-machines | `volpath`, spectral `eta` on `dielectric` |
+| transparent-machines | `volpath`, spectral `eta` on `dielectric` -- converts as of 2026-10-03 |
 | villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` -- villa-daylight converts as of 2026-10-03 (the lights-on file still wants `spot` and `point`) |
 | watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium -- all done by 2026-10-03; it then asks for a coating's `thickness` as a texture, its last refusal |
 | zero-day | nothing since 2026-09-20: renders and matches (above, and the 2026-09-21 sweep) |
@@ -9253,7 +9253,71 @@ texture is read where the roughnesses are -- in the two material records,
 the scene file (`thicknesstex`, `gtex`) and the converter. With it
 watercolor camera-1 converts whole for the first time: 24,433,420 shapes
 (the PLY quads among them as patches) and 54 instances of 6 objects, a
-7.3 GB scene text.
+7.3 GB scene text, converted in 79 s -- and renders on the GPU at 16 spp,
+the picture pbrt's (mean 1.01006x, 10.7% of pixels within 1e-3, a scene of
+coated diffuse and mixes), in 0.867 s against `pbrt --gpu`'s 2.37 s
+(2.73x; kernels 897 ms against 2,164 ms; both sides' timings were disturbed
+by compiles and another session's benchmark, so a quiet re-run is owed).
+Loading it is another matter: the driver spends 91.6 s reading the 7.3 GB
+text -- the same 80-90 MB/s every scene parses at (bmw-m6 0.11 GB in 1.2 s,
+villa 0.38 GB in 4.1 s, sportscar 0.79 GB in 8.9 s), which is decimal text
+through iostream, not the disk; unpack 2.7 s, ordering 1.6 s, the trees
+0.2 s. The binary sidecars (texels, the environment map) read at disk
+speed. The fix is a binary scene file for the big arrays -- the user asked
+whether protobuf; the answer given was a zero-copy format such as
+FlatBuffers for the fixed-layout record arrays, with the small sections
+kept as text -- and is a separate piece of work.
+
+*A spectral index of refraction, and the film's wavelengths (2026-10-03).*
+pbrt's `eta` on a dielectric is a Spectrum: a number is a ConstantSpectrum
+and a named glass (`glass-BK7`, `glass-BAF10`, `glass-F11`) a
+PiecewiseLinearSpectrum over the published dispersion. At the hit,
+`GetBxDF` reads it at the path's first wavelength alone and, unless it is a
+constant, calls `lambda.TerminateSecondary()` on the `SampledWavelengths
+&` it was handed: the three secondary densities go to zero and the first
+is divided by four, so one wavelength carries the estimate from that
+vertex on (DielectricMaterial, ThinDielectricMaterial,
+CoatedDiffuseMaterial and CoatedConductorMaterial::GetBxDF alike; a
+conductor's spectral index terminates nothing). Here: the four material
+records carry `eta_spectrum`, an index into the sampled index tables --
+the glass's curve sampled onto the conductors' grid with a zero `k`
+beside it, since the tables are the scene's sampled indices whatever the
+material -- and `eta_at` reads it at `lambda[0]` with pbrt's `if
+(sampledEta == 0) sampledEta = 1`; `terminates_secondary(material)` says
+whether, and the four integrators ask it before building the BSDF, take
+`lam = terminate_secondary(lambda)` and read `lam` from there on: the
+BSDF, the direct lighting, the next vertex's recursion or queue entry. The
+converter samples a spectrum given any way (`unbounded_spectrum`) and
+refuses nothing now; kroken, crown, dambreak and transparent-machines
+convert whole for the first time.
+
+The second half was found by the comparison. scenes/dispersion.pbrt -- a
+BK7 sphere, a BK7 thin sheet, an F11-coated diffuse, a floor, one light --
+against `pbrt --wavefront`: normals 0 off, radiance mean 0.99954x, and
+the albedo means per object to three places (the glass sphere
+0.477/0.476/0.473 against 0.477/0.475/0.473, the coated sphere
+0.186/0.281/0.194 against 0.185/0.281/0.195) with the same per-pixel
+colour noise on both sides, which is what sixteen monochromatic samples
+average to -- but the floor's albedo, a constant 0.5 diffuse, had a
+standard deviation of 0.07 in pbrt and 0.02 here, and only 22% of pixels
+agreed. pbrt converts a pixel sample's radiance *and* its albedo with the
+wavelengths the path ended with: the wavefront's camera kernel writes
+`pixelSampleState.lambda`, the material kernel overwrites it when
+`lambda.SecondaryTerminated()` (surfscatter.cpp), and the film reads it
+back (wavefront/film.cpp); the CPU's AddSample takes the `lambda` that
+`Li` took by reference. So a floor pixel whose path later passes through
+the glass has its first hit's albedo and its direct lighting converted
+through one wavelength, and speckles. The VisibleSurface record is pbrt's
+pixel sample state here -- it now carries `lambda`, written by the camera
+sample and again at every termination, and the albedo as the spectrum
+rather than an RGB; the film converts both with `visible.lambda`, and the
+two simple integrators take the record too, for the wavelengths alone.
+With it, against the same reference (compiled with a build of HEAD
+153e2895, the shared tree's compiler being mid-change): radiance 0.99981x
+and 82.5% of pixels within 1e-3 where it was 22.1%, albedo 7.7% of pixels
+over 5e-3 where it was 60.8% (mean 2.0e-3), normals still 0 off -- the
+level the other volpath scenes with specular glass sit at, the rest being
+which way each glass path went.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`

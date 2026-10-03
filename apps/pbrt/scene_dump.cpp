@@ -1128,6 +1128,52 @@ int32_t conductor_spectra(const CapturingBuilder::MaterialInfo::Value *eta_v,
     return index;
 }
 
+// A dielectric's index of refraction given as a spectrum -- a named glass
+// (`glass-BK7`, `glass-BAF10`, `glass-F11`: PBRT's PiecewiseLinearSpectrum
+// over the published dispersion) or a spectrum written any other way --
+// sampled onto the same grid the conductors use, into the same tables, with a
+// zero `k` beside it: the tables are the scene's sampled indices whatever the
+// material, and the renderer reads a dielectric's at the path's first
+// wavelength alone (bxdf.bonsai, eta_at). Cached by what it was given, as a
+// conductor's pair is.
+int32_t dielectric_eta_spectrum(const CapturingBuilder::MaterialInfo::Value &eta_v,
+                                const std::string &param) {
+    pbrt::Allocator alloc;
+    std::string eta_key = "?";
+    const pbrt::Spectrum eta = unbounded_spectrum(eta_v, param, alloc, &eta_key);
+    const std::string key = eta_key + "|dielectric";
+    const auto cached = g_conductor_index.find(key);
+    if (cached != g_conductor_index.end()) {
+        return cached->second;
+    }
+    const int32_t index =
+        int32_t(g_scene->conductor_eta.size() / bonsai_scene::kConductorSamples);
+    for (int i = 0; i < bonsai_scene::kConductorSamples; i++) {
+        const pbrt::Float lambda =
+            pbrt::Float(360.0 + double(i) / bonsai_scene::kConductorPerNm);
+        g_scene->conductor_eta.push_back(float(eta(lambda)));
+        g_scene->conductor_k.push_back(0.f);
+    }
+    g_conductor_index.emplace(key, index);
+    return index;
+}
+
+// PBRT's `eta` on a material with a dielectric interface: a bare float is
+// the constant, anything else a spectrum (above). `param` is the parameter's
+// name, `eta` or `interface.eta`.
+void dielectric_eta_of(const CapturingBuilder::MaterialInfo &m, const char *param,
+                       bonsai_scene::Material &out) {
+    const CapturingBuilder::MaterialInfo::Value *eta = m.find(param);
+    if (eta == nullptr) {
+        return;
+    }
+    if (eta->type == "float" && eta->floats.size() == 1) {
+        out.eta = eta->floats[0];
+        return;
+    }
+    out.eta_spectrum = dielectric_eta_spectrum(*eta, param);
+}
+
 // The same parameter, where it is allowed to be a texture.
 //
 // PBRT's material parameters are all textures and a constant is a
@@ -2053,15 +2099,10 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // As on coateddiffuse: a spectral index of refraction terminates the
         // secondary wavelengths, which nothing here does, so it is refused
         // rather than read as its value at the first wavelength.
-        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
-        if (eta != nullptr) {
-            if (eta->type != "float" || eta->floats.size() != 1) {
-                fail("only a scalar `float eta` is supported on dielectric, "
-                     "not a named spectrum -- a spectral index terminates the "
-                     "secondary wavelengths, which nothing here does");
-            }
-            out.eta = eta->floats[0];
-        }
+        // PBRT: `eta` a spectrum, 1.5 by default; a named glass is sampled
+        // onto the index tables and terminates the secondary wavelengths at
+        // the hit, as PBRT's does (dielectric_eta_of).
+        dielectric_eta_of(m, "eta", out);
         return out;
     }
 
@@ -2081,15 +2122,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // `eta` is a spectrum in PBRT unless the scene writes it as a bare
         // float, and a spectral one terminates the secondary wavelengths --
         // which changes what every later stage of the render integrates over.
-        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
-        if (eta != nullptr) {
-            if (eta->type != "float" || eta->floats.size() != 1) {
-                fail("only a scalar `float eta` is supported on coateddiffuse, "
-                     "not a named spectrum -- a spectral index terminates the "
-                     "secondary wavelengths, which nothing here does");
-            }
-            out.eta = eta->floats[0];
-        }
+        dielectric_eta_of(m, "eta", out);
         out.has_medium = material_rgb(m, "albedo", out.medium_albedo) ? 1u : 0u;
 
         const CapturingBuilder::MaterialInfo::Value *remap =
@@ -2135,13 +2168,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         const CapturingBuilder::MaterialInfo::Value *ieta =
             m.find("interface.eta");
         if (ieta != nullptr) {
-            if (ieta->type != "float" || ieta->floats.size() != 1) {
-                fail("only a scalar `float interface.eta` is supported on "
-                     "coatedconductor, not a named spectrum -- a spectral "
-                     "index terminates the secondary wavelengths, which "
-                     "nothing here does");
-            }
-            out.eta = ieta->floats[0];
+            dielectric_eta_of(m, "interface.eta", out);
         }
         out.has_medium = material_rgb(m, "albedo", out.medium_albedo) ? 1u : 0u;
         material_roughness_prefixed(m, "conductor.", &out.conductor_u_roughness,
@@ -2236,15 +2263,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         // PBRT: ThinDielectricMaterial::Create -- the one parameter is `eta`,
         // 1.5 by default; a spectral one is refused as on dielectric.
         out.tag = bonsai_scene::MaterialTag::ThinDielectric;
-        const CapturingBuilder::MaterialInfo::Value *eta = m.find("eta");
-        if (eta != nullptr) {
-            if (eta->type != "float" || eta->floats.size() != 1) {
-                fail("only a scalar `float eta` is supported on thindielectric, "
-                     "not a named spectrum -- a spectral index terminates the "
-                     "secondary wavelengths, which nothing here does");
-            }
-            out.eta = eta->floats[0];
-        }
+        dielectric_eta_of(m, "eta", out);
         return out;
     }
 

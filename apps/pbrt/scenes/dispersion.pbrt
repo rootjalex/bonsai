@@ -1,0 +1,71 @@
+# A dielectric whose index of refraction is a spectrum: pbrt's `"spectrum
+# eta" "glass-BK7"`, the published dispersion curve of a crown glass, on a
+# sphere and on a thin sheet, with a coated diffuse whose coating is the
+# same glass, over a diffuse floor under one area light.
+#
+# What pbrt does with a spectral index is the thing to check here, more than
+# the dispersion itself: at the first hit on such a surface the path's three
+# secondary wavelengths are terminated (SampledWavelengths::TerminateSecondary
+# -- their densities go to zero and the first's is divided by four), the
+# index is read at the first wavelength alone, and everything after that
+# vertex -- the light sample, the next bounce, the film -- weighs that one
+# wavelength only. A renderer that kept all four would be brighter in the
+# wrong places and never show a rainbow at a caustic's edge.
+#
+# kroken's glassware, crown and dambreak's tank, transparent-machines are
+# the scenes that need this. `volpath`, so that the GPU schedule renders
+# it as well.
+
+LookAt 0 2.2 6.5   0 0.7 0   0 1 0
+Camera "perspective" "float fov" [40]
+
+Sampler "halton" "integer pixelsamples" [16]
+Integrator "volpath" "integer maxdepth" [6]
+Film "gbuffer"
+    "string filename" ["dispersion.exr"]
+    "integer xresolution" [640]
+    "integer yresolution" [360]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+AttributeBegin
+    Translate 0 6 2
+    AreaLightSource "diffuse" "rgb L" [20 20 20]
+    Material "diffuse" "rgb reflectance" [0 0 0]
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse" "rgb reflectance" [0.5 0.5 0.5]
+    Shape "trianglemesh"
+        "integer indices" [0 1 2 2 3 0]
+        "point3 P" [-6 0 -4   6 0 -4   6 0 4   -6 0 4]
+        "point2 uv" [0 0  1 0  1 1  0 1]
+AttributeEnd
+
+# A solid glass sphere, the dispersion curve as its index.
+AttributeBegin
+    Translate -1.8 0.9 0
+    Material "dielectric" "spectrum eta" "glass-BK7"
+    Shape "sphere" "float radius" [0.9]
+AttributeEnd
+
+# A thin sheet of the same glass, standing up.
+AttributeBegin
+    Material "thindielectric" "spectrum eta" "glass-BK7"
+    Shape "trianglemesh"
+        "integer indices" [0 1 2 2 3 0]
+        "point3 P" [0.2 0 -0.6   1.6 0 -0.6   1.6 1.8 -0.6   0.2 1.8 -0.6]
+AttributeEnd
+
+# A coated diffuse whose coating is dispersive -- the same termination,
+# reached through CoatedDiffuseMaterial::GetBxDF.
+AttributeBegin
+    Translate 2.6 0.7 0.6
+    Material "coateddiffuse" "rgb reflectance" [0.2 0.5 0.2]
+        "spectrum eta" "glass-F11" "float roughness" [0.05]
+    Shape "sphere" "float radius" [0.7]
+AttributeEnd
