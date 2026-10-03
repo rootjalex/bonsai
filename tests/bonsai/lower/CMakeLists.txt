@@ -14,6 +14,7 @@ add_bonsai_tests(
     exported-function.bonsai
     extent-after-functions.bonsai
     externs-order.bonsai
+    foreign-extern.bonsai
     externs-into-recursion.bonsai
     externs-unsized.bonsai
     float.bonsai

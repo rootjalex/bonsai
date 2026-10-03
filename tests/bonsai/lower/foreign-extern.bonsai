@@ -1,0 +1,23 @@
+//! flags: -p core
+
+// A foreign function called with an extern, through the whole lowering.
+//
+// LowerExterns threads an extern into every function that reads it as a
+// parameter, following the call graph; a foreign function
+// (docs/foreign-functions.md) is a callee with no body and no place in that
+// graph, and the first NanoVDB medium showed what happens when it is given
+// one: the graph's walk looked the callee up among the program's functions
+// and found nothing. What to read for: `sample` takes `grids` as a
+// parameter after its own, as any reader of an extern does, and hands it
+// to `grid_of` as the plain argument the call wrote; `grid_of` and
+// `grid_value` are declared as they were, with no parameter added.
+extern element Grid;
+extern func grid_of(bytes : array[u8], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+extern grids : array[u8];
+
+func [[export]] sample(at : u32, i : i32) -> f32 {
+    g = grid_of(grids, at);
+    return grid_value(g, i) + grid_value(g, i + 1);
+}

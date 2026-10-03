@@ -217,7 +217,16 @@ CallGraph build_call_graph(const ir::FuncMap &funcs, const bool undef_calls) {
             call_graph[f.first] = {}; // can be evaluated in any order.
         } else {
             f.second->body.accept(&builder);
-            call_graph[f.first] = std::move(builder.calls);
+            auto calls = std::move(builder.calls);
+            // A callee the map does not hold is a foreign function
+            // (Program::foreign_funcs): a signature with no body, outside the
+            // program and so outside its call graph. Left in, it would be a
+            // node of the graph that every walk of the components then looks
+            // up in the map, and finds nothing.
+            std::erase_if(calls, [&](const std::string &callee) {
+                return !funcs.contains(callee);
+            });
+            call_graph[f.first] = std::move(calls);
             builder.clear();
         }
     }
