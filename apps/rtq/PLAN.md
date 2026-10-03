@@ -1100,9 +1100,16 @@ The nearest hit gains 4-9% on primary rays and 0-5% on incoherent ones
 on every mesh. The profile of ganesha's ao rays, ours over Embree's
 kernel per event, closes the loop on the 12:38 table: cycles 1.16x to
 1.06x, instructions 1.25x to 1.07x, branch misses 0.90x to 0.89x, L1
-misses 0.88x to 0.80x, demand fills from DRAM 1.30x to 1.12x. The
-prefetch now costs about what Embree's does and converts the misses as
-Embree's does; what is left of the nearest-hit gap on incoherent rays
+misses 0.88x to 0.80x, demand fills from DRAM 1.30x to 1.12x. (A
+caution found afterwards: in an `--batch ao --query intersect` run
+Embree's intersect symbol also holds the untimed primary pass that
+makes the ao rays' origins, about a sixth of its samples, so these
+ratios and the 12:38 table's understate ours over Embree's by that
+much; the before/after movement is real, the levels are corrected in
+the next section, which subtracts the pass. The any-hit ratios are
+clean: there the primary pass is a different symbol.) The prefetch now
+costs about what Embree's does and converts the misses as Embree's
+does; what is left of the nearest-hit gap on incoherent rays
 (0.78x-0.83x) is no longer in these two places.
 
 The any hit is level on primary rays and 1-2% down on incoherent ones
@@ -1142,6 +1149,185 @@ as before the fixes.) Note that `compare.sh` without `--side` runs
 1024-wide batches, a quarter of the rays, and the incoherent ratios
 read higher there (ganesha ao 0.85x nearest, 0.94x any hit at 17:32);
 the tables in this plan are all `--side 2048`.
+
+## The two kernels read side by side, and counted (night of 2026-10-02)
+
+The user asked for the generated code of both sides to be inspected and
+profiled, the differences found, and the general compiler improvements
+in them named. Both kernels of the current build (gen27, the arena, the
+push and prefetch fixes) against Embree 4.4.1's
+`BVHNIntersector1<8,1,false,ArrayIntersector1<TriangleMIntersector1Moeller<4,true>>>::intersect`
+and `::occluded` (3232 and 2002 bytes of code; ours 508 and 328
+instructions), annotated with three profiles of ganesha's ao rays on
+cpu 11: the five-event cycle profile, a precise op-sampled profile (AMD
+IBS, one sample per 100003 dispatched-and-retired ops, no skid, so a
+block's sample density is its execution count), and the TLB events.
+The listings and annotations are in the scratchpad
+(`annot-gen27-trace-cycles.txt`, `annot-embree-intersect-cycles.txt`,
+the `occ`/`occluded` pair, `ibsops-*.txt`).
+
+**The clean per-event table.** Embree's intersect symbol in an
+`--batch ao --query intersect` run holds the untimed primary pass too;
+the `--query occluded` run of the same batch holds only that pass in
+that symbol, so subtracting the two gives Embree's ao-ray counts. Ours
+over Embree's, ganesha ao rays:
+
+| event                   | nearest hit | any hit |
+|-------------------------|------------:|--------:|
+| cycles                  |       1.27x |   1.10x |
+| instructions            |       1.39x |   1.28x |
+| branch misses           |       1.02x |   1.11x |
+| L1 data load misses     |       0.93x |   0.92x |
+| demand fills from DRAM  |       1.29x |   1.27x |
+
+The cycles match the measured rates (0.79x and 0.92x). Instructions per
+cycle: ours 0.90 against Embree's 0.83 on the nearest hit. So the
+nearest-hit gap is instruction count, nearly alone: we execute 39% more
+instructions on the same rays, mispredict the same, miss L1 less.
+
+**The same work.** The op-sampled counts, three runs of the ao batch,
+per block: node tests ours 37.35M, Embree 37.28M; pops 11.95M and
+12.39M; leaf tiles tested 7.01M and 6.84M; the hit distribution read
+off Embree's exclusive paths, of all node tests: 20% hit no child, 61%
+hit exactly one, 15% two, 3% three, 1% four or more. Both traversals
+visit the same nodes in the same order with the same hits, as the
+agreement check says they must. Ops per node visit, everything
+amortized: ours 105 against Embree's 64 on the nearest hit, 81 against
+55 on the any hit (ops, not instructions: our `zmm` compresses,
+permutes, extracts and 64-byte stores are two or more macro-ops each
+where Embree's `ymm` forms are one; hence 1.63x in ops where the
+counter says 1.39x in instructions).
+
+**Per node, instruction by instruction** (the executed path, from the
+listings; Embree in parentheses):
+
+- A node hit by one child, entered from a pop: ours 86 (47). Pop 8
+  (7); kind test 3 (2; ours copies the reference first because the
+  base add needs it whole); the slab test 28 (21): the same six loads,
+  six fmas, three max and three min, then ours has `kxorb`, two
+  compares with a `kortestb; je` between them, `kmovd`, `kortestb; je`
+  where Embree has one integer compare (its near is clamped to
+  `max(tnear, 0)` at entry so floats compare as ints) and one `kortestb;
+  je`, its `tfar` folded into the far min; the prefetch 13 (within
+  Embree's 17-instruction one-hit tail, which also finds the child):
+  `vpandq` the kind off, broadcast the base, `vpaddq`, a zero idiom,
+  `vpcompressq`, `vmovq`, four `prefetcht0`, the count test; then
+  ours falls into the generic sort-and-push path -- the key build 9
+  (blend to +inf under each of the two masks, `vpmovd2m`, `vpandd`,
+  `vpxord` under the sign mask, `vpor` the lane, `vpcompressd`, and
+  `vpshufd; vpermq` to reverse the lanes so the nearest sits last) and
+  its tail 22 (the waiting-lane mask from the count: `movl; subl;
+  vpbroadcastd; vpcmpltd`; `vpermd` of the distances, `vpmovzxdq;
+  vpermq zmm` of the children, zero idiom, `vpcompressq`,
+  `vextracti32x4 $3; vpextrq` for the nearest, zero idiom,
+  `vcompressps`, `vextracti128; vpshufd; vucomiss; jbe` testing the
+  nearest child against the bound again, two 64/32-byte stack stores
+  of nothing, the count update). Embree's one-hit case: `vpternlogd`
+  makes the keys in one op, `vpcompressd`, `vpermt2q` picks the child,
+  `vmovq`, done.
+- A node hit by two: ours 100 (67). Ours adds the second lane's
+  prefetch (10), the two-key network (`vpermd; vpminsd; vpmaxsd;
+  vpermt2d`, 5) on top of a second copy of the key build (11), then
+  the same 22-instruction tail; Embree: a second permute and
+  prefetch, `vpminsd/vpmaxsd`, two permutes for the child and the
+  pushed one, two scalar stores (20).
+- A leaf tile: 51 (49). The same nine loads and the same arithmetic;
+  Embree re-broadcasts the ray's origin and direction from the ray
+  struct, ours keeps them in registers.
+- The any-hit node, one child hit: ours 71 (40). Ours tests the
+  found-flag at the loop head (2) and reloads three constants from
+  the stack (3); after the prefetch chain it enters a push block of
+  19 instructions for every hit node -- `lzcnt` and `xor 7` for the
+  highest lane, a broadcast and a compare for the waiting mask, a
+  zero idiom, `vpcompressq`, the 64-byte stack store (of nothing, for
+  one hit), and the next child taken out of the children vector at a
+  run-time lane by a 64-byte spill and an 8-byte reload inside it
+  (`vmovdqa64 %zmm22,0xc0(%rsp); movq 0xc0(%rsp,%r11,8)`, which Zen
+  does not forward) -- where Embree's is `tzcnt`, one scalar load of
+  the child from the node, and for more hits a `blsr` loop of scalar
+  stores. Its leaf loop tests the flag per tile (3).
+
+**What is not it.** Branch misses are equal (nearest hit). The TLB:
+Embree's tree sits on 2 MB pages (`hugepages = enabled` in its device
+report; 74K 2 MB TLB reloads and 6K 4 KB ones in its kernel), ours on
+4 KB pages (3.8M reloads, 0.72M page walks over three runs, no 2 MB
+reloads) -- thirteen times Embree's reloads, but only 1.3 per ray,
+about 1% of cycles; it is the likeliest source of the 1.28x demand
+fills from DRAM (page-table lines), and a one-line fix in the driver
+(2 MB-aligned arena with `madvise(MADV_HUGEPAGE)`), or in the runtime
+for every large buffer. The per-ray entry: 9% of Embree's kernel
+cycles sit on the first instructions after its 16-byte load of the
+ray's direction, which the driver's `to_rayhit` wrote field by field
+just before the call -- a load across fresh scalar stores is not
+forwarded -- plus the indirect call and its 9.6 KB frame; our batch
+loop reads an array prepared in advance. That is why ours is faster on
+primary rays (1.23x head, 1.09x dragon) despite more instructions per
+node, and it is a fairness point for the driver: convert the rays
+before the timed loop.
+
+**The general compiler improvements, ranked by what they save.**
+
+1. *A run of one call is a call.* In the count switch the sorted run
+   lowers to (SSA/SortRecursion.cpp, SSA/QueueRecursion.cpp), case 1
+   must not fall into the generic path: no keys, no sort, no
+   compacting store of an empty mask, no count update; the next node
+   is `compress(children, mask)[0]` -- a `vpcompressq` and a `vmovq`,
+   the compress the prefetch already takes (compress the raw
+   references, derive the prefetch addresses from the packed vector)
+   -- or Embree's scalar `tzcnt` and a load of that child from the
+   node. The same for the lane run's push block (any hit). Saves about
+   31 instructions and some 30 cycles of dependent chain on 61% of all
+   node visits: the nearest hit's 105 ops per visit toward 80, the
+   any hit's 81 toward 65. The largest item by far.
+2. *A short-circuit `&&`/`||` whose right side is pure and cheap,
+   in a vectorized context, is a plain mask `and`.* The slab test is
+   `intersects && near < bound`: SSA/Linearize.cpp predicates the right
+   side behind a `reduce<any>` of the left, which is `kxorb`,
+   `kortestb; je`, a second blend, and six cycles more on the chain to
+   the next node, per node. Unobservable to flatten when the right side
+   has no effects and no loads (a compare of values in registers); the
+   user's rule that `&&` short-circuits stands for right sides that
+   cost (alpha tests, lookups), which a cost bound keeps.
+3. *The sort key.* `(bits & ~7) | lane` is one `vpternlogd` if the
+   sign flip is applied first; the blend to +inf of the lanes not hit
+   is dead when the keys are compressed next; and the sign flip itself
+   goes when the key is known non-negative -- `near = max(.., tnear)`
+   is, once `tnear >= 0` is known, which Embree asserts by
+   `max(tnear, 0)` at entry and rtq.bonsai does not (the program could,
+   and a sign-range fact through max/min/abs in the simplifier would
+   carry it). 5 instructions to 1-2 per multi-hit node.
+4. *The cull of the child descended into is redundant*: the node test
+   just proved its near distance under the bound, and the bound cannot
+   have moved. `vextracti128; vpshufd; vucomiss; jbe` per multi-hit
+   node (QueueRecursion emits the pop cull on the direct descent too).
+5. *The waiting-lane mask from the count* -- `movl; subl;
+   vpbroadcastd; vpcmpltd` under a constant mask -- is a scalar
+   `((1 << h) - 1) & ~top` moved into a mask register, 2-3 ops.
+6. *Any hit.* (a) The quantifier's early exit as a branch out of both
+   loops where the hit is found, not a flag tested at each loop head
+   (2 per node, 3 per tile). (b) A lane extract at a run-time index
+   from a vector that was loaded from storage the function never
+   writes is a scalar load at the lane's address (CodeGen_LLVM, with
+   the mutability fact), not a spill and a reload inside it: the push
+   block's store-forwarding stall. (c) The three constant reloads per
+   node are register pressure the leaf's temporaries cause; worth a
+   look once (a) and (b) have changed the shape.
+7. *Small, each a line*: the zero idiom LLVM emits before every `{z}`
+   compress (three per node; LLVM's X86 lowering of
+   `vector.compress` with a zero passthru); the loop-invariant
+   `vpbroadcastq` of the arena base, not hoisted; the per-ray offset
+   setup (36 scalar ops to Embree's 15 -- the far offset is
+   `near ^ 0x20`); the copy before the kind test.
+8. *Memory*: 2 MB pages for the arena (driver or runtime), see above.
+
+With 1-5 in, a one-hit node is about 55 instructions against Embree's
+47 and a two-hit node about 85 against 67; what remains is the
+eight-wide permute-and-compress push against Embree's per-count
+constant permutes and scalar stores -- the same work differently
+shaped -- and the `zmm` forms' extra ops. The order to do them is the
+order above; 1 and 2 are where the incoherent-ray gap mostly is, and
+each is measured on head, ganesha and dragon against gen27 as the
+earlier fixes were.
 
 ## Known-open, smaller
 
