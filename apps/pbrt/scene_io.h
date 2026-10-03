@@ -60,6 +60,9 @@ enum MaterialTag : uint32_t {
     // A thin sheet of dielectric (PBRT's ThinDielectricMaterial): `eta`
     // alone, no roughness; two specular lobes, the inter-reflections summed.
     ThinDielectric = 8,
+    // PBRT's MixMaterial: two of this file's materials and the float texture
+    // that chooses between them per hit. Resolved at the hit, never a BSDF.
+    Mix = 9,
     // PBRT's `Material "interface"` (and its deprecated spellings `""` and
     // `"none"`), for which `Material::Create` returns no material at all: a
     // surface that scatters nothing and exists only to bound a participating
@@ -374,6 +377,13 @@ struct Material {
     uint32_t remap = 1;
     float thickness = 0.01f;
     float eta = 1.5f;
+    // Mix only: the two operands by this file's material index -- written
+    // before the mix, so both are below it -- and PBRT's `amount`, a float
+    // texture defaulting to 0.5, as a constant or an index into `textures`.
+    int32_t mix_first = -1;
+    int32_t mix_second = -1;
+    float mix_amount = 0.5f;
+    int32_t mix_amount_texture = -1;
     // The medium between the two interfaces. `has_medium` is not the same
     // question as whether the albedo is zero: PBRT's default is a spectrum that
     // is exactly zero, where an RGB of (0, 0, 0) put through the fit is small
@@ -1180,6 +1190,14 @@ inline bool write(const char *path, const Scene &scene) {
         case MaterialTag::Interface:
             out << "  interface";
             break;
+        case MaterialTag::Mix:
+            // The two operands by this file's material index -- both below
+            // this record, since the converter writes a mix's operands
+            // before the mix -- and the amount, a constant or a texture.
+            out << "  mix " << m.mix_first << ' ' << m.mix_second << " amount";
+            detail::put(out, &m.mix_amount, 1);
+            out << " amounttex " << m.mix_amount_texture;
+            break;
         default:
             return false;
         }
@@ -1849,6 +1867,25 @@ inline bool read(const char *path, Scene &scene) {
             floats(&m.eta, 1);
         } else if (word == "interface") {
             m.tag = MaterialTag::Interface;
+        } else if (word == "mix") {
+            m.tag = MaterialTag::Mix;
+            in >> m.mix_first >> m.mix_second;
+            // Operands precede the mix in the file, so a forward reference
+            // is a corrupt file rather than a late binding.
+            if (m.mix_first >= int32_t(i) || m.mix_second >= int32_t(i)) {
+                return false;
+            }
+            if (!tagged("amount")) {
+                return false;
+            }
+            floats(&m.mix_amount, 1);
+            if (!tagged("amounttex")) {
+                return false;
+            }
+            in >> m.mix_amount_texture;
+            if (m.mix_amount_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
         } else {
             return false;
         }

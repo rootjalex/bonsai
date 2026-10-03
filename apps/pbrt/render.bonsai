@@ -1170,6 +1170,54 @@ extern material_displacement : array[i32];
 // material_frame).
 extern material_normal_map : array[i32];
 
+// pbrt: the mix material resolved at the hit -- `while
+// (material.Is<MixMaterial>()) material = mix->ChooseMaterial(texEval,
+// ctx)`, in GetBSDF on the CPU and in the trace kernel's epilogue in the
+// wavefront (intersect.h), so that no material kernel ever sees a mix. The
+// context is the intersection's: its point, the direction back along the
+// ray, its normal and uv, and no footprint, since the wavefront has
+// computed none at that point. ChooseMaterial: an amount at or below zero
+// is the first operand, at or above one the second, and between them a
+// hash of the point, the direction and the two materials draws
+// (hash_float_mix). An operand may be a mix itself -- pbrt loops until it
+// is not -- or an interface, -1, which the caller then treats as pbrt
+// treats a null material. Eight levels is more than any scene nests, and a
+// cycle cannot be written: a mix names materials declared before it.
+func resolve_material(index : i32, p : vec3f, wo : vec3f, n : vec3f,
+                      uv : vec2f) -> i32 {
+    m : mut i32 = index;
+    for level in 0:8 {
+        if m < 0 {
+            return m;
+        }
+        match materials[cast[[u32]](m)] {
+            Mixed(mix) => {
+                zero = vec3f{0.0, 0.0, 0.0};
+                ctx : TextureEvalContext = {p, zero, zero, n, uv, 0.0, 0.0, 0.0,
+                                            0.0};
+                amt = float_param_at(mix.amount, ctx);
+                if amt <= 0.0 {
+                    m = mix.first;
+                } else if amt >= 1.0 {
+                    m = mix.second;
+                } else {
+                    u = hash_float_mix(p, wo, mix.first, mix.second);
+                    m = select(amt < u, mix.first, mix.second);
+                }
+            }
+            Diffuse(albedo) => return m;
+            CoatedDiffuse(cd) => return m;
+            CoatedConductor(cc) => return m;
+            Dielectric(g) => return m;
+            ThinDielectric(td) => return m;
+            Conductor(c) => return m;
+            DiffuseTransmission(dt) => return m;
+            Measured(i) => return m;
+        }
+    }
+    return m;
+}
+
 // pbrt: the path integrator's fixed sample points for a reflectance estimate,
 // which are file-scope constants there. Fixed rather than drawn from the
 // sampler, so that the albedo a pixel records does not depend on where in the
@@ -1388,17 +1436,18 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through a medium boundary: a surface with no BSDF ends it, with
     // whatever the walk had found (integrators.h, LiRandomWalk). The other
     // integrators skip such a hit; this one is written as pbrt wrote it.
-    if prim.material < 0 {
+    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    if mat < 0 {
         return found;
     }
 
     // pbrt: GetBSDF, then a direction sampled uniformly over the sphere, then
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = material_frame(surf, material_normal_map[prim.material],
-                         material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[mat],
+                         material_displacement[mat], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, false,
+    bsdf = material_bxdf(materials[mat], lambda, false,
                          texture_context(hit, diffs));
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
@@ -1507,7 +1556,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
     // -- a medium boundary, stepped through at the same depth with the same
     // flag, since nothing scattered.
-    if prim.material < 0 {
+    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    if mat < 0 {
         // pbrt: `specularBounce = true` before the skip -- the shadow rays
         // of the vertex before this one stopped at the boundary (an any-hit
         // test knows nothing of interfaces), so a light found beyond it
@@ -1520,10 +1570,10 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: GetBSDF, once, before anything is asked of it -- differentials,
     // then the displacement, then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = material_frame(surf, material_normal_map[prim.material],
-                         material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[mat],
+                         material_displacement[mat], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, false,
+    bsdf = material_bxdf(materials[mat], lambda, false,
                          texture_context(hit, diffs));
     ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
@@ -1796,7 +1846,8 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through it: the same depth, the same flags, the same previous vertex,
     // since nothing scattered. The path integrator knows nothing of the
     // medium on the other side; volpath does.
-    if prim.material < 0 {
+    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    if mat < 0 {
         // pbrt: `specularBounce = true; // disable MIS if the indirect ray
         // hits a light` -- as in `path_step`: the boundary blocked the
         // previous vertex's shadow rays, so what lies beyond it is reached
@@ -1811,10 +1862,10 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // displacement -- which tilts the shading frame and so has to happen before
     // the frame is built -- and only then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = material_frame(surf, material_normal_map[prim.material],
-                         material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[mat],
+                         material_displacement[mat], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
-    bsdf = material_bxdf(materials[prim.material], lambda, do_regularize,
+    bsdf = material_bxdf(materials[mat], lambda, do_regularize,
                          texture_context(hit, diffs));
     flags = bxdf_flags(bsdf);
 
@@ -2671,8 +2722,11 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     // the queue it would go onto is the one pbrt drops with `if
     // (wavefrontDepth == maxDepth) break`, so nothing is pushed. A schedule
     // makes this push the trace kernel's (`vol_route.defer(vol_path_step,
-    // rays)`), as pbrt's is.
-    if prim.material < 0 {
+    // rays)`), as pbrt's is. The mix is resolved first, here in the trace
+    // kernel's epilogue as pbrt resolves it, so that the material queues see
+    // only concrete materials and a mix of an interface is a boundary.
+    mat = resolve_material(prim.material, surf.p, -ray.d, surf.n, surf.uv);
+    if mat < 0 {
         if wave == max_depth {
             return;
         }
@@ -2703,7 +2757,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     if wave == max_depth {
         return;
     }
-    vol_surface(ray, medium, camera, spp_scale, via, prim, surf, beta,
+    vol_surface(ray, medium, camera, spp_scale, via, prim, mat, surf, beta,
                 r_u, r_l, depth, wave, specular_bounce, any_non_specular,
                 eta_scale, prev_ctx, lambda, sampler, state, ls, set,
                 have_media, seed, max_depth, regularize, want_visible, visible,
@@ -2766,11 +2820,13 @@ func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
 // (`hits.specialize(material)`): the BSDF, the visible surface at the first
 // vertex, direct lighting (the shadow ray spawned inside `vol_sample_ld`),
 // the BSDF sample, roulette, and the next ray, which `vol_path_step` traces.
-// `via` places the primitive `prim`, and `surf` is the hit's geometry in
-// render space (pbrt's MaterialEvalWorkItem holds the hit and the path).
+// `via` places the primitive `prim`, `mat` is the primitive's material with
+// any mix resolved (vol_route, as pbrt's trace kernel resolves it before
+// the material queues), and `surf` is the hit's geometry in render space
+// (pbrt's MaterialEvalWorkItem holds the hit and the path).
 func vol_surface(ray : Ray, medium : i32,
                  camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
-                 prim : Geometric, surf : SurfaceGeometry, beta : vec4f,
+                 prim : Geometric, mat : i32, surf : SurfaceGeometry, beta : vec4f,
                  r_u : vec4f, r_l : vec4f, depth : i32, wave : i32,
                  specular_bounce : bool,
                  any_non_specular : bool, eta_scale : Float,
@@ -2784,15 +2840,15 @@ func vol_surface(ray : Ray, medium : i32,
 
     // The hit's material has a name here so that a schedule can split the
     // hits by it (`hits.specialize(material)`, pbrt's queue per material
-    // type). Never an interface: a hit on a medium boundary was sent on to
-    // the next ray by vol_route, as pbrt's trace kernel sends it, and no
-    // material kernel sees it.
-    material = materials[prim.material];
+    // type). Never an interface, and never a mix: a hit on a medium boundary
+    // was sent on to the next ray by vol_route, as pbrt's trace kernel sends
+    // it, and a mix was resolved there, so no material kernel sees either.
+    material = materials[mat];
 
     do_regularize = regularize && any_non_specular;
     diffs = approximate_differentials(surf, camera, spp_scale);
-    hit = material_frame(surf, material_normal_map[prim.material],
-                         material_displacement[prim.material], diffs);
+    hit = material_frame(surf, material_normal_map[mat],
+                         material_displacement[mat], diffs);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     bsdf = material_bxdf(material, lambda, do_regularize,
                          texture_context(hit, diffs));

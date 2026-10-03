@@ -1927,6 +1927,11 @@ int32_t convert_normal_map(const std::string &given) {
     return index;
 }
 
+// The scene's named materials, converted on first use and numbered in the
+// file -- `material_for_named` in `load`, reached from here by a `mix`,
+// whose operands are materials by name. Set for the duration of a load.
+std::function<uint32_t(const std::string &)> g_material_for_named;
+
 // The material a shape was declared under, in the form the renderer reads.
 //
 // The defaults are PBRT's own, from DiffuseMaterial::Create and
@@ -2198,6 +2203,31 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
+    if (m.name == "mix") {
+        // PBRT: MixMaterial::Create -- `materials`, the names of two
+        // materials, and `amount`, a float texture defaulting to 0.5 (a
+        // number given for it is a constant texture, as GetFloatTexture
+        // wraps one). The two are converted first, through the same path a
+        // shape's named material takes, so a mix's operands sit below it in
+        // the file and a mix of mixes resolves downward; an operand that is
+        // an interface is kept as one, which the renderer resolves to -1.
+        out.tag = bonsai_scene::MaterialTag::Mix;
+        const CapturingBuilder::MaterialInfo::Value *names = m.find("materials");
+        if (names == nullptr || names->type != "string" ||
+            names->strings.size() != 2) {
+            fail("a `mix` material needs `string materials` naming exactly two "
+                 "materials, as PBRT's does");
+        }
+        if (!g_material_for_named) {
+            fail("a `mix` material was converted outside a scene");
+        }
+        out.mix_first = int32_t(g_material_for_named(names->strings[0]));
+        out.mix_second = int32_t(g_material_for_named(names->strings[1]));
+        out.mix_amount_texture =
+            material_float_or_texture(m, "amount", 0.5f, &out.mix_amount);
+        return out;
+    }
+
     if (m.name == "thindielectric") {
         // PBRT: ThinDielectricMaterial::Create -- the one parameter is `eta`,
         // 1.5 by default; a spectral one is refused as on dielectric.
@@ -2215,7 +2245,7 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
     }
 
     fail("only the diffuse, coateddiffuse, coatedconductor, dielectric, "
-         "thindielectric, conductor, measured and diffusetransmission "
+         "thindielectric, conductor, measured, diffusetransmission and mix "
          "materials are supported, scene asks for \"" +
          m.name + "\"");
 }
@@ -3714,6 +3744,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     g_texture_mip.clear();
     g_normal_map_index.clear();
     g_image_source.clear();
+    g_material_for_named = nullptr;
     {
         const std::string path(filename);
         const size_t slash = path.find_last_of('/');
@@ -4659,6 +4690,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
             converted = convert_material(builder.materials[size_t(declared)]);
         }
+        // The index is taken after the conversion: a `mix` converts its two
+        // operands on the way, and they take the indices below its own.
         const uint32_t at = uint32_t(out.materials.size());
         out.materials.push_back(converted);
         material_index.emplace(declared, at);
@@ -4680,11 +4713,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             fail("a shape uses the named material \"" + name +
                  "\", which was never declared");
         }
+        // Converted before the index is taken, as above: a `mix` reaches
+        // its operands through this same function while it is converted.
+        bonsai_scene::Material converted = convert_material(declared->second);
         const uint32_t at = uint32_t(out.materials.size());
-        out.materials.push_back(convert_material(declared->second));
+        out.materials.push_back(converted);
         named_material_index.emplace(name, at);
         return at;
     };
+    g_material_for_named = material_for_named;
 
     // The area lights, converted on first use as the materials are, so that
     // the scene file carries only the ones a shape actually emits with.
@@ -4840,13 +4877,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 if (p->type == "texture" && !p->strings.empty()) {
                     alpha = convert_texture(p->strings[0]);
                 } else if (p->type == "float" && !p->floats.empty()) {
-                    // A constant alpha of one is what a shape without the
-                    // parameter has, so it needs no texture; anything else
-                    // would, and PBRT allows it.
-                    if (p->floats[0] != 1.f) {
-                        fail("a constant `alpha` other than 1 on a shape is "
-                             "not supported yet; this renderer carries alpha "
-                             "as a texture");
+                    // PBRT: getAlphaTexture in scene.cpp -- a number below
+                    // one is a FloatConstantTexture of it, which puts the
+                    // shape in a GeometricPrimitive with the stochastic test;
+                    // one or more is no alpha at all, as a shape without the
+                    // parameter has. Zero stays a texture too: pbrt keeps the
+                    // shape and ignores every hit on it (`u` is one when the
+                    // alpha is not positive).
+                    if (p->floats[0] < 1.f) {
+                        alpha = constant_float_texture(p->floats[0]);
                     }
                 } else {
                     fail("`alpha` on a shape has to be a texture or a float");

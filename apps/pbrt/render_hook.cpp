@@ -1642,6 +1642,16 @@ int main(int argc, char **argv) {
             ThinDielectricMaterial sheet;
             sheet.eta = m.eta;
             Material_ThinDielectric(material, sheet);
+        } else if (m.tag == bonsai_scene::MaterialTag::Mix) {
+            // The operands by the renderer's material index -- both precede
+            // the mix in the file, so their slots are known -- and an
+            // interface operand is -1, which `resolve_material` hands on as a
+            // boundary.
+            MixMaterial mix;
+            mix.first = material_slot.at(size_t(m.mix_first));
+            mix.second = material_slot.at(size_t(m.mix_second));
+            mix.amount = FloatParam{m.mix_amount, m.mix_amount_texture};
+            Material_Mixed(material, mix);
         } else if (m.tag == bonsai_scene::MaterialTag::DiffuseTransmission) {
             DiffuseTransmissionMaterial leaf;
             leaf.reflectance = reflectance;

@@ -117,6 +117,23 @@ func hash_float6(a : i32, b : i32, c : i32, d : i32, e : i32,
                  f : i32) -> Float =
     cast[[Float]](cast[[u32]](hash6(a, b, c, d, e, f))) * 2.3283064365386963e-10;
 
+// pbrt: `HashFloat(ctx.p, ctx.wo, materials[0], materials[1])`, the draw
+// that resolves a mix material (MixMaterial::ChooseMaterial) -- MurmurHash64A
+// over the forty bytes of the point, the direction and the two Material
+// handles, five blocks and no tail. The handles are pointers, which no two
+// runs of pbrt agree on, so a comparison per pixel was never possible there;
+// the two materials' indices stand in for them, each widened to the eight
+// bytes a handle is, and the draw is as pbrt's in every other respect.
+func hash_float_mix(p : vec3f, wo : vec3f, first : i32, second : i32) -> Float {
+    h0 = murmur_block(40u * murmur_m(),
+                      packed(reinterpret[[i32]](p.x), reinterpret[[i32]](p.y)));
+    h1 = murmur_block(h0, packed(reinterpret[[i32]](p.z), reinterpret[[i32]](wo.x)));
+    h2 = murmur_block(h1, packed(reinterpret[[i32]](wo.y), reinterpret[[i32]](wo.z)));
+    h3 = murmur_block(h2, cast[[u64]](cast[[u32]](first)));
+    h4 = murmur_block(h3, cast[[u64]](cast[[u32]](second)));
+    return cast[[Float]](cast[[u32]](murmur_finish(h4))) * 2.3283064365386963e-10;
+}
+
 // pbrt: PermutationElement, from util/math.h.
 //
 // The i'th element of a random permutation of 0..l-1 chosen by p, computed

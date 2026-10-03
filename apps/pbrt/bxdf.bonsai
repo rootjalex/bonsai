@@ -2145,6 +2145,19 @@ func spectrum_at_linear(table : array[Float], base : u32,
     return (1.0 - t) * lo + t * hi;
 }
 
+// pbrt: MixMaterial -- two materials, by their indices into `materials`, and
+// the float texture that says which of the two a hit is. Not a material with
+// a BSDF of its own: pbrt resolves it at the hit, stochastically, before any
+// material is asked for anything (ChooseMaterial, from GetBSDF on the CPU
+// and from the trace kernel's epilogue in the wavefront, intersect.h), and
+// so does render.bonsai's `resolve_material`. An operand may itself be a
+// mix, or an interface (-1).
+element MixMaterial {
+    first : i32;
+    second : i32;
+    amount : FloatParam;
+}
+
 element Material =
     | Diffuse(albedo : Reflectance)
     | CoatedDiffuse(m : CoatedDiffuseMaterial)
@@ -2155,7 +2168,10 @@ element Material =
     | DiffuseTransmission(dt : DiffuseTransmissionMaterial)
     // pbrt: MeasuredMaterial, which is nothing but the index of the table --
     // there is no parameter to it, since the measurement is the material.
-    | Measured(index : u32);
+    | Measured(index : u32)
+    // `Mixed` rather than `Mix`, since a variant's name is one name across
+    // every ADT and the texture graph has `Mix` (textures.bonsai).
+    | Mixed(mix : MixMaterial);
 // pbrt's `Material "interface"` is not a kind of material: Material::Create
 // returns no material at all for it (materials.cpp), and the primitive holds
 // that null pointer -- a surface with no BSDF, there to bound a participating
@@ -2319,6 +2335,14 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             // the surface is in the file.
             t : MeasuredBxDF = {index, lambda};
             return Table(t);
+        }
+        Mixed(mix) => {
+            // Never reached: a hit's mix is resolved to one of its operands
+            // before any BSDF is built (render.bonsai, resolve_material), as
+            // pbrt's is. Black, so that a hit that did arrive here would show
+            // as one rather than pass for a material.
+            d : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
+            return Lambertian(d);
         }
         Conductor(c) => {
             // pbrt: ConductorMaterial::GetBxDF.

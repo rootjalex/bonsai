@@ -2540,7 +2540,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 7 | `Material "interface"` / `Material ""` (a medium boundary with no BSDF) | bunny-cloud, clouds, disney-cloud, explosion, smoke-plume | 5 |
 | 8 | `Material "coatedconductor"` -- **done 2026-09-20**, see below | bistro, bmw-m6, killeroos coated-gold, kroken, watercolor | 5 |
 | 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` -- **done 2026-09-20**, and with it `eta`/`k` given as `rgb`, inline pairs or a `.spd` file (item 21) | bmw-m6, crown, villa, watercolor, zero-day | 5 |
-| 10 | `Material "mix"` | bmw-m6, crown, kroken, watercolor | 4 |
+| 10 | `Material "mix"` -- **done 2026-10-03**, resolved at the hit as pbrt resolves it (below) | bmw-m6, crown, kroken, watercolor | 4 |
 | 11 | `Shape "bilinearmesh"` (and PLY holding quads) | bunny-fur, sportscar, watercolor | 3 |
 | 12 | `mix` textures (and `directionmix`) -- **done 2026-10-03**, the texture graph below | kroken, villa, watercolor | 3 |
 | 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` -- **done 2026-10-03** | kroken, villa, watercolor | 3 |
@@ -2549,7 +2549,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
 | 17 | `Material "hair"` | bunny-fur, hair | 2 |
 | 18 | `Material "subsurface"` | head, sssdragon | 2 |
-| 19 | infinite light with `portal` | kroken, watercolor | 2 |
+| 19 | infinite light with `portal` -- **done 2026-09-29** (d5f1a114, scenes/portal.pbrt) | kroken, watercolor | 2 |
 | 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
 | 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` -- **done 2026-09-20** with item 9 | crown, killeroos | 2 |
 | 22-28 | `spot`/`point` lights, `thindielectric` (**done 2026-10-01**), `windy`/`wrinkled` textures (**done 2026-10-03**, with `fbm` and `marble`), partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
@@ -2695,7 +2695,7 @@ Per scene, what is missing (see the converter for what is supported):
 |---|---|
 | barcelona-pavilion | day: nothing, renders and matches. night: `bdpt` |
 | bistro | `zsobol`, `normalmap`, ACES env map |
-| bmw-m6 | `volpath`, `mix` |
+| bmw-m6 | `volpath`, `mix` -- converts as of 2026-10-03 |
 | bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map |
 | bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
@@ -2709,7 +2709,7 @@ Per scene, what is missing (see the converter for what is supported):
 | hair | `volpath`, `curve`, `hair` |
 | head | `volpath`, `subsurface` |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
-| kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media |
+| kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03; it then asks for a spectral `eta` on a dielectric (item 15), its last refusal |
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
@@ -9124,6 +9124,59 @@ is bistro's story again, but 1.6% on the mean is more than bistro's
 barks, or something older in villa (its `measured` acrylic, the
 `thindielectric` glazing) are the candidates, and 16x16 block means
 against pbrt's are the way to see which.
+
+*The mix material, and a constant alpha (2026-10-03).* pbrt's
+MixMaterial is not a material with a BSDF: it is two materials and a
+float texture, and the hit is one or the other -- `ChooseMaterial`
+compares the amount with `HashFloat(p, wo, materials[0], materials[1])`,
+below zero the first, above one the second, between them the draw -- and
+pbrt resolves it *before* any material is asked for anything: in GetBSDF
+on the CPU and in the trace kernel's epilogue in the wavefront
+(intersect.h), looping until the material is not a mix, so that no
+material queue ever holds one. Here: a `Mixed(MixMaterial)` arm of
+`Material` (`Mixed`, since `Mix` is the texture graph's and a variant's
+name is one name across every ADT), the operands by index and the amount
+a FloatParam; `resolve_material` in render.bonsai, the loop bounded at
+eight (a mix names materials declared before it, so a cycle cannot be
+written), with the intersection's context -- point, `-ray.d`, normal, uv,
+no footprint -- and `hash_float_mix`, pbrt's MurmurHash64A over the forty
+bytes with the two material *indices* widened to the eight bytes a
+handle is: pbrt hashes the handles themselves, which are pointers, so no
+two runs of pbrt agree on the draw and no renderer can; the draw is
+pbrt's in every other respect. The four integrators resolve where they
+test for an interface, since a mix of an interface is a boundary;
+vol_route resolves and hands the index to vol_surface, so the GPU's
+material queues (`hits.specialize(material)`) see only concrete
+materials. scene_dump converts the two operands first, so they sit
+below the mix in the file (the index taken *after* the conversion, which
+the two `material_for`s now do); a mix's `amount` given as a number is a
+constant, as GetFloatTexture wraps it. The constant `alpha` on a shape is
+pbrt's getAlphaTexture: a number below one is a constant texture and the
+stochastic test, one or above is none. scenes/mix-material.pbrt -- a
+red-and-copper mix at 0.3, a blue-and-yellow mix by the raindrop image,
+and a mix of that first mix with glass at 0.5 -- against `pbrt
+--wavefront` at 8 spp: normals and shading normals 0 off; the per-pixel
+albedo differs on 20.6% of pixels, which is the draw, and the statistics
+agree to the third place: albedo means per sphere (0.5381/0.4383/0.4337
+against 0.5377/0.4381/0.4331; 0.3212/0.3632/0.6152 against
+0.3217/0.3635/0.6149; 0.5868/0.3864/0.3769 against 0.5867/0.3864/0.3768),
+the fraction of hits that took each operand (0.225, 0.498, 0.277 against
+0.225, 0.500, 0.278), radiance 1.00043x; the GPU schedule the same
+(means to the third place, fractions 0.225/0.497/0.277 against pbrt's
+0.222/0.498/0.278, radiance 1.00013x, one silhouette pixel's normal
+off). bmw-m6 converts for the first time (792,746 shapes; its one mix
+is the leather, black and white at 0.2) and renders on the GPU at 16
+spp: 0.165 s against `pbrt --gpu`'s 0.29 s (1.75x; kernels 155 ms
+against 230 ms), the picture pbrt's. gpu_compare calls the image 0.936x
+of pbrt's and fails it, and the whole of that is two pixels: pbrt has
+3,709 and 3,194 at (577, 460) and (565, 445), the light seen through the
+headlight glass by a specular path, where we have 1,367 and 1,255 -- a
+firefly's size at sixteen samples is a draw, not a disagreement -- and
+without that 125 by 140 block the means are 0.10393 against 0.10379
+(0.9987x); per block of 125 by 140, every other block is within 2%, most
+within 1%. The scene sets no `maxcomponentvalue`, so nothing clamps
+either side. kroken gets past alpha and mix to its last refusal, a
+spectral `eta` on a dielectric.
 
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`

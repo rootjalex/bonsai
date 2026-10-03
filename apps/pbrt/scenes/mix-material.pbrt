@@ -1,0 +1,86 @@
+# pbrt's `mix` material: two materials and an `amount` that says, per hit,
+# which of them the surface is. Not a blend of BSDFs -- pbrt resolves the
+# mix before any material is asked for a BSDF, by comparing the amount with
+# a hash of the hit (MixMaterial::ChooseMaterial), so every hit is one
+# material or the other and the mixture is in the statistics. pbrt hashes
+# the two materials' *pointers* along with the point and the direction, so
+# no two runs of pbrt agree on the draw itself and no renderer can; what a
+# comparison can check is the picture's statistics (the mean radiance, the
+# mean albedo over each sphere) and everything the mix does not touch (the
+# normals, the floor).
+#
+#   - `half`: a constant amount of 0.3 between a red diffuse and a copper
+#     conductor, on the left.
+#   - `patchy`: an image as the amount (the pavilion's raindrop texture,
+#     grey, read as a float), between a blue and a yellow diffuse, in the
+#     middle -- the one kind of amount `pbrt --gpu` evaluates (a "basic"
+#     texture).
+#   - `nested`: a mix whose first operand is `half` and whose second is a
+#     dielectric, amount 0.5, on the right; pbrt loops until the material is
+#     not a mix, and so does `resolve_material`.
+#
+# `volpath`, so that the GPU schedule renders it as well.
+
+LookAt 0 2.5 7   0 0.8 0   0 1 0
+Camera "perspective" "float fov" [40]
+
+Sampler "halton" "integer pixelsamples" [8]
+Integrator "volpath" "integer maxdepth" [3]
+Film "gbuffer"
+    "string filename" ["mix-material.exr"]
+    "integer xresolution" [640]
+    "integer yresolution" [360]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+AttributeBegin
+    Translate 0 6 3
+    AreaLightSource "diffuse" "rgb L" [25 25 25]
+    Material "diffuse" "rgb reflectance" [0 0 0]
+    Shape "sphere" "float radius" [1]
+AttributeEnd
+
+MakeNamedMaterial "red" "string type" "diffuse" "rgb reflectance" [0.7 0.1 0.1]
+MakeNamedMaterial "copper" "string type" "conductor"
+    "spectrum eta" "metal-Cu-eta" "spectrum k" "metal-Cu-k"
+    "float roughness" [0.1]
+MakeNamedMaterial "blue" "string type" "diffuse" "rgb reflectance" [0.1 0.2 0.8]
+MakeNamedMaterial "yellow" "string type" "diffuse" "rgb reflectance" [0.8 0.7 0.1]
+MakeNamedMaterial "glass" "string type" "dielectric" "float eta" [1.5]
+
+MakeNamedMaterial "half" "string type" "mix"
+    "string materials" ["red" "copper"] "float amount" [0.3]
+Texture "drops" "float" "imagemap"
+    "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/water-raindrop.png"]
+    "float uscale" [3] "float vscale" [3]
+MakeNamedMaterial "patchy" "string type" "mix"
+    "string materials" ["blue" "yellow"] "texture amount" "drops"
+MakeNamedMaterial "nested" "string type" "mix"
+    "string materials" ["half" "glass"] "float amount" [0.5]
+
+AttributeBegin
+    Material "diffuse" "rgb reflectance" [0.5 0.5 0.5]
+    Shape "trianglemesh"
+        "integer indices" [0 1 2 2 3 0]
+        "point3 P" [-6 0 -4   6 0 -4   6 0 4   -6 0 4]
+        "point2 uv" [0 0  1 0  1 1  0 1]
+AttributeEnd
+
+AttributeBegin
+    Translate -2.2 0.8 0
+    NamedMaterial "half"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 0 0.8 0
+    NamedMaterial "patchy"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
+AttributeBegin
+    Translate 2.2 0.8 0
+    NamedMaterial "nested"
+    Shape "sphere" "float radius" [0.8]
+AttributeEnd
