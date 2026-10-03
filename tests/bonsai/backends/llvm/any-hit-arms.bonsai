@@ -1,0 +1,54 @@
+//! flags: -p ssa -b llvm
+
+// ssa/any-hit-arms.bonsai through the LLVM backend: the any-hit traversal
+// of an eight-wide node, its run of hits a switch on their count. What to
+// read for: the arms for one to four hits read the mask as an i8 zero-
+// extended to an i32 and take each lane by `llvm.cttz.i32` (the lowest,
+// then of the mask with its lowest bit cleared by `and (sub m 1)`) and the
+// highest by `31 - llvm.ctlz.i32`, both with a zero defined, which on a
+// 32-bit word is one tzcnt or lzcnt; each child is one scalar load off the
+// node's row at that lane, the pushed ones stored to the stack one at a
+// time with the count advanced by the arm's constant; and the default arm
+// for five hits and more keeps the compacting store (`llvm.masked.compress`
+// of the children under the mask less the picked lane, stored whole).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 8];
+            lo : vector[vec3f, 8];
+            hi : vector[vec3f, 8];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+}

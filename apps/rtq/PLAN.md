@@ -2188,6 +2188,111 @@ two units behind the origin as the nearest, Embree's `tnear < t`, where
 the clamped one reports the wall ahead -- the negative keys sort right
 with the flip, the non-negative ones right without).
 
+## The any hit's pushes as scalar pushes, by count (2026-10-03)
+
+The first of the candidates the profile after item 4 left ("The kernels
+counted again"): the any hit's path for two hits and more cost 9.6 cycles
+a node visit against Embree's push loop's 5.1. The compacting store writes
+every waiting lane at once, but to do so it forms the highest lane
+(`lzcnt`), broadcasts it, compares it against the lane ramp, ands the
+mask, compresses the children (`vpcompressq`), stores a whole vector and
+takes the picked child out at a run-time index -- a fixed cost paid
+whatever the count, and the count is two at most visits that are not one.
+Embree's traverseAnyHit (bvh_traverser1.h) takes the hits one at a time
+off its movemask: `bscf` -- `bsf` and `btc`, tzcnt and blsr -- gives the
+lowest lane, which is pushed unless it is the last, and the last is
+continued with; for two hits that is tzcnt, a load, a store, blsr, tzcnt,
+a load. Scalar because at a small count a few scalar ops are the whole
+job; past four the compacting store wins, writing them all at once.
+
+**What was built** (SSA/QueueRecursion.cpp, the LaneRun branch). The
+switch on the count, which had arms for none (the pop), one (compress and
+extract lane 0, which Simplify's rule read as tzcnt and a load) and
+everything else (the compacting store), has arms for one to four hits:
+the mask read as an integer, the lanes counts of its zeros -- `ctz(bits)`
+the lowest, `ctz(bits & (bits - 1))` the next, `31 - clz(bits)` the
+highest -- the highest descended into and the others stored one at a time
+at `count`, `count + 1`, `count + 2`, the count advanced by the arm's
+constant; the default arm, five hits and more, keeps the compacting store.
+The lanes are counted at the index's width (u32) rather than the mask's
+(u8): llvm.cttz and llvm.ctlz on an i8 with a zero defined take a fixup
+first (`or 0x100` before the tzcnt, `shl 24` before the lzcnt) that LLVM
+drops only where it knows the word is not zero, which it does for the
+first lane (the mask was tested for any) and not for the cleared ones,
+where on an i32 tzcnt and lzcnt mean exactly what the intrinsics do, and
+every lane is one instruction. A mask whose width is no integer's (the
+four-wide trees) reads its lanes as reductions, the least or the greatest
+lane index the mask keeps, the lowest cleared by a compare against it;
+when every lane is hit the lanes are the constants and nothing is counted.
+Each child is `extract_idx(children, lane)` at a run-time lane, which
+item 4's rule reads as one scalar load off the node's row. The order is
+Embree's: pushes lowest lane first, so that the next pop takes the second
+highest.
+
+**The kernel.** The two-hit arm is `tzcnt eax,ebp; lzcnt ebp,ebp; mov
+ecx,r12d; inc r12d; mov rax,[r13+rax*8]; xor ebp,0x1f; mov
+[rsp+rcx*8+0x78],rax` and the descent's `mov r13,[r13+rax*8]` that the
+arms share: two counts, two scalar loads, one store, the count's
+increment, no vector touched. The three-hit arm adds `blsr`, a `tzcnt`, a
+load and a store; the four-hit arm another three. `vpcompressq`,
+`vmovdqu64`, `vpbroadcastd` and `vpcmpneqd` are on the default arm alone.
+LLVM lowers the switch as a tree: `test r14b,cl` (`bits & (bits - 1)`,
+the one-hit test with no popcount) and then `popcnt` and compares. The
+prefetches of the hit children, Embree's per-lane sequence, are
+unchanged in front of the switch.
+
+**Measured** (cpu 11, `--side 2048`, least of 5, two worktrees back to
+back, baseline 6c3b62cc, every ray agreeing; a first pair of runs
+overlapped a multi-core render of the other session's and was thrown
+away, these are from a quiet machine). The any hit, bonsai's million
+rays per second and the ratio to Embree, matching schedule (primary / ao
+/ diffuse): head 89.3 -> 93.1 (1.03 -> 1.08x) / 17.2 -> 17.4 (0.97x) /
+15.6 -> 15.8 (0.96 -> 0.97x); ganesha 28.6 -> 29.2 (0.98 -> 0.99x) /
+7.01 -> 7.06 (0.97x) / 5.99 -> 6.02 (0.97x); dragon 37.7 -> 38.4 (0.98
+-> 1.01x) / 5.03 -> 5.04 (0.98 -> 0.99x) / 4.41 -> 4.42 (0.97 -> 0.98x).
+Tuned schedule: head 88.0 -> 91.0 (1.02 -> 1.06x) / 18.4 -> 19.1 (1.05
+-> 1.07x) / 16.9 -> 17.4 (1.05 -> 1.06x); ganesha 28.6 -> 29.2 (1.00 ->
+0.99x) / 7.41 -> 7.49 (1.03 -> 1.04x) / 6.27 -> 6.28 (1.02x); dragon
+37.3 -> 37.0 (0.98 -> 0.99x) / 5.26 -> 5.09 (1.04 -> 1.03x) / 4.58 ->
+4.46 (1.02 -> 1.05x) -- dragon's second tuned run was slower on every
+kernel, Embree's own included (its nearest hit 34.2 -> 33.9), so that
+drift is the machine's and the ratios are the reading. The nearest hit's
+kernel is byte for byte the one before (trace_all's 550 instructions;
+the disassemblies differ in the function's address alone) and its
+numbers are level (head 62.4 -> 62.4 / 14.64 -> 14.65 / 13.08 -> 13.04).
+Sampled on head (perf, cycles, instructions and branch misses at one in
+20011, `occluded_all` against Embree's occluded kernel): on primary rays
+20319 -> 19414 cycle samples (-4.5%; Embree 19450, so level),
+instructions 20538 -> 19514 (Embree 19292, 1.2% more), branch misses 108
+-> 111 (Embree 105-110); on ao rays cycles 18662 -> 17591 (-5.7%; Embree
+16878, so 1.04x), instructions 18703 -> 17640 (Embree 16985-17071, 3.3%
+more), branch misses 644 -> 648 against Embree's 603. So the switch's
+tree costs no mispredictions over the old three-way one, and the 7% more
+mispredictions than Embree on incoherent rays were there before: that,
+with the 3% more instructions, is where the any hit's remaining gap on
+incoherent rays sits. A modest return on the 9.6 against 5.1 cycles the
+profile put on this path: the gain lands on the rays whose node visits
+have two hits the most, the primary ones, where the incoherent rays'
+visits are mostly one hit, whose arm was already tzcnt and a load.
+
+**Tests.** ssa/any-hit-arms (an eight-wide tree with the children's boxes
+in the node, `any` with the test vectorized: the switch's arms with their
+ctz/clz counts, the scalar loads and the default arm's store),
+backends/llvm/any-hit-arms (the same through LLVM: `llvm.cttz.i32` and
+`llvm.ctlz.i32` on the i8 zero-extended, the invariant scalar loads, the
+stack's stores, `llvm.experimental.vector.compress` in the default arm
+only), correctness/cpp/any_hit_arms with its main (one eight-wide node
+whose children's boxes are stepped in height so that a ray straight down
+crosses one, two, three, four, five or all eight of them, in lane sets
+that are not contiguous, with the triangle under the ray in the set's
+lowest lane, a middle one or the highest; every arm's pushes and pops
+have to deliver every child, a short segment and a ray above every box
+come out clear). The four-wide goldens moved: ssa/child-volumes-any and
+the sort-key-nonnegative pair's `occluded` have the per-count arms with
+`reduce.smin`/`reduce.smax` for the lanes, and the compacting store is
+gone from a four-wide any hit altogether, every count being four or
+fewer.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

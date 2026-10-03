@@ -1113,11 +1113,21 @@ void queue_recursion(Function &func, size_t size) {
         // A run that is the lanes of vectors with no order asked for
         // (LaneRun, see SSA/SortRecursion.h): a node's children under their
         // mask, a quantifier's run. Written down the same way, in the order
-        // the children are stored: Embree's traverseAnyHit takes the hits in
-        // sequence, pushing each but the last and continuing with that one,
-        // so the hit in the highest lane is descended into and the others go
-        // to the stack by one compacting store, lane order preserved. A run
-        // that is not the node's last act pushes every hit.
+        // the children are stored, as Embree's traverseAnyHit writes it: the
+        // hits taken off the mask one at a time, lowest lane first (`bscf`,
+        // tzcnt and blsr on its movemask), each but the last pushed and the
+        // last -- the highest lane -- continued with. A switch on the count
+        // does that for up to `scalar_pushes_up_to` hits as scalar work on
+        // the lane indices read out of the mask: one hit -- three node tests
+        // in five on incoherent rays -- has nothing to write down and takes
+        // its child at the one lane (Embree's tzcnt and a load); two to four
+        // push each but the highest by one scalar store apiece at the lanes
+        // tzcnt and blsr find, lzcnt the highest, Embree's loop unrolled per
+        // count with no vector moved. Past that the waiting lanes go to the
+        // stack by one compacting store, lane order preserved, and the
+        // highest is taken out at a run-time index: that many hits are rare
+        // and the store writes them all at once. A run that is not the
+        // node's last act pushes every hit, by the store.
         if (call->lanes.has_value()) {
             const LaneRun &run = *call->lanes;
             const uint32_t n = run.lanes;
@@ -1127,47 +1137,213 @@ void queue_recursion(Function &func, size_t size) {
             auto mask = lanes_as_vector(func, into, run.mask, n);
             auto hits = append(func, into, count_type, Instruction::Op::Popcount,
                                {mask});
-            auto push = new_block(func, name + "!push");
-            func.blocks.push_back(push);
-            if (last) {
-                // A switch on the count rather than a test for any: one hit
-                // -- three node tests in five on incoherent rays -- has
-                // nothing to write down, and its one child is lane 0 of the
-                // vectors packed by the mask (one `vpcompressq` and a
-                // `vmovq`; Embree's traverseAnyHit takes it by `tzcnt` and a
-                // load), not the highest lane taken out of a vector at a
-                // run-time index behind a compacting store of nothing.
-                auto one = new_block(func, name + "!one");
-                func.blocks.push_back(one);
-                vector<shared_ptr<Value>> only;
+            // The run's vectors, one per stack, read in `block`.
+            const auto vectors_in = [&](const shared_ptr<Block> &block) {
+                std::map<size_t, shared_ptr<Value>> vectors;
                 for (const Stack &stack : stacks) {
                     const auto source = run.values.find(stack.param);
                     internal_assert(source != run.values.end())
                         << "The run in " << name << " has no lanes for "
                         << params[stack.param].name << ", which varies";
-                    auto vec = lanes_as_vector(func, one, source->second, n);
-                    auto packed = std::make_shared<Instruction>(
-                        func.get_unique_name(), vec->get_type(),
-                        Instruction::Op::Intrinsic,
-                        vector<shared_ptr<Value>>{vec, mask}, one);
-                    packed->intrinsic = ir::Intrinsic::compress;
-                    one->instrs.push_back(packed);
-                    only.push_back(append(
-                        func, one, params[stack.param].type,
-                        Instruction::Op::ExtractIdx,
-                        {std::make_shared<Value>(packed), count_of(0)}));
+                    vectors[stack.param] =
+                        lanes_as_vector(func, block, source->second, n);
                 }
-                shared_ptr<Value> alive = bool_of(true);
-                if (acc.has_value() && may_settle_before(name)) {
-                    alive = undecided_in(one);
+                return vectors;
+            };
+            // Reading lanes off the mask. Where the mask's lanes are the
+            // bits of an integer the mask is that integer (`kmov`), a lane
+            // its trailing or leading zeros counted (`tzcnt`, `lzcnt`:
+            // Embree's bsf and bsr on its movemask) and the lowest lane
+            // cleared by `blsr`; otherwise -- a four-wide mask has no
+            // integer to count -- a lane is the least or the greatest lane
+            // index the mask keeps, and clearing one is a compare against
+            // it.
+            const bool as_bits = n == 8 || n == 16 || n == 32 || n == 64;
+            const Type bits_t = as_bits ? UInt_t::make(n) : Type();
+            // Counted at the index's width where the mask is narrower:
+            // tzcnt and lzcnt answer a zero word with its width, which is
+            // what the intrinsics mean on a 32-bit word, where an 8-bit
+            // word's zero takes a fixup first (an `or 0x100`, a `shl 24`)
+            // that LLVM drops only where it knows the word is not zero.
+            const Type wide_t =
+                as_bits && n < count_type.bits() ? count_type : bits_t;
+            const auto whole_mask =
+                [&](const shared_ptr<Block> &block) -> shared_ptr<Value> {
+                if (!as_bits) {
+                    return mask;
                 }
-                one->terminator.data =
-                    visit(std::move(only), std::move(alive), /*direct=*/true);
-                into->terminator.data = Terminator::Dispatch{
-                    hits,
-                    {Terminator::Jump{pop->name}, Terminator::Jump{one->name},
-                     Terminator::Jump{push->name}}};
+                auto bits = append(func, block, bits_t,
+                                   Instruction::Op::Reinterpret, {mask});
+                if (wide_t.bits() == bits_t.bits()) {
+                    return bits;
+                }
+                return append(func, block, wide_t, Instruction::Op::Cast,
+                              {bits});
+            };
+            // `which` zeros of `bits` counted, as an index.
+            const auto count_zeros = [&](const shared_ptr<Block> &block,
+                                         const shared_ptr<Value> &bits,
+                                         ir::Intrinsic::OpType which) {
+                auto zeros = std::make_shared<Instruction>(
+                    func.get_unique_name(), wide_t, Instruction::Op::Intrinsic,
+                    vector<shared_ptr<Value>>{bits}, block);
+                zeros->intrinsic = which;
+                block->instrs.push_back(zeros);
+                auto counted = std::make_shared<Value>(zeros);
+                if (wide_t.bits() == count_type.bits()) {
+                    return counted;
+                }
+                return append(func, block, count_type, Instruction::Op::Cast,
+                              {counted});
+            };
+            std::map<const Block *, shared_ptr<Value>> ramps;
+            const auto ramp = [&](const shared_ptr<Block> &block) {
+                shared_ptr<Value> &r = ramps[block.get()];
+                if (!r) {
+                    r = append(func, block, lanes_t, Instruction::Op::Ramp,
+                               {count_of(0), count_of(1)});
+                }
+                return r;
+            };
+            // The least (Min) or the greatest (Max) lane index `m` has on,
+            // the lanes it has off standing out of the way.
+            const auto extreme = [&](const shared_ptr<Block> &block,
+                                     const shared_ptr<Value> &m,
+                                     ir::VectorReduce::OpType which) {
+                auto none = append(
+                    func, block, lanes_t, Instruction::Op::Bc,
+                    {count_of(which == ir::VectorReduce::Min ? n : 0),
+                     count_of(n)});
+                auto on = append(func, block, lanes_t, Instruction::Op::Select,
+                                 {m, ramp(block), none});
+                auto reduced = std::make_shared<Instruction>(
+                    func.get_unique_name(), count_type, Instruction::Op::Reduce,
+                    vector<shared_ptr<Value>>{on}, block);
+                reduced->reduce = which;
+                block->instrs.push_back(reduced);
+                return std::make_shared<Value>(reduced);
+            };
+            const auto lowest = [&](const shared_ptr<Block> &block,
+                                    const shared_ptr<Value> &m) {
+                return as_bits ? count_zeros(block, m, ir::Intrinsic::ctz)
+                               : extreme(block, m, ir::VectorReduce::Min);
+            };
+            const auto highest = [&](const shared_ptr<Block> &block,
+                                     const shared_ptr<Value> &m) {
+                if (!as_bits) {
+                    return extreme(block, m, ir::VectorReduce::Max);
+                }
+                return append(func, block, count_type, Instruction::Op::Sub,
+                              {count_of(wide_t.bits() - 1),
+                               count_zeros(block, m, ir::Intrinsic::clz)});
+            };
+            // `m` with its lowest lane on, `lane`, off.
+            const auto without_lowest = [&](const shared_ptr<Block> &block,
+                                            const shared_ptr<Value> &m,
+                                            const shared_ptr<Value> &lane) {
+                if (as_bits) {
+                    auto less = append(
+                        func, block, wide_t, Instruction::Op::Sub,
+                        {m, std::make_shared<Value>(
+                                Constant{wide_t, uint64_t(1)})});
+                    return append(func, block, wide_t, Instruction::Op::BwAnd,
+                                  {m, less});
+                }
+                auto others = append(
+                    func, block, mask_t, Instruction::Op::Ne,
+                    {ramp(block), append(func, block, lanes_t,
+                                         Instruction::Op::Bc,
+                                         {lane, count_of(n)})});
+                return append(func, block, mask_t, Instruction::Op::LAnd,
+                              {m, others});
+            };
+
+            shared_ptr<Block> push; // the compacting store, where one is made
+            if (last) {
+                constexpr uint32_t scalar_pushes_up_to = 4;
+                const uint32_t scalar_counts = std::min(n, scalar_pushes_up_to);
+                Terminator::Dispatch by_count{hits,
+                                              {Terminator::Jump{pop->name}}};
+                for (uint32_t h = 1; h <= scalar_counts; h++) {
+                    auto arm =
+                        new_block(func, name + "!hits" + std::to_string(h));
+                    func.blocks.push_back(arm);
+                    // The lanes on, lowest first and the highest last: the
+                    // constants when every lane is.
+                    vector<shared_ptr<Value>> lanes;
+                    if (h == n) {
+                        for (uint32_t k = 0; k < n; k++) {
+                            lanes.push_back(count_of(k));
+                        }
+                    } else {
+                        const shared_ptr<Value> whole = whole_mask(arm);
+                        shared_ptr<Value> rest = whole;
+                        for (uint32_t k = 0; k + 1 < h; k++) {
+                            if (k > 0) {
+                                rest = without_lowest(arm, rest, lanes.back());
+                            }
+                            lanes.push_back(lowest(arm, rest));
+                        }
+                        lanes.push_back(h == 1 ? lowest(arm, whole)
+                                               : highest(arm, whole));
+                    }
+                    const std::map<size_t, shared_ptr<Value>> vectors =
+                        vectors_in(arm);
+                    if (h > 1) {
+                        auto top = append(func, arm, count_type,
+                                          Instruction::Op::Load, {count});
+                        for (uint32_t k = 0; k + 1 < h; k++) {
+                            shared_ptr<Value> at = top;
+                            if (k > 0) {
+                                at = append(func, arm, count_type,
+                                            Instruction::Op::Add,
+                                            {top, count_of(k)});
+                            }
+                            for (const Stack &stack : stacks) {
+                                auto slot = append(
+                                    func, arm,
+                                    Ptr_t::make(params[stack.param].type),
+                                    Instruction::Op::GEP, {stack.storage, at});
+                                append_store(
+                                    arm, slot,
+                                    append(func, arm, params[stack.param].type,
+                                           Instruction::Op::ExtractIdx,
+                                           {vectors.at(stack.param), lanes[k]}));
+                            }
+                        }
+                        append_store(arm, count,
+                                     append(func, arm, count_type,
+                                            Instruction::Op::Add,
+                                            {top, count_of(h - 1)}));
+                    }
+                    shared_ptr<Value> alive = bool_of(true);
+                    if (acc.has_value() && may_settle_before(name)) {
+                        alive = undecided_in(arm);
+                    }
+                    vector<shared_ptr<Value>> next;
+                    for (const Stack &stack : stacks) {
+                        next.push_back(append(
+                            func, arm, params[stack.param].type,
+                            Instruction::Op::ExtractIdx,
+                            {vectors.at(stack.param), lanes.back()}));
+                    }
+                    arm->terminator.data = visit(std::move(next),
+                                                 std::move(alive),
+                                                 /*direct=*/true);
+                    by_count.targets.push_back(Terminator::Jump{arm->name});
+                }
+                if (scalar_counts < n) {
+                    push = new_block(func, name + "!push");
+                    func.blocks.push_back(push);
+                    by_count.targets.push_back(Terminator::Jump{push->name});
+                }
+                into->terminator.data = std::move(by_count);
+                if (!push) {
+                    continue;
+                }
             } else {
+                push = new_block(func, name + "!push");
+                func.blocks.push_back(push);
                 auto made = append(func, into, bool_t, Instruction::Op::Ne,
                                    {hits, count_of(0)});
                 into->terminator.data = Terminator::Dispatch{
@@ -1180,64 +1356,25 @@ void queue_recursion(Function &func, size_t size) {
             shared_ptr<Value> added = hits;
             shared_ptr<Value> picked; // the lane continued with, if any
             if (last) {
-                // The highest lane the mask has on. Where the mask's lanes
-                // are the bits of an integer, that is the mask as that
-                // integer with its leading zeros counted (`kmov`, `lzcnt`:
-                // Embree's `bsr` on its movemask); otherwise the highest of
-                // the lane indices the mask keeps.
-                auto lane = append(func, push, lanes_t, Instruction::Op::Ramp,
-                                   {count_of(0), count_of(1)});
-                if (n == 8 || n == 16 || n == 32 || n == 64) {
-                    const Type bits_t = UInt_t::make(n);
-                    auto bits = append(func, push, bits_t,
-                                       Instruction::Op::Reinterpret, {mask});
-                    auto zeros = std::make_shared<Instruction>(
-                        func.get_unique_name(), bits_t,
-                        Instruction::Op::Intrinsic,
-                        vector<shared_ptr<Value>>{bits}, push);
-                    zeros->intrinsic = ir::Intrinsic::clz;
-                    push->instrs.push_back(zeros);
-                    auto counted =
-                        append(func, push, count_type, Instruction::Op::Cast,
-                               {std::make_shared<Value>(zeros)});
-                    picked = append(func, push, count_type, Instruction::Op::Sub,
-                                    {count_of(n - 1), counted});
-                } else {
-                    auto none = append(func, push, lanes_t, Instruction::Op::Bc,
-                                       {count_of(0), count_of(n)});
-                    auto on = append(func, push, lanes_t,
-                                     Instruction::Op::Select, {mask, lane, none});
-                    auto highest = std::make_shared<Instruction>(
-                        func.get_unique_name(), count_type,
-                        Instruction::Op::Reduce, vector<shared_ptr<Value>>{on},
-                        push);
-                    highest->reduce = ir::VectorReduce::Max;
-                    push->instrs.push_back(highest);
-                    picked = std::make_shared<Value>(highest);
-                }
-                auto others = append(func, push, mask_t, Instruction::Op::Ne,
-                                     {lane, append(func, push, lanes_t,
-                                                   Instruction::Op::Bc,
-                                                   {picked, count_of(n)})});
+                picked = highest(push, whole_mask(push));
+                auto others = append(
+                    func, push, mask_t, Instruction::Op::Ne,
+                    {ramp(push), append(func, push, lanes_t,
+                                        Instruction::Op::Bc,
+                                        {picked, count_of(n)})});
                 waiting = append(func, push, mask_t, Instruction::Op::LAnd,
                                  {mask, others});
                 added = append(func, push, count_type, Instruction::Op::Sub,
                                {hits, count_of(1)});
             }
-            std::map<size_t, shared_ptr<Value>> vectors;
+            const std::map<size_t, shared_ptr<Value>> vectors = vectors_in(push);
             for (const Stack &stack : stacks) {
-                const auto source = run.values.find(stack.param);
-                internal_assert(source != run.values.end())
-                    << "The run in " << name << " has no lanes for "
-                    << params[stack.param].name << ", which varies";
-                vectors[stack.param] =
-                    lanes_as_vector(func, push, source->second, n);
                 auto slot =
                     append(func, push, Ptr_t::make(params[stack.param].type),
                            Instruction::Op::GEP, {stack.storage, top});
                 auto store = std::make_shared<Instruction>(
                     Instruction::Op::Store,
-                    vector<shared_ptr<Value>>{slot, vectors[stack.param],
+                    vector<shared_ptr<Value>>{slot, vectors.at(stack.param),
                                               waiting},
                     push);
                 store->compact = true;

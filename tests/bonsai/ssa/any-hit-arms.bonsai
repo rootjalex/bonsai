@@ -1,0 +1,78 @@
+//! flags: -p ssa
+
+// The any-hit traversal of an eight-wide node that holds its children's
+// boxes, on a stack: child-volumes-any.bonsai at the width where the mask's
+// lanes are the bits of a byte, `any` over a BVH8 with the test of the
+// children vectorized and no order asked for.
+//
+// What to read for. The run of recursive calls the eight-wide test feeds is
+// written down as Embree's traverseAnyHit writes it: the hits taken off the
+// mask one at a time, lowest lane first, each but the last pushed and the
+// last -- the highest lane -- descended into. loopify makes it a switch on
+// the count of hits, with the lanes under each arm counts of the mask's
+// zeros once the mask is read as an integer: the lowest `ctz(bits)`
+// (tzcnt), the next `ctz(bits & (bits - 1))` (blsr and tzcnt), the highest
+// `31 - clz(bits)` (lzcnt), counted at the index's width so that no count
+// takes a fixup for a zero word,
+//
+//     switch (hits) {
+//     case 0:                              -- the pop
+//     case 1:
+//       tris_ref!top = children[ctz(bits)]
+//     case 2:
+//       !stack[!count] = children[ctz(bits)]
+//       !count += 1
+//       tris_ref!top = children[31 - clz(bits)]
+//     case 3: .. case 4:                   -- the same with two, three pushed
+//     default:
+//       <picked> = 31 - clz(bits)
+//       compress_store_whole(!stack[!count], children, mask && (lane != picked))
+//       !count += hits - 1
+//       tris_ref!top = children[picked]
+//     }
+//
+// each child read off the node's row at its lane -- one scalar load, no
+// vector moved -- and the compacting store kept for five hits and more,
+// which are rare and which it writes at once. The pushes are lowest lane
+// first, so that the next pop takes the second highest: Embree's order.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 8];
+            lo : vector[vec3f, 8];
+            hi : vector[vec3f, 8];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+}

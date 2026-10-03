@@ -1,0 +1,52 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/any_hit_arms
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_any_hit_arms.cpp -I. -o tests/bonsai/correctness/cpp/main_any_hit_arms.o, clang++ tests/bonsai/correctness/cpp/main_any_hit_arms.o tests/bonsai/correctness/cpp/any_hit_arms.o -o tests/bonsai/correctness/cpp/any_hit_arms, ./tests/bonsai/correctness/cpp/any_hit_arms, rm tests/bonsai/correctness/cpp/any_hit_arms, rm tests/bonsai/correctness/cpp/main_any_hit_arms.o, rm tests/bonsai/correctness/cpp/any_hit_arms.h, rm tests/bonsai/correctness/cpp/any_hit_arms.o
+
+// ssa/any-hit-arms.bonsai, run (main_any_hit_arms.cpp): the any-hit
+// traversal of an eight-wide node whose run of hits is a switch on their
+// count, with one to four hits handled as scalar pushes at the lanes read
+// off the mask and five or more by the compacting store. The scene's one
+// node has its eight children's boxes nested and stepped so that rays
+// cross one, two, three, four, five and eight of them, in lane sets both
+// contiguous and not; each arm's pushes and pops have to deliver every
+// pushed child for the answer to come out right.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 8];
+            lo : vector[vec3f, 8];
+            hi : vector[vec3f, 8];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+}
