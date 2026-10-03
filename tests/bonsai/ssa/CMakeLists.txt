@@ -45,6 +45,7 @@ add_bonsai_tests(
     divergence.bonsai
     forall.bonsai
     hoist-allocations.bonsai
+    inline-names.bonsai
     invariant-division.bonsai
     vectorize-two-parfors.bonsai
     linearize.bonsai

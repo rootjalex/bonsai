@@ -360,6 +360,21 @@ set<string> callees_of(const Function &f) {
 map<string, shared_ptr<Block>>
 clone_region(Function &func, const vector<shared_ptr<Block>> &region,
              const string &suffix, bool keep_names) {
+    // The names the copy keeps -- an argument's that no instruction of the
+    // region defines: a parameter, a call's result, a variable a match
+    // bound -- were drawn from the counter of the function the region was
+    // written in, and the fresh names below from this function's. The two
+    // can spell the same `@N`: vol_route's `@787`, next_float_up's result,
+    // copied into a vol_path_step whose counter stood at 787, named a fresh
+    // instruction `@787` too, and the two became one parameter of one block
+    // twice over once the inliner suffixed them alike. Telling this
+    // function's counter about every name the region carries puts the
+    // fresh names past them, here and for whatever draws a name later.
+    for (const auto &block : region) {
+        for (const Argument &arg : block->args) {
+            func.reserve_name(arg.name);
+        }
+    }
     // The names defined inside the region: instructions, and the arguments
     // that carry them.
     map<string, string> renamed;

@@ -1,0 +1,60 @@
+func [[noinline]] bump(x : i32) -> f32 {
+  let @0 = cast<f32>(x) in
+  let @1 = @0 + 1f in
+  return @1
+}
+
+func route(n : i32, acc : f32) -> f32 {
+  let t = n * 7 in
+  let u = t - n in
+  let @2 = bump(u) in
+  let a = @2 in
+  let @3 = cast<f32>(t) in
+  let @4 = a + @3 in
+  let e = @4 + acc in
+  let @6 = 1000f < e in
+  if (@6) {
+    return e
+  } else {
+    let @7 = n - 1 in
+    let @8 = step(@7, e) in
+    return @8
+  }
+}
+
+func [[export]] run(n : i32) -> f32 {
+  let @0 = step(n, 0f) in
+  return @0
+}
+
+func step(n : i32, acc : f32) -> f32 {
+  n!loop : mut i32
+  acc!loop : mut f32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) == 0)) {
+    let @9 = (*n!loop) * 7 in
+    let @10 = @9 - (*n!loop) in
+    let @2!inl0 = bump(@10) in
+    let a = @2!inl0 in
+    let @11 = cast<f32>(@9) in
+    let @12 = a + @11 in
+    let @13 = @12 + (*acc!loop) in
+    let @14 = 1000f < @13 in
+    if (@14) {
+      let @1 = @13 in
+      return @1
+    } else {
+      let @15 = (*n!loop) - 1 in
+      n!loop = @15
+      acc!loop = @13
+    }
+  }
+  return (*acc!loop)
+}
+
+
+schedule {
+    step.loopify()
+
+}

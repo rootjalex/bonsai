@@ -29,6 +29,7 @@ add_bonsai_tests(
     defer-stage-mut-local.bonsai
     defer-vector-leaves.bonsai
     hoist-allocations.bonsai
+    inline-names.bonsai
     reorder.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai

@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/inline-names.bonsai, run: a recursion through another function made
+// a loop, where the copy of `route` inside `step` once took one name for
+// two values -- `bump`'s result, carried from `route`'s own numbering, and
+// `t`, freshly named by `step`'s counter -- and computed `a + a + acc`
+// where the program says `a + t + acc`. Each round adds 13n + 1 to the
+// accumulator (6n + 1 from bump, 7n from t), so run(3) is 40 + 27 + 14 =
+// 81, and run(20) stops at the first sum past 1000, after five rounds,
+// 1175; the mispaired cast gave 12n + 2 a round, 78 and 1090.
+
+func [[noinline]] bump(x : i32) -> f32 {
+    return cast[[f32]](x) + 1.0;
+}
+
+func step(n : i32, acc : f32) -> f32 {
+    if n == 0 {
+        return acc;
+    }
+    return route(n, acc);
+}
+
+func route(n : i32, acc : f32) -> f32 {
+    t = n * 7;
+    u = t - n;
+    a = bump(u);
+    e = a + cast[[f32]](t) + acc;
+    if e > 1000.0 {
+        return e;
+    }
+    return step(n - 1, e);
+}
+
+func [[export]] run(n : i32) -> f32 {
+    return step(n, 0.0);
+}
+
+func main() -> i32 {
+    print(run(0), run(1), run(3), run(20));
+    return 0;
+}
+
+schedule {
+    step.loopify();
+}

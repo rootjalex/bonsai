@@ -545,12 +545,19 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
     // The callee's blocks, renamed, as blocks of the caller.
     map<string, shared_ptr<Block>> copies =
         clone_region(*caller, callee.blocks, suffix);
-    // And every name the callee's blocks take as an argument -- its
-    // parameters first of all -- renamed too: the copy lives beside the
-    // caller's own blocks, where a value is threaded by its name, and a
-    // callee whose parameter is called `acc` like the caller's would have
-    // its `acc` taken for the caller's. The copy is the whole callee, so a
-    // name an argument carries is defined by an argument of the copy.
+    // And every name the callee's blocks take as an argument without an
+    // instruction defining it -- its parameters first of all, a call's
+    // result, a variable a match binds -- renamed too: the copy lives
+    // beside the caller's own blocks, where a value is threaded by its
+    // name, and a callee whose parameter is called `acc` like the caller's
+    // would have its `acc` taken for the caller's. The copy is the whole
+    // callee, so a name an argument carries is defined by an argument of
+    // the copy. The names clone_region drew for the callee's instructions
+    // are left alone: drawn from the caller's own counter, they are new to
+    // it already, and suffixing them too once named two parameters of one
+    // block alike -- the callee's `@787`, a call's result carried over,
+    // and a fresh `@787` the caller's counter had just reached, both made
+    // `@787!inl1`, and the lowering paired the wrong one with its value.
     //
     // With one exception, for the same reason. A parameter the call binds
     // to a value the caller passes by name -- its `out` handed to the
@@ -565,10 +572,28 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
     // caller's name that two parameters would take stays with neither.
     map<string, string> renamed_to;
     {
+        // The names the callee carries without an instruction of its own
+        // defining them, and the program's own names for values (a Set's,
+        // which clone_region keeps). Those its other instructions define
+        // the copy has renamed already, and its arguments carry the new
+        // names.
         set<string> defined;
-        for (const auto &block : callee.blocks) {
-            for (const Argument &arg : copies.at(block->name)->args) {
-                defined.insert(arg.name);
+        {
+            set<string> by_instruction;
+            for (const auto &block : callee.blocks) {
+                for (const auto &instr : block->instrs) {
+                    if (!instr->name.empty() &&
+                        instr->op != Instruction::Op::Set) {
+                        by_instruction.insert(instr->name);
+                    }
+                }
+            }
+            for (const auto &block : callee.blocks) {
+                for (const Argument &arg : block->args) {
+                    if (!by_instruction.contains(arg.name)) {
+                        defined.insert(arg.name);
+                    }
+                }
             }
         }
         {
@@ -608,7 +633,9 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
         for (const auto &block : callee.blocks) {
             auto copy = copies.at(block->name);
             for (Argument &arg : copy->args) {
-                arg.name = new_name(arg.name);
+                if (defined.contains(arg.name)) {
+                    arg.name = new_name(arg.name);
+                }
             }
             for (auto &instr : copy->instrs) {
                 for (auto &v : instr->operands) {

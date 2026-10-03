@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// A callee copied into its caller (SSA/Rewrite.cpp inline_call, for a
+// recursion that runs through another function) carries names drawn from
+// its own counter -- here the result of `bump`, `@2` in `route`, which
+// `route` only ever holds as a block argument -- and the copy's instructions
+// get fresh names from the caller's counter, which stands at 2 when `step`
+// copies `route` in: `t` became `@2` too. The two spelled the same, the
+// inliner suffixed both to `@2!inl0`, and the continuation of the call,
+// which takes `t` and the result, took one name twice: `cast<f32>(t)` was
+// written as a cast of the result, and `e` came out `a + a + acc`. What to
+// look for: the carried result `@2!inl0`, suffixed, the fresh names from
+// `@9` on, past every name the copy carries (SSA/Defer.cpp clone_region
+// reserves them before it draws), and the cast taken of `t`'s fresh name.
+// correctness/llvm/inline-names.bonsai runs it.
+
+func [[noinline]] bump(x : i32) -> f32 {
+    return cast[[f32]](x) + 1.0;
+}
+
+func step(n : i32, acc : f32) -> f32 {
+    if n == 0 {
+        return acc;
+    }
+    return route(n, acc);
+}
+
+func route(n : i32, acc : f32) -> f32 {
+    t = n * 7;
+    u = t - n;
+    a = bump(u);
+    e = a + cast[[f32]](t) + acc;
+    if e > 1000.0 {
+        return e;
+    }
+    return step(n - 1, e);
+}
+
+func [[export]] run(n : i32) -> f32 {
+    return step(n, 0.0);
+}
+
+schedule {
+    step.loopify();
+}
