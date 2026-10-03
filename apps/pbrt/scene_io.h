@@ -557,15 +557,18 @@ enum SamplerTag : uint32_t {
     Independent = 0,
     Stratified = 1,
     Halton = 2,
+    ZSobol = 3,
 };
 
-// pbrt: RandomizeStrategy, which is how a Halton sampler breaks up the
-// correlation between its dimensions. `permutedigits` is what a scene gets
-// when it does not say.
+// pbrt: RandomizeStrategy, in pbrt's order -- how a low-discrepancy sampler
+// breaks up the correlation between its dimensions. `permutedigits` is what a
+// Halton sampler gets when the scene does not say, `fastowen` what a zsobol
+// one gets; pbrt's Halton has no `fastowen` and refuses it.
 enum RandomizeTag : uint32_t {
     RandomizeNone = 0,
     RandomizePermuteDigits = 1,
-    RandomizeOwen = 2,
+    RandomizeFastOwen = 2,
+    RandomizeOwen = 3,
 };
 
 // Which sampler the scene asked for, and what it was given.
@@ -595,6 +598,13 @@ struct Sampler {
     int32_t base_scales[2] = {1, 1};
     int32_t base_exponents[2] = {0, 0};
     int32_t mult_inverse[2] = {0, 0};
+    // ZSobol only, besides the randomization: log2 of the film's full
+    // resolution rounded up to a power of two, which with log2 of the sample
+    // count is how many base-4 digits of a sample's Morton index the sampler
+    // permutes. Derived where pbrt's constructor derives it, from the
+    // resolution pbrt hands it (scene_dump.cpp); the sample count's part is
+    // the driver's, since `--spp` can change the count after this is written.
+    int32_t log2_resolution = 0;
 };
 
 struct Scene {
@@ -904,6 +914,10 @@ inline bool write(const char *path, const Scene &scene) {
             << scene.sampler.base_exponents[1] << ' '
             << scene.sampler.mult_inverse[0] << ' '
             << scene.sampler.mult_inverse[1] << '\n';
+    } else if (scene.sampler.tag == SamplerTag::ZSobol) {
+        out << "sampler zsobol " << scene.sampler.samples_per_pixel << ' '
+            << scene.sampler.seed << ' ' << scene.sampler.randomize << ' '
+            << scene.sampler.log2_resolution << '\n';
     } else {
         out << "sampler independent " << scene.sampler.samples_per_pixel << ' '
             << scene.sampler.seed << '\n';
@@ -1337,6 +1351,10 @@ inline bool read(const char *path, Scene &scene) {
             scene.sampler.base_scales[1] >> scene.sampler.base_exponents[0] >>
             scene.sampler.base_exponents[1] >> scene.sampler.mult_inverse[0] >>
             scene.sampler.mult_inverse[1];
+    } else if (word == "zsobol") {
+        scene.sampler.tag = SamplerTag::ZSobol;
+        in >> scene.sampler.samples_per_pixel >> scene.sampler.seed >>
+            scene.sampler.randomize >> scene.sampler.log2_resolution;
     } else if (word == "independent") {
         scene.sampler.tag = SamplerTag::Independent;
         in >> scene.sampler.samples_per_pixel >> scene.sampler.seed;

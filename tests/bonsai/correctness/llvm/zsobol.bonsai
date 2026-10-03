@@ -1,0 +1,280 @@
+//! flags: -b llvm -e
+
+// pbrt's ZSobolSampler and the Sobol' machinery under it, reproduced exactly.
+// Every number below is pbrt's own, printed by
+// `apps/pbrt/scene_dump --print-sampler`.
+//
+// This is pbrt's default sampler -- the one every scene that names none gets
+// -- and, like Halton, it is not a stream of uniforms: one Sobol' sequence
+// shared by the whole image, indexed by the pixel's Morton code with the
+// sample below it, and every dimension drawn from the sequence's first two
+// dimensions under a scramble of its own. The pieces are checked before the
+// sampler that combines them -- the sequence unscrambled, the three scrambles,
+// the eight-byte hash that seeds them, the permuted index -- because each of
+// them comes out as a plausible number in [0, 1) when it is wrong.
+//
+// The functions here are a copy of apps/pbrt/sampler.bonsai rather than an
+// import of it, for the reason halton.bonsai's are: the app takes its tables
+// as externs, and an extern becomes a parameter that a `main` with no
+// arguments cannot supply. The tables below are the two Sobol' dimensions the
+// sampler reads and pbrt's twenty-four digit permutations, packed as the
+// driver packs them (apps/pbrt/sobol_tables.h, which `scene_dump
+// --check-tables` checks against pbrt's own table).
+element Float = f32;
+
+func one_minus_epsilon() -> Float = 0.99999994;
+
+// pbrt: MixBits, from util/hash.h.
+func mix_bits(v : u64) -> u64 {
+    a : mut u64 = v ^ (v >> 31u);
+    a = a * 0x7fb5d329728ea185;
+    a = a ^ (a >> 27u);
+    a = a * 0x81dadef4bc2dd44d;
+    a = a ^ (a >> 33u);
+    return a;
+}
+
+// pbrt: MurmurHash64A, over eight bytes -- one block and no tail.
+func murmur_m() -> u64 = 0xc6a4a7935bd1e995;
+
+func murmur_block(h : u64, block : u64) -> u64 {
+    k : mut u64 = block * murmur_m();
+    k = k ^ (k >> 47u);
+    k = k * murmur_m();
+    return (h ^ k) * murmur_m();
+}
+
+func murmur_finish(h : u64) -> u64 {
+    a : mut u64 = h ^ (h >> 47u);
+    a = a * murmur_m();
+    return a ^ (a >> 47u);
+}
+
+func packed(low : i32, high : i32) -> u64 =
+    cast[[u64]](cast[[u32]](low)) | (cast[[u64]](cast[[u32]](high)) << 32u);
+
+func hash2(a : i32, b : i32) -> u64 =
+    murmur_finish(murmur_block(8u * murmur_m(), packed(a, b)));
+
+// pbrt: RandomizeStrategy, in pbrt's order.
+func randomize_none() -> i32 = 0;
+func randomize_permute_digits() -> i32 = 1;
+func randomize_fast_owen() -> i32 = 2;
+func randomize_owen() -> i32 = 3;
+
+// pbrt: SobolMatrices32, dimensions zero and one, fifty-two columns each.
+func sobol_matrix(column : i32) -> u32 {
+    table : array[u32, 104] = {
+        0x80000000u, 0x40000000u, 0x20000000u, 0x10000000u, 0x08000000u,
+        0x04000000u, 0x02000000u, 0x01000000u, 0x00800000u, 0x00400000u,
+        0x00200000u, 0x00100000u, 0x00080000u, 0x00040000u, 0x00020000u,
+        0x00010000u, 0x00008000u, 0x00004000u, 0x00002000u, 0x00001000u,
+        0x00000800u, 0x00000400u, 0x00000200u, 0x00000100u, 0x00000080u,
+        0x00000040u, 0x00000020u, 0x00000010u, 0x00000008u, 0x00000004u,
+        0x00000002u, 0x00000001u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0x80000000u, 0xc0000000u, 0xa0000000u, 0xf0000000u, 0x88000000u,
+        0xcc000000u, 0xaa000000u, 0xff000000u, 0x80800000u, 0xc0c00000u,
+        0xa0a00000u, 0xf0f00000u, 0x88880000u, 0xcccc0000u, 0xaaaa0000u,
+        0xffff0000u, 0x80008000u, 0xc000c000u, 0xa000a000u, 0xf000f000u,
+        0x88008800u, 0xcc00cc00u, 0xaa00aa00u, 0xff00ff00u, 0x80808080u,
+        0xc0c0c0c0u, 0xa0a0a0a0u, 0xf0f0f0f0u, 0x88888888u, 0xccccccccu,
+        0xaaaaaaaau, 0xffffffffu, 0x80000000u, 0xc0000000u, 0xa0000000u,
+        0xf0000000u, 0x88000000u, 0xcc000000u, 0xaa000000u, 0xff000000u,
+        0x80800000u, 0xc0c00000u, 0xa0a00000u, 0xf0f00000u, 0x88880000u,
+        0xcccc0000u, 0xaaaa0000u, 0xffff0000u, 0x80008000u, 0xc000c000u,
+        0xa000a000u, 0xf000f000u};
+    return table[column];
+}
+
+// pbrt: ZSobolSampler::GetSampleIndex's `permutations`, row p as its four
+// digits two bits apiece, digit zero lowest -- {0, 1, 2, 3} is 228.
+func zsobol_permutation(p : i32) -> u32 {
+    table : array[u32, 24] = {228u, 180u, 216u, 120u, 108u, 156u,
+                              225u, 177u, 201u, 57u,  45u,  141u,
+                              198u, 54u,  210u, 114u, 78u,  30u,
+                              39u,  135u, 27u,  75u,  99u,  147u};
+    return table[p];
+}
+
+// pbrt: LeftShift2 and EncodeMorton2.
+func left_shift2(v : u32) -> u64 {
+    x : mut u64 = cast[[u64]](v);
+    x = (x ^ (x << 16u)) & 0x0000ffff0000ffff;
+    x = (x ^ (x << 8u)) & 0x00ff00ff00ff00ff;
+    x = (x ^ (x << 4u)) & 0x0f0f0f0f0f0f0f0f;
+    x = (x ^ (x << 2u)) & 0x3333333333333333;
+    x = (x ^ (x << 1u)) & 0x5555555555555555;
+    return x;
+}
+
+func encode_morton2(x : u32, y : u32) -> u64 =
+    (left_shift2(y) << 1u) | left_shift2(x);
+
+// pbrt: ReverseBits32.
+func reverse_bits32(v : u32) -> u32 {
+    n : mut u32 = (v << 16u) | (v >> 16u);
+    n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
+    n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xccccccccu) >> 2u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
+    return n;
+}
+
+// pbrt: BinaryPermuteScrambler, FastOwenScrambler and OwenScrambler.
+func binary_permute_scramble(v : u32, permutation : u32) -> u32 =
+    permutation ^ v;
+
+func fast_owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = reverse_bits32(v);
+    a = a ^ (a * 0x3d20adeau);
+    a = a + seed;
+    a = a * ((seed >> 16u) | 1u);
+    a = a ^ (a * 0x05526c56u);
+    a = a ^ (a * 0x53a22864u);
+    return reverse_bits32(a);
+}
+
+func owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = v;
+    if (seed & 1u) != 0u {
+        a = a ^ 0x80000000u;
+    }
+    for b in 1:32 {
+        mask = 0xffffffffu << cast[[u32]](32 - b);
+        h = cast[[u32]](mix_bits(cast[[u64]]((a & mask) ^ seed)));
+        if (h & (1u << cast[[u32]](b))) != 0u {
+            a = a ^ (1u << cast[[u32]](31 - b));
+        }
+    }
+    return a;
+}
+
+// pbrt: SobolSample.
+func sobol_sample(a : u64, dimension : i32, randomize : i32,
+                  hash : u32) -> Float {
+    v : mut u32 = 0u;
+    bits : mut u64 = a;
+    column : mut i32 = dimension * 52;
+    while bits != 0u {
+        if (bits & 1u) != 0u {
+            v = v ^ sobol_matrix(column);
+        }
+        bits = bits >> 1u;
+        column = column + 1;
+    }
+    if randomize == randomize_permute_digits() {
+        v = binary_permute_scramble(v, hash);
+    }
+    if randomize == randomize_fast_owen() {
+        v = fast_owen_scramble(v, hash);
+    }
+    if randomize == randomize_owen() {
+        v = owen_scramble(v, hash);
+    }
+    return min(cast[[Float]](v) * 0.00000000023283064365386963,
+               one_minus_epsilon());
+}
+
+// pbrt: ZSobolSampler::GetSampleIndex.
+func zsobol_sample_index(morton : u64, dimension : i32, log2_spp : i32,
+                         base4_digits : i32) -> u64 {
+    pow2_samples = (log2_spp & 1) != 0;
+    last_digit = select(pow2_samples, 1, 0);
+    salt = cast[[u64]](0x55555555u * cast[[u32]](dimension));
+    index : mut u64 = 0u;
+    for i in last_digit:base4_digits {
+        digit_shift = cast[[u64]](2 * i - last_digit);
+        digit = cast[[u32]]((morton >> digit_shift) & 3u);
+        higher = morton >> (digit_shift + 2u);
+        p = cast[[i32]]((mix_bits(higher ^ salt) >> 24u) % 24u);
+        permuted = (zsobol_permutation(p) >> (2u * digit)) & 3u;
+        index = index | (cast[[u64]](permuted) << digit_shift);
+    }
+    if pow2_samples {
+        digit = morton & 1u;
+        index = index | (digit ^ (mix_bits((morton >> 1u) ^ salt) & 1u));
+    }
+    return index;
+}
+
+// One pixel sample drawn from as the renderer draws: the index it starts at,
+// then the wavelength (Get1D), the pixel (GetPixel2D, which is Get2D here),
+// the time (Get1D) and the lens (Get2D). The seed is zero.
+func draw(log2_spp : i32, base4_digits : i32, x : i32, y : i32, sample : u32,
+          randomize : i32) -> void {
+    morton = (encode_morton2(cast[[u32]](x), cast[[u32]](y))
+              << cast[[u64]](log2_spp)) | cast[[u64]](sample);
+    print(zsobol_sample_index(morton, 0, log2_spp, base4_digits));
+    dimension : mut i32 = 0;
+
+    a0 = zsobol_sample_index(morton, dimension, log2_spp, base4_digits);
+    dimension = dimension + 1;
+    print(sobol_sample(a0, 0, randomize, cast[[u32]](hash2(dimension, 0))));
+
+    a1 = zsobol_sample_index(morton, dimension, log2_spp, base4_digits);
+    dimension = dimension + 2;
+    bits1 = hash2(dimension, 0);
+    print(sobol_sample(a1, 0, randomize, cast[[u32]](bits1)));
+    print(sobol_sample(a1, 1, randomize, cast[[u32]](bits1 >> 32u)));
+
+    a2 = zsobol_sample_index(morton, dimension, log2_spp, base4_digits);
+    dimension = dimension + 1;
+    print(sobol_sample(a2, 0, randomize, cast[[u32]](hash2(dimension, 0))));
+
+    a3 = zsobol_sample_index(morton, dimension, log2_spp, base4_digits);
+    dimension = dimension + 2;
+    bits3 = hash2(dimension, 0);
+    print(sobol_sample(a3, 0, randomize, cast[[u32]](bits3)));
+    print(sobol_sample(a3, 1, randomize, cast[[u32]](bits3 >> 32u)));
+}
+
+func main() -> i32 {
+    // The sequence unscrambled, dimensions zero and one, at indices that
+    // reach past the thirty-second column.
+    xs : array[u64, 7] = {0u, 1u, 2u, 7u, 1000u, 123456789u, 1099511627781u};
+    for d in 0:2 {
+        for i in 0:7 {
+            print(sobol_sample(xs[i], d, randomize_none(), 0u));
+        }
+    }
+
+    // Each scramble on its own, under one seed.
+    vs : array[u32, 5] = {0u, 1u, 2147483648u, 305419896u, 3735928559u};
+    for i in 0:5 {
+        print(binary_permute_scramble(vs[i], 0x9e3779b9u));
+        print(fast_owen_scramble(vs[i], 0x9e3779b9u));
+        print(owen_scramble(vs[i], 0x9e3779b9u));
+    }
+
+    // The eight-byte hash, of a dimension and the seed.
+    dims : array[i32, 4] = {1, 2, 7, 13};
+    for i in 0:4 {
+        print(hash2(dims[i], 0));
+    }
+
+    // The sampler on a 700 by 700 film -- pbrt: nBase4Digits is
+    // Log2Int(RoundUpPow2(700)) + (log2SamplesPerPixel + 1) / 2, ten plus two
+    // at both counts -- at sixteen samples a pixel and at eight, which is a
+    // power of two but not of four and takes the other path through the
+    // index; under the default `fastowen`.
+    px : array[i32, 5] = {0, 1, 0, 37, 699};
+    py : array[i32, 5] = {0, 0, 1, 11, 699};
+    log2s : array[i32, 2] = {4, 3};
+    for k in 0:2 {
+        log2_spp = log2s[k];
+        base4_digits = 10 + (log2_spp + 1) / 2;
+        for i in 0:5 {
+            for sample in 0:2 {
+                draw(log2_spp, base4_digits, px[i], py[i],
+                     cast[[u32]](sample), randomize_fast_owen());
+            }
+        }
+    }
+
+    // And the other three randomizations a scene can name.
+    draw(4, 12, 37, 11, 1u, randomize_none());
+    draw(4, 12, 37, 11, 1u, randomize_permute_digits());
+    draw(4, 12, 37, 11, 1u, randomize_owen());
+    return 0;
+}

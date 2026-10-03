@@ -17,8 +17,10 @@
 #include "cie_tables.h"
 #include "rgb2spec.h"
 #include "scene_io.h"
+#include "sobol_tables.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -1080,6 +1082,22 @@ int main(int argc, char **argv) {
                            s.base_scales[1], s.base_exponents[0],
                            s.base_exponents[1], s.mult_inverse[0],
                            s.mult_inverse[1]);
+        } else if (s.tag == bonsai_scene::SamplerTag::ZSobol) {
+            // pbrt: ZSobolSampler's constructor, the part that depends on
+            // the sample count -- the resolution's part was derived where
+            // pbrt derives it, when the scene was converted. pbrt floors a
+            // count that is not a power of two to one, with this warning,
+            // and renders that many samples; so does this.
+            if ((s.samples_per_pixel & (s.samples_per_pixel - 1)) != 0) {
+                std::cerr << "warning: Sobol samplers with non power-of-two "
+                             "sample counts ("
+                          << s.samples_per_pixel << ") are suboptimal.\n";
+            }
+            const int32_t log2_spp =
+                int32_t(std::bit_width(s.samples_per_pixel)) - 1;
+            const int32_t log4_spp = (log2_spp + 1) / 2;
+            Sampler_ZSobol(sampler, log2_spp, s.seed, int32_t(s.randomize),
+                           s.log2_resolution + log4_spp);
         } else {
             Sampler_Independent(sampler, s.samples_per_pixel, s.seed);
         }
@@ -1139,6 +1157,17 @@ int main(int argc, char **argv) {
         build_digit_permutations(loaded.sampler.seed,
                                  digit_permutation_offsets.data(),
                                  digit_permutations.data(), primes);
+    }
+
+    // pbrt: ZSobolSampler's permutations of four digits, each packed into one
+    // word as the sampler reads it (sampler.bonsai's extern), two bits a
+    // digit, digit zero lowest. The Sobol' matrices go over as they are.
+    std::array<uint32_t, 24> zsobol_permutations{};
+    for (int p = 0; p < 24; p++) {
+        for (int d = 0; d < 4; d++) {
+            zsobol_permutations[p] |= uint32_t(ZSOBOL_PERMUTATIONS[p][d])
+                                      << (2 * d);
+        }
     }
 
     // pbrt: the FilterSampler a GaussianFilter builds in its constructor -- the
@@ -2402,6 +2431,8 @@ int main(int argc, char **argv) {
     bonsai_buffer b_primes = buffer_of(primes);
     bonsai_buffer b_digit_permutations = buffer_of(digit_permutations);
     bonsai_buffer b_digit_permutation_offsets = buffer_of(digit_permutation_offsets);
+    bonsai_buffer b_sobol_matrices = buffer_of(SOBOL_MATRICES);
+    bonsai_buffer b_zsobol_permutations = buffer_of(zsobol_permutations);
     bonsai_buffer b_env_texels = buffer_of(env_texels);
     bonsai_buffer b_env_dist_values = buffer_of(env_dist_values);
     bonsai_buffer b_env_dist_cond_cdf = buffer_of(env_dist_cond_cdf);
@@ -2482,7 +2513,8 @@ int main(int argc, char **argv) {
         // render.bonsai's import order, and media.bonsai is imported between
         // those two.
         &b_media, &b_medium_spectra, &b_primes, &b_digit_permutations,
-        &b_digit_permutation_offsets, &b_env_texels, &b_env_dist_values,
+        &b_digit_permutation_offsets, &b_sobol_matrices,
+        &b_zsobol_permutations, &b_env_texels, &b_env_dist_values,
         &b_env_dist_cond_cdf, &b_env_dist_marg_func, &b_env_dist_marg_cdf,
         &b_env_sat, &b_env_illuminants, &b_lights, &b_light_tree,
         &b_light_bit_trails, &b_materials,
@@ -2567,6 +2599,7 @@ int main(int argc, char **argv) {
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
                &b_medium_spectra, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
+               &b_sobol_matrices, &b_zsobol_permutations,
                &b_env_texels, &b_env_dist_values, &b_env_dist_cond_cdf,
                &b_env_dist_marg_func, &b_env_dist_marg_cdf, &b_env_sat,
                &b_env_illuminants, &b_lights, &b_light_tree, &b_light_bit_trails,
@@ -2662,7 +2695,8 @@ int main(int argc, char **argv) {
                            &b_filter_cond_cdf, &b_filter_marg_func,
                            &b_filter_marg_cdf, &b_primes,
                            &b_digit_permutations,
-                           &b_digit_permutation_offsets, tree, &b_inst_pool,
+                           &b_digit_permutation_offsets, &b_sobol_matrices,
+                           &b_zsobol_permutations, tree, &b_inst_pool,
                            &b_sphere_pool, &b_triangle_pool, &b_disk_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                            "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",

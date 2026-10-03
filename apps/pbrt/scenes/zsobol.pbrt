@@ -1,0 +1,52 @@
+# The three-spheres geometry sampled with pbrt's ZSobol sampler.
+#
+# ZSobol is pbrt's default: the sampler of every scene that names none, and
+# the one the bistro scenes name. Like Halton it is one deterministic sequence
+# shared by the whole image, but indexed differently -- by the pixel's Morton
+# code with the sample below it, so that neighbouring pixels take neighbouring
+# entries of the sequence and their error is spread like blue noise -- and
+# every dimension is the Sobol' sequence's first two under a scramble of its
+# own. Nothing about that can be approximated by drawing random numbers, so
+# this scene is here to hold the renderer to the real sequence.
+#
+# Eight samples a pixel rather than sixteen: a power of two that is not a power
+# of four, which takes the other path through pbrt's index permutation -- a
+# binary digit below the base-4 ones -- and so checks both. The randomization
+# is left unstated, which means `fastowen`, pbrt's default for this sampler.
+
+LookAt 0 1 5   0 0 0   0 1 0
+Camera "perspective" "float fov" [45]
+
+Sampler "zsobol" "integer pixelsamples" [8]
+Integrator "path" "integer maxdepth" [1]
+Film "gbuffer"
+    "string filename" ["ref.exr"]
+    "integer xresolution" [800]
+    "integer yresolution" [450]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+Material "diffuse"
+
+AttributeBegin
+  Translate 0 0 0
+  Shape "sphere" "float radius" [1]
+AttributeEnd
+
+AttributeBegin
+  Translate -2 -0.3 -1
+  Shape "sphere" "float radius" [0.7]
+AttributeEnd
+
+AttributeBegin
+  Translate 2 -0.5 1
+  Shape "sphere" "float radius" [0.5]
+AttributeEnd
+
+# The ground, wound so its normal points up, same as the driver's.
+Shape "trianglemesh"
+    "integer indices" [0 1 2  0 3 1]
+    "point3 P" [ -8 -1.02 -8   8 -1.02 8   8 -1.02 -8   -8 -1.02 8 ]

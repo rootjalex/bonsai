@@ -48,6 +48,22 @@ func prime_table_size() -> i32 = 1000;
 extern digit_permutations : array[u16];
 extern digit_permutation_offsets : array[i32, 1000];
 
+// pbrt: SobolMatrices32, from util/sobolmatrices.cpp -- the generator
+// matrices of the Sobol' sequence, fifty-two columns a dimension, one column
+// per bit of the sample index -- but only its first two dimensions, laid end
+// to end. The ZSobol sampler is the Sobol' sampler implemented here, and it
+// draws every one of its dimensions from Sobol' dimensions zero and one, told
+// apart by a scramble hashed from the dimension; the thousand and twenty-four
+// pbrt ships are what the plain `sobol` sampler would read, and it is not
+// implemented. The driver hands the table over from apps/pbrt/sobol_tables.h,
+// which `scene_dump --check-tables` checks against pbrt's own.
+extern sobol_matrices : array[u32, 104];
+
+// pbrt: ZSobolSampler::GetSampleIndex's `permutations`, the twenty-four
+// orderings of four digits in the order pbrt lists them, each packed into one
+// word as its four digits two bits apiece, digit zero lowest.
+extern zsobol_permutations : array[u32, 24];
+
 // pbrt: OneMinusEpsilon, the largest float below one. A radical inverse that
 // reached exactly one would put a sample on the far edge of whatever it
 // indexes, the same reason RNG::Uniform<Float> is held below one.
@@ -232,36 +248,191 @@ func owen_scrambled_radical_inverse(base_index : i32, a : u64,
     return min(inv_base_m * cast[[Float]](reversed), one_minus_epsilon());
 }
 
+// pbrt: RandomizeStrategy, in pbrt's order -- how a low-discrepancy sampler
+// breaks up the correlation between its dimensions. `permutedigits` is what a
+// Halton sampler gets when the scene says nothing, `fastowen` what a zsobol
+// one gets; pbrt's Halton has no `fastowen` and refuses it.
+func randomize_none() -> i32 = 0;
+func randomize_permute_digits() -> i32 = 1;
+func randomize_fast_owen() -> i32 = 2;
+func randomize_owen() -> i32 = 3;
+
+// pbrt: LeftShift2 and EncodeMorton2, from util/math.h. The bits of a 32-bit
+// coordinate spread to every other bit of a 64-bit word, and two coordinates
+// so spread interleaved -- the Z of the ZSobol sampler: pixels taken in Morton
+// order, so that pixels near each other in the image are near each other in
+// the index, and a neighbourhood of pixels' samples are a block of the
+// sequence.
+func left_shift2(v : u32) -> u64 {
+    x : mut u64 = cast[[u64]](v);
+    x = (x ^ (x << 16u)) & 0x0000ffff0000ffff;
+    x = (x ^ (x << 8u)) & 0x00ff00ff00ff00ff;
+    x = (x ^ (x << 4u)) & 0x0f0f0f0f0f0f0f0f;
+    x = (x ^ (x << 2u)) & 0x3333333333333333;
+    x = (x ^ (x << 1u)) & 0x5555555555555555;
+    return x;
+}
+
+func encode_morton2(x : u32, y : u32) -> u64 =
+    (left_shift2(y) << 1u) | left_shift2(x);
+
+// pbrt: ReverseBits32, as its CPU build writes it -- a swap of halves at each
+// of five widths. pbrt's GPU build calls __brev instead; LLVM knows the five
+// swaps for a bit reversal and the PTX carries brev.b32, so the device runs
+// what pbrt's does.
+func reverse_bits32(v : u32) -> u32 {
+    n : mut u32 = (v << 16u) | (v >> 16u);
+    n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
+    n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xccccccccu) >> 2u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
+    return n;
+}
+
+// pbrt: the scramblers a Sobol' sample is passed through, from
+// util/lowdiscrepancy.h, one per RandomizeStrategy that scrambles.
+//
+// `permutedigits` is BinaryPermuteScrambler: the bits flipped by a fixed mask,
+// which is all permuting the digits comes to in base two. `owen` is
+// OwenScrambler, the nested scramble: whether a bit is flipped is a hash of
+// every bit above it, so two samples that agree in their leading bits are
+// scrambled alike and two that diverge are scrambled independently -- the
+// property that keeps a scrambled sequence as evenly spread as the sequence
+// was -- at a hash per bit, thirty-one a sample. `fastowen` is
+// FastOwenScrambler, the hash-based Owen scramble pbrt took from Burley
+// (2020): with the bits reversed so the leading bits sit lowest, each
+// multiply-and-xor carries bits upward only, from the leading bits into the
+// ones below them and never back, which is the nesting in five multiplies.
+func binary_permute_scramble(v : u32, permutation : u32) -> u32 =
+    permutation ^ v;
+
+func fast_owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = reverse_bits32(v);
+    a = a ^ (a * 0x3d20adeau);
+    a = a + seed;
+    a = a * ((seed >> 16u) | 1u);
+    a = a ^ (a * 0x05526c56u);
+    a = a ^ (a * 0x53a22864u);
+    return reverse_bits32(a);
+}
+
+func owen_scramble(v : u32, seed : u32) -> u32 {
+    a : mut u32 = v;
+    if (seed & 1u) != 0u {
+        a = a ^ 0x80000000u;
+    }
+    for b in 1:32 {
+        // The bits above b, with the seed, decide b.
+        mask = 0xffffffffu << cast[[u32]](32 - b);
+        h = cast[[u32]](mix_bits(cast[[u64]]((a & mask) ^ seed)));
+        if (h & (1u << cast[[u32]](b))) != 0u {
+            a = a ^ (1u << cast[[u32]](31 - b));
+        }
+    }
+    return a;
+}
+
+// pbrt: SobolSample. The set bits of the sample index pick columns of the
+// dimension's generator matrix, exclusive-ored together -- that is the
+// sequence -- then the word is scrambled as the scene asked and scaled into
+// [0, 1) the way a generator's word is, held below one.
+func sobol_sample(a : u64, dimension : i32, randomize : i32,
+                  hash : u32) -> Float {
+    v : mut u32 = 0u;
+    bits : mut u64 = a;
+    column : mut i32 = dimension * 52;
+    while bits != 0u {
+        if (bits & 1u) != 0u {
+            v = v ^ sobol_matrices[column];
+        }
+        bits = bits >> 1u;
+        column = column + 1;
+    }
+    if randomize == randomize_permute_digits() {
+        v = binary_permute_scramble(v, hash);
+    }
+    if randomize == randomize_fast_owen() {
+        v = fast_owen_scramble(v, hash);
+    }
+    if randomize == randomize_owen() {
+        v = owen_scramble(v, hash);
+    }
+    return min(cast[[Float]](v) * 0.00000000023283064365386963,
+               one_minus_epsilon());
+}
+
+// pbrt: ZSobolSampler::GetSampleIndex. Where in the Sobol' sequence this
+// draw's sample is: the Morton index of pixel and sample, its base-4 digits
+// each put through one of the twenty-four permutations, chosen by a hash of
+// the digits above it and of the dimension. The nesting -- a digit's
+// permutation depends on the digits above it -- is what keeps a block of the
+// Morton order a block of the sequence, so that the samples of a tile of
+// pixels are well distributed together, which is the point of this sampler
+// (Ahmed and Wonka 2020, "Screen-space blue-noise diffusion of Monte Carlo
+// sampling error via hierarchical ordering of pixels", which pbrt follows);
+// the dimension in the hash is what keeps one dimension's order from being
+// another's.
+//
+// A sample count that is a power of two but not of four leaves one binary
+// digit below the base-4 digits, flipped or not by a hash of its own at the
+// end. pbrt walks the digits from the top down; the order does not matter,
+// since which permutation a digit gets depends on the digits above it in
+// `morton`, not on anything already placed in the answer.
+func zsobol_sample_index(morton : u64, dimension : i32, log2_spp : i32,
+                         base4_digits : i32) -> u64 {
+    pow2_samples = (log2_spp & 1) != 0;
+    last_digit = select(pow2_samples, 1, 0);
+    salt = cast[[u64]](0x55555555u * cast[[u32]](dimension));
+    index : mut u64 = 0u;
+    for i in last_digit:base4_digits {
+        digit_shift = cast[[u64]](2 * i - last_digit);
+        digit = cast[[u32]]((morton >> digit_shift) & 3u);
+        higher = morton >> (digit_shift + 2u);
+        p = cast[[i32]]((mix_bits(higher ^ salt) >> 24u) % 24u);
+        permuted = (zsobol_permutations[p] >> (2u * digit)) & 3u;
+        index = index | (cast[[u64]](permuted) << digit_shift);
+    }
+    if pow2_samples {
+        digit = morton & 1u;
+        index = index | (digit ^ (mix_bits((morton >> 1u) ^ salt) & 1u));
+    }
+    return index;
+}
+
 // Which sampler a scene asked for.
 //
 // pbrt dispatches this through a TaggedPointer over its sampler types; a
-// variant says the same thing. Both carry the sample count and the seed,
-// because every sampler needs them and the renderer should not have to ask
-// which kind it has to find out.
+// variant says the same thing. Every arm carries the sample count, or what it
+// is derived from, and the seed, because every sampler needs them and the
+// renderer should not have to ask which kind it has to find out.
 //
-// Halton is the one every scene in the wild actually asks for, and it is not a
+// Halton is the one most scenes in the wild ask for by name, and it is not a
 // stream of uniforms at all: it is a deterministic low-discrepancy sequence,
-// randomized by permuting the digits of its radical inverses. Sobol and zsobol
-// remain unimplemented, and a scene asking for one is refused rather than given
+// randomized by permuting the digits of its radical inverses. ZSobol is pbrt's
+// default, the sampler of every scene that names none: the Sobol' sequence's
+// first two dimensions under a different scramble per dimension, indexed by
+// the pixel's Morton code with the sample below it, so that neighbouring
+// pixels take neighbouring samples. `sobol` and `pmj02bn` remain
+// unimplemented, and a scene asking for one is refused rather than given
 // something that would look reasonable and not be pbrt's.
 //
 // Halton's arm carries more than the others because pbrt's HaltonSampler does:
 // its constructor derives, from the film resolution, how the first two
 // dimensions tile the image, and those derived numbers are what StartPixelSample
-// needs. The driver computes them exactly where pbrt's constructor does.
+// needs. The driver computes them exactly where pbrt's constructor does. ZSobol
+// likewise carries its constructor's two derived numbers: log2 of the sample
+// count -- pbrt's ZSobolSampler floors a count that is not a power of two to
+// one, and renders that many -- and how many base-4 digits of the Morton index
+// it permutes, log2 of the resolution rounded up to a power of two plus half
+// the sample count's, rounded up.
 element Sampler =
     | Independent(spp : u32, seed : i32)
     | Stratified(x_samples : u32, y_samples : u32, seed : i32, jitter : bool)
     | Halton(spp : u32, seed : i32, randomize : i32,
              base_scale_x : i32, base_scale_y : i32,
              base_exp_x : i32, base_exp_y : i32,
-             mult_inv_x : i32, mult_inv_y : i32);
-
-// pbrt: RandomizeStrategy. `permutedigits` is the default a scene gets when it
-// says nothing, which is every scene that says nothing.
-func randomize_none() -> i32 = 0;
-func randomize_permute_digits() -> i32 = 1;
-func randomize_owen() -> i32 = 2;
+             mult_inv_x : i32, mult_inv_y : i32)
+    | ZSobol(log2_spp : i32, seed : i32, randomize : i32, base4_digits : i32);
 
 func samples_per_pixel(s : Sampler) -> u32 {
     match s {
@@ -270,6 +441,9 @@ func samples_per_pixel(s : Sampler) -> u32 {
             return x_samples * y_samples;
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) =>
             return spp;
+        // pbrt: ZSobolSampler::SamplesPerPixel, 1 << log2SamplesPerPixel.
+        ZSobol(log2_spp, seed, randomize, base4_digits) =>
+            return 1u << cast[[u32]](log2_spp);
     }
 }
 
@@ -279,6 +453,7 @@ func sampler_seed(s : Sampler) -> i32 {
         Stratified(x_samples, y_samples, seed, jitter) => return seed;
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) =>
             return seed;
+        ZSobol(log2_spp, seed, randomize, base4_digits) => return seed;
     }
 }
 
@@ -306,11 +481,12 @@ element SamplerState {
     // Halton draw takes its base from the dimension; the independent sampler
     // ignores it.
     dimension : i32;
-    // Where in the Halton sequence this pixel and sample sit. Unused by the
-    // other two, which have a generator instead -- pbrt keeps this on the
-    // HaltonSampler and the generator on the other two, and one state carrying
-    // both is what a variant comes to.
-    halton_index : i64;
+    // Where in its sequence this pixel and sample sit: the Halton index, or
+    // the ZSobol sampler's Morton index of the pixel with the sample below it.
+    // Unused by the other two, which have a generator instead -- pbrt keeps an
+    // index on each low-discrepancy sampler and the generator on the other
+    // two, and one state carrying both is what a variant comes to.
+    index : i64;
 }
 
 // pbrt: MaxHaltonResolution. Above this the first two dimensions stop tiling
@@ -373,6 +549,20 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             st : SamplerState = {r, x, y, sample, 2, index};
             return st;
         }
+        ZSobol(log2_spp, seed, randomize, base4_digits) => {
+            zero : u64 = 0u;
+            r : RNG = {zero, zero};
+            // pbrt: the pixel's Morton code with the sample index below it,
+            // which is where this sample sits in the one sequence the whole
+            // image shares. No dimension is spent on the pixel: every
+            // dimension, the position within the pixel included, is drawn
+            // from the same two Sobol' dimensions under its own scramble, so
+            // a draw starts at zero.
+            morton = (encode_morton2(cast[[u32]](x), cast[[u32]](y))
+                      << cast[[u64]](log2_spp)) | cast[[u64]](sample);
+            st : SamplerState = {r, x, y, sample, 0, cast[[i64]](morton)};
+            return st;
+        }
         Independent(spp, seed) => return seeded_state(x, y, sample, seed);
         Stratified(x_samples, y_samples, seed, jitter) =>
             return seeded_state(x, y, sample, seed);
@@ -385,28 +575,34 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
 // depth` (wavefront/samples.cpp), rather than wherever the path's draws so
 // far have got to. Independent and Stratified re-seed and advance by
 // `sampleIndex * 65536 + dimension`, as pbrt's do; Halton keeps its index in
-// the sequence and takes the dimension, no lower than two.
+// the sequence and takes the dimension, no lower than two; ZSobol keeps its
+// index and takes the dimension as given.
 func start_pixel_sample_at(s : Sampler, st : SamplerState,
                            dimension : i32) -> SamplerState {
     fresh = start_pixel_sample(s, st.px, st.py, st.sample);
     match s {
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
             at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
-                                 max(2, dimension), fresh.halton_index};
+                                 max(2, dimension), fresh.index};
+            return at;
+        }
+        ZSobol(log2_spp, seed, randomize, base4_digits) => {
+            at : SamplerState = {fresh.rng, st.px, st.py, st.sample, dimension,
+                                 fresh.index};
             return at;
         }
         Independent(spp, seed) => {
             r : mut RNG = fresh.rng;
             advance(r, cast[[u64]](dimension));
             at : SamplerState = {r, st.px, st.py, st.sample, dimension,
-                                 fresh.halton_index};
+                                 fresh.index};
             return at;
         }
         Stratified(x_samples, y_samples, seed, jitter) => {
             r : mut RNG = fresh.rng;
             advance(r, cast[[u64]](dimension));
             at : SamplerState = {r, st.px, st.py, st.sample, dimension,
-                                 fresh.halton_index};
+                                 fresh.index};
             return at;
         }
     }
@@ -478,7 +674,15 @@ func [[inline]] get_1d(s : Sampler, st : mut SamplerState) -> Float {
             }
             dim = st.dimension;
             st.dimension = st.dimension + 1;
-            return halton_dimension(dim, st.halton_index, randomize);
+            return halton_dimension(dim, st.index, randomize);
+        }
+        ZSobol(log2_spp, seed, randomize, base4_digits) => {
+            a = zsobol_sample_index(cast[[u64]](st.index), st.dimension,
+                                    log2_spp, base4_digits);
+            st.dimension = st.dimension + 1;
+            // pbrt: Hash(dimension, seed) -- of the dimension after the step.
+            hash = cast[[u32]](hash2(st.dimension, seed));
+            return sobol_sample(a, 0, randomize, hash);
         }
     }
 }
@@ -520,8 +724,20 @@ func [[inline]] get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
             dim = st.dimension;
             st.dimension = st.dimension + 2;
             return vec2f{
-                halton_dimension(dim, st.halton_index, randomize),
-                halton_dimension(dim + 1, st.halton_index, randomize)};
+                halton_dimension(dim, st.index, randomize),
+                halton_dimension(dim + 1, st.index, randomize)};
+        }
+        ZSobol(log2_spp, seed, randomize, base4_digits) => {
+            a = zsobol_sample_index(cast[[u64]](st.index), st.dimension,
+                                    log2_spp, base4_digits);
+            st.dimension = st.dimension + 2;
+            // One hash of the stepped dimension, its two halves scrambling
+            // the pair: Sobol' dimension zero under the low word, one under
+            // the high.
+            bits = hash2(st.dimension, seed);
+            return vec2f{
+                sobol_sample(a, 0, randomize, cast[[u32]](bits)),
+                sobol_sample(a, 1, randomize, cast[[u32]](bits >> 32u))};
         }
     }
 }
@@ -536,14 +752,16 @@ func [[inline]] get_2d(s : Sampler, st : mut SamplerState) -> vec2f {
 // pixel and leaves the rest -- and it is unscrambled, because a permutation of
 // those digits would move the sample into a different pixel.
 //
-// For the other two the pixel sample is nothing special and this is Get2D.
+// For the other three the pixel sample is nothing special and this is Get2D --
+// ZSobol's included: its pixel is in the index, not in a dimension.
 func [[inline]] get_pixel_2d(s : Sampler, st : mut SamplerState) -> vec2f {
     match s {
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
-            a = cast[[u64]](st.halton_index);
+            a = cast[[u64]](st.index);
             return vec2f{radical_inverse(0, a >> cast[[u64]](bex)),
                          radical_inverse(1, a / cast[[u64]](bsy))};
         }
+        ZSobol(log2_spp, seed, randomize, base4_digits) => return get_2d(s, st);
         Independent(spp, seed) => return get_2d(s, st);
         Stratified(x_samples, y_samples, seed, jitter) => return get_2d(s, st);
     }

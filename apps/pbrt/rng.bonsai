@@ -83,6 +83,12 @@ func hash3(a : i32, b : i32, c : i32) -> u64 {
     return murmur_finish((h ^ cast[[u64]](cast[[u32]](c))) * murmur_m());
 }
 
+// pbrt: Hash over eight bytes -- one block and no tail. The ZSobol sampler
+// asks for it over a dimension and its seed, which is what gives every
+// dimension its own scramble of the same two Sobol' dimensions.
+func hash2(a : i32, b : i32) -> u64 =
+    murmur_finish(murmur_block(8u * murmur_m(), packed(a, b)));
+
 // pbrt: Hash over sixteen bytes, so two blocks and no tail at all.
 //
 // The stratified sampler asks for this one over a pixel, a dimension and a
