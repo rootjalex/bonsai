@@ -111,6 +111,14 @@ struct Function {
         // the callee drops this and folds the callee in (SSA/Defer.cpp),
         // where `noinline` would keep it a call to the end.
         held,
+        // A foreign function: `extern func name(..) -> R;`, a signature with
+        // no body, implemented outside the program and called with the C
+        // calling convention under its own name. Kept in
+        // Program::foreign_funcs rather than Program::funcs, so that no
+        // pass meets a function without a body; the backends declare it
+        // and link what implements it (CompilerOptions::link_files). See
+        // docs/foreign-functions.md.
+        foreign,
     };
 
     std::vector<Attribute> attributes;
@@ -219,6 +227,11 @@ struct Function {
     bool is_exported() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::exported) != attributes.cend();
+    }
+
+    bool is_foreign() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::foreign) != attributes.cend();
     }
 
     bool is_imported() const {

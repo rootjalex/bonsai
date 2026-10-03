@@ -53,6 +53,20 @@ struct CompilerOptions {
     // schedules: `-i render.bonsai -i schedules/packet.bonsai`.
     std::vector<std::string> input_files;
 
+    // `--link <file>`, repeatable: an implementation of the program's foreign
+    // functions (`extern func`, docs/foreign-functions.md), linked into the
+    // generated module before it is optimized so that the implementation is
+    // inlined where it is called, as libdevice is into a kernel. LLVM
+    // bitcode or textual IR (`.bc`, `.ll`) links into whichever module its
+    // target matches -- the host's, or a device module's when compiled for
+    // nvptx64 -- and only what the program calls is taken from it; PTX
+    // (`.ptx`) is appended to a device module's own PTX, for an
+    // implementation nvcc compiled with `-rdc=true`, which ptxas then folds
+    // in. A host module may also leave a foreign function undefined for the
+    // driver's link to supply; a device module may not, since nothing links
+    // after it, and that is an error.
+    std::vector<std::string> link_files;
+
     // The output file name; if this is empty, then defaults to standard I/O.
     std::string output_file;
 

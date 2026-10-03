@@ -2,6 +2,10 @@ add_bonsai_tests(
     LABELS error
     FILES
     adt-duplicate-variant.bonsai
+    foreign-array.bonsai
+    foreign-field.bonsai
+    foreign-param.bonsai
+    foreign-vectorized.bonsai
     reducer-argument.bonsai
     reducer-assign.bonsai
     reducer-mut-argument.bonsai

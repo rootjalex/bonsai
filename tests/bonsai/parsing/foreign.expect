@@ -1,0 +1,13 @@
+extern element Grid;
+
+extern grids : const u8[]
+
+extern func grid_of(bytes : u8[], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32, j : i32, k : i32) -> f32;
+
+func [[export]] sample(at : u32, i : i32, j : i32, k : i32) -> f32 {
+  let g = grid_of(grids, at) in
+  return grid_value(g, i, j, k) + grid_value(g, i + (i32)1, j, k)
+}
+
+

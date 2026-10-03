@@ -95,6 +95,11 @@ void emit_type(std::ostream &ss, Type type,
         RESTRICT_VISITOR(Ref_t);
         RESTRICT_VISITOR(ElementRef_t);
 
+        // Under its own name, a typedef of `const void *` the header
+        // declares (emit_type_declaration): what the implementation is
+        // handed and hands back, and what the program never looks into.
+        void visit(const Foreign_t *node) override { ss << node->name; }
+
         void visit(const Vector_t *node) override {
             internal_assert(!contains<Ptr_t>(node->etype));
             // A vector of vectors is a struct of one vector per component
@@ -297,6 +302,14 @@ void emit_type_declaration(std::stringstream &ss, Type type,
                            const std::set<std::string> *buffer_layouts = nullptr,
                            const std::set<std::string> *host_layouts = nullptr) {
     auto indent = std::string(4, ' ');
+
+    if (const Foreign_t *foreign = type.as<Foreign_t>()) {
+        // A foreign type is one opaque word. `const void *` rather than
+        // `void *`: the program only ever hands the value on, and an
+        // implementation that takes it as its own pointer type casts once.
+        ss << "typedef const void *" << foreign->name << ";\n";
+        return;
+    }
 
     if (const Struct_t *struct_t = type.as<Struct_t>()) {
         // A layout arm that stores nothing -- its fields computed from the
@@ -951,6 +964,20 @@ class BonsaiToCpp : ir::Printer {
             ss << get_indent();
             emit_type_declaration(ss, type, &boundary_layouts);
         }
+        // The foreign types and functions, whether or not an exported
+        // function mentions them: the header is where an implementation
+        // reads the prototypes it has to match, and including it is what
+        // makes a mismatch a compile error rather than a wrong answer.
+        for (const auto &[name, type] : program.types) {
+            if (type.is<Foreign_t>()) {
+                ss << get_indent();
+                emit_type_declaration(ss, type);
+            }
+        }
+        for (const auto &[_, func] : program.foreign_funcs) {
+            ss << get_indent();
+            emit_foreign_decl(*func);
+        }
         ss << '\n';
         for (const auto &[_, func] : program.funcs) {
             if (!func->is_exported()) {
@@ -959,6 +986,31 @@ class BonsaiToCpp : ir::Printer {
             ss << get_indent();
             emit_func_decl(*func);
         }
+    }
+
+    // The C prototype of a foreign function, which its implementation
+    // defines: a scalar as its C type, a foreign value as its typedef, an
+    // array as the address of its elements. `extern "C"` on its own, since
+    // the source file (where C++ mangling is on) includes this too.
+    void emit_foreign_decl(const Function &func) {
+        ss << "extern \"C\" ";
+        emit_type(ss, func.ret_type);
+        ss << ' ' << func.name << '(';
+        for (size_t i = 0; i < func.args.size(); i++) {
+            const Function::Argument &arg = func.args[i];
+            if (i > 0) {
+                ss << ", ";
+            }
+            if (const Array_t *array = arg.type.as<Array_t>()) {
+                ss << "const ";
+                emit_type(ss, array->etype);
+                ss << " *";
+            } else {
+                emit_type(ss, arg.type);
+            }
+            ss << ' ' << macro_name(arg.name);
+        }
+        ss << ");\n";
     }
 
     void emit_prologue(bool allow_mangling) {

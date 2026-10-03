@@ -1,0 +1,28 @@
+//! flags: -p canonicalize -v
+
+// Foreign types and functions: what the program says about a value it holds
+// but cannot look into, and the functions outside it that make and read one
+// (docs/foreign-functions.md). NanoVDB's grid is the case they exist for:
+// a sparse voxel grid in a format and a library the program does not own,
+// read through the library's own accessor.
+//
+// `extern element Grid;` declares the type. It has no fields; it is one
+// pointer-sized word whose meaning is the implementation's. `extern func`
+// declares a function with no body, called with the C calling convention
+// under its own name: `grid_of` makes a Grid from bytes the host supplied
+// and an offset into them, `grid_value` reads one. The program stores the
+// offset, never the Grid -- a foreign value may be a local, a parameter or a
+// return value and nothing more -- and makes the value where it is used.
+//
+// What to read for: the two declarations printed as they were written, and
+// `sample` calling both as it calls any function.
+extern element Grid;
+extern func grid_of(bytes : array[u8], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32, j : i32, k : i32) -> f32;
+
+extern grids : array[u8];
+
+func [[export]] sample(at : u32, i : i32, j : i32, k : i32) -> f32 {
+    g = grid_of(grids, at);
+    return grid_value(g, i, j, k) + grid_value(g, i + 1, j, k);
+}

@@ -1,0 +1,17 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/foreign
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_foreign.cpp -I. -o tests/bonsai/correctness/cpp/main_foreign.o, clang++ tests/bonsai/correctness/cpp/main_foreign.o tests/bonsai/correctness/cpp/foreign.o -o tests/bonsai/correctness/cpp/foreign, ./tests/bonsai/correctness/cpp/foreign, rm tests/bonsai/correctness/cpp/foreign, rm tests/bonsai/correctness/cpp/main_foreign.o, rm tests/bonsai/correctness/cpp/foreign.h, rm tests/bonsai/correctness/cpp/foreign.o
+
+// A foreign function through the C++ backend, implemented by the driver
+// (main_foreign.cpp), which is how a host program ordinarily gets one: the
+// generated header declares `Grid` as a typedef and the two functions as C
+// prototypes, the driver includes it and defines them, and the link joins
+// the two. A prototype the driver gets wrong is then a compile error in the
+// driver rather than a wrong answer at run time. See docs/foreign-functions.md.
+extern element Grid;
+extern func grid_of(bytes : array[f32], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func [[export]] sample(vals : array[f32], at : u32, i : i32) -> f32 {
+    g = grid_of(vals, at);
+    return grid_value(g, i) + grid_value(g, i + 1);
+}

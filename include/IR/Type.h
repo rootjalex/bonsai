@@ -29,6 +29,7 @@ enum class IRTypeEnum {
     Ptr_t,
     Ref_t,
     ElementRef_t,
+    Foreign_t,
     Vector_t,
     Struct_t,
     Tuple_t,
@@ -234,6 +235,23 @@ struct Ref_t : TypeNode<Ref_t> {
     static Type make(std::string name);
 
     static const IRTypeEnum node_type = IRTypeEnum::Ref_t;
+};
+
+// A foreign type: `extern element Name;` -- a value the program holds and
+// hands to foreign functions (`extern func`, see Function::Attribute::foreign)
+// and otherwise cannot look into. What it stands for is the implementation's
+// business: NanoVDB's grid, read through NanoVDB's own accessor, is the case
+// it exists for (docs/foreign-functions.md). Its representation is one
+// pointer-sized word, an address or a handle, so a value of it is a scalar
+// to the program: a local, a parameter, a return value, nothing stored in an
+// element, an array or a layout, and never widened by a gang. Only a foreign
+// function makes one.
+struct Foreign_t : TypeNode<Foreign_t> {
+    std::string name;
+
+    static Type make(std::string name);
+
+    static const IRTypeEnum node_type = IRTypeEnum::Foreign_t;
 };
 
 // A reference to an element of a tree's leaves -- which element the best hit

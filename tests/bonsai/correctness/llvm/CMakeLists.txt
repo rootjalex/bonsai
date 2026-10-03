@@ -135,5 +135,6 @@ add_bonsai_tests(
     x86-gather-avx512-16.bonsai
     zsobol.bonsai
     sobol-samplers.bonsai
+    foreign.bonsai
     noise.bonsai
 )

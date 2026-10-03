@@ -1,0 +1,28 @@
+//! flags: -p ssa -b ptx --link tests/bonsai/backends/ptx/foreign-impl.ptx
+
+// A kernel that calls a foreign function, with the implementation supplied
+// as PTX (`--link`, foreign-impl.ptx): what nvcc makes of a C++ shim with
+// `-rdc=true`, which is how NanoVDB's accessor reaches a device kernel
+// (docs/foreign-functions.md). What to read for, in the PTX: the module's
+// own `.extern .func` declaration of `grid_value` is gone and the linked
+// definition stands right after the module's header, ahead of the kernel
+// (ptxas reads once through and wants a callee above its call), so that it
+// sees one module with one `grid_value` and folds it in; the kernel's call
+// to it is an ordinary `call` with the arguments in `.param` space.
+extern element Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func run(g : Grid, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = grid_value(g, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

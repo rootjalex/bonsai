@@ -1,0 +1,18 @@
+//! flags: -p ssa -b llvm
+
+// A foreign function through the LLVM backend, with nothing linked: the
+// call is a call. What to read for: `grid_of` and `grid_value` are
+// `declare`d with external linkage under their own names and the C types of
+// their signatures -- a foreign value and an array both `ptr`, the scalars
+// themselves -- and `sample` calls them directly, the result of the first
+// handed to the second. Nothing defines them in this module; the driver's
+// link does, or `--link` (foreign-linked.bonsai). See
+// docs/foreign-functions.md.
+extern element Grid;
+extern func grid_of(bytes : array[f32], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func [[export]] sample(vals : array[f32], at : u32, i : i32) -> f32 {
+    g = grid_of(vals, at);
+    return grid_value(g, i) + grid_value(g, i + 1);
+}

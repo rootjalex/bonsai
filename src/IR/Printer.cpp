@@ -158,6 +158,12 @@ void Printer::print(const Program &program) {
         // We always verbosely print program types and externs.
         ScopedValue<bool> _(verbose, true);
         for (const auto &[name, type] : program.types) {
+            // A foreign type is declared, not defined: it has no structure
+            // to print, and is written as the source writes it.
+            if (type.is<Foreign_t>()) {
+                os << "extern element " << name << ";\n";
+                continue;
+            }
             os << "type " << name << " = ";
             print(type);
             os << "\n";
@@ -171,6 +177,23 @@ void Printer::print(const Program &program) {
             os << "\n";
         }
         if (!program.externs.empty()) {
+            os << std::endl;
+        }
+        // A foreign function is a signature with no body, printed as it was
+        // declared (see Function::Attribute::foreign).
+        for (const auto &[name, func] : program.foreign_funcs) {
+            os << "extern func " << name << "(";
+            bool first = true;
+            for (const auto &arg : func->args) {
+                if (!first) {
+                    os << ", ";
+                }
+                first = false;
+                os << arg.name << " : " << arg.type;
+            }
+            os << ") -> " << func->ret_type << ";\n";
+        }
+        if (!program.foreign_funcs.empty()) {
             os << std::endl;
         }
     }
@@ -517,6 +540,8 @@ void Printer::visit(const ElementRef_t *node) {
 void Printer::visit(const Ref_t *node) {
     os << "(const " << node->name << "&)";
 }
+
+void Printer::visit(const Foreign_t *node) { os << node->name; }
 
 void Printer::visit(const Vector_t *node) {
     if (node->packed) {

@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/foreign-param.bonsai:11:51: [parse error] Parameter c of foreign function grid_value has type Coord: a foreign function takes scalars, foreign values and arrays of scalars, the types with one C meaning on every target.
+
+extern func grid_value(g : Grid, c : Coord) -> f32;
+                                                  ^

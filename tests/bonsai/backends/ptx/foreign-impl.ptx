@@ -1,0 +1,30 @@
+//
+// The implementation of foreign.bonsai's `grid_value` as PTX: the `i`th
+// float at the address `g` holds, doubled. What `nvcc -ptx -rdc=true`
+// writes for `extern "C" __device__ float grid_value(const void *g, int i)`,
+// shortened by hand; `--link` splices it into the device module's own PTX
+// after the module's header, these three header lines dropped since the
+// module has its own (CodeGen_PTX::append_linked_ptx).
+//
+.version 8.0
+.target sm_90
+.address_size 64
+
+.visible .func  (.param .b32 func_retval0) grid_value(
+	.param .b64 grid_value_param_0,
+	.param .b32 grid_value_param_1
+)
+{
+	.reg .b32 	%r<2>;
+	.reg .f32 	%f<3>;
+	.reg .b64 	%rd<4>;
+
+	ld.param.u64 	%rd1, [grid_value_param_0];
+	ld.param.u32 	%r1, [grid_value_param_1];
+	mul.wide.s32 	%rd2, %r1, 4;
+	add.s64 	%rd3, %rd1, %rd2;
+	ld.f32 	%f1, [%rd3];
+	add.f32 	%f2, %f1, %f1;
+	st.param.f32 	[func_retval0], %f2;
+	ret;
+}

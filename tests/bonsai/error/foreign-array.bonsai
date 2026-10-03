@@ -1,0 +1,5 @@
+// There is no array of foreign values, for the reason there is no field of
+// one: a foreign value is not stored (docs/foreign-functions.md).
+extern element Grid;
+
+func [[export]] run(gs : array[Grid, 4]) -> i32 = 0;

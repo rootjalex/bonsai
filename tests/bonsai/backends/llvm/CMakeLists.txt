@@ -7,6 +7,8 @@ add_bonsai_tests(
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
     adt-tagged-index.bonsai
+    foreign.bonsai
+    foreign-linked.bonsai
     child-volumes.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai

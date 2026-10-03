@@ -26,6 +26,13 @@ struct Program {
     ExternList externs;
     // All function declarations except for main()
     FuncMap funcs;
+    // The foreign functions: `extern func name(..) -> R;`, signatures with
+    // no body, implemented outside the program (Function::Attribute::foreign,
+    // docs/foreign-functions.md). Apart from `funcs` so that no pass over
+    // the program's functions meets one -- a call to one is a Call whose
+    // callee the passes do not find and leave alone -- and the backends
+    // declare them from here. Carried through every pass, as `extents` is.
+    FuncMap foreign_funcs;
     // All types (including aliases).
     TypeMap types;
     // What the program's `schedule` blocks said, merged into one (see

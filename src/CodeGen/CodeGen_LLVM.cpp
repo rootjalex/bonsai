@@ -38,6 +38,9 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/Scalar/Reassociate.h>
 #include <llvm/Transforms/Scalar/SimplifyCFG.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Linker/Linker.h>
+#include <llvm/Support/SourceMgr.h>
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Target/TargetMachine.h>
@@ -431,6 +434,104 @@ llvm::FastMathFlags CodeGen_LLVM::fast_math_flags() {
     llvm::FastMathFlags flags;
     flags.setFast();
     return flags;
+}
+
+llvm::Function *CodeGen_LLVM::declare_foreign_function(const Function &func) {
+    internal_assert(func.is_foreign()) << func.name << " is not foreign";
+    // The C types of the signature as the parser admitted them
+    // (Parser.cpp, parse_foreign_function): a scalar is itself, a foreign
+    // value and an array are pointers (visit(const Foreign_t *), visit(const
+    // Array_t *)). Nothing is returned through a hidden pointer and nothing
+    // is renamed: the symbol is the name the program wrote, which is what
+    // the implementation defines.
+    std::vector<llvm::Type *> arg_types;
+    arg_types.reserve(func.args.size());
+    for (const auto &arg : func.args) {
+        arg_types.push_back(codegen_type(arg.type));
+    }
+    llvm::FunctionType *ftype = llvm::FunctionType::get(
+        codegen_type(func.ret_type), arg_types, /*isVarArg=*/false);
+    llvm::Function *fn =
+        llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage,
+                               symbol_name(func.name), module.get());
+    // A C `bool` is a byte; LLVM's i1 reaches a register with its upper bits
+    // unspecified unless the ABI is told to zero-extend it, which is what
+    // clang declares for `bool` on every target.
+    for (uint32_t i = 0; i < func.args.size(); i++) {
+        if (func.args[i].type.is_bool()) {
+            fn->addParamAttr(i, llvm::Attribute::ZExt);
+        }
+    }
+    if (func.ret_type.is_bool()) {
+        fn->addRetAttr(llvm::Attribute::ZExt);
+    }
+    foreign_functions.insert(fn->getName().str());
+    return fn;
+}
+
+void CodeGen_LLVM::link_foreign_implementations(const CompilerOptions &options,
+                                                bool device) {
+    bool ptx_given = false;
+    for (const std::string &path : options.link_files) {
+        if (path.ends_with(".ptx")) {
+            // Text for the PTX generator to append (CodeGen_PTX::finish).
+            ptx_given = true;
+            continue;
+        }
+        llvm::SMDiagnostic diagnostic;
+        std::unique_ptr<llvm::Module> lib =
+            llvm::parseIRFile(path, diagnostic, *context);
+        internal_assert(lib != nullptr)
+            << "--link " << path << ": " << diagnostic.getMessage().str();
+        // Into the module whose target it was compiled for, and no other:
+        // a host program with a GPU schedule links its `.bc` into the host
+        // module and its nvptx64 `.bc` into the device's.
+        const bool for_device = llvm::Triple(lib->getTargetTriple()).isNVPTX();
+        if (for_device != device) {
+            continue;
+        }
+        // The file's data layout is the compiler that made it talking about
+        // this same machine; the linker wants the strings to agree.
+        lib->setDataLayout(module->getDataLayout());
+        lib->setTargetTriple(module->getTargetTriple());
+        // What the link brings in -- the declarations it defines, and the
+        // functions those pull along -- is made internal: inlined into its
+        // callers and dropped, rather than kept as an export of this module.
+        std::set<std::string> defined_before;
+        for (const llvm::Function &f : *module) {
+            if (!f.isDeclaration()) {
+                defined_before.insert(f.getName().str());
+            }
+        }
+        const bool failed = llvm::Linker::linkModules(
+            *module, std::move(lib), llvm::Linker::Flags::LinkOnlyNeeded);
+        internal_assert(!failed) << "--link " << path << ": linking failed";
+        for (llvm::Function &f : *module) {
+            if (!f.isDeclaration() &&
+                !defined_before.contains(f.getName().str())) {
+                f.setLinkage(llvm::GlobalValue::InternalLinkage);
+            }
+        }
+    }
+    // A device module is the whole of what runs on the device: a foreign
+    // function it calls and nothing defined is an error here, where it can
+    // be said which, rather than at the module's load. A host module may
+    // leave one for the driver's link to define, as a C program leaves a
+    // library's. PTX appended later may define it, and then ptxas is the
+    // one to say.
+    if (device && !ptx_given) {
+        for (const std::string &name : foreign_functions) {
+            const llvm::Function *f = module->getFunction(name);
+            if (f != nullptr && f->isDeclaration() && !f->use_empty()) {
+                internal_error
+                    << "the device module calls the foreign function `" << name
+                    << "`, and nothing defines it there: pass its "
+                       "implementation with `--link <file>` -- LLVM bitcode "
+                       "compiled for nvptx64, or PTX nvcc compiled with "
+                       "-rdc=true (docs/foreign-functions.md).";
+            }
+        }
+    }
 }
 
 llvm::Function *CodeGen_LLVM::declare_function(const Function &func) {
@@ -901,6 +1002,11 @@ CodeGen_LLVM::compile_program(const Program &program,
 
     frames.push_frame();
     // TODO: add program.externs to the global frame.
+    // The foreign functions first: a call to one looks its declaration up
+    // by name (CodeGen_LLVM_SSA.cpp), as a call to any function does.
+    for (const auto &[fname, func] : program.foreign_funcs) {
+        this->declare_foreign_function(*func);
+    }
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
         // A program the ray tracing hardware runs is the OptiX module's
@@ -935,6 +1041,10 @@ CodeGen_LLVM::compile_program(const Program &program,
     end_functions();
 
     llvm::TargetMachine *tm = target_machine.get();
+
+    // The foreign functions' implementations, before the optimizer sees the
+    // module, so that they are inlined where they are called.
+    link_foreign_implementations(options, /*device=*/false);
 
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] compilation resulted in an invalid module";
@@ -1206,6 +1316,12 @@ void CodeGen_LLVM::visit(const Ref_t *node) {
                    << ir::Type(node);
     // llvm::Type *etype = codegen_type(node->etype);
     // type = etype->getPointerTo();
+}
+
+void CodeGen_LLVM::visit(const Foreign_t *node) {
+    // An opaque pointer: whatever the implementation keeps behind it, the
+    // program only passes it on (see ir::Foreign_t).
+    type = llvm::PointerType::getUnqual(*context);
 }
 
 void CodeGen_LLVM::visit(const ElementRef_t *node) {

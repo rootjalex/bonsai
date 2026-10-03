@@ -41,11 +41,15 @@ uint32_t Type::bits() const {
         // four-wide copysign is written.
         return as_vector->etype.bits();
     }
+    if (this->is<Foreign_t>()) {
+        // One pointer-sized word, whatever the implementation keeps in it.
+        return 64;
+    }
     internal_error << "Called bits() on bad type: " << *this;
 }
 
 uint32_t Type::bytes() const {
-    if (is<Int_t, UInt_t, Float_t>()) {
+    if (is<Int_t, UInt_t, Float_t, Foreign_t>()) {
         // TODO(ajr): is this always right?
         return (bits() + 7) / 8;
     } else if (is<Bool_t>()) {
@@ -192,7 +196,7 @@ bool Type::is_numeric() const {
 }
 
 bool Type::is_primitive() const {
-    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
+    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t, Foreign_t>() ||
            (is<Vector_t>() && element_of().is_primitive()) ||
            (is<Struct_t>() &&
             std::all_of(as<Struct_t>()->fields.cbegin(),
@@ -217,7 +221,7 @@ bool Type::is_primitive() const {
 
 bool Type::is_stack_allocatable() const {
     // TODO(ajr): some (small) structs?
-    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t>() ||
+    return is<Int_t, UInt_t, Float_t, Bool_t, Ptr_t, Foreign_t>() ||
            (is<Vector_t>() && element_of().is_stack_allocatable()) ||
            (is<Tuple_t>() &&
             std::all_of(
@@ -345,6 +349,8 @@ bool same_exactly(const Type &a, const Type &b) {
                a.as<Ptr_t>()->readonly == b.as<Ptr_t>()->readonly;
     case IRTypeEnum::Ref_t:
         return a.as<Ref_t>()->name == b.as<Ref_t>()->name;
+    case IRTypeEnum::Foreign_t:
+        return a.as<Foreign_t>()->name == b.as<Foreign_t>()->name;
     case IRTypeEnum::ElementRef_t:
         return a.as<ElementRef_t>()->tree == b.as<ElementRef_t>()->tree &&
                a.as<ElementRef_t>()->etype.same_as(
@@ -532,6 +538,13 @@ Type Ptr_t::make(Type etype, bool readonly) {
 Type Ref_t::make(std::string name) {
     internal_assert(!name.empty()) << "Ref_t::make received empty name";
     Ref_t *node = new Ref_t;
+    node->name = std::move(name);
+    return intern(node);
+}
+
+Type Foreign_t::make(std::string name) {
+    internal_assert(!name.empty()) << "Foreign_t::make received empty name";
+    Foreign_t *node = new Foreign_t;
     node->name = std::move(name);
     return intern(node);
 }

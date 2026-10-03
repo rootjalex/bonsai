@@ -539,11 +539,17 @@ ir::Program infer_types(const ir::Program &program) {
     // Carried, not rebuilt: an element's extent is over that element's own
     // fields and needs no inference of its own.
     new_program.extents = program.extents;
+    new_program.foreign_funcs = program.foreign_funcs;
     ir::global_enable_type_enforcement();
 
     std::vector<std::string> topo_order =
         func_topological_order(program.funcs, /*undef_calls=*/true);
     ir::TypeMap func_types;
+    // A foreign function's type is its declaration's; nothing is inferred
+    // about it, and a call to one is typed from it like any other call.
+    for (const auto &[f, func] : program.foreign_funcs) {
+        func_types[f] = func->call_type();
+    }
 
     // TODO: set all assignment types.
 

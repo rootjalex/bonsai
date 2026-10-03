@@ -89,6 +89,7 @@ Type Mutator::visit(const ElementRef_t *node) {
 }
 
 Type Mutator::visit(const Ref_t *node) { return node; }
+Type Mutator::visit(const Foreign_t *node) { return node; }
 
 Type Mutator::visit(const Vector_t *node) {
     Type etype = mutate(node->etype);

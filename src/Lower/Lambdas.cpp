@@ -181,6 +181,7 @@ ir::Program lower_program(const ir::Program &old_program) {
     // Carried, not rebuilt: this pass rewrites lambdas, and the rest of what
     // the program holds is none of its business.
     new_program.extents = old_program.extents;
+    new_program.foreign_funcs = old_program.foreign_funcs;
     for (const auto &[f, func] : old_program.funcs) {
         ir::Stmt body = cltf.mutate(func->body);
         new_program.funcs[f] = func->replace_body(std::move(body));

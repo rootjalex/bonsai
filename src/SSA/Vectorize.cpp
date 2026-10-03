@@ -1741,7 +1741,14 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                                 Variants &variants) {
     const auto original = funcs.find(key.callee);
     internal_assert(original != funcs.end())
-        << "Cannot vectorize a call to unknown function: " << key.callee;
+        << "Cannot vectorize a call to " << key.callee
+        << ", which has no body here. A function the program declared with "
+           "`extern func` is foreign (docs/foreign-functions.md): it is one "
+           "scalar call with the C calling convention and cannot be given a "
+           "lane's arguments or run under a mask, as ispc refuses a call to "
+           "an external function with varying arguments. Call it from code "
+           "the schedule does not vectorize, or with arguments that are "
+           "uniform across the gang.";
 
     auto variant = clone_function(*original->second);
     variant->specialized_from = key.callee;

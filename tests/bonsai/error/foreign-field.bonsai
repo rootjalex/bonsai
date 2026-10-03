@@ -1,0 +1,16 @@
+// A foreign value cannot be a field of an element.
+//
+// An element is laid out, copied into pools, uploaded to a device; a handle
+// the implementation owns -- an address in one address space, or whatever
+// else it keeps in the word -- cannot be. The program stores what identifies
+// the value (an offset into an extern, say) and makes the value where it is
+// used. See docs/foreign-functions.md.
+extern element Grid;
+extern func grid_of(bytes : array[u8], at : u32) -> Grid;
+
+element Medium {
+    density : Grid;
+    scale : f32;
+}
+
+func [[export]] run(m : Medium) -> f32 = m.scale;

@@ -21,6 +21,9 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Linker/Linker.h>
+
+#include <fstream>
+#include <sstream>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/CommandLine.h>
@@ -242,7 +245,76 @@ void CodeGen_PTX::begin(const Program &program_, const CompilerOptions &options_
     no_heap = options->no_heap;
     target_machine = make_target_machine(*module, *options);
     declare_struct_types(gather_struct_types(*program));
+    // The foreign functions, declared in the device module as in the host's
+    // (CodeGen_LLVM::compile_program): a kernel's call to one looks it up by
+    // name. The NVPTX backend writes them as `.extern .func` declarations,
+    // which what `--link` appends or links in defines (finish).
+    for (const auto &[fname, func] : program->foreign_funcs) {
+        declare_foreign_function(*func);
+    }
     frames.push_frame();
+}
+
+// What `--link` named as PTX, spliced into the module's own text so that the
+// device module is one PTX module: nvcc's `.version`, `.target` and
+// `.address_size` lines dropped, since the module has its own; the
+// `.extern .func` declarations the NVPTX backend wrote for the functions the
+// text defines dropped too, since PTX takes a definition or an `.extern`
+// declaration of a name and not both; and the text placed right after the
+// module's header, ahead of every kernel, since ptxas reads once through and
+// a call wants its callee defined or declared above it.
+void CodeGen_PTX::append_linked_ptx() {
+    for (const std::string &path : options->link_files) {
+        if (!path.ends_with(".ptx")) {
+            continue;
+        }
+        std::ifstream in(path);
+        internal_assert(in) << "--link " << path << ": cannot read it";
+        std::stringstream text;
+        std::string line;
+        std::vector<std::string> defines;
+        while (std::getline(in, line)) {
+            if (line.starts_with(".version") || line.starts_with(".target") ||
+                line.starts_with(".address_size")) {
+                continue;
+            }
+            // `.visible .func  (.param .b32 func_retval0) name(` or
+            // `.visible .func name(`: the name before the parenthesis.
+            if (line.starts_with(".visible .func") ||
+                line.starts_with(".func")) {
+                const size_t paren = line.rfind('(');
+                if (paren != std::string::npos) {
+                    const size_t start = line.find_last_of(" )", paren - 1);
+                    defines.push_back(
+                        line.substr(start + 1, paren - start - 1));
+                }
+            }
+            text << line << '\n';
+        }
+        for (const std::string &name : defines) {
+            // The backend's declaration: `.extern .func <ret> name` through
+            // the `;` that ends it, possibly over several lines.
+            const std::string key = ".extern .func";
+            size_t at = 0;
+            while ((at = ptx_text.find(key, at)) != std::string::npos) {
+                const size_t end = ptx_text.find(';', at);
+                internal_assert(end != std::string::npos);
+                const std::string decl = ptx_text.substr(at, end - at + 1);
+                if (decl.find(" " + name + "\n") != std::string::npos ||
+                    decl.find(" " + name + "(") != std::string::npos) {
+                    ptx_text.erase(at, end - at + 1);
+                } else {
+                    at = end;
+                }
+            }
+        }
+        const size_t header = ptx_text.find(".address_size");
+        internal_assert(header != std::string::npos)
+            << "the device module's PTX has no .address_size line";
+        const size_t after = ptx_text.find('\n', header);
+        internal_assert(after != std::string::npos);
+        ptx_text.insert(after + 1, "\n// --link " + path + "\n" + text.str());
+    }
 }
 
 const Terminator::ParFor *
@@ -299,6 +371,13 @@ bool CodeGen_PTX::has_effects(const std::string &function) {
     if (const auto it = effects.find(function); it != effects.end()) {
         return it->second;
     }
+    // A foreign function is a black box: nothing here can say what it does,
+    // so it is taken to have effects, and a call to it outside a block
+    // loop's thread loop is refused as any call with effects is.
+    if (program->foreign_funcs.contains(function)) {
+        effects[function] = true;
+        return true;
+    }
     // Provisionally none, so that a recursion through this function comes
     // back with an answer; whatever else it does is found below.
     effects[function] = false;
@@ -337,6 +416,11 @@ void CodeGen_PTX::compile_reachable(const std::vector<std::string> &roots) {
         const std::string name = work.back();
         work.pop_back();
         if (!declared.insert(name).second) {
+            continue;
+        }
+        if (program->foreign_funcs.contains(name)) {
+            // A foreign function: declared when the module began (begin),
+            // defined by what `--link` supplies (finish), nothing to compile.
             continue;
         }
         const auto f = program->funcs.find(name);
@@ -1128,6 +1212,10 @@ void CodeGen_PTX::finish() {
             fn.addFnAttrs(flushing);
         }
     }
+    // The foreign functions' bitcode, if any was compiled for the device,
+    // before the optimizer sees the module (CodeGen_LLVM's own compile does
+    // the same for the host's).
+    link_foreign_implementations(*options, /*device=*/true);
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] the device module is invalid";
     optimize_module(*target_machine, *options);
@@ -1150,6 +1238,7 @@ void CodeGen_PTX::finish() {
         << "the NVPTX target cannot emit assembly";
     pm.run(*module);
     ptx_text = buffer.str().str();
+    append_linked_ptx();
 }
 
 } // namespace bonsai

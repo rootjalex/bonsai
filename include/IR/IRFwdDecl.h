@@ -15,6 +15,7 @@ struct String_t;
 struct Ptr_t;
 struct Ref_t;
 struct ElementRef_t;
+struct Foreign_t;
 struct Vector_t;
 struct Struct_t;
 struct Tuple_t;

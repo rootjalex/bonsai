@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/foreign-array.bonsai:5:40: [parse error] array[Grid]: a foreign value is not stored, so there is no array of them (ir::Foreign_t).
+
+func [[export]] run(gs : array[Grid, 4]) -> i32 = 0;
+                                       ^

@@ -17,6 +17,7 @@ struct Visitor {
     virtual void visit(const Ptr_t *);
     virtual void visit(const ElementRef_t *);
     virtual void visit(const Ref_t *);
+    virtual void visit(const Foreign_t *);
     virtual void visit(const Vector_t *);
     virtual void visit(const Struct_t *);
     virtual void visit(const Tuple_t *);

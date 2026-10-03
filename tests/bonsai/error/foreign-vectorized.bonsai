@@ -1,0 +1,29 @@
+//! flags: -p ssa
+
+// A foreign function cannot be called from a vectorized loop with a lane's
+// arguments.
+//
+// The call is one scalar call with the C calling convention; the compiler
+// has no body to widen, and cannot hand it a vector of arguments or run it
+// under a mask -- as ispc refuses a call to an external function with
+// varying arguments. The loop here gives each lane its own `i`, so the call
+// would need one argument per lane. Keep such a call in code the schedule
+// does not vectorize, or give it arguments uniform across the gang. See
+// docs/foreign-functions.md.
+extern element Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func run(g : Grid, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = grid_value(g, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    return 0;
+}
+
+schedule {
+    run.vectorize(i);
+}

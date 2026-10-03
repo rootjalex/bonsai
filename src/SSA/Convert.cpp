@@ -2688,6 +2688,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
         func_type_map[name] = Function_t::make(f->ret_type, std::move(args));
     }
+    // The foreign functions' signatures too: a call to one is turned back
+    // into a Call naming it, typed from its declaration (CodeGen_Stmt.cpp).
+    if (keep_ssa != nullptr) {
+        for (const auto &[name, f] : keep_ssa->foreign_funcs) {
+            func_type_map[name] = f->call_type();
+        }
+    }
 
     // The SSA form the schedule left behind, before it is turned back into
     // statements. This is the only place it can be seen: what `-p ssa` prints
@@ -2828,6 +2835,7 @@ ir::Program ConvertToSSA::run(ir::Program program,
     new_program.externs = program.externs;
     new_program.schedule = program.schedule;
     new_program.adt_storages = program.adt_storages;
+    new_program.foreign_funcs = program.foreign_funcs;
     new_program.funcs =
         convert(std::move(program.funcs), transforms, order, policies, queues,
                 queue_splits, new_program.adt_storages, options, &new_program);

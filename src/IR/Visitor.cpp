@@ -51,6 +51,7 @@ void Visitor::visit(const Ptr_t *node) { node->etype.accept(this); }
 void Visitor::visit(const ElementRef_t *node) { node->etype.accept(this); }
 
 void Visitor::visit(const Ref_t *node) {}
+void Visitor::visit(const Foreign_t *node) {}
 
 void Visitor::visit(const Vector_t *node) { node->etype.accept(this); }
 

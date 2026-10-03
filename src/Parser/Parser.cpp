@@ -581,6 +581,15 @@ struct Parser {
         TokenStream copy = tokens();
         while (!copy.empty()) {
             const size_t at = copy.remaining();
+            // `extern func f(..) -> R;` declares a foreign function, which
+            // parse_extern reads whole when it is reached; it is not a
+            // header to come back to.
+            if (copy.remaining() > 1 && copy.peek(0).type == Token::Type::EXTERN &&
+                copy.peek(1).type == Token::Type::FUNC) {
+                copy.skip();
+                copy.skip();
+                continue;
+            }
             if (!copy.consume(Token::Type::FUNC)) {
                 copy.skip();
                 continue;
@@ -602,7 +611,7 @@ struct Parser {
     // Declares `name` from its header later in the file, if there is one;
     // whether the name is a function after this.
     bool ensure_declared(const std::string &name) {
-        if (program.funcs.contains(name)) {
+        if (program.funcs.contains(name) || program.foreign_funcs.contains(name)) {
             return true;
         }
         // A builtin, and a geometric intrinsic the file defines under a
@@ -879,6 +888,18 @@ struct Parser {
 
             expect(Token::Type::COL);
             ir::Type type = parse_type();
+            if (type.is<ir::Foreign_t>()) {
+                // A foreign value lives in registers, not in storage: an
+                // element is laid out, copied, pooled and uploaded, and a
+                // handle the implementation owns cannot be (ir::Foreign_t).
+                report_error()
+                    << "Field " << names.front() << " of element " << name
+                    << " has the foreign type " << type
+                    << ": a foreign value may be a local, a parameter or a "
+                       "return value, not a field. Store what identifies it "
+                       "(an offset into an extern, say) and make the value "
+                       "where it is used.";
+            }
             for (const auto &field_name : names) {
                 fields.emplace_back(field_name, type);
                 if (defaults.contains(field_name)) {
@@ -1005,10 +1026,131 @@ struct Parser {
         internal_error << "TODO: implement parse_interface_def";
     }
 
+    // What a foreign function's signature may carry: the types with one C
+    // meaning on every target (docs/foreign-functions.md). A scalar; a
+    // foreign handle; and, as a parameter, an array of scalars, passed as the
+    // address of its elements.
+    static bool foreign_scalar(const ir::Type &type) {
+        return type.is<ir::Int_t, ir::UInt_t, ir::Float_t, ir::Bool_t>();
+    }
+
+    // `extern element Name;` -- a foreign type (ir::Foreign_t): a value the
+    // program holds and hands to foreign functions, and otherwise cannot look
+    // into.
+    void parse_foreign_type() {
+        expect(Token::Type::ELEMENT);
+        const std::string name = get_id();
+        if (program.types.contains(name)) {
+            report_error() << "Redefinition of type: " << name;
+        }
+        if (peek().type != Token::Type::SEMICOL) {
+            report_error() << "A foreign element has no fields: `extern element "
+                           << name << ";` is the whole declaration. What it "
+                              "stands for is the implementation's business.";
+        }
+        expect(Token::Type::SEMICOL);
+        program.types[name] = ir::Foreign_t::make(name);
+    }
+
+    // `extern func name(a : T, ..) -> R;` -- a foreign function
+    // (ir::Function::Attribute::foreign): a signature with no body, implemented
+    // outside the program and called with the C calling convention under its
+    // own name. A call to it is parsed as a call to any function; it is kept
+    // in Program::foreign_funcs, apart from the functions that have bodies.
+    void parse_foreign_function() {
+        expect(Token::Type::FUNC);
+        if (peek().type == Token::Type::LBRACKET) {
+            report_error() << "A foreign function takes no attributes: it is "
+                              "neither exported, inlined nor a kernel, and "
+                              "it is called wherever the program calls it.";
+        }
+        const std::string name = get_id();
+        if (is_builtin(name) || is_geometric_intrinsic(name)) {
+            report_error() << name
+                           << " is a builtin function or intrinsic, which a "
+                              "foreign function cannot be named.";
+        }
+        if (program.funcs.contains(name) ||
+            program.foreign_funcs.contains(name) ||
+            (!headers.empty() && headers.back().contains(name))) {
+            report_error() << "Redefinition of func: " << name;
+        }
+        // The header, read as ensure_declared reads one: in a frame of its
+        // own, whose argument names are dropped with it.
+        const auto saved_used = used_names;
+        const bool saved_renaming = renaming_declarations;
+        push_frame();
+        used_names.clear();
+        renaming_declarations = true;
+        std::vector<ir::Function::Argument> args = parse_func_args();
+        if (!consume(Token::Type::RARROW)) {
+            report_error()
+                << "Foreign function " << name
+                << " needs a return type: nothing can be inferred about a "
+                   "function with no body (`-> void` for one that returns "
+                   "nothing).";
+        }
+        ir::Type ret_type = parse_type();
+        pop_frame();
+        used_names = saved_used;
+        renaming_declarations = saved_renaming;
+        expect(Token::Type::SEMICOL);
+
+        for (const ir::Function::Argument &arg : args) {
+            const ir::Type &t = arg.type;
+            const ir::Array_t *array = t.as<ir::Array_t>();
+            const bool allowed =
+                foreign_scalar(t) || t.is<ir::Foreign_t>() ||
+                (array != nullptr && foreign_scalar(array->etype));
+            if (!allowed) {
+                report_error()
+                    << "Parameter " << arg.name << " of foreign function "
+                    << name << " has type " << t
+                    << ": a foreign function takes scalars, foreign values "
+                       "and arrays of scalars, the types with one C meaning "
+                       "on every target.";
+            }
+            if (arg.mutating) {
+                report_error()
+                    << "Parameter " << arg.name << " of foreign function "
+                    << name
+                    << " is `mut`: a foreign function cannot be handed the "
+                       "program's storage to write, since nothing checks "
+                       "what it does with it. Return the value instead.";
+            }
+            if (arg.default_value.defined()) {
+                report_error() << "Parameter " << arg.name
+                               << " of foreign function " << name
+                               << " has a default value, which a declaration "
+                                  "with no body does not take.";
+            }
+        }
+        if (!(foreign_scalar(ret_type) || ret_type.is<ir::Foreign_t>() ||
+              ret_type.is<ir::Void_t>())) {
+            report_error() << "Foreign function " << name << " returns " << ret_type
+                           << ": a foreign function returns a scalar, a "
+                              "foreign value or nothing.";
+        }
+        program.foreign_funcs[name] = std::make_shared<ir::Function>(
+            name, std::move(args), std::move(ret_type), ir::Stmt(),
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{
+                ir::Function::Attribute::foreign});
+    }
+
     void parse_extern() {
         // TODO: what if an extern name-conflicts with a type or something?
         // probably should check conflicts for all symbols?
         expect(Token::Type::EXTERN);
+        // `extern element` and `extern func` declare what is implemented
+        // outside the program; `extern name : T` declares storage the host
+        // fills.
+        if (peek().type == Token::Type::ELEMENT) {
+            return parse_foreign_type();
+        }
+        if (peek().type == Token::Type::FUNC) {
+            return parse_foreign_function();
+        }
         const std::string name = get_id();
         if (std::find_if(program.externs.cbegin(), program.externs.cend(),
                          [&](const auto &p) { return p.name == name; }) !=
@@ -1024,6 +1166,12 @@ struct Parser {
         // storage is the layout's, made read-only where the layout is
         // lowered (Lower/Layouts.cpp).
         ir::Type type = parse_type().as_readonly();
+        if (type.is<ir::Foreign_t>()) {
+            report_error() << "extern " << name << " : " << type
+                           << ": a foreign value is not storage the host "
+                              "fills; only a foreign function makes one "
+                              "(ir::Foreign_t).";
+        }
         expect(Token::Type::SEMICOL);
         add_type_to_frame(name, type, /* mutable */ false);
         program.externs.emplace_back(name, std::move(type));
@@ -2836,7 +2984,11 @@ struct Parser {
             report_error() << "Unknown builtin: " << name;
         }
 
-        const auto &func = program.funcs[name];
+        // The program's own function, or a foreign one: a call to either is
+        // a Call naming it, checked against its declaration the same way.
+        const std::shared_ptr<ir::Function> func =
+            program.funcs.contains(name) ? program.funcs[name]
+                                         : program.foreign_funcs.at(name);
 
         // TODO: handle default params!
         if (args.size() != func->args.size()) {
@@ -3199,6 +3351,11 @@ struct Parser {
             ir::Type etype = parse_type();
             expect(Token::Type::RBRACKET);
             // TODO: assert etype is a struct_t? or volume_t?
+            if (etype.is<ir::Foreign_t>()) {
+                report_error() << "set[" << etype << "]: a foreign value is "
+                               << "not stored, so there is no set of them "
+                               << "(ir::Foreign_t).";
+            }
             return ir::Set_t::make(std::move(etype));
         } else if (name == "array") {
             expect(Token::Type::LBRACKET);
@@ -3208,6 +3365,11 @@ struct Parser {
                 size = parse_expr();
             }
             expect(Token::Type::RBRACKET);
+            if (etype.is<ir::Foreign_t>()) {
+                report_error() << "array[" << etype << "]: a foreign value is "
+                               << "not stored, so there is no array of them "
+                               << "(ir::Foreign_t).";
+            }
             return ir::Array_t::make(std::move(etype), std::move(size));
         } else if (name == "dyn_array") {
             expect(Token::Type::LBRACKET);

@@ -26,6 +26,7 @@ struct Mutator {
     virtual Type visit(const Ptr_t *);
     virtual Type visit(const ElementRef_t *);
     virtual Type visit(const Ref_t *);
+    virtual Type visit(const Foreign_t *);
     virtual Type visit(const Vector_t *);
     virtual Type visit(const Struct_t *);
     virtual Type visit(const Tuple_t *);

@@ -97,7 +97,9 @@ struct CodeGen_PTX : public CodeGen_LLVM {
 
     // After finish(): the PTX text, and the optimized LLVM IR it was made
     // from (printed before the PTX backend's own passes rewrite the module).
+    // The text ends with whatever PTX `--link` named (append_linked_ptx).
     const std::string &ptx() const { return ptx_text; }
+    void append_linked_ptx();
     const std::string &optimized_ir() const { return ir_text; }
 
     // The thread loop directly inside `loop`'s body, or null when there is

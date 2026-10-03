@@ -1,0 +1,16 @@
+// A foreign function's signature carries the types with one C meaning on
+// every target: scalars, foreign values, and arrays of scalars as
+// parameters. A struct has a layout the two sides would have to agree on
+// field by field, and a vector an ABI that differs by target, so neither
+// crosses the boundary (docs/foreign-functions.md).
+element Coord {
+    i, j, k : i32;
+}
+
+extern element Grid;
+extern func grid_value(g : Grid, c : Coord) -> f32;
+
+func [[export]] run(g : Grid) -> f32 {
+    c : Coord = {1, 2, 3};
+    return grid_value(g, c);
+}

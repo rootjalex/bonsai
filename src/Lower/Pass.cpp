@@ -17,6 +17,7 @@ ir::Program Pass::run(ir::Program program,
     // Carried rather than rebuilt: a pass that only means to rewrite the
     // functions should not silently drop what else the program is carrying.
     new_program.ssa_funcs = std::move(program.ssa_funcs);
+    new_program.foreign_funcs = std::move(program.foreign_funcs);
     new_program.extents = std::move(program.extents);
     new_program.element_storage = std::move(program.element_storage);
     new_program.adt_storages = std::move(program.adt_storages);

@@ -1,0 +1,16 @@
+//! flags: -p ssa -b llvm --link tests/bonsai/backends/llvm/foreign-impl.ll
+
+// foreign.bonsai with its implementation linked in (`--link`, foreign-impl.ll).
+// What to read for: the two `declare`s are gone, and so are the calls --
+// the implementation was linked before the module was optimized and made
+// internal, so `sample` is the two loads and the arithmetic, and nothing of
+// `grid_of` or `grid_value` remains to export. This is how NanoVDB's lookup
+// reaches a medium's density without a call per voxel (docs/foreign-functions.md).
+extern element Grid;
+extern func grid_of(bytes : array[f32], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func [[export]] sample(vals : array[f32], at : u32, i : i32) -> f32 {
+    g = grid_of(vals, at);
+    return grid_value(g, i) + grid_value(g, i + 1);
+}

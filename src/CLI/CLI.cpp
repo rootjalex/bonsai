@@ -213,6 +213,14 @@ Flags parse(const std::vector<std::string> &args) {
             ++i;
             continue;
         }
+        if (arg == "--link") {
+            // Repeatable: what implements the program's foreign functions
+            // (see CompilerOptions::link_files).
+            internal_assert(i + 1 < args.size());
+            options.link_files.push_back(args[i + 1]);
+            ++i;
+            continue;
+        }
 
         internal_error << "unexpected argument: " << arg;
     }

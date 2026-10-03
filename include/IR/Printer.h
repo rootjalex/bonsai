@@ -94,6 +94,7 @@ struct Printer : public Visitor {
     void visit(const Ptr_t *) override;
     void visit(const ElementRef_t *) override;
     void visit(const Ref_t *) override;
+    void visit(const Foreign_t *) override;
     void visit(const Vector_t *) override;
     void visit(const Struct_t *) override;
     void visit(const Tuple_t *) override;

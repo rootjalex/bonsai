@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/foreign-field.bonsai:12:15: [parse error] Field density of element Medium has the foreign type Grid: a foreign value may be a local, a parameter or a return value, not a field. Store what identifies it (an offset into an extern, say) and make the value where it is used.
+
+    density : Grid;
+              ^^^^

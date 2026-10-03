@@ -33,6 +33,7 @@ add_bonsai_tests(
     FLAGS --gpu-arch sm_90 --triple x86_64-unknown-linux-gnu --mcpu generic
     FILES
     atomic-float.bonsai
+    foreign.bonsai
     block-effects.bonsai
     block-reduce.bonsai
     blocks.bonsai

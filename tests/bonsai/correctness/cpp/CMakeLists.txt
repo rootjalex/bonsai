@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS correctness cpp
     FILES
     adt.bonsai
+    foreign.bonsai
     adt-bvh.bonsai
     adt-bvh-sorted.bonsai
     adt-tagged-index.bonsai

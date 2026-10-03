@@ -153,6 +153,23 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void end_functions() {}
 
     llvm::Function *declare_function(const ir::Function &func);
+    // A foreign function (ir::Function::Attribute::foreign): declared in the
+    // module under its own name with external linkage and the C types of its
+    // signature, and defined by nothing here -- by what `--link` names
+    // (link_foreign_implementations), or by the driver's link for a host
+    // module.
+    llvm::Function *declare_foreign_function(const ir::Function &func);
+    // The files `--link` named (CompilerOptions::link_files), each linked
+    // into this module if its target is this module's -- `device` says
+    // which this is -- taking only what the module calls and making what
+    // came in internal, so that it is inlined and dropped as libdevice is
+    // (CodeGen_PTX::link_libdevice). A PTX file is not bitcode and is left
+    // to the PTX generator, which appends it to its text.
+    void link_foreign_implementations(const CompilerOptions &options,
+                                      bool device);
+    // The foreign functions the program declares, by symbol: what
+    // link_foreign_implementations checks a device module has defined.
+    std::set<std::string> foreign_functions;
     void compile_function(const ir::Function &func, llvm::Function *function);
     // The random generator's state for a function that seeds it (see
     // Lower/Random.h): seeded from C's rand(), held in a stack slot bound
@@ -417,6 +434,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::Ptr_t *) override;
     virtual void visit(const ir::Ref_t *) override;
     virtual void visit(const ir::ElementRef_t *) override;
+    virtual void visit(const ir::Foreign_t *) override;
     virtual void visit(const ir::Vector_t *) override;
     virtual void visit(const ir::Array_t *) override;
     virtual void visit(const ir::Struct_t *) override;

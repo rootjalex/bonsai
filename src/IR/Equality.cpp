@@ -182,6 +182,10 @@ Cmp compare_types(const Type &t0, const Type &t1) {
     case IRTypeEnum::Ref_t: {
         return compare_primitives(t0.as<Ref_t>()->name, t1.as<Ref_t>()->name);
     }
+    case IRTypeEnum::Foreign_t: {
+        return compare_primitives(t0.as<Foreign_t>()->name,
+                                  t1.as<Foreign_t>()->name);
+    }
     case IRTypeEnum::Vector_t: {
         const Vector_t *v0 = t0.as<Vector_t>();
         const Vector_t *v1 = t1.as<Vector_t>();
@@ -1120,6 +1124,9 @@ uint64_t hash_of(const Type &t) {
         break;
     case IRTypeEnum::Ref_t:
         h = hash_value(h, t.as<Ref_t>()->name);
+        break;
+    case IRTypeEnum::Foreign_t:
+        h = hash_value(h, t.as<Foreign_t>()->name);
         break;
     case IRTypeEnum::Vector_t: {
         const Vector_t *v = t.as<Vector_t>();
