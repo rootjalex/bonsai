@@ -45,6 +45,7 @@ enum class IRStmtEnum {
     ForEach,
     ParFor,
     Continue,
+    Break,
     Launch,
     Append,
 };
@@ -605,6 +606,19 @@ struct Continue : StmtNode<Continue> {
     static Stmt make();
 
     static const IRStmtEnum node_type = IRStmtEnum::Continue;
+};
+
+// Leave the innermost enclosing loop: what comes after the loop runs next.
+// Written by the relooper (SSA/CodeGen_Stmt.cpp) for a loop that is left
+// from below its header -- a traversal's inner loop, over the descents into
+// one node after another, which ends at a leaf or at a node with nothing
+// hit and hands over to the pop around it, as Embree's two nested loops do.
+// The source language has no `break`; the statement form needs one to say
+// what such a control flow graph says.
+struct Break : StmtNode<Break> {
+    static Stmt make();
+
+    static const IRStmtEnum node_type = IRStmtEnum::Break;
 };
 
 // Launch n calls to func with arguments

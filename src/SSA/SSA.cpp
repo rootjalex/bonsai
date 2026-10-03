@@ -744,10 +744,14 @@ void Block::dump(std::ostream &os) const {
     os << "): ";
 
     // A match arm's provenance is printed, since a dump is read for which
-    // arm is which; an `if`'s says only which function it was written in,
-    // which every block of a program with no inlining could say.
-    const bool named = provenance.defined() &&
-                       provenance.kind() == ir::Provenance::Kind::MatchArm;
+    // arm is which, and so is a traversal's entry gate, which a reader of a
+    // loopified traversal looks for; an `if`'s says only which function it
+    // was written in, which every block of a program with no inlining could
+    // say.
+    const bool named =
+        provenance.defined() &&
+        (provenance.kind() == ir::Provenance::Kind::MatchArm ||
+         provenance.kind() == ir::Provenance::Kind::EntryGate);
     if (named) {
         os << "// " << provenance << (preds.empty() ? "" : "; ");
     }

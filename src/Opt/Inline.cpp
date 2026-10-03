@@ -114,6 +114,7 @@ struct BodyShape : ir::Visitor {
     void visit(const ir::Label *) override { plain = false; }
     void visit(const ir::Free *) override { plain = false; }
     void visit(const ir::Continue *) override { plain = false; }
+    void visit(const ir::Break *) override { plain = false; }
 };
 
 // A body as a flat list of statements, nested sequences opened out.

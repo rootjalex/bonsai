@@ -1763,6 +1763,9 @@ class BonsaiToCpp : ir::Printer {
     void visit(const Continue *node) override {
         ss << get_indent() << "continue;\n";
     }
+    void visit(const Break *node) override {
+        ss << get_indent() << "break;\n";
+    }
     // void visit(const Launch *) override;
     void visit(const Append *node) override {
         ss << get_indent();

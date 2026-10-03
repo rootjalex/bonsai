@@ -895,6 +895,7 @@ Stmt Mutator::visit(const ParFor *node) {
 }
 
 Stmt Mutator::visit(const Continue *node) { return node; }
+Stmt Mutator::visit(const Break *node) { return node; }
 
 Stmt Mutator::visit(const Launch *node) {
     Expr n = mutate(node->n);

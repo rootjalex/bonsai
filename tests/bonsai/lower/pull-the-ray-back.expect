@@ -65,7 +65,7 @@ func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
   rec(instances : tree[[Instance]] TLAS) {
     match instances {
     | Interior(low : f32x3, high : f32x3, left : (const TLAS&), right : (const TLAS&), axis : u8) with AABB(low, high) ->
-      if (!_holds0) {
+      if (!_holds0) { // gate
         if (contains(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) && (0.001f < distmin(r, build<AABB>((instances as Interior).low, (instances as Interior).high)))) {
           _holds0 = true
         } else if (intersects(r, build<AABB>((instances as Interior).low, (instances as Interior).high)) && (0.001f < distmax(r, build<AABB>((instances as Interior).low, (instances as Interior).high)))) {
@@ -73,7 +73,7 @@ func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
         }
       }
     | Leaf(low : f32x3, high : f32x3, data : Instance[]) with data = data with AABB(low, high) ->
-      if (!_holds0) {
+      if (!_holds0) { // gate
         if (contains(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (0.001f < distmin(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)))) {
           _holds0 = true
         } else if (intersects(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)) && (0.001f < distmax(r, build<AABB>((instances as Leaf).low, (instances as Leaf).high)))) {
@@ -84,7 +84,7 @@ func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
               rec(_subtree0 : tree[[Triangle]] BLAS) {
                 match _subtree0 {
                 | Interior(low : f32x3, high : f32x3, left : (const BLAS&), right : (const BLAS&), axis : u8) with AABB(low, high) ->
-                  if (!_holds0) {
+                  if (!_holds0) { // gate
                     if (contains(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) && (0.001f < distmin(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)))) {
                       _holds0 = true
                     } else if (intersects(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Interior).low, (_subtree0 as Interior).high)))) {
@@ -92,7 +92,7 @@ func _traverse_tree1(r : Ray, instances : tree[[Instance]] TLAS) -> bool {
                     }
                   }
                 | Leaf(low : f32x3, high : f32x3, data : Triangle[]) with data = data with AABB(low, high) ->
-                  if (!_holds0) {
+                  if (!_holds0) { // gate
                     if (contains(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmin(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) {
                       _holds0 = true
                     } else if (intersects(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)) && (0.001f < distmax(_pulled1, build<AABB>((_subtree0 as Leaf).low, (_subtree0 as Leaf).high)))) {

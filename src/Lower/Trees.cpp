@@ -1703,9 +1703,12 @@ ir::Stmt carry_bound_around(ir::Stmt matched, Extremum dir,
 
     static size_t counter = 0;
     const ir::TypedVar bound("_bound" + std::to_string(counter++), metric_t);
+    // The test on arrival is the node's entry gate (ir::Provenance::
+    // entry_gate): loopify sends a direct descent past it, since the parent
+    // decided it when it chose to descend, and leaves it to the pop.
     ir::Stmt body = ir::IfElse::make(
         improves_on(dir, ir::Var::make(metric_t, bound.name), best),
-        std::move(matched));
+        std::move(matched), ir::Stmt(), ir::Provenance::entry_gate());
     std::vector<ir::RecLoop::Arg> args = {ir::RecLoop::Arg{
         bound, extremum_identity(metric_t, dir == Extremum::Min
                                                ? Extremum::Max
@@ -2068,11 +2071,14 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             ir::Stmt body = stmts.size() == 1
                                 ? std::move(stmts.front())
                                 : ir::Sequence::make(std::move(stmts));
+            // The gate at the node's entry: marked (ir::Provenance::
+            // entry_gate) so that loopify can send a direct descent, whose
+            // parent decided this test already, past it.
             if (ir::Expr promising = promising_bound(dir, bounds);
                 promising.defined()) {
                 body = ir::IfElse::make(
                     improves_on(dir, std::move(promising), loc.to_expr()),
-                    std::move(body));
+                    std::move(body), ir::Stmt(), ir::Provenance::entry_gate());
             }
             return body;
         }
@@ -2281,8 +2287,11 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             // being fused into the `maybe` arm and leaving `always` outside
             // it. Nothing under here can change a settled answer, and `always`
             // is itself a pair of geometric tests -- run, before this, to
-            // re-decide a question that was already decided.
-            return ir::IfElse::make(still_undecided(), std::move(body));
+            // re-decide a question that was already decided. Marked as the
+            // node's entry gate (ir::Provenance::entry_gate), which loopify
+            // lets a direct descent skip.
+            return ir::IfElse::make(still_undecided(), std::move(body),
+                                    ir::Stmt(), ir::Provenance::entry_gate());
         }
 
         ir::Stmt visit(const ir::Yield *node) override {
@@ -2412,8 +2421,9 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
 
             // As in `guard_with_volume`: one test on the accumulator gates the
             // node, so a settled query pays a bool rather than the `always`
-            // bound's geometry on the way out.
-            return ir::IfElse::make(still_undecided(), std::move(recurse));
+            // bound's geometry on the way out; marked as the entry gate too.
+            return ir::IfElse::make(still_undecided(), std::move(recurse),
+                                    ir::Stmt(), ir::Provenance::entry_gate());
         }
 
         // from tr => if <undecided> && maybe(P, tr): from tr

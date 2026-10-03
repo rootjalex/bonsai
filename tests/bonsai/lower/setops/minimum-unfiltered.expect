@@ -10,7 +10,7 @@ func _traverse_tree0(items : tree[[Item]] ItemTree) -> i32 {
   rec(items : tree[[Item]] ItemTree) {
     match items {
     | Interior(idl : i32, idh : i32, left : (const ItemTree&), right : (const ItemTree&)) with id in [idl, idh] ->
-      if ((items as Interior).idl < _best0) {
+      if ((items as Interior).idl < _best0) { // gate
         _best0 min= (items as Interior).idh
         from ((items as Interior).left, (items as Interior).right)
       }

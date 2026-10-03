@@ -48,6 +48,15 @@ Provenance Provenance::if_arm(const std::string &func) {
     return p;
 }
 
+Provenance Provenance::entry_gate() {
+    // One record: every gate is the same construct, and the lowering that
+    // writes it is not a function of the program.
+    static const Data record{Kind::EntryGate, "", "", ""};
+    Provenance p;
+    p.data = &record;
+    return p;
+}
+
 Provenance::Kind Provenance::kind() const {
     internal_assert(defined()) << "kind() of an undefined provenance";
     return data->kind;
@@ -84,6 +93,9 @@ std::string Provenance::str() const {
     if (data->kind == Kind::IfArm) {
         return "if";
     }
+    if (data->kind == Kind::EntryGate) {
+        return "gate";
+    }
     return data->adt + "." + data->variant;
 }
 
@@ -92,6 +104,9 @@ std::string Provenance::str() const {
 std::ostream &operator<<(std::ostream &os, const Provenance &p) {
     if (!p.defined()) {
         return os;
+    }
+    if (p.func().empty()) {
+        return os << p.str(); // written by lowering, in no function
     }
     return os << p.str() << " of " << p.func();
 }

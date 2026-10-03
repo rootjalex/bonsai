@@ -19,92 +19,95 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
     let @0 = (*_holds0) in
     let @1 = !@0 in
     if (@1) {
-      let @2 = items.group0_index in
-      let _t25 = @2[(*items_index!top)] in
-      let _t26 = _t25.nPrims in
-      let @5 = _t26 == 0u in
-      if (@5) {
-        let @6 = items.group0_index in
-        let @7 = @6[(*items_index!top)] in
-        let @8 = @7.idl in
-        let @9 = lo <= @8 in
-        let @10 = items.group0_index in
-        let @11 = @10[(*items_index!top)] in
-        let @12 = @11.idh in
-        let @13 = @12 <= hi in
-        let @14 = @9 && @13 in
-        if (@14) {
-          _holds0 = true
-        } else {
-          let @15 = items.group0_index in
-          let @16 = @15[(*items_index!top)] in
-          let @17 = @16.idh in
-          let @18 = lo <= @17 in
-          let @19 = items.group0_index in
-          let @20 = @19[(*items_index!top)] in
-          let @21 = @20.idl in
-          let @22 = @21 <= hi in
-          let @23 = @18 && @22 in
-          if (@23) {
-            let @24 = (*items_index!top) + 1u in
-            let @25 = _t25.split0on_nPrims in
-            let @26 = reinterpret_cast<_tree_layout2>(@25) in
-            let @27 = @26.offset in
-            let @28 = (*items_index!top) + @27 in
-            !stack[(*!count)] = @28
-            let @71 = (*!count) + 1u in
-            items_index!top = @24
-            !count = @71
-            continue
+      do {
+        let @2 = items.group0_index in
+        let _t25 = @2[(*items_index!top)] in
+        let _t26 = _t25.nPrims in
+        let @5 = _t26 == 0u in
+        if (@5) {
+          let @6 = items.group0_index in
+          let @7 = @6[(*items_index!top)] in
+          let @8 = @7.idl in
+          let @9 = lo <= @8 in
+          let @10 = items.group0_index in
+          let @11 = @10[(*items_index!top)] in
+          let @12 = @11.idh in
+          let @13 = @12 <= hi in
+          let @14 = @9 && @13 in
+          if (@14) {
+            _holds0 = true
+          } else {
+            let @15 = items.group0_index in
+            let @16 = @15[(*items_index!top)] in
+            let @17 = @16.idh in
+            let @18 = lo <= @17 in
+            let @19 = items.group0_index in
+            let @20 = @19[(*items_index!top)] in
+            let @21 = @20.idl in
+            let @22 = @21 <= hi in
+            let @23 = @18 && @22 in
+            if (@23) {
+              let @24 = (*items_index!top) + 1u in
+              let @25 = _t25.split0on_nPrims in
+              let @26 = reinterpret_cast<_tree_layout2>(@25) in
+              let @27 = @26.offset in
+              let @28 = (*items_index!top) + @27 in
+              !stack[(*!count)] = @28
+              let @71 = (*!count) + 1u in
+              items_index!top = @24
+              !count = @71
+              continue
+            }
           }
-        }
-      } else {
-        let @29 = items.group0_index in
-        let @30 = @29[(*items_index!top)] in
-        let @31 = @30.idl in
-        let @32 = lo <= @31 in
-        let @33 = items.group0_index in
-        let @34 = @33[(*items_index!top)] in
-        let @35 = @34.idh in
-        let @36 = @35 <= hi in
-        let @37 = @32 && @36 in
-        if (@37) {
-          _holds0 = true
         } else {
-          let @38 = items.group0_index in
-          let @39 = @38[(*items_index!top)] in
-          let @40 = @39.idh in
-          let @41 = lo <= @40 in
-          let @42 = items.group0_index in
-          let @43 = @42[(*items_index!top)] in
-          let @44 = @43.idl in
-          let @45 = @44 <= hi in
-          let @46 = @41 && @45 in
-          if (@46) {
-            let @47 = cast<u32>(_t26) in
-            data = 0u
-            while ((*data) < @47) {
-              let @49 = (*_holds0) in
-              let @50 = !@49 in
-              if (@50) {
-                let @51 = items.prims in
-                let @52 = _t25.split0on_nPrims in
-                let @53 = reinterpret_cast<_tree_layout3>(@52) in
-                let @54 = @53.pOffset in
-                let @55 = @54 + (*data) in
-                let @56 = @51[@55] in
-                let _t11 = @56.id in
-                let @58 = lo <= _t11 in
-                let @59 = _t11 <= hi in
-                let @60 = @58 & @59 in
-                _holds0 max= @60
+          let @29 = items.group0_index in
+          let @30 = @29[(*items_index!top)] in
+          let @31 = @30.idl in
+          let @32 = lo <= @31 in
+          let @33 = items.group0_index in
+          let @34 = @33[(*items_index!top)] in
+          let @35 = @34.idh in
+          let @36 = @35 <= hi in
+          let @37 = @32 && @36 in
+          if (@37) {
+            _holds0 = true
+          } else {
+            let @38 = items.group0_index in
+            let @39 = @38[(*items_index!top)] in
+            let @40 = @39.idh in
+            let @41 = lo <= @40 in
+            let @42 = items.group0_index in
+            let @43 = @42[(*items_index!top)] in
+            let @44 = @43.idl in
+            let @45 = @44 <= hi in
+            let @46 = @41 && @45 in
+            if (@46) {
+              let @47 = cast<u32>(_t26) in
+              data = 0u
+              while ((*data) < @47) {
+                let @49 = (*_holds0) in
+                let @50 = !@49 in
+                if (@50) {
+                  let @51 = items.prims in
+                  let @52 = _t25.split0on_nPrims in
+                  let @53 = reinterpret_cast<_tree_layout3>(@52) in
+                  let @54 = @53.pOffset in
+                  let @55 = @54 + (*data) in
+                  let @56 = @51[@55] in
+                  let _t11 = @56.id in
+                  let @58 = lo <= _t11 in
+                  let @59 = _t11 <= hi in
+                  let @60 = @58 & @59 in
+                  _holds0 max= @60
+                }
+                let @61 = (*data) + 1u in
+                data = @61
               }
-              let @61 = (*data) + 1u in
-              data = @61
             }
           }
         }
-      }
+        break
+      } while (true)
     }
     let @63 = (*!count) != 0u in
     let @64 = (*_holds0) in
@@ -132,81 +135,84 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
   do {
     let @0 = (*_holds1) in
     if (@0) {
-      let @1 = items.group0_index in
-      let @2 = @1[(*items_index!top)] in
-      let @3 = @2.idl in
-      let @4 = lo <= @3 in
-      let @5 = items.group0_index in
-      let @6 = @5[(*items_index!top)] in
-      let @7 = @6.idh in
-      let @8 = @7 <= hi in
-      let @9 = @4 && @8 in
-      let @10 = !@9 in
-      if (@10) {
-        let @11 = items.group0_index in
-        let _t52 = @11[(*items_index!top)] in
-        let _t53 = _t52.nPrims in
-        let @14 = _t53 == 0u in
-        if (@14) {
-          let @15 = items.group0_index in
-          let @16 = @15[(*items_index!top)] in
-          let @17 = @16.idh in
-          let @18 = lo <= @17 in
-          let @19 = items.group0_index in
-          let @20 = @19[(*items_index!top)] in
-          let @21 = @20.idl in
-          let @22 = @21 <= hi in
-          let @23 = @18 && @22 in
-          if (@23) {
-            let @24 = (*items_index!top) + 1u in
-            let @25 = _t52.split0on_nPrims in
-            let @26 = reinterpret_cast<_tree_layout2>(@25) in
-            let @27 = @26.offset in
-            let @28 = (*items_index!top) + @27 in
-            !stack[(*!count)] = @28
-            let @60 = (*!count) + 1u in
-            items_index!top = @24
-            !count = @60
-            continue
-          } else {
-            _holds1 = false
-          }
-        } else {
-          let @29 = items.group0_index in
-          let @30 = @29[(*items_index!top)] in
-          let @31 = @30.idh in
-          let @32 = lo <= @31 in
-          let @33 = items.group0_index in
-          let @34 = @33[(*items_index!top)] in
-          let @35 = @34.idl in
-          let @36 = @35 <= hi in
-          let @37 = @32 && @36 in
-          if (@37) {
-            let @38 = cast<u32>(_t53) in
-            data = 0u
-            while ((*data) < @38) {
-              let @40 = (*_holds1) in
-              if (@40) {
-                let @41 = items.prims in
-                let @42 = _t52.split0on_nPrims in
-                let @43 = reinterpret_cast<_tree_layout3>(@42) in
-                let @44 = @43.pOffset in
-                let @45 = @44 + (*data) in
-                let @46 = @41[@45] in
-                let _t38 = @46.id in
-                let @48 = lo <= _t38 in
-                let @49 = _t38 <= hi in
-                let @50 = @48 & @49 in
-                _holds1 min= @50
-              }
-              let @51 = (*data) + 1u in
-              data = @51
+      do {
+        let @1 = items.group0_index in
+        let @2 = @1[(*items_index!top)] in
+        let @3 = @2.idl in
+        let @4 = lo <= @3 in
+        let @5 = items.group0_index in
+        let @6 = @5[(*items_index!top)] in
+        let @7 = @6.idh in
+        let @8 = @7 <= hi in
+        let @9 = @4 && @8 in
+        let @10 = !@9 in
+        if (@10) {
+          let @11 = items.group0_index in
+          let _t52 = @11[(*items_index!top)] in
+          let _t53 = _t52.nPrims in
+          let @14 = _t53 == 0u in
+          if (@14) {
+            let @15 = items.group0_index in
+            let @16 = @15[(*items_index!top)] in
+            let @17 = @16.idh in
+            let @18 = lo <= @17 in
+            let @19 = items.group0_index in
+            let @20 = @19[(*items_index!top)] in
+            let @21 = @20.idl in
+            let @22 = @21 <= hi in
+            let @23 = @18 && @22 in
+            if (@23) {
+              let @24 = (*items_index!top) + 1u in
+              let @25 = _t52.split0on_nPrims in
+              let @26 = reinterpret_cast<_tree_layout2>(@25) in
+              let @27 = @26.offset in
+              let @28 = (*items_index!top) + @27 in
+              !stack[(*!count)] = @28
+              let @60 = (*!count) + 1u in
+              items_index!top = @24
+              !count = @60
+              continue
+            } else {
+              _holds1 = false
             }
           } else {
-            _holds1 = false
+            let @29 = items.group0_index in
+            let @30 = @29[(*items_index!top)] in
+            let @31 = @30.idh in
+            let @32 = lo <= @31 in
+            let @33 = items.group0_index in
+            let @34 = @33[(*items_index!top)] in
+            let @35 = @34.idl in
+            let @36 = @35 <= hi in
+            let @37 = @32 && @36 in
+            if (@37) {
+              let @38 = cast<u32>(_t53) in
+              data = 0u
+              while ((*data) < @38) {
+                let @40 = (*_holds1) in
+                if (@40) {
+                  let @41 = items.prims in
+                  let @42 = _t52.split0on_nPrims in
+                  let @43 = reinterpret_cast<_tree_layout3>(@42) in
+                  let @44 = @43.pOffset in
+                  let @45 = @44 + (*data) in
+                  let @46 = @41[@45] in
+                  let _t38 = @46.id in
+                  let @48 = lo <= _t38 in
+                  let @49 = _t38 <= hi in
+                  let @50 = @48 & @49 in
+                  _holds1 min= @50
+                }
+                let @51 = (*data) + 1u in
+                data = @51
+              }
+            } else {
+              _holds1 = false
+            }
           }
         }
-      }
+        break
+      } while (true)
     }
     let @53 = (*!count) != 0u in
     let @54 = (*_holds1) in

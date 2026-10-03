@@ -258,8 +258,10 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(YieldFrom);
     RESTRICT_VISITOR(Launch);
 
-    // Going round the enclosing loop again is the opposite of returning.
+    // Going round the enclosing loop again is the opposite of returning, and
+    // so is leaving it for what comes after.
     void visit(const Continue *node) override { returns = false; }
+    void visit(const Break *node) override { returns = false; }
 };
 
 struct ReturnType : public Visitor {

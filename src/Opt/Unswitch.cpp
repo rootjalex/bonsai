@@ -95,14 +95,23 @@ struct UnswitchImpl : public Mutator {
             const Stmt &bar = else_if->then_body;
             const Stmt &fazz = else_if->else_body;
 
-            Stmt left = IfElse::make(a, foo, bar);
+            // The `if` on `a` is still the one this was given, and the
+            // hoisted `if` on `b` is still the two it was hoisted from, where
+            // they agree on what they were: a tree query's entry gate, say,
+            // written in each arm of a match and lifted out in front of it,
+            // which loopify finds by the mark (ir::Provenance::EntryGate).
+            const Provenance hoisted = then_if->provenance == else_if->provenance
+                                           ? then_if->provenance
+                                           : Provenance();
+            Stmt left = IfElse::make(a, foo, bar, node->provenance);
             Stmt body;
             if (no_else) {
-                body = IfElse::make(b, std::move(left));
+                body = IfElse::make(b, std::move(left), Stmt(), hoisted);
             } else {
                 // ast size difference, keep else bodies
-                Stmt right = IfElse::make(a, bazz, fazz);
-                body = IfElse::make(b, std::move(left), std::move(right));
+                Stmt right = IfElse::make(a, bazz, fazz, node->provenance);
+                body = IfElse::make(b, std::move(left), std::move(right),
+                                    hoisted);
             }
             // Keep trying.
             return mutate(body);

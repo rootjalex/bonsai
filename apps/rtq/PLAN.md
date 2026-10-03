@@ -1773,6 +1773,127 @@ with a provenance, and loopify sends the edges that know the gate passes
 block inside it, so the pop alone runs the test, as Embree's pop cull
 does; then items 4 and 5.
 
+## The entry gate skipped on a direct descent, and `break` in the statement form (2026-10-03)
+
+Item 3 of the rulings. Built in three parts.
+
+**1. The gate is marked where it is written.** A new provenance kind,
+`ir::Provenance::EntryGate` (include/IR/Provenance.h): the `if` a tree
+query puts at a node's entry -- the extremum's test of the carried bound
+against the best (Lower/Trees.cpp, carry_bound_around: Embree's `if
+(stackPtr->dist > ray.tfar) continue`) and the quantifier's `if
+(still_undecided)` -- carries it, Convert puts it on the arm's block as it
+does an `if`'s, and Unswitch, which hoists the two arms' identical gates
+out of a match, now hands the hoisted `if` the provenance the two agreed
+on (it rebuilt the `if` bare before; that is where the mark was being
+lost). The statement printer writes `// gate` on such an `if` and the
+block dump on such a block, since a reader of a traversal looks for it.
+
+**2. loopify sends a direct descent past it** (SSA/QueueRecursion.cpp).
+With the body's entry block being the gate and nothing else -- pure
+instructions and a two-way dispatch whose one arm's block is marked, its
+jump arguments made of the header's arguments and the parameters -- a
+descent known to be live (every one-hit, push and sorted arm; the entry
+and the pop are not descents) jumps to the arm inside the gate with the
+child's values in place of the header's. The gate runs for the pop alone.
+In both kernels every descent qualifies: `_recloop_func1!loop(top, bound,
+count): load best; lt; dispatch [pop-side, !then_0(..)]` and
+`!then_0(top, triangles, r, best, bound, count): // gate` with the sort
+arms as its predecessors, the entry and `!visit_next` as the header's.
+
+**3. The statement form can write it.** The traversal is now Embree's two
+nested loops: the pop's around the descents', and the inner one is left
+from below its header -- by a leaf, by a node with nothing hit -- which
+the statement form had no way to say. `ir::Break` (include/IR/Stmt.h) is
+new: printed `break`, lowered by CodeGen_LLVM through an `escape_blocks`
+stack beside the `latch_blocks` that `continue` uses, `break;` in the C++
+backend, the frontend has none (Convert rejects it). The relooper
+(SSA/CodeGen_Stmt.cpp) learned the shape: a loop's blocks are those from
+which a latch is reached without passing the header; a header's two-way
+dispatch is the loop's `while` test only where the loop is left by that
+test and by returns, and a loop left from below its header for anything
+else is a `while (true)`; where such a loop is left to is the nearest
+common post-dominator of its exit edges, over the graph structuring
+follows (a parfor's body is a region of its own, so its yield is not an
+exit), returning paths aside -- and inside the loop, arriving at that
+block is the `break`, whatever lies on the way (a leaf's tests, a found
+flag's store) written in front of it. The result for the sorted BVH4
+(ssa/child-volumes-sorted):
+
+    do {                                     -- the pop's loop
+      if (bound < best) {  // gate            -- Embree's pop cull
+        do {                                 -- the descents' loop
+          if (kind == 0) {
+            <children's test>
+            switch (hits) {
+            case 0: break;                   -- to the pop
+            case 1: top = ..; continue;      -- the descent, no gate
+            case 2: push; top = ..; continue;
+            ...
+            }
+          } else { <leaf> }
+          break
+        } while (true)
+      }
+      if (count != 0) { pop; continue } else { return }
+    } while (true)
+
+Three shapes that broke on the way and what each taught: a loop with
+several latches was paired with the first latch found and misread as a
+`while` whose exit was the pop path (the arms must be tested against
+every latch); the children's parfor body counted as a way out of the inner
+loop (the loop analysis must use the flow graph the relooper uses, where a
+parfor's successor is its continuation alone); and a loop with a `return`
+inside lost its `while` to the `while (true)` form (a path to a return is
+not a way out below the header). The classification prints under
+`BONSAI_RELOOPER=1`.
+
+**What the kernels lost**: trace_all 568 -> 559 instructions, `vucomiss`
+8 -> 4 and `vcompressps` 2 -> 1 -- the cull per descent and the one-hit
+arm's key compress and extract -- branches 44 -> 41; occluded_all 331 ->
+323, the found flag's load and test per node gone, branches 27 -> 26.
+LLVM now sees the two loops as such (`.outer` with the pop's phis, the
+inner over the descents).
+
+**What it measured**: level, within noise, on every number (cpu 11,
+`--side 2048`, least of five, two worktrees, every ray agreeing): head
+58.4 -> 58.3 / 13.9 -> 14.0 / 12.3 -> 12.4 million rays per second
+(nearest hit, primary/ao/diffuse), ganesha 22.1 -> 22.0 / 6.05 -> 6.13 /
+5.62 -> 5.71, dragon 32.5 -> 32.4 / 4.45 -> 4.47 / 3.95 -> 3.96; the any
+hit the same. Items 2 and 3 together took a test and a branch, a load, a
+compress and an extract out of every node visit and moved nothing, so the
+traversal's time is not in these scalar instructions: the dependent chain
+of node fetches and, in the arms, the spill of the node's vectors and the
+reload at the key's index (item 4) are the better candidates, and an IBS
+re-profile of ops and cycles per node visit should come before item 5.
+
+**The scalar key sort, investigated** (asked: should an integer `min` with
+an operand already in a vector be done as broadcast + `vpminsd` +
+extract?). The SSA already writes `min`/`max`; the `cmp` and two `cmov`
+are x86's lowering of a scalar integer min, which it has no instruction
+for, and no simplifier rule is missing (the only `select(a < b, a, b)` in
+sort code is the scalar network's, which LLVM already turns into `smin`,
+and the compare must stay for the child's select). Measured on a
+pinned-CPU listing (scratchpad minmax.bonsai): two keys sorted as scalars
+are 11 instructions and as a vector with the second key broadcast 10;
+three keys are 23 either way, because LLVM rewrites the three-key vector
+chain into a horizontal reduction with an inserted sentinel
+(`vpinsrd $3, 0x7fffffff; vpshufd; vpminsd; vpshufd; vpminsd`) and comes
+out even. Not a strict improvement; a rule `min(extract(k, a), b)` with
+`b` broadcast is worse (a `vmovd` and a `vpbroadcastd` for the broadcast).
+If it is ever done it is an x86 instruction-selection rule on `min`/`max`
+of lane extracts, never in the SSA (a GPU thread's "vector" min is eight
+scalar ones), and the kernel context has to be measured, not the listing.
+
+**Tests.** ssa/child-volumes-sorted (description rewritten for the two
+loops and the gate), child-volumes-sorted-wide, child-volumes-any,
+quantifier-early-exit (five loops, two breaks), ray-any-early-exit,
+blocks/mixed-traversal, the prefetch, tiled and arena goldens, and the
+lower goldens that now print `// gate`; backends/llvm's three traversal
+goldens; the whole of correctness/cpp (140) passes; full suite 1278 of
+1278. The pbrt scalar schedule, which the peer session found broken by an
+intermediate state of this (a loop left to two places), compiles.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -24,7 +24,7 @@ extern tris : [[packed]] struct _tree_layout0{ bytes : u32; group0_arena : [[pac
 func _traverse_tree0(r : Ray, tris : _tree_layout0) -> option<Triangle> {
   _best0 : mut (f32, ((u32, u32))) := ((f32)inf, ())
   rec(tris_ref : u32 = 0u, _bound0 : f32 = -(f32)inf) {
-    if (_bound0 < _best0[0]) {
+    if (_bound0 < _best0[0]) { // gate
       if ((tris_ref & 15u) == 0u) {
         _mask0 : mut bool[4]
         _carry0 : mut f32[4]

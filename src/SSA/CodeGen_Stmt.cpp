@@ -14,6 +14,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <queue>
@@ -1192,12 +1193,49 @@ struct BlockInfo {
     // and reaches the back edge from the innermost of them.
     bool infinite = false;
     std::string loop_header; // for DoWhileLatch: which block is the header
-    // for WhileHeader and DoWhileHeader: where control goes after the loop
+    // for WhileHeader and DoWhileHeader: where control goes after the loop.
+    // For an infinite loop: the one block every edge that leaves the loop
+    // for somewhere other than a return arrives at (through blocks that do
+    // nothing but jump on), where such edges become a `break` and the code
+    // after the loop begins; empty when the loop is left by returns alone.
     std::string loop_exit;
     std::string loop_body; // for WhileHeader: which arm enters the body
+    // For a header: the blocks of its loop -- itself, and every block from
+    // which one of its latches is reached without passing through it.
+    std::set<std::string> loop_blocks;
 };
 
 using BlockInfoMap = std::map<std::string, BlockInfo>;
+
+// The path an edge out of a loop takes to where control goes on: from
+// `start`, a block outside the loop, along every block whose terminator is
+// a plain jump -- each is crossed, whatever it holds -- to the first block
+// that branches, returns, or is otherwise not a step on a line (`end`), or
+// that is back in the loop. A leaf's "found it" store on the way to the
+// pop is crossed; the pop, which decides, is the end.
+struct ExitPath {
+    std::vector<std::string> crossed;
+    std::string end;
+};
+
+ExitPath exit_path(const std::string &start,
+                   const std::set<std::string> &loop_blocks,
+                   const BlockMap &block_map) {
+    ExitPath path;
+    std::string at = start;
+    std::set<std::string> seen;
+    for (;;) {
+        const auto &block = block_map.at(at);
+        const auto *j = std::get_if<Terminator::Jump>(&block->terminator.data);
+        if (j == nullptr || loop_blocks.count(j->name) || !seen.insert(at).second) {
+            break;
+        }
+        path.crossed.push_back(at);
+        at = j->name;
+    }
+    path.end = at;
+    return path;
+}
 
 BlockInfoMap classify_blocks(const ssa::Function &func,
                              const BlockMap &block_map,
@@ -1252,6 +1290,84 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
                    b->terminator.data);
     }
 
+    // The edges structuring follows out of a block: a parfor's body is a
+    // region of its own, entered by the loop and left through its yield, so
+    // only the continuation counts as where control goes on (as `reachable`
+    // and find_merge_block have it).
+    const auto flows_to = [&](const Block &block) {
+        std::vector<std::string> succs;
+        std::visit(overloads{
+                       [&](const Terminator::Jump &j) { succs.push_back(j.name); },
+                       [&](const Terminator::Dispatch &d) {
+                           for (const auto &t : d.targets) {
+                               succs.push_back(t.name);
+                           }
+                       },
+                       [&](const Terminator::ParFor &p) {
+                           succs.push_back(p.cont.name);
+                       },
+                       [&](const Terminator::Call &c) {
+                           succs.push_back(c.cont.name);
+                       },
+                       [&](const Terminator::MultiCall &c) {
+                           succs.push_back(c.cont.name);
+                       },
+                       [&](const auto &) {},
+                   },
+                   block.terminator.data);
+        return succs;
+    };
+
+    // Pass 1b: each loop's blocks. A latch's header heads a loop made of the
+    // header and every block from which the latch is reached without going
+    // through the header -- walked backwards from each latch over the
+    // predecessors, stopping at the header. What the walk below needs to
+    // tell an edge that leaves a loop from one that stays in it.
+    {
+        std::map<std::string, std::vector<std::string>> preds;
+        for (auto &b : func.blocks) {
+            for (const std::string &s : flows_to(*b)) {
+                preds[s].push_back(b->name);
+            }
+        }
+        for (auto &[latch, bi] : info) {
+            if (bi.role != BlockInfo::Role::InfLoopLatch &&
+                bi.role != BlockInfo::Role::DoWhileLatch) {
+                continue;
+            }
+            std::set<std::string> &blocks = info.at(bi.loop_header).loop_blocks;
+            blocks.insert(bi.loop_header);
+            std::vector<std::string> work = {latch};
+            while (!work.empty()) {
+                const std::string at = work.back();
+                work.pop_back();
+                if (!blocks.insert(at).second) {
+                    continue;
+                }
+                for (const std::string &p : preds[at]) {
+                    work.push_back(p);
+                }
+            }
+        }
+    }
+    // The edges out of a loop from below its header: from a block of the
+    // loop other than the header to a block outside it.
+    const auto exits_below_header = [&](const std::string &header) {
+        std::vector<std::pair<std::string, std::string>> exits;
+        const std::set<std::string> &blocks = info.at(header).loop_blocks;
+        for (const std::string &from : blocks) {
+            if (from == header) {
+                continue;
+            }
+            for (const std::string &to : flows_to(*block_map.at(from))) {
+                if (!blocks.count(to)) {
+                    exits.emplace_back(from, to);
+                }
+            }
+        }
+        return exits;
+    };
+
     // Pass 2: classify while headers — Dispatch blocks that have a latch
     // pointing back to them. Use reachability to the latch to find body arm.
     for (auto &b : func.blocks) {
@@ -1281,6 +1397,23 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
         // ir::SwitchStmt): the loop is closed at its latch, and this block
         // heads it as a do-while's header does (pass 3).
         if (d->targets.size() != 2 || !d->cond->get_type().is_bool())
+            continue;
+
+        // A `while` is left at its test alone, returns inside it aside. A
+        // loop that is also left from below its header for somewhere other
+        // than a return -- a traversal's inner loop, which a node with
+        // nothing hit and a leaf both leave for the pop -- is a `while
+        // (true)` whose ways out are `break`s (pass 3), whatever its header
+        // tests.
+        bool left_below = false;
+        for (const auto &[from, to] : exits_below_header(name)) {
+            const std::string end =
+                exit_path(to, info.at(name).loop_blocks, block_map).end;
+            left_below = left_below ||
+                         !std::holds_alternative<Terminator::Return>(
+                             block_map.at(end)->terminator.data);
+        }
+        if (left_below)
             continue;
 
         const std::string &t0 = d->targets[0].name;
@@ -1355,6 +1488,102 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
         head.loop_exit = bi.loop_exit;
     }
 
+    // Pass 4: where an infinite loop is left to. The ways out of the loop
+    // are its edges from a block of the loop, the header included, to a
+    // block outside it. One that runs straight to a return (see exit_path)
+    // is a return written inside the loop, as it always was. The rest come
+    // back together at the nearest block that post-dominates all of them,
+    // which is where the code after the loop begins: inside the loop,
+    // arriving there is a `break` (structurize), and whatever lies between
+    // an edge out and that block -- a leaf's tests, a found flag's store --
+    // is written inside the loop in front of the `break`, as Embree writes
+    // its leaf under the inner loop and leaves with one. A loop whose ways
+    // out all return has nothing after it.
+    {
+        // Over the graph structuring follows (flows_to), not the function's
+        // whole one: a parfor's body is a region of its own, and in the
+        // whole graph its yield is an exit of the function, which would make
+        // every path through a parfor post-dominated by nothing but the end.
+        const Cfg cfg(func);
+        std::vector<std::vector<BlockId>> succs(cfg.size());
+        for (const auto &b : func.blocks) {
+            for (const std::string &s : flows_to(*b)) {
+                succs[cfg.id(*b)].push_back(cfg.id(s));
+            }
+        }
+        const Graph flow =
+            Graph::from_successors(std::move(succs), cfg.id(*func.blocks.front()));
+        const DomTree pdom = compute_post_dominator_tree(flow);
+        const BlockId sink = BlockId(flow.size()); // the synthetic exit
+        for (auto &[name, bi] : info) {
+            if (bi.role != BlockInfo::Role::DoWhileHeader || !bi.infinite) {
+                continue;
+            }
+            BlockId common = NO_BLOCK;
+            for (const std::string &from : bi.loop_blocks) {
+                for (const std::string &to : flows_to(*block_map.at(from))) {
+                    if (bi.loop_blocks.count(to)) {
+                        continue;
+                    }
+                    const std::string end = exit_path(to, bi.loop_blocks, block_map).end;
+                    if (std::holds_alternative<Terminator::Return>(
+                            block_map.at(end)->terminator.data)) {
+                        continue; // a return, written where it is
+                    }
+                    // The nearest common post-dominator: the two chains
+                    // up the tree meet where the deeper one has climbed to
+                    // an ancestor of the other.
+                    BlockId at = cfg.id(to);
+                    if (common == NO_BLOCK) {
+                        common = at;
+                        continue;
+                    }
+                    while (at != sink && !pdom.dominates(at, common)) {
+                        at = pdom.idom[at];
+                    }
+                    common = at;
+                }
+            }
+            if (common != NO_BLOCK && common != sink) {
+                bi.loop_exit = cfg.name(common);
+            }
+        }
+    }
+
+    // `BONSAI_RELOOPER=1` in the environment prints what each block was
+    // taken for, for reading a structuring that went wrong.
+    if (std::getenv("BONSAI_RELOOPER") != nullptr) {
+        std::cerr << "relooper: " << func.blocks.front()->name << "\n";
+        for (const auto &[name, bi] : info) {
+            if (bi.role == BlockInfo::Role::Normal) {
+                continue;
+            }
+            const char *role = bi.role == BlockInfo::Role::WhileHeader ? "while header"
+                               : bi.role == BlockInfo::Role::DoWhileHeader
+                                   ? (bi.infinite ? "infinite header" : "do-while header")
+                               : bi.role == BlockInfo::Role::DoWhileLatch ? "do-while latch"
+                                                                           : "latch";
+            std::cerr << "  " << name << ": " << role;
+            if (!bi.loop_header.empty()) {
+                std::cerr << " of " << bi.loop_header;
+            }
+            if (!bi.loop_exit.empty()) {
+                std::cerr << ", exit " << bi.loop_exit;
+            }
+            if (!bi.loop_body.empty()) {
+                std::cerr << ", body " << bi.loop_body;
+            }
+            if (!bi.loop_blocks.empty()) {
+                std::cerr << ", blocks {";
+                for (const std::string &b : bi.loop_blocks) {
+                    std::cerr << " " << b;
+                }
+                std::cerr << " }";
+            }
+            std::cerr << "\n";
+        }
+    }
+
     return info;
 }
 
@@ -1374,13 +1603,18 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
 // that retargets a jump does not always bring them up to date.
 using Predecessors = std::map<std::string, std::vector<std::string>>;
 
+// `loop_blocks`, when the region is inside a `while (true)`, is that loop's
+// blocks (BlockInfo::loop_blocks): an edge from the region to a block
+// outside them leaves the loop, and is written as a `break` to the block
+// the loop is left to (BlockInfo::loop_exit) or walked to its return.
 Stmt structurize(const std::string &start, const std::string &exit,
                  const BlockMap &block_map, const DominatorMap &dom,
                  const BlockInfoMap &info, const ArgMutabilityMap &mut_map,
                  const TypeMap &func_type_map, const Predecessors &preds_of,
                  const std::string &loop_header = "",
                  bool is_loop_body = false,
-                 std::set<std::string> in_scope = {}) {
+                 std::set<std::string> in_scope = {},
+                 const std::set<std::string> *loop_blocks = nullptr) {
 
     std::vector<Stmt> stmts;
     std::string name = start;
@@ -1655,6 +1889,14 @@ Stmt structurize(const std::string &start, const std::string &exit,
 
     // A region entered by a branch: what the edge assigns to the first
     // block's variables comes first, then the region itself. Nothing at all
+    // The block the enclosing `while (true)` is left to, if the region is
+    // inside one that has one (BlockInfo::loop_exit): arriving there is the
+    // loop's `break`.
+    const std::string loop_exit_block =
+        loop_blocks != nullptr && !loop_header.empty()
+            ? info.at(loop_header).loop_exit
+            : std::string();
+
     // when the edge assigns nothing and the region is empty.
     auto branch_region = [&](const Terminator::Jump &edge,
                              const std::string &region_exit,
@@ -1663,7 +1905,8 @@ Stmt structurize(const std::string &start, const std::string &exit,
         jump_args(edge.name, edge.args, body);
         Stmt rest = structurize(edge.name, region_exit, block_map, dom, info,
                                 mut_map, func_type_map, preds_of, header,
-                                /*is_loop_body=*/false, in_scope);
+                                /*is_loop_body=*/false, in_scope,
+                                header == loop_header ? loop_blocks : nullptr);
         if (rest.defined()) {
             body.push_back(std::move(rest));
         }
@@ -1674,6 +1917,18 @@ Stmt structurize(const std::string &start, const std::string &exit,
     };
 
     while (name != exit) {
+        // Arriving at the block the enclosing `while (true)` is left to,
+        // from inside it: the loop's `break`. What the edge here handed the
+        // block has been assigned already, as on any edge; the block itself
+        // is written after the loop, where the walk that emitted the loop
+        // resumes. (Not when it is this region's exit: then the arm ends
+        // and the `break` is written once, after the arms come together.)
+        if (!loop_exit_block.empty() && name == loop_exit_block) {
+            append(Break::make());
+            name = exit;
+            continue;
+        }
+
         auto block = block_map.at(name);
         const BlockInfo &bi = info.at(name);
 
@@ -1694,7 +1949,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
             name != start) {
             append(structurize(name, bi.loop_exit, block_map, dom, info,
                                mut_map, func_type_map, preds_of, loop_header,
-                               /*is_loop_body=*/false, in_scope));
+                               /*is_loop_body=*/false, in_scope, loop_blocks));
             name = bi.loop_exit;
             continue;
         }
@@ -1703,16 +1958,26 @@ Stmt structurize(const std::string &start, const std::string &exit,
         // latch. Everything from the header to the back edge is the body, and
         // the back edge -- wherever inside it turns out to be -- becomes a
         // `continue`, which is what passing `name` as the enclosing header
-        // below arranges. There is nothing after the loop: an infinite loop is
-        // left only by the returns in its body, so the region ends here.
+        // below arranges. After the loop comes the block it is left to, where
+        // its `break`s land (BlockInfo::loop_exit); a loop left only by the
+        // returns in its body has nothing after it, and the region ends.
         if (bi.role == BlockInfo::Role::DoWhileHeader && bi.infinite &&
             !is_loop_body) {
             Stmt body =
                 structurize(name, /*exit=*/"", block_map, dom, info, mut_map,
                             func_type_map, preds_of, /*loop_header=*/name,
-                            /*is_loop_body=*/true, in_scope);
+                            /*is_loop_body=*/true, in_scope, &bi.loop_blocks);
             append(DoWhile::make(std::move(body), BoolImm::make(true)));
-            name = exit;
+            if (bi.loop_exit.empty()) {
+                name = exit;
+            } else if (bi.loop_exit == loop_header) {
+                // Left straight to the enclosing loop's header: round it
+                // again.
+                append(Continue::make());
+                name = exit;
+            } else {
+                name = bi.loop_exit;
+            }
             continue;
         }
 

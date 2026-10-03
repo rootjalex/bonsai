@@ -37,6 +37,16 @@ public:
         // `trace.skip(intersectsp_ray_tri)` wagers on every arm written in
         // that helper, wherever inlining carried it (see ir::ArmCursors).
         IfArm,
+        // The arm inside the test a tree query makes at a node's entry
+        // (Lower/Trees.cpp): an extremum's "can this subtree beat the best"
+        // and a quantifier's "is the answer still undecided". The test is
+        // correctness-neutral -- it only avoids work that cannot change the
+        // answer -- and a parent's test of a child's volume decides it in
+        // advance for the child it descends into, so loopify sends a direct
+        // descent to this arm and lets the pop alone take the test
+        // (SSA/QueueRecursion.cpp): Embree's pop cull. Written in no
+        // function of the program, so it names none.
+        EntryGate,
     };
 
     Provenance() = default;
@@ -44,6 +54,7 @@ public:
     static Provenance match_arm(const std::string &func, const std::string &adt,
                                 const std::string &variant);
     static Provenance if_arm(const std::string &func);
+    static Provenance entry_gate();
 
     bool defined() const { return data != nullptr; }
     Kind kind() const;

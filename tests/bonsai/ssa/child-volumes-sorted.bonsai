@@ -56,11 +56,16 @@
 // with the nearest -- as the composition of a tree declaration and two
 // directives.
 //
-// What is not here: Embree also carries each pushed child's entry distance
-// on the stack and drops a popped entry whose distance is beyond the best
-// hit found since (`if (stackPtr->dist > ray.tfar) continue`). A popped child
-// here is visited: its own children are tested against the tightened best
-// and all fail, so the pruning happens, one level later than Embree's.
+// The loop is Embree's pair of nested loops. The pushed child's bound
+// travels on the stack (`!stack0`), and a popped entry is tested against the
+// best found since at the node's entry gate (`if (@2)`, Embree's `if
+// (stackPtr->dist > ray.tfar) continue`), which is the outer loop's body;
+// a direct descent skips the gate -- the parent's test of the child's box
+// decided it, and nothing has moved since -- and enters the inner loop,
+// `do { node test; descend or push; continue } while (true)`, which the
+// leaf and the node with nothing hit leave with a `break` to the pop
+// (loopify sends the descents past the marked gate, SSA/QueueRecursion.cpp;
+// the relooper writes the `break`, SSA/CodeGen_Stmt.cpp).
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

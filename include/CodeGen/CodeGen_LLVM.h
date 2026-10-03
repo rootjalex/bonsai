@@ -507,6 +507,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     RESTRICT_VISITOR(ir::ForEach);
     virtual void visit(const ir::ParFor *) override;
     virtual void visit(const ir::Continue *) override;
+    virtual void visit(const ir::Break *) override;
     virtual void visit(const ir::Launch *) override;
 
     // Protected rather than private: a target's subclass (CodeGen_X86) emits
@@ -845,9 +846,10 @@ struct CodeGen_LLVM : public ir::Visitor {
     // than one `--mcpu` or `--triple` named. Following the host is what turns
     // on `prefer-vector-width=256` (see optimize_module).
     bool follows_host = false;
-    // Used to compile `continue`
+    // Used to compile `continue`: the innermost loop's latch.
     std::vector<llvm::BasicBlock *> latch_blocks;
-    // TODO(ajr): will need this for `break` statements.
+    // And `break`: the block after the innermost loop (ir::Break).
+    std::vector<llvm::BasicBlock *> escape_blocks;
     // std::vector<llvm::BasicBlock *> escape_blocks;
 
     // Global LLVM state

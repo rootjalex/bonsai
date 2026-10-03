@@ -725,6 +725,54 @@ void queue_recursion(Function &func, size_t size) {
                         head->args[k].name);
     }
 
+    // The gate at the body's entry, if the body begins with one: the test
+    // the lowering writes at a node's entry -- an extremum's "can this
+    // subtree beat the best", a quantifier's "is the answer still undecided"
+    // -- whose arm inside carries ir::Provenance::EntryGate (Lower/Trees.cpp,
+    // SSA/Convert.cpp). A direct descent needs no such test: the parent
+    // tested the child's volume against the same best before descending, and
+    // nothing has moved between; the pop, which takes a node written down an
+    // unknown time ago, does. So a descent goes to the arm inside the gate
+    // with what the gate's own jump would have passed it, and the pop and the
+    // entry go through the test -- Embree's pop cull (bvh_intersector1.cpp,
+    // `if (stackPtr->dist > ray.tfar) continue`), and its two nested loops,
+    // the pops' around the descents'. The body block has to be the test and
+    // nothing else -- pure instructions and the dispatch -- and the arm's
+    // arguments made of the header's arguments and the parameters, so that a
+    // descent can supply them without running anything of the body.
+    struct Gate {
+        Terminator::Jump inside; // the gate's arm into the node's work
+    };
+    std::optional<Gate> gate;
+    if (const auto *d =
+            std::get_if<Terminator::Dispatch>(&body->terminator.data);
+        d != nullptr && d->targets.size() == 2) {
+        const BlockMap bmap = make_block_map(func);
+        std::set<const Instruction *> own;
+        bool pure = true;
+        for (const auto &instr : body->instrs) {
+            own.insert(instr.get());
+            pure = pure && !instr->name.empty();
+        }
+        for (const Terminator::Jump &t : d->targets) {
+            const auto target = bmap.find(t.name);
+            if (!pure || target == bmap.end() ||
+                !target->second->provenance.defined() ||
+                target->second->provenance.kind() !=
+                    ir::Provenance::Kind::EntryGate) {
+                continue;
+            }
+            bool supplied = true;
+            for (const auto &arg : t.args) {
+                const auto *in = std::get_if<shared_ptr<Instruction>>(&arg->data);
+                supplied = supplied && (in == nullptr || !own.count(in->get()));
+            }
+            if (supplied) {
+                gate = Gate{t};
+            }
+        }
+    }
+
     auto pop = new_block(func, "!visit_pop");
     func.blocks.push_back(pop);
     auto pop_next = new_block(func, "!visit_next");
@@ -735,9 +783,28 @@ void queue_recursion(Function &func, size_t size) {
     auto bool_of = [](bool b) {
         return std::make_shared<Value>(Constant{Bool_t::make(), b});
     };
-    // Round again, with `nodes` as the current node.
-    auto visit = [&](vector<shared_ptr<Value>> nodes,
-                     shared_ptr<Value> alive) {
+    // Round again, with `nodes` as the current node. A direct descent --
+    // `direct`, from a node to one of its children, as against the entry and
+    // the pop -- that is known to be live goes to the arm inside the entry
+    // gate (above) with what the gate would have handed it: the header's
+    // arguments replaced by the child's values.
+    auto visit = [&](vector<shared_ptr<Value>> nodes, shared_ptr<Value> alive,
+                     bool direct) {
+        const auto *c = std::get_if<Constant>(&alive->data);
+        const bool *known = c ? std::get_if<bool>(&c->data) : nullptr;
+        if (direct && gate.has_value() && known != nullptr && *known) {
+            std::map<string, shared_ptr<Value>> passed;
+            for (size_t k = 0; k < stacks.size(); k++) {
+                passed[head->args[k].name] = nodes[k];
+            }
+            Terminator::Jump jump{gate->inside.name, {}};
+            for (const shared_ptr<Value> &arg : gate->inside.args) {
+                const auto *a = std::get_if<Argument>(&arg->data);
+                const auto it = a ? passed.find(a->name) : passed.end();
+                jump.args.push_back(it == passed.end() ? arg : it->second);
+            }
+            return jump;
+        }
         Terminator::Jump jump{head->name, std::move(nodes)};
         jump.args.push_back(std::move(alive));
         return jump;
@@ -749,7 +816,8 @@ void queue_recursion(Function &func, size_t size) {
         for (const Stack &stack : stacks) {
             root.push_back(std::make_shared<Value>(params[stack.param]));
         }
-        entry->terminator.data = visit(std::move(root), bool_of(true));
+        entry->terminator.data =
+            visit(std::move(root), bool_of(true), /*direct=*/false);
     }
 
     // Take the top of the stack, if there is one -- and, if the traversal is
@@ -786,7 +854,8 @@ void queue_recursion(Function &func, size_t size) {
 
     // Nothing left to visit: the current node stays what it was, and the loop
     // ends at the header.
-    pop_done->terminator.data = visit(current, bool_of(false));
+    pop_done->terminator.data =
+        visit(current, bool_of(false), /*direct=*/false);
 
     auto next = append(func, pop_next, count_type, Instruction::Op::Sub,
                        {height, count_of(1)});
@@ -798,7 +867,8 @@ void queue_recursion(Function &func, size_t size) {
                                     Instruction::Op::ExtractIdx,
                                     {stack.storage, next}));
         }
-        pop_next->terminator.data = visit(std::move(popped), bool_of(true));
+        pop_next->terminator.data =
+            visit(std::move(popped), bool_of(true), /*direct=*/false);
     }
 
     //===----------------------------------------------------------------===//
@@ -1035,7 +1105,8 @@ void queue_recursion(Function &func, size_t size) {
                     Instruction::Op::ExtractIdx,
                     {run.values.at(stack.param), count_of(n - 1)}));
             }
-            push->terminator.data = visit(std::move(nearest), std::move(alive));
+            push->terminator.data =
+                visit(std::move(nearest), std::move(alive), /*direct=*/true);
             continue;
         }
 
@@ -1090,7 +1161,8 @@ void queue_recursion(Function &func, size_t size) {
                 if (acc.has_value() && may_settle_before(name)) {
                     alive = undecided_in(one);
                 }
-                one->terminator.data = visit(std::move(only), std::move(alive));
+                one->terminator.data =
+                    visit(std::move(only), std::move(alive), /*direct=*/true);
                 into->terminator.data = Terminator::Dispatch{
                     hits,
                     {Terminator::Jump{pop->name}, Terminator::Jump{one->name},
@@ -1189,7 +1261,8 @@ void queue_recursion(Function &func, size_t size) {
                                       Instruction::Op::ExtractIdx,
                                       {vectors.at(stack.param), picked}));
             }
-            push->terminator.data = visit(std::move(next), std::move(alive));
+            push->terminator.data =
+                visit(std::move(next), std::move(alive), /*direct=*/true);
             continue;
         }
 
@@ -1246,7 +1319,8 @@ void queue_recursion(Function &func, size_t size) {
         for (const Stack &stack : stacks) {
             child.push_back(call->args[0][stack.param]);
         }
-        Terminator::Jump descend = visit(std::move(child), std::move(alive));
+        Terminator::Jump descend =
+            visit(std::move(child), std::move(alive), /*direct=*/true);
         // A first child under a condition is descended into where the
         // condition holds, and where it does not the node is done: the next
         // one comes off the stack, which is where a return went.

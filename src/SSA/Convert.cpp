@@ -1572,6 +1572,7 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Continue);
+    RESTRICT_VISITOR(Break);
     RESTRICT_VISITOR(Launch);
     // RESTRICT_VISITOR(Append);
 };

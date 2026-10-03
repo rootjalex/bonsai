@@ -22,7 +22,7 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
   rec(tris : tree[[Triangle]] BVH4) {
     match tris {
     | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
-      if (!_holds0) {
+      if (!_holds0) { // gate
         _mask0 : mut bool[4]
         parfor children in [0u:4u:1u] {
           _mask0[children] = intersects(r, build<AABB>((tris as Interior).lo[children], (tris as Interior).hi[children]))
@@ -33,7 +33,7 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
         from ((tris as Interior).children[0u], (tris as Interior).children[1u], (tris as Interior).children[2u], (tris as Interior).children[3u]) where (_mask0[0u], _mask0[1u], _mask0[2u], _mask0[3u])
       }
     | Leaf(data : Triangle[]) with data = data ->
-      if (!_holds0) {
+      if (!_holds0) { // gate
         foreach [data] _iter0 in (tris as Leaf).data {
           if (!_holds0) {
             _holds0 max= intersects(r, _iter0)
@@ -48,7 +48,7 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
 func _traverse_tree1(r : Ray, tris : tree[[Triangle]] BVH4) -> option<Triangle> {
   _best0 : mut (f32, (ref[Triangle in tris])) := ((f32)inf, ())
   rec(tris : tree[[Triangle]] BVH4, _bound0 : f32 = -(f32)inf) {
-    if (_bound0 < _best0[0]) {
+    if (_bound0 < _best0[0]) { // gate
       match tris {
       | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children ->
         _mask1 : mut bool[4]

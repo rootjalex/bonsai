@@ -106,6 +106,7 @@ struct ForAll;
 struct ForEach;
 struct ParFor;
 struct Continue;
+struct Break;
 struct Launch;
 struct Append;
 

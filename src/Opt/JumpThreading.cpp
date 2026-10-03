@@ -125,13 +125,15 @@ struct Shape : Visitor {
     void visit(const Label *) override { plain = false; }
     void visit(const Free *) override { plain = false; }
     void visit(const Continue *) override { plain = false; }
+    void visit(const Break *) override { plain = false; }
 };
 
-// Does `stmt` contain a `continue`?
+// Does `stmt` contain a `continue` or a `break`?
 bool leaves_loop(const Stmt &stmt) {
     struct Check : Visitor {
         bool found = false;
         void visit(const Continue *) override { found = true; }
+        void visit(const Break *) override { found = true; }
     };
     Check check;
     stmt.accept(&check);

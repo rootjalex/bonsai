@@ -4936,14 +4936,13 @@ void CodeGen_LLVM::visit(const DoWhile *node) {
     // Establish new frame
     frames.push_frame();
     latch_blocks.push_back(cond_bb);
-    // TODO(ajr): will need this for `break` statements.
-    // escape_blocks.push_back(end_bb);
+    escape_blocks.push_back(end_bb);
 
     // Emit loop body
     codegen_stmt(node->body);
 
     latch_blocks.pop_back();
-    // escape_blocks.pop_back();
+    escape_blocks.pop_back();
 
     codegen_branch(cond_bb);
 
@@ -4979,12 +4978,15 @@ void CodeGen_LLVM::visit(const While *node) {
     builder->SetInsertPoint(loop_bb);
 
     frames.push_frame();
-    // Where `continue` goes: back to the test, which is this loop's latch.
+    // Where `continue` goes: back to the test, which is this loop's latch;
+    // and `break` to the block after the loop.
     latch_blocks.push_back(cond_bb);
+    escape_blocks.push_back(end_bb);
 
     codegen_stmt(node->body);
 
     latch_blocks.pop_back();
+    escape_blocks.pop_back();
 
     codegen_branch(cond_bb);
 
@@ -6577,14 +6579,13 @@ void CodeGen_LLVM::codegen_counted_loop(const std::string &index,
     frames.add_to_frame(index, phi);
 
     latch_blocks.push_back(inc_bb);
-    // TODO(ajr): will need this for `break` statements.
-    // escape_blocks.push_back(end_bb);
+    escape_blocks.push_back(end_bb);
 
     // Emit loop body
     codegen_stmt(body);
 
     latch_blocks.pop_back();
-    // escape_blocks.pop_back();
+    escape_blocks.pop_back();
 
     codegen_branch(inc_bb);
     builder->SetInsertPoint(inc_bb);
@@ -6614,6 +6615,14 @@ void CodeGen_LLVM::visit(const Continue *node) {
     internal_assert(!builder->GetInsertBlock()->hasTerminator())
         << "CodeGen of Continue in already-terminating block";
     builder->CreateBr(latch_blocks.back());
+}
+
+void CodeGen_LLVM::visit(const Break *node) {
+    internal_assert(!escape_blocks.empty())
+        << "CodeGen of Break outside of loop.";
+    internal_assert(!builder->GetInsertBlock()->hasTerminator())
+        << "CodeGen of Break in already-terminating block";
+    builder->CreateBr(escape_blocks.back());
 }
 
 void CodeGen_LLVM::visit(const Launch *node) {

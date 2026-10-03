@@ -1496,7 +1496,14 @@ void Printer::visit(const IfElse *node) {
     while (true) {
         os << "if (";
         print_no_parens(node->cond);
-        os << ") {\n";
+        os << ") {";
+        // A tree query's gate at a node's entry says so, since a reader of
+        // a traversal looks for it (ir::Provenance::EntryGate).
+        if (node->provenance.defined() &&
+            node->provenance.kind() == Provenance::Kind::EntryGate) {
+            os << " // gate";
+        }
+        os << "\n";
         indent++;
         print(node->then_body);
         indent--;
@@ -1858,6 +1865,12 @@ void Printer::visit(const ParFor *node) {
 void Printer::visit(const Continue *node) {
     os << get_indent();
     os << "continue";
+    end_stmt();
+}
+
+void Printer::visit(const Break *node) {
+    os << get_indent();
+    os << "break";
     end_stmt();
 }
 

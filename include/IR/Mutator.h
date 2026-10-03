@@ -109,6 +109,7 @@ struct Mutator {
     virtual Stmt visit(const ForEach *);
     virtual Stmt visit(const ParFor *);
     virtual Stmt visit(const Continue *);
+    virtual Stmt visit(const Break *);
     virtual Stmt visit(const Launch *);
     virtual Stmt visit(const Append *);
 };
