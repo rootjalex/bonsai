@@ -3971,6 +3971,17 @@ struct LowerBVH : public ir::Mutator {
         const ir::Expr tmax =
             ir::min(ir::Access::make(parts.tmax_field, rq.q),
                     ir::FloatImm::make(f32, 1e30));
+        // The ray starts at 1e-7, not at zero: pbrt's `Trace` (gpu/optix/
+        // optix.cu, `static constexpr float eps = 1e-7f`) gives every ray
+        // that tmin, so that a ray spawned off a surface -- its origin pushed
+        // out by the hit's error bound -- cannot be handed the surface it
+        // left at a distance the hardware's test rounds to nothing. Without
+        // it a shadow ray crossing a medium boundary (TraceTransmittance's
+        // re-spawn at every interface) met the same face again at zero and
+        // re-spawned there forever, the GPU at full occupancy and the
+        // picture never written; pbrt's own GPU does the same on the same
+        // scene when its margin is not enough.
+        const ir::Expr tmin = ir::FloatImm::make(f32, 1e-7);
         // What the programs read of the program's data joins these operands
         // once every pool exists (Lower/RTCoreReads.h), so that it reaches
         // the raygen program's launch as a capture.
@@ -3979,8 +3990,8 @@ struct LowerBVH : public ir::Mutator {
             ir::Intrinsic::make(
                 ir::Intrinsic::rt_trace,
                 {ir::Intrinsic::make(ir::Intrinsic::rt_traversable, {rq.tree}),
-                 origin(rq.q), direction(rq.q), ir::FloatImm::make(f32, 0.0),
-                 tmax, flags, ir::PtrTo::make(local)})));
+                 origin(rq.q), direction(rq.q), tmin, tmax, flags,
+                 ir::PtrTo::make(local)})));
         body.push_back(ir::Return::make(ir::Access::make("result", local)));
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
 

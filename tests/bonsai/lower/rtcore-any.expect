@@ -73,13 +73,13 @@ func __miss__trace_any(ctx : mut _RTContext_trace_any) -> void {
 
 func _rt_trace0(r : Ray, tris : tree[[Tri]] OptixTree) -> option<Tri> {
   _ctx : mut _RTContext_trace := build<_RTContext_trace>(r, build<option<Tri>>())
-  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 0f, min(r.tmax, 1e+30f), 0u, (&_ctx)) in
+  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 1e-07f, min(r.tmax, 1e+30f), 0u, (&_ctx)) in
   return _ctx.result
 }
 
 func _rt_trace1(r : Ray, tris : tree[[Tri]] OptixTree) -> bool {
   _ctx : mut _RTContext_trace_any := build<_RTContext_trace_any>(r, true)
-  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 0f, min(r.tmax, 1e+30f), 12u, (&_ctx)) in
+  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 1e-07f, min(r.tmax, 1e+30f), 12u, (&_ctx)) in
   return _ctx.result
 }
 
