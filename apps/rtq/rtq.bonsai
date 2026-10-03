@@ -170,13 +170,28 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 
 extern triangles : set[Triangle];
 
+// Embree: TravRay -- the ray as the traversal reads it, its segment clamped
+// to [0, inf) at entry (`tnear = max(tnear, 0)`, `tfar = max(tfar, 0)`,
+// node_intersector1.h). A box's entry distance is `max(.., tnear)`, so with
+// the clamp it is never negative, and the sort's key can be ordered as its
+// bits without the sign flip that a negative float would need: Embree's
+// `distance_i` is `asInt(tNear)` for the same reason. The compiler carries
+// the fact from here through the calls to the key (SSA/ConstantIntervals.h,
+// SSA/SortRecursion.cpp).
+func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+
 // Embree: rtcIntersect1 -- the nearest triangle the ray hits, if any.
-func trace(r : Ray) =
-    argmin(|t : Triangle| distmin(r, t),
-           filter(|t : Triangle| intersects(r, t), triangles));
+func trace(r0 : Ray) -> option[Triangle] {
+    r = clamped(r0);
+    return argmin(|t : Triangle| distmin(r, t),
+                  filter(|t : Triangle| intersects(r, t), triangles));
+}
 
 // Embree: rtcOccluded1 -- whether the ray hits anything at all.
-func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), triangles);
+func occluded(r0 : Ray) -> bool {
+    r = clamped(r0);
+    return any(|t : Triangle| intersects(r, t), triangles);
+}
 
 // A batch of rays, each answered with the id of the triangle it hits or
 // 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), and a batch answered with

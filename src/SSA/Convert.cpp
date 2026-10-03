@@ -16,6 +16,7 @@
 #include "SSA/InvariantDivision.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
+#include "SSA/ConstantIntervals.h"
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
 #include "SSA/SSA.h"
@@ -2025,11 +2026,25 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // lowering invented and the schedule cannot name. The keys are on the IR by
     // now, so a function no schedule sorted has none and this does nothing to
     // it.
-    for (const auto &[name, f] : fmap) {
-        sort_recursion(*f, options.target);
-        // What the network compared was built by rule; this is where it is
-        // looked at (see SSA/Simplify.h).
-        simplify(*f);
+    //
+    // What every value is known to lie between, over the whole program as
+    // it stands, is what lets a sort leave out the sign flip of a key that
+    // cannot be negative (SSA/ConstantIntervals.h); the rewrites below make
+    // values this never saw, which is fine, since an unknown value is
+    // everything.
+    {
+        const ConstantIntervals intervals(fmap);
+        if (std::getenv("BONSAI_INTERVALS") != nullptr) {
+            for (const auto &[name, f] : fmap) {
+                intervals.dump(std::cerr, *f);
+            }
+        }
+        for (const auto &[name, f] : fmap) {
+            sort_recursion(*f, options.target, intervals);
+            // What the network compared was built by rule; this is where it
+            // is looked at (see SSA/Simplify.h).
+            simplify(*f);
+        }
     }
     phase("sort and simplify");
 

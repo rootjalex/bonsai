@@ -24,22 +24,17 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @27 = i >> 31 in
-    let @28 = reinterpret_cast<u32>(@27) in
-    let @29 = @28 >> 30u in
-    let @30 = reinterpret_cast<i32>(@29) in
-    let @31 = i + @30 in
-    let @32 = @31 >> 2 in
-    let @33 = @32 * 4 in
-    let @1 = i - @33 in
+    let @27 = i < 4 in
+    let @28 = i - 4 in
+    let @1 = select(@27, i, @28) in
     let @6 = build<Entry_rays>(@0, @1, i) in
-    let @35 = atomic_add((&(*rays_queue).count), 1u) in
-    let @37 = (*rays_queue).x in
-    @37[@35] = @0
-    let @40 = (*rays_queue).n in
-    @40[@35] = @1
-    let @43 = (*rays_queue)._slot in
-    @43[@35] = i
+    let @30 = atomic_add((&(*rays_queue).count), 1u) in
+    let @32 = (*rays_queue).x in
+    @32[@30] = @0
+    let @35 = (*rays_queue).n in
+    @35[@30] = @1
+    let @38 = (*rays_queue)._slot in
+    @38[@30] = i
     continue
   }
   rays!round = 0u

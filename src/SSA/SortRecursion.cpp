@@ -405,7 +405,8 @@ LaneSortStrategy lane_sort_strategy(const Target &target) {
 // the arms of a switch on the count of hits, which `block` ends in
 // afterwards; the reference `call` is spent.
 void sort_lanes(Function &func, const shared_ptr<Block> &block,
-                Terminator::MultiCall &call, const Lanes &lanes) {
+                Terminator::MultiCall &call, const Lanes &lanes,
+                const ConstantIntervals &intervals) {
     const uint32_t n = uint32_t(call.varying.size());
     const Type u32 = UInt_t::make(32), i32 = Int_t::make(32);
     const Type f32 = Float_t::make_f32(), b = Bool_t::make();
@@ -492,12 +493,24 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     // all the lanes (the last arm) needs them out of the hits' way, where
     // they are made infinite. The index is a bit field of the key: with the
     // keys scalars, `key & (n - 1)` is the lane to read a child from.
+    //
+    // The flip goes when the keys are known not to be negative
+    // (SSA/ConstantIntervals.h): a non-negative float's bits order as the
+    // float does already. Embree's `distance_i` is `asInt(tNear)` with no
+    // flip at all, because its traversal clamps the ray's `tnear` to zero
+    // at entry (TravRay) and a box's entry distance is `max(.., tnear)`;
+    // a program that does the same is read the same way here, the fact
+    // carried from the clamp to the key through the calls between.
     auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {keys});
-    auto sign = emit(block, i32xn, Instruction::Op::Shr,
-                     {bits, bc(block, ci32(31), i32xn)});
-    auto flip = emit(block, i32xn, Instruction::Op::BwAnd,
-                     {sign, bc(block, ci32(0x7fffffff), i32xn)});
-    auto ordered = emit(block, i32xn, Instruction::Op::Xor, {bits, flip});
+    const ConstantInterval key_range = intervals.of(func, *block, lanes.keys);
+    shared_ptr<Value> ordered = bits;
+    if (!(key_range.min_defined && key_range.min >= 0)) {
+        auto sign = emit(block, i32xn, Instruction::Op::Shr,
+                         {bits, bc(block, ci32(31), i32xn)});
+        auto flip = emit(block, i32xn, Instruction::Op::BwAnd,
+                         {sign, bc(block, ci32(0x7fffffff), i32xn)});
+        ordered = emit(block, i32xn, Instruction::Op::Xor, {bits, flip});
+    }
     auto lane = emit(block, i32xn, Instruction::Op::Ramp, {ci32(0), ci32(1)});
     auto high = emit(block, i32xn, Instruction::Op::BwAnd,
                      {ordered, bc(block, ci32(-int64_t(n)), i32xn)});
@@ -688,7 +701,8 @@ std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
     return run;
 }
 
-size_t sort_recursion(Function &func, const Target &target) {
+size_t sort_recursion(Function &func, const Target &target,
+                      const ConstantIntervals &intervals) {
     const LaneSortStrategy strategy = lane_sort_strategy(target);
     internal_assert(strategy == LaneSortStrategy::Compact);
     size_t sorted = 0;
@@ -717,7 +731,7 @@ size_t sort_recursion(Function &func, const Target &target) {
                 lanes.has_value() && lanes->keys) {
                 // Clears the keys itself and moves the run out of `block`,
                 // which ends in a switch afterwards: `call` is spent.
-                sort_lanes(func, block, *call, *lanes);
+                sort_lanes(func, block, *call, *lanes, intervals);
                 sorted++;
                 continue;
             }

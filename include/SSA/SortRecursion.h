@@ -2,6 +2,7 @@
 #define BONSAI_SSA_SORT_RECURSION_H
 
 #include "IR/Target.h"
+#include "SSA/ConstantIntervals.h"
 #include "SSA/SSA.h"
 
 #include <map>
@@ -49,7 +50,11 @@ namespace ssa {
 // recursion no schedule sorted. `target` is the machine the code is for,
 // which decides how a run that is the lanes of vectors is ordered and
 // handed to loopify (see lane_sort_strategy in SortRecursion.cpp).
-size_t sort_recursion(Function &func, const Target &target);
+// `intervals` is what the program's values are known to lie between
+// (SSA/ConstantIntervals.h): a key that cannot be negative is ordered as
+// its bits without the sign flip.
+size_t sort_recursion(Function &func, const Target &target,
+                      const ConstantIntervals &intervals);
 
 // A run sort_recursion() ordered as vectors, read off the shape it left: call
 // k's varying values are lane `lanes - 1 - k` of one vector per varying

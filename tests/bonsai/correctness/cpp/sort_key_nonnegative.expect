@@ -1,0 +1,30 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_sort_key_nonnegative.cpp -I. -o tests/bonsai/correctness/cpp/main_sort_key_nonnegative.o
+[test] clang++ tests/bonsai/correctness/cpp/main_sort_key_nonnegative.o tests/bonsai/correctness/cpp/sort_key_nonnegative.o -o tests/bonsai/correctness/cpp/sort_key_nonnegative
+[test] ./tests/bonsai/correctness/cpp/sort_key_nonnegative
++x: clamped wall at x=0 z=0, raw wall at x=0 z=0, occluded -- ok
+-x: clamped wall at x=70 z=0, raw wall at x=70 z=0, occluded -- ok
++x from 35: clamped wall at x=40 z=0, raw wall at x=40 z=0, occluded -- ok
++x short: clamped miss, raw miss, clear -- ok
++x behind: clamped wall at x=10 z=0, raw wall at x=0 z=0, occluded -- ok
++x negative tnear: clamped wall at x=0 z=0, raw wall at x=0 z=0, occluded -- ok
++x: clamped wall at x=0 z=5, raw wall at x=0 z=5, occluded -- ok
+-x: clamped wall at x=70 z=5, raw wall at x=70 z=5, occluded -- ok
++x from 35: clamped wall at x=40 z=5, raw wall at x=40 z=5, occluded -- ok
++x short: clamped miss, raw miss, clear -- ok
++x behind: clamped wall at x=10 z=5, raw wall at x=0 z=5, occluded -- ok
++x negative tnear: clamped wall at x=0 z=5, raw wall at x=0 z=5, occluded -- ok
++x: clamped wall at x=0 z=10, raw wall at x=0 z=10, occluded -- ok
+-x: clamped wall at x=70 z=10, raw wall at x=70 z=10, occluded -- ok
++x from 35: clamped wall at x=40 z=10, raw wall at x=40 z=10, occluded -- ok
++x short: clamped miss, raw miss, clear -- ok
++x behind: clamped wall at x=10 z=10, raw wall at x=0 z=10, occluded -- ok
++x negative tnear: clamped wall at x=0 z=10, raw wall at x=0 z=10, occluded -- ok
++x: clamped wall at x=0 z=15, raw wall at x=0 z=15, occluded -- ok
+-x: clamped wall at x=70 z=15, raw wall at x=70 z=15, occluded -- ok
++x from 35: clamped wall at x=40 z=15, raw wall at x=40 z=15, occluded -- ok
++x short: clamped miss, raw miss, clear -- ok
++x behind: clamped wall at x=10 z=15, raw wall at x=0 z=15, occluded -- ok
++x negative tnear: clamped wall at x=0 z=15, raw wall at x=0 z=15, occluded -- ok
++x between lanes: clamped miss, raw miss, clear -- ok
+diagonal: clamped wall at x=0 z=0, raw wall at x=0 z=0, occluded -- ok
++z beside: clamped miss, raw miss, clear -- ok

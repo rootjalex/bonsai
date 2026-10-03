@@ -2078,6 +2078,116 @@ take `addq`, `vpandq` and `vpaddq` out of every visit, but a reference
 is an index by design (it relocates; see the layout notes), so that
 stays as it is.
 
+## The key's sign flip gone: what every value lies between (2026-10-03)
+
+Item 5 of the rulings. Built in three parts.
+
+**1. The analysis.** SSA/ConstantIntervals.h: `ConstantInterval`, Halide's
+(src/ConstantInterval.h: two optional bounds, union, intersection,
+arithmetic, min, max, abs, cast_to), with the bounds doubles so that floats
+are in -- an integer bound is exact to 2^53 and dropped past it, an
+integer interval stays within its type's range, an infinity is a bound
+like any other, and a NaN is outside the lattice (the bounds say where a
+value is when it is a number; the sort's lanes that are read are the
+hits', whose box test is false for a NaN). `ConstantIntervals`, Halide's
+constant_integer_bounds (src/ConstantBounds.cpp) over this SSA form: one
+pass per function in reverse postorder, a constant itself, an instruction
+its operation on its operands (add, sub, mul, div, mod, min, max, abs,
+select, casts, bc, ramp, extract, reduce, shuffle, load_field,
+make_struct, bitwise and/or/xor, shifts, popcount, the comparisons, the
+intrinsics abs/min/max/fma/sqrt/sqr/exp/sin/cos/clz/ctz/permute/compress),
+a block argument the union of what every edge hands it -- an edge from
+inside the loop the block heads making it everything, except a value
+handed back as itself, which adds nothing. What one pass cannot see it
+reads from memory and across calls: a local allocation's contents are the
+union of everything stored into it, field by field and an array's
+elements as one (a store through a pointer that resolves, through GEPs,
+FieldPtrs and the block arguments the Definitions helper follows, to an
+Alloca; everything once the address goes anywhere this does not follow),
+read by the loads of the next pass, three passes at most; a parameter is
+the union of the arguments every live call site hands it, field by field
+(a struct parameter's fields each their own: the ray's `tnear`), a call's
+result the union of the callee's returns, and what a callee stores
+through a pointer parameter lands in the caller's local, six rounds at
+most over the program with every summary starting as everything and
+narrowing, so that stopping anywhere is sound. A recursion handing its own
+parameter back is left out of that parameter's union, which is what lets
+the traversal's ray keep what the query said of it; a function nothing
+exported reaches (the traversal the lowering extracted and then inlined
+into its callers, kept in the map) feeds no call site, or its unnarrowed
+parameters would widen every callee's. `make_struct<T>()` with no operands
+is all zeros, the backends' null value -- an option's empty variant, whose
+`set` is then [0, 1] after the union and whose payload is the other arm's.
+`BONSAI_INTERVALS=1` prints what was found, per function.
+
+**2. The clients.** The sort (SSA/SortRecursion.cpp, sort_lanes) asks for
+the keys' interval -- the keys array's contents -- and forms the key as
+the bits alone when the lower bound is at least zero: a non-negative
+float's bits order as the float does, and Embree's `distance_i` is
+`asInt(tNear)` for the same reason. The division pass's `upper_bound`
+(SSA/InvariantDivision.cpp), which searched by shape for what a dividend
+is below -- constants, selects, sums, products, masks, shifts, casts,
+remainders, and the `select(x < c, x, x - c)` a remainder becomes -- is a
+client now, each pass analysing its function once and an instruction the
+rewrite itself made read off its operands when asked about (the Select
+rule for the remainder chain moved into the analysis). Two goldens moved,
+both for the better: `i % 4` on a `parfor i in 0:8`'s index, which the
+old search could not bound and the analysis reads as [0, 7] from the
+loop's bounds, is now the one comparison `select(i < 4, i, i - 4)` where
+it was the eight instructions of a signed remainder by a constant
+(ssa/defer-reducer, ssa/defer-stage-cycle).
+
+**3. The program.** rtq.bonsai clamps the ray at the queries' entry, as
+Embree's TravRay does (`tnear = max(tnear, 0)`, `tfar = max(tfar, 0)`):
+`clamped(r)`, called by `trace` and `occluded`. The box test's `tNear =
+max(.., r.tnear)` is then at least zero, and the fact travels from the
+clamp in `trace` (where the traversal is inlined; the extracted
+`_traverse_tree1` is dead) into `_recloop_func1`'s `r`, round its own
+recursion, into the children loop's `r`, through the inlined box test's
+option slot (`store intersectsp_ray_aabb$r21 make_struct<_option1>(..)`,
+`load`, two `load_field`s), `distmin`'s own slot (`store distmin$r0 @151`
+or `inf`), the keys array (`store gep(_keys0, children) _t141`), to the
+sort's `extract_idx(_keys0, k)`: `*_keys0 : [0, inf]`. The
+nearest-hit traversal's keys are formed as `reinterpret<i32x8>`, `& -8`,
+`| lane`, `compress`; the `shr 31`, `& 0x7fffffff`, `xor` are gone.
+
+**The kernel.** The two-hit arm's key formation went from `vblendmps`
+(distmin's inf), `vandps`, `vpmovd2m`, masked `vxorps`, `vorps`,
+`vpcompressd` -- six ops with a vector-to-mask move on the chain -- to
+`vblendmps`, `vpternlogd $0xf8` (`(bits & -8) | lane` in one, which LLVM
+forms once nothing sits between the and and the or), `vpcompressd`:
+Embree's own three. trace_all 555 -> 550 instructions. The blend is the
+one op left over Embree's `distance_i`, and it is not the sort's: it is
+`distmin`'s `inf` for a missed box, promoted out of the slot into a
+select whose misses the compress then drops; removing it needs a
+demanded-lanes pass (LLVM's SimplifyDemandedVectorElts does not know
+vector.compress's unselected lanes are dead), which is noted and not
+done.
+
+**Measured** (cpu 11, `--side 2048`, least of 5, two worktrees back to
+back, baseline 591787e4, every ray agreeing). Nearest hit, matching
+schedule, million rays per second and the ratio to Embree
+(primary / ao / diffuse): head 60.0 -> 62.1 (0.96 -> 0.97x) / 14.3 ->
+14.6 (0.91 -> 0.93x) / 12.7 -> 13.0 (0.91 -> 0.93x); ganesha 22.6 -> 23.4
+(0.94 -> 0.97x) / 6.25 -> 6.48 (0.95 -> 0.98x) / 5.79 -> 5.99 (0.94 ->
+0.97x); dragon 34.0 -> 34.3 (1.00 -> 1.00x) / 4.59 -> 4.67 (0.98 -> 0.99x)
+/ 4.06 -> 4.13 (0.97 -> 0.99x). The any hit, which sorts nothing, is level
+within noise on every number. Three ops off the sorted arms' chain for 2
+to 4% on the meshes whose nodes are hit twice or more the most, 1 to 2% on
+dragon; the nearest hit stands at 0.97-1.00x of Embree on primary rays
+and 0.93-0.99x on incoherent ones.
+
+**Tests.** ssa/sort-key-nonnegative (a program with its own ray carrying
+`tnear` and `tfar`, Embree's slab test, and two sorted queries, `trace`
+clamped and `trace_raw` not: the first's traversal has no flip, the
+second's has it), backends/llvm/sort-key-nonnegative (the same through
+LLVM: `xor <4 x i32>` in one traversal only), correctness/cpp/
+sort_key_nonnegative (both queries on the four-wide walls scene; on a ray
+with `tnear = -5` from between two walls the raw query reports the wall
+two units behind the origin as the nearest, Embree's `tnear < t`, where
+the clamped one reports the wall ahead -- the negative keys sort right
+with the flip, the non-negative ones right without).
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

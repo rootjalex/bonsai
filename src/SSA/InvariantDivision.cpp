@@ -2,6 +2,7 @@
 
 #include "IR/Equality.h"
 #include "SSA/Analysis.h"
+#include "SSA/ConstantIntervals.h"
 #include "Error.h"
 
 #include <map>
@@ -219,12 +220,16 @@ struct Multiplier {
     string negative;
 };
 
-optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth);
+optional<uint64_t> upper_bound(const ConstantIntervals &intervals,
+                               const Function &func, const Block &block,
+                               const ValuePtr &v);
 
 // What a divisor's magnitude is known to be at most: what upper_bound
 // proves, or for a type of 32 bits or fewer, what the type says.
-optional<uint64_t> divisor_bound(const ValuePtr &d, const Type &type) {
-    if (const optional<uint64_t> b = upper_bound(d, 0)) {
+optional<uint64_t> divisor_bound(const ConstantIntervals &intervals,
+                                 const Function &func, const Block &block,
+                                 const ValuePtr &d, const Type &type) {
+    if (const optional<uint64_t> b = upper_bound(intervals, func, block, d)) {
         return b;
     }
     if (type.bits() <= 32) {
@@ -616,198 +621,32 @@ ValuePtr pattern_constant(const Type &type, uint64_t pattern) {
     return std::make_shared<Value>(Constant{type, value});
 }
 
-// What `v` is known to be at most, when it is known to be non-negative and
-// bounded by what it is built from: constants, selects among them, sums and
-// products of them, masks, shifts, casts from narrower unsigned types, and
-// remainders by constants. Nothing for anything else -- an argument, a
-// load -- which is where the search stops. What Halide's simplifier knows
-// through bounds inference, in the little of it a division needs: a
-// dividend that stays below twice its divisor is divided by one comparison.
-optional<uint64_t> upper_bound(const ValuePtr &v, unsigned depth = 0) {
-    if (depth > 8) {
+// What `v`, as `block` of `func` refers to it, is known to be at most, when
+// it is known to be non-negative: the upper bound of its constant interval
+// (SSA/ConstantIntervals.h). That analysis knows what this pass once
+// searched for by shape on its own -- constants, selects among them, sums
+// and products, masks, shifts, casts from narrower types, remainders by
+// constants, and the `select(x < c, x, x - c)` a remainder becomes here --
+// and what it has learned since; a dividend that stays below twice its
+// divisor is divided by one comparison.
+optional<uint64_t> upper_bound(const ConstantIntervals &intervals,
+                               const Function &func, const Block &block,
+                               const ValuePtr &v) {
+    const ConstantInterval i = intervals.of(func, block, v);
+    if (!i.min_defined || i.min < 0 || !i.max_defined || i.max < 0 ||
+        i.max >= 18446744073709551616.0) {
         return std::nullopt;
     }
-    if (const auto *c = std::get_if<Constant>(&v->data)) {
-        if (const auto *u = std::get_if<uint64_t>(&c->data)) {
-            return *u;
-        }
-        if (const auto *i = std::get_if<int64_t>(&c->data)) {
-            return *i >= 0 ? optional<uint64_t>(uint64_t(*i)) : std::nullopt;
-        }
-        if (const auto *b = std::get_if<bool>(&c->data)) {
-            return *b ? 1 : 0;
-        }
-        return std::nullopt;
-    }
-    const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
-    if (held == nullptr) {
-        return std::nullopt;
-    }
-    const Instruction &in = **held;
-    const auto bound = [&](size_t k) -> optional<uint64_t> {
-        return k < in.operands.size() ? upper_bound(in.operands[k], depth + 1)
-                                      : std::nullopt;
-    };
-    const auto both = [&]() -> optional<std::pair<uint64_t, uint64_t>> {
-        const auto a = bound(0);
-        const auto b = bound(1);
-        if (a && b) {
-            return std::make_pair(*a, *b);
-        }
-        return std::nullopt;
-    };
-    // Are these the same value: the same instruction, argument or constant?
-    const auto same = [](const ValuePtr &a, const ValuePtr &b) {
-        if (const auto *ia = std::get_if<shared_ptr<Instruction>>(&a->data)) {
-            const auto *ib = std::get_if<shared_ptr<Instruction>>(&b->data);
-            return ib != nullptr && ia->get() == ib->get();
-        }
-        if (const auto *aa = std::get_if<Argument>(&a->data)) {
-            const auto *ab = std::get_if<Argument>(&b->data);
-            return ab != nullptr && aa->name == ab->name;
-        }
-        return false;
-    };
-    switch (in.op) {
-    case Instruction::Op::Select: {
-        // `select(x < c, x, x - c)` is x reduced by c once -- what a
-        // remainder becomes below (see rewrite_constant_division), and so
-        // the shape the next remainder in a chain of them meets: at most
-        // c - 1 where x stayed below c, and x's bound less c where it did
-        // not.
-        if (const auto *cond =
-                std::get_if<shared_ptr<Instruction>>(&in.operands[0]->data);
-            cond != nullptr && (*cond)->op == Instruction::Op::Lt &&
-            same((*cond)->operands[0], in.operands[1])) {
-            const auto *sub =
-                std::get_if<shared_ptr<Instruction>>(&in.operands[2]->data);
-            const auto c = constant_divisor((*cond)->operands[1]);
-            if (sub != nullptr && (*sub)->op == Instruction::Op::Sub &&
-                same((*sub)->operands[0], in.operands[1]) && c && *c > 0 &&
-                (in.type.is_uint() || int64_t(*c) > 0)) {
-                const auto d = constant_divisor((*sub)->operands[1]);
-                const auto x = bound(1);
-                if (d && *d == *c && x) {
-                    return std::max(std::min(*c - 1, *x),
-                                    *x >= *c ? *x - *c : 0);
-                }
-            }
-        }
-        const auto a = bound(1);
-        const auto b = bound(2);
-        return a && b ? optional<uint64_t>(std::max(*a, *b)) : std::nullopt;
-    }
-    case Instruction::Op::Reduce: {
-        // Which lane holds the extremum is a lane index.
-        if (in.reduce == ir::VectorReduce::Idxmax ||
-            in.reduce == ir::VectorReduce::Idxmin) {
-            const Type &of = in.operands[0]->get_type();
-            return of.is_vector() ? optional<uint64_t>(of.lanes() - 1)
-                                  : std::nullopt;
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Bc:
-        // Every lane holds the one value.
-        return bound(0);
-    case Instruction::Op::Ramp: {
-        // base + stride * (lanes - 1) in the last lane.
-        const auto base = bound(0);
-        const auto stride = bound(1);
-        if (base && stride && in.type.is_vector()) {
-            uint64_t span = 0, top = 0;
-            if (!__builtin_mul_overflow(*stride, uint64_t(in.type.lanes() - 1),
-                                        &span) &&
-                !__builtin_add_overflow(*base, span, &top)) {
-                return top;
-            }
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Add: {
-        const auto ab = both();
-        if (ab && ab->first <= ~uint64_t(0) - ab->second) {
-            return ab->first + ab->second;
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Mul: {
-        const auto ab = both();
-        uint64_t product = 0;
-        if (ab && !__builtin_mul_overflow(ab->first, ab->second, &product)) {
-            return product;
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::BwAnd: {
-        // Below either operand that is a non-negative constant, whatever the
-        // other holds: the constant's sign bit is clear, so the result's is.
-        for (size_t k = 0; k < 2; k++) {
-            if (std::holds_alternative<Constant>(in.operands[k]->data)) {
-                if (const auto c = bound(k)) {
-                    const auto other = bound(1 - k);
-                    return other ? std::min(*c, *other) : *c;
-                }
-            }
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Shr: {
-        const auto a = bound(0);
-        const auto k = bound(1);
-        if (a && k && std::holds_alternative<Constant>(in.operands[1]->data)) {
-            return *k >= 64 ? 0 : *a >> *k;
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Min: {
-        const auto a = bound(0);
-        const auto b = bound(1);
-        if (a && b) {
-            return std::min(*a, *b);
-        }
-        // Of an unsigned pair, below whichever is known.
-        if (in.type.is_uint()) {
-            return a ? a : b;
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Max: {
-        const auto ab = both();
-        return ab ? optional<uint64_t>(std::max(ab->first, ab->second))
-                  : std::nullopt;
-    }
-    case Instruction::Op::Cast: {
-        const Type from = in.operands[0]->get_type();
-        if (from.is_bool()) {
-            return 1;
-        }
-        if (from.is_uint() && from.bits() < 64 && from.bits() < in.type.bits()) {
-            return (uint64_t(1) << from.bits()) - 1;
-        }
-        if (from.is<Int_t, UInt_t>() && from.bits() <= in.type.bits()) {
-            return bound(0); // widening keeps the value
-        }
-        return std::nullopt;
-    }
-    case Instruction::Op::Mod: {
-        const auto d = constant_divisor(in.operands[1]);
-        if (d && *d != 0 && (in.type.is_uint() || int64_t(*d) > 0) &&
-            (in.type.is_uint() || bound(0))) {
-            return *d - 1;
-        }
-        return std::nullopt;
-    }
-    default:
-        return std::nullopt;
-    }
+    return uint64_t(i.max);
 }
+
 
 // Rewrites the division or remainder `instr`, at `index` in `block`, by the
 // non-zero constant `pattern`. Returns how many instructions were added in
 // front of it.
 size_t rewrite_constant_division(Function &func, const shared_ptr<Block> &block,
-                                 size_t index, uint64_t pattern) {
+                                 size_t index, uint64_t pattern,
+                                 const ConstantIntervals &intervals) {
     const shared_ptr<Instruction> instr = block->instrs[index];
     const Type type = instr->type;
     const unsigned bits = unsigned(type.bits());
@@ -847,7 +686,7 @@ size_t rewrite_constant_division(Function &func, const shared_ptr<Block> &block,
     // remainder is the dividend less the divisor when it did.
     const bool positive = type.is_uint() || (d & (uint64_t(1) << (bits - 1))) == 0;
     if (positive) {
-        if (const optional<uint64_t> bound = upper_bound(n);
+        if (const optional<uint64_t> bound = upper_bound(intervals, func, *block, n);
             bound && *bound < 2 * d) {
             if (*bound < d) {
                 if (is_mod) {
@@ -987,6 +826,9 @@ size_t rewrite_constant_division(Function &func, const shared_ptr<Block> &block,
 // how many.
 size_t divide_by_constants(Function &func) {
     size_t rewritten = 0;
+    // What the dividends are known to lie between, as the function stands;
+    // what a rewrite makes is read off its operands when asked about.
+    const ConstantIntervals intervals(func);
     for (const shared_ptr<Block> &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> &instr = block->instrs[i];
@@ -1003,7 +845,7 @@ size_t divide_by_constants(Function &func) {
             if (!d.has_value() || (*d & mask) == 0) {
                 continue; // not a constant, or a zero left to trap
             }
-            i += rewrite_constant_division(func, block, i, *d);
+            i += rewrite_constant_division(func, block, i, *d, intervals);
             rewritten++;
         }
     }
@@ -1014,6 +856,7 @@ size_t divide_by_constants(Function &func) {
 
 size_t divide_bounded_by_floats(Function &func, const Divergence &divergence) {
     size_t rewritten = 0;
+    const ConstantIntervals intervals(func);
     for (const shared_ptr<Block> &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> instr = block->instrs[i];
@@ -1024,8 +867,10 @@ size_t divide_bounded_by_floats(Function &func, const Divergence &divergence) {
                 !divergence.instrs.count(instr.get())) {
                 continue;
             }
-            const optional<uint64_t> a = upper_bound(instr->operands[0]);
-            const optional<uint64_t> b = upper_bound(instr->operands[1]);
+            const optional<uint64_t> a =
+                upper_bound(intervals, func, *block, instr->operands[0]);
+            const optional<uint64_t> b =
+                upper_bound(intervals, func, *block, instr->operands[1]);
             uint64_t reach = 0;
             if (!a || !b || __builtin_add_overflow(*a, *b, &reach)) {
                 continue;
@@ -1200,6 +1045,7 @@ size_t divide_by_uniform_divisors(Function &func, const Divergence &divergence,
 
 size_t expand_bounded_multipliers(Function &func, const Divergence &divergence) {
     size_t expanded = 0;
+    const ConstantIntervals intervals(func);
     for (const shared_ptr<Block> &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> &instr = block->instrs[i];
@@ -1209,8 +1055,8 @@ size_t expand_bounded_multipliers(Function &func, const Divergence &divergence) 
                 !divergence.instrs.count(instr.get())) {
                 continue; // not a multiplier, or one the gang shares
             }
-            const optional<uint64_t> bound =
-                divisor_bound(instr->operands[0], instr->type);
+            const optional<uint64_t> bound = divisor_bound(
+                intervals, func, *block, instr->operands[0], instr->type);
             if (!two_step_fits(instr->type, bound)) {
                 continue;
             }

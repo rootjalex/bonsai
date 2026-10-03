@@ -65,6 +65,7 @@ add_bonsai_tests(
     ray-any-early-exit.bonsai
     reorder.bonsai
     short-circuit.bonsai
+    sort-key-nonnegative.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
     stored-lane.bonsai

@@ -253,6 +253,7 @@ target_sources(
     src/SSA/CloseBodies.cpp
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
+    src/SSA/ConstantIntervals.cpp
     src/SSA/Contention.cpp
     src/SSA/Contract.cpp
     src/SSA/Defer.cpp
@@ -386,6 +387,7 @@ target_sources(
     include/SSA/CloneFunction.h
     include/SSA/CloseBodies.h
     include/SSA/CodeGen_Stmt.h
+    include/SSA/ConstantIntervals.h
     include/SSA/Convert.h
     include/SSA/Defer.h
     include/SSA/Definitions.h
