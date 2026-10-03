@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # The GPU comparison: pbrt --gpu against every GPU schedule of this renderer,
-# on the scenes given, at one sample count -- one command, one table.
+# on the scenes given, at the sample counts given -- one command, one table.
 #
-#     apps/pbrt/gpu_compare.sh [--spp N] [--repeats N] [--out DIR] [--resume]
+#     apps/pbrt/gpu_compare.sh [--spp "N ..."] [--repeats N] [--out DIR] [--resume]
 #                              [--schedules "a b c"] [--scenes "d/s ..."]
+#
+# `--spp` takes one count or several ("16 64 256"): every scene is run at
+# each, and the table holds a row per (scene, count, side), which is what
+# plot_gpu_heatmap.py draws as scenes across and counts down.
 #
 # A number is never one run's. For each scene, pbrt --gpu is run REPEATS
 # times as separate processes (it cannot repeat a render in one) and its own
@@ -44,7 +48,7 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 PREFIX="apps/pbrt"
 
-SPP=16
+SPPS="16"
 REPEATS=3
 OUT="$PREFIX/gpu-compare-out"
 SCHEDULES="gpu-optix gpu-optix-mega gpu-optix-mega-ser"
@@ -52,7 +56,7 @@ SCENES="killeroos/killeroo-simple killeroos/killeroo-gold pbrt-book/book"
 RESUME=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --spp) SPP="$2"; shift 2 ;;
+    --spp) SPPS="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --resume) RESUME=1; shift ;;
@@ -84,8 +88,13 @@ for sc in $SCENES; do
     echo "no scene $SCENES_DIR/$sc.pbrt" >&2; fail=1
   fi
 done
-if ! [[ "$SPP" =~ ^[0-9]+$ && "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -ge 1 ]]; then
-  echo "--spp and --repeats take positive integers" >&2; fail=1
+for SPP in $SPPS; do
+  if ! [[ "$SPP" =~ ^[0-9]+$ && "$SPP" -ge 1 ]]; then
+    echo "--spp takes positive integers, not '$SPP'" >&2; fail=1
+  fi
+done
+if ! [[ "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -ge 1 ]]; then
+  echo "--repeats takes a positive integer" >&2; fail=1
 fi
 if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
            float pick(f3 v) { return v.y; }' |
@@ -240,6 +249,7 @@ if [[ "$RESUME" -eq 1 && -f "$TABLE" ]]; then
 else
   printf 'scene\tspp\tside\twall_s\tkernel_ms\tspeedup\tagree\tverdict\tnote\timage\n' > "$TABLE"
 fi
+for SPP in $SPPS; do
 for sc in $SCENES; do
   name=$(basename "$sc"); dir="$SCENES_DIR/$(dirname "$sc")"
   cell="$OUT/$name-s$SPP"
@@ -310,6 +320,7 @@ for sc in $SCENES; do
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" | tee -a "$TABLE"
   done
+done
 done
 echo
 echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"

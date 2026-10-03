@@ -52,11 +52,20 @@ before it.
   `--out` directory, reusing its binaries and skipping the scenes whose
   rows are all in the table. A file named `PAUSE` in the output directory
   holds the run between timed runs for as long as it exists, which is how
-  to borrow the machine for a measurement of one's own.
+  to borrow the machine for a measurement of one's own. `--spp` takes one
+  count or several (`--spp "16 64 256"`): every scene at each, one table.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
   table (sample count); a bar whose image did not match pbrt's is hatched.
+- `plot_gpu_heatmap.py OUT.png TABLE.tsv... [--schedule S] [--sort
+  table|name|speedup]`: the same tables as a heatmap -- scenes across,
+  sample counts down, each cell one schedule's speedup over `pbrt --gpu`
+  (default `gpu-optix`), coloured on a log scale centred on parity with the
+  ratio printed in the cell, the GraphIt paper's figure for a schedule
+  against its baselines. A cell whose image did not match pbrt's is hatched
+  with its number struck through; a cell no table has is blank. Several
+  counts come from `gpu_compare.sh --spp "16 64 256"` into one table.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format: a text
   file for the small parts (camera, materials, lights, textures, spectra)
