@@ -5,6 +5,7 @@
 #include "SSA/SSA.h"
 #include "SSA/UniformizeLoops.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -116,6 +117,12 @@ namespace ssa {
 // name it knows this function by: its own, or for a specialized variant the
 // function it was specialized from.
 //
+// `safe_callee` says of a callee by name whether it may run on behalf of no
+// lane (safe_with_all_lanes_off below): a call to such a function in an arm
+// does not by itself put a gadget in front of the arm, any more than the
+// arithmetic it stands for would. Without it every call does, which is
+// ispc's rule for a call it cannot see into.
+//
 // Returns the execution mask of each block that has one. A block that is
 // absent runs with every lane of the gang enabled and needs no predication;
 // callers use this to predicate anything linearization does not handle
@@ -127,7 +134,19 @@ BlockMasks linearize(Function &func, const std::string &entry,
                      const std::shared_ptr<Value> &entry_mask = nullptr,
                      const std::vector<UniformLoop> &loops = {},
                      const ir::BranchPolicyMap &policies = {},
-                     const std::string &policy_name = "");
+                     const std::string &policy_name = "",
+                     const std::function<bool(const std::string &)>
+                         &safe_callee = {});
+
+// ispc's SafeToRunWithMaskAllOff, of a whole function: whether `func` may
+// run with every lane off -- nothing in it reads or writes memory, has an
+// effect, loops over lanes or calls anything that does, with callees found
+// by `lookup` (one it cannot find is not safe, nor is one that reaches
+// itself). The masked variant of a pure function is such a function, and a
+// call to it needs no test in front of it; see `linearize`.
+bool safe_with_all_lanes_off(
+    const Function &func,
+    const std::function<const Function *(const std::string &)> &lookup);
 
 } // namespace ssa
 } // namespace ir

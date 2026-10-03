@@ -183,22 +183,32 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         let _t40 = cast<u32x4>(@95) in
         let @218 = _mask0[ramp(0u, 1u, 4)] in
         let @219 = reduce<+>(cast<u32x4>(@218)) in
-        let @233 = reduce<any>(@218) in
-        if (@233) {
-          let @223 = u32x4(0u) in
-          let @224 = select(@218, ramp(0u, 1u, 4), @223) in
-          let @225 = reduce<max>(@224) in
-          let @226 = u32x4(@225) in
-          let @227 = ramp(0u, 1u, 4) != @226 in
-          let @228 = @218 && @227 in
-          let @229 = @219 - 1u in
-          compress_store_whole(!stack[(*!count)], _t40, @228)
-          let @231 = (*!count) + @229 in
-          let @232 = _t40[@225] in
-          tris_ref!top = @232
+        switch (@219) {
+        case 0: {
+        } break;
+        case 1: {
+          let @220 = compress(_t40, @218) in
+          let @221 = @220[0u] in
+          tris_ref!top = @221
           !live = true
-          !count = @231
           continue
+        } break;
+        default: {
+          let @224 = u32x4(0u) in
+          let @225 = select(@218, ramp(0u, 1u, 4), @224) in
+          let @226 = reduce<max>(@225) in
+          let @227 = u32x4(@226) in
+          let @228 = ramp(0u, 1u, 4) != @227 in
+          let @229 = @218 && @228 in
+          let @230 = @219 - 1u in
+          compress_store_whole(!stack[(*!count)], _t40, @229)
+          let @232 = (*!count) + @230 in
+          let @233 = _t40[@226] in
+          tris_ref!top = @233
+          !live = true
+          !count = @232
+          continue
+        }
         }
       } else {
         let @105 = _t58 - 8u in

@@ -159,8 +159,13 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
 // index in the low bits -- Embree's `distance_i`, which makes every key
 // distinct and lets a sorted key say which lane it came from. The hits'
 // keys are then compressed to the front (ir::Intrinsic::compress,
-// `vpcompressd`), and a switch on their count picks the network: nothing
-// for one hit, and for two, three and four the shortest sorting network of
+// `vpcompressd`), and a switch on their count picks the network: for no
+// hit, straight on to what follows the run; for one hit no network and no
+// run at all -- a run of one call is a call, to the hit lane of each vector
+// packed to the front and read from lane 0, which loopify descends into
+// with nothing written to its stack (three node tests in five on
+// incoherent rays, and Embree's own one-hit case); for two, three and four
+// the shortest sorting network of
 // that many inputs (Knuth, The Art of Computer Programming vol. 3, section
 // 5.3.4: one, three and five comparators in one, three and three layers),
 // each layer one shuffle, a vector minimum, a vector maximum and a select;
@@ -462,17 +467,15 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
         values.push_back(lanes_as_vector(func, block, lanes.varying[j], n));
     }
 
-    // The misses infinitely far, whatever their keys say: they sort first in
-    // descending order, out of the hits' way.
-    auto inf = emit(block, f32, Instruction::Op::Inf, {});
-    auto far = emit(block, f32xn, Instruction::Op::Select,
-                    {mask, keys, bc(block, inf, f32xn)});
     // As integers that order as the floats do -- a negative float's magnitude
     // bits flipped, so that the more negative is the smaller -- with the
     // lane's own index in the low bits: Embree's `distance_i`. No two lanes
     // are then equal, so a minimum or maximum is one lane's key exactly, and
-    // a sorted key says which lane it came from.
-    auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {far});
+    // a sorted key says which lane it came from. The misses' keys are left
+    // as they are: the compress below drops them, and only the network over
+    // all the lanes (the last arm) needs them out of the hits' way, where
+    // they are made infinite.
+    auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {keys});
     auto sign = emit(block, i32xn, Instruction::Op::Shr,
                      {bits, bc(block, ci32(31), i32xn)});
     auto flip = emit(block, i32xn, Instruction::Op::BwAnd,
@@ -506,14 +509,40 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     // every count past the ones specialized.
     vector<Terminator::Jump> targets;
     {
-        // No hit, or one: nothing to order. The one hit is lane 0 of the
-        // compressed keys and belongs in the last lane; with none, nothing
-        // is read.
+        // No hit: no call is made and the run is over, so straight to what
+        // follows it, as a run whose every condition is false goes -- not
+        // through the join, whose permutes and extracts would run for
+        // nothing (one node test in five on incoherent rays).
+        auto none = fresh_block(func, block->name + "!sort0");
+        none->terminator.data = call.cont;
+        func.blocks.push_back(none);
+        targets.push_back(Terminator::Jump{none->name, {}});
+    }
+    {
+        // One hit: nothing to order and nothing to wait -- a run of one
+        // call is a call. Its arguments are the hit lane of each vector,
+        // packed to the front by the mask and read from lane 0 (one
+        // `vpcompressq` and a `vmovq`: Embree's one-hit case, its first
+        // permuteExtract), with no keys, no network and no run for loopify
+        // to write a stack from: a single call goes straight to the child
+        // (SSA/QueueRecursion.cpp). Three node tests in five on incoherent
+        // rays hit one child, and this arm is what they cost.
         auto one = fresh_block(func, block->name + "!sort1");
-        const Terminator::Jump to =
-            arrive(one, shuffle(one, compressed, reversed));
-        targets.push_back(to);
-        targets.push_back(to);
+        Terminator::Call single;
+        single.call = call.call;
+        single.cont = call.cont;
+        single.drop = call.drop;
+        for (size_t j = 0; j < values.size(); j++) {
+            auto packed_j = intrinsic(one, values[j]->get_type(),
+                                      ir::Intrinsic::compress,
+                                      {values[j], mask});
+            single.call.args[call.varying_at[j]] =
+                emit(one, lanes.varying_type[j], Instruction::Op::ExtractIdx,
+                     {packed_j, cu32(0)});
+        }
+        one->terminator.data = std::move(single);
+        func.blocks.push_back(one);
+        targets.push_back(Terminator::Jump{one->name, {}});
     }
     const uint32_t specialized = std::min<uint32_t>(n, 4);
     for (uint32_t h = 2; h <= specialized; h++) {
@@ -531,7 +560,15 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
         // keys and the hits' together, by the bitonic network descending --
         // which is the shape above already.
         auto all = fresh_block(func, block->name + "!sortall");
-        shared_ptr<Value> x = packed;
+        // The misses infinitely far, whatever their keys say, so that they
+        // sort first in descending order, out of the hits' way: the key of
+        // +inf (its bits are already in order, and its low bits clear) with
+        // the lane's index.
+        auto inf_key =
+            emit(all, i32xn, Instruction::Op::BwOr,
+                 {bc(all, ci32(0x7f800000), i32xn), lane});
+        shared_ptr<Value> x = emit(all, i32xn, Instruction::Op::Select,
+                                   {mask, packed, inf_key});
         for (const Layer &comparators : descending_bitonic(n)) {
             x = layer(all, x, comparators);
         }

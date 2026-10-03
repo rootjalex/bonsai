@@ -18,28 +18,32 @@
 // backend: the same program's LLVM is golden-diffed in
 // backends/llvm/vectorize_call_guard.bonsai and run in
 // correctness/cpp/vectorize_call_guard.bonsai.
-func [[noinline]] scale(x : f32, k : f32) -> f32 = x * k;
+// `scale` reads a table at a lane's own index, which an inactive lane's
+// value may put anywhere: not safe to run with every lane off
+// (safe_with_all_lanes_off, SSA/Linearize.h), so its calls keep their
+// tests. A pure callee's get none; see ssa/vectorize-pure-call.bonsai.
+func [[noinline]] scale(x : f32, k : f32, t : array[f32, 4]) -> f32 = x * k + t[cast[[u32]](x * x) % 4u];
 
-func weigh(x : f32) -> f32 {
+func weigh(x : f32, t : array[f32, 4]) -> f32 {
     acc : mut = 0.0;
     if x > 2.0 {
-        acc = scale(x, 3.0);
+        acc = scale(x, 3.0, t);
         if acc > 20.0 {
             return acc;
         }
     } else {
-        acc = scale(x, 5.0);
+        acc = scale(x, 5.0, t);
     }
     return acc + 1.0;
 }
 
-func [[export]] weigh_one(x : f32) -> f32 {
-    return weigh(x);
+func [[export]] weigh_one(x : f32, t : array[f32, 4]) -> f32 {
+    return weigh(x, t);
 }
 
-func [[export]] weigh_all(a : array[f32, 8], out : mut array[f32, 8]) {
+func [[export]] weigh_all(a : array[f32, 8], t : array[f32, 4], out : mut array[f32, 8]) {
     parfor i in 0:8 {
-        out[i] = weigh(a[i]);
+        out[i] = weigh(a[i], t);
     }
     return;
 }

@@ -29,7 +29,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
   _idx1 : mut u32
   intersectsp_ray_tri$r17!skip0 : mut _option2$v4
   intersectsp_ray_tri$r17!skip : mut _option2$v4
-  @320 : mut i32x4
+  @317 : mut i32x4
   tris_ref!top : mut u32
   _bound0!top : mut f32
   !live : mut bool
@@ -246,42 +246,81 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         let @300 = _mask0[ramp(0u, 1u, 4)] in
         let @302 = _keys0[ramp(0u, 1u, 4)] in
         let @304 = _carry0[ramp(0u, 1u, 4)] in
-        let @305 = (f32)inf in
-        let @306 = f32x4(@305) in
-        let @307 = select(@300, @302, @306) in
-        let @308 = reinterpret_cast<i32x4>(@307) in
-        let @309 = i32x4(31) in
-        let @310 = @308 >> @309 in
-        let @311 = i32x4(2147483647) in
-        let @312 = @310 & @311 in
-        let @313 = @308 ^ @312 in
-        let @315 = i32x4(-4) in
-        let @316 = @313 & @315 in
-        let @317 = @316 | ramp(0, 1, 4) in
-        let @318 = reduce<+>(cast<u32x4>(@300)) in
-        let @319 = compress(@317, @300) in
-        switch (@318) {
+        let @305 = reinterpret_cast<i32x4>(@302) in
+        let @306 = i32x4(31) in
+        let @307 = @305 >> @306 in
+        let @308 = i32x4(2147483647) in
+        let @309 = @307 & @308 in
+        let @310 = @305 ^ @309 in
+        let @312 = i32x4(-4) in
+        let @313 = @310 & @312 in
+        let @314 = @313 | ramp(0, 1, 4) in
+        let @315 = reduce<+>(cast<u32x4>(@300)) in
+        let @316 = compress(@314, @300) in
+        switch (@315) {
         case 0: {
-          let @321 = slice(@319, 3, -1, 4) in
-          @320 = @321
         } break;
         case 1: {
-          let @321 = slice(@319, 3, -1, 4) in
-          @320 = @321
+          let @318 = compress(_t76, @300) in
+          let @319 = @318[0u] in
+          let @320 = compress(@304, @300) in
+          let @321 = @320[0u] in
+          tris_ref!top = @319
+          _bound0!top = @321
+          !live = true
+          continue
         } break;
         case 2: {
-          let @322 = shuffle({@319}, {1, 0, 2, 3}) in
-          let @323 = min(@319, @322) in
-          let @324 = max(@319, @322) in
+          let @322 = shuffle({@316}, {1, 0, 2, 3}) in
+          let @323 = min(@316, @322) in
+          let @324 = max(@316, @322) in
           let @325 = build<boolx4>(false, true, false, false) in
           let @326 = select(@325, @324, @323) in
           let @327 = slice(@326, 3, -1, 4) in
-          @320 = @327
+          @317 = @327
+          let @360 = i32x4(3) in
+          let @361 = (*@317) & @360 in
+          let @362 = permute(_t76, @361) in
+          let @363 = permute(@304, @361) in
+          let @606 = reduce<any>(@300) in
+          if (@606) {
+            let @594 = 4u - @315 in
+            let @595 = u32x4(@594) in
+            let @596 = @595 <= ramp(0u, 1u, 4) in
+            let @597 = build<boolx4>(true, true, true, false) in
+            let @598 = @596 && @597 in
+            let @599 = @315 - 1u in
+            compress_store_whole(!stack[(*!count)], @362, @598)
+            compress_store_whole(!stack0[(*!count)], @363, @598)
+            let @602 = (*!count) + @599 in
+            let @603 = @362[3u] in
+            let @604 = @363[3u] in
+            tris_ref!top = @603
+            _bound0!top = @604
+            !live = true
+            !count = @602
+            continue
+          } else {
+            let @587 = (*!count) != 0u in
+            if (@587) {
+              let @588 = (*!count) - 1u in
+              let @589 = !stack[@588] in
+              let @590 = !stack0[@588] in
+              tris_ref!top = @589
+              _bound0!top = @590
+              !live = true
+              !count = @588
+              continue
+            } else {
+              !live = false
+              continue
+            }
+          }
         } break;
         case 3: {
-          let @328 = shuffle({@319}, {2, 1, 0, 3}) in
-          let @329 = min(@319, @328) in
-          let @330 = max(@319, @328) in
+          let @328 = shuffle({@316}, {2, 1, 0, 3}) in
+          let @329 = min(@316, @328) in
+          let @330 = max(@316, @328) in
           let @331 = build<boolx4>(false, false, true, false) in
           let @332 = select(@331, @330, @329) in
           let @333 = shuffle({@332}, {1, 0, 2, 3}) in
@@ -295,12 +334,50 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @341 = build<boolx4>(false, false, true, false) in
           let @342 = select(@341, @340, @339) in
           let @343 = slice(@342, 3, -1, 4) in
-          @320 = @343
+          @317 = @343
+          let @360 = i32x4(3) in
+          let @361 = (*@317) & @360 in
+          let @362 = permute(_t76, @361) in
+          let @363 = permute(@304, @361) in
+          let @606 = reduce<any>(@300) in
+          if (@606) {
+            let @594 = 4u - @315 in
+            let @595 = u32x4(@594) in
+            let @596 = @595 <= ramp(0u, 1u, 4) in
+            let @597 = build<boolx4>(true, true, true, false) in
+            let @598 = @596 && @597 in
+            let @599 = @315 - 1u in
+            compress_store_whole(!stack[(*!count)], @362, @598)
+            compress_store_whole(!stack0[(*!count)], @363, @598)
+            let @602 = (*!count) + @599 in
+            let @603 = @362[3u] in
+            let @604 = @363[3u] in
+            tris_ref!top = @603
+            _bound0!top = @604
+            !live = true
+            !count = @602
+            continue
+          } else {
+            let @587 = (*!count) != 0u in
+            if (@587) {
+              let @588 = (*!count) - 1u in
+              let @589 = !stack[@588] in
+              let @590 = !stack0[@588] in
+              tris_ref!top = @589
+              _bound0!top = @590
+              !live = true
+              !count = @588
+              continue
+            } else {
+              !live = false
+              continue
+            }
+          }
         } break;
         default: {
-          let @344 = shuffle({@319}, {1, 0, 3, 2}) in
-          let @345 = min(@319, @344) in
-          let @346 = max(@319, @344) in
+          let @344 = shuffle({@316}, {1, 0, 3, 2}) in
+          let @345 = min(@316, @344) in
+          let @346 = max(@316, @344) in
           let @347 = build<boolx4>(false, true, false, true) in
           let @348 = select(@347, @346, @345) in
           let @349 = shuffle({@348}, {2, 3, 0, 1}) in
@@ -314,31 +391,46 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @357 = build<boolx4>(false, false, true, false) in
           let @358 = select(@357, @356, @355) in
           let @359 = slice(@358, 3, -1, 4) in
-          @320 = @359
+          @317 = @359
+          let @360 = i32x4(3) in
+          let @361 = (*@317) & @360 in
+          let @362 = permute(_t76, @361) in
+          let @363 = permute(@304, @361) in
+          let @606 = reduce<any>(@300) in
+          if (@606) {
+            let @594 = 4u - @315 in
+            let @595 = u32x4(@594) in
+            let @596 = @595 <= ramp(0u, 1u, 4) in
+            let @597 = build<boolx4>(true, true, true, false) in
+            let @598 = @596 && @597 in
+            let @599 = @315 - 1u in
+            compress_store_whole(!stack[(*!count)], @362, @598)
+            compress_store_whole(!stack0[(*!count)], @363, @598)
+            let @602 = (*!count) + @599 in
+            let @603 = @362[3u] in
+            let @604 = @363[3u] in
+            tris_ref!top = @603
+            _bound0!top = @604
+            !live = true
+            !count = @602
+            continue
+          } else {
+            let @587 = (*!count) != 0u in
+            if (@587) {
+              let @588 = (*!count) - 1u in
+              let @589 = !stack[@588] in
+              let @590 = !stack0[@588] in
+              tris_ref!top = @589
+              _bound0!top = @590
+              !live = true
+              !count = @588
+              continue
+            } else {
+              !live = false
+              continue
+            }
+          }
         }
-        }
-        let @360 = i32x4(3) in
-        let @361 = (*@320) & @360 in
-        let @362 = permute(_t76, @361) in
-        let @363 = permute(@304, @361) in
-        let @606 = reduce<any>(@300) in
-        if (@606) {
-          let @594 = 4u - @318 in
-          let @595 = u32x4(@594) in
-          let @596 = @595 <= ramp(0u, 1u, 4) in
-          let @597 = build<boolx4>(true, true, true, false) in
-          let @598 = @596 && @597 in
-          let @599 = @318 - 1u in
-          compress_store_whole(!stack[(*!count)], @362, @598)
-          compress_store_whole(!stack0[(*!count)], @363, @598)
-          let @602 = (*!count) + @599 in
-          let @603 = @362[3u] in
-          let @604 = @363[3u] in
-          tris_ref!top = @603
-          _bound0!top = @604
-          !live = true
-          !count = @602
-          continue
         }
       } else {
         let @134 = _t184 - 8u in
@@ -589,20 +681,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @298 = (*_idx1) + 1u in
           _idx1 = @298
         }
-      }
-      let @587 = (*!count) != 0u in
-      if (@587) {
-        let @588 = (*!count) - 1u in
-        let @589 = !stack[@588] in
-        let @590 = !stack0[@588] in
-        tris_ref!top = @589
-        _bound0!top = @590
-        !live = true
-        !count = @588
-        continue
-      } else {
-        !live = false
-        continue
       }
     }
     let @587 = (*!count) != 0u in

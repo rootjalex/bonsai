@@ -1,0 +1,134 @@
+func pick(x : f32, t : f32[4]) -> f32 {
+  acc : mut f32
+  let @0 = 2f < x in
+  if (@0) {
+    let @1 = square_plus(x) in
+    let @2 = @1 < 20f in
+    if (@2) {
+      acc = x
+    } else {
+      acc = 0f
+    }
+  } else {
+    acc = 0f
+  }
+  let @3 = 1f < x in
+  if (@3) {
+    let @4 = tabled(x, t) in
+    let @5 = @4 < 0.6f in
+    if (@5) {
+      let @7 = (*acc) + 1f in
+      acc = @7
+    }
+  }
+  return (*acc)
+}
+
+func [[export]] pick_all(a : f32[8], t : f32[4], out : mut f32[8]) -> void {
+  acc$i0!skip : mut f32x8
+  let x$i0 = a[ramp(0, 1, 8)] in
+  let @26 = f32x8(2f) in
+  let @1 = @26 < x$i0 in
+  let @27 = boolx8(false) in
+  let @28 = boolx8(true) in
+  let @12 = select(@1, @27, @28) in
+  let @2 = square_plus$gang8_v0$masked(x$i0, @1) in
+  let @29 = f32x8(20f) in
+  let @3 = @2 < @29 in
+  let @30 = boolx8(false) in
+  let @31 = boolx8(true) in
+  let @13 = select(@3, @30, @31) in
+  let @14 = @1 && @13 in
+  let @15 = @1 && @3 in
+  let @32 = f32x8(0f) in
+  let @21 = select(@15, x$i0, @32) in
+  let @33 = f32x8(0f) in
+  let @22 = select(@1, @21, @33) in
+  let @34 = f32x8(1f) in
+  let @4 = @34 < x$i0 in
+  let @35 = boolx8(false) in
+  let @36 = boolx8(true) in
+  let @16 = select(@4, @35, @36) in
+  let @20 = reduce<any>(@4) in
+  if (@20) {
+    let @5 = tabled$gang8_v0$masked(x$i0, t, @4) in
+    let @37 = f32x8(0.6f) in
+    let @6 = @5 < @37 in
+    let @38 = boolx8(false) in
+    let @39 = boolx8(true) in
+    let @17 = select(@6, @38, @39) in
+    let @18 = @4 && @17 in
+    let @19 = @4 && @6 in
+    let @40 = f32x8(1f) in
+    let @8 = @22 + @40 in
+    let @23 = select(@19, @8, @22) in
+    let @24 = select(@4, @23, @22) in
+    acc$i0!skip = @24
+  } else {
+    acc$i0!skip = @22
+  }
+  out[ramp(0, 1, 8)] = (*acc$i0!skip)
+  return
+}
+
+func [[export]] pick_one(x : f32, t : f32[4]) -> f32 {
+  acc$i1 : mut f32
+  let @0 = 2f < x in
+  if (@0) {
+    let @1 = square_plus(x) in
+    let @2 = @1 < 20f in
+    if (@2) {
+      acc$i1 = x
+    } else {
+      acc$i1 = 0f
+    }
+  } else {
+    acc$i1 = 0f
+  }
+  let @3 = 1f < x in
+  if (@3) {
+    let @4 = tabled(x, t) in
+    let @5 = @4 < 0.6f in
+    if (@5) {
+      let @7 = (*acc$i1) + 1f in
+      acc$i1 = @7
+    }
+  }
+  return (*acc$i1)
+}
+
+func [[noinline]] square_plus(x : f32) -> f32 {
+  let @0 = x * x in
+  let @1 = @0 + 1f in
+  return @1
+}
+
+func [[noinline]] square_plus$gang8_v0$masked(x : f32x8, !mask : boolx8) -> f32x8 {
+  let @0 = x * x in
+  let @2 = f32x8(1f) in
+  let @1 = @0 + @2 in
+  return @1
+}
+
+func [[noinline]] tabled(x : f32, t : f32[4]) -> f32 {
+  let @0 = x * x in
+  let @1 = cast<u32>(@0) in
+  let @2 = @1 & 3u in
+  let @3 = t[@2] in
+  return @3
+}
+
+func [[noinline]] tabled$gang8_v0$masked(x : f32x8, t : f32[4], !mask : boolx8) -> f32x8 {
+  let @0 = x * x in
+  let @1 = cast<u32x8>(@0) in
+  let @4 = u32x8(3u) in
+  let @2 = @1 & @4 in
+  let @3 = masked_extract(t[@2], !mask) in
+  return @3
+}
+
+
+schedule host {
+    pick_all.vectorize(i)
+
+}

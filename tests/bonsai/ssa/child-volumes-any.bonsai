@@ -11,17 +11,24 @@
 // in their stored order, each but the last pushed and the last continued
 // with. So the hit in the highest lane is descended into,
 //
-//     if (hits != 0) {
+//     switch (hits) {
+//     case 0:                              -- the pop
+//     case 1:
+//       tris_ref!top = compress(children, mask)[0u]
+//     default:
 //       <picked> = reduce<max>(select(mask, ramp(0u, 1u, 4), 0))
-//       compress_store(!stack[!count], children, mask && (lane != picked))
+//       compress_store_whole(!stack[!count], children, mask && (lane != picked))
 //       !count += hits - 1
 //       tris_ref!top = children[picked]
-//     }                                   -- and otherwise the pop
+//     }
 //
 // with one compacting store for the pushes rather than a conditional push
-// per child, and the pop where no child is hit. The order is the schedule's
-// to choose -- an `any` is the same answer in any order -- and this is the
-// order a node's children are stored in, nothing computed.
+// per child, the pop where no child is hit, and for one hit -- most nodes
+// on incoherent rays -- the one child taken from lane 0 of the vector
+// packed by the mask, with nothing written down and no lane picked out at
+// a run-time index. The order is the schedule's to choose -- an `any` is
+// the same answer in any order -- and this is the order a node's children
+// are stored in, nothing computed.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

@@ -1050,14 +1050,51 @@ void queue_recursion(Function &func, size_t size) {
             auto mask = lanes_as_vector(func, into, run.mask, n);
             auto hits = append(func, into, count_type, Instruction::Op::Popcount,
                                {mask});
-            auto made = append(func, into, bool_t, Instruction::Op::Ne,
-                               {hits, count_of(0)});
             auto push = new_block(func, name + "!push");
             func.blocks.push_back(push);
-            into->terminator.data = Terminator::Dispatch{
-                made,
-                {last ? Terminator::Jump{pop->name} : call->cont,
-                 Terminator::Jump{push->name}}};
+            if (last) {
+                // A switch on the count rather than a test for any: one hit
+                // -- three node tests in five on incoherent rays -- has
+                // nothing to write down, and its one child is lane 0 of the
+                // vectors packed by the mask (one `vpcompressq` and a
+                // `vmovq`; Embree's traverseAnyHit takes it by `tzcnt` and a
+                // load), not the highest lane taken out of a vector at a
+                // run-time index behind a compacting store of nothing.
+                auto one = new_block(func, name + "!one");
+                func.blocks.push_back(one);
+                vector<shared_ptr<Value>> only;
+                for (const Stack &stack : stacks) {
+                    const auto source = run.values.find(stack.param);
+                    internal_assert(source != run.values.end())
+                        << "The run in " << name << " has no lanes for "
+                        << params[stack.param].name << ", which varies";
+                    auto vec = lanes_as_vector(func, one, source->second, n);
+                    auto packed = std::make_shared<Instruction>(
+                        func.get_unique_name(), vec->get_type(),
+                        Instruction::Op::Intrinsic,
+                        vector<shared_ptr<Value>>{vec, mask}, one);
+                    packed->intrinsic = ir::Intrinsic::compress;
+                    one->instrs.push_back(packed);
+                    only.push_back(append(
+                        func, one, params[stack.param].type,
+                        Instruction::Op::ExtractIdx,
+                        {std::make_shared<Value>(packed), count_of(0)}));
+                }
+                shared_ptr<Value> alive = bool_of(true);
+                if (acc.has_value() && may_settle_before(name)) {
+                    alive = undecided_in(one);
+                }
+                one->terminator.data = visit(std::move(only), std::move(alive));
+                into->terminator.data = Terminator::Dispatch{
+                    hits,
+                    {Terminator::Jump{pop->name}, Terminator::Jump{one->name},
+                     Terminator::Jump{push->name}}};
+            } else {
+                auto made = append(func, into, bool_t, Instruction::Op::Ne,
+                                   {hits, count_of(0)});
+                into->terminator.data = Terminator::Dispatch{
+                    made, {call->cont, Terminator::Jump{push->name}}};
+            }
 
             auto top =
                 append(func, push, count_type, Instruction::Op::Load, {count});

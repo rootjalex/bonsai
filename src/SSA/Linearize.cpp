@@ -324,6 +324,16 @@ bool math_library_call(ir::Intrinsic::OpType op) {
 bool touches_memory(const Instruction &instr) {
     switch (instr.op) {
     case Instruction::Op::ExtractIdx:
+        // A lane of a value in registers -- a vector, or a vector of vectors
+        // such as a node's eight boxes -- reads no memory at any index: where
+        // a backend takes it through a stack slot the index is clamped to the
+        // slot (LLVM's legalization of extractelement, and clang's of a
+        // vector subscript). An element of an array at a lane's own index is
+        // the load described above.
+        if (!instr.operands.empty() &&
+            instr.operands[0]->get_type().is<Vector_t>()) {
+            return false;
+        }
         return instr.operands.size() < 2 ||
                !std::holds_alternative<Constant>(instr.operands[1]->data);
     case Instruction::Op::Load:
@@ -348,22 +358,136 @@ bool touches_memory(const Instruction &instr) {
 }
 
 // Whether a region has to be behind a test: it goes to memory or makes a
-// call, which must not happen on behalf of no lane. Whether a region of pure
-// arithmetic gets one is the schedule's call (see Linearize.h, "Which arms
-// get a gadget").
-bool must_skip(const Cfg &cfg, const BlockSet &region) {
+// call that may, which must not happen on behalf of no lane. A call to a
+// function that is safe with every lane off (safe_with_all_lanes_off) is
+// arithmetic by another name and forces nothing: the right side of `a &&
+// b`, where `b` is a pure function of values already in registers, runs
+// under the mask of `a` with no test in front of it, as the compare it
+// turns into would. Whether a region of pure arithmetic gets one is the
+// schedule's call (see Linearize.h, "Which arms get a gadget").
+//
+// `safe_address` says of a load's address that no lane had a hand in it --
+// the function's own uniform parameters and constants, and arithmetic and
+// loads over them (lane_independent in `linearize`): the accumulator's
+// bound a node test reads, the node's row at the reference the gang was
+// handed. Such an address is valid whether or not a lane is on, since the
+// contract that made the parameters valid did not depend on the lanes, so
+// the load is not work the test exists to prevent. A load at an address
+// some lane computed is: an inactive lane's address may be anything.
+bool must_skip(const Cfg &cfg, const BlockSet &region,
+               const std::function<bool(const string &)> &safe_callee,
+               const std::function<bool(const Value &)> &safe_address) {
     for (BlockId b : region) {
         const Block &block = cfg[b];
-        if (block.terminator.callee() != nullptr) {
+        if (const Terminator::Jump *callee = block.terminator.callee();
+            callee != nullptr && !(safe_callee && safe_callee(callee->name))) {
             return true;
         }
         for (const shared_ptr<Instruction> &instr : block.instrs) {
+            if (instr->op == Instruction::Op::Load &&
+                !instr->operands.empty() && safe_address &&
+                safe_address(*instr->operands[0])) {
+                continue;
+            }
             if (touches_memory(*instr)) {
                 return true;
             }
         }
     }
     return false;
+}
+
+// `local_params` names the parameters of `func` that its caller passed a
+// local of its own in -- the slot a result is returned through -- which are
+// then local memory here too.
+bool safe_with_all_lanes_off(
+    const Function &func,
+    const std::function<const Function *(const string &)> &lookup,
+    std::set<const Function *> &visiting, const std::set<string> &local_params) {
+    // A function that reaches itself would run its recursion for no lane.
+    if (!visiting.insert(&func).second) {
+        return false;
+    }
+    // Memory of the function's own -- a local it allocated, the slot a
+    // call's result lands in -- is safe to touch on behalf of no lane: it
+    // is there whatever the lanes are, and nothing outside reads it. That
+    // is ispc's rule too (a local variable's access is safe to run with the
+    // mask all off). Is this address rooted in such a local? A local that
+    // crosses a call arrives in the continuation as a block argument of
+    // its own name, so the allocas are known by name as well.
+    std::set<string> allocas;
+    for (const shared_ptr<Block> &block : func.blocks) {
+        for (const shared_ptr<Instruction> &instr : block->instrs) {
+            if (instr->op == Instruction::Op::Alloca) {
+                allocas.insert(instr->name);
+            }
+        }
+    }
+    const std::function<bool(const Value &)> local = [&](const Value &v) {
+        if (const auto *a = std::get_if<Argument>(&v.data)) {
+            return local_params.count(a->name) > 0 ||
+                   allocas.count(a->name) > 0;
+        }
+        const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data);
+        if (i == nullptr) {
+            return false;
+        }
+        switch ((*i)->op) {
+        case Instruction::Op::Alloca:
+            return true;
+        case Instruction::Op::GEP:
+        case Instruction::Op::Cast:
+        case Instruction::Op::Reinterpret:
+            return !(*i)->operands.empty() && local(*(*i)->operands[0]);
+        default:
+            return false;
+        }
+    };
+    for (const shared_ptr<Block> &block : func.blocks) {
+        for (const shared_ptr<Instruction> &instr : block->instrs) {
+            switch (instr->op) {
+            case Instruction::Op::Alloca:
+                continue;
+            case Instruction::Op::Load:
+            case Instruction::Op::Store:
+                if (!instr->operands.empty() && local(*instr->operands[0])) {
+                    continue;
+                }
+                break;
+            default:
+                break;
+            }
+            if (touches_memory(*instr) ||
+                (instr->op == Instruction::Op::Intrinsic &&
+                 ir::Intrinsic::has_effects(instr->intrinsic))) {
+                return false;
+            }
+        }
+        if (std::holds_alternative<Terminator::ParFor>(block->terminator.data) ||
+            std::holds_alternative<Terminator::Yield>(block->terminator.data)) {
+            return false;
+        }
+        if (const Terminator::Jump *callee = block->terminator.callee()) {
+            const Function *f = lookup ? lookup(callee->name) : nullptr;
+            if (f == nullptr || f->blocks.empty()) {
+                return false;
+            }
+            // The callee's parameters this call passes a local in.
+            std::set<string> locals_passed;
+            const vector<Argument> &params = f->blocks.front()->args;
+            for (size_t i = 0; i < callee->args.size() && i < params.size();
+                 i++) {
+                if (local(*callee->args[i])) {
+                    locals_passed.insert(params[i].name);
+                }
+            }
+            if (!safe_with_all_lanes_off(*f, lookup, visiting, locals_passed)) {
+                return false;
+            }
+        }
+    }
+    visiting.erase(&func);
+    return true;
 }
 
 // Whether a region does anything a test could spare: an instruction that is
@@ -408,12 +532,20 @@ bool declares(const Block &block, const string &name) {
 
 } // namespace
 
+bool safe_with_all_lanes_off(
+    const Function &func,
+    const std::function<const Function *(const string &)> &lookup) {
+    std::set<const Function *> visiting;
+    return safe_with_all_lanes_off(func, lookup, visiting, {});
+}
+
 BlockMasks linearize(Function &func, const string &entry_name,
                      const Divergence &divergence,
                      const shared_ptr<Value> &entry_mask,
                      const vector<UniformLoop> &loops_in,
                      const ir::BranchPolicyMap &policies,
-                     const string &policy_name) {
+                     const string &policy_name,
+                     const std::function<bool(const string &)> &safe_callee) {
     if (divergence.branches.empty() && !entry_mask && loops_in.empty()) {
         return {}; // nothing diverges; the control flow is already uniform
     }
@@ -425,6 +557,56 @@ BlockMasks linearize(Function &func, const string &entry_name,
     const DomTree pdom = compute_post_dominator_tree(cfg);
     const ControlDependence cdep = compute_control_dependence(cfg, pdom);
     const LoopForest loops = compute_loop_forest(cfg, dom);
+
+    // Whether no lane had a hand in a value (see must_skip): a constant; a
+    // parameter of the function that is uniform; an instruction that is
+    // uniform, folds no lanes into one (a reduction, an any, a count or a
+    // vote is uniform and yet made of lane data), and is made of such
+    // values -- a load counting by its address. A block argument short of
+    // the entry's is not followed to its sources.
+    const Block &params_block = *func.blocks.front();
+    std::map<const Value *, bool> lane_independence;
+    const std::function<bool(const Value &)> lane_independent =
+        [&](const Value &v) -> bool {
+        if (std::holds_alternative<Constant>(v.data)) {
+            return true;
+        }
+        if (const auto *a = std::get_if<Argument>(&v.data)) {
+            return declares(params_block, a->name) &&
+                   divergence.args.count({params_block.name, a->name}) == 0;
+        }
+        const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data);
+        if (i == nullptr) {
+            return false;
+        }
+        if (const auto known = lane_independence.find(&v);
+            known != lane_independence.end()) {
+            return known->second;
+        }
+        const Instruction &instr = **i;
+        bool independent = divergence.instrs.count(&instr) == 0;
+        switch (instr.op) {
+        case Instruction::Op::Reduce:
+        case Instruction::Op::Any:
+        case Instruction::Op::Popcount:
+        case Instruction::Op::Vote:
+        case Instruction::Op::Alloca:
+        case Instruction::Op::Alloc:
+            independent = false;
+            break;
+        case Instruction::Op::Load:
+            independent = independent && !instr.operands.empty() &&
+                          lane_independent(*instr.operands[0]);
+            break;
+        default:
+            for (const shared_ptr<Value> &operand : instr.operands) {
+                independent = independent && lane_independent(*operand);
+            }
+            break;
+        }
+        lane_independence[&v] = independent;
+        return independent;
+    };
 
     // What the analysis said about the region, by id.
     BlockSet divergent_branches(cfg.size());
@@ -915,7 +1097,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 // A gadget where there must be one, and where the schedule
                 // wagers on one and there is work to spare (see Linearize.h,
                 // "Which arms get a gadget").
-                if (!must_skip(cfg, dominated) &&
+                if (!must_skip(cfg, dominated, safe_callee, lane_independent) &&
                     !(ir::skips(policies, policy_name, cfg[a].provenance) &&
                       worth_skipping(cfg, dominated))) {
                     continue;

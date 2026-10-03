@@ -24,10 +24,14 @@
 // the keys become integers that order as the floats do with the lane in the
 // low bits -- Embree's `distance_i` -- the hits' keys are packed to the
 // front (`compress`), and a `switch` on their count (`reduce<+>` of the
-// mask) picks the network, as Embree's traverseClosestHit does: nothing
-// for one hit, the shortest network of two or three inputs for those, and
-// for four the bitonic network over all the lanes of the unpacked keys,
-// each layer a `shuffle`, a `min`, a `max` and a `select`. Every case
+// mask) picks the network, as Embree's traverseClosestHit does: for no
+// hit, straight on to what follows the run (the pop); for one hit, no
+// network and no run at all -- a run of one call is a call, its arguments
+// lane 0 of each vector packed by the mask (`compress(_t41, @182)[0u]`),
+// descended into with nothing written to the stack; the shortest network
+// of two or three inputs for those, and for four the bitonic network over
+// all the lanes of the keys with the misses' made infinite there, each
+// layer a `shuffle`, a `min`, a `max` and a `select`. Every case
 // leaves the keys in one shape (`slice(.., 3, -1, 4)` reverses the packed
 // ones into it): descending, the misses in the first lanes and the hits
 // from the farthest to the nearest in the last. The children and the

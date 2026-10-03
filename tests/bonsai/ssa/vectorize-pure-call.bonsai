@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// A gang's call under a mask with no test in front of it: the callee is safe
+// to run on behalf of no lane.
+//
+// A call made under a mask is normally made only if some lane is on (see
+// ssa/vectorize-call-guard.bonsai): the callee's uniform work must not run
+// on values no lane computed. But a function that touches no memory -- or
+// only memory of its own, a local or the slot a result is returned through
+// -- has no effect and calls nothing that has, cannot fault and writes
+// nothing anyone reads when every lane is off; it is arithmetic by another
+// name, and running it for no lane costs what the arithmetic costs where a
+// test costs a reduction and a branch every time. That is ispc's
+// SafeToRunWithMaskAllOff, applied through the call
+// (safe_with_all_lanes_off, SSA/Linearize.h): the linearizer puts no gadget
+// in front of an arm for such a call's sake (must_skip), and
+// specialize_calls (SSA/Vectorize.cpp) gives the call no test of its own.
+//
+// What to read for in `pick_all`. The first `&&`'s right side calls
+// `square_plus`, pure: the masked variant is called straight under the mask
+// of `x > 2.0`, no `reduce<any>` anywhere near it, and the result selected
+// under the mask. The second's right side calls `tabled`, which reads the
+// table at a lane's own index -- a load an inactive lane's value may put
+// anywhere -- so it stays behind a test: a `reduce<any>` of the mask of
+// `x > 1.0`, the call inside, `false` for the lanes bypassed. This is the
+// slab test of a BVH traversal, `intersects(ray, box) && distmin(ray, box)
+// < bound`, whose right side is a pure function of values in registers and
+// cost a mask test and a branch per node before this rule.
+func [[noinline]] square_plus(x : f32) -> f32 = x * x + 1.0;
+
+func [[noinline]] tabled(x : f32, t : array[f32, 4]) -> f32 = t[cast[[u32]](x * x) % 4u];
+
+func pick(x : f32, t : array[f32, 4]) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 && square_plus(x) < 20.0 {
+        acc = x;
+    }
+    if x > 1.0 && tabled(x, t) < 0.6 {
+        acc = acc + 1.0;
+    }
+    return acc;
+}
+
+func [[export]] pick_one(x : f32, t : array[f32, 4]) -> f32 {
+    return pick(x, t);
+}
+
+func [[export]] pick_all(a : array[f32, 8], t : array[f32, 4], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = pick(a[i], t);
+    }
+    return;
+}
+
+schedule {
+    pick_all.vectorize(i);
+}

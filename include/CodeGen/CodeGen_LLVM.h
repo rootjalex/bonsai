@@ -630,9 +630,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     // The lanes of `vec` that `mask` has on, packed to the front in lane
     // order, the rest zero (ir::Intrinsic::compress): LLVM's vector.compress,
     // which is `vpcompressd` into a zeroed register on AVX-512 and a store
-    // and a load per lane where the machine has nothing.
+    // and a load per lane where the machine has nothing. With `zero_rest`
+    // off the rest are whatever they are -- for a caller that reads only
+    // the lanes packed (a prefetch, a store into slack), which spares the
+    // zeroing of the destination LLVM puts before the instruction.
     llvm::Value *compress_lanes(llvm::Value *vec, llvm::Value *mask,
-                                const std::string &name);
+                                const std::string &name,
+                                bool zero_rest = true);
 
     // Brings the `bytes` bytes at `ptr` into the first-level cache, a line
     // at a time (ir::Intrinsic::prefetch): llvm.prefetch for a read with

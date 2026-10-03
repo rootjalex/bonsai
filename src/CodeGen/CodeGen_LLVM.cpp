@@ -3794,14 +3794,19 @@ llvm::Value *CodeGen_LLVM::dynamic_shuffle(llvm::Value *vec,
 }
 
 llvm::Value *CodeGen_LLVM::compress_lanes(llvm::Value *vec, llvm::Value *mask,
-                                          const std::string &name) {
+                                          const std::string &name,
+                                          bool zero_rest) {
     // The lanes past the ones packed are zero: the zeroing form of the
     // instruction, where a value to merge into would cost a count of the
-    // lanes on and a mask made from it.
+    // lanes on and a mask made from it. Where nothing reads them they are
+    // left undefined, and LLVM merges into whatever register it has rather
+    // than zeroing one first.
+    llvm::Value *rest = zero_rest
+                            ? llvm::Constant::getNullValue(vec->getType())
+                            : llvm::PoisonValue::get(vec->getType());
     return builder->CreateIntrinsic(
         vec->getType(), llvm::Intrinsic::experimental_vector_compress,
-        {vec, mask, llvm::Constant::getNullValue(vec->getType())}, nullptr,
-        name);
+        {vec, mask, rest}, nullptr, name);
 }
 
 void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
@@ -3858,7 +3863,8 @@ void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
     llvm::Type *words_t = llvm::FixedVectorType::get(i64_t, lanes);
     llvm::Value *words = builder->CreatePtrToInt(ptr, words_t);
     if (mask != nullptr) {
-        words = compress_lanes(words, mask, "prefetch_addresses");
+        words = compress_lanes(words, mask, "prefetch_addresses",
+                               /*zero_rest=*/false);
     }
     llvm::BasicBlock *done_bb = llvm::BasicBlock::Create(
         *context, "prefetch_done", current_function);
@@ -6167,7 +6173,8 @@ void CodeGen_LLVM::create_compress_store_at(llvm::Value *value,
     // `vpcompressq` and a `vmovdqu64` where the compacting store to memory
     // is microcoded.
     if (whole) {
-        llvm::Value *packed = compress_lanes(value, mask, "compress_whole");
+        llvm::Value *packed = compress_lanes(value, mask, "compress_whole",
+                                             /*zero_rest=*/false);
         llvm::StoreInst *store = builder->CreateStore(packed, dest);
         store->setAlignment(align);
         return;

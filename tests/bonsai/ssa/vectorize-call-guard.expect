@@ -1,19 +1,30 @@
-func [[noinline]] scale(x : f32, k : f32) -> f32 {
+func [[noinline]] scale(x : f32, k : f32, t : f32[4]) -> f32 {
   let @0 = x * k in
-  return @0
+  let @1 = x * x in
+  let @2 = cast<u32>(@1) in
+  let @3 = @2 & 3u in
+  let @4 = t[@3] in
+  let @5 = @0 + @4 in
+  return @5
 }
 
-func [[noinline]] scale$gang8_v0$masked(x : f32x8, k : f32, !mask : boolx8) -> f32x8 {
-  let @1 = f32x8(k) in
-  let @0 = x * @1 in
-  return @0
+func [[noinline]] scale$gang8_v0$masked(x : f32x8, k : f32, t : f32[4], !mask : boolx8) -> f32x8 {
+  let @6 = f32x8(k) in
+  let @0 = x * @6 in
+  let @1 = x * x in
+  let @2 = cast<u32x8>(@1) in
+  let @7 = u32x8(3u) in
+  let @3 = @2 & @7 in
+  let @4 = masked_extract(t[@3], !mask) in
+  let @5 = @0 + @4 in
+  return @5
 }
 
-func weigh(x : f32) -> f32 {
+func weigh(x : f32, t : f32[4]) -> f32 {
   acc : mut f32
   let @0 = 2f < x in
   if (@0) {
-    let @1 = scale(x, 3f) in
+    let @1 = scale(x, 3f, t) in
     let @3 = 20f < @1 in
     if (@3) {
       return @1
@@ -21,14 +32,14 @@ func weigh(x : f32) -> f32 {
       acc = @1
     }
   } else {
-    let @5 = scale(x, 5f) in
+    let @5 = scale(x, 5f, t) in
     acc = @5
   }
   let @7 = (*acc) + 1f in
   return @7
 }
 
-func weigh$gang8_v0(x : f32x8) -> f32x8 {
+func weigh$gang8_v0(x : f32x8, t : f32[4]) -> f32x8 {
   @10!join : mut boolx8
   acc!skip : mut f32x8
   !ret!skip : mut f32x8
@@ -41,7 +52,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   let @14 = reduce<any>(@0) in
   let @24 = boolx8(false) in
   if (@14) {
-    let @1 = scale$gang8_v0$masked(x, 3f, @0) in
+    let @1 = scale$gang8_v0$masked(x, 3f, t, @0) in
     let @20 = f32x8(20f) in
     let @3 = @20 < @1 in
     let @21 = boolx8(false) in
@@ -59,7 +70,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   }
   let @13 = reduce<any>(@8) in
   if (@13) {
-    let @5 = scale$gang8_v0$masked(x, 5f, @8) in
+    let @5 = scale$gang8_v0$masked(x, 5f, t, @8) in
     let @15 = select(@8, @5, (*acc!skip)) in
     acc!skip0 = @15
   } else {
@@ -72,16 +83,16 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   return @16
 }
 
-func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
+func [[export]] weigh_all(a : f32[8], t : f32[4], out : mut f32[8]) -> void {
   let @0 = a[ramp(0, 1, 8)] in
-  let @1 = weigh$gang8_v0(@0) in
+  let @1 = weigh$gang8_v0(@0, t) in
   let i = ramp(0, 1, 8) in
   out[ramp(0, 1, 8)] = @1
   return
 }
 
-func [[export]] weigh_one(x : f32) -> f32 {
-  let @0 = weigh(x) in
+func [[export]] weigh_one(x : f32, t : f32[4]) -> f32 {
+  let @0 = weigh(x, t) in
   return @0
 }
 

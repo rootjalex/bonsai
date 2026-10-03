@@ -78,6 +78,7 @@ add_bonsai_tests(
     switch-merge.bonsai
     traverse.bonsai
     vectorize-call-guard.bonsai
+    vectorize-pure-call.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
     vectorize-arm-local.bonsai

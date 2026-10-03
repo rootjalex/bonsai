@@ -1,0 +1,39 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_pure_call
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_pure_call.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_pure_call.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_pure_call.o tests/bonsai/correctness/cpp/vectorize_pure_call.o -o tests/bonsai/correctness/cpp/vectorize_pure_call, ./tests/bonsai/correctness/cpp/vectorize_pure_call, rm tests/bonsai/correctness/cpp/vectorize_pure_call, rm tests/bonsai/correctness/cpp/main_vectorize_pure_call.o, rm tests/bonsai/correctness/cpp/vectorize_pure_call.h, rm tests/bonsai/correctness/cpp/vectorize_pure_call.o
+
+// A gang's call to a pure function under a mask with no test in front of it
+// (see ssa/vectorize-pure-call.bonsai), run: the call to `square_plus` is
+// made for every gang, with every lane of its mask off included, and only
+// the lanes that were on read its answer; the call to `tabled` keeps its
+// test. The driver runs a gang where every lane passes the first test, one
+// where none does -- the call made for nobody -- and a mixed one, and
+// compares each lane with the same input picked alone.
+func [[noinline]] square_plus(x : f32) -> f32 = x * x + 1.0;
+
+func [[noinline]] tabled(x : f32, t : array[f32, 4]) -> f32 = t[cast[[u32]](x * x) % 4u];
+
+func pick(x : f32, t : array[f32, 4]) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 && square_plus(x) < 20.0 {
+        acc = x;
+    }
+    if x > 1.0 && tabled(x, t) < 0.6 {
+        acc = acc + 1.0;
+    }
+    return acc;
+}
+
+func [[export]] pick_one(x : f32, t : array[f32, 4]) -> f32 {
+    return pick(x, t);
+}
+
+func [[export]] pick_all(a : array[f32, 8], t : array[f32, 4], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = pick(a[i], t);
+    }
+    return;
+}
+
+schedule {
+    pick_all.vectorize(i);
+}

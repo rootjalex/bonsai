@@ -1,25 +1,40 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc noundef float @scale(float noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k) unnamed_addr #0 {
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read)
+define internal fastcc float @scale(float noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k, ptr nofree noundef readonly captures(none) %t) unnamed_addr #0 {
 scale:
   %0 = fmul float %x, %k
-  ret float %0
+  %1 = fmul float %x, %x
+  %2 = fptoui float %1 to i32
+  %3 = and i32 %2, 3
+  %4 = zext nneg i32 %3 to i64
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %t, i64 %4
+  %extract = load float, ptr %extract_ptr, align 4
+  %5 = fadd float %0, %extract
+  ret float %5
 }
 
-; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc noundef <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k) unnamed_addr #0 {
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read)
+define internal fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> noundef %x, float noundef nofpclass(nan inf zero sub nnorm) %k, ptr noundef %t, <8 x i1> noundef %"!mask") unnamed_addr #1 {
 "scale$gang8_v0$masked":
   %.splatinsert = insertelement <8 x float> poison, float %k, i64 0
   %.splat = shufflevector <8 x float> %.splatinsert, <8 x float> poison, <8 x i32> zeroinitializer
   %0 = fmul <8 x float> %x, %.splat
-  ret <8 x float> %0
+  %1 = fmul <8 x float> %x, %x
+  %2 = fptoui <8 x float> %1 to <8 x i32>
+  %3 = and <8 x i32> %2, splat (i32 3)
+  %4 = zext nneg <8 x i32> %3 to <8 x i64>
+  %extract_ptrs = getelementptr inbounds nuw [4 x i8], ptr %t, <8 x i64> %4
+  %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> %"!mask", <8 x float> zeroinitializer)
+  %5 = fadd <8 x float> %0, %extract
+  ret <8 x float> %5
 }
 
-define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+define void @weigh_all(ptr noundef %a_buffer, ptr noundef %t_buffer, ptr noundef %out_buffer) local_unnamed_addr {
 weigh_all:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %t = tail call ptr @bonsai_buffer_require(ptr %t_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, splat (float 2.000000e+00)
@@ -29,7 +44,7 @@ weigh_all:
   br i1 %.not.i, label %"!else_1!any.i", label %"!then_0.i"
 
 "!then_0.i":                                      ; preds = %weigh_all
-  %2 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 3.000000e+00)
+  %2 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 3.000000e+00, ptr %t, <8 x i1> %0)
   %3 = fcmp ule <8 x float> %2, splat (float 2.000000e+01)
   %4 = or <8 x i1> %3, %not..i
   br label %"!else_1!any.i"
@@ -42,7 +57,7 @@ weigh_all:
   br i1 %.not2.i, label %"weigh$gang8_v0.exit", label %"!else_1.i"
 
 "!else_1.i":                                      ; preds = %"!else_1!any.i"
-  %6 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 5.000000e+00)
+  %6 = tail call fastcc <8 x float> @"scale$gang8_v0$masked"(<8 x float> %extract, float 5.000000e+00, ptr %t, <8 x i1> %not..i)
   %7 = select <8 x i1> %0, <8 x float> %"acc!skip.i", <8 x float> %6
   br label %"weigh$gang8_v0.exit"
 
@@ -55,19 +70,19 @@ weigh_all:
   ret void
 }
 
-; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef float @weigh_one(float noundef %x) local_unnamed_addr #1 {
+define float @weigh_one(float noundef %x, ptr noundef %t_buffer) local_unnamed_addr {
 weigh_one:
+  %t = tail call ptr @bonsai_buffer_require(ptr %t_buffer, i32 1)
   %0 = fcmp ogt float %x, 2.000000e+00
   br i1 %0, label %"!then_0.i", label %"!else_1.i"
 
 "!then_0.i":                                      ; preds = %weigh_one
-  %1 = tail call fastcc float @scale(float %x, float 3.000000e+00)
+  %1 = tail call fastcc float @scale(float %x, float 3.000000e+00, ptr readonly %t)
   %2 = fcmp ogt float %1, 2.000000e+01
   br i1 %2, label %weigh.exit, label %"!merge_2.i"
 
 "!else_1.i":                                      ; preds = %weigh_one
-  %3 = tail call fastcc float @scale(float %x, float 5.000000e+00)
+  %3 = tail call fastcc float @scale(float %x, float 5.000000e+00, ptr readonly %t)
   br label %"!merge_2.i"
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!then_0.i"
@@ -80,9 +95,13 @@ weigh.exit:                                       ; preds = %"!then_0.i", %"!mer
   ret float %common.ret.op.i
 }
 
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #2
+
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) }
+attributes #1 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

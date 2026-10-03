@@ -59,6 +59,7 @@ add_bonsai_tests(
     vectorize_add_one.bonsai
     vectorize_call_guard.bonsai
     vectorize_calls.bonsai
+    vectorize_pure_call.bonsai
     vectorize_divergent.bonsai
     vectorize_division.bonsai
     vectorize_gather.bonsai

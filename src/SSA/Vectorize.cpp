@@ -1271,6 +1271,24 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
 // which arguments fall short, and a splat closes the gap, the same way a
 // uniform value handed to a per-lane block argument is splatted where it is
 // passed (see the end of widen_region).
+// What `linearize` asks of a callee by name: whether it may run on behalf of
+// no lane (safe_with_all_lanes_off, SSA/Linearize.h), looked up in `funcs`,
+// where the masked variants this pass makes live beside the functions they
+// came from.
+std::function<bool(const string &)> safe_callee_in(const FuncMap &funcs) {
+    return [&funcs](const string &name) {
+        const auto found = funcs.find(name);
+        if (found == funcs.end()) {
+            return false;
+        }
+        return safe_with_all_lanes_off(
+            *found->second, [&funcs](const string &callee) -> const Function * {
+                const auto f = funcs.find(callee);
+                return f == funcs.end() ? nullptr : f->second.get();
+            });
+    };
+}
+
 void broadcast_call_arguments(const FuncMap &funcs, Function &func,
                               const Cfg &region, uint32_t lanes) {
     for (BlockId b = 0; b < region.size(); b++) {
@@ -1677,11 +1695,18 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
             // filled in. In the original program no thread was there to
             // call it, so nothing is lost by not calling it either -- the
             // same rule as a store into shared memory under a mask, and
-            // ispc's (a call is never SafeToRunWithMaskAllOff). The arm the
-            // call is in is normally behind the linearizer's own test of the
-            // mask, which settles it; a call nothing has tested for gets a
-            // test of its own (see guard_call).
-            if (!nonempty(b, *mask->second)) {
+            // ispc's for a call it cannot see into (a call is never
+            // SafeToRunWithMaskAllOff there). The arm the call is in is
+            // normally behind the linearizer's own test of the mask, which
+            // settles it; a call nothing has tested for gets a test of its
+            // own (see guard_call) -- unless the variant is safe with every
+            // lane off (safe_with_all_lanes_off, SSA/Linearize.h: no
+            // memory, no effect, nothing uniform that a lane's value
+            // indexes), when running it for no lane computes nothing
+            // anyone reads and the test would cost more than it spares:
+            // the right side of `a && b` where `b` is a pure function.
+            if (!nonempty(b, *mask->second) &&
+                !safe_callee_in(funcs)(name_of_variant)) {
                 unguarded.push_back(b);
             }
         } else if (key.masked) {
@@ -1858,7 +1883,8 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // and would make every latch inside an arm a divergent one.
     folded_arms = linearizable.masked;
     BlockMasks masks = linearize(*variant, entry, linearizable, mask,
-                                 uniform.loops, policies, key.callee);
+                                 uniform.loops, policies, key.callee,
+                                 safe_callee_in(funcs));
     if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
         std::cerr << "--- after linearizing " << name << ":\n";
         variant->dump(std::cerr);
@@ -2044,7 +2070,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     // same step in the variant path above.
     const set<string> folded_arms = before.masked;
     BlockMasks masks = linearize(*f, entry, before, nullptr, uniform.loops,
-                                 policies, func);
+                                 policies, func, safe_callee_in(funcs));
     if (std::getenv("BONSAI_DUMP_LINEARIZE") != nullptr) {
         std::cerr << "--- after linearizing " << func << ":\n";
         f->dump(std::cerr);

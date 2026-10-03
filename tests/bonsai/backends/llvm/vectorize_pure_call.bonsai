@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the LLVM IR for a gang's call to a pure function under a
+// mask: the program of ssa/vectorize-pure-call.bonsai. What to read for in
+// `pick_all`: the masked variant of `square_plus` is called under the mask
+// of `x > 2.0` with no test of that mask before it -- no `icmp` of the mask's
+// bits against zero and no branch between the compare and the call -- while
+// the call to `tabled`, which reads the table at a lane's index, is entered
+// only when some lane of `x > 1.0` is on. After inlining the first is a
+// multiply, an add and a compare under a select; the second keeps its test.
+func [[noinline]] square_plus(x : f32) -> f32 = x * x + 1.0;
+
+func [[noinline]] tabled(x : f32, t : array[f32, 4]) -> f32 = t[cast[[u32]](x * x) % 4u];
+
+func pick(x : f32, t : array[f32, 4]) -> f32 {
+    acc : mut = 0.0;
+    if x > 2.0 && square_plus(x) < 20.0 {
+        acc = x;
+    }
+    if x > 1.0 && tabled(x, t) < 0.6 {
+        acc = acc + 1.0;
+    }
+    return acc;
+}
+
+func [[export]] pick_one(x : f32, t : array[f32, 4]) -> f32 {
+    return pick(x, t);
+}
+
+func [[export]] pick_all(a : array[f32, 8], t : array[f32, 4], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = pick(a[i], t);
+    }
+    return;
+}
+
+schedule {
+    pick_all.vectorize(i);
+}
