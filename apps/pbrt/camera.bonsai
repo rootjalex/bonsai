@@ -77,19 +77,6 @@ element PerspectiveCamera {
     focal_distance : Float = 1.0e6;
 }
 
-// pbrt: one row of Transform::operator()(const Point3fi &), for a point known
-// exactly. The value is pbrt's `(m0 x + m1 y) + (m2 z + m3)` -- a different
-// association from the plain point transform's, and fused as gcc fuses it, the
-// second product into the first -- and the width is pbrt's gamma(3) bound over
-// the four terms of the row. See point_to_object in interval.bonsai for why the
-// width is the bound and not the arithmetic's own rounding.
-func row_point_interval(row : vec4f, p : vec3f) -> Interval {
-    v = fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
-    err = gamma(3) * (((abs(row.x * p.x) + abs(row.y * p.y)) +
-                       abs(row.z * p.z)) + abs(row.w));
-    return from_value_and_error(v, err);
-}
-
 // pbrt: Transform::operator()(const Ray &), which is how a camera ray reaches
 // render space. The origin goes through as an interval and comes out as one
 // point: pbrt takes the transformed origin's error bound, moves the origin

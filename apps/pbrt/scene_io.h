@@ -593,21 +593,26 @@ struct InfiniteLight {
 
 struct Shape {
     uint32_t tag;
-    // Sphere, and the disk's outer radius.
+    // Sphere and disk: the radius. The sphere's clipping -- PBRT's
+    // constructor's zmin and zmax clamped to the radius, their arc cosines
+    // (the theta the v coordinate runs between), and phimax in radians
+    // clamped to a turn, all computed as the constructor computes them.
     float radius = 0.f;
-    float center[3] = {0.f, 0.f, 0.f};
+    float z_min = 0.f;
+    float z_max = 0.f;
+    float theta_z_min = 0.f;
+    float theta_z_max = 0.f;
     // PBRT's reverseOrientation ^ transformSwapsHandedness: which way the
     // surface normal points.
     uint32_t flip = 0;
     // Triangle.
     uint32_t mesh = 0;
     uint32_t tri = 0;
-    // Disk. PBRT's is in an object space its transform places -- unlike the
-    // sphere, which is admitted only under a translation -- so both matrices
-    // come along, 4x4 in row order, as an instance's do. `phi_max` is in
-    // radians, clamped to a turn, as PBRT's constructor leaves it; `reverse` is
-    // reverseOrientation alone, which PBRT turns a *sampled* point's normal by
-    // where a hit's normal is turned by `flip`.
+    // Sphere and disk. PBRT's quadrics are in an object space their transform
+    // places, so both matrices come along, 4x4 in row order, as an instance's
+    // do. `phi_max` is in radians, clamped to a turn, as PBRT's constructors
+    // leave it; `reverse` is reverseOrientation alone, which PBRT turns a
+    // *sampled* point's normal by where a hit's normal is turned by `flip`.
     float render_from_object[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
                                     0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
     float object_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
@@ -1062,7 +1067,7 @@ namespace detail {
 // Bumped whenever a record in scene_geometry.fbs changes layout; a sidecar
 // of another version is refused rather than misread, as a text file with a
 // missing tag is.
-constexpr uint32_t kGeometryVersion = 1;
+constexpr uint32_t kGeometryVersion = 2;
 
 inline geo::Placement placement_of(const Shape &s) {
     return geo::Placement(s.material, s.light, s.light_ordinal, s.alpha,
@@ -1108,7 +1113,10 @@ inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
         switch (s.tag) {
         case ShapeTag::Sphere:
             c.slots.push_back(uint32_t(c.spheres.size()));
-            c.spheres.emplace_back(span3(s.center), s.radius, s.flip, at);
+            c.spheres.emplace_back(s.radius, s.z_min, s.z_max, s.theta_z_min,
+                                   s.theta_z_max, s.phi_max, s.flip, s.reverse,
+                                   span16(s.render_from_object),
+                                   span16(s.object_from_render), at);
             break;
         case ShapeTag::Disk:
             c.slots.push_back(uint32_t(c.disks.size()));
@@ -1252,9 +1260,18 @@ inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
             }
             const geo::Sphere *r = spheres->Get(slot);
             s.tag = ShapeTag::Sphere;
-            std::memcpy(s.center, r->center()->data(), sizeof(s.center));
             s.radius = r->radius();
+            s.z_min = r->z_min();
+            s.z_max = r->z_max();
+            s.theta_z_min = r->theta_z_min();
+            s.theta_z_max = r->theta_z_max();
+            s.phi_max = r->phi_max();
             s.flip = r->flip();
+            s.reverse = r->reverse();
+            std::memcpy(s.render_from_object, r->render_from_object()->data(),
+                        sizeof(s.render_from_object));
+            std::memcpy(s.object_from_render, r->object_from_render()->data(),
+                        sizeof(s.object_from_render));
             place(r->at(), s);
             break;
         }

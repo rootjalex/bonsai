@@ -2712,7 +2712,7 @@ Per scene, what is missing (see the converter for what is supported):
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
-| smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
+| smoke-plume | `volpath`, `interface`, `uniformgrid` medium, a scaled sphere -- all done 2026-10-03: converts and renders on the GPU at 1.53x of `pbrt --gpu` (the sphere paragraph below) |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
 | sssdragon | `subsurface` |
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` -- converts as of 2026-10-03 |
@@ -9472,6 +9472,58 @@ where `pbrt --gpu` is itself 0.99881x of its CPU on the cloud and we are
 0.99868x of `pbrt --gpu`. Open and noted: a path ray's own re-hit of such a
 face on the GPU is a bounce pbrt's CPU would not take; pbrt's GPU takes it
 too.
+
+*The sphere as pbrt's quadric (2026-10-03).* This renderer's sphere was a
+centre and a radius in render space, admitted only under a translation and
+only whole; pbrt's is a quadric in an object space its transform places,
+clipped by zmin, zmax and phimax -- and smoke-plume's silver sphere is
+scaled, bunny-cloud's, explosion's and clouds' boundary spheres turned, so
+the converter refused all four scenes. `Sphere` (shapes.bonsai) now carries
+both matrices as the disk does, the radius, the two heights clamped to it,
+their arc cosines and phimax in radians (the constructor's numbers, computed
+by the converter as pbrt computes them), and pbrt's two orientation flags.
+The ray goes into object space as pbrt's `(*objectFromRender)(Point3fi)` and
+`(Vector3fi)` take it -- the interval transforms with the matrix's own
+rounding as their width (row_point_interval, moved here from the camera, and
+row_vector_interval) -- and the quadratic is solved as before; `sphere_hit`
+is BasicIntersect whole, the hit refined onto the sphere, nudged off the
+axis, tested against the clipping and the far root taken where the near one
+is clipped away; `sphere_geometry` is InteractionFromIntersection with the
+parameterization over phimax and the theta span, `SafeSqrt(1 - cos^2)` for
+the sine as pbrt has it, and the hit pushed out through `push_surface` with
+its gamma(5) bound; sampling and PDF read the centre as pbrt does
+(`renderFromObject(0,0,0)`), turn a sampled normal by `reverse` alone, take
+uv through `objectFromRender`, and the inside-the-sphere PDF branch that was
+never written now is (`sphere_pdf_inside`: the ray spawned toward `wi`,
+intersected, the area density converted at the hit). For a translation
+every one of these reduces to the arithmetic that was there, bit for bit,
+which killeroo's lights depend on. The scene record and the FlatBuffer
+(version 2) carry the transform and the clipping; the converter writes
+pbrt's own mInv beside the matrix, `flip` as reverseOrientation ^
+SwapsHandedness, and bounds a sphere as `Sphere::Bounds` does (its clipped
+object-space box under the transform), as does the driver for the RT cores.
+Scene: transformed-spheres (an ellipsoid under a turn and a non-uniform
+scale, a copper sphere cut by zmin, zmax and phimax turned to face the
+camera, a mirror under a uniform scale, and an emitting half-sphere).
+Against pbrt's CPU `path` on the scalar schedule: normals 0 pixels off, not
+one on a silhouette (worst 2.9e-6), albedo 0 over 5e-3, radiance 1.00041x
+with 99.6% of pixels within 1e-3. On the GPU against `pbrt --gpu` at 64 spp:
+mean 0.99961x, 92.2% within 1e-3, 69 ms against 110 ms (1.60x). The
+scenes with translated spheres: killeroo-simple still matches (0.99999x,
+33.3%); emissive-medium, whose walk is seeded from the ray spawned at its
+sphere boundary, is still 100.0% within 1e-3 of pbrt's wavefront, so a
+translation's spawns are what they were; homogeneous-medium keeps half its
+pixels to the bit and re-rolls the rest (our mean 1.00006x of our previous
+image), the hit's error bound now growing through the transform as pbrt's
+Point3fi does, which the render-space sphere had left out. Noted on the
+way: `pbrt --wavefront`'s own mean on homogeneous-medium moved 0.5% between
+two runs today (0.782552 and 0.786628 at the same 64 spp), so a single
+pbrt run is not a reference to the third digit on a scattering scene. And
+smoke-plume converts for the
+first time (4 shapes, the 192x256x192 density as a 38 MB `.vol`, the sky as
+a 335 MB `.env`) and renders on the GPU at 16 spp: the same plume as pbrt's
+(mean 0.99760x, 18.4% within 1e-3, a medium scene's figure), 0.255 s
+against `pbrt --gpu`'s 0.39 s (1.53x; kernels 213 ms against 315 ms).
 
 *NanoVDB: what it is, and the question (2026-10-03).* A read-only sparse
 3D grid of values -- here smoke density, and for the explosion also

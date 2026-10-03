@@ -239,16 +239,19 @@ struct Shapes {
 
 Bounds3f transform_bounds(const Transform &t, const Bounds3f &b);
 
-// pbrt: Sphere::Bounds, Disk::Bounds and Triangle::Bounds. A sphere placed by
-// a translation bounds to its centre plus and minus the radius on each axis; a
-// disk to the square of its radius in its own plane, moved by its transform
-// -- `(*renderFromObject)(Bounds3f(...))`, the box around the eight corners;
-// a triangle to the box around its three vertices.
+// pbrt: Sphere::Bounds, Disk::Bounds and Triangle::Bounds. A sphere bounds
+// to the box of its clipped object-space extent, `(-r, -r, zMin)..(r, r,
+// zMax)`, and a disk to the square of its radius in its own plane, each
+// moved by its transform -- `(*renderFromObject)(Bounds3f(...))`, the box
+// around the eight corners; a triangle to the box around its three vertices.
 Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
                    const Shapes &shapes) {
     if (shapes.is_sphere(prim.shape)) {
         const Sphere &s = shapes.sphere(prim.shape);
-        return Bounds3f{s.center - s.radius, s.center + s.radius};
+        return transform_bounds(
+            s.render_from_object,
+            Bounds3f{float3{-s.radius, -s.radius, s.z_min},
+                     float3{s.radius, s.radius, s.z_max}});
     }
     if (shapes.is_disk(prim.shape)) {
         const Disk &d = shapes.disk(prim.shape);
@@ -1827,9 +1830,16 @@ int main(int argc, char **argv) {
             uint64_t shape;
             if (s.tag == bonsai_scene::ShapeTag::Sphere) {
                 Sphere sphere;
-                sphere.center = float3{s.center[0], s.center[1], s.center[2]};
+                sphere.render_from_object = to_bonsai(s.render_from_object);
+                sphere.object_from_render = to_bonsai(s.object_from_render);
                 sphere.radius = s.radius;
+                sphere.z_min = s.z_min;
+                sphere.z_max = s.z_max;
+                sphere.theta_z_min = s.theta_z_min;
+                sphere.theta_z_max = s.theta_z_max;
+                sphere.phi_max = s.phi_max;
                 sphere.flip = s.flip != 0;
+                sphere.reverse = s.reverse != 0;
                 shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Disk) {
                 Disk disk;

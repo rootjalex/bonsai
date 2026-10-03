@@ -63,10 +63,21 @@ struct Patch {
     at : Placement;
 }
 
+// bonsai_scene::Shape for a sphere: PBRT's quadric in its object space,
+// placed by its transform (both matrices, 4x4 in row order), with the
+// constructor's clipping -- the two heights clamped to the radius, their arc
+// cosines, phimax in radians -- and the two orientation flags a disk has.
 struct Sphere {
-    center : [float : 3];
     radius : float;
+    z_min : float;
+    z_max : float;
+    theta_z_min : float;
+    theta_z_max : float;
+    phi_max : float;
     flip : uint32;
+    reverse : uint32;
+    render_from_object : [float : 16];
+    object_from_render : [float : 16];
     at : Placement;
 }
 

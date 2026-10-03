@@ -33,18 +33,33 @@ element RaySegment {
     tmax : Float;
 }
 
-// pbrt: Sphere. pbrt keeps a transform and a radius and works in object space,
-// where the sphere is at the origin; these are placed by a translation only,
-// so object space is reached by subtracting the centre.
+// pbrt: Sphere -- a quadric in an object space its transform places, as
+// pbrt keeps every quadric: the sphere is at the origin there, and a ray is
+// pulled into that space to be tested, the hit pushed back out. `radius`,
+// `z_min`, `z_max` and `phi_max` are pbrt's constructor's -- the two heights
+// clamped to the radius, phimax in radians clamped to a turn -- and the two
+// theta bounds are the arc cosines of the heights over the radius, computed
+// once by the converter as the constructor computes them; a full sphere has
+// theta from pi at the bottom to zero at the top, so the span the v
+// coordinate is measured over is negative.
 element Sphere {
-    center : vec3f;
+    render_from_object : Transform;
+    object_from_render : Transform;
     radius : Float;
+    z_min : Float;
+    z_max : Float;
+    theta_z_min : Float;
+    theta_z_max : Float;
+    phi_max : Float;
     // pbrt: reverseOrientation ^ transformSwapsHandedness, which decides which
-    // way the surface normal points. Invisible in the gbuffer, whose normal is
-    // turned to face the camera whichever way this falls, and not invisible in
-    // a shading frame -- flipping the normal flips the frame's y axis with it,
-    // and a layered BSDF is seeded by hashing the direction it is asked about.
+    // way a hit's surface normal points. Invisible in the gbuffer, whose
+    // normal is turned to face the camera whichever way this falls, and not
+    // invisible in a shading frame -- flipping the normal flips the frame's y
+    // axis with it, and a layered BSDF is seeded by hashing the direction it
+    // is asked about.
     flip : bool = false;
+    // pbrt: reverseOrientation alone, which turns a *sampled* point's normal.
+    reverse : bool = false;
 }
 
 // pbrt: TriangleMesh, and the arrays every mesh in the scene shares.
@@ -99,9 +114,13 @@ func triangle_p(t : Triangle, corner : u32) -> vec3f =
     mesh_positions[mesh_corner(meshes[t.mesh], t, corner)];
 
 // The two solutions of the quadratic, each still an interval, so that the
-// caller can ask about a bound rather than about a value.
+// caller can ask about a bound rather than about a value -- and the ray in
+// object space they were solved along, as values (pbrt's `Point3f(oi)` and
+// `Vector3f(di)`, the intervals' midpoints), which the hit point is read
+// off.
 element Roots {
     t0, t1 : Interval;
+    o, d : vec3f;
 }
 
 // pbrt: Sphere::BasicIntersect, in the interval arithmetic pbrt carries the
@@ -119,14 +138,18 @@ element Roots {
 // Both matter: the factoring keeps the value accurate, the intervals keep the
 // comparison honest about what accuracy is left.
 func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
-    // Object space: the sphere is at the origin. These spheres are placed by a
-    // translation, so that is the transform whose error the intervals carry.
-    oix = point_to_object(r.o.x, s.center.x);
-    oiy = point_to_object(r.o.y, s.center.y);
-    oiz = point_to_object(r.o.z, s.center.z);
-    dix = vector_to_object(r.d.x);
-    diy = vector_to_object(r.d.y);
-    diz = vector_to_object(r.d.z);
+    // pbrt: `(*objectFromRender)(Point3fi(r.o))` and `(Vector3fi(r.d))` --
+    // the ray into object space as intervals whose width is the matrix's own
+    // rounding (row_point_interval, row_vector_interval). pbrt divides the
+    // point by its w where that is not one; a shape's transform is affine and
+    // it is one.
+    inv = s.object_from_render;
+    oix = row_point_interval(inv.r0, r.o);
+    oiy = row_point_interval(inv.r1, r.o);
+    oiz = row_point_interval(inv.r2, r.o);
+    dix = row_vector_interval(inv.r0, r.d);
+    diy = row_vector_interval(inv.r1, r.d);
+    diz = row_vector_interval(inv.r2, r.d);
 
     a = iadd(iadd(isqr(dix), isqr(diy)), isqr(diz));
     b = imulf(2.0, iadd(iadd(imul(dix, oix), imul(diy, oiy)),
@@ -168,16 +191,47 @@ func sphere_roots(r : Ray, s : Sphere) -> option[Roots] {
         t1 = swap;
     }
 
-    roots : Roots = {t0, t1};
+    roots : Roots = {t0, t1, vec3f{mid(oix), mid(oiy), mid(oiz)},
+                     vec3f{mid(dix), mid(diy), mid(diz)}};
     return roots;
 }
 
+// pbrt: QuadricIntersection, as a sphere fills it: the distance along the
+// ray, the hit in object space, and its azimuth about the sphere's axis.
+element SphereHit {
+    t : Float;
+    p_obj : vec3f;
+    phi : Float;
+}
+
+// pbrt: the hit point a root gives -- `Point3f(oi) + t * Vector3f(di)`,
+// refined onto the sphere since t is only as accurate as the quadratic that
+// made it, nudged off the axis where phi is undefined -- and its azimuth.
+func sphere_point(s : Sphere, o : vec3f, d : vec3f, t : Float) -> SphereHit {
+    raw = o + t * d;
+    scaled = raw * (s.radius / norm(raw));
+    p = select((scaled.x == 0.0) & (scaled.y == 0.0),
+               vec3f{0.00001 * s.radius, scaled.y, scaled.z}, scaled);
+    phi0 = atan2(p.y, p.x);
+    phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
+    hit : SphereHit = {t, p, phi};
+    return hit;
+}
+
+// pbrt: the clipping test against zmin, zmax and phimax; a partial sphere is
+// the part of the surface that passes it, and a full one passes everywhere.
+func sphere_clipped(s : Sphere, h : SphereHit) -> bool =
+    ((s.z_min > -s.radius) & (h.p_obj.z < s.z_min)) |
+    ((s.z_max < s.radius) & (h.p_obj.z > s.z_max)) | (h.phi > s.phi_max);
+
 // pbrt: the tail of BasicIntersect, which picks the nearer root that is
-// actually ahead of the ray and within tMax. Every test is on a bound rather
-// than on the interval's value: a root is only rejected when it is certainly
-// out of range, so a hit is never dropped because rounding pushed it a few ulp
-// past the boundary. This is the test for a sphere the ray is trying to *hit*.
-func sphere_t(r : Ray, tmax : Float, s : Sphere) -> option[Float] {
+// actually ahead of the ray and within tMax, and falls back to the farther
+// where the clipping takes the nearer away. Every range test is on a bound
+// rather than on the interval's value: a root is only rejected when it is
+// certainly out of range, so a hit is never dropped because rounding pushed
+// it a few ulp past the boundary. This is the test for a sphere the ray is
+// trying to *hit*.
+func sphere_hit(r : Ray, tmax : Float, s : Sphere) -> option[SphereHit] {
     found = sphere_roots(r, s);
     if !found {
         return {};
@@ -186,15 +240,31 @@ func sphere_t(r : Ray, tmax : Float, s : Sphere) -> option[Float] {
     if (roots.t0.high > tmax) | (roots.t1.low <= 0.0) {
         return {};
     }
+    near : mut Interval = roots.t0;
+    took_far : mut bool = false;
     if roots.t0.low <= 0.0 {
         // The near root is behind the ray, so the far one is the hit -- if it
         // is in range at all.
         if roots.t1.high > tmax {
             return {};
         }
-        return mid(roots.t1);
+        near = roots.t1;
+        took_far = true;
     }
-    return mid(roots.t0);
+    first = sphere_point(s, roots.o, roots.d, mid(near));
+    if !sphere_clipped(s, first) {
+        return first;
+    }
+    // pbrt: `if (tShapeHit == t1) return {}` -- the far root was the one
+    // clipped; else the far root, within tMax and not clipped itself.
+    if took_far | (roots.t1.high > tmax) {
+        return {};
+    }
+    second = sphere_point(s, roots.o, roots.d, mid(roots.t1));
+    if sphere_clipped(s, second) {
+        return {};
+    }
+    return second;
 }
 
 // pbrt: Bounds3f, and the bounding volume the schedule gives a BVH node.
@@ -217,7 +287,7 @@ element Span {
 // something inside could be hit -- and it runs at every node of the tree, so
 // pbrt buys that conservatism with a single widening of the far bound rather
 // than with a proof. The provable bound is spent where it decides something,
-// in sphere_t. Measured on this scene, a node test carrying intervals cost
+// in sphere_hit. Measured on this scene, a node test carrying intervals cost
 // 355ms against 50ms for the identical image.
 //
 // The widening is the whole robustness argument: the divisions and
@@ -406,8 +476,7 @@ func [[inline]] triangle_test(ray : Ray, tmax : Float, tri : Triangle,
     deltaE = 2 * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
     maxE = max(abs(vec3f{e0, e1, e2}));
     deltaT = 3 * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * abs(invDet);
-    // EXPERIMENT: the hardware's acceptance -- t past 1e-7 and no error bound.
-    if (strict && t <= 0.0000001)
+    if (strict && t <= deltaT)
         return {};
 
     hit : TriangleHit = {t, vec3f{e0 * invDet, e1 * invDet, e2 * invDet}};
@@ -606,7 +675,7 @@ element Shape =
 // matches on which shape it has. The tree the schedule builds calls these
 // without knowing a shape has variants at all.
 //
-// These are the primitive queries, so the Sph arm goes to sphere_t, pbrt's
+// These are the primitive queries, so the Sph arm goes to sphere_hit, pbrt's
 // hit. The bounding-volume overloads above answer for AABB and are a separate
 // question -- the node a shape is in, not the shape. A shape that is not hit
 // is infinitely far, the same answer the triangle gives.
@@ -621,9 +690,9 @@ element Shape =
 func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
-            hit = sphere_t(q.ray, q.tmax, s);
+            hit = sphere_hit(q.ray, q.tmax, s);
             if hit {
-                return *hit;
+                return (*hit).t;
             }
             return inf;
         }
@@ -648,9 +717,9 @@ func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
 func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
     match sh {
         Sph(s) => {
-            hit = sphere_t(q.ray, q.tmax, s);
+            hit = sphere_hit(q.ray, q.tmax, s);
             if hit {
-                return *hit;
+                return (*hit).t;
             }
             return -inf;
         }
@@ -674,7 +743,7 @@ func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
 
 func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
     match sh {
-        Sph(s) => return cast[[bool]](sphere_t(q.ray, q.tmax, s));
+        Sph(s) => return cast[[bool]](sphere_hit(q.ray, q.tmax, s));
         Tri(t) => return intersects(q, t);
         Dsk(d) => return cast[[bool]](disk_hit(q.ray, q.tmax, d));
         Blp(b) => return cast[[bool]](patch_hit(q.ray, q.tmax, b));
@@ -749,27 +818,24 @@ element SurfaceGeometry {
     p_error : vec3f;
 }
 
-// pbrt: Sphere::InteractionFromIntersection, for the full spheres scene_dump
-// lets through -- a partial one has a different phi range and a different
-// theta range, and is refused rather than silently closed up.
-//
-// Object space, where the sphere is at the origin, is reached by subtracting
-// the centre from the ray's origin rather than from the hit point: pbrt
-// transforms the ray and then evaluates it, and the two round differently.
-func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
-    // pbrt: refining the hit onto the sphere, since t is only as accurate as
-    // the quadratic that produced it.
-    raw = (r.o - s.center) + t * r.d;
-    scaled = raw * (s.radius / norm(raw));
-    // pbrt nudges a hit exactly on the axis off it, where phi is undefined.
-    p = select((scaled.x == 0.0) && (scaled.y == 0.0),
-               vec3f{0.00001 * s.radius, scaled.y, scaled.z}, scaled);
-
-    // pbrt: phiMax, which is 2pi for a full sphere, and the theta range, which
-    // runs from acos(-1) at the bottom to acos(1) at the top -- so the span the
-    // v coordinate is measured over is negative.
-    phi_max = 6.28318530717958647692;
-    theta_span = 0.0 - 3.14159265358979323846;
+// pbrt: Sphere::InteractionFromIntersection, and the SurfaceInteraction
+// constructor and transform it ends in. The hit is in object space, where
+// the sphere is at the origin (sphere_point refined it there); the
+// parameterization is azimuth over phi_max for u and the angle down from
+// the pole over the theta span for v; the normal is the cross product of the
+// two partials, turned by `flip`; and the point leaves object space with
+// pbrt's gamma(5) bound on it, through the same push a disk's hit takes.
+func sphere_geometry(s : Sphere, hit : SphereHit) -> SurfaceGeometry {
+    p = hit.p_obj;
+    phi_max = s.phi_max;
+    theta_span = s.theta_z_max - s.theta_z_min;
+    u = hit.phi / phi_max;
+    // `cos_t`/`sin_t`: `cos_theta` is bxdf.bonsai's spherical accessor.
+    cos_t = p.z / s.radius;
+    // pbrt: SafeACos, the arc cosine of a cosine that rounding may have pushed
+    // a little outside the range it has to be in.
+    theta = safe_acos(cos_t);
+    v = (theta - s.theta_z_min) / theta_span;
 
     z_radius = sqrt(sqr(p.x) + sqr(p.y));
     // Not bxdf.bonsai's cos_phi, which is the same angle taken about the
@@ -777,11 +843,10 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     phi_cos = p.x / z_radius;
     phi_sin = p.y / z_radius;
     dpdu = vec3f{-phi_max * p.y, phi_max * p.x, 0.0};
-    // pbrt: SafeACos, the arc cosine of a cosine that rounding may have pushed
-    // a little outside the range it has to be in.
-    theta = acos(min(max(p.z / s.radius, -1.0), 1.0));
+    // pbrt: `SafeSqrt(1 - Sqr(cosTheta))`, not the sine of the angle.
+    sin_t = safe_sqrt(1.0 - sqr(cos_t));
     dpdv = theta_span * vec3f{p.z * phi_cos, p.z * phi_sin,
-                              -s.radius * sin(theta)};
+                              -s.radius * sin_t};
 
     // pbrt: the sphere's dndu and dndv, from the first and second fundamental
     // forms of the surface. The second derivatives of position say how the
@@ -808,26 +873,44 @@ func sphere_geometry(s : Sphere, r : Ray, t : Float) -> SurfaceGeometry {
     // the partial derivatives rather than from the position.
     raw_n = unit_vector(cross_(dpdu, dpdv));
     n = select(s.flip, -raw_n, raw_n);
-    // A sphere carries no per-vertex normals, so its shading geometry is its
-    // geometry.
-    //
-    // pbrt: `pError = gamma(5) * Abs(pHit)`. Object space, where the sphere is
-    // at the origin, so the bound is about the refined point above -- and the
-    // point itself is in render space, which for a translation is the same
-    // error.
-    // pbrt: the parametric coordinates, which for a sphere are the angle round
-    // the axis and the angle down from the pole. The same two `sphere_sample`
-    // computes, and written the same way.
-    phi0 = atan2(p.y, p.x);
-    phi = select(phi0 < 0.0, phi0 + phi_max, phi0);
-    uv = vec2f{phi / phi_max,
-               (theta - 3.14159265358979323846) / theta_span};
-
     // A sphere brings no vertex normals, so its shading geometry is its
-    // geometry and the shading bitangent is the geometric one.
-    g : SurfaceGeometry = {n, n, dpdu, dpdv, uv, dpdu, dpdv, dndu, dndv,
-                           p + s.center, gamma(5) * abs(p)};
-    return g;
+    // geometry and the shading bitangent is the geometric one. pbrt: `pError
+    // = gamma(5) * Abs(pHit)`, about the refined point in object space; the
+    // transform grows it on the way out (push_point).
+    g : SurfaceGeometry = {n, n, dpdu, dpdv, vec2f{u, v}, dpdu, dpdv, dndu, dndv,
+                           p, gamma(5) * abs(p)};
+    return push_surface(s.render_from_object, s.object_from_render, g);
+}
+
+// pbrt: one row of Transform::operator()(const Point3fi &), for a point known
+// exactly. The value is pbrt's `(m0 x + m1 y) + (m2 z + m3)` -- a different
+// association from the plain point transform's, and fused as gcc fuses it, the
+// second product into the first -- and the width is pbrt's gamma(3) bound over
+// the four terms of the row. A camera ray's origin takes this into render
+// space (camera.bonsai); a sphere's ray takes it into object space.
+//
+// The width is not one ulp. It is the gamma(3) bound over the terms of a
+// matrix row -- three products and three sums, any of which may round -- and
+// it is several times wider than a single step. That width is the whole game
+// for a grazing ray at a sphere: it is what makes the discriminant's lower
+// bound negative and the ray therefore a miss. Deriving the interval from the
+// arithmetic actually performed here, rather than from the matrix pbrt
+// performs it with, would give something narrower and so report hits that
+// pbrt does not.
+func row_point_interval(row : vec4f, p : vec3f) -> Interval {
+    v = fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
+    err = gamma(3) * (((abs(row.x * p.x) + abs(row.y * p.y)) +
+                       abs(row.z * p.z)) + abs(row.w));
+    return from_value_and_error(v, err);
+}
+
+// pbrt: one row of Transform::operator()(const Vector3fi &), for a vector
+// known exactly: the plain vector transform's value, fused as it is
+// (apply_row_vector), and gamma(3) over the three products as its width.
+func row_vector_interval(row : vec4f, v : vec3f) -> Interval {
+    value = fma(row.z, v.z, fma(row.x, v.x, row.y * v.y));
+    err = gamma(3) * ((abs(row.x * v.x) + abs(row.y * v.y)) + abs(row.z * v.z));
+    return from_value_and_error(value, err);
 }
 
 // pbrt: Point3fi -- a point and the bound on how far the arithmetic that made
@@ -1113,11 +1196,12 @@ func hit_refused(sh : Shape, r : Ray) -> bool {
     }
 }
 
-// The origin for a ray leaving a surface the hardware re-found (hit_refused):
-// pbrt's offset, with the error bound taken at the scale of the point's
-// largest coordinate on every axis rather than per axis, which is the scale
-// the hardware's test rounds at. The push clears the surface; every other
-// spawn keeps pbrt's own bound and is pbrt's to the bit.
+// The error bound a ray leaving a surface the hardware re-found
+// (hit_refused) is pushed off by: pbrt's gamma(7) bound taken at the scale
+// of the point's largest coordinate on every axis rather than per axis,
+// which is the scale the hardware's test rounds at. The push clears the
+// surface; every other spawn keeps pbrt's own bound and is pbrt's to the
+// bit.
 func wide_error(p : vec3f) -> vec3f {
     e = gamma(7) * max(max(abs(p.x), abs(p.y)), abs(p.z));
     return vec3f{e, e, e};
@@ -1205,16 +1289,20 @@ func spherical_direction(st : Float, ct : Float, phi : Float) -> vec3f {
     return vec3f{s * cos(phi), s * sin(phi), min(max(ct, -1.0), 1.0)};
 }
 
-// pbrt: Sphere::Area, for a full sphere.
-func sphere_area(s : Sphere) -> Float =
-    6.28318530717958647692 * s.radius * (s.radius - (0.0 - s.radius));
+// pbrt: Sphere::Area -- `phiMax * radius * (zMax - zMin)`, the whole surface
+// for a full sphere and the clipped part for a partial one.
+func sphere_area(s : Sphere) -> Float = s.phi_max * s.radius * (s.z_max - s.z_min);
 
-// pbrt: Sphere::Sample(u), a point chosen uniformly over the sphere's area.
+// pbrt: Sphere::Sample(u), a point chosen uniformly over the sphere's area --
+// the whole sphere whatever the clipping, as pbrt samples it, with the
+// density one over the clipped area all the same; pbrt does not reconcile
+// the two, so neither does this. The normal is the object-space position
+// pushed through the transform as a normal (pbrt's `(*renderFromObject)
+// (Normal3f)`, the inverse's columns), turned by `reverse`; the point goes
+// out with its gamma(5) bound.
 //
-// Only reached when the point being sampled from is *inside* the sphere, where
-// the cone below is not defined. Both scenes here look at their light from
-// outside, so this is the branch that is written for completeness and the other
-// is the one that runs.
+// Only reached when the point being sampled from is *inside* the sphere,
+// where the cone below is not defined.
 func sphere_sample_area(s : Sphere, u : vec2f) -> ShapeSample {
     dir = sample_uniform_sphere(u);
     p_obj0 = s.radius * dir;
@@ -1223,18 +1311,17 @@ func sphere_sample_area(s : Sphere, u : vec2f) -> ShapeSample {
     p_obj = p_obj0 * (s.radius / norm(p_obj0));
     p_obj_error = gamma(5) * abs(p_obj);
 
-    raw_n = unit_vector_(p_obj);
-    n = select(s.flip, -raw_n, raw_n);
+    raw_n = unit_vector_(apply_normal_inverse(s.object_from_render, p_obj));
+    n = select(s.reverse, -raw_n, raw_n);
 
     theta = safe_acos(p_obj.z / s.radius);
     phi0 = atan2(p_obj.y, p_obj.x);
     phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
-    // A full sphere: phiMax is 2pi and theta runs from acos(-1) to acos(1).
-    uv = vec2f{phi / 6.28318530717958647692,
-               (theta - 3.14159265358979323846) / (0.0 - 3.14159265358979323846)};
+    uv = vec2f{phi / s.phi_max,
+               (theta - s.theta_z_min) / (s.theta_z_max - s.theta_z_min)};
 
-    ss : ShapeSample = {p_obj + s.center, p_obj_error, n, uv,
-                        1.0 / sphere_area(s)};
+    placed = push_point(s.render_from_object, p_obj, p_obj_error);
+    ss : ShapeSample = {placed.p, placed.error, n, uv, 1.0 / sphere_area(s)};
     return ss;
 }
 
@@ -1243,8 +1330,13 @@ func sphere_sample_area(s : Sphere, u : vec2f) -> ShapeSample {
 // direction it picks is one that can reach the light.
 func sphere_sample(s : Sphere, ctx : ShapeSampleContext,
                    u : vec2f) -> option[ShapeSample] {
-    p_origin = ctx_offset_toward(ctx, s.center);
-    if sqlen[[Float]](p_origin - s.center) <= sqr(s.radius) {
+    // pbrt: `pCenter = (*renderFromObject)(Point3f(0, 0, 0))`, and the
+    // object-space radius against render-space distances from here on, as
+    // pbrt has it -- exact under a rigid transform, pbrt's own approximation
+    // under a scale.
+    p_center = sphere_center(s);
+    p_origin = ctx_offset_toward(ctx, p_center);
+    if sqlen[[Float]](p_origin - p_center) <= sqr(s.radius) {
         // Inside the sphere: the cone is not defined, so sample the area and
         // convert the density to solid angle.
         area = sphere_sample_area(s, u);
@@ -1266,7 +1358,7 @@ func sphere_sample(s : Sphere, ctx : ShapeSampleContext,
     }
 
     // The cone the sphere subtends, sampled uniformly in solid angle.
-    sin_theta_max = s.radius / norm(ctx.p - s.center);
+    sin_theta_max = s.radius / norm(ctx.p - p_center);
     sin2_theta_max = sqr(sin_theta_max);
     cos_theta_max = safe_sqrt(1.0 - sin2_theta_max);
     one_minus_cos : mut Float = 1.0 - cos_theta_max;
@@ -1293,21 +1385,25 @@ func sphere_sample(s : Sphere, ctx : ShapeSampleContext,
     // `unit_vector_` rather than `unit_vector`: pbrt's Normalize divides by a
     // length its compiler computes with fused multiply-adds, and the two differ
     // in the last bit -- which lands in the sampled point.
-    sampling_frame = frame_from_z(unit_vector_(s.center - ctx.p));
+    sampling_frame = frame_from_z(unit_vector_(p_center - ctx.p));
     raw_n = frame_from_local(sampling_frame, -w);
-    n = select(s.flip, -raw_n, raw_n);
-    p = s.center + s.radius * n;
+    // pbrt: `if (reverseOrientation) n *= -1` -- the orientation flag alone,
+    // not the hit normal's `flip`.
+    n = select(s.reverse, -raw_n, raw_n);
+    p = p_center + s.radius * n;
 
     p_error = gamma(5) * abs(p);
 
-    // The texture coordinates of the sampled point, in the sphere's own frame.
-    p_obj = p - s.center;
+    // The texture coordinates of the sampled point, in the sphere's own
+    // space: pbrt's `(*objectFromRender)(p)`, the forward application of
+    // that transform.
+    p_obj = apply_point(s.object_from_render, p);
     theta = safe_acos(p_obj.z / s.radius);
     sphere_phi0 = atan2(p_obj.y, p_obj.x);
     sphere_phi = select(sphere_phi0 < 0.0,
                         sphere_phi0 + 6.28318530717958647692, sphere_phi0);
-    uv = vec2f{sphere_phi / 6.28318530717958647692,
-               (theta - 3.14159265358979323846) / (0.0 - 3.14159265358979323846)};
+    uv = vec2f{sphere_phi / s.phi_max,
+               (theta - s.theta_z_min) / (s.theta_z_max - s.theta_z_min)};
 
     ss : ShapeSample = {p, p_error, n, uv,
                         1.0 / (6.28318530717958647692 * one_minus_cos)};
@@ -1315,14 +1411,28 @@ func sphere_sample(s : Sphere, ctx : ShapeSampleContext,
 }
 
 // pbrt: Sphere::PDF(ctx, wi), the density `sphere_sample` draws with. Needed
-// for MIS, which weighs this estimator against the BSDF's.
-//
-// The inside-the-sphere branch of pbrt's needs an intersection against the
-// shape and is not written: nothing reaches it while every light in these
-// scenes is looked at from outside, and writing it blind would be a number no
-// comparison could check.
+// for MIS, which weighs this estimator against the BSDF's. From inside the
+// sphere the density is the area's, converted to solid angle at the point
+// the ray from the context in direction `wi` hits (`ctx.SpawnRay(wi)`, then
+// Intersect); from outside it is the cone's.
+func sphere_pdf_inside(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    ray : Ray = {offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi), wi};
+    hit = sphere_hit(ray, inf, s);
+    if !hit {
+        return 0.0;
+    }
+    g = sphere_geometry(s, *hit);
+    pdf = (1.0 / sphere_area(s)) / (abs(dot(g.n, -wi)) / sqlen[[Float]](ctx.p - g.p));
+    return select(pdf == inf, 0.0, pdf);
+}
+
 func sphere_pdf(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
-    sin2_theta_max = sqr(s.radius) / sqlen[[Float]](ctx.p - s.center);
+    p_center = sphere_center(s);
+    p_origin = ctx_offset_toward(ctx, p_center);
+    if sqlen[[Float]](p_origin - p_center) <= sqr(s.radius) {
+        return sphere_pdf_inside(s, ctx, wi);
+    }
+    sin2_theta_max = sqr(s.radius) / sqlen[[Float]](ctx.p - p_center);
     cos_theta_max = safe_sqrt(1.0 - sin2_theta_max);
     one_minus_cos : mut Float = 1.0 - cos_theta_max;
     if sin2_theta_max < 0.00068523 {
@@ -1330,6 +1440,12 @@ func sphere_pdf(s : Sphere, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     }
     return 1.0 / (6.28318530717958647692 * one_minus_cos);
 }
+
+// pbrt: `(*renderFromObject)(Point3f(0, 0, 0))`, where the sphere's centre
+// is in render space: the transform's translation column, which is what the
+// point transform of the origin comes to exactly.
+func sphere_center(s : Sphere) -> vec3f =
+    apply_point(s.render_from_object, vec3f{0.0, 0.0, 0.0});
 
 // pbrt: Disk::Area, the sector of the annulus phi_max covers.
 func disk_area(d : Disk) -> Float =
@@ -2422,9 +2538,9 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
     // bound, and the nearest hit ahead of the ray is that one.
     match sh {
         Sph(s) => {
-            t = sphere_t(r, inf, s);
-            if t {
-                return sphere_geometry(s, r, *t);
+            hit = sphere_hit(r, inf, s);
+            if hit {
+                return sphere_geometry(s, *hit);
             }
             return missed;
         }

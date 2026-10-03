@@ -3459,28 +3459,6 @@ void write_matrix(std::vector<float> &out, const pbrt::Transform &t) {
     }
 }
 
-// A shape's transform is what places it, and the renderer holds geometry in
-// render space with no transform of its own. A sphere survives that only if
-// the transform is a translation: anything else makes it an ellipsoid, which
-// is a different shape than the one the renderer knows how to intersect. Say
-// so rather than render something subtly wrong.
-bool translation_only(const pbrt::Transform &t, pbrt::Vector3f *offset) {
-    const pbrt::SquareMatrix<4> &m = t.GetMatrix();
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            const pbrt::Float expected = (i == j) ? 1.f : 0.f;
-            if (m[i][j] != expected) {
-                return false;
-            }
-        }
-    }
-    if (m[3][0] != 0.f || m[3][1] != 0.f || m[3][2] != 0.f || m[3][3] != 1.f) {
-        return false;
-    }
-    *offset = pbrt::Vector3f(m[0][3], m[1][3], m[2][3]);
-    return true;
-}
-
 // What PBRT's HaltonSampler constructor derives from the film resolution.
 //
 // The first two dimensions of the Halton sequence are base 2 and base 3, and
@@ -5310,29 +5288,41 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
 
         if (name == "sphere") {
-            pbrt::Vector3f centre;
-            if (!translation_only(render_from_object, &centre)) {
-                fail("a sphere is placed by something other than a "
-                     "translation, which this renderer cannot represent");
-            }
+            // PBRT: Sphere::Create and the constructor -- the radius; zmin and
+            // zmax clamped to it, their arc cosines taken from the values as
+            // given (the constructor's `std::acos(Clamp(std::min(zMin, zMax) /
+            // radius, -1, 1))`), phimax in radians clamped to a turn; and the
+            // transform whole, both matrices, as every quadric keeps it.
+            // `flip` is reverseOrientation ^ the transform's handedness swap,
+            // which turns a hit's normal; `reverse` the orientation alone,
+            // which turns a sampled point's.
             const pbrt::Float radius =
                 entity.parameters.GetOneFloat("radius", 1.f);
-            // A partial sphere is a different shape; the renderer has no zmin,
-            // zmax or phimax.
-            if (entity.parameters.GetOneFloat("zmin", -radius) != -radius ||
-                entity.parameters.GetOneFloat("zmax", radius) != radius ||
-                entity.parameters.GetOneFloat("phimax", 360.f) != 360.f) {
-                fail("partial spheres (zmin/zmax/phimax) are not supported");
-            }
+            const pbrt::Float zmin_given =
+                entity.parameters.GetOneFloat("zmin", -radius);
+            const pbrt::Float zmax_given =
+                entity.parameters.GetOneFloat("zmax", radius);
+            const pbrt::Float phimax_given =
+                entity.parameters.GetOneFloat("phimax", 360.f);
+            const pbrt::Float z_low = std::min(zmin_given, zmax_given);
+            const pbrt::Float z_high = std::max(zmin_given, zmax_given);
             bonsai_scene::Shape shape;
             shape.tag = bonsai_scene::ShapeTag::Sphere;
-            shape.center[0] = float(centre.x);
-            shape.center[1] = float(centre.y);
-            shape.center[2] = float(centre.z);
             shape.radius = float(radius);
-            // A translation never swaps handedness, so this is the scene's
-            // ReverseOrientation alone.
-            shape.flip = entity.reverseOrientation ? 1u : 0u;
+            shape.z_min = float(pbrt::Clamp(z_low, -radius, radius));
+            shape.z_max = float(pbrt::Clamp(z_high, -radius, radius));
+            shape.theta_z_min =
+                float(std::acos(pbrt::Clamp(z_low / radius, -1, 1)));
+            shape.theta_z_max =
+                float(std::acos(pbrt::Clamp(z_high / radius, -1, 1)));
+            shape.phi_max = float(pbrt::Radians(pbrt::Clamp(phimax_given, 0, 360)));
+            write_frame(shape.render_from_object, render_from_object);
+            write_frame(shape.object_from_render, pbrt::Inverse(render_from_object));
+            shape.flip = (entity.reverseOrientation ^
+                          render_from_object.SwapsHandedness())
+                             ? 1u
+                             : 0u;
+            shape.reverse = entity.reverseOrientation ? 1u : 0u;
             shape.material = material;
             shape.light = light;
             shape.alpha = alpha;
@@ -5350,7 +5340,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                         pbrt::Inverse(render_from_object));
                 pbrt::Sphere *sph = light_alloc.new_object<pbrt::Sphere>(
                     r_from_o, o_from_r, entity.reverseOrientation, float(radius),
-                    -float(radius), float(radius), 360.f);
+                    float(zmin_given), float(zmax_given), float(phimax_given));
                 emitter_lights.push_back(
                     make_area_light(render_from_object, pbrt::Shape(sph), light));
             }
@@ -5676,9 +5666,18 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     if (!out.infinite_lights.empty()) {
         const auto shape_bounds = [&](const bonsai_scene::Shape &s) {
             if (s.tag == bonsai_scene::ShapeTag::Sphere) {
-                const pbrt::Point3f c(s.center[0], s.center[1], s.center[2]);
-                const pbrt::Vector3f r(s.radius, s.radius, s.radius);
-                return pbrt::Bounds3f(c - r, c + r);
+                // PBRT: Sphere::Bounds -- the clipped sphere's object-space
+                // box, `(-r, -r, zMin)..(r, r, zMax)`, under its transform.
+                pbrt::Float m[4][4];
+                for (int i = 0; i < 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+                        m[i][j] = s.render_from_object[4 * i + j];
+                    }
+                }
+                const pbrt::Transform render_from_object{pbrt::SquareMatrix<4>(m)};
+                return render_from_object(pbrt::Bounds3f(
+                    pbrt::Point3f(-s.radius, -s.radius, s.z_min),
+                    pbrt::Point3f(s.radius, s.radius, s.z_max)));
             }
             if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 pbrt::Bounds3f b;
@@ -6065,16 +6064,26 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
         if (s.tag == bonsai_scene::ShapeTag::Patch) {
             out.push_back(patches[next_patch++]);
         } else if (s.tag == bonsai_scene::ShapeTag::Sphere) {
+            // The sphere's own transform, both matrices as PBRT keeps them,
+            // and its clipping -- phimax back in degrees, as the constructor
+            // takes it; the clamped heights give the constructor the same
+            // thetas the given ones did.
+            pbrt::Float m[4][4], minv[4][4];
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    m[r][c] = s.render_from_object[4 * r + c];
+                    minv[r][c] = s.object_from_render[4 * r + c];
+                }
+            }
             const pbrt::Transform *render_from_object =
-                alloc.new_object<pbrt::Transform>(pbrt::Translate(
-                    pbrt::Vector3f(s.center[0], s.center[1], s.center[2])));
+                alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(m),
+                                                  pbrt::SquareMatrix<4>(minv));
             const pbrt::Transform *object_from_render =
-                alloc.new_object<pbrt::Transform>(
-                    pbrt::Inverse(*render_from_object));
+                alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(minv),
+                                                  pbrt::SquareMatrix<4>(m));
             out.push_back(alloc.new_object<pbrt::Sphere>(
-                render_from_object, object_from_render,
-                /*reverseOrientation=*/false, s.radius, -s.radius, s.radius,
-                360.f));
+                render_from_object, object_from_render, s.reverse != 0, s.radius,
+                s.z_min, s.z_max, pbrt::Degrees(s.phi_max)));
         } else {
             out.push_back(triangles[next_triangle++]);
         }

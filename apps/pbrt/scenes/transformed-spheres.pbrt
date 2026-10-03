@@ -1,0 +1,100 @@
+# Spheres placed by more than a translation, and partial ones -- pbrt's
+# Sphere as the quadric it is: the ray pulled into the sphere's object space
+# by its transform, tested there with zmin, zmax and phimax, the hit pushed
+# back out. On the left an ellipsoid (a sphere under a non-uniform scale and
+# a turn about z), on the right a sphere cut by zmin/zmax and phimax turned to
+# face the camera, in front a small mirrored sphere under a uniform scale, and
+# a small emitting half-sphere on the floor beside the main light. `path`, so
+# that the comparison against pbrt's CPU integrator is sample for sample.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 3 10   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 45 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "transformed-spheres.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The main light, a sphere under a translation alone.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 2
+    AreaLightSource "diffuse"
+        "rgb L" [ 12 11 9 ]
+    Shape "sphere"
+        "float radius" [ 2 ]
+AttributeEnd
+
+# A small emitting half-sphere (phimax 180), turned so the cut faces up.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 3.5 0.4 3
+    Rotate 90 1 0 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 4 6 10 ]
+    Shape "sphere"
+        "float radius" [ 0.4 ]
+        "float phimax" [ 180 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.4 0.4 0.42 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# An ellipsoid: a unit sphere under a non-uniform scale, turned about z.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.7 0.3 0.25 ]
+    Translate -2.2 1.2 0
+    Rotate 35 0 0 1
+    Scale 1.6 0.9 1.1
+    Shape "sphere"
+        "float radius" [ 1 ]
+AttributeEnd
+
+# A partial sphere: cut below and above, three quarters of the way round,
+# turned so that the opening faces the camera.
+AttributeBegin
+    Material "conductor"
+        "spectrum eta" [ "metal-Cu-eta" ]
+        "spectrum k" [ "metal-Cu-k" ]
+        "float roughness" [ 0.15 ]
+    Translate 2.2 1.2 0
+    Rotate -90 1 0 0
+    Rotate 135 0 0 1
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+        "float zmin" [ -0.6 ]
+        "float zmax" [ 0.9 ]
+        "float phimax" [ 270 ]
+AttributeEnd
+
+# A mirror under a uniform scale: a unit sphere that is half a unit across.
+AttributeBegin
+    Material "conductor"
+        "spectrum eta" [ "metal-Ag-eta" ]
+        "spectrum k" [ "metal-Ag-k" ]
+        "float roughness" [ 0 ]
+    Translate 0 0.5 2.5
+    Scale 0.5 0.5 0.5
+    Shape "sphere"
+        "float radius" [ 1 ]
+AttributeEnd

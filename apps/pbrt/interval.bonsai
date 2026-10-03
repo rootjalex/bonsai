@@ -138,22 +138,7 @@ func from_value_and_error(v : Float, err : Float) -> Interval {
     return i;
 }
 
-// pbrt: Transform::operator()(Point3fi) and operator()(Vector3fi), for the
-// translation that carries a sphere into object space.
-//
-// The width here is not one ulp. It is pbrt's gamma(3) bound over the terms of
-// a matrix row -- three products and three sums, any of which may round -- and
-// it is several times wider than a single step. That width is the whole game
-// for a grazing ray: it is what makes the discriminant's lower bound negative
-// and the ray therefore a miss. Deriving these intervals from the arithmetic
-// actually performed here, rather than from the matrix pbrt performs it with,
-// would give something narrower and so report hits that pbrt does not.
-//
-// The row for a translation is (1, 0, 0, -c), so of the four terms only the
-// product with one and the translation itself are nonzero.
-func point_to_object(p : Float, c : Float) -> Interval =
-    from_value_and_error(p - c, gamma(3) * (abs(p) + abs(c)));
-
-// A direction ignores the translation column, leaving only the product.
-func vector_to_object(d : Float) -> Interval =
-    from_value_and_error(d, gamma(3) * abs(d));
+// The transforms of a point and a vector into intervals -- pbrt's
+// Transform::operator()(Point3fi) and (Vector3fi), which carry a ray into a
+// quadric's object space -- are shapes.bonsai's row_point_interval and
+// row_vector_interval, beside the transform that pushes a hit back out.

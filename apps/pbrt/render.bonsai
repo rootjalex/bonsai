@@ -3527,9 +3527,9 @@ schedule {
     //
     // That is what a `Geometric` is mostly made of, and a `Geometric` is what
     // the BVH's leaves hold, so this is a question about how much memory the
-    // traversal streams. A Sphere is a centre, a radius and a flag, and a
-    // Triangle is two indices; a tagged union has to be big enough for the
-    // first, so the 66,533 triangles of killeroo-simple each carried a
+    // traversal streams. A Sphere is two matrices, a radius and its clipping,
+    // and a Triangle is two indices; a tagged union has to be big enough for
+    // the first, so the 66,533 triangles of killeroo-simple each carried a
     // sphere's worth of space. Under this the pools are separate and each
     // holds what it actually is.
     //
