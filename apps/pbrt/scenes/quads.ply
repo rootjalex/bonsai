@@ -1,0 +1,22 @@
+ply
+format ascii 1.0
+comment Two quads: a planar rectangle and a twisted patch, as a PLY writes faces of four. pbrt reads such faces as bilinear patches (TriQuadMesh::ReadPLY, quadIndices), not as pairs of triangles.
+element vertex 8
+property float x
+property float y
+property float z
+property float u
+property float v
+element face 2
+property list uchar int vertex_indices
+end_header
+-2.5 0.0 -1.0 0 0
+-0.5 0.0 -1.0 1 0
+-0.5 1.6 -1.0 1 1
+-2.5 1.6 -1.0 0 1
+0.5 0.0 -1.0 0 0
+2.5 0.0 -1.0 1 0
+2.5 1.6 -1.6 1 1
+0.5 1.6 -0.4 0 1
+4 0 1 2 3
+4 4 5 6 7

@@ -3516,6 +3516,17 @@ void halton_scales(int x_resolution, int y_resolution,
 // what every one of these factories produces anyway.
 //
 // Render space, not object space: TriangleMesh's constructor applies the
+// A PLY read once: both the triangle mesh and the patch mesh of a `plymesh`
+// come from the same file, and the big ones take a while.
+const pbrt::TriQuadMesh &read_ply(const std::string &file) {
+    static std::map<std::string, pbrt::TriQuadMesh> cache;
+    auto it = cache.find(file);
+    if (it == cache.end()) {
+        it = cache.emplace(file, pbrt::TriQuadMesh::ReadPLY(file)).first;
+    }
+    return it->second;
+}
+
 // transform to the vertices rather than storing it, so a shape's placement is
 // already baked in here the same way it is in PBRT.
 const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
@@ -3551,18 +3562,16 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
         if (file.empty()) {
             fail("a plymesh has no \"filename\"");
         }
-        const pbrt::TriQuadMesh ply = pbrt::TriQuadMesh::ReadPLY(file);
+        const pbrt::TriQuadMesh &ply = read_ply(file);
         // A PLY may hold quads as well as triangles, and PBRT makes those a
-        // bilinear patch mesh rather than splitting them -- a bilinear patch is
-        // not two triangles unless it happens to be planar. Refusing is the
-        // honest answer until the renderer has the shape.
-        if (!ply.quadIndices.empty()) {
-            fail("the PLY file " + file +
-                 " contains quads, which are bilinear patches in pbrt rather "
-                 "than pairs of triangles");
-        }
+        // bilinear patch mesh rather than splitting them -- a bilinear patch
+        // is not two triangles unless it happens to be planar. The quads are
+        // `patch_mesh_of`'s; the triangles, if there are any, are this mesh.
         if (ply.triIndices.empty()) {
-            fail("the PLY file " + file + " has no triangles");
+            if (ply.quadIndices.empty()) {
+                fail("the PLY file " + file + " has no faces");
+            }
+            return nullptr;
         }
         return alloc.new_object<pbrt::TriangleMesh>(
             *entity.renderFromObject, entity.reverseOrientation, ply.triIndices,
@@ -3571,6 +3580,92 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
     }
 
     return nullptr;
+}
+
+// PBRT: the bilinear patch mesh a shape is, if it is one -- `bilinearmesh`
+// (BilinearPatch::CreateMesh, with PBRT's own checks) or the quads of a
+// `plymesh` (shapes.cpp: a BilinearPatchMesh over `quadIndices`, beside the
+// TriangleMesh over its triangles) -- in render space, as `triangulate`'s
+// is. `emissionfilename`, an image distribution over an emitting patch, is
+// refused: the renderer samples a patch by its geometry alone.
+const pbrt::BilinearPatchMesh *
+patch_mesh_of(const pbrt::ShapeSceneEntity &entity) {
+    const std::string name(entity.name);
+    pbrt::Allocator alloc;
+
+    if (name == "bilinearmesh") {
+        if (!entity.parameters.GetOneString("emissionfilename", "").empty()) {
+            fail("a bilinearmesh with an `emissionfilename` is not supported; "
+                 "this renderer samples a patch by its area or its solid angle");
+        }
+        return pbrt::BilinearPatch::CreateMesh(entity.renderFromObject,
+                                               entity.reverseOrientation,
+                                               entity.parameters, &entity.loc,
+                                               alloc);
+    }
+
+    if (name == "plymesh") {
+        const std::string file =
+            pbrt::ResolveFilename(entity.parameters.GetOneString("filename", ""));
+        const pbrt::TriQuadMesh &ply = read_ply(file);
+        if (ply.quadIndices.empty()) {
+            return nullptr;
+        }
+        return alloc.new_object<pbrt::BilinearPatchMesh>(
+            *entity.renderFromObject, entity.reverseOrientation, ply.quadIndices,
+            ply.p, ply.n, ply.uv, ply.faceIndices, nullptr, alloc);
+    }
+
+    return nullptr;
+}
+
+// PBRT: BilinearPatch's constructor's `area` -- exact for a rectangle, else
+// the sum over a 3x3 subdivision of the patch into bilinear cells, each the
+// half-cross-product of its diagonals. IsRectangle as PBRT writes it: four
+// distinct coplanar corners the same distance from their centre.
+float patch_area_of(const pbrt::BilinearPatchMesh *mesh, int patch) {
+    const int *v = &mesh->vertexIndices[4 * patch];
+    const pbrt::Point3f p00 = mesh->p[v[0]], p10 = mesh->p[v[1]];
+    const pbrt::Point3f p01 = mesh->p[v[2]], p11 = mesh->p[v[3]];
+    const auto is_rectangle = [&]() {
+        if (p00 == p01 || p01 == p11 || p11 == p10 || p10 == p00) {
+            return false;
+        }
+        const pbrt::Normal3f n(pbrt::Normalize(pbrt::Cross(p10 - p00, p01 - p00)));
+        if (pbrt::AbsDot(pbrt::Normalize(p11 - p00), n) > 1e-5f) {
+            return false;
+        }
+        const pbrt::Point3f centre = (p00 + p01 + p10 + p11) / 4;
+        const pbrt::Float d2[4] = {
+            pbrt::DistanceSquared(p00, centre), pbrt::DistanceSquared(p01, centre),
+            pbrt::DistanceSquared(p10, centre), pbrt::DistanceSquared(p11, centre)};
+        for (int i = 1; i < 4; ++i) {
+            if (std::abs(d2[i] - d2[0]) / d2[0] > 1e-4f) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (is_rectangle()) {
+        return float(pbrt::Distance(p00, p01) * pbrt::Distance(p00, p10));
+    }
+    constexpr int na = 3;
+    pbrt::Point3f p[na + 1][na + 1];
+    for (int i = 0; i <= na; ++i) {
+        const pbrt::Float u = pbrt::Float(i) / pbrt::Float(na);
+        for (int j = 0; j <= na; ++j) {
+            const pbrt::Float w = pbrt::Float(j) / pbrt::Float(na);
+            p[i][j] = pbrt::Lerp(u, pbrt::Lerp(w, p00, p01), pbrt::Lerp(w, p10, p11));
+        }
+    }
+    pbrt::Float area = 0;
+    for (int i = 0; i < na; ++i) {
+        for (int j = 0; j < na; ++j) {
+            area += 0.5f * pbrt::Length(pbrt::Cross(p[i + 1][j + 1] - p[i][j],
+                                                    p[i + 1][j] - p[i][j + 1]));
+        }
+    }
+    return float(area);
 }
 
 // Serializes PBRT's light BVH: builds PBRT's own BVHLightSampler over `lights`
@@ -4995,7 +5090,17 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
             into.push_back(shape);
 
-        } else if (const pbrt::TriangleMesh *mesh = triangulate(entity)) {
+        } else {
+            // Everything that is ultimately a mesh arrives here in render
+            // space: a triangle mesh (`triangulate`), a bilinear patch mesh
+            // (`patch_mesh_of`), or -- a PLY with both kinds of face -- one
+            // of each, converted in turn.
+            const pbrt::TriangleMesh *mesh = triangulate(entity);
+            const pbrt::BilinearPatchMesh *patches = patch_mesh_of(entity);
+            if (mesh == nullptr && patches == nullptr) {
+                fail("unsupported shape \"" + name + "\"");
+            }
+            if (mesh != nullptr) {
             // Everything that is ultimately a mesh arrives here already
             // triangulated by PBRT, in render space, so there is one loop for
             // all of them rather than one per shape type. See `triangulate`.
@@ -5085,9 +5190,76 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 }
                 into.push_back(shape);
             }
+            }
 
-        } else {
-            fail("unsupported shape \"" + name + "\"");
+            if (patches != nullptr) {
+                // PBRT: BilinearPatch::CreatePatches -- one shape per four
+                // indices of the mesh. The mesh goes into the same pools as a
+                // triangle mesh (its record is the same, with the indices in
+                // fours), and the patch names it and its place in it, as a
+                // Triangle does. The area is PBRT's constructor's; the
+                // renderer's sampling divides by it.
+                if (patches->imageDistribution != nullptr) {
+                    fail("a bilinear patch mesh with an image distribution is "
+                         "not supported");
+                }
+                bonsai_scene::Mesh out_mesh;
+                out_mesh.first_index = uint32_t(out.indices.size());
+                out_mesh.first_vertex = uint32_t(out.positions.size() / 3);
+                out_mesh.first_normal = uint32_t(out.normals.size() / 3);
+                out_mesh.first_uv = uint32_t(out.uvs.size() / 2);
+                out_mesh.flip = (patches->reverseOrientation ^
+                                 patches->transformSwapsHandedness)
+                                    ? 1u
+                                    : 0u;
+                out_mesh.has_normals = patches->n != nullptr ? 1u : 0u;
+                out_mesh.has_uv = patches->uv != nullptr ? 1u : 0u;
+                for (int i = 0; i < 4 * patches->nPatches; i++) {
+                    out.indices.push_back(uint32_t(patches->vertexIndices[i]));
+                }
+                for (int i = 0; i < patches->nVertices; i++) {
+                    out.positions.push_back(float(patches->p[i].x));
+                    out.positions.push_back(float(patches->p[i].y));
+                    out.positions.push_back(float(patches->p[i].z));
+                    if (patches->n != nullptr) {
+                        out.normals.push_back(float(patches->n[i].x));
+                        out.normals.push_back(float(patches->n[i].y));
+                        out.normals.push_back(float(patches->n[i].z));
+                    }
+                    if (patches->uv != nullptr) {
+                        out.uvs.push_back(float(patches->uv[i].x));
+                        out.uvs.push_back(float(patches->uv[i].y));
+                    }
+                }
+                const uint32_t mesh_index = uint32_t(out.meshes.size());
+                out.meshes.push_back(out_mesh);
+                // An emitting patch mesh is a DiffuseAreaLight per patch, as a
+                // triangle mesh's is per triangle, over PBRT's own patches so
+                // that the light BVH is built over PBRT's bounds.
+                pstd::vector<pbrt::Shape> emit_patches;
+                if (light >= 0) {
+                    emit_patches =
+                        pbrt::BilinearPatch::CreatePatches(patches, light_alloc);
+                }
+                for (int i = 0; i < patches->nPatches; i++) {
+                    bonsai_scene::Shape shape;
+                    shape.tag = bonsai_scene::ShapeTag::Patch;
+                    shape.mesh = mesh_index;
+                    shape.tri = uint32_t(i);
+                    shape.patch_area = patch_area_of(patches, i);
+                    shape.material = material;
+                    shape.light = light;
+                    shape.alpha = alpha;
+                    shape.medium_inside = medium_inside;
+                    shape.medium_outside = medium_outside;
+                    if (light >= 0) {
+                        shape.light_ordinal = next_light_ordinal++;
+                        emitter_lights.push_back(make_area_light(
+                            render_from_object, emit_patches[size_t(i)], light));
+                    }
+                    into.push_back(shape);
+                }
+            }
         }
     };
 
@@ -5186,6 +5358,17 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 const pbrt::Point3f c(s.center[0], s.center[1], s.center[2]);
                 const pbrt::Vector3f r(s.radius, s.radius, s.radius);
                 return pbrt::Bounds3f(c - r, c + r);
+            }
+            if (s.tag == bonsai_scene::ShapeTag::Patch) {
+                pbrt::Bounds3f b;
+                uint32_t corner[4];
+                out.patch_corners(s, corner);
+                for (const uint32_t v : corner) {
+                    b = pbrt::Union(b, pbrt::Point3f(out.positions[3 * v + 0],
+                                                     out.positions[3 * v + 1],
+                                                     out.positions[3 * v + 2]));
+                }
+                return b;
             }
             pbrt::Bounds3f b;
             uint32_t corner[3];
@@ -5510,6 +5693,9 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
                                      size_t count, pbrt::Allocator alloc) {
     std::vector<int> indices;
     std::vector<pbrt::Point3f> points;
+    // And the bilinear patches, as one patch mesh over their corners.
+    std::vector<int> patch_indices;
+    std::vector<pbrt::Point3f> patch_points;
     for (size_t i = 0; i < count; i++) {
         const bonsai_scene::Shape &s = shapes[i];
         if (s.tag == bonsai_scene::ShapeTag::Triangle) {
@@ -5521,6 +5707,15 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
                                                scene.positions[3 * c + 1],
                                                scene.positions[3 * c + 2]));
             }
+        } else if (s.tag == bonsai_scene::ShapeTag::Patch) {
+            uint32_t corner[4];
+            scene.patch_corners(s, corner);
+            for (const uint32_t c : corner) {
+                patch_indices.push_back(int(patch_points.size()));
+                patch_points.push_back(pbrt::Point3f(scene.positions[3 * c + 0],
+                                                     scene.positions[3 * c + 1],
+                                                     scene.positions[3 * c + 2]));
+            }
         }
     }
     pstd::vector<pbrt::Shape> triangles;
@@ -5531,13 +5726,24 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
             std::vector<pbrt::Point2f>(), std::vector<int>(), alloc);
         triangles = pbrt::Triangle::CreateTriangles(mesh, alloc);
     }
+    pstd::vector<pbrt::Shape> patches;
+    if (!patch_indices.empty()) {
+        pbrt::BilinearPatchMesh *mesh = alloc.new_object<pbrt::BilinearPatchMesh>(
+            pbrt::Transform(), /*reverseOrientation=*/false, patch_indices,
+            patch_points, std::vector<pbrt::Normal3f>(),
+            std::vector<pbrt::Point2f>(), std::vector<int>(), nullptr, alloc);
+        patches = pbrt::BilinearPatch::CreatePatches(mesh, alloc);
+    }
 
     std::vector<pbrt::Shape> out;
     out.reserve(count);
     size_t next_triangle = 0;
+    size_t next_patch = 0;
     for (size_t i = 0; i < count; i++) {
         const bonsai_scene::Shape &s = shapes[i];
-        if (s.tag == bonsai_scene::ShapeTag::Sphere) {
+        if (s.tag == bonsai_scene::ShapeTag::Patch) {
+            out.push_back(patches[next_patch++]);
+        } else if (s.tag == bonsai_scene::ShapeTag::Sphere) {
             const pbrt::Transform *render_from_object =
                 alloc.new_object<pbrt::Transform>(pbrt::Translate(
                     pbrt::Vector3f(s.center[0], s.center[1], s.center[2])));

@@ -40,6 +40,9 @@ func frame_from_z(z : vec3f) -> Frame = coordinate_system(z);
 // whole difference between reproducing a layered BSDF's random walk and
 // producing different noise -- the walk is seeded by hashing a direction
 // expressed in this frame.
+// pbrt: Frame::FromXY, the third axis the cross product of the two given.
+func frame_from_xy(x : vec3f, y : vec3f) -> Frame = Frame{x, y, cross_(x, y)};
+
 func frame_from_xz(x : vec3f, z : vec3f) -> Frame {
     f : Frame = {x, cross_(z, x), z};
     return f;
@@ -50,6 +53,79 @@ func frame_from_xz(x : vec3f, z : vec3f) -> Frame {
 // direction a layered BSDF hashes, so it is not a rounding detail here.
 func frame_to_local(f : Frame, v : vec3f) -> vec3f =
     vec3f{dot_(v, f.x), dot_(v, f.y), dot_(v, f.z)};
+
+// A rotation, as three rows. pbrt's RotateFromTo builds a full Transform and
+// stores its transpose as the inverse; a rotation's inverse *is* its transpose,
+// so only the rows are kept and `apply_rot_inverse` transposes as it goes.
+// Here rather than in differentials.bonsai, which first needed it, because
+// the bilinear patch's shading frame (shapes.bonsai) needs it too and that
+// file is the one differentials.bonsai imports.
+element Rotation {
+    r0, r1, r2 : vec3f;
+}
+
+// One row against a vector, contracted as pbrt's `Transform::operator()` is.
+//
+// Not `dot_`, and the difference matters. Both are three multiplies and two
+// adds fused into two multiply-adds, and they disagree about which pair goes
+// where: `dot_` reproduces pbrt's `Dot`, which is a different function that
+// happens to compute the same thing. Everything here goes through a
+// `Transform`, so everything here uses this one -- and the two round
+// differently, which after the cancellation in Approximate_dp_dxy is worth
+// four digits.
+func apply_rot_row(row : vec3f, v : vec3f) -> Float =
+    fma(row.z, v.z, fma(row.y, v.y, row.x * v.x));
+
+func apply_rot(m : Rotation, v : vec3f) -> vec3f =
+    vec3f{apply_rot_row(m.r0, v), apply_rot_row(m.r1, v),
+          apply_rot_row(m.r2, v)};
+
+// pbrt: Transform::ApplyInverse(Vector3f), which reads the inverse's rows --
+// and a rotation's inverse is its transpose, so those are this matrix's
+// columns. Written as three explicit gathers rather than as a sum of scaled
+// rows, because the sum would associate the adds the other way.
+func apply_rot_inverse(m : Rotation, v : vec3f) -> vec3f =
+    vec3f{fma(m.r2.x, v.z, fma(m.r1.x, v.y, m.r0.x * v.x)),
+          fma(m.r2.y, v.z, fma(m.r1.y, v.y, m.r0.y * v.x)),
+          fma(m.r2.z, v.z, fma(m.r1.z, v.y, m.r0.z * v.x))};
+
+// pbrt: RotateFromTo, the rotation taking `source` to `target` -- pbrt's
+// `from` and `to`, renamed because `from` is a keyword of the schedule
+// language here.
+//
+// Built as two reflections rather than from an axis and an angle, which is what
+// makes it stable when the two vectors are nearly parallel or nearly opposite:
+// there is no small cross product to normalize. `refl` is chosen so that
+// neither `refl - source` nor `refl - target` is near zero, which is what the
+// 0.72 tests are for -- a unit vector cannot have two components that large.
+func rotate_from_to(source : vec3f, target : vec3f) -> Rotation {
+    refl = select(abs(source.x) < 0.72 && abs(target.x) < 0.72,
+                  vec3f{1.0, 0.0, 0.0},
+                  select(abs(source.y) < 0.72 && abs(target.y) < 0.72,
+                         vec3f{0.0, 1.0, 0.0},
+                         vec3f{0.0, 0.0, 1.0}));
+    u = refl - source;
+    v = refl - target;
+    uu = dot_(u, u);
+    vv = dot_(v, v);
+    uv = dot_(u, v);
+    a = 2.0 / uu;
+    b = 2.0 / vv;
+    c = 4.0 * uv / (uu * vv);
+    // pbrt: r[i][j] = (i == j) - a*u[i]*u[j] - b*v[i]*v[j] + c*v[i]*u[j].
+    // Written out rather than looped: three rows is fewer lines this way than
+    // the indexing it would take to fold them.
+    return Rotation{
+        vec3f{1.0 - a * u.x * u.x - b * v.x * v.x + c * v.x * u.x,
+                    -a * u.x * u.y - b * v.x * v.y + c * v.x * u.y,
+                    -a * u.x * u.z - b * v.x * v.z + c * v.x * u.z},
+        vec3f{      -a * u.y * u.x - b * v.y * v.x + c * v.y * u.x,
+              1.0 - a * u.y * u.y - b * v.y * v.y + c * v.y * u.y,
+                    -a * u.y * u.z - b * v.y * v.z + c * v.y * u.z},
+        vec3f{      -a * u.z * u.x - b * v.z * v.x + c * v.z * u.x,
+                    -a * u.z * u.y - b * v.z * v.y + c * v.z * u.y,
+              1.0 - a * u.z * u.z - b * v.z * v.z + c * v.z * u.z}};
+}
 
 func frame_from_local(f : Frame, v : vec3f) -> vec3f =
     v.x * f.x + v.y * f.y + v.z * f.z;

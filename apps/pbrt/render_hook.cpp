@@ -176,6 +176,14 @@ struct Meshes {
             out[k] = m.first_vertex + indices[m.first_index + 3 * t.tri + k];
         }
     }
+    // A bilinear patch's four corners, pbrt's `&mesh->vertexIndices[4 *
+    // blpIndex]`, in its order: p00, p10, p01, p11.
+    void corners(const BilinearPatch &b, uint32_t out[4]) const {
+        const TriangleMesh &m = meshes[b.mesh];
+        for (uint32_t k = 0; k < 4; k++) {
+            out[k] = m.first_vertex + indices[m.first_index + 4 * b.patch + k];
+        }
+    }
 };
 
 // Where a `Shape` keeps what it is, which under `layout Shape = tagged_index`
@@ -194,14 +202,16 @@ struct Meshes {
 struct Shapes {
     static constexpr uint64_t kTagShift = 56;
     // The tags are the Shape variant's arms in declaration order: Sph, Tri,
-    // Dsk (shapes.bonsai).
+    // Dsk, Blp (shapes.bonsai).
     static constexpr uint64_t kSphere = 0;
     static constexpr uint64_t kTriangle = 1;
     static constexpr uint64_t kDisk = 2;
+    static constexpr uint64_t kPatch = 3;
 
     const Sph *spheres = nullptr;
     const Tri *triangles = nullptr;
     const Dsk *disks = nullptr;
+    const Blp *patches = nullptr;
 
     static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
     static uint64_t index_of(uint64_t shape) {
@@ -214,6 +224,7 @@ struct Shapes {
 
     bool is_sphere(uint64_t shape) const { return tag_of(shape) == kSphere; }
     bool is_disk(uint64_t shape) const { return tag_of(shape) == kDisk; }
+    bool is_patch(uint64_t shape) const { return tag_of(shape) == kPatch; }
     const Sphere &sphere(uint64_t shape) const {
         return spheres[index_of(shape)].s;
     }
@@ -221,6 +232,9 @@ struct Shapes {
         return triangles[index_of(shape)].t;
     }
     const Disk &disk(uint64_t shape) const { return disks[index_of(shape)].d; }
+    const BilinearPatch &patch(uint64_t shape) const {
+        return patches[index_of(shape)].b;
+    }
 };
 
 Bounds3f transform_bounds(const Transform &t, const Bounds3f &b);
@@ -242,6 +256,16 @@ Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
             d.render_from_object,
             Bounds3f{float3{-d.radius, -d.radius, d.height},
                      float3{d.radius, d.radius, d.height}});
+    }
+    if (shapes.is_patch(prim.shape)) {
+        // pbrt: BilinearPatch::Bounds, `Union(Bounds3f(p00, p01), Bounds3f(p10,
+        // p11))` -- the box around the four corners.
+        uint32_t q[4];
+        pool.corners(shapes.patch(prim.shape), q);
+        return merge(merge(Bounds3f{Meshes::widen(pool.positions[q[0]]),
+                                    Meshes::widen(pool.positions[q[1]])},
+                           Meshes::widen(pool.positions[q[2]])),
+                     Meshes::widen(pool.positions[q[3]]));
     }
     uint32_t c[3];
     pool.corners(shapes.triangle(prim.shape), c);
@@ -482,13 +506,16 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
 // tree's and, after them, every instance tree's.
 void compact_pools(std::vector<Geometric> &shapes,
                    std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
-                   std::vector<Tri> &triangles, std::vector<Dsk> &disks) {
+                   std::vector<Tri> &triangles, std::vector<Dsk> &disks,
+                   std::vector<Blp> &patches) {
     std::vector<Sph> ordered_spheres;
     std::vector<Tri> ordered_triangles;
     std::vector<Dsk> ordered_disks;
+    std::vector<Blp> ordered_patches;
     ordered_spheres.reserve(spheres.size());
     ordered_triangles.reserve(triangles.size());
     ordered_disks.reserve(disks.size());
+    ordered_patches.reserve(patches.size());
 
     for (std::vector<Geometric> *list : {&shapes, &instanced}) {
         for (Geometric &prim : *list) {
@@ -500,6 +527,9 @@ void compact_pools(std::vector<Geometric> &shapes,
             } else if (tag == Shapes::kDisk) {
                 prim.shape = Shapes::handle(tag, ordered_disks.size());
                 ordered_disks.push_back(disks[index]);
+            } else if (tag == Shapes::kPatch) {
+                prim.shape = Shapes::handle(tag, ordered_patches.size());
+                ordered_patches.push_back(patches[index]);
             } else {
                 prim.shape = Shapes::handle(tag, ordered_triangles.size());
                 ordered_triangles.push_back(triangles[index]);
@@ -510,6 +540,7 @@ void compact_pools(std::vector<Geometric> &shapes,
     spheres = std::move(ordered_spheres);
     triangles = std::move(ordered_triangles);
     disks = std::move(ordered_disks);
+    patches = std::move(ordered_patches);
 }
 
 // The nodes of a tree PBRT built, packed into the layout the schedule
@@ -1722,22 +1753,26 @@ int main(int argc, char **argv) {
     // Both lists of shapes, since an instanced shape is a Shape like any other.
     size_t nspheres = 0;
     size_t ndisks = 0;
+    size_t npatches = 0;
     size_t nshapes = 0;
     for (const std::vector<bonsai_scene::Shape> *list :
          {&loaded.shapes, &loaded.instance_shapes}) {
         for (const bonsai_scene::Shape &s : *list) {
             nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
             ndisks += s.tag == bonsai_scene::ShapeTag::Disk;
+            npatches += s.tag == bonsai_scene::ShapeTag::Patch;
             nshapes++;
         }
     }
     std::vector<Sph> sphere_pool(nspheres);
     std::vector<Dsk> disk_pool(ndisks);
-    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks);
+    std::vector<Blp> patch_pool(npatches);
+    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks - npatches);
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
     uint64_t disk_fill = 0;
+    uint64_t patch_fill = 0;
     uint64_t triangle_fill = 0;
 
     // pbrt: CreatePrimitivesForShapes, run over the top-level shapes and over
@@ -1771,6 +1806,9 @@ int main(int argc, char **argv) {
                 disk.flip = s.flip != 0;
                 disk.reverse = s.reverse != 0;
                 shape = Shape_Dsk(disk, disk_pool.data(), &disk_fill);
+            } else if (s.tag == bonsai_scene::ShapeTag::Patch) {
+                shape = Shape_Blp(BilinearPatch{s.mesh, s.tri, s.patch_area},
+                                  patch_pool.data(), &patch_fill);
             } else {
                 shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
                                   &triangle_fill);
@@ -1809,16 +1847,17 @@ int main(int argc, char **argv) {
         }
     }
     if (sphere_fill != sphere_pool.size() ||
-        triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size()) {
+        triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size() ||
+        patch_fill != patch_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
-                        "%zu/%zu triangles, %zu/%zu disks\n",
+                        "%zu/%zu triangles, %zu/%zu disks, %zu/%zu patches\n",
                 size_t(sphere_fill), sphere_pool.size(),
                 size_t(triangle_fill), triangle_pool.size(), size_t(disk_fill),
-                disk_pool.size());
+                disk_pool.size(), size_t(patch_fill), patch_pool.size());
         return 1;
     }
     const Shapes shape_pools{sphere_pool.data(), triangle_pool.data(),
-                             disk_pool.data()};
+                             disk_pool.data(), patch_pool.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -1954,7 +1993,8 @@ int main(int argc, char **argv) {
     // After the trees, because it is the trees that decide the order.
     {
         Stage stage("compact pools");
-        compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool);
+        compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool,
+                      patch_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -2122,7 +2162,7 @@ int main(int argc, char **argv) {
         // The pools as compacted: compact_pools moved them, so the view made
         // before it is stale.
         const Shapes compacted{sphere_pool.data(), triangle_pool.data(),
-                               disk_pool.data()};
+                               disk_pool.data(), patch_pool.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
             shapes, instanced, top, loaded.definitions, loaded.instances);
         if (tree.traversable == 0) {
@@ -2601,6 +2641,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
     bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
+    bonsai_buffer b_patch_pool = buffer_of(patch_pool);
     bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
@@ -2678,7 +2719,8 @@ int main(int argc, char **argv) {
 #else
         &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
 #endif
-        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool
+        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
+        &b_patch_pool
         // The queues' storage, last, as the parameters are.
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
     constexpr size_t render_buffer_count =
@@ -2764,7 +2806,8 @@ int main(int argc, char **argv) {
                &b_material_displacement, &b_material_normal_map, &b_rho_uc,
                &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
-               &b_disk_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
+               &b_disk_pool,
+               &b_patch_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
         // waits for the device before it returns -- the generated code's
         // own wait at the return of a function that launched, pbrt's
@@ -2859,7 +2902,8 @@ int main(int argc, char **argv) {
                            &b_digit_permutations,
                            &b_digit_permutation_offsets, &b_sobol_matrices,
                            &b_zsobol_permutations, tree, &b_inst_pool,
-                           &b_sphere_pool, &b_triangle_pool, &b_disk_pool);
+                           &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
+                           &b_patch_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                            "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",
                            px, py, s, double(out[0]), double(out[1]),

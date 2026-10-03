@@ -543,10 +543,50 @@ func disk_hit(r : Ray, tmax : Float, d : Disk) -> option[DiskHit] {
 // shape and works in object space, tracking error bounds through the round
 // trip; the disk is the one shape here that does the same, since it is
 // oriented and a translation cannot place it.
+// pbrt: BilinearPatch -- a mesh index and a patch index, as a Triangle is, and
+// the patch's area, which pbrt's constructor computes once (exactly for a
+// rectangle, over a 3x3 subdivision for anything else) and which the driver
+// computes the same way. The mesh is a `TriangleMesh` record whose indices
+// run in fours -- pbrt's BilinearPatchMesh has the same fields -- in pbrt's
+// vertex order: p00, p10, p01, p11.
+//
+// A patch is not two triangles unless it happens to be planar, which is why
+// pbrt keeps the shape and why a PLY's quads come here rather than being
+// split. `emissionfilename` (an image distribution over an emitting patch)
+// is not carried: scene_dump refuses it. The functions are further down,
+// after the disk's.
+element BilinearPatch {
+    mesh : u32;
+    patch : u32;
+    area : Float;
+}
+
+// The patch's records, declared with it since a type is known from its
+// declaration on: pbrt's BilinearIntersection (the patch's (u, v) and the
+// distance), the two roots of a quadratic, the differential areas at the
+// four corners that weight a non-rectangular patch's area sampling, and a
+// spherical rectangle's sample with its density.
+element PatchHit {
+    uv : vec2f;
+    t : Float;
+}
+element QuadraticRoots {
+    t0 : Float;
+    t1 : Float;
+}
+element PatchWeights {
+    w0, w1, w2, w3 : Float;
+}
+element SphericalRectangleSample {
+    p : vec3f;
+    pdf : Float;
+}
+
 element Shape =
     | Sph(s : Sphere)
     | Tri(t : Triangle)
-    | Dsk(d : Disk);
+    | Dsk(d : Disk)
+    | Blp(b : BilinearPatch);
 
 // pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
 // matches on which shape it has. The tree the schedule builds calls these
@@ -581,6 +621,13 @@ func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
             }
             return inf;
         }
+        Blp(b) => {
+            hit = patch_hit(q.ray, q.tmax, b);
+            if hit {
+                return (*hit).t;
+            }
+            return inf;
+        }
     }
 }
 
@@ -601,6 +648,13 @@ func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
             }
             return -inf;
         }
+        Blp(b) => {
+            hit = patch_hit(q.ray, q.tmax, b);
+            if hit {
+                return (*hit).t;
+            }
+            return -inf;
+        }
     }
 }
 
@@ -609,6 +663,7 @@ func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
         Sph(s) => return cast[[bool]](sphere_t(q.ray, q.tmax, s));
         Tri(t) => return intersects(q, t);
         Dsk(d) => return cast[[bool]](disk_hit(q.ray, q.tmax, d));
+        Blp(b) => return cast[[bool]](patch_hit(q.ray, q.tmax, b));
     }
 }
 
@@ -1663,6 +1718,634 @@ func triangle_pdf(t : Triangle, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     return pdf;
 }
 
+func patch_corner(m : TriangleMesh, b : BilinearPatch, corner : u32) -> u32 =
+    m.first_vertex + mesh_indices[m.first_index + 4u * b.patch + corner];
+
+// pbrt: Lerp(Float, Point3f, Point3f), `(1 - t) * p0 + t * p1` a component at
+// a time; the contraction pass makes of it what gcc makes (see lerp_st).
+func lerp3(t : Float, a : vec3f, b : vec3f) -> vec3f = (1.0 - t) * a + t * b;
+func lerp2(t : Float, a : vec2f, b : vec2f) -> vec2f = (1.0 - t) * a + t * b;
+
+func max_abs3(v : vec3f) -> Float = max(max(abs(v.x), abs(v.y)), abs(v.z));
+
+// pbrt: Quadratic over floats (util/math.h) -- the roots in order, or none;
+// a zero leading coefficient is the linear case, and the discriminant is the
+// two-fma difference of products.
+func quadratic_f(a : Float, b : Float, c : Float) -> option[QuadraticRoots] {
+    if a == 0.0 {
+        if b == 0.0 {
+            return {};
+        }
+        linear : QuadraticRoots = {-c / b, -c / b};
+        return linear;
+    }
+    discrim = diff_of_products(b, b, 4.0 * a, c);
+    if discrim < 0.0 {
+        return {};
+    }
+    root = sqrt(discrim);
+    q = -0.5 * (b + copysign_(root, b));
+    t0 = q / a;
+    t1 = c / q;
+    roots : QuadraticRoots = {min(t0, t1), max(t0, t1)};
+    return roots;
+}
+
+// pbrt: SquareMatrix<3>::Determinant of the matrix whose columns are the
+// three vectors -- `SquareMatrix<3>(a.x, b.x, c.x, a.y, b.y, c.y, a.z, b.z,
+// c.z)` as IntersectBilinearPatch writes it -- with pbrt's minors, each a
+// difference of products, and the last term fused.
+func det3(a : vec3f, b : vec3f, c : vec3f) -> Float {
+    minor12 = diff_of_products(b.y, c.z, c.y, b.z);
+    minor02 = diff_of_products(a.y, c.z, c.y, a.z);
+    minor01 = diff_of_products(a.y, b.z, b.y, a.z);
+    return fma(c.x, minor01, diff_of_products(a.x, minor12, b.x, minor02));
+}
+
+// pbrt: IntersectBilinearPatch -- the ray against the two isolines of u the
+// quadratic gives, each solved for v and t by Cramer's rule, the nearer one
+// kept. The epsilon keeps a hit at the ray's own origin out, as pbrt's does.
+func patch_hit(r : Ray, tmax : Float, b : BilinearPatch) -> option[PatchHit] {
+    m = meshes[b.mesh];
+    p00 = mesh_positions[patch_corner(m, b, 0u)];
+    p10 = mesh_positions[patch_corner(m, b, 1u)];
+    p01 = mesh_positions[patch_corner(m, b, 2u)];
+    p11 = mesh_positions[patch_corner(m, b, 3u)];
+    qa = dot_(cross_(p10 - p00, p01 - p11), r.d);
+    qc = dot_(cross_(p00 - r.o, r.d), p01 - p00);
+    qb = dot_(cross_(p10 - r.o, r.d), p11 - p10) - (qa + qc);
+    roots = quadratic_f(qa, qb, qc);
+    if !roots {
+        return {};
+    }
+    u1 = (*roots).t0;
+    u2 = (*roots).t1;
+    // `hit_eps`, not `eps`: that name is the intrinsic's.
+    hit_eps = gamma(30) * (max_abs3(r.o) + max_abs3(r.d) + max_abs3(p00) +
+                           max_abs3(p10) + max_abs3(p01) + max_abs3(p11));
+    t : mut Float = tmax;
+    u : mut Float = 0.0;
+    v : mut Float = 0.0;
+    if (0.0 <= u1) && (u1 <= 1.0) {
+        uo = lerp3(u1, p00, p10);
+        ud = lerp3(u1, p01, p11) - uo;
+        deltao = uo - r.o;
+        perp = cross_(r.d, ud);
+        p2 = sqlen_(perp);
+        v1 = det3(deltao, r.d, perp);
+        t1 = det3(deltao, ud, perp);
+        if (t1 > p2 * hit_eps) && (0.0 <= v1) && (v1 <= p2) {
+            u = u1;
+            v = v1 / p2;
+            t = t1 / p2;
+        }
+    }
+    if (0.0 <= u2) && (u2 <= 1.0) && (u2 != u1) {
+        uo = lerp3(u2, p00, p10);
+        ud = lerp3(u2, p01, p11) - uo;
+        deltao = uo - r.o;
+        perp = cross_(r.d, ud);
+        p2 = sqlen_(perp);
+        v2 = det3(deltao, r.d, perp);
+        t2 = det3(deltao, ud, perp) / p2;
+        if (0.0 <= v2) && (v2 <= p2) && (t > t2) && (t2 > hit_eps) {
+            t = t2;
+            u = u2;
+            v = v2 / p2;
+        }
+    }
+    if t >= tmax {
+        return {};
+    }
+    hit : PatchHit = {vec2f{u, v}, t};
+    return hit;
+}
+
+// pbrt: BilinearPatch::IsRectangle -- four distinct coplanar corners the same
+// distance from their centre.
+func patch_is_rectangle(p00 : vec3f, p10 : vec3f, p01 : vec3f,
+                        p11 : vec3f) -> bool {
+    if (sqlen_(p00 - p01) == 0.0) || (sqlen_(p01 - p11) == 0.0) ||
+       (sqlen_(p11 - p10) == 0.0) || (sqlen_(p10 - p00) == 0.0) {
+        return false;
+    }
+    n = unit_vector_(cross_(p10 - p00, p01 - p00));
+    if abs(dot_(unit_vector_(p11 - p00), n)) > 1e-5 {
+        return false;
+    }
+    centre = (p00 + p01 + p10 + p11) / 4.0;
+    d0 = sqlen_(p00 - centre);
+    d1 = sqlen_(p01 - centre);
+    d2 = sqlen_(p10 - centre);
+    d3 = sqlen_(p11 - centre);
+    return (abs(d1 - d0) / d0 <= 1e-4) && (abs(d2 - d0) / d0 <= 1e-4) &&
+           (abs(d3 - d0) / d0 <= 1e-4);
+}
+
+// The normal a patch's point gets: pbrt's `Normalize(Cross(dpdu, dpdv))`,
+// turned to face the interpolated vertex normal where the mesh has normals
+// (FaceForward) and by the mesh's orientation where it has none.
+func patch_face_normal(m : TriangleMesh, b : BilinearPatch, uv : vec2f,
+                       dpdu : vec3f, dpdv : vec3f) -> vec3f {
+    n = unit_vector_(cross_(dpdu, dpdv));
+    if m.has_normals {
+        n00 = mesh_normals[m.first_normal + patch_corner(m, b, 0u) - m.first_vertex];
+        n10 = mesh_normals[m.first_normal + patch_corner(m, b, 1u) - m.first_vertex];
+        n01 = mesh_normals[m.first_normal + patch_corner(m, b, 2u) - m.first_vertex];
+        n11 = mesh_normals[m.first_normal + patch_corner(m, b, 3u) - m.first_vertex];
+        ns = lerp3(uv.x, lerp3(uv.y, n00, n01), lerp3(uv.y, n10, n11));
+        return select(dot_(n, ns) < 0.0, -n, n);
+    }
+    return select(m.flip, -n, n);
+}
+
+// pbrt: the (s, t) texture coordinates at a patch's (u, v) -- the mesh's own
+// at the corners interpolated bilinearly, or (u, v) itself.
+func patch_st(m : TriangleMesh, b : BilinearPatch, uv : vec2f) -> vec2f {
+    if m.has_uv {
+        uv00 = mesh_uvs[m.first_uv + patch_corner(m, b, 0u) - m.first_vertex];
+        uv10 = mesh_uvs[m.first_uv + patch_corner(m, b, 1u) - m.first_vertex];
+        uv01 = mesh_uvs[m.first_uv + patch_corner(m, b, 2u) - m.first_vertex];
+        uv11 = mesh_uvs[m.first_uv + patch_corner(m, b, 3u) - m.first_vertex];
+        return lerp2(uv.x, lerp2(uv.y, uv00, uv01), lerp2(uv.y, uv10, uv11));
+    }
+    return uv;
+}
+
+// pbrt: BilinearPatch::InteractionFromIntersection. The point and its two
+// derivatives from the bilinear interpolation; where the mesh has texture
+// coordinates, the derivatives re-expressed against (s, t) through the
+// inverse of the coordinates' own bilinear map, kept only where that map is
+// not degenerate, and turned so the normal does not flip; dndu and dndv from
+// the fundamental forms (the second derivatives along u and along v are zero
+// for a bilinear surface, the mixed one is the corner sum); the shading frame
+// from the vertex normals, rotated into place by RotateFromTo, where the mesh
+// has them.
+func patch_geometry(b : BilinearPatch, uv : vec2f) -> SurfaceGeometry {
+    m = meshes[b.mesh];
+    i00 = patch_corner(m, b, 0u);
+    i10 = patch_corner(m, b, 1u);
+    i01 = patch_corner(m, b, 2u);
+    i11 = patch_corner(m, b, 3u);
+    p00 = mesh_positions[i00];
+    p10 = mesh_positions[i10];
+    p01 = mesh_positions[i01];
+    p11 = mesh_positions[i11];
+    p = lerp3(uv.x, lerp3(uv.y, p00, p01), lerp3(uv.y, p10, p11));
+    dpdu0 = lerp3(uv.y, p10, p11) - lerp3(uv.y, p00, p01);
+    dpdv0 = lerp3(uv.x, p01, p11) - lerp3(uv.x, p00, p10);
+
+    st : mut vec2f = uv;
+    duds : mut Float = 1.0;
+    dudt : mut Float = 0.0;
+    dvds : mut Float = 0.0;
+    dvdt : mut Float = 1.0;
+    dpdu : mut vec3f = dpdu0;
+    dpdv : mut vec3f = dpdv0;
+    if m.has_uv {
+        uv00 = mesh_uvs[m.first_uv + i00 - m.first_vertex];
+        uv10 = mesh_uvs[m.first_uv + i10 - m.first_vertex];
+        uv01 = mesh_uvs[m.first_uv + i01 - m.first_vertex];
+        uv11 = mesh_uvs[m.first_uv + i11 - m.first_vertex];
+        st = lerp2(uv.x, lerp2(uv.y, uv00, uv01), lerp2(uv.y, uv10, uv11));
+        dstdu = lerp2(uv.y, uv10, uv11) - lerp2(uv.y, uv00, uv01);
+        dstdv = lerp2(uv.x, uv01, uv11) - lerp2(uv.x, uv00, uv10);
+        duds = select(abs(dstdu.x) < 1e-8, 0.0, 1.0 / dstdu.x);
+        dvds = select(abs(dstdv.x) < 1e-8, 0.0, 1.0 / dstdv.x);
+        dudt = select(abs(dstdu.y) < 1e-8, 0.0, 1.0 / dstdu.y);
+        dvdt = select(abs(dstdv.y) < 1e-8, 0.0, 1.0 / dstdv.y);
+        dpds = dpdu0 * duds + dpdv0 * dvds;
+        dpdt0 = dpdu0 * dudt + dpdv0 * dvdt;
+        if sqlen_(cross_(dpds, dpdt0)) != 0.0 {
+            dpdt = select(dot_(cross_(dpdu0, dpdv0), cross_(dpds, dpdt0)) < 0.0,
+                          -dpdt0, dpdt0);
+            dpdu = dpds;
+            dpdv = dpdt;
+        }
+    }
+
+    // pbrt: the fundamental forms. `e` and `g` are zero -- d2Pduu and d2Pdvv
+    // are -- so their terms are written out as the zeroes they are.
+    d2pduv = (p00 - p01) + (p11 - p10);
+    ee = dot_(dpdu, dpdu);
+    ff = dot_(dpdu, dpdv);
+    gg = dot_(dpdv, dpdv);
+    n_raw = unit_vector_(cross_(dpdu, dpdv));
+    f2 = dot_(n_raw, d2pduv);
+    egf2 = diff_of_products(ee, gg, ff, ff);
+    inv_egf2 = select(egf2 == 0.0, 0.0, 1.0 / egf2);
+    dndu_g = (f2 * ff) * inv_egf2 * dpdu + (-(f2 * ee)) * inv_egf2 * dpdv;
+    dndv_g = (-(f2 * gg)) * inv_egf2 * dpdu + (f2 * ff) * inv_egf2 * dpdv;
+    dnds_g = dndu_g * duds + dndv_g * dvds;
+    dndt_g = dndu_g * dudt + dndv_g * dvdt;
+
+    p_abs_sum = abs(p00) + abs(p01) + abs(p10) + abs(p11);
+    p_err = gamma(6) * p_abs_sum;
+    // pbrt: the SurfaceInteraction's normal, flipped by the mesh's
+    // orientation -- `flipNormal` is reverseOrientation ^ swaps handedness.
+    n0 = select(m.flip, -n_raw, n_raw);
+
+    if !m.has_normals {
+        plain : SurfaceGeometry = {n0, n0, dpdu, dpdv, st, dpdu, dpdv, dnds_g,
+                                   dndt_g, p, p_err};
+        return plain;
+    }
+
+    // pbrt: the shading normal interpolated from the corners' and, where it
+    // does not cancel, set as authoritative -- the geometric normal is turned
+    // to face it (SetShadingGeometry with orientationIsAuthoritative) -- and
+    // the shading tangents are the geometric ones rotated from the geometric
+    // normal to the shading one.
+    n00 = mesh_normals[m.first_normal + i00 - m.first_vertex];
+    n10 = mesh_normals[m.first_normal + i10 - m.first_vertex];
+    n01 = mesh_normals[m.first_normal + i01 - m.first_vertex];
+    n11 = mesh_normals[m.first_normal + i11 - m.first_vertex];
+    ns_raw = lerp3(uv.x, lerp3(uv.y, n00, n01), lerp3(uv.y, n10, n11));
+    if sqlen_(ns_raw) <= 0.0 {
+        plain : SurfaceGeometry = {n0, n0, dpdu, dpdv, st, dpdu, dpdv, dnds_g,
+                                   dndt_g, p, p_err};
+        return plain;
+    }
+    ns = unit_vector_(ns_raw);
+    dndu_s = lerp3(uv.y, n10, n11) - lerp3(uv.y, n00, n01);
+    dndv_s = lerp3(uv.x, n01, n11) - lerp3(uv.x, n00, n10);
+    dnds_s = dndu_s * duds + dndv_s * dvds;
+    dndt_s = dndu_s * dudt + dndv_s * dvdt;
+    rot = rotate_from_to(unit_vector_(n0), ns);
+    dpdus = apply_rot(rot, dpdu);
+    dpdvs = apply_rot(rot, dpdv);
+    n = select(dot_(n0, ns) < 0.0, -n0, n0);
+    shaded : SurfaceGeometry = {n, ns, dpdus, dpdvs, st, dpdu, dpdv, dnds_s,
+                                dndt_s, p, p_err};
+    return shaded;
+}
+
+// pbrt: the differential area at the four corners, the weights of the
+// approximately uniform area sampling of a patch that is not a rectangle
+// (SampleBilinear over them).
+func patch_area_weights(p00 : vec3f, p10 : vec3f, p01 : vec3f,
+                        p11 : vec3f) -> PatchWeights {
+    w : PatchWeights = {norm(cross_(p10 - p00, p01 - p00)),
+                        norm(cross_(p10 - p00, p11 - p10)),
+                        norm(cross_(p01 - p00, p11 - p01)),
+                        norm(cross_(p11 - p10, p11 - p01))};
+    return w;
+}
+
+// pbrt: BilinearPatch::Sample(Point2f) -- a point by area: uniform in (u, v)
+// on a rectangle, else warped by the corners' differential areas; the
+// density per unit area, which is the (u, v) density over |dpdu x dpdv|.
+func patch_sample_area(b : BilinearPatch, u : vec2f) -> option[ShapeSample] {
+    m = meshes[b.mesh];
+    p00 = mesh_positions[patch_corner(m, b, 0u)];
+    p10 = mesh_positions[patch_corner(m, b, 1u)];
+    p01 = mesh_positions[patch_corner(m, b, 2u)];
+    p11 = mesh_positions[patch_corner(m, b, 3u)];
+    pdf : mut Float = 1.0;
+    uv : mut vec2f = u;
+    if !patch_is_rectangle(p00, p10, p01, p11) {
+        w = patch_area_weights(p00, p10, p01, p11);
+        uv = sample_bilinear(u, w.w0, w.w1, w.w2, w.w3);
+        pdf = bilinear_pdf(uv, w.w0, w.w1, w.w2, w.w3);
+    }
+    pu0 = lerp3(uv.y, p00, p01);
+    pu1 = lerp3(uv.y, p10, p11);
+    p = lerp3(uv.x, pu0, pu1);
+    dpdu = pu1 - pu0;
+    dpdv = lerp3(uv.x, p01, p11) - lerp3(uv.x, p00, p10);
+    if (sqlen_(dpdu) == 0.0) || (sqlen_(dpdv) == 0.0) {
+        return {};
+    }
+    n = patch_face_normal(m, b, uv, dpdu, dpdv);
+    p_err = gamma(6) * (abs(p00) + abs(p01) + abs(p10) + abs(p11));
+    ss : ShapeSample = {p, p_err, n, patch_st(m, b, uv),
+                        pdf / norm(cross_(dpdu, dpdv))};
+    return ss;
+}
+
+// pbrt: InvertBilinear (util/vecmath.h, after Inigo Quilez's inverse
+// bilinear interpolation) -- the (u, v) at which the four corners' bilinear
+// map gives `p`. The corners are pbrt's `vert` in its order: a = vert[0] =
+// uv00, b = vert[1] = uv10, c = vert[3] = uv11, d = vert[2] = uv01.
+func cross2d(a : vec2f, b : vec2f) -> Float = diff_of_products(a.x, b.y, a.y, b.x);
+func invert_bilinear(p : vec2f, uv00 : vec2f, uv10 : vec2f, uv01 : vec2f,
+                     uv11 : vec2f) -> vec2f {
+    e = uv10 - uv00;
+    f = uv01 - uv00;
+    g = (uv00 - uv10) + (uv11 - uv01);
+    h = p - uv00;
+    k2 = cross2d(g, f);
+    k1 = cross2d(e, f) + cross2d(h, g);
+    k0 = cross2d(h, e);
+    if abs(k2) < 0.001 {
+        if abs(e.x * k1 - g.x * k0) < 1e-5 {
+            return vec2f{(h.y * k1 + f.y * k0) / (e.y * k1 - g.y * k0), -k0 / k1};
+        }
+        return vec2f{(h.x * k1 + f.x * k0) / (e.x * k1 - g.x * k0), -k0 / k1};
+    }
+    roots = quadratic_f(k2, k1, k0);
+    if !roots {
+        return vec2f{0.0, 0.0};
+    }
+    v0 = (*roots).t0;
+    v1 = (*roots).t1;
+    u = (h.x - f.x * v0) / (e.x + g.x * v0);
+    if (u < 0.0) || (u > 1.0) || (v0 < 0.0) || (v0 > 1.0) {
+        return vec2f{(h.x - f.x * v1) / (e.x + g.x * v1), v1};
+    }
+    return vec2f{u, v0};
+}
+
+// pbrt: BilinearPatch::PDF(const Interaction &) -- the area density at a
+// point on the patch given by its (s, t): back to (u, v) through the texture
+// coordinates where the mesh has them, then the (u, v) density over
+// |dpdu x dpdv|.
+func patch_pdf_area(b : BilinearPatch, st : vec2f) -> Float {
+    m = meshes[b.mesh];
+    i00 = patch_corner(m, b, 0u);
+    i10 = patch_corner(m, b, 1u);
+    i01 = patch_corner(m, b, 2u);
+    i11 = patch_corner(m, b, 3u);
+    p00 = mesh_positions[i00];
+    p10 = mesh_positions[i10];
+    p01 = mesh_positions[i01];
+    p11 = mesh_positions[i11];
+    uv : mut vec2f = st;
+    if m.has_uv {
+        uv = invert_bilinear(st, mesh_uvs[m.first_uv + i00 - m.first_vertex],
+                             mesh_uvs[m.first_uv + i10 - m.first_vertex],
+                             mesh_uvs[m.first_uv + i01 - m.first_vertex],
+                             mesh_uvs[m.first_uv + i11 - m.first_vertex]);
+    }
+    pdf : mut Float = 1.0;
+    if !patch_is_rectangle(p00, p10, p01, p11) {
+        w = patch_area_weights(p00, p10, p01, p11);
+        pdf = bilinear_pdf(uv, w.w0, w.w1, w.w2, w.w3);
+    }
+    pu0 = lerp3(uv.y, p00, p01);
+    pu1 = lerp3(uv.y, p10, p11);
+    dpdu = pu1 - pu0;
+    dpdv = lerp3(uv.x, p01, p11) - lerp3(uv.x, p00, p10);
+    return pdf / norm(cross_(dpdu, dpdv));
+}
+
+// pbrt: SphericalQuadArea, the solid angle four unit directions subtend --
+// the four dihedral angles less two pi, as a spherical triangle's is less pi.
+func spherical_quad_area(a : vec3f, b : vec3f, c : vec3f, d : vec3f) -> Float {
+    axb = cross_(a, b);
+    bxc = cross_(b, c);
+    cxd = cross_(c, d);
+    dxa = cross_(d, a);
+    if (sqlen_(axb) == 0.0) || (sqlen_(bxc) == 0.0) || (sqlen_(cxd) == 0.0) ||
+       (sqlen_(dxa) == 0.0) {
+        return 0.0;
+    }
+    axbn = unit_vector_(axb);
+    bxcn = unit_vector_(bxc);
+    cxdn = unit_vector_(cxd);
+    dxan = unit_vector_(dxa);
+    alpha = angle_between(dxan, -axbn);
+    beta = angle_between(axbn, -bxcn);
+    gamma_ = angle_between(bxcn, -cxdn);
+    delta = angle_between(cxdn, -dxan);
+    return abs(alpha + beta + gamma_ + delta - 2.0 * 3.14159265358979323846);
+}
+
+// pbrt: SampleSphericalRectangle (Ureña, Fajardo and King's "An Area-
+// Preserving Parametrization for Spherical Rectangles", 2013, as pbrt
+// writes it) -- a point on the rectangle `s + u ex + v ey` uniform in the
+// solid angle it subtends from `p_ref`, and that solid angle's reciprocal as
+// the density. The frame's z is turned to point away from the rectangle, so
+// the rectangle sits at negative z0; a solid angle below 1e-3 falls back to
+// the point uniform in area, with the density still the solid angle's.
+func sample_spherical_rectangle(p_ref : vec3f, s : vec3f, ex : vec3f, ey : vec3f,
+                                u : vec2f) -> SphericalRectangleSample {
+    exl = norm(ex);
+    eyl = norm(ey);
+    r0 = frame_from_xy(ex / exl, ey / eyl);
+    d_local = frame_to_local(r0, s - p_ref);
+    flipped = d_local.z > 0.0;
+    r : Frame = {r0.x, r0.y, select(flipped, -r0.z, r0.z)};
+    z0 = select(flipped, -d_local.z, d_local.z);
+    x0 = d_local.x;
+    y0 = d_local.y;
+    x1 = x0 + exl;
+    y1 = y0 + eyl;
+    v00 = vec3f{x0, y0, z0};
+    v01 = vec3f{x0, y1, z0};
+    v10 = vec3f{x1, y0, z0};
+    v11 = vec3f{x1, y1, z0};
+    n0 = unit_vector_(cross_(v00, v10));
+    n1 = unit_vector_(cross_(v10, v11));
+    n2 = unit_vector_(cross_(v11, v01));
+    n3 = unit_vector_(cross_(v01, v00));
+    g0 = angle_between(-n0, n1);
+    g1 = angle_between(-n1, n2);
+    g2 = angle_between(-n2, n3);
+    g3 = angle_between(-n3, n0);
+    pi_ = 3.14159265358979323846;
+    solid_angle = g0 + g1 + g2 + g3 - 2.0 * pi_;
+    if solid_angle <= 0.0 {
+        none : SphericalRectangleSample = {s + u.x * ex + u.y * ey, 0.0};
+        return none;
+    }
+    pdf = max(0.0, 1.0 / solid_angle);
+    if solid_angle < 1e-3 {
+        small : SphericalRectangleSample = {s + u.x * ex + u.y * ey, pdf};
+        return small;
+    }
+    b0 = n0.z;
+    b1 = n2.z;
+    au = u.x * (g0 + g1 - 2.0 * pi_) + (u.x - 1.0) * (g2 + g3);
+    fu = (cos(au) * b0 - b1) / sin(au);
+    cu0 = copysign_(1.0 / sqrt(fu * fu + b0 * b0), fu);
+    cu = min(max(cu0, -0.99999994), 0.99999994);
+    xu0 = -(cu * z0) / safe_sqrt(1.0 - cu * cu);
+    xu = min(max(xu0, x0), x1);
+    dd = sqrt(xu * xu + z0 * z0);
+    h0 = y0 / sqrt(dd * dd + y0 * y0);
+    h1 = y1 / sqrt(dd * dd + y1 * y1);
+    hv = h0 + u.y * (h1 - h0);
+    hvsq = hv * hv;
+    yv = select(hvsq < 1.0 - 1e-6, (hv * dd) / sqrt(1.0 - hvsq), y1);
+    out : SphericalRectangleSample = {p_ref + frame_from_local(r, vec3f{xu, yv, z0}),
+                                      pdf};
+    return out;
+}
+
+// pbrt: InvertSphericalRectangleSample -- the (u, v) the sampler above would
+// have taken to land on `p_rect`, for the density of a point reached some
+// other way. pbrt's own notes on its stability are left where they are; the
+// arithmetic is its, the solid angle summed in double as it sums it.
+func invert_spherical_rectangle_sample(p_ref : vec3f, s : vec3f, ex : vec3f,
+                                       ey : vec3f, p_rect : vec3f) -> vec2f {
+    exl = norm(ex);
+    eyl = norm(ey);
+    r0 = frame_from_xy(ex / exl, ey / eyl);
+    d_local = frame_to_local(r0, s - p_ref);
+    flipped = d_local.z > 0.0;
+    r : Frame = {r0.x, r0.y, select(flipped, -r0.z, r0.z)};
+    z0 = select(flipped, -d_local.z, d_local.z);
+    z0sq = z0 * z0;
+    x0 = d_local.x;
+    y0 = d_local.y;
+    x1 = x0 + exl;
+    y1 = y0 + eyl;
+    y0sq = y0 * y0;
+    y1sq = y1 * y1;
+    v00 = vec3f{x0, y0, z0};
+    v01 = vec3f{x0, y1, z0};
+    v10 = vec3f{x1, y0, z0};
+    v11 = vec3f{x1, y1, z0};
+    n0 = unit_vector_(cross_(v00, v10));
+    n1 = unit_vector_(cross_(v10, v11));
+    n2 = unit_vector_(cross_(v11, v01));
+    n3 = unit_vector_(cross_(v01, v00));
+    g0 = angle_between(-n0, n1);
+    g1 = angle_between(-n1, n2);
+    g2 = angle_between(-n2, n3);
+    g3 = angle_between(-n3, n0);
+    b0 = n0.z;
+    b1 = n2.z;
+    b0sq = b0 * b0;
+    b1sq = b1 * b1;
+    pi_ = 3.14159265358979323846;
+    two_pi_d : f64 = 6.283185307179586476925;
+    solid_angle = cast[[Float]](cast[[f64]](g0) + cast[[f64]](g1) +
+                                cast[[f64]](g2) + cast[[f64]](g3) - two_pi_d);
+    if solid_angle < 1e-3 {
+        pq = p_rect - s;
+        return vec2f{dot_(pq, ex) / sqlen_(ex), dot_(pq, ey) / sqlen_(ey)};
+    }
+    v = frame_to_local(r, p_rect - p_ref);
+    xu0 = min(max(v.x, x0), x1);
+    xu = select(xu0 == 0.0, 1e-10, xu0);
+    yv = v.y;
+    invcusq = 1.0 + z0sq / (xu * xu);
+    fusq = invcusq - b0sq;
+    fu = copysign_(sqrt(fusq), xu);
+    sqrt_ = safe_sqrt(diff_of_products(b0, b0, b1, b1) + fusq);
+    au0 = atan2(-(b1 * fu) - copysign_(b0 * sqrt_, fu * b0),
+                b0 * b1 - sqrt_ * abs(fu));
+    au1 = select(au0 > 0.0, au0 - 2.0 * pi_, au0);
+    au = select(fu == 0.0, pi_, au1);
+    u0 = (au + g2 + g3) / solid_angle;
+    ddsq = xu * xu + z0sq;
+    dd = sqrt(ddsq);
+    h0 = y0 / sqrt(ddsq + y0sq);
+    h1 = y1 / sqrt(ddsq + y1sq);
+    yvsq = yv * yv;
+    root_term = abs(h0 - h1) * sqrt(yvsq * (ddsq + yvsq)) / (ddsq + yvsq);
+    denom = (h0 - h1) * (h0 - h1);
+    u1a = (diff_of_products(h0, h0, h0, h1) - root_term) / denom;
+    u1b = (diff_of_products(h0, h0, h0, h1) + root_term) / denom;
+    // pbrt: of the two roots, the one whose y comes back closest to yv.
+    hva = lerp_st(u1a, h0, h1);
+    hvb = lerp_st(u1b, h0, h1);
+    yza = (hva * dd) / sqrt(1.0 - hva * hva);
+    yzb = (hvb * dd) / sqrt(1.0 - hvb * hvb);
+    u1 = select(abs(yza - yv) < abs(yzb - yv), u1a, u1b);
+    return vec2f{min(max(u0, 0.0), 1.0), u1};
+}
+
+// pbrt: BilinearPatch::Sample(ctx, u). A rectangle large enough in solid
+// angle is sampled as a spherical rectangle, with the cosine warp over its
+// four corners where the point has a shading normal; anything else -- a
+// patch that is not a rectangle, or a small one -- by area, converted to
+// solid angle.
+func patch_sample(b : BilinearPatch, ctx : ShapeSampleContext,
+                  u_in : vec2f) -> option[ShapeSample] {
+    m = meshes[b.mesh];
+    p00 = mesh_positions[patch_corner(m, b, 0u)];
+    p10 = mesh_positions[patch_corner(m, b, 1u)];
+    p01 = mesh_positions[patch_corner(m, b, 2u)];
+    p11 = mesh_positions[patch_corner(m, b, 3u)];
+    v00 = unit_vector_(p00 - ctx.p);
+    v10 = unit_vector_(p10 - ctx.p);
+    v01 = unit_vector_(p01 - ctx.p);
+    v11 = unit_vector_(p11 - ctx.p);
+    if !patch_is_rectangle(p00, p10, p01, p11) ||
+       (spherical_quad_area(v00, v10, v11, v01) <= 1e-4) {
+        area = patch_sample_area(b, u_in);
+        if !area {
+            return {};
+        }
+        ss = *area;
+        wi0 = ss.p - ctx.p;
+        if sqlen_(wi0) == 0.0 {
+            return {};
+        }
+        wi = unit_vector_(wi0);
+        denom = abs(dot_(ss.n, -wi)) / sqlen_(ctx.p - ss.p);
+        conv : mut ShapeSample = ss;
+        conv.pdf = ss.pdf / denom;
+        if conv.pdf == inf {
+            return {};
+        }
+        return conv;
+    }
+    pdf : mut Float = 1.0;
+    u : mut vec2f = u_in;
+    if sqlen_(ctx.ns) != 0.0 {
+        w0 = max(0.01, abs(dot_(v00, ctx.ns)));
+        w1 = max(0.01, abs(dot_(v10, ctx.ns)));
+        w2 = max(0.01, abs(dot_(v01, ctx.ns)));
+        w3 = max(0.01, abs(dot_(v11, ctx.ns)));
+        u = sample_bilinear(u_in, w0, w1, w2, w3);
+        pdf = pdf * bilinear_pdf(u, w0, w1, w2, w3);
+    }
+    eu = p10 - p00;
+    ev = p01 - p00;
+    sq = sample_spherical_rectangle(ctx.p, p00, eu, ev, u);
+    pdf = pdf * sq.pdf;
+    uv = vec2f{dot_(sq.p - p00, eu) / sqlen_(p10 - p00),
+               dot_(sq.p - p00, ev) / sqlen_(p01 - p00)};
+    n = patch_face_normal(m, b, uv, eu, ev);
+    // pbrt: `Interaction(p, n, ctx.time, st)` -- a sampled point carries no
+    // error bound here.
+    ss : ShapeSample = {sq.p, vec3f{0.0, 0.0, 0.0}, n, patch_st(m, b, uv), pdf};
+    return ss;
+}
+
+// pbrt: BilinearPatch::PDF(ctx, wi) -- the density `patch_sample` would have
+// given the point the ray from `ctx` along `wi` reaches, or zero if it reaches
+// none.
+func patch_pdf(b : BilinearPatch, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    o = offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi);
+    ray : Ray = {o, wi};
+    hit = patch_hit(ray, inf, b);
+    if !hit {
+        return 0.0;
+    }
+    g = patch_geometry(b, (*hit).uv);
+    m = meshes[b.mesh];
+    p00 = mesh_positions[patch_corner(m, b, 0u)];
+    p10 = mesh_positions[patch_corner(m, b, 1u)];
+    p01 = mesh_positions[patch_corner(m, b, 2u)];
+    p11 = mesh_positions[patch_corner(m, b, 3u)];
+    v00 = unit_vector_(p00 - ctx.p);
+    v10 = unit_vector_(p10 - ctx.p);
+    v01 = unit_vector_(p01 - ctx.p);
+    v11 = unit_vector_(p11 - ctx.p);
+    quad = spherical_quad_area(v00, v10, v11, v01);
+    if !patch_is_rectangle(p00, p10, p01, p11) || (quad <= 1e-4) {
+        pdf = patch_pdf_area(b, g.uv) *
+              (sqlen_(ctx.p - g.p) / abs(dot_(g.n, -wi)));
+        return select(pdf == inf, 0.0, pdf);
+    }
+    pdf = 1.0 / quad;
+    if sqlen_(ctx.ns) != 0.0 {
+        w0 = max(0.01, abs(dot_(v00, ctx.ns)));
+        w1 = max(0.01, abs(dot_(v10, ctx.ns)));
+        w2 = max(0.01, abs(dot_(v01, ctx.ns)));
+        w3 = max(0.01, abs(dot_(v11, ctx.ns)));
+        u = invert_spherical_rectangle_sample(ctx.p, p00, p10 - p00, p01 - p00,
+                                              g.p);
+        return bilinear_pdf(u, w0, w1, w2, w3) * pdf;
+    }
+    return pdf;
+}
+
 // pbrt: Shape::Sample and Shape::PDF, dispatched over the variants -- which is
 // what pbrt's TaggedPointer does.
 func shape_sample(sh : Shape, ctx : ShapeSampleContext,
@@ -1671,6 +2354,7 @@ func shape_sample(sh : Shape, ctx : ShapeSampleContext,
         Sph(s) => return sphere_sample(s, ctx, u);
         Tri(t) => return triangle_sample(t, ctx, u);
         Dsk(d) => return disk_sample(d, ctx, u);
+        Blp(b) => return patch_sample(b, ctx, u);
     }
 }
 
@@ -1679,6 +2363,7 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
         Sph(s) => return sphere_pdf(s, ctx, wi);
         Tri(t) => return triangle_pdf(t, ctx, wi);
         Dsk(d) => return disk_pdf(d, ctx, wi);
+        Blp(b) => return patch_pdf(b, ctx, wi);
     }
 }
 
@@ -1710,6 +2395,13 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             hit = disk_hit(r, inf, d);
             if hit {
                 return disk_geometry(d, *hit);
+            }
+            return missed;
+        }
+        Blp(b) => {
+            hit = patch_hit(r, inf, b);
+            if hit {
+                return patch_geometry(b, (*hit).uv);
             }
             return missed;
         }

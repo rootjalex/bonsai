@@ -1,0 +1,78 @@
+# pbrt's bilinear patch, the shape a quad is: four corners and the surface
+# `(1-u)(1-v) p00 + u(1-v) p10 + (1-u)v p01 + uv p11` through them, which is
+# planar only when the corners are and is otherwise a doubly ruled saddle.
+# pbrt never splits a quad into two triangles, so a scene's PLY quads
+# (sportscar, watercolor, bunny-fur) are patches, and so is `bilinearmesh`.
+#
+# What is here, each a path pbrt has for the shape:
+#
+#   - A twisted `bilinearmesh` with per-vertex normals and texture
+#     coordinates, under a checker-free image texture, on the left: the
+#     intersection (IntersectBilinearPatch's quadratic in u), the (s, t)
+#     derivatives, the shading frame rotated onto the vertex normals.
+#   - A `plymesh` whose faces are quads (scenes/quads.ply): a planar
+#     rectangle and a twisted patch, in the middle and the right -- the PLY
+#     path, where pbrt makes a BilinearPatchMesh of the quad faces.
+#   - An emitting rectangle as the light, overhead: an area light over a
+#     patch, sampled as a spherical rectangle from every point that sees
+#     enough of it (Ureña et al.), by area from the ones that do not, with
+#     the cosine warp over its corners -- Sample(ctx, u) and PDF(ctx, wi).
+#   - A diffuse floor to receive the light.
+#
+# The gbuffer's normals and shading normals check the intersection and the
+# frames; the albedo on the textured patch checks (s, t); the radiance checks
+# the light's sampling.
+#
+# `volpath`, so that the GPU schedule renders it as well.
+
+LookAt 0 2.2 6.5   0 0.8 -0.5   0 1 0
+Camera "perspective" "float fov" [42]
+
+Sampler "halton" "integer pixelsamples" [8]
+Integrator "volpath" "integer maxdepth" [3]
+Film "gbuffer"
+    "string filename" ["bilinear-patch.exr"]
+    "integer xresolution" [640]
+    "integer yresolution" [360]
+    "string coordinatesystem" ["world"]
+    # Float rather than pbrt's default halves. See three-spheres.pbrt.
+    "bool savefp16" false
+
+WorldBegin
+
+# The light: a rectangle a metre and a half across, facing down -- the
+# corners ordered so that pbrt's normal, `Cross(p10 - p00, p01 - p00)`, is
+# -y, since a diffuse area light emits on its normal's side alone.
+AttributeBegin
+    AreaLightSource "diffuse" "rgb L" [12 12 12]
+    Material "diffuse" "rgb reflectance" [0 0 0]
+    Shape "bilinearmesh"
+        "point3 P" [-0.75 3.2 -1.25   0.75 3.2 -1.25   -0.75 3.2 0.25   0.75 3.2 0.25]
+AttributeEnd
+
+Texture "wood" "spectrum" "imagemap"
+    "string filename" ["/home/ajroot/projects/pbrt-v4-scenes/barcelona-pavilion/textures/wood.png"]
+
+# A twisted patch with its own normals and texture coordinates.
+AttributeBegin
+    Translate -2.8 0 0.6
+    Material "diffuse" "texture reflectance" "wood"
+    Shape "bilinearmesh"
+        "point3 P" [0 0 0.6   1.6 0 0.9   0 1.5 -0.2   1.6 1.5 0.7]
+        "normal N" [0 0.2 1   0.1 0 1   -0.2 0.3 1   0 0 1]
+        "point2 uv" [0 0   2 0   0 2   2 2]
+AttributeEnd
+
+# The PLY's quads: a rectangle and a saddle.
+AttributeBegin
+    Material "diffuse" "rgb reflectance" [0.6 0.3 0.2]
+    Shape "plymesh" "string filename" ["quads.ply"]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse" "rgb reflectance" [0.5 0.5 0.5]
+    Shape "trianglemesh"
+        "integer indices" [0 1 2 2 3 0]
+        "point3 P" [-6 0 -4   6 0 -4   6 0 4   -6 0 4]
+        "point2 uv" [0 0  1 0  1 1  0 1]
+AttributeEnd

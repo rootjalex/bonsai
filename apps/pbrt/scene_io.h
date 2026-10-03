@@ -31,6 +31,10 @@ enum ShapeTag : uint32_t {
     Sphere = 0,
     Triangle = 1,
     Disk = 2,
+    // PBRT's BilinearPatch: a mesh (`mesh`, its indices in fours) and a patch
+    // in it (`tri`, reused as the patch index), with the area PBRT's
+    // constructor computes.
+    Patch = 3,
 };
 
 enum MaterialTag : uint32_t {
@@ -542,6 +546,10 @@ struct Shape {
     float inner_radius = 0.f;
     float phi_max = 6.28318530717958647692f;
     uint32_t reverse = 0;
+    // Patch. PBRT's BilinearPatch::area -- exact for a rectangle, else the
+    // sum over a 3x3 subdivision -- computed by the converter as its
+    // constructor computes it, since the renderer's sampling divides by it.
+    float patch_area = 0.f;
     // Which of the scene's materials this shape was declared under.
     uint32_t material = 0;
     // Which of the scene's lights this shape emits as, or -1 for a shape that
@@ -922,6 +930,13 @@ struct Scene {
         const Mesh &m = meshes[s.mesh];
         for (uint32_t k = 0; k < 3; k++) {
             out[k] = m.first_vertex + indices[m.first_index + 3 * s.tri + k];
+        }
+    }
+    // A bilinear patch's four, in PBRT's order: p00, p10, p01, p11.
+    void patch_corners(const Shape &s, uint32_t out[4]) const {
+        const Mesh &m = meshes[s.mesh];
+        for (uint32_t k = 0; k < 4; k++) {
+            out[k] = m.first_vertex + indices[m.first_index + 4 * s.tri + k];
         }
     }
 };
@@ -1381,6 +1396,9 @@ inline bool write(const char *path, const Scene &scene) {
                 detail::put(out, s.render_from_object, 16);
                 out << " object_from_render";
                 detail::put(out, s.object_from_render, 16);
+            } else if (s.tag == ShapeTag::Patch) {
+                out << "  blp " << s.mesh << ' ' << s.tri << " area";
+                detail::put(out, &s.patch_area, 1);
             } else {
                 out << "  tri " << s.mesh << ' ' << s.tri;
             }
@@ -2319,6 +2337,16 @@ inline bool read(const char *path, Scene &scene) {
                 if (s.mesh >= scene.meshes.size()) {
                     return false;
                 }
+            } else if (word == "blp") {
+                s.tag = ShapeTag::Patch;
+                in >> s.mesh >> s.tri;
+                if (s.mesh >= scene.meshes.size()) {
+                    return false;
+                }
+                if (!tagged("area")) {
+                    return false;
+                }
+                floats(&s.patch_area, 1);
             } else if (word == "disk") {
                 s.tag = ShapeTag::Disk;
                 floats(&s.height, 1);

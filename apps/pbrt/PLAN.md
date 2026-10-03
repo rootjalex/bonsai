@@ -2541,7 +2541,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 8 | `Material "coatedconductor"` -- **done 2026-09-20**, see below | bistro, bmw-m6, killeroos coated-gold, kroken, watercolor | 5 |
 | 9 | `conductor` given `reflectance` (rgb, or a texture) instead of `eta`/`k` -- **done 2026-09-20**, and with it `eta`/`k` given as `rgb`, inline pairs or a `.spd` file (item 21) | bmw-m6, crown, villa, watercolor, zero-day | 5 |
 | 10 | `Material "mix"` -- **done 2026-10-03**, resolved at the hit as pbrt resolves it (below) | bmw-m6, crown, kroken, watercolor | 4 |
-| 11 | `Shape "bilinearmesh"` (and PLY holding quads) | bunny-fur, sportscar, watercolor | 3 |
+| 11 | `Shape "bilinearmesh"` (and PLY holding quads) -- **done 2026-10-03**, the bilinear patch below | bunny-fur, sportscar, watercolor | 3 |
 | 12 | `mix` textures (and `directionmix`) -- **done 2026-10-03**, the texture graph below | kroken, villa, watercolor | 3 |
 | 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` -- **done 2026-10-03** | kroken, villa, watercolor | 3 |
 | 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
@@ -2713,11 +2713,11 @@ Per scene, what is missing (see the converter for what is supported):
 | lte-orb | `pmj02bn`, `sobol`, `volpath` (rough glass only) |
 | sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium |
-| sportscar | `volpath`, `bilinearmesh`, ACES env map |
+| sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
 | sssdragon | `subsurface` |
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` |
 | villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` -- villa-daylight converts as of 2026-10-03 (the lights-on file still wants `spot` and `point`) |
-| watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium |
+| watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium -- all done by 2026-10-03; it then asks for a coating's `thickness` as a texture, its last refusal |
 | zero-day | nothing since 2026-09-20: renders and matches (above, and the 2026-09-21 sweep) |
 
 (Rows brought up to date 2026-09-21: `blackbody L`, `disk`, `distant`,
@@ -9178,6 +9178,71 @@ within 1%. The scene sets no `maxcomponentvalue`, so nothing clamps
 either side. kroken gets past alpha and mix to its last refusal, a
 spectral `eta` on a dielectric.
 
+*The bilinear patch (2026-10-03).* pbrt's fourth shape, and the one a quad
+is: four corners and the surface `(1-u)(1-v) p00 + u(1-v) p10 + (1-u)v p01
++ uv p11` through them, planar only when the corners are. pbrt never splits
+a quad into triangles -- a PLY's quad faces (sportscar, watercolor,
+bunny-fur) are a BilinearPatchMesh beside the TriangleMesh of its triangle
+faces, and `bilinearmesh` is the shape by name -- so the renderer has it as
+a `Blp(BilinearPatch)` arm of `Shape`: a mesh index and a patch index, as a
+Triangle is, over the same mesh pools with the indices in fours, and the
+area pbrt's constructor computes (exact for a rectangle, over a 3x3
+subdivision otherwise), since the sampling divides by it. Transliterated
+from shapes.h and shapes.cpp: `patch_hit` is IntersectBilinearPatch -- the
+quadratic in u whose roots are the isolines the ray crosses, each solved
+for v and t by Cramer's rule with pbrt's 3x3 determinant (its minors as
+differences of products), the nearer kept, gamma(30) of the magnitudes as
+the epsilon that keeps a hit off the ray's origin; `patch_geometry` is
+InteractionFromIntersection -- the derivatives re-expressed against the
+mesh's (s, t) through the inverse of the texture coordinates' own bilinear
+map where that is not degenerate, dndu and dndv from the fundamental forms
+(the mixed second derivative is the corner sum, the others zero), and the
+shading frame from the vertex normals with the geometric tangents turned
+onto it by RotateFromTo (moved to frame.bonsai, since shapes.bonsai cannot
+import differentials.bonsai); `patch_sample` is Sample(ctx, u) -- a
+rectangle seen under enough solid angle sampled as a spherical rectangle
+(Ureña, Fajardo and King 2013, SampleSphericalRectangle and its inverse
+transliterated whole, pbrt's double-precision solid angle in the inverse
+included) with the cosine warp over its four corners where the point has a
+shading normal, anything else by area (SampleBilinear over the corners'
+differential areas for a patch that is not a rectangle) converted to solid
+angle -- and `patch_pdf` its PDF, through InvertBilinear for a mesh with
+texture coordinates. scene_dump converts `bilinearmesh` through pbrt's own
+CreateMesh and a PLY's quads as shapes.cpp does, one shape per four
+indices, an emitting mesh's lights over pbrt's own patches so the light BVH
+is built over pbrt's bounds (`emissionfilename`, an image distribution over
+an emitter, is refused); the PLY is read once for both meshes. The driver
+bounds a patch by its four corners, which is what the hardware's custom
+primitive takes, and the intersection program is the arm's `patch_hit`
+through the same match the sphere and disk go through. scenes/bilinear-
+patch.pbrt -- a twisted `bilinearmesh` with normals and texture coordinates
+under a wood image, a PLY of a rectangle and a saddle (scenes/quads.ply), an
+emitting rectangle overhead, a floor -- against `pbrt --wavefront` at 8 spp
+on the scalar schedule: 0 of 130,514 normals off, 0 shading normals off
+(worst 6e-7), albedo 0 over 5e-3 (mean 6e-5), radiance 1.00001x with 99.9%
+of pixels within 1e-3 -- the last being the spherical rectangle's sampling,
+every shadow ray of the scene. The GPU schedule, where the patch is a
+custom primitive under its four corners' box: 0 normals off, 0 shading
+normals off, radiance 0.99997x, and the albedo apart only on the wood
+patch (7.9% of pixels over 5e-3), the texture unit's filter against pbrt's
+one-level bilinear, as on every uv image. sportscar-sky converts for the
+first time -- 3,578,632 shapes, every one of them a patch: the car is PLY
+quads throughout, not a triangle in it -- and renders on the GPU at 16 spp,
+the picture pbrt's (mean 0.99997x, 86.4% of pixels within 1e-3), in 0.423 s
+against `pbrt --gpu`'s 0.30 s: 0.71x, kernels 419 ms against 237 ms, the
+first scene of the table we lose. Both sides intersect a patch in software
+-- pbrt's `__intersection__bilinearPatch` is a custom primitive under its
+box as ours is -- so the gap is in the program, not the hardware: ours
+reaches the patch through the Shape match and four index loads before the
+corners, and the boxes go in as one build input of three and a half million
+primitives. The next performance item, after the features in the user's
+order; measured with the GPU disturbed by another process on pbrt's side
+(two of its five runs), so the ratio wants a quiet re-run first. watercolor
+gets past the patch to its last refusal, a
+coating's `thickness` given as a texture (pbrt's CoatedDiffuse and
+CoatedConductor take `thickness` and `g` as FloatTextures; here they are
+numbers).
+
 *The packet schedule had not compiled since 27 September.* Found by the
 check above: `render.split(s, s_gang, s_lane, 16, true).vectorize(s_lane)`
 died in the pipeline's last promotion, "jump from `_split_s_gang` to
@@ -9355,8 +9420,9 @@ looked at here either.
 - The `sobol` and `pmj02bn` samplers are refused (5 of the 98 scenes in
   `pbrt-v4-scenes` ask for one). `zsobol`, pbrt's default and the one the
   other 12 of the Sobol-family scenes get, is implemented (2026-10-02, below).
-- PLY files holding quads are refused: pbrt makes those bilinear patches rather
-  than pairs of triangles, and the renderer has no bilinear patch.
+- (PLY files holding quads were refused here until 2026-10-03: pbrt makes
+  those bilinear patches rather than pairs of triangles, and the renderer
+  now has the shape -- see the bilinear patch paragraph.)
 - A mesh with per-vertex tangents (`S`) is refused: its shading tangent is not
   the one the texture coordinates give. Nothing produces one yet — LoopSubdivide
   does not and the PLY reader is not asked for them — so this is a guard rather
