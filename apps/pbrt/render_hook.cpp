@@ -2462,6 +2462,39 @@ int main(int argc, char **argv) {
         }
     }
 
+    // pbrt: the PointLights and SpotLights -- after the area lights and before
+    // the infinite ones, which is pbrt's own order and the run the light tree
+    // covers, at the ordinals the converter gave pbrt's objects for the tree.
+    // The emission is read as a distant light's L is, `I` being an illuminant
+    // spectrum of the same three kinds.
+    for (const bonsai_scene::PointLight &l : loaded.point_lights) {
+        Light light;
+        if (l.spot != 0) {
+            SpotLight cone;
+            cone.scale = emission_of(l.l, l.has_l != 0, l.blackbody,
+                                     l.temperature, l.blackbody_normalization,
+                                     l.scale, &cone.emission);
+            cone.p = float3{l.position[0], l.position[1], l.position[2]};
+            const float *m = l.light_from_render;
+            cone.light_from_render =
+                Transform{float4{m[0], m[1], m[2], m[3]},
+                          float4{m[4], m[5], m[6], m[7]},
+                          float4{m[8], m[9], m[10], m[11]},
+                          float4{m[12], m[13], m[14], m[15]}};
+            cone.cos_falloff_start = l.cos_falloff_start;
+            cone.cos_falloff_end = l.cos_falloff_end;
+            Light_Spot(light, cone);
+        } else {
+            PointLight bulb;
+            bulb.scale = emission_of(l.l, l.has_l != 0, l.blackbody,
+                                     l.temperature, l.blackbody_normalization,
+                                     l.scale, &bulb.emission);
+            bulb.p = float3{l.position[0], l.position[1], l.position[2]};
+            Light_Point(light, bulb);
+        }
+        lights.push_back(light);
+    }
+
     const int32_t first_infinite = int32_t(lights.size());
     size_t next_dist = 0;
     for (const bonsai_scene::InfiniteLight &l : loaded.infinite_lights) {
@@ -2650,8 +2683,8 @@ int main(int argc, char **argv) {
             // pbrt's `path` and `volpath` default to its BVH light sampler.
             // scene_dump serializes pbrt's own tree and sets `light_sampler`
             // to 1 when the scene names `bvh` and has any light to sample
-            // (see the note in scene_dump.cpp); `num_bounded` is the area
-            // lights, which sit at `[0, first_infinite)`.
+            // (see the note in scene_dump.cpp); `num_bounded` is the area,
+            // point and spot lights, which sit at `[0, first_infinite)`.
             LightSampler light_sampler;
             if (loaded.light_sampler == 1) {
                 LightSampler_BVHLights(light_sampler, first_infinite,

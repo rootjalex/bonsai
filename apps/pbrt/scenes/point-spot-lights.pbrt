@@ -1,0 +1,105 @@
+# pbrt's two lights at a point: `point`, the same intensity in every
+# direction, and `spot`, a cone -- the full intensity within
+# `coneangle - conedeltaangle` of its axis, nothing beyond `coneangle`, and a
+# smoothstep between (SpotLight::I). Both are delta lights: sampled with a
+# density of one, never hit, never weighed against a BSDF sample. Both are
+# bounded, so pbrt's light tree holds them beside the area light here, which
+# is what the mix is for.
+#
+# Four of them. A point light with a blackbody I and a scale, which is the
+# form villa-lights-on writes; a spot light under a transform that scales
+# unevenly, so that the cone's frame is reached through the inverse transform
+# and a dot product with its axis would be wrong; a spot light given by
+# `power`, whose scale is the power over the cone's solid angle; and a narrow
+# spot with no falloff band at all, where the smoothstep's two cosines
+# coincide. `Integrator "path"`, and the emitting sphere so that the tree is
+# not all one kind.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 11   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 45 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "point-spot-lights.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# Over the left sphere, warm.
+LightSource "point"
+    "blackbody I" [ 4000 ]
+    "float scale" [ 30 ]
+    "point3 from" [ -3 4 0 ]
+
+# A cone down onto the right sphere, placed under an uneven scale: `from`
+# lands at (3, 5, 0) and the cone's frame is the scaled one.
+AttributeBegin
+    Scale 1 2 1
+    LightSource "spot"
+        "rgb I" [ 8 6 4 ]
+        "point3 from" [ 3 2.5 0 ]
+        "point3 to" [ 3 0 0 ]
+        "float coneangle" [ 35 ]
+        "float conedeltaangle" [ 10 ]
+AttributeEnd
+
+# A cone onto the floor in front, by power, I the colour space's illuminant.
+LightSource "spot"
+    "float power" [ 200 ]
+    "point3 from" [ 0 5 3 ]
+    "point3 to" [ 0 0 3 ]
+    "float coneangle" [ 25 ]
+
+# A hard-edged cone behind the spheres.
+LightSource "spot"
+    "rgb I" [ 20 20 25 ]
+    "point3 from" [ 0 4 -3 ]
+    "point3 to" [ 0 0 -3 ]
+    "float coneangle" [ 15 ]
+    "float conedeltaangle" [ 0 ]
+
+# The emitting sphere between them.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    AreaLightSource "diffuse"
+        "rgb L" [ 4 4 4 ]
+    Translate 0 1.5 0
+    Shape "sphere"
+        "float radius" [ 0.3 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.25 0.2 ]
+    Translate -2 1 0
+    Shape "sphere"
+        "float radius" [ 1 ]
+AttributeEnd
+
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.1 ]
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 2.2 1 0.5
+    Shape "sphere"
+        "float radius" [ 1 ]
+AttributeEnd

@@ -4065,7 +4065,136 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // `infinite` *with* one is ImageInfiniteLight -- a different light, and the
     // one every real scene in pbrt-v4-scenes actually asks for -- so it is
     // named in the refusal rather than approximated by its average.
+    //
+    // PBRT's own PointLight and SpotLight for each of the scene's, for the
+    // light tree: BVHLightSampler asks every light for its bounds, and these
+    // are built by PBRT's constructors from what the conversion below
+    // computes, so the bounds, the surface-area heuristic and the
+    // quantization are PBRT's, as the area lights' are. They join the area
+    // lights' at the tree build, after them and in declaration order, which
+    // is where PBRT's own light list has them (BasicScene::CreateLights:
+    // every area light first, then the `LightSource` lights as declared) and
+    // where the driver puts them. Allocated to outlive the build.
+    pbrt::Allocator positional_alloc;
+    std::vector<pbrt::Light> positional_lights;
     for (const CapturingBuilder::MaterialInfo &light : builder.lights) {
+        if (light.name == "point" || light.name == "spot") {
+            // PBRT: PointLight::Create and SpotLight::Create. `I` defaults to
+            // the colour space's illuminant and the scale is divided by its
+            // photometric integral, as a distant light's L is below; a
+            // `power` then multiplies the scale by itself over the solid
+            // angle the light covers -- 4 pi for a point, the cone's for a
+            // spot. The light sits at `from` under the scene's transform,
+            // and a spot's frame has its z axis towards `to`
+            // (Frame::FromZ), PBRT's renderFromLight being the scene's
+            // times the translation times that frame's inverse.
+            if (!light.ctm_is_tracked) {
+                fail("a `" + light.name + "` light placed by a named "
+                     "coordinate system is not supported: scene_dump follows "
+                     "the transform stack itself and does not follow that "
+                     "directive");
+            }
+            const bool spot = light.name == "spot";
+            bonsai_scene::PointLight bulb;
+            bulb.spot = spot ? 1u : 0u;
+            const auto point = [&](const char *key, float fallback[3]) {
+                const CapturingBuilder::MaterialInfo::Value *v =
+                    light.find(key);
+                if (v == nullptr) {
+                    return pbrt::Point3f(fallback[0], fallback[1], fallback[2]);
+                }
+                if (v->type != "point3" || v->floats.size() != 3) {
+                    fail("a `" + light.name + "` light's `" + key +
+                         "` has to be one point3");
+                }
+                return pbrt::Point3f(v->floats[0], v->floats[1], v->floats[2]);
+            };
+            float origin[3] = {0.f, 0.f, 0.f};
+            float ahead[3] = {0.f, 0.f, 1.f};
+            const pbrt::Point3f from = point("from", origin);
+            const pbrt::Transform render_from_light =
+                scene.GetCamera().GetCameraTransform().RenderFromWorld() *
+                light.ctm;
+            pbrt::Transform final_render_from_light =
+                render_from_light *
+                pbrt::Translate(pbrt::Vector3f(from.x, from.y, from.z));
+            pbrt::Float cone_angle = 30.f;
+            pbrt::Float cone_delta = 5.f;
+            if (spot) {
+                cone_angle = material_float(light, "coneangle", 30.f);
+                cone_delta = material_float(light, "conedeltaangle", 5.f);
+                const pbrt::Point3f to = point("to", ahead);
+                const pbrt::Transform dir_to_z =
+                    pbrt::Transform(pbrt::Frame::FromZ(pbrt::Normalize(to - from)));
+                final_render_from_light =
+                    render_from_light *
+                    pbrt::Translate(pbrt::Vector3f(from.x, from.y, from.z)) *
+                    pbrt::Inverse(dir_to_z);
+            }
+
+            pbrt::Float scale = material_float(light, "scale", 1.f);
+            pbrt::Spectrum intensity;
+            if (read_blackbody(light, "I", &bulb.blackbody, &bulb.temperature,
+                               &bulb.blackbody_normalization)) {
+                intensity = positional_alloc.new_object<pbrt::BlackbodySpectrum>(
+                    bulb.temperature);
+            } else if (material_rgb(light, "I", bulb.l)) {
+                bulb.has_l = 1u;
+                intensity =
+                    positional_alloc.new_object<pbrt::RGBIlluminantSpectrum>(
+                        *pbrt::RGBColorSpace::sRGB,
+                        pbrt::RGB(bulb.l[0], bulb.l[1], bulb.l[2]));
+            } else {
+                bulb.has_l = 0u;
+                intensity = &pbrt::RGBColorSpace::sRGB->illuminant;
+            }
+            scale /= pbrt::SpectrumToPhotometric(intensity);
+            const pbrt::Float power = material_float(light, "power", -1.f);
+            if (power > 0) {
+                if (spot) {
+                    const pbrt::Float cos_end = std::cos(pbrt::Radians(cone_angle));
+                    const pbrt::Float cos_start =
+                        std::cos(pbrt::Radians(cone_angle - cone_delta));
+                    const pbrt::Float k_e =
+                        2 * pbrt::Pi *
+                        ((1 - cos_start) + (cos_start - cos_end) / 2);
+                    scale *= power / k_e;
+                } else {
+                    scale *= power / (4 * pbrt::Pi);
+                }
+            }
+            bulb.scale = float(scale);
+            const pbrt::Point3f p = final_render_from_light(pbrt::Point3f(0, 0, 0));
+            bulb.position[0] = float(p.x);
+            bulb.position[1] = float(p.y);
+            bulb.position[2] = float(p.z);
+            if (spot) {
+                // PBRT: SpotLight::SpotLight's two cosines, of `totalWidth`
+                // and `falloffStart` -- `coneangle` and `coneangle -
+                // conedeltaangle` as Create hands them over.
+                bulb.cos_falloff_end = float(std::cos(pbrt::Radians(cone_angle)));
+                bulb.cos_falloff_start =
+                    float(std::cos(pbrt::Radians(cone_angle - cone_delta)));
+                const pbrt::SquareMatrix<4> inverse =
+                    pbrt::Inverse(final_render_from_light).GetMatrix();
+                for (int i = 0; i < 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+                        bulb.light_from_render[i * 4 + j] = float(inverse[i][j]);
+                    }
+                }
+                positional_lights.push_back(
+                    pbrt::Light(positional_alloc.new_object<pbrt::SpotLight>(
+                        final_render_from_light, pbrt::MediumInterface{},
+                        intensity, scale, cone_angle, cone_angle - cone_delta)));
+            } else {
+                positional_lights.push_back(
+                    pbrt::Light(positional_alloc.new_object<pbrt::PointLight>(
+                        final_render_from_light, pbrt::MediumInterface{},
+                        intensity, scale)));
+            }
+            out.point_lights.push_back(bulb);
+            continue;
+        }
         if (light.name == "distant") {
             // PBRT: DistantLight::Create. The direction is `from - to` under
             // the light's transform -- PBRT builds a frame whose z axis is
@@ -4134,8 +4263,8 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
         if (light.name != "infinite") {
             fail("this renderer has area lights, uniform and image infinite "
-                 "lights and distant lights, and the scene declares a `" +
-                 light.name + "` light");
+                 "lights, distant lights and point and spot lights, and the "
+                 "scene declares a `" + light.name + "` light");
         }
         const CapturingBuilder::MaterialInfo::Value *filename =
             light.find("filename");
@@ -6214,9 +6343,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                  builder.light_sampler_name + "`");
         }
         if (builder.light_sampler_name == "bvh" &&
-            (!emitter_lights.empty() || !out.infinite_lights.empty())) {
-            if (!emitter_lights.empty()) {
-                dump_light_tree(emitter_lights, out);
+            (!emitter_lights.empty() || !positional_lights.empty() ||
+             !out.infinite_lights.empty())) {
+            // The bounded lights in the renderer's order: the area lights by
+            // ordinal, then the point and spot lights as declared.
+            std::vector<pbrt::Light> bounded = emitter_lights;
+            bounded.insert(bounded.end(), positional_lights.begin(),
+                           positional_lights.end());
+            if (!bounded.empty()) {
+                dump_light_tree(bounded, out);
             }
             out.light_sampler = 1u;
         }

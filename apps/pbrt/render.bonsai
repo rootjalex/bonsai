@@ -246,6 +246,46 @@ element DistantLight {
     scene_radius : Float;
 }
 
+// pbrt: PointLight -- all of its intensity from one point, the same in every
+// direction, falling off as the inverse square of the distance. A delta light
+// (LightType::DeltaPosition), as the distant light is one in direction:
+// `SampleLi` answers the one direction towards the point with a density of
+// one, `PDF_Li` is zero, and no ray ever hits it. It is bounded -- a point,
+// radiating over the whole sphere -- so pbrt's light sampler keeps it in its
+// tree with the area lights, and the driver puts it in the run after them and
+// before the infinite ones, at the ordinal the converter gave pbrt's own
+// PointLight when it built the tree.
+element PointLight {
+    emission : Emission;
+    // pbrt: `scale`, already divided by the photometric integral of `I` and
+    // multiplied by `power` over 4 pi when a power was given
+    // (PointLight::Create), as the converter computes it.
+    scale : Float;
+    // pbrt: renderFromLight(0, 0, 0), the light's position in render space.
+    p : vec3f;
+}
+
+// pbrt: SpotLight -- a point light that shines into a cone: the full
+// intensity within `cos_falloff_start` of its axis, nothing beyond
+// `cos_falloff_end`, and a smoothstep between the two (SpotLight::I). The
+// direction is taken back into the light's own frame, whose z axis is the
+// cone's, through `light_from_render`, as pbrt's `renderFromLight.
+// ApplyInverse` takes it: the scene's transform may scale, so the cosine is
+// the z of the vector normalized *there*, not a dot product with an axis
+// here.
+element SpotLight {
+    emission : Emission;
+    scale : Float;
+    p : vec3f;
+    // pbrt: the inverse of its final renderFromLight -- the scene's
+    // transform, the translation to `from` and the frame whose z axis points
+    // at `to`.
+    light_from_render : Transform;
+    // pbrt: cos(Radians(coneangle - conedeltaangle)) and cos(Radians(coneangle)).
+    cos_falloff_start : Float;
+    cos_falloff_end : Float;
+}
+
 // pbrt: PortalImageInfiniteLight -- an environment map seen through a window.
 // A scene of a room with a view gives the sky's map and the four corners of
 // the opening it is seen through, and the light then knows two things an
@@ -286,7 +326,9 @@ element Light =
     | UniformInfinite(sky : UniformInfiniteLight)
     | ImageInfinite(img : ImageInfiniteLight)
     | Portal(door : PortalLight)
-    | Distant(sun : DistantLight);
+    | Distant(sun : DistantLight)
+    | Point(bulb : PointLight)
+    | Spot(cone : SpotLight);
 
 // pbrt: the scene's lights, one per emissive shape -- which is what pbrt's
 // `std::vector<Light>` is. A primitive names one by index, as it names a
@@ -303,11 +345,13 @@ func light_l(light : Light, n : vec3f, w : vec3f,
         DiffuseArea(area, shape) => return area_light_l(area, n, w, lambda);
         // An infinite light is not a surface, so nothing ever lands on one and
         // this is unreachable for it. pbrt says the same by not declaring `L`
-        // on the class at all. Nor is a distant light.
+        // on the class at all. Nor is a distant, a point or a spot light.
         UniformInfinite(sky) => return vec4f{0.0, 0.0, 0.0, 0.0};
         ImageInfinite(img) => return vec4f{0.0, 0.0, 0.0, 0.0};
         Portal(door) => return vec4f{0.0, 0.0, 0.0, 0.0};
         Distant(sun) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Point(bulb) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Spot(cone) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
 
@@ -490,8 +534,10 @@ func light_le(light : Light, o : vec3f, d : vec3f,
         Portal(door) => return portal_le(door, o, d, lambda);
         // pbrt: a DistantLight has no `Le` of its own, so the base class's
         // answers -- nothing. A ray that escapes cannot have come from a
-        // single direction by chance.
+        // single direction by chance. Nor from a single point.
         Distant(sun) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Point(bulb) => return vec4f{0.0, 0.0, 0.0, 0.0};
+        Spot(cone) => return vec4f{0.0, 0.0, 0.0, 0.0};
     }
 }
 
@@ -596,6 +642,39 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
                                  vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
             return s;
         }
+        // pbrt: PointLight::SampleLi -- the one direction towards the point
+        // with a density of one, `scale * I / DistanceSquared(p, ctx.p())`,
+        // the light's point the shadow ray's end; never declined, as the
+        // distant light is never.
+        Point(bulb) => {
+            d = bulb.p - ctx.p;
+            li = bulb.scale * emission_at(bulb.emission, lambda) /
+                 sqlen[[Float]](d);
+            s : LightLiSample = {li, unit_vector_(d), 1.0, bulb.p,
+                                 vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return s;
+        }
+        // pbrt: SpotLight::SampleLi -- the same, times the cone's falloff at
+        // the direction as the light sees it: `-wi` taken into the light's
+        // frame and normalized, its z the cosine from the axis, and
+        // SmoothStep between the cone's two cosines (SpotLight::I). Declined
+        // where that leaves nothing, pbrt's `if (!Li) return {}`.
+        Spot(cone) => {
+            d = cone.p - ctx.p;
+            wi = unit_vector_(d);
+            w_light = apply_vector(cone.light_from_render, -wi);
+            cos_axis = w_light.z / sqrt(sqlen[[Float]](w_light));
+            falloff = smooth_step_(cos_axis, cone.cos_falloff_end,
+                                   cone.cos_falloff_start);
+            li = falloff * cone.scale * emission_at(cone.emission, lambda) /
+                 sqlen[[Float]](d);
+            if !nonzero(li) {
+                return {};
+            }
+            s : LightLiSample = {li, wi, 1.0, cone.p,
+                                 vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}};
+            return s;
+        }
         DiffuseArea(area, shape) => {
             found = shape_sample(shape, ctx, u);
             if !found {
@@ -661,8 +740,11 @@ func light_pdf_li(light : Light, ctx : ShapeSampleContext, wi : vec3f,
                                 at.uv, *b, env_dist_values, env_sat) / at.duv_dw;
         }
         // pbrt: DistantLight::PDF_Li is zero -- a delta light has no density
-        // over directions for a BSDF sample to be weighed against.
+        // over directions for a BSDF sample to be weighed against. PointLight's
+        // and SpotLight's the same.
         Distant(sun) => return 0.0;
+        Point(bulb) => return 0.0;
+        Spot(cone) => return 0.0;
     }
 }
 
@@ -690,10 +772,10 @@ element SampledLight {
 // because a BSDF will never sample that direction, so multiple importance
 // sampling has nothing to combine and the light's estimator stands alone.
 //
-// An area light is not one, which is why every arm here answers false. It is
-// written out rather than left implicit because the day a point light arrives
-// this is the line that has to change, and a `path` integrator that forgot it
-// would quietly halve the light's contribution.
+// An area light is not one, which is why its arm answers false. Written out
+// arm by arm rather than left implicit because this is the line a new kind
+// of light has to get right: a `path` integrator that took a point light for
+// an area light would quietly halve the light's contribution.
 func light_is_delta(light : Light) -> bool {
     match light {
         DiffuseArea(area, shape) => return false;
@@ -704,6 +786,9 @@ func light_is_delta(light : Light) -> bool {
         Portal(door) => return false;
         // pbrt: LightType::DeltaDirection, which it does.
         Distant(sun) => return true;
+        // pbrt: LightType::DeltaPosition, which it does too.
+        Point(bulb) => return true;
+        Spot(cone) => return true;
     }
 }
 

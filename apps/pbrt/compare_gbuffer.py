@@ -113,7 +113,30 @@ RADIANCE_MEAN_TOLERANCE = 0.02
 # between lit and not without anything being wrong. What would still be wrong is
 # a *lot* of them, which is what this bounds. Observed: six pixels in eighty-one
 # thousand on area-light-path.
+#
+# A noisy scene at a low sample count needs one more allowance, which
+# lit_gap_check gives: on villa at four samples a pixel's few paths find light
+# on one side and not the other at 29,000 pixels on *each* side out of 180,000
+# lit, and the two one-sided counts are then two draws of the same coin, whose
+# difference wanders by their square root. The gap allowed is the larger of
+# this fraction and three standard deviations of that difference; a stream that
+# has come apart is still far outside it (explosion, before its film fix:
+# 123,437 against 65,807, a hundred standard deviations), and villa's 201 is
+# under one.
 RADIANCE_LIT_TOLERANCE = 1e-3
+
+
+def lit_gap_check(lit_pbrt, lit_bonsai, lit_either):
+    """Whether the lit-pixel counts differ by more than RADIANCE_LIT_TOLERANCE
+    allows (see there). `lit_either` is the count lit on at least one side,
+    which compare_radiance has; the pixels lit on one side only are those
+    not lit on both, and both = pbrt + bonsai - either. Returns (failed,
+    gap, allowed)."""
+    one_sided = 2 * lit_either - lit_pbrt - lit_bonsai
+    gap = abs(lit_pbrt - lit_bonsai)
+    allowed = max(RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1),
+                  3.0 * one_sided ** 0.5)
+    return gap > allowed, gap, allowed
 
 
 def diff_png(path, width, height, ref, got):
@@ -308,6 +331,8 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
       same random numbers scatter the same way, so this should match exactly;
       when it does not, the sampler streams have come apart, which is a real
       bug and not noise. That is how the missing camera-sample draws were found.
+      (An integrator that samples lights parts at a few pixels, and a noisy
+      scene at many -- see RADIANCE_LIT_TOLERANCE for what the count may do.)
     - The mean over the image, which is the Monte Carlo estimate of the whole
       integral and converges far faster than any pixel.
     - The fraction of lit pixels that agree closely anyway, which is most of
@@ -360,7 +385,7 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     else:
         print("  no pixel received light on either side, which is what a scene "
               "with no emitter renders")
-    return lit_pbrt, lit_bonsai, ratio
+    return lit_pbrt, lit_bonsai, lit_both, ratio
 
 
 def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
@@ -377,14 +402,16 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
     the mean over the image, and how many pixels agree closely anyway.
     """
     pw, ph, _ = read_pfm(radiance_pair[0])
-    lit_pbrt, lit_bonsai, ratio = compare_radiance(
+    lit_pbrt, lit_bonsai, lit_both, ratio = compare_radiance(
         radiance_pair[0], radiance_pair[1], pw, ph)
     failed = False
-    lit_gap = abs(lit_pbrt - lit_bonsai)
-    if lit_gap > RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1):
+    lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
+                                                     lit_both)
+    if lit_failed:
         failed = True
         print(f"FAILED: {lit_bonsai} pixels received light here against "
-              f"pbrt's {lit_pbrt}, a gap of {lit_gap}")
+              f"pbrt's {lit_pbrt}, a gap of {lit_gap} where {lit_allowed:.0f} "
+              f"was allowed")
     if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
         failed = True
         print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over the "
@@ -543,15 +570,17 @@ def main(argv):
 
     radiance_failed = False
     if radiance_pair is not None:
-        lit_pbrt, lit_bonsai, ratio = compare_radiance(
+        lit_pbrt, lit_bonsai, lit_both, ratio = compare_radiance(
             radiance_pair[0], radiance_pair[1], ref_w, ref_h)
-        lit_gap = abs(lit_pbrt - lit_bonsai)
-        if lit_gap > RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1):
+        lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
+                                                         lit_both)
+        if lit_failed:
             radiance_failed = True
             print(f"FAILED: {lit_bonsai} pixels received light here against "
-                  f"pbrt's {lit_pbrt}, a gap of {lit_gap}. Two paths drawing "
-                  f"the same numbers go the same way, so a gap this size is a "
-                  f"sampler stream that has come apart rather than noise")
+                  f"pbrt's {lit_pbrt}, a gap of {lit_gap} where {lit_allowed:.0f} "
+                  f"was allowed. Two paths drawing the same numbers go the same "
+                  f"way, so a gap this size is a sampler stream that has come "
+                  f"apart rather than noise")
         if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
             radiance_failed = True
             print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over "

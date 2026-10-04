@@ -557,6 +557,35 @@ struct Light {
     float blackbody_normalization = 1.f;
 };
 
+// A PointLight, or a SpotLight when `spot` is set: PBRT's two lights at a
+// point, with no geometry. The emission is `I` in place of `L`, read as the
+// infinite light's below (`has_l` for an RGB illuminant, `blackbody` for a
+// blackbody, neither for the colour space's illuminant itself), and `scale`
+// is PBRT's: divided by the photometric integral of I, then multiplied by
+// `power` over the solid angle the light covers when a power was given, as
+// PointLight::Create and SpotLight::Create compute it. `position` is
+// renderFromLight(0, 0, 0). A spot carries its cone -- the cosines of the
+// angles where the falloff starts and where it ends, PBRT's cosFalloffStart
+// and cosFalloffEnd -- and `light_from_render`, the inverse of PBRT's final
+// renderFromLight (the scene's transform, the translation to `from` and the
+// frame whose z axis points at `to`), 4x4 in row order, through which the
+// renderer takes a direction back into the cone's frame as PBRT's
+// `ApplyInverse` does.
+struct PointLight {
+    float l[3] = {1.f, 1.f, 1.f};
+    float scale = 1.f;
+    uint32_t has_l = 0;
+    uint32_t blackbody = 0;
+    float temperature = 0.f;
+    float blackbody_normalization = 1.f;
+    float position[3] = {0.f, 0.f, 0.f};
+    uint32_t spot = 0;
+    float cos_falloff_start = 0.f;
+    float cos_falloff_end = 0.f;
+    float light_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                   0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+};
+
 // A UniformInfiniteLight: the same radiance from every direction, which is what
 // `LightSource "infinite"` means with no image behind it.
 //
@@ -955,6 +984,13 @@ struct Scene {
     std::vector<float> normals;
     std::vector<float> uvs;
     std::vector<Light> lights;
+    // PBRT's point and spot lights, in declaration order. The driver puts
+    // them after the area lights and before the infinite ones -- bounded, so
+    // inside the run PBRT's light tree covers, at the ordinals the converter
+    // gave PBRT's own PointLight and SpotLight objects when it built the tree
+    // (which is PBRT's own order too: BasicScene::CreateLights lists every
+    // area light first and then the `LightSource` lights as declared).
+    std::vector<PointLight> point_lights;
     std::vector<InfiniteLight> infinite_lights;
     // Which light sampler the path integrator draws with: 0 for the uniform
     // one, 1 for PBRT's BVH. The uniform sampler needs nothing below it; the
@@ -2079,6 +2115,27 @@ inline bool write(const char *path, const Scene &scene) {
         out << '\n';
     }
 
+    out << "point_lights " << scene.point_lights.size() << '\n';
+    for (const PointLight &l : scene.point_lights) {
+        out << (l.spot != 0 ? "  spot" : "  point");
+        detail::put(out, l.l, 3);
+        detail::put(out, &l.scale, 1);
+        out << " hasl " << l.has_l;
+        out << " blackbody " << l.blackbody;
+        detail::put(out, &l.temperature, 1);
+        detail::put(out, &l.blackbody_normalization, 1);
+        out << " position";
+        detail::put(out, l.position, 3);
+        if (l.spot != 0) {
+            out << " cone";
+            detail::put(out, &l.cos_falloff_start, 1);
+            detail::put(out, &l.cos_falloff_end, 1);
+            out << " light_from_render";
+            detail::put(out, l.light_from_render, 16);
+        }
+        out << '\n';
+    }
+
     out << "infinite_lights " << scene.infinite_lights.size() << " radius "
         << scene.scene_radius << '\n';
     for (const InfiniteLight &l : scene.infinite_lights) {
@@ -3090,6 +3147,47 @@ inline bool read(const char *path, Scene &scene) {
         floats(&l.temperature, 1);
         floats(&l.blackbody_normalization, 1);
         scene.lights.push_back(l);
+    }
+
+    if (!(in >> word) || word != "point_lights") {
+        return false;
+    }
+    in >> count;
+    scene.point_lights.clear();
+    for (size_t i = 0; i < count; i++) {
+        if (!(in >> word) || (word != "point" && word != "spot")) {
+            return false;
+        }
+        PointLight l;
+        l.spot = word == "spot" ? 1u : 0u;
+        floats(l.l, 3);
+        floats(&l.scale, 1);
+        if (!tagged("hasl")) {
+            return false;
+        }
+        in >> l.has_l;
+        if (!tagged("blackbody")) {
+            return false;
+        }
+        in >> l.blackbody;
+        floats(&l.temperature, 1);
+        floats(&l.blackbody_normalization, 1);
+        if (!tagged("position")) {
+            return false;
+        }
+        floats(l.position, 3);
+        if (l.spot != 0) {
+            if (!tagged("cone")) {
+                return false;
+            }
+            floats(&l.cos_falloff_start, 1);
+            floats(&l.cos_falloff_end, 1);
+            if (!tagged("light_from_render")) {
+                return false;
+            }
+            floats(l.light_from_render, 16);
+        }
+        scene.point_lights.push_back(l);
     }
 
     if (!(in >> word) || word != "infinite_lights") {
