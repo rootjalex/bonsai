@@ -1024,8 +1024,12 @@ int main(int argc, char **argv) {
     // over the lot, since no part of it has ever been the slow one.
     std::unique_ptr<Stage> setup(new Stage("unpack scene"));
 
-    const int width = int(loaded.width);
-    const int height = int(loaded.height);
+    // The film's pixel bounds (scene_io.h): what is rendered and written, in
+    // the frame's coordinates from (x0, y0). The frame itself is
+    // `loaded.width` x `loaded.height`, which the camera's raster transform
+    // and the sampler already account for.
+    const int width = int(loaded.pixel_x1 - loaded.pixel_x0);
+    const int height = int(loaded.pixel_y1 - loaded.pixel_y0);
 
     const auto to_vec3 = [](const float *v) {
         return float3{v[0], v[1], v[2]};
@@ -2885,7 +2889,7 @@ int main(int argc, char **argv) {
     // passes), which is pbrt's maxQueueSize = resolution.x *
     // scanlinesPerPass -- allocated once here and freed with the rest.
     const uint64_t queue_capacity = [&]() -> uint64_t {
-        const uint64_t w = loaded.width, h = loaded.height;
+        const uint64_t w = uint64_t(width), h = uint64_t(height);
         const uint64_t scanlines_at_most = std::max<uint64_t>(1, 1048576 / w);
         const uint64_t n_passes = (h + scanlines_at_most - 1) / scanlines_at_most;
         const uint64_t scanlines_per_pass = (h + n_passes - 1) / n_passes;
@@ -3003,7 +3007,8 @@ int main(int argc, char **argv) {
     }
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_PREFETCH)
 #undef BONSAI_QUEUE_PREFETCH
-        render(camera, uint32_t(width), uint32_t(height), sampler, integrator,
+        render(camera, uint32_t(width), uint32_t(height), loaded.pixel_x0,
+               loaded.pixel_y0, sampler, integrator,
                pixel_filter, loaded.seed, loaded.disable_pixel_jitter != 0,
                loaded.film_visible_surface != 0, loaded.imaging_ratio,
                loaded.max_component_value, loaded.camera_medium,

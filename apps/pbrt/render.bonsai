@@ -3694,6 +3694,7 @@ func [[export]] sigmoid_at(rgb : vec3f, lambda_u : Float,
 }
 
 func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
+                       pixel_x0 : u32, pixel_y0 : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
                        disable_pixel_jitter : bool,
@@ -3736,8 +3737,15 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
     scanlines_per_pass = (height + n_passes - 1u) / n_passes;
     pass_pixels = width * scanlines_per_pass;
     parfor p in 0u:(width * height) {
-        i = p % width;
-        j = p / width;
+        // pbrt: the pixel's coordinates in the full frame -- `pixelBounds.pMin
+        // + (pixelIndex % xResolution, pixelIndex / xResolution)`, the
+        // wavefront's camera kernel -- where `width` and `height` are the
+        // film's pixel bounds' (a `cropwindow` or `pixelbounds`, else the
+        // frame) and `pixel_x0`, `pixel_y0` where they start. The sampler
+        // and the camera see the frame's coordinates; the film's arrays are
+        // the window's, indexed by `p`.
+        i = pixel_x0 + p % width;
+        j = pixel_y0 + p / width;
 
         normal_out[p] = vec3f{0.0, 0.0, 0.0};
         shading_out[p] = vec3f{0.0, 0.0, 0.0};

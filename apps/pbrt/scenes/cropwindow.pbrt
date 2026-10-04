@@ -1,0 +1,75 @@
+# The film's crop window: pbrt's `"float cropwindow"`, four fractions of the
+# frame, which make the film's pixel bounds -- `ceil(resolution * fraction)`
+# at each end -- and only those pixels are rendered and written, in an image
+# of the window's size, while the camera's raster transform and the sampler's
+# resolution stay the full frame's (head and nine sanmiguel files crop this
+# way). The frame is 400x300 and the window [.2 .7] x [.1 .9], so the image
+# is 200x240 starting at pixel (80, 30); a wrong offset would show at once in
+# the hits and the normals, which are compared pixel for pixel.
+#
+# The disks of disk.pbrt, which test enough shapes that a misplaced window
+# cannot hide: the floor, a tilted partial annulus and an edge-on coated disk
+# under a disk light. `Integrator "path"`.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 5 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "cropwindow.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+    "float cropwindow" [ .2 .7 .1 .9 ]
+
+WorldBegin
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 1
+    Scale 1 -1 1
+    Rotate -90 1 0 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 10 9.5 8 ]
+    Shape "disk"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.25 0.2 ]
+    Translate -2 1.5 1
+    Rotate -60 1 0 0
+    Rotate 30 0 0 1
+    Shape "disk"
+        "float radius" [ 2 ]
+        "float innerradius" [ 0.6 ]
+        "float phimax" [ 270 ]
+AttributeEnd
+
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 3 1.2 0
+    Rotate 80 0 1 0
+    Shape "disk"
+        "float radius" [ 1.2 ]
+        "float height" [ 0.3 ]
+AttributeEnd

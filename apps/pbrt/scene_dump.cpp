@@ -4188,6 +4188,52 @@ void load(const char *filename, bonsai_scene::Scene &out) {
 
     out.width = uint32_t(x_resolution);
     out.height = uint32_t(y_resolution);
+    // PBRT: FilmBaseParameters' pixel bounds -- the whole frame unless the
+    // film says `pixelbounds` (four ints, x0 x1 y0 y1, clipped to the frame)
+    // or `cropwindow` (four fractions, x0 x1 y0 y1, each pair in either
+    // order, clamped to [0, 1]), the crop window winning where both are
+    // given, as `ceil(fullResolution * crop)` at each end in PBRT's own
+    // float arithmetic; a degenerate window is PBRT's error too. Head's
+    // `[.3 .8 .15 .7]` on 1920x1080 is 576..1536 by 162..756, which is the
+    // 960x594 image pbrt writes. The camera's raster transform and the
+    // sampler's resolution stay the full frame's, as PBRT's do; the renderer
+    // walks the window and the driver writes an image of its size.
+    out.pixel_x0 = 0;
+    out.pixel_y0 = 0;
+    out.pixel_x1 = out.width;
+    out.pixel_y1 = out.height;
+    {
+        const std::vector<int> pb = builder.film_params.GetIntArray("pixelbounds");
+        if (!pb.empty()) {
+            if (pb.size() != 4) {
+                fail(std::to_string(pb.size()) +
+                     " values supplied for \"pixelbounds\"; PBRT expects 4");
+            }
+            out.pixel_x0 = uint32_t(std::clamp(pb[0], 0, x_resolution));
+            out.pixel_x1 = uint32_t(std::clamp(pb[1], 0, x_resolution));
+            out.pixel_y0 = uint32_t(std::clamp(pb[2], 0, y_resolution));
+            out.pixel_y1 = uint32_t(std::clamp(pb[3], 0, y_resolution));
+        }
+        const std::vector<pbrt::Float> cr =
+            builder.film_params.GetFloatArray("cropwindow");
+        if (!cr.empty()) {
+            if (cr.size() != 4) {
+                fail(std::to_string(cr.size()) +
+                     " values supplied for \"cropwindow\"; PBRT expects 4");
+            }
+            const pbrt::Float x_min = pbrt::Clamp(std::min(cr[0], cr[1]), 0.f, 1.f);
+            const pbrt::Float x_max = pbrt::Clamp(std::max(cr[0], cr[1]), 0.f, 1.f);
+            const pbrt::Float y_min = pbrt::Clamp(std::min(cr[2], cr[3]), 0.f, 1.f);
+            const pbrt::Float y_max = pbrt::Clamp(std::max(cr[2], cr[3]), 0.f, 1.f);
+            out.pixel_x0 = uint32_t(pstd::ceil(pbrt::Float(x_resolution) * x_min));
+            out.pixel_y0 = uint32_t(pstd::ceil(pbrt::Float(y_resolution) * y_min));
+            out.pixel_x1 = uint32_t(pstd::ceil(pbrt::Float(x_resolution) * x_max));
+            out.pixel_y1 = uint32_t(pstd::ceil(pbrt::Float(y_resolution) * y_max));
+        }
+        if (out.pixel_x0 >= out.pixel_x1 || out.pixel_y0 >= out.pixel_y1) {
+            fail("degenerate pixel bounds for the film -- which PBRT refuses too");
+        }
+    }
 
     // A light that is not a shape's emission. Until one of these is
     // implemented it has to be refused rather than dropped: a scene lit only by

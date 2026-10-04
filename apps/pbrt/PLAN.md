@@ -2707,11 +2707,11 @@ Per scene, what is missing (see the converter for what is supported):
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
 | hair | `volpath`, `curve`, `hair` |
-| head | `volpath`, `subsurface` -- **done 2026-10-03**; renders as of 2026-10-03 with its `"float cropwindow"` taken out, the crop window being the one film parameter it still wants (the converter ignores it and renders the full frame, so pbrt's image is 960x594 against our 1920x1080) |
+| head | `volpath`, `subsurface`, `"float cropwindow"` -- all **done 2026-10-03**; renders whole as of 2026-10-03 (the crop window paragraph below) |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
 | lte-orb | `pmj02bn` and `sobol` -- **done 2026-10-03**, the three scenes convert and lte-orb-silver renders (the samplers paragraph); `volpath` (rough glass only) |
-| sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map, `"float cropwindow"` on the film (9 of its files, as head: the converter renders the full frame) |
+| sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map, `"float cropwindow"` on the film (9 of its files -- **done 2026-10-03**) |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium, a scaled sphere -- all done 2026-10-03: converts and renders on the GPU at 1.53x of `pbrt --gpu` (the sphere paragraph below) |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
 | sssdragon | `subsurface` -- **done 2026-10-03**; dragon_10 renders as of 2026-10-03 at 1.00000x of `pbrt --gpu` |
@@ -9822,10 +9822,33 @@ spp: 1.00000x, 1,385,759 lit pixels against 1,385,685, kernels 48 ms
 against 57. head with its `"float cropwindow"` taken out, at 4 spp:
 0.99936x, 2,072,384 against 2,072,440 lit, kernels 27 ms against 29; the
 crop window -- pbrt renders and writes the window's 960x594, the converter
-ignores it and renders the full 1920x1080 -- is the film parameter head
-and nine sanmiguel files still want, next in the film's list. The CPU
-scalar schedule renders the test scene in 0.37 s against pbrt's wavefront
-on the CPU at 5.0 s.
+ignored it and rendered the full 1920x1080 -- was the film parameter head
+and nine sanmiguel files still wanted; the next paragraph. The CPU scalar
+schedule renders the test scene in 0.37 s against pbrt's wavefront on the
+CPU at 5.0 s.
+
+*The film's crop window (2026-10-03).* pbrt's FilmBaseParameters makes the
+film's pixel bounds from `cropwindow` (four fractions of the frame, each
+pair in either order and clamped to [0, 1], `ceil(resolution * fraction)`
+at both ends in float) or `pixelbounds` (four ints, clipped to the frame),
+the crop window winning where both are given, and only those pixels are
+rendered -- the wavefront's camera kernel maps its pixel index to
+`pixelBounds.pMin + (i % width, i / width)` -- and written, in an image of
+the window's size, while the camera's raster transform and the sampler's
+resolution stay the frame's. The converter computes the bounds as pbrt
+does (scene_dump.cpp, head's `[.3 .8 .15 .7]` on 1920x1080 giving
+576..1536 by 162..756) and the scene file carries them after the
+resolution; the driver sizes the film and the pass by the window and
+writes an image of its size; `render` takes the window's origin and walks
+its pixels under the frame's coordinates, the film's arrays indexed by the
+window. Test: scenes/cropwindow.pbrt, disk.pbrt's disks under a window of
+[.2 .7] x [.1 .9] on 400x300 -- a 200x240 image from pixel (80, 30) on
+both sides, 0 of 35,009 pixels disagreeing in hits or normals, radiance
+0.99999x (the albedo's 176 pixels over 5e-3 are the same 177 disk.pbrt has
+uncropped, on its edge-on coated disk, a stochastic estimate on both
+sides). head, with its own crop window, on the GPU at 4 spp: a 960x594
+image on both sides, 0.99785x of `pbrt --gpu`, 569,192 lit pixels against
+569,248, the kernels 10.7 ms against 12.3 -- the scene renders whole.
 
 *The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
 pbrt's seven this renderer had not; every one is now reproduced

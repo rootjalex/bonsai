@@ -891,8 +891,19 @@ struct Sampler {
 };
 
 struct Scene {
+    // The film's full resolution, which the camera's raster transform and
+    // the sampler's resolution are for -- and the pixel bounds within it
+    // that are rendered, PBRT's Film::PixelBounds(): the whole frame unless
+    // the scene gave a `cropwindow` or `pixelbounds` (scene_dump.cpp), and
+    // then [x0, x1) x [y0, y1) in the frame's pixel coordinates. The
+    // renderer walks the window's pixels under their frame coordinates and
+    // the driver writes an image of the window's size, as PBRT's does.
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t pixel_x0 = 0;
+    uint32_t pixel_y0 = 0;
+    uint32_t pixel_x1 = 0;
+    uint32_t pixel_y1 = 0;
     Sampler sampler;
     // PBRT's `--seed` option, which is not the sampler's seed: it is a global
     // that a layered BSDF hashes together with the direction it was asked
@@ -1748,6 +1759,8 @@ inline bool write(const char *path, const Scene &scene) {
         return false;
     }
     out << "resolution " << scene.width << ' ' << scene.height << '\n';
+    out << "pixelbounds " << scene.pixel_x0 << ' ' << scene.pixel_y0 << ' '
+        << scene.pixel_x1 << ' ' << scene.pixel_y1 << '\n';
     if (scene.sampler.tag == SamplerTag::Stratified) {
         out << "sampler stratified " << scene.sampler.x_samples << ' '
             << scene.sampler.y_samples << ' ' << scene.sampler.seed << ' '
@@ -2269,6 +2282,14 @@ inline bool read(const char *path, Scene &scene) {
         return false;
     }
     in >> scene.width >> scene.height;
+    if (!(in >> word) || word != "pixelbounds") {
+        return false;
+    }
+    in >> scene.pixel_x0 >> scene.pixel_y0 >> scene.pixel_x1 >> scene.pixel_y1;
+    if (scene.pixel_x0 >= scene.pixel_x1 || scene.pixel_y0 >= scene.pixel_y1 ||
+        scene.pixel_x1 > scene.width || scene.pixel_y1 > scene.height) {
+        return false;
+    }
 
     if (!(in >> word) || word != "sampler") {
         return false;
