@@ -60,11 +60,18 @@ BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
 # The scalar schedule alongside the program, as compare.sh compiles it: the
 # tree's layout moved into schedules/trees/bvh.bonsai, which the schedules
 # import, and the program alone has no layout for its queries to lower to.
-"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
+# The renderer's foreign functions over NanoVDB (build_nanovdb_shim.sh), as
+# compare.sh links them: host bitcode into the module, and the shim's source
+# into the driver against the generated header's prototypes.
+SHIM_OUT=$(bash "$PREFIX/build_nanovdb_shim.sh" "$WORK")
+NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${LINK_FLAGS[@]}" \
     -i "$PREFIX/render.bonsai" -i "$PREFIX/schedules/scalar.bonsai" \
     -b cpp -o "$PREFIX/render"
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" $(bash "$PREFIX/scene_schema.sh") \
     "$PREFIX/render_hook.cpp" \
+    -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" "$PREFIX/nanovdb_shim.cpp" \
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
 "$WORK/scene_dump" --print-differentials "$SCENE" "$WORK/diff-scene.txt" \

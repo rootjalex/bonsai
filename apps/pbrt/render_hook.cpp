@@ -15,7 +15,6 @@
 #include "render.h"
 
 #include "cie_tables.h"
-#include "rgb2spec.h"
 #include "scene_io.h"
 #include "sobol_tables.h"
 #include "noise_table.h"
@@ -202,16 +201,18 @@ struct Meshes {
 struct Shapes {
     static constexpr uint64_t kTagShift = 56;
     // The tags are the Shape variant's arms in declaration order: Sph, Tri,
-    // Dsk, Blp (shapes.bonsai).
+    // Dsk, Blp, Cyl (shapes.bonsai).
     static constexpr uint64_t kSphere = 0;
     static constexpr uint64_t kTriangle = 1;
     static constexpr uint64_t kDisk = 2;
     static constexpr uint64_t kPatch = 3;
+    static constexpr uint64_t kCylinder = 4;
 
     const Sph *spheres = nullptr;
     const Tri *triangles = nullptr;
     const Dsk *disks = nullptr;
     const Blp *patches = nullptr;
+    const Cyl *cylinders = nullptr;
 
     static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
     static uint64_t index_of(uint64_t shape) {
@@ -225,8 +226,14 @@ struct Shapes {
     bool is_sphere(uint64_t shape) const { return tag_of(shape) == kSphere; }
     bool is_disk(uint64_t shape) const { return tag_of(shape) == kDisk; }
     bool is_patch(uint64_t shape) const { return tag_of(shape) == kPatch; }
+    bool is_cylinder(uint64_t shape) const {
+        return tag_of(shape) == kCylinder;
+    }
     const Sphere &sphere(uint64_t shape) const {
         return spheres[index_of(shape)].s;
+    }
+    const Cylinder &cylinder(uint64_t shape) const {
+        return cylinders[index_of(shape)].c;
     }
     const Triangle &triangle(uint64_t shape) const {
         return triangles[index_of(shape)].t;
@@ -239,11 +246,12 @@ struct Shapes {
 
 Bounds3f transform_bounds(const Transform &t, const Bounds3f &b);
 
-// pbrt: Sphere::Bounds, Disk::Bounds and Triangle::Bounds. A sphere bounds
-// to the box of its clipped object-space extent, `(-r, -r, zMin)..(r, r,
-// zMax)`, and a disk to the square of its radius in its own plane, each
-// moved by its transform -- `(*renderFromObject)(Bounds3f(...))`, the box
-// around the eight corners; a triangle to the box around its three vertices.
+// pbrt: Sphere::Bounds, Cylinder::Bounds, Disk::Bounds and
+// Triangle::Bounds. A sphere and a cylinder bound to the box of their
+// clipped object-space extent, `(-r, -r, zMin)..(r, r, zMax)`, and a disk to
+// the square of its radius in its own plane, each moved by its transform --
+// `(*renderFromObject)(Bounds3f(...))`, the box around the eight corners; a
+// triangle to the box around its three vertices.
 Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
                    const Shapes &shapes) {
     if (shapes.is_sphere(prim.shape)) {
@@ -252,6 +260,13 @@ Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
             s.render_from_object,
             Bounds3f{float3{-s.radius, -s.radius, s.z_min},
                      float3{s.radius, s.radius, s.z_max}});
+    }
+    if (shapes.is_cylinder(prim.shape)) {
+        const Cylinder &c = shapes.cylinder(prim.shape);
+        return transform_bounds(
+            c.render_from_object,
+            Bounds3f{float3{-c.radius, -c.radius, c.z_min},
+                     float3{c.radius, c.radius, c.z_max}});
     }
     if (shapes.is_disk(prim.shape)) {
         const Disk &d = shapes.disk(prim.shape);
@@ -510,15 +525,17 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
 void compact_pools(std::vector<Geometric> &shapes,
                    std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
                    std::vector<Tri> &triangles, std::vector<Dsk> &disks,
-                   std::vector<Blp> &patches) {
+                   std::vector<Blp> &patches, std::vector<Cyl> &cylinders) {
     std::vector<Sph> ordered_spheres;
     std::vector<Tri> ordered_triangles;
     std::vector<Dsk> ordered_disks;
     std::vector<Blp> ordered_patches;
+    std::vector<Cyl> ordered_cylinders;
     ordered_spheres.reserve(spheres.size());
     ordered_triangles.reserve(triangles.size());
     ordered_disks.reserve(disks.size());
     ordered_patches.reserve(patches.size());
+    ordered_cylinders.reserve(cylinders.size());
 
     for (std::vector<Geometric> *list : {&shapes, &instanced}) {
         for (Geometric &prim : *list) {
@@ -533,6 +550,9 @@ void compact_pools(std::vector<Geometric> &shapes,
             } else if (tag == Shapes::kPatch) {
                 prim.shape = Shapes::handle(tag, ordered_patches.size());
                 ordered_patches.push_back(patches[index]);
+            } else if (tag == Shapes::kCylinder) {
+                prim.shape = Shapes::handle(tag, ordered_cylinders.size());
+                ordered_cylinders.push_back(cylinders[index]);
             } else {
                 prim.shape = Shapes::handle(tag, ordered_triangles.size());
                 ordered_triangles.push_back(triangles[index]);
@@ -544,6 +564,7 @@ void compact_pools(std::vector<Geometric> &shapes,
     triangles = std::move(ordered_triangles);
     disks = std::move(ordered_disks);
     patches = std::move(ordered_patches);
+    cylinders = std::move(ordered_cylinders);
 }
 
 // The nodes of a tree PBRT built, packed into the layout the schedule
@@ -1365,17 +1386,31 @@ int main(int argc, char **argv) {
         0.731258f, 0.152852f, 0.214174f, 0.503897f};
 
     // pbrt fits every RGB albedo to three sigmoid coefficients once, offline,
-    // into a table it looks up while building the scene. This runs the same
-    // fit here for the same reason: a Gauss-Newton solve has no business
-    // anywhere near a ray. Cached by colour, since a scene reuses materials.
-    const rgb2spec::Tables fit_tables = rgb2spec::init_tables();
+    // into a table it looks up while building the scene (RGBAlbedoSpectrum,
+    // RGBToSpectrumTable::operator()). The scene carries that table (the
+    // converter ships it for the textures' lookups at the hit), so this is
+    // the same lookup over the same numbers (scene_io.h, rgb_sigmoid). It
+    // was a Gauss-Newton solve of the fit here before (rgb2spec.h), which
+    // answers close to the table and not the table: a black of
+    // `rgb reflectance [0 0 0]` came out reflecting one part in ten million,
+    // and a surface pbrt left black was lit here. Cached by colour, since a
+    // scene reuses materials.
+    if (loaded.rgb_table.size() != bonsai_scene::kRGBTableFloats) {
+        fprintf(stderr,
+                "the scene carries no RGB-to-spectrum table (%zu floats, %zu "
+                "expected); convert it again with the current scene_dump\n",
+                loaded.rgb_table.size(), bonsai_scene::kRGBTableFloats);
+        return 1;
+    }
+    const float *rgb_nodes = loaded.rgb_table.data();
+    const float *rgb_coeffs = rgb_nodes + bonsai_scene::kRGBTableRes;
     std::map<std::array<float, 3>, SigmoidPolynomial> fitted;
     const auto albedo_of = [&](const float *rgb) {
         const std::array<float, 3> key = {rgb[0], rgb[1], rgb[2]};
         auto it = fitted.find(key);
         if (it == fitted.end()) {
-            const rgb2spec::Coefficients c =
-                rgb2spec::fit(fit_tables, rgb[0], rgb[1], rgb[2]);
+            const bonsai_scene::RGBSigmoid c = bonsai_scene::rgb_sigmoid(
+                rgb_nodes, rgb_coeffs, rgb[0], rgb[1], rgb[2]);
             it = fitted.emplace(key, SigmoidPolynomial{c.c0, c.c1, c.c2}).first;
         }
         return it->second;
@@ -1936,6 +1971,7 @@ int main(int argc, char **argv) {
     size_t nspheres = 0;
     size_t ndisks = 0;
     size_t npatches = 0;
+    size_t ncylinders = 0;
     size_t nshapes = 0;
     for (const std::vector<bonsai_scene::Shape> *list :
          {&loaded.shapes, &loaded.instance_shapes}) {
@@ -1943,18 +1979,22 @@ int main(int argc, char **argv) {
             nspheres += s.tag == bonsai_scene::ShapeTag::Sphere;
             ndisks += s.tag == bonsai_scene::ShapeTag::Disk;
             npatches += s.tag == bonsai_scene::ShapeTag::Patch;
+            ncylinders += s.tag == bonsai_scene::ShapeTag::Cylinder;
             nshapes++;
         }
     }
     std::vector<Sph> sphere_pool(nspheres);
     std::vector<Dsk> disk_pool(ndisks);
     std::vector<Blp> patch_pool(npatches);
-    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks - npatches);
+    std::vector<Cyl> cylinder_pool(ncylinders);
+    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks - npatches -
+                                   ncylinders);
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
     uint64_t disk_fill = 0;
     uint64_t patch_fill = 0;
+    uint64_t cylinder_fill = 0;
     uint64_t triangle_fill = 0;
 
     // pbrt: CreatePrimitivesForShapes, run over the top-level shapes and over
@@ -1995,6 +2035,17 @@ int main(int argc, char **argv) {
                 disk.flip = s.flip != 0;
                 disk.reverse = s.reverse != 0;
                 shape = Shape_Dsk(disk, disk_pool.data(), &disk_fill);
+            } else if (s.tag == bonsai_scene::ShapeTag::Cylinder) {
+                Cylinder cylinder;
+                cylinder.render_from_object = to_bonsai(s.render_from_object);
+                cylinder.object_from_render = to_bonsai(s.object_from_render);
+                cylinder.radius = s.radius;
+                cylinder.z_min = s.z_min;
+                cylinder.z_max = s.z_max;
+                cylinder.phi_max = s.phi_max;
+                cylinder.flip = s.flip != 0;
+                cylinder.reverse = s.reverse != 0;
+                shape = Shape_Cyl(cylinder, cylinder_pool.data(), &cylinder_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 shape = Shape_Blp(BilinearPatch{s.mesh, s.tri, s.patch_area},
                                   patch_pool.data(), &patch_fill);
@@ -2037,16 +2088,20 @@ int main(int argc, char **argv) {
     }
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size() ||
-        patch_fill != patch_pool.size()) {
+        patch_fill != patch_pool.size() ||
+        cylinder_fill != cylinder_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
-                        "%zu/%zu triangles, %zu/%zu disks, %zu/%zu patches\n",
+                        "%zu/%zu triangles, %zu/%zu disks, %zu/%zu patches, "
+                        "%zu/%zu cylinders\n",
                 size_t(sphere_fill), sphere_pool.size(),
                 size_t(triangle_fill), triangle_pool.size(), size_t(disk_fill),
-                disk_pool.size(), size_t(patch_fill), patch_pool.size());
+                disk_pool.size(), size_t(patch_fill), patch_pool.size(),
+                size_t(cylinder_fill), cylinder_pool.size());
         return 1;
     }
     const Shapes shape_pools{sphere_pool.data(), triangle_pool.data(),
-                             disk_pool.data(), patch_pool.data()};
+                             disk_pool.data(), patch_pool.data(),
+                             cylinder_pool.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -2183,7 +2238,7 @@ int main(int argc, char **argv) {
     {
         Stage stage("compact pools");
         compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool,
-                      patch_pool);
+                      patch_pool, cylinder_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -2211,11 +2266,16 @@ int main(int argc, char **argv) {
     // uniform infinite light's.
     const auto fit_emission = [&](const float rgb[3], float scale,
                                   SigmoidPolynomial *fit) {
+        // pbrt: `scale = 2 * m; rsp = cs.ToRGBCoeffs(scale ? rgb / scale :
+        // RGB(0, 0, 0))` -- each component divided, not multiplied by the
+        // reciprocal, which rounds differently.
         const float m = std::max({rgb[0], rgb[1], rgb[2]});
         const float rsp_scale = 2.f * m;
-        const float inv = rsp_scale == 0.f ? 0.f : 1.f / rsp_scale;
-        const rgb2spec::Coefficients c =
-            rgb2spec::fit(fit_tables, rgb[0] * inv, rgb[1] * inv, rgb[2] * inv);
+        const bonsai_scene::RGBSigmoid c =
+            rsp_scale != 0.f
+                ? bonsai_scene::rgb_sigmoid(rgb_nodes, rgb_coeffs, rgb[0] / rsp_scale,
+                                            rgb[1] / rsp_scale, rgb[2] / rsp_scale)
+                : bonsai_scene::rgb_sigmoid(rgb_nodes, rgb_coeffs, 0.f, 0.f, 0.f);
         *fit = SigmoidPolynomial{c.c0, c.c1, c.c2};
         return scale * rsp_scale;
     };
@@ -2351,7 +2411,8 @@ int main(int argc, char **argv) {
         // The pools as compacted: compact_pools moved them, so the view made
         // before it is stale.
         const Shapes compacted{sphere_pool.data(), triangle_pool.data(),
-                               disk_pool.data(), patch_pool.data()};
+                               disk_pool.data(), patch_pool.data(),
+                               cylinder_pool.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
             shapes, instanced, top, loaded.definitions, loaded.instances);
         if (tree.traversable == 0) {
@@ -2879,6 +2940,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
     bonsai_buffer b_patch_pool = buffer_of(patch_pool);
+    bonsai_buffer b_cylinder_pool = buffer_of(cylinder_pool);
     bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
@@ -2960,7 +3022,7 @@ int main(int argc, char **argv) {
         &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
 #endif
         &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
-        &b_patch_pool
+        &b_patch_pool, &b_cylinder_pool
         // The queues' storage, last, as the parameters are.
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
     constexpr size_t render_buffer_count =
@@ -3050,8 +3112,8 @@ int main(int argc, char **argv) {
                &b_material_displacement, &b_material_normal_map, &b_rho_uc,
                &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
-               &b_disk_pool,
-               &b_patch_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
+               &b_disk_pool, &b_patch_pool,
+               &b_cylinder_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
         // waits for the device before it returns -- the generated code's
         // own wait at the return of a function that launched, pbrt's
@@ -3150,7 +3212,7 @@ int main(int argc, char **argv) {
                            &b_blue_noise, &b_pmj_pixel_samples, tree,
                            &b_inst_pool,
                            &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
-                           &b_patch_pool);
+                           &b_patch_pool, &b_cylinder_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                            "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",
                            px, py, s, double(out[0]), double(out[1]),

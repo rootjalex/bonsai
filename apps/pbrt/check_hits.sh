@@ -48,11 +48,18 @@ bash "$PREFIX/build_scene_dump.sh" "$WORK/scene_dump"
 # contraction of a multiply and an add into one rounding is part of the
 # answer, and pbrt's CPU build contracts.
 BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
-"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract \
+# The renderer's foreign functions over NanoVDB (build_nanovdb_shim.sh), as
+# compare.sh links them: host bitcode into the module, and the shim's source
+# into the driver against the generated header's prototypes.
+SHIM_OUT=$(bash "$PREFIX/build_nanovdb_shim.sh" "$WORK")
+NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
+"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${LINK_FLAGS[@]}" \
     -i "$PREFIX/render.bonsai" -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o "$PREFIX/render"
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I"$PREFIX" $(bash "$PREFIX/scene_schema.sh") \
     "$PREFIX/render_hook.cpp" \
+    -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" "$PREFIX/nanovdb_shim.cpp" \
     "$PREFIX/render.o" ${TBB_FLAGS[@]+"${TBB_FLAGS[@]}"} -o "$WORK/render.out"
 
 # From the scene's directory, so its own `Include`s resolve.

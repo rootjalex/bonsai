@@ -18,6 +18,8 @@
 // takes to read a float back unchanged. Anything less would quietly move
 // geometry, and the whole point of this app is that it does not.
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +35,75 @@
 
 namespace bonsai_scene {
 
+// PBRT's RGBToSpectrumTable::operator(): the three coefficients of the
+// sigmoid polynomial that fits an RGB, by trilinear interpolation of the
+// table PBRT ships for the colour space -- `scale` its 64 z nodes and `data`
+// its coefficients, [3][64][64][64][3] laid flat -- or, for a grey, PBRT's
+// closed form without the table, whose division by zero for black and for
+// white is meant: minus and plus infinity, which the renderer's sigmoid
+// reads as reflecting nothing and everything. The same arithmetic on the
+// same numbers in the converter, over PBRT's own arrays (a texel's filtered
+// colour), and in the driver, over the copy the scene carries
+// (Scene::rgb_table: a material's constant RGB, a light's), so that an RGB
+// becomes the spectrum PBRT's RGBAlbedoSpectrum or RGBIlluminantSpectrum
+// makes of it. The renderer does the lookup a third time in bonsai for a
+// texture at the hit (textures.bonsai, rgb_to_sigmoid), which `scene_dump
+// --check-tables` holds against PBRT; this mirrors that function line for
+// line, its Lerp fused as gcc fuses PBRT's (`fma(1 - t, a, t * b)`).
+struct RGBSigmoid {
+    float c0, c1, c2;
+};
+
+constexpr int kRGBTableRes = 64;
+constexpr size_t kRGBTableFloats =
+    size_t(kRGBTableRes) + size_t(3) * kRGBTableRes * kRGBTableRes * kRGBTableRes * 3;
+
+inline RGBSigmoid rgb_sigmoid(const float *scale, const float *data, float r, float g,
+                              float b) {
+    constexpr int res = kRGBTableRes;
+    r = std::min(std::max(r, 0.f), 1.f);
+    g = std::min(std::max(g, 0.f), 1.f);
+    b = std::min(std::max(b, 0.f), 1.f);
+    if (r == g && g == b) {
+        return RGBSigmoid{0.f, 0.f, (r - .5f) / std::sqrt(r * (1 - r))};
+    }
+
+    const float rgb[3] = {r, g, b};
+    const int maxc = (r > g) ? ((r > b) ? 0 : 2) : ((g > b) ? 1 : 2);
+    const float z = rgb[maxc];
+    // The product first, then the divide, as C++ reads PBRT's
+    // `rgb[(maxc + 1) % 3] * (res - 1) / z`.
+    const float x = (rgb[(maxc + 1) % 3] * float(res - 1)) / z;
+    const float y = (rgb[(maxc + 2) % 3] * float(res - 1)) / z;
+    const int xi = std::min(int(x), res - 2);
+    const int yi = std::min(int(y), res - 2);
+    // PBRT: `FindInterval(res, [&](int i) { return zNodes[i] < z; })`, the
+    // last node still below z, with room left for zi + 1.
+    int zi = 0;
+    for (int i = 1; i < res - 1; i++) {
+        if (scale[i] < z) {
+            zi = i;
+        }
+    }
+    const float dx = x - float(xi);
+    const float dy = y - float(yi);
+    const float dz = (z - scale[zi]) / (scale[zi + 1] - scale[zi]);
+
+    const auto lerp = [](float t, float a, float bb) { return std::fma(1 - t, a, t * bb); };
+    const size_t base =
+        ((size_t(maxc) * res + size_t(zi)) * res + size_t(yi)) * res * 3 + size_t(xi) * 3;
+    constexpr size_t sx = 3, sy = size_t(res) * 3, sz = size_t(res) * res * 3;
+    const auto coeff = [&](size_t k) {
+        return lerp(dz,
+                    lerp(dy, lerp(dx, data[base + k], data[base + sx + k]),
+                         lerp(dx, data[base + sy + k], data[base + sy + sx + k])),
+                    lerp(dy, lerp(dx, data[base + sz + k], data[base + sz + sx + k]),
+                         lerp(dx, data[base + sz + sy + k],
+                              data[base + sz + sy + sx + k])));
+    };
+    return RGBSigmoid{coeff(0), coeff(1), coeff(2)};
+}
+
 enum ShapeTag : uint32_t {
     Sphere = 0,
     Triangle = 1,
@@ -41,6 +112,9 @@ enum ShapeTag : uint32_t {
     // in it (`tri`, reused as the patch index), with the area PBRT's
     // constructor computes.
     Patch = 3,
+    // PBRT's Cylinder: the radius, `z_min`/`z_max` and `phi_max` of a sphere's
+    // fields, under the quadric's two matrices.
+    Cylinder = 4,
 };
 
 enum MaterialTag : uint32_t {
@@ -682,10 +756,12 @@ struct InfiniteLight {
 
 struct Shape {
     uint32_t tag;
-    // Sphere and disk: the radius. The sphere's clipping -- PBRT's
+    // Sphere, disk and cylinder: the radius. The sphere's clipping -- PBRT's
     // constructor's zmin and zmax clamped to the radius, their arc cosines
     // (the theta the v coordinate runs between), and phimax in radians
-    // clamped to a turn, all computed as the constructor computes them.
+    // clamped to a turn, all computed as the constructor computes them; a
+    // cylinder's zmin and zmax are the lesser and the greater of the two
+    // given, as its constructor orders them.
     float radius = 0.f;
     float z_min = 0.f;
     float z_max = 0.f;
@@ -1090,7 +1166,11 @@ struct Scene {
     // scene_dump by a Gauss-Newton solve, which is fine for a handful of
     // materials and hopeless per texture lookup -- and PBRT does not solve
     // there either, it interpolates this table. So the table is what ships, and
-    // the renderer does the same trilinear lookup PBRT does.
+    // the renderer does the same trilinear lookup PBRT does; the driver does
+    // it too, for every constant RGB a material or a light gives (rgb_sigmoid
+    // above), since the solve answered a different spectrum from PBRT's
+    // interpolation -- a black of one part in ten million rather than of
+    // nothing. Every scene carries the table for that, textures or none.
     //
     // It has to happen per lookup, and not per texel in advance: PBRT filters
     // in RGB and fits the *filtered* colour, and fitting each texel and
@@ -1257,6 +1337,7 @@ struct ShapeColumns {
     std::vector<geo::Patch> patches;
     std::vector<geo::Sphere> spheres;
     std::vector<geo::Disk> disks;
+    std::vector<geo::Cylinder> cylinders;
 };
 
 inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
@@ -1279,6 +1360,13 @@ inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
             c.disks.emplace_back(s.height, s.radius, s.inner_radius, s.phi_max,
                                  s.flip, s.reverse, span16(s.render_from_object),
                                  span16(s.object_from_render), at);
+            break;
+        case ShapeTag::Cylinder:
+            c.slots.push_back(uint32_t(c.cylinders.size()));
+            c.cylinders.emplace_back(s.radius, s.z_min, s.z_max, s.phi_max,
+                                     s.flip, s.reverse,
+                                     span16(s.render_from_object),
+                                     span16(s.object_from_render), at);
             break;
         case ShapeTag::Patch:
             c.slots.push_back(uint32_t(c.patches.size()));
@@ -1320,6 +1408,7 @@ inline bool write_geometry(const char *path, const Scene &scene,
     const auto patches = fbb.CreateVectorOfStructs64(top.patches);
     const auto spheres = fbb.CreateVectorOfStructs64(top.spheres);
     const auto disks = fbb.CreateVectorOfStructs64(top.disks);
+    const auto cylinders = fbb.CreateVectorOfStructs64(top.cylinders);
     const auto nodes = fbb.CreateVectorOfStructs64(nodes_of(scene.nodes));
     const ShapeColumns inst = columns_of(scene.instance_shapes);
     const auto instance_shape_kinds = fbb.CreateVector64(inst.kinds);
@@ -1328,6 +1417,7 @@ inline bool write_geometry(const char *path, const Scene &scene,
     const auto instance_patches = fbb.CreateVectorOfStructs64(inst.patches);
     const auto instance_spheres = fbb.CreateVectorOfStructs64(inst.spheres);
     const auto instance_disks = fbb.CreateVectorOfStructs64(inst.disks);
+    const auto instance_cylinders = fbb.CreateVectorOfStructs64(inst.cylinders);
     const auto instance_nodes =
         fbb.CreateVectorOfStructs64(nodes_of(scene.instance_nodes));
     std::vector<geo::Prim> prim_records;
@@ -1382,6 +1472,8 @@ inline bool write_geometry(const char *path, const Scene &scene,
     gb.add_definitions(definitions);
     gb.add_instances(instances);
     gb.add_prims(prims);
+    gb.add_cylinders(cylinders);
+    gb.add_instance_cylinders(instance_cylinders);
     fbb.Finish(gb.Finish(), geo::GeometryIdentifier());
 
     std::ofstream out(geo_path(path), std::ios::binary);
@@ -1394,10 +1486,11 @@ inline bool write_geometry(const char *path, const Scene &scene,
 // A shape list back from its columns. False where a slot points past its
 // vector, which no writer of this file produces.
 template <typename Kinds, typename Slots, typename Tris, typename Patches,
-          typename Spheres, typename Disks>
+          typename Spheres, typename Disks, typename Cylinders>
 inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
                       const Patches *patches, const Spheres *spheres,
-                      const Disks *disks, std::vector<Shape> &out) {
+                      const Disks *disks, const Cylinders *cylinders,
+                      std::vector<Shape> &out) {
     out.clear();
     if (kinds == nullptr || slots == nullptr) {
         return true;
@@ -1440,6 +1533,25 @@ inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
             s.height = r->height();
             s.radius = r->radius();
             s.inner_radius = r->inner_radius();
+            s.phi_max = r->phi_max();
+            s.flip = r->flip();
+            s.reverse = r->reverse();
+            std::memcpy(s.render_from_object, r->render_from_object()->data(),
+                        sizeof(s.render_from_object));
+            std::memcpy(s.object_from_render, r->object_from_render()->data(),
+                        sizeof(s.object_from_render));
+            place(r->at(), s);
+            break;
+        }
+        case ShapeTag::Cylinder: {
+            if (cylinders == nullptr || slot >= cylinders->size()) {
+                return false;
+            }
+            const geo::Cylinder *r = cylinders->Get(slot);
+            s.tag = ShapeTag::Cylinder;
+            s.radius = r->radius();
+            s.z_min = r->z_min();
+            s.z_max = r->z_max();
             s.phi_max = r->phi_max();
             s.flip = r->flip();
             s.reverse = r->reverse();
@@ -1556,14 +1668,15 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
     copy_from(g->normals(), scene.normals);
     copy_from(g->uvs(), scene.uvs);
     if (!shapes_of(g->shape_kinds(), g->shape_slots(), g->triangles(),
-                   g->patches(), g->spheres(), g->disks(), scene.shapes)) {
+                   g->patches(), g->spheres(), g->disks(), g->cylinders(),
+                   scene.shapes)) {
         return false;
     }
     nodes_from(g->nodes(), scene.nodes);
     if (!shapes_of(g->instance_shape_kinds(), g->instance_shape_slots(),
                    g->instance_triangles(), g->instance_patches(),
                    g->instance_spheres(), g->instance_disks(),
-                   scene.instance_shapes)) {
+                   g->instance_cylinders(), scene.instance_shapes)) {
         return false;
     }
     nodes_from(g->instance_nodes(), scene.instance_nodes);

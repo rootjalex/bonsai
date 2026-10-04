@@ -111,14 +111,6 @@ bash $PREFIX/build_scene_dump.sh
 ./$PREFIX/scene_dump ${DUMP_OPTS[@]+"${DUMP_OPTS[@]}"} "$SCENE" \
     "$PREFIX/scene.txt"
 
-# The spectral data is generated (see make_spectrum_tables.py) and the fit that
-# uses it is a port, so check the round trip before rendering with it: a fit
-# that is subtly wrong still produces plausible numbers, just the wrong colour.
-"$BONSAI_CXX" -std=c++20 -O2 -I$PREFIX $PREFIX/rgb2spec_check.cpp \
-    -o $PREFIX/rgb2spec_check
-./$PREFIX/rgb2spec_check
-rm $PREFIX/rgb2spec_check
-
 # `-p ssa` because bind is an SSA rewrite. The other two outputs are here to
 # be looked at when something renders wrong: the .bir is what the schedule
 # left behind, the .ll is what it became.

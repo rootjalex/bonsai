@@ -1180,6 +1180,19 @@ func transform(p : Primitive, s : SurfaceGeometry) -> SurfaceGeometry {
     }
 }
 
+// pbrt: `isect.wo` for a hit found through `p` (shapes.bonsai's
+// interaction_wo, over the ray as the shape was tested with it), and for an
+// instance the TransformedPrimitive's transform of the interaction on the
+// way out, which normalizes the direction once more.
+func hit_wo(p : Primitive, sh : Shape, r : Ray) -> vec3f {
+    wo = interaction_wo(sh, -untransform(p, r).d);
+    match p {
+        Geom(g) => return wo;
+        Inst(render_from_instance, instance_from_render, blas) =>
+            return unit_vector_(apply_vector(render_from_instance, wo));
+    }
+}
+
 // pbrt: GeometricPrimitive::Intersect's alpha test.
 //
 // The test is stochastic and the draw is `HashFloat(ray.o, ray.d)` -- a hash of
@@ -1522,7 +1535,8 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through a medium boundary: a surface with no BSDF ends it, with
     // whatever the walk had found (integrators.h, LiRandomWalk). The other
     // integrators skip such a hit; this one is written as pbrt wrote it.
-    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    mat = resolve_material(prim.material, surf.p, hit_wo(via, prim.shape, ray),
+                           surf.n, surf.uv);
     if mat < 0 {
         return found;
     }
@@ -1656,7 +1670,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: `if (!bsdf) { isect.SkipIntersection(&ray, si->tHit); continue; }`
     // -- a medium boundary, stepped through at the same depth with the same
     // flag, since nothing scattered.
-    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    mat = resolve_material(prim.material, surf.p, hit_wo(via, prim.shape, ray),
+                           surf.n, surf.uv);
     if mat < 0 {
         // pbrt: `specularBounce = true` before the skip -- the shadow rays
         // of the vertex before this one stopped at the boundary (an any-hit
@@ -1909,14 +1924,16 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
     // Both of them, because pbrt uses both. `Li` writes
     // `Vector3f wo = -ray.d` and hands *that* to `Le` and to `Sample_f`;
-    // `SampleLd` reads `intr.wo`, which Interaction's constructor normalized.
-    // The two differ in the last bit or two, and a layered BSDF's walk is
-    // seeded by hashing this vector -- so using one where pbrt uses the other
-    // gives a walk with different noise, which converges to the same picture
-    // and agrees with pbrt at no finite sample count. Not a distinction worth
+    // `SampleLd` and the visible surface's `rho` read `isect.wo`, which
+    // Interaction's constructor normalized and a quadric's transform took
+    // through object space and back (shapes.bonsai, interaction_wo). The
+    // two differ in the last bit or two, and a layered BSDF's walk is seeded
+    // by hashing this vector -- so using one where pbrt uses the other gives
+    // a walk with different noise, which converges to the same picture and
+    // agrees with pbrt at no finite sample count. Not a distinction worth
     // inventing; it is only here because pbrt has it.
     wo = -ray.d;
-    wo_unit = unit_vector_(wo);
+    wo_unit = hit_wo(via, prim.shape, ray);
 
     // pbrt: SurfaceInteraction::Le, and the MIS weight that goes with it. A
     // camera ray and a ray that left a specular lobe found this light by the
@@ -1955,7 +1972,8 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // through it: the same depth, the same flags, the same previous vertex,
     // since nothing scattered. The path integrator knows nothing of the
     // medium on the other side; volpath does.
-    mat = resolve_material(prim.material, surf.p, wo, surf.n, surf.uv);
+    mat = resolve_material(prim.material, surf.p, hit_wo(via, prim.shape, ray),
+                           surf.n, surf.uv);
     if mat < 0 {
         // pbrt: `specularBounce = true; // disable MIS if the indirect ray
         // hits a light` -- as in `path_step`: the boundary blocked the
@@ -2942,8 +2960,12 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     // makes this push the trace kernel's (`vol_route.defer(vol_path_step,
     // rays)`), as pbrt's is. The mix is resolved first, here in the trace
     // kernel's epilogue as pbrt resolves it, so that the material queues see
-    // only concrete materials and a mix of an interface is a boundary.
-    mat = resolve_material(prim.material, surf.p, -ray.d, surf.n, surf.uv);
+    // only concrete materials and a mix of an interface is a boundary. The
+    // wavefront's kernels know the direction as `intr.wo` and nothing else
+    // (the mix's choice, the emissive queue's `w.wo` and its `wi = -w.wo`,
+    // the material queue's), so that is what every one of them is given.
+    iwo = hit_wo(via, prim.shape, ray);
+    mat = resolve_material(prim.material, surf.p, iwo, surf.n, surf.uv);
     if mat < 0 {
         if wave == max_depth {
             return;
@@ -2967,7 +2989,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     }
     // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
     if prim.light >= 0 {
-        spawn l += emissive_contribution(prim.light, surf.n, -ray.d, ray.d, beta,
+        spawn l += emissive_contribution(prim.light, surf.n, iwo, -iwo, beta,
                                          r_u, r_l, depth, specular_bounce,
                                          prev_ctx, ls, lambda);
     }
@@ -3061,8 +3083,11 @@ func vol_surface(ray : Ray, medium : i32,
                  set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                  regularize : bool, have_subsurface : bool, want_visible : bool,
                  visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
-    wo = -ray.d;
-    wo_unit = unit_vector_(wo);
+    // pbrt's wavefront: the material kernel's `wo` is the work item's, which
+    // the trace kernel filled from `intr.wo` (interaction_wo) -- there is no
+    // `-ray.d` in these kernels, where the CPU integrator uses both.
+    wo = hit_wo(via, prim.shape, ray);
+    wo_unit = wo;
 
     // The hit's material has a name here so that a schedule can split the
     // hits by it (`hits.specialize(material)`, pbrt's queue per material

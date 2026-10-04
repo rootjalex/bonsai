@@ -760,59 +760,33 @@ uint32_t illuminant_index(const pbrt::RGBColorSpace *space, bonsai_scene::Scene 
 }
 
 // PBRT: `RGBToSpectrumTable::operator()`, the trilinear lookup of the sigmoid
-// that fits an RGB in the table's colour space.
+// that fits an RGB in the table's colour space -- scene_io.h's rgb_sigmoid,
+// which the driver runs over the shipped copy, here over PBRT's own arrays.
 Sigmoid fit_sigmoid(const SpectrumTable &table, float r, float g, float b) {
-    constexpr int res = 64;
-    r = std::min(std::max(r, 0.f), 1.f);
-    g = std::min(std::max(g, 0.f), 1.f);
-    b = std::min(std::max(b, 0.f), 1.f);
+    const bonsai_scene::RGBSigmoid s = bonsai_scene::rgb_sigmoid(
+        table.scale, reinterpret_cast<const float *>(table.data), r, g, b);
+    return Sigmoid{s.c0, s.c1, s.c2};
+}
 
-    // A grey is exact, and PBRT answers it without touching the table.
-    if (r == g && g == b) {
-        return Sigmoid{0.f, 0.f,
-                       r * (1 - r) <= 0.f
-                           ? (r < 0.5f ? -std::numeric_limits<float>::infinity()
-                                       : std::numeric_limits<float>::infinity())
-                           : (r - .5f) / std::sqrt(r * (1 - r))};
+// The sRGB table into the scene, once: the 64 z nodes, then the
+// coefficients as PBRT lays them out. Every scene carries it -- the driver
+// fits each material's and light's constant RGB through it (scene_io.h,
+// rgb_sigmoid), and a spectrum texture is looked up through it at the hit
+// (textures.bonsai, rgb_to_sigmoid).
+void ensure_rgb_table(bonsai_scene::Scene &out) {
+    if (!out.rgb_table.empty()) {
+        return;
     }
-
-    const float rgb[3] = {r, g, b};
-    const int maxc = (r > g) ? ((r > b) ? 0 : 2) : ((g > b) ? 1 : 2);
-    const float z = rgb[maxc];
-    const float x = rgb[(maxc + 1) % 3] * (res - 1) / z;
-    const float y = rgb[(maxc + 2) % 3] * (res - 1) / z;
-
-    const int xi = std::min(int(x), res - 2);
-    const int yi = std::min(int(y), res - 2);
-    int zi = 0;
-    for (int i = 1; i < res - 1; i++) {
-        if (table.scale[i] < z) {
-            zi = i;
-        }
+    out.rgb_table.reserve(bonsai_scene::kRGBTableFloats);
+    for (int i = 0; i < bonsai_scene::kRGBTableRes; i++) {
+        out.rgb_table.push_back(pbrt::sRGBToSpectrumTable_Scale[i]);
     }
-    const float dx = x - xi;
-    const float dy = y - yi;
-    const float z0 = table.scale[zi];
-    const float z1 = table.scale[zi + 1];
-    const float dz = (z - z0) / (z1 - z0);
-
-    const auto co = [&](int ddx, int ddy, int ddz, int i) {
-        return (*table.data)[maxc][zi + ddz][yi + ddy][xi + ddx][i];
-    };
-    const auto lerp = [](float t, float a, float bb) {
-        return (1 - t) * a + t * bb;
-    };
-
-    Sigmoid out{};
-    float *c[3] = {&out.c0, &out.c1, &out.c2};
-    for (int i = 0; i < 3; i++) {
-        *c[i] = lerp(dz,
-                     lerp(dy, lerp(dx, co(0, 0, 0, i), co(1, 0, 0, i)),
-                          lerp(dx, co(0, 1, 0, i), co(1, 1, 0, i))),
-                     lerp(dy, lerp(dx, co(0, 0, 1, i), co(1, 0, 1, i)),
-                          lerp(dx, co(0, 1, 1, i), co(1, 1, 1, i))));
+    const float *data =
+        reinterpret_cast<const float *>(pbrt::sRGBToSpectrumTable_Data);
+    for (size_t i = 0; i < bonsai_scene::kRGBTableFloats - bonsai_scene::kRGBTableRes;
+         i++) {
+        out.rgb_table.push_back(data[i]);
     }
-    return out;
 }
 
 // Where a texture's images are looked for, and what has already been
@@ -1957,20 +1931,9 @@ int32_t convert_image_texture(const std::string &name, float folded_scale) {
         }
     }
 
-    // The first texture pulls in the RGB-to-spectrum table, since it is what
-    // makes a filtered RGB into a spectrum and nothing else needs it.
-    if (g_scene->rgb_table.empty()) {
-        g_scene->rgb_table.reserve(64 + 3 * 64 * 64 * 64 * 3);
-        for (int i = 0; i < 64; i++) {
-            g_scene->rgb_table.push_back(
-                pbrt::sRGBToSpectrumTable_Scale[i]);
-        }
-        const float *data =
-            reinterpret_cast<const float *>(pbrt::sRGBToSpectrumTable_Data);
-        for (size_t i = 0; i < size_t(3) * 64 * 64 * 64 * 3; i++) {
-            g_scene->rgb_table.push_back(data[i]);
-        }
-    }
+    // A spectrum texture is looked up through the RGB-to-spectrum table at
+    // the hit; the scene carries it whether or not it has one (ensure_rgb_table).
+    ensure_rgb_table(*g_scene);
 
     const int32_t index = int32_t(g_scene->textures.size());
     g_scene->textures.push_back(t);
@@ -2546,7 +2509,49 @@ bool check_tables() {
     if (srgb_ok) {
         printf("scene_dump: the sRGB decode table matches pbrt (256 entries)\n");
     }
-    return ok && srgb_ok;
+
+    // The RGB-to-spectrum lookup (scene_io.h, rgb_sigmoid: what the driver
+    // fits every constant RGB through, and this converter every texel)
+    // against PBRT's own RGBAlbedoSpectrum, which keeps its coefficients
+    // private: the coefficients found here go into PBRT's own
+    // RGBSigmoidPolynomial and it is evaluated beside PBRT's at every ten
+    // nanometres, so equal values are equal coefficients. Greys, black and
+    // white (the closed form), saturated colours, and colours off any grid
+    // line of the table.
+    const SpectrumTable srgb = table_of(pbrt::RGBColorSpace::sRGB, "the table check");
+    const float colours[][3] = {
+        {0.f, 0.f, 0.f},      {1.f, 1.f, 1.f},      {0.5f, 0.5f, 0.5f},
+        {0.35f, 0.35f, 0.35f}, {1.f, 0.f, 0.f},     {0.f, 1.f, 0.f},
+        {0.f, 0.f, 1.f},      {0.7f, 0.1f, 0.1f},   {0.1f, 0.2f, 0.8f},
+        {0.2f, 0.45f, 0.25f}, {0.55f, 0.55f, 0.6f}, {0.6f, 0.25f, 0.2f},
+        {0.333f, 0.5f, 0.001f}, {0.9f, 0.1f, 0.5f}, {0.05f, 0.6f, 0.6f},
+        {0.41f, 0.40f, 0.39f}, {0.0137f, 0.9f, 0.31f}, {0.99f, 0.98f, 0.5f}};
+    bool rgb_ok = true;
+    int rgb_checked = 0;
+    for (const float *c : colours) {
+        const pbrt::RGB rgb(c[0], c[1], c[2]);
+        const pbrt::RGBAlbedoSpectrum theirs(*pbrt::RGBColorSpace::sRGB, rgb);
+        const Sigmoid fit = fit_sigmoid(srgb, c[0], c[1], c[2]);
+        const pbrt::RGBSigmoidPolynomial ours(fit.c0, fit.c1, fit.c2);
+        for (int lambda = 360; lambda <= 830 && rgb_ok; lambda += 10) {
+            const float a = theirs(pbrt::Float(lambda));
+            const float b = ours(pbrt::Float(lambda));
+            rgb_checked++;
+            if (a != b) {
+                printf("scene_dump: the RGB-to-spectrum lookup differs from pbrt "
+                       "for rgb (%g %g %g) at %d nm: pbrt %.9g, ours %.9g\n",
+                       double(c[0]), double(c[1]), double(c[2]), lambda, double(a),
+                       double(b));
+                rgb_ok = false;
+            }
+        }
+    }
+    if (rgb_ok) {
+        printf("scene_dump: the RGB-to-spectrum lookup matches pbrt (%zu colours, "
+               "%d values)\n",
+               sizeof(colours) / sizeof(colours[0]), rgb_checked);
+    }
+    return ok && srgb_ok && rgb_ok;
 }
 
 // Print what PBRT's own samplers produce, so that the ones written in bonsai
@@ -6140,6 +6145,52 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
             into.push_back(shape);
 
+        } else if (name == "cylinder") {
+            // PBRT: Cylinder::Create and the constructor -- the radius, zmin
+            // and zmax ordered (`std::min(zMin, zMax)` and the max), phimax in
+            // radians clamped to a turn; both matrices, as every quadric.
+            const pbrt::Float radius =
+                entity.parameters.GetOneFloat("radius", 1.f);
+            const pbrt::Float zmin_given =
+                entity.parameters.GetOneFloat("zmin", -1.f);
+            const pbrt::Float zmax_given =
+                entity.parameters.GetOneFloat("zmax", 1.f);
+            const pbrt::Float phimax =
+                entity.parameters.GetOneFloat("phimax", 360.f);
+            bonsai_scene::Shape shape;
+            shape.tag = bonsai_scene::ShapeTag::Cylinder;
+            shape.radius = float(radius);
+            shape.z_min = float(std::min(zmin_given, zmax_given));
+            shape.z_max = float(std::max(zmin_given, zmax_given));
+            shape.phi_max = float(pbrt::Radians(pbrt::Clamp(phimax, 0, 360)));
+            const pbrt::Transform object_from_render =
+                pbrt::Inverse(render_from_object);
+            write_frame(shape.render_from_object, render_from_object);
+            write_frame(shape.object_from_render, object_from_render);
+            shape.flip = (entity.reverseOrientation ^
+                          render_from_object.SwapsHandedness())
+                             ? 1u
+                             : 0u;
+            shape.reverse = entity.reverseOrientation ? 1u : 0u;
+            shape.material = material;
+            shape.light = light;
+            shape.alpha = alpha;
+            shape.medium_inside = medium_inside;
+            shape.medium_outside = medium_outside;
+            if (light >= 0) {
+                shape.light_ordinal = next_light_ordinal++;
+                pbrt::Transform *r_from_o =
+                    light_alloc.new_object<pbrt::Transform>(render_from_object);
+                pbrt::Transform *o_from_r =
+                    light_alloc.new_object<pbrt::Transform>(object_from_render);
+                pbrt::Cylinder *cylinder = light_alloc.new_object<pbrt::Cylinder>(
+                    r_from_o, o_from_r, entity.reverseOrientation, radius,
+                    zmin_given, zmax_given, phimax);
+                emitter_lights.push_back(make_area_light(
+                    render_from_object, pbrt::Shape(cylinder), light));
+            }
+            into.push_back(shape);
+
         } else {
             // Everything that is ultimately a mesh arrives here in render
             // space: a triangle mesh (`triangulate`), a bilinear patch mesh
@@ -6433,6 +6484,20 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 return render_from_object(pbrt::Bounds3f(
                     pbrt::Point3f(-s.radius, -s.radius, s.height),
                     pbrt::Point3f(s.radius, s.radius, s.height)));
+            }
+            if (s.tag == bonsai_scene::ShapeTag::Cylinder) {
+                // PBRT: Cylinder::Bounds -- the sphere's box, between the
+                // cylinder's two heights, under its transform.
+                pbrt::Float m[4][4];
+                for (int i = 0; i < 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+                        m[i][j] = s.render_from_object[4 * i + j];
+                    }
+                }
+                const pbrt::Transform render_from_object{pbrt::SquareMatrix<4>(m)};
+                return render_from_object(pbrt::Bounds3f(
+                    pbrt::Point3f(-s.radius, -s.radius, s.z_min),
+                    pbrt::Point3f(s.radius, s.radius, s.z_max)));
             }
             if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 pbrt::Bounds3f b;
@@ -6845,6 +6910,33 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
             out.push_back(alloc.new_object<pbrt::Sphere>(
                 render_from_object, object_from_render, s.reverse != 0, s.radius,
                 s.z_min, s.z_max, pbrt::Degrees(s.phi_max)));
+        } else if (s.tag == bonsai_scene::ShapeTag::Disk ||
+                   s.tag == bonsai_scene::ShapeTag::Cylinder) {
+            // The other two quadrics the same way. (A disk fell through to
+            // the triangles' list before the cylinder came, and took a
+            // triangle's place in the tree -- or read past the list's end.)
+            pbrt::Float m[4][4], minv[4][4];
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    m[r][c] = s.render_from_object[4 * r + c];
+                    minv[r][c] = s.object_from_render[4 * r + c];
+                }
+            }
+            const pbrt::Transform *render_from_object =
+                alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(m),
+                                                  pbrt::SquareMatrix<4>(minv));
+            const pbrt::Transform *object_from_render =
+                alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(minv),
+                                                  pbrt::SquareMatrix<4>(m));
+            if (s.tag == bonsai_scene::ShapeTag::Disk) {
+                out.push_back(alloc.new_object<pbrt::Disk>(
+                    render_from_object, object_from_render, s.reverse != 0,
+                    s.height, s.radius, s.inner_radius, pbrt::Degrees(s.phi_max)));
+            } else {
+                out.push_back(alloc.new_object<pbrt::Cylinder>(
+                    render_from_object, object_from_render, s.reverse != 0,
+                    s.radius, s.z_min, s.z_max, pbrt::Degrees(s.phi_max)));
+            }
         } else {
             out.push_back(triangles[next_triangle++]);
         }
@@ -7214,6 +7306,7 @@ int main(int argc, char **argv) {
     if (pbrt_tree) {
         build_pbrt_tree(scene);
     }
+    ensure_rgb_table(scene);
 
     pbrt::CleanupPBRT();
 

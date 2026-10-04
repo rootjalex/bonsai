@@ -556,9 +556,12 @@ element DiskHit {
 // TransformedPrimitive::Intersect: the ray moved into the instance's frame, so
 // that everything inside the instance's tree is tested against stored
 // geometry. `inv` is the inverse matrix, so applying it is `ApplyInverse`.
-// A disk's `objectFromRender` is applied to a ray by the same arithmetic --
-// pbrt's `operator()(Point3fi)` computes the point in plain floats, paired
-// as below, and only the error bound by intervals -- so this is that too.
+// (A quadric's `objectFromRender` is applied to a ray by pbrt's
+// `operator()(Point3fi)`, which computes the point in these same plain
+// floats, paired as below, and then reads it back as the midpoint of the
+// interval it wrapped it in -- an ulp apart now and then, so the quadrics
+// take row_point_interval and `mid` instead: sphere_roots, disk_hit,
+// cylinder_roots.)
 //
 // The origin is a point and goes through the interval-point arithmetic pbrt
 // uses for it -- `(m00 x + m01 y) + (m02 z + m03)`, paired that way -- and the
@@ -593,10 +596,24 @@ func pull_ray(inv : Transform, r : Ray) -> Ray {
 // plane z = height: the distance to the plane, the point there, and whether
 // it lies between the radii and within phi_max. A ray parallel to the plane
 // misses, whatever its origin.
+//
+// The ray goes into object space as the sphere's does (sphere_roots): pbrt
+// transforms `Point3fi(r.o)` and `Vector3fi(r.d)` and reads `Float(di.z)`,
+// `Point3f(oi)` and `Vector3f(di)` off the intervals, which is their
+// midpoint -- the plain transform's value to within an ulp and not always
+// exactly it, since the interval is [next_down(v - err), next_up(v + err)]
+// and its midpoint rounds on its own. The disk took the plain transform
+// (pull_ray) until a coated disk's albedo disagreed with pbrt's on 177
+// pixels: a layered BSDF's walk is seeded by hashing the direction in a
+// frame the hit point decides, and an ulp of the hit point is another walk.
 func disk_hit(r : Ray, tmax : Float, d : Disk) -> option[DiskHit] {
-    pulled = pull_ray(d.object_from_render, r);
-    oi = pulled.o;
-    di = pulled.d;
+    inv = d.object_from_render;
+    oi = vec3f{mid(row_point_interval(inv.r0, r.o)),
+               mid(row_point_interval(inv.r1, r.o)),
+               mid(row_point_interval(inv.r2, r.o))};
+    di = vec3f{mid(row_vector_interval(inv.r0, r.d)),
+               mid(row_vector_interval(inv.r1, r.d)),
+               mid(row_vector_interval(inv.r2, r.d))};
     if di.z == 0.0 {
         return {};
     }
@@ -616,6 +633,142 @@ func disk_hit(r : Ray, tmax : Float, d : Disk) -> option[DiskHit] {
     }
     hit : DiskHit = {t, p, phi};
     return hit;
+}
+
+// pbrt: Cylinder -- the surface x^2 + y^2 = r^2 of its object space between
+// z_min and z_max, through phi_max of a turn about the z axis, kept in object
+// space under both matrices as every quadric here is. The constructor's
+// normalizations (z_min the lesser of the two heights given, phi_max in
+// radians clamped to a turn) are the converter's. `flip` and `reverse` as
+// the Sphere's: a hit's normal is turned by the first, a sampled point's by
+// the second.
+element Cylinder {
+    render_from_object : Transform;
+    object_from_render : Transform;
+    radius : Float;
+    z_min : Float;
+    z_max : Float;
+    phi_max : Float;
+    flip : bool = false;
+    reverse : bool = false;
+}
+
+// pbrt: QuadricIntersection, as a cylinder fills it: the distance along the
+// ray, the hit in object space, and its azimuth about the cylinder's axis.
+element CylinderHit {
+    t : Float;
+    p_obj : vec3f;
+    phi : Float;
+}
+
+// pbrt: Cylinder::BasicIntersect's quadratic, in the interval arithmetic
+// sphere_roots carries the sphere's in and for the same reasons: the
+// cylinder is the circle swept along z, so the quadratic is in the ray's x
+// and y alone and the discriminant is factored about the distance from the
+// axis to the ray's closest approach *in the plane* -- `4a (r + |v|) (r -
+// |v|)` with v two-dimensional, grouped as pbrt groups it. A ray along the
+// axis has a = 0: pbrt's interval division by an interval that straddles
+// zero is everything (idiv), the roots' bounds are infinite, and the range
+// test in cylinder_hit refuses them -- such a ray misses, as pbrt's does.
+func cylinder_roots(r : Ray, cyl : Cylinder) -> option[Roots] {
+    inv = cyl.object_from_render;
+    oix = row_point_interval(inv.r0, r.o);
+    oiy = row_point_interval(inv.r1, r.o);
+    oiz = row_point_interval(inv.r2, r.o);
+    dix = row_vector_interval(inv.r0, r.d);
+    diy = row_vector_interval(inv.r1, r.d);
+    diz = row_vector_interval(inv.r2, r.d);
+
+    a = iadd(isqr(dix), isqr(diy));
+    b = imulf(2.0, iadd(imul(dix, oix), imul(diy, oiy)));
+    c = isub(iadd(isqr(oix), isqr(oiy)), isqr(exact(cyl.radius)));
+
+    half = idiv(b, imulf(2.0, a));
+    vx = isub(oix, imul(half, dix));
+    vy = isub(oiy, imul(half, diy));
+    length = isqrt(iadd(isqr(vx), isqr(vy)));
+
+    radius = exact(cyl.radius);
+    discrim = imul(imul(imulf(4.0, a), iadd(radius, length)),
+                   isub(radius, length));
+    if discrim.low < 0.0 {
+        return {};
+    }
+
+    root_discrim = isqrt(discrim);
+    q : mut = imulf(-0.5, iadd(b, root_discrim));
+    if mid(b) < 0.0 {
+        q = imulf(-0.5, isub(b, root_discrim));
+    }
+
+    t0 : mut = idiv(q, a);
+    t1 : mut = idiv(c, q);
+    if t0.low > t1.low {
+        swap = t0;
+        t0 = t1;
+        t1 = swap;
+    }
+
+    roots : Roots = {t0, t1, vec3f{mid(oix), mid(oiy), mid(oiz)},
+                     vec3f{mid(dix), mid(diy), mid(diz)}};
+    return roots;
+}
+
+// pbrt: the hit point a root gives, `Point3f(oi) + t * Vector3f(di)`, its x
+// and y refined onto the cylinder's radius (`hitRad` is the distance from
+// the axis the quadratic's t put it at), and its azimuth. No nudge off the
+// axis as the sphere has: a point on the cylinder is never on it.
+func cylinder_point(cyl : Cylinder, o : vec3f, d : vec3f, t : Float) -> CylinderHit {
+    raw = o + t * d;
+    hit_rad = sqrt(sqr(raw.x) + sqr(raw.y));
+    p = vec3f{raw.x * (cyl.radius / hit_rad), raw.y * (cyl.radius / hit_rad),
+              raw.z};
+    phi0 = atan2(p.y, p.x);
+    phi = select(phi0 < 0.0, phi0 + 6.28318530717958647692, phi0);
+    hit : CylinderHit = {t, p, phi};
+    return hit;
+}
+
+// pbrt: `pHit.z < zMin || pHit.z > zMax || phi > phiMax`, the clipping that
+// makes a partial cylinder; unlike the sphere's, both heights always apply.
+func cylinder_clipped(cyl : Cylinder, h : CylinderHit) -> bool =
+    (h.p_obj.z < cyl.z_min) | (h.p_obj.z > cyl.z_max) | (h.phi > cyl.phi_max);
+
+// pbrt: the tail of Cylinder::BasicIntersect, which is the sphere's
+// (sphere_hit) over the cylinder's roots and clipping: the nearer root that
+// is ahead of the ray and within tmax, the farther where the clipping takes
+// the nearer away, every range test on a bound so that a root is refused
+// only when it is certainly out of range.
+func cylinder_hit(r : Ray, tmax : Float, cyl : Cylinder) -> option[CylinderHit] {
+    found = cylinder_roots(r, cyl);
+    if !found {
+        return {};
+    }
+    roots = *found;
+    if (roots.t0.high > tmax) | (roots.t1.low <= 0.0) {
+        return {};
+    }
+    near : mut Interval = roots.t0;
+    took_far : mut bool = false;
+    if roots.t0.low <= 0.0 {
+        if roots.t1.high > tmax {
+            return {};
+        }
+        near = roots.t1;
+        took_far = true;
+    }
+    first = cylinder_point(cyl, roots.o, roots.d, mid(near));
+    if !cylinder_clipped(cyl, first) {
+        return first;
+    }
+    if took_far | (roots.t1.high > tmax) {
+        return {};
+    }
+    second = cylinder_point(cyl, roots.o, roots.d, mid(roots.t1));
+    if cylinder_clipped(cyl, second) {
+        return {};
+    }
+    return second;
 }
 
 // pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
@@ -669,7 +822,8 @@ element Shape =
     | Sph(s : Sphere)
     | Tri(t : Triangle)
     | Dsk(d : Disk)
-    | Blp(b : BilinearPatch);
+    | Blp(b : BilinearPatch)
+    | Cyl(c : Cylinder);
 
 // pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
 // matches on which shape it has. The tree the schedule builds calls these
@@ -711,6 +865,13 @@ func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
             }
             return inf;
         }
+        Cyl(c) => {
+            hit = cylinder_hit(q.ray, q.tmax, c);
+            if hit {
+                return (*hit).t;
+            }
+            return inf;
+        }
     }
 }
 
@@ -738,6 +899,13 @@ func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
             }
             return -inf;
         }
+        Cyl(c) => {
+            hit = cylinder_hit(q.ray, q.tmax, c);
+            if hit {
+                return (*hit).t;
+            }
+            return -inf;
+        }
     }
 }
 
@@ -747,6 +915,7 @@ func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
         Tri(t) => return intersects(q, t);
         Dsk(d) => return cast[[bool]](disk_hit(q.ray, q.tmax, d));
         Blp(b) => return cast[[bool]](patch_hit(q.ray, q.tmax, b));
+        Cyl(c) => return cast[[bool]](cylinder_hit(q.ray, q.tmax, c));
     }
 }
 
@@ -884,10 +1053,10 @@ func sphere_geometry(s : Sphere, hit : SphereHit) -> SurfaceGeometry {
 
 // pbrt: one row of Transform::operator()(const Point3fi &), for a point known
 // exactly. The value is pbrt's `(m0 x + m1 y) + (m2 z + m3)` -- a different
-// association from the plain point transform's, and fused as gcc fuses it, the
-// second product into the first -- and the width is pbrt's gamma(3) bound over
-// the four terms of the row. A camera ray's origin takes this into render
-// space (camera.bonsai); a sphere's ray takes it into object space.
+// association from the plain point transform's -- and the width is pbrt's
+// gamma(3) bound over the four terms of the row. A camera ray's origin takes
+// this into render space (camera.bonsai); a quadric's ray takes it into
+// object space.
 //
 // The width is not one ulp. It is the gamma(3) bound over the terms of a
 // matrix row -- three products and three sums, any of which may round -- and
@@ -897,19 +1066,37 @@ func sphere_geometry(s : Sphere, hit : SphereHit) -> SurfaceGeometry {
 // arithmetic actually performed here, rather than from the matrix pbrt
 // performs it with, would give something narrower and so report hits that
 // pbrt does not.
+//
+// Not fused, unlike the plain transforms (apply_row, apply_inverse_row): gcc
+// fuses a product into its add only when nothing else reads the product
+// (tree-ssa-math-opts.cc, convert_mult_to_fma, which gives up on a
+// multiplication with a use it cannot convert), and here every product is
+// read again by the error term's `std::abs`. So pbrt's interval point is the
+// three roundings of `(m0 x + m1 y) + (m2 z + m3)`, where its plain point is
+// the two of the fused form -- the two differ in the last bit now and then,
+// and a hit distance found from the interval's midpoint differed from pbrt's
+// on 59 of 7,600 disk hits (check_hits.sh) until this was written as pbrt
+// compiles it. `--ffp-contract` leaves this alone for the same reason gcc
+// does: the products have another use (SSA/Contract.h).
 func row_point_interval(row : vec4f, p : vec3f) -> Interval {
-    v = fma(row.y, p.y, row.x * p.x) + fma(row.z, p.z, row.w);
-    err = gamma(3) * (((abs(row.x * p.x) + abs(row.y * p.y)) +
-                       abs(row.z * p.z)) + abs(row.w));
+    px = row.x * p.x;
+    py = row.y * p.y;
+    pz = row.z * p.z;
+    v = (px + py) + (pz + row.w);
+    err = gamma(3) * (((abs(px) + abs(py)) + abs(pz)) + abs(row.w));
     return from_value_and_error(v, err);
 }
 
 // pbrt: one row of Transform::operator()(const Vector3fi &), for a vector
-// known exactly: the plain vector transform's value, fused as it is
-// (apply_row_vector), and gamma(3) over the three products as its width.
+// known exactly: the vector transform's expression, unfused as above since
+// the error term reads every product, and gamma(3) over the three products
+// as its width.
 func row_vector_interval(row : vec4f, v : vec3f) -> Interval {
-    value = fma(row.z, v.z, fma(row.x, v.x, row.y * v.y));
-    err = gamma(3) * ((abs(row.x * v.x) + abs(row.y * v.y)) + abs(row.z * v.z));
+    vx = row.x * v.x;
+    vy = row.y * v.y;
+    vz = row.z * v.z;
+    value = (vx + vy) + vz;
+    err = gamma(3) * ((abs(vx) + abs(vy)) + abs(vz));
     return from_value_and_error(value, err);
 }
 
@@ -994,6 +1181,44 @@ func disk_geometry(d : Disk, hit : DiskHit) -> SurfaceGeometry {
     g : SurfaceGeometry = {n, n, dpdu, dpdv, vec2f{u, v}, dpdu, dpdv, zero,
                            zero, p_obj, zero};
     return push_surface(d.render_from_object, d.object_from_render, g);
+}
+
+// pbrt: Cylinder::InteractionFromIntersection. u the azimuth's fraction of
+// phi_max and v the height's of the span; dpdu the circle's tangent scaled by
+// phi_max, dpdv the axis scaled by the span; the fundamental forms as the
+// sphere's, with the second derivatives in v zero (a cylinder is flat along
+// its axis, so dndv comes out zero and dndu the circle's curvature); the
+// error bound gamma(3) about the refined x and y, the z being the ray's own.
+func cylinder_geometry(cyl : Cylinder, hit : CylinderHit) -> SurfaceGeometry {
+    p = hit.p_obj;
+    phi_max = cyl.phi_max;
+    z_span = cyl.z_max - cyl.z_min;
+    u = hit.phi / phi_max;
+    v = (p.z - cyl.z_min) / z_span;
+    dpdu = vec3f{-phi_max * p.y, phi_max * p.x, 0.0};
+    dpdv = vec3f{0.0, 0.0, z_span};
+
+    zero = vec3f{0.0, 0.0, 0.0};
+    d2pduu = -phi_max * phi_max * vec3f{p.x, p.y, 0.0};
+    form_e = dot_(dpdu, dpdu);
+    form_f = dot_(dpdu, dpdv);
+    form_g = dot_(dpdv, dpdv);
+    form_n = unit_vector_(cross_(dpdu, dpdv));
+    coef_e = dot_(form_n, d2pduu);
+    coef_f = dot_(form_n, zero);
+    coef_g = dot_(form_n, zero);
+    egf2 = prod_diff[[Float]](form_e, form_g, form_f, form_f);
+    inv_egf2 = select(egf2 == 0.0, 0.0, 1.0 / egf2);
+    dndu = (coef_f * form_f - coef_e * form_g) * inv_egf2 * dpdu +
+           (coef_e * form_f - coef_f * form_e) * inv_egf2 * dpdv;
+    dndv = (coef_g * form_f - coef_f * form_g) * inv_egf2 * dpdu +
+           (coef_f * form_f - coef_g * form_e) * inv_egf2 * dpdv;
+
+    raw_n = unit_vector(cross_(dpdu, dpdv));
+    n = select(cyl.flip, -raw_n, raw_n);
+    g : SurfaceGeometry = {n, n, dpdu, dpdv, vec2f{u, v}, dpdu, dpdv, dndu, dndv,
+                           p, gamma(3) * abs(vec3f{p.x, p.y, 0.0})};
+    return push_surface(cyl.render_from_object, cyl.object_from_render, g);
 }
 
 // pbrt: Triangle::InteractionFromIntersection.
@@ -1193,6 +1418,7 @@ func hit_refused(sh : Shape, r : Ray) -> bool {
         Sph(s) => return false;
         Dsk(d) => return false;
         Blp(b) => return false;
+        Cyl(c) => return false;
     }
 }
 
@@ -1506,6 +1732,65 @@ func disk_pdf(d : Disk, ctx : ShapeSampleContext, wi : vec3f) -> Float {
     }
     g = disk_geometry(d, *hit);
     pdf = (1.0 / disk_area(d)) /
+          (abs(dot(g.n, -wi)) / sqlen[[Float]](ctx.p - g.p));
+    return select(pdf == inf, 0.0, pdf);
+}
+
+// pbrt: Cylinder::Area, `(zMax - zMin) * radius * phiMax` in that order.
+func cylinder_area(cyl : Cylinder) -> Float =
+    (cyl.z_max - cyl.z_min) * cyl.radius * cyl.phi_max;
+
+// pbrt: Cylinder::Sample(u), a point chosen uniformly over the clipped
+// surface -- a height between the two by the first draw, an azimuth within
+// phi_max by the second -- reprojected onto the radius since the
+// trigonometry is only so accurate, pushed into render space with the
+// gamma(3) bound a hit carries, its normal the object-space (x, y, 0) pushed
+// through the transform as a normal and turned by `reverse`.
+func cylinder_sample_area(cyl : Cylinder, u : vec2f) -> ShapeSample {
+    z = lerp_st(u.x, cyl.z_min, cyl.z_max);
+    phi = u.y * cyl.phi_max;
+    p0 = vec3f{cyl.radius * cos(phi), cyl.radius * sin(phi), z};
+    hit_rad = sqrt(sqr(p0.x) + sqr(p0.y));
+    p_obj = vec3f{p0.x * (cyl.radius / hit_rad), p0.y * (cyl.radius / hit_rad),
+                  p0.z};
+    p_obj_error = gamma(3) * abs(vec3f{p_obj.x, p_obj.y, 0.0});
+    placed = push_point(cyl.render_from_object, p_obj, p_obj_error);
+    raw_n = unit_vector_(apply_normal_inverse(cyl.object_from_render,
+                                              vec3f{p_obj.x, p_obj.y, 0.0}));
+    n = select(cyl.reverse, -raw_n, raw_n);
+    uv = vec2f{phi / cyl.phi_max, (p_obj.z - cyl.z_min) / (cyl.z_max - cyl.z_min)};
+    ss : ShapeSample = {placed.p, placed.error, n, uv, 1.0 / cylinder_area(cyl)};
+    return ss;
+}
+
+// pbrt: Cylinder::Sample(ctx, u) -- the area sample above, its density
+// converted to solid angle about the point it is seen from, as the disk's.
+func cylinder_sample(cyl : Cylinder, ctx : ShapeSampleContext,
+                     u : vec2f) -> option[ShapeSample] {
+    area = cylinder_sample_area(cyl, u);
+    wi0 = area.p - ctx.p;
+    if sqlen[[Float]](wi0) == 0.0 {
+        return {};
+    }
+    wi = unit_vector_(wi0);
+    converted : mut ShapeSample = area;
+    converted.pdf = area.pdf / (abs(dot(area.n, -wi)) /
+                                sqlen[[Float]](ctx.p - area.p));
+    if converted.pdf == inf {
+        return {};
+    }
+    return converted;
+}
+
+// pbrt: Cylinder::PDF(ctx, wi), the disk's by the cylinder's hit.
+func cylinder_pdf(cyl : Cylinder, ctx : ShapeSampleContext, wi : vec3f) -> Float {
+    r : Ray = {offset_ray_origin(ctx.p, ctx.p_error, ctx.n, wi), wi};
+    hit = cylinder_hit(r, inf, cyl);
+    if !hit {
+        return 0.0;
+    }
+    g = cylinder_geometry(cyl, *hit);
+    pdf = (1.0 / cylinder_area(cyl)) /
           (abs(dot(g.n, -wi)) / sqlen[[Float]](ctx.p - g.p));
     return select(pdf == inf, 0.0, pdf);
 }
@@ -2515,6 +2800,7 @@ func shape_sample(sh : Shape, ctx : ShapeSampleContext,
         Tri(t) => return triangle_sample(t, ctx, u);
         Dsk(d) => return disk_sample(d, ctx, u);
         Blp(b) => return patch_sample(b, ctx, u);
+        Cyl(c) => return cylinder_sample(c, ctx, u);
     }
 }
 
@@ -2524,6 +2810,7 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
         Tri(t) => return triangle_pdf(t, ctx, wi);
         Dsk(d) => return disk_pdf(d, ctx, wi);
         Blp(b) => return patch_pdf(b, ctx, wi);
+        Cyl(c) => return cylinder_pdf(c, ctx, wi);
     }
 }
 
@@ -2577,5 +2864,41 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             }
             return missed;
         }
+        Cyl(c) => {
+            hit = cylinder_hit(r, inf, c);
+            if hit {
+                return cylinder_geometry(c, *hit);
+            }
+            return missed;
+        }
+    }
+}
+
+// pbrt: `isect.wo` -- the SurfaceInteraction's own copy of the direction the
+// ray came from, which is not `-ray.d`. Interaction's constructor normalizes
+// the direction it is handed; a quadric hands it the direction in object
+// space (`woObject = (*objectFromRender)(wo)`), and the transform out
+// normalizes it again (`ret.wo = Normalize(t(si.wo))`); a triangle or a
+// patch hands it the render-space direction, normalized once. Unit to begin
+// with and unit after, but not the same bits -- and a layered BSDF's walk is
+// seeded by hashing this vector, so where pbrt reads `isect.wo` (the
+// visible surface's `rho`, `SampleLd`'s `intr.wo`, MixMaterial's choice,
+// everything in the wavefront's kernels) this is what it has to be given.
+// Where pbrt writes `-ray.d` (`Le` and `Sample_f` in its CPU integrators),
+// the caller keeps that. The instance's transform, where there is one, is
+// the caller's to apply after (render.bonsai's hit_wo).
+func interaction_wo(sh : Shape, wo : vec3f) -> vec3f {
+    match sh {
+        Sph(s) => return unit_vector_(apply_vector(
+            s.render_from_object,
+            unit_vector_(apply_vector(s.object_from_render, wo))));
+        Dsk(d) => return unit_vector_(apply_vector(
+            d.render_from_object,
+            unit_vector_(apply_vector(d.object_from_render, wo))));
+        Cyl(c) => return unit_vector_(apply_vector(
+            c.render_from_object,
+            unit_vector_(apply_vector(c.object_from_render, wo))));
+        Tri(t) => return unit_vector_(wo);
+        Blp(b) => return unit_vector_(wo);
     }
 }

@@ -92,6 +92,17 @@ struct Disk {
     object_from_render : [float : 16];
     at : Placement;
 }
+struct Cylinder {
+    radius : float;
+    z_min : float;
+    z_max : float;
+    phi_max : float;
+    flip : uint32;
+    reverse : uint32;
+    render_from_object : [float : 16];
+    object_from_render : [float : 16];
+    at : Placement;
+}
 
 // bonsai_scene::Node: a BVH node, `n_prims` zero for an interior node whose
 // second child is at `offset`, else a leaf of `n_prims` primitives from
@@ -123,7 +134,7 @@ struct Definition {
 }
 
 // The shape kinds, as bonsai_scene::ShapeTag numbers them: 0 sphere, 1
-// triangle, 2 disk, 3 patch.
+// triangle, 2 disk, 3 patch, 4 cylinder.
 table Geometry {
     // Bumped when a record's layout changes; the reader refuses another.
     version : uint32;
@@ -134,8 +145,9 @@ table Geometry {
     normals : [float] (vector64);
     uvs : [float] (vector64);
 
-    // The scene's own shapes, in order: kind and slot per shape, and the four
-    // vectors the slots index.
+    // The scene's own shapes, in order: kind and slot per shape, and the five
+    // vectors the slots index (the cylinders' after the rest, added later;
+    // a table's fields may be added at its end).
     shape_kinds : [ubyte] (vector64);
     shape_slots : [uint32] (vector64);
     triangles : [Triangle] (vector64);
@@ -156,6 +168,9 @@ table Geometry {
     definitions : [Definition];
     instances : [Instance];
     prims : [Prim] (vector64);
+
+    cylinders : [Cylinder] (vector64);
+    instance_cylinders : [Cylinder] (vector64);
 }
 
 root_type Geometry;

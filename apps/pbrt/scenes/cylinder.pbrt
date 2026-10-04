@@ -1,0 +1,104 @@
+# Cylinders: pbrt's Cylinder, the third quadric kept in an object space its
+# transform places (the sphere and the disk are the other two). The quadratic
+# is in the ray's x and y alone, so a ray along the axis has no coefficient
+# a and must miss; a hit is refined onto the radius and clipped by the two
+# heights and phimax; the normal comes from dpdu x dpdv, so a mirrored
+# transform tells `flip` from `reverse` as it does on the disk.
+#
+# Four of them. The light is a horizontal tube above the scene, so
+# Cylinder::Sample and Cylinder::PDF are what light sampling exercises, under
+# a mirroring scale; an upright full cylinder stands on the floor; a quarter
+# cylinder (`phimax 90`, bunny-fur's backstop) opens toward the camera, its
+# clipped edges and inside face showing; and a cylinder under an uneven scale
+# with its heights given in reverse order (`zmin 2 zmax 0`, which the
+# constructor orders) lies on its side, so the refinement and the error bound
+# are tested where the transform is not rigid. `Integrator "path"` so the
+# emitter is sampled as well as hit.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 5 12   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 50 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "cylinder.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The emitter: a tube along x, high above the floor. The scale mirrors it,
+# so the transform swaps handedness.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 6.5 1
+    Scale 1 -1 1
+    Rotate 90 0 1 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 6 5.7 5 ]
+    Shape "cylinder"
+        "float radius" [ 0.35 ]
+        "float zmin" [ -4 ]
+        "float zmax" [ 4 ]
+AttributeEnd
+
+# The floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.55 0.55 0.6 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# An upright full cylinder, its axis turned from z to y.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.6 0.25 0.2 ]
+    Translate -2.8 0 0
+    Rotate -90 1 0 0
+    Shape "cylinder"
+        "float radius" [ 1 ]
+        "float zmin" [ 0 ]
+        "float zmax" [ 2.6 ]
+AttributeEnd
+
+# A quarter cylinder, its axis along x and its opening toward the camera:
+# phi runs from +x to +y in object space, which the rotations put at the
+# camera's side.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.05 ]
+        "rgb reflectance" [ 0.2 0.45 0.25 ]
+    Translate 0.6 1.6 -1
+    Rotate 90 0 1 0
+    Rotate 180 0 0 1
+    Shape "cylinder"
+        "float radius" [ 1.6 ]
+        "float phimax" [ 90 ]
+        "float zmin" [ -1.3 ]
+        "float zmax" [ 1.3 ]
+AttributeEnd
+
+# A cylinder under an uneven scale, lying along z toward the camera, its
+# heights given in reverse order.
+AttributeBegin
+    Material "conductor"
+        "spectrum eta" [ "metal-Cu-eta" ]
+        "spectrum k" [ "metal-Cu-k" ]
+        "float roughness" [ 0.15 ]
+    Translate 3.6 0.75 1
+    Scale 1.1 0.75 1
+    Shape "cylinder"
+        "float radius" [ 1 ]
+        "float zmin" [ 2 ]
+        "float zmax" [ 0 ]
+AttributeEnd

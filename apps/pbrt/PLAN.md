@@ -837,7 +837,9 @@ Three things worth writing down:
   deterministic function of the texel, so the driver does it once per texel
   instead -- four million times at load rather than once per escaped ray -- and
   gets the same numbers. It is the same division of labour as every other
-  spectrum here, and it is why the rgb2spec tables are in the driver.
+  spectrum here. (The fit has since moved to pbrt's own table: scene_dump
+  fits the texels through it, and the driver every constant RGB, over the
+  copy the scene ships.)
 - **The transform had to be followed rather than asked for.** pbrt's
   `renderFromLight` is protected on the light and `RenderFromObject` is private
   on the builder, so `scene_dump` now mirrors the CTM: every transform directive
@@ -2552,7 +2554,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 19 | infinite light with `portal` -- **done 2026-09-29** (d5f1a114, scenes/portal.pbrt) | kroken, watercolor | 2 |
 | 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
 | 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` -- **done 2026-09-20** with item 9 | crown, killeroos | 2 |
-| 22-28 | `spot`/`point` lights (**done 2026-10-03**, the point and spot lights paragraph below), `thindielectric` (**done 2026-10-01**), `windy`/`wrinkled` textures (**done 2026-10-03**, with `fbm` and `marble`), partial `cylinder`, `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
+| 22-28 | `spot`/`point` lights (**done 2026-10-03**, the point and spot lights paragraph below), `thindielectric` (**done 2026-10-01**), `windy`/`wrinkled` textures (**done 2026-10-03**, with `fbm` and `marble`), partial `cylinder` (**done 2026-10-03**, the cylinder paragraph below), `realistic` camera, `bdpt`, `sppm` | villa, villa, villa, bunny-fur, sanmiguel (1 of 9), pavilion night, bathroom | 1 each |
 
 Nearest to converting today, in order: `ganesha`, `landscape`, `pbrt-book`,
 `lte-orb-simple-ball` (path, halton, only supported shapes, materials and
@@ -2603,8 +2605,9 @@ zero for black and for white -- a sigmoid of one half -- where pbrt's is minus
 and plus infinity, which `sigmoid` already read as nothing and everything. A
 black texel reflected half the light: a textured floor pbrt left black in a
 third of its pixels was lit in all of them, twelve percent brighter on
-average. No guard now, as pbrt has none. Constants never reached it because
-the driver fits those with the Gauss-Newton solver.
+average. No guard now, as pbrt has none. Constants never reached it then,
+because the driver fitted those with the Gauss-Newton solver; they do now (the
+cylinder paragraph below).
 
 **zero-day**, `frame25.pbrt` at 1920x840, 4.26 million shapes, 151 instances,
 283 blackbody emitters, at 16 spp and depth 5 with the packet schedule: pbrt
@@ -2697,7 +2700,7 @@ Per scene, what is missing (see the converter for what is supported):
 | bistro | `zsobol`, `normalmap`, ACES env map |
 | bmw-m6 | `volpath`, `mix` -- converts as of 2026-10-03 |
 | bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map -- all done by 2026-10-03: converts (147 MB grid sidecar) and renders, 0.99976x of `pbrt --wavefront` on the scalar schedule at 4 spp (the NanoVDB decision paragraph below) |
-| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
+| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder` (**done 2026-10-03**), `hair` |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
@@ -9845,10 +9848,153 @@ window. Test: scenes/cropwindow.pbrt, disk.pbrt's disks under a window of
 [.2 .7] x [.1 .9] on 400x300 -- a 200x240 image from pixel (80, 30) on
 both sides, 0 of 35,009 pixels disagreeing in hits or normals, radiance
 0.99999x (the albedo's 176 pixels over 5e-3 are the same 177 disk.pbrt has
-uncropped, on its edge-on coated disk, a stochastic estimate on both
-sides). head, with its own crop window, on the GPU at 4 spp: a 960x594
+uncropped, on its edge-on coated disk -- taken for a stochastic estimate on
+both sides, and found the same evening to be `isect.wo` and an unfused
+interval transform; the cylinder paragraph below, after which disk.pbrt has
+0). head, with its own crop window, on the GPU at 4 spp: a 960x594
 image on both sides, 0.99785x of `pbrt --gpu`, 569,192 lit pixels against
 569,248, the kernels 10.7 ms against 12.3 -- the scene renders whole.
+
+*The cylinder, and what its first scene found (2026-10-03).* pbrt's
+Cylinder, the third quadric: `x^2 + y^2 = r^2` between two heights and
+through `phimax` of a turn, in object space under both matrices as the
+sphere and the disk are (bunny-fur's backstop is a quarter of one). In
+shapes.bonsai, cylinder_roots is sphere_roots with the z terms left out --
+the quadratic in the ray's x and y alone, the discriminant factored about
+the ray's closest approach to the axis in the plane, `4a (r + |v|) (r -
+|v|)` grouped as pbrt groups it, in the same interval arithmetic; a ray
+along the axis has a = 0, so its roots' bounds are everything (idiv's answer
+to a divisor straddling zero, as pbrt's Interval division) and the range
+test refuses them, as pbrt's does -- cylinder_hit is the sphere's tail over
+the cylinder's refinement (x and y scaled onto the radius, no nudge off the
+axis) and clipping (both heights and phimax), cylinder_geometry pbrt's
+InteractionFromIntersection with the second derivatives in v zero and a
+gamma(3) error bound about the refined x and y, and area, Sample and PDF
+follow the disk's over pbrt's `Lerp(u[0], zMin, zMax)` and `u[1] *
+phiMax`. A fifth Shape arm, `Cyl`, after the four, so the tags the driver
+reads stay; the sidecar gains a Cylinder struct and two vectors at the
+table's end, the converter a `cylinder` branch (Cylinder::Create: the two
+heights ordered, phimax clamped and in radians, pbrt's own Cylinder for an
+emitter's light-tree node and for the tree it builds -- and its rebuild of
+pbrt's shapes for that tree gains the disk it lacked, which fell through to
+the triangles' list), the driver a pool and the bounds `(-r, -r, zMin)..(r,
+r, zMax)` under the transform.
+
+Test: scenes/cylinder.pbrt -- a tube light under a mirroring scale, an
+upright full cylinder, the quarter cylinder opening toward the camera, a
+copper cylinder under an uneven scale with its heights given reversed -- on
+the scalar schedule against pbrt: 0 of 83,336 pixels disagree in hits or
+normals, albedo 3 of 82,020 over 5e-3, radiance 0.99999x with 94.1% of
+pixels within 1e-3, 81,596 lit pixels against 81,589. The same scene under
+`volpath`: the scalar schedule against pbrt's CPU volpath 1.00003x (94.2%
+within 1e-3, 81,630 lit against 81,625), the wavefront-volpath schedule
+against `pbrt --wavefront` 1.00003x (94.7%), and on the GPU at 64 spp
+against `pbrt --gpu` gpu-optix 0.99992x with the kernels 98 ms against 122
+(pbrt's run disturbed, so provisional) and gpu-wavefront 1.00002x at 109
+ms. Found beside this: pbrt's `path` renders a one-sided area light under
+a mirroring transform some 6% brighter than its `volpath` does --
+cylinder.pbrt's tube 0.0304 against 0.0288 in the mean, disk.pbrt's disk
+light 1.066x -- because a mirrored emitter's hit normal is turned by the
+handedness swap and its sampled normal is not (SurfaceInteraction's
+`flipNormal` against Sample's `reverseOrientation`), so light sampling sees
+emission that a BSDF-sampled hit does not, and what is left of the sum
+depends on the heuristic: `path` weights with the power heuristic and
+`volpath` with the balance through its rescaled probabilities. This
+renderer matches each of pbrt's two (0.99999x and 1.00003x); the one wrong
+comparison is `--pbrt-wavefront` on a scene that names `path`, which
+measures the integrators.
+
+The first run failed two checks, and neither was the cylinder's. 1,308
+pixels on the tube's underside were lit here at 1e-8 and black in pbrt. The
+light's material is `rgb reflectance [0 0 0]`, and the driver fitted every
+constant RGB with its Gauss-Newton port of pbrt's fitting tool (rgb2spec.h),
+which answers black with three finite coefficients and a sigmoid of a part
+in ten million; pbrt looks an RGB up in its precomputed table
+(RGBToSpectrumTable::operator(), a trilinear interpolation of 3 x 64^3
+fits) and answers a grey without the table, black as a coefficient of minus
+infinity and a sigmoid of exactly zero. So every RGB material here was near
+pbrt's spectrum and none was it, and a surface pbrt left black was lit. The
+table already shipped with any scene that had a texture (textures.bonsai
+looks a texel's filtered colour up in it at the hit); it ships with every
+scene now (9.4 MB in the texture sidecar), and the driver fits each
+material's and light's constant RGB through it, by one C++ function
+(scene_io.h, rgb_sigmoid: pbrt's operator() with its Lerp fused as gcc fuses
+it) that the converter's texel fits share and that `scene_dump
+--check-tables` now holds against pbrt's RGBAlbedoSpectrum at 864 values of
+18 colours, all equal; a light's `rgb / scale` divides as pbrt's does rather
+than multiplying by the reciprocal. The port, its generated tables and its
+round-trip check are gone (rgb2spec.h, rgb2spec_tables.h,
+rgb2spec_check.cpp, the generator's part of them, render.sh's step). Across
+the scenes the albedo's mean difference from pbrt's fell by a third or
+more: three-spheres 7 of 3.4 million pixels over 5e-3 at a mean difference
+of 9.2e-5, instances 3 of 839,476; noise-textures against `pbrt
+--wavefront` unchanged at 0 over 5e-3 and 99.3% within 1e-3, the texels
+having come through the table already; mix-material's 20.8% of albedo
+pixels off is the mix's draw, as when it was committed (pbrt hashes the
+two materials' addresses into it), radiance 1.00029x.
+
+And 665 albedo pixels on the coated quarter cylinder were over 5e-3, with
+the same mean on both sides -- a layered BSDF's walk is seeded by hashing
+`wo`, so a walk with other noise. With the quarter cylinder made plain
+diffuse, 3; the cylinder's convex side toward the camera, 74; a coated disk
+facing the camera, 3, and the same disk turned by `Rotate 180`, 67. The
+direction pbrt hashes is `isect.wo`, which for a quadric is not `-ray.d`
+normalized but `-ray.d` taken into object space (`woObject =
+(*objectFromRender)(wo)`), normalized by Interaction's constructor there,
+and brought back and normalized again by the transform out; under a
+rotation that is other bits, another walk, and noise that agrees with
+pbrt's at no sample count. interaction_wo (shapes.bonsai) is that direction
+per shape -- the round trip for a quadric, a normalization for a triangle or
+a patch -- and hit_wo (render.bonsai) adds the instance's transform, which
+normalizes once more. The CPU integrators give it to `rho`, `SampleLd` and
+the mix material's choice (GetBSDF's MaterialEvalContext is built from the
+interaction) and keep `-ray.d` for `Le` and `Sample_f`, as pbrt's do;
+volpath gives it to everything, since pbrt's wavefront kernels know the
+direction as `intr.wo` and nothing else (the trace kernel's mix choice, the
+emissive queue's `w.wo` and its `wi = -w.wo`, the material queue's `wo`).
+
+disk.pbrt kept 130 of its 177 albedo pixels after that (the 177 on its
+edge-on coated disk, accepted until now as a stochastic estimate on both
+sides), 108 of them on the coated disk's 218 pixels, each off by about a
+sample's worth -- and check_hits.sh, run on the disk scene for the first
+time (it and check_differentials.sh had stopped linking at the nanovdb
+commit, the shim missing from their driver builds; both build it as
+compare.sh does now), found the cause below the shading: 59 of 7,600
+camera hits landed an ulp from pbrt's distance, every one on a disk, the
+ray the same bits. The disk's ray went into object space by the plain
+transform (pull_ray), where pbrt transforms `Point3fi(r.o)` and
+`Vector3fi(r.d)` and reads `Point3f(oi)`, `Vector3f(di)` and `Float(di.z)`
+off the intervals -- their midpoints, which the sphere already took
+(row_point_interval, row_vector_interval). The disk takes them now, which
+changed nothing: a probe over pbrt's own Transform on the differing rays
+showed the midpoint agreeing with the plain value and pbrt's interval
+*value* disagreeing with ours. pbrt's `operator()(const Vector3fi &)` and
+`(const Point3fi &)` are not fused: gcc fuses a product into its add only
+when nothing else reads the product (tree-ssa-math-opts.cc's
+convert_mult_to_fma gives up on a multiplication with a use it cannot
+convert), and in these two functions every product is read again by the
+error term's `std::abs`; so pbrt's interval point is the three roundings of
+`(m0 x + m1 y) + (m2 z + m3)` where its plain point is the two of the fused
+form, and the two differ in the last bit now and then. The two interval
+rows here wrote explicit fmas on the belief that gcc fused them as it fuses
+the plain transform; they are written unfused now, and `--ffp-contract`
+leaves them so for gcc's own reason (SSA/Contract.h asks whether the
+product has another use). Nothing had shown it: the camera's origin is the
+exact zero in pbrt's camera-world space, and the test spheres are placed by
+translations, where every fusing of a row is the same number. After it the
+disk scene's 9,952 rows are bit-exact and its albedo has 0 pixels over 5e-3
+(0 normals disagreeing, radiance 1.00000x, 81,950 lit on both sides);
+transformed-spheres' rotated and scaled spheres are bit-exact in all 9,952
+rows too, with albedo 0 over 5e-3 and 99.8% of pixels within 1e-3; and
+bump-lens, whose lens puts a nonzero origin through the same row (camera.
+bonsai's transform_ray), moves from 73.7% to 75.5% of pixels within 1e-3
+against `pbrt --wavefront`, its albedo's mean difference from 1.2e-4 to
+9.5e-5, normals and shading normals 0 off as before.
+What remains of the albedo's difference everywhere, a mean of 7e-5 to 1e-4
+and no pixel bit-exact, is the film's: spectrum_to_rgb (colour.bonsai)
+converts with a four-digit XYZ-to-sRGB matrix written out where pbrt's
+GBufferFilm multiplies the albedo by the colour space's illuminant and
+converts through the space's own RGBFromXYZ; logged in the open items.
 
 *The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
 pbrt's seven this renderer had not; every one is now reproduced
@@ -9952,6 +10098,21 @@ looked at here either.
 
 ## Known-open, smaller
 
+- **The gbuffer albedo's last digits** (noted 2026-10-03, with the
+  cylinder). No albedo pixel is bit-exact against pbrt's, by a mean of 7e-5
+  to 1e-4 on every scene, though the spectra now are (the RGB-to-spectrum
+  lookup is pbrt's to the bit, `scene_dump --check-tables`): the film's
+  conversion differs. spectrum_to_rgb (colour.bonsai) divides the XYZ
+  estimate by the CIE Y integral and multiplies by a four-digit XYZ-to-sRGB
+  matrix written out; pbrt's GBufferFilm::AddSample multiplies the albedo by
+  the colour space's illuminant, sampled at the path's wavelengths, and
+  converts through `SampledSpectrum::ToRGB` -- `ToXYZ` with pbrt's SafeDiv
+  by the wavelength pdf, then the space's own `RGBFromXYZ`, nine floats pbrt
+  computes from the primaries. The fix is to ship that matrix from the
+  converter (it already ships `output_rgb_from_sensor`) and write the
+  conversion as pbrt's; with it the albedo check could tighten from 5e-3 to
+  the ulps, and would then catch a layered walk seeded a bit off, as the
+  disk's was for a week.
 - **Deviation: the light list's order under the `uniform` sampler** (noted
   2026-10-03, with the point and spot lights). pbrt's light list is every
   area light, then the `LightSource` lights as declared -- an infinite light
@@ -10012,11 +10173,12 @@ looked at here either.
   arguments replaced by what the jump passes -- which also removes the
   empty blocks a folded dispatch leaves.
 
-- `cie_tables.h` and `rgb2spec_tables.h` are generated by
-  `make_spectrum_tables.py` and are both committed, which is against the rule
+- `cie_tables.h`, `srgb_table.h` and `noise_table.h` are generated by
+  `make_spectrum_tables.py` and are committed, which is against the rule
   that generated files stay out of git. The catch is that the generator fetches
   pbrt's source over HTTP; there is a local checkout at `~/projects/pbrt-v4`, so
   teaching it to read from there and having `render.sh` run it is the fix.
+  (`rgb2spec_tables.h` was the fourth until the Gauss-Newton fit went, 2026-10-03.)
 - Two CUDA `bind` tests have been failing since before this work
   (`backends/cuda/parallel`, `backends/cuda/rtiow-primer`).
 - A `Ramp` threaded into a block argument would hit the same hole the address of
