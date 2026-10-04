@@ -15,7 +15,8 @@
 // special values themselves are checked exactly at the end.
 //
 // Measured (max ulps over the 64 arguments, glibc 2.39): sin 2, cos 2,
-// tan 3, exp 1, log 1, asin 2, acos 2, atan2 2, atanh 2, cosh 2, pow 1.
+// tan 3, exp 1, log 1, asin 2, acos 2, atan2 2, atanh 2, cosh 2, sinh 2 (1
+// past one in magnitude, 2 under it, on its polynomial), pow 1.
 
 element Float = f32;
 element Floats = array[Float, 64];
@@ -127,6 +128,14 @@ func [[noinline]] s_cosh(x : Floats, out : mut Floats) -> void {
     parfor i in 0:64 { out[i] = cosh(x[i]); }
     return;
 }
+func [[noinline]] v_sinh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = sinh(x[i]); }
+    return;
+}
+func [[noinline]] s_sinh(x : Floats, out : mut Floats) -> void {
+    parfor i in 0:64 { out[i] = sinh(x[i]); }
+    return;
+}
 func [[noinline]] v_pow(x : Floats, y : Floats, out : mut Floats) -> void {
     parfor i in 0:64 { out[i] = pow(x[i], y[i]); }
     return;
@@ -168,6 +177,14 @@ func main() -> i32 {
     print(worst(v, s) <= 2.0);
     v_cosh(x, v);
     s_cosh(x, s);
+    print(worst(v, s) <= 3.0);
+    v_sinh(x, v);
+    s_sinh(x, s);
+    print(worst(v, s) <= 3.0);
+    // And sinh's polynomial half, which the spread above steps over.
+    spread(-1.0, 1.0, x);
+    v_sinh(x, v);
+    s_sinh(x, s);
     print(worst(v, s) <= 3.0);
 
     spread(0.001, 100000.0, x);
@@ -259,5 +276,6 @@ schedule {
     v_atan2.vectorize(i);
     v_atanh.vectorize(i);
     v_cosh.vectorize(i);
+    v_sinh.vectorize(i);
     v_pow.vectorize(i);
 }

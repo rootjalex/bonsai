@@ -38,6 +38,7 @@ func [[export]] asin8(x : f32x8) -> f32x8 = asin(x);
 func [[export]] acos8(x : f32x8) -> f32x8 = acos(x);
 func [[export]] atan2_8(y : f32x8, x : f32x8) -> f32x8 = atan2(y, x);
 func [[export]] atanh8(x : f32x8) -> f32x8 = atanh(x);
+func [[export]] sinh8(x : f32x8) -> f32x8 = sinh(x);
 func [[export]] cosh8(x : f32x8) -> f32x8 = cosh(x);
 func [[export]] pow8(x : f32x8, y : f32x8) -> f32x8 = pow(x, y);
 

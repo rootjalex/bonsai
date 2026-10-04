@@ -314,6 +314,7 @@ bool math_library_call(ir::Intrinsic::OpType op) {
     case ir::Intrinsic::log:
     case ir::Intrinsic::pow:
     case ir::Intrinsic::sin:
+    case ir::Intrinsic::sinh:
     case ir::Intrinsic::tan:
         return true;
     default:

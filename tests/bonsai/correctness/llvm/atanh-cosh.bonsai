@@ -15,7 +15,9 @@
 // So what is checked here is not just the values but the routes: `cosh` is an
 // LLVM intrinsic and `atanh` is a call to libm, because LLVM has intrinsics for
 // the hyperbolic functions and not for their inverses. The IR shape is pinned
-// by backends/llvm/libm-call.bonsai; this checks the answers.
+// by backends/llvm/libm-call.bonsai; this checks the answers. `sinh`, the
+// other hyperbolic function (pbrt's HairBxDF divides by `std::sinh(1 / v)`),
+// takes the same route as `cosh` and is checked beside it.
 element Float = f32;
 
 func close(a : Float, b : Float) -> bool = abs(a - b) < 1.0e-5;
@@ -31,6 +33,12 @@ func main() -> i32 {
     print(close(cosh(1.0), 1.543080635));
     print(close(cosh(0.0 - 1.0), 1.543080635));
     print(close(cosh(2.0), 3.762195691));
+    // sinh: odd, zero at zero, and the other half of cosh's exponentials.
+    print(close(sinh(0.0), 0.0));
+    print(close(sinh(1.0), 1.175201194));
+    print(close(sinh(0.0 - 1.0), 0.0 - 1.175201194));
+    print(close(sinh(2.0), 3.626860408));
+    print(close(sinh(0.1), 0.100166750));
 
     // Round trip: tanh has no intrinsic here, but cosh and atanh compose
     // through the identity tanh(x) = sqrt(1 - 1/cosh(x)^2) for positive x.
@@ -53,6 +61,11 @@ func main() -> i32 {
     print(close(h.y, 1.543080635));
     print(close(h.z, 3.762195691));
     print(close(h.w, 10.06766200));
+    sh = sinh(w);
+    print(close(sh.x, 0.0));
+    print(close(sh.y, 1.175201194));
+    print(close(sh.z, 3.626860408));
+    print(close(sh.w, 10.01787493));
 
     // pbrt's SampleVisibleWavelengths and VisibleWavelengthsPDF, which is what
     // both of these are here for. At u = 0.5 the four wavelengths are the ones

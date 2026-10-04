@@ -55,7 +55,8 @@ bool VectorMath::handles(const std::string &name, llvm::Type *element) {
         return name == "exp" || name == "log" || name == "sin" ||
                name == "cos" || name == "tan" || name == "asin" ||
                name == "acos" || name == "atan" || name == "atan2" ||
-               name == "atanh" || name == "cosh" || name == "pow";
+               name == "atanh" || name == "sinh" || name == "cosh" ||
+               name == "pow";
     }
     if (element->isDoubleTy()) {
         return name == "exp" || name == "log" || name == "sin" ||
@@ -93,6 +94,8 @@ llvm::Value *VectorMath::call(const std::string &name,
         return atan2(args[0], args[1]);
     } else if (name == "atanh" && unary) {
         return atanh(args[0]);
+    } else if (name == "sinh" && unary) {
+        return sinh(args[0]);
     } else if (name == "cosh" && unary) {
         return cosh(args[0]);
     } else if (name == "pow" && args.size() == 2) {
@@ -551,7 +554,7 @@ llvm::Value *VectorMath::atan2(llvm::Value *y, llvm::Value *x) {
                                    nullptr, "atan2");
 }
 
-// --- atanh, cosh, pow -----------------------------------------------------------
+// --- atanh, sinh, cosh, pow -----------------------------------------------------
 
 llvm::Value *VectorMath::atanh(llvm::Value *x) {
     // Cephes atanhf below 0.5: x + x^3 P(x^2). Beyond, atanh x = log1p(2x /
@@ -572,6 +575,28 @@ llvm::Value *VectorMath::atanh(llvm::Value *x) {
         t, llvm::Intrinsic::copysign,
         {builder.CreateFMul(log1p(quotient), splat(t, 0.5)), x});
     return builder.CreateSelect(small, near, far, "atanh");
+}
+
+llvm::Value *VectorMath::sinh(llvm::Value *x) {
+    // Cephes sinhf: up to one in magnitude, x + x^3 P(x^2), which keeps the
+    // precision the difference of two exponentials loses near zero; beyond,
+    // (e^|x| - e^-|x|) / 2 with the sign put back by copysign, infinite past
+    // 89 as the exponential is. What pbrt's HairBxDF divides its
+    // longitudinal term by (`std::sinh(1 / v)`) when the roughness is wide.
+    llvm::Type *t = x->getType();
+    const std::vector<double> p =
+        widen({2.03721912945E-4f, 8.33028376239E-3f, 1.66667160211E-1f});
+    llvm::Value *a = fabs(x);
+    llvm::Value *small = builder.CreateFCmpOLE(a, splat(t, 1.0));
+    llvm::Value *z = builder.CreateFMul(x, x);
+    llvm::Value *near = fma(builder.CreateFMul(polynomial(p, z), z), x, x);
+    llvm::Value *e = exp(a);
+    llvm::Value *half = splat(t, 0.5);
+    llvm::Value *far = builder.CreateIntrinsic(
+        t, llvm::Intrinsic::copysign,
+        {builder.CreateFSub(builder.CreateFMul(half, e), builder.CreateFDiv(half, e)),
+         x});
+    return builder.CreateSelect(small, near, far, "sinh");
 }
 
 llvm::Value *VectorMath::cosh(llvm::Value *x) {

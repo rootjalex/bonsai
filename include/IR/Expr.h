@@ -631,6 +631,7 @@ struct Intrinsic : ExprNode<Intrinsic> {
         rcp,
         round,
         sin,
+        sinh,
         sqr,
         sqrt,
         tan,

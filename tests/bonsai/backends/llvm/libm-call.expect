@@ -30,6 +30,13 @@ scalar_cosh_entry:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @scalar_sinh(float noundef %x) local_unnamed_addr #1 {
+scalar_sinh_entry:
+  %0 = tail call float @llvm.sinh.f32(float %x)
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define <4 x double> @vector_asin(<4 x double> noundef %v) local_unnamed_addr #1 {
 vector_asin_entry:
   %0 = tail call <4 x double> @llvm.asin.v4f64(<4 x double> %v)
@@ -61,6 +68,13 @@ vector_cosh_entry:
   ret <4 x double> %0
 }
 
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define <4 x double> @vector_sinh(<4 x double> noundef %v) local_unnamed_addr #1 {
+vector_sinh_entry:
+  %0 = tail call <4 x double> @llvm.sinh.v4f64(<4 x double> %v)
+  ret <4 x double> %0
+}
+
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
 declare double @atanh(double) local_unnamed_addr #2
 
@@ -74,10 +88,16 @@ declare float @atanhf(float) local_unnamed_addr #2
 declare float @llvm.cosh.f32(float) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.sinh.f32(float) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x double> @llvm.asin.v4f64(<4 x double>) #3
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x double> @llvm.cosh.v4f64(<4 x double>) #3
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare <4 x double> @llvm.sinh.v4f64(<4 x double>) #3
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(errnomem: write) }
 attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

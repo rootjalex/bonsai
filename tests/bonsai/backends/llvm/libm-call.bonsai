@@ -3,11 +3,12 @@
 // How the maths reaches the target when it is a call to libm.
 //
 // A scalar always is one. LLVM has intrinsics for the hyperbolic functions
-// and, since LLVM 19, for asin, acos and atan, but not for atanh: so `cosh`
-// and `asin` become llvm.cosh and llvm.asin, which on a scalar are legalised
-// into the calls to libm's coshf and asinf a C compiler emits for std::cosh
-// and std::asin -- the same function, and so the same answer bit for bit --
-// and `atanh` is that call to atanhf directly. Bit for bit matters: apps/pbrt
+// and, since LLVM 19, for asin, acos and atan, but not for atanh: so `sinh`,
+// `cosh` and `asin` become llvm.sinh, llvm.cosh and llvm.asin, which on a
+// scalar are legalised into the calls to libm's sinhf, coshf and asinf a C
+// compiler emits for std::sinh, std::cosh and std::asin -- the same function,
+// and so the same answer bit for bit -- and `atanh` is that call to atanhf
+// directly. Bit for bit matters: apps/pbrt
 // rounds a wavelength to the nearest nanometre before indexing a table, and a
 // last-bit difference in atanh occasionally picks the neighbouring entry.
 //
@@ -27,11 +28,14 @@
 // fails to build.
 func [[export]]scalar_atanh(x : f32) -> f32 = atanh(x);
 func [[export]]scalar_cosh(x : f32) -> f32 = cosh(x);
+// What pbrt's HairBxDF divides its longitudinal term by.
+func [[export]]scalar_sinh(x : f32) -> f32 = sinh(x);
 // It is what AngleBetween in the mesh-light sampling rests on.
 func [[export]]scalar_asin(x : f32) -> f32 = asin(x);
 
 func [[export]]vector_atanh(v : vector[f64, 4]) -> vector[f64, 4] = atanh(v);
 func [[export]]vector_cosh(v : vector[f64, 4]) -> vector[f64, 4] = cosh(v);
+func [[export]]vector_sinh(v : vector[f64, 4]) -> vector[f64, 4] = sinh(v);
 func [[export]]vector_asin(v : vector[f64, 4]) -> vector[f64, 4] = asin(v);
 
 // Double precision goes to the unsuffixed entry point, as C's overloads do.

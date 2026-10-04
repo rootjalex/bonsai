@@ -47,7 +47,9 @@ namespace bonsai {
 //     tan(3pi/8) and a polynomial in the remainder, atan2 from atan by
 //     quadrant.
 //   * atanh is Cephes's polynomial below 0.5 and log1p(2x/(1 - x))/2 beyond
-//     it, log1p being XNNPACK's; cosh is (e^|x| + e^-|x|)/2 from exp; pow is
+//     it, log1p being XNNPACK's; sinh is Cephes's odd polynomial up to one
+//     and (e^|x| - e^-|x|)/2 with the sign put back beyond it; cosh is
+//     (e^|x| + e^-|x|)/2 from exp; pow is
 //     exp(y log x) taken in double precision, with the sign of a negative
 //     base to an odd power put back and the identities pow(x, 0) = 1 and
 //     pow(1, y) = 1 kept.
@@ -95,6 +97,7 @@ struct VectorMath {
     llvm::Value *atan(llvm::Value *x);
     llvm::Value *atan2(llvm::Value *y, llvm::Value *x);
     llvm::Value *atanh(llvm::Value *x);
+    llvm::Value *sinh(llvm::Value *x);
     llvm::Value *cosh(llvm::Value *x);
     llvm::Value *pow(llvm::Value *x, llvm::Value *y);
 

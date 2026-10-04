@@ -3439,6 +3439,8 @@ const char *math_library_name(Intrinsic::OpType op) {
         return "pow";
     case Intrinsic::sin:
         return "sin";
+    case Intrinsic::sinh:
+        return "sinh";
     case Intrinsic::tan:
         return "tan";
     default:
@@ -3778,6 +3780,10 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     }
     case Intrinsic::sin: {
         intrin = llvm::Intrinsic::sin;
+        break;
+    }
+    case Intrinsic::sinh: {
+        intrin = llvm::Intrinsic::sinh;
         break;
     }
     case Intrinsic::sqr: {

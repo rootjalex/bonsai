@@ -1209,6 +1209,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "round";
     case Intrinsic::sin:
         return "sin";
+    case Intrinsic::sinh:
+        return "sinh";
     case Intrinsic::sqr:
         return "sqr";
     case Intrinsic::sqrt:
