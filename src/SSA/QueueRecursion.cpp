@@ -1337,7 +1337,55 @@ void queue_recursion(Function &func, size_t size) {
                     func.blocks.push_back(push);
                     by_count.targets.push_back(Terminator::Jump{push->name});
                 }
-                into->terminator.data = std::move(by_count);
+                // Not one switch on the count but Embree's traverseAnyHit
+                // in its own order: no hit (`if (unlikely(mask == 0)) goto
+                // pop`, a kortest), then one hit (`r = bscf(mask); if
+                // (likely(mask == 0))`: `bits & (bits - 1) == 0`, one
+                // instruction on the mask), then the counts from two up as
+                // the switch, on `hits - 2`. A switch on the count with arms
+                // for zero to four hits and a default is five cases, and
+                // LLVM makes a jump table of four or more: an indirect
+                // branch behind a load, and the dispatch done twice where
+                // the prefetch of each hit lane tests the count before it.
+                // None and one are the common cases on incoherent rays;
+                // with them taken first the switch has three cases, below
+                // the table threshold, and the two tests are what Embree
+                // runs.
+                internal_assert(scalar_counts >= 2) << "a run of " << n;
+                auto some = append(func, into, bool_t, Instruction::Op::Any,
+                                   {mask});
+                auto hit = new_block(func, name + "!hit");
+                func.blocks.push_back(hit);
+                into->terminator.data = Terminator::Dispatch{
+                    some, {by_count.targets[0], Terminator::Jump{hit->name}}};
+                shared_ptr<Value> one;
+                if (as_bits) {
+                    auto bits = whole_mask(hit);
+                    auto one_of = std::make_shared<Value>(
+                        Constant{wide_t, uint64_t(1)});
+                    auto none_of = std::make_shared<Value>(
+                        Constant{wide_t, uint64_t(0)});
+                    auto below = append(func, hit, wide_t,
+                                        Instruction::Op::Sub, {bits, one_of});
+                    auto cleared = append(func, hit, wide_t,
+                                          Instruction::Op::BwAnd, {bits, below});
+                    one = append(func, hit, bool_t, Instruction::Op::Eq,
+                                 {cleared, none_of});
+                } else {
+                    one = append(func, hit, bool_t, Instruction::Op::Eq,
+                                 {hits, count_of(1)});
+                }
+                auto from_two = new_block(func, name + "!hits2up");
+                func.blocks.push_back(from_two);
+                vector<Terminator::Jump> arms_from_two(
+                    by_count.targets.begin() + 2, by_count.targets.end());
+                auto count_from_two = append(func, from_two, count_type,
+                                             Instruction::Op::Sub,
+                                             {hits, count_of(2)});
+                from_two->terminator.data = Terminator::Dispatch{
+                    count_from_two, std::move(arms_from_two)};
+                hit->terminator.data = Terminator::Dispatch{
+                    one, {Terminator::Jump{from_two->name}, by_count.targets[1]}};
                 if (!push) {
                     continue;
                 }

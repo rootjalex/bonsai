@@ -116,8 +116,14 @@ struct Group : LayoutNode<Group> {
     // index. Indirect groups are auxiliary storage, reached only by a lookup
     // from somewhere else: a foreign table, in the relational reading. They
     // are what lets one tree's storage hold another's, and so what lets two
-    // terms share a subtree by naming the same index.
-    enum class Type { Direct, Indirect };
+    // terms share a subtree by naming the same index. Pointer groups are
+    // indirect groups whose rows are reached by address rather than by index
+    // from the group's base: a lookup `arena[a]` is the row at address `a`,
+    // Scion's `ptr` groups, and what a reference that is a pointer -- Embree's
+    // NodeRef, an address with the kind in its low bits -- is looked up in.
+    // The group's own storage (its size, its buffer) is what the program owns
+    // and uploads; the addresses the lookups follow point into it.
+    enum class Type { Direct, Indirect, Pointer };
 
     Expr size;
     // The index variable this group is addressed by, in scope for its body.

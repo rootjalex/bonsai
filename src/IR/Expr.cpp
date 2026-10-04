@@ -1403,10 +1403,16 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             const bool reference =
                 args.size() == 1 &&
                 (first.is<Ref_t>() || first.is_int_or_uint());
+            // A pointer, or an address as a 64-bit integer -- a reference
+            // that is a pointer with its kind bits in place, a `ptr group`'s,
+            // fetched as Embree's BVH::prefetch fetches a NodeRef -- and a
+            // vector of either once a gang widens it.
+            const auto addresses = [](const Type &t) {
+                const Type e = t.is<Vector_t>() ? t.element_of() : t;
+                return e.is<Ptr_t>() || (e.is_int_or_uint() && e.bits() == 64);
+            };
             const bool address =
-                (args.size() == 2 || args.size() == 3) &&
-                (first.is<Ptr_t>() ||
-                 (first.is<Vector_t>() && first.element_of().is<Ptr_t>())) &&
+                (args.size() == 2 || args.size() == 3) && addresses(first) &&
                 args[1].type().is_int_or_uint() &&
                 (args.size() == 2 || args[2].type().is_bool() ||
                  (args[2].type().is<Vector_t>() &&

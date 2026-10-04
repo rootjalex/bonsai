@@ -45,6 +45,10 @@ struct LayoutTypeMap {
         // it reads through that object's name and not through the element's
         // field, which holds only where to start.
         std::string owner_name;
+        // How the group's rows are reached: by index from the group's base
+        // (indirect), or by address (ir::Group::Type::Pointer), where the
+        // index a lookup carries is the row's address itself.
+        ir::Group::Type type = ir::Group::Type::Indirect;
     };
     std::map<std::string, Named> groups;
     // Element fields the schedule bound to a tree, and the type a reference
@@ -279,7 +283,7 @@ IndexTList get_index_type(const ir::Layout &layout) {
             switch (l.node_type()) {
             case ir::IRLayoutEnum::Group: {
                 const ir::Group *node = l.as<ir::Group>();
-                if (node->type == ir::Group::Type::Indirect) {
+                if (node->type != ir::Group::Type::Direct) {
                     // Auxiliary storage. A lookup into it supplies its own
                     // index, so it is no part of the reference the traversal
                     // carries -- which is also why it may sit beside the
@@ -335,7 +339,7 @@ std::vector<ir::Expr> get_index_starts(const ir::Layout &layout) {
     }
     for (const auto &l : chain->layouts) {
         const ir::Group *node = l.as<ir::Group>();
-        if (node == nullptr || node->type == ir::Group::Type::Indirect) {
+        if (node == nullptr || node->type != ir::Group::Type::Direct) {
             continue;
         }
         starts = get_index_starts(node->inner);
@@ -547,6 +551,7 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                     internal_assert(added)
                         << "Two groups named " << node->declared_name
                         << ": a lookup could not say which it meant.";
+                    ltmap.groups.at(node->declared_name).type = node->type;
                     named_here.emplace_back(node->declared_name, node);
                 }
                 // push back new field type.
@@ -685,8 +690,39 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             << "Group " << lookup->group_name
             << " is not in scope where it is looked up. A group has to be "
                "declared before the arm that names it.";
-        ir::Expr row =
-            ir::Extract::make(*rows, fill(frames, lookup->index));
+        ir::Expr index = fill(frames, lookup->index);
+        // A pointer group's row is at the address the index is: the
+        // reference's bits followed as the pointer they are (ir::Group::
+        // Type::Pointer), nothing of the group's base added -- Embree's
+        // NodeRef, which is an address with the kind in its low bits.
+        // Read-only, as every layout's storage is.
+        const bool by_address =
+            named->second.type == ir::Group::Type::Pointer;
+        ir::Expr address;
+        if (by_address) {
+            internal_assert(index.type().is_int_or_uint() &&
+                            index.type().bits() == 64)
+                << "A lookup into ptr group " << lookup->group_name
+                << " is by address, a 64-bit integer, and this one is a "
+                << index.type() << ": " << lookup->index;
+            address = ir::Cast::make(
+                ir::Ptr_t::make(ir::UInt_t::make(8), /*readonly=*/true),
+                std::move(index), ir::Cast::Mode::Reinterpret);
+        }
+        ir::Expr row = by_address ? ir::Expr()
+                                  : ir::Extract::make(*rows, std::move(index));
+        if (by_address && !lookup->shape.defined()) {
+            // The row as the group's own rows are shaped: element zero of
+            // an array of them at the address (as below for a shape).
+            const auto row_t = ltmap.layout_to_type.find(named->second.inner);
+            internal_assert(row_t != ltmap.layout_to_type.cend())
+                << "Unseen rows of ptr group " << lookup->group_name;
+            row = ir::Extract::make(
+                ir::Cast::make(ir::Array_t::make(row_t->second, ir::Expr(),
+                                                 /*readonly=*/true),
+                               address, ir::Cast::Mode::Reinterpret),
+                ir::UIntImm::make(ir::UInt_t::make(32), 0));
+        }
         // A row of a group of bytes, shaped as the arm says: the bytes at
         // the offset, read as the shape's struct through its address
         // (ir::Lookup::shape). The offset is the reference's upper bits, so
@@ -707,7 +743,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             row = ir::Extract::make(
                 ir::Cast::make(ir::Array_t::make(shaped->second, ir::Expr(),
                                                  /*readonly=*/true),
-                               ir::PtrTo::make(std::move(row)),
+                               by_address ? address
+                                          : ir::PtrTo::make(std::move(row)),
                                ir::Cast::Mode::Reinterpret),
                 ir::UIntImm::make(ir::UInt_t::make(32), 0));
             if (field == kRowOfArm) {
@@ -765,7 +802,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                     group_count++, node->element.defined() || node->name.empty()
                                        ? node->declared_name
                                        : node->name);
-                if (node->type == ir::Group::Type::Indirect) {
+                if (node->type != ir::Group::Type::Direct) {
                     // Not walked into: its rows are reached only through a
                     // lookup, which supplies the index, and descending here
                     // would invent an index variable nothing binds. Put the
@@ -936,7 +973,7 @@ ir::Stmt lower_switch_tree(ir::Layout layout, ir::Expr base,
         // reuse the names this one uses. An instance's tree calls its nodes
         // Interior and Leaf just as the tree holding the instances does.
         void visit(const ir::Group *node) override {
-            if (node->type == ir::Group::Type::Indirect) {
+            if (node->type != ir::Group::Type::Direct) {
                 return;
             }
             node->inner.accept(this);
@@ -1399,7 +1436,7 @@ std::vector<std::string> switch_arm_names(const ir::Layout &layout) {
     struct Find : public ir::Visitor {
         std::vector<std::string> names;
         void visit(const ir::Group *node) override {
-            if (node->type == ir::Group::Type::Indirect) {
+            if (node->type != ir::Group::Type::Direct) {
                 return;
             }
             node->inner.accept(this);
@@ -1498,15 +1535,59 @@ struct LowerReferencePrefetches : public ir::Mutator {
             return address_of_row(row);
         };
         // The same address however the arm reads it: the reinterpretations
-        // to each arm's shape taken off.
-        const auto stripped = [](ir::Expr address) {
-            while (const ir::Cast *cast = address.as<ir::Cast>()) {
-                if (cast->mode != ir::Cast::Mode::Reinterpret) {
-                    break;
-                }
-                address = cast->value;
+        // to each arm's shape taken off, and the low bits an arm clears --
+        // `(ref >> 4u) * 16u`, a NodeRef's kind taken off before the leaf's
+        // address is followed -- taken off too, since a prefetch fetches the
+        // cache line and the line is the same with or without them: Embree's
+        // BVH::prefetch fetches through the NodeRef as it is, kind bits
+        // included, whatever it points at.
+        const auto without_low_bits = [](const ir::Expr &e) -> ir::Expr {
+            const ir::BinOp *outer = e.as<ir::BinOp>();
+            if (outer == nullptr) {
+                return ir::Expr();
             }
-            return address;
+            // x & ~m, for a mask of fewer than 64 bytes
+            if (outer->op == ir::BinOp::BwAnd) {
+                for (const auto &[x, c] : {std::pair{outer->a, outer->b},
+                                           std::pair{outer->b, outer->a}}) {
+                    const std::optional<uint64_t> mask =
+                        get_constant_value<uint64_t>(c);
+                    if (mask.has_value() && (~*mask) < 64) {
+                        return x;
+                    }
+                }
+                return ir::Expr();
+            }
+            // (x >> k) << k, or (x >> k) * 2^k, for k below 6
+            if (outer->op != ir::BinOp::Shl && outer->op != ir::BinOp::Mul) {
+                return ir::Expr();
+            }
+            const ir::BinOp *inner = outer->a.as<ir::BinOp>();
+            if (inner == nullptr || inner->op != ir::BinOp::Shr) {
+                return ir::Expr();
+            }
+            const std::optional<uint64_t> k = get_constant_value<uint64_t>(inner->b);
+            const std::optional<uint64_t> by = get_constant_value<uint64_t>(outer->b);
+            if (!k.has_value() || !by.has_value() || *k >= 6) {
+                return ir::Expr();
+            }
+            const uint64_t expect = outer->op == ir::BinOp::Shl ? *k : (uint64_t(1) << *k);
+            return *by == expect ? inner->a : ir::Expr();
+        };
+        const auto stripped = [&](ir::Expr address) {
+            for (;;) {
+                if (const ir::Cast *cast = address.as<ir::Cast>();
+                    cast != nullptr && cast->mode == ir::Cast::Mode::Reinterpret) {
+                    address = cast->value;
+                    continue;
+                }
+                if (ir::Expr untagged = without_low_bits(address);
+                    untagged.defined()) {
+                    address = std::move(untagged);
+                    continue;
+                }
+                return address;
+            }
         };
         const ir::Expr first = stripped(address_of(rows.begin()->second));
         const bool one_address = std::all_of(
@@ -1515,6 +1596,12 @@ struct LowerReferencePrefetches : public ir::Mutator {
             });
         ir::Stmt chain;
         if (one_address) {
+            // What is left after the stripping may be the reference's bits
+            // themselves, an integer (a pointer group's lookup): the
+            // backends take an integer address as one (CodeGen_LLVM::
+            // emit_prefetch; bonsai_prefetch in runtime/bonsai_cpp.h), and
+            // a gang of them stays a vector of integers, which the C++
+            // backend can name where a vector of pointers it cannot.
             chain = fetch_of(first);
         } else {
             chain = lower_switch_tree(layout, base, tree_name, ltmap);
@@ -1749,9 +1836,24 @@ struct LowerMatches : public ir::Mutator {
                 // unless said otherwise. A tree held in an element's field is
                 // rooted wherever that field says, which is the value already
                 // bound under this name -- the same walk over the same
-                // storage, begun somewhere else.
+                // storage, begun somewhere else. A start that names a field
+                // the layout stores (`layout tris(ref : u64 = root)`, the
+                // root's address where the references are pointers) is that
+                // field, read off the layout's struct.
+                ir::Expr start = declared_starts[k];
+                if (const ir::Var *field = start.as<ir::Var>();
+                    field != nullptr && !nested) {
+                    start = field_in_layout(
+                        base_struct, layout,
+                        ir::MapStack<std::string, ir::Expr>(), tree_name, "",
+                        field->name, ltmap, /*outer_group=*/ir::Expr());
+                    internal_assert(start.defined())
+                        << "The layout of " << tree_name
+                        << " starts its walk at `" << field->name
+                        << "`, which is not a field it stores.";
+                }
                 starts.push_back(nested ? ir::Var::make(it.type, tree_name)
-                                        : declared_starts[k]);
+                                        : std::move(start));
                 it.name = tree_name + "_" + it.name;
                 idxs.push_back(ir::Var::make(it.type, it.name));
             }

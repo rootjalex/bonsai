@@ -53,6 +53,7 @@ add_bonsai_tests(
     tight-array.bonsai
     tiled-elements.bonsai
     arena-rows.bonsai
+    ptr-arena-rows.bonsai
     prefetch-children.bonsai
     trace_aosoa.bonsai
     trace.bonsai

@@ -195,10 +195,10 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
         << index_t;
     internal_assert(inner.defined())
         << "Cannot make Group with undefined inner, named: " << name;
-    // An indirect group is reached only by being named, so one without a name
-    // is storage nothing can ever read.
-    internal_assert(type != Group::Type::Indirect || !declared_name.empty())
-        << "An indirect group has to be named: nothing can look it up "
+    // An indirect group, or a pointer group, is reached only by being named,
+    // so one without a name is storage nothing can ever read.
+    internal_assert(type == Group::Type::Direct || !declared_name.empty())
+        << "An indirect or ptr group has to be named: nothing can look it up "
            "otherwise.";
 
     internal_assert(!element.defined() || type == Group::Type::Indirect)

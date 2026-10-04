@@ -364,14 +364,13 @@ RTCScene make_embree_scene(RTCDevice device, const Mesh &mesh) {
 //===----------------------------------------------------------------------===//
 
 // Embree: NodeRefPtr<8>. The low four bits say what a reference is -- 0 an
-// AABB node, tyLeaf (8) + n a leaf of n blocks -- and the rest where. Embree
-// puts a byte address there; the layout (schedules/trees/bvh8.bonsai) puts
-// the byte offset of the row or of the leaf's first block in one arena of
-// bytes, the same bits up to the arena's base. While the tree is being
-// built the references name rows and blocks by index, in the arrays the
-// builder's callbacks fill; they become offsets when the arena is assembled
-// (build_tree). An empty child slot is `emptyNode`, a leaf of no blocks,
-// with bounds no ray meets.
+// AABB node, tyLeaf (8) + n a leaf of n blocks -- and the rest is the byte
+// address of the row or of the leaf's first block, which is what the layout
+// (schedules/trees/bvh8.bonsai) reads too: a `ptr group`, its rows reached
+// by address. While the tree is being built the references name rows and
+// blocks by index, in the arrays the builder's callbacks fill; they become
+// addresses when the storage is assembled (build_tree). An empty child slot
+// is `emptyNode`, a leaf of no blocks, with bounds no ray meets.
 constexpr uint64_t kTyLeaf = 8;
 constexpr uint64_t kEmptyNode = kTyLeaf;
 
@@ -792,17 +791,18 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
                   "the fields sit where Embree's TriangleM<4> puts them");
 
     // The arena: one storage holding every row and every block, each
-    // reference the byte offset of what it names with the kind in its low
-    // four bits (schedules/trees/bvh8.bonsai). Embree's allocator hands
-    // nodes and leaves out of one address space in build order -- per thread,
-    // and in separate blocks for the two kinds -- and its relocation copies
-    // the largest nodes to fresh space. Here the rows go first, the relocated
-    // nodes in depth-first order from the root (so the root is at offset 0,
-    // where the layout's reference parameter starts) and the rest in build
-    // order, and the blocks follow in build order; rows and blocks are
-    // aligned as Embree's are (32 and 16 bytes: 256 and 176 are multiples of
-    // both). The references the build wrote name rows and blocks by index
-    // and are rewritten to offsets as the rows are copied in.
+    // reference the address of what it names with the kind in its low four
+    // bits, Embree's NodeRef (schedules/trees/bvh8.bonsai). Embree's
+    // allocator hands nodes and leaves out of one address space in build
+    // order -- per thread, and in separate blocks for the two kinds -- and
+    // its relocation copies the largest nodes to fresh space. Here the rows
+    // go first, the relocated nodes in depth-first order from the root (so
+    // the root is row 0, whose address the layout's `root` field holds) and
+    // the rest in build order, and the blocks follow in build order; rows
+    // and blocks are aligned as Embree's are (32 and 16 bytes: 256 and 176
+    // are multiples of both). The references the build wrote name rows and
+    // blocks by index and are rewritten to addresses as the rows are copied
+    // in; the storage is mapped once and never moves.
     const uint64_t rows_bytes = tree.nodes * sizeof(NodeRow);
     const uint64_t total = rows_bytes + tree.blocks * sizeof(TriangleBlock);
     const auto row_offset = [](uint64_t row) { return row * sizeof(NodeRow); };
@@ -814,6 +814,7 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     // block), and zero-filled by the kernel.
     tree.arena.allocate(total);
     uint8_t *const arena = static_cast<uint8_t *>(tree.arena.ptr);
+    const uint64_t base = reinterpret_cast<uint64_t>(arena);
     for (uint64_t row = 0; row < tree.nodes; row++) {
         NodeRow n = b.rows[row];
         for (int i = 0; i < 8; i++) {
@@ -821,9 +822,9 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
             if (child == kEmptyNode) {
                 continue;
             }
-            n.children[i] = (child & 15) == 0
-                                ? row_offset(child >> 4)
-                                : (block_offset(child >> 4) | (child & 15));
+            n.children[i] = (child & kTyLeaf) == 0
+                                ? base + row_offset(child >> 4)
+                                : ((base + block_offset(child >> 4)) | (child & 15));
         }
         std::memcpy(arena + row_offset(row), &n, sizeof(NodeRow));
     }
@@ -836,6 +837,7 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     b.blocks.clear();
     b.blocks.shrink_to_fit();
     tree.arena_buffer = bonsai_buffer_wrap(arena, total);
+    tree.layout.root = base; // row 0, an AABB node: its address is its reference
     tree.layout.bytes = total;
     tree.layout.group0_arena = &tree.arena_buffer;
     return tree;

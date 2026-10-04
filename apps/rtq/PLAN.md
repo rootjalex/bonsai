@@ -2411,6 +2411,101 @@ and then aborts in the layout printer (IRHandle::accept on a null Expr,
 under a layout's `group[...]`); the dump is complete, the abort is after
 it. Not fixed.
 
+## The layout as Embree's: references that are pointers (2026-10-04)
+
+**The ruling.** The user: the layout has to be Embree's, and storing an
+offset where Embree stores a pointer was not it -- Scion's branch has
+pointer references (`ptr` groups, `Group::Type::Pointer`), and this branch
+had dropped them. The "deliberate difference" recorded above (the one
+`add` of the arena's base per visit, so that the tree stays relocatable)
+is withdrawn.
+
+**What was built.** `ptr group arena[bytes] { byte : u8; }` is a third
+kind of group beside direct and indirect (Lexer/Parser/Token, IR/Layout,
+Printer, ValidateLayout): its rows are reached by address, a lookup
+`arena[a]` is the row at address `a` with nothing of the group's base
+added (Lower/Layouts.cpp, field_in_layout), and the group's own storage
+is only owned and uploaded. A layout's reference parameter may start at a
+field the layout stores, `layout triangles(ref : u64 = root) { root :
+u64; ... }` -- the root's address, Embree's `bvh->root`, which the driver
+fills -- resolved to that field's read when the walk begins (LowerMatches).
+The BVH8 layout is now Embree's NodeRef exactly: `switch ref[3:3]`, bit 3
+the kind as `isLeaf()`; `Interior from arena[ref]`, the reference being
+the address since an AABB node's kind bits are zero (`getAABBNode`),
+nothing masked; `Leaf from arena[ref[4:63] * 16u]` with the count in the
+low three bits (`leaf(num)`). An element reference may begin at such an
+address rather than at a storage variable: the reference the argmin keeps
+is then the leaf's address and the element's place in it
+(Lower/ElementReferences.cpp). The prefetch of a hit child is of the
+reference as it is, kind bits included, as `BVH::prefetch` does: the
+arms' addresses differ only in the low bits one of them clears, which
+LowerReferencePrefetches now sees through, and an address handed to a
+prefetch as an integer is taken as one by both backends (vectors of
+integers rather than of pointers, which the C++ backend cannot name). The
+driver writes addresses as it assembles the arena and puts the root's in
+`root`. Embree's 64-bit NodeRef is what the children hold on both sides,
+so the bytes are now the same bytes with the same values up to the base
+address.
+
+**What LLVM then did, and the fix.** With the base add gone the block
+shapes changed, and LLVM lowered the switch on the hit count -- arms for
+none, one, two, three and four hits and a default, five cases -- as a jump
+table in both kernels (its threshold is four): an indirect branch behind a
+load, and the one-hit path, three node tests in five on incoherent rays,
+went through it, after the prefetch chain had already tested the count.
+The any hit lost 6% of its instructions on primary rays to that. Lowering
+small dispatches as compare chains in the backend did nothing: LLVM's
+SimplifyCFG folds a chain of equalities on one value back into a switch.
+So the dispatch is now Embree's traverseAnyHit and traverseClosestHit in
+their own order, in the SSA (SSA/QueueRecursion.cpp, SSA/SortRecursion.
+cpp): no hit first (`if (unlikely(mask == 0)) goto pop`, a kortest), then
+one hit (`r = bscf(mask); if (likely(mask == 0))`: `bits & (bits - 1) ==
+0` on the mask as a word), then the counts from two up as the switch on
+`hits - 2`, three cases, below the table threshold. No indirect branch in
+either kernel; the one-hit path is `tzcnt`, the load, the kind test.
+
+**The kernels.** trace_all 549 -> 531 instructions, occluded_all 375 ->
+371. Per node visit: the `add` of the base gone; the kind test `test
+r12b, 8; jne` where it was `mov; and 0xf; je`; the eight children's
+addresses no longer formed (`vpandq`, `vpaddq` gone: the compress feeds
+the prefetch directly); the spilled broadcast's reload gone with the
+base's register freed. Still there: the second compare against the best,
+and the one-hit test done twice -- once by the prefetch chain the backend
+emits per lane (`lea; test; je`) and once by the dispatch (`blsr; jne`),
+on the same mask at two widths, which LLVM does not unify -- the next
+item.
+
+**Measured** (cpu 11, `--side 2048`, least of 5, the baseline HEAD's
+compiler on HEAD's apps/rtq from its worktree, every ray agreeing).
+Nearest hit, bonsai's million rays per second and the ratio to Embree
+(primary / ao / diffuse): head 62.5 -> 63.7 (0.98 -> 1.00x) / 14.67 ->
+14.92 (0.93 -> 0.95x) / 13.04 -> 13.27 (0.93 -> 0.95x); ganesha 23.5 ->
+23.8 (0.97 -> 0.99x) / 6.49 -> 6.55 (0.98 -> 0.99x) / 6.02 -> 6.09 (0.97
+-> 0.99x); dragon 34.8 -> 35.4 (1.00 -> 1.03x) / 4.69 -> 4.77 (0.99 ->
+1.01x) / 4.14 -> 4.21 (0.99 -> 1.01x). Any hit level: head 93.2 -> 93.0
+(1.08 -> 1.09x) / 17.40 -> 17.44 (0.97x) / 15.81 -> 15.89 (0.97x);
+ganesha 29.3 -> 29.2 (1.00x) / 7.07 -> 7.06 (0.98x) / 6.01 -> 6.02
+(0.97x); dragon 38.5 -> 38.6 (1.00 -> 1.01x) / 5.03 -> 5.02 (0.98x) /
+4.44 -> 4.39 (0.98 -> 0.97x). The tuned schedule within 1% of before
+everywhere. perf on head's any hit: primary rays instructions 15150 ->
+15050, cycles level; ao rays instructions 13650 -> 13900 (+1.8%, the
+one-hit test twice), cycles 13625 -> 13720, branch misses 648 -> 631.
+
+**Tests.** lower/ptr-arena-rows (the address formed from the reference,
+no base), ssa/ptr-arena-rows-vectorized (the gang's reads through the
+reference, the prefetch of the reference itself), correctness/cpp/
+bvh4_ptr_arena with its main (the driver writes addresses and the root).
+The dispatch's new shape moved the traversal goldens (any-hit-arms,
+child-volumes-*, tiled-leaf-vectorized, prefetch-children, arena-rows-
+vectorized, skip-leaf-helper, sort-key-nonnegative): `if (any) { if (one)
+.. else switch (hits - 2) }` where there was `switch (hits)`.
+
+**Next.** The prefetch of each hit child emitted inside the arm that
+takes it, where the lanes are known, instead of a chain behind count
+tests before the dispatch: Embree's `prefetch(child)` as each child is
+taken, and the end of the doubled one-hit test. Then the slab test on
+integer bits as Embree's AVX-512 build writes it.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -10,17 +10,20 @@
 // node (Lower/Trees.cpp, from_children), which a schedule vectorizes into
 // Embree's eight-wide test. A leaf holds a run of triangles.
 //
-// The storage. One arena of bytes, as Embree's allocator hands out one
+// The storage. One allocation of bytes, as Embree's allocator hands out one
 // address space, holding node rows and leaf blocks wherever their reference
-// says. A reference is Embree's NodeRef: the kind in its low four bits -- 0
-// an AABB node, 8 + n a leaf of n Triangle4 blocks -- and where in the rest,
-// which Embree makes a byte address and this layout a byte offset from the
-// arena's start (`ref[4:63] * 16u`), so that the tree stays plain data that
-// can be copied or handed to a device; the one `add` of the arena's base per
-// visit is the deliberate difference (apps/rtq/PLAN.md). Each arm of the
-// switch on the kind is a lookup that brings its own shape, `Interior from
-// arena[...] { ... }` (ir::Lookup::shape): the row's bytes read as that
-// struct, so a node and a leaf can sit in one storage.
+// says. A reference is Embree's NodeRef exactly: an address, with the kind in
+// its low four bits -- bit 3 clear an AABB node, whose address the reference
+// then is, nothing masked (Embree's `getAABBNode`); bit 3 set a leaf of n
+// Triangle4 blocks, n in the three bits below, at the address with the kind
+// taken off (`ref[4:63] * 16u`, Embree's `leaf(num)`). The rows are looked up
+// in a `ptr group` (ir::Group::Type::Pointer), whose rows are reached by
+// address and not by index from a base, so no base is added anywhere, and the
+// walk begins at `root`, a field the layout stores: the root's address,
+// Embree's `bvh->root`. The allocation itself is only owned and uploaded.
+// Each arm of the switch on the kind is a lookup that brings its own shape,
+// `Interior from arena[...] { ... }` (ir::Lookup::shape): the row's bytes
+// read as that struct, so a node and a leaf can sit in one storage.
 //
 // A node row is Embree's AABBNode, 256 bytes: the eight children as 64-bit
 // references, then the bounds as six vectors of eight floats in Embree's
@@ -36,9 +39,10 @@
 // 0u, n)` the leaf's triangles.
 //
 // The driver (rtq_hook.cpp) builds the tree with Embree's own builder and
-// writes rows and blocks into the arena as Embree's allocator would place
-// them, checks the struct sizes and offsets against Embree's at compile
-// time, and reproduces Embree's relocation of the largest nodes.
+// writes rows and blocks into the allocation as Embree's allocator would
+// place them, with every reference the address of what it names, checks the
+// struct sizes and offsets against Embree's at compile time, and reproduces
+// Embree's relocation of the largest nodes.
 
 schedule {
     tree[[Triangle]] BVH8 =
@@ -48,11 +52,12 @@ schedule {
 
     triangles : BVH8;
 
-    layout triangles(ref : u64 = 0u) {
+    layout triangles(ref : u64 = root) {
+        root : u64;
         bytes : u64;
-        indirect group arena[bytes] { byte : u8; };
-        switch ref[0:3] {
-            0 => Interior from arena[ref[4:63] * 16u] {
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
                 children : vector[u64, 8];
                 lower_x : vector[f32, 8];
                 upper_x : vector[f32, 8];
@@ -73,7 +78,7 @@ schedule {
                         primID : u32;
                     };
                 };
-                data = range(tiles, 0u, cast[[u32]]((ref[0:3] - 8u) * 4u));
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
             };
         };
     };

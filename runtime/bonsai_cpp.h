@@ -208,5 +208,22 @@ bonsai_prefetch(const vector<T *, N> &addresses, uint32_t bytes,
     }
 }
 
+// The same with the addresses as integers: a reference that is a pointer
+// with its kind bits in place (a `ptr group`'s), fetched as Embree's
+// BVH::prefetch fetches a NodeRef.
+__attribute__((always_inline)) inline void
+bonsai_prefetch(uint64_t address, uint32_t bytes, bool wanted = true) {
+    bonsai_prefetch(reinterpret_cast<const char *>(address), bytes, wanted);
+}
+
+template <size_t N>
+__attribute__((always_inline)) void
+bonsai_prefetch(const vector<uint64_t, N> &addresses, uint32_t bytes,
+                const vector<bool, N> &mask) {
+    for (size_t k = 0; k < N; k++) {
+        bonsai_prefetch(addresses[k], bytes, mask[k]);
+    }
+}
+
 // Temp hack.
 using bool3 = vector<bool, 3>;

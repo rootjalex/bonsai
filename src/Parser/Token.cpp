@@ -131,6 +131,8 @@ uint64_t Token::size() const {
     case Token::Type::SCHEDULE:
     case Token::Type::INDIRECT:
         return 8;
+    case Token::Type::PTR:
+        return 3;
     case Token::Type::INTERFACE:
         return 9;
     case Token::Type::INT_LITERAL:
@@ -198,6 +200,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "group";
     case Token::Type::INDIRECT:
         return "indirect";
+    case Token::Type::PTR:
+        return "ptr";
     case Token::Type::FROM:
         return "from";
     case Token::Type::SWITCH:

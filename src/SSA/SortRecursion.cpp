@@ -658,7 +658,49 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
         func.blocks.push_back(all);
         targets.push_back(Terminator::Jump{all->name, {}});
     }
-    block->terminator.data = Terminator::Dispatch{hits, std::move(targets)};
+    // Not one switch on the count but Embree's traverseClosestHit in its own
+    // order: no hit first (`if (unlikely(mask == 0)) goto pop`, a kortest),
+    // then one hit (`r = bscf(mask); if (likely(mask == 0))`: `bits & (bits
+    // - 1) == 0`, one instruction on the mask as a word), then the counts
+    // from two up as the switch, on `hits - 2`. A switch on the count with
+    // arms for none, one, two, three and four hits and a default is five
+    // cases, and LLVM makes a jump table of four or more -- an indirect
+    // branch behind a load, and the dispatch done twice where the prefetch
+    // of each hit lane tests the count before it. None and one are the
+    // common cases on incoherent rays (three node tests in five hit one
+    // child); taken first, the switch left has three cases, below the table
+    // threshold, and the two tests are the ones Embree runs. The same shape
+    // as the any hit's (SSA/QueueRecursion.cpp).
+    auto some = emit(block, b, Instruction::Op::Any, {mask});
+    auto hit = fresh_block(func, block->name + "!sorthit");
+    func.blocks.push_back(hit);
+    shared_ptr<Value> one;
+    if (n == 8 || n == 16 || n == 32 || n == 64) {
+        const Type bits_t = UInt_t::make(n);
+        const Type word_t = n < 32 ? u32 : bits_t;
+        shared_ptr<Value> word =
+            emit(hit, bits_t, Instruction::Op::Reinterpret, {mask});
+        if (n < 32) {
+            word = emit(hit, word_t, Instruction::Op::Cast, {word});
+        }
+        auto one_of = std::make_shared<Value>(Constant{word_t, uint64_t(1)});
+        auto none_of = std::make_shared<Value>(Constant{word_t, uint64_t(0)});
+        auto below = emit(hit, word_t, Instruction::Op::Sub, {word, one_of});
+        auto cleared = emit(hit, word_t, Instruction::Op::BwAnd, {word, below});
+        one = emit(hit, b, Instruction::Op::Eq, {cleared, none_of});
+    } else {
+        one = emit(hit, b, Instruction::Op::Eq, {hits, cu32(1)});
+    }
+    auto from_two = fresh_block(func, block->name + "!sort2up");
+    func.blocks.push_back(from_two);
+    auto count_from_two = emit(from_two, u32, Instruction::Op::Sub, {hits, cu32(2)});
+    vector<Terminator::Jump> arms_from_two(targets.begin() + 2, targets.end());
+    from_two->terminator.data =
+        Terminator::Dispatch{count_from_two, std::move(arms_from_two)};
+    hit->terminator.data = Terminator::Dispatch{
+        one, {Terminator::Jump{from_two->name, {}}, targets[1]}};
+    block->terminator.data =
+        Terminator::Dispatch{some, {targets[0], Terminator::Jump{hit->name, {}}}};
 }
 
 } // namespace

@@ -48,6 +48,7 @@ class Token {
         LAYOUT,   // layout
         GROUP,    // group
         INDIRECT, // indirect
+        PTR,      // ptr
         FROM,     // from
         SWITCH, // switch
         MATCH,  // match

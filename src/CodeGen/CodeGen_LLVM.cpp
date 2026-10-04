@@ -2283,17 +2283,23 @@ void CodeGen_LLVM::visit(const Cast *node) {
 
     // An address as an integer, or an integer as an address: the zero a
     // pointer-typed slot starts with is the integer zero read as a pointer
-    // (see zero_value in SSA/SSA.cpp).
-    const auto addresses_memory = [](const Type &t) {
-        return t.is<Ptr_t>() || t.is_reference();
+    // (see zero_value in SSA/SSA.cpp), and a reference that is a pointer
+    // (a `ptr group`'s lookup) is followed as one. Lane by lane for a
+    // vector of them: the hit children's addresses, prefetched as a gang.
+    const auto lanes_of = [](const Type &t) {
+        return t.is_vector() ? t.element_of() : t;
+    };
+    const auto addresses_memory = [&](const Type &t) {
+        const Type e = lanes_of(t);
+        return e.is<Ptr_t>() || e.is_reference();
     };
     if (node->mode == Cast::Mode::Reinterpret && addresses_memory(dst) &&
-        src.is_int_or_uint()) {
+        lanes_of(src).is_int_or_uint()) {
         value = builder->CreateIntToPtr(inner, llvm_dst);
         return;
     }
     if (node->mode == Cast::Mode::Reinterpret && addresses_memory(src) &&
-        dst.is_int_or_uint()) {
+        lanes_of(dst).is_int_or_uint()) {
         value = builder->CreatePtrToInt(inner, llvm_dst);
         return;
     }
@@ -3944,6 +3950,16 @@ llvm::Value *CodeGen_LLVM::compress_lanes(llvm::Value *vec, llvm::Value *mask,
 
 void CodeGen_LLVM::emit_prefetch(llvm::Value *ptr, uint64_t bytes,
                                  llvm::Value *mask) {
+    // An address handed over as an integer -- a reference that is a pointer
+    // with its kind bits in place, Embree's NodeRef as BVH::prefetch takes
+    // it -- is a pointer here, lane by lane for a gang of them.
+    if (ptr->getType()->isIntOrIntVectorTy()) {
+        llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+        if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(ptr->getType())) {
+            ptr_t = llvm::FixedVectorType::get(ptr_t, vt->getNumElements());
+        }
+        ptr = builder->CreateIntToPtr(ptr, ptr_t);
+    }
     // One llvm.prefetch per 64-byte line of the row, each a read (0) of
     // high locality (3) of data (1): x86's prefetcht0, as Embree's
     // prefetchL1 (common/sys/intrinsics.h).

@@ -31,12 +31,17 @@
 // the same tag-then-branch that any `match` in the program lowers to, so no
 // arm's storage is touched unless the tag says so.
 //
-// Why never an address. A pointer is a representation the program did not
-// write: sixty-four bits bound to one address space, that cannot be handed to
-// another device or written to a file, and that a SIMD gang would have to
-// carry as a vector of pointers and read through with gathers. An index is
-// what the layout already uses to name an element, is as wide as the layout
-// said, and is the same on every device the storage is copied to.
+// Why not an address of this pass's own making. A pointer is a
+// representation the program did not write: sixty-four bits bound to one
+// address space, that cannot be handed to another device or written to a
+// file, and that a SIMD gang would have to carry as a vector of pointers and
+// read through with gathers. An index is what the layout already uses to name
+// an element, is as wide as the layout said, and is the same on every device
+// the storage is copied to. Where the layout itself names its rows by
+// address -- a `ptr group` (ir::Group::Type::Pointer), Embree's NodeRef read
+// as the pointer it is -- the address is the layout's index, and the
+// reference carries it as such: the leaf's address and the element's place
+// in the leaf, which is exactly what the program wrote.
 
 #include "Lower/ElementReferences.h"
 
@@ -113,20 +118,27 @@ struct TakeApart : public ir::Mutator {
         return false;
     }
 
+    // The placeholder for a varying index, the same one where the same
+    // index is read again (the three arrays of one struct-of-arrays
+    // element).
+    ir::Expr placeholder_for(const ir::Expr &idx) {
+        size_t k = 0;
+        while (k < result.indices.size() &&
+               !ir::equals(result.indices[k], idx)) {
+            k++;
+        }
+        if (k == result.indices.size()) {
+            result.indices.push_back(idx);
+            result.path.index_ts.push_back(idx.type());
+        }
+        return ir::Var::make(idx.type(), placeholder_name(k));
+    }
+
     ir::Expr visit(const ir::Extract *node) override {
         ir::Expr vec = mutate(node->vec);
         ir::Expr idx = node->idx;
         if (!is_constant(idx)) {
-            size_t k = 0;
-            while (k < result.indices.size() &&
-                   !ir::equals(result.indices[k], idx)) {
-                k++;
-            }
-            if (k == result.indices.size()) {
-                result.indices.push_back(idx);
-                result.path.index_ts.push_back(idx.type());
-            }
-            idx = ir::Var::make(idx.type(), placeholder_name(k));
+            idx = placeholder_for(idx);
         }
         return ir::Extract::make(std::move(vec), std::move(idx));
     }
@@ -135,6 +147,15 @@ struct TakeApart : public ir::Mutator {
         // A function the layout reads a field through is code, not a place.
         if (node->type.is<ir::Function_t>()) {
             return node;
+        }
+        // The reference the walk holds, where the layout's rows are reached
+        // by address (ir::Group::Type::Pointer): the way to the element
+        // begins at that address and not at a storage variable, and the
+        // address is the first index the reference carries -- the leaf's
+        // address, where an offset layout's reference carried the leaf's
+        // offset as an index into the arena.
+        if (!is_storage(node->name) && node->type.is_int_or_uint()) {
+            return placeholder_for(node);
         }
         internal_assert(is_storage(node->name))
             << "A reference to a stored element reads `" << node->name

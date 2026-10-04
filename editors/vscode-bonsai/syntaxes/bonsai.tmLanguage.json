@@ -106,7 +106,7 @@
         },
         {
           "name": "storage.modifier.bonsai",
-          "match": "\\b(mut|indirect)\\b"
+          "match": "\\b(mut|indirect|ptr)\\b"
         },
         {
           "comment": "`reduce(+)` when it is not right after the `:` (the declaration wrapped, say): still the modifier, not a call.",

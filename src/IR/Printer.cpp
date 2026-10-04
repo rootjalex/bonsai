@@ -1975,6 +1975,9 @@ void Printer::visit(const Chain *node) {
 
 void Printer::visit(const Group *node) {
     os << get_indent();
+    if (node->type == Group::Type::Pointer) {
+        os << "ptr ";
+    }
     os << "group[";
     print_no_parens(node->size);
     os << "]";

@@ -41,8 +41,8 @@ std::vector<Path> get_paths(const Layout &layout) {
         // walking, only by naming them, so its fields belong to whichever arm
         // looks it up rather than to every arm beside it.
         void visit(const Group *node) override {
-            if (node->type == Group::Type::Indirect) {
-                return;
+            if (node->type != Group::Type::Direct) {
+                return; // indirect, or reached by pointer: looked up, not walked
             }
             node->inner.accept(this);
         }

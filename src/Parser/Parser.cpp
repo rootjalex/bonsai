@@ -4462,14 +4462,26 @@ struct Parser {
                            << reference.name << " is a " << reference.type;
         }
         if (consume(Token::Type::ASSIGN)) {
-            ir::Expr start = parse_expr();
-            const std::optional<int64_t> value =
-                get_constant_value<int64_t>(start);
-            if (!value.has_value()) {
-                report_error() << "A layout's root reference is a constant: "
-                               << start;
+            // `= root`: a field the layout stores, read when the walk begins
+            // -- the root's address, where the references are pointers and
+            // the root is wherever the builder put it (Embree's bvh->root).
+            // The field is resolved when the layout is lowered (Lower/
+            // Layouts.cpp, LowerMatches), by its name.
+            if (peek().type == Token::Type::IDENTIFIER &&
+                peek(1).type == Token::Type::RPAREN) {
+                reference.start = ir::Var::make(reference.type, get_id());
+            } else {
+                ir::Expr start = parse_expr();
+                const std::optional<int64_t> value =
+                    get_constant_value<int64_t>(start);
+                if (!value.has_value()) {
+                    report_error()
+                        << "A layout's root reference is a constant, or the "
+                           "name of a field the layout stores: "
+                        << start;
+                }
+                reference.start = make_const(reference.type, *value);
             }
-            reference.start = make_const(reference.type, *value);
         }
         expect(Token::Type::RPAREN);
         return reference;
@@ -4620,16 +4632,26 @@ struct Parser {
             return ir::Chain::make(std::move(layouts));
         }
         case Token::Type::INDIRECT:
+        case Token::Type::PTR:
         case Token::Type::GROUP: {
-            // `[indirect] group [Name][size] [idx : T] { ... }`
+            // `[indirect | ptr] group [Name][size] [idx : T] { ... }`
             //
             // A direct group is addressed by the reference the traversal
             // already holds. An indirect one is auxiliary storage, reached
             // only by being named from somewhere else -- which is how one
             // tree's layout can hold another's nodes, and how two terms come
-            // to share a subtree by naming the same index.
+            // to share a subtree by naming the same index. A ptr group is an
+            // indirect group whose rows are reached by address: `arena[a]` is
+            // the row at address `a`, not at the group's base plus `a` --
+            // Scion's `ptr` groups, for references that are pointers, as
+            // Embree's NodeRef is (ir::Group::Type).
             const bool indirect = consume(Token::Type::INDIRECT).has_value();
+            const bool pointer =
+                !indirect && consume(Token::Type::PTR).has_value();
             expect(Token::Type::GROUP);
+            const ir::Group::Type kind = pointer    ? ir::Group::Type::Pointer
+                                         : indirect ? ir::Group::Type::Indirect
+                                                    : ir::Group::Type::Direct;
 
             // The group's own name, which is what a lookup resolves against.
             std::string declared_name;
@@ -4637,9 +4659,10 @@ struct Parser {
                 peek(1).type != Token::Type::COL) {
                 declared_name = get_id();
             }
-            if (indirect && declared_name.empty()) {
-                report_error() << "An indirect group has to be named: nothing "
-                                  "can look it up otherwise.";
+            if ((indirect || pointer) && declared_name.empty()) {
+                report_error() << "An " << (pointer ? "ptr" : "indirect")
+                               << " group has to be named: nothing can look "
+                                  "it up otherwise.";
             }
 
             ir::Expr size;
@@ -4712,11 +4735,9 @@ struct Parser {
                 }
                 size = (count + (isize - make_one(isize.type()))) / isize;
             }
-            return ir::Group::make(
-                std::move(size), std::move(name), std::move(declared_name),
-                std::move(index_t), std::move(inner),
-                indirect ? ir::Group::Type::Indirect : ir::Group::Type::Direct,
-                std::move(element));
+            return ir::Group::make(std::move(size), std::move(name),
+                                   std::move(declared_name), std::move(index_t),
+                                   std::move(inner), kind, std::move(element));
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();

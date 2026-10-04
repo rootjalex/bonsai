@@ -156,13 +156,13 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @205 = @47.set in
           let @206 = boolx4(@205) in
           let @207 = build<_option0$v4>(@204, @206) in
-          let @270 = select(@118, @79, @198) in
-          let @271 = select(@117, @270, @207) in
-          let @81 = @271.set in
+          let @273 = select(@118, @79, @198) in
+          let @274 = select(@117, @273, @207) in
+          let @81 = @274.set in
           let @208 = boolx4(false) in
           let @209 = boolx4(true) in
           let @121 = select(@81, @208, @209) in
-          let extract$i0 = @271.value in
+          let extract$i0 = @274.value in
           let @84 = extract$i0.low in
           let @85 = r.tmax in
           let @210 = f32x4(@85) in
@@ -181,77 +181,81 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let _t40 = cast<u32x4>(@95) in
           let @218 = _mask0[ramp(0u, 1u, 4)] in
           let @219 = reduce<+>(cast<u32x4>(@218)) in
-          switch (@219) {
-          case 0: {
-          } break;
-          case 1: {
-            let @220 = u32x4(4u) in
-            let @222 = select(@218, ramp(0u, 1u, 4), @220) in
-            let @223 = reduce<min>(@222) in
-            let @274 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @276 = @274[@223] in
-            tris_ref!top = @276
-            continue
-          } break;
-          case 2: {
-            let @225 = u32x4(4u) in
-            let @227 = select(@218, ramp(0u, 1u, 4), @225) in
-            let @228 = reduce<min>(@227) in
-            let @229 = u32x4(0u) in
-            let @230 = select(@218, ramp(0u, 1u, 4), @229) in
-            let @231 = reduce<max>(@230) in
-            let @279 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @281 = @279[@228] in
-            !stack[(*!count)] = @281
-            let @235 = (*!count) + 1u in
-            let @284 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @286 = @284[@231] in
-            tris_ref!top = @286
-            !count = @235
-            continue
-          } break;
-          case 3: {
-            let @237 = u32x4(4u) in
-            let @239 = select(@218, ramp(0u, 1u, 4), @237) in
-            let @240 = reduce<min>(@239) in
-            let @241 = u32x4(@240) in
-            let @242 = ramp(0u, 1u, 4) != @241 in
-            let @243 = @218 && @242 in
-            let @244 = u32x4(4u) in
-            let @245 = select(@243, ramp(0u, 1u, 4), @244) in
-            let @246 = reduce<min>(@245) in
-            let @247 = u32x4(0u) in
-            let @248 = select(@218, ramp(0u, 1u, 4), @247) in
-            let @249 = reduce<max>(@248) in
-            let @289 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @291 = @289[@240] in
-            !stack[(*!count)] = @291
-            let @253 = (*!count) + 1u in
-            let @294 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @296 = @294[@246] in
-            !stack[@253] = @296
-            let @256 = (*!count) + 2u in
-            let @299 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @301 = @299[@249] in
-            tris_ref!top = @301
-            !count = @256
-            continue
-          } break;
-          default: {
-            let @260 = _t40[0u] in
-            !stack[(*!count)] = @260
-            let @261 = (*!count) + 1u in
-            let @263 = _t40[1u] in
-            !stack[@261] = @263
-            let @264 = (*!count) + 2u in
-            let @266 = _t40[2u] in
-            !stack[@264] = @266
-            let @267 = (*!count) + 3u in
-            let @268 = _t40[3u] in
-            tris_ref!top = @268
-            !count = @267
-            continue
-          }
+          let @269 = reduce<any>(@218) in
+          if (@269) {
+            let @270 = @219 == 1u in
+            if (@270) {
+              let @220 = u32x4(4u) in
+              let @222 = select(@218, ramp(0u, 1u, 4), @220) in
+              let @223 = reduce<min>(@222) in
+              let @277 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+              let @279 = @277[@223] in
+              tris_ref!top = @279
+              continue
+            } else {
+              let @271 = @219 - 2u in
+              switch (@271) {
+              case 0: {
+                let @225 = u32x4(4u) in
+                let @227 = select(@218, ramp(0u, 1u, 4), @225) in
+                let @228 = reduce<min>(@227) in
+                let @229 = u32x4(0u) in
+                let @230 = select(@218, ramp(0u, 1u, 4), @229) in
+                let @231 = reduce<max>(@230) in
+                let @282 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+                let @284 = @282[@228] in
+                !stack[(*!count)] = @284
+                let @235 = (*!count) + 1u in
+                let @287 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+                let @289 = @287[@231] in
+                tris_ref!top = @289
+                !count = @235
+                continue
+              } break;
+              case 1: {
+                let @237 = u32x4(4u) in
+                let @239 = select(@218, ramp(0u, 1u, 4), @237) in
+                let @240 = reduce<min>(@239) in
+                let @241 = u32x4(@240) in
+                let @242 = ramp(0u, 1u, 4) != @241 in
+                let @243 = @218 && @242 in
+                let @244 = u32x4(4u) in
+                let @245 = select(@243, ramp(0u, 1u, 4), @244) in
+                let @246 = reduce<min>(@245) in
+                let @247 = u32x4(0u) in
+                let @248 = select(@218, ramp(0u, 1u, 4), @247) in
+                let @249 = reduce<max>(@248) in
+                let @292 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+                let @294 = @292[@240] in
+                !stack[(*!count)] = @294
+                let @253 = (*!count) + 1u in
+                let @297 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+                let @299 = @297[@246] in
+                !stack[@253] = @299
+                let @256 = (*!count) + 2u in
+                let @302 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+                let @304 = @302[@249] in
+                tris_ref!top = @304
+                !count = @256
+                continue
+              } break;
+              default: {
+                let @260 = _t40[0u] in
+                !stack[(*!count)] = @260
+                let @261 = (*!count) + 1u in
+                let @263 = _t40[1u] in
+                !stack[@261] = @263
+                let @264 = (*!count) + 2u in
+                let @266 = _t40[2u] in
+                !stack[@264] = @266
+                let @267 = (*!count) + 3u in
+                let @268 = _t40[3u] in
+                tris_ref!top = @268
+                !count = @267
+                continue
+              }
+              }
+            }
           }
         } else {
           let @105 = _t58 - 8u in
