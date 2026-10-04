@@ -1289,6 +1289,7 @@ func resolve_material(index : i32, p : vec3f, wo : vec3f, n : vec3f,
             CoatedDiffuse(cd) => return m;
             CoatedConductor(cc) => return m;
             Subsurface(ss) => return m;
+            Hair(hm) => return m;
             Dielectric(g) => return m;
             ThinDielectric(td) => return m;
             Conductor(c) => return m;

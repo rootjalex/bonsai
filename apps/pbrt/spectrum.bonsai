@@ -112,6 +112,12 @@ func sigmoid(x : vec4f) -> vec4f {
     return select((x - x) == 0.0, finite, select(x > 0.0, ones, zeros));
 }
 
+// pbrt: SampledSpectrum::Average, the four samples summed in order and divided
+// by their count. In order because pbrt's is, and a rescaled path probability
+// is divided by this at every vertex (media.bonsai); the hair BSDF chooses
+// its term by it (bxdf.bonsai).
+func average4(v : vec4f) -> Float = (((v.x + v.y) + v.z) + v.w) / 4.0;
+
 func spectrum_at(p : SigmoidPolynomial, w : SampledWavelengths) -> vec4f {
     // pbrt evaluates the quadratic by Horner, so this does too: the grouping
     // is part of the answer in floating point.

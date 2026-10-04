@@ -2158,6 +2158,71 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         return out;
     }
 
+    if (m.name == "hair") {
+        out.tag = bonsai_scene::MaterialTag::Hair;
+        // PBRT: HairMaterial::Create. The absorption three ways, in its order
+        // of precedence (the others warned about and ignored): `sigma_a`,
+        // `reflectance` or `color`, the melanin concentrations; and nothing
+        // given is `SigmaAFromConcentration(1.3, 0)`, which the renderer
+        // computes at the hit from those two numbers as PBRT's constant
+        // texture holds it. An `rgb sigma_a` is PBRT's RGBUnboundedSpectrum,
+        // taken at the hit through the RGB table (hair_mode 1); a spectrum is
+        // sampled onto the index tables (hair_mode 0). A texture for
+        // `sigma_a` is refused as a subsurface material's is.
+        const CapturingBuilder::MaterialInfo::Value *sa = m.find("sigma_a");
+        const CapturingBuilder::MaterialInfo::Value *refl = m.find("reflectance");
+        const char *colour_key = "reflectance";
+        if (refl == nullptr) {
+            refl = m.find("color");
+            colour_key = "color";
+        }
+        const CapturingBuilder::MaterialInfo::Value *eu = m.find("eumelanin");
+        const CapturingBuilder::MaterialInfo::Value *ph = m.find("pheomelanin");
+        if (sa != nullptr) {
+            if (sa->type == "texture") {
+                fail("a hair material's `sigma_a` given as a texture is not "
+                     "supported yet: PBRT reads it as an unbounded spectrum "
+                     "texture, which this renderer's textures do not evaluate "
+                     "as; give it as an rgb or a spectrum");
+            }
+            if (sa->type == "rgb" && sa->floats.size() == 3) {
+                out.hair_mode = 1;
+                for (int i = 0; i < 3; i++) {
+                    out.sigma_a_rgb[i] = sa->floats[i];
+                }
+            } else if (sa->type == "float" && sa->floats.size() == 1) {
+                // A grey through RGBUnboundedSpectrum is the constant itself.
+                out.hair_mode = 1;
+                out.sigma_a_rgb[0] = out.sigma_a_rgb[1] = out.sigma_a_rgb[2] =
+                    sa->floats[0];
+            } else {
+                out.hair_mode = 0;
+                out.sigma_a_spectrum = spectrum_table_index(*sa, "sigma_a");
+            }
+        } else if (refl != nullptr) {
+            out.hair_mode = 2;
+            out.reflectance_texture = material_rgb_or_texture(
+                m, colour_key, out.reflectance, &out.reflectance_spectrum);
+        } else if (eu != nullptr || ph != nullptr) {
+            // PBRT: `eumelanin ? texEval(eumelanin, ctx) : 0`, so one given
+            // alone leaves the other at zero.
+            out.hair_mode = 3;
+            out.eumelanin_texture =
+                material_float_or_texture(m, "eumelanin", 0.f, &out.eumelanin);
+            out.pheomelanin_texture = material_float_or_texture(
+                m, "pheomelanin", 0.f, &out.pheomelanin);
+        } else {
+            out.hair_mode = 3;
+            out.eumelanin = 1.3f;
+            out.pheomelanin = 0.f;
+        }
+        out.eta_texture = material_float_or_texture(m, "eta", 1.55f, &out.eta);
+        out.beta_m_texture = material_float_or_texture(m, "beta_m", 0.3f, &out.beta_m);
+        out.beta_n_texture = material_float_or_texture(m, "beta_n", 0.3f, &out.beta_n);
+        out.alpha_texture = material_float_or_texture(m, "alpha", 2.f, &out.alpha);
+        return out;
+    }
+
     if (m.name == "measured") {
         out.tag = bonsai_scene::MaterialTag::Measured;
         const CapturingBuilder::MaterialInfo::Value *fn = m.find("filename");

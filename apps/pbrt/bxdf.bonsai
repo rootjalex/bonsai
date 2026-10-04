@@ -22,6 +22,7 @@ import stdlib/numerics;
 import apps/pbrt/frame;
 import apps/pbrt/rng;
 import apps/pbrt/sampling;
+import apps/pbrt/interval;
 import apps/pbrt/bssrdf;
 import apps/pbrt/spectrum;
 // For a textured reflectance. textures.bonsai knows nothing about materials, so
@@ -2200,6 +2201,27 @@ element SubsurfaceMaterial {
     table : u32;
 }
 
+// pbrt: HairMaterial -- what a hair fibre is made of, before the HairBxDF
+// below is built from it at a hit. HairMaterial::Create admits the
+// absorption three ways, each excluding the next: `sigma_a` (an unbounded
+// spectrum), a `reflectance` or `color` (an albedo, from which
+// SigmaAFromReflectance works the absorption backwards), or the melanin
+// concentrations `eumelanin` and `pheomelanin` (SigmaAFromConcentration);
+// nothing given is the concentrations 1.3 and 0, brown hair. `mode` says
+// which: 0 a spectrum of the sampled tables (`sigma_a` an index), 1 an RGB
+// (`sigma_a_rgb`, pbrt's RGBUnboundedSpectrum of it, taken at the hit), 2
+// the colour (`color`, texture and all), 3 the concentrations (FloatParams,
+// textures allowed as pbrt's are). `eta`, `beta_m`, `beta_n` and `alpha`
+// are pbrt's FloatTextures, defaulting to 1.55, 0.3, 0.3 and 2 degrees.
+element HairMaterial {
+    mode : i32;
+    sigma_a : i32;
+    sigma_a_rgb : vec3f;
+    color : Reflectance;
+    eumelanin, pheomelanin : FloatParam;
+    eta, beta_m, beta_n, alpha : FloatParam;
+}
+
 // A spectrum of the sampled tables (`conductor_eta`, with a zero `k` beside
 // it) at the four wavelengths -- what a SubsurfaceMaterial's coefficients
 // are.
@@ -2348,7 +2370,8 @@ element Material =
     // `Mixed` rather than `Mix`, since a variant's name is one name across
     // every ADT and the texture graph has `Mix` (textures.bonsai).
     | Mixed(mix : MixMaterial)
-    | Subsurface(ss : SubsurfaceMaterial);
+    | Subsurface(ss : SubsurfaceMaterial)
+    | Hair(hm : HairMaterial);
 // pbrt's `Material "interface"` is not a kind of material: Material::Create
 // returns no material at all for it (materials.cpp), and the primitive holds
 // that null pointer -- a surface with no BSDF, there to bound a participating
@@ -2459,6 +2482,425 @@ func coated_conductor_bxdf_at(m : CoatedConductorMaterial,
 // That is not a schedule's business and it is not a layout: it is arithmetic
 // pbrt does not do. The rule for this app is that it does the same work as
 // pbrt, no more and no less.
+// pbrt: HairBxDF (bxdfs.h, bxdfs.cpp) -- the scattering of a hair fibre, after
+// Chiang et al.'s "A Practical and Controllable Hair and Fur Model for
+// Production Path Tracing" (2016) and Marschner et al. (2003) before it. The
+// fibre is a dielectric cylinder with pigment inside it; light reflects off
+// its surface (p = 0), passes through it (p = 1), bounces once inside and
+// comes back (p = 2), and everything past that is one more term (p = pMax =
+// 3). Each term is a longitudinal lobe Mp about the fibre's axis, an
+// attenuation Ap from Fresnel and the absorption along the chord, and an
+// azimuthal lobe Np about the fibre's cross-section; the scales on the
+// fibre tilt each term's longitudinal angle by a multiple of `alpha`.
+//
+// The frame is the shading frame with x along the fibre (pbrt's `wo.x` is
+// sin theta), which for a curve is its direction; `h` is where across the
+// width the ray hit, -1 to 1, from the hit's v (`-1 + 2 * uv[1]`). pbrt's
+// arrays `v[pMax + 1]`, `sin2kAlpha[pMax]` and `cos2kAlpha[pMax]` are fields
+// here, since the program has no local arrays; its loops over p are
+// written out, p = 0, 1, 2 and the remainder, and its `switch` on p for the
+// tilted angles is hair_tilt. The transport mode plays no part in pbrt's
+// hair BSDF, so none is passed.
+element HairBxDF {
+    h : Float;
+    eta : Float;
+    sigma_a : vec4f;
+    beta_m : Float;
+    beta_n : Float;
+    // pbrt: v[0..3], the longitudinal variances per term.
+    v0, v1, v2, v3 : Float;
+    // pbrt: s, the azimuthal logistic's scale.
+    s : Float;
+    // pbrt: sin2kAlpha[0..2] and cos2kAlpha[0..2], the scale tilt's angle,
+    // doubled and doubled again.
+    sin2k0, sin2k1, sin2k2 : Float;
+    cos2k0, cos2k1, cos2k2 : Float;
+}
+
+// pbrt: Pow<n>(v) by its recursion, `n2 * n2 * Pow<n & 1>(v)` with n2 =
+// Pow<n / 2>(v) -- the products in pbrt's order, since the constructor's
+// polynomials in the roughness are made of them. Pow<2> is `v * v`
+// (Pow<1>(v) squared, times Pow<0> = 1, which rounds nothing).
+func pow3(v : Float) -> Float = (v * v) * v;
+func pow4(v : Float) -> Float = (v * v) * (v * v);
+func pow5(v : Float) -> Float = ((v * v) * (v * v)) * v;
+func pow20(v : Float) -> Float {
+    p5 = pow5(v);
+    p10 = p5 * p5;
+    return p10 * p10;
+}
+func pow22(v : Float) -> Float {
+    p5 = pow5(v);
+    p11 = (p5 * p5) * v;
+    return p11 * p11;
+}
+
+// pbrt: HairBxDF's constructor. The variances from beta_m by the fit of
+// Chiang et al. (eq. 7 there), v[1] a quarter and v[2] four times the first
+// and the rest the third; the logistic scale from beta_n by their fit as
+// well (SqrtPiOver8 is pbrt's constant); the tilt's sine and cosine, then
+// the double angle's and the quadruple's by the double-angle formulas.
+func make_hair_bxdf(h : Float, eta : Float, sigma_a : vec4f, beta_m : Float,
+                    beta_n : Float, alpha : Float) -> HairBxDF {
+    v0 = sqr(0.726 * beta_m + 0.812 * sqr(beta_m) + 3.7 * pow20(beta_m));
+    v1 = 0.25 * v0;
+    v2 = 4.0 * v0;
+    s = 0.626657069 * (0.265 * beta_n + 1.194 * sqr(beta_n) + 5.372 * pow22(beta_n));
+    // pbrt: `std::sin(Radians(alpha))`, Radians being `(Pi / 180) * deg`.
+    sin2k0 = sin(0.01745329251994329577 * alpha);
+    cos2k0 = safe_sqrt(1.0 - sqr(sin2k0));
+    sin2k1 = 2.0 * cos2k0 * sin2k0;
+    cos2k1 = sqr(cos2k0) - sqr(sin2k0);
+    sin2k2 = 2.0 * cos2k1 * sin2k1;
+    cos2k2 = sqr(cos2k1) - sqr(sin2k1);
+    b : HairBxDF = {h, eta, sigma_a, beta_m, beta_n, v0, v1, v2, v2, s,
+                    sin2k0, sin2k1, sin2k2, cos2k0, cos2k1, cos2k2};
+    return b;
+}
+
+// pbrt: I0 and LogI0, the modified Bessel function of the first kind that
+// the longitudinal lobe is made of. I0 by its series to ten terms, the
+// denominators 4^i (i!)^2 as pbrt's integers come to in a float; LogI0 by
+// the asymptotic form past 12, where I0 itself would overflow.
+func bessel_i0(x : Float) -> Float {
+    x2 = x * x;
+    val : mut Float = 0.0;
+    x2i : mut Float = 1.0;
+    val = val + x2i / 1.0;
+    x2i = x2i * x2;
+    val = val + x2i / 4.0;
+    x2i = x2i * x2;
+    val = val + x2i / 64.0;
+    x2i = x2i * x2;
+    val = val + x2i / 2304.0;
+    x2i = x2i * x2;
+    val = val + x2i / 147456.0;
+    x2i = x2i * x2;
+    val = val + x2i / 14745600.0;
+    x2i = x2i * x2;
+    val = val + x2i / 2123366400.0;
+    x2i = x2i * x2;
+    val = val + x2i / 416179814400.0;
+    x2i = x2i * x2;
+    val = val + x2i / 106542032486400.0;
+    x2i = x2i * x2;
+    val = val + x2i / 34519618525593600.0;
+    return val;
+}
+
+func log_bessel_i0(x : Float) -> Float {
+    if x > 12.0 {
+        // pbrt: `x + 0.5f * (-std::log(2 * Pi) + std::log(1 / x) + 1 / (8 * x))`.
+        return x + 0.5 * ((-1.83787706640934548356 + log(1.0 / x)) + 1.0 / (8.0 * x));
+    }
+    return log(bessel_i0(x));
+}
+
+// pbrt: Mp, the longitudinal scattering function (Chiang et al., eq. 11):
+// a von Mises-like lobe about the tilted outgoing angle with variance v, in
+// the logarithmic form below a variance of a tenth, where sinh(1 / v) and
+// I0 would overflow.
+func hair_mp(cos_i : Float, cos_o : Float, sin_i : Float, sin_o : Float,
+             v : Float) -> Float {
+    a = cos_i * cos_o / v;
+    b = sin_i * sin_o / v;
+    if v <= 0.1 {
+        return fast_exp(((log_bessel_i0(a) - b) - 1.0 / v) + 0.6931 +
+                        log(1.0 / (2.0 * v)));
+    }
+    return (fast_exp(-b) * bessel_i0(a)) / (sinh(1.0 / v) * 2.0 * v);
+}
+
+// pbrt: Ap, the attenuation of each term: Fresnel reflectance at the
+// entry for p = 0, the transmittance through the fibre once for p = 1 and
+// once more with a reflection inside for p = 2, and the geometric series
+// of everything after that for pMax -- where pbrt's `if (1 - T * f)`, a
+// SampledSpectrum's truth, is any wavelength nonzero.
+element HairAp {
+    a0, a1, a2, a3 : vec4f;
+}
+
+func hair_ap(cos_o : Float, eta : Float, h : Float, t : vec4f) -> HairAp {
+    cos_gamma_o = safe_sqrt(1.0 - sqr(h));
+    cos_t = cos_o * cos_gamma_o;
+    f = fr_dielectric(cos_t, eta);
+    a0 = vec4f{f, f, f, f};
+    a1 = sqr(1.0 - f) * t;
+    a2 = a1 * t * f;
+    denom = 1.0 - t * f;
+    a3 = select(nonzero(denom), a2 * f * t / denom, vec4f{0.0, 0.0, 0.0, 0.0});
+    ap : HairAp = {a0, a1, a2, a3};
+    return ap;
+}
+
+// pbrt: Phi and Np, the azimuthal scattering function: the exit azimuth a
+// term leaves at by the geometry of the chords, and a logistic about it,
+// trimmed to [-pi, pi], of width s; the difference is wrapped into that
+// range first.
+func hair_phi(p : i32, gamma_o : Float, gamma_t : Float) -> Float =
+    (cast[[Float]](2 * p) * gamma_t - 2.0 * gamma_o) +
+    cast[[Float]](p) * 3.14159265358979323846;
+
+// pbrt: Logistic, LogisticCDF and TrimmedLogistic (util/math.h), and the
+// sampling pair SampleTrimmedLogistic (util/sampling.h, `Lerp(u, P(a),
+// P(b))` then SampleLogistic's `-s * log(1 / u - 1)`, clamped to [a, b]).
+func logistic(x_in : Float, s : Float) -> Float {
+    x = abs(x_in);
+    return exp(-x / s) / (s * sqr(1.0 + exp(-x / s)));
+}
+
+func logistic_cdf(x : Float, s : Float) -> Float = 1.0 / (1.0 + exp(-x / s));
+
+func trimmed_logistic(x : Float, s : Float, a : Float, b : Float) -> Float =
+    logistic(x, s) / (logistic_cdf(b, s) - logistic_cdf(a, s));
+
+func sample_trimmed_logistic(u_in : Float, s : Float, a : Float, b : Float) -> Float {
+    u = (1.0 - u_in) * logistic_cdf(a, s) + u_in * logistic_cdf(b, s);
+    x = -s * log(1.0 / u - 1.0);
+    return min(max(x, a), b);
+}
+
+func hair_np(phi : Float, p : i32, s : Float, gamma_o : Float, gamma_t : Float) -> Float {
+    dphi : mut Float = phi - hair_phi(p, gamma_o, gamma_t);
+    while dphi > 3.14159265358979323846 {
+        dphi = dphi - 6.28318530717958647692;
+    }
+    while dphi < -3.14159265358979323846 {
+        dphi = dphi + 6.28318530717958647692;
+    }
+    return trimmed_logistic(dphi, s, -3.14159265358979323846, 3.14159265358979323846);
+}
+
+// pbrt: the `switch` on p in f, Sample_f and PDF -- the outgoing angle
+// tilted by the scales, `2 alpha` back for p = 0 (the [1] entries), `alpha`
+// forward for p = 1, `4 alpha` forward for p = 2, untouched after -- and
+// the cosine's magnitude taken, "out-of-range cos theta_o from scale
+// adjustment".
+element TiltedAngle {
+    sin_t, cos_t : Float;
+}
+
+func hair_tilt(b : HairBxDF, p : i32, sin_o : Float, cos_o : Float) -> TiltedAngle {
+    sin_p : mut Float = sin_o;
+    cos_p : mut Float = cos_o;
+    if p == 0 {
+        sin_p = sin_o * b.cos2k1 - cos_o * b.sin2k1;
+        cos_p = cos_o * b.cos2k1 + sin_o * b.sin2k1;
+    } else if p == 1 {
+        sin_p = sin_o * b.cos2k0 + cos_o * b.sin2k0;
+        cos_p = cos_o * b.cos2k0 - sin_o * b.sin2k0;
+    } else if p == 2 {
+        sin_p = sin_o * b.cos2k2 + cos_o * b.sin2k2;
+        cos_p = cos_o * b.cos2k2 - sin_o * b.sin2k2;
+    }
+    t : TiltedAngle = {sin_p, abs(cos_p)};
+    return t;
+}
+
+// pbrt: the refraction terms every one of f, Sample_f, PDF and ApPDF
+// computes from the outgoing angle: cos theta_t for the refracted ray, the
+// modified index etap, sin and cos gamma_t and gamma_t itself, and the
+// transmittance T of one pass through the fibre, `Exp(-sigma_a * (2 *
+// cosGamma_t / cosTheta_t))`.
+element HairRefraction {
+    cos_theta_t : Float;
+    sin_gamma_t : Float;
+    cos_gamma_t : Float;
+    gamma_t : Float;
+    t : vec4f;
+}
+
+func hair_refraction(b : HairBxDF, sin_o : Float, cos_o : Float) -> HairRefraction {
+    sin_theta_t = sin_o / b.eta;
+    cos_theta_t = safe_sqrt(1.0 - sqr(sin_theta_t));
+    etap = safe_sqrt(sqr(b.eta) - sqr(sin_o)) / cos_o;
+    sin_gamma_t = b.h / etap;
+    cos_gamma_t = safe_sqrt(1.0 - sqr(sin_gamma_t));
+    gamma_t = safe_asin(sin_gamma_t);
+    t = exp(-b.sigma_a * (2.0 * cos_gamma_t / cos_theta_t));
+    r : HairRefraction = {cos_theta_t, sin_gamma_t, cos_gamma_t, gamma_t, t};
+    return r;
+}
+
+// pbrt: ApPDF, the probability of each term for choosing one to sample:
+// each attenuation's average over the wavelengths, over their sum.
+element HairApPdf {
+    p0, p1, p2, p3 : Float;
+}
+
+func hair_ap_pdf(b : HairBxDF, cos_o : Float) -> HairApPdf {
+    sin_o = safe_sqrt(1.0 - sqr(cos_o));
+    refr = hair_refraction(b, sin_o, cos_o);
+    ap = hair_ap(cos_o, b.eta, b.h, refr.t);
+    y0 = average4(ap.a0);
+    y1 = average4(ap.a1);
+    y2 = average4(ap.a2);
+    y3 = average4(ap.a3);
+    sum_y = ((y0 + y1) + y2) + y3;
+    pdf : HairApPdf = {y0 / sum_y, y1 / sum_y, y2 / sum_y, y3 / sum_y};
+    return pdf;
+}
+
+// pbrt: HairBxDF::f -- the three terms and the remainder summed, each Mp
+// at its tilted angle times Ap times Np, the remainder's Np the uniform
+// 1 / (2 pi); divided by |cos theta_i| where that is not zero, since the
+// model is of the fibre's radiance and the integrator multiplies the cosine
+// back in.
+func hair_f(b : HairBxDF, wo : vec3f, wi : vec3f) -> vec4f {
+    sin_o = wo.x;
+    cos_o = safe_sqrt(1.0 - sqr(sin_o));
+    phi_o = atan2(wo.z, wo.y);
+    gamma_o = safe_asin(b.h);
+    sin_i = wi.x;
+    cos_i = safe_sqrt(1.0 - sqr(sin_i));
+    phi_i = atan2(wi.z, wi.y);
+    refr = hair_refraction(b, sin_o, cos_o);
+    phi = phi_i - phi_o;
+    ap = hair_ap(cos_o, b.eta, b.h, refr.t);
+    t0 = hair_tilt(b, 0, sin_o, cos_o);
+    t1 = hair_tilt(b, 1, sin_o, cos_o);
+    t2 = hair_tilt(b, 2, sin_o, cos_o);
+    fsum : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    fsum = fsum + hair_mp(cos_i, t0.cos_t, sin_i, t0.sin_t, b.v0) * ap.a0 *
+                      hair_np(phi, 0, b.s, gamma_o, refr.gamma_t);
+    fsum = fsum + hair_mp(cos_i, t1.cos_t, sin_i, t1.sin_t, b.v1) * ap.a1 *
+                      hair_np(phi, 1, b.s, gamma_o, refr.gamma_t);
+    fsum = fsum + hair_mp(cos_i, t2.cos_t, sin_i, t2.sin_t, b.v2) * ap.a2 *
+                      hair_np(phi, 2, b.s, gamma_o, refr.gamma_t);
+    fsum = fsum + hair_mp(cos_i, cos_o, sin_i, sin_o, b.v3) * ap.a3 /
+                      6.28318530717958647692;
+    if abs(wi.z) > 0.0 {
+        fsum = fsum / abs(wi.z);
+    }
+    return fsum;
+}
+
+// pbrt: the PDF sum f, Sample_f and PDF share -- each term's Mp at its
+// tilted angle times the term's probability times Np, the remainder's
+// 1 / (2 pi) -- over a given azimuth difference.
+func hair_pdf_sum(b : HairBxDF, sin_o : Float, cos_o : Float, sin_i : Float,
+                  cos_i : Float, dphi : Float, gamma_o : Float, gamma_t : Float,
+                  ap_pdf : HairApPdf) -> Float {
+    t0 = hair_tilt(b, 0, sin_o, cos_o);
+    t1 = hair_tilt(b, 1, sin_o, cos_o);
+    t2 = hair_tilt(b, 2, sin_o, cos_o);
+    pdf : mut Float = 0.0;
+    pdf = pdf + hair_mp(cos_i, t0.cos_t, sin_i, t0.sin_t, b.v0) * ap_pdf.p0 *
+                    hair_np(dphi, 0, b.s, gamma_o, gamma_t);
+    pdf = pdf + hair_mp(cos_i, t1.cos_t, sin_i, t1.sin_t, b.v1) * ap_pdf.p1 *
+                    hair_np(dphi, 1, b.s, gamma_o, gamma_t);
+    pdf = pdf + hair_mp(cos_i, t2.cos_t, sin_i, t2.sin_t, b.v2) * ap_pdf.p2 *
+                    hair_np(dphi, 2, b.s, gamma_o, gamma_t);
+    pdf = pdf + hair_mp(cos_i, cos_o, sin_i, sin_o, b.v3) * ap_pdf.p3 *
+                    0.15915494309189533577;
+    return pdf;
+}
+
+// pbrt: HairBxDF::PDF.
+func hair_pdf(b : HairBxDF, wo : vec3f, wi : vec3f) -> Float {
+    sin_o = wo.x;
+    cos_o = safe_sqrt(1.0 - sqr(sin_o));
+    phi_o = atan2(wo.z, wo.y);
+    gamma_o = safe_asin(b.h);
+    sin_i = wi.x;
+    cos_i = safe_sqrt(1.0 - sqr(sin_i));
+    phi_i = atan2(wi.z, wi.y);
+    // pbrt computes gamma_t alone here, with `eta * eta` for Sqr(eta); the
+    // same number, so the shared refraction serves.
+    refr = hair_refraction(b, sin_o, cos_o);
+    ap_pdf = hair_ap_pdf(b, cos_o);
+    return hair_pdf_sum(b, sin_o, cos_o, sin_i, cos_i, phi_i - phi_o, gamma_o,
+                        refr.gamma_t, ap_pdf);
+}
+
+// pbrt: HairBxDF::Sample_f. A term p is chosen by the Ap probabilities
+// (SampleDiscrete, which remaps `uc` to a fresh uniform in [0, 1) for the
+// azimuth: `up = u * sum`, stepped down a float where it equals the sum,
+// the offset found by running the weights, `(up - sum) / weights[offset]`
+// clamped below OneMinusEpsilon); theta_i is sampled from Mp about the
+// tilted outgoing angle (Chiang et al., eqs. 12 and 13: `cosTheta = 1 + v
+// log(max(u[0], 1e-5) + (1 - u[0]) e^(-2 / v))`, then a uniform azimuth
+// about it), and the azimuth difference from Np -- the term's Phi plus a
+// trimmed logistic draw, or uniform for the remainder. The PDF is the full
+// sum over the terms, not the chosen one's, and the value is f itself.
+func hair_sample_f(b : HairBxDF, wo : vec3f, uc_in : Float, u : vec2f) -> option[BSDFSample] {
+    sin_o = wo.x;
+    cos_o = safe_sqrt(1.0 - sqr(sin_o));
+    phi_o = atan2(wo.z, wo.y);
+    gamma_o = safe_asin(b.h);
+
+    ap_pdf = hair_ap_pdf(b, cos_o);
+    sum_w = ((ap_pdf.p0 + ap_pdf.p1) + ap_pdf.p2) + ap_pdf.p3;
+    up : mut Float = uc_in * sum_w;
+    if up == sum_w {
+        up = next_float_down(up);
+    }
+    p : mut i32 = 0;
+    acc : mut Float = 0.0;
+    w : mut Float = ap_pdf.p0;
+    if acc + ap_pdf.p0 <= up {
+        acc = acc + ap_pdf.p0;
+        p = 1;
+        w = ap_pdf.p1;
+        if acc + ap_pdf.p1 <= up {
+            acc = acc + ap_pdf.p1;
+            p = 2;
+            w = ap_pdf.p2;
+            if acc + ap_pdf.p2 <= up {
+                acc = acc + ap_pdf.p2;
+                p = 3;
+                w = ap_pdf.p3;
+            }
+        }
+    }
+    // pbrt: OneMinusEpsilon, the largest float below one.
+    uc = min((up - acc) / w, 0.99999994);
+
+    tilt = hair_tilt(b, p, sin_o, cos_o);
+    vp = select(p == 0, b.v0, select(p == 1, b.v1, select(p == 2, b.v2, b.v3)));
+    // `cos_th`/`sin_th`: `cos_theta` is this file's spherical accessor.
+    cos_th = 1.0 + vp * log(max(u.x, 0.00001) + (1.0 - u.x) * fast_exp(-2.0 / vp));
+    sin_th = safe_sqrt(1.0 - sqr(cos_th));
+    cos_ph = cos(6.28318530717958647692 * u.y);
+    sin_i = -cos_th * tilt.sin_t + sin_th * cos_ph * tilt.cos_t;
+    cos_i = safe_sqrt(1.0 - sqr(sin_i));
+
+    refr = hair_refraction(b, sin_o, cos_o);
+    dphi : mut Float = 6.28318530717958647692 * uc;
+    if p < 3 {
+        dphi = hair_phi(p, gamma_o, refr.gamma_t) +
+               sample_trimmed_logistic(uc, b.s, -3.14159265358979323846,
+                                       3.14159265358979323846);
+    }
+    phi_i = phi_o + dphi;
+    wi = vec3f{sin_i, cos_i * cos(phi_i), cos_i * sin(phi_i)};
+    pdf = hair_pdf_sum(b, sin_o, cos_o, sin_i, cos_i, dphi, gamma_o, refr.gamma_t,
+                       ap_pdf);
+    sample : BSDFSample = {hair_f(b, wo, wi), wi, pdf, hair_flags(), 1.0, false};
+    return sample;
+}
+
+// pbrt: HairBxDF::Flags, GlossyReflection whatever the parameters.
+func hair_flags() -> i32 = flag_reflection() | flag_glossy();
+
+// pbrt: HairBxDF::SigmaAFromReflectance -- the absorption that gives a
+// fibre a colour under the model's own multiple scattering (Chiang et al.,
+// eq. 9), per wavelength.
+func sigma_a_from_reflectance(c : vec4f, beta_n : Float) -> vec4f {
+    denom = ((((5.969 - 0.215 * beta_n) + 2.532 * sqr(beta_n)) - 10.73 * pow3(beta_n)) +
+             5.574 * pow4(beta_n)) + 0.245 * pow5(beta_n);
+    return sqr(log(c) / denom);
+}
+
+// pbrt: HairBxDF::SigmaAFromConcentration -- the eumelanin and pheomelanin
+// absorption coefficients (RGB, per unit concentration) weighted by the
+// concentrations, an RGBUnboundedSpectrum of the sum.
+func sigma_a_from_concentration(ce : Float, cp : Float,
+                                lambda : SampledWavelengths) -> vec4f {
+    rgb = vec3f{ce * 0.419 + cp * 0.187, ce * 0.697 + cp * 0.4, ce * 1.37 + cp * 1.05};
+    return unbounded_rgb_at(rgb, lambda);
+}
+
 element BxDF =
     | Lambertian(d : DiffuseBxDF)
     | Layered(b : LayeredBxDF)
@@ -2471,7 +2913,10 @@ element BxDF =
     // A Lambertian lobe on each side: a leaf.
     | Translucent(dt : DiffuseTransmissionBxDF)
     // The lobe at the point a subsurface path leaves the surface.
-    | NormalizedFresnel(nf : NormalizedFresnelBxDF);
+    | NormalizedFresnel(nf : NormalizedFresnelBxDF)
+    // A hair fibre. `Strand` rather than `Hair`, a variant's name being one
+    // name across every ADT and the Material having `Hair`.
+    | Strand(hb : HairBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -2503,6 +2948,8 @@ func terminates_secondary(mat : Material) -> bool {
         Mixed(mix) => return false;
         // A number for its eta, never a spectrum.
         Subsurface(ss) => return false;
+        // pbrt's GetBxDF takes the wavelengths by reference and leaves them.
+        Hair(hm) => return false;
     }
 }
 
@@ -2520,12 +2967,41 @@ func material_subsurface(mat : Material) -> option[SubsurfaceMaterial] {
         DiffuseTransmission(dt) => return {};
         Measured(index) => return {};
         Mixed(mix) => return {};
+        Hair(hm) => return {};
     }
 }
 
 func material_bxdf(mat : Material, lambda : SampledWavelengths,
                    regularize : bool, ctx : TextureEvalContext) -> BxDF {
     match mat {
+        Hair(hm) => {
+            // pbrt: HairMaterial::GetBxDF. The roughnesses clamped to [0.01,
+            // 1]; the absorption by the way the material gives it --
+            // `ClampZero` on a spectrum, the colour clamped to [0, 1] and
+            // worked backwards, the concentrations clamped below at zero;
+            // and h from the hit's v. HairBxDF::Regularize does nothing.
+            bm = max(0.01, min(1.0, float_param_at(hm.beta_m, ctx)));
+            bn = max(0.01, min(1.0, float_param_at(hm.beta_n, ctx)));
+            a = float_param_at(hm.alpha, ctx);
+            e = float_param_at(hm.eta, ctx);
+            zero = vec4f{0.0, 0.0, 0.0, 0.0};
+            sig_a : mut vec4f = zero;
+            if hm.mode == 0 {
+                sig_a = max(sampled_spectrum_at(hm.sigma_a, lambda), zero);
+            } else if hm.mode == 1 {
+                sig_a = max(unbounded_rgb_at(hm.sigma_a_rgb, lambda), zero);
+            } else if hm.mode == 2 {
+                c = min(max(reflectance_at(hm.color, lambda, ctx), zero),
+                        vec4f{1.0, 1.0, 1.0, 1.0});
+                sig_a = sigma_a_from_reflectance(c, bn);
+            } else {
+                sig_a = sigma_a_from_concentration(
+                    max(0.0, float_param_at(hm.eumelanin, ctx)),
+                    max(0.0, float_param_at(hm.pheomelanin, ctx)), lambda);
+            }
+            h = -1.0 + 2.0 * ctx.uv.y;
+            return Strand(make_hair_bxdf(h, e, sig_a, bm, bn, a));
+        }
         Diffuse(albedo) => {
             // pbrt: DiffuseMaterial::GetBxDF, `Clamp(texEval(reflectance,
             // ctx, lambda), 0, 1)` -- an image's texel is never outside that,
@@ -2736,6 +3212,20 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        // The hair's sixteen, each a term chosen and both angles drawn.
+        Strand(hb) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = hair_sample_f(hb, wo, uc[i], vec2f{ux[i], uy[i]});
+                if found {
+                    s = *found;
+                    if s.pdf > 0.0 {
+                        r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                    }
+                }
+            }
+            return r / 16.0;
+        }
         // Never a first vertex's BSDF -- it exists only where a path comes
         // back out of a surface -- but the question has an answer.
         NormalizedFresnel(nf) => {
@@ -2769,6 +3259,7 @@ func bxdf_flags(b : BxDF) -> i32 {
         Metal(c) => return conductor_flags(c);
         Table(t) => return measured_flags();
         NormalizedFresnel(nf) => return normalized_fresnel_flags();
+        Strand(hb) => return hair_flags();
     }
 }
 
@@ -2792,6 +3283,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
         Metal(c) => return conductor_f(c, wo, wi);
         Table(t) => return measured_f(t, wo, wi);
         NormalizedFresnel(nf) => return normalized_fresnel_f(nf, wo, wi);
+        Strand(hb) => return hair_f(hb, wo, wi);
     }
 }
 
@@ -2817,6 +3309,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
         Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
         Table(t) => return measured_pdf(t, wo, wi, sample_all());
         NormalizedFresnel(nf) => return normalized_fresnel_pdf(wo, wi, sample_all());
+        Strand(hb) => return hair_pdf(hb, wo, wi);
     }
 }
 
@@ -2849,5 +3342,6 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
         // One lobe, cosine-sampled: no `uc` for this one either.
         NormalizedFresnel(nf) =>
             return normalized_fresnel_sample_f(nf, wo, u, sample_all());
+        Strand(hb) => return hair_sample_f(hb, wo, uc, u);
     }
 }

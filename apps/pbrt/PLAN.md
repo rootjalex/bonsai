@@ -2549,7 +2549,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
 | 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) -- **done 2026-10-03**, the dispersion paragraph below | dambreak, transparent-machines, crown | 3 |
 | 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
-| 17 | `Material "hair"` | bunny-fur, hair | 2 |
+| 17 | `Material "hair"` -- **done 2026-10-04**, the hair material paragraph below | bunny-fur, hair | 2 |
 | 18 | `Material "subsurface"` -- **done 2026-10-03**, the subsurface paragraph below | head, sssdragon | 2 |
 | 19 | infinite light with `portal` -- **done 2026-09-29** (d5f1a114, scenes/portal.pbrt) | kroken, watercolor | 2 |
 | 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
@@ -2700,7 +2700,7 @@ Per scene, what is missing (see the converter for what is supported):
 | bistro | `zsobol`, `normalmap`, ACES env map |
 | bmw-m6 | `volpath`, `mix` -- converts as of 2026-10-03 |
 | bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map -- all done by 2026-10-03: converts (147 MB grid sidecar) and renders, 0.99976x of `pbrt --wavefront` on the scalar schedule at 4 spp (the NanoVDB decision paragraph below) |
-| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder` (**done 2026-10-03**), `hair` |
+| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder` (**done 2026-10-03**), `hair` (**done 2026-10-04**) |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
@@ -2709,7 +2709,7 @@ Per scene, what is missing (see the converter for what is supported):
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
-| hair | `volpath`, `curve`, `hair` |
+| hair | `volpath`, `curve`, `hair` (**done 2026-10-04**) |
 | head | `volpath`, `subsurface`, `"float cropwindow"` -- all **done 2026-10-03**; renders whole as of 2026-10-03 (the crop window paragraph below) |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
@@ -9854,6 +9854,51 @@ interval transform; the cylinder paragraph below, after which disk.pbrt has
 0). head, with its own crop window, on the GPU at 4 spp: a 960x594
 image on both sides, 0.99785x of `pbrt --gpu`, 569,192 lit pixels against
 569,248, the kernels 10.7 ms against 12.3 -- the scene renders whole.
+
+*The hair material (2026-10-04).* pbrt's HairMaterial over its HairBxDF,
+Chiang et al.'s "A Practical and Controllable Hair and Fur Model for
+Production Path Tracing" (2016) as pbrt writes it (bxdfs.h, bxdfs.cpp),
+before any curve exists to wear it: the fibre a dielectric cylinder with
+pigment inside, light reflecting off it (p = 0), passing through (1),
+bouncing once inside (2) and everything after that as one more term (pMax
+= 3), each term a longitudinal lobe Mp about the fibre's axis (a von
+Mises-like lobe of variance v, in its logarithmic form below a variance of
+a tenth and over `sinh(1 / v)` above it -- the language had no `sinh`, and
+813fc7a9 adds one beside `cosh` at every level, llvm.sinh on a scalar and a
+Cephes-form inline vector), an attenuation Ap (Fresnel at the entry, the
+transmittance along the chord once and again with a reflection, the
+geometric series of the rest) and an azimuthal lobe Np (a logistic about
+the term's exit azimuth, trimmed to a turn), with the scales' tilt by
+`alpha` doubling through the terms. bxdf.bonsai has it as `Strand(HairBxDF)`
+(`Hair` being the Material's arm; a variant's name is one name across every
+ADT): pbrt's arrays `v[4]`, `sin2kAlpha[3]`, `cos2kAlpha[3]` are fields,
+its loops over p written out, its `switch` on p hair_tilt, Pow<n> by pbrt's
+own recursion so the roughness fits round as pbrt's do, I0 by its series
+with pbrt's integer denominators as floats, SampleDiscrete over the four
+term probabilities with `uc` remapped as pbrt remaps it. The material
+(HairMaterial, `Hair(hm)`) gives the absorption pbrt's three ways and the
+default (the melanin concentrations 1.3 and 0): a `sigma_a` spectrum
+sampled onto the index tables, an `rgb sigma_a` as pbrt's
+RGBUnboundedSpectrum taken at the hit through the RGB table
+(textures.bonsai, unbounded_rgb_at: scaled by twice the largest component,
+looked up, scaled back), a `reflectance`/`color` worked backwards by
+SigmaAFromReflectance (texture and all), or `eumelanin`/`pheomelanin`
+(FloatParams) through SigmaAFromConcentration at the hit; `eta`, `beta_m`,
+`beta_n` and `alpha` are FloatParams defaulting to 1.55, 0.3, 0.3 and 2,
+the roughnesses clamped to [0.01, 1], h from the hit's v. The CPU
+integrators' and the wavefront's material queues take the new arm by
+themselves (`hits.specialize(material)`). Test: scenes/hair-material.pbrt,
+six cylinders -- whose shading frame puts the fibre's direction around the
+circumference and whose v runs along the axis, so h sweeps the width --
+under a tube light, one per way the material is given plus the wide
+roughness (beta_m 0.7) and a tilt of zero, against `pbrt --wavefront` on
+the scalar schedule: 2 of 76,630 pixels disagree in normals (silhouettes),
+albedo 2 over 5e-3, radiance 1.00001x with 99.6% of pixels within 1e-3,
+76,551 lit on both sides; the wavefront-volpath schedule the same numbers;
+on the GPU at 64 spp against `pbrt --gpu` gpu-optix 0.99944x (95.6% within
+1e-3) with the kernels 78 ms against 94 (pbrt's run disturbed) and
+gpu-wavefront 1.00010x (98.6%) at 127 ms -- the material queues' new arm
+compiles and runs on every schedule, `sinh` included.
 
 *The cylinder, and what its first scene found (2026-10-03).* pbrt's
 Cylinder, the third quadric: `x^2 + y^2 = r^2` between two heights and

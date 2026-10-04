@@ -1795,9 +1795,6 @@ func cylinder_pdf(cyl : Cylinder, ctx : ShapeSampleContext, wi : vec3f) -> Float
     return select(pdf == inf, 0.0, pdf);
 }
 
-// pbrt: SafeASin, the mirror of safe_acos above.
-func safe_asin(x : Float) -> Float = asin(min(max(x, -1.0), 1.0));
-
 // pbrt: AngleBetween(v1, v2), the angle between two unit vectors, computed from
 // a chord rather than an arccosine so that it stays accurate near 0 and pi.
 func angle_between(a : vec3f, b : vec3f) -> Float {

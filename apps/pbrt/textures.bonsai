@@ -549,6 +549,25 @@ func rgb_to_sigmoid(rgb_in : vec3f) -> SigmoidPolynomial {
                              rgb_coeff(base, 2u, cell.dx, cell.dy, cell.dz)};
 }
 
+// pbrt: `RGBUnboundedSpectrum(cs, rgb).Sample(lambda)` -- an RGB that may
+// exceed one, an absorption coefficient say, as a spectrum: the colour is
+// scaled by twice its largest component into the table's range, that is
+// looked up, and the scale multiplies the sigmoid back out (`scale = 2 * m;
+// rsp = cs.ToRGBCoeffs(scale ? rgb / scale : RGB(0, 0, 0))`, and `scale *
+// rsp(lambda)`, zero when the scale is). The hair material's sigma_a takes
+// this at the hit, from an `rgb sigma_a` or from the melanin concentrations.
+func unbounded_rgb_at(rgb : vec3f, lambda : SampledWavelengths) -> vec4f {
+    m = max(max(rgb.x, rgb.y), rgb.z);
+    scale = 2.0 * m;
+    if scale == 0.0 {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    // rgb_to_sigmoid clamps to [0, 1] where pbrt clamps below at zero alone;
+    // scaled by twice the largest component nothing is above a half, so the
+    // two are the same clamp here.
+    return scale * spectrum_at(rgb_to_sigmoid(rgb / scale), lambda);
+}
+
 // pbrt: `RGBAlbedoSpectrum(cs, Clamp(rgb, 0, 1)).Sample(lambda)`, which is what
 // a `SpectrumType::Albedo` image texture -- a reflectance -- becomes.
 func texture_albedo(t : ImageTexture, ctx : TextureEvalContext,

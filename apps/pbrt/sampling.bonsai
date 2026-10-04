@@ -46,6 +46,11 @@ func uniform_sphere_pdf() -> Float = 1.0 / (4.0 * sampling_pi());
 // imports the other.
 func safe_sqrt(x : Float) -> Float = sqrt(max(0.0, x));
 
+// pbrt: SafeASin, the arc sine of a sine that rounding may have pushed a
+// little outside [-1, 1] (shapes.bonsai's angle_between, the hair BSDF's
+// gamma angles).
+func safe_asin(x : Float) -> Float = asin(min(max(x, -1.0), 1.0));
+
 // pbrt: FastExp, from util/math.h.
 //
 // Not a call to `exp`. pbrt's is a polynomial in the fractional part of

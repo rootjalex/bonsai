@@ -757,11 +757,6 @@ func majorant_next(it : mut MajorantIter) -> option[MajorantSegment] {
 func fast_exp4(x : vec4f) -> vec4f =
     vec4f{fast_exp(x.x), fast_exp(x.y), fast_exp(x.z), fast_exp(x.w)};
 
-// pbrt: SampledSpectrum::Average, the four samples summed in order and divided
-// by their count. In order because pbrt's is, and a rescaled path probability
-// is divided by this at every vertex.
-func average4(v : vec4f) -> Float = (((v.x + v.y) + v.z) + v.w) / 4.0;
-
 // pbrt: `std::numeric_limits<Float>::max()`, which stands in for an infinite
 // segment length so that `dt * sigma_maj` is a large number rather than a NaN
 // where sigma_maj is zero.

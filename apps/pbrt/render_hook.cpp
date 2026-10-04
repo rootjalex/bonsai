@@ -1834,6 +1834,22 @@ int main(int argc, char **argv) {
                        uint32_t(bonsai_scene::kBSSRDFTableFloats);
             Material_Subsurface(material, ss);
             have_subsurface = true;
+        } else if (m.tag == bonsai_scene::MaterialTag::Hair) {
+            // pbrt: HairMaterial -- the absorption by whichever way the scene
+            // gave it, the colour being the generic reflectance built above,
+            // and the four float textures as FloatParams.
+            HairMaterial hm;
+            hm.mode = int32_t(m.hair_mode);
+            hm.sigma_a = m.sigma_a_spectrum;
+            hm.sigma_a_rgb = float3{m.sigma_a_rgb[0], m.sigma_a_rgb[1], m.sigma_a_rgb[2]};
+            hm.color = reflectance;
+            hm.eumelanin = FloatParam{m.eumelanin, m.eumelanin_texture};
+            hm.pheomelanin = FloatParam{m.pheomelanin, m.pheomelanin_texture};
+            hm.eta = FloatParam{m.eta, m.eta_texture};
+            hm.beta_m = FloatParam{m.beta_m, m.beta_m_texture};
+            hm.beta_n = FloatParam{m.beta_n, m.beta_n_texture};
+            hm.alpha = FloatParam{m.alpha, m.alpha_texture};
+            Material_Hair(material, hm);
         } else if (m.tag == bonsai_scene::MaterialTag::DiffuseTransmission) {
             DiffuseTransmissionMaterial leaf;
             leaf.reflectance = reflectance;

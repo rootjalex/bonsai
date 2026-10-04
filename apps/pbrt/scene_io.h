@@ -160,6 +160,10 @@ enum MaterialTag : uint32_t {
     // (SurfaceInteraction::SkipIntersection), and the depth does not count
     // it. No field below applies.
     Interface = 7,
+    // PBRT's HairMaterial: the absorption one of three ways (`hair_mode` and
+    // the fields below it), and `eta`, `beta_m`, `beta_n` and `alpha` as
+    // float textures.
+    Hair = 11,
 };
 
 // A participating medium, of the kinds PBRT has: `homogeneous`, `uniformgrid`
@@ -601,6 +605,30 @@ struct Material {
     int32_t mfp_spectrum = -1;
     uint32_t subsurface_from_reflectance = 0;
     int32_t bssrdf_table = -1;
+    // Hair only. PBRT's HairMaterial::Create admits the absorption three
+    // ways, each excluding the next: `sigma_a`, a `reflectance` (or `color`),
+    // or the melanin concentrations `eumelanin` and `pheomelanin`; nothing
+    // given is the concentrations 1.3 and 0. `hair_mode` says which: 0 a
+    // `sigma_a` spectrum sampled onto the index tables (`sigma_a_spectrum`),
+    // 1 an `rgb sigma_a` (`sigma_a_rgb`, PBRT's RGBUnboundedSpectrum of it,
+    // which the renderer takes at the hit through the RGB table), 2 the
+    // colour (the `reflectance` fields above, texture and all), 3 the
+    // concentrations. `eta`, `beta_m`, `beta_n` and `alpha` are PBRT's
+    // FloatTextures, defaulting to 1.55, 0.3, 0.3 and 2: the constants here
+    // (`eta` above for the first), or an index into `textures`.
+    uint32_t hair_mode = 3;
+    float sigma_a_rgb[3] = {0.f, 0.f, 0.f};
+    float eumelanin = 1.3f;
+    float pheomelanin = 0.f;
+    float beta_m = 0.3f;
+    float beta_n = 0.3f;
+    float alpha = 2.f;
+    int32_t eumelanin_texture = -1;
+    int32_t pheomelanin_texture = -1;
+    int32_t eta_texture = -1;
+    int32_t beta_m_texture = -1;
+    int32_t beta_n_texture = -1;
+    int32_t alpha_texture = -1;
 };
 
 // One triangle mesh, as a run of each of the shared pools below.
@@ -2084,6 +2112,24 @@ inline bool write(const char *path, const Scene &scene) {
             out << " roughnesstex " << m.u_roughness_texture << ' '
                 << m.v_roughness_texture << " remap " << m.remap;
             break;
+        case MaterialTag::Hair:
+            out << "  hair " << m.hair_mode << " sigmaa " << m.sigma_a_spectrum
+                << " sigmaargb";
+            detail::put(out, m.sigma_a_rgb, 3);
+            out << " eumelanin";
+            detail::put(out, &m.eumelanin, 1);
+            out << ' ' << m.eumelanin_texture << " pheomelanin";
+            detail::put(out, &m.pheomelanin, 1);
+            out << ' ' << m.pheomelanin_texture << " eta";
+            detail::put(out, &m.eta, 1);
+            out << ' ' << m.eta_texture << " betam";
+            detail::put(out, &m.beta_m, 1);
+            out << ' ' << m.beta_m_texture << " betan";
+            detail::put(out, &m.beta_n, 1);
+            out << ' ' << m.beta_n_texture << " alpha";
+            detail::put(out, &m.alpha, 1);
+            out << ' ' << m.alpha_texture;
+            break;
         case MaterialTag::Interface:
             out << "  interface";
             break;
@@ -2869,6 +2915,39 @@ inline bool read(const char *path, Scene &scene) {
             if (m.bssrdf_table < 0 ||
                 m.bssrdf_table >=
                     int32_t(scene.bssrdf_tables.size() / size_t(kBSSRDFTableFloats))) {
+                return false;
+            }
+        } else if (word == "hair") {
+            m.tag = MaterialTag::Hair;
+            in >> m.hair_mode;
+            if (!tagged("sigmaa")) {
+                return false;
+            }
+            in >> m.sigma_a_spectrum;
+            if (!tagged("sigmaargb")) {
+                return false;
+            }
+            floats(m.sigma_a_rgb, 3);
+            const auto float_param = [&](const char *tag, float *value,
+                                         int32_t *texture) {
+                if (!tagged(tag)) {
+                    return false;
+                }
+                floats(value, 1);
+                in >> *texture;
+                return *texture < int32_t(scene.textures.size());
+            };
+            if (!float_param("eumelanin", &m.eumelanin, &m.eumelanin_texture) ||
+                !float_param("pheomelanin", &m.pheomelanin,
+                             &m.pheomelanin_texture) ||
+                !float_param("eta", &m.eta, &m.eta_texture) ||
+                !float_param("betam", &m.beta_m, &m.beta_m_texture) ||
+                !float_param("betan", &m.beta_n, &m.beta_n_texture) ||
+                !float_param("alpha", &m.alpha, &m.alpha_texture)) {
+                return false;
+            }
+            if (m.hair_mode > 3 || m.sigma_a_spectrum >= spectra ||
+                (m.hair_mode == 0 && m.sigma_a_spectrum < 0)) {
                 return false;
             }
         } else if (word == "interface") {
