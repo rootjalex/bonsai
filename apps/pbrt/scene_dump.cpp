@@ -47,6 +47,7 @@
 
 #include <pbrt/base/bxdf.h>
 #include <pbrt/base/material.h>
+#include <pbrt/bssrdf.h>
 #include <pbrt/bxdfs.h>
 #include <pbrt/cameras.h>
 #include <pbrt/film.h>
@@ -1155,12 +1156,8 @@ int32_t conductor_spectra(const CapturingBuilder::MaterialInfo::Value *eta_v,
 // renderer reads a dielectric's at the path's first wavelength alone
 // (bxdf.bonsai, eta_at) and a reflectance at all four (reflectance_at).
 // Cached by what it was given, as a conductor's pair is.
-int32_t spectrum_table_index(const CapturingBuilder::MaterialInfo::Value &v,
-                             const std::string &param) {
-    pbrt::Allocator alloc;
-    std::string described = "?";
-    const pbrt::Spectrum spectrum = unbounded_spectrum(v, param, alloc, &described);
-    const std::string key = described + "|alone";
+int32_t sampled_spectrum_index(const pbrt::Spectrum spectrum,
+                               const std::string &key) {
     const auto cached = g_conductor_index.find(key);
     if (cached != g_conductor_index.end()) {
         return cached->second;
@@ -1174,6 +1171,47 @@ int32_t spectrum_table_index(const CapturingBuilder::MaterialInfo::Value &v,
         g_scene->conductor_k.push_back(0.f);
     }
     g_conductor_index.emplace(key, index);
+    return index;
+}
+
+int32_t spectrum_table_index(const CapturingBuilder::MaterialInfo::Value &v,
+                             const std::string &param) {
+    pbrt::Allocator alloc;
+    std::string described = "?";
+    const pbrt::Spectrum spectrum = unbounded_spectrum(v, param, alloc, &described);
+    return sampled_spectrum_index(spectrum, described + "|alone");
+}
+
+// A subsurface material's BSSRDF table, PBRT's own: `BSSRDFTable(100, 64)`
+// filled by ComputeBeamDiffusionBSSRDF for the material's `g` and `eta` --
+// the photon beam diffusion profile, its effective albedos and its running
+// integral, computed by PBRT's code and copied out as it is -- appended to
+// the scene's tables as one run of kBSSRDFTableFloats, once per distinct
+// (g, eta): the three sssdragon files name one material each, head one.
+std::map<std::pair<float, float>, int32_t> g_bssrdf_index;
+
+int32_t bssrdf_table_index(pbrt::Float g, pbrt::Float eta) {
+    const std::pair<float, float> key{float(g), float(eta)};
+    const auto cached = g_bssrdf_index.find(key);
+    if (cached != g_bssrdf_index.end()) {
+        return cached->second;
+    }
+    pbrt::Allocator alloc;
+    pbrt::BSSRDFTable table(100, 64, alloc);
+    pbrt::ComputeBeamDiffusionBSSRDF(g, eta, &table);
+    const int32_t index =
+        int32_t(g_scene->bssrdf_tables.size() / bonsai_scene::kBSSRDFTableFloats);
+    const auto append = [&](const pstd::vector<pbrt::Float> &run) {
+        for (const pbrt::Float f : run) {
+            g_scene->bssrdf_tables.push_back(float(f));
+        }
+    };
+    append(table.rhoSamples);
+    append(table.radiusSamples);
+    append(table.profile);
+    append(table.rhoEff);
+    append(table.profileCDF);
+    g_bssrdf_index.emplace(key, index);
     return index;
 }
 
@@ -2058,6 +2096,102 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
         out.reflectance_texture = material_rgb_or_texture(
             m, "reflectance", out.reflectance, &out.reflectance_spectrum);
+        return out;
+    }
+
+    if (m.name == "subsurface") {
+        out.tag = bonsai_scene::MaterialTag::Subsurface;
+        // PBRT: SubsurfaceMaterial::Create, whose "4, mutually-exclusive,
+        // ways to specify the subsurface properties" are taken in its order:
+        // a `name` (GetMediumScatteringProperties' table of measured media,
+        // which gives reduced scattering coefficients, so `g` is forced to
+        // zero), `sigma_a` and `sigma_s` (both or neither -- PBRT's error),
+        // a `reflectance` with an `mfp` defaulting to a ConstantSpectrum of
+        // one, or nothing: whole milk's RGBs as RGBUnboundedSpectra. Each
+        // spectrum is PBRT's own object evaluated onto the sampled tables
+        // (sampled_spectrum_index), and the renderer reads it at the hit's
+        // four wavelengths. A texture for sigma_a, sigma_s or mfp is
+        // refused: PBRT reads one as an unbounded spectrum texture, which
+        // this renderer's textures do not evaluate as, and no scene gives
+        // one.
+        pbrt::Allocator alloc;
+        pbrt::Float g = material_float(m, "g", 0.f);
+        const CapturingBuilder::MaterialInfo::Value *preset = m.find("name");
+        const CapturingBuilder::MaterialInfo::Value *sa = m.find("sigma_a");
+        const CapturingBuilder::MaterialInfo::Value *ss = m.find("sigma_s");
+        const CapturingBuilder::MaterialInfo::Value *refl = m.find("reflectance");
+        const auto no_texture = [&](const CapturingBuilder::MaterialInfo::Value *v,
+                                    const char *what) {
+            if (v != nullptr && v->type == "texture") {
+                fail(std::string("a subsurface material's `") + what +
+                     "` given as a texture is not supported yet: PBRT reads it "
+                     "as an unbounded spectrum texture, which this renderer's "
+                     "textures do not evaluate as; give it as an rgb or a "
+                     "spectrum");
+            }
+        };
+        if (preset != nullptr) {
+            if (preset->type != "string" || preset->strings.size() != 1) {
+                fail("a subsurface material's `name` has to be one string");
+            }
+            pbrt::Spectrum sig_a, sig_s;
+            if (!pbrt::GetMediumScatteringProperties(preset->strings[0], &sig_a,
+                                                      &sig_s, alloc)) {
+                fail(preset->strings[0] +
+                     ": named medium not found -- which is PBRT's own error too");
+            }
+            g = 0;
+            out.sigma_a_spectrum = sampled_spectrum_index(
+                sig_a, "preset " + preset->strings[0] + " sigma_a");
+            out.sigma_s_spectrum = sampled_spectrum_index(
+                sig_s, "preset " + preset->strings[0] + " sigma_s");
+        } else if (sa != nullptr || ss != nullptr) {
+            if (sa == nullptr || ss == nullptr) {
+                fail("a subsurface material given `sigma_a` or `sigma_s` needs "
+                     "both -- which is PBRT's own error too");
+            }
+            no_texture(sa, "sigma_a");
+            no_texture(ss, "sigma_s");
+            out.sigma_a_spectrum = spectrum_table_index(*sa, "sigma_a");
+            out.sigma_s_spectrum = spectrum_table_index(*ss, "sigma_s");
+        } else if (refl != nullptr) {
+            out.subsurface_from_reflectance = 1u;
+            out.reflectance_texture = material_rgb_or_texture(
+                m, "reflectance", out.reflectance, &out.reflectance_spectrum);
+            const CapturingBuilder::MaterialInfo::Value *mfp = m.find("mfp");
+            if (mfp == nullptr) {
+                out.mfp_spectrum = sampled_spectrum_index(
+                    alloc.new_object<pbrt::ConstantSpectrum>(1.f),
+                    "constant 1|alone");
+            } else {
+                no_texture(mfp, "mfp");
+                out.mfp_spectrum = spectrum_table_index(*mfp, "mfp");
+            }
+        } else {
+            out.sigma_a_spectrum = sampled_spectrum_index(
+                alloc.new_object<pbrt::RGBUnboundedSpectrum>(
+                    *pbrt::RGBColorSpace::sRGB, pbrt::RGB(.0011f, .0024f, .014f)),
+                "default subsurface sigma_a|alone");
+            out.sigma_s_spectrum = sampled_spectrum_index(
+                alloc.new_object<pbrt::RGBUnboundedSpectrum>(
+                    *pbrt::RGBColorSpace::sRGB, pbrt::RGB(2.55f, 3.21f, 3.77f)),
+                "default subsurface sigma_s|alone");
+        }
+        out.scale = material_float(m, "scale", 1.f);
+        out.eta = material_float(m, "eta", 1.33f);
+        // The roughness as a Dielectric's: `uroughness`/`vroughness` each
+        // falling back to `roughness`, zero by default, and `remaproughness`
+        // true by default.
+        material_roughness(m, out);
+        const CapturingBuilder::MaterialInfo::Value *sremap =
+            m.find("remaproughness");
+        if (sremap != nullptr) {
+            if (sremap->type != "bool" || sremap->bools.size() != 1) {
+                fail("`remaproughness` has to be a single bool");
+            }
+            out.remap = sremap->bools[0] ? 1u : 0u;
+        }
+        out.bssrdf_table = bssrdf_table_index(g, out.eta);
         return out;
     }
 

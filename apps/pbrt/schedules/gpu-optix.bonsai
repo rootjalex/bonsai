@@ -35,6 +35,7 @@ schedule {
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
     vol_shadow_track.loopify();
+    vol_probe_step.loopify();
 
     render.specialize(integrator);
     render[VolPath].reorder(p, s);
@@ -50,6 +51,7 @@ schedule {
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
     vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
 
     medium_samples = render[VolPath].queue(p_band, ExternDevice);
     vol_path_step.defer(vol_medium_sample, medium_samples);
@@ -65,6 +67,30 @@ schedule {
     hits.specialize(material);
     shadow = render[VolPath].queue(p_band, ExternDevice);
     vol_sample_ld.defer(shadow_contribution, shadow);
+    // pbrt's subsurface queues, in pbrt's order after the material kernels
+    // and their shadow rays: the material kernel pushes a path that went
+    // into a subsurface material onto the BSSRDF queue, whose kernel samples
+    // the probe segment and pushes it onto the subsurface-scatter queue;
+    // IntersectOneRandom is a raygen launch over that queue
+    // (`__raygen__randomHit`), since the probe walk traces; "Handle
+    // out-scattering after SSS" is a CUDA kernel over the same queue, which
+    // pushes the exit's shadow ray and its next ray; and SampleSubsurface
+    // ends with a second TraceShadowRays for those shadow rays, the first
+    // having run before it ("do immediately so that we have space for
+    // shadow rays for subsurface", integrator.cpp): a sample whose entry
+    // was a rough boundary sends one from the entry and one from the exit
+    // in a round, one more than a queue holds for it. Here the BSSRDF kernel
+    // is the material kernel's own tail (vol_subsurface runs in the
+    // Subsurface material's copy of `hits`), the walk is the drain of
+    // `probes` on the hardware, the exit's shading the drain of `exits`, and
+    // the exit's shadow rays the drain of `exit_shadow`, on the hardware
+    // too; the drains run in the order their queues are deferred.
+    probes = render[VolPath].queue(p_band, ExternDevice);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band, ExternDevice);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
 
     // The ray tracing hardware answers both queries.
     trace.bind(RTCore);
@@ -77,6 +103,8 @@ schedule {
     // block shape.
     render.bind(rays, OptixThread);
     render.bind(shadow, OptixThread);
+    render.bind(probes, OptixThread);
+    render.bind(exit_shadow, OptixThread);
     // pbrt's `haveMedia`: TraceShadowRays runs `__raygen__shadow` in a scene
     // without media and `__raygen__shadow_Tr` in one with them, a host-side
     // switch per scene, and nothing else of the wavefront is specialized on
@@ -88,6 +116,7 @@ schedule {
     // 6-8% of book). After the defer that made the drain and the bind that
     // put it on the hardware: the loop form of specialize comes late.
     render.specialize(shadow, have_media);
+    render.specialize(exit_shadow, have_media);
 
     // Every other kernel over blocks of 256 threads, as gpu-wavefront.bonsai
     // has them: the camera rays over a band's pixels (and the prologue's
@@ -111,6 +140,9 @@ schedule {
     render.split(hits, hits_blk, hits_thr, 256, true);
     render.bind(hits_blk, GPUBlock);
     render.bind(hits_thr, GPUThread);
+    render.split(exits, exits_blk, exits_thr, 256, true);
+    render.bind(exits_blk, GPUBlock);
+    render.bind(exits_thr, GPUThread);
     render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
     render.bind(rays_rest_blk, GPUBlock);
     render.bind(rays_rest_thr, GPUThread);

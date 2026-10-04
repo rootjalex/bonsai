@@ -73,6 +73,11 @@ enum MaterialTag : uint32_t {
     // PBRT's MixMaterial: two of this file's materials and the float texture
     // that chooses between them per hit. Resolved at the hit, never a BSDF.
     Mix = 9,
+    // PBRT's SubsurfaceMaterial: a dielectric boundary (the Dielectric
+    // fields: `eta`, the roughness, `remap`) over a tabulated BSSRDF -- its
+    // table in `bssrdf_tables`, and its coefficients as sampled spectra or
+    // as a reflectance and a mean free path (the fields below `mfp_spectrum`).
+    Subsurface = 10,
     // PBRT's `Material "interface"` (and its deprecated spellings `""` and
     // `"none"`), for which `Material::Create` returns no material at all: a
     // surface that scatters nothing and exists only to bound a participating
@@ -230,6 +235,11 @@ struct MeasuredBRDF {
 // of that, for 37 kB a metal.
 inline constexpr int kConductorPerNm = 10;
 inline constexpr int kConductorSamples = 470 * kConductorPerNm + 1;
+
+// One of PBRT's BSSRDFTable(100, 64)s as `bssrdf_tables` holds it: the 100
+// albedo nodes, the 64 radius nodes, the 100 x 64 profile, the 100 effective
+// albedos and the 100 x 64 profile integral, end to end.
+inline constexpr int kBSSRDFTableFloats = 100 + 64 + 100 * 64 + 100 + 100 * 64;
 
 // Which of PBRT's integrators the scene asked for, of the ones this renderer
 // has. PBRT dispatches these through a TaggedPointer and so does the renderer,
@@ -497,6 +507,26 @@ struct Material {
     int32_t g_texture = -1;
     int32_t max_depth = 10;
     int32_t n_samples = 1;
+    // Subsurface only. PBRT's SubsurfaceMaterial::Create admits the
+    // scattering coefficients four ways: a named measurement (`"string name"
+    // "Skin1"`, the table in media.cpp), `sigma_a` and `sigma_s` given, a
+    // `reflectance` and a mean free path `mfp`, or nothing (whole milk). The
+    // first, second and fourth give sigma_a and sigma_s, each a spectrum
+    // sampled onto the index tables (`conductor_eta`, with a zero `k` beside
+    // it; PBRT's own Spectrum objects evaluated onto the grid) and
+    // `subsurface_from_reflectance` is zero; the third sets it and gives
+    // `reflectance` (the fields above, texture and all) and `mfp_spectrum`
+    // the same way, PBRT's ConstantSpectrum(1) when no `mfp` was written.
+    // `scale` multiplies the coefficients or the mean free path, as PBRT's
+    // does; `eta` and the roughness are the boundary's. `bssrdf_table` is
+    // which 13,064-float table of `bssrdf_tables` the material's is -- one
+    // per distinct (g, eta), computed with PBRT's own
+    // ComputeBeamDiffusionBSSRDF.
+    int32_t sigma_a_spectrum = -1;
+    int32_t sigma_s_spectrum = -1;
+    int32_t mfp_spectrum = -1;
+    uint32_t subsurface_from_reflectance = 0;
+    int32_t bssrdf_table = -1;
 };
 
 // One triangle mesh, as a run of each of the shared pools below.
@@ -1068,6 +1098,13 @@ struct Scene {
     // each of its own knots. scene_dump measures that residual and prints it.
     std::vector<float> conductor_eta;
     std::vector<float> conductor_k;
+    // The subsurface materials' BSSRDF tables, PBRT's BSSRDFTable(100, 64)
+    // laid end to end: rhoSamples (100), radiusSamples (64), profile (6,400),
+    // rhoEff (100), profileCDF (6,400) -- 13,064 floats a table, one table
+    // per distinct (g, eta) the scene's subsurface materials name, computed
+    // by PBRT's own ComputeBeamDiffusionBSSRDF in the converter. A material's
+    // `bssrdf_table` is which.
+    std::vector<float> bssrdf_tables;
     // The measured BRDFs, their interpolants, and the four pools those index
     // into. The pools go in the `.tex` sidecar with the texture texels: one
     // `.bsdf` file is seven megabytes and the scene file is text.
@@ -1859,6 +1896,14 @@ inline bool write(const char *path, const Scene &scene) {
         }
     }
     out << '\n';
+    out << "bssrdftables " << scene.bssrdf_tables.size() << '\n';
+    for (size_t i = 0; i < scene.bssrdf_tables.size(); i++) {
+        detail::put(out, &scene.bssrdf_tables[i], 1);
+        if ((i + 1) % 8 == 0) {
+            out << '\n';
+        }
+    }
+    out << '\n';
     out << "rgbtable " << scene.rgb_table.size() << '\n';
     out << "texturetexels " << scene.texture_texels.size() << '\n';
     out << "texturebytes " << scene.texture_bytes.size() << '\n';
@@ -1898,6 +1943,20 @@ inline bool write(const char *path, const Scene &scene) {
             out << "  thindielectric";
             detail::put(out, &m.eta, 1);
             out << " etaspectrum " << m.eta_spectrum;
+            break;
+        case MaterialTag::Subsurface:
+            out << "  subsurface " << m.sigma_a_spectrum << ' '
+                << m.sigma_s_spectrum << ' ' << m.mfp_spectrum
+                << " fromreflectance " << m.subsurface_from_reflectance
+                << " table " << m.bssrdf_table << " scale";
+            detail::put(out, &m.scale, 1);
+            out << " eta";
+            detail::put(out, &m.eta, 1);
+            out << " roughness";
+            detail::put(out, &m.u_roughness, 1);
+            detail::put(out, &m.v_roughness, 1);
+            out << " roughnesstex " << m.u_roughness_texture << ' '
+                << m.v_roughness_texture << " remap " << m.remap;
             break;
         case MaterialTag::Interface:
             out << "  interface";
@@ -2537,6 +2596,18 @@ inline bool read(const char *path, Scene &scene) {
         floats(&scene.conductor_k[i], 1);
     }
 
+    if (!(in >> word) || word != "bssrdftables") {
+        return false;
+    }
+    in >> count;
+    if (count % size_t(kBSSRDFTableFloats) != 0) {
+        return false;
+    }
+    scene.bssrdf_tables.assign(count, 0.f);
+    for (size_t i = 0; i < count; i++) {
+        floats(&scene.bssrdf_tables[i], 1);
+    }
+
     if (!(in >> word) || word != "rgbtable") {
         return false;
     }
@@ -2625,6 +2696,47 @@ inline bool read(const char *path, Scene &scene) {
                 return false;
             }
             in >> m.eta_spectrum;
+        } else if (word == "subsurface") {
+            m.tag = MaterialTag::Subsurface;
+            in >> m.sigma_a_spectrum >> m.sigma_s_spectrum >> m.mfp_spectrum;
+            if (!tagged("fromreflectance")) {
+                return false;
+            }
+            in >> m.subsurface_from_reflectance;
+            if (!tagged("table")) {
+                return false;
+            }
+            in >> m.bssrdf_table;
+            if (!tagged("scale")) {
+                return false;
+            }
+            floats(&m.scale, 1);
+            if (!tagged("eta")) {
+                return false;
+            }
+            floats(&m.eta, 1);
+            if (!tagged("roughness")) {
+                return false;
+            }
+            floats(&m.u_roughness, 1);
+            floats(&m.v_roughness, 1);
+            if (!tagged("roughnesstex")) {
+                return false;
+            }
+            in >> m.u_roughness_texture >> m.v_roughness_texture;
+            if (!tagged("remap")) {
+                return false;
+            }
+            in >> m.remap;
+            if (m.sigma_a_spectrum >= spectra || m.sigma_s_spectrum >= spectra ||
+                m.mfp_spectrum >= spectra) {
+                return false;
+            }
+            if (m.bssrdf_table < 0 ||
+                m.bssrdf_table >=
+                    int32_t(scene.bssrdf_tables.size() / size_t(kBSSRDFTableFloats))) {
+                return false;
+            }
         } else if (word == "interface") {
             m.tag = MaterialTag::Interface;
         } else if (word == "mix") {

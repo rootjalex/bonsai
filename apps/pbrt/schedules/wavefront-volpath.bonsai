@@ -24,6 +24,7 @@ schedule {
     // volpath's inner walks are loops within a step (see wavefront.bonsai).
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
+    vol_probe_step.loopify();
     vol_shadow_track.loopify();
 
     // First: a copy of the render per integrator, so that the queues below
@@ -45,6 +46,13 @@ schedule {
     li_vol_path.defer(vol_path_step, rays);
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
+    // The boundary crossing's continuation onto the ray queue too, as pbrt's
+    // trace kernel pushes it (`if (!material) PushIndirectRay`) and as the
+    // GPU schedules have it; with the subsurface path's exit pushing the
+    // same queue, every caller of vol_path_step on the chain is a pusher,
+    // which is what leaves the chain no recursion but the deferred one.
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
 
     // pbrt's medium queues, drained after the trace and before the three
     // the routing feeds. mediumSampleQueue (SampleMediumInteraction): the
@@ -74,16 +82,29 @@ schedule {
     hits = render[VolPath].queue(p);
     vol_route.defer(vol_surface, hits);
     hits.specialize(material);
-    // pbrt's shadow ray queue. The shadow ray is spawned in vol_sample_ld
-    // once the light is sampled -- `spawn l += shadow_contribution(...)` --
-    // so its trace is pushed by the material drains and by the medium
-    // scattering in the rays drain, and run after the last of them each
+    // pbrt's shadow ray queue. The shadow ray is spawned once the light is
+    // sampled -- `spawn l += shadow_contribution(...)`, on what
+    // vol_light_sample made -- by the material drains and by the medium
+    // scattering in the rays drain, and traced after the last of them each
     // round, as pbrt's TraceShadowRays follows its material kernels. The
     // film write, which reads the radiance, then waits for every round, as
     // pbrt's UpdateFilm does: the compiler moves it onto a queue of its
     // own, drained after the rounds.
     shadow = render[VolPath].queue(p);
     vol_sample_ld.defer(shadow_contribution, shadow);
+    // pbrt's subsurface queues, after the shadow rays (see gpu-optix.bonsai):
+    // the probe segment's walk and the exit's shading each a drain of its
+    // own, and the exit's shadow rays a queue of their own, traced after the
+    // exits as pbrt's SampleSubsurface ends with a second TraceShadowRays:
+    // a sample whose entry was a rough boundary sends a shadow ray from the
+    // entry and another from the exit in one round, and a queue holds one
+    // per sample.
+    probes = render[VolPath].queue(p);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
     trace.sort(primitives.Interior,
                |i : u8, q : RaySegment, axis : u8|
                select((1.0 / q.ray.d)[axis] < 0.0,

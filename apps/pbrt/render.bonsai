@@ -1275,6 +1275,7 @@ func resolve_material(index : i32, p : vec3f, wo : vec3f, n : vec3f,
             Diffuse(albedo) => return m;
             CoatedDiffuse(cd) => return m;
             CoatedConductor(cc) => return m;
+            Subsurface(ss) => return m;
             Dielectric(g) => return m;
             ThinDielectric(td) => return m;
             Conductor(c) => return m;
@@ -1431,8 +1432,11 @@ element Integrator =
     | SimplePath(max_depth : i32, sampler : LightSampler, set : LightSet)
     | Path(max_depth : i32, sampler : LightSampler, set : LightSet,
            regularize : bool)
+    // `have_subsurface` is pbrt's `haveSubsurface`: whether any material in
+    // the scene scatters beneath its surface, which decides how many sampler
+    // dimensions every bounce of every path draws (vol_path_step).
     | VolPath(max_depth : i32, sampler : LightSampler, set : LightSet,
-              regularize : bool);
+              regularize : bool, have_subsurface : bool);
 
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
@@ -2370,33 +2374,62 @@ func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
     return ld * tr.t_ray / average4(r_l * tr.r_l + r_u * tr.r_u);
 }
 
-// pbrt: VolPathIntegrator::SampleLd -- direct lighting at a surface or a
-// medium point, weighed against the BSDF's or the phase function's own
-// estimator through the rescaled probabilities, with the shadow ray's
-// transmittance folded in. Adds what pbrt adds to the radiance -- `beta *
-// f_hat * T_ray * L / ...`, `beta` included -- into `l`. The light is
-// sampled here, with the sampler in hand; the shadow ray is traced by
-// `shadow_contribution`, spawned: its value goes into `l` and nowhere else,
-// so a schedule may queue the shadow rays and trace them together, as pbrt's
-// wavefront integrator does (its shadowRayQueue, traced after the material
-// kernels).
+// The same trace under another name, for the shadow rays a subsurface
+// path's exit sends (vol_exit). pbrt traces its shadow rays twice a round,
+// after the material kernels and again after the subsurface kernel -- a
+// sample whose entry was a rough boundary sends one from each, and its
+// queue holds one entry per sample -- and a schedule queues a spawned call
+// by its callee, so the exits' rays need a callee of their own to be a
+// queue of their own (`vol_exit.defer(exit_shadow_contribution, ...)`).
+func exit_shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
+                              have_media : bool, ld : vec4f, r_u : vec4f,
+                              r_l : vec4f, lambda : SampledWavelengths) -> vec4f =
+    shadow_contribution(light_ray, tmax, medium, have_media, ld, r_u, r_l,
+                        lambda);
+
+// pbrt: ShadowRayWorkItem -- a shadow ray with what it carries: the
+// tentative contribution `ld` and the two rescaled probabilities, the ray's
+// medium beside it. What `vol_light_sample` makes and `shadow_contribution`
+// traces.
+element ShadowRay {
+    ray : Ray;
+    medium : i32;
+    ld : vec4f;
+    r_u : vec4f;
+    r_l : vec4f;
+}
+
+// pbrt: VolPathIntegrator::SampleLd up to the shadow ray -- direct lighting
+// at a surface or a medium point, weighed against the BSDF's or the phase
+// function's own estimator through the rescaled probabilities: the light
+// sampled, with the sampler in hand, and the shadow ray made with its
+// tentative contribution `beta * f_hat * L` and the probabilities the
+// walk's multiply into. None where there is nothing to trace. The caller
+// spawns `shadow_contribution` on what comes back -- its value goes into
+// `l` and nowhere else, so a schedule may queue the shadow rays of each
+// caller and trace them together, as pbrt's wavefront integrator does (its
+// shadowRayQueue, traced after the material kernels, and traced again after
+// the subsurface kernel for the exits' rays: a sample may send one from its
+// entry and one from its exit in a round, which is one more than a queue
+// drained once holds for it).
 // `uc` and `u_light` are the bounce's `raySamples.direct.uc` and `.u`, drawn
 // by the caller as the wavefront draws them for every ray of a round,
 // whether or not its surface has a density to sample lights with.
-func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
-                   shading : Frame, wo : vec3f, flags : i32, g : Float,
-                   beta : vec4f, r_p : vec4f, lambda : SampledWavelengths,
-                   uc : Float, u_light : vec2f,
-                   ls : LightSampler, have_media : bool, seed : i32,
-                   l : reduce(+) vec4f) -> void {
+func vol_light_sample(pt : ScatterPoint, is_surface : bool, nudge : bool,
+                      bsdf : BxDF, shading : Frame, wo : vec3f, flags : i32,
+                      g : Float, beta : vec4f, r_p : vec4f,
+                      lambda : SampledWavelengths, uc : Float, u_light : vec2f,
+                      ls : LightSampler, seed : i32) -> option[ShadowRay] {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     // pbrt: the LightSampleContext -- a surface's point nudged to the side
     // its BSDF scatters to, as in `path_sample_ld`; a medium point as it is,
-    // with no normal.
+    // with no normal. `nudge` is false where pbrt's context is the point
+    // itself: the exit of a subsurface path (`LightSampleContext ctx(intr.pi,
+    // intr.n, intr.ns)`, subsurface.cpp), a surface all the same.
     no_error = vec3f{0.0, 0.0, 0.0};
     ctx_p : mut vec3f = pt.p;
     ctx_error : mut vec3f = pt.p_error;
-    if is_surface {
+    if is_surface && nudge {
         if is_reflective(flags) && !is_transmissive(flags) {
             ctx_p = offset_ray_origin(pt.p, pt.p_error, pt.n, wo);
             ctx_error = no_error;
@@ -2409,16 +2442,16 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
 
     chosen = light_sampler_sample(ls, ctx, uc);
     if !chosen {
-        return;
+        return {};
     }
     picked = *chosen;
     sampled = light_sample_li(lights[picked.light], ctx, u_light, lambda, true);
     if !sampled {
-        return;
+        return {};
     }
     lsample = *sampled;
     if !nonzero(lsample.l) || (lsample.pdf == 0.0) {
-        return;
+        return {};
     }
     p_l = picked.p * lsample.pdf;
 
@@ -2438,7 +2471,7 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
         scatter_pdf = p;
     }
     if !nonzero(f_hat) {
-        return;
+        return {};
     }
 
     // pbrt's wavefront: at a surface, `SpawnRayTo(w.pi, w.n, w.time,
@@ -2466,8 +2499,33 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, bsdf : BxDF,
     if light_is_delta(lights[picked.light]) {
         r_u = zero;
     }
-    spawn l += shadow_contribution(light_ray, shadow_tmax(), light_medium,
-                                   have_media, ld, r_u, r_l, lambda);
+    made : ShadowRay = {light_ray, light_medium, ld, r_u, r_l};
+    return made;
+}
+
+// pbrt: VolPathIntegrator::SampleLd whole -- the light sampled and the
+// shadow ray spawned, adding what pbrt adds to the radiance (`beta * f_hat
+// * T_ray * L / ...`) into `l`. One function for the material kernel and
+// the medium scattering both, because a schedule queues the spawned trace
+// through the function that spawns it (`vol_sample_ld.defer(
+// shadow_contribution, shadow)`), and the queue reaches the kernels that
+// call that function; the exit of a subsurface path spawns its own
+// (vol_exit, exit_shadow_contribution).
+func vol_sample_ld(pt : ScatterPoint, is_surface : bool, nudge : bool,
+                   bsdf : BxDF, shading : Frame, wo : vec3f, flags : i32,
+                   g : Float, beta : vec4f, r_p : vec4f,
+                   lambda : SampledWavelengths, uc : Float, u_light : vec2f,
+                   ls : LightSampler, have_media : bool, seed : i32,
+                   l : reduce(+) vec4f) -> void {
+    shadow_ray = vol_light_sample(pt, is_surface, nudge, bsdf, shading, wo,
+                                  flags, g, beta, r_p, lambda, uc, u_light, ls,
+                                  seed);
+    if !shadow_ray {
+        return;
+    }
+    sr = *shadow_ray;
+    spawn l += shadow_contribution(sr.ray, shadow_tmax(), sr.medium, have_media,
+                                   sr.ld, sr.r_u, sr.r_l, lambda);
     return;
 }
 
@@ -2638,6 +2696,7 @@ func vol_path_step(ray : Ray, medium : i32,
                    sampler : Sampler, state : mut SamplerState,
                    ls : LightSampler, set : LightSet, have_media : bool,
                    seed : i32, max_depth : i32, regularize : bool,
+                   have_subsurface : bool,
                    want_visible : bool, visible : mut VisibleSurface,
                    l : reduce(+) vec4f) -> void {
     // pbrt: GenerateRaySamples -- the sampler started again at the bounce's
@@ -2647,8 +2706,13 @@ func vol_path_step(ray : Ray, medium : i32,
     // `uc` and `u`, roulette's), so a path's draws do not run on from
     // wherever its last bounce left them as the CPU integrator's do. A ray
     // re-traced at the same depth after a boundary crossing draws the same
-    // values again, as pbrt's does.
-    state = start_pixel_sample_at(sampler, state, 6 + 7 * depth_in);
+    // values again, as pbrt's does. In a scene with a subsurface material
+    // every bounce draws three more -- the probe segment's `uc` and `u` --
+    // whether or not its surface is one (`if (haveSubsurface) dimension +=
+    // 3 * w.depth`), so every path's samples move when one material does.
+    state = start_pixel_sample_at(sampler, state,
+                                  6 + 7 * depth_in +
+                                      select(have_subsurface, 3 * depth_in, 0));
     isect = trace(RaySegment{ray, inf});
 
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
@@ -2660,13 +2724,15 @@ func vol_path_step(ray : Ray, medium : i32,
                           beta_in, r_u_in, r_l_in, depth_in, wave,
                           specular_bounce, any_non_specular, eta_scale,
                           prev_ctx, lambda, sampler, state, ls, set, have_media,
-                          seed, max_depth, regularize, want_visible, visible, l);
+                          seed, max_depth, regularize, have_subsurface,
+                          want_visible, visible, l);
         return;
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
               r_l_in, depth_in, wave, specular_bounce, any_non_specular,
               eta_scale, prev_ctx, lambda, sampler, state, ls, set, have_media,
-              seed, max_depth, regularize, want_visible, visible, l);
+              seed, max_depth, regularize, have_subsurface, want_visible,
+              visible, l);
     return;
 }
 
@@ -2690,7 +2756,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
                        lambda : SampledWavelengths, sampler : Sampler,
                        state : mut SamplerState, ls : LightSampler,
                        set : LightSet, have_media : bool, seed : i32,
-                       max_depth : i32, regularize : bool, want_visible : bool,
+                       max_depth : i32, regularize : bool,
+                       have_subsurface : bool, want_visible : bool,
                        visible : mut VisibleSurface,
                        l : reduce(+) vec4f) -> void {
     t_hit : mut Float = inf;
@@ -2738,7 +2805,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
         vol_medium_scatter(event, ray, medium, camera, spp_scale,
                            eta_scale, wave, lambda, sampler, state, ls, set,
                            have_media, seed, max_depth, regularize,
-                           want_visible, visible, l);
+                           have_subsurface, want_visible, visible, l);
         return;
     }
     // pbrt: `if (!scattered && beta) { beta *= T_maj / T_maj[0]; ... }`, the
@@ -2758,7 +2825,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
     vol_route(isect, ray, medium, camera, spp_scale, beta_out, r_u_out, r_l_out,
               depth, wave, specular_bounce, any_non_specular, eta_scale,
               prev_ctx, lambda, sampler, state, ls, set, have_media, seed,
-              max_depth, regularize, want_visible, visible, l);
+              max_depth, regularize, have_subsurface, want_visible, visible, l);
     return;
 }
 
@@ -2778,7 +2845,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         lambda : SampledWavelengths, sampler : Sampler,
                         state : mut SamplerState, ls : LightSampler,
                         set : LightSet, have_media : bool, seed : i32,
-                        max_depth : i32, regularize : bool, want_visible : bool,
+                        max_depth : i32, regularize : bool,
+                        have_subsurface : bool, want_visible : bool,
                         visible : mut VisibleSurface,
                         l : reduce(+) vec4f) -> void {
     zero3 = vec3f{0.0, 0.0, 0.0};
@@ -2788,7 +2856,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
     no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
     direct_uc = get_1d(sampler, state);
     direct_u = get_2d(sampler, state);
-    vol_sample_ld(pt, false, Lambertian(none), no_frame, wo, 0, event.g,
+    vol_sample_ld(pt, false, false, Lambertian(none), no_frame, wo, 0, event.g,
                   event.beta, event.r_u, lambda, direct_uc, direct_u, ls,
                   have_media, seed, l);
     // pbrt: `raySamples.indirect.uc`, drawn for the bounce and not read here.
@@ -2820,7 +2888,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
     vol_path_step(turned, medium, camera, spp_scale, survived, event.r_u,
                   event.r_u / ps.pdf, event.depth, wave + 1, false, true,
                   eta_scale, ctx, lambda, sampler, state, ls, set, have_media,
-                  seed, max_depth, regularize, want_visible, visible, l);
+                  seed, max_depth, regularize, have_subsurface, want_visible,
+                  visible, l);
     return;
 }
 
@@ -2841,7 +2910,7 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
                have_media : bool, seed : i32, max_depth : i32,
-               regularize : bool, want_visible : bool,
+               regularize : bool, have_subsurface : bool, want_visible : bool,
                visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
     if !isect {
         // pbrt: the `escapedRayQueue` exists only `if (infiniteLights->size())`
@@ -2892,8 +2961,8 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
             skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
             spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
             any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
-            set, have_media, seed, max_depth, regularize, want_visible, visible,
-            l);
+            set, have_media, seed, max_depth, regularize, have_subsurface,
+            want_visible, visible, l);
         return;
     }
     // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
@@ -2917,8 +2986,8 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     vol_surface(ray, medium, camera, spp_scale, via, prim, mat, surf, beta,
                 r_u, r_l, depth, wave, specular_bounce, any_non_specular,
                 eta_scale, prev_ctx, lambda, sampler, state, ls, set,
-                have_media, seed, max_depth, regularize, want_visible, visible,
-                l);
+                have_media, seed, max_depth, regularize, have_subsurface,
+                want_visible, visible, l);
     return;
 }
 
@@ -2990,7 +3059,7 @@ func vol_surface(ray : Ray, medium : i32,
                  prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
                  sampler : Sampler, state : mut SamplerState, ls : LightSampler,
                  set : LightSet, have_media : bool, seed : i32, max_depth : i32,
-                 regularize : bool, want_visible : bool,
+                 regularize : bool, have_subsurface : bool, want_visible : bool,
                  visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
     wo = -ray.d;
     wo_unit = unit_vector_(wo);
@@ -3045,8 +3114,8 @@ func vol_surface(ray : Ray, medium : i32,
     if is_non_specular(flags) {
         pt : ScatterPoint = {surf.p, surf.p_error, surf.n, hit.ns, medium,
                              prim.medium_inside, prim.medium_outside};
-        vol_sample_ld(pt, true, bsdf, shading, wo_unit, flags, 0.0, beta, r_u,
-                      lam, direct_uc, direct_u, ls, have_media, seed, l);
+        vol_sample_ld(pt, true, true, bsdf, shading, wo_unit, flags, 0.0, beta,
+                      r_u, lam, direct_uc, direct_u, ls, have_media, seed, l);
     }
     next_ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
@@ -3095,12 +3164,239 @@ func vol_surface(ray : Ray, medium : i32,
         survived = next_beta / (1.0 - q);
     }
 
+    // pbrt: `if (bsdfSample->IsTransmission() && w.material->
+    // HasSubsurfaceScattering()) bssrdfEvalQueue->Push(...)` (surfscatter.
+    // cpp) -- a path that went *into* a subsurface material does not go on
+    // as a ray: it goes to the BSSRDF, with the throughput the roulette
+    // left it, the probabilities as they are and the depth of this hit.
+    if is_transmissive(sample.flags) {
+        maybe_ss = material_subsurface(material);
+        if maybe_ss {
+            vol_subsurface(*maybe_ss, medium, camera, spp_scale, prim, mat, surf,
+                           hit, texture_context(hit, diffs), survived, r_u,
+                           depth, wave, next_eta_scale, lam, sampler, state,
+                           direct_uc, direct_u, uc, u, u_rr, ls, set, have_media,
+                           seed, max_depth, regularize, have_subsurface,
+                           want_visible, visible, l);
+            return;
+        }
+    }
+
     vol_path_step(next_ray, next_medium, camera, spp_scale, survived,
                   r_u, next_r_l, next_depth, wave + 1, next_specular,
                   next_any_ns,
                   next_eta_scale, next_ctx, lam, sampler, state, ls, set,
-                  have_media, seed, max_depth, regularize, want_visible, visible,
-                  l);
+                  have_media, seed, max_depth, regularize, have_subsurface,
+                  want_visible, visible, l);
+    return;
+}
+
+// pbrt: the wavefront's subsurface path, in its three kernels
+// (wavefront/subsurface.cpp). "Get BSSRDF and enqueue probe ray" makes the
+// material's TabulatedBSSRDF at the hit and samples the probe segment with
+// the bounce's `subsurface` draws -- the three dimensions after the
+// roulette's, which GenerateRaySamples draws for every ray of a round in a
+// scene with a subsurface material (vol_path_step's start counts them);
+// IntersectOneRandom (`__raygen__randomHit`, gpu/optix/optix.cu) walks the
+// segment for the exit point; "Handle out-scattering after SSS" shades the
+// exit. The three are vol_subsurface, vol_probe and vol_exit here, so that
+// a schedule may queue them as pbrt's are -- the probe walk a raygen launch
+// on the ray tracing hardware, since it traces (gpu-optix.bonsai).
+// `hit` is the surface with the material's normal or bump map applied
+// (pbrt's `ns` and `dpdus` in the work item), `surf` the shape's own.
+func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
+                    camera : PerspectiveCamera, spp_scale : Float,
+                    prim : Geometric, mat : i32, surf : SurfaceGeometry,
+                    hit : SurfaceGeometry, ctx : TextureEvalContext,
+                    beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
+                    eta_scale : Float, lam : SampledWavelengths,
+                    sampler : Sampler, state : mut SamplerState,
+                    direct_uc : Float, direct_u : vec2f, uc : Float, u : vec2f,
+                    u_rr : Float, ls : LightSampler, set : LightSet,
+                    have_media : bool, seed : i32, max_depth : i32,
+                    regularize : bool, have_subsurface : bool,
+                    want_visible : bool, visible : mut VisibleSurface,
+                    l : reduce(+) vec4f) -> void {
+    bssrdf = material_bssrdf(ss, lam, ctx, surf.p, hit.ns);
+    sub_uc = get_1d(sampler, state);
+    sub_u = get_2d(sampler, state);
+    seg = bssrdf_sample_sp(bssrdf, sub_uc, sub_u);
+    if !seg {
+        return;
+    }
+    probe = *seg;
+    vol_probe(probe.p0, probe.p1, bssrdf, medium, camera, spp_scale, prim, mat,
+              surf, beta, r_u, depth, wave, eta_scale, lam, sampler, state,
+              direct_uc, direct_u, uc, u, u_rr, ls, set, have_media, seed,
+              max_depth, regularize, have_subsurface, want_visible, visible, l);
+    return;
+}
+
+// What the probe walk found: how many hits on the entry's material it met
+// and the one it kept.
+element ProbeResult {
+    count : i32;
+    kept : SurfaceGeometry;
+}
+
+// pbrt: IntersectOneRandom -- __raygen__randomHit and the CPU's
+// CPUAggregate::IntersectOneRandom alike. From the segment's start toward
+// its end, the nearest hit, and again from each hit found (`SpawnRayTo(p1)`,
+// the origin pushed off the surface it is on), and of the hits on the
+// entry's material one kept by weighted reservoir sampling with unit weights
+// (WeightedReservoirSampler, seeded by `Hash(p0, p1)`): the k'th such hit
+// replaces the kept one with probability 1/k, so each is kept with
+// probability 1/n and the sample's probability is 1/n. The walk ends at a
+// miss, at a segment of no length, or -- pbrt's GPU guard, `++depth < 100`
+// -- after ninety-nine traces. pbrt compares the hit's Material handle with
+// the entry's; here the primitive's material index with `mat`, which is the
+// same test for every material but a mix (pbrt's handle is the unresolved
+// mix there, and matches nothing). A hit the hardware re-found is pushed
+// clear of as everywhere else (hit_refused).
+func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
+               camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
+               mat : i32, entry : SurfaceGeometry, beta : vec4f, r_u : vec4f,
+               depth : i32, wave : i32, eta_scale : Float,
+               lam : SampledWavelengths, sampler : Sampler,
+               state : mut SamplerState, direct_uc : Float, direct_u : vec2f,
+               uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
+               set : LightSet, have_media : bool, seed : i32, max_depth : i32,
+               regularize : bool, have_subsurface : bool, want_visible : bool,
+               visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+    key = hash_vec3_vec3(p0, p1);
+    rng : mut RNG = set_sequence(key, mix_bits(key));
+    zero3 = vec3f{0.0, 0.0, 0.0};
+    found = vol_probe_step(p0, zero3, zero3, p1, mat, rng, 0, 0, entry);
+    if found.count == 0 {
+        return;
+    }
+    vol_exit(found.kept, 1.0 / cast[[Float]](found.count), bssrdf, medium,
+             camera, spp_scale, prim, beta, r_u, depth, wave, eta_scale, lam,
+             sampler, state, direct_uc, direct_u, uc, u, u_rr, ls, set,
+             have_media, seed, max_depth, regularize, have_subsurface,
+             want_visible, visible, l);
+    return;
+}
+
+// One step of the walk: the ray from `o` to `p1`, its nearest hit, the
+// reservoir's draw if the hit is on the material, and the next step from
+// the hit. `steps` counts the traces made.
+func vol_probe_step(o : vec3f, o_error : vec3f, o_n : vec3f, p1 : vec3f,
+                    mat : i32, rng : mut RNG, n_hits : i32, steps : i32,
+                    kept : SurfaceGeometry) -> ProbeResult {
+    done : ProbeResult = {n_hits, kept};
+    r = spawn_ray_to_point(o, o_error, o_n, p1);
+    if !any(r.d != 0.0) || (steps >= 99) {
+        return done;
+    }
+    isect = trace(RaySegment{r, 1.0});
+    if !isect {
+        return done;
+    }
+    reached = *isect;
+    via = reached[0];
+    hit_prim = reached[1];
+    surf = transform(via, surface_geometry(hit_prim.shape, untransform(via, r)));
+    next_count : mut i32 = n_hits;
+    next_kept : mut SurfaceGeometry = kept;
+    if hit_prim.material == mat {
+        next_count = n_hits + 1;
+        if next_float(rng) < 1.0 / cast[[Float]](next_count) {
+            next_kept = surf;
+        }
+    }
+    refused = hit_refused(hit_prim.shape, untransform(via, r));
+    return vol_probe_step(surf.p,
+                          select(refused, wide_error(surf.p), surf.p_error),
+                          surf.n, p1, mat, rng, next_count, steps + 1,
+                          next_kept);
+}
+
+// pbrt: "Handle out-scattering after SSS" -- ProbeIntersectionToSample at
+// the exit (`Sp` at the exit's distance, `PDF_Sp` at its position and
+// normal, the NormalizedFresnelBxDF in the exit's shading frame, `wo` its
+// shading normal), nothing where either is zero; the throughput times
+// `Sp / (reservoir pdf * pdf[0])` and the rescaled probability times `pdf /
+// pdf[0]`; then the exit's indirect ray -- the lobe sampled with the
+// bounce's `indirect` draws, roulette with its `rr` for a depth above one,
+// pushed at the depth plus one as a non-specular bounce -- and its direct
+// lighting with the bounce's `direct` draws, the light-sampling context the
+// exit's point unmoved. The medium on either side is the entry's
+// (`w.mediumInterface`), chosen by the exit's normal.
+func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
+              bssrdf : TabulatedBSSRDF, medium : i32,
+              camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
+              beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
+              eta_scale : Float, lam : SampledWavelengths, sampler : Sampler,
+              state : mut SamplerState, direct_uc : Float, direct_u : vec2f,
+              uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
+              set : LightSet, have_media : bool, seed : i32, max_depth : i32,
+              regularize : bool, have_subsurface : bool, want_visible : bool,
+              visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    sp = bssrdf_sp(bssrdf, kept.p);
+    pdf = bssrdf_pdf_sp(bssrdf, kept.p, kept.n);
+    if !nonzero(sp) || !nonzero(pdf) {
+        return;
+    }
+    pr = reservoir_pdf * pdf.x;
+    betap = beta * sp / pr;
+    r_u_exit = r_u * pdf / pdf.x;
+    wo = kept.ns;
+    frame = frame_from_xz(unit_vector_(kept.dpdus), kept.ns);
+    nf : NormalizedFresnelBxDF = {bssrdf.eta};
+    bsdf = NormalizedFresnel(nf);
+    flags = normalized_fresnel_flags();
+
+    // Direct lighting, whose lobe is always one to sample lights with.
+    // pbrt's kernel has it after the indirect ray; the two share no draw and
+    // add to the radiance independently, and the indirect ray's step has to
+    // be the last thing done here, the render loop being a recursion whose
+    // every call of vol_path_step is in tail position.
+    pt : ScatterPoint = {kept.p, kept.p_error, kept.n, kept.ns, medium,
+                         prim.medium_inside, prim.medium_outside};
+    shadow_ray = vol_light_sample(pt, true, false, bsdf, frame, wo, flags, 0.0,
+                                  betap, r_u_exit, lam, direct_uc, direct_u, ls,
+                                  seed);
+    if shadow_ray {
+        sr = *shadow_ray;
+        spawn l += exit_shadow_contribution(sr.ray, shadow_tmax(), sr.medium,
+                                            have_media, sr.ld, sr.r_u, sr.r_l,
+                                            lam);
+    }
+
+    // The indirect ray.
+    wo_local = frame_to_local(frame, wo);
+    bs = bxdf_sample_f(bsdf, wo_local, uc, u, seed);
+    if !bs {
+        return;
+    }
+    sample = *bs;
+    if !nonzero(sample.f) || (sample.pdf == 0.0) || (sample.wi.z == 0.0) {
+        return;
+    }
+    wi = frame_from_local(frame, sample.wi);
+    next_beta = betap * sample.f * abs(dot(wi, kept.ns)) / sample.pdf;
+    r_l = r_u_exit / sample.pdf;
+    // pbrt: `if (rrBeta.MaxComponentValue() < 1 && w.depth > 1)` -- strictly
+    // above one here, where the material kernel's test is at one or more.
+    rr_beta = max_component(next_beta * eta_scale / average4(r_u_exit));
+    survived : mut vec4f = next_beta;
+    if (rr_beta < 1.0) && (depth > 1) {
+        q = max(0.0, 1.0 - rr_beta);
+        if u_rr < q {
+            return;
+        }
+        survived = next_beta / (1.0 - q);
+    }
+    next_ray = spawn_ray(kept, wi);
+    next_medium = get_medium(prim, kept.n, next_ray.d, medium);
+    next_ctx : ShapeSampleContext = {kept.p, kept.p_error, kept.n, kept.ns};
+    vol_path_step(next_ray, next_medium, camera, spp_scale, survived, r_u_exit,
+                  r_l, depth + 1, wave + 1, is_specular(sample.flags), true,
+                  eta_scale, next_ctx, lam, sampler, state, ls, set, have_media,
+                  seed, max_depth, regularize, have_subsurface, want_visible,
+                  visible, l);
     return;
 }
 
@@ -3111,6 +3407,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                  lambda : SampledWavelengths, sampler : Sampler,
                  state : mut SamplerState, ls : LightSampler, set : LightSet,
                  seed : i32, max_depth : i32, regularize : bool,
+                 have_subsurface : bool,
                  want_visible : bool, visible : mut VisibleSurface,
                  l : reduce(+) vec4f) -> void {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
@@ -3118,8 +3415,8 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
     vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0, 0,
                   false, false, 1.0, origin, lambda, sampler, state, ls, set,
-                  have_media, seed, max_depth, regularize, want_visible, visible,
-                  l);
+                  have_media, seed, max_depth, regularize, have_subsurface,
+                  want_visible, visible, l);
     return;
 }
 
@@ -3161,10 +3458,10 @@ func integrator_li(integrator : Integrator, r : Ray, medium : i32,
                          visible);
             return;
         }
-        VolPath(max_depth, ls, set, regularize) => {
+        VolPath(max_depth, ls, set, regularize, have_subsurface) => {
             li_vol_path(r, medium, have_media, camera, spp_scale, lambda,
                         sampler, state, ls, set, seed, max_depth, regularize,
-                        want_visible, visible, l);
+                        have_subsurface, want_visible, visible, l);
             return;
         }
     }

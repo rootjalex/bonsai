@@ -22,6 +22,7 @@ import stdlib/numerics;
 import apps/pbrt/frame;
 import apps/pbrt/rng;
 import apps/pbrt/sampling;
+import apps/pbrt/bssrdf;
 import apps/pbrt/spectrum;
 // For a textured reflectance. textures.bonsai knows nothing about materials, so
 // this is not a cycle.
@@ -420,6 +421,71 @@ func diffuse_sample_f(b : DiffuseBxDF, wo : vec3f, uc : Float, u : vec2f,
 // ray to it.
 func diffuse_flags(b : DiffuseBxDF) -> i32 =
     select(nonzero(b.r), flag_diffuse() | flag_reflection(), 0);
+
+// pbrt: FresnelMoment1 -- the first moment of the Fresnel reflectance over
+// the hemisphere, as the two polynomial fits pbrt uses (util/scattering.cpp),
+// one below an index of one and one above. The fit below one is the one
+// the subsurface exit reads, at `1 / eta`, and pbrt wrote one of its
+// coefficients, 3.904945, without the `f` -- so from that term on the sum
+// is in double there and rounded to float at the end, and so it is here.
+func fresnel_moment1(eta : Float) -> Float {
+    eta2 = eta * eta;
+    eta3 = eta2 * eta;
+    eta4 = eta3 * eta;
+    eta5 = eta4 * eta;
+    if eta < 1.0 {
+        head = 0.45966 - 1.73965 * eta + 3.37668 * eta2;
+        c3 : f64 = 3.904945;
+        tail = cast[[f64]](head) - c3 * cast[[f64]](eta3) +
+               cast[[f64]](2.49277 * eta4) - cast[[f64]](0.68441 * eta5);
+        return cast[[Float]](tail);
+    }
+    return -4.61686 + 11.1136 * eta - 10.4646 * eta2 + 5.11455 * eta3 -
+           1.27198 * eta4 + 0.12746 * eta5;
+}
+
+// pbrt: NormalizedFresnelBxDF -- the BSDF at the point a subsurface path
+// leaves the surface (TabulatedBSSRDF's `Sw`, bssrdf.h): a diffuse lobe
+// shaped by the Fresnel transmittance out of the medium, normalized to one
+// over the hemisphere by the first Fresnel moment, and scaled by eta squared
+// in radiance mode for the change of medium. Sampled as a Lambertian lobe is.
+element NormalizedFresnelBxDF {
+    eta : Float;
+}
+
+func normalized_fresnel_f(b : NormalizedFresnelBxDF, wo : vec3f,
+                          wi : vec3f) -> vec4f {
+    if !same_hemisphere(wo, wi) {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    c = 1.0 - 2.0 * fresnel_moment1(1.0 / b.eta);
+    f = (1.0 - fr_dielectric(cos_theta(wi), b.eta)) / (c * pi());
+    // pbrt: `if (mode == TransportMode::Radiance) f *= Sqr(eta)`.
+    scaled = f * sqr(b.eta);
+    return vec4f{scaled, scaled, scaled, scaled};
+}
+
+func normalized_fresnel_pdf(wo : vec3f, wi : vec3f, sample_flags : i32) -> Float {
+    if (sample_flags & sample_reflection()) == 0 {
+        return 0.0;
+    }
+    return select(same_hemisphere(wo, wi), abs_cos_theta(wi) * inv_pi(), 0.0);
+}
+
+func normalized_fresnel_sample_f(b : NormalizedFresnelBxDF, wo : vec3f, u : vec2f,
+                                 sample_flags : i32) -> option[BSDFSample] {
+    if (sample_flags & sample_reflection()) == 0 {
+        return {};
+    }
+    wi0 = sample_cosine_hemisphere(u);
+    wi = select(wo.z < 0.0, vec3f{wi0.x, wi0.y, -wi0.z}, wi0);
+    s : BSDFSample = {normalized_fresnel_f(b, wo, wi), wi,
+                      normalized_fresnel_pdf(wo, wi, sample_flags),
+                      flag_diffuse() | flag_reflection(), 1.0, false};
+    return s;
+}
+
+func normalized_fresnel_flags() -> i32 = flag_reflection() | flag_diffuse();
 
 // pbrt: DiffuseTransmissionBxDF -- a Lambertian lobe on each side of the
 // surface, one reflecting and one transmitting, which is what a leaf is: light
@@ -2108,6 +2174,66 @@ element DiffuseTransmissionMaterial {
     scale : Float;
 }
 
+// pbrt: SubsurfaceMaterial. Its BSDF is a dielectric boundary -- the same
+// DielectricBxDF a Dielectric material has, from `eta` and the roughness --
+// and its BSSRDF is tabulated: `table` is where its BSSRDFTable begins in
+// `bssrdf_tables` (bssrdf.bonsai), and the coefficients at a hit come one of
+// the two ways SubsurfaceMaterial::Create admits them. Either sigma_a and
+// sigma_s are given -- by a named measurement (`"string name" "Skin1"`, the
+// table in media.cpp), an RGB or a spectrum -- each a sampled spectrum here,
+// read at the four wavelengths as a conductor's index is, and scaled by
+// `scale` (`from_reflectance` false); or a reflectance -- a Reflectance,
+// texture and all: head's albedo map -- and a mean free path `mfp`, a sampled
+// spectrum too, scaled, from which SubsurfaceFromDiffuse makes the
+// coefficients at the hit (`from_reflectance` true). `g` is the table's,
+// not the hit's: the profile was computed for it.
+element SubsurfaceMaterial {
+    u_roughness, v_roughness : FloatParam;
+    remap : bool;
+    eta : Float;
+    scale : Float;
+    from_reflectance : bool;
+    sigma_a : i32;
+    sigma_s : i32;
+    reflectance : Reflectance;
+    mfp : i32;
+    table : u32;
+}
+
+// A spectrum of the sampled tables (`conductor_eta`, with a zero `k` beside
+// it) at the four wavelengths -- what a SubsurfaceMaterial's coefficients
+// are.
+func sampled_spectrum_at(index : i32, lambda : SampledWavelengths) -> vec4f =
+    spectrum_at_linear(conductor_eta, cast[[u32]](index) * conductor_samples(),
+                       lambda);
+
+// pbrt: SubsurfaceMaterial::GetBSSRDF -- the coefficients at the hit, by
+// whichever way the material gives them, `ClampZero` on each (and the
+// reflectance clamped to [0, 1]), and the TabulatedBSSRDF over them: `sigma_t
+// = sigma_a + sigma_s`, `rho = SafeDiv(sigma_s, sigma_t)`. `p` and `ns` are
+// pbrt's `ctx.p` and `ctx.ns`, the hit and its shading normal.
+func material_bssrdf(ss : SubsurfaceMaterial, lambda : SampledWavelengths,
+                     ctx : TextureEvalContext, p : vec3f,
+                     ns : vec3f) -> TabulatedBSSRDF {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    one = vec4f{1.0, 1.0, 1.0, 1.0};
+    c : mut ScatteringCoefficients = {zero, zero};
+    if ss.from_reflectance {
+        mfree = max(ss.scale * sampled_spectrum_at(ss.mfp, lambda), zero);
+        r = min(max(reflectance_at(ss.reflectance, lambda, ctx), zero), one);
+        c = subsurface_from_diffuse(ss.table, r, mfree);
+    } else {
+        given : ScatteringCoefficients = {
+            max(ss.scale * sampled_spectrum_at(ss.sigma_a, lambda), zero),
+            max(ss.scale * sampled_spectrum_at(ss.sigma_s, lambda), zero)};
+        c = given;
+    }
+    sigma_t = c.sigma_a + c.sigma_s;
+    rho = select(sigma_t == 0.0, zero, c.sigma_s / sigma_t);
+    b : TabulatedBSSRDF = {p, ns, ss.eta, sigma_t, rho, ss.table};
+    return b;
+}
+
 // pbrt: ConductorMaterial. The index is spectral, so it ships as a pair of
 // densely-sampled tables and is read at the four wavelengths of the hit -- see
 // `conductor_spectra` below.
@@ -2221,7 +2347,8 @@ element Material =
     | Measured(index : u32)
     // `Mixed` rather than `Mix`, since a variant's name is one name across
     // every ADT and the texture graph has `Mix` (textures.bonsai).
-    | Mixed(mix : MixMaterial);
+    | Mixed(mix : MixMaterial)
+    | Subsurface(ss : SubsurfaceMaterial);
 // pbrt's `Material "interface"` is not a kind of material: Material::Create
 // returns no material at all for it (materials.cpp), and the primitive holds
 // that null pointer -- a surface with no BSDF, there to bound a participating
@@ -2342,7 +2469,9 @@ element BxDF =
     | Metal(c : ConductorBxDF)
     | Table(t : MeasuredBxDF)
     // A Lambertian lobe on each side: a leaf.
-    | Translucent(dt : DiffuseTransmissionBxDF);
+    | Translucent(dt : DiffuseTransmissionBxDF)
+    // The lobe at the point a subsurface path leaves the surface.
+    | NormalizedFresnel(nf : NormalizedFresnelBxDF);
 
 // pbrt: Material::GetBSDF -- everything a surface's scattering depends on,
 // evaluated once at the point the ray hit.
@@ -2372,6 +2501,25 @@ func terminates_secondary(mat : Material) -> bool {
         DiffuseTransmission(dt) => return false;
         Measured(index) => return false;
         Mixed(mix) => return false;
+        // A number for its eta, never a spectrum.
+        Subsurface(ss) => return false;
+    }
+}
+
+// pbrt: Material::HasSubsurfaceScattering -- the one kind that has it, and
+// the material itself where it does.
+func material_subsurface(mat : Material) -> option[SubsurfaceMaterial] {
+    match mat {
+        Subsurface(ss) => return ss;
+        Diffuse(albedo) => return {};
+        CoatedDiffuse(m) => return {};
+        CoatedConductor(cc) => return {};
+        Dielectric(g) => return {};
+        ThinDielectric(td) => return {};
+        Conductor(c) => return {};
+        DiffuseTransmission(dt) => return {};
+        Measured(index) => return {};
+        Mixed(mix) => return {};
     }
 }
 
@@ -2473,6 +2621,17 @@ func material_bxdf(mat : Material, lambda : SampledWavelengths,
             // here either.
             t : ThinDielectricBxDF = {eta_at(td.eta, td.eta_spectrum, lambda)};
             return Thin(t);
+        }
+        Subsurface(ss) => {
+            // pbrt: SubsurfaceMaterial::GetBxDF -- a DielectricBxDF of the
+            // material's `eta` and roughness, as the Dielectric material's.
+            // No regularization there: GetBxDF has none, and the BSDF's
+            // Regularize is the integrator's, which pbrt's wavefront does
+            // not call.
+            alpha = alphas_at(ss.u_roughness, ss.v_roughness, ss.remap, ctx);
+            distrib = make_trowbridge_reitz(alpha.x, alpha.y);
+            b : DielectricBxDF = {ss.eta, distrib};
+            return Boundary(b);
         }
     }
 }
@@ -2577,6 +2736,20 @@ func bxdf_rho(b : BxDF, wo : vec3f, seed : i32, uc : array[Float],
             }
             return r / 16.0;
         }
+        // Never a first vertex's BSDF -- it exists only where a path comes
+        // back out of a surface -- but the question has an answer.
+        NormalizedFresnel(nf) => {
+            r : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+            for i in 0:16 {
+                found = normalized_fresnel_sample_f(nf, wo, vec2f{ux[i], uy[i]},
+                                                    sample_all());
+                if found {
+                    s = *found;
+                    r = r + s.f * abs_cos_theta(s.wi) / s.pdf;
+                }
+            }
+            return r / 16.0;
+        }
     }
 }
 
@@ -2595,6 +2768,7 @@ func bxdf_flags(b : BxDF) -> i32 {
         Thin(t) => return thin_dielectric_flags(t);
         Metal(c) => return conductor_flags(c);
         Table(t) => return measured_flags();
+        NormalizedFresnel(nf) => return normalized_fresnel_flags();
     }
 }
 
@@ -2617,6 +2791,7 @@ func bxdf_f(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> vec4f {
         Thin(t) => return thin_dielectric_f(t, wo, wi);
         Metal(c) => return conductor_f(c, wo, wi);
         Table(t) => return measured_f(t, wo, wi);
+        NormalizedFresnel(nf) => return normalized_fresnel_f(nf, wo, wi);
     }
 }
 
@@ -2641,6 +2816,7 @@ func bxdf_pdf(b : BxDF, wo : vec3f, wi : vec3f, seed : i32) -> Float {
         Thin(t) => return thin_dielectric_pdf(t, wo, wi);
         Metal(c) => return conductor_pdf(c, wo, wi, sample_all());
         Table(t) => return measured_pdf(t, wo, wi, sample_all());
+        NormalizedFresnel(nf) => return normalized_fresnel_pdf(wo, wi, sample_all());
     }
 }
 
@@ -2670,5 +2846,8 @@ func bxdf_sample_f(b : BxDF, wo : vec3f, uc : Float, u : vec2f,
         // No `uc` here either: the two warps take the 2D sample and there is
         // no lobe to choose between.
         Table(t) => return measured_sample_f(t, wo, u, sample_all());
+        // One lobe, cosine-sampled: no `uc` for this one either.
+        NormalizedFresnel(nf) =>
+            return normalized_fresnel_sample_f(nf, wo, u, sample_all());
     }
 }

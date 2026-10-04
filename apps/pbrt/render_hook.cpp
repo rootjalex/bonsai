@@ -1664,6 +1664,10 @@ int main(int argc, char **argv) {
     // constructors rather than by setting the tag: which number a variant is
     // belongs to the compiler.
     std::vector<Material> materials;
+    // pbrt's `haveSubsurface` (wavefront/integrator.cpp): whether any
+    // material scatters beneath its surface, which decides how many sampler
+    // dimensions every bounce of every path draws.
+    bool have_subsurface = false;
     // Beside the materials rather than inside them, exactly as PBRT keeps it:
     // a displacement tilts the shading frame before any material is asked
     // anything, so it belongs to every kind of material and to none of them.
@@ -1772,6 +1776,25 @@ int main(int argc, char **argv) {
             mix.second = material_slot.at(size_t(m.mix_second));
             mix.amount = FloatParam{m.mix_amount, m.mix_amount_texture};
             Material_Mixed(material, mix);
+        } else if (m.tag == bonsai_scene::MaterialTag::Subsurface) {
+            // pbrt: SubsurfaceMaterial -- the boundary's eta and roughness
+            // as a Dielectric's, the coefficients as indices into the
+            // sampled spectra, and the table's start in `bssrdf_tables`.
+            SubsurfaceMaterial ss;
+            ss.u_roughness = FloatParam{m.u_roughness, m.u_roughness_texture};
+            ss.v_roughness = FloatParam{m.v_roughness, m.v_roughness_texture};
+            ss.remap = m.remap != 0;
+            ss.eta = m.eta;
+            ss.scale = m.scale;
+            ss.from_reflectance = m.subsurface_from_reflectance != 0;
+            ss.sigma_a = m.sigma_a_spectrum;
+            ss.sigma_s = m.sigma_s_spectrum;
+            ss.reflectance = reflectance;
+            ss.mfp = m.mfp_spectrum;
+            ss.table = uint32_t(m.bssrdf_table) *
+                       uint32_t(bonsai_scene::kBSSRDFTableFloats);
+            Material_Subsurface(material, ss);
+            have_subsurface = true;
         } else if (m.tag == bonsai_scene::MaterialTag::DiffuseTransmission) {
             DiffuseTransmissionMaterial leaf;
             leaf.reflectance = reflectance;
@@ -2697,7 +2720,8 @@ int main(int argc, char **argv) {
             // VolPathIntegrator::Create reads them the same way.
             if (loaded.integrator == bonsai_scene::IntegratorTag::VolPath) {
                 Integrator_VolPath(integrator, max_depth, light_sampler,
-                                   light_set, loaded.regularize != 0);
+                                   light_set, loaded.regularize != 0,
+                                   have_subsurface);
             } else {
                 Integrator_Path(integrator, max_depth, light_sampler,
                                 light_set, loaded.regularize != 0);
@@ -2792,6 +2816,9 @@ int main(int argc, char **argv) {
     bonsai_buffer b_pl_params = buffer_of(loaded.pl_params);
     bonsai_buffer b_measured_brdfs = buffer_of(measured_brdfs);
     bonsai_buffer b_conductor_eta = buffer_of(loaded.conductor_eta);
+    // The subsurface materials' BSSRDF tables (scene_io.h), 13,064 floats a
+    // table; empty in a scene with none.
+    bonsai_buffer b_bssrdf_tables = buffer_of(loaded.bssrdf_tables);
     bonsai_buffer b_conductor_k = buffer_of(loaded.conductor_k);
     bonsai_buffer b_meshes = buffer_of(meshes);
     bonsai_buffer b_mesh_indices = buffer_of(loaded.indices);
@@ -2889,7 +2916,7 @@ int main(int argc, char **argv) {
 #endif
     bonsai_buffer *render_buffers[] = {
         &b_normal_out, &b_shading_out, &b_albedo_out, &b_radiance_out,
-        &b_weight_out, &b_textures,
+        &b_weight_out, &b_bssrdf_tables, &b_textures,
 #if BONSAI_render_HAS_texture_levels
         &b_texture_levels, &b_texture_texels, &b_texture_bytes,
         &b_srgb_to_linear,
@@ -2986,7 +3013,8 @@ int main(int argc, char **argv) {
                // something names it (medium_index in scene_dump.cpp).
                !loaded.media.empty(),
                &b_normal_out, &b_shading_out,
-               &b_albedo_out, &b_radiance_out, &b_weight_out, &b_textures,
+               &b_albedo_out, &b_radiance_out, &b_weight_out, &b_bssrdf_tables,
+               &b_textures,
 #if BONSAI_render_HAS_texture_levels
                &b_texture_levels, &b_texture_texels, &b_texture_bytes,
                &b_srgb_to_linear,

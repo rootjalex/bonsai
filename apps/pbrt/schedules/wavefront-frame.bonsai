@@ -33,6 +33,7 @@ schedule {
     full_path_step.loopify();
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
+    vol_probe_step.loopify();
     vol_shadow_track.loopify();
 
     render.specialize(integrator);
@@ -53,6 +54,7 @@ schedule {
     // next ray queue (EnqueueWorkAfterIntersection); the routing after a
     // trace does the same here.
     vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
 
     medium_samples = render[VolPath].queue(p_band);
     vol_path_step.defer(vol_medium_sample, medium_samples);
@@ -68,6 +70,13 @@ schedule {
     hits.specialize(material);
     shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
+    // The subsurface queues, as wavefront-volpath.bonsai has them.
+    probes = render[VolPath].queue(p_band);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
 
     trace.sort(primitives.Interior,
                |i : u8, q : RaySegment, axis : u8|
@@ -104,6 +113,9 @@ schedule {
     render.bind(emissive, CPUThread);
     render.bind(hits, CPUThread);
     render.bind(shadow, CPUThread);
+    render.bind(probes, CPUThread);
+    render.bind(exits, CPUThread);
+    render.bind(exit_shadow, CPUThread);
     render.bind(rays_rest, CPUThread);
     render.bind(q, CPUThread);
 }

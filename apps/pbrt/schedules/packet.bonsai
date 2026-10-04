@@ -35,6 +35,7 @@ schedule {
     vol_path_step.loopify();
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
+    vol_probe_step.loopify();
     vol_shadow_track.loopify();
 
     // The samples of a pixel are a gang on the SIMD unit: ISPC-style, one lane

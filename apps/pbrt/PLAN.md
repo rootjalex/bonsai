@@ -2548,7 +2548,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) -- **done 2026-10-03**, the dispersion paragraph below | dambreak, transparent-machines, crown | 3 |
 | 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
 | 17 | `Material "hair"` | bunny-fur, hair | 2 |
-| 18 | `Material "subsurface"` | head, sssdragon | 2 |
+| 18 | `Material "subsurface"` -- **done 2026-10-03**, the subsurface paragraph below | head, sssdragon | 2 |
 | 19 | infinite light with `portal` -- **done 2026-09-29** (d5f1a114, scenes/portal.pbrt) | kroken, watercolor | 2 |
 | 20 | `LightSource "distant"` -- **done 2026-09-20**, see below | disney-cloud, killeroos gold | 2 |
 | 21 | inline `spectrum` and `.spd` files for a conductor's `eta`/`k` -- **done 2026-09-20** with item 9 | crown, killeroos | 2 |
@@ -2707,14 +2707,14 @@ Per scene, what is missing (see the converter for what is supported):
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
 | hair | `volpath`, `curve`, `hair` |
-| head | `volpath`, `subsurface` |
+| head | `volpath`, `subsurface` -- **done 2026-10-03**; renders as of 2026-10-03 with its `"float cropwindow"` taken out, the crop window being the one film parameter it still wants (the converter ignores it and renders the full frame, so pbrt's image is 960x594 against our 1920x1080) |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
 | lte-orb | `pmj02bn` and `sobol` -- **done 2026-10-03**, the three scenes convert and lte-orb-silver renders (the samplers paragraph); `volpath` (rough glass only) |
-| sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map |
+| sanmiguel | `volpath`, `sobol` (1 file), `realistic` camera (1 file), ACES env map, `"float cropwindow"` on the film (9 of its files, as head: the converter renders the full frame) |
 | smoke-plume | `volpath`, `interface`, `uniformgrid` medium, a scaled sphere -- all done 2026-10-03: converts and renders on the GPU at 1.53x of `pbrt --gpu` (the sphere paragraph below) |
 | sportscar | `volpath`, `bilinearmesh`, ACES env map -- sportscar-sky converts as of 2026-10-03 (3,578,632 shapes) |
-| sssdragon | `subsurface` |
+| sssdragon | `subsurface` -- **done 2026-10-03**; dragon_10 renders as of 2026-10-03 at 1.00000x of `pbrt --gpu` |
 | transparent-machines | `volpath`, spectral `eta` on `dielectric` -- converts as of 2026-10-03 |
 | villa | `volpath`, `thindielectric`, `mix`/`windy`/`wrinkled` textures, non-uv mapping, ACES, `spot`/`point` -- villa-daylight converts as of 2026-10-03, and villa-lights-on renders as of 2026-10-03 with the point and spot lights (1.00106x of `pbrt --gpu` at 4 spp) |
 | watercolor | `volpath`, `bilinearmesh`, `mix`, conductor `texture reflectance`, `mix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous medium -- all done by 2026-10-03; it then asks for a coating's `thickness` as a texture, its last refusal |
@@ -4758,7 +4758,8 @@ density, a translation. Scenes: bunny-cloud, clouds, disney-cloud.
 
 *Phase V4 -- subsurface.* `GetBSSRDF`, the probe-segment intersection with
 `Intersect(r, 1)` collecting hits of the same material into a reservoir, and
-`TabulatedBSSRDF`. Scene: sssdragon. Independent of media.
+`TabulatedBSSRDF`. Scene: sssdragon. Independent of media. **Done
+2026-10-03** -- the subsurface paragraph in the work log below.
 
 **Where V1 stands (2026-09-22, in the worktree `../bonsai-volpath`, branch
 `ajr/volpath-wip`, to land here once the packet schedule compiles).**
@@ -9731,6 +9732,100 @@ compare_gbuffer.py's check now allows the larger of the 1e-3 fraction and
 three standard deviations of that difference (`lit_gap_check`), under
 which explosion's old film failure would still fail by a hundred
 standard deviations and villa passes.
+
+*Subsurface scattering (2026-10-03).* pbrt's SubsurfaceMaterial over its
+TabulatedBSSRDF, which head and the three sssdragon files use -- Phase V4
+above. The material's BSDF is a dielectric boundary (the Dielectric's eta
+and roughness), and a path that refracts into it does not go on as a ray.
+As pbrt's wavefront has it (surfscatter.cpp's `IsTransmission() &&
+HasSubsurfaceScattering()`, then the three kernels of subsurface.cpp): the
+path goes to the BSSRDF with the throughput the roulette left it
+(`vol_subsurface`); a probe segment is sampled from the beam-diffusion
+profile about the entry -- SampleSp, a frame about the shading normal
+chosen by one draw, a radius from the profile's integral inverted and an
+angle from two more, the bounce's three `subsurface` dimensions, which
+GenerateRaySamples draws for every ray of a round once any material in the
+scene is of this kind, so every bounce of every path starts at `6 + 10
+depth` and the VolPath arm carries `have_subsurface` to say so; the
+segment is walked for the surface's own hits with one kept by a unit-weight
+reservoir seeded by Hash(p0, p1) (`vol_probe`, `vol_probe_step`:
+IntersectOneRandom as __raygen__randomHit runs it, the nearest hit again
+and again from each hit found, the material index compared, at most
+ninety-nine traces); and the exit is shaded (`vol_exit`): Sp at the exit's
+distance and PDF_Sp over the three axes, the throughput times `Sp /
+(reservoir pdf * pdf[0])` and the rescaled probability times `pdf /
+pdf[0]`, a NormalizedFresnelBxDF in the exit's own shading frame -- the
+shape's, no bump or normal map, as pbrt's SubsurfaceInteraction copies it
+-- sampled with the bounce's `indirect` draws for the next ray (depth plus
+one, roulette for a depth above one) and its direct lighting with the
+bounce's `direct` draws, the light-sampling context the exit's point
+unmoved. bssrdf.bonsai is the BSSRDF: pbrt's BSSRDFTable(100, 64) -- 100
+albedos, 64 optical radii, the profile, the effective albedos and the
+profile's running integral, 13,064 floats a table -- which the converter
+computes with pbrt's own ComputeBeamDiffusionBSSRDF once per distinct (g,
+eta) and ships in `bssrdf_tables`; the tensor Catmull-Rom spline for Sr
+and PDF_Sr, SampleCatmullRom2D with its Newton-bisection on the integrated
+segment, InvertCatmullRom for SubsurfaceFromDiffuse, which turns a
+reflectance and a mean free path into coefficients at the hit. The
+coefficients come the four ways SubsurfaceMaterial::Create admits them --
+a named measurement (`"string name" "Skin1"`: GetMediumScatteringProperties'
+table, g forced to zero), sigma_a and sigma_s given, a reflectance (a
+Reflectance, texture and all: head's albedo map) with an `mfp` defaulting
+to one, or nothing (whole milk) -- each spectrum pbrt's own object
+evaluated onto the sampled tables (`sampled_spectrum_index`, the
+dielectric eta's helper generalized) and read at the hit's four
+wavelengths; a texture for sigma_a, sigma_s or mfp is refused, pbrt
+reading one as an unbounded spectrum texture, which no scene gives.
+FresnelMoment1 keeps pbrt's double-precision tail (one coefficient written
+without the `f`).
+
+The schedules, and what they taught. The probe walk and the exit's shading
+are drains of their own after the material kernels (`probes`, `exits`),
+the walk a raygen launch on the RT cores in gpu-optix as pbrt's randomHit
+is, since it traces; and the exits' shadow rays are a queue of their own
+(`exit_shadow`) traced after them. pbrt traces its shadow rays twice a
+round -- after the material kernels and again after the subsurface kernel
+("do immediately so that we have space for shadow rays for subsurface",
+wavefront/integrator.cpp) -- because a sample whose entry was a rough
+boundary sends one from the entry and one from the exit, and a queue holds
+one entry per sample a round: with the exits pushing the same `shadow`
+queue, the CPU wavefront overflowed its per-sample arrays and crashed in
+the next drain (the GPU survived by its capacity's margin, and matched).
+Three rules of the deferral pass met on the way, each with the same fix as
+pbrt's structure: every call of vol_path_step is a tail call (the exit's
+direct lighting goes before its indirect ray); a function may reach a
+spawned queue once per run (hence the exit's own queue); a spawned call is
+queued through the function that spawns it, so the exit spawns
+`exit_shadow_contribution`, the same trace under another name, and the
+entry's and the medium's spawns stay in `vol_sample_ld`, which the material
+kernels and the medium scattering both call and the queue reaches through
+(naming another function left the material kernels without the queue --
+a GPU launch failure, since a kernel is given exactly what reaches it;
+`vol_light_sample` is the light sampling without the spawn, for the exit).
+The drains run in deferral order, each queue deferred after the drains
+that push it; wavefront-volpath now defers vol_route's boundary crossing
+onto the ray queue as the GPU schedules did, so that the chain to
+vol_path_step has no recursion but the deferred one. Also met: an extern or
+a type is declared before its use (the sampled tables' declaration moves
+above Reflectance), and a local named for a builtin (`maximum`, `count`)
+is refused.
+
+Tests and numbers. scenes/subsurface.pbrt -- Skin1 by name, a reflectance
+and mean free path under a rough boundary, rgb coefficients with an
+anisotropy (a second table), whole milk -- against `pbrt --wavefront`: on
+the scalar schedule and the CPU wavefront alike 0 of 80,477 pixels
+disagree in hits or normals, albedo 0 over 5e-3, radiance 1.00036x with
+74.0% of pixels within 1e-3; against `pbrt --gpu` at 64 spp, gpu-optix
+1.00036x with the kernels 230 ms against 276 and gpu-wavefront 1.00003x
+(317 ms, the software traversal). sssdragon's dragon_10 on the GPU at 4
+spp: 1.00000x, 1,385,759 lit pixels against 1,385,685, kernels 48 ms
+against 57. head with its `"float cropwindow"` taken out, at 4 spp:
+0.99936x, 2,072,384 against 2,072,440 lit, kernels 27 ms against 29; the
+crop window -- pbrt renders and writes the window's 960x594, the converter
+ignores it and renders the full 1920x1080 -- is the film parameter head
+and nine sanmiguel files still want, next in the film's list. The CPU
+scalar schedule renders the test scene in 0.37 s against pbrt's wavefront
+on the CPU at 5.0 s.
 
 *The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
 pbrt's seven this renderer had not; every one is now reproduced

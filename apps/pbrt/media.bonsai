@@ -811,6 +811,15 @@ func hash_vec3(v : vec3f) -> u64 =
     hash3(reinterpret[[i32]](v.x), reinterpret[[i32]](v.y),
           reinterpret[[i32]](v.z));
 
+// pbrt: Hash(Point3f, Point3f) -- twenty-four bytes, three blocks and no
+// tail. A subsurface probe's reservoir is seeded by the segment's two ends
+// this way (`Hash(s.p0, s.p1)`, gpu/optix/optix.cu's __raygen__randomHit
+// and the CPU's IntersectOneRandom alike).
+func hash_vec3_vec3(a : vec3f, b : vec3f) -> u64 =
+    hash6(reinterpret[[i32]](a.x), reinterpret[[i32]](a.y),
+          reinterpret[[i32]](a.z), reinterpret[[i32]](b.x),
+          reinterpret[[i32]](b.y), reinterpret[[i32]](b.z));
+
 // pbrt: Hash(Point3f, Float) -- sixteen bytes, the point's three floats and
 // then the one, as two eight-byte words. The wavefront's medium kernel seeds
 // its RNG from the ray's origin and tMax this way (`Hash(ray.o, tMax)`), and

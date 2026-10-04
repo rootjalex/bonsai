@@ -24,6 +24,7 @@ schedule {
     full_path_step.loopify();
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
+    vol_probe_step.loopify();
     vol_shadow_track.loopify();
 
     render.specialize(integrator);
@@ -34,6 +35,7 @@ schedule {
     li_vol_path.defer(vol_path_step, rays);
     vol_medium_scatter.defer(vol_path_step, rays);
     vol_surface.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
     vol_route.defer(vol_path_step, rays);
 
     medium_samples = render[VolPath].queue(p_band);
@@ -50,6 +52,15 @@ schedule {
     hits.specialize(material);
     shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
+    // pbrt's subsurface queues, after the material kernels and their shadow
+    // rays (see gpu-optix.bonsai); the probe walk is a plain kernel here,
+    // the traversal being this program's own.
+    probes = render[VolPath].queue(p_band);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
 
     trace.sort(primitives.Interior,
                |i : u8, q : RaySegment, axis : u8|
@@ -95,9 +106,18 @@ schedule {
     render.split(hits, hits_blk, hits_thr, 256, true);
     render.bind(hits_blk, GPUBlock);
     render.bind(hits_thr, GPUThread);
+    render.split(probes, probes_blk, probes_thr, 256, true);
+    render.bind(probes_blk, GPUBlock);
+    render.bind(probes_thr, GPUThread);
+    render.split(exits, exits_blk, exits_thr, 256, true);
+    render.bind(exits_blk, GPUBlock);
+    render.bind(exits_thr, GPUThread);
     render.split(shadow, shadow_blk, shadow_thr, 256, true);
     render.bind(shadow_blk, GPUBlock);
     render.bind(shadow_thr, GPUThread);
+    render.split(exit_shadow, exit_shadow_blk, exit_shadow_thr, 256, true);
+    render.bind(exit_shadow_blk, GPUBlock);
+    render.bind(exit_shadow_thr, GPUThread);
     render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
     render.bind(rays_rest_blk, GPUBlock);
     render.bind(rays_rest_thr, GPUThread);

@@ -1,0 +1,484 @@
+// pbrt: the BSSRDF -- subsurface scattering (bssrdf.h, bssrdf.cpp) -- as the
+// TabulatedBSSRDF a SubsurfaceMaterial makes at a hit, over the table the
+// material's constructor computes once (ComputeBeamDiffusionBSSRDF: the
+// photon beam diffusion profile at 100 albedos and 64 optical radii, with
+// each albedo's effective albedo and the profile's running integral for
+// sampling it). The converter computes every table with pbrt's own code,
+// one per distinct (g, eta) a scene's subsurface materials name, and ships
+// them laid end to end in `bssrdf_tables`; a material holds where its own
+// begins. What is here is pbrt's arithmetic over that table: the profile
+// Sr(r) and its density PDF_Sr(r), each a tensor Catmull-Rom spline over
+// albedo and radius, the sampling of a radius by inverting the interpolated
+// integral (SampleCatmullRom2D), the probe segment a radius and an axis make
+// (SampleSp), the combined density over the three axes (PDF_Sp), and the
+// inversion of the effective albedo that turns a reflectance and a mean free
+// path into scattering coefficients (SubsurfaceFromDiffuse).
+import stdlib/numerics;
+import apps/pbrt/frame;
+import apps/pbrt/sampling;
+
+// One table is pbrt's BSSRDFTable(100, 64): rhoSamples (100), radiusSamples
+// (64), profile (100 x 64, albedo-major), rhoEff (100), profileCDF (100 x
+// 64), in that order, 13,064 floats. A material's `table` is where its own
+// begins, and the five runs are at these offsets from there.
+extern bssrdf_tables : array[Float];
+
+func bssrdf_rho_count() -> i32 = 100;
+func bssrdf_radius_count() -> i32 = 64;
+func bssrdf_rho_at(table : u32) -> u32 = table;
+func bssrdf_radius_at(table : u32) -> u32 = table + 100u;
+func bssrdf_profile_at(table : u32) -> u32 = table + 164u;
+func bssrdf_rho_eff_at(table : u32) -> u32 = table + 6564u;
+func bssrdf_cdf_at(table : u32) -> u32 = table + 6664u;
+func bssrdf_table_stride() -> u32 = 13064u;
+
+// pbrt: TabulatedBSSRDF -- the point the path entered the surface at, its
+// shading normal there, the index of refraction, and the coefficients at
+// the hit's four wavelengths: `sigma_t = sigma_a + sigma_s` and the albedo
+// `rho = SafeDiv(sigma_s, sigma_t)`. `wo` is kept by pbrt and read by
+// nothing here.
+element TabulatedBSSRDF {
+    po : vec3f;
+    ns : vec3f;
+    eta : Float;
+    sigma_t : vec4f;
+    rho : vec4f;
+    table : u32;
+}
+
+// pbrt: BSSRDFProbeSegment, the segment a probe ray runs along to find the
+// point the path leaves the surface at.
+element ProbeSegment {
+    p0 : vec3f;
+    p1 : vec3f;
+}
+
+// pbrt: CatmullRomWeights' answer -- the four spline weights and the index of
+// the first of the four nodes they apply to (`idx - 1`, so it may be -1 with
+// a zero first weight).
+element SplineWeights {
+    offset : i32;
+    w : vec4f;
+}
+
+func lane4(v : vec4f, i : i32) -> Float =
+    select(i == 0, v.x, select(i == 1, v.y, select(i == 2, v.z, v.w)));
+
+// pbrt: CatmullRomWeights over the `n` increasing nodes at `base` -- none
+// when `x` lies outside them; otherwise the interval `x` falls in (the same
+// binary search FindInterval does, over the nodes) and the Hermite weights
+// of the four nodes about it, the two outer derivatives taken by finite
+// differences and the end intervals' missing neighbour folded in.
+func catmull_rom_weights(base : u32, n : i32, x : Float) -> option[SplineWeights] {
+    first = bssrdf_tables[base];
+    last = bssrdf_tables[base + cast[[u32]](n - 1)];
+    if !((x >= first) && (x <= last)) {
+        return {};
+    }
+    idx = find_interval(n, bssrdf_tables, cast[[i32]](base), x);
+    x0 = bssrdf_tables[base + cast[[u32]](idx)];
+    x1 = bssrdf_tables[base + cast[[u32]](idx + 1)];
+    t = (x - x0) / (x1 - x0);
+    t2 = t * t;
+    t3 = t2 * t;
+    w1 : mut Float = 2.0 * t3 - 3.0 * t2 + 1.0;
+    w2 : mut Float = -2.0 * t3 + 3.0 * t2;
+    w0 : mut Float = 0.0;
+    if idx > 0 {
+        a0 = (t3 - 2.0 * t2 + t) * (x1 - x0) /
+             (x1 - bssrdf_tables[base + cast[[u32]](idx - 1)]);
+        w0 = -a0;
+        w2 = w2 + a0;
+    } else {
+        a1 = t3 - 2.0 * t2 + t;
+        w1 = w1 - a1;
+        w2 = w2 + a1;
+    }
+    w3 : mut Float = 0.0;
+    if idx + 2 < n {
+        b0 = (t3 - t2) * (x1 - x0) /
+             (bssrdf_tables[base + cast[[u32]](idx + 2)] - x0);
+        w1 = w1 - b0;
+        w3 = b0;
+    } else {
+        b1 = t3 - t2;
+        w1 = w1 - b1;
+        w2 = w2 + b1;
+    }
+    s : SplineWeights = {idx - 1, vec4f{w0, w1, w2, w3}};
+    return s;
+}
+
+// pbrt: `table->EvalProfile(rhoOffset + j, radiusOffset + k)` -- one entry
+// of the albedo-major profile or its integral, both 100 x 64.
+func bssrdf_entry(run : u32, rho_index : i32, radius_index : i32) -> Float =
+    bssrdf_tables[run + cast[[u32]](rho_index * bssrdf_radius_count() +
+                                    radius_index)];
+
+// pbrt: TabulatedBSSRDF::Sr at one wavelength. The radius in optical units,
+// `r * sigma_t`; the spline weights over albedo and over radius -- outside
+// either table the answer is zero -- and the profile summed over the four by
+// four nodes their product weighs; the marginal factor `2 pi r_optical` the
+// table carries taken out; and `Sr` back in render-space units, times
+// `sigma_t` squared, clamped to zero (the caller applies both).
+func bssrdf_sr_1(table : u32, sigma_t : Float, rho : Float, r : Float) -> Float {
+    r_optical = r * sigma_t;
+    rho_w = catmull_rom_weights(bssrdf_rho_at(table), bssrdf_rho_count(), rho);
+    if !rho_w {
+        return 0.0;
+    }
+    radius_w = catmull_rom_weights(bssrdf_radius_at(table),
+                                   bssrdf_radius_count(), r_optical);
+    if !radius_w {
+        return 0.0;
+    }
+    a = *rho_w;
+    d = *radius_w;
+    sr : mut Float = 0.0;
+    for j in 0:4 {
+        for k in 0:4 {
+            weight = lane4(a.w, j) * lane4(d.w, k);
+            if weight != 0.0 {
+                sr = sr + weight * bssrdf_entry(bssrdf_profile_at(table),
+                                                a.offset + j, d.offset + k);
+            }
+        }
+    }
+    if r_optical != 0.0 {
+        sr = sr / (2.0 * pi() * r_optical);
+    }
+    return sr;
+}
+
+// pbrt: TabulatedBSSRDF::Sr -- the profile at the four wavelengths.
+func bssrdf_sr(b : TabulatedBSSRDF, r : Float) -> vec4f {
+    sr = vec4f{bssrdf_sr_1(b.table, b.sigma_t.x, b.rho.x, r),
+               bssrdf_sr_1(b.table, b.sigma_t.y, b.rho.y, r),
+               bssrdf_sr_1(b.table, b.sigma_t.z, b.rho.z, r),
+               bssrdf_sr_1(b.table, b.sigma_t.w, b.rho.w, r)};
+    return max(sr * (b.sigma_t * b.sigma_t), vec4f{0.0, 0.0, 0.0, 0.0});
+}
+
+// pbrt: TabulatedBSSRDF::Sp -- Sr at the distance between the entry and the
+// exit.
+func bssrdf_sp(b : TabulatedBSSRDF, pi_ : vec3f) -> vec4f =
+    bssrdf_sr(b, sqrt(sqlen_(b.po - pi_)));
+
+// pbrt: TabulatedBSSRDF::PDF_Sr at one wavelength -- the same spline, over
+// the effective albedo the four albedo nodes interpolate to, so that the
+// profile is a density over radius.
+func bssrdf_pdf_sr_1(table : u32, sigma_t : Float, rho : Float,
+                     r : Float) -> Float {
+    r_optical = r * sigma_t;
+    rho_w = catmull_rom_weights(bssrdf_rho_at(table), bssrdf_rho_count(), rho);
+    if !rho_w {
+        return 0.0;
+    }
+    radius_w = catmull_rom_weights(bssrdf_radius_at(table),
+                                   bssrdf_radius_count(), r_optical);
+    if !radius_w {
+        return 0.0;
+    }
+    a = *rho_w;
+    d = *radius_w;
+    sr : mut Float = 0.0;
+    rho_eff : mut Float = 0.0;
+    for j in 0:4 {
+        wj = lane4(a.w, j);
+        if wj != 0.0 {
+            rho_eff = rho_eff +
+                      bssrdf_tables[bssrdf_rho_eff_at(table) +
+                                    cast[[u32]](a.offset + j)] * wj;
+            for k in 0:4 {
+                wk = lane4(d.w, k);
+                if wk != 0.0 {
+                    sr = sr + bssrdf_entry(bssrdf_profile_at(table),
+                                           a.offset + j, d.offset + k) * wj * wk;
+                }
+            }
+        }
+    }
+    if r_optical != 0.0 {
+        sr = sr / (2.0 * pi() * r_optical);
+    }
+    return sr * sqr(sigma_t) / rho_eff;
+}
+
+// pbrt: TabulatedBSSRDF::PDF_Sr at the four wavelengths, clamped to zero.
+func bssrdf_pdf_sr(b : TabulatedBSSRDF, r : Float) -> vec4f {
+    pdf = vec4f{bssrdf_pdf_sr_1(b.table, b.sigma_t.x, b.rho.x, r),
+                bssrdf_pdf_sr_1(b.table, b.sigma_t.y, b.rho.y, r),
+                bssrdf_pdf_sr_1(b.table, b.sigma_t.z, b.rho.z, r),
+                bssrdf_pdf_sr_1(b.table, b.sigma_t.w, b.rho.w, r)};
+    return max(pdf, vec4f{0.0, 0.0, 0.0, 0.0});
+}
+
+// pbrt: EvaluatePolynomial -- Horner's rule from the highest coefficient
+// down, each step one fused multiply-add, which is how pbrt's recursion
+// over its arguments comes out.
+func polynomial5(t : Float, c0 : Float, c1 : Float, c2 : Float, c3 : Float,
+                 c4 : Float) -> Float =
+    fma(t, fma(t, fma(t, fma(t, c4, c3), c2), c1), c0);
+func polynomial4(t : Float, c0 : Float, c1 : Float, c2 : Float,
+                 c3 : Float) -> Float =
+    fma(t, fma(t, fma(t, c3, c2), c1), c0);
+
+// pbrt: the spline segment's integral and its derivative (the segment
+// itself) as SampleCatmullRom2D's `eval` writes them, both in Horner form,
+// less the value `u` being inverted for.
+element SplineEval {
+    f : Float;
+    df : Float;
+}
+
+func integral_segment(t : Float, f0 : Float, f1 : Float, d0 : Float, d1 : Float,
+                      u : Float) -> SplineEval {
+    big = polynomial5(t, 0.0, f0, 0.5 * d0,
+                      (1.0 / 3.0) * (-2.0 * d0 - d1) + f1 - f0,
+                      0.25 * (d0 + d1) + 0.5 * (f0 - f1));
+    small = polynomial4(t, f0, d0, -2.0 * d0 - d1 + 3.0 * (f1 - f0),
+                        d0 + d1 + 2.0 * (f0 - f1));
+    e : SplineEval = {big - u, small};
+    return e;
+}
+
+// pbrt: InvertCatmullRom's `eval` -- the Hermite segment and its derivative,
+// in the basis-function form pbrt writes them in there.
+func value_segment(t : Float, f0 : Float, f1 : Float, d0 : Float, d1 : Float,
+                   u : Float) -> SplineEval {
+    t2 = t * t;
+    t3 = t2 * t;
+    big = (2.0 * t3 - 3.0 * t2 + 1.0) * f0 + (-2.0 * t3 + 3.0 * t2) * f1 +
+          (t3 - 2.0 * t2 + t) * d0 + (t3 - t2) * d1;
+    small = (6.0 * t2 - 6.0 * t) * f0 + (-6.0 * t2 + 6.0 * t) * f1 +
+            (3.0 * t2 - 4.0 * t + 1.0) * d0 + (3.0 * t2 - 2.0 * t) * d1;
+    e : SplineEval = {big - u, small};
+    return e;
+}
+
+// pbrt: NewtonBisection over [0, 1] -- a root of the segment's function,
+// bracketed by bisection and stepped by Newton, to 1e-6 in either `t` or
+// the function's value. `integral` says which of the two segment functions
+// above is being inverted, since a function cannot be handed another one
+// here.
+func newton_bisection(f0 : Float, f1 : Float, d0 : Float, d1 : Float,
+                      u : Float, integral : bool) -> Float {
+    x_eps = 0.000001;
+    f_eps = 0.000001;
+    fx0 = select(integral, integral_segment(0.0, f0, f1, d0, d1, u).f,
+                 value_segment(0.0, f0, f1, d0, d1, u).f);
+    fx1 = select(integral, integral_segment(1.0, f0, f1, d0, d1, u).f,
+                 value_segment(1.0, f0, f1, d0, d1, u).f);
+    if abs(fx0) < f_eps {
+        return 0.0;
+    }
+    if abs(fx1) < f_eps {
+        return 1.0;
+    }
+    start_negative = fx0 < 0.0;
+    lo : mut Float = 0.0;
+    hi : mut Float = 1.0;
+    x_mid : mut Float = 0.0 + (1.0 - 0.0) * -fx0 / (fx1 - fx0);
+    result : mut Float = x_mid;
+    done : mut bool = false;
+    while !done {
+        if !((lo < x_mid) && (x_mid < hi)) {
+            x_mid = (lo + hi) / 2.0;
+        }
+        e : mut SplineEval = value_segment(x_mid, f0, f1, d0, d1, u);
+        if integral {
+            e = integral_segment(x_mid, f0, f1, d0, d1, u);
+        }
+        if start_negative == (e.f < 0.0) {
+            lo = x_mid;
+        } else {
+            hi = x_mid;
+        }
+        if ((hi - lo) < x_eps) || (abs(e.f) < f_eps) {
+            result = x_mid;
+            done = true;
+        } else {
+            x_mid = x_mid - e.f / e.df;
+        }
+    }
+    return result;
+}
+
+// pbrt: SampleCatmullRom2D over the table's albedo and radius nodes -- the
+// profile's integral interpolated at the albedo `alpha` (the same four
+// weights throughout), the sample scaled by its maximum and the interval it
+// falls in found by binary search over the interpolated integral, and the
+// segment's integral inverted for the radius. Zero where `alpha` is outside
+// the albedo table, as pbrt returns zero.
+func sample_catmull_rom_2d(table : u32, alpha : Float, u : Float) -> Float {
+    rho_w = catmull_rom_weights(bssrdf_rho_at(table), bssrdf_rho_count(), alpha);
+    if !rho_w {
+        return 0.0;
+    }
+    a = *rho_w;
+    n = bssrdf_radius_count();
+    cdf = bssrdf_cdf_at(table);
+    values = bssrdf_profile_at(table);
+    cdf_max = bssrdf_interp(cdf, a, n - 1);
+    uu : mut Float = u * cdf_max;
+    // pbrt: FindInterval(nodes2.size(), interpolate(cdf, i) <= u).
+    size : mut i32 = n - 2;
+    first : mut i32 = 1;
+    while size > 0 {
+        half = size >> 1;
+        middle = first + half;
+        found = bssrdf_interp(cdf, a, middle) <= uu;
+        first = select(found, middle + 1, first);
+        size = select(found, size - (half + 1), half);
+    }
+    idx = min(max(first - 1, 0), n - 2);
+    f0 = bssrdf_interp(values, a, idx);
+    f1 = bssrdf_interp(values, a, idx + 1);
+    radius = bssrdf_radius_at(table);
+    x0 = bssrdf_tables[radius + cast[[u32]](idx)];
+    x1 = bssrdf_tables[radius + cast[[u32]](idx + 1)];
+    width = x1 - x0;
+    uu = (uu - bssrdf_interp(cdf, a, idx)) / width;
+    d0 : mut Float = f1 - f0;
+    if idx > 0 {
+        d0 = width * (f1 - bssrdf_interp(values, a, idx - 1)) /
+             (x1 - bssrdf_tables[radius + cast[[u32]](idx - 1)]);
+    }
+    d1 : mut Float = f1 - f0;
+    if idx + 2 < n {
+        d1 = width * (bssrdf_interp(values, a, idx + 2) - f0) /
+             (bssrdf_tables[radius + cast[[u32]](idx + 2)] - x0);
+    }
+    t = newton_bisection(f0, f1, d0, d1, uu, true);
+    return x0 + width * t;
+}
+
+// pbrt: SampleCatmullRom2D's `interpolate` -- a 100 x 64 run at its radius
+// index `idx`, weighed over the four albedo nodes.
+func bssrdf_interp(run : u32, a : SplineWeights, idx : i32) -> Float {
+    v : mut Float = 0.0;
+    for i in 0:4 {
+        wi = lane4(a.w, i);
+        if wi != 0.0 {
+            v = v + bssrdf_entry(run, a.offset + i, idx) * wi;
+        }
+    }
+    return v;
+}
+
+// pbrt: TabulatedBSSRDF::SampleSr -- a radius drawn from the profile at the
+// first wavelength's albedo, in render units; none where that wavelength
+// has no extinction at all.
+func bssrdf_sample_sr(b : TabulatedBSSRDF, u : Float) -> option[Float] {
+    if b.sigma_t.x == 0.0 {
+        return {};
+    }
+    return sample_catmull_rom_2d(b.table, b.rho.x, u) / b.sigma_t.x;
+}
+
+// pbrt: TabulatedBSSRDF::SampleSp -- the probe segment. An axis of the frame
+// about the shading normal is chosen by `u1` (the normal itself half the
+// time, each tangent a quarter), a radius and an angle by `u2`, and the
+// segment runs through the disc of that radius about the entry, along the
+// axis, for the chord's length `2 sqrt(r_max^2 - r^2)` where `r_max` is the
+// radius the profile's sampling reaches at 0.999. None when the radius
+// cannot be drawn or lies beyond `r_max`.
+func bssrdf_sample_sp(b : TabulatedBSSRDF, u1 : Float,
+                      u2 : vec2f) -> option[ProbeSegment] {
+    f : mut Frame = frame_from_z(b.ns);
+    if u1 < 0.25 {
+        f = frame_from_x(b.ns);
+    } else if u1 < 0.5 {
+        f = frame_from_y(b.ns);
+    }
+    found = bssrdf_sample_sr(b, u2.x);
+    if !found {
+        return {};
+    }
+    r = *found;
+    phi = 2.0 * pi() * u2.y;
+    found_max = bssrdf_sample_sr(b, 0.999);
+    if !found_max {
+        return {};
+    }
+    r_max = *found_max;
+    if r >= r_max {
+        return {};
+    }
+    l = 2.0 * sqrt(sqr(r_max) - sqr(r));
+    p_start = b.po + r * (f.x * cos(phi) + f.y * sin(phi)) - l * f.z / 2.0;
+    seg : ProbeSegment = {p_start, p_start + l * f.z};
+    return seg;
+}
+
+// pbrt: TabulatedBSSRDF::PDF_Sp -- the density of having found the exit
+// point `pi_` with normal `ni` by any of the three axes: the exit's offset
+// and normal in the entry's frame, the radius each axis projects the offset
+// to, and PDF_Sr at each radius weighed by the axis's chance and the
+// normal's cosine against it.
+func bssrdf_pdf_sp(b : TabulatedBSSRDF, pi_ : vec3f, ni : vec3f) -> vec4f {
+    d = pi_ - b.po;
+    f = frame_from_z(b.ns);
+    d_local = frame_to_local(f, d);
+    n_local = frame_to_local(f, ni);
+    r_proj = vec3f{sqrt(sqr(d_local.y) + sqr(d_local.z)),
+                   sqrt(sqr(d_local.z) + sqr(d_local.x)),
+                   sqrt(sqr(d_local.x) + sqr(d_local.y))};
+    pdf : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    pdf = pdf + bssrdf_pdf_sr(b, r_proj.x) * abs(n_local.x) * 0.25;
+    pdf = pdf + bssrdf_pdf_sr(b, r_proj.y) * abs(n_local.y) * 0.25;
+    pdf = pdf + bssrdf_pdf_sr(b, r_proj.z) * abs(n_local.z) * 0.5;
+    return pdf;
+}
+
+// pbrt: InvertCatmullRom over the albedo nodes and their effective albedos
+// -- the albedo whose effective albedo is `u`: the end node where `u` is
+// outside the range, else the interval found by binary search over the
+// effective albedos and the Hermite segment inverted for it.
+func invert_rho_eff(table : u32, u : Float) -> Float {
+    n = bssrdf_rho_count();
+    nodes = bssrdf_rho_at(table);
+    f = bssrdf_rho_eff_at(table);
+    if !(u > bssrdf_tables[f]) {
+        return bssrdf_tables[nodes];
+    }
+    if !(u < bssrdf_tables[f + cast[[u32]](n - 1)]) {
+        return bssrdf_tables[nodes + cast[[u32]](n - 1)];
+    }
+    i = find_interval(n, bssrdf_tables, cast[[i32]](f), u);
+    x0 = bssrdf_tables[nodes + cast[[u32]](i)];
+    x1 = bssrdf_tables[nodes + cast[[u32]](i + 1)];
+    f0 = bssrdf_tables[f + cast[[u32]](i)];
+    f1 = bssrdf_tables[f + cast[[u32]](i + 1)];
+    width = x1 - x0;
+    d0 : mut Float = f1 - f0;
+    if i > 0 {
+        d0 = width * (f1 - bssrdf_tables[f + cast[[u32]](i - 1)]) /
+             (x1 - bssrdf_tables[nodes + cast[[u32]](i - 1)]);
+    }
+    d1 : mut Float = f1 - f0;
+    if i + 2 < n {
+        d1 = width * (bssrdf_tables[f + cast[[u32]](i + 2)] - f0) /
+             (bssrdf_tables[nodes + cast[[u32]](i + 2)] - x0);
+    }
+    t = newton_bisection(f0, f1, d0, d1, u, false);
+    return x0 + t * width;
+}
+
+// pbrt: the two coefficients SubsurfaceFromDiffuse makes.
+element ScatteringCoefficients {
+    sigma_a : vec4f;
+    sigma_s : vec4f;
+}
+
+// pbrt: SubsurfaceFromDiffuse -- for each wavelength, the single-scattering
+// albedo whose effective albedo is the reflectance given, and the
+// coefficients that albedo and the mean free path make: `sigma_s = rho /
+// mfp`, `sigma_a = (1 - rho) / mfp`.
+func subsurface_from_diffuse(table : u32, rho_eff : vec4f,
+                             mfp : vec4f) -> ScatteringCoefficients {
+    rho = vec4f{invert_rho_eff(table, rho_eff.x), invert_rho_eff(table, rho_eff.y),
+                invert_rho_eff(table, rho_eff.z), invert_rho_eff(table, rho_eff.w)};
+    c : ScatteringCoefficients = {(1.0 - rho) / mfp, rho / mfp};
+    return c;
+}

@@ -30,6 +30,23 @@ func coordinate_system(v : vec3f) -> Frame {
 // pbrt: Frame::FromZ.
 func frame_from_z(z : vec3f) -> Frame = coordinate_system(z);
 
+// pbrt: Frame::FromX and Frame::FromY -- the same construction with the
+// given axis in another slot: `CoordinateSystem(x, &y, &z)` and
+// `CoordinateSystem(y, &z, &x)`, the two vectors it makes taking the other
+// two slots in that order. The BSSRDF's probe segment chooses one of the
+// three frames about the shading normal (TabulatedBSSRDF::SampleSp).
+func frame_from_x(x : vec3f) -> Frame {
+    made = coordinate_system(x);
+    f : Frame = {x, made.x, made.y};
+    return f;
+}
+
+func frame_from_y(y : vec3f) -> Frame {
+    made = coordinate_system(y);
+    f : Frame = {made.y, y, made.x};
+    return f;
+}
+
 // pbrt: Frame::FromXZ, which is what a BSDF's shading frame is built with: the
 // surface's tangent and its normal, with the third axis implied. The two are
 // taken as given rather than orthogonalized here -- pbrt orthogonalizes the

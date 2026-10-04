@@ -18,6 +18,7 @@ schedule {
     // volpath's inner walks, as in wavefront.bonsai.
     vol_medium_step.loopify();
     vol_shadow_step.loopify();
+    vol_probe_step.loopify();
     vol_shadow_track.loopify();
 
     trace.sort(primitives.Interior,
