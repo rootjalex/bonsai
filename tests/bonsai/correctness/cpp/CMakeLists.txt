@@ -20,6 +20,7 @@ add_bonsai_tests(
     rcp.bonsai
     permute.bonsai
     sort_key_nonnegative.bonsai
+    sort_key_through_bits.bonsai
     stored_lane.bonsai
     blas-tlas.bonsai
     blas-tlas-loopified.bonsai

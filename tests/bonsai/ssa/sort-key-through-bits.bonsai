@@ -1,0 +1,189 @@
+//! flags: -p ssa
+
+// sort-key-nonnegative.bonsai with the slab test as Embree's AVX-512 build
+// writes it: the max and the min on the floats' bits as signed integers
+// (`maxi`, `mini`) and the compare on the bits, the entry distance read
+// back as a float from the integer max. The fact that removes the sort
+// key's sign flip now has to travel through two reinterpretations
+// (SSA/ConstantIntervals.h): `tnear` in [0, inf) clamped at entry, its bits
+// in [0, 0x7f800000], the integer max at least that, and the float read
+// from the max in [0, inf) again -- so `trace`'s keys go `reinterpret<
+// i32x4>` straight to `& -4 | lane` as before, while `trace_raw`, whose
+// `tnear` may be negative, keeps the `shr 31`, `& 0x7fffffff` and `xor`.
+// The node test itself is `max`/`min` on i32x4 and an integer compare.
+//
+// correctness/cpp/sort_key_through_bits.bonsai runs both: the same answers
+// as the float slab test gives, the raw query accepting a wall behind the
+// origin on a negative `tnear`.
+import stdlib/aabb;
+import stdlib/numerics;
+
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+element Triangle {
+    p0 : vec3f;
+    p1 : vec3f;
+    p2 : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func zero_fix(d : vec3f) -> vec3f {
+    tiny : Float = 1e-18;
+    return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
+}
+
+// The slab test with the interval clamped to the ray's segment, as Embree's
+// AVX-512 intersectNode does it: `tNear = maxi(tNearX, tNearY, tNearZ,
+// tnear)`, the max of the floats' bits as integers, and the compare on the
+// bits.
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir = rcp(zero_fix(r.d));
+    org_rdir = r.o * rdir;
+    dirIsNeg = rdir < 0.0;
+    near = select(dirIsNeg, b.high, b.low);
+    far = select(dirIsNeg, b.low, b.high);
+    tNearV = near * rdir - org_rdir;
+    tFarV = far * rdir - org_rdir;
+    tNear = max(max(reinterpret[[i32]](tNearV.x), reinterpret[[i32]](tNearV.y)),
+                max(reinterpret[[i32]](tNearV.z), reinterpret[[i32]](r.tnear)));
+    tFar = min(min(reinterpret[[i32]](tFarV.x), reinterpret[[i32]](tFarV.y)),
+               min(reinterpret[[i32]](tFarV.z), reinterpret[[i32]](r.tfar)));
+    if tNear <= tFar {
+        return FInterval{reinterpret[[Float]](tNear), reinterpret[[Float]](tFar)};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+// Moeller-Trumbore, a hit at `t` counting where `tnear < t <= tfar`.
+func hit_distance(r : Ray, tri : Triangle) -> option[Float] {
+    e1 = tri.p1 - tri.p0;
+    e2 = tri.p2 - tri.p0;
+    p = cross(r.d, e2);
+    den = dot(e1, p);
+    if abs(den) < 1e-12 {
+        return {};
+    }
+    inv = 1.0 / den;
+    s = r.o - tri.p0;
+    u = dot(s, p) * inv;
+    if u < 0.0 || u > 1.0 {
+        return {};
+    }
+    q = cross(s, e1);
+    v = dot(r.d, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return {};
+    }
+    t = dot(e2, q) * inv;
+    if !(r.tnear < t && t <= r.tfar) {
+        return {};
+    }
+    return t;
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](hit_distance(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return -inf;
+}
+
+extern tris : set[Triangle];
+
+// The ray as Embree's traversal reads it: its segment clamped to [0, inf).
+func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+
+func [[export]] trace(r0 : Ray) -> option[Triangle] {
+    r = clamped(r0);
+    return argmin(|t : Triangle| distmin(r, t),
+                  filter(|t : Triangle| intersects(r, t), tris));
+}
+
+// The same query on the ray as given, whose keys may be negative.
+func [[export]] trace_raw(r : Ray) -> option[Triangle] {
+    return argmin(|t : Triangle| distmin(r, t),
+                  filter(|t : Triangle| intersects(r, t), tris));
+}
+
+func [[export]] occluded(r0 : Ray) -> bool {
+    r = clamped(r0);
+    return any(|t : Triangle| intersects(r, t), tris);
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+    trace_raw.sort(tris.Interior,
+                   |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                   distmin(r, AABB{lo[i], hi[i]}))
+             .loopify(64);
+    occluded.loopify(64);
+}

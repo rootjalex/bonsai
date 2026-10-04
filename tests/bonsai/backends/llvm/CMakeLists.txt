@@ -18,6 +18,7 @@ add_bonsai_tests(
     rcp.bonsai
     permute.bonsai
     sort-key-nonnegative.bonsai
+    sort-key-through-bits.bonsai
     stored-lane.bonsai
     defer.bonsai
     defer-gang.bonsai

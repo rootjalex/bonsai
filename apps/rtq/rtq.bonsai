@@ -60,17 +60,26 @@ func zero_fix(d : vec3f) -> vec3f {
 // Embree: node_intersector1.h, the slab test of `intersectNode` for one
 // child's box, as TravRay sets it up -- the reciprocal direction and
 // `org * rdir` once per ray, each slab then one fused multiply-subtract --
-// and the interval clamped to the ray's segment before the comparison.
+// and the interval clamped to the ray's segment before the comparison, in
+// the form Embree's AVX-512 build (the one this machine runs) writes it:
 //
-//     tNear = max(tNearX, tNearY, tNearZ, tnear)
-//     tFar  = min(tFarX,  tFarY,  tFarZ,  tfar)
-//     hit   = tNear <= tFar
+//     tNear = maxi(tNearX, tNearY, tNearZ, tnear)
+//     tFar  = mini(tFarX,  tFarY,  tFarZ,  tfar)
+//     hit   = asInt(tNear) <= asInt(tFar)
 //
-// Embree takes the reciprocal with `rcp` (rcp_safe: `vrcp14ps` and one
-// Newton step over the three components padded to four), and so does this.
-// Embree's AVX-512 build compares the two as integers (`maxi`, `mini`,
-// `asInt(tNear) <= asInt(tFar)`), which agrees with the float comparison
-// everywhere it matters (PLAN.md).
+// where `maxi` and `mini` are the integer max and min of the floats' bits
+// (vfloat8_avx.h: `_mm256_max_epi32` on `_mm256_castps_si256`), paired as
+// `maxi(maxi(a, b), maxi(c, d))` (emath.h), and the compare is of the bits.
+// The bits of non-negative floats order as the floats do, and with the
+// segment clamped to [0, inf) (`clamped`) `tnear` is non-negative, so the
+// max is at least it whatever the slab distances are, and a negative `tFar`
+// -- a box behind the ray -- fails the compare against it however the min
+// ordered the negatives. An integer min and max are associative and have
+// no NaN case, which is what lets the compiler fold the traversal's running
+// best into `tfar` exactly (SSA/Simplify.cpp); a float min is std::min,
+// which neither is nor has. Embree takes the reciprocal with `rcp`
+// (rcp_safe: `vrcp14ps` and one Newton step over the three components
+// padded to four), and so does this.
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     rdir = rcp(zero_fix(r.d));
     org_rdir = r.o * rdir;
@@ -79,10 +88,12 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     far = select(dirIsNeg, b.low, b.high);
     tNearV = near * rdir - org_rdir;
     tFarV = far * rdir - org_rdir;
-    tNear = max(max(tNearV.x, tNearV.y), max(tNearV.z, r.tnear));
-    tFar = min(min(tFarV.x, tFarV.y), min(tFarV.z, r.tfar));
+    tNear = max(max(reinterpret[[i32]](tNearV.x), reinterpret[[i32]](tNearV.y)),
+                max(reinterpret[[i32]](tNearV.z), reinterpret[[i32]](r.tnear)));
+    tFar = min(min(reinterpret[[i32]](tFarV.x), reinterpret[[i32]](tFarV.y)),
+               min(reinterpret[[i32]](tFarV.z), reinterpret[[i32]](r.tfar)));
     if tNear <= tFar {
-        return FInterval{tNear, tFar};
+        return FInterval{reinterpret[[Float]](tNear), reinterpret[[Float]](tFar)};
     }
     return {};
 }

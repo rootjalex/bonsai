@@ -2506,6 +2506,82 @@ tests before the dispatch: Embree's `prefetch(child)` as each child is
 taken, and the end of the doubled one-hit test. Then the slab test on
 integer bits as Embree's AVX-512 build writes it.
 
+## The slab test on the floats' bits, as Embree's AVX-512 build writes it (2026-10-04)
+
+**The ruling.** The user: where Embree's own algorithm does the
+reinterpretation to integers, ours does too -- a faithful translation of
+their intersection code for the scalar case, with the compiler responsible
+for vectorizing it -- and it is not an instruction-selection problem for
+the compiler to solve. Embree's AVX-512 `intersectNode` (node_intersector1.h)
+is `maxi(tNearX, tNearY, tNearZ, tnear)`, `mini(tFarX, tFarY, tFarZ,
+tfar)`, `asInt(tNear) <= asInt(tFar)`, with `maxi`/`mini` the integer max
+and min of the floats' bits (vfloat8_avx.h) paired as `maxi(maxi(a, b),
+maxi(c, d))` (emath.h).
+
+**What was built.** rtq.bonsai's `intersectsp_ray_aabb` is that: the slab
+distances and the segment's ends `reinterpret[[i32]]`, the max and min
+chains on the integers, the compare on them, and the interval handed back
+as floats from the bits. The bits of non-negative floats order as the
+floats do; the clamp (`clamped`) makes `tnear` non-negative so the max is
+at least it whatever the slab distances are, and a negative `tFar` (a box
+behind the ray) fails the compare against a non-negative `tNear` whichever
+negative the min kept -- the same reasoning Embree's code rests on. Every
+ray agrees with Embree. The node test is now Embree's instructions,
+`vpmaxsd` x3, `vpminsd` x3, `vpcmpled`, plus our masked `vcmpltps` against
+the best.
+
+**What it broke, and the fix.** The sort key's sign flip came back: the
+key is the entry distance's bits, and the distance is now a float read
+from an integer max, which the interval analysis could not bound, so the
+sort could not see that the key is non-negative (+14 instructions on the
+nearest hit, three per arm). SSA/ConstantIntervals.cpp bounds the
+reinterpretation now, both ways, for non-negative values: a float in [0,
+inf] is bits in [0, 0x7f800000], the bits of +inf the greatest, and back.
+A NaN is outside this lattice as it is outside every float interval, so
+its bits, above inf's, are not what these bounds speak of -- the reading
+the flip rule already took, and the one Embree's test rests on. The fact
+then travels: `tnear` in [0, inf) from the clamp, its bits in [0,
+0x7f800000], the integer max at least that, the float read from the max
+in [0, inf) again, the key non-negative, no flip. The counts are back to
+the float version's (trace_all 531, occluded_all 371).
+
+**What stands between this and Embree's one compare.** Integer min and
+max are associative and have no NaN case, so the rules of d3162556 could
+now fold the best into the chain -- `(a <= b) && (a < c)` is `a <= min(b,
+c - 1)` over integers whenever `c` is not the type's minimum, which the
+interval analysis knows of the best's bits -- if the prune's compare were
+on the bits. It is `distmin(r, box) < best` on floats: the float read from
+the max against the float best. The missing pieces, in order: the masked
+`distmin` is still a call in our SSA when the simplifier runs (the
+vectorizer's clone of a call under a mask; nothing inlines it before LLVM
+does), so the slab test the compare refers to is not visible to the rules;
+a rule turning a float compare of values whose bits are known non-negative
+into the compare of the bits, which is exact within the lattice's reading
+of NaN and needs the interval analysis in the simplifier's hands; and the
+strict-against-non-strict rule above. The first is the prerequisite noted
+in the simplifier's section, and the next compiler item after the
+prefetch's.
+
+**Tests.** ssa/sort-key-through-bits, backends/llvm/sort-key-through-bits
+and correctness/cpp/sort_key_through_bits with its main: sort-key-
+nonnegative's two traversals with the slab test on bits -- the clamped
+query's keys without the flip and the raw query's with it, `llvm.smax`/
+`llvm.smin` and a signed compare for the node test, and the same answers
+run; the raw query's answers on a segment that begins behind the origin
+are printed and not judged, a negative `tnear` being outside the integer
+test's precondition as it is outside Embree's (`assert(ray.valid())`).
+
+**Measured** (cpu 11, `--side 2048`, least of 5, the baseline d1acf33e's
+compiler on its apps/rtq in its worktree, every ray agreeing): level. The
+nearest hit on head 63.75 -> 63.86 Mrays/s on primary rays (0.99x
+Embree), 14.92 -> 14.91 on ao, 13.27 -> 13.27 on diffuse (0.94x); the any
+hit 92.9 -> 93.3 (1.08x), 17.44 -> 17.47 (0.97 -> 0.98x), 15.84 -> 16.00
+(0.97 -> 0.98x); ganesha and dragon within 1% on every kernel. perf on
+head's any hit: instructions 15399 -> 15168 on primary rays (-1.5%) and
+13700 -> 13578 on ao (-0.9%), cycles -2% and -0.5%. The test itself was
+never the cost; what it buys is the form in which the best can be folded
+in exactly, above.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

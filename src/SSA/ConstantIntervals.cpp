@@ -7,6 +7,8 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <cmath>
@@ -840,11 +842,67 @@ struct ConstantIntervals::State {
             }
             return fit(i);
         }
-        case Instruction::Op::Reinterpret:
-            return in.operands.size() == 1 &&
-                           equals(in.operands[0]->get_type(), type)
-                       ? A(0)
-                       : top();
+        case Instruction::Op::Reinterpret: {
+            if (in.operands.size() != 1) {
+                return top();
+            }
+            const Type from = in.operands[0]->get_type();
+            if (equals(from, type)) {
+                return A(0);
+            }
+            // A float's bits as a 32-bit integer order as the float does
+            // where the float is not negative, and the other way round:
+            // [0, inf] as floats is [0, 0x7f800000] as bits, the bits of
+            // +inf the greatest. A NaN is outside this lattice as it is
+            // outside every float interval (see ConstantInterval), so its
+            // bits, above inf's, are not what these bounds speak of -- the
+            // reading the sort's flip rule takes of a key that cannot be
+            // negative, and the one Embree's slab test on bits (`maxi`,
+            // `mini`, `asInt(tNear) <= asInt(tFar)`) rests on, which is
+            // what this is for: the bits of `max(.., asInt(tnear))` with
+            // `tnear` in [0, inf] are non-negative, and read back as a float
+            // the distance is in [0, inf] again, so the key made of it
+            // needs no flip.
+            const Type f = scalar_of(from), t = scalar_of(type);
+            if (!f.is_scalar() || !t.is_scalar()) {
+                return top(); // an array viewed as another, say
+            }
+            const ConstantInterval i = I(0);
+            constexpr double kInfBits = 0x7f800000;
+            if (f.is_float() && f.bits() == 32 && is_integer_type(t) &&
+                t.bits() == 32) {
+                if (!(i.min_defined && i.min >= 0)) {
+                    return top();
+                }
+                float lo = float(i.min);
+                if (double(lo) > i.min) {
+                    lo = std::nextafterf(lo, 0.0f);
+                }
+                double hi_bits = kInfBits;
+                if (i.max_defined && std::isfinite(i.max)) {
+                    float hi = float(i.max);
+                    if (double(hi) < i.max) {
+                        hi = std::nextafterf(hi, kInf);
+                    }
+                    hi_bits = std::isfinite(hi) ? double(std::bit_cast<uint32_t>(hi))
+                                                : kInfBits;
+                }
+                return fit(ConstantInterval(double(std::bit_cast<uint32_t>(lo)),
+                                            hi_bits));
+            }
+            if (is_integer_type(f) && f.bits() == 32 && t.is_float() &&
+                t.bits() == 32) {
+                if (!(i.min_defined && i.min >= 0 && i.min <= kInfBits)) {
+                    return top();
+                }
+                const float lo = std::bit_cast<float>(uint32_t(i.min));
+                const double hi = i.max_defined && i.max <= kInfBits
+                                      ? double(std::bit_cast<float>(uint32_t(i.max)))
+                                      : kInf;
+                return fit(ConstantInterval(double(lo), hi));
+            }
+            return top();
+        }
         case Instruction::Op::Bc:
             return fit(I(0));
         case Instruction::Op::Ramp: {
