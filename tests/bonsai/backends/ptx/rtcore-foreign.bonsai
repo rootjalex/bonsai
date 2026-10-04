@@ -1,0 +1,68 @@
+//! flags: -p ssa -b ptx --link tests/bonsai/backends/ptx/shade-impl.ptx
+
+// rtcore-any.bonsai's program with a foreign function called in the loop
+// the RT cores run (docs/foreign-functions.md): the hit's x handed to
+// `shade`, a function with no body here and an implementation in PTX
+// (shade-impl.ptx) spliced in by `--link`. The OptiX generator walks the
+// callees of a raygen program twice -- for the queries it reaches, and for
+// the functions it compiles into the module -- and both walks have to pass a
+// foreign callee by (the first nanovdb medium found the first one asserting
+// that the callee had no SSA form). What to look for: in the OptiX module
+// the spliced `shade` stands right after the header, no `.extern .func`
+// declaration of it remains, and the raygen program calls it. Without the
+// `--link` the device module is refused, since nothing after it could
+// define the function (CodeGen_LLVM::link_foreign_implementations).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+extern func shade(x : f32) -> f32;
+
+func accepts(r : Ray, t : Tri) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    return r.o.y < t.alpha;
+}
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri) && accepts(r, t), tris));
+
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_x : mut array[f32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_x[i] = shade(hit.tri.p0.x);
+        } else {
+            hit_x[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}

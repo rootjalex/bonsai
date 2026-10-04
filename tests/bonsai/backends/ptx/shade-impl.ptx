@@ -1,0 +1,22 @@
+//
+// The implementation of rtcore-foreign.bonsai's `shade`, as PTX: the value
+// doubled. What `nvcc -ptx -rdc=true` writes for
+// `extern "C" __device__ float shade(float x)`, shortened by hand; `--link`
+// splices it into the OptiX module's PTX after the module's header
+// (CodeGen_PTX::append_linked_ptx), the three header lines dropped.
+//
+.version 8.0
+.target sm_90
+.address_size 64
+
+.visible .func  (.param .b32 func_retval0) shade(
+	.param .b32 shade_param_0
+)
+{
+	.reg .f32 	%f<3>;
+
+	ld.param.f32 	%f1, [shade_param_0];
+	add.f32 	%f2, %f1, %f1;
+	st.param.f32 	[func_retval0], %f2;
+	ret;
+}

@@ -84,14 +84,15 @@ enum MaterialTag : uint32_t {
 };
 
 // A participating medium, of the kinds PBRT has: `homogeneous`, `uniformgrid`
-// (PBRT's GridMedium), `rgbgrid` and `cloud`. `nanovdb` is refused where the
-// scene is read, pending how a sparse voxel grid is to be stored (PLAN.md,
-// "grid media").
+// (PBRT's GridMedium), `rgbgrid`, `cloud` and `nanovdb` (a sparse voxel grid
+// in NanoVDB's own format, read through NanoVDB's own library -- see
+// Medium below and docs/foreign-functions.md).
 enum MediumTag : uint32_t {
     Homogeneous = 0,
     UniformGrid = 1,
     RGBGrid = 2,
     Cloud = 3,
+    NanoVDB = 4,
 };
 
 // A dense grid of a grid medium -- PBRT's SampledGrid, or the MajorantGrid --
@@ -161,6 +162,26 @@ struct Medium {
     float cloud_density = 1.f;
     float wispiness = 1.f;
     float frequency = 5.f;
+    // `nanovdb`: PBRT's NanoVDBMedium. The grid buffers are copied out of the
+    // `.nvdb` file as they are, into `Scene::vdb_bytes` (the `.vdb` sidecar),
+    // each starting at a multiple of 32 bytes as NanoVDB's alignment wants;
+    // these are where the density grid and the temperature grid begin
+    // (`has_temperature` zero for none, and then `temperature_at` unused).
+    // The renderer never looks into the bytes: it hands them to NanoVDB's own
+    // accessor through a foreign function (media.bonsai, nanovdb_shim.cpp).
+    // Each grid's map from the medium's space to its index space, as
+    // NanoVDB's `Map` holds it and applies it in `worldToIndexF`: the 3x3
+    // inverse matrix, row-major, then the translation taken off first. The
+    // emission is `le_scale_value` times a blackbody at the temperature grid's
+    // value under `temperature_offset` and `temperature_scale`; `emissive` is
+    // PBRT's IsEmissive, a temperature grid and an Lescale above zero. The
+    // majorant grid is 64x64x64 here, as PBRT's constructor builds it for this
+    // medium, over the grids' world bounds (`low`..`high`).
+    uint32_t density_at = 0;
+    uint32_t temperature_at = 0;
+    uint32_t has_temperature = 0;
+    float density_map[12] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f};
+    float temperature_map[12] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f};
 };
 
 // One of PBRT's PiecewiseLinear2D interpolants, as the renderer reads it.
@@ -894,6 +915,10 @@ struct Scene {
     // The grid media's grids, laid end to end (see GridRef). Binary, in the
     // `.vol` sidecar: smoke-plume's density alone is nine million floats.
     std::vector<float> medium_grid;
+    // The `nanovdb` media's grid buffers, copied out of their `.nvdb` files
+    // as they are (see Medium::density_at). Binary, in the `.vdb` sidecar:
+    // 76 MB for bunny-cloud's.
+    std::vector<uint8_t> vdb_bytes;
     // The tables the scene's sampler reads, when it is one of the two that
     // read tables pbrt ships as source (sampler.bonsai's externs): the `sobol`
     // sampler's generator matrices for all 1024 dimensions and the two van
@@ -1080,6 +1105,11 @@ inline std::string vol_path(const char *scene_path) {
 // it), when the scene's sampler reads any.
 inline std::string smp_path(const char *scene_path) {
     return std::string(scene_path) + ".smp";
+}
+
+// Where the NanoVDB grids live (Scene::vdb_bytes), when the scene has any.
+inline std::string vdb_path(const char *scene_path) {
+    return std::string(scene_path) + ".vdb";
 }
 
 // Where the geometry lives: the FlatBuffer beside the scene file
@@ -1595,6 +1625,17 @@ inline bool write(const char *path, const Scene &scene) {
             return false;
         }
     }
+    if (!scene.vdb_bytes.empty()) {
+        std::ofstream vdb(vdb_path(path), std::ios::binary);
+        if (!vdb) {
+            return false;
+        }
+        vdb.write(reinterpret_cast<const char *>(scene.vdb_bytes.data()),
+                  std::streamsize(scene.vdb_bytes.size()));
+        if (!vdb) {
+            return false;
+        }
+    }
     if (!scene.sobol_matrices.empty() || !scene.pmj02bn_samples.empty()) {
         // The five tables back to back, in the order the text line counts
         // them.
@@ -1956,6 +1997,26 @@ inline bool write(const char *path, const Scene &scene) {
             detail::put(out, &m.frequency, 1);
             out << '\n';
             break;
+        case MediumTag::NanoVDB:
+            out << "  nanovdb spectra " << m.spectra << " g";
+            detail::put(out, &m.g, 1);
+            out << " emissive " << m.emissive;
+            frame();
+            out << " densityat " << m.density_at << " temperatureat "
+                << m.temperature_at << " hastemperature " << m.has_temperature;
+            out << " densitymap";
+            detail::put(out, m.density_map, 12);
+            out << " temperaturemap";
+            detail::put(out, m.temperature_map, 12);
+            out << " lescale";
+            detail::put(out, &m.le_scale_value, 1);
+            out << " temperaturescale";
+            detail::put(out, &m.temperature_scale, 1);
+            out << " temperatureoffset";
+            detail::put(out, &m.temperature_offset, 1);
+            grid("majorant", m.majorant);
+            out << '\n';
+            break;
         default:
             return false;
         }
@@ -1974,6 +2035,8 @@ inline bool write(const char *path, const Scene &scene) {
     }
     // The grids themselves are in the `.vol` sidecar; this is how many floats.
     out << "mediumgrid " << scene.medium_grid.size() << '\n';
+    // The NanoVDB grids are in the `.vdb` sidecar; this is how many bytes.
+    out << "vdbbytes " << scene.vdb_bytes.size() << '\n';
     // The sampler's tables are in the `.smp` sidecar; this is how many words
     // of each, in the order they are written there.
     out << "samplertables " << scene.sobol_matrices.size() << ' '
@@ -2744,6 +2807,8 @@ inline bool read(const char *path, Scene &scene) {
             m.tag = MediumTag::RGBGrid;
         } else if (word == "cloud") {
             m.tag = MediumTag::Cloud;
+        } else if (word == "nanovdb") {
+            m.tag = MediumTag::NanoVDB;
         } else {
             return false;
         }
@@ -2756,7 +2821,8 @@ inline bool read(const char *path, Scene &scene) {
         if (!one("g", &m.g)) {
             return false;
         }
-        if (m.tag == MediumTag::Homogeneous || m.tag == MediumTag::UniformGrid) {
+        if (m.tag == MediumTag::Homogeneous || m.tag == MediumTag::UniformGrid ||
+            m.tag == MediumTag::NanoVDB) {
             if (!tagged("emissive")) {
                 return false;
             }
@@ -2783,6 +2849,33 @@ inline bool read(const char *path, Scene &scene) {
         } else if (m.tag == MediumTag::Cloud) {
             if (!one("density", &m.cloud_density) ||
                 !one("wispiness", &m.wispiness) || !one("frequency", &m.frequency)) {
+                return false;
+            }
+        } else if (m.tag == MediumTag::NanoVDB) {
+            if (!tagged("densityat")) {
+                return false;
+            }
+            in >> m.density_at;
+            if (!tagged("temperatureat")) {
+                return false;
+            }
+            in >> m.temperature_at;
+            if (!tagged("hastemperature")) {
+                return false;
+            }
+            in >> m.has_temperature;
+            if (!tagged("densitymap")) {
+                return false;
+            }
+            floats(m.density_map, 12);
+            if (!tagged("temperaturemap")) {
+                return false;
+            }
+            floats(m.temperature_map, 12);
+            if (!one("lescale", &m.le_scale_value) ||
+                !one("temperaturescale", &m.temperature_scale) ||
+                !one("temperatureoffset", &m.temperature_offset) ||
+                !grid("majorant", m.majorant)) {
                 return false;
             }
         }
@@ -2828,6 +2921,23 @@ inline bool read(const char *path, Scene &scene) {
         vol.read(reinterpret_cast<char *>(scene.medium_grid.data()),
                  std::streamsize(sizeof(float) * count));
         if (vol.gcount() != std::streamsize(sizeof(float) * count)) {
+            return false;
+        }
+    }
+    if (!(in >> word) || word != "vdbbytes") {
+        return false;
+    }
+    in >> count;
+    scene.vdb_bytes.clear();
+    if (count > 0) {
+        std::ifstream vdb(vdb_path(path), std::ios::binary);
+        if (!vdb) {
+            return false;
+        }
+        scene.vdb_bytes.resize(count);
+        vdb.read(reinterpret_cast<char *>(scene.vdb_bytes.data()),
+                 std::streamsize(count));
+        if (vdb.gcount() != std::streamsize(count)) {
             return false;
         }
     }
@@ -2897,6 +3007,17 @@ inline bool read(const char *path, Scene &scene) {
             if (m.majorant.nx == 0 || !grid_ok(m.sigma_a, 4) ||
                 !grid_ok(m.sigma_s, 4) || !grid_ok(m.le, 4) ||
                 !grid_ok(m.majorant, 1)) {
+                return false;
+            }
+        } else if (m.tag == MediumTag::NanoVDB) {
+            // A grid begins within the bytes, on NanoVDB's 32-byte alignment,
+            // with room for at least its header (672 bytes).
+            const auto grid_at = [&](uint32_t at) {
+                return at % 32 == 0 && size_t(at) + 672 <= scene.vdb_bytes.size();
+            };
+            if (m.majorant.nx == 0 || !grid_ok(m.majorant, 1) ||
+                !grid_at(m.density_at) ||
+                (m.has_temperature != 0 && !grid_at(m.temperature_at))) {
                 return false;
             }
         }

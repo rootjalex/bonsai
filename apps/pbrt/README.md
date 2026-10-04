@@ -32,7 +32,13 @@ before it.
   renderer with one schedule and render a scene.
 - `compare.sh [--spp N] <scene.pbrt>`: one scene, pbrt against one schedule
   (`SCHEDULE=`), both timed, the images checked. `--wavefront` and `--gpu`
-  pick which pbrt to compare against.
+  pick which pbrt to compare against. Both this and `gpu_compare.sh` hand
+  pbrt its scene with the Film told `"bool savefp16" false` unless the
+  scene says something itself: pbrt's film quantizes its pixels to halves
+  before writing any file, a PFM included, and a float render checked
+  against a half-quantized one loses its last digit of agreement and, on
+  an emissive medium, counts every pixel lit by 1e-20 here and rounded to
+  black there as a pixel lit on one side only.
 - `gpu_compare.sh [--spp N] [--repeats N] [--schedules "..."] [--scenes "..."]
   [--out DIR] [--resume]`: the GPU table. pbrt `--gpu` and every GPU
   schedule on every scene, no number ever one run's: pbrt's time is the
@@ -74,7 +80,17 @@ before it.
   `.tex` for texels, `.env` for environment maps, `.pl` for measured BRDFs,
   `.vol` for the grid media's voxels, `.smp` for the tables a `sobol` or
   `pmj02bn` sampler reads (pbrt's full Sobol' matrices, its blue-noise
-  point sets and textures, copied from pbrt's own arrays).
+  point sets and textures, copied from pbrt's own arrays), `.vdb` for the
+  `nanovdb` media's grid buffers, copied out of their `.nvdb` files as
+  they are and read by NanoVDB's own accessor (below).
+- `build_nanovdb_shim.sh <outdir> [sm_NN]`: builds `nanovdb_shim.cpp`, the
+  implementation of the renderer's two foreign functions over NanoVDB
+  (`docs/foreign-functions.md`), to host bitcode and, given a GPU
+  architecture, to PTX with nvcc, and prints the `--link` flags that fold
+  them into the generated module so that a voxel read is NanoVDB's accessor
+  inlined rather than a call. The scripts above run it and also compile the
+  shim into the driver against the generated header, where a prototype
+  mismatch is a compile error.
 - `scene_schema.sh`: runs `flatc` on `scene_geometry.fbs` and prints the
   compiler flags the scene reader needs; every script that compiles
   `scene_dump.cpp` or `render_hook.cpp` calls it. Needs the `flatbuffers`

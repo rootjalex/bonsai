@@ -140,16 +140,29 @@ fi
 # CompilerOptions::fast_math and gpu_max_registers).
 # The directives, not the comments: a CPU schedule may well talk about the
 # device schedule it stands in for.
-if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread"; then
+SHIM_ARCH=""
+if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread\|OptixThread"; then
   FLAGS+=(--fast-math --gpu-max-registers 128)
+  # And the NanoVDB shim as PTX for this GPU (below).
+  SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
 fi
+# The NanoVDB shim -- the implementation of the renderer's foreign functions
+# over NanoVDB (docs/foreign-functions.md) -- built to host bitcode and, for
+# a GPU schedule, to PTX for this machine's GPU, both linked into the
+# generated module; and compiled into the driver against the generated
+# header (build_nanovdb_shim.sh). Its outputs go where compare.sh's do.
+mkdir -p "$PREFIX/compare-out"
+SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$PREFIX/compare-out" $SHIM_ARCH)
+NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
 "./$BONSAI_BUILD_DIR/compiler" -p ssa "${INPUTS[@]}" -o $PREFIX/render.bir
-"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll
-"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
+"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${LINK_FLAGS[@]}" "${INPUTS[@]}" -b llvm -o $PREFIX/render.ll
+"./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${LINK_FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
     $PREFIX/render_hook.cpp \
+    -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o $PREFIX/render.out
 
 ./$PREFIX/render.out --no-implicit-copies "$PREFIX/scene.txt" "$OUT"

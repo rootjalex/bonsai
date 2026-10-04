@@ -55,6 +55,14 @@
 #include <pbrt/cpu/primitive.h>
 #include <pbrt/lights.h>
 #include <pbrt/media.h>
+// NanoVDB's reader, for the `nanovdb` medium's grids (pbrt/media.h brings
+// the rest of NanoVDB), with the zip codec the scene set's grids are
+// written in -- a define in the including file, which is how PBRT's own
+// media.cpp turns it on; the zlib it needs is in PBRT's link line already.
+#define NANOVDB_USE_ZIP 1
+#include <nanovdb/util/IO.h>
+// ScratchBuffer, for probing PBRT's own medium (BONSAI_CHECK_MAJORANT).
+#include <pbrt/util/memory.h>
 #include <pbrt/options.h>
 #include <pbrt/parser.h>
 #include <pbrt/samplers.h>
@@ -412,16 +420,8 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
                 kind = p->strings[0];
             }
         }
-        if (kind == "nanovdb") {
-            fail(where(loc) + "MakeNamedMedium \"" + name +
-                 "\" of type \"nanovdb\": a NanoVDB grid is a sparse set of "
-                 "voxels, and how it is stored -- the file's own layout through "
-                 "the layout language, or a re-layout by this converter -- is "
-                 "not decided yet (PLAN.md, \"grid media\"); `homogeneous`, "
-                 "`uniformgrid`, `rgbgrid` and `cloud` convert");
-        }
         if (kind != "homogeneous" && kind != "uniformgrid" && kind != "rgbgrid" &&
-            kind != "cloud") {
+            kind != "cloud" && kind != "nanovdb") {
             fail(where(loc) + "MakeNamedMedium \"" + name + "\" of type \"" +
                  kind + "\": PBRT has no such medium");
         }
@@ -5255,6 +5255,206 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
             medium.majorant = push_grid(majorant, kMajorantRes, kMajorantRes,
                                         kMajorantRes);
+        } else if (kind == "nanovdb") {
+            // PBRT: NanoVDBMedium::Create and the constructor. The grids are
+            // read with NanoVDB's own reader and copied out as they are
+            // (Scene::vdb_bytes): the renderer reads them through NanoVDB's
+            // accessor in a shim (nanovdb_shim.cpp, docs/foreign-functions.md)
+            // and never looks into the bytes itself, which is how PBRT reads
+            // them too.
+            const std::string filename =
+                pbrt::ResolveFilename(params.GetOneString("filename", ""));
+            if (filename.empty()) {
+                fail(what + " names no \"filename\"");
+            }
+            // PBRT: readGrid -- a grid not in the file is an empty handle, a
+            // grid that is not a fog volume an error.
+            const auto read_grid = [&](const std::string &grid_name) {
+                nanovdb::GridHandle<nanovdb::HostBuffer> handle;
+                try {
+                    handle = nanovdb::io::readGrid<nanovdb::HostBuffer>(
+                        filename, grid_name, 0 /* not verbose */);
+                } catch (const std::exception &e) {
+                    fail(what + ": " + filename + ": " + e.what());
+                }
+                if (handle && !handle.gridMetaData()->isFogVolume() &&
+                    !handle.gridMetaData()->isUnknown()) {
+                    fail(what + ": " + filename + ": \"" + grid_name +
+                         "\" is not a fog volume grid");
+                }
+                return handle;
+            };
+            nanovdb::GridHandle<nanovdb::HostBuffer> density_handle =
+                read_grid(params.GetOneString("gridname", "density"));
+            if (!density_handle) {
+                fail(what + ": " + filename + " has no \"density\" grid");
+            }
+            nanovdb::GridHandle<nanovdb::HostBuffer> temperature_handle =
+                read_grid(params.GetOneString("temperaturename", "temperature"));
+            const nanovdb::FloatGrid *density = density_handle.grid<float>();
+            if (density == nullptr) {
+                fail(what + ": " + filename + ": the density grid holds no floats");
+            }
+            const nanovdb::FloatGrid *temperature =
+                temperature_handle ? temperature_handle.grid<float>() : nullptr;
+            if (temperature_handle && temperature == nullptr) {
+                fail(what + ": " + filename + ": the temperature grid holds no floats");
+            }
+            // Into the sidecar as they are, each grid beginning on NanoVDB's
+            // 32-byte alignment; the renderer's handle is the address.
+            const auto push_vdb = [&](const nanovdb::GridHandle<nanovdb::HostBuffer> &h) {
+                while (out.vdb_bytes.size() % 32 != 0) {
+                    out.vdb_bytes.push_back(0);
+                }
+                const uint32_t at = uint32_t(out.vdb_bytes.size());
+                out.vdb_bytes.insert(out.vdb_bytes.end(), h.data(), h.data() + h.size());
+                return at;
+            };
+            medium.tag = bonsai_scene::MediumTag::NanoVDB;
+            place(); // the transform; the box is the grids' own, below
+            medium.density_at = push_vdb(density_handle);
+            if (temperature != nullptr) {
+                medium.has_temperature = 1u;
+                medium.temperature_at = push_vdb(temperature_handle);
+            }
+            // Each grid's map from world (the medium's space) to index space,
+            // as NanoVDB's Map holds it: the 3x3 inverse, then the translation.
+            const auto write_map = [](float *out12, const nanovdb::Map &map) {
+                for (int i = 0; i < 9; i++) {
+                    out12[i] = map.mInvMatF[i];
+                }
+                for (int i = 0; i < 3; i++) {
+                    out12[9 + i] = map.mVecF[i];
+                }
+            };
+            write_map(medium.density_map, density->map());
+            if (temperature != nullptr) {
+                write_map(medium.temperature_map, temperature->map());
+            }
+            // PBRT: `bounds`, the density grid's world box, unioned with the
+            // temperature grid's.
+            const auto box_of = [](const nanovdb::FloatGrid *g) {
+                const nanovdb::BBox<nanovdb::Vec3R> b = g->worldBBox();
+                return pbrt::Bounds3f(
+                    pbrt::Point3f(pbrt::Float(b.min()[0]), pbrt::Float(b.min()[1]),
+                                  pbrt::Float(b.min()[2])),
+                    pbrt::Point3f(pbrt::Float(b.max()[0]), pbrt::Float(b.max()[1]),
+                                  pbrt::Float(b.max()[2])));
+            };
+            pbrt::Bounds3f bounds = box_of(density);
+            if (temperature != nullptr) {
+                bounds = pbrt::Union(bounds, box_of(temperature));
+            }
+            for (int c = 0; c < 3; c++) {
+                medium.low[c] = float(bounds.pMin[c]);
+                medium.high[c] = float(bounds.pMax[c]);
+            }
+            medium.le_scale_value = params.GetOneFloat("Lescale", 1.f);
+            medium.temperature_offset = params.GetOneFloat(
+                "temperatureoffset", params.GetOneFloat("temperaturecutoff", 0.f));
+            medium.temperature_scale = params.GetOneFloat("temperaturescale", 1.f);
+            // PBRT: IsEmissive, `temperatureFloatGrid && LeScale > 0`.
+            medium.emissive =
+                (temperature != nullptr && medium.le_scale_value > 0.f) ? 1u : 0u;
+            // The emission is a blackbody from the temperature grid, so the Le
+            // spectrum is nothing.
+            push_spectra(sig_a, sig_s, alloc.new_object<pbrt::ConstantSpectrum>(0.f),
+                         sigma_scale, 1.f);
+            // PBRT: the 64x64x64 majorant grid the constructor builds -- each
+            // cell the maximum of the density over the index-space box its
+            // world box reaches, widened by one voxel of filter slop and
+            // clipped to the grid's own box, through NanoVDB's accessor --
+            // the constructor's loop as it is written, in parallel as PBRT
+            // runs it. The density grid alone: the emission has no majorant.
+            constexpr int kVdbMajorantRes = 64;
+            std::vector<float> majorant(size_t(kVdbMajorantRes) * kVdbMajorantRes *
+                                        kVdbMajorantRes);
+            pbrt::ParallelFor(0, int64_t(majorant.size()), [&](int64_t index) {
+                const int x = int(index % kVdbMajorantRes);
+                const int y = int((index / kVdbMajorantRes) % kVdbMajorantRes);
+                const int z = int(index / (kVdbMajorantRes * kVdbMajorantRes));
+                const pbrt::Bounds3f wb(
+                    bounds.Lerp(pbrt::Point3f(pbrt::Float(x) / kVdbMajorantRes,
+                                              pbrt::Float(y) / kVdbMajorantRes,
+                                              pbrt::Float(z) / kVdbMajorantRes)),
+                    bounds.Lerp(pbrt::Point3f(pbrt::Float(x + 1) / kVdbMajorantRes,
+                                              pbrt::Float(y + 1) / kVdbMajorantRes,
+                                              pbrt::Float(z + 1) / kVdbMajorantRes)));
+                const nanovdb::Vec3R i0 = density->worldToIndexF(
+                    nanovdb::Vec3R(wb.pMin.x, wb.pMin.y, wb.pMin.z));
+                const nanovdb::Vec3R i1 = density->worldToIndexF(
+                    nanovdb::Vec3R(wb.pMax.x, wb.pMax.y, wb.pMax.z));
+                const auto bbox = density->indexBBox();
+                const pbrt::Float delta = 1.f; // filter slop
+                const int nx0 = std::max(int(i0[0] - delta), bbox.min()[0]);
+                const int nx1 = std::min(int(i1[0] + delta), bbox.max()[0]);
+                const int ny0 = std::max(int(i0[1] - delta), bbox.min()[1]);
+                const int ny1 = std::min(int(i1[1] + delta), bbox.max()[1]);
+                const int nz0 = std::max(int(i0[2] - delta), bbox.min()[2]);
+                const int nz1 = std::min(int(i1[2] + delta), bbox.max()[2]);
+                float max_value = 0;
+                auto accessor = density->getAccessor();
+                // NanoVDB's integer boxes are inclusive at the top.
+                for (int nz = nz0; nz <= nz1; ++nz) {
+                    for (int ny = ny0; ny <= ny1; ++ny) {
+                        for (int nx = nx0; nx <= nx1; ++nx) {
+                            max_value = std::max(max_value,
+                                                 accessor.getValue({nx, ny, nz}));
+                        }
+                    }
+                }
+                majorant[size_t(index)] = max_value;
+            });
+            medium.majorant =
+                push_grid(majorant, kVdbMajorantRes, kVdbMajorantRes, kVdbMajorantRes);
+            // A check, when BONSAI_CHECK_MAJORANT is set: PBRT's own
+            // NanoVDBMedium built from the same parameters under the
+            // identity, its majorant read cell by cell through SampleRay --
+            // a ray from the cell's centre along x, too short to leave the
+            // cell, whose first segment carries sigma_t times the cell's
+            // maximum -- against the grid just built. The majorant decides
+            // how often a path's collisions are tentative, and with an
+            // emissive medium each tentative collision adds light, so a
+            // majorant that is not PBRT's shows as pixels lit here and not
+            // there before it shows anywhere else.
+            if (std::getenv("BONSAI_CHECK_MAJORANT") != nullptr) {
+                pbrt::Medium theirs = pbrt::Medium::Create("nanovdb", params,
+                                                           pbrt::Transform(), nullptr, alloc);
+                pbrt::ScratchBuffer scratch;
+                const pbrt::SampledWavelengths lambda =
+                    pbrt::SampledWavelengths::SampleUniform(0.5f);
+                const pbrt::Float sigma_t0 =
+                    (sig_a.Sample(lambda)[0] + sig_s.Sample(lambda)[0]) * sigma_scale;
+                const pbrt::Float cell = (bounds.pMax.x - bounds.pMin.x) / kVdbMajorantRes;
+                int differing = 0;
+                float worst = 0.f;
+                for (size_t index = 0; index < majorant.size(); index++) {
+                    const int x = int(index % kVdbMajorantRes);
+                    const int y = int((index / kVdbMajorantRes) % kVdbMajorantRes);
+                    const int z = int(index / (kVdbMajorantRes * kVdbMajorantRes));
+                    const pbrt::Point3f centre = bounds.Lerp(pbrt::Point3f(
+                        (pbrt::Float(x) + 0.5f) / kVdbMajorantRes,
+                        (pbrt::Float(y) + 0.5f) / kVdbMajorantRes,
+                        (pbrt::Float(z) + 0.5f) / kVdbMajorantRes));
+                    pbrt::Ray ray(centre, pbrt::Vector3f(1.f, 0.f, 0.f));
+                    pbrt::RayMajorantIterator iter =
+                        theirs.SampleRay(ray, cell * 0.01f, lambda, scratch);
+                    const pstd::optional<pbrt::RayMajorantSegment> seg = iter.Next();
+                    const float pbrt_max = seg ? float(seg->sigma_maj[0] / sigma_t0) : -1.f;
+                    const float ours = majorant[index];
+                    if (std::fabs(pbrt_max - ours) > 1e-5f * std::max(1.f, ours)) {
+                        if (differing < 5) {
+                            printf("scene_dump: majorant cell (%d, %d, %d): ours %g, PBRT's %g\n",
+                                   x, y, z, ours, pbrt_max);
+                        }
+                        differing++;
+                        worst = std::max(worst, std::fabs(pbrt_max - ours));
+                    }
+                }
+                printf("scene_dump: nanovdb majorant check for %s: %d of %zu cells differ "
+                       "from PBRT's (worst %g)\n",
+                       what.c_str(), differing, majorant.size(), worst);
+            }
         } else if (kind == "cloud") {
             // PBRT: CloudMedium::Create -- no `scale`, no emission.
             medium.tag = bonsai_scene::MediumTag::Cloud;
@@ -5892,6 +6092,22 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 return render_from_object(pbrt::Bounds3f(
                     pbrt::Point3f(-s.radius, -s.radius, s.z_min),
                     pbrt::Point3f(s.radius, s.radius, s.z_max)));
+            }
+            if (s.tag == bonsai_scene::ShapeTag::Disk) {
+                // PBRT: Disk::Bounds -- the disk's object-space box, flat at
+                // its height, under its transform. (Found by bunny-cloud, the
+                // first scene with a disk under an infinite light: the
+                // triangle case below read a disk's mesh index.)
+                pbrt::Float m[4][4];
+                for (int i = 0; i < 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+                        m[i][j] = s.render_from_object[4 * i + j];
+                    }
+                }
+                const pbrt::Transform render_from_object{pbrt::SquareMatrix<4>(m)};
+                return render_from_object(pbrt::Bounds3f(
+                    pbrt::Point3f(-s.radius, -s.radius, s.height),
+                    pbrt::Point3f(s.radius, s.radius, s.height)));
             }
             if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 pbrt::Bounds3f b;

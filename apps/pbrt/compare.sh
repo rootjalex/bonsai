@@ -225,10 +225,12 @@ echo "$DUMP_OUT"
 # So: pbrt renders, and what it writes is what is compared against.
 #
 # `--outfile` with a `.pfm` extension rather than the scene's `.exr`, because
-# pbrt writes half floats into an EXR by default and PFM is float. A scene that
-# asks for `Film "gbuffer"` is the exception -- PFM has no way to say more than
-# three channels -- and gets an EXR with `savefp16` turned off, out of which
-# `imgtool` pulls the channels one set at a time.
+# PFM is float, and the scene's Film told `"bool savefp16" false` as well
+# (film_full_floats below), because pbrt's film quantizes its pixels to halves
+# before writing any file, PFM included, unless the scene says not to. A scene
+# that asks for `Film "gbuffer"` is the exception -- PFM has no way to say more
+# than three channels -- and gets an EXR with `savefp16` turned off, out of
+# which `imgtool` pulls the channels one set at a time.
 #
 # The sample count and the pixel jitter reach pbrt as pbrt's own flags, which
 # is what they already were: scene_dump sets them on PBRTOptions and the binary
@@ -305,14 +307,41 @@ fi
 # `maxdepth` asked for, its other parameters kept, and a directive the scene
 # has not got is put in front with it. What pbrt renders under either is the
 # scene the file describes, run to the depth this renderer was told.
+# pbrt's film writes halves unless told otherwise (`savefp16`, true by
+# default for the `rgb` film), into a PFM as much as an EXR: the pixels are
+# quantized to eleven bits of mantissa and everything below 6e-8 to zero
+# before the file is written. Our side writes floats. Compared raw, that
+# costs the agreement within 1e-3 its last digit and, on an emissive medium,
+# counts every pixel our render lights by 1e-20 and pbrt's rounds away as a
+# pixel lit here and not there (explosion: 123,437 of them). So the scene
+# pbrt reads has its Film told `"bool savefp16" false`, unless it says
+# something itself, as the gbuffer scenes do.
+film_full_floats() {
+  if grep -q 'savefp16' "$SCENE"; then
+    cat
+  else
+    awk '/^[[:space:]]*Film[[:space:]]/ {
+           sub(/^[[:space:]]*Film[[:space:]]+"[a-z]+"/, "& \"bool savefp16\" false")
+         }
+         { print }'
+  fi
+}
+
 pbrt_scene() {
+  pbrt_scene_text | film_full_floats
+}
+
+pbrt_scene_text() {
   if [[ -z "$INTEGRATOR" ]]; then
     echo "Integrator \"$PBRT_INTEGRATOR\"${MAXDEPTH:+ \"integer maxdepth\" [ $MAXDEPTH ]}"
     cat "$SCENE"
   elif [[ -n "$MAXDEPTH" ]]; then
     awk -v depth="$MAXDEPTH" '
       /^[[:space:]]*Integrator[[:space:]]/ {
-        gsub(/"integer maxdepth"[[:space:]]*\[[^]]*\]/, "")
+        # The depth as pbrt allows it written: in brackets, or a bare
+        # number (explosion.pbrt: `"integer maxdepth" 5`). Both have to go,
+        # or pbrt sees two depths and keeps the one the scene gave.
+        gsub(/"integer maxdepth"[[:space:]]*(\[[^]]*\]|[0-9]+)/, "")
         sub(/^[[:space:]]*Integrator[[:space:]]+"[a-z]+"/,
             "&" " \"integer maxdepth\" [ " depth " ]")
         in_integrator = 1
@@ -435,7 +464,20 @@ if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GP
   GPU_FLAGS=(--fast-math --gpu-max-registers 128)
   echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
 fi
+# The NanoVDB shim -- the implementation of the renderer's foreign functions
+# over NanoVDB (docs/foreign-functions.md) -- built to host bitcode and, for
+# a GPU schedule, to PTX for this machine's GPU, both linked into the
+# generated module (`--link`), and compiled into the driver against the
+# generated header's prototypes (build_nanovdb_shim.sh).
+SHIM_ARCH=""
+if [[ ${#GPU_FLAGS[@]} -gt 0 ]]; then
+  SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
+fi
+SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$WORK" $SHIM_ARCH)
+NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
 "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${GPU_FLAGS[@]}" \
+    "${LINK_FLAGS[@]}" \
     -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
     -b cpp -o $PREFIX/render
 # A schedule on the RT cores: the generated header includes
@@ -456,6 +498,7 @@ if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
 fi
 "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
     $PREFIX/render_hook.cpp \
+    -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$WORK/render.out"
 # --no-implicit-copies: the driver stages every buffer before its timer
 # starts, and a copy the compiled render would make inside the timed region

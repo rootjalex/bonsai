@@ -34,6 +34,7 @@ add_bonsai_tests(
     FILES
     atomic-float.bonsai
     foreign.bonsai
+    rtcore-foreign.bonsai
     block-effects.bonsai
     block-reduce.bonsai
     blocks.bonsai

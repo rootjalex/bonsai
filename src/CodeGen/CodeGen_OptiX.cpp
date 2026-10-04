@@ -143,6 +143,11 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
             if (!seen.insert(name).second) {
                 continue;
             }
+            if (program->foreign_funcs.contains(name)) {
+                // A foreign function (docs/foreign-functions.md): no body
+                // to scan, declared and defined elsewhere.
+                continue;
+            }
             const auto f = program->ssa_funcs.find(name);
             internal_assert(f != program->ssa_funcs.end())
                 << "`" << name << "` has no SSA form";
@@ -411,6 +416,11 @@ CodeGen_OptiX::queries_traced(const ir::ssa::Function &host,
         const std::string name = work.back();
         work.pop_back();
         if (!seen.insert(name).second) {
+            continue;
+        }
+        if (program->foreign_funcs.contains(name)) {
+            // A foreign function (docs/foreign-functions.md): no body here,
+            // and nothing of a query's in it.
             continue;
         }
         const auto f = program->ssa_funcs.find(name);

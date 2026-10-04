@@ -2532,7 +2532,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | # | feature | scenes | n |
 |---|---|---|---|
 | 1 | `Integrator "volpath"` | bmw-m6, bunny-cloud, bunny-fur, clouds, crown, dambreak, disney-cloud, explosion, hair, head, kroken, lte-orb, sanmiguel, smoke-plume, sportscar, transparent-machines, villa, watercolor | 18 |
-| 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4 -- **done 2026-09-22**; `uniformgrid` x1, `cloud` x2 and `rgbgrid` -- **done 2026-10-03**, the grid media paragraph below; `nanovdb` x3 -- a layout question put to the user, below) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
+| 2 | participating media: `MakeNamedMedium` + `MediumInterface` (`homogeneous` x4 -- **done 2026-09-22**; `uniformgrid` x1, `cloud` x2 and `rgbgrid` -- **done 2026-10-03**, the grid media paragraph below; `nanovdb` x3 -- **done 2026-10-03** as a foreign type, the NanoVDB paragraphs below) | bunny-cloud, clouds, crown, dambreak, disney-cloud, explosion, kroken, smoke-plume, watercolor | 9 |
 | 3 | env map in a non-sRGB colour space (EXR chromaticities, ACES) | bistro, bunny-cloud, clouds, explosion, sanmiguel, sportscar, villa | 7 |
 | 4 | samplers `zsobol` (pbrt's default when a scene names none) -- **done 2026-10-02**; `sobol`, `paddedsobol`, `pmj02bn` -- **done 2026-10-03**, the samplers paragraph below | bistro, clouds, disney-cloud, explosion, kroken, lte-orb, sanmiguel | 7 |
 | 5 | `blackbody L` on an area light (and an infinite light, in villa) -- **done 2026-09-20**, see below | barcelona-pavilion night, contemporary-bathroom, crown, kroken, villa, watercolor, zero-day | 7 |
@@ -2696,13 +2696,13 @@ Per scene, what is missing (see the converter for what is supported):
 | barcelona-pavilion | day: nothing, renders and matches. night: `bdpt` |
 | bistro | `zsobol`, `normalmap`, ACES env map |
 | bmw-m6 | `volpath`, `mix` -- converts as of 2026-10-03 |
-| bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map |
+| bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map -- all done by 2026-10-03: converts (147 MB grid sidecar) and renders, 0.99976x of `pbrt --wavefront` on the scalar schedule at 4 spp (the NanoVDB decision paragraph below) |
 | bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder`, `hair` |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
 | dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media -- converts as of 2026-10-03 |
-| disney-cloud | `volpath`, `sobol` -- **done 2026-10-03**, `interface`, `nanovdb` |
+| disney-cloud | `volpath`, `sobol` and `nanovdb` -- **done 2026-10-03**, `interface`; it then stops at a `spectrum reflectance` on a diffuse material (the converter takes `rgb`, `float` or a texture there) |
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
@@ -9557,9 +9557,88 @@ child optional with a fallback value, and a root table searched by key with
 64-bit offsets -- new constructs, which the user decides on; the interim
 would be a second layout of the same set the converter writes, a dense
 table of 8^3 bricks over the file's own leaves (136 MB for the bunny). Not
-pbrt's own nanovdb2pbrt route of densifying to 578 MB. The question is put
-to the user; until it is answered the converter refuses `nanovdb` with that
-explanation.
+pbrt's own nanovdb2pbrt route of densifying to 578 MB.
+
+*NanoVDB: the decision, and the medium (2026-10-03).* The user's ruling,
+over three rounds. A fixed-depth structure written as a recursive tree
+type loses the one thing the format states (its depth), a `Tile` arm has no
+meaning for a `set[Voxel]`, and a grid -- dense or sparse -- is not a tree
+in the sense a BVH is: it does not partition a set for search, it
+addresses, so the layout language was the wrong place too; and a `grid[T,
+N]` type with dense and sparse layouts, though it would describe our own
+dense grids, was not wanted for this. What NanoVDB is to pbrt is a library
+type it never looks into -- it uploads the buffer verbatim and calls the
+accessor on either processor -- and so it is here: a **foreign type** and
+two **foreign functions** (`extern element NanoVDBGrid; extern func
+nanovdb_grid(bytes, at) -> NanoVDBGrid; extern func nanovdb_value(g, i, j,
+k) -> Float;`, media.bonsai), the mechanism being general and documented in
+docs/foreign-functions.md (commit cc5f07e5: the declarations, the rules --
+a foreign value is a local, a parameter or a return value and nothing
+stored -- the C-ABI call, `--link` of bitcode or PTX into the module before
+it is optimized, the vectorizer's refusal, tests at every level). The
+converter reads the `.nvdb` with NanoVDB's reader (the zip codec on, as
+pbrt's media.cpp turns it on), copies each grid buffer as it is into a
+`.vdb` sidecar at a 32-byte alignment, writes each grid's `Map` (the 3x3
+inverse and the translation, applied as `worldToIndexF` applies them,
+`nanovdb_index`), takes the bounds as the grids' world boxes, and builds
+pbrt's 64^3 majorant grid with the constructor's own loop through the
+accessor (one voxel of slop, the index box clipped to the grid's); the
+medium arm carries the byte offsets, and the density is NanoVDB's own
+trilinear filter -- voxel corners, floor and fraction, eight accessor reads
+each a walk from the root as pbrt's are, interpolated z, y, x with `a + w
+(b - a)` (`nanovdb_trilinear`) -- and the emission a blackbody from the
+temperature grid as pbrt's Le. The implementation is apps/pbrt/
+nanovdb_shim.cpp, two `extern "C"` functions over NanoVDB's header, built
+by build_nanovdb_shim.sh to host bitcode (clang) and to PTX (nvcc with
+`-rdc=true`, clang-cuda refusing this machine's CUDA 13 headers), both
+linked by the scripts; the driver's own copy is compiled against the
+generated header so a prototype mismatch is a compile error. Found on the
+way: the extern-lowering pass walked the call graph into the foreign
+callee and looked it up among the program's functions (fixed in
+build_call_graph, with lower/foreign-extern as the test), and
+scene_dump's scene-bounds lambda read a disk as a triangle (bunny-cloud is
+the first scene with a disk under an infinite light; fixed). Checked
+apart from any render: our `nanovdb_index` and `nanovdb_trilinear`
+against NanoVDB's own `worldToIndexF` and `SampleFromVoxels<Tree, 1,
+false>` at 200,000 random points of bunny-cloud's world box, through the
+C++ backend and the shim -- the index exact and the value identical to the
+last bit at every point -- and the converter's majorant grid against the
+one pbrt's `Medium::Create("nanovdb", ...)` builds, probed cell by cell
+through `SampleRay`: 0 of 262,144 cells differ. bunny-cloud on the scalar
+schedule against `pbrt --wavefront` at 4 spp: 2,062,407 lit pixels in pbrt
+against 2,062,338 here, mean 0.99976x, 2.4% of touched pixels within 1e-3
+-- a medium scene's per-sample parting at a low count (cloud gave 0.1% at
+16 spp), the mean being the figure; the shim's bitcode was linked into the
+module and the driver compiled the shim against the generated header. On
+the GPU (gpu_compare.sh at 4 spp, the shim spliced as PTX into every device
+module -- the CUDA kernels' and the OptiX programs'): bunny-cloud 0.99978x
+of `pbrt --gpu`, the image matching, the kernels 832 ms against pbrt's 836
+and the wall 0.71 s against 0.94 (1.32x; an earlier run under interference
+said 0.84 s, 1.12x -- the wall is noisy at under a second, the kernel
+figure is the one to read: level). explosion (two grids, emissive) renders
+as pbrt's picture at 1.00346x of `pbrt --gpu`, the kernels 228 ms against
+192 (0.85x, not yet profiled; it is the first emissive scene and the first
+with two grids) and the wall 0.23 s against 0.24; on the CPU the
+scalar schedule against `pbrt --wavefront` at the scene's 1300x1800 and 4
+spp is 1.01259x, 1.86 s against 11.0 s. Both pass the lit-pixel check now;
+explosion did not at first, and the reason was pbrt's film, not either
+renderer: 123,437 pixels were lit here and black in pbrt, all inside the
+smoke column, and every one of them below 1e-8 in luminance (the median
+9e-15: a pixel whose samples grazed the medium's edge and picked up an
+emission of 1e-20), while pbrt's smallest nonzero luminance was 1.27e-8 --
+half precision's smallest subnormal, 5.96e-8, times red's weight 0.2126.
+pbrt's RGB film writes halves unless the scene says `"bool savefp16"
+false` (film.cpp, `savefp16` true by default), and it does so into a PFM as
+much as into an EXR: the comparison was reading a float render against a
+half-quantized one, which also cost the agreement within 1e-3 its last
+digit on every scene. compare.sh and gpu_compare.sh now hand pbrt its scene
+with the Film told `"bool savefp16" false` unless the scene says something
+itself (the gbuffer scenes do), on standard input from the scene's own
+directory, which is how compare.sh fed it already; the counts after it are
+2,224,165 lit in pbrt against 2,223,675 here on the CPU and 2,223,295
+against 2,223,854 on the GPU, gaps of 490 and 559 out of 2.2 million.
+disney-cloud converts and then stops at a `spectrum reflectance` on a
+diffuse material, which the converter does not take yet.
 
 *The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
 pbrt's seven this renderer had not; every one is now reproduced

@@ -1820,11 +1820,44 @@ int main(int argc, char **argv) {
                          to_bonsai(m.medium_from_render), m.cloud_density,
                          m.wispiness, m.frequency);
             break;
+        case bonsai_scene::MediumTag::NanoVDB: {
+            // A grid's map as the renderer applies it (media.bonsai,
+            // nanovdb_index): the inverse matrix's three rows, then the
+            // translation, each padded to a row of four.
+            const auto map = [](const float *m) {
+                const float rows[16] = {m[0], m[1], m[2],  0.f, m[3], m[4], m[5],  0.f,
+                                        m[6], m[7], m[8],  0.f, m[9], m[10], m[11], 0.f};
+                return to_bonsai(rows);
+            };
+            Medium_NanoVDB(medium, m.spectra, m.g, m.emissive != 0, low, high,
+                           to_bonsai(m.render_from_medium),
+                           to_bonsai(m.medium_from_render), m.density_at,
+                           map(m.density_map), m.temperature_at,
+                           map(m.temperature_map), m.le_scale_value,
+                           m.temperature_offset, m.temperature_scale,
+                           grid(m.majorant));
+            break;
+        }
         default:
             fprintf(stderr, "unknown medium kind %u\n", unsigned(m.tag));
             return 1;
         }
         media.push_back(medium);
+    }
+
+    // The NanoVDB grids' bytes, where NanoVDB wants them: the library reads
+    // its nodes through 32-byte aligned members, and a std::vector's storage
+    // promises sixteen. One aligned copy, freed with the rest; on the device
+    // the runtime's allocation is aligned far beyond this.
+    std::unique_ptr<uint8_t, void (*)(void *)> vdb_bytes(nullptr, std::free);
+    if (!loaded.vdb_bytes.empty()) {
+        const size_t padded = (loaded.vdb_bytes.size() + 31) / 32 * 32;
+        vdb_bytes.reset(static_cast<uint8_t *>(std::aligned_alloc(32, padded)));
+        if (!vdb_bytes) {
+            fprintf(stderr, "cannot allocate %zu bytes for the NanoVDB grids\n", padded);
+            return 1;
+        }
+        std::memcpy(vdb_bytes.get(), loaded.vdb_bytes.data(), loaded.vdb_bytes.size());
     }
 
     // The meshes and the pools they index into, exactly as the scene wrote
@@ -2771,6 +2804,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_media = buffer_of(media);
     bonsai_buffer b_medium_spectra = buffer_of(loaded.medium_spectra);
     bonsai_buffer b_medium_grid = buffer_of(loaded.medium_grid);
+    bonsai_buffer b_vdb_bytes = buffer_of(vdb_bytes.get(), loaded.vdb_bytes.size());
     bonsai_buffer b_rho_uc = buffer_of(rho_uc);
     bonsai_buffer b_rho_ux = buffer_of(rho_ux);
     bonsai_buffer b_rho_uy = buffer_of(rho_uy);
@@ -2842,7 +2876,7 @@ int main(int argc, char **argv) {
         // come in the order the compiler met their declarations, which is
         // render.bonsai's import order, and media.bonsai is imported between
         // those two.
-        &b_media, &b_medium_spectra, &b_medium_grid, &b_primes,
+        &b_media, &b_medium_spectra, &b_medium_grid, &b_vdb_bytes, &b_primes,
         &b_digit_permutations,
         &b_digit_permutation_offsets, &b_sobol_matrices,
         &b_zsobol_permutations, &b_vdc_matrices, &b_vdc_matrices_inv,
@@ -2936,7 +2970,7 @@ int main(int argc, char **argv) {
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
                &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
-               &b_medium_spectra, &b_medium_grid, &b_primes,
+               &b_medium_spectra, &b_medium_grid, &b_vdb_bytes, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,
                &b_sobol_matrices, &b_zsobol_permutations, &b_vdc_matrices,
                &b_vdc_matrices_inv, &b_pmj02bn_samples, &b_blue_noise,

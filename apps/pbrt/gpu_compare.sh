@@ -233,11 +233,21 @@ for s in $SCHEDULES; do
   fi
   echo "compiling schedule $s"
   mkdir -p "$OUT/$s"
+  # The NanoVDB shim (docs/foreign-functions.md, build_nanovdb_shim.sh):
+  # host bitcode and PTX for this GPU, linked into the generated module,
+  # and the same source compiled into the driver against the header.
+  if [[ -z "${SHIM_OUT:-}" ]]; then
+    SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
+    SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$OUT" "$SHIM_ARCH")
+    NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+    mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
+  fi
   "$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
-      --gpu-max-registers 128 -i $PREFIX/render.bonsai \
+      --gpu-max-registers 128 "${LINK_FLAGS[@]}" -i $PREFIX/render.bonsai \
       -i "$PREFIX/schedules/$s.bonsai" -b cpp -o $PREFIX/render
   "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
       $PREFIX/render_hook.cpp \
+      -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
       $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$OUT/$s/render.out"
   rm -f $PREFIX/render.o
 done
@@ -279,13 +289,29 @@ for sc in $SCENES; do
   # pbrt's radiance as full floats for the comparison: a PFM straight from an
   # `rgb` film, and from a `gbuffer` film -- which writes EXR and nothing
   # else -- the R, G, B channels of its EXR, pulled out by imgtool as
-  # compare.sh pulls them.
+  # compare.sh pulls them. Full floats means telling the film so: pbrt's
+  # `savefp16` is true by default and quantizes the pixels to halves before
+  # any file is written, PFM included, which rounds everything below 6e-8 to
+  # zero and costs a comparison within 1e-3 its last digit (see compare.sh's
+  # film_full_floats, which this follows: the scene on pbrt's standard
+  # input from its own directory, its Film told `"bool savefp16" false`
+  # unless it says something itself).
   film=$(sed -n 's/^[[:space:]]*Film[[:space:]]*"\([a-z]*\)".*/\1/p' "$dir/$name.pbrt" | head -1)
+  full_floats() {
+    if grep -q 'savefp16' "$1"; then
+      cat "$1"
+    else
+      awk '/^[[:space:]]*Film[[:space:]]/ {
+             sub(/^[[:space:]]*Film[[:space:]]+"[a-z]+"/, "& \"bool savefp16\" false")
+           }
+           { print }' "$1"
+    fi
+  }
   if [[ "$film" == "gbuffer" ]]; then
-    (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.exr" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
+    (cd "$dir" && full_floats "$name.pbrt" | "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.exr" >> "$cell.pbrt.log" 2>&1)
     "$IMGTOOL" convert --channels R,G,B --outfile "$cell.pbrt-radiance.pfm" "$cell.pbrt-radiance.exr" > /dev/null
   else
-    (cd "$dir" && "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" "$name.pbrt" >> "$cell.pbrt.log" 2>&1)
+    (cd "$dir" && full_floats "$name.pbrt" | "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" >> "$cell.pbrt.log" 2>&1)
   fi
   profile_run "$cell.pbrt.stats" \
     "(cd '$dir' && '$PBRT' --gpu --stats --spp '$SPP' --outfile '$cell.pbrt-stats.exr' '$name.pbrt' > '$cell.pbrt.stats.try' 2>&1)" \
