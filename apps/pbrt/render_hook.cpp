@@ -1695,6 +1695,7 @@ int main(int argc, char **argv) {
         Reflectance reflectance;
         reflectance.albedo = albedo_of(m.reflectance);
         reflectance.texture = m.reflectance_texture;
+        reflectance.spectrum = m.reflectance_spectrum;
         if (m.tag == bonsai_scene::MaterialTag::CoatedDiffuse) {
             CoatedDiffuseMaterial coated;
             coated.reflectance = reflectance;
@@ -1776,6 +1777,7 @@ int main(int argc, char **argv) {
             leaf.reflectance = reflectance;
             leaf.transmittance.albedo = albedo_of(m.transmittance);
             leaf.transmittance.texture = m.transmittance_texture;
+            leaf.transmittance.spectrum = m.transmittance_spectrum;
             leaf.scale = m.scale;
             Material_DiffuseTransmission(material, leaf);
         } else {

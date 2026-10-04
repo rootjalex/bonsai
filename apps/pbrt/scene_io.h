@@ -412,6 +412,14 @@ struct Material {
     // diffuse surface do a texture lookup to find out it has none would cost
     // more than the uniformity is worth.
     int32_t reflectance_texture = -1;
+    // An index into the sampled spectra (`conductor_eta`, with a zero `k`
+    // beside it) when the reflectance was authored as a spectrum -- PBRT's
+    // `"spectrum reflectance"`, wavelength/value pairs, a named spectrum or a
+    // file, a PiecewiseLinearSpectrum there -- and -1 when it was not. The
+    // constant above is then unused: the renderer reads the spectrum at the
+    // hit's four wavelengths as it reads a conductor's index.
+    // DiffuseTransmission's `transmittance` has the same beside it below.
+    int32_t reflectance_spectrum = -1;
     // PBRT's `displacement`, a float texture every material may carry. It does
     // not change what the material *is* -- it tilts the shading frame before
     // the BSDF is built, which is why PBRT keeps it on the base Material and
@@ -441,6 +449,7 @@ struct Material {
     // sets both before it reads the scene's.
     float transmittance[3] = {0.25f, 0.25f, 0.25f};
     int32_t transmittance_texture = -1;
+    int32_t transmittance_spectrum = -1;
     float scale = 1.f;
     // CoatedDiffuse, Conductor and Dielectric. The roughness as authored, not
     // as remapped: PBRT remaps per intersection and `remaproughness` says
@@ -1010,14 +1019,17 @@ struct Scene {
     // in RGB and fits the *filtered* colour, and fitting each texel and
     // interpolating the coefficients is a different, nonlinear thing.
     std::vector<float> rgb_table;
-    // Every conductor's index of refraction: 471 entries each at one nanometre
-    // from 360 nm, laid end to end, one run per distinct pair a material named.
+    // Every spectrum the scene's materials gave as one: a conductor's index of
+    // refraction and extinction as a pair, a dielectric's index with a zero
+    // extinction beside it, a reflectance given as a spectrum likewise.
+    // kConductorSamples entries each, a tenth of a nanometre apart from
+    // 360 nm, laid end to end, one run per distinct spectrum a material named.
     //
-    // Resampled from PBRT's own named spectra rather than fitted. PBRT keeps
-    // them as PiecewiseLinearSpectrum and interpolates between the published
-    // measurements; this is that function at one nanometre, which reproduces it
-    // exactly except inside the single nanometre containing each of its own
-    // knots. scene_dump measures that residual and prints it.
+    // Resampled from PBRT's own spectra rather than fitted. PBRT keeps them
+    // as PiecewiseLinearSpectrum and interpolates between the published
+    // measurements or the scene's pairs; this is that function on the grid,
+    // which reproduces it exactly except inside the single step containing
+    // each of its own knots. scene_dump measures that residual and prints it.
     std::vector<float> conductor_eta;
     std::vector<float> conductor_k;
     // The measured BRDFs, their interpolants, and the four pools those index
@@ -1867,13 +1879,15 @@ inline bool write(const char *path, const Scene &scene) {
         }
         out << " reflectance";
         detail::put(out, m.reflectance, 3);
-        out << " reflectancetex " << m.reflectance_texture << " displacement "
+        out << " reflectancetex " << m.reflectance_texture << " reflectancespec "
+            << m.reflectance_spectrum << " displacement "
             << m.displacement_texture << " normalmap " << m.normal_map
             << " measured " << m.measured;
         if (m.tag == MaterialTag::DiffuseTransmission) {
             out << " transmittance";
             detail::put(out, m.transmittance, 3);
-            out << " transmittancetex " << m.transmittance_texture << " scale";
+            out << " transmittancetex " << m.transmittance_texture
+                << " transmittancespec " << m.transmittance_spectrum << " scale";
             detail::put(out, &m.scale, 1);
         }
         if (m.tag == MaterialTag::Dielectric) {
@@ -2525,6 +2539,9 @@ inline bool read(const char *path, Scene &scene) {
     }
     in >> count;
     scene.materials.clear();
+    // How many sampled spectra the tables above hold, for the indices below.
+    const int32_t spectra =
+        int32_t(scene.conductor_eta.size() / size_t(kConductorSamples));
     for (size_t i = 0; i < count; i++) {
         if (!(in >> word)) {
             return false;
@@ -2583,6 +2600,13 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
         in >> m.reflectance_texture;
+        if (!tagged("reflectancespec")) {
+            return false;
+        }
+        in >> m.reflectance_spectrum;
+        if (m.reflectance_spectrum >= spectra) {
+            return false;
+        }
         if (!tagged("displacement")) {
             return false;
         }
@@ -2605,6 +2629,13 @@ inline bool read(const char *path, Scene &scene) {
             }
             in >> m.transmittance_texture;
             if (m.transmittance_texture >= int32_t(scene.textures.size())) {
+                return false;
+            }
+            if (!tagged("transmittancespec")) {
+                return false;
+            }
+            in >> m.transmittance_spectrum;
+            if (m.transmittance_spectrum >= spectra) {
                 return false;
             }
             if (!tagged("scale")) {

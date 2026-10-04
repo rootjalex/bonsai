@@ -2702,7 +2702,7 @@ Per scene, what is missing (see the converter for what is supported):
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
 | dambreak | `volpath`, spectral `eta` on `dielectric`, homogeneous media -- converts as of 2026-10-03 |
-| disney-cloud | `volpath`, `sobol` and `nanovdb` -- **done 2026-10-03**, `interface`; it then stops at a `spectrum reflectance` on a diffuse material (the converter takes `rgb`, `float` or a texture there) |
+| disney-cloud | `volpath`, `sobol`, `nanovdb` and a `spectrum reflectance` on its diffuse ground -- all **done 2026-10-03** (the reflectance's paragraph below), `interface` |
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
@@ -9638,7 +9638,45 @@ directory, which is how compare.sh fed it already; the counts after it are
 2,224,165 lit in pbrt against 2,223,675 here on the CPU and 2,223,295
 against 2,223,854 on the GPU, gaps of 490 and 559 out of 2.2 million.
 disney-cloud converts and then stops at a `spectrum reflectance` on a
-diffuse material, which the converter does not take yet.
+diffuse material, which the converter did not take yet (next paragraph).
+
+*A reflectance given as a spectrum (2026-10-03).* disney-cloud's ground is
+`Material "diffuse" "spectrum reflectance" [200 0.2 900 0.2]`, and the
+converter took a reflectance as an `rgb`, a `float` or a texture only. pbrt
+reads the parameter through GetSpectrumTexture with SpectrumType::Albedo: a
+`spectrum` of wavelength/value pairs is a PiecewiseLinearSpectrum
+(interpolated between its knots, zero outside them), a string a named
+spectrum or a file of pairs, a `blackbody` a BlackbodySpectrum, each wrapped
+in a SpectrumConstantTexture with no check on its range -- the `> 1` error
+is the RGB's alone -- and clamped to [0, 1] in GetBxDF at the hit, which
+every material here did already. The renderer has had a place for such a
+spectrum since the conductors: the sampled tables (`conductor_eta` /
+`conductor_k`, a tenth of a nanometre from 360 nm, 4701 entries a run),
+which a dielectric's spectral `eta` already joins with a zero `k` beside
+it. A reflectance joins them the same way -- scene_dump's
+`spectrum_table_index`, the dielectric's helper generalized, PBRT's own
+Spectrum object evaluated onto the grid and cached by what it was given --
+and `Reflectance` (bxdf.bonsai) carries a third form beside the fitted RGB
+and the texture index, `spectrum : i32`, which `reflectance_at` reads at the
+four wavelengths through `spectrum_at_linear` as a conductor's index is
+read; so it reaches every material that holds a Reflectance (diffuse,
+coateddiffuse, diffusetransmission's two, a conductor's or coated
+conductor's `reflectance` form) without any of them changing. The scene
+file carries `reflectancespec` and `transmittancespec` indices beside the
+texture ones, checked against the table count on reading. Test:
+scenes/spectrum-reflectance.pbrt -- a diffuse floor whose knots stop at
+400 and 700 nm so the band outside them is black, a diffusetransmission
+sphere with both sides spectra under `scale`, a coateddiffuse sphere -- on
+the scalar schedule against pbrt: 0 of 81,175 pixels disagree in hits or
+normals, albedo 3 pixels over 5e-3 of 81,175, radiance 1.00013x with 79.6%
+of pixels within 1e-3 (the coated sphere's layered walk is stochastic).
+disney-cloud converts and renders whole with it (the nanovdb cloud under
+`sobol` at 1280x720, the ground outside the frame and reaching the picture
+only by what it bounces up): on the GPU at 4 spp 0.99835x of `pbrt --gpu`,
+the image matching, the kernels 1659 ms against pbrt's 1840 (1.11x) and
+the wall 1.67 s against 1.93 (1.15x), 915,444 lit pixels in pbrt against
+915,459 here; on the CPU the scalar schedule against `pbrt --wavefront` at
+4 spp is 1.00378x, 915,476 against 915,480 lit, 6.21 s against 51.5 s.
 
 *The sobol, paddedsobol and pmj02bn samplers (2026-10-03).* The three of
 pbrt's seven this renderer had not; every one is now reproduced

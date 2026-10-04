@@ -1952,28 +1952,67 @@ func coated_rho(b : LayeredBxDF, wo : vec3f, seed : i32,
 // Roughness is the number the scene wrote rather than the microfacet
 // distribution's alpha, because pbrt remaps it per intersection and whether it
 // remaps at all is what `remaproughness` says.
-// A material's reflectance: the constant it was authored with, or an index into
-// `textures` when it was authored as one.
+// The scene's sampled spectra: every conductor's eta and k, and beside a zero
+// k every spectrum a material gave on its own -- a dielectric's eta, a
+// reflectance -- 4701 entries each at a tenth of a nanometre from 360 nm,
+// laid end to end.
+//
+// Sampled rather than fitted, because pbrt does not fit them: a named metal is
+// the published measurements kept as a PiecewiseLinearSpectrum and
+// interpolated, and so is a list of pairs written in the scene or read from a
+// .spd file. What ships is that same function on a uniform grid, which
+// reproduces it exactly except inside the one interval straddling each of its
+// own knots -- those are four to six nanometres apart, so all but a handful of
+// intervals are exact. An `rgb eta` is pbrt's RGBUnboundedSpectrum, a sigmoid
+// fit scaled by twice the largest component, and goes on the same grid: the
+// fit is smooth, so the chord across a tenth of a nanometre is the curve.
+// scene_dump measures the residual and prints it; see kConductorPerNm in
+// scene_io.h for why the grid is this fine and not coarser.
+extern conductor_eta : array[Float];
+extern conductor_k : array[Float];
+
+// Samples per nanometre, and the number of entries one spectrum occupies.
+func conductor_per_nm() -> Float = 10.0;
+func conductor_samples() -> u32 = 4701u;
+
+// A material's reflectance: the constant it was authored with -- an RGB,
+// fitted to a sigmoid polynomial -- or an index into `textures` when it was
+// authored as one, or an index into the sampled spectra when it was authored
+// as a spectrum: pbrt's `"spectrum reflectance"`, a list of wavelength/value
+// pairs, a named spectrum or a file, which pbrt holds as a
+// PiecewiseLinearSpectrum and which lives here on the grid the conductors'
+// indices do (`conductor_eta`, with a zero `k` beside it, since the tables
+// are the scene's sampled spectra whatever the material; disney-cloud's
+// ground is one).
 //
 // pbrt makes every material parameter a texture and a constant a
 // `FloatConstantTexture`, so its `GetBxDF` is uniform and every diffuse surface
 // does a virtual call to find its colour. Here the constant stays a constant
-// and the index is negative when there is none, because a scene of untextured
-// surfaces should not pay for the ones that are.
+// and the indices are negative when there is none, because a scene of
+// untextured surfaces should not pay for the ones that are.
 element Reflectance {
     albedo : SigmoidPolynomial;
     texture : i32 = -1;
+    spectrum : i32 = -1;
 }
 
 // The reflectance at a hit. A textured one is filtered over the footprint the
 // differentials describe and then fitted to a spectrum -- in that order, which
-// is pbrt's: filtering the fit would be a different, nonlinear thing.
+// is pbrt's: filtering the fit would be a different, nonlinear thing. A
+// spectrum is read at the four wavelengths as a conductor's index is
+// (pbrt: SpectrumConstantTexture::Evaluate, PiecewiseLinearSpectrum::
+// operator() interpolating between the knots and zero outside them).
 func reflectance_at(r : Reflectance, lambda : SampledWavelengths,
                     ctx : TextureEvalContext) -> vec4f {
-    if r.texture < 0 {
-        return spectrum_at(r.albedo, lambda);
+    if r.texture >= 0 {
+        return eval_spectrum(r.texture, ctx, lambda);
     }
-    return eval_spectrum(r.texture, ctx, lambda);
+    if r.spectrum >= 0 {
+        return spectrum_at_linear(conductor_eta,
+                                  cast[[u32]](r.spectrum) * conductor_samples(),
+                                  lambda);
+    }
+    return spectrum_at(r.albedo, lambda);
 }
 
 // pbrt: FloatTexture, as a material parameter -- a roughness -- is one: the
@@ -2117,27 +2156,6 @@ element CoatedConductorMaterial {
     g : FloatParam;
     max_depth, n_samples : i32;
 }
-
-// Every conductor's eta and k, 4701 entries each at a tenth of a nanometre from
-// 360 nm, laid end to end.
-//
-// Sampled rather than fitted, because pbrt does not fit them: a named metal is
-// the published measurements kept as a PiecewiseLinearSpectrum and
-// interpolated, and so is a list of pairs written in the scene or read from a
-// .spd file. What ships is that same function on a uniform grid, which
-// reproduces it exactly except inside the one interval straddling each of its
-// own knots -- those are four to six nanometres apart, so all but a handful of
-// intervals are exact. An `rgb eta` is pbrt's RGBUnboundedSpectrum, a sigmoid
-// fit scaled by twice the largest component, and goes on the same grid: the
-// fit is smooth, so the chord across a tenth of a nanometre is the curve.
-// scene_dump measures the residual and prints it; see kConductorPerNm in
-// scene_io.h for why the grid is this fine and not coarser.
-extern conductor_eta : array[Float];
-extern conductor_k : array[Float];
-
-// Samples per nanometre, and the number of entries one spectrum occupies.
-func conductor_per_nm() -> Float = 10.0;
-func conductor_samples() -> u32 = 4701u;
 
 // pbrt: a dielectric's `eta(lambda[0])` -- the index of refraction at the
 // path's first wavelength, from the sampled tables where the scene gave a

@@ -1145,20 +1145,22 @@ int32_t conductor_spectra(const CapturingBuilder::MaterialInfo::Value *eta_v,
     return index;
 }
 
-// A dielectric's index of refraction given as a spectrum -- a named glass
-// (`glass-BK7`, `glass-BAF10`, `glass-F11`: PBRT's PiecewiseLinearSpectrum
-// over the published dispersion) or a spectrum written any other way --
-// sampled onto the same grid the conductors use, into the same tables, with a
-// zero `k` beside it: the tables are the scene's sampled indices whatever the
-// material, and the renderer reads a dielectric's at the path's first
-// wavelength alone (bxdf.bonsai, eta_at). Cached by what it was given, as a
-// conductor's pair is.
-int32_t dielectric_eta_spectrum(const CapturingBuilder::MaterialInfo::Value &eta_v,
-                                const std::string &param) {
+// A spectrum a material gave on its own, not as one of a conductor's pair -- a
+// dielectric's index of refraction as a named glass (`glass-BK7`,
+// `glass-BAF10`, `glass-F11`: PBRT's PiecewiseLinearSpectrum over the
+// published dispersion) or written any other way, or a reflectance given as
+// `"spectrum reflectance"` (disney-cloud's ground) -- sampled onto the same
+// grid the conductors use, into the same tables, with a zero `k` beside it:
+// the tables are the scene's sampled spectra whatever the material. The
+// renderer reads a dielectric's at the path's first wavelength alone
+// (bxdf.bonsai, eta_at) and a reflectance at all four (reflectance_at).
+// Cached by what it was given, as a conductor's pair is.
+int32_t spectrum_table_index(const CapturingBuilder::MaterialInfo::Value &v,
+                             const std::string &param) {
     pbrt::Allocator alloc;
-    std::string eta_key = "?";
-    const pbrt::Spectrum eta = unbounded_spectrum(eta_v, param, alloc, &eta_key);
-    const std::string key = eta_key + "|dielectric";
+    std::string described = "?";
+    const pbrt::Spectrum spectrum = unbounded_spectrum(v, param, alloc, &described);
+    const std::string key = described + "|alone";
     const auto cached = g_conductor_index.find(key);
     if (cached != g_conductor_index.end()) {
         return cached->second;
@@ -1168,7 +1170,7 @@ int32_t dielectric_eta_spectrum(const CapturingBuilder::MaterialInfo::Value &eta
     for (int i = 0; i < bonsai_scene::kConductorSamples; i++) {
         const pbrt::Float lambda =
             pbrt::Float(360.0 + double(i) / bonsai_scene::kConductorPerNm);
-        g_scene->conductor_eta.push_back(float(eta(lambda)));
+        g_scene->conductor_eta.push_back(float(spectrum(lambda)));
         g_scene->conductor_k.push_back(0.f);
     }
     g_conductor_index.emplace(key, index);
@@ -1188,7 +1190,7 @@ void dielectric_eta_of(const CapturingBuilder::MaterialInfo &m, const char *para
         out.eta = eta->floats[0];
         return;
     }
-    out.eta_spectrum = dielectric_eta_spectrum(*eta, param);
+    out.eta_spectrum = spectrum_table_index(*eta, param);
 }
 
 // The same parameter, where it is allowed to be a texture.
@@ -1200,8 +1202,18 @@ void dielectric_eta_of(const CapturingBuilder::MaterialInfo &m, const char *para
 //
 // A `float` parameter used as a spectrum is PBRT's own widening -- a scalar
 // reflectance is grey -- and is taken the same way.
+//
+// A `spectrum` (wavelength/value pairs, a named spectrum or a file) or a
+// `blackbody` is PBRT's GetSpectrumTexture with SpectrumType::Albedo on one:
+// GetOneSpectrum and a SpectrumConstantTexture over it, no check on its range
+// -- the `> 1` error is the RGB's alone -- and the clamp to [0, 1] left to
+// GetBxDF at the hit, which every material here does. It is sampled onto the
+// index tables as a dielectric's eta is (spectrum_table_index) and its index
+// written to `spectrum`, the RGB left as it was; -1 is returned, as for a
+// constant.
 int32_t material_rgb_or_texture(const CapturingBuilder::MaterialInfo &m,
-                                const std::string &key, float *rgb) {
+                                const std::string &key, float *rgb,
+                                int32_t *spectrum) {
     const CapturingBuilder::MaterialInfo::Value *v = m.find(key);
     if (v == nullptr) {
         return -1;
@@ -1216,10 +1228,14 @@ int32_t material_rgb_or_texture(const CapturingBuilder::MaterialInfo &m,
         rgb[0] = rgb[1] = rgb[2] = v->floats[0];
         return -1;
     }
+    if (v->type == "spectrum" || v->type == "blackbody") {
+        *spectrum = spectrum_table_index(*v, key);
+        return -1;
+    }
     if (v->type != "rgb" || v->floats.size() != 3) {
         fail("the material parameter \"" + key +
-             "\" has to be an `rgb`, a `float` or a texture here, and this one "
-             "is a `" + v->type + "`");
+             "\" has to be an `rgb`, a `float`, a `spectrum` or a texture "
+             "here, and this one is a `" + v->type + "`");
     }
     for (int i = 0; i < 3; i++) {
         rgb[i] = v->floats[i];
@@ -2040,8 +2056,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
 
     if (m.name == "diffuse") {
         out.tag = bonsai_scene::MaterialTag::Diffuse;
-        out.reflectance_texture =
-            material_rgb_or_texture(m, "reflectance", out.reflectance);
+        out.reflectance_texture = material_rgb_or_texture(
+            m, "reflectance", out.reflectance, &out.reflectance_spectrum);
         return out;
     }
 
@@ -2079,8 +2095,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
             // one, k the value that reflects it at normal incidence. An RGB, a
             // grey float or a texture, as a diffuse material's is.
             out.conductor_from_reflectance = 1u;
-            out.reflectance_texture =
-                material_rgb_or_texture(m, "reflectance", out.reflectance);
+            out.reflectance_texture = material_rgb_or_texture(
+                m, "reflectance", out.reflectance, &out.reflectance_spectrum);
         } else {
             out.conductor_spectra = conductor_spectra(eta, k);
         }
@@ -2125,8 +2141,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
 
     if (m.name == "coateddiffuse") {
         out.tag = bonsai_scene::MaterialTag::CoatedDiffuse;
-        out.reflectance_texture =
-            material_rgb_or_texture(m, "reflectance", out.reflectance);
+        out.reflectance_texture = material_rgb_or_texture(
+            m, "reflectance", out.reflectance, &out.reflectance_spectrum);
         // PBRT takes `uroughness` and `vroughness` where they are given and
         // falls back to `roughness` for each independently, which is not the
         // same as falling back to `roughness` only when neither is given.
@@ -2204,8 +2220,8 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
         }
         if (refl != nullptr) {
             out.conductor_from_reflectance = 1u;
-            out.reflectance_texture =
-                material_rgb_or_texture(m, "reflectance", out.reflectance);
+            out.reflectance_texture = material_rgb_or_texture(
+                m, "reflectance", out.reflectance, &out.reflectance_spectrum);
         } else {
             out.conductor_spectra = conductor_spectra(ceta, ck);
         }
@@ -2243,10 +2259,10 @@ convert_material(const CapturingBuilder::MaterialInfo &m) {
             out.reflectance[i] = 0.25f;
             out.transmittance[i] = 0.25f;
         }
-        out.reflectance_texture =
-            material_rgb_or_texture(m, "reflectance", out.reflectance);
-        out.transmittance_texture =
-            material_rgb_or_texture(m, "transmittance", out.transmittance);
+        out.reflectance_texture = material_rgb_or_texture(
+            m, "reflectance", out.reflectance, &out.reflectance_spectrum);
+        out.transmittance_texture = material_rgb_or_texture(
+            m, "transmittance", out.transmittance, &out.transmittance_spectrum);
         out.scale = material_float(m, "scale", 1.f);
         return out;
     }

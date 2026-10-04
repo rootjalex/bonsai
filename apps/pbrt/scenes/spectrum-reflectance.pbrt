@@ -1,0 +1,79 @@
+# Reflectances given as spectra: pbrt's `"spectrum reflectance"`, a list of
+# wavelength/value pairs that pbrt holds as a PiecewiseLinearSpectrum --
+# where an `rgb` becomes a sigmoid fit -- and reads at the hit's four
+# wavelengths, zero outside its knots (disney-cloud's ground is one). The
+# renderer samples it onto the grid the conductors' indices use and reads it
+# as it reads those.
+#
+# Three materials take one: a diffuse floor whose knots stop short of the
+# visible range at both ends, so the band outside them is black; a
+# diffuse-transmission sphere whose reflectance and transmittance are both
+# spectra, under pbrt's `scale`; and a coated-diffuse sphere, where the
+# spectrum reaches the layered walk. Knots on whole nanometres sit on the
+# grid, so the sampled curve is pbrt's exactly. `Integrator "path"` and a
+# disk light overhead, with a dim sky behind so the transmission shows.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 4 11   0 1 0   0 1 0
+Camera "perspective"
+    "float fov" [ 45 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "spectrum-reflectance.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+LightSource "infinite"
+    "rgb L" [ 0.15 0.15 0.2 ]
+
+# The emitter: a disk facing the floor.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 7 1
+    Rotate 90 1 0 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 10 9.5 8 ]
+    Shape "disk"
+        "float radius" [ 2.5 ]
+AttributeEnd
+
+# The floor: a spectrum whose knots run from 400 to 700 nm, so the
+# wavelengths outside them reflect nothing.
+AttributeBegin
+    Material "diffuse"
+        "spectrum reflectance" [ 400 0.8  500 0.2  600 0.6  700 0.1 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# A leaf: both sides spectra, scaled.
+AttributeBegin
+    Material "diffusetransmission"
+        "spectrum reflectance" [ 300 0.1  550 0.6  900 0.1 ]
+        "spectrum transmittance" [ 300 0.7  450 0.3  650 0.5  900 0.1 ]
+        "float scale" [ 1.2 ]
+    Translate -2 1.5 0
+    Shape "sphere"
+        "float radius" [ 1.5 ]
+AttributeEnd
+
+# A coated sphere.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.1 ]
+        "spectrum reflectance" [ 360 0.9  500 0.2  830 0.7 ]
+    Translate 2.2 1.2 0.5
+    Shape "sphere"
+        "float radius" [ 1.2 ]
+AttributeEnd
