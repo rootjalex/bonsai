@@ -132,7 +132,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @187 = boolx4(false) in
           let @188 = boolx4(true) in
           let @118 = select(@66, @187, @188) in
-          let @119 = @117 && @118 in
           let @67 = build<_option0>() in
           let @71 = max(@52, @154) in
           let @75 = min(@57, @163) in
@@ -148,7 +147,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @196 = @67.set in
           let @197 = boolx4(@196) in
           let @198 = build<_option0$v4>(@195, @197) in
-          let @122 = select(@119, @79, @198) in
           let @199 = @47.value in
           let @200 = @199.low in
           let @201 = f32x4(@200) in
@@ -158,12 +156,13 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @205 = @47.set in
           let @206 = boolx4(@205) in
           let @207 = build<_option0$v4>(@204, @206) in
-          let @125 = select(@117, @122, @207) in
-          let @81 = @125.set in
+          let @270 = select(@118, @79, @198) in
+          let @271 = select(@117, @270, @207) in
+          let @81 = @271.set in
           let @208 = boolx4(false) in
           let @209 = boolx4(true) in
           let @121 = select(@81, @208, @209) in
-          let extract$i0 = @125.value in
+          let extract$i0 = @271.value in
           let @84 = extract$i0.low in
           let @85 = r.tmax in
           let @210 = f32x4(@85) in
@@ -189,9 +188,9 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @220 = u32x4(4u) in
             let @222 = select(@218, ramp(0u, 1u, 4), @220) in
             let @223 = reduce<min>(@222) in
-            let @271 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @273 = @271[@223] in
-            tris_ref!top = @273
+            let @274 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @276 = @274[@223] in
+            tris_ref!top = @276
             continue
           } break;
           case 2: {
@@ -201,13 +200,13 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @229 = u32x4(0u) in
             let @230 = select(@218, ramp(0u, 1u, 4), @229) in
             let @231 = reduce<max>(@230) in
-            let @276 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @278 = @276[@228] in
-            !stack[(*!count)] = @278
+            let @279 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @281 = @279[@228] in
+            !stack[(*!count)] = @281
             let @235 = (*!count) + 1u in
-            let @281 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @283 = @281[@231] in
-            tris_ref!top = @283
+            let @284 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @286 = @284[@231] in
+            tris_ref!top = @286
             !count = @235
             continue
           } break;
@@ -224,17 +223,17 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @247 = u32x4(0u) in
             let @248 = select(@218, ramp(0u, 1u, 4), @247) in
             let @249 = reduce<max>(@248) in
-            let @286 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @288 = @286[@240] in
-            !stack[(*!count)] = @288
+            let @289 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @291 = @289[@240] in
+            !stack[(*!count)] = @291
             let @253 = (*!count) + 1u in
-            let @291 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @293 = @291[@246] in
-            !stack[@253] = @293
+            let @294 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @296 = @294[@246] in
+            !stack[@253] = @296
             let @256 = (*!count) + 2u in
-            let @296 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
-            let @298 = @296[@249] in
-            tris_ref!top = @298
+            let @299 = reinterpret_cast<const u32[4]>((&@92[@93].children)) in
+            let @301 = @299[@249] in
+            tris_ref!top = @301
             !count = @256
             continue
           } break;

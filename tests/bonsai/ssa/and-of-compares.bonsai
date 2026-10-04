@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// The simplifier's rules on `&&`, `||` and select (SSA/Simplify.cpp):
+//
+//   * a side of a conjunction is decided inside the other: in `c && (select(c,
+//     x, y) < 10)` the value `c` is true wherever the select is read, so the
+//     select is `x` and the blend goes; under `||` it is false there, so the
+//     select is `y`;
+//   * two comparisons of one kind that share a side join into one against a
+//     min or a max: `i <= n && i <= m` is `i <= min(n, m)`, and `n < i || m <
+//     i` is `min(n, m) < i`, over integers, whose order is total;
+//   * over floats the two comparisons stay: std::min passes a NaN in its
+//     second argument over, so `t <= min(a, NaN)` is `t <= a` where `t <= a
+//     && t <= NaN` is false;
+//   * vectorized, the `&&` of two masks is `select(hit, other, false)`, and
+//     joins the same way; the min of two broadcasts, the bounds `n` and `m`
+//     spread over the lanes, is one scalar min broadcast.
+
+func [[export]] decided(c : bool, x : i32, y : i32) -> bool =
+    c && (select(c, x, y) < 10);
+
+func [[export]] decided_or(c : bool, x : i32, y : i32) -> bool =
+    c || (select(c, x, y) < 10);
+
+func [[export]] at_most(i : u32, n : u32, m : u32) -> bool = i <= n && i <= m;
+
+func [[export]] below(i : i32, n : i32, m : i32) -> bool = n < i || m < i;
+
+func [[export]] at_most_f(t : f32, a : f32, b : f32) -> bool = t <= a && t <= b;
+
+func [[export]] at_most_all(is : array[u32, 8], n : u32, m : u32,
+                           out : mut array[u32, 8]) -> void {
+    parfor k in 0:8 {
+        v = is[k];
+        out[k] = select(v <= n && v <= m, 1u, 0u);
+    }
+    return;
+}
+
+schedule {
+    at_most_all.vectorize(k);
+}

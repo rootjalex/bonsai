@@ -2293,6 +2293,124 @@ the sort-key-nonnegative pair's `occluded` have the per-count arms with
 gone from a four-wide any hit altogether, every count being four or
 fewer.
 
+## The simplifier's conjunction rules, and the fold that stays out of reach (2026-10-03)
+
+**The question.** The nearest hit's node test compares twice where
+Embree compares once: `tNear <= tFar` with `tFar = min(x, y, z, r.tfar)`,
+then `tNear < best` as a second masked `vcmpltps` -- Embree shrinks
+`tray.tfar` to the best hit's `t` as hits land, so its slab test's min
+chain carries the best and one compare prunes. The prune is the same
+(Trees.cpp: a child is entered iff its box's entry distance beats the
+running best, a pop is dropped iff its carried bound does not; the sets of
+nodes visited agree except at an exact tie, which Embree enters and we do
+not), so this is one instruction per node of about twenty-five and, at
+the leaf, one compare with its kortest and branch, where Embree's `T <=
+absDen * tfar` has the best inside tfar. The tree IR (BONSAI_DUMP_AFTER=
+lower-trees) is `_mask1[c] = intersects(r, box_c) && (distmin(r, box_c) <
+_best0.0)`; after inlining, per lane, `hit && (select(hit, tNear, inf) <
+bc(best))`. The way to `tNear <= min(x, y, z, bc(min(r.tfar, best)))` is
+one lowering choice and three rule families: the volume's prune made
+non-strict (`<=`, Embree's choice; PredicateAnalysis keeps the leaf's `<`
+in the may-bound, and a `<=` there is sound), a side of a conjunction
+decided inside the other (`hit` true under `hit &&`, so the select is
+`tNear`), `(a <= b) && (a <= c)` to `a <= min(b, c)`, and the new min
+moved next to `bc(r.tfar)` and the two broadcasts grouped into one scalar
+min, hoisted per leaf -- plus a prerequisite: the slab test exists three
+times in our SSA (inlined for `intersects`, inlined again for `distmin`'s
+carry, and inside the masked `distmin` that is still a call here, which
+LLVM inlines and merges after our simplifier has run), and the rules
+match values, not shapes.
+
+**What was added** (SSA/Simplify.cpp, Simplify.h), each exact under a
+stated condition, each linear in what it walks:
+
+- Decided sides: in `a & b` the value `a` is true wherever `b` matters
+  and `b` wherever `a` does (false under `|`); in `select(c, t, f)` the
+  value `c` is true inside `t` and false inside `f`. An occurrence of the
+  one inside the other, reached through pure value computations that
+  read no memory -- lanewise ones, for a mask, so that a lane's fact
+  decides that lane alone -- becomes the constant, and what it decided
+  folds. Halide's learn_true. Speculation is not in question: the SSA
+  form holds both sides as computed values (a short-circuit `&&` with
+  work on its right side was made control flow by Convert), and the
+  walk's budget bounds it. The rules that call it stand down inside it,
+  so a rule under a rule cannot compound.
+- `(a <= b) & (a <= c)` is `a <= min(b, c)`, `(b <= a) & (c <= a)` is
+  `max(b, c) <= a`, the duals under `|` with min and max swapped, and the
+  same with `<`; also through the mask form `select(p, q, false)`. Over
+  integers only: min and max are std::min and std::max (CodeGen_LLVM.
+  cpp, `b < a ? b : a`), which pass a NaN in the second argument over, so
+  `a <= min(b, NaN)` is `a <= b` where `(a <= b) & (a <= NaN)` is false.
+  The float rule would be exact given `c` not a NaN, and nothing can say
+  it: SSA/ConstantIntervals.h bounds a value where it is a number and has
+  no word for NaN-freedom (`max(x, 0)` is bounded below by 0 though
+  std::max(NaN, 0) is NaN), and the argmin's best is a division's result
+  anyway.
+- An operation over broadcasts alone is the broadcast of the scalar
+  operation, `min(bc(s), bc(t))` is `bc(min(s, t))`, exact for every
+  type since every lane held the same operands. And over integers a
+  broadcast joining a chain of mins or maxes that holds one joins it,
+  `min(min(x, bc(s)), bc(t))` is `min(x, bc(min(s, t)))`, which is where
+  the per-leaf scalar min would come from; not over floats, where
+  std::min is neither associative nor commutative under a NaN. With the
+  slab chain as rtq.bonsai writes it, `min(min(x, y), min(z, tfar))`, the
+  hoisted form `min(min(x, y), min(z, bc(min(best, tfar))))` equals the
+  original exactly iff `best` and `tFarZ` are not NaNs: a NaN `tFarZ`
+  wipes its whole subtree, `tfar` and the joined `best` with it, where
+  the original kept `best` at the top. So even with a fact about `best`
+  the fold needs one about the slab distances, which are `inf - inf` for
+  a degenerate ray.
+- The and/or rules now run on masks (vectors of bools) as well as bools,
+  which they did not; a `bc(true) & m` folds to `m`.
+
+**The way that is exact.** Embree's AVX-512 slab test is `maxi`, `mini`
+and `asInt(tNear) <= asInt(tFar)`: integer min and max on the bit
+patterns, which order as the floats do once `tnear` is clamped to zero
+(a negative component loses to `tnear` in the max, and a negative `tFar`
+fails the compare against a non-negative `tNear` whichever negative the
+min kept), and which are associative and commutative with no NaN case at
+all -- a NaN's bits sit above inf's. Written that way in rtq.bonsai, the
+integer rules above complete the fold exactly, in Embree's own
+instructions. A program-level choice, the user's; the compiler cannot
+make it, since it changes what a NaN does.
+
+**Re-evaluated.** Both kernels are byte for byte what the compiler at
+HEAD made (trace_all 549 instructions, occluded_all 375, with both
+compilers); no benchmark, the code being identical. In rtq's SSA the
+decided-sides rule removed two `!mask &&` ands inside the masked
+`distmin`'s option merge, which LLVM had already removed. The kernel's
+second compare stands, for the reasons above.
+
+**Goldens moved** (17): the vectorized traversals' option merges, `select(
+m, select(m && n, a, b), c)` to `select(m, select(n, a, b), c)` with the
+`select(m, false, true)` that fed the inner and gone as dead
+(any-hit-arms, child-volumes-any, child-volumes-vectorized,
+tiled-leaf-vectorized, prefetch-children, arena-rows-vectorized,
+vectorize-pure-call, vectorize-arm-local, vectorize-packet-traversal,
+vectorize-skip-cursor, vectorize-sorted-traversal, vectorize-union, and
+skip-leaf-helper's masked helper). Through LLVM: child-volumes-vectorized
+nine instructions fewer (three vector ands, two selects, two xors),
+vectorize_packet_traversal one fewer, vectorize_union a shuffle's
+operands in the other order, and tiled-leaf-vectorized one select more
+-- LLVM's blends around the sort key's `-inf` fill came out differently
+under the simpler mask; one instruction, on the generic CPU the goldens
+pin. Every execution test is as it was.
+
+**Tests.** ssa/and-of-compares (the decided select under `&&` and `||`,
+`i <= n && i <= m` to one compare against `min(n, m)`, `n < i || m < i`
+to `min(n, m) < i`, the float pair left alone, and the vectorized form
+comparing the lanes against one broadcast scalar min), backends/llvm/
+and-of-compares (`llvm.umin.i32` and `llvm.smin.i32` where there were
+two compares, the two `fcmp ole` kept, the splat of one scalar umin),
+correctness/cpp/and_of_compares with its main (the ties the joined
+compare must keep, the arm a decided select must take, a NaN on either
+side of the float case, the lanes).
+
+**Found on the way.** `BONSAI_DUMP_AFTER=lower-trees` prints the program
+and then aborts in the layout printer (IRHandle::accept on a null Expr,
+under a layout's `group[...]`); the dump is complete, the abort is after
+it. Not fixed.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -26,6 +26,21 @@ namespace ssa {
 //   * `cast(a) < cast(b)`, for bools `a` and `b` cast to one numeric type, is
 //     `!a & b` -- the only way a number made from a bool is below another is
 //     false below true;
+//   * in `a & b` the value `a` is true wherever `b` matters, and `b` true
+//     wherever `a` does (false under `|`); in `select(c, t, f)` the value
+//     `c` is true inside `t` and false inside `f`. An occurrence of the one
+//     inside the other, reached through pure value computations -- lanewise
+//     ones, for a mask -- is the constant, and what it decided folds:
+//     `hit & (select(hit, near, inf) <= best)` is `hit & (near <= best)`;
+//   * two comparisons of one kind under `&` or `|` sharing a side are one
+//     against a min or a max: `(a <= b) & (a <= c)` is `a <= min(b, c)`.
+//     Over integers only -- std::min passes a NaN in its second argument
+//     over, so over floats the two differ unless `c` is known not to be a
+//     NaN, which nothing says;
+//   * an operation over broadcasts alone is the broadcast of the scalar
+//     operation, `min(bc(s), bc(t))` is `bc(min(s, t))`; and over integers
+//     a broadcast joining a chain of mins or maxes that holds one joins it,
+//     `min(min(x, bc(s)), bc(t))` is `min(x, bc(min(s, t)))`;
 //   * two instructions that are the same operation on the same operands are
 //     one instruction.
 void simplify(Function &func);

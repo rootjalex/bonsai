@@ -146,7 +146,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @391 = boolx4(false) in
           let @392 = boolx4(true) in
           let @315 = select(@67, @391, @392) in
-          let @316 = @314 && @315 in
           let @68 = build<_option1>() in
           let @72 = max(@53, @358) in
           let @76 = min(@58, @367) in
@@ -162,7 +161,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @400 = @68.set in
           let @401 = boolx4(@400) in
           let @402 = build<_option1$v4>(@399, @401) in
-          let @325 = select(@316, @80, @402) in
           let @403 = @48.value in
           let @404 = @403.low in
           let @405 = f32x4(@404) in
@@ -172,14 +170,15 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @409 = @48.set in
           let @410 = boolx4(@409) in
           let @411 = build<_option1$v4>(@408, @410) in
-          let @328 = select(@314, @325, @411) in
-          let @82 = @328.set in
+          let @455 = select(@315, @80, @402) in
+          let @456 = select(@314, @455, @411) in
+          let @82 = @456.set in
           let @412 = boolx4(false) in
           let @413 = boolx4(true) in
           let @318 = select(@82, @412, @413) in
           let @323 = reduce<any>(@82) in
           if (@323) {
-            let extract$i0 = @328.value in
+            let extract$i0 = @456.value in
             let @85 = extract$i0.low in
             let @86 = r.tmax in
             let @414 = f32x4(@86) in
@@ -217,7 +216,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               !and_0!skip = @423
             }
             masked_store(_mask0[ramp(0u, 1u, 4)], (*!and_0!skip), @82)
-            let extract$i1$t0 = @328.value in
+            let extract$i1$t0 = @456.value in
             let @112 = extract$i1$t0.low in
             masked_store(_carry0[ramp(0u, 1u, 4)], @112, @82)
             let @115 = entry$gang4_v1$masked(r, b$i0, @82) in
@@ -623,7 +622,6 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @158 = boolx4(true) in
   let @77 = select(@32, @157, @158) in
   let @78 = !mask && @77 in
-  let @79 = !mask && @32 in
   let @33 = build<_option1>() in
   let @38 = max(@122, @124) in
   let @43 = min(@133, @134) in
@@ -633,8 +631,6 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @159 = boolx4(false) in
   let @160 = boolx4(true) in
   let @80 = select(@52, @159, @160) in
-  let @81 = @78 && @80 in
-  let @82 = @78 && @52 in
   let @53 = build<_option1>() in
   let @57 = max(@38, @126) in
   let @61 = min(@43, @135) in
@@ -650,9 +646,6 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @168 = @53.set in
   let @169 = boolx4(@168) in
   let @170 = build<_option1$v4>(@167, @169) in
-  let @95 = select(@81, @65, @170) in
-  let @96 = select(@81, @57, @38) in
-  let @97 = select(@81, @61, @43) in
   let @171 = @33.value in
   let @172 = @171.low in
   let @173 = f32x4(@172) in
@@ -662,14 +655,20 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @177 = @33.set in
   let @178 = boolx4(@177) in
   let @179 = build<_option1$v4>(@176, @178) in
-  let @98 = select(@78, @95, @179) in
-  let @67 = @98.set in
+  let @203 = select(@80, @65, @170) in
+  let @204 = select(@78, @203, @179) in
   let @180 = boolx4(false) in
   let @181 = boolx4(true) in
-  let @83 = select(@67, @180, @181) in
-  let @84 = !mask && @83 in
-  let @85 = !mask && @67 in
-  let extract = @98.value in
+  let @206 = select(@80, @65, @170) in
+  let @207 = select(@77, @206, @179) in
+  let @193 = @207.set in
+  let @194 = select(@193, @180, @181) in
+  let @195 = !mask && @194 in
+  let @209 = select(@80, @65, @170) in
+  let @210 = select(@77, @209, @179) in
+  let @200 = @210.set in
+  let @201 = !mask && @200 in
+  let extract = @204.value in
   let _t109 = extract.low in
   let @71 = r.tmax in
   let @182 = f32x4(@71) in
@@ -677,8 +676,8 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @183 = boolx4(false) in
   let @184 = boolx4(true) in
   let @86 = select(@72, @183, @184) in
-  let @87 = @85 && @86 in
-  let @88 = @85 && @72 in
+  let @87 = @201 && @86 in
+  let @88 = @201 && @72 in
   let @73 = extract.high in
   let @185 = f32x4(0f) in
   let @74 = @185 < @73 in
@@ -686,9 +685,7 @@ func entry$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f32x4 {
   let @187 = boolx4(true) in
   let @89 = select(@74, @186, @187) in
   let @90 = @88 && @89 in
-  let @91 = @88 && @74 in
-  let @92 = @87 || @90 in
-  let @93 = @84 || @87 in
+  let @93 = @195 || @87 in
   let @94 = @93 || @90 in
   let @75 = (f32)inf in
   let @188 = f32x4(@75) in

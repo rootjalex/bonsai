@@ -156,7 +156,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @461 = boolx4(false) in
           let @462 = boolx4(true) in
           let @385 = select(@77, @461, @462) in
-          let @386 = @384 && @385 in
           let @78 = build<_option1>() in
           let @82 = max(@63, @428) in
           let @86 = min(@68, @437) in
@@ -172,7 +171,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @470 = @78.set in
           let @471 = boolx4(@470) in
           let @472 = build<_option1$v4>(@469, @471) in
-          let @395 = select(@386, @90, @472) in
           let @473 = @58.value in
           let @474 = @473.low in
           let @475 = f32x4(@474) in
@@ -182,14 +180,15 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @479 = @58.set in
           let @480 = boolx4(@479) in
           let @481 = build<_option1$v4>(@478, @480) in
-          let @398 = select(@384, @395, @481) in
-          let @92 = @398.set in
+          let @556 = select(@385, @90, @472) in
+          let @557 = select(@384, @556, @481) in
+          let @92 = @557.set in
           let @482 = boolx4(false) in
           let @483 = boolx4(true) in
           let @388 = select(@92, @482, @483) in
           let @393 = reduce<any>(@92) in
           if (@393) {
-            let extract$i0 = @398.value in
+            let extract$i0 = @557.value in
             let @95 = extract$i0.low in
             let @96 = r.tmax in
             let @484 = f32x4(@96) in
@@ -249,10 +248,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               !and_0!skip = @494
             }
             masked_store(_mask0[ramp(0u, 1u, 4)], (*!and_0!skip), @92)
-            let extract$i1$t0 = @398.value in
+            let extract$i1$t0 = @557.value in
             let @144 = extract$i1$t0.low in
             masked_store(_carry0[ramp(0u, 1u, 4)], @144, @92)
-            let extract$i2$t0 = @398.value in
+            let extract$i2$t0 = @557.value in
             let @149 = extract$i2$t0.low in
             masked_store(_keys0[ramp(0u, 1u, 4)], @149, @92)
             intersects_Ray_AABB$r0!skip = @100

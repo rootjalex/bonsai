@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS correctness cpp
     FILES
     adt.bonsai
+    and_of_compares.bonsai
     any_hit_arms.bonsai
     foreign.bonsai
     adt-bvh.bonsai

@@ -132,7 +132,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @195 = boolx8(false) in
           let @196 = boolx8(true) in
           let @126 = select(@66, @195, @196) in
-          let @127 = @125 && @126 in
           let @67 = build<_option0>() in
           let @71 = max(@52, @162) in
           let @75 = min(@57, @171) in
@@ -148,7 +147,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @204 = @67.set in
           let @205 = boolx8(@204) in
           let @206 = build<_option0$v8>(@203, @205) in
-          let @130 = select(@127, @79, @206) in
           let @207 = @47.value in
           let @208 = @207.low in
           let @209 = f32x8(@208) in
@@ -158,12 +156,13 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @213 = @47.set in
           let @214 = boolx8(@213) in
           let @215 = build<_option0$v8>(@212, @214) in
-          let @133 = select(@125, @130, @215) in
-          let @81 = @133.set in
+          let @294 = select(@126, @79, @206) in
+          let @295 = select(@125, @294, @215) in
+          let @81 = @295.set in
           let @216 = boolx8(false) in
           let @217 = boolx8(true) in
           let @129 = select(@81, @216, @217) in
-          let extract$i0 = @133.value in
+          let extract$i0 = @295.value in
           let @84 = extract$i0.low in
           let @85 = r.tmax in
           let @218 = f32x8(@85) in
@@ -189,9 +188,9 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @228 = reinterpret_cast<u8>(@226) in
             let @229 = cast<u32>(@228) in
             let @230 = ctz(@229) in
-            let @295 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @297 = @295[@230] in
-            tris_ref!top = @297
+            let @298 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @300 = @298[@230] in
+            tris_ref!top = @300
             continue
           } break;
           case 2: {
@@ -200,13 +199,13 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @234 = ctz(@233) in
             let @235 = clz(@233) in
             let @236 = 31u - @235 in
-            let @300 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @302 = @300[@234] in
-            !stack[(*!count)] = @302
+            let @303 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @305 = @303[@234] in
+            !stack[(*!count)] = @305
             let @240 = (*!count) + 1u in
-            let @305 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @307 = @305[@236] in
-            tris_ref!top = @307
+            let @308 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @310 = @308[@236] in
+            tris_ref!top = @310
             !count = @240
             continue
           } break;
@@ -219,17 +218,17 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @247 = ctz(@246) in
             let @248 = clz(@243) in
             let @249 = 31u - @248 in
-            let @310 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @312 = @310[@244] in
-            !stack[(*!count)] = @312
+            let @313 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @315 = @313[@244] in
+            !stack[(*!count)] = @315
             let @253 = (*!count) + 1u in
-            let @315 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @317 = @315[@247] in
-            !stack[@253] = @317
+            let @318 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @320 = @318[@247] in
+            !stack[@253] = @320
             let @256 = (*!count) + 2u in
-            let @320 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @322 = @320[@249] in
-            tris_ref!top = @322
+            let @323 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @325 = @323[@249] in
+            tris_ref!top = @325
             !count = @256
             continue
           } break;
@@ -245,21 +244,21 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @266 = ctz(@265) in
             let @267 = clz(@259) in
             let @268 = 31u - @267 in
-            let @325 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @327 = @325[@260] in
-            !stack[(*!count)] = @327
+            let @328 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @330 = @328[@260] in
+            !stack[(*!count)] = @330
             let @272 = (*!count) + 1u in
-            let @330 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @332 = @330[@263] in
-            !stack[@272] = @332
+            let @333 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @335 = @333[@263] in
+            !stack[@272] = @335
             let @275 = (*!count) + 2u in
-            let @335 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @337 = @335[@266] in
-            !stack[@275] = @337
+            let @338 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @340 = @338[@266] in
+            !stack[@275] = @340
             let @278 = (*!count) + 3u in
-            let @340 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @342 = @340[@268] in
-            tris_ref!top = @342
+            let @343 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @345 = @343[@268] in
+            tris_ref!top = @345
             !count = @278
             continue
           } break;
@@ -274,9 +273,9 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             let @289 = @227 - 1u in
             compress_store_whole(!stack[(*!count)], _t40, @288)
             let @291 = (*!count) + @289 in
-            let @345 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
-            let @347 = @345[@284] in
-            tris_ref!top = @347
+            let @348 = reinterpret_cast<const u32[8]>((&@92[@93].children)) in
+            let @350 = @348[@284] in
+            tris_ref!top = @350
             !count = @291
             continue
           }

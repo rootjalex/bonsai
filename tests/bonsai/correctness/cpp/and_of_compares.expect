@@ -1,0 +1,30 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_and_of_compares.cpp -I. -o tests/bonsai/correctness/cpp/main_and_of_compares.o
+[test] clang++ tests/bonsai/correctness/cpp/main_and_of_compares.o tests/bonsai/correctness/cpp/and_of_compares.o -o tests/bonsai/correctness/cpp/and_of_compares
+[test] ./tests/bonsai/correctness/cpp/and_of_compares
+decided(true, 5, 50): true -- ok
+decided(true, 50, 5): false -- ok
+decided(false, 5, 5): false -- ok
+decided_or(false, 50, 5): true -- ok
+decided_or(false, 5, 50): false -- ok
+decided_or(true, 50, 50): true -- ok
+at_most(3, 3, 7): true -- ok
+at_most(4, 3, 7): false -- ok
+at_most(3, 7, 3): true -- ok
+at_most(3, 7, 2): false -- ok
+below(5, 3, 9): true -- ok
+below(5, 6, 9): false -- ok
+below(5, 9, 4): true -- ok
+below(5, 5, 5): false -- ok
+at_most_f(1, 2, 3): true -- ok
+at_most_f(1, 0.5, 3): false -- ok
+at_most_f(1, 2, nan): false -- ok
+at_most_f(1, nan, 2): false -- ok
+at_most_f(nan, 2, 3): false -- ok
+at_most_all lane 0: 1 -- ok
+at_most_all lane 1: 1 -- ok
+at_most_all lane 2: 1 -- ok
+at_most_all lane 3: 1 -- ok
+at_most_all lane 4: 0 -- ok
+at_most_all lane 5: 0 -- ok
+at_most_all lane 6: 0 -- ok
+at_most_all lane 7: 0 -- ok

@@ -1054,7 +1054,6 @@ func distmin_Ray_AABB$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f
   let @101 = boolx4(true) in
   let @39 = select(@29, @100, @101) in
   let @40 = !mask && @39 in
-  let @41 = !mask && @29 in
   let @30 = build<FInterval$v4>(tNear$i7, tFar$i7) in
   let @102 = boolx4(true) in
   let @31 = build<_option1$v4>(@30, @102) in
@@ -1069,17 +1068,17 @@ func distmin_Ray_AABB$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f
   let @110 = boolx4(@109) in
   let @111 = build<_option1$v4>(@108, @110) in
   let @45 = select(@40, @111, @31) in
-  let @34 = @45.set in
   let @112 = boolx4(false) in
   let @113 = boolx4(true) in
-  let @42 = select(@34, @112, @113) in
-  let @43 = !mask && @42 in
-  let @44 = !mask && @34 in
+  let @116 = select(@39, @111, @31) in
+  let @117 = @116.set in
+  let @118 = select(@117, @112, @113) in
+  let @119 = !mask && @118 in
   let extract = @45.value in
   let @37 = extract.low in
   let @38 = (f32)inf in
   let @114 = f32x4(@38) in
-  let @46 = select(@43, @114, @37) in
+  let @46 = select(@119, @114, @37) in
   return @46
 }
 

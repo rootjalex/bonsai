@@ -9,6 +9,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -527,8 +528,336 @@ struct Simplifier {
                           c->data);
     }
 
+    // The scalar a type's lanes hold, or the type itself when it has none.
+    static Type scalar_of(const Type &t) {
+        return t.is_vector() ? t.element_of() : t;
+    }
+
+    // Is `v` one bool in every lane -- a bool constant, or a broadcast of
+    // one -- and which?
+    static std::optional<bool> uniform_bool(const ValuePtr &v) {
+        if (std::optional<bool> c = const_bool(v)) {
+            return c;
+        }
+        const Instruction *d = def_of(v);
+        if (d != nullptr && d->op == Instruction::Op::Bc &&
+            !d->operands.empty()) {
+            return const_bool(d->operands[0]);
+        }
+        return std::nullopt;
+    }
+
+    // The bool `b` as a value of type `t`: the constant, or its broadcast
+    // over the lanes of a mask type.
+    ValuePtr uniform_bool_constant(const Type &t, bool b) {
+        if (!t.is_vector()) {
+            return make_bool(b);
+        }
+        ValuePtr width = std::make_shared<Value>(
+            Constant{UInt_t::make(32), uint64_t(t.lanes())});
+        return make(Instruction::Op::Bc, t, {make_bool(b), std::move(width)});
+    }
+
+    // An instruction that is its operation, type and operands and nothing
+    // more -- no intrinsic kind, reduction, shuffle or storage riding on it
+    // -- so that one like it over other operands is what `make` makes.
+    static bool rebuildable(const Instruction &in) {
+        switch (in.op) {
+        case Instruction::Op::Abs:
+        case Instruction::Op::Add:
+        case Instruction::Op::Bc:
+        case Instruction::Op::BwAnd:
+        case Instruction::Op::BwOr:
+        case Instruction::Op::Cast:
+        case Instruction::Op::Eq:
+        case Instruction::Op::LAnd:
+        case Instruction::Op::LOr:
+        case Instruction::Op::Leq:
+        case Instruction::Op::LoadField:
+        case Instruction::Op::Lt:
+        case Instruction::Op::MakeStruct:
+        case Instruction::Op::Max:
+        case Instruction::Op::Min:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Ne:
+        case Instruction::Op::Not:
+        case Instruction::Op::Reinterpret:
+        case Instruction::Op::Select:
+        case Instruction::Op::Shl:
+        case Instruction::Op::Shr:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Xor:
+            return !in.storage.has_value();
+        default:
+            return false;
+        }
+    }
+
+    // Lane `i` of the result depends on lane `i` of each vector operand and
+    // on the scalar operands alone, no lane read from another: what a fact
+    // about one lane of a mask may be carried through. A struct of vectors
+    // keeps its lanes aligned field by field, so building one and reading
+    // its fields are lanewise too; a mask reinterpreted as a word packs its
+    // lanes and is not, nor is a reduction, a lane read at an index, a
+    // shuffle or a compress.
+    static bool lanewise(const Instruction &in) {
+        switch (in.op) {
+        case Instruction::Op::Abs:
+        case Instruction::Op::Add:
+        case Instruction::Op::Bc:
+        case Instruction::Op::BwAnd:
+        case Instruction::Op::BwOr:
+        case Instruction::Op::Eq:
+        case Instruction::Op::LAnd:
+        case Instruction::Op::LOr:
+        case Instruction::Op::Leq:
+        case Instruction::Op::LoadField:
+        case Instruction::Op::Lt:
+        case Instruction::Op::MakeStruct:
+        case Instruction::Op::Max:
+        case Instruction::Op::Min:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Ne:
+        case Instruction::Op::Not:
+        case Instruction::Op::Select:
+        case Instruction::Op::Shl:
+        case Instruction::Op::Shr:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Xor:
+            return true;
+        case Instruction::Op::Cast:
+        case Instruction::Op::Reinterpret: {
+            // Between vectors of one lane count (f32x8 as u32x8), or between
+            // scalars; a mask as a word, or a word as a mask, moves lanes.
+            if (in.operands.size() != 1) {
+                return false;
+            }
+            const Type &from = in.operands[0]->get_type();
+            if (in.type.is_vector() && from.is_vector()) {
+                return in.type.lanes() == from.lanes();
+            }
+            return !in.type.is_vector() && !from.is_vector();
+        }
+        default:
+            return false;
+        }
+    }
+
+    // Set while `assume` rebuilds: the rules that call it stand down inside
+    // it, since the walk substitutes everywhere it reaches already, and a
+    // rule under a rule under a rule is what makes a rewrite exponential.
+    size_t assuming = 0;
+
+    // `v` with every occurrence of `fact` in it taken as `truth` -- the
+    // occurrences reached through pure value computations alone, and for a
+    // mask through lanewise ones, so that a lane's fact decides that lane's
+    // result and no other's -- or `v` itself when it reaches none. What
+    // `a & b` knows inside `b`: Halide's simplifier learns `a` true there
+    // (Simplify_And.cpp, learn_true), and so does `select(c, t, f)` inside
+    // `t`, and `c` false inside `f`. Linear in the part of `v` it walks,
+    // which is bounded.
+    ValuePtr assume(const ValuePtr &v, const ValuePtr &fact, bool truth) {
+        const Type fact_t = fact->get_type();
+        const bool vector_fact = fact_t.is_vector();
+        std::map<const Instruction *, ValuePtr> memo;
+        size_t budget = 256;
+        ValuePtr constant;
+        assuming++;
+        const std::function<ValuePtr(const ValuePtr &)> walk =
+            [&](const ValuePtr &x) -> ValuePtr {
+            if (same_value(x, fact)) {
+                if (!constant) {
+                    constant = uniform_bool_constant(fact_t, truth);
+                }
+                return constant;
+            }
+            const Instruction *d = def_of(x);
+            if (d == nullptr) {
+                return x; // a parameter, a block's argument, a constant
+            }
+            if (const auto it = memo.find(d); it != memo.end()) {
+                return it->second;
+            }
+            if (budget == 0 || !rebuildable(*d) || !pure(*d) ||
+                reads_memory(*d) || (vector_fact && !lanewise(*d))) {
+                return x;
+            }
+            budget--;
+            vector<ValuePtr> operands;
+            bool changed = false;
+            for (const ValuePtr &o : d->operands) {
+                ValuePtr n = walk(o);
+                // By value, not by handle: one instruction is held through
+                // many handles, and the memo hands back the first.
+                changed = changed || !same_value(n, o);
+                operands.push_back(std::move(n));
+            }
+            ValuePtr result =
+                changed ? make(d->op, d->type, std::move(operands)) : x;
+            memo[d] = result;
+            return result;
+        };
+        ValuePtr result = walk(v);
+        assuming--;
+        return result;
+    }
+
+    // Two comparisons of one kind joined by `&` or `|` that share a side
+    // are one comparison against a min or a max of the other sides:
+    //
+    //     (a <= b) & (a <= c)  =  a <= min(b, c)      (b <= a) & (c <= a)  =  max(b, c) <= a
+    //     (a <= b) | (a <= c)  =  a <= max(b, c)      (b <= a) | (c <= a)  =  min(b, c) <= a
+    //
+    // and the same with `<`. Over integers, whose order is total, exactly;
+    // one compare and a min where there were two compares and an and. Not
+    // over floats: min and max here are std::min and std::max (CodeGen_LLVM.
+    // cpp), which pass a NaN in their second argument over, so `a <= min(b,
+    // NaN)` is `a <= b` where `(a <= b) & (a <= NaN)` is false. The rule
+    // would be exact there given that `c` is not a NaN, which nothing here
+    // can say (SSA/ConstantIntervals.h bounds a value where it is a number).
+    ValuePtr compare_pair(bool is_and, const Type &type, const ValuePtr &x,
+                          const ValuePtr &y) {
+        const Instruction *dx = def_of(x), *dy = def_of(y);
+        if (dx == nullptr || dy == nullptr || dx->op != dy->op ||
+            (dx->op != Instruction::Op::Lt && dx->op != Instruction::Op::Leq) ||
+            dx->operands.size() != 2 || dy->operands.size() != 2 ||
+            !equals(dx->type, type) || !equals(dy->type, type)) {
+            return nullptr;
+        }
+        const Type operand_t = dx->operands[0]->get_type();
+        if (!equals(operand_t, dy->operands[0]->get_type()) ||
+            !scalar_of(operand_t).is_int_or_uint()) {
+            return nullptr;
+        }
+        if (same_value(dx->operands[0], dy->operands[0])) {
+            ValuePtr joined =
+                make(is_and ? Instruction::Op::Min : Instruction::Op::Max,
+                     operand_t, {dx->operands[1], dy->operands[1]});
+            return make(dx->op, type, {dx->operands[0], std::move(joined)});
+        }
+        if (same_value(dx->operands[1], dy->operands[1])) {
+            ValuePtr joined =
+                make(is_and ? Instruction::Op::Max : Instruction::Op::Min,
+                     operand_t, {dx->operands[0], dy->operands[0]});
+            return make(dx->op, type, {std::move(joined), dx->operands[1]});
+        }
+        return nullptr;
+    }
+
+    // An operation over broadcasts alone is the broadcast of the operation
+    // over what they broadcast: `min(bc(s), bc(t))` is `bc(min(s, t))`, one
+    // scalar operation where there were a vector one and two broadcasts.
+    // Exact in every lane, since every lane held the same operands -- std::
+    // min's treatment of a NaN included.
+    ValuePtr group_broadcasts(Instruction::Op op, const Type &type,
+                              const vector<ValuePtr> &ops) {
+        if (!type.is_vector() || ops.empty()) {
+            return nullptr;
+        }
+        switch (op) {
+        case Instruction::Op::Abs:
+        case Instruction::Op::Add:
+        case Instruction::Op::BwAnd:
+        case Instruction::Op::BwOr:
+        case Instruction::Op::Eq:
+        case Instruction::Op::LAnd:
+        case Instruction::Op::LOr:
+        case Instruction::Op::Leq:
+        case Instruction::Op::Lt:
+        case Instruction::Op::Max:
+        case Instruction::Op::Min:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Ne:
+        case Instruction::Op::Not:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Xor:
+            break;
+        default:
+            return nullptr;
+        }
+        vector<ValuePtr> scalars;
+        ValuePtr width;
+        for (const ValuePtr &o : ops) {
+            const Instruction *d = def_of(o);
+            if (d == nullptr || d->op != Instruction::Op::Bc ||
+                d->operands.size() != 2 || !d->type.is_vector() ||
+                d->type.lanes() != type.lanes()) {
+                return nullptr;
+            }
+            scalars.push_back(d->operands[0]);
+            if (!width) {
+                width = d->operands[1];
+            }
+        }
+        ValuePtr scalar = make(op, type.element_of(), std::move(scalars));
+        return make(Instruction::Op::Bc, type, {std::move(scalar), width});
+    }
+
+    // Over integers min and max are associative and commutative, so a
+    // broadcast joining a chain of them that already holds one joins that
+    // one: `min(min(x, bc(s)), bc(t))` is `min(x, min(bc(s), bc(t)))`, which
+    // the rule above makes `min(x, bc(min(s, t)))` -- the min of the two
+    // scalars once, where the vector min was in every lane, and hoisted by
+    // the backend where `t` changes less often than the chain is evaluated:
+    // a traversal's running best joining a node's slab test, as Embree's
+    // `tray.tfar` carries it. Not over floats: std::min is neither
+    // associative nor commutative where a NaN is (the second argument's is
+    // passed over, the first's comes back), so moving an operand past
+    // another changes which NaN a lane keeps. The chain's first broadcast,
+    // to a bounded depth; each application leaves one broadcast fewer.
+    ValuePtr join_broadcast(Instruction::Op op, const Type &type,
+                            const vector<ValuePtr> &ops) {
+        if ((op != Instruction::Op::Min && op != Instruction::Op::Max) ||
+            ops.size() != 2 || !type.is_vector() ||
+            !type.element_of().is_int_or_uint()) {
+            return nullptr;
+        }
+        for (const auto &[chain, joining] :
+             {std::pair{ops[0], ops[1]}, std::pair{ops[1], ops[0]}}) {
+            const Instruction *b = def_of(joining);
+            const Instruction *c = def_of(chain);
+            if (b == nullptr || b->op != Instruction::Op::Bc || c == nullptr ||
+                c->op != op || !equals(c->type, type)) {
+                continue;
+            }
+            if (ValuePtr joined = join_into(chain, joining, op, type, 8)) {
+                return joined;
+            }
+        }
+        return nullptr;
+    }
+
+    // `chain` with its first broadcast leaf made the op of itself and
+    // `joining`; null when it has none within `depth`.
+    ValuePtr join_into(const ValuePtr &chain, const ValuePtr &joining,
+                       Instruction::Op op, const Type &type, size_t depth) {
+        const Instruction *d = def_of(chain);
+        if (d == nullptr) {
+            return nullptr;
+        }
+        if (d->op == Instruction::Op::Bc) {
+            return make(op, type, {chain, joining});
+        }
+        if (depth == 0 || d->op != op || !equals(d->type, type) ||
+            d->operands.size() != 2) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < 2; i++) {
+            if (ValuePtr n = join_into(d->operands[i], joining, op, type,
+                                       depth - 1)) {
+                vector<ValuePtr> operands = d->operands;
+                operands[i] = std::move(n);
+                return make(op, type, std::move(operands));
+            }
+        }
+        return nullptr;
+    }
+
     ValuePtr rule(Instruction::Op op, const Type &type,
                   const vector<ValuePtr> &ops) {
+        if (ValuePtr grouped = group_broadcasts(op, type, ops)) {
+            return grouped;
+        }
         switch (op) {
         case Instruction::Op::Add: {
             if (ops.size() != 2 || !(type.is_int() || type.is_uint())) {
@@ -581,7 +910,11 @@ struct Simplifier {
         }
         case Instruction::Op::LAnd:
         case Instruction::Op::LOr: {
-            if (ops.size() != 2 || !type.is<Bool_t>()) {
+            // Bools, and masks: a vectorized `&&` is one of these on
+            // vectors of bools, and every rule below holds lane by lane.
+            const bool bools = type.is<Bool_t>() ||
+                               (type.is_vector() && type.element_of().is<Bool_t>());
+            if (ops.size() != 2 || !bools) {
                 break;
             }
             const bool is_and = op == Instruction::Op::LAnd;
@@ -596,10 +929,27 @@ struct Simplifier {
                 return keep(a, b);
             }
             for (const auto &[x, y] : {std::pair{a, b}, std::pair{b, a}}) {
-                if (std::optional<bool> c = const_bool(x)) {
-                    // true & y = y, false & y = false; and the dual.
-                    return *c == is_and ? y : make_bool(!is_and);
+                if (std::optional<bool> c = uniform_bool(x)) {
+                    // true & y = y, false & y = false; and the dual. On
+                    // masks too, where the constant is a broadcast.
+                    return *c == is_and ? y : uniform_bool_constant(type, !is_and);
                 }
+            }
+            // In `a & b`, `a` holds wherever `b` matters and `b` wherever
+            // `a` does; in `a | b` each fails wherever the other matters. An
+            // occurrence of one inside the other is decided: `hit & (select(
+            // hit, near, inf) <= best)` is `hit & (near <= best)`, the blend
+            // gone from under the compare.
+            if (assuming == 0) {
+                for (const auto &[x, y] : {std::pair{a, b}, std::pair{b, a}}) {
+                    ValuePtr decided = assume(y, x, is_and);
+                    if (!same_value(decided, y)) {
+                        return make(op, type, {x, std::move(decided)});
+                    }
+                }
+            }
+            if (ValuePtr joined = compare_pair(is_and, type, a, b)) {
+                return joined;
             }
             break;
         }
@@ -607,11 +957,43 @@ struct Simplifier {
             if (ops.size() != 3) {
                 break;
             }
-            if (std::optional<bool> c = const_bool(ops[0])) {
+            if (std::optional<bool> c = uniform_bool(ops[0])) {
                 return *c ? ops[1] : ops[2];
             }
             if (same_value(ops[1], ops[2])) {
                 return ops[1];
+            }
+            // Inside the arm taken when the condition holds, it holds; inside
+            // the other, it does not (see assume).
+            if (assuming == 0) {
+                ValuePtr then = assume(ops[1], ops[0], true);
+                ValuePtr otherwise = assume(ops[2], ops[0], false);
+                if (!same_value(then, ops[1]) || !same_value(otherwise, ops[2])) {
+                    return make(op, type,
+                                {ops[0], std::move(then), std::move(otherwise)});
+                }
+            }
+            // `select(c, t, false)` is `c & t` and `select(c, true, f)` is
+            // `c | f` -- the shape a vectorized `&&` of masks takes -- so
+            // the comparisons they join are joined as under `&` and `|`.
+            if (equals(ops[0]->get_type(), type)) {
+                if (uniform_bool(ops[2]) == false) {
+                    if (ValuePtr joined = compare_pair(true, type, ops[0], ops[1])) {
+                        return joined;
+                    }
+                }
+                if (uniform_bool(ops[1]) == true) {
+                    if (ValuePtr joined = compare_pair(false, type, ops[0], ops[2])) {
+                        return joined;
+                    }
+                }
+            }
+            break;
+        }
+        case Instruction::Op::Min:
+        case Instruction::Op::Max: {
+            if (ValuePtr joined = join_broadcast(op, type, ops)) {
+                return joined;
             }
             break;
         }

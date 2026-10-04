@@ -1,0 +1,71 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i1 @at_most(i32 noundef %i, i32 noundef %n, i32 noundef %m) local_unnamed_addr #0 {
+at_most:
+  %0 = tail call i32 @llvm.umin.i32(i32 %n, i32 %m)
+  %1 = icmp ule i32 %i, %0
+  ret i1 %1
+}
+
+define void @at_most_all(ptr noundef %is_buffer, i32 noundef %n, i32 noundef %m, ptr noundef %out_buffer) local_unnamed_addr {
+at_most_all:
+  %is = tail call ptr @bonsai_buffer_require(ptr %is_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %extract = load <8 x i32>, ptr %is, align 4
+  %0 = tail call i32 @llvm.umin.i32(i32 %n, i32 %m)
+  %.splatinsert = insertelement <8 x i32> poison, i32 %0, i64 0
+  %.splat = shufflevector <8 x i32> %.splatinsert, <8 x i32> poison, <8 x i32> zeroinitializer
+  %1 = icmp ule <8 x i32> %extract, %.splat
+  %2 = zext <8 x i1> %1 to <8 x i32>
+  store <8 x i32> %2, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i1 @at_most_f(float noundef %t, float noundef %a, float noundef %b) local_unnamed_addr #0 {
+at_most_f:
+  %0 = fcmp ole float %t, %a
+  %1 = fcmp ole float %t, %b
+  %2 = and i1 %0, %1
+  ret i1 %2
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i1 @below(i32 noundef %i, i32 noundef %n, i32 noundef %m) local_unnamed_addr #0 {
+below:
+  %0 = tail call i32 @llvm.smin.i32(i32 %n, i32 %m)
+  %1 = icmp slt i32 %0, %i
+  ret i1 %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i1 @decided(i1 noundef %c, i32 noundef %x, i32 noundef %y) local_unnamed_addr #0 {
+decided:
+  %0 = icmp slt i32 %x, 10
+  %1 = and i1 %c, %0
+  ret i1 %1
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef i1 @decided_or(i1 noundef %c, i32 noundef %x, i32 noundef %y) local_unnamed_addr #0 {
+decided_or:
+  %0 = icmp slt i32 %y, 10
+  %1 = or i1 %c, %0
+  ret i1 %1
+}
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.umin.i32(i32, i32) #1
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare i32 @llvm.smin.i32(i32, i32) #1
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

@@ -565,7 +565,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @626 = boolx4(false) in
             let @627 = boolx4(true) in
             let @585 = select(@302, @626, @627) in
-            let @586 = @584 && @585 in
             let @303 = build<_option2>() in
             let @628 = f32x4(1f) in
             let rcpAbsDen$i17 = @628 / absDen$i17 in
@@ -586,7 +585,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @638 = @303.set in
             let @639 = boolx4(@638) in
             let @640 = build<_option2$v4>(@637, @639) in
-            let @594 = select(@586, @309, @640) in
             let @641 = @280.value in
             let @642 = @641.t in
             let @643 = f32x4(@642) in
@@ -598,11 +596,12 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @649 = @280.set in
             let @650 = boolx4(@649) in
             let @651 = build<_option2$v4>(@648, @650) in
-            let @595 = select(@584, @594, @651) in
-            let @311 = @595.set in
+            let @705 = select(@585, @309, @640) in
+            let @706 = select(@584, @705, @651) in
+            let @311 = @706.set in
             let @592 = reduce<any>(@311) in
             if (@592) {
-              let extract$i1 = @595.value in
+              let extract$i1 = @706.value in
               let @314 = extract$i1.t in
               let @316 = (*_best0) in
               let @317 = @316._field0 in
@@ -1060,7 +1059,6 @@ func distmin_Ray_AABB$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f
   let @101 = boolx4(true) in
   let @39 = select(@29, @100, @101) in
   let @40 = !mask && @39 in
-  let @41 = !mask && @29 in
   let @30 = build<FInterval$v4>(tNear$i7, tFar$i7) in
   let @102 = boolx4(true) in
   let @31 = build<_option1$v4>(@30, @102) in
@@ -1075,17 +1073,17 @@ func distmin_Ray_AABB$gang4_v1$masked(r : Ray, b : AABB$v4, !mask : boolx4) -> f
   let @110 = boolx4(@109) in
   let @111 = build<_option1$v4>(@108, @110) in
   let @45 = select(@40, @111, @31) in
-  let @34 = @45.set in
   let @112 = boolx4(false) in
   let @113 = boolx4(true) in
-  let @42 = select(@34, @112, @113) in
-  let @43 = !mask && @42 in
-  let @44 = !mask && @34 in
+  let @116 = select(@39, @111, @31) in
+  let @117 = @116.set in
+  let @118 = select(@117, @112, @113) in
+  let @119 = !mask && @118 in
   let extract = @45.value in
   let @37 = extract.low in
   let @38 = (f32)inf in
   let @114 = f32x4(@38) in
-  let @46 = select(@43, @114, @37) in
+  let @46 = select(@119, @114, @37) in
   return @46
 }
 

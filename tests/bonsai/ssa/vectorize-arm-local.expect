@@ -27,18 +27,13 @@ func [[export]] clip_all(inp : f32[8], out : mut f32[8]) -> void {
   let @2 = x$i0 * @19 in
   let @20 = f32x8(10f) in
   let @4 = @20 < @2 in
-  let @21 = boolx8(false) in
-  let @22 = boolx8(true) in
-  let @10 = select(@4, @21, @22) in
-  let @11 = @9 && @10 in
-  let @12 = @9 && @4 in
   let @23 = f32x8(10f) in
-  let @13 = select(@12, @23, @2) in
   let @24 = f32x8(1f) in
-  let @6 = @13 + @24 in
   let @25 = f32x8(0f) in
-  let @14 = select(@9, @6, @25) in
-  out[ramp(0, 1, 8)] = @14
+  let @27 = select(@4, @23, @2) in
+  let @28 = @27 + @24 in
+  let @29 = select(@9, @28, @25) in
+  out[ramp(0, 1, 8)] = @29
   return
 }
 

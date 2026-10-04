@@ -4,6 +4,7 @@ add_bonsai_tests(
     accumulate-affine.bonsai
     address-across-call.bonsai
     alias-edges.bonsai
+    and-of-compares.bonsai
     any-hit-arms.bonsai
     calls.bonsai
     child-volumes-any.bonsai

@@ -29,43 +29,27 @@ func [[export]] pick_all(a : f32[8], t : f32[4], out : mut f32[8]) -> void {
   let x$i0 = a[ramp(0, 1, 8)] in
   let @26 = f32x8(2f) in
   let @1 = @26 < x$i0 in
-  let @27 = boolx8(false) in
-  let @28 = boolx8(true) in
-  let @12 = select(@1, @27, @28) in
   let @2 = square_plus$gang8_v0$masked(x$i0, @1) in
   let @29 = f32x8(20f) in
   let @3 = @2 < @29 in
-  let @30 = boolx8(false) in
-  let @31 = boolx8(true) in
-  let @13 = select(@3, @30, @31) in
-  let @14 = @1 && @13 in
-  let @15 = @1 && @3 in
   let @32 = f32x8(0f) in
-  let @21 = select(@15, x$i0, @32) in
   let @33 = f32x8(0f) in
-  let @22 = select(@1, @21, @33) in
+  let @42 = select(@3, x$i0, @32) in
+  let @43 = select(@1, @42, @33) in
   let @34 = f32x8(1f) in
   let @4 = @34 < x$i0 in
-  let @35 = boolx8(false) in
-  let @36 = boolx8(true) in
-  let @16 = select(@4, @35, @36) in
   let @20 = reduce<any>(@4) in
   if (@20) {
     let @5 = tabled$gang8_v0$masked(x$i0, t, @4) in
     let @37 = f32x8(0.6f) in
     let @6 = @5 < @37 in
-    let @38 = boolx8(false) in
-    let @39 = boolx8(true) in
-    let @17 = select(@6, @38, @39) in
-    let @18 = @4 && @17 in
-    let @19 = @4 && @6 in
     let @40 = f32x8(1f) in
-    let @8 = @22 + @40 in
-    let @23 = select(@19, @8, @22) in
-    let @24 = select(@4, @23, @22) in
-    acc$i0!skip = @24
+    let @8 = @43 + @40 in
+    let @45 = select(@6, @8, @43) in
+    let @46 = select(@4, @45, @43) in
+    acc$i0!skip = @46
   } else {
-    acc$i0!skip = @22
+    acc$i0!skip = @43
   }
   out[ramp(0, 1, 8)] = (*acc$i0!skip)
   return

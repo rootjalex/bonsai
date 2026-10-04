@@ -330,8 +330,6 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @183 = boolx8(false) in
   let @184 = boolx8(true) in
   let @131 = select(@7, @183, @184) in
-  let @132 = @130 && @131 in
-  let @133 = @130 && @7 in
   let @8 = build<[[packed]] u8x3>(0u, 0u, 0u) in
   let @9 = reinterpret_cast<u32x8>(x$i9) in
   let @185 = f32x8(0.5f) in
@@ -362,9 +360,9 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @201 = u8x8(@200) in
   let @202 = build<[[packed]] u8x3$v8>(@197, @199, @201) in
   let @19 = build<Shape$v8>(@195, @202, @167) in
-  let @155 = select(@132, @19, @13) in
-  let @156 = select(@130, @155, @6) in
-  let _t158 = @156.tag in
+  let @240 = select(@131, @19, @13) in
+  let @241 = select(@130, @240, @6) in
+  let _t158 = @241.tag in
   let @203 = u8x8(0u) in
   let @134 = _t158 == @203 in
   let @204 = u8x8(1u) in
@@ -376,7 +374,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @138 = @136 && @137 in
   let @152 = reduce<any>(@138) in
   if (@152) {
-    let _t60$i9 = @156.payload in
+    let _t60$i9 = @241.payload in
     let @38 = _t60$i9.!0 in
     let ro$i9 = reinterpret_cast<f32x8>(@38) in
     let @40 = _t60$i9.!1 in
@@ -392,7 +390,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @151 = reduce<any>(@135) in
   if (@151) {
-    let _t56$i9 = @156.payload in
+    let _t56$i9 = @241.payload in
     let @29 = _t56$i9.!0 in
     let wd$i9 = reinterpret_cast<f32x8>(@29) in
     let @31 = _t56$i9.!1 in
@@ -409,7 +407,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @150 = reduce<any>(@134) in
   if (@150) {
-    let @23 = @156.payload in
+    let @23 = @241.payload in
     let @24 = @23.!0 in
     let r$i9 = reinterpret_cast<f32x8>(@24) in
     let @211 = f32x8(6f) in
@@ -421,20 +419,6 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @212 = f32x8(0.5f) in
   let @45 = x$i9 * @212 in
-  let @47 = build<f32x3>(0f, 0f, 1f) in
-  let @48 = (f32)inf in
-  let @213 = f32x8(1f) in
-  let @214 = f32x8(0f) in
-  let @168 = build<f32x3$v8>(@45, @213, @214) in
-  let @215 = @47[0u] in
-  let @216 = f32x8(@215) in
-  let @217 = @47[1u] in
-  let @218 = f32x8(@217) in
-  let @219 = @47[2u] in
-  let @220 = f32x8(@219) in
-  let @221 = build<f32x3$v8>(@216, @218, @220) in
-  let @222 = f32x8(@48) in
-  let probe$i9 = build<Ray$v8>(@168, @221, @222) in
   let @53 = @45 * @45 in
   let @54 = 1f * 1f in
   let @223 = f32x8(@54) in
@@ -443,12 +427,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @139 = _t158 == @224 in
   let @225 = u8x8(1u) in
   let @140 = _t158 == @225 in
-  let @226 = u8x8(0u) in
-  let @141 = _t158 != @226 in
-  let @227 = u8x8(1u) in
-  let @142 = _t158 != @227 in
-  let @143 = @141 && @142 in
-  let _t46$i12 = @156.payload in
+  let _t46$i12 = @241.payload in
   let @85 = _t46$i12.!0 in
   let ro$i12 = reinterpret_cast<f32x8>(@85) in
   let @87 = _t46$i12.!1 in
@@ -460,7 +439,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @93 = @90 && @92 in
   let @153 = reduce<any>(@140) in
   if (@153) {
-    let _t42$i12 = @156.payload in
+    let _t42$i12 = @241.payload in
     let @64 = _t42$i12.!0 in
     let wd$i12 = reinterpret_cast<f32x8>(@64) in
     let @66 = _t42$i12.!1 in
@@ -478,15 +457,12 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   } else {
     hit$i12!skip = @93
   }
-  let @57 = @156.payload in
+  let @57 = @241.payload in
   let @58 = @57.!0 in
   let rad$i12 = reinterpret_cast<f32x8>(@58) in
   let @60 = rad$i12 * rad$i12 in
   let @61 = d2$i12 < @60 in
   let @160 = select(@139, @61, (*hit$i12!skip)) in
-  let @229 = boolx8(false) in
-  let @230 = boolx8(true) in
-  let @144 = select(@160, @229, @230) in
   let @231 = f32x8(1f) in
   let @97 = (*p$i9!skip1) + @231 in
   let @161 = select(@160, @97, (*p$i9!skip1)) in
@@ -501,7 +477,7 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @149 = @147 && @148 in
   let @154 = reduce<any>(@149) in
   if (@154) {
-    let _t6$i13 = @156.payload in
+    let _t6$i13 = @241.payload in
     let @113 = _t6$i13.!0 in
     let ro$i13 = reinterpret_cast<f32x8>(@113) in
     let @115 = _t6$i13.!1 in
@@ -519,14 +495,14 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   } else {
     a$i13!skip = undef
   }
-  let _t2$i13 = @156.payload in
+  let _t2$i13 = @241.payload in
   let @106 = _t2$i13.!0 in
   let wd$i13 = reinterpret_cast<f32x8>(@106) in
   let @108 = _t2$i13.!1 in
   let h$i13 = reinterpret_cast<f32x8>(@108) in
   let @110 = wd$i13 * h$i13 in
   let @162 = select(@146, @110, (*a$i13!skip)) in
-  let @99 = @156.payload in
+  let @99 = @241.payload in
   let @100 = @99.!0 in
   let r$i13 = reinterpret_cast<f32x8>(@100) in
   let @102 = r$i13 * r$i13 in

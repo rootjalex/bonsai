@@ -1,0 +1,46 @@
+func [[export]] at_most(i : u32, n : u32, m : u32) -> bool {
+  let @3 = min(n, m) in
+  let @4 = i <= @3 in
+  return @4
+}
+
+func [[export]] at_most_all(is : u32[8], n : u32, m : u32, out : mut u32[8]) -> void {
+  let v = is[ramp(0, 1, 8)] in
+  let @6 = min(n, m) in
+  let @9 = u32x8(@6) in
+  let @7 = v <= @9 in
+  let @4 = cast<u32x8>(@7) in
+  out[ramp(0, 1, 8)] = @4
+  return
+}
+
+func [[export]] at_most_f(t : f32, a : f32, b : f32) -> bool {
+  let @0 = t <= a in
+  let @1 = t <= b in
+  let @2 = @0 && @1 in
+  return @2
+}
+
+func [[export]] below(i : i32, n : i32, m : i32) -> bool {
+  let @3 = min(n, m) in
+  let @4 = @3 < i in
+  return @4
+}
+
+func [[export]] decided(c : bool, x : i32, y : i32) -> bool {
+  let @3 = x < 10 in
+  let @4 = c && @3 in
+  return @4
+}
+
+func [[export]] decided_or(c : bool, x : i32, y : i32) -> bool {
+  let @3 = y < 10 in
+  let @4 = c || @3 in
+  return @4
+}
+
+
+schedule {
+    at_most_all.vectorize(k)
+
+}
