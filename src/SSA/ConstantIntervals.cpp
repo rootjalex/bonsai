@@ -10,9 +10,11 @@
 #include <bit>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <set>
 
 namespace bonsai {
@@ -206,15 +208,20 @@ Limit upper(const ConstantInterval &i) {
 
 // The interval whose bounds are the least and the greatest of `corners`,
 // each corner a value with whether it is a defined bound; a NaN among them
-// is a product no interval holds (zero times an infinity), and gives
-// everything.
+// is a product that is not a number (zero times an infinity), a case the
+// lattice leaves out.
 ConstantInterval from_corners(const vector<Limit> &corners) {
     ConstantInterval r;
     bool first = true;
     Limit lo{0, true}, hi{0, true};
     for (const Limit &c : corners) {
         if (std::isnan(c.value)) {
-            return ConstantInterval::everything();
+            // A corner that is not a number -- zero times an infinity -- is
+            // a case the lattice leaves out, as it leaves out every NaN
+            // (see ConstantInterval): the bounds say where the value is
+            // when it is a number, and this corner is none. A product whose
+            // every corner is one is never a number, and nothing is said.
+            continue;
         }
         if (first || c.value < lo.value || (c.value == lo.value && !c.defined)) {
             lo = c;
@@ -223,6 +230,9 @@ ConstantInterval from_corners(const vector<Limit> &corners) {
             hi = c;
         }
         first = false;
+    }
+    if (first) {
+        return ConstantInterval::everything();
     }
     if (lo.defined) {
         r.min = lo.value;
@@ -236,11 +246,16 @@ ConstantInterval from_corners(const vector<Limit> &corners) {
 }
 
 Limit times(const Limit &a, const Limit &b) {
-    // An undefined limit stands for a finite value of unknown size, so zero
-    // times it is zero, where zero times a defined infinity is a NaN that
-    // from_corners reads as everything.
-    if ((a.value == 0 && !b.defined) || (b.value == 0 && !a.defined)) {
-        return {0, a.defined && b.defined};
+    // An undefined limit stands for a value of unknown size, so a defined
+    // zero times it is a defined zero -- `[0, ..) * [0, ..)` is bounded
+    // below by zero, whatever the sizes -- where zero times a defined
+    // infinity is a NaN, a corner from_corners leaves out, so that `[0,
+    // inf] * [0, inf]` is `[0, inf]` where it is a number at all. (An
+    // undefined limit of a float may be an infinity, and zero times that is
+    // not a number either: outside the lattice, as every NaN is.)
+    if ((a.value == 0 && a.defined && !b.defined) ||
+        (b.value == 0 && b.defined && !a.defined)) {
+        return {0, true};
     }
     return {a.value * b.value, a.defined && b.defined};
 }
@@ -479,6 +494,18 @@ struct Abstract {
         }
     }
 
+    // Narrows this to what it and `o` both allow: what a value's own
+    // computation says of it, and what a condition on the way adds.
+    void intersect(const Abstract &o) {
+        if (bottom || o.bottom || fields.size() != o.fields.size()) {
+            return;
+        }
+        interval = ConstantInterval::make_intersection(interval, o.interval);
+        for (size_t k = 0; k < fields.size(); k++) {
+            fields[k].intersect(o.fields[k]);
+        }
+    }
+
     bool operator==(const Abstract &o) const {
         return bottom == o.bottom && interval == o.interval && fields == o.fields;
     }
@@ -516,15 +543,87 @@ struct Abstract {
     }
 };
 
+// The name a value is known by throughout a function: an instruction's, or
+// a block argument's. A value carried from the block that computes it into
+// the blocks below is an argument of each under the instruction's own name
+// (the name is what says two references are one definition, see
+// SSA/Rewrite.cpp), so a fact learned of it in one guise is found in the
+// other by the name. A constant has none.
+string name_of(const ValuePtr &v) {
+    if (const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data)) {
+        return (*in)->name;
+    }
+    if (const auto *a = std::get_if<Argument>(&v->data)) {
+        return a->name;
+    }
+    return "";
+}
+
+// What a condition says of the values it compares, where it is known to
+// hold: in the block a branch on it leads to, and in the arm of a select it
+// chooses (see State::learn), by the value's name. What LLVM's
+// LazyValueInfo reads off a branch's condition for the block below it, and
+// what Halide's simplifier learns of a condition's operands inside `a && b`
+// (Simplify_And.cpp, learn_true), over this lattice.
+struct Facts {
+    std::map<string, ConstantInterval> values;
+
+    bool empty() const { return values.empty(); }
+
+    const ConstantInterval *about(const ValuePtr &v) const {
+        const string name = name_of(v);
+        if (name.empty()) {
+            return nullptr;
+        }
+        const auto it = values.find(name);
+        return it == values.end() ? nullptr : &it->second;
+    }
+
+    // Narrows the fact about a value to what `i` says too.
+    void add(const ValuePtr &v, const ConstantInterval &i) {
+        const string name = name_of(v);
+        if (name.empty()) {
+            return;
+        }
+        auto [it, fresh] = values.emplace(name, i);
+        if (!fresh) {
+            it->second = ConstantInterval::make_intersection(it->second, i);
+        }
+    }
+
+    // What holds on every one of several ways in: the facts both have, each
+    // as wide as either says.
+    void meet(const Facts &o) {
+        for (auto it = values.begin(); it != values.end();) {
+            const auto found = o.values.find(it->first);
+            if (found == o.values.end()) {
+                it = values.erase(it);
+            } else {
+                it->second = ConstantInterval::make_union(it->second, found->second);
+                ++it;
+            }
+        }
+    }
+};
+
 // What a function says to its callers: what its parameters have been
-// handed, what it returns, and what it stores through each pointer or
+// handed, what each pointer or array parameter pointed at when it was
+// entered, what it returns, and what it stores through each pointer or
 // array parameter. Everything to begin with; narrowed round by round.
 struct Summary {
     vector<Abstract> params;
+    // Per parameter, the contents of what a pointer or array parameter
+    // names as the callers hand it over: the union over the call sites of
+    // what the caller's memory holds there. The argmin's running best,
+    // read by the traversal through the pointer its caller passed, is what
+    // this is for: the caller stored infinity, and every store since is
+    // the traversal's own.
+    vector<Abstract> pointees;
     Abstract ret;
     vector<Abstract> stores; // per parameter; bottom for one it writes nothing through
     bool operator==(const Summary &o) const {
-        return params == o.params && ret == o.ret && stores == o.stores;
+        return params == o.params && pointees == o.pointees && ret == o.ret &&
+               stores == o.stores;
     }
 };
 
@@ -572,14 +671,34 @@ struct ConstantIntervals::State {
     const std::unordered_map<const Instruction *, Abstract> *seen_memory = nullptr;
     const std::set<const Instruction *> *seen_escaped = nullptr;
     const Summaries *summaries = nullptr;
+    // What each pointer or array parameter pointed at on entry, as the
+    // callers' summaries say (Summary::pointees), by parameter index; and
+    // the previous pass's stores through the parameters, which a load
+    // through one reads along with it.
+    vector<Abstract> pointees;
+    const std::map<string, Abstract> *seen_param_memory = nullptr;
+    const std::set<string> *seen_escaped_params = nullptr;
+    // What the conditions on the way to each block say of the values read
+    // in it (see learn), by block name, for this pass.
+    std::map<string, Facts> facts;
+    // How deep a select's arms are being read under their condition, so
+    // that a select inside an arm inside an arm does not compound.
+    int refining = 0;
 
     //--- values -----------------------------------------------------------
 
+    // What `v` is known to lie between as `block` reads it: what its
+    // computation says, narrowed by what a condition on the way to the
+    // block says of it.
     Abstract value(const string &block, const ValuePtr &v) const {
         if (v == nullptr) {
             return Abstract::top(Type());
         }
-        return std::visit(
+        const Facts *known = nullptr;
+        if (const auto f = facts.find(block); f != facts.end() && !f->second.empty()) {
+            known = &f->second;
+        }
+        Abstract r = std::visit(
             overloads{
                 [&](const Constant &c) { return constant(c); },
                 [&](const shared_ptr<Instruction> &i) {
@@ -592,6 +711,322 @@ struct ConstantIntervals::State {
                 },
             },
             v->data);
+        if (known != nullptr) {
+            if (const ConstantInterval *fact = known->about(v)) {
+                r.intersect(Abstract::of_interval(*fact));
+            }
+        }
+        return r;
+    }
+
+    //--- facts from conditions --------------------------------------------
+
+    // A bool known in every lane: a constant, or a broadcast of one.
+    static std::optional<bool> uniform_bool(const ValuePtr &v) {
+        if (const auto *c = std::get_if<Constant>(&v->data)) {
+            if (const auto *b = std::get_if<bool>(&c->data)) {
+                return *b;
+            }
+            return std::nullopt;
+        }
+        if (const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
+            in != nullptr && (*in)->op == Instruction::Op::Bc &&
+            !(*in)->operands.empty()) {
+            return uniform_bool((*in)->operands[0]);
+        }
+        return std::nullopt;
+    }
+
+    // What `cond` being `truth` says of the values it is made of, into
+    // `into`: both sides of an `&&` that holds, both of an `||` that does
+    // not, the operand of a `!` the other way, a `select(c, true, false)`
+    // as `c` and `select(c, false, true)` as `!c` (the linearizer's
+    // negation), a broadcast as what it broadcasts; and at the bottom a
+    // comparison, which bounds each side by the other's interval -- `x < y`
+    // puts `x` at most `y`'s greatest and `y` at least `x`'s least, one
+    // closer over integers -- or an equality, which gives each side the
+    // other's interval. Nothing of a comparison that fails to hold between
+    // floats says where they are (either may be a NaN), so a false `<` is
+    // read as a true `>=` and no more. Bounded in depth.
+    void learn(const string &block, const ValuePtr &cond, bool truth,
+               Facts &into, int depth = 0) const {
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&cond->data);
+        if (held == nullptr || depth > 8) {
+            return;
+        }
+        const Instruction &in = **held;
+        switch (in.op) {
+        case Instruction::Op::LAnd:
+            if (truth) {
+                for (const ValuePtr &o : in.operands) {
+                    learn(block, o, true, into, depth + 1);
+                }
+            }
+            return;
+        case Instruction::Op::LOr:
+            if (!truth) {
+                for (const ValuePtr &o : in.operands) {
+                    learn(block, o, false, into, depth + 1);
+                }
+            }
+            return;
+        case Instruction::Op::Not:
+            if (in.operands.size() == 1) {
+                learn(block, in.operands[0], !truth, into, depth + 1);
+            }
+            return;
+        case Instruction::Op::Bc:
+            if (!in.operands.empty()) {
+                learn(block, in.operands[0], truth, into, depth + 1);
+            }
+            return;
+        case Instruction::Op::Select: {
+            if (in.operands.size() != 3) {
+                return;
+            }
+            const std::optional<bool> t = uniform_bool(in.operands[1]);
+            const std::optional<bool> f = uniform_bool(in.operands[2]);
+            if (t.has_value() && f.has_value() && *t != *f) {
+                learn(block, in.operands[0], *t ? truth : !truth, into, depth + 1);
+            }
+            return;
+        }
+        case Instruction::Op::Lt:
+        case Instruction::Op::Leq:
+        case Instruction::Op::Eq:
+        case Instruction::Op::Ne: {
+            if (in.operands.size() != 2) {
+                return;
+            }
+            const Type t = scalar_of(in.operands[0]->get_type());
+            if (!(t.is_int_or_uint() || t.is_float())) {
+                return;
+            }
+            const bool integer = t.is_int_or_uint();
+            const ValuePtr &x = in.operands[0];
+            const ValuePtr &y = in.operands[1];
+            const ConstantInterval xi = value(block, x).interval;
+            const ConstantInterval yi = value(block, y).interval;
+            // `lo < hi` or `lo <= hi`, strict or not, as the comparison and
+            // its truth make it.
+            const auto ordered = [&](const ValuePtr &lo, const ConstantInterval &loi,
+                                     const ValuePtr &hi, const ConstantInterval &hii,
+                                     bool strict) {
+                const double step = strict && integer ? 1 : 0;
+                if (hii.max_defined) {
+                    into.add(lo, ConstantInterval::bounded_above(hii.max - step));
+                }
+                if (loi.min_defined) {
+                    into.add(hi, ConstantInterval::bounded_below(loi.min + step));
+                }
+            };
+            if (in.op == Instruction::Op::Lt) {
+                if (truth) {
+                    ordered(x, xi, y, yi, true);
+                } else {
+                    ordered(y, yi, x, xi, false);
+                }
+            } else if (in.op == Instruction::Op::Leq) {
+                if (truth) {
+                    ordered(x, xi, y, yi, false);
+                } else {
+                    ordered(y, yi, x, xi, true);
+                }
+            } else if ((in.op == Instruction::Op::Eq) == truth) {
+                into.add(x, yi);
+                into.add(y, xi);
+            }
+            return;
+        }
+        default:
+            return;
+        }
+    }
+
+    // Whether lane `i` of `in` depends on lane `i` of its vector operands
+    // and on its scalar operands alone, so that a fact about one lane of a
+    // condition carries through it to that lane of the result: what reading
+    // a select's arm under the select's mask needs. A reduction, a shuffle,
+    // a lane read at an index, a compress or a change of lane count moves
+    // lanes and is not.
+    static bool lanewise(const Instruction &in) {
+        switch (in.op) {
+        case Instruction::Op::Abs:
+        case Instruction::Op::Add:
+        case Instruction::Op::Bc:
+        case Instruction::Op::BwAnd:
+        case Instruction::Op::BwOr:
+        case Instruction::Op::Div:
+        case Instruction::Op::Eq:
+        case Instruction::Op::LAnd:
+        case Instruction::Op::LOr:
+        case Instruction::Op::Leq:
+        case Instruction::Op::LoadField:
+        case Instruction::Op::Lt:
+        case Instruction::Op::MakeStruct:
+        case Instruction::Op::Max:
+        case Instruction::Op::Min:
+        case Instruction::Op::Mod:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Ne:
+        case Instruction::Op::Not:
+        case Instruction::Op::Select:
+        case Instruction::Op::Shl:
+        case Instruction::Op::Shr:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Xor:
+            return true;
+        case Instruction::Op::Cast:
+        case Instruction::Op::Reinterpret: {
+            if (in.operands.size() != 1) {
+                return false;
+            }
+            const Type &from = in.operands[0]->get_type();
+            if (in.type.is_vector() && from.is_vector()) {
+                return in.type.lanes() == from.lanes();
+            }
+            return !in.type.is_vector() && !from.is_vector();
+        }
+        case Instruction::Op::Intrinsic:
+            switch (in.intrinsic) {
+            case ir::Intrinsic::permute:
+            case ir::Intrinsic::compress:
+                return false;
+            default:
+                return true;
+            }
+        default:
+            return false;
+        }
+    }
+
+    // Whether `in` is a value computed from its operands alone -- no memory
+    // read, nothing kept on the instruction (a reduction's kind, a shuffle's
+    // order, an intrinsic's name are read by eval as they are) -- so that it
+    // can be read again under facts about what feeds it.
+    static bool recomputable(const Instruction &in) {
+        switch (in.op) {
+        case Instruction::Op::Load:
+        case Instruction::Op::Alloca:
+        case Instruction::Op::Alloc:
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::AddressOf:
+        case Instruction::Op::Set:
+            return false;
+        default:
+            return !in.name.empty();
+        }
+    }
+
+    using Lookup = std::function<Abstract(const ValuePtr &)>;
+
+    // What `v` lies between with `known` taken as true of the values it
+    // names: the value's own reading narrowed by the fact where it has one,
+    // and the values computed from such a value read again from what feeds
+    // them -- through pure value computations alone, to a budget, and
+    // lanewise ones where the facts are a mask's -- and never wider than
+    // the plain reading. Halide's simplifier reads an expression under what
+    // it has learned the same way.
+    Abstract under(const string &block, const ValuePtr &v, const Facts &known,
+                   bool vector_facts, size_t &budget,
+                   std::map<const Instruction *, Abstract> &memo) {
+        Abstract plain = value(block, v);
+        if (const ConstantInterval *fact = known.about(v)) {
+            plain.intersect(Abstract::of_interval(*fact));
+            return plain;
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held == nullptr) {
+            return plain;
+        }
+        const Instruction &in = **held;
+        if (const auto it = memo.find(&in); it != memo.end()) {
+            return it->second;
+        }
+        if (budget == 0 || !recomputable(in) || (vector_facts && !lanewise(in))) {
+            return plain;
+        }
+        budget--;
+        const Lookup lookup = [&](const ValuePtr &o) {
+            return under(block, o, known, vector_facts, budget, memo);
+        };
+        Abstract r = eval(block, in, &lookup);
+        r.intersect(plain);
+        memo[&in] = r;
+        return r;
+    }
+
+    // `arm` of a select read with the select's condition taken as `truth`
+    // -- `select(lo < t, t * r, inf)`: inside the first arm `t` is at least
+    // `lo`, so the arm is at least `lo * r` -- or read plainly where the
+    // condition says nothing, or where arms are already being read two
+    // deep.
+    Abstract refined(const string &block, const ValuePtr &arm, const ValuePtr &cond,
+                     bool truth, const Lookup *lookup) {
+        const Abstract plain = lookup != nullptr ? (*lookup)(arm) : value(block, arm);
+        if (refining >= 2) {
+            return plain;
+        }
+        Facts known;
+        learn(block, cond, truth, known);
+        if (known.empty()) {
+            return plain;
+        }
+        refining++;
+        size_t budget = 64;
+        std::map<const Instruction *, Abstract> memo;
+        Abstract r = under(block, arm, known, cond->get_type().is_vector(), budget, memo);
+        refining--;
+        r.intersect(plain);
+        return r;
+    }
+
+    // The facts in force in `block`: what every way in agrees on. A
+    // predecessor that branches on a bool and reaches the block by one of
+    // its two edges alone adds that edge's reading of the condition to its
+    // own facts; any other edge hands its facts on as they are; a block a
+    // back edge reaches has none (one pass cannot say what holds round a
+    // loop), nor has the entry.
+    void settle_facts(const shared_ptr<Block> &block, BlockId b) {
+        Facts result;
+        bool first = true;
+        for (const BlockId p : cfg->preds[b]) {
+            const shared_ptr<Block> pred = cfg->block(p);
+            const auto order = rpo_index.find(pred->name);
+            if (order == rpo_index.end()) {
+                continue; // never runs
+            }
+            if (order->second >= rpo_index.at(block->name)) {
+                facts.erase(block->name);
+                return; // a back edge
+            }
+            Facts along;
+            if (const auto f = facts.find(pred->name); f != facts.end()) {
+                along = f->second;
+            }
+            if (const auto *d = std::get_if<Terminator::Dispatch>(&pred->terminator.data);
+                d != nullptr && d->cond != nullptr && d->targets.size() == 2 &&
+                scalar_of(d->cond->get_type()).is_bool() &&
+                !d->cond->get_type().is_vector()) {
+                const bool to_false = d->targets[0].name == block->name;
+                const bool to_true = d->targets[1].name == block->name;
+                if (to_false != to_true) {
+                    learn(pred->name, d->cond, to_true, along);
+                }
+            }
+            if (first) {
+                result = std::move(along);
+                first = false;
+            } else {
+                result.meet(along);
+            }
+        }
+        if (result.empty()) {
+            facts.erase(block->name);
+        } else {
+            facts[block->name] = std::move(result);
+        }
     }
 
     static Abstract constant(const Constant &c) {
@@ -686,23 +1121,53 @@ struct ConstantIntervals::State {
         return Type();
     }
 
-    // What the memory `v` points at holds, as the previous pass saw it.
+    // What the memory `v` points at holds, as the previous pass saw it: a
+    // local allocation's contents, or, through a pointer or array
+    // parameter, what the callers handed over (Summary::pointees) together
+    // with what this function has stored through it since. Everything in
+    // the first pass, before the stores are known, and for anything whose
+    // address went somewhere this does not follow.
     Abstract loaded(const string &block, const ValuePtr &v, const Type &as) {
         const Root r = root_of(block, v);
-        if (r.local == nullptr || seen_memory == nullptr ||
-            seen_escaped->count(r.local)) {
-            return Abstract::top(as);
-        }
-        const auto it = seen_memory->find(r.local);
-        if (it == seen_memory->end()) {
+        if (seen_memory == nullptr) {
             return Abstract::top(as);
         }
         const Type rt = root_type(r);
-        const Abstract &a = it->second.at(r.path, rt);
-        if (a.bottom) {
-            return Abstract::top(as);
+        if (r.local != nullptr) {
+            if (seen_escaped->count(r.local)) {
+                return Abstract::top(as);
+            }
+            const auto it = seen_memory->find(r.local);
+            if (it == seen_memory->end()) {
+                return Abstract::top(as);
+            }
+            const Abstract &a = it->second.at(r.path, rt);
+            return a.bottom ? Abstract::top(as) : a;
         }
-        return a;
+        if (!r.param.empty()) {
+            if (seen_escaped_params == nullptr || seen_escaped_params->count(r.param)) {
+                return Abstract::top(as);
+            }
+            Abstract contents = Abstract::none();
+            const vector<Argument> &params = func->blocks.front()->args;
+            for (size_t k = 0; k < params.size() && k < pointees.size(); k++) {
+                if (params[k].name == r.param) {
+                    contents.include(pointees[k]);
+                }
+            }
+            if (seen_param_memory != nullptr) {
+                if (const auto it = seen_param_memory->find(r.param);
+                    it != seen_param_memory->end()) {
+                    contents.include(it->second);
+                }
+            }
+            if (contents.bottom) {
+                return Abstract::top(as);
+            }
+            const Abstract &a = contents.at(r.path, rt);
+            return a.bottom ? Abstract::top(as) : a;
+        }
+        return Abstract::top(as);
     }
 
     void stored(const string &block, const ValuePtr &where, const Abstract &what) {
@@ -743,11 +1208,18 @@ struct ConstantIntervals::State {
 
     //--- instructions -----------------------------------------------------
 
-    Abstract eval(const string &block, const Instruction &in) {
+    // What `in` computes from what its operands lie between: as `block`
+    // reads them, or as `lookup` says of them when one is given (a select's
+    // arm read under the select's condition, see under).
+    Abstract eval(const string &block, const Instruction &in,
+                  const Lookup *lookup = nullptr) {
         const Type &type = in.type;
         const auto A = [&](size_t k) {
-            return k < in.operands.size() ? value(block, in.operands[k])
-                                          : Abstract::top(Type());
+            if (k >= in.operands.size()) {
+                return Abstract::top(Type());
+            }
+            return lookup != nullptr ? (*lookup)(in.operands[k])
+                                     : value(block, in.operands[k]);
         };
         const auto I = [&](size_t k) { return A(k).interval; };
         const auto fit = [&](ConstantInterval i) {
@@ -788,8 +1260,10 @@ struct ConstantIntervals::State {
             if (in.operands.size() != 3) {
                 return top();
             }
-            Abstract r = A(1);
-            r.include(A(2));
+            // Each arm read with the condition as it is there: true in the
+            // first, false in the second (see refined).
+            Abstract r = refined(block, in.operands[1], in.operands[0], true, lookup);
+            r.include(refined(block, in.operands[2], in.operands[0], false, lookup));
             // `select(x < c, x, x - c)` is x brought below c once: at most
             // c - 1 where x was below c already, and x's bound less c where
             // it was not -- the shape a remainder by a constant becomes
@@ -892,11 +1366,18 @@ struct ConstantIntervals::State {
             }
             if (is_integer_type(f) && f.bits() == 32 && t.is_float() &&
                 t.bits() == 32) {
-                if (!(i.min_defined && i.min >= 0 && i.min <= kInfBits)) {
+                // Bits with the sign clear, [0, 0x7fffffff], read as floats
+                // from +0 up: those past inf's are NaNs, outside the
+                // lattice. An unsigned value that may reach the sign bit
+                // (a word whose sign a xor flips, `asInt(x) ^ asInt(sgn)`)
+                // may be any float at all.
+                constexpr double kSignBit = 0x80000000;
+                if (!(i.min_defined && i.min >= 0 && i.min <= kInfBits) ||
+                    !(i.max_defined && i.max < kSignBit)) {
                     return top();
                 }
                 const float lo = std::bit_cast<float>(uint32_t(i.min));
-                const double hi = i.max_defined && i.max <= kInfBits
+                const double hi = i.max <= kInfBits
                                       ? double(std::bit_cast<float>(uint32_t(i.max)))
                                       : kInf;
                 return fit(ConstantInterval(double(lo), hi));
@@ -1084,17 +1565,21 @@ struct ConstantIntervals::State {
             return Abstract::of_interval(ConstantInterval::single_point(e));
         }
         case Instruction::Op::Intrinsic:
-            return intrinsic(block, in);
+            return intrinsic(block, in, lookup);
         default:
             return top();
         }
     }
 
-    Abstract intrinsic(const string &block, const Instruction &in) {
+    Abstract intrinsic(const string &block, const Instruction &in,
+                       const Lookup *lookup = nullptr) {
         const Type &type = in.type;
         const auto I = [&](size_t k) {
-            return k < in.operands.size() ? value(block, in.operands[k]).interval
-                                          : ConstantInterval::everything();
+            if (k >= in.operands.size()) {
+                return ConstantInterval::everything();
+            }
+            return lookup != nullptr ? (*lookup)(in.operands[k]).interval
+                                     : value(block, in.operands[k]).interval;
         };
         const auto fit = [&](ConstantInterval i) {
             i.cast_to(type);
@@ -1124,6 +1609,45 @@ struct ConstantIntervals::State {
         }
         case ir::Intrinsic::sqr:
             return fit(I(0) * I(0));
+        case ir::Intrinsic::rcp: {
+            // The reciprocal of an interval on one side of zero lies between
+            // the reciprocals of its ends, the other way round, and goes to
+            // infinity at zero (rcp(+0) is +inf, rcp(-0) is -inf: a lower
+            // bound of zero is read as +0, the lattice's reading of a
+            // non-negative float, see ConstantInterval); an interval that
+            // crosses zero gives everything. The instruction is an estimate
+            // and a Newton step (CodeGen_X86), within a few units in the last
+            // place of the quotient, so each end is moved outward by more
+            // than that before it is used.
+            const ConstantInterval a = I(0);
+            const auto outward = [](double v, bool down) {
+                const double slack = std::abs(v) * 0x1p-20;
+                return down ? v - slack : v + slack;
+            };
+            if (a.min_defined && a.min >= 0) {
+                ConstantInterval r = ConstantInterval::bounded_below(
+                    a.max_defined && a.max > 0 && std::isfinite(a.max)
+                        ? outward(1.0 / a.max, true)
+                        : 0.0);
+                if (a.min > 0) {
+                    r.max = outward(1.0 / a.min, false);
+                    r.max_defined = true;
+                }
+                return fit(r);
+            }
+            if (a.max_defined && a.max <= 0) {
+                ConstantInterval r = ConstantInterval::bounded_above(
+                    a.min_defined && a.min < 0 && std::isfinite(a.min)
+                        ? outward(1.0 / a.min, false)
+                        : 0.0);
+                if (a.max < 0) {
+                    r.min = outward(1.0 / a.max, true);
+                    r.min_defined = true;
+                }
+                return fit(r);
+            }
+            return top();
+        }
         case ir::Intrinsic::exp:
             return fit(ConstantInterval::bounded_below(0));
         case ir::Intrinsic::cos:
@@ -1239,6 +1763,18 @@ struct ConstantIntervals::State {
                 escaped_through(block, args[k]);
                 continue;
             }
+            // This function handing its own parameter to itself: what the
+            // callee stores through it is what this function stores through
+            // it, collected here already. Taking the summary's word for it
+            // too would hand each round the round before's, which began at
+            // everything, and nothing would ever narrow.
+            if (callee == func->blocks.front()->name) {
+                const vector<Argument> &params = func->blocks.front()->args;
+                if (const auto *a = std::get_if<Argument>(&args[k]->data);
+                    a != nullptr && k < params.size() && a->name == params[k].name) {
+                    continue;
+                }
+            }
             if (!s->stores[k].bottom) {
                 const Root r = root_of(block, args[k]);
                 if (r.local != nullptr) {
@@ -1258,6 +1794,7 @@ struct ConstantIntervals::State {
     void pass(const vector<Abstract> &params) {
         instrs.clear();
         args.clear();
+        facts.clear();
         memory.clear();
         param_memory.clear();
         escaped.clear();
@@ -1296,11 +1833,15 @@ struct ConstantIntervals::State {
                             ? Abstract::top(block->args[i].type)
                             : into[i];
                 }
+                settle_facts(block, b);
             }
             for (const shared_ptr<Instruction> &in : block->instrs) {
                 switch (in->op) {
                 case Instruction::Op::Store:
-                    if (in->operands.size() == 2) {
+                    // Where it stores and what; a vectorized store's third
+                    // operand is its mask, which changes which lanes are
+                    // written and not what may be.
+                    if (in->operands.size() >= 2) {
                         stored(block->name, in->operands[0],
                                value(block->name, in->operands[1]));
                         // A pointer put into memory has gone somewhere this
@@ -1311,14 +1852,29 @@ struct ConstantIntervals::State {
                         }
                     }
                     break;
-                case Instruction::Op::AtomicAdd:
-                case Instruction::Op::AccAdd:
-                case Instruction::Op::AccMul:
-                case Instruction::Op::AccSub:
                 case Instruction::Op::AccArgmin:
                 case Instruction::Op::AccArgmax:
                 case Instruction::Op::AccMin:
                 case Instruction::Op::AccMax:
+                    // The least or the greatest of what was there and what
+                    // arrives is one of the two, so what the memory holds
+                    // after it is within the union of both: a store, for
+                    // these bounds. The argmin's running best is kept this
+                    // way, and begins at the infinity its caller stored.
+                    if (in->operands.size() >= 2) {
+                        stored(block->name, in->operands[0],
+                               value(block->name, in->operands[1]));
+                        const Type &t = in->operands[1]->get_type();
+                        if (t.is<Ptr_t>() || t.is_reference()) {
+                            escaped_through(block->name, in->operands[1]);
+                        }
+                        break;
+                    }
+                    [[fallthrough]];
+                case Instruction::Op::AtomicAdd:
+                case Instruction::Op::AccAdd:
+                case Instruction::Op::AccMul:
+                case Instruction::Op::AccSub:
                 case Instruction::Op::Append:
                 case Instruction::Op::Push:
                 case Instruction::Op::AddressOf:
@@ -1370,10 +1926,16 @@ struct ConstantIntervals::State {
     }
 
     // The function analysed under `params`: passes until the memory the
-    // loads read is the memory the stores made, three at most, each sound
-    // on its own since a load first reads everything.
-    void analyze(const vector<Abstract> &params, const Summaries *all) {
+    // loads read is the memory the stores made, each sound on its own since
+    // a load first reads everything. A value that reaches a load through a
+    // chain of stores -- the leaf's hit into one option, that into the
+    // other, the distance read from it into the argmin's best behind the
+    // pointer, then the best read at the node -- needs a pass per link,
+    // so the cap is eight; a function with less to carry stops sooner.
+    void analyze(const vector<Abstract> &params, const vector<Abstract> &entry_pointees,
+                 const Summaries *all) {
         summaries = all;
+        pointees = entry_pointees;
         if (!cfg) {
             cfg = std::make_unique<Cfg>(*func);
             for (size_t i = 0; i < cfg->rpo.size(); i++) {
@@ -1383,38 +1945,103 @@ struct ConstantIntervals::State {
         }
         std::unordered_map<const Instruction *, Abstract> last_memory;
         std::set<const Instruction *> last_escaped;
-        for (int round = 0; round < 3; round++) {
+        std::map<string, Abstract> last_param_memory;
+        std::set<string> last_escaped_params;
+        for (int round = 0; round < 8; round++) {
             seen_memory = round == 0 ? nullptr : &last_memory;
             seen_escaped = round == 0 ? nullptr : &last_escaped;
+            seen_param_memory = round == 0 ? nullptr : &last_param_memory;
+            seen_escaped_params = round == 0 ? nullptr : &last_escaped_params;
             pass(params);
             // Everything an escaped allocation holds is unknown.
             for (const Instruction *e : escaped) {
                 memory.erase(e);
             }
-            const bool same = round > 0 && memory == last_memory && escaped == last_escaped;
+            const bool same = round > 0 && memory == last_memory &&
+                              escaped == last_escaped &&
+                              param_memory == last_param_memory &&
+                              escaped_params == last_escaped_params;
             last_memory = memory;
             last_escaped = escaped;
+            last_param_memory = param_memory;
+            last_escaped_params = escaped_params;
             if (same) {
                 break;
             }
         }
-        seen_memory = &last_memory;
-        seen_escaped = &last_escaped;
         // Keep the last pass's memory as what loads were read against, for
         // queries after the fact.
         kept_memory = last_memory;
         kept_escaped = last_escaped;
+        kept_param_memory = last_param_memory;
+        kept_escaped_params = last_escaped_params;
         seen_memory = &kept_memory;
         seen_escaped = &kept_escaped;
+        seen_param_memory = &kept_param_memory;
+        seen_escaped_params = &kept_escaped_params;
     }
     std::unordered_map<const Instruction *, Abstract> kept_memory;
     std::set<const Instruction *> kept_escaped;
+    std::map<string, Abstract> kept_param_memory;
+    std::set<string> kept_escaped_params;
+
+    // What the memory a pointer or array argument `v` names holds as this
+    // function hands it to a callee, from `block`: a local's contents, or
+    // what this function's own parameter pointed at together with what it
+    // stored through it. Everything where the address went somewhere
+    // unknown or nothing was ever stored; nothing (bottom) for a parameter
+    // of this function handed on as itself, since what it points at is the
+    // callee's own question.
+    Abstract handed(const string &block, const ValuePtr &v, const string &callee) {
+        const Type held = held_type_of(v->get_type());
+        const Root r = root_of(block, v);
+        if (r.local != nullptr) {
+            if (kept_escaped.count(r.local)) {
+                return Abstract::top(held);
+            }
+            const auto m = kept_memory.find(r.local);
+            if (m == kept_memory.end()) {
+                return Abstract::top(held);
+            }
+            const Abstract &a = m->second.at(r.path, root_type(r));
+            return a.bottom ? Abstract::top(held) : a;
+        }
+        if (!r.param.empty()) {
+            if (callee == func->blocks.front()->name && r.path.empty()) {
+                if (const auto *a = std::get_if<Argument>(&v->data);
+                    a != nullptr && a->name == r.param) {
+                    return Abstract::none();
+                }
+            }
+            if (kept_escaped_params.count(r.param)) {
+                return Abstract::top(held);
+            }
+            Abstract contents = Abstract::none();
+            const vector<Argument> &params = func->blocks.front()->args;
+            for (size_t k = 0; k < params.size() && k < pointees.size(); k++) {
+                if (params[k].name == r.param) {
+                    contents.include(pointees[k]);
+                }
+            }
+            if (const auto m = kept_param_memory.find(r.param);
+                m != kept_param_memory.end()) {
+                contents.include(m->second);
+            }
+            if (contents.bottom) {
+                return Abstract::top(held);
+            }
+            const Abstract &a = contents.at(r.path, root_type(r));
+            return a.bottom ? Abstract::top(held) : a;
+        }
+        return Abstract::top(held);
+    }
 
     // This function's summary for its callers, from the last pass.
     Summary summary(const Summaries &previous) const {
         Summary s;
         const shared_ptr<Block> &entry = func->blocks.front();
         s.params.assign(entry->args.size(), Abstract::none());
+        s.pointees.assign(entry->args.size(), Abstract::none());
         s.ret = ret;
         s.stores.assign(entry->args.size(), Abstract::none());
         for (size_t k = 0; k < entry->args.size(); k++) {
@@ -1445,6 +2072,7 @@ Summary everything_of(const Function &f) {
     const shared_ptr<Block> &entry = f.blocks.front();
     for (const Argument &a : entry->args) {
         s.params.push_back(Abstract::top(a.type));
+        s.pointees.push_back(Abstract::top(held_type_of(a.type)));
         s.stores.push_back(Abstract::top(held_type_of(a.type)));
     }
     s.ret = Abstract::top(f.ret_type);
@@ -1500,7 +2128,8 @@ ConstantIntervals::ConstantIntervals(const FuncMap &funcs) {
             if (f == nullptr || f->blocks.empty()) {
                 continue;
             }
-            states.at(f.get())->analyze(summaries.at(name).params, &summaries);
+            states.at(f.get())->analyze(summaries.at(name).params,
+                                        summaries.at(name).pointees, &summaries);
         }
         Summaries next;
         for (const auto &[name, f] : funcs) {
@@ -1509,10 +2138,13 @@ ConstantIntervals::ConstantIntervals(const FuncMap &funcs) {
             }
             next[name] = states.at(f.get())->summary(summaries);
         }
-        // The parameters: what every call site hands them. A call a function
-        // makes of itself with its own parameter adds nothing to that
-        // parameter and is left out, which is what lets a traversal's ray
-        // keep what its caller said of it.
+        // The parameters: what every call site hands them, and for a pointer
+        // or array parameter what the memory it names holds there. A call a
+        // function makes of itself with its own parameter adds nothing to
+        // that parameter and is left out, which is what lets a traversal's
+        // ray keep what its caller said of it -- and nothing to what the
+        // parameter points at, the function's own stores through it being
+        // read along with the pointee at every load (see loaded).
         for (const auto &[name, f] : funcs) {
             if (f == nullptr || f->blocks.empty() || !live.count(name)) {
                 continue;
@@ -1536,6 +2168,10 @@ ConstantIntervals::ConstantIntervals(const FuncMap &funcs) {
                             }
                         }
                         s.params[k].include(state.value(block->name, args[k]));
+                        const Type &t = args[k]->get_type();
+                        if (t.is<Ptr_t>() || t.is_reference()) {
+                            s.pointees[k].include(state.handed(block->name, args[k], callee));
+                        }
                     }
                 };
                 std::visit(
@@ -1561,6 +2197,9 @@ ConstantIntervals::ConstantIntervals(const FuncMap &funcs) {
                 if (is_exported(*f) || s.params[k].bottom) {
                     s.params[k] = top.params[k];
                 }
+                if (is_exported(*f) || s.pointees[k].bottom) {
+                    s.pointees[k] = top.pointees[k];
+                }
             }
             if (s.ret.bottom) {
                 s.ret = top.ret;
@@ -1578,11 +2217,12 @@ ConstantIntervals::ConstantIntervals(const Function &func) {
     auto state = std::make_shared<State>();
     state->func = &func;
     states[&func] = state;
-    vector<Abstract> params;
+    vector<Abstract> params, pointees;
     for (const Argument &a : func.blocks.front()->args) {
         params.push_back(Abstract::top(a.type));
+        pointees.push_back(Abstract::top(held_type_of(a.type)));
     }
-    state->analyze(params, nullptr);
+    state->analyze(params, pointees, nullptr);
 }
 
 namespace {
@@ -1673,6 +2313,17 @@ void ConstantIntervals::dump(std::ostream &os, const Function &func) const {
         dump_abstract(os, contents, Type());
         os << "\n";
     }
+    const vector<Argument> &params = func.blocks.front()->args;
+    for (size_t k = 0; k < params.size() && k < state.pointees.size(); k++) {
+        const Type held = held_type_of(params[k].type);
+        if (!(params[k].type.is<Ptr_t>() || params[k].type.is_reference()) ||
+            !narrower_than_type(state.pointees[k], held)) {
+            continue;
+        }
+        os << "  *" << params[k].name << " (on entry) : ";
+        dump_abstract(os, state.pointees[k], held);
+        os << "\n";
+    }
 }
 
 ConstantInterval ConstantIntervals::of(const Function &func, const Block &block,
@@ -1687,11 +2338,21 @@ ConstantInterval ConstantIntervals::of(const Function &func, const Block &block,
         return state.loaded(block.name, v, t.element_of()).interval;
     }
     // An instruction made after the analysis -- by the rewrite asking --
-    // is read off its operands here, once, as the pass would have read it.
-    if (const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
-        in != nullptr && !state.instrs.count(in->get()) && !(*in)->name.empty()) {
-        state.instrs[in->get()] = state.eval(block.name, **in);
-    }
+    // is read off its operands here, once, as the pass would have read it,
+    // its operands first where they are new as well.
+    const std::function<void(const ValuePtr &, int)> prepare =
+        [&](const ValuePtr &u, int depth) {
+            const auto *in = std::get_if<shared_ptr<Instruction>>(&u->data);
+            if (in == nullptr || (*in)->name.empty() || depth > 16 ||
+                state.instrs.count(in->get())) {
+                return;
+            }
+            for (const ValuePtr &o : (*in)->operands) {
+                prepare(o, depth + 1);
+            }
+            state.instrs[in->get()] = state.eval(block.name, **in);
+        };
+    prepare(v, 0);
     const Abstract a = state.value(block.name, v);
     return a.bottom || !a.fields.empty() ? ConstantInterval::everything()
                                          : a.interval;

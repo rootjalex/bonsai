@@ -1,0 +1,54 @@
+//! flags: -p ssa --dump-intervals
+
+// What the interval analysis (SSA/ConstantIntervals.h) learns from the
+// conditions a value is computed under, and carries through memory, read
+// off its own dump (`--dump-intervals`, printed ahead of the SSA):
+//
+//   * `guarded`: below `if !(lo < t) { return inf; }` the value `t` is at
+//     least `lo`'s least, zero, so `t * rcp(abs(d))` is in [0, inf] -- the
+//     fact from a branch's condition in the block it leads to, and the
+//     reciprocal of a non-negative interval non-negative;
+//   * `chosen`: the same fact inside the arm of a select, `select(lo < t,
+//     t * rcp(abs(d)), inf)` in [0, inf], where the plain reading of the
+//     arm is everything;
+//   * `narrow` and `run`: a running best kept behind a pointer. The caller
+//     stores infinity and hands the pointer over; the callee reads it,
+//     and lowers it with a value that is never negative. What the callee's
+//     parameter points at on entry is what the callers' memory held there,
+//     so the callee's loads of the best are in [0, inf], and the caller's
+//     reading of it after the calls is too. The leaf of a nearest-hit
+//     traversal keeps the argmin's best this way, and its node test
+//     compares the children's entry distances against it.
+element Pair {
+    key : f32;
+    id : u32;
+}
+
+func [[export]] guarded(a : f32, t : f32, d : f32) -> f32 {
+    lo = abs(a) * 0.0;
+    if !(lo < t) {
+        return inf;
+    }
+    return t * rcp(abs(d));
+}
+
+func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
+    lo = abs(a);
+    return select(lo < t, t * rcp(abs(d)), inf);
+}
+
+func narrow(best : mut Pair, d : f32, i : u32) -> f32 {
+    was = best.key;
+    t = abs(d);
+    if t < best.key {
+        best = Pair{t, i};
+    }
+    return was;
+}
+
+func [[export]] run(d : f32, i : u32) -> f32 {
+    best : mut Pair = Pair{inf, 0u};
+    a = narrow(best, d, i);
+    b = narrow(best, d * 2.0, i);
+    return a + b + best.key;
+}

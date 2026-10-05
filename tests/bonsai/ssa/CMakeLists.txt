@@ -8,6 +8,7 @@ add_bonsai_tests(
     any-hit-arms.bonsai
     any-hit-prefetch.bonsai
     calls.bonsai
+    intervals-from-conditions.bonsai
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai
     child-volumes-sorted-wide.bonsai

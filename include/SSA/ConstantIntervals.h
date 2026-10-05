@@ -87,15 +87,29 @@ std::ostream &operator<<(std::ostream &os, const ConstantInterval &i);
 // to something unknown. Across functions, a parameter is the union of the
 // arguments every call site passes (field-sensitive: the ray's `tnear` is
 // one field of `r`), an exported function's being everything; a call's
-// result is the union of the callee's returns, and what the callee stores
+// result is the union of the callee's returns, what the callee stores
 // through a pointer parameter is what the caller's memory holds after the
-// call. Every summary starts as everything and narrows round by round, so
-// that stopping after any round is sound; a parameter a recursion passes
-// through unchanged is left out of its own union, which is what lets a
-// traversal's ray keep what its caller said of it. Weak through diverging
-// control flow and loops by design: this answers the questions a rewrite
-// asks ("is the key non-negative", "is the dividend below twice the
-// divisor"), not a bounds inference.
+// call, and what a pointer parameter points at on entry is what the
+// callers' memory held there (a running best the caller set to infinity
+// and the callee lowers is read through such a pointer, and every load of
+// it sees the caller's infinity and the callee's own stores). Every summary
+// starts as everything and narrows round by round, so that stopping after
+// any round is sound; a parameter a recursion passes through unchanged is
+// left out of its own union, which is what lets a traversal's ray keep
+// what its caller said of it.
+//
+// A condition narrows the values it compares where it is known to hold:
+// in the block a branch on it leads to, every value the condition speaks
+// of is read within what the condition says (`x < y` puts `x` at most
+// `y`'s greatest and `y` at least `x`'s least), and the arm of a select is
+// read with the select's condition taken as true in the first arm and
+// false in the second, through pure value computations to a bounded
+// depth -- what LLVM's LazyValueInfo reads off branches and Halide's
+// simplifier learns inside `a && b`. So a hit's distance `T * rcp(absDen)`
+// is non-negative where it is used, the test `absDen * tnear < T` having
+// been passed. Weak through loops by design: this answers the questions a
+// rewrite asks ("is the key non-negative", "is the best non-negative", "is
+// the dividend below twice the divisor"), not a bounds inference.
 class ConstantIntervals {
   public:
     using FuncMap = std::map<std::string, std::shared_ptr<Function>>;

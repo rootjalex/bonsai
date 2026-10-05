@@ -1,0 +1,96 @@
+=== intervals before the sort
+intervals of chosen:
+  lo : [0, inf]
+  @2 : [0, inf]
+  @3 : [0, inf]
+  @5 : [inf, inf]
+  @6 : [0, inf]
+intervals of guarded:
+  @2 : [inf, inf]
+  @3 : [0, inf]
+  @4 : [0, inf]
+  @5 : [0, inf]
+intervals of narrow:
+  @0 : {key: [0, inf], id: [0, 4.29497e+09]}
+  was : [0, inf]
+  t : [0, inf]
+  @3 : {key: [0, inf], id: [0, 4.29497e+09]}
+  @4 : [0, inf]
+  !then_0(t) : [0, inf]
+  !then_0(was) : [0, inf]
+  @6 : {key: [0, inf], id: [0, 4.29497e+09]}
+  !merge_1(was) : [0, inf]
+  *best (stored through) : {[0, inf], [0, 4.29497e+09]}
+  *best (on entry) : {key: [0, inf], id: [0, 4.29497e+09]}
+intervals of run:
+  @0 : [inf, inf]
+  @1 : {key: [inf, inf], id: [0, 0]}
+  !narrow_call_cont_0(@2) : [0, inf]
+  a : [0, inf]
+  !narrow_call_cont_1(@4) : [0, inf]
+  !narrow_call_cont_1(a) : [0, inf]
+  b : [0, inf]
+  @5 : [0, inf]
+  @6 : {key: [0, inf], id: [0, 4.29497e+09]}
+  @7 : [0, inf]
+  @8 : [0, inf]
+  *best : {key: [0, inf], id: [0, 4.29497e+09]}
+type Pair = struct Pair{ key : f32; id : u32 }
+
+func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
+  let lo = abs(a) in
+  let @1 = lo < t in
+  let @2 = abs(d) in
+  let @3 = rcp(@2) in
+  let @4 = t * @3 in
+  let @5 = (f32)inf in
+  let @6 = select(@1, @4, @5) in
+  return @6
+}
+
+func [[export]] guarded(a : f32, t : f32, d : f32) -> f32 {
+  let @0 = 0f < t in
+  let @1 = !@0 in
+  if (@1) {
+    let @2 = (f32)inf in
+    return @2
+  } else {
+    let @3 = abs(d) in
+    let @4 = rcp(@3) in
+    let @5 = t * @4 in
+    return @5
+  }
+}
+
+func narrow(best : mut (Pair*), d : f32, i : u32) -> f32 {
+  let @0 = (*best) in
+  let was = @0.key in
+  let t = abs(d) in
+  let @3 = (*best) in
+  let @4 = @3.key in
+  let @5 = t < @4 in
+  if (@5) {
+    let @6 = build<Pair>(t, i) in
+    best = @6
+  }
+  return was
+}
+
+func [[export]] run(d : f32, i : u32) -> f32 {
+  alloc best : mut Pair
+  let @0 = (f32)inf in
+  let @1 = build<Pair>(@0, 0u) in
+  best = @1
+  let @2 = narrow(best, d, i) in
+  let a = @2 in
+  let @3 = d * 2f in
+  let @4 = narrow(best, @3, i) in
+  let b = @4 in
+  let @5 = a + b in
+  let @6 = (*best) in
+  let @7 = @6.key in
+  let @8 = @5 + @7 in
+  return @8
+}
+
+

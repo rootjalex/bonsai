@@ -165,6 +165,12 @@ struct CompilerOptions {
     // The SSA as the code generators receive it: after the allocas are
     // promoted and the parfor bodies closed over their captures.
     bool dump_ssa_final = false;
+    // What every value of every function is known to lie between, as the
+    // schedule's rewrites read it (SSA/ConstantIntervals.h), each time the
+    // analysis is run, to stdout ahead of the SSA. For the tests of the
+    // analysis; BONSAI_INTERVALS in the environment prints the same to
+    // stderr.
+    bool dump_intervals = false;
 
     friend std::ostream &operator<<(std::ostream &, const CompilerOptions &);
 };

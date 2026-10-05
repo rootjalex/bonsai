@@ -2039,6 +2039,12 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 intervals.dump(std::cerr, *f);
             }
         }
+        if (options.dump_intervals) {
+            std::cout << "=== intervals before the sort\n";
+            for (const auto &[name, f] : fmap) {
+                intervals.dump(std::cout, *f);
+            }
+        }
         for (const auto &[name, f] : fmap) {
             sort_recursion(*f, options.target, intervals);
             // What the network compared was built by rule; this is where it

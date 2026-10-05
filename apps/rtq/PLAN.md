@@ -2680,6 +2680,97 @@ on the loaded children, and the same answers run. The two four-wide
 goldens with a prefetch (prefetch-children, ptr-arena-rows-vectorized)
 move only by the concat fold.
 
+## The best proven non-negative: facts from conditions, and what a pointer points at (2026-10-04)
+
+**Why.** The fold of the running best into the slab test's `tFar` (the
+section on the slab test on bits, above) turns the node test's float
+compare `float(tNear) < best` into one on the bits, which is exact only
+where both sides are known non-negative. `tNear`'s bits are, from the
+clamp; the best was not: the interval analysis gave the argmin's running
+best as everything. The user's question was whether the compiler could
+prove it non-negative from the best starting at infinity and only ever
+taking a `distmin`'s value, with `distmin` itself non-negative. It can,
+and this is what that took.
+
+**What the analysis could not see** (SSA/ConstantIntervals.cpp), in the
+order the facts travel:
+
+- The hit's distance is `T * rcp(absDen)`, and `T` is a dot product with
+  its sign flipped by the denominator's (`asInt(..) ^ asInt(sgnDen)`),
+  unbounded on its own. It is positive only because it is used under the
+  test `absDen * tnear < T`, and the analysis took nothing from
+  conditions. Now a condition narrows the values it compares where it is
+  known to hold: in the block a branch on it leads to -- a block's facts
+  are what every way in agrees on, a predecessor's own facts plus its
+  branch's reading of the condition for the edge taken, none for a block a
+  back edge reaches -- and in the arm of a select, read with the select's
+  condition taken as true in the first arm and false in the second, the
+  arm's computation read again under the fact through pure, lanewise (for
+  a mask's facts) instructions to a bounded depth, never wider than its
+  plain reading. A condition is taken apart through `&&`, `||`, `!`, the
+  linearizer's `select(c, false, true)`, and a broadcast, down to the
+  comparisons: `x < y` puts `x` at most `y`'s greatest and `y` at least
+  `x`'s least, one closer over integers. LLVM's LazyValueInfo and Halide's
+  learn_true, over this lattice. Facts are keyed by the value's name,
+  which a value keeps when it is carried into the blocks below as an
+  argument of each.
+- `rcp` had no rule: the reciprocal of an interval on one side of zero is
+  between the reciprocals of its ends, each moved outward past the
+  estimate-and-Newton-step's error, infinite at zero.
+- Zero times an interval with no upper bound came out as no bound at
+  all (the corner was marked undefined), and zero times a defined infinity
+  as everything, where the lattice's reading elsewhere (the square root,
+  the division) leaves the not-a-number case out: `[0, inf] * [0, inf]`
+  is `[0, inf]` where it is a number. Both corners read that way now.
+- A load through a pointer parameter was always everything. The best
+  lives behind one: the traversal's caller stores infinity into a local
+  and hands its address over. A function's summary now carries what each
+  pointer parameter pointed at on entry, the union over its call sites of
+  what the caller's memory held there (a local's contents, or the caller's
+  own parameter's pointee and stores), and a load through a parameter
+  reads that together with the function's own stores through it. A
+  function handing its own parameter to itself adds nothing, as with the
+  parameters' values; and in `called`, a callee that is this function
+  handed this function's parameter contributes no stores either, since
+  taking the summary's word would hand each round the round before's,
+  which began at everything, and nothing would narrow.
+- The argmin's accumulate (`_best0 argmin= ..`) escaped its pointer, so
+  the best's contents were everything whatever was stored. The least or
+  greatest of what was there and what arrives is one of the two, so the
+  min, max, argmin and argmax accumulates are stores for these bounds;
+  and a vectorized store or accumulate carries its mask as a third
+  operand, which the store case had refused.
+- Within a function, the passes until the memory the loads read is the
+  memory the stores made were capped at three; the distance reaches the
+  best through two locals (the leaf's two option merges) and then the
+  pointer, and its loads need a pass per link. The cap is eight, with the
+  fixpoint ending it sooner where there is less to carry.
+- A rewrite's new value is read off its operands on demand (`of`), its
+  operands first where they are new as well, so a chain the simplifier
+  builds is bounded like what the pass saw.
+
+**Found and fixed on the way.** The bits-to-float rule (d1acf33e's
+companion in abf39b0b) took any non-negative integer interval as giving a
+non-negative float, and so read the sign-flipped `T`, `U` and `V` as
+`[0, inf]` from the unsigned xor's `[0, 2^32)`: bits at or past the sign
+bit are negative floats. The rule now needs the bits below `0x80000000`.
+Nothing had relied on the wrong fact.
+
+**What it says now.** In the traversal, `(*_best0)._field0` is `[0, inf]`
+at every load -- the entry's, the node test's, the leaf's -- the stored
+tuple's key `[0, inf]`, the pointee on entry `{[0, inf], ..}` from the
+caller's infinity and the callee's stores. `--dump-intervals` prints the
+analysis to stdout for a test to pin (BONSAI_INTERVALS printed it to
+stderr already), with a parameter's pointee as `*p (on entry)`. The
+kernels are byte for byte the ones before (trace_all 571, occluded_all
+412): nothing reads the new facts yet; the fold is next.
+
+**Tests.** ssa/intervals-from-conditions: a fact from a branch's
+condition and the reciprocal's sign (`guarded`), the same inside a
+select's arm (`chosen`), and a running best behind a pointer across two
+calls (`narrow`, `run`), read off the dump. The suite is otherwise
+unmoved (1350).
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

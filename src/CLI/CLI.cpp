@@ -42,6 +42,7 @@ std::string command_help() {
          "on\n"
       << "     | --dump-ssa-postschedule     | print the SSA a schedule left\n"
       << "     | --dump-ssa-final            | print the SSA the backends generate from\n"
+      << "     | --dump-intervals            | print what every value is known to lie between\n"
       << "-h   | --help";
     return s.str();
 }
@@ -177,6 +178,10 @@ Flags parse(const std::vector<std::string> &args) {
         }
         if (arg == "--dump-ssa-final") {
             options.dump_ssa_final = true;
+            continue;
+        }
+        if (arg == "--dump-intervals") {
+            options.dump_intervals = true;
             continue;
         }
         if (arg == "--mcpu") {
