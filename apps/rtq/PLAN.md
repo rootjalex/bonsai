@@ -3236,6 +3236,45 @@ way; backends/llvm/any-hit-arms, sort-key-nonnegative and
 sort-key-through-bits by the `_holds` phi leaving the loop and the branch to
 the function's exit after the block's test. Every execution test as before.
 
+## The tuned schedule: the nearest hit without the leaf's early-out (2026-10-05)
+
+The user's direction: the layout and the data stay Embree's; the work is
+the schedule, measured on all thirteen meshes, general gains only. The
+first candidate was the one the tuned schedule had deferred "until the
+matching schedule is settled": the nearest hit's `trace.skip(intersectsp_ray_tri)`,
+Embree's `early_out` after a block's edge tests, which the tuned any hit
+dropped on 2026-10-02 for 5-7%. Measured with HEAD's compiler on cpu 11,
+`--side 2048`, least of 5, the two schedules back to back on each mesh,
+every ray agreeing; the tuned nearest hit without the skip over with it,
+ao / diffuse:
+
+| mesh | ao | diffuse | | mesh | ao | diffuse |
+|---|---|---|---|---|---|---|
+| head | +9.4% | +10.0% | | villa | +7.3% | +6.7% |
+| ganesha | +5.1% | +5.3% | | sportscar | +8.8% | +8.6% |
+| dragon | +6.2% | +5.5% | | dambreak | +5.7% | +1.6% |
+| pavilion | +2.6% | +3.3% | | landscape | +0.8% | +0.6% |
+| zero-day | +12.5% | +11.9% | | lte-orb | +5.8% | +5.9% |
+| bmw | +9.4% | +7.9% | | crown | +14.2% | +14.4% |
+| ivy | +13.6% | +12.1% | | | | |
+
+Primary rays within 2% either way (pavilion -1.6%, bmw +1.9%, the rest
+under 1%): a primary ray's leaf work is a small part of its 26-odd
+instructions. Against Embree the tuned nearest hit on incoherent rays goes
+from 0.99-1.21x to 1.02-1.23x -- head 0.99 -> 1.09x, ivy 0.99 -> 1.13x,
+crown 1.03 -> 1.18x, zero-day 1.02 -> 1.14x, bmw 1.03 -> 1.12x, sportscar
+1.04 -> 1.13x, villa 1.02 -> 1.11x, dragon 1.02 -> 1.09x, lte-orb 1.02 ->
+1.07x, ganesha 1.01 -> 1.07x, dambreak 1.00 -> 1.06x, pavilion 1.00 ->
+1.02x, landscape 1.21 -> 1.23x -- and on primary rays stays where it was,
+1.00-1.16x. The any hit's cells are the same schedule as before and moved
+within 1%. Why the early-out loses: the branch on "any lane survived the
+edge tests" is unpredictable on incoherent rays (a block's four triangles
+are rarely all missed or all passed on their edges), and the ten
+instructions it skips -- the depth test and the reciprocal -- cost less
+than its mispredictions; on primary rays the branch is predictable and the
+two cancel. tuned.bonsai carries the measurement; embree.bonsai keeps the
+step, being Embree's structure step for step.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also
