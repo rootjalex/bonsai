@@ -239,9 +239,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           if (@484) {
             let @114 = _t501.children in
             let @115 = cast<u32x4>(@114) in
-            let @116 = concat(@115) in
             let @578 = u32x4(15u) in
-            let @117 = @116 & @578 in
+            let @117 = @115 & @578 in
             let @579 = u32x4(0u) in
             let @118 = @117 == @579 in
             let @580 = boolx4(false) in

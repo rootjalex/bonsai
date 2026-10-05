@@ -1766,7 +1766,30 @@ void simplify(Function &func) {
                 continue; // an effect, not a value
             }
             s.at = i;
-            ValuePtr v = s.rule(instr->op, instr->type, instr->operands);
+            // A shuffle of one vector in its own order is that vector: the
+            // concatenation of one source that a widened read of lanes
+            // makes (ir::VectorShuffle::make_concat), and what stood between
+            // a lane taken out of it and the storage the vector was read
+            // from (the ExtractIdx rule) -- a prefetch's address at a lane
+            // was a spill of the whole vector and a load from the slot where
+            // the child itself was one load off the row. Decided here, where
+            // the instruction's lane order is at hand.
+            ValuePtr v;
+            if (instr->op == Instruction::Op::Shuffle &&
+                instr->operands.size() == 1 && instr->type.is_vector() &&
+                equals(instr->operands[0]->get_type(), instr->type) &&
+                instr->shuffle.size() == instr->type.lanes()) {
+                bool identity = true;
+                for (size_t k = 0; identity && k < instr->shuffle.size(); k++) {
+                    identity = instr->shuffle[k] == int(k);
+                }
+                if (identity) {
+                    v = instr->operands[0];
+                }
+            }
+            if (v == nullptr) {
+                v = s.rule(instr->op, instr->type, instr->operands);
+            }
             // A rule may have put new instructions in front of this one.
             i = s.at;
             if (v == nullptr) {

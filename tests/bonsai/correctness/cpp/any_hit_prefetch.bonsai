@@ -1,0 +1,58 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/any_hit_prefetch
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_any_hit_prefetch.cpp -I. -o tests/bonsai/correctness/cpp/main_any_hit_prefetch.o, clang++ tests/bonsai/correctness/cpp/main_any_hit_prefetch.o tests/bonsai/correctness/cpp/any_hit_prefetch.o -o tests/bonsai/correctness/cpp/any_hit_prefetch, ./tests/bonsai/correctness/cpp/any_hit_prefetch, rm tests/bonsai/correctness/cpp/any_hit_prefetch, rm tests/bonsai/correctness/cpp/main_any_hit_prefetch.o, rm tests/bonsai/correctness/cpp/any_hit_prefetch.h, rm tests/bonsai/correctness/cpp/any_hit_prefetch.o
+
+// ssa/any-hit-prefetch.bonsai, run (main_any_hit_prefetch.cpp): any_hit_arms'
+// scene and checks -- one eight-wide node whose children's boxes are
+// stepped so that rays cross one, two, three, four, five or eight of them,
+// in lane sets both contiguous and not -- over references that are
+// pointers, with the children prefetched inside the arms of the switch on
+// the hit count. Every arm's pushes have to deliver every pushed child, and
+// the prefetches, now addressed by the children the arms load, must touch
+// only memory that exists.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    layout tris(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 8];
+                lower_x : vector[f32, 8];
+                upper_x : vector[f32, 8];
+                lower_y : vector[f32, 8];
+                upper_y : vector[f32, 8];
+                lower_z : vector[f32, 8];
+                upper_z : vector[f32, 8];
+                lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+    occluded.prefetch(tris.Interior.children);
+}

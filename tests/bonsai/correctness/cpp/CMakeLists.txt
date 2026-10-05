@@ -4,6 +4,7 @@ add_bonsai_tests(
     adt.bonsai
     and_of_compares.bonsai
     any_hit_arms.bonsai
+    any_hit_prefetch.bonsai
     foreign.bonsai
     adt-bvh.bonsai
     adt-bvh-sorted.bonsai

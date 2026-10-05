@@ -1,0 +1,70 @@
+//! flags: -p ssa
+
+// any-hit-arms.bonsai with the children prefetched (`.prefetch`) and the
+// storage as Embree's: references that are pointers, looked up in a `ptr
+// group` (ptr-arena-rows.bonsai), at the width where the mask's lanes are
+// the bits of a byte.
+//
+// What to read for: where the prefetch goes once the run of hits is a
+// switch on their count (SSA/QueueRecursion.cpp). The vectorizer made it
+// one prefetch of the eight children's addresses under the hits' mask, in
+// the node's block; the backend would then fetch each lane behind a test of
+// the count, dispatching the count once there and again in the arms. Each
+// arm knows its lanes, so each fetches its own children with no test, as
+// Embree's traverseAnyHit calls `prefetch(child)` as it takes a child: one
+// `prefetch(children[ctz(bits)], 256u)` in the one-hit arm, two in the
+// two-hit arm, and so on, each address the child's own load off the row
+// (the shuffle of one source folded, the lane read off read-only storage);
+// the default arm for five hits and more keeps the one vector prefetch
+// under the mask; and the node's block has none left.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    // Embree's NodeRef as it is: an address with the kind in its low four
+    // bits, bit 3 a leaf and the three below it the leaf's tile count; an
+    // interior node's address is its reference, a leaf's tiles begin at the
+    // address with the kind taken off. The walk starts at `root`.
+    layout tris(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 8];
+                lower_x : vector[f32, 8];
+                upper_x : vector[f32, 8];
+                lower_y : vector[f32, 8];
+                upper_y : vector[f32, 8];
+                lower_z : vector[f32, 8];
+                upper_z : vector[f32, 8];
+                lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+
+    occluded.vectorize(tris.Interior.children)
+            .loopify(64);
+    occluded.prefetch(tris.Interior.children);
+}

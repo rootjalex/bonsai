@@ -9,6 +9,7 @@ add_bonsai_tests(
     adt-tagged-index.bonsai
     and-of-compares.bonsai
     any-hit-arms.bonsai
+    any-hit-prefetch.bonsai
     foreign.bonsai
     foreign-linked.bonsai
     child-volumes.bonsai

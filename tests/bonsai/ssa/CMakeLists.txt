@@ -6,6 +6,7 @@ add_bonsai_tests(
     alias-edges.bonsai
     and-of-compares.bonsai
     any-hit-arms.bonsai
+    any-hit-prefetch.bonsai
     calls.bonsai
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai

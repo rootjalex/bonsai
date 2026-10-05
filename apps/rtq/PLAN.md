@@ -2582,6 +2582,104 @@ head's any hit: instructions 15399 -> 15168 on primary rays (-1.5%) and
 never the cost; what it buys is the form in which the best can be folded
 in exactly, above.
 
+## The children's prefetch in the arm that takes them (2026-10-04)
+
+**What the backend did.** `.prefetch(children)` became one vector
+prefetch of the eight children's addresses under the hits' mask, in the
+node's block, and CodeGen_LLVM::emit_prefetch fetched each lane behind a
+test of the count: compress the addresses, take lane 0, fetch its four
+lines, test for a second hit (`lea; test; je`), take lane 1, fetch, test
+for a third (`cmp; je`), and so on -- the count dispatched there and then
+again in the arms the run became, on the same mask at two widths LLVM did
+not unify (perf: the any hit on ao rays running 1.8% more instructions
+after the layout commit, the one-hit test done twice).
+
+**What was built** (SSA/QueueRecursion.cpp). The arms know their
+children, so each fetches them itself with no test, as Embree's
+traverseAnyHit and traverseClosestHit call `prefetch(child)` as they take
+a child: a lane run's arm for h hits fetches its h lanes' addresses
+(`addresses[ctz(bits)]`, ...); a sorted run's arm for h hits fetches each
+child's address at the lane its key names, through the same `v[idx]` the
+child itself was taken out at -- or the row load the simplifier had made
+of it already -- and the one-hit arm's through the same compress; the arm
+over every lane (five hits and more, or the network) keeps the one vector
+prefetch, copied in; and the vector prefetch in the node's block is taken
+out once every arm has been seen. The prefetch is found from an arm by
+walking up its predecessors, nearest first, through the joins of the
+linearizer's gadgets, and only one whose block dominates the arm will do:
+a gadget's arm holds a copy of the children's test with a prefetch of its
+own, and dominates nothing below the join, so there (the four-wide tests)
+the prefetches stay where they were. A vector of pointers -- an offset
+layout's `&arena[..]` over the lanes, which the backends keep whole -- is
+left alone too; a `ptr group`'s references are integers and come apart by
+lane. With the address at a lane, `concat(cast<u64x8>(children))[lane]`,
+LLVM spilled the vector to read one lane where the child itself was one
+load off the row: the simplifier now folds a shuffle of one vector in its
+own order to the vector (the concat of one source a widened read makes),
+and the read-only lane rule then makes the prefetch's address the child's
+own load. The one-hit path of the any hit is now `kortest; je; kmov;
+blsr; jne; tzcnt; mov r15, [r15 + rax*8]; prefetcht0 [r15] x4; jmp`:
+Embree's.
+
+**The kernels.** More code and less work: trace_all 531 -> 571
+instructions, occluded_all 371 -> 412, the arms each carrying their own
+prefetch lines where the chain carried one set behind tests; the children
+vector's load only in the arm that compresses it.
+
+**Measured** against abf39b0b (its compiler on its apps/rtq, in its
+worktree) on cpu 11, `--side 2048`, least of 5, every ray agreeing, a pair
+taken only where Embree's own number held between its two sides -- two
+runs were lost to the peer's render being killed on the core as the
+window opened and one to a compare.sh run by hand on the same core, which
+pins to cpu 11 as this one does and shares apps/rtq/rtq.out with it.
+Matching schedule (primary / ao / diffuse): the nearest hit on head 63.37
+-> 63.97 Mrays/s (0.99 -> 1.00x) / 14.84 -> 15.14 (0.94 -> 0.96x) / 13.23
+-> 13.47 (0.95 -> 0.96x); ganesha 23.79 -> 23.82 (0.99 -> 1.00x) / 6.57 ->
+6.56 (1.00x) / 6.05 -> 6.07 (1.00 -> 0.99x); dragon 34.89 -> 34.76 (1.03 ->
+1.02x) / 4.72 -> 4.71 (1.02 -> 1.01x) / 4.19 -> 4.15 (1.01 -> 1.00x). The
+any hit on head 92.62 -> 95.58 (1.08 -> 1.12x) / 17.41 -> 17.73 (0.98 ->
+1.00x) / 15.81 -> 16.03 (0.98 -> 0.99x); ganesha 29.17 -> 29.73 (1.00 ->
+1.02x) / 6.98 -> 7.17 (0.97 -> 0.99x) / 5.93 -> 6.10 (0.97 -> 0.98x);
+dragon 38.20 -> 38.60 (1.01 -> 1.02x) / 4.98 -> 5.07 (0.99 -> 1.00x) / 4.38
+-> 4.46 (0.97 -> 1.00x). Tuned schedule: head's nearest hit 62.67 -> 64.34
+(0.99 -> 1.01x) / 14.76 -> 15.09 (0.94 -> 0.96x) / 13.15 -> 13.43 (0.95 ->
+0.97x) and its any hit 90.47 -> 94.84 (1.06 -> 1.11x) / 18.89 -> 19.36
+(1.07 -> 1.09x) / 17.28 -> 17.71 (1.07 -> 1.09x); dragon's any hit 38.00 ->
+38.07 (1.01 -> 1.00x) / 5.20 -> 5.40 (1.03 -> 1.06x) / 4.59 -> 4.68 (1.03
+-> 1.05x) and its nearest hit level; ganesha's any hit 28.76 -> 29.61 (1.00
+-> 1.02x) / 7.23 -> 7.55 (1.02 -> 1.05x) / 6.22 -> 6.27 (1.01 -> 1.02x),
+its before from the first run and its after from the third (each pair's
+other half lost as above), and its nearest hit level. So the any hit gains
+1.5-3% on every mesh and batch and head's nearest hit 1-2%, and nothing
+loses; the any hit now stands at 1.02-1.12x of Embree on primary rays and
+0.98-1.00x on incoherent ones, the nearest hit at 1.00-1.02x and
+0.96-1.01x.
+
+perf on head's any hit (`occluded_all` against Embree's occluded kernel,
+cpu 13, one sample in 20011 events of cycles, instructions and branch
+misses; Embree's own counts drift up to 2% between the two runs, which is
+the resolution): on primary rays instructions 33349 -> 32000 (-4.0%;
+Embree 34025-34124, so 6% fewer than Embree's now), cycles 33317 -> 31981
+(-4.0%; Embree 33921-34201), branch misses 117 -> 116 (Embree 116); on ao
+rays instructions 29811 -> 29770 and cycles 29806 -> 29703 (Embree
+29283-29548 and 28897-29436), branch misses 635 -> 670 against Embree's
+605-610 -- level within the drift. That the ao batch's instruction count
+does not move where the primary batch's falls 4% is the batch: of its
+713933 rays 25474 are blocked, so a dispatch with a hit in it is a small
+part of an ao ray's instructions, which go mostly to the ray's setup and
+to node tests that hit nothing, where nothing changed. The two kernels'
+instruction mixes differ by the forty prefetch lines, two compares and two
+moves; no spill was added (16 stores to the frame in each).
+
+**Tests.** ssa/any-hit-prefetch, backends/llvm/any-hit-prefetch and
+correctness/cpp/any_hit_prefetch with its main: any-hit-arms with
+`.prefetch(tris.Interior.children)`, the prefetches in the arms (one in
+the one-hit arm, two in the two-hit arm, ..., the vector one in the
+default arm, none in the node's block), through LLVM the `prefetch` calls
+on the loaded children, and the same answers run. The two four-wide
+goldens with a prefetch (prefetch-children, ptr-arena-rows-vectorized)
+move only by the concat fold.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

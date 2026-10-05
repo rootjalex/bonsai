@@ -8,6 +8,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -920,6 +921,99 @@ void queue_recursion(Function &func, size_t size) {
         return false;
     };
 
+    // The prefetch of a run's children, where the schedule asked for one
+    // (`.prefetch(children)`): the vectorizer made it one prefetch of the
+    // children's addresses under the hits' mask, in the block the run was
+    // in, and the backend fetches each lane behind a test of the count
+    // (CodeGen_LLVM::emit_prefetch) -- the count dispatched twice, there and
+    // in the arms the run became. An arm that knows its children fetches
+    // them itself, by lane and with no test, as Embree prefetches a child as
+    // it takes it (traverseClosestHit's and traverseAnyHit's `prefetch`);
+    // the arm over every lane keeps the vector prefetch; and the one in the
+    // run's block goes, once every arm has been seen. Found from an arm by
+    // walking up its block's one predecessor at a time -- a sort's arms sit
+    // two or three blocks below the run's (SSA/SortRecursion.cpp) -- as the
+    // prefetch of as many lanes as the arm's children were taken from.
+    vector<std::pair<shared_ptr<Instruction>, shared_ptr<Block>>> relocated_prefetches;
+    const auto prefetch_above = [&](const string &from, std::optional<uint32_t> n)
+        -> std::pair<shared_ptr<Instruction>, shared_ptr<Block>> {
+        const auto in_block = [&](const string &block_name)
+            -> std::pair<shared_ptr<Instruction>, shared_ptr<Block>> {
+            const auto found = blocks.find(block_name);
+            if (found == blocks.end()) {
+                return {nullptr, nullptr};
+            }
+            const shared_ptr<Block> &b = found->second;
+            for (auto it = b->instrs.rbegin(); it != b->instrs.rend(); ++it) {
+                const Instruction &in = **it;
+                // Addresses as integers, a ptr group's references
+                // (ir::Group::Type::Pointer), which a lane can be taken out
+                // of; a vector of pointers -- an offset layout's `&arena[..]`
+                // over the lanes -- is one the backends keep whole, and its
+                // prefetch stays where it is.
+                if (in.op == Instruction::Op::Intrinsic &&
+                    in.intrinsic == ir::Intrinsic::prefetch &&
+                    (in.operands.size() == 2 || in.operands.size() == 3) &&
+                    in.operands[0]->get_type().is_vector() &&
+                    in.operands[0]->get_type().element_of().is_int_or_uint() &&
+                    (!n.has_value() ||
+                     in.operands[0]->get_type().lanes() == *n)) {
+                    return {*it, b};
+                }
+            }
+            return {nullptr, nullptr};
+        };
+        // Upward from the arm, nearest blocks first, through the joins of
+        // the gadgets the linearizer put the gang's masked work behind
+        // (SSA/Linearize.h): the children's test and its prefetch sit a few
+        // blocks above the run, and nothing else's prefetch is an ancestor
+        // this near. Only a prefetch whose block dominates the arm will do:
+        // its addresses are read in the arm, and a gadget's arm -- one of
+        // two copies of the children's test, each with a prefetch of its
+        // own -- dominates nothing below the join. There the prefetches
+        // stay where they are.
+        constexpr size_t kBlocksLookedAt = 12;
+        const BlockId from_id = cfg.find(from);
+        std::deque<string> work = {from};
+        set<string> seen;
+        while (!work.empty() && seen.size() < kBlocksLookedAt) {
+            const string at = work.front();
+            work.pop_front();
+            if (!seen.insert(at).second) {
+                continue;
+            }
+            const BlockId id = cfg.find(at);
+            if (auto found = in_block(at);
+                found.first && id != NO_BLOCK && from_id != NO_BLOCK &&
+                dom.dominates(id, from_id)) {
+                return found;
+            }
+            if (id == NO_BLOCK) {
+                continue;
+            }
+            for (BlockId pred : cfg.preds[id]) {
+                work.push_back(cfg.name(pred));
+            }
+        }
+        return {nullptr, nullptr};
+    };
+    // One child's lines, at `address`, with the bytes the vector prefetch
+    // was told.
+    const auto scalar_prefetch = [&](const shared_ptr<Block> &into,
+                                     const shared_ptr<Instruction> &vector_prefetch,
+                                     const shared_ptr<Value> &address) {
+        auto p = std::make_shared<Instruction>(
+            Instruction::Op::Intrinsic,
+            vector<shared_ptr<Value>>{address, vector_prefetch->operands[1]},
+            into);
+        p->intrinsic = ir::Intrinsic::prefetch;
+        into->instrs.push_back(p);
+    };
+    const auto definer = [](const shared_ptr<Value> &v) -> const Instruction * {
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        return held == nullptr ? nullptr : held->get();
+    };
+
     for (const string &name : recursive) {
         auto block = blocks.at(name);
         const auto call = called_by(*block);
@@ -1041,6 +1135,15 @@ void queue_recursion(Function &func, size_t size) {
                 made,
                 {last ? Terminator::Jump{pop->name} : call->cont,
                  Terminator::Jump{push->name}}};
+            // The arm over every lane keeps the vector prefetch, here where
+            // some lane is hit (see prefetch_above).
+            if (const auto [fetch, where] = prefetch_above(name, n); fetch) {
+                auto copy = std::make_shared<Instruction>(
+                    Instruction::Op::Intrinsic, fetch->operands, push);
+                copy->intrinsic = ir::Intrinsic::prefetch;
+                push->instrs.push_back(copy);
+                relocated_prefetches.emplace_back(fetch, where);
+            }
 
             auto top =
                 append(func, push, count_type, Instruction::Op::Load, {count});
@@ -1137,6 +1240,26 @@ void queue_recursion(Function &func, size_t size) {
             auto mask = lanes_as_vector(func, into, run.mask, n);
             auto hits = append(func, into, count_type, Instruction::Op::Popcount,
                                {mask});
+            // The prefetch of the hit children, where the schedule asked for
+            // one (`.prefetch(children)`): the vectorizer made it one
+            // prefetch of the children's addresses under the hits' mask, and
+            // the backend fetches each lane behind a test of the count
+            // (CodeGen_LLVM::emit_prefetch) -- the count dispatched twice,
+            // once there and once here. Each arm below knows its lanes, so
+            // each arm fetches its children by lane with no test, as Embree
+            // prefetches a child as it takes it (traverseAnyHit's
+            // `prefetch(child)`), and the default arm keeps the one vector
+            // prefetch. Found in the run's block as the prefetch under this
+            // run's mask.
+            const auto [fetch, fetch_block] = prefetch_above(name, n);
+            const auto prefetch_lane = [&, fetch = fetch](
+                                           const shared_ptr<Block> &arm,
+                                           const shared_ptr<Value> &lane) {
+                scalar_prefetch(
+                    arm, fetch,
+                    append(func, arm, fetch->operands[0]->get_type().element_of(),
+                           Instruction::Op::ExtractIdx, {fetch->operands[0], lane}));
+            };
             // The run's vectors, one per stack, read in `block`.
             const auto vectors_in = [&](const shared_ptr<Block> &block) {
                 std::map<size_t, shared_ptr<Value>> vectors;
@@ -1287,6 +1410,11 @@ void queue_recursion(Function &func, size_t size) {
                         lanes.push_back(h == 1 ? lowest(arm, whole)
                                                : highest(arm, whole));
                     }
+                    if (fetch) {
+                        for (const shared_ptr<Value> &lane : lanes) {
+                            prefetch_lane(arm, lane);
+                        }
+                    }
                     const std::map<size_t, shared_ptr<Value>> vectors =
                         vectors_in(arm);
                     if (h > 1) {
@@ -1336,6 +1464,19 @@ void queue_recursion(Function &func, size_t size) {
                     push = new_block(func, name + "!push");
                     func.blocks.push_back(push);
                     by_count.targets.push_back(Terminator::Jump{push->name});
+                }
+                if (fetch) {
+                    // The vector prefetch goes to the default arm, whose
+                    // lanes are not known one by one; with every count an
+                    // arm of its own it goes altogether (see prefetch_above;
+                    // the one in the run's block is taken out at the end).
+                    if (push) {
+                        auto copy = std::make_shared<Instruction>(
+                            Instruction::Op::Intrinsic, fetch->operands, push);
+                        copy->intrinsic = ir::Intrinsic::prefetch;
+                        push->instrs.push_back(copy);
+                    }
+                    relocated_prefetches.emplace_back(fetch, fetch_block);
                 }
                 // Not one switch on the count but Embree's traverseAnyHit
                 // in its own order: no hit (`if (unlikely(mask == 0)) goto
@@ -1457,6 +1598,71 @@ void queue_recursion(Function &func, size_t size) {
             }
             return call->conds[i];
         };
+        // An arm by count of a sorted run (SSA/SortRecursion.cpp): each of
+        // its children was taken out of the run's vectors at a lane -- the
+        // one hit's from the lanes packed to the front, the others' from
+        // the lane a sorted key names -- so each child's address is the
+        // run's addresses taken out the same way, and fetched here with no
+        // test (see prefetch_above).
+        // A child was taken out of a vector at a lane, `v[idx]`, or -- the
+        // simplifier having read the lane off read-only storage already
+        // (SSA/Simplify.cpp, ExtractIdx) -- loaded from the row at that
+        // lane's address, `*(&row[idx])`; either way `idx` is the lane.
+        const auto lane_of = [&](const shared_ptr<Value> &a)
+            -> std::pair<shared_ptr<Value>, std::optional<uint32_t>> {
+            const Instruction *d = definer(a);
+            if (d == nullptr) {
+                return {nullptr, std::nullopt};
+            }
+            if (d->op == Instruction::Op::ExtractIdx && d->operands.size() == 2 &&
+                d->operands[0]->get_type().is_vector()) {
+                return {d->operands[1], d->operands[0]->get_type().lanes()};
+            }
+            if (d->op == Instruction::Op::Load && d->operands.size() == 1) {
+                const Instruction *at = definer(d->operands[0]);
+                if (at != nullptr && at->op == Instruction::Op::GEP &&
+                    at->operands.size() == 2 &&
+                    !at->operands[1]->get_type().is_vector()) {
+                    return {at->operands[1], std::nullopt};
+                }
+            }
+            return {nullptr, std::nullopt};
+        };
+        for (size_t i = 0; i < call->args.size(); i++) {
+            for (const shared_ptr<Value> &a : call->args[i]) {
+                const auto [idx, n] = lane_of(a);
+                if (!idx) {
+                    continue;
+                }
+                const auto [fetch, where] = prefetch_above(name, n);
+                if (!fetch) {
+                    break;
+                }
+                shared_ptr<Value> addresses = fetch->operands[0];
+                const Instruction *d = definer(a);
+                if (const Instruction *packed =
+                        d->op == Instruction::Op::ExtractIdx ? definer(d->operands[0])
+                                                              : nullptr;
+                    packed != nullptr &&
+                    packed->op == Instruction::Op::Intrinsic &&
+                    packed->intrinsic == ir::Intrinsic::compress &&
+                    packed->operands.size() >= 2) {
+                    auto compressed = append(func, into, addresses->get_type(),
+                                             Instruction::Op::Intrinsic,
+                                             {addresses, packed->operands[1]});
+                    std::get<shared_ptr<Instruction>>(compressed->data)->intrinsic =
+                        ir::Intrinsic::compress;
+                    addresses = compressed;
+                }
+                scalar_prefetch(into, fetch,
+                                append(func, into,
+                                       addresses->get_type().element_of(),
+                                       Instruction::Op::ExtractIdx,
+                                       {addresses, idx}));
+                relocated_prefetches.emplace_back(fetch, where);
+                break;
+            }
+        }
         for (size_t i = call->args.size(); i-- > waiting_from;) {
             shared_ptr<Block> push = into;
             shared_ptr<Block> pushed;
@@ -1535,6 +1741,14 @@ void queue_recursion(Function &func, size_t size) {
         }
     }
 
+    // The vector prefetches whose children the arms now fetch themselves.
+    for (const auto &[fetch, where] : relocated_prefetches) {
+        auto &instrs = where->instrs;
+        const auto it = std::find(instrs.begin(), instrs.end(), fetch);
+        if (it != instrs.end()) {
+            instrs.erase(it);
+        }
+    }
     refresh_preds(func);
     // The runs are gone, and with them the only readers of what was made for
     // the calls alone: a sorted run's lanes and conditions (SortedRun).

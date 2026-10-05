@@ -261,8 +261,7 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @407 = @93 && @150 in
             let @151 = _t392.children in
             let @152 = cast<u64x4>(@151) in
-            let @153 = concat(@152) in
-            let _effect0 = prefetch(@153, 144u, @407) in
+            let _effect0 = prefetch(@152, 144u, @407) in
             intersects_Ray_AABB$r0!skip = @101
           } else {
             intersects_Ray_AABB$r0!skip = undef
@@ -283,8 +282,7 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @410 = @401 && @201 in
             let @202 = _t392.children in
             let @203 = cast<u64x4>(@202) in
-            let @204 = concat(@203) in
-            let _effect1 = prefetch(@204, 144u, @410) in
+            let _effect1 = prefetch(@203, 144u, @410) in
             let @515 = boolx4(false) in
             let @419 = select(@401, @515, (*intersects_Ray_AABB$r0!skip)) in
             intersects_Ray_AABB$r0!skip0 = @419

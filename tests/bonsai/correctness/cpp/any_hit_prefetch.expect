@@ -1,0 +1,27 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_any_hit_prefetch.cpp -I. -o tests/bonsai/correctness/cpp/main_any_hit_prefetch.o
+[test] clang++ tests/bonsai/correctness/cpp/main_any_hit_prefetch.o tests/bonsai/correctness/cpp/any_hit_prefetch.o -o tests/bonsai/correctness/cpp/any_hit_prefetch
+[test] ./tests/bonsai/correctness/cpp/any_hit_prefetch
+down over lane 1 at y=1 (boxes 1): occluded -- ok
+down over lane 6 at y=1 (boxes 1): clear -- ok
+down over lane 1 at y=0.85 (boxes 1,6): occluded -- ok
+down over lane 6 at y=0.85 (boxes 1,6): occluded -- ok
+down over lane 3 at y=0.85 (boxes 1,6): clear -- ok
+down over lane 1 at y=0.75 (boxes 1,6,7): occluded -- ok
+down over lane 6 at y=0.75 (boxes 1,6,7): occluded -- ok
+down over lane 7 at y=0.75 (boxes 1,6,7): occluded -- ok
+down over lane 0 at y=0.75 (boxes 1,6,7): clear -- ok
+down over lane 1 at y=0.55 (boxes 1,4,6,7): occluded -- ok
+down over lane 4 at y=0.55 (boxes 1,4,6,7): occluded -- ok
+down over lane 6 at y=0.55 (boxes 1,4,6,7): occluded -- ok
+down over lane 7 at y=0.55 (boxes 1,4,6,7): occluded -- ok
+down over lane 2 at y=0.55 (boxes 1,4,6,7): clear -- ok
+down over lane 2 at y=0.35 (boxes 1,2,4,6,7): occluded -- ok
+down over lane 4 at y=0.35 (boxes 1,2,4,6,7): occluded -- ok
+down over lane 7 at y=0.35 (boxes 1,2,4,6,7): occluded -- ok
+down over lane 0 at y=0.35 (boxes 1,2,4,6,7): clear -- ok
+down over lane 0 at y=0.2 (boxes 0,1,2,3,4,5,6,7): occluded -- ok
+down over lane 3 at y=0.2 (boxes 0,1,2,3,4,5,6,7): occluded -- ok
+down over lane 5 at y=0.2 (boxes 0,1,2,3,4,5,6,7): occluded -- ok
+down over lane 7 at y=0.2 (boxes 0,1,2,3,4,5,6,7): occluded -- ok
+down over lane 4 at y=0.2 (boxes 0,1,2,3,4,5,6,7, short): clear -- ok
+down over lane 2 at y=1.5 (boxes none): clear -- ok
