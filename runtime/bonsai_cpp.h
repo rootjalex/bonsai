@@ -7,6 +7,7 @@
 #include "bonsai_tree.h"
 #include "bonsai_vector.h"
 #include "u24.h"
+#include "u4.h"
 #include "u56.h"
 #include <cmath>
 

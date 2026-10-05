@@ -3395,6 +3395,146 @@ writes, a different question, and the blend is two instructions on
 multi-hit nodes, about 0.3% of the nearest hit. Closed as not worth its
 cost; this record is what the attempt leaves.
 
+## Embree's four-wide tree: the layout matched, the schedule matched (2026-10-05)
+
+The user's next direction: other trees from Embree, the layout matched
+first, then a matching schedule, evaluated on every mesh and ray type.
+The first is Embree's BVH4 over Triangle4 leaves -- what Embree builds on
+a machine without AVX2 ("BVH8 reduces performance on AVX only-machines",
+scene.cpp) and the tree its compact and robust variants use.
+
+**The layout** (schedules/trees/bvh4.bonsai): bvh8.bonsai with four
+children to a node -- Embree's AABBNode for N = 4, 128 bytes, the four
+references then six vectors of four floats in Embree's order -- and
+otherwise its twin: the same NodeRef with the kind in the low four bits
+(byteNodeAlignment = 4 * N = 16 leaves them free), the same Triangle4
+blocks, the same `ptr group` arena. The driver (rtq_hook.cpp) reads the
+width off the layout it is compiled against, `kWidth =
+sizeof(NodeRow::children) / 8`, and everything that depended on eight
+follows it: the builder's branching factor, the loops over a row's lanes,
+the row's size and offsets (32 N bytes; the bounds at 8 N, 12 N, .., 28 N)
+checked at compile time against Embree's, and which tree Embree's own
+device is asked for -- `tri_accel=bvh4.triangle4` for a four-wide layout,
+so that both sides of a table traverse a tree of the width being compared
+(`--embree-stats` shows `accel = bvh4.triangle4`). The leaf's block count
+limit is the same seven (NodeRef::maxLeafBlocks = items_mask - tyLeaf, for
+either N), so rtcBuildBVH's settings are the eight-wide ones but the
+branching factor; the relocation of the largest nodes runs as before. On
+head: 1735 nodes of 128 bytes where the eight-wide tree had 779 of 256;
+every ray agrees with Embree's four-wide kernel on every mesh.
+
+**The schedules** (embree4.bonsai, tuned4.bonsai): embree.bonsai and
+tuned.bonsai with four lanes where they have eight and the stack sized for
+N = 4 (stackSizeSingle = 1 + (N - 1) * maxDepth + 3 = 244). What each
+directive stands for in Embree's four-wide code is what it stood for in the
+eight-wide: traverseClosestHit sorts two hits by one compare and three or
+four by sort3 and sort4 -- our counted arms, and with four lanes no network
+arm, the counts covering every lane; intersectNode's four-wide test;
+traverseAnyHit's pushes in stored order. Kernels: trace_all 446
+instructions, occluded_all 329 (579 and 397 eight wide). One difference the
+schedule cannot state: the layout prefetches the widest arm's bytes for a
+hit child, 176 (a Triangle4 block, three lines) where Embree's
+BVH::prefetch fetches two lines for N = 4, node or leaf alike.
+
+**Measured** on the thirteen meshes (cpu 11, `--side 2048`, least of 5,
+both schedules back to back per mesh, every ray agreeing with Embree's
+four-wide kernel), bonsai over Embree's BVH4, nearest hit then any hit,
+each primary / ao / diffuse:
+
+| mesh | embree4 nearest | embree4 any | tuned4 nearest | tuned4 any |
+|---|---|---|---|---|
+| head | 1.02 / 0.92 / 0.92 | 1.00 / 0.89 / 0.89 | 1.01 / 1.01 / 1.01 | 0.99 / 0.95 / 0.95 |
+| ganesha | 0.96 / 0.97 / 0.96 | 0.93 / 0.91 / 0.92 | 0.98 / 1.00 / 1.00 | 0.92 / 0.94 / 0.95 |
+| dragon | 1.01 / 0.99 / 0.99 | 0.96 / 0.95 / 0.95 | 1.00 / 1.02 / 1.01 | 0.94 / 0.97 / 0.97 |
+| pavilion | 1.04 / 0.92 / 0.92 | 1.00 / 0.90 / 0.89 | 1.01 / 0.95 / 0.95 | 0.99 / 0.90 / 0.90 |
+| zero-day | 1.19 / 0.95 / 0.95 | 1.16 / 0.89 / 0.89 | 1.18 / 1.06 / 1.05 | 1.16 / 0.97 / 0.98 |
+| bmw | 0.97 / 0.94 / 0.94 | 0.94 / 0.90 / 0.91 | 0.99 / 1.02 / 1.01 | 0.94 / 0.95 / 0.96 |
+| crown | 1.06 / 0.96 / 0.96 | 1.04 / 0.91 / 0.90 | 1.07 / 1.08 / 1.07 | 1.03 / 0.98 / 0.98 |
+| ivy | 1.01 / 0.93 / 0.93 | 1.01 / 0.90 / 0.90 | 1.02 / 1.03 / 1.02 | 0.98 / 0.98 / 0.97 |
+| villa | 0.96 / 0.94 / 0.94 | 0.94 / 0.90 / 0.91 | 0.97 / 1.00 / 1.01 | 0.92 / 0.94 / 0.95 |
+| sportscar | 0.99 / 0.98 / 0.97 | 0.96 / 0.92 / 0.92 | 1.01 / 1.04 / 1.03 | 0.95 / 0.97 / 0.96 |
+| dambreak | 0.95 / 0.95 / 0.94 | 0.92 / 0.90 / 0.92 | 0.99 / 1.00 / 1.00 | 0.91 / 0.94 / 0.94 |
+| landscape | 1.18 / 1.16 / 1.16 | 1.08 / 1.05 / 1.06 | 1.17 / 1.16 / 1.15 | 1.07 / 1.05 / 1.04 |
+| lte-orb | 1.04 / 0.98 / 0.98 | 1.01 / 0.94 / 0.93 | 1.04 / 1.03 / 1.02 | 0.99 / 0.99 / 0.98 |
+
+Not the parity the eight-wide matching schedule has: embree4 was 3-8%
+behind Embree's four-wide nearest hit on incoherent rays and 5-11% behind
+its any hit, with primary rays level to ahead; tuned4 (no leaf early-out
+on either query) recovered the nearest hit to 0.95-1.08x and the any hit
+to 0.90-0.99x on those batches. Embree's own four-wide tree runs 5-20%
+slower than its eight-wide one (head's primary rays 54.2 against 63.5
+Mrays/s), so the absolute rates are lower on both sides.
+
+**The cause: a four-wide mask had no integer.** The profile on head's
+diffuse any hit: 12% more instructions than Embree's four-wide kernel at
+the same branch misses (ivy +15%, primary rays +9%). The passes read a
+mask's lanes as the bits of an integer only for 8, 16, 32 or 64 lanes
+(`kmov`, then `tzcnt`, `lzcnt`, `blsr`), and a four-lane mask fell back to
+the lane-index forms -- the least lane the mask keeps as a masked select of
+the lane ramp and a min reduction, the greatest as a max reduction, a lane
+cleared by a compare against it -- so where Embree's arm for three hits is
+`bsf; load; blsr` three times over, ours was a masked blend, two shuffles
+with minimums, a broadcast and a compare each time, and the one-hit descent
+went through a compress and a move (`vpcompressq ymm{k}{z}; vmovq`) where
+the eight-wide one is a `tzcnt` and a load. The pass said so itself: "a
+four-wide mask has no integer to count". Now it has: four lanes are four
+bits, `reinterpret<u4>`, widened to the index's word with a cast, and
+counted and cleared there as eight are (SSA/QueueRecursion.cpp's arms,
+SSA/SortRecursion.cpp's one-hit test, SSA/Simplify.cpp's lowest_lane rule).
+LLVM takes an i4 as it is (`kmovd; and 15`); the C++ backend, which the
+comparison compiles with, gets `uint4_t` in runtime/u4.h beside the 24- and
+56-bit types -- a byte read as its low four bits, so the upper bits a
+vector of four bools leaves unspecified never show. The four-wide any hit
+is 329 -> 297 instructions and its arms Embree's shape (`tzcnt; lzcnt;
+tzcnt; three loads; prefetches; a store`); the nearest hit's one-hit path
+is `tzcnt; mov r14, [r14 + rax*8]`. Fifteen goldens moved, all four-wide
+traversals, read by kind: `hits == 1` became `bits & (bits - 1) == 0`, the
+min and max reductions `ctz` and `31 - clz`, and the one-hit `compress(..)
+[0]` a `ctz` and a scalar load off the row (child-volumes-*, arena-rows-*,
+prefetch-children, tiled-leaf-vectorized, skip-leaf-helper, the sort-key
+pair, at the ssa and llvm levels); every execution test as before.
+
+**Measured again** with the mask as bits, the same way (head, ganesha
+and bmw rerun after the other session's last GPU chunk had drained;
+Embree's own rate held within 1-4% of the first run everywhere, the
+diffuse batches within 2%):
+
+| mesh | embree4 nearest | embree4 any | tuned4 nearest | tuned4 any |
+|---|---|---|---|---|
+| head | 1.02 / 0.94 / 0.97 | 1.13 / 1.02 / 1.02 | 1.02 / 1.03 / 1.03 | 1.11 / 1.10 / 1.10 |
+| ganesha | 1.00 / 0.99 / 0.98 | 1.05 / 1.03 / 1.02 | 1.00 / 1.02 / 1.02 | 1.04 / 1.07 / 1.05 |
+| dragon | 1.03 / 1.00 / 1.00 | 1.07 / 1.03 / 1.04 | 1.03 / 1.04 / 1.03 | 1.04 / 1.06 / 1.05 |
+| pavilion | 1.04 / 0.95 / 0.94 | 1.13 / 1.03 / 1.03 | 1.03 / 0.97 / 0.97 | 1.11 / 1.04 / 1.04 |
+| zero-day | 1.20 / 0.97 / 0.97 | 1.22 / 1.03 / 1.03 | 1.21 / 1.08 / 1.08 | 1.22 / 1.14 / 1.13 |
+| bmw | 1.00 / 0.98 / 0.98 | 1.08 / 1.04 / 1.05 | 1.01 / 1.05 / 1.04 | 1.08 / 1.12 / 1.10 |
+| crown | 1.10 / 0.99 / 0.99 | 1.15 / 1.04 / 1.04 | 1.10 / 1.10 / 1.09 | 1.14 / 1.15 / 1.15 |
+| ivy | 1.07 / 0.97 / 0.97 | 1.12 / 1.02 / 1.02 | 1.06 / 1.07 / 1.06 | 1.10 / 1.13 / 1.12 |
+| villa | 0.99 / 0.97 / 0.98 | 1.08 / 1.04 / 1.05 | 0.99 / 1.03 / 1.03 | 1.07 / 1.10 / 1.10 |
+| sportscar | 1.02 / 0.99 / 0.99 | 1.09 / 1.05 / 1.04 | 1.04 / 1.06 / 1.05 | 1.09 / 1.11 / 1.10 |
+| dambreak | 0.99 / 0.98 / 0.98 | 1.06 / 1.03 / 1.03 | 1.00 / 1.03 / 1.00 | 1.05 / 1.08 / 1.04 |
+| landscape | 1.17 / 1.18 / 1.17 | 1.16 / 1.20 / 1.20 | 1.18 / 1.20 / 1.19 | 1.16 / 1.20 / 1.20 |
+| lte-orb | 1.07 / 1.00 / 1.00 | 1.10 / 1.04 / 1.05 | 1.06 / 1.04 / 1.04 | 1.08 / 1.09 / 1.08 |
+
+The matching schedule's any hit went from 5-11% behind to 2-6% ahead on
+incoherent rays and 5-22% ahead on primary; its nearest hit from 3-8%
+behind to level on incoherent rays, 0.94-1.00x (pavilion the low end, as
+on the eight-wide tree), and 0.99-1.20x on primary. The tuned schedule
+is ahead of Embree's four-wide kernel on every cell but pavilion's
+nearest hit on incoherent rays (0.97) and villa's on primary rays
+(0.99), by 3-15% on the incoherent batches. The gain against the first
+measurement, schedule for schedule: the any hit +5-17% on incoherent rays
+(ganesha's ao +17%, head's +13%, crown +11%) and +2-13% on primary; the
+nearest hit +4-15% on incoherent rays (ganesha +15%, head +14%, crown
++11%) and level on primary. The three-line prefetch against Embree's two
+stays as it is: with these numbers it is not a cost to chase.
+
+What the four-wide tree says about the eight-wide one: nothing changes
+there (the eight-wide mask was bits already), but Embree's four-wide
+kernel is the weaker of its two on this machine -- 5-20% slower than its
+eight-wide at the same work -- and our four-wide schedules, generated from
+the same program and the same directives with a 4 where there was an 8,
+are relatively further ahead of it than the eight-wide ones are of theirs.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

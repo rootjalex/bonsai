@@ -1,0 +1,60 @@
+// Embree's BVH4 over Triangle4 leaves, as a tree and a layout: the storage
+// Embree's four-wide intersector (BVHNIntersector1<4>) reads, byte for
+// byte, in Scion's spelling -- bvh8.bonsai with four children to a node,
+// and otherwise its twin; read that file for the full account of the
+// references, the arena and the leaves, which are the same here.
+//
+// What Embree builds this tree for: a machine without AVX2 (scene.cpp,
+// createTriangleAccel: "BVH8 reduces performance on AVX only-machines"),
+// and the compact and robust variants over Triangle4i and Triangle4v. The
+// driver asks Embree's device for it (`tri_accel=bvh4.triangle4`) when the
+// layout it was compiled against is four wide, so that both sides traverse
+// a four-wide tree.
+//
+// A node row is Embree's AABBNode for N = 4, 128 bytes: the four children
+// as 64-bit references, then the bounds as six vectors of four floats in
+// Embree's order -- lower_x, upper_x, lower_y, upper_y, lower_z, upper_z.
+// A reference is Embree's NodeRef as before: the kind in the low four
+// bits, which a 16-byte node alignment (byteNodeAlignment = 4 * N) leaves
+// free. A leaf is Embree's TriangleM<4> blocks, 176 bytes each, as in
+// bvh8.bonsai.
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : BVH4;
+
+    layout triangles(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 4];
+                lower_x : vector[f32, 4];
+                upper_x : vector[f32, 4];
+                lower_y : vector[f32, 4];
+                upper_y : vector[f32, 4];
+                lower_z : vector[f32, 4];
+                upper_z : vector[f32, 4];
+                lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles {
+                    group[4] {
+                        v0 : vec3f;
+                        e1 : vec3f;
+                        e2 : vec3f;
+                        geomID : u32;
+                        primID : u32;
+                    };
+                };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+}

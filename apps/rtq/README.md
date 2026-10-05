@@ -123,8 +123,9 @@ sides' kernels told apart by symbol).
   The driver writes rows and blocks into the arena as Embree's allocator
   places them, checks the struct sizes and offsets against Embree's at
   compile time, and relocates the largest nodes after the build as
-  Embree does. The one `add` of the arena's base per visit is the
-  deliberate difference from Embree's pointers (PLAN.md).
+  Embree does. The arena is a `ptr group`, its rows reached by address,
+  so a reference is Embree's pointer exactly and nothing is added per
+  visit (PLAN.md, "The layout as Embree's").
 - `schedules/embree.bonsai`: the traversal's order (`sort` by each child's
   entry distance), its eight-wide node test and four-wide leaf test
   (`vectorize` of the loop over a node's children and of the loop over a
@@ -134,9 +135,18 @@ sides' kernels told apart by symbol).
   triangle test's early returns, Embree's `early_out`), and the prefetch of
   every hit child's storage as the node test finds it (`prefetch` of the
   children, Embree's `BVH::prefetch`), for both queries.
-- `schedules/tuned.bonsai`: the same without the any-hit query's early
-  exit, which measures 5-7% slower on incoherent rays (see PLAN.md); the
-  schedule that departs from Embree's where a step is measured worse.
+- `schedules/tuned.bonsai`: the same without either query's early exit,
+  which measures 5-7% slower on the any hit's incoherent rays and 5-14%
+  slower on the nearest hit's (see PLAN.md); the schedule that departs
+  from Embree's where a step is measured worse.
+- `schedules/trees/bvh4.bonsai`, `schedules/embree4.bonsai`,
+  `schedules/tuned4.bonsai`: the same three over Embree's four-wide tree,
+  the BVH4 over Triangle4 leaves that Embree builds on a machine without
+  AVX2 -- 128-byte node rows of four children, four lanes in the
+  directives, a stack of 244. The driver reads the width off the layout
+  it is compiled against and asks Embree's device for the tree of that
+  width (`tri_accel=bvh4.triangle4`), so a table's two sides always
+  traverse trees of one width: `--schedule embree4,tuned4`.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
 
 The generated `rtq.h`, `rtq.o`, `rtq.bir` and `rtq.ll` are left in this

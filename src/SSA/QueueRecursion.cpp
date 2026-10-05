@@ -1577,11 +1577,16 @@ void queue_recursion(Function &func, size_t size) {
             // bits of an integer the mask is that integer (`kmov`), a lane
             // its trailing or leading zeros counted (`tzcnt`, `lzcnt`:
             // Embree's bsf and bsr on its movemask) and the lowest lane
-            // cleared by `blsr`; otherwise -- a four-wide mask has no
-            // integer to count -- a lane is the least or the greatest lane
-            // index the mask keeps, and clearing one is a compare against
-            // it.
-            const bool as_bits = n == 8 || n == 16 || n == 32 || n == 64;
+            // cleared by `blsr`. A four-wide mask is four bits, an integer
+            // of a width the machine has no word for, widened to the
+            // index's word below (the C++ backend's uint4_t, runtime/u4.h,
+            // is a byte read as its low four bits); Embree's BVH4 reads its
+            // four-wide mask the same way, `movemask` to a word. Otherwise
+            // -- lanes that are not a power of two -- a lane is the least
+            // or the greatest lane index the mask keeps, and clearing one
+            // is a compare against it.
+            const bool as_bits =
+                n == 4 || n == 8 || n == 16 || n == 32 || n == 64;
             const Type bits_t = as_bits ? UInt_t::make(n) : Type();
             // Counted at the index's width where the mask is narrower:
             // tzcnt and lzcnt answer a zero word with its width, which is

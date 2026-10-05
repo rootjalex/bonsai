@@ -708,20 +708,32 @@ struct Simplifier {
 
     // The lane a mask with one bit on names, as an index of `index_type`:
     // the mask read as an integer and its trailing zeros counted (`kmov`,
-    // `tzcnt`; Embree's `bsf` on its movemask). Only where the mask's lanes
-    // are the bits of an integer type; a shorter mask has no integer to
-    // count, and stays with the compress.
+    // `tzcnt`; Embree's `bsf` on its movemask). Where the mask's lanes are
+    // the bits of an integer type; four lanes are four bits, widened to
+    // the index's word before the count, as SSA/QueueRecursion.cpp widens
+    // them (the C++ backend's uint4_t, runtime/u4.h). A mask of other
+    // widths stays with the compress.
     ValuePtr lowest_lane(const ValuePtr &mask, const Type &index_type) {
         const Type &mt = mask->get_type();
         if (!mt.is<Vector_t>() || !mt.element_of().is<Bool_t>()) {
             return nullptr;
         }
         const uint32_t n = mt.lanes();
-        if (n != 8 && n != 16 && n != 32 && n != 64) {
+        if (n != 4 && n != 8 && n != 16 && n != 32 && n != 64) {
             return nullptr;
         }
         const Type bits_t = UInt_t::make(n);
         ValuePtr bits = make(Instruction::Op::Reinterpret, bits_t, {mask});
+        if (n < 8) {
+            const Type word = index_type.is_int_or_uint() && index_type.bits() >= 32
+                                  ? index_type
+                                  : UInt_t::make(32);
+            ValuePtr wide = make(Instruction::Op::Cast, word, {bits});
+            ValuePtr zeros = make_intrinsic(ir::Intrinsic::ctz, word, {wide});
+            return equals(word, index_type)
+                       ? zeros
+                       : make(Instruction::Op::Cast, index_type, {zeros});
+        }
         ValuePtr zeros = make_intrinsic(ir::Intrinsic::ctz, bits_t, {bits});
         if (equals(bits_t, index_type)) {
             return zeros;

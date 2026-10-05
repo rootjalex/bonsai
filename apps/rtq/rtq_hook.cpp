@@ -388,6 +388,14 @@ uint64_t leaf_ref(uint64_t first_block, uint64_t blocks) {
 using NodeRow = _tree_layout3;
 using TriangleBlock = _tree_layout5;
 
+// How many children a node holds: the layout this driver was compiled
+// against says, eight for trees/bvh8.bonsai and four for trees/bvh4.bonsai,
+// and everything below that depends on the width -- the builder's
+// branching factor, the loops over a row's lanes, the row's size and
+// offsets, and which tree Embree's own device is asked for -- follows it.
+constexpr unsigned kWidth = sizeof(NodeRow::children) / sizeof(uint64_t);
+static_assert(kWidth == 4 || kWidth == 8, "Embree's trees are four or eight wide");
+
 // What rtcBuildBVH's callbacks fill: the rows and the triangle blocks,
 // claimed by atomic counters since Embree builds in parallel.
 struct Building {
@@ -410,7 +418,7 @@ struct Building {
         }
         // Embree: AABBNode::clear -- every child empty, every box empty.
         NodeRow &n = b.rows[row];
-        for (int i = 0; i < 8; i++) {
+        for (unsigned i = 0; i < kWidth; i++) {
             n.children[i] = kEmptyNode;
             n.lower_x[i] = n.lower_y[i] = n.lower_z[i] = kInf;
             n.upper_x[i] = n.upper_y[i] = n.upper_z[i] = -kInf;
@@ -537,7 +545,7 @@ void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
         const uint64_t row = top.ref >> 4;
         copied[row] = true;
         const NodeRow &n = b.rows[row];
-        for (int i = 0; i < 8; i++) {
+        for (unsigned i = 0; i < kWidth; i++) {
             if (n.children[i] == kEmptyNode) {
                 continue;
             }
@@ -556,7 +564,7 @@ void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
     const std::function<void(uint64_t)> visit = [&](uint64_t row) {
         new_row[row] = next++;
         const NodeRow &n = b.rows[row];
-        for (int i = 0; i < 8; i++) {
+        for (unsigned i = 0; i < kWidth; i++) {
             const uint64_t child = n.children[i];
             if ((child & 15) == 0 && copied[child >> 4]) {
                 visit(child >> 4);
@@ -575,7 +583,7 @@ void relocate_large_nodes(Building &b, const Mesh &mesh, size_t num) {
     for (uint64_t row = 0; row < rows; row++) {
         NodeRow &n = moved[new_row[row]];
         n = b.rows[row];
-        for (int i = 0; i < 8; i++) {
+        for (unsigned i = 0; i < kWidth; i++) {
             if ((n.children[i] & 15) == 0) {
                 n.children[i] = node_ref(new_row[n.children[i] >> 4]);
             }
@@ -725,7 +733,7 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     args.byteSize = sizeof(args);
     args.buildQuality = RTC_BUILD_QUALITY_MEDIUM;
     args.buildFlags = RTC_BUILD_FLAG_NONE;
-    args.maxBranchingFactor = 8;
+    args.maxBranchingFactor = kWidth;
     args.maxDepth = 40;
     args.sahBlockSize = 4;
     args.minLeafSize = 4;
@@ -773,14 +781,15 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     b.rows.resize(tree.nodes);
     b.blocks.resize(tree.blocks);
 
-    // The bytes, as Embree's: a 256-byte row and a 176-byte block.
-    static_assert(sizeof(NodeRow) == 256, "a node row is Embree's AABBNode");
-    static_assert(offsetof(NodeRow, lower_x) == 64 &&
-                      offsetof(NodeRow, upper_x) == 96 &&
-                      offsetof(NodeRow, lower_y) == 128 &&
-                      offsetof(NodeRow, upper_y) == 160 &&
-                      offsetof(NodeRow, lower_z) == 192 &&
-                      offsetof(NodeRow, upper_z) == 224,
+    // The bytes, as Embree's: a 32 * N byte row (256 for the eight-wide
+    // tree, 128 for the four-wide) and a 176-byte block.
+    static_assert(sizeof(NodeRow) == 32 * kWidth, "a node row is Embree's AABBNode");
+    static_assert(offsetof(NodeRow, lower_x) == 8 * kWidth &&
+                      offsetof(NodeRow, upper_x) == 12 * kWidth &&
+                      offsetof(NodeRow, lower_y) == 16 * kWidth &&
+                      offsetof(NodeRow, upper_y) == 20 * kWidth &&
+                      offsetof(NodeRow, lower_z) == 24 * kWidth &&
+                      offsetof(NodeRow, upper_z) == 28 * kWidth,
                   "the bounds sit where Embree's AABBNode puts them");
     static_assert(sizeof(TriangleBlock) == 176,
                   "a block is Embree's Triangle4");
@@ -817,7 +826,7 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     const uint64_t base = reinterpret_cast<uint64_t>(arena);
     for (uint64_t row = 0; row < tree.nodes; row++) {
         NodeRow n = b.rows[row];
-        for (int i = 0; i < 8; i++) {
+        for (unsigned i = 0; i < kWidth; i++) {
             const uint64_t child = n.children[i];
             if (child == kEmptyNode) {
                 continue;
@@ -1221,8 +1230,19 @@ int main(int argc, char **argv) {
               << mesh.vertices.size() << " vertices\n";
 
     // Embree's defaults (an unconfigured device): the ISA the machine has,
-    // the builder quality medium, the BVH8 over Triangle4 leaves.
-    RTCDevice device = rtcNewDevice(embree_stats ? "verbose=2" : nullptr);
+    // the builder quality medium, the BVH8 over Triangle4 leaves -- or,
+    // when this driver was compiled against the four-wide layout, the BVH4
+    // over the same leaves (`tri_accel=bvh4.triangle4`, the tree Embree
+    // builds on a machine without AVX2), so that both sides traverse a
+    // tree of the width being compared.
+    std::string config;
+    if (kWidth == 4) {
+        config = "tri_accel=bvh4.triangle4";
+    }
+    if (embree_stats) {
+        config += config.empty() ? "verbose=2" : ",verbose=2";
+    }
+    RTCDevice device = rtcNewDevice(config.empty() ? nullptr : config.c_str());
     if (device == nullptr) {
         std::cerr << "no Embree device\n";
         return 1;

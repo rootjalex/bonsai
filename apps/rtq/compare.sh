@@ -11,7 +11,11 @@ set -euo pipefail
 # makes of that structure what Embree's hand-written code is; schedules/
 # tuned.bonsai departs from it where a step measures worse here and says what
 # the schedule language can do beyond it. Each is built and run in turn, its
-# table under a `=== schedule` line.
+# table under a `=== schedule` line. The same pair over Embree's four-wide
+# tree is `embree4,tuned4` (schedules/trees/bvh4.bonsai): the driver reads
+# the width off the layout it is compiled against and asks Embree's device
+# for the tree of that width (`tri_accel=bvh4.triangle4`), so each side of
+# a table traverses a tree of the same width as the other.
 #
 # Run from the repository root, inside the `bonsai` conda environment. Embree
 # is an optional dependency: a submodule at deps/embree, built by

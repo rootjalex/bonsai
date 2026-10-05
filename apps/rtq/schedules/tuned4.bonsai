@@ -1,0 +1,21 @@
+// The tuned schedule over Embree's four-wide tree: embree4.bonsai with the
+// steps dropped that measure worse here, as tuned.bonsai drops them over
+// the eight-wide tree -- the leaf's early exit on both queries (see
+// tuned.bonsai for the measurements over the eight-wide tree; this file's
+// own are in PLAN.md).
+import apps/rtq/schedules/trees/bvh4;
+
+schedule {
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(244);
+    trace.prefetch(triangles.Interior.children);
+
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(244);
+    occluded.prefetch(triangles.Interior.children);
+}

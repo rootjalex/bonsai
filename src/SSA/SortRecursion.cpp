@@ -677,7 +677,9 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     auto hit = fresh_block(func, block->name + "!sorthit");
     func.blocks.push_back(hit);
     shared_ptr<Value> one;
-    if (n == 8 || n == 16 || n == 32 || n == 64) {
+    if (n == 4 || n == 8 || n == 16 || n == 32 || n == 64) {
+        // Four lanes are four bits, widened to the word as the eight are
+        // (see SSA/QueueRecursion.cpp on the four-wide mask).
         const Type bits_t = UInt_t::make(n);
         const Type word_t = n < 32 ? u32 : bits_t;
         shared_ptr<Value> word =
