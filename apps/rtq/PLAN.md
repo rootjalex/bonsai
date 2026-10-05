@@ -3275,6 +3275,68 @@ than its mispredictions; on primary rays the branch is predictable and the
 two cancel. tuned.bonsai carries the measurement; embree.bonsai keeps the
 step, being Embree's structure step for step.
 
+## The any hit sorted: a loss everywhere (2026-10-05)
+
+The second schedule experiment: the any hit's children sorted by entry
+distance as the nearest hit's are (`occluded.sort(.., distmin(..))`), the
+thought being that an occluder is found sooner nearer the origin. Measured
+as the first (cpu 11, `--side 2048`, least of 5, thirteen meshes, the two
+schedules back to back, every ray agreeing), sorted over unsorted on the
+any hit, primary / ao / diffuse: head 0.85 / 0.91 / 0.89, ganesha 0.88 /
+0.96 / 1.06, dragon 1.00 / 0.98 / 0.97, pavilion 0.92 / 0.92 / 0.92,
+zero-day 1.01 / 0.91 / 0.91, bmw 0.93 / 0.91 / 0.86, crown 0.97 / 0.90 /
+0.90, ivy 0.90 / 0.93 / 0.89, villa 0.90 / 0.92 / 0.87, sportscar 0.86 /
+0.93 / 0.89, dambreak 0.90 / 0.92 / 0.89, landscape level, lte-orb 0.98 /
+0.89 / 0.90; the nearest hit, unchanged, within 1%. A loss of 5-15% on
+nearly every cell: the sort's work at every multi-hit node (the keys, the
+compare network or the counted arms' compares, the carried distances) is
+paid on every node, and the nodes it saves -- those behind an occluder
+found earlier -- are few, since a shadow ray that is blocked is blocked
+soon in traversal order anyway and one that is not visits everything
+regardless. Embree's traverseAnyHit pushes in stored order for this reason
+("simpler in sequence traversal order"); the tuned any hit keeps that.
+
+## The any hit ordered by the children's area, both ways (2026-10-05)
+
+The user's question: is an occluder likelier in a small box, packed
+tightly, or in a large one, holding the most geometry? Two more scratch
+schedules sorted the any hit's children by the area of their boxes -- half
+the surface, `dx*dy + dy*dz + dz*dx`, the SAH's measure -- the smallest
+first and the largest first (keys `area_key` and its negation, functions of
+the box alone, written into rtq.bonsai for the run and taken out again).
+Measured as above, each over the unsorted tuned any hit, primary / ao /
+diffuse:
+
+| mesh | smallest first | largest first |
+|---|---|---|
+| head | 0.83 / 0.87 / 0.87 | 0.79 / 0.86 / 0.87 |
+| ganesha | 0.91 / 0.89 / 0.90 | 0.88 / 0.89 / 0.91 |
+| dragon | 0.86 / 0.91 / 0.92 | 0.88 / 0.92 / 0.92 |
+| pavilion | 0.77 / 0.89 / 0.88 | 0.74 / 0.87 / 0.87 |
+| zero-day | 0.98 / 0.88 / 0.88 | 0.97 / 0.86 / 0.86 |
+| bmw | 0.86 / 0.88 / 0.88 | 0.86 / 0.86 / 0.86 |
+| crown | 0.91 / 0.87 / 0.87 | 0.89 / 0.85 / 0.85 |
+| ivy | 0.88 / 0.85 / 0.86 | 0.89 / 0.85 / 0.85 |
+| villa | 0.81 / 0.87 / 0.86 | 0.79 / 0.86 / 0.85 |
+| sportscar | 0.85 / 0.88 / 0.86 | 0.80 / 0.86 / 0.86 |
+| dambreak | 0.86 / 0.88 / 0.88 | 0.83 / 0.87 / 0.87 |
+| landscape | 1.00 / 0.98 / 0.99 | 1.00 / 0.98 / 0.99 |
+| lte-orb | 0.85 / 0.87 / 0.87 | 0.89 / 0.88 / 0.90 |
+
+Both lose 8-24% on every mesh but landscape, whose rays mostly miss and
+whose nodes mostly have one hit child, where neither order has anything to
+sort. Between the two, the smallest box first is the less bad on primary
+rays on ten of thirteen meshes, by 1-5% (head 0.83 against 0.79, pavilion
+0.77 against 0.74, sportscar 0.85 against 0.80), and the two are within
+1-2% of each other on the incoherent batches with no consistent sign. So:
+an occluder is found somewhat sooner in the small boxes than in the large
+ones on coherent rays, and either order costs far more than it saves --
+the sort's keys, compares and carried values at every multi-hit node,
+against a few nodes saved behind an occluder that stored order would have
+reached nearly as soon. The nearest hit, the same in all three schedules,
+measured within 1% throughout. The any hit's order stays Embree's: the
+children as stored.
+
 ## Comparisons a fact implies, and the blend that stays (2026-10-05)
 
 The plan's next item was the sort key's dead blend: `distmin` is infinite
