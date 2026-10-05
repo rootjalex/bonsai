@@ -506,10 +506,24 @@ void CodeGen_LLVM::link_foreign_implementations(const CompilerOptions &options,
         const bool failed = llvm::Linker::linkModules(
             *module, std::move(lib), llvm::Linker::Flags::LinkOnlyNeeded);
         internal_assert(!failed) << "--link " << path << ": linking failed";
+        // Internal AND out of their comdats: an inline method the library
+        // kept outlined (NanoVDB's RootNode::getValue once SampleFromVoxels
+        // called it from eight places) arrives in a linkonce comdat group,
+        // and an internalized function still carrying the comdat is emitted
+        // into a section group the linker then discards -- "defined in
+        // discarded section" at the driver's link. Internal functions stand
+        // on their own.
         for (llvm::Function &f : *module) {
             if (!f.isDeclaration() &&
                 !defined_before.contains(f.getName().str())) {
                 f.setLinkage(llvm::GlobalValue::InternalLinkage);
+                f.setComdat(nullptr);
+            }
+        }
+        for (llvm::GlobalVariable &g : module->globals()) {
+            if (!g.isDeclaration() && g.hasComdat()) {
+                g.setLinkage(llvm::GlobalValue::InternalLinkage);
+                g.setComdat(nullptr);
             }
         }
     }

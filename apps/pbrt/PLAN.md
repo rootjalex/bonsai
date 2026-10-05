@@ -10614,6 +10614,55 @@ harness returns no results at all, correct on the CPU
 (tests/bonsai/correctness/llvm/rounds-inner-queue.bonsai is the CPU
 side; bind its loops to GPUThread for the repro).
 
+**The bistro and villa lit-pixel verdicts -- investigated 2026-10-05,
+open.** The verification sweep failed both on the lit-pixel rule alone
+(bistro 2,027,839 lit against pbrt --gpu's 1,915,528 at 16 spp, where
+1,916 was allowed; the radiance itself agrees, median ratio 0.996).
+Every disagreeing pixel is a camera-ray environment/foliage case, and
+the mask image puts the speckle squarely on the alpha-masked foliage
+and trellis work. Three real fixes came out of chasing it, none of
+which moved the verdict:
+(a) sampling.bonsai's EqualAreaSphereToSquare had pbrt's two highest
+minimax coefficients at swapped degrees (the innermost fma is
+`b*t7 + t6`; ours had t6 innermost) -- an error up to half a percent of
+a quadrant, texels of shift on every off-axis env lookup; fixed, 625k
+bistro pixel values moved, the lit count did not.
+(b) The stochastic alpha hash now takes the WORLD ray, pbrt's GPU
+convention (optixGetWorldRayOrigin/Direction), where it took the
+instance-space ray, pbrt's CPU convention -- a real divergence on
+instanced alpha geometry, a no-op on bistro whose foliage is not
+instanced here.
+(c) The murmur pieces of hash_float6 were audited against pbrt's
+MurmurHash64A bit for bit: equal.
+What remains is measured, not guessed: pbrt DISAGREES WITH ITSELF on
+which pixels are lit -- its own CPU wavefront against its own GPU on
+bistro at 16 spp differ on 196,857 pixels (symmetric difference),
+MORE than our 161k against its GPU -- because the stochastic alpha
+test hashes the ray's bits and any ulp of difference flips the coin.
+Per-pixel lit/unlit is not a stable property of this scene between
+conforming implementations, and the checker's allowance (sqrt-scaled,
+1,916 pixels) cannot hold for stochastic-alpha scenes. BUT the
+aggregate is: pbrt's two implementations NET to 5,989 (the flips
+balance), ours nets +112,311 -- our coin is biased toward passing
+through, and that bias, not the speckle, is the open question. The
+texel path is eliminated (format follows pbrt's encoding; both srgb-
+decode an sRGB PNG's alpha byte); the next discriminator is the CPU
+gbuffer compare (first hits, bit-matched rays), blocked 2026-10-05 on
+the sort-lowering break below. villa-daylight carries the same
+signature at a tenth the size.
+
+Found on the way and fixed: --link libraries' inline functions that
+survive outlining (NanoVDB's RootNode::getValue once SampleFromVoxels
+had eight callers) arrived in linkonce comdat groups, were internalized
+but kept their comdats, and the driver's link discarded their sections
+("defined in discarded section"); link_foreign_implementations now
+strips the comdat with the linkage (CodeGen_LLVM.cpp). Blocked on the
+other session: 3c7eaa71 (the sort as Embree's chain) fails apps/pbrt's
+CPU wavefront-volpath compile with `element_of() on bad type: bool`
+(Type.cpp:276); bisected in a worktree -- 1c96578c with the four-wide
+tree compiles it clean -- and reported to the rtq session with the
+repro.
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24

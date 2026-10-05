@@ -140,8 +140,15 @@ func equal_area_sphere_to_square(d : vec3f) -> vec2f {
     b0 = min(x, y);
     b = select(a == 0.0, 0.0, b0 / a);
 
-    phi0 = fma(b, fma(b, fma(b, fma(b, fma(b, fma(b, 0.419038818029165735901852432784e-1,
-                                             -0.251390972343483509333252996350e-1),
+    // Innermost first: pbrt's EvaluatePolynomial(b, t1..t7) is Horner from
+    // the HIGHEST coefficient, so the innermost fma is `b * t7 + t6`. This
+    // once had t6 and t7 swapped -- the two highest terms trading degrees, an
+    // error of (t6-t7)*(b^5-b^6), up to half a percent of a quadrant -- and
+    // every environment lookup landed texels away from pbrt's wherever the
+    // direction was off the axes and diagonals: bistro's sky disagreed with
+    // pbrt on 137k pixels, two-sided and tiny, until 2026-10-05.
+    phi0 = fma(b, fma(b, fma(b, fma(b, fma(b, fma(b, -0.251390972343483509333252996350e-1,
+                                             0.419038818029165735901852432784e-1),
                                         0.881770664775316294736387951347e-1),
                                    -0.247333733281268944196501420480),
                               0.61572017898280213493197203466e-2),

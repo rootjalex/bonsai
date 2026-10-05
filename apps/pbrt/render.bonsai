@@ -1206,10 +1206,19 @@ func hit_wo(p : Primitive, sh : Shape, r : Ray) -> vec3f {
 // accord, which is what makes the whole thing expressible as a condition on
 // the set rather than as a loop around the query.
 //
-// The ray is the one the geometry was tested against: inside an instance that
-// is the ray pulled back into the instance's frame, which is the ray pbrt's
-// GeometricPrimitive::Intersect sees there too, and `HashFloat` hashes it.
-func alpha_accepts(r : Ray, p : Geometric) -> bool {
+// Two rays. `r` is the one the geometry was tested against: inside an
+// instance, the ray pulled back into the instance's frame, which is what the
+// shape's own surface test needs. `world` is the ray as traced, and it is
+// what the HASH takes: pbrt's GPU anyhit draws its alpha random from
+// `HashFloat(optixGetWorldRayOrigin(), optixGetWorldRayDirection())` -- the
+// world ray, inside an instance or not -- where pbrt's CPU
+// GeometricPrimitive hashes the instance-space ray. The two conventions
+// disagree inside instances, and this renderer follows the wavefront: until
+// 2026-10-05 the hash took `r`, and on bistro and villa -- instanced,
+// alpha-masked foliage -- every instanced leaf's accept flipped against
+// `pbrt --gpu`'s coin, a two-sided speckle of ~112k lit pixels at 16 spp
+// that no sampler match could close.
+func alpha_accepts(r : Ray, world : Ray, p : Geometric) -> bool {
     if p.alpha < 0 {
         return true;
     }
@@ -1222,13 +1231,16 @@ func alpha_accepts(r : Ray, p : Geometric) -> bool {
     if a >= 1.0 {
         return true;
     }
-    // pbrt: `Float u = (a <= 0) ? 1.f : HashFloat(r.o, r.d);` -- a fully
-    // transparent texel is rejected without consulting the hash at all.
+    // pbrt: `Float u = (a <= 0) ? 1.f : HashFloat(o, d);` with the WORLD
+    // ray's origin and direction (optix.cu's anyhit) -- a fully transparent
+    // texel is rejected without consulting the hash at all.
     u = select(a <= 0.0, 1.0,
-               hash_float6(reinterpret[[i32]](r.o.x), reinterpret[[i32]](r.o.y),
-                           reinterpret[[i32]](r.o.z), reinterpret[[i32]](r.d.x),
-                           reinterpret[[i32]](r.d.y),
-                           reinterpret[[i32]](r.d.z)));
+               hash_float6(reinterpret[[i32]](world.o.x),
+                           reinterpret[[i32]](world.o.y),
+                           reinterpret[[i32]](world.o.z),
+                           reinterpret[[i32]](world.d.x),
+                           reinterpret[[i32]](world.d.y),
+                           reinterpret[[i32]](world.d.z)));
     return u <= a;
 }
 
@@ -1356,7 +1368,7 @@ func trace(q : RaySegment) =
     argmin(|p : Primitive, g : Geometric| distmin(q, transform(p, g)),
            filter(|p : Primitive, g : Geometric|
                       intersects(q, transform(p, g)) &&
-                      alpha_accepts(untransform(p, q.ray), g),
+                      alpha_accepts(untransform(p, q.ray), q.ray, g),
                   flatten(|p : Primitive| geometry(p), primitives)));
 
 // pbrt: Primitive::IntersectP -- is there *anything* along this ray?
@@ -1378,7 +1390,7 @@ func trace(q : RaySegment) =
 func trace_any(q : RaySegment) =
     any(|p : Primitive, g : Geometric|
             intersects(q, transform(p, g)) &&
-            alpha_accepts(untransform(p, q.ray), g),
+            alpha_accepts(untransform(p, q.ray), q.ray, g),
         flatten(|p : Primitive| geometry(p), primitives));
 
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
