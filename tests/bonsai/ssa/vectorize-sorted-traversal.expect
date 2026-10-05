@@ -716,15 +716,15 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                   let root1$i21$i35 = @130 / @411 in
                   let @132 = min(root0$i21$i35, root1$i21$i35) in
                   let @133 = max(root0$i21$i35, root1$i21$i35) in
-                  let @725 = @132 < @47 in
-                  let @726 = @466 < @133 in
-                  let @727 = @725 & @726 in
-                  let @728 = select(@125, @467, @727) in
-                  let @713 = select(@307, @728, (*intersects_Ray_Shape$r3!skip)) in
+                  let @722 = @132 < @47 in
+                  let @723 = @466 < @133 in
+                  let @724 = @722 & @723 in
+                  let @725 = select(@125, @467, @724) in
+                  let @713 = select(@307, @725, (*intersects_Ray_Shape$r3!skip)) in
                   let @642 = @306 && @713 in
                   let @359 = reduce<any>(@642) in
                   if (@359) {
-                    let @657 = @306 && @728 in
+                    let @657 = @306 && @725 in
                     let @658 = @307 && @657 in
                     let @323 = @642 && @309 in
                     let @360 = reduce<any>(@323) in
@@ -757,24 +757,22 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
                     } else {
                       distmin_Ray_Shape$r4!skip = undef
                     }
-                    let @730 = select(@125, @493, @132) in
-                    let @724 = select(@658, @730, (*distmin_Ray_Shape$r4!skip)) in
-                    let @729 = select(@125, @493, @132) in
-                    let @719 = select(@307, @729, (*distmin_Ray_Shape$r4!skip)) in
-                    let @720 = i32x8(@614) in
-                    let @721 = reinterpret_cast<i32x8>(@719) in
-                    let @722 = @720 < @721 in
-                    let @672 = @642 && @722 in
+                    let @727 = select(@125, @493, @132) in
+                    let @721 = select(@658, @727, (*distmin_Ray_Shape$r4!skip)) in
+                    let @726 = select(@125, @493, @132) in
+                    let @719 = select(@307, @726, (*distmin_Ray_Shape$r4!skip)) in
+                    let @669 = @488 < @719 in
+                    let @672 = @642 && @669 in
                     let @361 = reduce<any>(@672) in
                     if (@361) {
                       let @256 = (*_best0) in
                       let @257 = @256._field0 in
-                      let @258 = @724 < @257 in
+                      let @258 = @721 < @257 in
                       let @338 = @672 && @258 in
                       let @362 = reduce<any>(@338) in
                       if (@362) {
                         let @260 = build<__tuple_0$v8>(_t78) in
-                        let @261 = build<__tuple_1$v8>(@724, @260) in
+                        let @261 = build<__tuple_1$v8>(@721, @260) in
                         masked_store(_best0, @261, @338 && (@261._field0 < (*_best0)._field0))
                       }
                     }

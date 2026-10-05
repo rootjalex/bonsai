@@ -729,7 +729,29 @@ Type held_type_of(const Type &t) {
 
 struct ConstantIntervals::State {
     const Function *func = nullptr;
-    std::unordered_map<const Instruction *, Abstract> instrs;
+    // What each instruction was read as, kept under the instruction itself:
+    // a rewrite that asks after the analysis (ConstantIntervals::of) frees
+    // instructions and makes new ones, and a new one may take a freed one's
+    // address, so an entry answers for a pointer only while the instruction
+    // it was made for is alive -- the weak reference says, and a pointer
+    // reused is a value not yet read.
+    struct Known {
+        std::weak_ptr<const Instruction> of;
+        Abstract value;
+    };
+    std::unordered_map<const Instruction *, Known> instrs;
+    const Abstract *recorded(const shared_ptr<Instruction> &i) const {
+        const auto it = instrs.find(i.get());
+        if (it == instrs.end()) {
+            return nullptr;
+        }
+        const auto alive = it->second.of.lock();
+        return alive != nullptr && alive.get() == i.get() ? &it->second.value
+                                                           : nullptr;
+    }
+    void record(const shared_ptr<Instruction> &i, Abstract a) {
+        instrs[i.get()] = Known{i, std::move(a)};
+    }
     std::map<std::pair<string, string>, Abstract> args;
     // The contents of each local allocation, by the instruction that made it
     // (an array's elements as one), and of what this function stores through
@@ -809,8 +831,8 @@ struct ConstantIntervals::State {
             overloads{
                 [&](const Constant &c) { return constant(c); },
                 [&](const shared_ptr<Instruction> &i) {
-                    const auto it = instrs.find(i.get());
-                    return it != instrs.end() ? it->second : Abstract::top(i->type);
+                    const Abstract *k = recorded(i);
+                    return k != nullptr ? *k : Abstract::top(i->type);
                 },
                 [&](const Argument &a) {
                     auto it = args.find({block, a.name});
@@ -2177,7 +2199,7 @@ struct ConstantIntervals::State {
                     break;
                 }
                 if (!in->name.empty()) {
-                    instrs[in.get()] = eval(block->name, *in);
+                    record(in, eval(block->name, *in));
                 }
             }
             std::visit(
@@ -2577,12 +2599,12 @@ void ConstantIntervals::dump(std::ostream &os, const Function &func) const {
             os << "\n";
         }
         for (const shared_ptr<Instruction> &in : block->instrs) {
-            const auto found = state.instrs.find(in.get());
-            if (found == state.instrs.end() || !narrower_than_type(found->second, in->type)) {
+            const Abstract *found = state.recorded(in);
+            if (found == nullptr || !narrower_than_type(*found, in->type)) {
                 continue;
             }
             os << "  " << in->name << " : ";
-            dump_abstract(os, found->second, in->type);
+            dump_abstract(os, *found, in->type);
             os << "\n";
         }
     }
@@ -2630,13 +2652,13 @@ ConstantInterval ConstantIntervals::of(const Function &func, const Block &block,
         [&](const ValuePtr &u, int depth) {
             const auto *in = std::get_if<shared_ptr<Instruction>>(&u->data);
             if (in == nullptr || (*in)->name.empty() || depth > 16 ||
-                state.instrs.count(in->get())) {
+                state.recorded(*in) != nullptr) {
                 return;
             }
             for (const ValuePtr &o : (*in)->operands) {
                 prepare(o, depth + 1);
             }
-            state.instrs[in->get()] = state.eval(block.name, **in);
+            state.record(*in, state.eval(block.name, **in));
         };
     prepare(v, 0);
     const Abstract a = state.value(block.name, v);
