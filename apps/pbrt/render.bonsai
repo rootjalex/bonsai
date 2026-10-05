@@ -2737,8 +2737,14 @@ func vol_path_step(ray : Ray, medium : i32,
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
     // (the trace kernel's EnqueueWorkAfterIntersection and
     // EnqueueWorkAfterMiss push it onto mediumSampleQueue, hit or miss); a
-    // ray in no medium is routed by what the trace found.
-    if medium >= 0 {
+    // ray in no medium is routed by what the trace found. The `have_media`
+    // conjunct is pbrt's queue-existence guard made visible: its
+    // mediumSampleQueue exists only when `haveMedia`, so the push's full
+    // condition there is haveMedia && ray.medium -- the first half scene
+    // knowledge, under which the launch gates skip the medium drains
+    // entirely (SSA/GateDrains.h); a ray cannot be in a medium no scene
+    // names, so the conjunct changes nothing a ray ever sees.
+    if have_media && medium >= 0 {
         vol_medium_sample(isect, ray, medium, camera, spp_scale,
                           beta_in, r_u_in, r_l_in, depth_in, wave,
                           specular_bounce, any_non_specular, eta_scale,
@@ -3195,7 +3201,13 @@ func vol_surface(ray : Ray, medium : i32,
     // cpp) -- a path that went *into* a subsurface material does not go on
     // as a ray: it goes to the BSSRDF, with the throughput the roulette
     // left it, the probabilities as they are and the depth of this hit.
-    if is_transmissive(sample.flags) {
+    // The `have_subsurface` conjunct is pbrt's queue-existence guard made
+    // visible: its bssrdfEvalQueue exists only when `haveSubsurface`, so no
+    // material can be subsurface when it is false and the conjunct changes
+    // nothing a path ever sees -- and the launch gates (SSA/GateDrains.h)
+    // read it as the owner's fact and skip the BSSRDF chain's drains
+    // entirely, as pbrt skips those kernels.
+    if have_subsurface && is_transmissive(sample.flags) {
         maybe_ss = material_subsurface(material);
         if maybe_ss {
             vol_subsurface(*maybe_ss, medium, camera, spp_scale, prim, mat, surf,

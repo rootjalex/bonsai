@@ -3177,6 +3177,56 @@ int main(int argc, char **argv) {
     const auto render_and_write =
         [&](const Sampler &sampler, const Integrator &integrator,
             const std::string &output) -> std::optional<double> {
+#if BONSAI_render_HAS_material_arms
+    // pbrt's haveBasicEvalMaterial computed at load time
+    // (wavefront/integrator.cpp): which Material arms this scene's pool
+    // holds, bit by arm, for the launch gates (SSA/GateDrains.h) to skip
+    // the material kernels nothing can feed -- and, through the push graph,
+    // the BSSRDF chain when no material is subsurface (pbrt's
+    // haveSubsurface). A mix's components are material records of their
+    // own, so their bits set themselves. `_ALL` would be sound; the scene
+    // is known, so say so.
+    uint64_t material_arms = 0;
+    for (const bonsai_scene::Material &m : loaded.materials) {
+        switch (m.tag) {
+        case bonsai_scene::MaterialTag::Interface:
+            break; // no material made; shapes under it carry -1
+        case bonsai_scene::MaterialTag::Diffuse:
+            material_arms |= BONSAI_render_ARM_Material_Diffuse;
+            break;
+        case bonsai_scene::MaterialTag::CoatedDiffuse:
+            material_arms |= BONSAI_render_ARM_Material_CoatedDiffuse;
+            break;
+        case bonsai_scene::MaterialTag::CoatedConductor:
+            material_arms |= BONSAI_render_ARM_Material_CoatedConductor;
+            break;
+        case bonsai_scene::MaterialTag::Dielectric:
+            material_arms |= BONSAI_render_ARM_Material_Dielectric;
+            break;
+        case bonsai_scene::MaterialTag::ThinDielectric:
+            material_arms |= BONSAI_render_ARM_Material_ThinDielectric;
+            break;
+        case bonsai_scene::MaterialTag::Conductor:
+            material_arms |= BONSAI_render_ARM_Material_Conductor;
+            break;
+        case bonsai_scene::MaterialTag::DiffuseTransmission:
+            material_arms |= BONSAI_render_ARM_Material_DiffuseTransmission;
+            break;
+        case bonsai_scene::MaterialTag::Measured:
+            material_arms |= BONSAI_render_ARM_Material_Measured;
+            break;
+        case bonsai_scene::MaterialTag::Mix:
+            material_arms |= BONSAI_render_ARM_Material_Mixed;
+            break;
+        case bonsai_scene::MaterialTag::Subsurface:
+            material_arms |= BONSAI_render_ARM_Material_Subsurface;
+            break;
+        case bonsai_scene::MaterialTag::Hair:
+            material_arms |= BONSAI_render_ARM_Material_Hair;
+            break;
+        }
+    }
+#endif
     double seconds = std::numeric_limits<double>::infinity();
     for (int i = 0; i < repeats; i++) {
         // Before each repeat, not once before them all: a repeat's kernels
@@ -3250,7 +3300,16 @@ int main(int argc, char **argv) {
                &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool, &b_patch_pool, &b_cylinder_pool,
-               &b_curve_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
+               &b_curve_pool
+#if BONSAI_render_HAS_material_arms
+               // The split's arm mask lands before the queues' storage: the
+               // mask parameter is added when the gates are built
+               // (SSA/GateDrains.h), the extern queue buffers later, when
+               // the storage is placed.
+               ,
+               material_arms
+#endif
+                   BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
         // waits for the device before it returns -- the generated code's
         // own wait at the return of a function that launched, pbrt's

@@ -10458,12 +10458,61 @@ empty, and the kernel-time ratio against pbrt without it:
 
 This corrects the stage table above: transparent-machines' "shadow" and
 "materials" losses were these (its shadow kernel proper is 545 ms
-against pbrt's 603, its dielectric kernel 887 against 638). The fix
-proposed to the user: the driver computes at load time which material
-arms occur, whether any material is subsurface and whether anything
-names a medium (`have_media` and `have_subsurface` are program
-parameters already), and the generated host code skips a drain's launch
-when its queue cannot be fed -- pbrt's flags, read off the scene.
+against pbrt's 603, its dielectric kernel 887 against 638).
+
+*Fixed 2026-10-04: the launch gates (SSA/GateDrains.h).* A drain whose
+queue cannot be fed under a scene fact is entered through a dispatch on
+that fact, the false edge jumping straight to the loop's continuation --
+the block keeps its count reads and the storage of queues after it, and
+zero iterations store nothing, so the skip is the launch's cost and
+nothing else. The facts, as the user shaped them: (1)
+`hits.specialize(material)` adds one `u64` parameter to the owner,
+`material_arms`, bit = the arm's tag; the driver owns the promise and
+render_hook reads it off the material pool it already builds (a mix's
+components are pool records of their own, so their bits set
+themselves); the generated header spells each bit
+(`BONSAI_render_ARM_Material_Diffuse`, ..) and `_ALL`, the sound default
+-- which is also what every internal call of the owner passes, so a
+driver that computes nothing is exactly as before, and LLVM folds the
+gates of a constant mask away. (2) Everything else by reachability over
+the push graph, to a fixpoint from "unfeedable": the BSSRDF chain's only
+pusher is the Subsurface arm's drain, so `probes`, `exits` and
+`exit_shadow` inherit its bit with no flag of their own -- pbrt's
+`haveSubsurface`, derived. (3) The medium drains gate on `have_media`
+with no promise at all: the medium push in `vol_path_step` now reads
+`if have_media && medium >= 0` -- pbrt's own queue-existence guard made
+visible, its mediumSampleQueue existing only under `haveMedia` -- and
+the pass sees every push dominated by a conjunct whose value is the
+owner's (an invariant parameter, SSA/Defer.cpp), so the gate falls out
+of the program. A dominating condition an entry's own state decides is
+dropped, which only weakens a gate toward launching; an `option` key and
+a nested split get no mask and launch as before. Tests:
+ssa/gate-drains (the three gate kinds on a two-arm split with a chained
+queue and a conditioned push; runs to the same total),
+backends/llvm/gate-drains (the exported owner keeps `i64 %surface_arms`
+and the bit tests; LLVM folds the soaks gate to `wet && (arms & 3)`),
+the two defer-split goldens re-blessed with their masks. Measured
+2026-10-05 (gpu_compare.sh, least of 5, every image matching pbrt):
+against the table above, transparent-machines 0.79x -> 1.10x at 64 spp
+(1.14x at 16), lte-orb-rough-glass 1.02x -> 1.25x (1.30x),
+killeroo-simple 1.13x -> 1.27x (2.40x), killeroo-gold 1.43x (2.05x),
+book 1.18x -> 1.16x (1.87x): every cell ahead of pbrt --gpu, and the
+gated kernels are simply absent from the profile -- no Subsurface,
+Hair, probe or medium kernel anywhere. On kernel time alone the five
+scenes are 1.39-1.74x of pbrt's, and on transparent-machines the gates
+are tighter than pbrt's own haveBasicEvalMaterial: the scene's one
+material statement is dielectric, our profile has the one material
+kernel, pbrt launches its DiffuseMaterial kernel 32768 times regardless
+(452 ms, 9.3% of its kernel time -- its default material holds the flag
+true). What the gates leave: the dielectric kernel proper (782 ms
+against pbrt's 608 at 64 spp, the stage table's standing item), and a
+wall minus kernels of 1.9 s against pbrt's 0.3 s on frame542 and two to
+seven times pbrt's on the others -- part of that is the per-launch
+event timing BONSAI_KERNEL_STATS adds to our timed run and pbrt's
+--stats run does not pay (the walls above carry it, so they understate
+us), the rest the host side of the round loop; splitting those two is
+the next measurement, and it is why book's 64 spp wall sits at 1.16x
+while its kernels went from 12% empty to 1.39x of pbrt's.
 
 **(3) The medium scenes' ray and shadow-transmittance kernels -- open.**
 On bunny-cloud, launch by launch, our ray kernel is 2-3x faster than

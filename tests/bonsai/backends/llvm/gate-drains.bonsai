@@ -1,0 +1,80 @@
+//! flags: -p ssa -b llvm
+
+// ssa/gate-drains.bonsai through the LLVM backend. What to look for in
+// `run`: the added `i64 %surface_arms` parameter; each leaf drain entered
+// under `lshr`/`and 1`/`icmp ne` of its variant's bit; the `probes` drain
+// under the Fuzz bit alone (its only pusher), the `soaks` drain under
+// `(bit && wet)` either way the entry came. `run` is exported and nothing
+// else calls it, so the mask stays unknown and the gates survive to the
+// IR; ssa/gate-drains.bonsai keeps the `main` that runs the program, whose
+// all-on constant folds every gate to taken.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func probe(x : Float) -> Float {
+    return x + 1.0;
+}
+
+func fuzzy(a : Float, total : reduce(+) Float) -> void {
+    spawn total += probe(a);
+    return;
+}
+
+func wetten(wet : bool, x : Float, total : reduce(+) Float) -> void {
+    if wet && x > 0.0 {
+        spawn total += soak(x);
+    }
+    return;
+}
+
+func shade(s : Surface, wet : bool, x : Float,
+           total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            fuzzy(a, total);
+        }
+    }
+    wetten(wet, x, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, total : reduce(+) Float) -> void {
+    s = classify(x);
+    shade(s, wet, x, total);
+    return;
+}
+
+func [[export]] run(values : array[Float, 8], wet : bool,
+                    total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], wet, total);
+    }
+    return;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    probes = run.queue(root);
+    fuzzy.defer(probe, probes);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+}

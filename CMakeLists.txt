@@ -257,6 +257,7 @@ target_sources(
     src/SSA/MirrorLoads.cpp
     src/SSA/Contention.cpp
     src/SSA/Contract.cpp
+    src/SSA/GateDrains.cpp
     src/SSA/Defer.cpp
     src/SSA/Definitions.cpp
     src/SSA/QueueStorage.cpp

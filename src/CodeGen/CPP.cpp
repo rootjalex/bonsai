@@ -772,6 +772,25 @@ class BonsaiToCpp : ir::Printer {
                 ss << "#define BONSAI_" << func->name << "_HAS_"
                    << macro_name(name) << " 1\n";
             }
+            // A split's arm mask (ir::Program::ArmMask, SSA/GateDrains.h):
+            // the driver says which of the ADT's arms occur in its data, bit
+            // by tag, and a drain of an absent arm's queue is not launched.
+            // One macro per arm spells its bit, and `_ALL` is the sound
+            // default for a driver that computes nothing.
+            for (const Program::ArmMask &m : program.arm_masks) {
+                if (m.func != func->name) {
+                    continue;
+                }
+                ss << "#define BONSAI_" << func->name << "_HAS_"
+                   << macro_name(m.param) << " 1\n";
+                for (const auto &[label, bit] : m.arm_bits) {
+                    ss << "#define BONSAI_" << func->name << "_ARM_" << m.adt
+                       << "_" << label << " (1ull << " << bit << ")\n";
+                }
+                ss << "#define BONSAI_" << func->name << "_"
+                   << macro_name(m.param) << "_ALL 0x" << std::hex << m.all_on
+                   << std::dec << "ull\n";
+            }
             // A queue's array in Extern storage (IR/Storage.h) says what the
             // driver that allocates it needs: the element's size in bytes
             // always, and the array's when the capacity is a constant of

@@ -103,6 +103,22 @@ struct Program {
     };
     std::map<std::string, AdtStorage> adt_storages;
 
+    // A mask parameter a queue's specialize added to a function
+    // (SSA/GateDrains.h): the driver says which of the ADT's arms occur in
+    // its data, bit by tag, and a drain of an absent arm's queue is not
+    // launched. The generated header spells each bit and the all-on value
+    // (CodeGen/CPP.cpp), which is the sound default for a driver that
+    // computes nothing.
+    struct ArmMask {
+        std::string func;
+        std::string param;
+        std::string adt;
+        // Each variant's name and its bit, in declaration order.
+        std::vector<std::pair<std::string, uint64_t>> arm_bits;
+        uint64_t all_on = 0;
+    };
+    std::vector<ArmMask> arm_masks;
+
     // The SSA form of whichever functions are to be lowered to the backend
     // straight from it, rather than from the statements the relooper builds.
     // Keyed by the same names as `funcs`, which still holds a statement form

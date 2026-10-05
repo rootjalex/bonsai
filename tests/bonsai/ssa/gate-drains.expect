@@ -1,0 +1,246 @@
+type Entry_hits = struct Entry_hits{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; x : f32 }
+type Entry_probes = struct Entry_probes{ x : f32; total : (f32*) }
+type Entry_soaks = struct Entry_soaks{ x : f32; total : (f32*) }
+type Float = f32
+type Fuzz = struct Fuzz{ a : f32 }
+type Half = f16
+type Matte = struct Matte{ a : f32 }
+type Queue_hits = struct Queue_hits{ count : u32; s_tag : u8[]; s_payload_x : u32[]; x : f32[] }
+type Queue_probes = struct Queue_probes{ count : u32; x : f32[]; total : (f32*)[] }
+type Queue_soaks = struct Queue_soaks{ count : u32; x : f32[]; total : (f32*)[] }
+type Surface = struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func classify(x : f32) -> Surface {
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    return @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    return @8
+  }
+}
+
+func fuzzy(a : f32, total : mut (f32*), _queue_probes : mut (Queue_probes*)) -> void {
+  let @1 = build<Entry_probes>(a, total) in
+  let @4 = atomic_add((&(*_queue_probes).count), 1u) in
+  let @6 = (*_queue_probes).x in
+  @6[@4] = a
+  let @9 = (*_queue_probes).total in
+  @9[@4] = total
+  return
+}
+
+func main() -> i32 {
+  total : mut f32
+  total = 0f
+  let @0 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@0, true, total, 3u)
+  let @1 = (*total) in
+  print(@1)
+  return 0
+}
+
+func probe(x : f32) -> f32 {
+  let @0 = x + 1f in
+  return @0
+}
+
+func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) -> void {
+  hits!Matte_s_payload_x : mut u32[8]
+  hits!Matte_x : mut f32[8]
+  hits!Fuzz_s_payload_x : mut u32[8]
+  hits!Fuzz_x : mut f32[8]
+  hits_queue : mut Queue_hits[2]
+  let @1 = build<Queue_hits>(0u, undef, hits!Matte_s_payload_x, hits!Matte_x) in
+  hits_queue[0u] = @1
+  let @3 = build<Queue_hits>(0u, undef, hits!Fuzz_s_payload_x, hits!Fuzz_x) in
+  hits_queue[1u] = @3
+  probes_x : mut f32[8]
+  probes_total : mut (f32*)[8]
+  probes_queue : mut Queue_probes
+  soaks_x : mut f32[8]
+  soaks_total : mut (f32*)[8]
+  soaks_queue : mut Queue_soaks
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, wet, total, hits_queue)
+    continue
+  }
+  let @6 = hits_queue[0u] in
+  let @7 = @6.count in
+  let @45 = build<Queue_soaks>(0u, soaks_x, soaks_total) in
+  soaks_queue = @45
+  let @52 = surface_arms >> 0u in
+  let @53 = @52 & 1u in
+  let @54 = @53 != 0u in
+  if (@54) {
+    parfor hits!Matte in [0u:@7:1u] {
+      let @9 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @11 = hits_queue[0u].s_payload_x in
+      let @12 = @11[hits!Matte] in
+      let @13 = build<[[packed]] u32x1>(@12) in
+      let @14 = build<Surface>(undef, @9, @13) in
+      let @16 = hits_queue[0u].x in
+      let @17 = @16[hits!Matte] in
+      shade!Matte(@14, wet, @17, total, soaks_queue)
+      continue
+    }
+  }
+  let @19 = hits_queue[1u] in
+  let @20 = @19.count in
+  let @36 = build<Queue_probes>(0u, probes_x, probes_total) in
+  probes_queue = @36
+  let @55 = surface_arms >> 1u in
+  let @56 = @55 & 1u in
+  let @57 = @56 != 0u in
+  if (@57) {
+    parfor hits!Fuzz in [0u:@20:1u] {
+      let @22 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @24 = hits_queue[1u].s_payload_x in
+      let @25 = @24[hits!Fuzz] in
+      let @26 = build<[[packed]] u32x1>(@25) in
+      let @27 = build<Surface>(undef, @22, @26) in
+      let @29 = hits_queue[1u].x in
+      let @30 = @29[hits!Fuzz] in
+      shade!Fuzz(@27, wet, @30, total, probes_queue, soaks_queue)
+      continue
+    }
+  }
+  let @37 = (*probes_queue) in
+  let @38 = @37.count in
+  if (@57) {
+    parfor probes in [0u:@38:1u] {
+      let @39 = probes_x[probes] in
+      let @41 = probes_total[probes] in
+      let @40 = probe(@39) in
+      @41 += @40
+      continue
+    }
+  }
+  probes_queue.count = 0u
+  let @46 = (*soaks_queue) in
+  let @47 = @46.count in
+  let @64 = @57 && wet in
+  let @68 = @54 && wet in
+  let @69 = @64 || @68 in
+  if (@69) {
+    parfor soaks in [0u:@47:1u] {
+      let @48 = soaks_x[soaks] in
+      let @50 = soaks_total[soaks] in
+      let @49 = soak(@48) in
+      @50 += @49
+      continue
+    }
+  }
+  soaks_queue.count = 0u
+  hits_queue[0u].count = 0u
+  hits_queue[1u].count = 0u
+  return
+}
+
+func shade!Fuzz(s : Surface, wet : bool, x : f32, total : mut (f32*), _queue_probes : mut (Queue_probes*), _queue_soaks : mut (Queue_soaks*)) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let s!Fuzz = build<Surface>(1u, @7, @8) in
+  let @6 = @8[0u] in
+  let a$1 = reinterpret_cast<f32>(@6) in
+  fuzzy(a$1, total, _queue_probes)
+  wetten(wet, x, total, _queue_soaks)
+  return
+}
+
+func shade!Matte(s : Surface, wet : bool, x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*)) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let s!Matte = build<Surface>(0u, @7, @8) in
+  let @2 = @8[0u] in
+  let a = reinterpret_cast<f32>(@2) in
+  let @4 = a * x in
+  total += @4
+  wetten(wet, x, total, _queue_soaks)
+  return
+}
+
+func soak(x : f32) -> f32 {
+  let @0 = x * 0.5f in
+  return @0
+}
+
+func step(x : f32, wet : bool, total : mut (f32*), _queue_hits : mut Queue_hits[2]) -> void {
+  classify$r6 : mut Surface
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    classify$r6 = @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    classify$r6 = @8
+  }
+  let @10 = build<Entry_hits>((*classify$r6), x) in
+  let @11 = (*classify$r6).tag in
+  switch (@11) {
+  case 0: {
+    let @17 = atomic_add((&_queue_hits[0u].count), 1u) in
+    let @24 = (*classify$r6).payload in
+    let @25 = @24[0u] in
+    let @28 = _queue_hits[0u].s_payload_x in
+    @28[@17] = @25
+    let @31 = _queue_hits[0u].x in
+    @31[@17] = x
+    return
+  } break;
+  default: {
+    let @34 = atomic_add((&_queue_hits[1u].count), 1u) in
+    let @41 = (*classify$r6).payload in
+    let @42 = @41[0u] in
+    let @45 = _queue_hits[1u].s_payload_x in
+    @45[@34] = @42
+    let @48 = _queue_hits[1u].x in
+    @48[@34] = x
+    return
+  }
+  }
+}
+
+func wetten(wet : bool, x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*)) -> void {
+  if (wet) {
+    let @0 = 0f < x in
+    if (@0) {
+      let @2 = build<Entry_soaks>(x, total) in
+      let @5 = atomic_add((&(*_queue_soaks).count), 1u) in
+      let @7 = (*_queue_soaks).x in
+      @7[@5] = x
+      let @10 = (*_queue_soaks).total in
+      @10[@5] = total
+    }
+  }
+  return
+}
+
+
+schedule {
+    hits = run.queue(root);
+    probes = run.queue(root);
+    soaks = run.queue(root);
+    fuzzy.defer(probe, probes)
+    step.defer(shade, hits)
+    wetten.defer(soak, soaks)
+
+}

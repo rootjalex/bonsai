@@ -6,6 +6,7 @@
 #include "SSA/Contract.h"
 #include "SSA/Defer.h"
 #include "SSA/BlockAccumulates.h"
+#include "SSA/GateDrains.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/HeapArrays.h"
 #include "SSA/HoistAllocations.h"
@@ -2646,6 +2647,22 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
 
     phase("atomics after the binds");
+
+    // The launch gates, while every drain still carries its queue
+    // (Terminator::ParFor::queue_base, cleared for host drains just below),
+    // while a push is still one Push instruction naming its queue, and
+    // before the signatures are read back so the mask parameters a split
+    // adds land in the owner's exported type (SSA/GateDrains.h: pbrt's
+    // haveBasicEvalMaterial / haveSubsurface / haveMedia as a rewrite of
+    // the queues' owner).
+    {
+        std::vector<ir::Program::ArmMask> masks =
+            gate_drains(fmap, queue_splits, adt_storages);
+        if (keep_ssa != nullptr) {
+            keep_ssa->arm_masks = std::move(masks);
+        }
+    }
+    phase("drain gates");
 
     // A queue's drain carries the queue's capacity and the address of its
     // count (Terminator::ParFor::capacity, set in Defer.cpp) for the launch

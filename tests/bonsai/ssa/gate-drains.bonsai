@@ -1,0 +1,96 @@
+//! flags: -p ssa
+
+// Launch gates on queue drains (SSA/GateDrains.h): a drain whose queue
+// cannot be fed under a scene fact is entered through a dispatch on that
+// fact. Three gates to read for in `run`:
+//
+// 1. The split (`hits.specialize(s)`) adds the parameter `surface_arms` to
+//    `run`, and each leaf's drain -- `hits!Matte`, `hits!Fuzz` -- sits
+//    behind a test of its variant's bit.
+// 2. `probes` is pushed only by the Fuzz arm's drain (`shade!Fuzz`), so its
+//    drain inherits the Fuzz bit with no flag of its own -- pbrt's
+//    `haveSubsurface`, derived through the push graph.
+// 3. Every push onto `soaks` sits under `wet && x > 0.0`, and `wet` reaches
+//    the drained function as an invariant parameter whose value is `run`'s
+//    own, so the `soaks` drain is gated on `wet` -- pbrt's `haveMedia`,
+//    read off the program -- AND the bits of the drains that push it; the
+//    entry's own `x > 0.0` is dropped, which only weakens the gate toward
+//    launching.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func probe(x : Float) -> Float {
+    return x + 1.0;
+}
+
+func fuzzy(a : Float, total : reduce(+) Float) -> void {
+    spawn total += probe(a);
+    return;
+}
+
+func wetten(wet : bool, x : Float, total : reduce(+) Float) -> void {
+    if wet && x > 0.0 {
+        spawn total += soak(x);
+    }
+    return;
+}
+
+func shade(s : Surface, wet : bool, x : Float,
+           total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            fuzzy(a, total);
+        }
+    }
+    wetten(wet, x, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, total : reduce(+) Float) -> void {
+    s = classify(x);
+    shade(s, wet, x, total);
+    return;
+}
+
+func run(values : array[Float, 8], wet : bool,
+         total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], wet, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    run(values, true, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    probes = run.queue(root);
+    fuzzy.defer(probe, probes);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+}
