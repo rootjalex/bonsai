@@ -3275,6 +3275,64 @@ than its mispredictions; on primary rays the branch is predictable and the
 two cancel. tuned.bonsai carries the measurement; embree.bonsai keeps the
 step, being Embree's structure step for step.
 
+## Comparisons a fact implies, and the blend that stays (2026-10-05)
+
+The plan's next item was the sort key's dead blend: `distmin` is infinite
+where the box is missed, so the key the sort packs carries `select(!(tNear
+<= tFar), inf, tNear)` -- `vpcmpgtd k2; vbroadcastss ymm{k2}` per
+multi-hit node -- although every lane the compress keeps and every lane the
+counted arms read is a hit's, where the select is `tNear`. Proving that
+needs two things the simplifier did not have, and now has (SSA/Simplify.cpp,
+`assume`):
+
+- **Comparisons implied by a fact.** A fact `x <= min(F)` decides `x <=
+  min(R)` true for `R` within `F`, the minimum over more values being no
+  greater; `max(L) <= y` likewise from `max(F) <= y`; a strict fact gives
+  the non-strict comparison too, a non-strict one not the strict. Over
+  integers, whose order is total. A fact is taken apart through `&` where
+  true and `|` where false, `!` with the truth flipped, and a comparison
+  itself (`!(a <= b)` is `b < a`); a chain's leaves are read through a
+  broadcast, `bc(min(a, b))` being `min(bc(a), bc(b))`, so a gang's chain
+  and the scalars broadcast meet leaf for leaf. The slab test's `tNear <=
+  min(x, y, z, tfar)` follows from the pruned `tNear <= min(x, y, z, tfar,
+  best - 1)`. (`facts_of`, `chain_leaves`, `implied`.)
+- **A cell with one store, read through.** The vectorizer hands a loop's
+  mask, keys and children out through local cells threaded by name
+  (`_mask1`, `_keys0`, `_carry0`), and promotion makes values of them only
+  later; a read of such a cell is the store's value where the store's block
+  dominates the read's, comes before it in one block, and no path from the
+  allocation to the read misses it (a cell allocated inside a loop needs
+  that on top of dominance). (`Cell`, `cell_named`, `stored_into`.)
+
+With these, a compress read under its mask does lose the blend, and so do
+the counted arms' reads of the carried distance -- and the kernel grew,
+579 -> 592 instructions: the arms had read the distance with one load from
+the cell, `vmovss xmm, [rsp + lane*4]`, and read it now from the register
+the rewrite handed them, a lane at a run-time index, which is a permute and
+a move; and the fifth arm, the network over all eight lanes, permutes the
+carried distances by the sorted order and reads positions `k < hits`, a
+positional argument no lane rule makes, so the blend stayed alive for it
+through the cell anyway. The compress rule alone was level (586, one load
+and one dead store traded for the chain on the register). With both rules
+withdrawn and the machinery left for the `&&` and select rules, `x <=
+min(n, m) && x <= n` became `x <= min(n, m)` (tested at the three levels,
+2256 cases), the nearest hit lost one instruction (the network arm's
+`select(mask, packed, inf)` reading the packed keys under the mask) -- and
+two goldens gained instructions: a comparison decided true deep in a chain
+another value shares makes `assume` rebuild the chain above it as new
+instructions while the old chain stays for its other users (defer-gang-
+bools: `!mask && n <= 0` decided under a select's condition, the arm
+rebuilt as `!mask && odd`, four instructions more; vectorize-sorted-
+traversal seven more). The same duplication is latent in the rule's
+existing `c && select(c, ..)` form, bounded by its budget; broadening it
+without a measured gain anywhere is not a trade to make. Everything is
+withdrawn: no change to the simplifier, no test, nothing in the kernels.
+What the item would need is the sort lowering reading the carry from the
+compress rather than the cell, which is the layout of the arms' stack
+writes, a different question, and the blend is two instructions on
+multi-hit nodes, about 0.3% of the nearest hit. Closed as not worth its
+cost; this record is what the attempt leaves.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also
