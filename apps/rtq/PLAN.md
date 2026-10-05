@@ -2954,6 +2954,163 @@ read by kind: duplicated field reads, broadcasts and loads merged
 false, true)`, the folded node test in every nearest-hit traversal, and
 LLVM's renumbering; every execution test as before. Suite 1360.
 
+## Ten more meshes (2026-10-04)
+
+The user asked for the comparison on more geometry. Ten meshes from
+pbrt-v4-scenes, of rising triangle count and unlike shape -- a stone slab,
+a machined part, a car body, a crown, a tangle of ivy, a house, a car's
+polygon mesh, a splash of fluid, a patch of landscape vegetation, a dense
+orb -- each through compare.sh at `--side 2048`, least of 5, both
+schedules, pinned to cpu 11 with the machine quiet, every ray agreeing
+with Embree. The scene's PLY is read as it is; the driver frames the mesh's
+box, so how much of the image the mesh fills differs by mesh, and with it
+how many of the 4.2 M primary rays hit (the ao and diffuse batches are one
+ray per primary hit).
+
+| mesh | file | triangles | primary hits |
+|---|---|---|---|
+| pavilion | barcelona-pavilion/geometry/mesh_00099.ply | 11,366 | 691,328 |
+| zero-day | zero-day/geometry/9dbbf607...3f12.ply | 48,960 | 38,186 |
+| bmw | bmw-m6/geometry/mesh_00037.ply | 110,592 | 918,517 |
+| crown | crown/geometry/mesh_00397.ply | 155,520 | 140,151 |
+| ivy | sanmiguel/geometry/enredadera_00001.ply | 179,603 | 104,440 |
+| villa | villa/geometry/mesh_00072.ply | 390,784 | 1,379,012 |
+| sportscar | sportscar/geometry/OSD_CarPoly_0000_m028.ply | 1,091,232 | 586,077 |
+| dambreak | dambreak/geometry/dambreak1.ply | 1,015,024 | 1,312,003 |
+| landscape | landscape/geometry/mesh_00370.ply | 1,916,928 | 349,979 |
+| lte-orb | lte-orb/geometry/mesh-3.ply.gz | 3,423,232 | 159,416 |
+
+bonsai over Embree, the matching schedule, nearest hit then any hit, each
+primary / ao / diffuse (the three meshes used throughout, from the fold's
+measurement above, first):
+
+| mesh | nearest hit | any hit |
+|---|---|---|
+| head (17,674) | 1.02 / 0.99 / 0.99 | 1.12 / 0.99 / 0.99 |
+| ganesha (4,323,658) | 1.00 / 1.01 / 1.00 | 1.02 / 1.00 / 0.99 |
+| dragon (7,219,045) | 1.02 / 1.02 / 1.01 | 1.01 / 1.00 / 1.00 |
+| pavilion | 1.01 / 1.00 / 0.99 | 1.09 / 1.02 / 1.02 |
+| zero-day | 1.13 / 1.02 / 1.02 | 1.17 / 1.01 / 1.01 |
+| bmw | 1.04 / 1.05 / 1.03 | 1.11 / 1.04 / 1.05 |
+| crown | 1.07 / 1.03 / 1.03 | 1.10 / 1.01 / 1.01 |
+| ivy | 1.04 / 1.00 / 0.99 | 1.06 / 0.98 / 0.97 |
+| villa | 1.01 / 1.02 / 1.02 | 1.08 / 1.02 / 1.02 |
+| sportscar | 1.02 / 1.04 / 1.03 | 0.98 / 1.02 / 1.00 |
+| dambreak | 0.99 / 1.00 / 1.00 | 1.02 / 0.99 / 1.00 |
+| landscape | 1.12 / 1.22 / 1.21 | 1.11 / 1.15 / 1.15 |
+| lte-orb | 1.05 / 1.01 / 1.01 | 1.05 / 1.00 / 0.99 |
+
+The tuned schedule's nearest hit is within 1% of the matching one's on
+every mesh; its any hit is 1.04-1.18x on primary rays and 1.02-1.15x on the
+incoherent batches (head 1.10 / 1.10 / 1.09, ivy 1.05 / 1.10 / 1.08,
+sportscar 1.04 / 1.11 / 1.09, lte-orb 1.04 / 1.07 / 1.06).
+
+Read across the thirteen: the nearest hit is 0.99-1.13x everywhere, the
+any hit 0.97-1.17x, and the cells under 1.00x are all the any hit on
+incoherent rays (ivy 0.97-0.98x, head 0.99x, lte-orb and dambreak 0.99x)
+plus sportscar's any hit on primary rays (0.98x, level within the run-to-
+run spread -- 1.05x in the profile's run). Two notes on method. A quick
+256-wide single run is not a measurement: taken that way, unpinned, before
+these, sportscar's nearest hit read 0.75x and landscape's 0.86x, both of
+which are 1.02x and 1.12x at 2048 x 5 pinned -- a first run over a 50-165
+MB tree pays its page faults. And perf's attribution to Embree's
+`intersect` symbol folds in the driver's own use of it to make the
+secondary batches, so bonsai/Embree instruction ratios on the nearest hit
+are not to be read off a profile; the `occluded` symbol is clean (the
+driver never calls it for itself), and the nearest hit's before/after
+counts of our own kernel are.
+
+The profile of the weak cell (head and ivy, diffuse rays, any hit): our
+kernel runs 1.6-2.6% more instructions and 5-10% more branch misses than
+Embree's `occluded` kernel, at 0.98-0.99x; the node loop is Embree's
+instruction for instruction (23 per node, the same 6 loads, 6 fma, 3 max, 3
+min, compare, kortest, branch), the one-hit path 13 against Embree's 15,
+and the leaf's block test the same arithmetic. What differs is after the
+hit: Embree returns; ours was draining its stack entry by entry, below.
+
+## The any hit stops when it finds one (2026-10-04)
+
+**What the profile showed.** In the any hit's kernel, after the leaf that
+blocks the ray, the code ran `test r11d, r11d; je done; dec r11d; mov r15,
+[rsp + 8*r11 + 0x38]; test bpl, 1; mov bpl, 1; je node; jmp` -- once per
+stack entry, down to an empty stack, and before that `add r12, 0xb0; cmp
+r15, r12; je; test bpl, 1; mov bpl, 1; jne` once per block left in the
+leaf: a settled `any` taking its stack down one entry at a time to decide
+nothing, where Embree's traverseAnyHit returns. The final SSA said the
+same: the pop was `if (count != 0) { pop; continue } else return`, with the
+found flag tested only at the loop's head, so a found ray went round the
+pop for every entry it had pushed: a load and a branch per entry, for
+every ray that finds a hit (17% of head's primary rays, 7.5% of its
+diffuse ones).
+
+**Why.** `any` meaning "stop when you find one" is SSA/QueueRecursion.cpp's
+find_monotone_accumulator (020952f9): the pop goes on only while
+`count != 0 && !holds`, and a direct descent past a leaf that may have
+settled the answer asks too. It is written as a check -- the traversal's
+boolean is found to move one way by reading the function's stores to it --
+rather than a fact carried down from the lowering, on the reasoning that a
+fact carried through every pass goes missing silently, while a check can at
+worst decline. It declined: since 44a66094 the quantifiers' update is an
+accumulate instruction, `acc.max holds x` for `any` (max of bools is or)
+and `acc.min` for `all`, and the check read `Store` instructions alone,
+found no store to `holds`, and found no accumulator. The test written for
+exactly this, ssa/ray-any-early-exit, says in its comment that the pop is
+`if (count != 0 && !acc)`; its golden had carried `if (count != 0)` since
+87d540a1, blessed without the `&& !acc`, and nobody read it against the
+comment.
+
+**The fix.** `writes_accumulator` (QueueRecursion.cpp): a store, an
+`acc.max` or an `acc.min` of a bool, two operands or three with a gang's
+mask; the scan counts them, the max rising and the min falling whatever
+the value, the handle is rebuilt from any of them, and may_settle_before's
+walk sees them as the stores they are. The pop is `count != 0 && !holds`
+again. LLVM then sees the pop's test on the loop's back edge and drops the
+header's own `!holds` test with its phi (the header block is gone from the
+LLVM goldens, its two phis moved to the body's preheader), so the kernel's
+pop is `test r11d, r11d; je done; test bpl, bpl; jne done; dec; mov; jmp
+node`: Embree's `cmp r9, r11; je; mov rax, [r9-8]; add r9, -8` plus one
+test of the found flag, which Embree does not need since its flag is
+`ray.tfar` set to -inf, read by the next node test. occluded_all 413 ->
+406 static instructions; trace_all 579, untouched.
+
+**Measured** against 7af0d6b3 (its compiler on its apps/rtq, in its
+worktree) on cpu 11, `--side 2048`, least of 5, every ray agreeing,
+Embree's own number holding between the sides on every pair. The any hit
+on primary rays: head 95.92 -> 96.81 Mrays/s (1.13x Embree), ivy 82.90 ->
+84.29 (1.07 -> 1.08x), dragon 39.05 -> 39.65 (1.02 -> 1.03x), sportscar
+60.37 -> 60.77 (1.04 -> 1.06x). On the incoherent batches, within the
+run-to-run spread but every pair the right way: ivy ao 6.48 -> 6.54
+(0.98x) and diffuse 5.93 -> 5.99 (0.97 -> 0.98x), dragon 5.14 -> 5.18 (1.00
+-> 1.01x) and 4.50 -> 4.54 (0.99 -> 1.00x), head level (17.71 -> 17.65,
+16.02 -> 16.05). The tuned schedule's any hit the same way, +1-2% on
+primary rays and level on the rest. The nearest hit's kernel is the one
+before instruction for instruction (trace_all's two disassemblies differ
+only in rip-relative offsets): within 1% on head, ivy and dragon, and
+1-2% under on sportscar in this run, a 1.1 M triangle mesh whose nearest
+hit lives in memory and moves that much between runs. perf of the any hit
+on head (samples, one in 20011 events): primary rays' instructions 32300
+-> 31900 (-1.2%) and cycles 32267 -> 31888; diffuse rays level (32500 ->
+32600, branch misses 837 -> 820), the blocked rays being 7.5% of the batch
+with shallow stacks, so the drain was the smaller part of the 2% gap there.
+What remains is the leaf's loop, below.
+
+**Left as it is.** Inside the leaf the blocks after the one that found
+the hit are still stepped over, six instructions each -- the lowering's
+`guard_iteration` is `if (undecided) body` per element, a skip and not an
+exit, and the source language has no `break` to write (ir::Break is the
+relooper's alone). A leaf of this tree holds one or two blocks of four, so
+the step-over is a few instructions per found ray; a loop exit on a
+monotone accumulator would be an SSA rewrite with the Monotone analysis,
+for when a tree with long leaves makes it worth having.
+
+**Tests.** The ten any-hit goldens: ssa/ray-any-early-exit (now what its
+comment says), ssa/any-hit-arms, any-hit-prefetch, child-volumes-any,
+sort-key-nonnegative and sort-key-through-bits move by the pop's three
+instructions (the pop is printed twice by the statement form, so six lines
+in some); backends/llvm/any-hit-arms, any-hit-prefetch, sort-key-nonnegative
+and sort-key-through-bits by the header's test folding away, 35 lines each
+beyond LLVM's renumbering. Every execution test as before; suite 1366.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

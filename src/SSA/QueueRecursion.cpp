@@ -103,6 +103,19 @@ struct Monotone {
     bool rising = false;
 };
 
+// Whether an instruction writes the memory its first operand points at in
+// the way a traversal's accumulator is written: a store, or an accumulate --
+// `any` lowers to `acc.max` of a bool, which is `acc | x`, and `all` to
+// `acc.min`, which is `acc & x` (SSA/Convert.cpp, get_acc_op). A gang's
+// write carries its execution mask as a third operand; the lanes that are off
+// keep what they had, which moves nothing in either direction.
+bool writes_accumulator(const Instruction &instr) {
+    return (instr.op == Instruction::Op::Store ||
+            instr.op == Instruction::Op::AccMax ||
+            instr.op == Instruction::Op::AccMin) &&
+           (instr.operands.size() == 2 || instr.operands.size() == 3);
+}
+
 // The name a value goes by, if it has one: an argument's, or an
 // instruction's. A variable is one instruction where it is made -- or one
 // parameter -- and an argument of every block it is threaded through, all
@@ -347,16 +360,10 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
 
     for (const auto &block : func.blocks) {
         for (const auto &instr : block->instrs) {
-            if (instr->op != Instruction::Op::Store) {
+            if (!writes_accumulator(*instr)) {
                 if (instr->op == Instruction::Op::AddressOf) {
                     note_escapes(instr->operands);
                 }
-                continue;
-            }
-            // A store made by a gang carries its execution mask as a third
-            // operand; the lanes that are off keep what they had, which
-            // moves nothing in either direction.
-            if (instr->operands.size() != 2 && instr->operands.size() != 3) {
                 continue;
             }
             const shared_ptr<Value> &dest = instr->operands[0];
@@ -376,6 +383,16 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
 
             Candidate &candidate = candidates[*name];
             candidate.stores++;
+            // An accumulate's direction is the accumulate's, whatever the
+            // value: the max of bools only ever raises, the min only lowers.
+            if (instr->op == Instruction::Op::AccMax) {
+                candidate.rising = true;
+                continue;
+            }
+            if (instr->op == Instruction::Op::AccMin) {
+                candidate.falling = true;
+                continue;
+            }
             const shared_ptr<Value> &value = instr->operands[1];
             if (is_bool_const(value, true) ||
                 combines_with_self(value, block.get(), *name,
@@ -401,11 +418,10 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
             candidate.rising == candidate.falling || escaped.contains(name)) {
             continue;
         }
-        // Rebuild a handle to the value from the store that named it.
+        // Rebuild a handle to the value from the write that named it.
         for (const auto &block : func.blocks) {
             for (const auto &instr : block->instrs) {
-                if (instr->op != Instruction::Op::Store ||
-                    instr->operands.size() != 2) {
+                if (!writes_accumulator(*instr)) {
                     continue;
                 }
                 if (name_of(instr->operands[0]) == name) {
@@ -887,8 +903,7 @@ void queue_recursion(Function &func, size_t size) {
         internal_assert(acc.has_value());
         const std::optional<string> target = name_of(acc->ptr);
         for (const auto &instr : block.instrs) {
-            if (instr->op == Instruction::Op::Store &&
-                !instr->operands.empty() &&
+            if (writes_accumulator(*instr) &&
                 name_of(instr->operands[0]) == target) {
                 return true;
             }
