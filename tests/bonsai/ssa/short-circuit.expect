@@ -57,8 +57,7 @@ func run(out : mut i32[3], x : i32, a : bool, b : bool) -> void {
   let @6 = cast<i32>((*!or_1)) in
   out[1] = @6
   let @8 = a && b in
-  let @9 = 0 < x in
-  let @10 = @8 && @9 in
+  let @10 = @8 && @0 in
   let @11 = cast<i32>(@10) in
   out[2] = @11
   return

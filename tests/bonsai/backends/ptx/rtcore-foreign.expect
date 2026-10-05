@@ -178,26 +178,26 @@ __intersection__trace:
   %4 = shl nuw i64 %3, 32
   %ctx_address = or disjoint i64 %4, %1
   %ctx = inttoptr i64 %ctx_address to ptr
-  %tris.unpack3 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
-  %tris.unpack3.global = addrspacecast ptr %tris.unpack3 to ptr addrspace(1)
-  %tris.unpack3.generic = addrspacecast ptr addrspace(1) %tris.unpack3.global to ptr
+  %tris.unpack2 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
+  %tris.unpack2.global = addrspacecast ptr %tris.unpack2 to ptr addrspace(1)
+  %tris.unpack2.generic = addrspacecast ptr addrspace(1) %tris.unpack2.global to ptr
   %5 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #0
   %_sbt_data = inttoptr i64 %5 to ptr
   %_sbt_base = load i32, ptr %_sbt_data, align 4
   %6 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #0
   %7 = add i32 %6, %_sbt_base
   %_wide = zext i32 %7 to i64
-  %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack3.generic, i64 %_wide
+  %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
   %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !4
-  %_rt_e0.tri.elt8 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %_rt_e0.tri.unpack9 = load <3 x float>, ptr %_rt_e0.tri.elt8, align 16, !invariant.load !4
-  %_rt_e0.tri.elt10 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %_rt_e0.tri.unpack11 = load <3 x float>, ptr %_rt_e0.tri.elt10, align 16, !invariant.load !4
+  %_rt_e0.tri.elt7 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %_rt_e0.tri.unpack8 = load <3 x float>, ptr %_rt_e0.tri.elt7, align 16, !invariant.load !4
+  %_rt_e0.tri.elt9 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %_rt_e0.tri.unpack10 = load <3 x float>, ptr %_rt_e0.tri.elt9, align 16, !invariant.load !4
   %deref_temp.unpack = load %struct.Ray, ptr %ctx, align 16
   %8 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #0
   %_hit_t = bitcast i32 %8 to float
-  %9 = fsub <3 x float> %_rt_e0.tri.unpack11, %_rt_e0.tri.unpack
-  %10 = fsub <3 x float> %_rt_e0.tri.unpack9, %_rt_e0.tri.unpack
+  %9 = fsub <3 x float> %_rt_e0.tri.unpack10, %_rt_e0.tri.unpack
+  %10 = fsub <3 x float> %_rt_e0.tri.unpack8, %_rt_e0.tri.unpack
   %11 = extractelement <3 x float> %9, i64 1
   %12 = extractelement <3 x float> %10, i64 2
   %13 = extractelement <3 x float> %9, i64 2
@@ -231,12 +231,12 @@ __intersection__trace:
   br i1 %40, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
 
 "!merge_1.i":                                     ; preds = %__intersection__trace
-  %"@9.d" = extractvalue %struct.Ray %deref_temp.unpack, 1
+  %"@6.d" = extractvalue %struct.Ray %deref_temp.unpack, 1
   %"@6.o" = extractvalue %struct.Ray %deref_temp.unpack, 0
   %41 = fsub <3 x float> %_rt_e0.tri.unpack, %"@6.o"
-  %42 = fsub <3 x float> %_rt_e0.tri.unpack9, %"@6.o"
-  %43 = fsub <3 x float> %_rt_e0.tri.unpack11, %"@6.o"
-  %44 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@9.d")
+  %42 = fsub <3 x float> %_rt_e0.tri.unpack8, %"@6.o"
+  %43 = fsub <3 x float> %_rt_e0.tri.unpack10, %"@6.o"
+  %44 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %"@6.d")
   %45 = extractelement <3 x float> %44, i64 0
   %46 = extractelement <3 x float> %44, i64 1
   %47 = fcmp olt float %45, %46
@@ -255,12 +255,12 @@ __intersection__trace:
   %58 = icmp ult i32 %57, 3
   %59 = add nsw i32 %56, -2
   %60 = select i1 %58, i32 %57, i32 %59
-  %61 = extractelement <3 x float> %"@9.d", i64 0
+  %61 = extractelement <3 x float> %"@6.d", i64 0
   %lane_is.i = icmp eq i32 %56, 1
-  %62 = extractelement <3 x float> %"@9.d", i64 1
+  %62 = extractelement <3 x float> %"@6.d", i64 1
   %lane.i = select i1 %lane_is.i, float %62, float %61
   %lane_is52.i = icmp eq i32 %56, 2
-  %63 = extractelement <3 x float> %"@9.d", i64 2
+  %63 = extractelement <3 x float> %"@6.d", i64 2
   %lane53.i = select i1 %lane_is52.i, float %63, float %lane.i
   %lane_is54.i = icmp eq i32 %60, 1
   %lane55.i = select i1 %lane_is54.i, float %62, float %61
@@ -391,9 +391,9 @@ __intersection__trace:
   br i1 %144, label %intersectsp_ray_tri.exit, label %"!merge_7.i"
 
 "!merge_7.i":                                     ; preds = %"!merge_3.i"
-  %.splatinsert135.i = insertelement <3 x float> poison, float %86, i64 0
-  %.splat136.i = shufflevector <3 x float> %.splatinsert135.i, <3 x float> poison, <3 x i32> zeroinitializer
-  %145 = fmul <3 x float> %.splat136.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %.splatinsert126.i = insertelement <3 x float> poison, float %86, i64 0
+  %.splat127.i = shufflevector <3 x float> %.splatinsert126.i, <3 x float> poison, <3 x i32> zeroinitializer
+  %145 = fmul <3 x float> %.splat127.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
   %146 = fadd <3 x float> %145, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
   %147 = fmul <3 x float> %146, %93
   %148 = fmul <3 x float> %146, %100
@@ -434,8 +434,8 @@ __intersection__trace:
   %177 = select i1 %176, float %175, float %174
   %178 = extractelement <3 x float> %173, i64 2
   %179 = fcmp olt float %177, %178
-  %reduce_max150.i = select i1 %179, float %178, float %177
-  %180 = fmul float %reduce_max150.i, f0x34400002
+  %reduce_max140.i = select i1 %179, float %178, float %177
+  %180 = fmul float %reduce_max140.i, f0x34400002
   %181 = shufflevector <3 x float> %147, <3 x float> %148, <3 x i32> <i32 0, i32 3, i32 poison>
   %182 = shufflevector <3 x float> %181, <3 x float> %149, <3 x i32> <i32 0, i32 1, i32 3>
   %183 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %182)
@@ -445,7 +445,7 @@ __intersection__trace:
   %187 = select i1 %186, float %185, float %184
   %188 = extractelement <3 x float> %183, i64 2
   %189 = fcmp olt float %187, %188
-  %reduce_max154.i = select i1 %189, float %188, float %187
+  %reduce_max141.i = select i1 %189, float %188, float %187
   %190 = shufflevector <3 x float> %147, <3 x float> %148, <3 x i32> <i32 1, i32 4, i32 poison>
   %191 = shufflevector <3 x float> %190, <3 x float> %149, <3 x i32> <i32 0, i32 1, i32 4>
   %192 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %191)
@@ -455,16 +455,16 @@ __intersection__trace:
   %196 = select i1 %195, float %194, float %193
   %197 = extractelement <3 x float> %192, i64 2
   %198 = fcmp olt float %196, %197
-  %reduce_max158.i = select i1 %198, float %197, float %196
-  %199 = fadd float %reduce_max154.i, %reduce_max150.i
+  %reduce_max142.i = select i1 %198, float %197, float %196
+  %199 = fadd float %reduce_max141.i, %reduce_max140.i
   %200 = fmul float %199, f0x34A00003
-  %201 = fadd float %reduce_max158.i, %reduce_max150.i
+  %201 = fadd float %reduce_max142.i, %reduce_max140.i
   %202 = fmul float %201, f0x34A00003
-  %203 = fmul float %reduce_max154.i, f0x34000001
-  %204 = fmul float %203, %reduce_max158.i
-  %205 = fmul float %reduce_max154.i, %202
+  %203 = fmul float %reduce_max141.i, f0x34000001
+  %204 = fmul float %203, %reduce_max142.i
+  %205 = fmul float %reduce_max141.i, %202
   %206 = fadd float %204, %205
-  %207 = fmul float %reduce_max158.i, %200
+  %207 = fmul float %reduce_max142.i, %200
   %208 = fadd float %207, %206
   %209 = fmul float %208, 2.000000e+00
   %210 = insertelement <3 x float> poison, float %117, i64 0
@@ -477,12 +477,12 @@ __intersection__trace:
   %217 = select i1 %216, float %215, float %214
   %218 = extractelement <3 x float> %213, i64 2
   %219 = fcmp olt float %217, %218
-  %reduce_max159.i = select i1 %219, float %218, float %217
-  %220 = fmul float %reduce_max159.i, f0x34400002
-  %221 = fmul float %reduce_max150.i, %220
-  %222 = fmul float %reduce_max150.i, %209
+  %reduce_max143.i = select i1 %219, float %218, float %217
+  %220 = fmul float %reduce_max143.i, f0x34400002
+  %221 = fmul float %reduce_max140.i, %220
+  %222 = fmul float %reduce_max140.i, %209
   %223 = fadd float %221, %222
-  %224 = fmul float %180, %reduce_max159.i
+  %224 = fmul float %180, %reduce_max143.i
   %225 = fadd float %224, %223
   %226 = fmul float %225, 3.000000e+00
   %227 = tail call float @llvm.fabs.f32(float %169)

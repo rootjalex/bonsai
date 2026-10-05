@@ -1,0 +1,66 @@
+func [[export]] gang(as : f32[8], ns : u32[8], z : f32, out : mut bool[8]) -> void {
+  let @0 = 0f < z in
+  let @1 = !@0 in
+  if (@1) {
+    return
+  } else {
+    let @2 = as[ramp(0u, 1u, 8)] in
+    let x = abs(@2) in
+    let @4 = ns[ramp(0u, 1u, 8)] in
+    let @5 = cast<f32x8>(@4) in
+    let @12 = reinterpret_cast<i32x8>(x) in
+    let @13 = reinterpret_cast<i32x8>(@5) in
+    let @15 = reinterpret_cast<i32>(z) in
+    let @19 = @15 - 1 in
+    let @20 = i32x8(@19) in
+    let @21 = min(@13, @20) in
+    let @22 = @12 <= @21 in
+    out[ramp(0u, 1u, 8)] = @22
+    return
+  }
+}
+
+func [[export]] joined(a : f32, n : u32, z : f32) -> bool {
+  let @0 = 0f < z in
+  let @1 = !@0 in
+  if (@1) {
+    return false
+  } else {
+    let x = abs(a) in
+    let @3 = cast<f32>(n) in
+    let @7 = reinterpret_cast<i32>(x) in
+    let @8 = reinterpret_cast<i32>(@3) in
+    let @10 = reinterpret_cast<i32>(z) in
+    let @12 = @10 - 1 in
+    let @13 = min(@8, @12) in
+    let @14 = @7 <= @13 in
+    return @14
+  }
+}
+
+func [[export]] known(a : f32, b : f32) -> bool {
+  let @0 = 0f < b in
+  let @1 = !@0 in
+  if (@1) {
+    return false
+  } else {
+    let @2 = abs(a) in
+    let @4 = reinterpret_cast<i32>(@2) in
+    let @5 = reinterpret_cast<i32>(b) in
+    let @6 = @4 < @5 in
+    return @6
+  }
+}
+
+func [[export]] unknown(a : f32, b : f32) -> bool {
+  let @0 = abs(a) in
+  let @1 = abs(b) in
+  let @2 = @0 < @1 in
+  return @2
+}
+
+
+schedule {
+    gang.vectorize(k)
+
+}

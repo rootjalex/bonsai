@@ -1,0 +1,46 @@
+//! flags: -p ssa
+
+// The simplifier's common subexpressions (SSA/Simplify.cpp, find_equal):
+// an operation over the same operands computed again where the first is in
+// scope is the first. What to read for:
+//
+//   * `twice`: `a * b + 1.0` computed three times in three blocks -- once
+//     before the branch, once in the arm, once after -- is one value, `x`,
+//     the arm returning it and the sum after being `x + x`: the arm and the
+//     block after are dominated by the block that computed it.
+//   * `loads`: two reads of the read-only `table` at `i` are one, wherever
+//     they are (nothing can have written the table between them); two
+//     loads of the local `k` with no store between them are one, and the
+//     sums of each with `1u` are one; but the load of `k` after `k = i + 1u`
+//     is a new value, the store having moved the block's generation on.
+//   * `kept`: a program's own name for a value stays with the value that
+//     takes its place -- `y` is named `y`, not `@n`, in what is left.
+
+func [[export]] twice(a : f32, b : f32, c : bool) -> f32 {
+    x = a * b + 1.0;
+    if c {
+        return a * b + 1.0;
+    }
+    y = a * b + 1.0;
+    return x + y;
+}
+
+extern table : array[f32, 16];
+
+func [[export]] loads(i : u32, j : u32) -> f32 {
+    acc : mut f32 = 0.0;
+    acc = table[i] + table[j];
+    acc = acc + table[i];
+    k : mut u32 = i;
+    a = k + 1u;
+    b = k + 1u;
+    k = i + 1u;
+    c = k + 1u;
+    return acc + cast[[f32]](a + b + c);
+}
+
+func [[export]] kept(a : f32, b : f32) -> f32 {
+    y = a - b;
+    z = a - b;
+    return y * z;
+}

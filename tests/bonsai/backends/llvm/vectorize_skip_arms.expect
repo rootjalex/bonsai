@@ -7,135 +7,135 @@ weigh_all:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp ogt <8 x float> %extract, splat (float 2.000000e+00)
-  %not..i = xor <8 x i1> %0, splat (i1 true)
-  %1 = bitcast <8 x i1> %0 to i8
-  %.not.i = icmp eq i8 %1, 0
+  %1 = xor <8 x i1> %0, splat (i1 true)
+  %2 = bitcast <8 x i1> %0 to i8
+  %.not.i = icmp eq i8 %2, 0
   br i1 %.not.i, label %"!else_1!any.i", label %"!then_0.i"
 
 "!then_0.i":                                      ; preds = %weigh_all
-  %2 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %extract)
-  %3 = fmul <8 x float> %2, splat (float 3.000000e+00)
-  %4 = fadd <8 x float> %3, splat (float 1.000000e+00)
-  %5 = fcmp ule <8 x float> %4, splat (float 7.000000e+00)
-  %6 = and <8 x i1> %0, %5
-  %7 = bitcast <8 x i1> %6 to i8
-  %.not4.i = icmp eq i8 %7, 0
-  br i1 %.not4.i, label %"!else_1!any.i", label %"!merge_4.i"
+  %3 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %extract)
+  %4 = fmul <8 x float> %3, splat (float 3.000000e+00)
+  %5 = fadd <8 x float> %4, splat (float 1.000000e+00)
+  %6 = fcmp ule <8 x float> %5, splat (float 7.000000e+00)
+  %7 = and <8 x i1> %0, %6
+  %8 = bitcast <8 x i1> %7 to i8
+  %.not3.i = icmp eq i8 %8, 0
+  br i1 %.not3.i, label %"!else_1!any.i", label %"!merge_4.i"
 
 "!merge_4.i":                                     ; preds = %"!then_0.i"
-  %8 = fmul <8 x float> %4, %4
-  %9 = fsub <8 x float> %8, %extract
+  %9 = fmul <8 x float> %5, %5
+  %10 = fsub <8 x float> %9, %extract
   br label %"!else_1!any.i"
 
 "!else_1!any.i":                                  ; preds = %"!merge_4.i", %"!then_0.i", %weigh_all
-  %"@71!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %6, %"!then_0.i" ], [ %6, %"!merge_4.i" ]
-  %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ undef, %"!then_0.i" ], [ %9, %"!merge_4.i" ]
-  %"!ret!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %4, %"!then_0.i" ], [ %4, %"!merge_4.i" ]
-  %10 = bitcast <8 x i1> %not..i to i8
-  %.not5.i = icmp eq i8 %10, 0
-  br i1 %.not5.i, label %"!merge_2.i", label %"!else_1.i"
+  %"@71!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %7, %"!then_0.i" ], [ %7, %"!merge_4.i" ]
+  %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ undef, %"!then_0.i" ], [ %10, %"!merge_4.i" ]
+  %"!ret!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %5, %"!then_0.i" ], [ %5, %"!merge_4.i" ]
+  %11 = bitcast <8 x i1> %1 to i8
+  %.not4.i = icmp eq i8 %11, 0
+  br i1 %.not4.i, label %"!merge_2.i", label %"!else_1.i"
 
 "!else_1.i":                                      ; preds = %"!else_1!any.i"
-  %11 = fmul <8 x float> %extract, %extract
-  %12 = fmul <8 x float> %11, splat (float 5.000000e-01)
-  %13 = fadd <8 x float> %12, splat (float 1.000000e+00)
-  %14 = fmul <8 x float> %13, %13
-  %15 = fmul <8 x float> %13, splat (float 3.000000e+00)
-  %16 = fadd <8 x float> %14, %15
-  %17 = fadd <8 x float> %16, splat (float -1.000000e+00)
-  %18 = select <8 x i1> %0, <8 x float> %"acc!skip.i", <8 x float> %17
+  %12 = fmul <8 x float> %extract, %extract
+  %13 = fmul <8 x float> %12, splat (float 5.000000e-01)
+  %14 = fadd <8 x float> %13, splat (float 1.000000e+00)
+  %15 = fmul <8 x float> %14, %14
+  %16 = fmul <8 x float> %14, splat (float 3.000000e+00)
+  %17 = fadd <8 x float> %15, %16
+  %18 = fadd <8 x float> %17, splat (float -1.000000e+00)
+  %19 = select <8 x i1> %0, <8 x float> %"acc!skip.i", <8 x float> %18
   br label %"!merge_2.i"
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!else_1!any.i"
-  %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %18, %"!else_1.i" ]
-  %19 = or <8 x i1> %"@71!join.i", %not..i
-  %20 = fcmp olt <8 x float> %extract, zeroinitializer
-  %21 = xor <8 x i1> %20, %19
-  %22 = fsub <8 x float> zeroinitializer, %extract
-  %23 = bitcast <8 x i1> %21 to i8
-  %.not8.i = icmp eq i8 %23, 0
-  br i1 %.not8.i, label %"!merge_7.i", label %"!else_6.i"
+  %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %19, %"!else_1.i" ]
+  %20 = or <8 x i1> %"@71!join.i", %1
+  %21 = fcmp olt <8 x float> %extract, zeroinitializer
+  %22 = xor <8 x i1> %21, %20
+  %23 = fsub <8 x float> zeroinitializer, %extract
+  %24 = bitcast <8 x i1> %22 to i8
+  %.not6.i = icmp eq i8 %24, 0
+  br i1 %.not6.i, label %"!merge_7.i", label %"!else_6.i"
 
 "!else_6.i":                                      ; preds = %"!merge_2.i"
-  %24 = fcmp uge <8 x float> %extract, splat (float 4.000000e+00)
-  %25 = and <8 x i1> %24, %19
-  %26 = fmul <8 x float> %extract, splat (float 5.000000e-01)
-  %27 = bitcast <8 x i1> %25 to i8
-  %.not11.i = icmp eq i8 %27, 0
-  br i1 %.not11.i, label %"!merge_10.i", label %"!else_9.i"
+  %25 = fcmp uge <8 x float> %extract, splat (float 4.000000e+00)
+  %26 = and <8 x i1> %25, %20
+  %27 = fmul <8 x float> %extract, splat (float 5.000000e-01)
+  %28 = bitcast <8 x i1> %26 to i8
+  %.not8.i = icmp eq i8 %28, 0
+  br i1 %.not8.i, label %"!merge_10.i", label %"!else_9.i"
 
 "!else_9.i":                                      ; preds = %"!else_6.i"
-  %28 = fmul <8 x float> %extract, splat (float 2.500000e-01)
-  %29 = select <8 x i1> %25, <8 x i8> splat (i8 2), <8 x i8> splat (i8 1)
-  %.v.i = select <8 x i1> %25, <8 x float> %28, <8 x float> %26
+  %29 = fmul <8 x float> %extract, splat (float 2.500000e-01)
+  %30 = select <8 x i1> %26, <8 x i8> splat (i8 2), <8 x i8> splat (i8 1)
+  %.v.i = select <8 x i1> %26, <8 x float> %29, <8 x float> %27
   br label %"!merge_10.i"
 
 "!merge_10.i":                                    ; preds = %"!else_9.i", %"!else_6.i"
-  %"classify$r6!skip0.0.i" = phi <8 x i8> [ splat (i8 1), %"!else_6.i" ], [ %29, %"!else_9.i" ]
-  %"classify$r6!skip0.2.1.in.i" = phi <8 x float> [ %26, %"!else_6.i" ], [ %.v.i, %"!else_9.i" ]
-  %30 = select <8 x i1> %21, <8 x i8> %"classify$r6!skip0.0.i", <8 x i8> zeroinitializer
-  %.v15.i = select <8 x i1> %21, <8 x float> %extract, <8 x float> %22
-  %31 = select <8 x i1> %21, <8 x float> %"classify$r6!skip0.2.1.in.i", <8 x float> zeroinitializer
+  %"classify$r6!skip0.0.i" = phi <8 x i8> [ splat (i8 1), %"!else_6.i" ], [ %30, %"!else_9.i" ]
+  %"classify$r6!skip0.2.1.in.i" = phi <8 x float> [ %27, %"!else_6.i" ], [ %.v.i, %"!else_9.i" ]
+  %31 = select <8 x i1> %22, <8 x i8> %"classify$r6!skip0.0.i", <8 x i8> zeroinitializer
+  %.v12.i = select <8 x i1> %22, <8 x float> %extract, <8 x float> %23
+  %32 = select <8 x i1> %22, <8 x float> %"classify$r6!skip0.2.1.in.i", <8 x float> zeroinitializer
   br label %"!merge_7.i"
 
 "!merge_7.i":                                     ; preds = %"!merge_10.i", %"!merge_2.i"
-  %"classify$r6!skip2.0.i" = phi <8 x i8> [ zeroinitializer, %"!merge_2.i" ], [ %30, %"!merge_10.i" ]
-  %"classify$r6!skip2.2.0.in.i" = phi <8 x float> [ %22, %"!merge_2.i" ], [ %.v15.i, %"!merge_10.i" ]
-  %"classify$r6!skip2.2.1.i" = phi <8 x float> [ zeroinitializer, %"!merge_2.i" ], [ %31, %"!merge_10.i" ]
-  %32 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", zeroinitializer
-  %33 = and <8 x i1> %19, %32
-  %34 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
-  %35 = and <8 x i1> %19, %34
-  %36 = icmp samesign ugt <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
-  %37 = and <8 x i1> %19, %36
-  %38 = bitcast <8 x i1> %37 to i8
-  %.not12.i = icmp eq i8 %38, 0
-  br i1 %.not12.i, label %"!case_13!any.i", label %"!case_14.i"
+  %"classify$r6!skip2.0.i" = phi <8 x i8> [ zeroinitializer, %"!merge_2.i" ], [ %31, %"!merge_10.i" ]
+  %"classify$r6!skip2.2.0.in.i" = phi <8 x float> [ %23, %"!merge_2.i" ], [ %.v12.i, %"!merge_10.i" ]
+  %"classify$r6!skip2.2.1.i" = phi <8 x float> [ zeroinitializer, %"!merge_2.i" ], [ %32, %"!merge_10.i" ]
+  %33 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", zeroinitializer
+  %34 = and <8 x i1> %20, %33
+  %35 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %36 = and <8 x i1> %20, %35
+  %37 = icmp samesign ugt <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %38 = and <8 x i1> %20, %37
+  %39 = bitcast <8 x i1> %38 to i8
+  %.not9.i = icmp eq i8 %39, 0
+  br i1 %.not9.i, label %"!case_13!any.i", label %"!case_14.i"
 
 "!case_14.i":                                     ; preds = %"!merge_7.i"
-  %39 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
-  %40 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
-  %41 = fsub <8 x float> %39, %40
-  %42 = fmul <8 x float> %41, splat (float 3.000000e+00)
-  %43 = fadd <8 x float> %"classify$r6!skip2.2.1.i", %42
+  %40 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
+  %41 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %42 = fsub <8 x float> %40, %41
+  %43 = fmul <8 x float> %42, splat (float 3.000000e+00)
+  %44 = fadd <8 x float> %"classify$r6!skip2.2.1.i", %43
   br label %"!case_13!any.i"
 
 "!case_13!any.i":                                 ; preds = %"!case_14.i", %"!merge_7.i"
-  %"w!skip.i" = phi <8 x float> [ undef, %"!merge_7.i" ], [ %43, %"!case_14.i" ]
-  %44 = bitcast <8 x i1> %35 to i8
-  %.not13.i = icmp eq i8 %44, 0
-  br i1 %.not13.i, label %"!case_12!any.i", label %"!case_13.i"
+  %"w!skip.i" = phi <8 x float> [ undef, %"!merge_7.i" ], [ %44, %"!case_14.i" ]
+  %45 = bitcast <8 x i1> %36 to i8
+  %.not10.i = icmp eq i8 %45, 0
+  br i1 %.not10.i, label %"!case_12!any.i", label %"!case_13.i"
 
 "!case_13.i":                                     ; preds = %"!case_13!any.i"
-  %45 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.1.i"
-  %46 = fmul <8 x float> %45, splat (float 2.000000e+00)
-  %47 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
-  %48 = fadd <8 x float> %47, %46
-  %49 = fsub <8 x float> %48, %"classify$r6!skip2.2.0.in.i"
-  %50 = select <8 x i1> %35, <8 x float> %49, <8 x float> %"w!skip.i"
+  %46 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.1.i"
+  %47 = fmul <8 x float> %46, splat (float 2.000000e+00)
+  %48 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %49 = fadd <8 x float> %48, %47
+  %50 = fsub <8 x float> %49, %"classify$r6!skip2.2.0.in.i"
+  %51 = select <8 x i1> %36, <8 x float> %50, <8 x float> %"w!skip.i"
   br label %"!case_12!any.i"
 
 "!case_12!any.i":                                 ; preds = %"!case_13.i", %"!case_13!any.i"
-  %"w!skip0.i" = phi <8 x float> [ %"w!skip.i", %"!case_13!any.i" ], [ %50, %"!case_13.i" ]
-  %51 = bitcast <8 x i1> %33 to i8
-  %.not14.i = icmp eq i8 %51, 0
-  br i1 %.not14.i, label %"weigh$gang8_v0.exit", label %"!case_12.i"
+  %"w!skip0.i" = phi <8 x float> [ %"w!skip.i", %"!case_13!any.i" ], [ %51, %"!case_13.i" ]
+  %52 = bitcast <8 x i1> %34 to i8
+  %.not11.i = icmp eq i8 %52, 0
+  br i1 %.not11.i, label %"weigh$gang8_v0.exit", label %"!case_12.i"
 
 "!case_12.i":                                     ; preds = %"!case_12!any.i"
-  %52 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
-  %53 = fmul <8 x float> %52, splat (float 3.000000e+00)
-  %54 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", splat (float 5.000000e-01)
-  %55 = fadd <8 x float> %54, %53
-  %56 = fsub <8 x float> %55, %"classify$r6!skip2.2.0.in.i"
-  %57 = select <8 x i1> %33, <8 x float> %56, <8 x float> %"w!skip0.i"
+  %53 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
+  %54 = fmul <8 x float> %53, splat (float 3.000000e+00)
+  %55 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", splat (float 5.000000e-01)
+  %56 = fadd <8 x float> %55, %54
+  %57 = fsub <8 x float> %56, %"classify$r6!skip2.2.0.in.i"
+  %58 = select <8 x i1> %34, <8 x float> %57, <8 x float> %"w!skip0.i"
   br label %"weigh$gang8_v0.exit"
 
 "weigh$gang8_v0.exit":                            ; preds = %"!case_12!any.i", %"!case_12.i"
-  %"w!skip1.i" = phi <8 x float> [ %"w!skip0.i", %"!case_12!any.i" ], [ %57, %"!case_12.i" ]
-  %58 = fadd <8 x float> %"acc!skip0.i", %"w!skip1.i"
-  %59 = select <8 x i1> %19, <8 x float> %58, <8 x float> %"!ret!skip.i"
+  %"w!skip1.i" = phi <8 x float> [ %"w!skip0.i", %"!case_12!any.i" ], [ %58, %"!case_12.i" ]
+  %59 = fadd <8 x float> %"acc!skip0.i", %"w!skip1.i"
+  %60 = select <8 x i1> %20, <8 x float> %59, <8 x float> %"!ret!skip.i"
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  store <8 x float> %59, ptr %out, align 4
+  store <8 x float> %60, ptr %out, align 4
   ret void
 }
 
@@ -149,67 +149,68 @@ weigh_one:
   %1 = tail call nnan float @llvm.sqrt.f32(float %x)
   %2 = fmul nnan float %1, 3.000000e+00
   %3 = fadd float %2, 1.000000e+00
-  %4 = fcmp ogt float %3, 7.000000e+00
-  br i1 %4, label %weigh.exit, label %"!merge_4.i"
+  %4 = bitcast float %3 to i32
+  %5 = icmp sgt i32 %4, 1088421888
+  br i1 %5, label %weigh.exit, label %"!merge_4.i"
 
 "!merge_4.i":                                     ; preds = %"!then_0.i"
-  %5 = fmul float %3, %3
-  %6 = fsub float %5, %x
+  %6 = fmul float %3, %3
+  %7 = fsub float %6, %x
   br label %"!merge_2.i"
 
 "!else_1.i":                                      ; preds = %weigh_one
-  %7 = fmul float %x, %x
-  %8 = fmul float %7, 5.000000e-01
-  %9 = fadd float %8, 1.000000e+00
-  %10 = fmul float %9, %9
-  %11 = fmul float %9, 3.000000e+00
-  %12 = fadd float %10, %11
-  %13 = fadd float %12, -1.000000e+00
+  %8 = fmul float %x, %x
+  %9 = fmul float %8, 5.000000e-01
+  %10 = fadd float %9, 1.000000e+00
+  %11 = fmul float %10, %10
+  %12 = fmul float %10, 3.000000e+00
+  %13 = fadd float %11, %12
+  %14 = fadd float %13, -1.000000e+00
   br label %"!merge_2.i"
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!merge_4.i"
-  %acc.i = phi float [ %13, %"!else_1.i" ], [ %6, %"!merge_4.i" ]
-  %14 = fcmp olt float %x, 0.000000e+00
-  br i1 %14, label %"!case_12.i", label %"!else_6.i"
+  %acc.i = phi float [ %14, %"!else_1.i" ], [ %7, %"!merge_4.i" ]
+  %15 = fcmp olt float %x, 0.000000e+00
+  br i1 %15, label %"!case_12.i", label %"!else_6.i"
 
 "!else_6.i":                                      ; preds = %"!merge_2.i"
-  %15 = fcmp olt float %x, 4.000000e+00
-  br i1 %15, label %"!case_13.i", label %"!case_14.i"
+  %16 = fcmp olt float %x, 4.000000e+00
+  br i1 %16, label %"!case_13.i", label %"!case_14.i"
 
 "!case_14.i":                                     ; preds = %"!else_6.i"
-  %16 = fmul float %x, 2.500000e-01
-  %17 = fmul float %x, %x
-  %18 = fmul float %16, %16
-  %19 = fsub float %17, %18
-  %20 = fmul float %19, 3.000000e+00
-  %21 = fadd float %16, %20
+  %17 = fmul float %x, 2.500000e-01
+  %18 = fmul float %x, %x
+  %19 = fmul float %17, %17
+  %20 = fsub float %18, %19
+  %21 = fmul float %20, 3.000000e+00
+  %22 = fadd float %17, %21
   br label %"!merge_11.i"
 
 "!case_13.i":                                     ; preds = %"!else_6.i"
-  %22 = fmul nnan float %x, 5.000000e-01
-  %23 = fmul nnan float %x, %22
-  %24 = fmul nnan float %23, 2.000000e+00
-  %25 = fmul float %22, %22
-  %26 = fadd float %25, %24
-  %27 = fsub float %26, %x
+  %23 = fmul nnan float %x, 5.000000e-01
+  %24 = fmul nnan float %x, %23
+  %25 = fmul nnan float %24, 2.000000e+00
+  %26 = fmul float %23, %23
+  %27 = fadd float %26, %25
+  %28 = fsub float %27, %x
   br label %"!merge_11.i"
 
 "!case_12.i":                                     ; preds = %"!merge_2.i"
-  %28 = fsub float 0.000000e+00, %x
-  %29 = fmul float %28, %28
-  %30 = fmul nnan float %29, 3.000000e+00
-  %31 = fmul nnan float %28, 5.000000e-01
-  %32 = fadd float %31, %30
-  %33 = fsub float %32, %28
+  %29 = fsub float 0.000000e+00, %x
+  %30 = fmul float %29, %29
+  %31 = fmul nnan float %30, 3.000000e+00
+  %32 = fmul nnan float %29, 5.000000e-01
+  %33 = fadd float %32, %31
+  %34 = fsub float %33, %29
   br label %"!merge_11.i"
 
 "!merge_11.i":                                    ; preds = %"!case_12.i", %"!case_13.i", %"!case_14.i"
-  %w.i = phi float [ %33, %"!case_12.i" ], [ %27, %"!case_13.i" ], [ %21, %"!case_14.i" ]
-  %34 = fadd float %acc.i, %w.i
+  %w.i = phi float [ %34, %"!case_12.i" ], [ %28, %"!case_13.i" ], [ %22, %"!case_14.i" ]
+  %35 = fadd float %acc.i, %w.i
   br label %weigh.exit
 
 weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_11.i"
-  %common.ret.op.i = phi float [ %34, %"!merge_11.i" ], [ %3, %"!then_0.i" ]
+  %common.ret.op.i = phi float [ %35, %"!merge_11.i" ], [ %3, %"!then_0.i" ]
   ret float %common.ret.op.i
 }
 

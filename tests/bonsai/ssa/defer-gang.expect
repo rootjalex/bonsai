@@ -80,10 +80,8 @@ func walk(n : i32, acc : i32, out : mut i32[40], i : i32, _queue_sums : mut (Que
 func walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
   let @11 = i32x16(0) in
   let @0 = n <= @11 in
-  let @12 = boolx16(false) in
-  let @13 = boolx16(true) in
-  let @6 = select(@0, @12, @13) in
-  let @7 = !mask && @6 in
+  let @15 = !@0 in
+  let @7 = !mask && @15 in
   let @8 = !mask && @0 in
   let @10 = reduce<any>(@8) in
   if (@10) {
@@ -95,14 +93,14 @@ func walk$gang16_v0_v1_v3$masked(n : i32x16, acc : i32x16, out : mut i32[40], i 
     let @2 = n - @14 in
     let @3 = acc + n in
     let @4 = build<Entry_sums$v16>(@2, @3, i) in
-    let @16 = reduce<+>(cast<u32x16>(@7)) in
-    let @17 = atomic_add((&(*_queue_sums).count), @16) in
-    let @19 = (*_queue_sums).n in
-    compress_store(@19[@17], @2, @7)
-    let @22 = (*_queue_sums).acc in
-    compress_store(@22[@17], @3, @7)
-    let @25 = (*_queue_sums).i in
-    compress_store(@25[@17], i, @7)
+    let @17 = reduce<+>(cast<u32x16>(@7)) in
+    let @18 = atomic_add((&(*_queue_sums).count), @17) in
+    let @20 = (*_queue_sums).n in
+    compress_store(@20[@18], @2, @7)
+    let @23 = (*_queue_sums).acc in
+    compress_store(@23[@18], @3, @7)
+    let @26 = (*_queue_sums).i in
+    compress_store(@26[@18], i, @7)
   }
   return
 }

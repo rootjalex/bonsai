@@ -2771,6 +2771,189 @@ select's arm (`chosen`), and a running best behind a pointer across two
 calls (`narrow`, `run`), read off the dump. The suite is otherwise
 unmoved (1350).
 
+## The best folded into the slab test's `tFar` (2026-10-04)
+
+**Before.** The nearest hit's node test compared twice: the slab test's
+`asInt(tNear) <= asInt(tFar)` (one `vpcmpled`), then the argmin's prune
+`distmin(r, box) < best` as a masked `vcmpltps` on the float entry
+distance against the best broadcast per node -- with the masked `distmin`
+a call in our SSA that recomputed the slab test, which only LLVM merged.
+Embree compares once, `tNear <= mini(tFarX, tFarY, tFarZ, asInt(tfar))`,
+its `tray.tfar` being the best. **After:**
+
+    limit = min(bits(r.tfar), bits(best) - 1)        -- scalar, per node
+    tFar' = min(min(bits(tFarX), bits(tFarY)), min(bits(tFarZ), bc(limit)))
+    mask  = tNear <= tFar'
+
+the kernel's node test `vpmaxsd` x3, `vpminsd` x3, `vpcmpled`, `kortest`,
+Embree's, and the `vcmpltps` gone. The `- 1` keeps our prune strict where
+Embree's is `<=`: on the bits of non-negative numbers `x < b` is `x <= b -
+1`, and the best's bits are never the integer's least. The limit is formed
+where the best changes, once per accepted hit, as Embree rebroadcasts
+`tray.tfar` where a hit lands (item 7 below); formed per node it was five
+instructions (`vmovd`, `dec`, `cmp`, `cmovl`, `vpbroadcastd`, the best moved
+between register files and back) where the two it replaced had been one
+broadcast and one compare, and dragon's nearest hit ran 2-3% more
+instructions and as many more cycles.
+
+**What it took**, each a general piece, in the order the rewrite needs
+them:
+
+1. **The masked variant inlined** (SSA/Vectorize.cpp, inline_pure_variants).
+   A gang's callee that is pure and straight-line -- safe with every lane
+   off (no memory, no effect), every block a plain jump or the return --
+   is copied in at each call (inline_call) and the copy's chain of blocks
+   folded into the calling block through the continuation
+   (absorb_successors), each absorbed block's arguments standing for what
+   the jump passed, the substitutions carried down the whole chain since a
+   gang's blocks name values of the blocks above without taking them as
+   arguments. Such a variant was never guarded, so this runs no more than
+   the call did; a `[[noinline]]` callee stays a call; a variant nothing
+   calls afterwards is removed.
+2. **Common subexpressions** (SSA/Simplify.cpp, find_equal). The
+   simplifier had no general merge; the inlined slab test stayed a copy.
+   Now an operation over the same operands computed again where the first
+   is in scope is the first: a table per block, consulted along with its
+   dominators' -- but not past a block that ends in a call or a parfor,
+   since a deferral (SSA/Defer.h) cuts the graph exactly there and hands
+   the continuation only what its entry captured (the first attempt merged
+   a `gep(out, p)` of a continuation with the enclosing body's, and the
+   drain had no such value; correctness/llvm/defer-nested-producer caught
+   it). A read of mutable memory merges only within its block and only
+   while nothing has been written between (EarlyCSE's generation); a read
+   of read-only storage merges anywhere. The key is the operation, type,
+   operands by name and what rides on the instruction (an intrinsic's name,
+   a reduction's kind, a shuffle's order); what no key describes -- a
+   `sizeof`, whose measured type is on the instruction alone -- is not
+   merged (the first attempt merged `sizeof(f32)` with `sizeof(f32x3)`;
+   correctness/cpp/vectorize_soa and vectorize_visect caught it). A value
+   merged into from another block is registered in its block's lookups,
+   which is how the backends find a name across blocks. The simplifier now
+   runs to a fixed point (eight passes at most): an instruction visited
+   before a merge changed its operand -- `!x` of a `!y` that became `y`'s
+   double negation -- is not looked at again within a pass.
+3. **The rules the chain needs**: a field of a select between structs is
+   the select between the fields where a side then folds (the option's
+   `set` read through `select(miss, none, some)`); a field of a struct
+   built with no operands is its type's zero; a field read through a
+   reinterpretation of a struct build with the same parts (the gang's
+   `vector[vec3f, 8]` built from three component vectors and read as the
+   struct of three) is the part; `select(c, false, true)` is `!c` and
+   `select(c, true, false)` is `c`; `!!x` on masks as on bools; bits read
+   as one type and back are what they were; a reinterpretation over a
+   broadcast is the broadcast of the scalar one.
+4. **The exact facts** (SSA/ConstantIntervals.h). The compare-to-bits
+   rule is exact only where the right side is a non-negative number and
+   the left side's sign bit is clear in every value: a NaN on the right
+   compares true on the bits and false as a float. The bounds alone could
+   not say that -- they speak of where a value is when it is a number --
+   so a float interval carries three flags: `number` (never a NaN),
+   `nonnegative` (at least +0 where a number), `sign_clear` (the sign bit
+   clear in every value, a NaN's included). A constant has them from its
+   value; `abs` clears the sign of anything; bits known non-negative read
+   as a float with its sign clear, a number where none lie past
+   infinity's; a comparison known to hold was between numbers, and so
+   were the values they were computed from through the operations a NaN
+   comes out of (a sum, product, quotient, absolute value, reciprocal,
+   root), and a number above a non-negative one is positive; min, max,
+   select, memory and reductions carry what both sides have; a product or
+   sum of numbers is a number unless it may meet zero times infinity or
+   infinity less infinity, non-negative where both are. A float's bits as
+   an integer are exact now: between the bounds' bits for a non-negative
+   number, up to 0x7fffffff where only the sign is known clear,
+   everything otherwise -- which took the earlier reading of a NaN as
+   outside the lattice out of the reinterpret rules; the sort's flip rule
+   (SSA/SortRecursion.cpp) reads `sign_clear` of the key instead of its
+   bounds, which is what a flip is about. And a gang's blocks name the
+   values of the blocks above them without taking them as arguments, so
+   the analysis resolves a name through the dominators to the block that
+   declares it, and an argument named as a parameter or a local allocation
+   is that parameter or allocation (the follower of definitions read six
+   such references to `_best0` at the loop's gate as six different values).
+5. **The compare on the bits, and the join** (SSA/Simplify.cpp): a `<` or
+   `<=` of two 32-bit floats whose right side is a non-negative number and
+   whose left side's sign is clear is the same comparison of their bits;
+   and a strict comparison beside a non-strict one over integers joins it
+   through one step on the side not shared where the interval analysis
+   says the step cannot wrap, `(a <= b) & (a < c)` being `a <= min(b, c -
+   1)`. Then the rules of d3162556 join the compares and move the min
+   into the chain beside `bc(tfar)`, and group the two broadcasts into one
+   scalar min. The simplify after the directives gets the analysis of the
+   program as it then stands (SSA/Convert.cpp), where the best is still a
+   load through the pointer its caller passed; after the allocas are
+   promoted it is a value carried round the loop that one pass cannot
+   bound.
+6. **The program says what Embree asserts.** `clamped` was `max(r.tnear,
+   0.0)`, Embree's `max(tnear, 0)`; std::max hands a NaN or a negative zero
+   through, so the clamp did not make `tnear` a non-negative number and
+   nothing downstream was provable exactly (the key's flip came back, and
+   the fold needed the entry distance's sign clear). It is `select(r.tnear
+   > 0.0, r.tnear, 0.0)` now, and `tfar` the same: identical on every ray
+   Embree accepts as valid (`ray.valid()`: `tnear >= 0`, not a NaN), and a
+   non-negative number for the compiler to see. The sort-key tests' clamps
+   moved the same way.
+7. **The limit formed where the best changes** (SSA/MirrorLoads.h). A
+   pure value a loop computes from a cell in memory -- a `mut` local or a
+   pointer parameter whose address is used only by loads, stores and
+   accumulates -- whose other inputs are available everywhere (constants,
+   parameters, pure computations of them, cloned where needed) is computed
+   where the cell is written instead, into a mirror cell of its own, at the
+   entry and after every write, and the loop reads the mirror; promotion
+   then makes the mirror a value carried round the loop. From the node
+   test's load of the best the chain is the field, the bits, the `- 1`, the
+   min with the ray's `tfar` bits and the broadcast; a chain costing fewer
+   than two instructions (a field read, a reinterpretation, a negation are
+   free) is left alone, since a mirror costs its update at every write --
+   the any hit's `!(*_holds0)` was mirrored and its kernel grew by 18
+   instructions before that rule. In the kernel the limit is now a ymm
+   register (spilled to the frame, `vpminsd ymm5, ymm2, [rsp+0xa0]`, a
+   memory operand) and the node path has nothing but Embree's
+   instructions; the five scalar ones run once per accepted hit, after the
+   leaf's `argmin=`. trace_all 571 -> 578 static instructions (the leaf's
+   update and the select clamps), occluded_all 412 -> 413.
+
+**Measured** against 7e0558cd (its compiler on its apps/rtq, in its
+worktree) on cpu 11, `--side 2048`, least of 5, every ray agreeing, Embree's
+own number holding between the two sides on every pair but ganesha's any hit
+on primary rays (Embree 28.4 against 29.4 between the sides, ours 29.85 ->
+29.87, so that pair's 1.05 -> 1.02x is Embree's drift and not ours).
+Matching schedule (primary / ao / diffuse): the nearest hit on head 64.35 ->
+64.68 Mrays/s (1.01 -> 1.02x) / 15.19 -> 15.63 (0.96 -> 0.99x) / 13.50 ->
+13.87 (0.96 -> 0.99x); ganesha 23.24 -> 24.11 (0.97 -> 1.00x) / 6.56 -> 6.67
+(0.99 -> 1.01x) / 6.09 -> 6.16 (0.98 -> 1.00x); dragon 35.13 -> 35.11
+(1.02x) / 4.76 -> 4.80 (1.01 -> 1.02x) / 4.20 -> 4.22 (1.00 -> 1.01x). The
+any hit, which the fold does not touch, level: head 96.81 -> 96.30 (1.13 ->
+1.12x) / 17.87 -> 17.77 (1.00 -> 0.99x) / 16.14 -> 16.08 (0.99x); ganesha
+7.16 -> 7.20 (0.99 -> 1.00x) and 6.10 -> 6.12 (0.98 -> 0.99x) on the
+incoherent batches; dragon 39.01 -> 38.96 (1.02 -> 1.01x) / 5.12 -> 5.13
+(1.00x) / 4.49 -> 4.52 (0.99 -> 1.00x). The tuned schedule the same way:
+its nearest hit on head +2.9% on ao and diffuse (0.96 -> 0.99x), ganesha
++1.5-2.3%, dragon +0.2-1.3%, its any hit within 1% of before everywhere.
+perf on the nearest hit (samples, one in 20011 events): head's instructions
+48300 -> 48000 on primary rays (-0.6%) and 34499 -> 33600 on ao (-2.6%),
+cycles the same way; dragon's 88000 -> 88460 on primary (+0.5%) and 65484
+-> 64863 on ao (-0.9%), where without the mirror they were +1.8% and +2.7%;
+branch misses level on both. The gain is per node visited -- the broadcast
+of the best and the masked compare against it, gone from every node, small
+beside the node's loads and slab test -- and shows most on the incoherent
+batches; dragon's primary rays are level.
+
+**Tests.** ssa/compare-on-bits, backends/llvm/compare-on-bits and
+correctness/cpp/compare_on_bits with its main (`unknown` left on the floats
+since its right side may be a NaN; `known` on the bits below `0.0 < b`;
+`joined` and `gang` the whole shape, `x <= min(y, z - 1)` scalar and over a
+gang with the limit broadcast once; run over NaNs of both signs, negative
+zero, the least denormal, the greatest float and the infinities against
+C++'s float arithmetic, 792 cases agreeing); ssa/common-subexpressions
+(across blocks, read-only reads anywhere, mutable loads within a block
+until a store, a program's name kept); ssa/intervals-from-conditions
+re-blessed with the flags. The sort-key tests (ssa, llvm and cpp) carry
+the fold in their traversals and the select clamp. 96 goldens moved,
+read by kind: duplicated field reads, broadcasts and loads merged
+(`let _t = b.low` once where it was read three times), `!c` for `select(c,
+false, true)`, the folded node test in every nearest-hit traversal, and
+LLVM's renumbering; every execution test as before. Suite 1360.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

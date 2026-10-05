@@ -12,11 +12,7 @@ func narrow(a : u32[8], b : u32[8], q : mut u32[8], r : mut u32[8]) -> void {
   let @12 = @10 / @11 in
   let @5 = cast<u32x8>(@12) in
   q[ramp(0, 1, 8)] = @5
-  let @13 = cast<f32x8>(x) in
-  let @14 = cast<f32x8>(y) in
-  let @15 = @13 / @14 in
-  let @16 = cast<u32x8>(@15) in
-  let @17 = @16 * y in
+  let @17 = @5 * y in
   let @7 = x - @17 in
   r[ramp(0, 1, 8)] = @7
   return

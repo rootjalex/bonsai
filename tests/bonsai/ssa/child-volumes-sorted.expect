@@ -83,11 +83,11 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @33 = _t112$i15$i27 / @32 in
             let @35 = 2f * @33 in
             let @36 = 1f + @35 in
-            let @345 = @28 * f32x3(@36) in
-            let @38 = @345[1u] in
+            let @330 = @28 * f32x3(@36) in
+            let @38 = @330[1u] in
             let @40 = @26[0u] in
             let @41 = @38 < @40 in
-            let @43 = @345[0u] in
+            let @43 = @330[0u] in
             let @45 = @26[1u] in
             let @46 = @43 < @45 in
             let @47 = @41 || @46 in
@@ -95,13 +95,9 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               let @48 = build<_option1>() in
               intersectsp_ray_aabb$r27 = @48
             } else {
-              let @50 = @26[0u] in
-              let @52 = @26[1u] in
-              let @53 = max(@50, @52) in
-              let @55 = @345[0u] in
-              let @57 = @345[1u] in
-              let @58 = min(@55, @57) in
-              let @60 = @345[2u] in
+              let @53 = max(@40, @45) in
+              let @58 = min(@43, @38) in
+              let @60 = @330[2u] in
               let @62 = @60 < @53 in
               let @65 = @26[2u] in
               let @66 = @58 < @65 in
@@ -112,10 +108,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
                 tmin$i27 = @53
                 tmax$i27 = @58
               } else {
-                let @71 = @26[2u] in
-                let @72 = max(@53, @71) in
-                let @75 = @345[2u] in
-                let @76 = min(@58, @75) in
+                let @72 = max(@53, @65) in
+                let @76 = min(@58, @60) in
                 let @79 = build<FInterval>(@72, @76) in
                 let @80 = build<_option1>(@79, true) in
                 intersectsp_ray_aabb$r27 = @80
@@ -133,20 +127,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               let @89 = 0f < @88 in
               let @90 = @87 & @89 in
               if (@90) {
-                let @92 = tris.group0_row in
-                let @93 = (*tris_ref!top) >> 4u in
-                let @94 = @92[@93] in
-                let @95 = @94.lo in
-                let @96 = cast<f32x3x4>(@95) in
-                let @97 = @96[children] in
-                let @98 = tris.group0_row in
-                let @99 = (*tris_ref!top) >> 4u in
-                let @100 = @98[@99] in
-                let @101 = @100.hi in
-                let @102 = cast<f32x3x4>(@101) in
-                let @103 = @102[children] in
-                let @104 = build<AABB>(@97, @103) in
-                let @105 = distmin_Ray_AABB(r, @104) in
+                let @105 = distmin_Ray_AABB(r, b$i0) in
                 let @106 = (*_best0) in
                 let @107 = @106._field0 in
                 let @108 = @105 < @107 in
@@ -155,9 +136,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
                 !and_0 = false
               }
               _mask0[children] = (*!and_0)
-              let extract$i1$t0 = (*intersectsp_ray_aabb$r27).value in
-              let @112 = extract$i1$t0.low in
-              _carry0[children] = @112
+              _carry0[children] = @85
               let @115 = entry(r, b$i0) in
               _keys0[children] = @115
               intersects_Ray_AABB$r0 = @90
@@ -218,15 +197,14 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
                 let @210 = @186[@208] in
                 let @211 = @206 & 3 in
                 let @212 = reinterpret_cast<u32>(@211) in
-                let @278 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @280 = @278[@212] in
+                let @277 = @273[@212] in
                 let @214 = @186[@212] in
-                !stack[(*!count)] = @280
+                !stack[(*!count)] = @277
                 !stack0[(*!count)] = @214
-                let @324 = (*!count) + 1u in
+                let @306 = (*!count) + 1u in
                 tris_ref!top = @275
                 _bound0!top = @210
-                !count = @324
+                !count = @306
                 continue
               } break;
               case 1: {
@@ -241,28 +219,26 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
                 let @223 = max(@218, @221) in
                 let @224 = @220 & 3 in
                 let @225 = reinterpret_cast<u32>(@224) in
-                let @283 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @285 = @283[@225] in
+                let @280 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
+                let @282 = @280[@225] in
                 let @227 = @186[@225] in
                 let @228 = @222 & 3 in
                 let @229 = reinterpret_cast<u32>(@228) in
-                let @288 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @290 = @288[@229] in
+                let @284 = @280[@229] in
                 let @231 = @186[@229] in
                 let @232 = @223 & 3 in
                 let @233 = reinterpret_cast<u32>(@232) in
-                let @293 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @295 = @293[@233] in
+                let @286 = @280[@233] in
                 let @235 = @186[@233] in
-                !stack[(*!count)] = @295
+                !stack[(*!count)] = @286
                 !stack0[(*!count)] = @235
-                let @328 = (*!count) + 1u in
-                !stack[@328] = @290
-                !stack0[@328] = @231
-                let @332 = @328 + 1u in
-                tris_ref!top = @285
+                let @310 = (*!count) + 1u in
+                !stack[@310] = @284
+                !stack0[@310] = @231
+                let @314 = @310 + 1u in
+                tris_ref!top = @282
                 _bound0!top = @227
-                !count = @332
+                !count = @314
                 continue
               } break;
               default: {
@@ -284,36 +260,33 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
                 let @251 = max(@244, @249) in
                 let @252 = @246 & 3 in
                 let @253 = reinterpret_cast<u32>(@252) in
-                let @298 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @300 = @298[@253] in
+                let @289 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
+                let @291 = @289[@253] in
                 let @255 = @186[@253] in
                 let @256 = @248 & 3 in
                 let @257 = reinterpret_cast<u32>(@256) in
-                let @303 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @305 = @303[@257] in
+                let @293 = @289[@257] in
                 let @259 = @186[@257] in
                 let @260 = @250 & 3 in
                 let @261 = reinterpret_cast<u32>(@260) in
-                let @308 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @310 = @308[@261] in
+                let @295 = @289[@261] in
                 let @263 = @186[@261] in
                 let @264 = @251 & 3 in
                 let @265 = reinterpret_cast<u32>(@264) in
-                let @313 = reinterpret_cast<const u32[4]>((&@142[@143].children)) in
-                let @315 = @313[@265] in
+                let @297 = @289[@265] in
                 let @267 = @186[@265] in
-                !stack[(*!count)] = @315
+                !stack[(*!count)] = @297
                 !stack0[(*!count)] = @267
-                let @336 = (*!count) + 1u in
-                !stack[@336] = @310
-                !stack0[@336] = @263
-                let @340 = @336 + 1u in
-                !stack[@340] = @305
-                !stack0[@340] = @259
-                let @344 = @340 + 1u in
-                tris_ref!top = @300
+                let @318 = (*!count) + 1u in
+                !stack[@318] = @295
+                !stack0[@318] = @263
+                let @322 = @318 + 1u in
+                !stack[@322] = @293
+                !stack0[@322] = @259
+                let @326 = @322 + 1u in
+                tris_ref!top = @291
                 _bound0!top = @255
-                !count = @344
+                !count = @326
                 continue
               }
               }
@@ -335,8 +308,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               let @172 = isect_$i2.t in
               let @174 = (*_best0) in
               let @175 = @174._field0 in
-              let @176 = @172 < @175 in
-              if (@176) {
+              let @327 = reinterpret_cast<i32>(@172) in
+              let @328 = reinterpret_cast<i32>(@175) in
+              let @329 = @327 < @328 in
+              if (@329) {
                 let @178 = build<__tuple_0>(_t71) in
                 let @179 = build<__tuple_1>(@172, @178) in
                 _best0 argmin= @179
@@ -349,14 +324,14 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         break
       } while (true)
     }
-    let @317 = (*!count) != 0u in
-    if (@317) {
-      let @318 = (*!count) - 1u in
-      let @319 = !stack[@318] in
-      let @320 = !stack0[@318] in
-      tris_ref!top = @319
-      _bound0!top = @320
-      !count = @318
+    let @299 = (*!count) != 0u in
+    if (@299) {
+      let @300 = (*!count) - 1u in
+      let @301 = !stack[@300] in
+      let @302 = !stack0[@300] in
+      tris_ref!top = @301
+      _bound0!top = @302
+      !count = @300
       continue
     } else {
       return
@@ -371,8 +346,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
-  let @3 = (f32)inf in
-  let @4 = 0f - @3 in
+  let @4 = 0f - @0 in
   _recloop_func0(0u, @4, _best0, r, tris)
   let @5 = build<_option0>() in
   let @6 = (*_best0) in
@@ -430,12 +404,8 @@ func entry(r : Ray, b : AABB) -> f32 {
     let @33 = build<_option1>() in
     intersectsp_ray_aabb$r12 = @33
   } else {
-    let @35 = @11[0u] in
-    let @37 = @11[1u] in
-    let @38 = max(@35, @37) in
-    let @40 = @76[0u] in
-    let @42 = @76[1u] in
-    let @43 = min(@40, @42) in
+    let @38 = max(@25, @30) in
+    let @43 = min(@28, @23) in
     let @45 = @76[2u] in
     let @47 = @45 < @38 in
     let @50 = @11[2u] in
@@ -447,10 +417,8 @@ func entry(r : Ray, b : AABB) -> f32 {
       tmin$i12 = @38
       tmax$i12 = @43
     } else {
-      let @56 = @11[2u] in
-      let @57 = max(@38, @56) in
-      let @60 = @76[2u] in
-      let @61 = min(@43, @60) in
+      let @57 = max(@38, @50) in
+      let @61 = min(@43, @45) in
       let @64 = build<FInterval>(@57, @61) in
       let @65 = build<_option1>(@64, true) in
       intersectsp_ray_aabb$r12 = @65
@@ -483,8 +451,7 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0$i26 = @2
-  let @3 = (f32)inf in
-  let @4 = 0f - @3 in
+  let @4 = 0f - @0 in
   let @5 = (*r) in
   let @6 = (*tris) in
   _recloop_func0(0u, @4, _best0$i26, @5, @6)

@@ -354,10 +354,8 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   @31 = load(tMin$i26)
   @32 = extract_idx(@31, (u32)0)
   @33 = lt(@30, @32)
-  @34 = load(tMax$i26)
-  @35 = extract_idx(@34, (u32)0)
-  @36 = load(tMin$i26)
-  @37 = extract_idx(@36, (u32)1)
+  @35 = extract_idx(@29, (u32)0)
+  @37 = extract_idx(@31, (u32)1)
   @38 = lt(@35, @37)
   @39 = lor(@33, @38)
   dispatch @39 [!else_1(tMin$i26, tMax$i26, intersectsp_ray_aabb$r26, ray, intersects_Ray_AABB$r0, _best0, _t75, dirIsNeg$i26, triangles_index, triangles), !then_0(intersectsp_ray_aabb$r26, ray, intersects_Ray_AABB$r0, _best0, _t75, dirIsNeg$i26, triangles_index, triangles)]
@@ -371,15 +369,13 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   tmin$i26 = alloca<(f32*)>()
   @41 = load(tMin$i26)
   @42 = extract_idx(@41, (u32)0)
-  @43 = load(tMin$i26)
-  @44 = extract_idx(@43, (u32)1)
+  @44 = extract_idx(@41, (u32)1)
   @45 = max(@42, @44)
   store tmin$i26 @45
   tmax$i26 = alloca<(f32*)>()
   @46 = load(tMax$i26)
   @47 = extract_idx(@46, (u32)0)
-  @48 = load(tMax$i26)
-  @49 = extract_idx(@48, (u32)1)
+  @49 = extract_idx(@46, (u32)1)
   @50 = min(@47, @49)
   store tmax$i26 @50
   @51 = load(tMax$i26)
@@ -532,8 +528,10 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   @117 = load(distmin_Ray_Triangle$r2)
   @118 = load(_best0)
   @119 = load_field(@118, (u32)0)
-  @120 = lt(@117, @119)
-  dispatch @120 [!merge_27(data, @105, _t75, ray, triangles, _best0), !then_26(distmin_Ray_Triangle$r2, _t57, _best0, data, @105, _t75, ray, triangles)]
+  @130 = reinterpret<i32>(@117)
+  @131 = reinterpret<i32>(@119)
+  @132 = lt(@130, @131)
+  dispatch @132 [!merge_27(data, @105, _t75, ray, triangles, _best0), !then_26(distmin_Ray_Triangle$r2, _t57, _best0, data, @105, _t75, ray, triangles)]
 
 !merge_25(data : u32, @105 : u32, _t75 : _tree_layout1, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !merge_27, !intersectsp_ray_tri_call_cont_23
   @124 = add(data, (u32)1)
@@ -681,11 +679,11 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   let @25 = _t118$i14$i26 / @24 in
   let @27 = 2f * @25 in
   let @28 = 1f + @27 in
-  let @131 = @20 * f32x3(@28) in
-  let @30 = @131[1u] in
+  let @133 = @20 * f32x3(@28) in
+  let @30 = @133[1u] in
   let @32 = @18[0u] in
   let @33 = @30 < @32 in
-  let @35 = @131[0u] in
+  let @35 = @133[0u] in
   let @37 = @18[1u] in
   let @38 = @35 < @37 in
   let @39 = @33 || @38 in
@@ -693,13 +691,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     let @40 = build<_option1>() in
     intersectsp_ray_aabb$r26 = @40
   } else {
-    let @42 = @18[0u] in
-    let @44 = @18[1u] in
-    let @45 = max(@42, @44) in
-    let @47 = @131[0u] in
-    let @49 = @131[1u] in
-    let @50 = min(@47, @49) in
-    let @52 = @131[2u] in
+    let @45 = max(@32, @37) in
+    let @50 = min(@35, @30) in
+    let @52 = @133[2u] in
     let @54 = @52 < @45 in
     let @57 = @18[2u] in
     let @58 = @50 < @57 in
@@ -710,10 +704,8 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
       tmin$i26 = @45
       tmax$i26 = @50
     } else {
-      let @63 = @18[2u] in
-      let @64 = max(@45, @63) in
-      let @67 = @131[2u] in
-      let @68 = min(@50, @67) in
+      let @64 = max(@45, @57) in
+      let @68 = min(@50, @52) in
       let @71 = build<FInterval>(@64, @68) in
       let @72 = build<_option1>(@71, true) in
       intersectsp_ray_aabb$r26 = @72
@@ -782,8 +774,10 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
             let @116 = isect_$i2.t in
             let @118 = (*_best0) in
             let @119 = @118._field0 in
-            let @120 = @116 < @119 in
-            if (@120) {
+            let @130 = reinterpret_cast<i32>(@116) in
+            let @131 = reinterpret_cast<i32>(@119) in
+            let @132 = @130 < @131 in
+            if (@132) {
               let @122 = build<__tuple_0>(_t57) in
               let @123 = build<__tuple_1>(@116, @122) in
               _best0 argmin= @123

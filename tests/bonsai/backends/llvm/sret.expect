@@ -65,8 +65,8 @@ common.ret:                                       ; preds = %"!merge_1", %"!then
   ret void
 
 "!then_0":                                        ; preds = %count_up
-  %deref_temp10.elt24 = getelementptr inbounds nuw i8, ptr %acc, i64 4
-  %4 = load <2 x float>, ptr %deref_temp10.elt24, align 4
+  %deref_temp7.elt21 = getelementptr inbounds nuw i8, ptr %acc, i64 4
+  %4 = load <2 x float>, ptr %deref_temp7.elt21, align 4
   br label %common.ret
 
 "!merge_1":                                       ; preds = %count_up
@@ -79,9 +79,9 @@ common.ret:                                       ; preds = %"!merge_1", %"!then
   %vec2struct.slot.sroa.0.8.vec.extract = extractelement <4 x float> %6, i64 2
   %9 = insertvalue %struct.F4 %8, float %vec2struct.slot.sroa.0.8.vec.extract, 2
   %vec2struct.slot.sroa.0.12.vec.extract = extractelement <4 x float> %6, i64 3
-  %vec2struct43 = insertvalue %struct.F4 %9, float %vec2struct.slot.sroa.0.12.vec.extract, 3
+  %vec2struct40 = insertvalue %struct.F4 %9, float %vec2struct.slot.sroa.0.12.vec.extract, 3
   %10 = add i32 %n, -1
-  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %vec2struct43, i32 %10)
+  call fastcc void @_unexported_count_up(ptr noalias %_ret, %struct.F4 %vec2struct40, i32 %10)
   %.fca.1.gep = getelementptr inbounds nuw i8, ptr %_ret, i64 4
   %11 = load <2 x float>, ptr %.fca.1.gep, align 4
   br label %common.ret

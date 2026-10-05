@@ -1,0 +1,60 @@
+func [[export]] count_near(xs : f32[16], bound : f32) -> u32 {
+  seen : mut bool
+  n : mut u32
+  i : mut u32
+  seen = false
+  n = 0u
+  i = 0u
+  while ((*i) < 16u) {
+    let @3 = !(*seen) in
+    if (@3) {
+      let @5 = (*n) + 1u in
+      n = @5
+    }
+    let @7 = xs[(*i)] in
+    let @8 = @7 < bound in
+    if (@8) {
+      seen = true
+    }
+    let @10 = (*i) + 1u in
+    i = @10
+  }
+  return (*n)
+}
+
+func [[export]] count_within(xs : f32[16], bound : f32) -> u32 {
+  best : mut f32
+  @19!mirror : mut i32
+  n : mut u32
+  i : mut u32
+  let @0 = (f32)inf in
+  let @21 = reinterpret_cast<i32>(bound) in
+  let @22 = reinterpret_cast<i32>(@0) in
+  let @23 = @22 - 1 in
+  let @24 = min(@21, @23) in
+  best = @0
+  @19!mirror = @24
+  n = 0u
+  i = 0u
+  while ((*i) < 16u) {
+    let x = xs[(*i)] in
+    let @10 = reinterpret_cast<i32>(x) in
+    let @11 = @10 <= (*@19!mirror) in
+    if (@11) {
+      let @13 = (*n) + 1u in
+      n = @13
+    }
+    let @15 = x < (*best) in
+    if (@15) {
+      let @28 = @10 - 1 in
+      let @29 = min(@21, @28) in
+      best = x
+      @19!mirror = @29
+    }
+    let @17 = (*i) + 1u in
+    i = @17
+  }
+  return (*n)
+}
+
+

@@ -30,8 +30,6 @@ func run(out : mut i32[4]) -> void {
       paths_total_slots[@10] = 0
       let @1 = p << 2 in
       let @2 = @1 + s in
-      let @12 = p * 4 in
-      let @13 = @12 + s in
       let @19 = build<Entry_paths>(@2, 3, @10) in
       let @54 = atomic_add((&paths_queue[0u].count), 1u) in
       let @56 = paths_queue[0u].x in

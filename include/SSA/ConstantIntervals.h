@@ -20,19 +20,52 @@ namespace ssa {
 // dropped past it, a float bound may be an infinity, and an integer
 // interval is kept within its type's range (an operation that may overflow
 // gives the whole range, as Halide's cast_to does). A NaN is outside the
-// lattice: the bounds say where a value is when it is a number, and a
-// client that may meet one reasons about that itself -- the sort key's
-// lanes that are read are the hits', whose box test is false for a NaN.
+// bounds: they say where a value is when it is a number, and a client that
+// may meet one reasons about that itself -- the sort key's lanes that are
+// read are the hits', whose box test is false for a NaN.
+//
+// Three flags say more, each false where nothing is known. `number`: the
+// value is never a NaN -- a constant, an integer, a float read from bits no
+// greater than infinity's, a value a comparison known to hold compared (a
+// NaN passes none) and the values such a one is computed from, and what
+// min, max, select and memory carry between numbers, and what a product,
+// sum or quotient of numbers that cannot meet zero times infinity, infinity
+// less infinity or zero over zero makes. `nonnegative`: where the value is
+// a number, it is at least +0 with its sign bit clear -- a positive number,
+// a non-negative constant, a product or sum of such, the reciprocal or root
+// of such. `sign_clear`: the sign bit is clear in every value, a NaN's
+// included -- `abs` of anything, a float read from bits known
+// non-negative, a non-negative constant, and a non-negative number (no NaN
+// among its values has a sign to speak of); a product of non-negative
+// numbers that may be a NaN is not, a NaN's sign being the hardware's. A
+// non-negative number has bits in [0, 0x7f800000], which order as the
+// floats do, and a value with its sign clear has bits in [0, 0x7fffffff];
+// those, and not the bounds alone, are what a rewrite comparing or sorting
+// floats as their bits is exact under (SSA/Simplify.cpp,
+// SSA/SortRecursion.cpp).
 struct ConstantInterval {
     double min = 0, max = 0;
     bool min_defined = false, max_defined = false;
+    bool number = false, nonnegative = false, sign_clear = false;
+
+    // The flags as they imply one another: a non-negative number has its
+    // sign clear, and a value with its sign clear is non-negative where it
+    // is a number.
+    void settle_flags() {
+        if (number && nonnegative) {
+            sign_clear = true;
+        }
+        if (sign_clear) {
+            nonnegative = true;
+        }
+    }
 
     ConstantInterval() = default;
     ConstantInterval(double min, double max)
         : min(min), max(max), min_defined(true), max_defined(true) {}
 
     static ConstantInterval everything() { return {}; }
-    static ConstantInterval single_point(double x) { return {x, x}; }
+    static ConstantInterval single_point(double x);
     static ConstantInterval bounded_below(double min);
     static ConstantInterval bounded_above(double max);
     // The range of a type: an integer type's, a bool's [0, 1]; a float's is

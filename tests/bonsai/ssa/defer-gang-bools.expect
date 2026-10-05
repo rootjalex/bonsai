@@ -75,12 +75,10 @@ func run(out : mut i32[40]) -> void {
         let @30 = @29 != @73 in
         let @74 = u8x16(2u) in
         let @31 = @28 & @74 in
-        let @75 = u8x16(0u) in
-        let @32 = @31 != @75 in
+        let @32 = @31 != @73 in
         let @76 = u8x16(4u) in
         let @33 = @28 & @76 in
-        let @77 = u8x16(0u) in
-        let @34 = @33 != @77 in
+        let @34 = @33 != @73 in
         let @36 = sums_queue[@12].i in
         let @37 = masked_extract(@36[ramp(sums_gang, 1u, 16)], @40) in
         walk$gang16_v0_v1_v2_v3_v4_v6$masked(@22, @25, @30, @32, @34, out, @37, @17, @40)
@@ -140,36 +138,21 @@ func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool, out : mut i32[
 func walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx16, big : boolx16, neg : boolx16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
   let @30 = i32x16(0) in
   let @0 = n <= @30 in
-  let @31 = boolx16(false) in
-  let @32 = boolx16(true) in
-  let @13 = select(@0, @31, @32) in
-  let @14 = !mask && @13 in
+  let @43 = !@0 in
+  let @14 = !mask && @43 in
   let @15 = !mask && @0 in
   let @26 = reduce<any>(@15) in
   if (@26) {
-    let @33 = boolx16(false) in
-    let @34 = boolx16(true) in
-    let @16 = select(odd, @33, @34) in
-    let @17 = @15 && @16 in
     let @18 = @15 && odd in
     let @35 = i32x16(100) in
     let @2 = acc + @35 in
     let @27 = select(@18, @2, acc) in
-    let @36 = boolx16(false) in
-    let @37 = boolx16(true) in
-    let @19 = select(big, @36, @37) in
-    let @20 = @15 && @19 in
     let @21 = @15 && big in
     let @38 = i32x16(1000) in
     let @4 = @27 + @38 in
     let @28 = select(@21, @4, @27) in
-    let @39 = boolx16(false) in
-    let @40 = boolx16(true) in
-    let @22 = select(neg, @39, @40) in
-    let @23 = @15 && @22 in
     let @24 = @15 && neg in
-    let @41 = i32x16(0) in
-    let @6 = @41 - @28 in
+    let @6 = @30 - @28 in
     let @29 = select(@24, @6, @28) in
     masked_store(out[i], @29, @15)
   }
@@ -179,25 +162,25 @@ func walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx1
     let @9 = n - @42 in
     let @10 = acc + n in
     let @11 = build<Entry_sums$v16>(@9, @10, odd, big, neg, i) in
-    let @44 = reduce<+>(cast<u32x16>(@14)) in
-    let @45 = atomic_add((&(*_queue_sums).count), @44) in
-    let @46 = cast<u8x16>(odd) in
-    let @47 = cast<u8x16>(big) in
-    let @48 = u8x16(1u) in
-    let @49 = @47 << @48 in
-    let @50 = @46 | @49 in
-    let @51 = cast<u8x16>(neg) in
-    let @52 = u8x16(2u) in
+    let @48 = reduce<+>(cast<u32x16>(@14)) in
+    let @49 = atomic_add((&(*_queue_sums).count), @48) in
+    let @50 = cast<u8x16>(odd) in
+    let @51 = cast<u8x16>(big) in
+    let @52 = u8x16(1u) in
     let @53 = @51 << @52 in
     let @54 = @50 | @53 in
-    let @56 = (*_queue_sums).n in
-    compress_store(@56[@45], @9, @14)
-    let @59 = (*_queue_sums).acc in
-    compress_store(@59[@45], @10, @14)
-    let @62 = (*_queue_sums).i in
-    compress_store(@62[@45], i, @14)
-    let @65 = (*_queue_sums)._bits0 in
-    compress_store(@65[@45], @54, @14)
+    let @55 = cast<u8x16>(neg) in
+    let @56 = u8x16(2u) in
+    let @57 = @55 << @56 in
+    let @58 = @54 | @57 in
+    let @60 = (*_queue_sums).n in
+    compress_store(@60[@49], @9, @14)
+    let @63 = (*_queue_sums).acc in
+    compress_store(@63[@49], @10, @14)
+    let @66 = (*_queue_sums).i in
+    compress_store(@66[@49], i, @14)
+    let @69 = (*_queue_sums)._bits0 in
+    compress_store(@69[@49], @58, @14)
   }
   return
 }

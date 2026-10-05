@@ -10,6 +10,8 @@ add_bonsai_tests(
     and-of-compares.bonsai
     any-hit-arms.bonsai
     any-hit-prefetch.bonsai
+    compare-on-bits.bonsai
+    mirror-derived-loads.bonsai
     foreign.bonsai
     foreign-linked.bonsai
     child-volumes.bonsai

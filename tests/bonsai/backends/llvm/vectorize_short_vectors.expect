@@ -8,26 +8,26 @@ source_filename = "bonsai_module"
 define internal fastcc void @"advance$gang8_p0$masked"(ptr nofree noundef nonnull captures(none) %r, <8 x i1> noundef %"!mask") unnamed_addr #0 {
 "advance$gang8_p0$masked":
   %deref_temp.unpack.unpack = load <8 x float>, ptr %r, align 32
-  %deref_temp.unpack.elt16 = getelementptr inbounds nuw i8, ptr %r, i64 32
-  %deref_temp.unpack.unpack17 = load <8 x float>, ptr %deref_temp.unpack.elt16, align 32
-  %deref_temp.unpack.elt18 = getelementptr inbounds nuw i8, ptr %r, i64 64
-  %deref_temp.unpack.unpack19 = load <8 x float>, ptr %deref_temp.unpack.elt18, align 32
-  %deref_temp.elt11 = getelementptr inbounds nuw i8, ptr %r, i64 96
-  %deref_temp.unpack12.unpack = load <8 x float>, ptr %deref_temp.elt11, align 32
-  %deref_temp.unpack12.elt21 = getelementptr inbounds nuw i8, ptr %r, i64 128
-  %deref_temp.unpack12.unpack22 = load <8 x float>, ptr %deref_temp.unpack12.elt21, align 32
-  %deref_temp.unpack12.elt23 = getelementptr inbounds nuw i8, ptr %r, i64 160
-  %deref_temp.unpack12.unpack24 = load <8 x float>, ptr %deref_temp.unpack12.elt23, align 32
-  %0 = fsub <8 x float> %deref_temp.unpack.unpack, %deref_temp.unpack12.unpack
-  %1 = fsub <8 x float> %deref_temp.unpack.unpack17, %deref_temp.unpack12.unpack22
-  %2 = fsub <8 x float> %deref_temp.unpack.unpack19, %deref_temp.unpack12.unpack24
+  %deref_temp.unpack.elt15 = getelementptr inbounds nuw i8, ptr %r, i64 32
+  %deref_temp.unpack.unpack16 = load <8 x float>, ptr %deref_temp.unpack.elt15, align 32
+  %deref_temp.unpack.elt17 = getelementptr inbounds nuw i8, ptr %r, i64 64
+  %deref_temp.unpack.unpack18 = load <8 x float>, ptr %deref_temp.unpack.elt17, align 32
+  %deref_temp.elt10 = getelementptr inbounds nuw i8, ptr %r, i64 96
+  %deref_temp.unpack11.unpack = load <8 x float>, ptr %deref_temp.elt10, align 32
+  %deref_temp.unpack11.elt20 = getelementptr inbounds nuw i8, ptr %r, i64 128
+  %deref_temp.unpack11.unpack21 = load <8 x float>, ptr %deref_temp.unpack11.elt20, align 32
+  %deref_temp.unpack11.elt22 = getelementptr inbounds nuw i8, ptr %r, i64 160
+  %deref_temp.unpack11.unpack23 = load <8 x float>, ptr %deref_temp.unpack11.elt22, align 32
+  %0 = fsub <8 x float> %deref_temp.unpack.unpack, %deref_temp.unpack11.unpack
+  %1 = fsub <8 x float> %deref_temp.unpack.unpack16, %deref_temp.unpack11.unpack21
+  %2 = fsub <8 x float> %deref_temp.unpack.unpack18, %deref_temp.unpack11.unpack23
   tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull align 32 %r, <8 x i1> %"!mask")
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %1, ptr nonnull align 32 %deref_temp.unpack.elt16, <8 x i1> %"!mask")
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr nonnull align 32 %deref_temp.unpack.elt18, <8 x i1> %"!mask")
-  %deref_temp8.elt28 = getelementptr inbounds nuw i8, ptr %r, i64 192
-  %deref_temp8.unpack29 = load <8 x float>, ptr %deref_temp8.elt28, align 32
-  %3 = fadd <8 x float> %deref_temp8.unpack29, splat (float 1.000000e+00)
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull align 32 %deref_temp8.elt28, <8 x i1> %"!mask")
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %1, ptr nonnull align 32 %deref_temp.unpack.elt15, <8 x i1> %"!mask")
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr nonnull align 32 %deref_temp.unpack.elt17, <8 x i1> %"!mask")
+  %deref_temp7.elt27 = getelementptr inbounds nuw i8, ptr %r, i64 192
+  %deref_temp7.unpack28 = load <8 x float>, ptr %deref_temp7.elt27, align 32
+  %3 = fadd <8 x float> %deref_temp7.unpack28, splat (float 1.000000e+00)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull align 32 %deref_temp7.elt27, <8 x i1> %"!mask")
   ret void
 }
 

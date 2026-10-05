@@ -145,10 +145,8 @@ func walk(n : i32, p : f32x3, s : f32x4, out : mut i32[40], i : i32, _queue_sums
 func walk$gang16_v0_v1_v2_v4$masked(n : i32x16, p!0 : f32x16, p!1 : f32x16, p!2 : f32x16, s!0 : f32x16, s!1 : f32x16, s!2 : f32x16, s!3 : f32x16, out : mut i32[40], i : i32x16, _queue_sums : mut (Queue_sums*), !mask : boolx16) -> void {
   let @44 = i32x16(0) in
   let @0 = n <= @44 in
-  let @45 = boolx16(false) in
-  let @46 = boolx16(true) in
-  let @23 = select(@0, @45, @46) in
-  let @24 = !mask && @23 in
+  let @55 = !@0 in
+  let @24 = !mask && @55 in
   let @25 = !mask && @0 in
   let @27 = reduce<any>(@25) in
   if (@27) {
@@ -191,26 +189,26 @@ func walk$gang16_v0_v1_v2_v4$masked(n : i32x16, p!0 : f32x16, p!1 : f32x16, p!2 
     let @42 = build<f32x3$v16>(@29, @31, @33) in
     let @43 = build<f32x4$v16>(@35, @37, @39, @41) in
     let @21 = build<Entry_sums$v16>(@16, @42, @43, i) in
-    let @56 = reduce<+>(cast<u32x16>(@24)) in
-    let @57 = atomic_add((&(*_queue_sums).count), @56) in
-    let @59 = (*_queue_sums).n in
-    compress_store(@59[@57], @16, @24)
-    let @62 = (*_queue_sums).p_x in
-    compress_store(@62[@57], @29, @24)
-    let @65 = (*_queue_sums).p_y in
-    compress_store(@65[@57], @31, @24)
-    let @68 = (*_queue_sums).p_z in
-    compress_store(@68[@57], @33, @24)
-    let @71 = (*_queue_sums).s_x in
-    compress_store(@71[@57], @35, @24)
-    let @74 = (*_queue_sums).s_y in
-    compress_store(@74[@57], @37, @24)
-    let @77 = (*_queue_sums).s_z in
-    compress_store(@77[@57], @39, @24)
-    let @80 = (*_queue_sums).s_w in
-    compress_store(@80[@57], @41, @24)
-    let @83 = (*_queue_sums).i in
-    compress_store(@83[@57], i, @24)
+    let @57 = reduce<+>(cast<u32x16>(@24)) in
+    let @58 = atomic_add((&(*_queue_sums).count), @57) in
+    let @60 = (*_queue_sums).n in
+    compress_store(@60[@58], @16, @24)
+    let @63 = (*_queue_sums).p_x in
+    compress_store(@63[@58], @29, @24)
+    let @66 = (*_queue_sums).p_y in
+    compress_store(@66[@58], @31, @24)
+    let @69 = (*_queue_sums).p_z in
+    compress_store(@69[@58], @33, @24)
+    let @72 = (*_queue_sums).s_x in
+    compress_store(@72[@58], @35, @24)
+    let @75 = (*_queue_sums).s_y in
+    compress_store(@75[@58], @37, @24)
+    let @78 = (*_queue_sums).s_z in
+    compress_store(@78[@58], @39, @24)
+    let @81 = (*_queue_sums).s_w in
+    compress_store(@81[@58], @41, @24)
+    let @84 = (*_queue_sums).i in
+    compress_store(@84[@58], i, @24)
   }
   return
 }

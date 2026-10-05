@@ -6,8 +6,7 @@ func run(out : mut f32[], hist : mut f32[], perm : u32[], x : f32[], n : u32, of
     out[@2] += 2f
     let @4 = perm[i] in
     atomic hist[@4] += 1f
-    let @6 = i + off in
-    let k = @6 + 1u in
+    let k = @0 + 1u in
     let _t1 = x[i] in
     let @9 = 0f < _t1 in
     if (@9) {

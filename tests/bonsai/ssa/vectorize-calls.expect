@@ -5,9 +5,6 @@ func both_ways(a : f32[8], k : f32, out : mut f32[8]) -> void {
   out[ramp(0, 1, 8)] = @1
   let @10 = f32x8(0f) in
   let @3 = @10 < _t0 in
-  let @11 = boolx8(false) in
-  let @12 = boolx8(true) in
-  let @6 = select(@3, @11, @12) in
   let @7 = reduce<any>(@3) in
   if (@7) {
     let @13 = f32x8(100f) in
@@ -39,11 +36,8 @@ func [[noinline]] clip(x : f32, lo : f32) -> f32 {
 func [[noinline]] clip$gang8_v0(x : f32x8, lo : f32) -> f32x8 {
   let @3 = f32x8(lo) in
   let @0 = x < @3 in
-  let @4 = boolx8(false) in
-  let @5 = boolx8(true) in
-  let @1 = select(@0, @4, @5) in
-  let @6 = f32x8(lo) in
-  let @2 = select(@1, x, @6) in
+  let @7 = !@0 in
+  let @2 = select(@7, x, @3) in
   return @2
 }
 

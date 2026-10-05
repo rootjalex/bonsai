@@ -115,8 +115,8 @@ children0_pf_head.preheader:                      ; preds = %"!then_0"
   %57 = shufflevector <2 x float> %56, <2 x float> poison, <2 x i32> zeroinitializer
   %58 = fdiv <2 x float> %55, %57
   %59 = extractelement <2 x float> %58, i64 0
-  %.splat90.i = shufflevector <2 x float> %58, <2 x float> poison, <3 x i32> <i32 1, i32 1, i32 1>
-  %60 = fmul <3 x float> %.splat90.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %.splat81.i = shufflevector <2 x float> %58, <2 x float> poison, <3 x i32> <i32 1, i32 1, i32 1>
+  %60 = fmul <3 x float> %.splat81.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
   %61 = fadd <3 x float> %60, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
   %wide.trip.count = zext i32 %30 to i64
   br label %"!for_data_body_18"

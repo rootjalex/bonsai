@@ -19,6 +19,14 @@
 //     reading of it after the calls is too. The leaf of a nearest-hit
 //     traversal keeps the argmin's best this way, and its node test
 //     compares the children's entry distances against it.
+//
+// And the flags beside the bounds: ` n` where the value is a number (never
+// a NaN), ` +` where its sign bit is clear in every value, ` (+)` where it
+// is non-negative only as a number. `abs(d)` is `+` but not `n` (the
+// absolute value of a NaN is a NaN with its sign cleared); `t * rcp(abs(d))`
+// is `(+)` (a product of a positive number and a non-negative value, a NaN
+// where `d` is one); the best is `n +`, infinity to begin with and then
+// only ever a `t` that passed `t < best.key`, which no NaN does.
 element Pair {
     key : f32;
     id : u32;

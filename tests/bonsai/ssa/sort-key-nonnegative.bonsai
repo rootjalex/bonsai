@@ -10,15 +10,18 @@
 //
 // Embree never flips, because its traversal clamps the ray's segment to
 // [0, inf) at entry (TravRay: `tnear = max(tnear, 0)`) and a box's entry
-// distance is `max(.., tnear)`. `trace` does the same, `trace_raw` does
-// not, and the compiler tells them apart (SSA/ConstantIntervals.h: what
-// every value lies between, carried from the clamp in `trace` through the
-// traversal function's parameter, the ray's field, the box test's `max`,
-// the option the box test returns through its slot, `distmin`'s own slot
-// and the keys array, to the sort). What to look for in the two traversal
-// functions' sorted runs: `trace`'s keys go `reinterpret<i32x4>` straight to
-// `& -4 | lane`; `trace_raw`'s have the `shr 31`, `& 0x7fffffff` and `xor`
-// between.
+// distance is `max(.., tnear)`. `trace` does the same -- with a clamp that
+// leaves a non-negative number, `select(tnear > 0, tnear, 0)`, where
+// Embree's std::max would hand a NaN or a negative zero through and rests
+// on asserting the ray valid instead -- `trace_raw` does not, and the
+// compiler tells them apart (SSA/ConstantIntervals.h: what every value
+// lies between and whether it is a number with its sign clear, carried
+// from the clamp in `trace` through the traversal function's parameter,
+// the ray's field, the box test's `max`, the option the box test returns
+// through its slot, `distmin`'s own slot and the keys array, to the sort).
+// What to look for in the two traversal functions' sorted runs: `trace`'s
+// keys go `reinterpret<i32x4>` straight to `& -4 | lane`; `trace_raw`'s
+// have the `shr 31`, `& 0x7fffffff` and `xor` between.
 //
 // correctness/cpp/sort_key_nonnegative.bonsai runs both: the clamped query
 // never reports a hit behind the ray's origin, the raw one does for a
@@ -136,7 +139,11 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 extern tris : set[Triangle];
 
 // The ray as Embree's traversal reads it: its segment clamped to [0, inf).
-func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+// Not Embree's `max(tnear, 0)`, which is std::max and hands a NaN or a
+// negative zero through, but a clamp that leaves a non-negative number, so
+// that the analysis can say so of the key (apps/rtq/rtq.bonsai).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
 
 func [[export]] trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);

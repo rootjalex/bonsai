@@ -5,6 +5,8 @@ add_bonsai_tests(
     and_of_compares.bonsai
     any_hit_arms.bonsai
     any_hit_prefetch.bonsai
+    compare_on_bits.bonsai
+    mirror_derived_loads.bonsai
     foreign.bonsai
     adt-bvh.bonsai
     adt-bvh-sorted.bonsai

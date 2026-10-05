@@ -2,6 +2,7 @@
 
 #include "IR/Equality.h"
 #include "SSA/Analysis.h"
+#include "SSA/ConstantIntervals.h"
 #include "SSA/Definitions.h"
 #include "SSA/Storage.h"
 
@@ -13,6 +14,8 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace bonsai {
@@ -226,9 +229,219 @@ using UseCounts = std::map<const Instruction *, size_t>;
 UseCounts use_counts(const Function &func);
 
 struct Simplifier {
-    explicit Simplifier(Function &func) : func(func) {}
+    explicit Simplifier(Function &func, const ConstantIntervals *intervals)
+        : func(func), intervals(intervals) {}
 
     Function &func;
+    // What every value is known to lie between (SSA/ConstantIntervals.h),
+    // when the caller computed it, for the rules that are exact only under
+    // such a fact; null when none was computed, and those rules stand down.
+    const ConstantIntervals *intervals = nullptr;
+
+    // What `v` lies between, as the current block reads it; everything
+    // without the analysis.
+    ConstantInterval bounds(const ValuePtr &v) const {
+        if (intervals == nullptr || block == nullptr || v == nullptr) {
+            return ConstantInterval::everything();
+        }
+        return intervals->of(func, *block, v);
+    }
+    // A non-negative number: its bits as a signed integer lie in
+    // [0, 0x7f800000] and order as the float does.
+    bool nonnegative_number(const ValuePtr &v) const {
+        const ConstantInterval i = bounds(v);
+        return i.number && i.nonnegative;
+    }
+    // Its sign bit clear in every value, a NaN's included: its bits as a
+    // signed integer are non-negative.
+    bool sign_clear(const ValuePtr &v) const { return bounds(v).sign_clear; }
+
+    // Common subexpressions: an operation over the same operands computed
+    // again where the first is in scope -- its block dominating -- is the
+    // first. LLVM's EarlyCSE over the dominator tree: a table per block,
+    // consulted along with its dominators'. The blocks are walked as the
+    // function stores them, so a block visited before a dominator of it
+    // gains nothing from that dominator's table and loses nothing. A pure
+    // value computation that reads no memory is reusable; a load is not
+    // (what is stored between two of them is another question), nor an
+    // instruction with storage riding on it, nor a Set, which names.
+    std::optional<Cfg> cfg;
+    std::optional<DomTree> dom;
+    vector<std::unordered_map<std::string, ValuePtr>> tables;
+    BlockId at_block = NO_BLOCK;
+
+    void enter(const shared_ptr<Block> &b) {
+        block = b;
+        generation = 0;
+        if (!cfg.has_value()) {
+            cfg.emplace(func);
+            dom = compute_dominator_tree(*cfg);
+            tables.assign(cfg->size(), {});
+        }
+        at_block = cfg->find(b->name);
+    }
+
+    // An instruction that is its operation, type and operands and nothing
+    // more (rebuildable), or one whose one extra -- an intrinsic's name, a
+    // reduction's kind, a shuffle's order -- the key carries (extra_of);
+    // and the pure reads and address computations, which their operands
+    // describe. Not a sizeof, whose measured type rides on it alone, nor an
+    // allocation, nor a Set, which names.
+    static bool reusable(const Instruction &in) {
+        if (in.name.empty() || in.storage.has_value() || !pure(in)) {
+            return false;
+        }
+        if (rebuildable(in)) {
+            return true;
+        }
+        switch (in.op) {
+        case Instruction::Op::Intrinsic:
+        case Instruction::Op::Reduce:
+        case Instruction::Op::Shuffle:
+        case Instruction::Op::Div:
+        case Instruction::Op::Mod:
+        case Instruction::Op::Ramp:
+        case Instruction::Op::Popcount:
+        case Instruction::Op::Any:
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::Load:
+        case Instruction::Op::ExtractIdx:
+        case Instruction::Op::Inf:
+        case Instruction::Op::Eps:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // A read of memory -- a load, a lane of a stored array -- is the same
+    // value as an earlier read of the same place only while nothing has
+    // been written in between. Within a block that is counted: the
+    // generation steps at every store, accumulate, atomic and effect, a
+    // read is remembered under the generation it was made in, and only its
+    // own block's reads are consulted (the generation says nothing across
+    // blocks). EarlyCSE's generation, over one block. The children's test
+    // reads the node's row once for its own slab test and again for the
+    // `distmin` inlined beside it, through the same load of the current
+    // node, with nothing stored between.
+    size_t generation = 0;
+    // A read of memory that a store might change: not one of read-only
+    // storage (an extern's layout, whose types say so, see SSA/Storage.h),
+    // which is the same value wherever it is read and merges like any pure
+    // computation.
+    static bool reads_mutable_memory(const Instruction &in) {
+        if (!reads_memory(in) || in.operands.empty()) {
+            return false;
+        }
+        return !in.operands[0]->get_type().is_readonly();
+    }
+    static bool writes_memory(const Instruction &in) {
+        if (in.name.empty()) {
+            return true; // a store, an accumulate, a prefetch, a print: an effect
+        }
+        switch (in.op) {
+        case Instruction::Op::AtomicAdd:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // The text that says what an instruction computes: its operation, its
+    // type, what rides on it, and its operands as resolved -- an
+    // instruction by its name, which is one per function; an argument by
+    // its name, which a value keeps as it is carried between blocks; a
+    // constant as written with its type.
+    std::string key_of(Instruction::Op op, const Type &type,
+                       const vector<ValuePtr> &ops, const std::string &extra) const {
+        std::ostringstream os;
+        os << int(op) << '|' << type << '|' << extra << '|';
+        for (const ValuePtr &o : ops) {
+            if (o == nullptr) {
+                os << "null,";
+                continue;
+            }
+            resolve(o)->dump(os);
+            os << ',';
+        }
+        return os.str();
+    }
+    std::string extra_of(const Instruction &in) const {
+        std::ostringstream os;
+        switch (in.op) {
+        case Instruction::Op::Intrinsic:
+            os << "i" << int(in.intrinsic);
+            break;
+        case Instruction::Op::Reduce:
+            os << "r" << int(in.reduce);
+            break;
+        case Instruction::Op::Shuffle:
+            os << "s";
+            for (int k : in.shuffle) {
+                os << k << '.';
+            }
+            break;
+        default:
+            break;
+        }
+        if (reads_mutable_memory(in)) {
+            os << "g" << generation;
+        }
+        return os.str();
+    }
+    // Up the dominators, but not past a call or a parfor: a block reached
+    // through a call's continuation or a loop's body does not reuse the
+    // values of the block that made the call or ran the loop, nor of
+    // anything above it. A deferral (SSA/Defer.h) cuts the graph exactly
+    // there -- the continuation of a deferred call runs from a queue's
+    // drain with the values its entry captured, and a value of the calling
+    // block or of the enclosing body is not among them, where one the
+    // continuation computes for itself from a captured value is -- so a
+    // merge across that edge would hand the drain a value it cannot have.
+    // (LLVM merges across these later, where no such cut remains.)
+    ValuePtr find_equal(const std::string &key, bool this_block_only = false) {
+        if (at_block == NO_BLOCK || !dom.has_value()) {
+            return nullptr;
+        }
+        for (BlockId b = at_block; b != NO_BLOCK;) {
+            if (const auto it = tables[b].find(key); it != tables[b].end()) {
+                return resolve(it->second);
+            }
+            if (this_block_only || b == dom->root || b >= dom->idom.size()) {
+                break;
+            }
+            const BlockId above = dom->idom[b];
+            if (above == NO_BLOCK) {
+                break;
+            }
+            const Terminator &t = cfg->block(above)->terminator;
+            if (std::holds_alternative<Terminator::Call>(t.data) ||
+                std::holds_alternative<Terminator::MultiCall>(t.data) ||
+                std::holds_alternative<Terminator::ParFor>(t.data)) {
+                break;
+            }
+            b = above;
+        }
+        return nullptr;
+    }
+    ValuePtr find_equal(const Instruction &in) {
+        if (!reusable(in)) {
+            return nullptr;
+        }
+        return find_equal(key_of(in.op, in.type, in.operands, extra_of(in)),
+                          reads_mutable_memory(in));
+    }
+    void remember(const shared_ptr<Instruction> &in, const ValuePtr &v) {
+        if (at_block == NO_BLOCK || !reusable(*in)) {
+            return;
+        }
+        tables[at_block][key_of(in->op, in->type, in->operands, extra_of(*in))] = v;
+        // A value another block may now refer to by name has to be found by
+        // it there (Block::get_value walks the predecessors' lookups); one
+        // only ever read in its own block need not have been.
+        block->lookups.emplace(in->name, v);
+    }
     // The use counts as the pass began, for a rule that asks whether a value
     // is read anywhere else. Built on first use; a rule's rewrites only take
     // uses away from what they replace.
@@ -351,6 +564,10 @@ struct Simplifier {
         if (ValuePtr v = rule(op, type, operands)) {
             return v;
         }
+        // An instruction like it already in scope is it (see find_equal).
+        if (ValuePtr same = find_equal(key_of(op, type, operands, ""))) {
+            return same;
+        }
         return insert(std::make_shared<Instruction>(
             func.get_unique_name(), std::move(type), op, std::move(operands),
             block));
@@ -364,6 +581,9 @@ struct Simplifier {
             func.get_unique_name(), std::move(type), Instruction::Op::Intrinsic,
             std::move(operands), block);
         instr->intrinsic = which;
+        if (ValuePtr same = find_equal(*instr)) {
+            return same;
+        }
         return insert(std::move(instr));
     }
 
@@ -373,6 +593,7 @@ struct Simplifier {
         made.insert(instr.get());
         auto v = std::make_shared<Value>(instr);
         block->lookups[instr->name] = v;
+        remember(instr, v);
         return v;
     }
 
@@ -715,11 +936,20 @@ struct Simplifier {
     // NaN)` is `a <= b` where `(a <= b) & (a <= NaN)` is false. The rule
     // would be exact there given that `c` is not a NaN, which nothing here
     // can say (SSA/ConstantIntervals.h bounds a value where it is a number).
+    //
+    // A strict comparison beside a non-strict one over integers is made
+    // non-strict first, by one step on the side that is not shared --
+    // `a < c` is `a <= c - 1`, `c < a` is `c + 1 <= a` -- where the
+    // interval analysis says the step cannot wrap (the stepped side is not
+    // the type's least, or greatest). So `(a <= b) & (a < c)` is `a <=
+    // min(b, c - 1)`: the slab test's `tNear <= tFar` beside the prune's
+    // `tNear < best` on the bits, whose least is zero.
     ValuePtr compare_pair(bool is_and, const Type &type, const ValuePtr &x,
                           const ValuePtr &y) {
         const Instruction *dx = def_of(x), *dy = def_of(y);
-        if (dx == nullptr || dy == nullptr || dx->op != dy->op ||
+        if (dx == nullptr || dy == nullptr ||
             (dx->op != Instruction::Op::Lt && dx->op != Instruction::Op::Leq) ||
+            (dy->op != Instruction::Op::Lt && dy->op != Instruction::Op::Leq) ||
             dx->operands.size() != 2 || dy->operands.size() != 2 ||
             !equals(dx->type, type) || !equals(dy->type, type)) {
             return nullptr;
@@ -729,19 +959,98 @@ struct Simplifier {
             !scalar_of(operand_t).is_int_or_uint()) {
             return nullptr;
         }
-        if (same_value(dx->operands[0], dy->operands[0])) {
+        // The two comparisons' sides, the strict one stepped where the two
+        // differ in kind.
+        Instruction::Op kind = dx->op;
+        ValuePtr x0 = dx->operands[0], x1 = dx->operands[1];
+        ValuePtr y0 = dy->operands[0], y1 = dy->operands[1];
+        if (dx->op != dy->op) {
+            // Which of the four pairings shares a side says which side of
+            // the strict comparison is stepped.
+            const bool strict_is_x = dx->op == Instruction::Op::Lt;
+            ValuePtr &s0 = strict_is_x ? x0 : y0, &s1 = strict_is_x ? x1 : y1;
+            const ValuePtr &o0 = strict_is_x ? y0 : x0, &o1 = strict_is_x ? y1 : x1;
+            const Type scalar = scalar_of(operand_t);
+            const ConstantInterval range = ConstantInterval::bounds_of_type(scalar);
+            const auto one = [&] {
+                return make_integer_constant(operand_t, 1);
+            };
+            if (same_value(s0, o0)) {
+                // `s0 < s1` with s0 shared: `s0 <= s1 - 1`, s1 not the least.
+                const ConstantInterval i = bounds(s1);
+                if (!(i.number && i.min_defined && range.min_defined &&
+                      i.min > range.min)) {
+                    return nullptr;
+                }
+                s1 = make(Instruction::Op::Sub, operand_t, {s1, one()});
+            } else if (same_value(s1, o1)) {
+                // `s0 < s1` with s1 shared: `s0 + 1 <= s1`, s0 not the greatest.
+                const ConstantInterval i = bounds(s0);
+                if (!(i.number && i.max_defined && range.max_defined &&
+                      i.max < range.max)) {
+                    return nullptr;
+                }
+                s0 = make(Instruction::Op::Add, operand_t, {s0, one()});
+            } else {
+                return nullptr;
+            }
+            kind = Instruction::Op::Leq;
+        }
+        if (same_value(x0, y0)) {
             ValuePtr joined =
                 make(is_and ? Instruction::Op::Min : Instruction::Op::Max,
-                     operand_t, {dx->operands[1], dy->operands[1]});
-            return make(dx->op, type, {dx->operands[0], std::move(joined)});
+                     operand_t, {x1, y1});
+            return make(kind, type, {x0, std::move(joined)});
         }
-        if (same_value(dx->operands[1], dy->operands[1])) {
+        if (same_value(x1, y1)) {
             ValuePtr joined =
                 make(is_and ? Instruction::Op::Max : Instruction::Op::Min,
-                     operand_t, {dx->operands[0], dy->operands[0]});
-            return make(dx->op, type, {std::move(joined), dx->operands[1]});
+                     operand_t, {x0, y0});
+            return make(kind, type, {std::move(joined), x1});
         }
         return nullptr;
+    }
+
+    // The zero of type `t`: false, 0, 0.0, broadcast over a vector's lanes;
+    // an empty build for a struct; null for anything else.
+    ValuePtr zero_of(const Type &t) {
+        if (t.is<Struct_t>()) {
+            return make(Instruction::Op::MakeStruct, t, {});
+        }
+        const Type scalar = scalar_of(t);
+        ValuePtr c;
+        if (scalar.is<Bool_t>()) {
+            c = make_bool(false);
+        } else if (scalar.is_uint()) {
+            c = std::make_shared<Value>(Constant{scalar, uint64_t(0)});
+        } else if (scalar.is_int()) {
+            c = std::make_shared<Value>(Constant{scalar, int64_t(0)});
+        } else if (scalar.is_float()) {
+            c = std::make_shared<Value>(Constant{scalar, 0.0});
+        } else {
+            return nullptr;
+        }
+        if (!t.is_vector()) {
+            return c;
+        }
+        ValuePtr width = std::make_shared<Value>(
+            Constant{UInt_t::make(32), uint64_t(t.lanes())});
+        return make(Instruction::Op::Bc, t, {std::move(c), std::move(width)});
+    }
+
+    // The integer constant `n` of type `t`: a scalar's, or a scalar's
+    // broadcast over a vector's lanes.
+    ValuePtr make_integer_constant(const Type &t, int64_t n) {
+        const Type scalar = scalar_of(t);
+        ValuePtr c = scalar.is_uint()
+                         ? std::make_shared<Value>(Constant{scalar, uint64_t(n)})
+                         : std::make_shared<Value>(Constant{scalar, n});
+        if (!t.is_vector()) {
+            return c;
+        }
+        ValuePtr width = std::make_shared<Value>(
+            Constant{UInt_t::make(32), uint64_t(t.lanes())});
+        return make(Instruction::Op::Bc, t, {std::move(c), std::move(width)});
     }
 
     // An operation over broadcasts alone is the broadcast of the operation
@@ -771,6 +1080,14 @@ struct Simplifier {
         case Instruction::Op::Not:
         case Instruction::Op::Sub:
         case Instruction::Op::Xor:
+            break;
+        case Instruction::Op::Reinterpret:
+            // Between vectors of one lane count alone: a mask read as a word
+            // packs its lanes, and is not lanewise.
+            if (ops.size() != 1 || !ops[0]->get_type().is_vector() ||
+                ops[0]->get_type().lanes() != type.lanes()) {
+                return nullptr;
+            }
             break;
         default:
             return nullptr;
@@ -894,11 +1211,14 @@ struct Simplifier {
             break;
         }
         case Instruction::Op::Not: {
-            if (ops.size() != 1 || !type.is<Bool_t>()) {
+            // Bools, and masks, lane by lane.
+            const bool bools = type.is<Bool_t>() ||
+                               (type.is_vector() && type.element_of().is<Bool_t>());
+            if (ops.size() != 1 || !bools) {
                 break;
             }
-            if (std::optional<bool> c = const_bool(ops[0])) {
-                return make_bool(!*c);
+            if (std::optional<bool> c = uniform_bool(ops[0])) {
+                return uniform_bool_constant(type, !*c);
             }
             // !!x = x
             if (const Instruction *d = def_of(ops[0]);
@@ -962,6 +1282,20 @@ struct Simplifier {
             }
             if (same_value(ops[1], ops[2])) {
                 return ops[1];
+            }
+            // `select(c, true, false)` is `c`, and `select(c, false, true)`
+            // is `!c`: the linearizer's negation of a mask, and an option's
+            // `set` once its merge has been read field by field (the
+            // LoadField rule).
+            if (equals(ops[0]->get_type(), type)) {
+                const std::optional<bool> t = uniform_bool(ops[1]);
+                const std::optional<bool> f = uniform_bool(ops[2]);
+                if (t == true && f == false) {
+                    return ops[0];
+                }
+                if (t == false && f == true) {
+                    return make(Instruction::Op::Not, type, {ops[0]});
+                }
             }
             // Inside the arm taken when the condition holds, it holds; inside
             // the other, it does not (see assume).
@@ -1101,8 +1435,64 @@ struct Simplifier {
                 }
                 break;
             }
-            if (d->op != Instruction::Op::MakeStruct ||
-                *index >= d->operands.size() ||
+            // A field of a select between two structs is the select between
+            // the field of each -- the option a masked test merges, `select(
+            // miss, none, some)`, read as `select(miss, none.set, some.set)`
+            // -- where an arm is a struct just made or a merge itself, so
+            // that the field folds on at least that side; the select's
+            // condition has to fit the field (one bool for any field, a mask
+            // for a field with its lanes).
+            if (d->op == Instruction::Op::Select && d->operands.size() == 3) {
+                const Type &cond_t = d->operands[0]->get_type();
+                // A struct field under a mask is itself a struct of vectors,
+                // as the whole was (its own fields are read in turn).
+                const bool fits = !cond_t.is_vector() || type.is<Struct_t>() ||
+                                  (type.is_vector() && type.lanes() == cond_t.lanes());
+                const auto folds = [&](const ValuePtr &arm) {
+                    const Instruction *a = defined_by(arm);
+                    return a != nullptr && (a->op == Instruction::Op::MakeStruct ||
+                                            a->op == Instruction::Op::Select);
+                };
+                if (fits && (folds(d->operands[1]) || folds(d->operands[2]))) {
+                    ValuePtr then = make(Instruction::Op::LoadField, type,
+                                         {d->operands[1], ops[1]});
+                    ValuePtr otherwise = make(Instruction::Op::LoadField, type,
+                                              {d->operands[2], ops[1]});
+                    return make(Instruction::Op::Select, type,
+                                {d->operands[0], std::move(then), std::move(otherwise)});
+                }
+                break;
+            }
+            // A struct read through a view of another shape with the same
+            // parts in the same order -- the gang's `vector[vec3f, 8]`
+            // built from three component vectors and read as the struct of
+            // three vectors, `reinterpret<f32x3$v8>(build<f32x3x8>(x, y,
+            // z))` -- hands out the part built there, where its type is the
+            // field's.
+            if (d->op == Instruction::Op::Reinterpret && d->operands.size() == 1) {
+                const Instruction *built = defined_by(d->operands[0]);
+                if (built != nullptr && built->op == Instruction::Op::MakeStruct &&
+                    *index < built->operands.size() &&
+                    equals(built->operands[*index]->get_type(), type)) {
+                    const Struct_t *viewed = d->type.as<Struct_t>();
+                    if (viewed != nullptr &&
+                        viewed->fields.size() == built->operands.size()) {
+                        return built->operands[*index];
+                    }
+                }
+                break;
+            }
+            if (d->op != Instruction::Op::MakeStruct) {
+                break;
+            }
+            if (d->operands.empty()) {
+                // Built with no operands at all -- an option's empty variant
+                // -- a struct is all zeros (the backends' null value), so a
+                // field of it is its type's zero: false, 0, 0.0, or an empty
+                // build of a struct field.
+                return zero_of(type);
+            }
+            if (*index >= d->operands.size() ||
                 !equals(d->operands[*index]->get_type(), type)) {
                 break;
             }
@@ -1118,11 +1508,56 @@ struct Simplifier {
             }
             break;
         }
+        case Instruction::Op::Reinterpret: {
+            // Bits read as one type and back as the first are the bits
+            // they were: `reinterpret<i32>(reinterpret<f32>(x))` is `x`.
+            if (ops.size() != 1) {
+                break;
+            }
+            const Instruction *d = defined_by(ops[0]);
+            if (d != nullptr && d->op == Instruction::Op::Reinterpret &&
+                d->operands.size() == 1 &&
+                equals(d->operands[0]->get_type(), type)) {
+                return d->operands[0];
+            }
+            break;
+        }
         case Instruction::Op::Lt:
         case Instruction::Op::Leq:
         case Instruction::Op::Eq:
         case Instruction::Op::Ne: {
-            if (ops.size() != 2 || !type.is<Bool_t>()) {
+            if (ops.size() != 2) {
+                break;
+            }
+            // A `<` or `<=` of two 32-bit floats is the same comparison of
+            // their bits as signed integers where the right side is a
+            // non-negative number -- its bits in [0, 0x7f800000], ordered as
+            // the float is, +inf's the greatest -- and the left side's sign
+            // bit is clear in every value: a non-negative number's bits
+            // order as it does, and a NaN's lie past infinity's, where the
+            // comparison is false of them as the float one is. Exact, by
+            // the interval analysis's flags (SSA/ConstantIntervals.h), with
+            // nothing read into a NaN or a negative zero: a NaN on the right
+            // would compare true on the bits where the float compare is
+            // false, so none is allowed there. Embree's `asInt(tNear) <=
+            // asInt(tFar)`, here reached by rule from `tNear < best` once
+            // the best is known a non-negative number; on the bits the
+            // comparison joins the slab test's (compare_pair) where a float
+            // compare could not. Scalars and masks alike.
+            if ((op == Instruction::Op::Lt || op == Instruction::Op::Leq) &&
+                scalar_of(ops[0]->get_type()).is_float() &&
+                scalar_of(ops[0]->get_type()).bits() == 32 &&
+                equals(ops[0]->get_type(), ops[1]->get_type()) &&
+                sign_clear(ops[0]) && nonnegative_number(ops[1])) {
+                const Type &ft = ops[0]->get_type();
+                const Type it = ft.is_vector()
+                                    ? Vector_t::make(Int_t::make(32), ft.lanes())
+                                    : Int_t::make(32);
+                ValuePtr a = make(Instruction::Op::Reinterpret, it, {ops[0]});
+                ValuePtr b = make(Instruction::Op::Reinterpret, it, {ops[1]});
+                return make(op, type, {std::move(a), std::move(b)});
+            }
+            if (!type.is<Bool_t>()) {
                 break;
             }
             if (std::optional<bool> c = compare_constants(op, ops[0], ops[1])) {
@@ -1753,19 +2188,39 @@ bool thread_argument_dispatches(Function &func) {
 
 } // namespace
 
-void simplify(Function &func) {
-    Simplifier s(func);
+namespace {
+
+// One pass of the rules over every instruction of `func`, in order, and the
+// removal of what they replaced; whether anything was replaced.
+bool simplify_once(Function &func, const ConstantIntervals *intervals) {
+    Simplifier s(func, intervals);
     for (const auto &block : func.blocks) {
-        s.block = block;
+        s.enter(block);
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> instr = block->instrs[i];
             for (auto &operand : instr->operands) {
                 operand = s.resolve(operand);
             }
+            if (Simplifier::writes_memory(*instr)) {
+                s.generation++;
+            }
             if (instr->name.empty()) {
                 continue; // an effect, not a value
             }
             s.at = i;
+            // An instruction like this one already in scope is it (see
+            // find_equal); otherwise this one is remembered, before the
+            // rules, so that what a rule makes of a later one can find it.
+            if (ValuePtr same = s.find_equal(*instr)) {
+                s.replaced[instr.get()] = same;
+                continue;
+            }
+            {
+                const auto looked_up = block->lookups.find(instr->name);
+                s.remember(instr, looked_up != block->lookups.end()
+                                      ? looked_up->second
+                                      : std::make_shared<Value>(instr));
+            }
             // A shuffle of one vector in its own order is that vector: the
             // concatenation of one source that a widened read of lanes
             // makes (ir::VectorShuffle::make_concat), and what stood between
@@ -1810,35 +2265,50 @@ void simplify(Function &func) {
             s.replaced[instr.get()] = v;
         }
     }
-    if (!s.replaced.empty()) {
-        resolve_uses(func, s);
-        // A name looked up after this should find what took its place.
-        for (const auto &block : func.blocks) {
-            for (auto &[name, value] : block->lookups) {
-                value = s.resolve(value);
-            }
+    if (s.replaced.empty()) {
+        return false;
+    }
+    resolve_uses(func, s);
+    // A name looked up after this should find what took its place.
+    for (const auto &block : func.blocks) {
+        for (auto &[name, value] : block->lookups) {
+            value = s.resolve(value);
         }
-        // And a name a type carries -- the size of an array made by a
-        // rewrite (see SSA/Storage.h) -- names what took its place too, or
-        // the type would name a value that no longer exists.
-        std::map<std::string, ir::Expr> renames;
-        for (const auto &[instr, v] : s.replaced) {
-            const ValuePtr resolved = s.resolve(v);
-            const Instruction *now = def_of(resolved);
-            if (now != nullptr && now->name == instr->name) {
-                continue; // the replacement took the name
-            }
-            renames.emplace(instr->name, as_expr(resolved));
+    }
+    // And a name a type carries -- the size of an array made by a
+    // rewrite (see SSA/Storage.h) -- names what took its place too, or
+    // the type would name a value that no longer exists.
+    std::map<std::string, ir::Expr> renames;
+    for (const auto &[instr, v] : s.replaced) {
+        const ValuePtr resolved = s.resolve(v);
+        const Instruction *now = def_of(resolved);
+        if (now != nullptr && now->name == instr->name) {
+            continue; // the replacement took the name
         }
-        if (!renames.empty()) {
-            rename_in_types(func, renames);
-        }
-        std::set<const Instruction *> gone;
-        for (const auto &[instr, _] : s.replaced) {
-            gone.insert(instr);
-        }
-        erase(func, gone);
-        remove_dead(func);
+        renames.emplace(instr->name, as_expr(resolved));
+    }
+    if (!renames.empty()) {
+        rename_in_types(func, renames);
+    }
+    std::set<const Instruction *> gone;
+    for (const auto &[instr, _] : s.replaced) {
+        gone.insert(instr);
+    }
+    erase(func, gone);
+    remove_dead(func);
+    return true;
+}
+
+} // namespace
+
+void simplify(Function &func, const ConstantIntervals *intervals) {
+    // To a fixed point, within a bound: a rule's result is simplified as
+    // it is made, but an instruction visited before one of its operands
+    // was replaced -- `!x` made of a `!y` that a later merge made `y`'s
+    // double negation -- is not looked at again within the pass, and what
+    // the next pass finds in it may carry further (the prune's compare
+    // reaches the slab test's through three such steps).
+    for (int round = 0; round < 8 && simplify_once(func, intervals); round++) {
     }
     if (fold_constant_dispatches(func)) {
         remove_unreachable_blocks(func);

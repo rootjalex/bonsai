@@ -3,8 +3,10 @@ func pick(x : f32, t : f32[4]) -> f32 {
   let @0 = 2f < x in
   if (@0) {
     let @1 = square_plus(x) in
-    let @2 = @1 < 20f in
-    if (@2) {
+    let @9 = reinterpret_cast<i32>(@1) in
+    let @10 = reinterpret_cast<i32>(20f) in
+    let @11 = @9 < @10 in
+    if (@11) {
       acc = x
     } else {
       acc = 0f
@@ -33,9 +35,8 @@ func [[export]] pick_all(a : f32[8], t : f32[4], out : mut f32[8]) -> void {
   let @29 = f32x8(20f) in
   let @3 = @2 < @29 in
   let @32 = f32x8(0f) in
-  let @33 = f32x8(0f) in
-  let @42 = select(@3, x$i0, @32) in
-  let @43 = select(@1, @42, @33) in
+  let @44 = select(@3, x$i0, @32) in
+  let @45 = select(@1, @44, @32) in
   let @34 = f32x8(1f) in
   let @4 = @34 < x$i0 in
   let @20 = reduce<any>(@4) in
@@ -44,12 +45,12 @@ func [[export]] pick_all(a : f32[8], t : f32[4], out : mut f32[8]) -> void {
     let @37 = f32x8(0.6f) in
     let @6 = @5 < @37 in
     let @40 = f32x8(1f) in
-    let @8 = @43 + @40 in
-    let @45 = select(@6, @8, @43) in
-    let @46 = select(@4, @45, @43) in
-    acc$i0!skip = @46
+    let @8 = @45 + @40 in
+    let @47 = select(@6, @8, @45) in
+    let @48 = select(@4, @47, @45) in
+    acc$i0!skip = @48
   } else {
-    acc$i0!skip = @43
+    acc$i0!skip = @45
   }
   out[ramp(0, 1, 8)] = (*acc$i0!skip)
   return
@@ -60,8 +61,10 @@ func [[export]] pick_one(x : f32, t : f32[4]) -> f32 {
   let @0 = 2f < x in
   if (@0) {
     let @1 = square_plus(x) in
-    let @2 = @1 < 20f in
-    if (@2) {
+    let @10 = reinterpret_cast<i32>(@1) in
+    let @11 = reinterpret_cast<i32>(20f) in
+    let @12 = @10 < @11 in
+    if (@12) {
       acc$i1 = x
     } else {
       acc$i1 = 0f

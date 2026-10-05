@@ -82,12 +82,8 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @44 = build<_option0>() in
             intersectsp_ray_aabb$r66 = @44
           } else {
-            let @46 = @22[0u] in
-            let @48 = @22[1u] in
-            let @49 = max(@46, @48) in
-            let @51 = @195[0u] in
-            let @53 = @195[1u] in
-            let @54 = min(@51, @53) in
+            let @49 = max(@36, @41) in
+            let @54 = min(@39, @34) in
             let @56 = @195[2u] in
             let @58 = @56 < @49 in
             let @61 = @22[2u] in
@@ -99,10 +95,8 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
               tmin$i66 = @49
               tmax$i66 = @54
             } else {
-              let @67 = @22[2u] in
-              let @68 = max(@49, @67) in
-              let @71 = @195[2u] in
-              let @72 = min(@54, @71) in
+              let @68 = max(@49, @61) in
+              let @72 = min(@54, @56) in
               let @75 = build<FInterval>(@68, @72) in
               let @76 = build<_option0>(@75, true) in
               intersectsp_ray_aabb$r66 = @76
@@ -171,12 +165,8 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @131 = build<_option0>() in
             intersectsp_ray_aabb$r67 = @131
           } else {
-            let @133 = @109[0u] in
-            let @135 = @109[1u] in
-            let @136 = max(@133, @135) in
-            let @138 = @196[0u] in
-            let @140 = @196[1u] in
-            let @141 = min(@138, @140) in
+            let @136 = max(@123, @128) in
+            let @141 = min(@126, @121) in
             let @143 = @196[2u] in
             let @145 = @143 < @136 in
             let @148 = @109[2u] in
@@ -188,10 +178,8 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
               tmin$i67 = @136
               tmax$i67 = @141
             } else {
-              let @154 = @109[2u] in
-              let @155 = max(@136, @154) in
-              let @158 = @196[2u] in
-              let @159 = min(@141, @158) in
+              let @155 = max(@136, @148) in
+              let @159 = min(@141, @143) in
               let @162 = build<FInterval>(@155, @159) in
               let @163 = build<_option0>(@162, true) in
               intersectsp_ray_aabb$r67 = @163

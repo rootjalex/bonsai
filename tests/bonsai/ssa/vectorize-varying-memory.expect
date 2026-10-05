@@ -92,8 +92,7 @@ func tally(a : f32[8], out : mut f32[8]) -> void {
   let i = ramp(0, 1, 8) in
   let @2 = (*t) in
   let @3 = @2.total in
-  let @4 = (*t) in
-  let @5 = @4.count in
+  let @5 = @2.count in
   let @6 = cast<f32x8>(@5) in
   let @7 = @3 + @6 in
   out[ramp(0, 1, 8)] = @7

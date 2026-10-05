@@ -6,6 +6,8 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
+class ConstantIntervals;
+
 // Peephole simplification of a function's instructions, and removal of the
 // instructions nothing reads once it is done.
 //
@@ -41,9 +43,24 @@ namespace ssa {
 //     operation, `min(bc(s), bc(t))` is `bc(min(s, t))`; and over integers
 //     a broadcast joining a chain of mins or maxes that holds one joins it,
 //     `min(min(x, bc(s)), bc(t))` is `min(x, bc(min(s, t)))`;
-//   * two instructions that are the same operation on the same operands are
-//     one instruction.
-void simplify(Function &func);
+//   * two instructions that are the same operation on the same operands,
+//     the first in scope where the second is (its block dominating), are
+//     one instruction (LLVM's EarlyCSE over the dominator tree);
+//   * a field of a struct built with no operands is its type's zero, a
+//     field of a select between structs is the select between the fields
+//     (where a side then folds), `select(c, true, false)` is `c` and
+//     `select(c, false, true)` is `!c`, and bits read as one type and
+//     back as the first are what they were;
+//   * with the interval analysis in hand (`intervals`, SSA/
+//     ConstantIntervals.h): a `<` or `<=` of two 32-bit floats both known
+//     non-negative is the same comparison of their bits as integers, and a
+//     strict comparison beside a non-strict one over integers joins it
+//     through one step on the side not shared where the step cannot wrap,
+//     `(a <= b) & (a < c)` being `a <= min(b, c - 1)`. These are what fold
+//     a traversal's prune against its running best into the slab test's
+//     one compare, as Embree's `tFar` carries the best (apps/rtq/PLAN.md).
+//     Without the analysis these rules stand down.
+void simplify(Function &func, const ConstantIntervals *intervals = nullptr);
 
 // Whether an instruction only computes a value, so that one nothing reads
 // can go. Storage, effects and the fetch-and-add are kept; so is `rand`,

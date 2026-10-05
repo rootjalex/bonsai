@@ -40,8 +40,10 @@ func tally(x : f32) -> i32 {
   let @1 = 2f < x in
   if (@1) {
     bump(c, 3)
-    let @2 = 5f < x in
-    if (@2) {
+    let @9 = reinterpret_cast<i32>(5f) in
+    let @10 = reinterpret_cast<i32>(x) in
+    let @11 = @9 < @10 in
+    if (@11) {
       bump(c, 1)
     }
     let @4 = 1 + 10 in
@@ -100,8 +102,10 @@ func [[export]] tally_one(x : f32) -> i32 {
   let @1 = 2f < x in
   if (@1) {
     bump(c$i7, 3)
-    let @2 = 5f < x in
-    if (@2) {
+    let @10 = reinterpret_cast<i32>(5f) in
+    let @11 = reinterpret_cast<i32>(x) in
+    let @12 = @10 < @11 in
+    if (@12) {
       bump(c$i7, 1)
     }
     let @4 = 1 + 10 in

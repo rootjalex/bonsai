@@ -1,0 +1,48 @@
+//! flags: -p ssa
+
+// A pure value a loop computes from a cell in memory, computed where the
+// cell is written instead (SSA/MirrorLoads.h). `count_within` keeps a
+// running least `best` and, at every element, compares the element's bits
+// against `min(bits(bound), bits(best) - 1)`: three instructions on the
+// value of `best`, which changes only where an element improves on it.
+// What to read for: a `!mirror` cell of the limit's type, assigned the
+// limit recomputed from a fresh load of `best` at the entry and right
+// after the store `best = x`, and the comparison in the loop reading the
+// mirror (`(*@n!mirror)`) with the three instructions gone from the loop's
+// body. `count_near` reads `best` in its loop too, but its chain is one
+// field-free negation of a flag, nothing worth a mirror, and is left as it
+// is.
+
+func [[export]] count_within(xs : array[f32, 16], bound : f32) -> u32 {
+    best : mut f32 = inf;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        x = xs[i];
+        limit = min(reinterpret[[i32]](bound), reinterpret[[i32]](best) - 1);
+        if reinterpret[[i32]](x) <= limit {
+            n = n + 1u;
+        }
+        if x < best {
+            best = x;
+        }
+        i = i + 1u;
+    }
+    return n;
+}
+
+func [[export]] count_near(xs : array[f32, 16], bound : f32) -> u32 {
+    seen : mut bool = false;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        if !seen {
+            n = n + 1u;
+        }
+        if xs[i] < bound {
+            seen = true;
+        }
+        i = i + 1u;
+    }
+    return n;
+}

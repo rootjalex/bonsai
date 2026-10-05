@@ -40,22 +40,23 @@ pick_one:
 
 "!then_0":                                        ; preds = %pick_one
   %1 = tail call fastcc float @square_plus(float %x)
-  %2 = fcmp olt float %1, 2.000000e+01
-  br i1 %2, label %"!then_3", label %"!merge_1"
+  %2 = bitcast float %1 to i32
+  %3 = icmp slt i32 %2, 1101004800
+  br i1 %3, label %"!then_3", label %"!merge_1"
 
 "!then_3":                                        ; preds = %"!then_0"
   br label %"!merge_1"
 
 "!merge_1":                                       ; preds = %"!then_0", %"!then_3", %pick_one
   %"acc$i111" = phi float [ 0.000000e+00, %pick_one ], [ 0.000000e+00, %"!then_0" ], [ %x, %"!then_3" ]
-  %3 = fcmp ogt float %x, 1.000000e+00
-  br i1 %3, label %"!then_5", label %"!merge_6"
+  %4 = fcmp ogt float %x, 1.000000e+00
+  br i1 %4, label %"!then_5", label %"!merge_6"
 
 "!then_5":                                        ; preds = %"!merge_1"
-  %4 = tail call fastcc float @tabled(float %x, ptr %t)
-  %5 = fcmp olt float %4, 6.000000e-01
-  %6 = fadd float %"acc$i111", 1.000000e+00
-  %"acc$i114" = select i1 %5, float %6, float %"acc$i111"
+  %5 = tail call fastcc float @tabled(float %x, ptr %t)
+  %6 = fcmp olt float %5, 6.000000e-01
+  %7 = fadd float %"acc$i111", 1.000000e+00
+  %"acc$i114" = select i1 %6, float %7, float %"acc$i111"
   br label %"!merge_6"
 
 "!merge_6":                                       ; preds = %"!then_5", %"!merge_1"

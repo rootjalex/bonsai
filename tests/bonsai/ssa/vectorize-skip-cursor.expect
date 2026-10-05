@@ -105,20 +105,10 @@ func intersects_Ray_Shape(r : Ray, s : Shape) -> bool {
     let wd = reinterpret_cast<f32>(@13) in
     let @15 = _t42[1u] in
     let h = reinterpret_cast<f32>(@15) in
-    let @17 = r.o in
-    let @18 = @17[0] in
-    let @19 = r.o in
-    let @20 = @19[0] in
-    let @21 = @18 * @20 in
     let @22 = wd * wd in
-    let @23 = @21 < @22 in
-    let @24 = r.o in
-    let @25 = @24[1] in
-    let @26 = r.o in
-    let @27 = @26[1] in
-    let @28 = @25 * @27 in
+    let @23 = @3 < @22 in
     let @29 = h * h in
-    let @30 = @28 < @29 in
+    let @30 = @4 < @29 in
     let @31 = @23 && @30 in
     hit = @31
   } break;
@@ -229,16 +219,10 @@ func weigh(x : f32) -> f32 {
     let wd$i7 = reinterpret_cast<f32>(@63) in
     let @65 = _t42$i7[1u] in
     let h$i7 = reinterpret_cast<f32>(@65) in
-    let @68 = _t30$i7[0] in
-    let @70 = _t30$i7[0] in
-    let @71 = @68 * @70 in
     let @72 = wd$i7 * wd$i7 in
-    let @73 = @71 < @72 in
-    let @75 = _t30$i7[1] in
-    let @77 = _t30$i7[1] in
-    let @78 = @75 * @77 in
+    let @73 = @52 < @72 in
     let @79 = h$i7 * h$i7 in
-    let @80 = @78 < @79 in
+    let @80 = @53 < @79 in
     let @81 = @73 && @80 in
     hit$i7 = @81
   } break;
@@ -307,82 +291,41 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let x$i9 = a[ramp(0, 1, 8)] in
   let @169 = f32x8(0f) in
   let @1 = x$i9 < @169 in
-  let @170 = boolx8(false) in
-  let @171 = boolx8(true) in
-  let @130 = select(@1, @170, @171) in
-  let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-  let @172 = f32x8(0f) in
-  let @3 = @172 - x$i9 in
+  let @239 = !@1 in
+  let @3 = @169 - x$i9 in
   let @4 = reinterpret_cast<u32x8>(@3) in
   let @173 = u32x8(0u) in
-  let @165 = build<[[packed]] u32x2$v8>(@4, @173) in
   let @174 = u8x8(0u) in
-  let @175 = @2[0u] in
-  let @176 = u8x8(@175) in
-  let @177 = @2[1u] in
-  let @178 = u8x8(@177) in
-  let @179 = @2[2u] in
-  let @180 = u8x8(@179) in
-  let @181 = build<[[packed]] u8x3$v8>(@176, @178, @180) in
-  let @6 = build<Shape$v8>(@174, @181, @165) in
   let @182 = f32x8(4f) in
   let @7 = x$i9 < @182 in
-  let @183 = boolx8(false) in
-  let @184 = boolx8(true) in
-  let @131 = select(@7, @183, @184) in
-  let @8 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @240 = !@7 in
   let @9 = reinterpret_cast<u32x8>(x$i9) in
   let @185 = f32x8(0.5f) in
   let @10 = x$i9 * @185 in
   let @11 = reinterpret_cast<u32x8>(@10) in
-  let @166 = build<[[packed]] u32x2$v8>(@9, @11) in
   let @186 = u8x8(1u) in
-  let @187 = @8[0u] in
-  let @188 = u8x8(@187) in
-  let @189 = @8[1u] in
-  let @190 = u8x8(@189) in
-  let @191 = @8[2u] in
-  let @192 = u8x8(@191) in
-  let @193 = build<[[packed]] u8x3$v8>(@188, @190, @192) in
-  let @13 = build<Shape$v8>(@186, @193, @166) in
-  let @14 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-  let @15 = reinterpret_cast<u32x8>(x$i9) in
   let @194 = f32x8(0.25f) in
   let @16 = x$i9 * @194 in
   let @17 = reinterpret_cast<u32x8>(@16) in
-  let @167 = build<[[packed]] u32x2$v8>(@15, @17) in
   let @195 = u8x8(2u) in
-  let @196 = @14[0u] in
-  let @197 = u8x8(@196) in
-  let @198 = @14[1u] in
-  let @199 = u8x8(@198) in
-  let @200 = @14[2u] in
-  let @201 = u8x8(@200) in
-  let @202 = build<[[packed]] u8x3$v8>(@197, @199, @201) in
-  let @19 = build<Shape$v8>(@195, @202, @167) in
-  let @240 = select(@131, @19, @13) in
-  let @241 = select(@130, @240, @6) in
-  let _t158 = @241.tag in
-  let @203 = u8x8(0u) in
-  let @134 = _t158 == @203 in
+  let @273 = select(@240, @195, @186) in
+  let _t158 = select(@239, @273, @174) in
+  let @134 = _t158 == @174 in
   let @204 = u8x8(1u) in
   let @135 = _t158 == @204 in
-  let @205 = u8x8(0u) in
-  let @136 = _t158 != @205 in
-  let @206 = u8x8(1u) in
-  let @137 = _t158 != @206 in
+  let @136 = _t158 != @174 in
+  let @137 = _t158 != @204 in
   let @138 = @136 && @137 in
   let @152 = reduce<any>(@138) in
   if (@152) {
-    let _t60$i9 = @241.payload in
-    let @38 = _t60$i9.!0 in
-    let ro$i9 = reinterpret_cast<f32x8>(@38) in
-    let @40 = _t60$i9.!1 in
-    let ri$i9 = reinterpret_cast<f32x8>(@40) in
+    let @255 = select(@239, @9, @4) in
+    let ro$i9 = reinterpret_cast<f32x8>(@255) in
+    let @256 = select(@240, @17, @11) in
+    let @257 = select(@239, @256, @173) in
+    let ri$i9 = reinterpret_cast<f32x8>(@257) in
     let @207 = f32x8(6f) in
     let @42 = ro$i9 * @207 in
-    let @208 = f32x8(6f) in
-    let @43 = ri$i9 * @208 in
+    let @43 = ri$i9 * @207 in
     let @44 = @42 + @43 in
     p$i9!skip = @44
   } else {
@@ -390,15 +333,14 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @151 = reduce<any>(@135) in
   if (@151) {
-    let _t56$i9 = @241.payload in
-    let @29 = _t56$i9.!0 in
-    let wd$i9 = reinterpret_cast<f32x8>(@29) in
-    let @31 = _t56$i9.!1 in
-    let h$i9 = reinterpret_cast<f32x8>(@31) in
+    let @250 = select(@239, @9, @4) in
+    let wd$i9 = reinterpret_cast<f32x8>(@250) in
+    let @251 = select(@240, @17, @11) in
+    let @252 = select(@239, @251, @173) in
+    let h$i9 = reinterpret_cast<f32x8>(@252) in
     let @209 = f32x8(2f) in
     let @33 = wd$i9 * @209 in
-    let @210 = f32x8(2f) in
-    let @34 = h$i9 * @210 in
+    let @34 = h$i9 * @209 in
     let @35 = @33 + @34 in
     let @157 = select(@135, @35, (*p$i9!skip)) in
     p$i9!skip0 = @157
@@ -407,9 +349,8 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   }
   let @150 = reduce<any>(@134) in
   if (@150) {
-    let @23 = @241.payload in
-    let @24 = @23.!0 in
-    let r$i9 = reinterpret_cast<f32x8>(@24) in
+    let @247 = select(@239, @9, @4) in
+    let r$i9 = reinterpret_cast<f32x8>(@247) in
     let @211 = f32x8(6f) in
     let @26 = r$i9 * @211 in
     let @158 = select(@134, @26, (*p$i9!skip0)) in
@@ -417,98 +358,60 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   } else {
     p$i9!skip1 = (*p$i9!skip0)
   }
-  let @212 = f32x8(0.5f) in
-  let @45 = x$i9 * @212 in
-  let @53 = @45 * @45 in
+  let @213 = f32x8(1f) in
+  let @53 = @10 * @10 in
   let @54 = 1f * 1f in
   let @223 = f32x8(@54) in
   let d2$i12 = @53 + @223 in
-  let @224 = u8x8(0u) in
-  let @139 = _t158 == @224 in
-  let @225 = u8x8(1u) in
-  let @140 = _t158 == @225 in
-  let _t46$i12 = @241.payload in
-  let @85 = _t46$i12.!0 in
-  let ro$i12 = reinterpret_cast<f32x8>(@85) in
-  let @87 = _t46$i12.!1 in
-  let ri$i12 = reinterpret_cast<f32x8>(@87) in
+  let @269 = select(@239, @9, @4) in
+  let ro$i12 = reinterpret_cast<f32x8>(@269) in
+  let @270 = select(@240, @17, @11) in
+  let @271 = select(@239, @270, @173) in
+  let ri$i12 = reinterpret_cast<f32x8>(@271) in
   let @89 = ro$i12 * ro$i12 in
   let @90 = d2$i12 < @89 in
   let @91 = ri$i12 * ri$i12 in
   let @92 = @91 < d2$i12 in
   let @93 = @90 && @92 in
-  let @153 = reduce<any>(@140) in
-  if (@153) {
-    let _t42$i12 = @241.payload in
-    let @64 = _t42$i12.!0 in
-    let wd$i12 = reinterpret_cast<f32x8>(@64) in
-    let @66 = _t42$i12.!1 in
-    let h$i12 = reinterpret_cast<f32x8>(@66) in
-    let @72 = @45 * @45 in
+  if (@151) {
+    let @264 = select(@239, @9, @4) in
+    let wd$i12 = reinterpret_cast<f32x8>(@264) in
+    let @265 = select(@240, @17, @11) in
+    let @266 = select(@239, @265, @173) in
+    let h$i12 = reinterpret_cast<f32x8>(@266) in
     let @73 = wd$i12 * wd$i12 in
-    let @74 = @72 < @73 in
-    let @79 = 1f * 1f in
+    let @74 = @53 < @73 in
     let @80 = h$i12 * h$i12 in
-    let @228 = f32x8(@79) in
-    let @81 = @228 < @80 in
+    let @81 = @223 < @80 in
     let @82 = @74 && @81 in
-    let @159 = select(@140, @82, @93) in
+    let @159 = select(@135, @82, @93) in
     hit$i12!skip = @159
   } else {
     hit$i12!skip = @93
   }
-  let @57 = @241.payload in
-  let @58 = @57.!0 in
-  let rad$i12 = reinterpret_cast<f32x8>(@58) in
+  let @261 = select(@239, @9, @4) in
+  let rad$i12 = reinterpret_cast<f32x8>(@261) in
   let @60 = rad$i12 * rad$i12 in
   let @61 = d2$i12 < @60 in
-  let @160 = select(@139, @61, (*hit$i12!skip)) in
-  let @231 = f32x8(1f) in
-  let @97 = (*p$i9!skip1) + @231 in
+  let @160 = select(@134, @61, (*hit$i12!skip)) in
+  let @97 = (*p$i9!skip1) + @213 in
   let @161 = select(@160, @97, (*p$i9!skip1)) in
-  let @232 = u8x8(0u) in
-  let @145 = _t158 == @232 in
-  let @233 = u8x8(1u) in
-  let @146 = _t158 == @233 in
-  let @234 = u8x8(0u) in
-  let @147 = _t158 != @234 in
-  let @235 = u8x8(1u) in
-  let @148 = _t158 != @235 in
-  let @149 = @147 && @148 in
-  let @154 = reduce<any>(@149) in
-  if (@154) {
-    let _t6$i13 = @241.payload in
-    let @113 = _t6$i13.!0 in
-    let ro$i13 = reinterpret_cast<f32x8>(@113) in
-    let @115 = _t6$i13.!1 in
-    let ri$i13 = reinterpret_cast<f32x8>(@115) in
-    let @117 = ro$i13 * ro$i13 in
-    let @118 = ri$i13 * ri$i13 in
-    let @119 = @117 - @118 in
+  if (@152) {
+    let @119 = @60 - @91 in
     let @236 = f32x8(3f) in
     let @120 = @119 * @236 in
-    let @237 = f32x8(0.5f) in
-    let @121 = ri$i13 * @237 in
+    let @121 = ri$i12 * @185 in
     let @122 = @120 + @121 in
-    let @123 = @122 - ro$i13 in
+    let @123 = @122 - rad$i12 in
     a$i13!skip = @123
   } else {
     a$i13!skip = undef
   }
-  let _t2$i13 = @241.payload in
-  let @106 = _t2$i13.!0 in
-  let wd$i13 = reinterpret_cast<f32x8>(@106) in
-  let @108 = _t2$i13.!1 in
-  let h$i13 = reinterpret_cast<f32x8>(@108) in
-  let @110 = wd$i13 * h$i13 in
-  let @162 = select(@146, @110, (*a$i13!skip)) in
-  let @99 = @241.payload in
-  let @100 = @99.!0 in
-  let r$i13 = reinterpret_cast<f32x8>(@100) in
-  let @102 = r$i13 * r$i13 in
+  let @110 = rad$i12 * ri$i12 in
+  let @162 = select(@135, @110, (*a$i13!skip)) in
   let @238 = f32x8(3f) in
-  let @103 = @102 * @238 in
-  let @163 = select(@145, @103, @162) in
+  let @103 = @60 * @238 in
+  let @163 = select(@134, @103, @162) in
   let @127 = @163 + @161 in
   out[ramp(0, 1, 8)] = @127
   return
@@ -604,16 +507,10 @@ func [[export]] weigh_one(x : f32) -> f32 {
     let wd$i15 = reinterpret_cast<f32>(@63) in
     let @65 = _t42$i15[1u] in
     let h$i15 = reinterpret_cast<f32>(@65) in
-    let @68 = _t30$i15[0] in
-    let @70 = _t30$i15[0] in
-    let @71 = @68 * @70 in
     let @72 = wd$i15 * wd$i15 in
-    let @73 = @71 < @72 in
-    let @75 = _t30$i15[1] in
-    let @77 = _t30$i15[1] in
-    let @78 = @75 * @77 in
+    let @73 = @52 < @72 in
     let @79 = h$i15 * h$i15 in
-    let @80 = @78 < @79 in
+    let @80 = @53 < @79 in
     let @81 = @73 && @80 in
     hit$i15 = @81
   } break;

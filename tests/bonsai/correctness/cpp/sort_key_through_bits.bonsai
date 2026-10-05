@@ -8,7 +8,9 @@
 // as the scene says by both, and on a ray whose `tnear` is negative the raw
 // query accepting a wall behind the origin where the clamped one sees the
 // wall ahead. The clamped query's keys are ordered without the sign flip,
-// the fact having travelled through the reinterpretations to the key.
+// the fact having travelled through the reinterpretations to the key; and
+// both node tests are the one compare with the best folded into `tFar`,
+// which has to prune exactly what the compare against the best pruned.
 import stdlib/aabb;
 import stdlib/numerics;
 
@@ -120,7 +122,9 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 
 extern tris : set[Triangle];
 
-func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+// The segment clamped to a non-negative number (see the ssa test).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
 
 func [[export]] trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);

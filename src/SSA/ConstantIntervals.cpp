@@ -78,10 +78,19 @@ ConstantInterval ConstantInterval::bounded_above(double max) {
     return i;
 }
 
+ConstantInterval ConstantInterval::single_point(double x) {
+    ConstantInterval i{x, x};
+    i.number = !std::isnan(x);
+    i.sign_clear = i.nonnegative = !std::signbit(x);
+    return i;
+}
+
 ConstantInterval ConstantInterval::bounds_of_type(const Type &type) {
     const Type t = scalar_of(type);
     if (t.is_bool()) {
-        return {0, 1};
+        ConstantInterval i{0, 1};
+        i.number = i.nonnegative = i.sign_clear = true;
+        return i;
     }
     if (t.is_uint()) {
         ConstantInterval i = bounded_below(0);
@@ -89,21 +98,26 @@ ConstantInterval ConstantInterval::bounds_of_type(const Type &type) {
             i.max = std::ldexp(1.0, int(t.bits())) - 1;
             i.max_defined = true;
         }
+        i.number = i.nonnegative = i.sign_clear = true;
         return i;
     }
     if (t.is_int()) {
+        ConstantInterval i;
         if (t.bits() <= 53) {
             const double top = std::ldexp(1.0, int(t.bits()) - 1);
-            return {-top, top - 1};
+            i = {-top, top - 1};
         }
-        return everything();
+        i.number = true;
+        return i;
     }
     return everything();
 }
 
 bool ConstantInterval::operator==(const ConstantInterval &o) const {
     return min_defined == o.min_defined && max_defined == o.max_defined &&
-           (!min_defined || min == o.min) && (!max_defined || max == o.max);
+           (!min_defined || min == o.min) && (!max_defined || max == o.max) &&
+           number == o.number && nonnegative == o.nonnegative &&
+           sign_clear == o.sign_clear;
 }
 
 void ConstantInterval::include(const ConstantInterval &i) {
@@ -117,6 +131,9 @@ void ConstantInterval::include(const ConstantInterval &i) {
     } else {
         min_defined = false;
     }
+    number = number && i.number;
+    nonnegative = nonnegative && i.nonnegative;
+    sign_clear = sign_clear && i.sign_clear;
 }
 
 ConstantInterval ConstantInterval::make_union(const ConstantInterval &a,
@@ -137,6 +154,10 @@ ConstantInterval ConstantInterval::make_intersection(const ConstantInterval &a,
     r.max = a.max_defined && b.max_defined ? std::min(a.max, b.max)
             : a.max_defined                ? a.max
                                            : b.max;
+    r.number = a.number || b.number;
+    r.nonnegative = a.nonnegative || b.nonnegative;
+    r.sign_clear = a.sign_clear || b.sign_clear;
+    r.settle_flags();
     if (r.is_bounded() && r.min > r.max) {
         // Two intervals that do not meet: the value is not anywhere, which
         // this lattice has no word for, so it is everywhere.
@@ -161,6 +182,10 @@ void ConstantInterval::cast_to(const Type &type) {
         if (!within) {
             *this = range;
         }
+        // An integer is a number, and its sign is clear where it is not
+        // negative.
+        number = true;
+        nonnegative = sign_clear = min_defined && min >= 0;
         return;
     }
     if (t.is_float() && t.bits() <= 32) {
@@ -271,6 +296,11 @@ Limit over(const Limit &a, const Limit &b) {
 
 } // namespace
 
+// Whether `i` may hold `v`, an infinity or zero: nothing says it does not.
+bool may_hold(const ConstantInterval &i, double v) {
+    return (!i.min_defined || i.min <= v) && (!i.max_defined || i.max >= v);
+}
+
 ConstantInterval operator+(const ConstantInterval &a, const ConstantInterval &b) {
     ConstantInterval r;
     if (a.min_defined && b.min_defined) {
@@ -281,6 +311,13 @@ ConstantInterval operator+(const ConstantInterval &a, const ConstantInterval &b)
         r.max = a.max + b.max;
         r.max_defined = !std::isnan(r.max);
     }
+    // A sum of numbers is a number unless it may be an infinity less
+    // itself; of two non-negative values, non-negative where a number.
+    r.number = a.number && b.number &&
+               !(may_hold(a, kInf) && may_hold(b, -kInf)) &&
+               !(may_hold(a, -kInf) && may_hold(b, kInf));
+    r.nonnegative = a.nonnegative && b.nonnegative;
+    r.settle_flags();
     return r;
 }
 
@@ -290,6 +327,7 @@ ConstantInterval operator-(const ConstantInterval &a) {
     r.min_defined = a.max_defined;
     r.max = -a.min;
     r.max_defined = a.min_defined;
+    r.number = a.number;
     return r;
 }
 
@@ -298,22 +336,40 @@ ConstantInterval operator-(const ConstantInterval &a, const ConstantInterval &b)
 }
 
 ConstantInterval operator*(const ConstantInterval &a, const ConstantInterval &b) {
-    if (a.is_everything() && b.is_everything()) {
-        return ConstantInterval::everything();
+    ConstantInterval r;
+    if (!(a.is_everything() && b.is_everything())) {
+        r = from_corners({times(lower(a), lower(b)), times(lower(a), upper(b)),
+                          times(upper(a), lower(b)), times(upper(a), upper(b))});
     }
-    return from_corners({times(lower(a), lower(b)), times(lower(a), upper(b)),
-                         times(upper(a), lower(b)), times(upper(a), upper(b))});
+    // A product of numbers is a number unless it may be zero times an
+    // infinity; where it is a number its sign is the signs' exclusive or,
+    // so two factors with their signs clear make one.
+    const bool infinite_a = may_hold(a, kInf) || may_hold(a, -kInf);
+    const bool infinite_b = may_hold(b, kInf) || may_hold(b, -kInf);
+    r.number = a.number && b.number && !(may_hold(a, 0) && infinite_b) &&
+               !(infinite_a && may_hold(b, 0));
+    r.nonnegative = a.nonnegative && b.nonnegative;
+    r.settle_flags();
+    return r;
 }
 
 ConstantInterval operator/(const ConstantInterval &a, const ConstantInterval &b) {
+    ConstantInterval r;
     if (b.min_defined && b.min > 0) {
-        return from_corners({over(lower(a), lower(b)), over(lower(a), upper(b)),
-                             over(upper(a), lower(b)), over(upper(a), upper(b))});
+        r = from_corners({over(lower(a), lower(b)), over(lower(a), upper(b)),
+                          over(upper(a), lower(b)), over(upper(a), upper(b))});
+    } else if (b.max_defined && b.max < 0) {
+        r = -(a / -b);
     }
-    if (b.max_defined && b.max < 0) {
-        return -(a / -b);
-    }
-    return ConstantInterval::everything();
+    // A quotient of numbers is a number unless it may be zero over zero or
+    // an infinity over an infinity; its sign is the signs' exclusive or.
+    const bool infinite_a = may_hold(a, kInf) || may_hold(a, -kInf);
+    const bool infinite_b = may_hold(b, kInf) || may_hold(b, -kInf);
+    r.number = a.number && b.number && !(may_hold(a, 0) && may_hold(b, 0)) &&
+               !(infinite_a && infinite_b);
+    r.nonnegative = a.nonnegative && b.nonnegative;
+    r.settle_flags();
+    return r;
 }
 
 ConstantInterval operator%(const ConstantInterval &a, const ConstantInterval &b) {
@@ -363,6 +419,11 @@ ConstantInterval min(const ConstantInterval &a, const ConstantInterval &b) {
     if (r.min_defined) {
         r.min = std::min(a.min, b.min);
     }
+    // One of the two, bit for bit (`b < a ? b : a`): a number if both
+    // are, its sign clear if both are.
+    r.number = a.number && b.number;
+    r.nonnegative = a.nonnegative && b.nonnegative;
+    r.sign_clear = a.sign_clear && b.sign_clear;
     return r;
 }
 
@@ -380,6 +441,9 @@ ConstantInterval max(const ConstantInterval &a, const ConstantInterval &b) {
     if (r.max_defined) {
         r.max = std::max(a.max, b.max);
     }
+    r.number = a.number && b.number;
+    r.nonnegative = a.nonnegative && b.nonnegative;
+    r.sign_clear = a.sign_clear && b.sign_clear;
     return r;
 }
 
@@ -397,9 +461,15 @@ ConstantInterval abs(const ConstantInterval &a) {
     } else {
         r.min = 0;
     }
+    // The sign bit is cleared whatever the value, a NaN's included.
+    r.number = a.number;
+    r.nonnegative = r.sign_clear = true;
     return r;
 }
 
+// `[min, max]`, then ` n` where the value is a number, ` +` where its sign
+// is clear in every value, and ` (+)` where it is non-negative only as a
+// number.
 std::ostream &operator<<(std::ostream &os, const ConstantInterval &i) {
     os << "[";
     if (i.min_defined) {
@@ -413,7 +483,16 @@ std::ostream &operator<<(std::ostream &os, const ConstantInterval &i) {
     } else {
         os << "inf";
     }
-    return os << "]";
+    os << "]";
+    if (i.number) {
+        os << " n";
+    }
+    if (i.sign_clear) {
+        os << " +";
+    } else if (i.nonnegative) {
+        os << " (+)";
+    }
+    return os;
 }
 
 //===--------------------------------------------------------------------===//
@@ -664,7 +743,35 @@ struct ConstantIntervals::State {
     Abstract ret = Abstract::none();
     std::unique_ptr<Definitions> defs;
     std::unique_ptr<Cfg> cfg;
+    std::unique_ptr<DomTree> dom;
     std::map<string, size_t> rpo_index;
+    // The function's local allocations by name, for an argument that
+    // carries one by its name (see root_of).
+    std::map<string, const Instruction *> allocas_by_name;
+
+    // The block that declares `name` as an argument: `block` itself, or
+    // the nearest block dominating it that does -- a gang's blocks name the
+    // values of the blocks above them without taking them as arguments
+    // (SSA/Vectorize.cpp), and so does a loop's body the loop's entry's --
+    // or the entry for a parameter; null where none does.
+    const Block *declaring(const string &block, const string &name) const {
+        if (!cfg) {
+            return nullptr;
+        }
+        for (BlockId b = cfg->find(block); b != NO_BLOCK;) {
+            const shared_ptr<Block> &held = cfg->block(b);
+            for (const Argument &a : held->args) {
+                if (a.name == name) {
+                    return held.get();
+                }
+            }
+            if (!dom || b == dom->root || b >= dom->idom.size()) {
+                break;
+            }
+            b = dom->idom[b];
+        }
+        return nullptr;
+    }
 
     // The memory in force for this pass: the previous pass's contents, read
     // by loads, while `memory` collects this pass's stores.
@@ -706,7 +813,14 @@ struct ConstantIntervals::State {
                     return it != instrs.end() ? it->second : Abstract::top(i->type);
                 },
                 [&](const Argument &a) {
-                    const auto it = args.find({block, a.name});
+                    auto it = args.find({block, a.name});
+                    if (it == args.end()) {
+                        // Named here without being an argument here: the
+                        // block that declares it is above (see declaring).
+                        if (const Block *decl = declaring(block, a.name)) {
+                            it = args.find({decl->name, a.name});
+                        }
+                    }
                     return it != args.end() ? it->second : Abstract::top(a.type);
                 },
             },
@@ -807,17 +921,63 @@ struct ConstantIntervals::State {
             const ValuePtr &y = in.operands[1];
             const ConstantInterval xi = value(block, x).interval;
             const ConstantInterval yi = value(block, y).interval;
+            // A comparison that holds -- `<`, `<=`, `==` -- was between
+            // numbers: a NaN passes none. A failed `!=` is a held `==`; a
+            // failed `<` is a held `>=`, between numbers too. (A failed `==`
+            // or a held `!=` says nothing: a NaN fails every equality.)
+            const bool between_numbers =
+                in.op == Instruction::Op::Lt || in.op == Instruction::Op::Leq ||
+                (in.op == Instruction::Op::Eq) == truth;
+            if (between_numbers) {
+                ConstantInterval a_number;
+                a_number.number = true;
+                into.add(x, a_number);
+                into.add(y, a_number);
+                // And so were the values each is computed from, through the
+                // operations a NaN comes out of.
+                numbers_beneath(x, into, 0);
+                numbers_beneath(y, into, 0);
+            }
+            // The least value above a bound, or the greatest below one, in
+            // the compared type: one over integers, the next float over
+            // 32-bit floats, nothing otherwise.
+            const auto above = [&](double v) {
+                if (integer) {
+                    return v + 1;
+                }
+                if (t.bits() == 32) {
+                    float f = float(v);
+                    return double(f > v ? f : std::nextafterf(f, kInf));
+                }
+                return v;
+            };
+            const auto below = [&](double v) {
+                if (integer) {
+                    return v - 1;
+                }
+                if (t.bits() == 32) {
+                    float f = float(v);
+                    return double(f < v ? f : std::nextafterf(f, -kInf));
+                }
+                return v;
+            };
             // `lo < hi` or `lo <= hi`, strict or not, as the comparison and
-            // its truth make it.
+            // its truth make it. A number above a non-negative one, or at
+            // least a positive one, is positive: its sign is clear.
             const auto ordered = [&](const ValuePtr &lo, const ConstantInterval &loi,
                                      const ValuePtr &hi, const ConstantInterval &hii,
                                      bool strict) {
-                const double step = strict && integer ? 1 : 0;
                 if (hii.max_defined) {
-                    into.add(lo, ConstantInterval::bounded_above(hii.max - step));
+                    into.add(lo, ConstantInterval::bounded_above(
+                                     strict ? below(hii.max) : hii.max));
                 }
                 if (loi.min_defined) {
-                    into.add(hi, ConstantInterval::bounded_below(loi.min + step));
+                    ConstantInterval at_least = ConstantInterval::bounded_below(
+                        strict ? above(loi.min) : loi.min);
+                    at_least.number = true;
+                    at_least.nonnegative = strict ? loi.min >= 0 : loi.min > 0;
+                    at_least.settle_flags();
+                    into.add(hi, at_least);
                 }
             };
             if (in.op == Instruction::Op::Lt) {
@@ -840,6 +1000,57 @@ struct ConstantIntervals::State {
         }
         default:
             return;
+        }
+    }
+
+    // A value known to be a number was computed from numbers, through the
+    // operations a NaN would have come out of: a sum, difference, product or
+    // quotient of a NaN is a NaN, as are its negation, absolute value,
+    // reciprocal, square root and broadcast. Not through min, max or
+    // select, which can leave a NaN behind, nor through a reinterpretation.
+    // Bounded in depth.
+    void numbers_beneath(const ValuePtr &v, Facts &into, int depth) const {
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held == nullptr || depth > 4) {
+            return;
+        }
+        const Instruction &in = **held;
+        bool carries = false;
+        switch (in.op) {
+        case Instruction::Op::Add:
+        case Instruction::Op::Sub:
+        case Instruction::Op::Mul:
+        case Instruction::Op::Div:
+        case Instruction::Op::Abs:
+        case Instruction::Op::Bc:
+            carries = true;
+            break;
+        case Instruction::Op::Intrinsic:
+            switch (in.intrinsic) {
+            case ir::Intrinsic::abs:
+            case ir::Intrinsic::rcp:
+            case ir::Intrinsic::sqrt:
+            case ir::Intrinsic::sqr:
+            case ir::Intrinsic::fma:
+                carries = true;
+                break;
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+        if (!carries) {
+            return;
+        }
+        ConstantInterval a_number;
+        a_number.number = true;
+        for (const ValuePtr &o : in.operands) {
+            if (scalar_of(o->get_type()).is_float()) {
+                into.add(o, a_number);
+                numbers_beneath(o, into, depth + 1);
+            }
         }
     }
 
@@ -1091,7 +1302,28 @@ struct ConstantIntervals::State {
                 return none;
             }
         }
-        if (std::holds_alternative<Argument>(v->data)) {
+        if (const auto *named = std::get_if<Argument>(&v->data)) {
+            // A name is one value throughout a function (a block carries a
+            // value into the blocks below as an argument under the name it
+            // was defined by, SSA/Rewrite.cpp; a merge of different values
+            // has a name of its own), so an argument named as a parameter
+            // is the parameter, and one named as a local allocation is the
+            // allocation -- however many blocks it reached its reader
+            // through, which following each edge would read as a merge of
+            // as many different values.
+            for (const Argument &param : func->blocks.front()->args) {
+                if (param.name == named->name) {
+                    Root r;
+                    r.param = named->name;
+                    return r;
+                }
+            }
+            if (const auto local = allocas_by_name.find(named->name);
+                local != allocas_by_name.end()) {
+                Root r;
+                r.local = local->second;
+                return r;
+            }
             const Definition d = defs->of(block, v);
             if (d.value == nullptr) {
                 return none;
@@ -1099,11 +1331,14 @@ struct ConstantIntervals::State {
             if (std::holds_alternative<shared_ptr<Instruction>>(d.value->data)) {
                 return root_of(d.block, d.value, depth + 1);
             }
-            if (const auto *a = std::get_if<Argument>(&d.value->data);
-                a != nullptr && d.block == func->blocks.front()->name) {
-                Root r;
-                r.param = a->name;
-                return r;
+            if (std::holds_alternative<Argument>(d.value->data)) {
+                // Named here without being an argument here: the block
+                // that declares it is above (see declaring), and the name
+                // is resolved from there.
+                if (const Block *decl = declaring(d.block, named->name);
+                    decl != nullptr && decl->name != d.block) {
+                    return root_of(decl->name, v, depth + 1);
+                }
             }
         }
         return none;
@@ -1313,6 +1548,11 @@ struct ConstantIntervals::State {
                 if (i.max_defined) {
                     i.max = std::trunc(i.max);
                 }
+            } else if (!is_integer_type(type) && is_integer_type(from)) {
+                // An integer made a float is a number, non-negative where
+                // the integer was.
+                i.number = true;
+                i.nonnegative = i.sign_clear = i.min_defined && i.min >= 0;
             }
             return fit(i);
         }
@@ -1345,21 +1585,30 @@ struct ConstantIntervals::State {
             constexpr double kInfBits = 0x7f800000;
             if (f.is_float() && f.bits() == 32 && is_integer_type(t) &&
                 t.bits() == 32) {
-                if (!(i.min_defined && i.min >= 0)) {
+                // A non-negative number's bits are between its bounds' bits,
+                // +inf's the greatest; a value whose sign is clear but may
+                // be a NaN has bits up to 0x7fffffff; anything else -- a
+                // negative zero's bits are the integer's least -- is
+                // everything.
+                if (!i.sign_clear) {
                     return top();
                 }
-                float lo = float(i.min);
+                float lo = i.min_defined ? float(std::max(i.min, 0.0)) : 0.0f;
                 if (double(lo) > i.min) {
                     lo = std::nextafterf(lo, 0.0f);
                 }
-                double hi_bits = kInfBits;
-                if (i.max_defined && std::isfinite(i.max)) {
-                    float hi = float(i.max);
-                    if (double(hi) < i.max) {
-                        hi = std::nextafterf(hi, kInf);
+                double hi_bits = 0x7fffffff;
+                if (i.number) {
+                    hi_bits = kInfBits;
+                    if (i.max_defined && std::isfinite(i.max)) {
+                        float hi = float(i.max);
+                        if (double(hi) < i.max) {
+                            hi = std::nextafterf(hi, kInf);
+                        }
+                        hi_bits = std::isfinite(hi)
+                                      ? double(std::bit_cast<uint32_t>(hi))
+                                      : kInfBits;
                     }
-                    hi_bits = std::isfinite(hi) ? double(std::bit_cast<uint32_t>(hi))
-                                                : kInfBits;
                 }
                 return fit(ConstantInterval(double(std::bit_cast<uint32_t>(lo)),
                                             hi_bits));
@@ -1380,7 +1629,13 @@ struct ConstantIntervals::State {
                 const double hi = i.max <= kInfBits
                                       ? double(std::bit_cast<float>(uint32_t(i.max)))
                                       : kInf;
-                return fit(ConstantInterval(double(lo), hi));
+                // Bits with the sign clear read as a float with its sign
+                // clear in every value, a number where none lie past
+                // infinity's.
+                ConstantInterval r(double(lo), hi);
+                r.sign_clear = r.nonnegative = true;
+                r.number = i.max <= kInfBits;
+                return fit(r);
             }
             return top();
         }
@@ -1605,6 +1860,11 @@ struct ConstantIntervals::State {
                 r.max = std::sqrt(std::max(a.max, 0.0));
                 r.max_defined = true;
             }
+            // A number where the operand is one and not negative (the root
+            // of a negative zero is a negative zero); the sign the operand's.
+            r.number = a.number && a.min_defined && a.min >= 0;
+            r.nonnegative = a.nonnegative;
+            r.settle_flags();
             return fit(r);
         }
         case ir::Intrinsic::sqr:
@@ -1624,8 +1884,11 @@ struct ConstantIntervals::State {
                 const double slack = std::abs(v) * 0x1p-20;
                 return down ? v - slack : v + slack;
             };
+            // A number where the operand is one (the reciprocal of zero is
+            // an infinity, of an infinity zero), with the operand's sign.
+            ConstantInterval r;
             if (a.min_defined && a.min >= 0) {
-                ConstantInterval r = ConstantInterval::bounded_below(
+                r = ConstantInterval::bounded_below(
                     a.max_defined && a.max > 0 && std::isfinite(a.max)
                         ? outward(1.0 / a.max, true)
                         : 0.0);
@@ -1633,10 +1896,8 @@ struct ConstantIntervals::State {
                     r.max = outward(1.0 / a.min, false);
                     r.max_defined = true;
                 }
-                return fit(r);
-            }
-            if (a.max_defined && a.max <= 0) {
-                ConstantInterval r = ConstantInterval::bounded_above(
+            } else if (a.max_defined && a.max <= 0) {
+                r = ConstantInterval::bounded_above(
                     a.min_defined && a.min < 0 && std::isfinite(a.min)
                         ? outward(1.0 / a.min, false)
                         : 0.0);
@@ -1644,15 +1905,30 @@ struct ConstantIntervals::State {
                     r.min = outward(1.0 / a.max, true);
                     r.min_defined = true;
                 }
-                return fit(r);
             }
-            return top();
+            r.number = a.number;
+            r.nonnegative = a.nonnegative;
+            r.settle_flags();
+            return fit(r);
         }
-        case ir::Intrinsic::exp:
-            return fit(ConstantInterval::bounded_below(0));
+        case ir::Intrinsic::exp: {
+            // Positive where it is a number, which it is where the operand
+            // is (an infinity gives zero or an infinity).
+            ConstantInterval r = ConstantInterval::bounded_below(0);
+            r.number = I(0).number;
+            r.nonnegative = true;
+            r.settle_flags();
+            return fit(r);
+        }
         case ir::Intrinsic::cos:
-        case ir::Intrinsic::sin:
-            return fit({-1, 1});
+        case ir::Intrinsic::sin: {
+            // A number where the operand is a finite one.
+            const ConstantInterval a = I(0);
+            ConstantInterval r{-1, 1};
+            r.number = a.number && a.is_bounded() && std::isfinite(a.min) &&
+                       std::isfinite(a.max);
+            return fit(r);
+        }
         case ir::Intrinsic::clz:
         case ir::Intrinsic::ctz:
             return fit({0, double(scalar_of(type).bits())});
@@ -1938,6 +2214,16 @@ struct ConstantIntervals::State {
         pointees = entry_pointees;
         if (!cfg) {
             cfg = std::make_unique<Cfg>(*func);
+            dom = std::make_unique<DomTree>(compute_dominator_tree(*cfg));
+            for (const shared_ptr<Block> &block : func->blocks) {
+                for (const shared_ptr<Instruction> &in : block->instrs) {
+                    if ((in->op == Instruction::Op::Alloca ||
+                         in->op == Instruction::Op::Alloc) &&
+                        !in->name.empty()) {
+                        allocas_by_name[in->name] = in.get();
+                    }
+                }
+            }
             for (size_t i = 0; i < cfg->rpo.size(); i++) {
                 rpo_index[cfg->name(cfg->rpo[i])] = i;
             }

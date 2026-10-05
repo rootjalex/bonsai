@@ -8,8 +8,7 @@ func [[export]] pick(_ret0 : mut (Pair*), x : f32) -> void {
     return
   } else {
     let @2 = 0f - x in
-    let @3 = 0f - x in
-    let r$1 = build<Pair>(@2, @3) in
+    let r$1 = build<Pair>(@2, @2) in
     _ret0 = r$1
     return
   }

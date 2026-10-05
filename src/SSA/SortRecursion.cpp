@@ -494,17 +494,19 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     // they are made infinite. The index is a bit field of the key: with the
     // keys scalars, `key & (n - 1)` is the lane to read a child from.
     //
-    // The flip goes when the keys are known not to be negative
-    // (SSA/ConstantIntervals.h): a non-negative float's bits order as the
-    // float does already. Embree's `distance_i` is `asInt(tNear)` with no
+    // The flip goes when the keys' sign bits are known clear in every value
+    // (SSA/ConstantIntervals.h, `sign_clear`): such bits order as the
+    // floats do already. Embree's `distance_i` is `asInt(tNear)` with no
     // flip at all, because its traversal clamps the ray's `tnear` to zero
-    // at entry (TravRay) and a box's entry distance is `max(.., tnear)`;
-    // a program that does the same is read the same way here, the fact
-    // carried from the clamp to the key through the calls between.
+    // at entry (TravRay) and a box's entry distance is `max(.., tnear)`; a
+    // program that does the same -- with a clamp that leaves a non-negative
+    // number, `select(tnear > 0, tnear, 0)`, since std::max passes a NaN or
+    // a negative zero through -- is read the same way here, the fact
+    // carried from the clamp through the integer max to the key.
     auto bits = emit(block, i32xn, Instruction::Op::Reinterpret, {keys});
     const ConstantInterval key_range = intervals.of(func, *block, lanes.keys);
     shared_ptr<Value> ordered = bits;
-    if (!(key_range.min_defined && key_range.min >= 0)) {
+    if (!key_range.sign_clear) {
         auto sign = emit(block, i32xn, Instruction::Op::Shr,
                          {bits, bc(block, ci32(31), i32xn)});
         auto flip = emit(block, i32xn, Instruction::Op::BwAnd,

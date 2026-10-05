@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// The simplifier's comparison of floats as their bits, and the join of a
+// strict comparison with a non-strict one, both exact under the interval
+// analysis's flags (SSA/ConstantIntervals.h; the simplify after the
+// directives has them). What to read for:
+//
+//   * `unknown`: `abs(a) < abs(b)` is left as a float compare. The left
+//     side's sign bit is clear (`abs`), but the right may be a NaN, which
+//     the float compare is false of and the compare of the bits would not
+//     be; nothing says `b` is a number.
+//   * `known`: below `if !(0.0 < b) { return false; }` the value `b` is a
+//     positive number, so `abs(a) < b` is `reinterpret<i32>(abs(a)) <
+//     reinterpret<i32>(b)`: a NaN on the left has bits past infinity's and
+//     compares false either way.
+//   * `joined`: over the bits the slab test's shape, `x <= y && x < z`
+//     with `y` an integer made a float (a non-negative number) and `z` a
+//     positive number, is one compare against a min: `z`'s bits are a
+//     non-negative number's, so `x < z` is `x <= z - 1` on the bits with
+//     no wrap, and the two comparisons sharing `x` join as `x <= min(y,
+//     z - 1)`.
+//   * `gang`: the same for a gang, the lanes against one broadcast limit:
+//     the mask `(x <= y) & (x < bc(z))` is `x <= min(y, bc(z - 1))` with
+//     the scalar `z - 1` broadcast once.
+
+func [[export]] unknown(a : f32, b : f32) -> bool = abs(a) < abs(b);
+
+func [[export]] known(a : f32, b : f32) -> bool {
+    if !(0.0 < b) {
+        return false;
+    }
+    return abs(a) < b;
+}
+
+func [[export]] joined(a : f32, n : u32, z : f32) -> bool {
+    if !(0.0 < z) {
+        return false;
+    }
+    x = abs(a);
+    return x <= cast[[f32]](n) && x < z;
+}
+
+func [[export]] gang(as : array[f32, 8], ns : array[u32, 8], z : f32,
+                     out : mut array[bool, 8]) {
+    if !(0.0 < z) {
+        return;
+    }
+    parfor k in 0u:8u {
+        x = abs(as[k]);
+        out[k] = x <= cast[[f32]](ns[k]) && x < z;
+    }
+    return;
+}
+
+schedule {
+    gang.vectorize(k);
+}

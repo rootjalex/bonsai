@@ -114,7 +114,9 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 
 extern tris : set[Triangle];
 
-func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+// The segment clamped to a non-negative number (see the ssa test).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
 
 func [[export]] trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);

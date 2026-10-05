@@ -25,8 +25,7 @@ func [[export]] run(n : i32, spp : u32, out : mut f32[]) -> void {
         let @21 = f32x16(0f) in
         let @22 = select(@12, @8, @21) in
         let @23 = reduce<+>(@22) in
-        let @24 = reduce<any>(@12) in
-        if (@24) {
+        if (@14) {
           atomic out[p] += @23
         }
       }

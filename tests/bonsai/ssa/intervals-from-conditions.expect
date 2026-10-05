@@ -1,40 +1,75 @@
 === intervals before the sort
 intervals of chosen:
-  lo : [0, inf]
-  @2 : [0, inf]
-  @3 : [0, inf]
-  @5 : [inf, inf]
-  @6 : [0, inf]
+  lo : [0, inf] +
+  @2 : [0, inf] +
+  @3 : [0, inf] (+)
+  @5 : [inf, inf] n +
+  @6 : [0, inf] (+)
 intervals of guarded:
-  @2 : [inf, inf]
-  @3 : [0, inf]
-  @4 : [0, inf]
-  @5 : [0, inf]
+  @2 : [inf, inf] n +
+  @3 : [0, inf] +
+  @4 : [0, inf] (+)
+  @5 : [0, inf] (+)
 intervals of narrow:
-  @0 : {key: [0, inf], id: [0, 4.29497e+09]}
-  was : [0, inf]
-  t : [0, inf]
-  @3 : {key: [0, inf], id: [0, 4.29497e+09]}
-  @4 : [0, inf]
-  !then_0(t) : [0, inf]
-  !then_0(was) : [0, inf]
-  @6 : {key: [0, inf], id: [0, 4.29497e+09]}
-  !merge_1(was) : [0, inf]
-  *best (stored through) : {[0, inf], [0, 4.29497e+09]}
-  *best (on entry) : {key: [0, inf], id: [0, 4.29497e+09]}
+  @0 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  was : [0, inf] n +
+  t : [0, inf] +
+  @3 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  @4 : [0, inf] n +
+  !then_0(t) : [0, inf] +
+  !then_0(was) : [0, inf] n +
+  @6 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  !merge_1(was) : [0, inf] n +
+  *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
+  *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
 intervals of run:
-  @0 : [inf, inf]
-  @1 : {key: [inf, inf], id: [0, 0]}
-  !narrow_call_cont_0(@2) : [0, inf]
-  a : [0, inf]
-  !narrow_call_cont_1(@4) : [0, inf]
-  !narrow_call_cont_1(a) : [0, inf]
-  b : [0, inf]
-  @5 : [0, inf]
-  @6 : {key: [0, inf], id: [0, 4.29497e+09]}
-  @7 : [0, inf]
-  @8 : [0, inf]
-  *best : {key: [0, inf], id: [0, 4.29497e+09]}
+  @0 : [inf, inf] n +
+  @1 : {key: [inf, inf] n +, id: [0, 0] n +}
+  !narrow_call_cont_0(@2) : [0, inf] n +
+  a : [0, inf] n +
+  !narrow_call_cont_1(@4) : [0, inf] n +
+  !narrow_call_cont_1(a) : [0, inf] n +
+  b : [0, inf] n +
+  @5 : [0, inf] n +
+  @6 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  @7 : [0, inf] n +
+  @8 : [0, inf] n +
+  *best : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+=== intervals after the directives
+intervals of chosen:
+  lo : [0, inf] +
+  @2 : [0, inf] +
+  @3 : [0, inf] (+)
+  @5 : [inf, inf] n +
+  @6 : [0, inf] (+)
+intervals of guarded:
+  @2 : [inf, inf] n +
+  @3 : [0, inf] +
+  @4 : [0, inf] (+)
+  @5 : [0, inf] (+)
+intervals of narrow:
+  @0 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  was : [0, inf] n +
+  t : [0, inf] +
+  !then_0(t) : [0, inf] +
+  !then_0(was) : [0, inf] n +
+  @6 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  !merge_1(was) : [0, inf] n +
+  *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
+  *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+intervals of run:
+  @0 : [inf, inf] n +
+  @1 : {key: [inf, inf] n +, id: [0, 0] n +}
+  !narrow_call_cont_0(@2) : [0, inf] n +
+  a : [0, inf] n +
+  !narrow_call_cont_1(@4) : [0, inf] n +
+  !narrow_call_cont_1(a) : [0, inf] n +
+  b : [0, inf] n +
+  @5 : [0, inf] n +
+  @6 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+  @7 : [0, inf] n +
+  @8 : [0, inf] n +
+  *best : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
 type Pair = struct Pair{ key : f32; id : u32 }
 
 func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
@@ -66,10 +101,10 @@ func narrow(best : mut (Pair*), d : f32, i : u32) -> f32 {
   let @0 = (*best) in
   let was = @0.key in
   let t = abs(d) in
-  let @3 = (*best) in
-  let @4 = @3.key in
-  let @5 = t < @4 in
-  if (@5) {
+  let @7 = reinterpret_cast<i32>(t) in
+  let @8 = reinterpret_cast<i32>(was) in
+  let @9 = @7 < @8 in
+  if (@9) {
     let @6 = build<Pair>(t, i) in
     best = @6
   }

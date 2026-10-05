@@ -14,6 +14,7 @@
 #include "SSA/Specialize.h"
 #include "SSA/Stage.h"
 #include "SSA/InvariantDivision.h"
+#include "SSA/MirrorLoads.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/ConstantIntervals.h"
@@ -2676,8 +2677,25 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // SSA/Simplify.h): a vectorized split loop's index is the outer index
     // broadcast plus the ramp of lanes, which is a ramp, and only as a ramp
     // is an access at it a dense vector load or store rather than a gather.
-    for (const auto &[name, f] : fmap) {
-        simplify(*f);
+    // With what every value is known to lie between as the program now
+    // stands, for the rules that are exact only under such a fact: the
+    // traversal's prune against its running best, a float compare, is one
+    // on the bits once the best is known non-negative, and joins the slab
+    // test's compare -- which needs the best as the vectorized traversal
+    // reads it, a load through the pointer its caller passed, before the
+    // allocas are promoted and it is a value carried round the loop that one
+    // pass cannot bound.
+    {
+        const ConstantIntervals intervals(fmap);
+        if (options.dump_intervals) {
+            std::cout << "=== intervals after the directives\n";
+            for (const auto &[name, f] : fmap) {
+                intervals.dump(std::cout, *f);
+            }
+        }
+        for (const auto &[name, f] : fmap) {
+            simplify(*f, &intervals);
+        }
     }
     phase("simplify after the directives");
 
@@ -2721,6 +2739,16 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         lower_pushes(*f, layouts);
     }
     phase("pushes");
+    // A pure value a loop computes from a cell in memory is computed where
+    // the cell is written instead, into a mirror cell the loop reads
+    // (SSA/MirrorLoads.h): the node test's limit from the argmin's best,
+    // once per accepted hit rather than once per node. After the pushes,
+    // whose entries are about the memory as it was; before the promotion
+    // below, which makes the mirror a value carried round the loop.
+    for (const auto &[name, f] : fmap) {
+        mirror_derived_loads(*f);
+    }
+    phase("mirror derived loads");
     // A `mut` local the builder put in memory that nothing but loads and
     // stores ever touch is a value from here on (SSA/PromoteAllocas.h). After
     // the rewrites rather than before them, because a rewrite may be about

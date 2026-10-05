@@ -15,33 +15,18 @@ func [[export]] sum_some(a : f32[8], sums : mut f32x3[2]) -> void {
   let @4 = @14 < _t22 in
   let @8 = reduce<any>(@4) in
   if (@8) {
-    let @18 = f32x8(0f) in
-    let @19 = select(@4, _t22, @18) in
+    let @19 = select(@4, _t22, @14) in
     let @20 = reduce<+>(@19) in
-    let @22 = f32x8(0f) in
-    let @23 = select(@4, @1, @22) in
+    let @23 = select(@4, @1, @14) in
     let @24 = reduce<+>(@23) in
-    let @26 = f32x8(0f) in
-    let @27 = select(@4, @2, @26) in
+    let @27 = select(@4, @2, @14) in
     let @28 = reduce<+>(@27) in
     let @29 = build<f32x3>(@20, @24, @28) in
-    let @30 = reduce<any>(@4) in
-    if (@30) {
+    if (@8) {
       atomic sums[0] += @29
     }
-    let @32 = f32x8(0f) in
-    let @33 = select(@4, _t22, @32) in
-    let @34 = reduce<+>(@33) in
-    let @36 = f32x8(0f) in
-    let @37 = select(@4, @1, @36) in
-    let @38 = reduce<+>(@37) in
-    let @40 = f32x8(0f) in
-    let @41 = select(@4, @2, @40) in
-    let @42 = reduce<+>(@41) in
-    let @43 = build<f32x3>(@34, @38, @42) in
-    let @44 = reduce<any>(@4) in
-    if (@44) {
-      sums[1] += @43
+    if (@8) {
+      sums[1] += @29
     }
   }
   return

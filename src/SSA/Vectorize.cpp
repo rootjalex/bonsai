@@ -12,6 +12,8 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <set>
@@ -1985,6 +1987,165 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     return variant;
 }
 
+// A block that ends in a jump to a block nothing else reaches is one block
+// with it: the target's arguments are what the jump passes, its
+// instructions follow the block's, and its terminator becomes the block's.
+// Repeated down the chain through the block named `last`. What an inlined
+// straight-line callee leaves -- the site jumping into the copy, the
+// copy's blocks jumping on to one another and then to the continuation
+// with the callee's value -- becomes the site block itself, with that
+// value an instruction of it rather than an argument of the continuation,
+// which is what a rule that matches values can see (see
+// inline_pure_variants). A block of the copy may name a value of an
+// earlier block of it without taking it as an argument (a gang's blocks
+// read their function's values by name), so what each absorbed block's
+// arguments stood for is kept and applied down the whole chain.
+void absorb_successors(Function &func, const shared_ptr<Block> &block,
+                       const string &last) {
+    map<string, shared_ptr<Value>> renames;
+    for (;;) {
+        const auto *jump = std::get_if<Terminator::Jump>(&block->terminator.data);
+        if (jump == nullptr) {
+            return;
+        }
+        shared_ptr<Block> next;
+        for (const shared_ptr<Block> &b : func.blocks) {
+            if (b->name == jump->name) {
+                next = b;
+                break;
+            }
+        }
+        if (!next || next == func.blocks.front() || next == block ||
+            jump->args.size() != next->args.size()) {
+            return;
+        }
+        size_t ways_in = 0;
+        for (const shared_ptr<Block> &b : func.blocks) {
+            for (const Terminator::Jump *j : jumps_of(*b)) {
+                if (j->name == next->name) {
+                    ways_in++;
+                }
+            }
+        }
+        if (ways_in != 1) {
+            return;
+        }
+        for (size_t i = 0; i < next->args.size(); i++) {
+            renames[next->args[i].name] = jump->args[i];
+        }
+        for_each_value(*next, [&](shared_ptr<Value> &v) {
+            if (const auto *a = std::get_if<Argument>(&v->data)) {
+                if (const auto it = renames.find(a->name); it != renames.end()) {
+                    v = it->second;
+                }
+            }
+        });
+        for (const shared_ptr<Instruction> &instr : next->instrs) {
+            instr->owner = block;
+            block->instrs.push_back(instr);
+        }
+        for (const auto &[name, v] : next->lookups) {
+            if (!renames.count(name)) {
+                block->lookups[name] = v;
+            }
+        }
+        // The merged block stands for both: a provenance the target carried
+        // is kept where the block had none.
+        if (!block->provenance.defined()) {
+            block->provenance = next->provenance;
+        }
+        block->terminator = std::move(next->terminator);
+        const bool done = next->name == last;
+        std::erase(func.blocks, next);
+        if (done) {
+            return;
+        }
+    }
+}
+
+// The variants this gang made that are pure and straight-line -- no memory
+// of anyone's, no effect, one block ending in a return, as a masked
+// `distmin` of a box is once its own branches are selects -- are copied in
+// at each call of them in `f` (inline_call), and each copy folded into the
+// block that called it (absorb_successors). What the callee computed is
+// then a value of the caller's, which the simplifier's rules can see: the
+// slab test the masked `distmin` repeats is the one the node's test
+// computed, so the two become one, and the prune against the best reads
+// the test's own distance. Left as a call, the callee stays opaque until
+// LLVM inlines it, after our rules have run. Such a variant is never
+// guarded by a test of its mask (specialize_calls: safe with every lane
+// off), so running its instructions where the call was runs no more than
+// the call did; and a variant nothing calls afterwards is removed.
+void inline_pure_variants(FuncMap &funcs, const shared_ptr<Function> &f,
+                          const Variants &variants) {
+    // Past this a straight-line callee is copied at each call anyway, by
+    // LLVM, but copying it here at every site would make the SSA the
+    // rewrites after this walk that much larger for no rule's gain.
+    constexpr size_t kMostInstructions = 512;
+    const auto safe = safe_callee_in(funcs);
+    set<string> inlined;
+    // Straight-line: every block ends in a plain jump or the return, so the
+    // blocks are one chain (the linearizer's merges, before the simplifier
+    // has folded them into one block), with nothing to branch on.
+    const auto straight_line = [&](const Function &g) {
+        size_t instructions = 0;
+        for (const shared_ptr<Block> &block : g.blocks) {
+            if (!std::holds_alternative<Terminator::Jump>(block->terminator.data) &&
+                !std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+                return false;
+            }
+            instructions += block->instrs.size();
+        }
+        return instructions <= kMostInstructions;
+    };
+    for (const auto &[key, name] : variants) {
+        const auto g = funcs.find(name);
+        // A `[[noinline]]` function stays a call, as the schedule asked (the
+        // variant carries the attribute of the function it was made from).
+        if (g == funcs.end() ||
+            std::find(g->second->attributes.begin(), g->second->attributes.end(),
+                      ir::Function::Attribute::noinline) != g->second->attributes.end() ||
+            !straight_line(*g->second) || !safe(name)) {
+            continue;
+        }
+        bool any = false;
+        // inline_call appends the copy's blocks; the index walk reaches them,
+        // and finds no call of this variant in them.
+        for (size_t i = 0; i < f->blocks.size(); i++) {
+            const shared_ptr<Block> block = f->blocks[i];
+            const auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+            if (call == nullptr || call->call.name != name) {
+                continue;
+            }
+            const string continuation = call->cont.name;
+            inline_call(funcs, f, block);
+            absorb_successors(*f, block, continuation);
+            any = true;
+        }
+        if (any) {
+            inlined.insert(name);
+        }
+    }
+    if (inlined.empty()) {
+        return;
+    }
+    refresh_preds(*f);
+    for (const string &name : inlined) {
+        bool called = false;
+        for (const auto &[other, fn] : funcs) {
+            for (const shared_ptr<Block> &block : fn->blocks) {
+                if (const auto *callee = block->terminator.callee();
+                    callee != nullptr && callee->name == name) {
+                    called = true;
+                }
+            }
+        }
+        if (!called) {
+            funcs.erase(name);
+        }
+    }
+}
+
 } // namespace
 
 void vectorize(FuncMap &funcs, std::string func, std::string idx,
@@ -2185,6 +2346,10 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
         });
         cont->preds.push_back(block);
     }
+
+    // The gang's pure straight-line callees, copied in where they are
+    // called (see inline_pure_variants).
+    inline_pure_variants(funcs, f, variants);
 
     // Say that this function has been through here, so that code generation
     // can take its SSA form directly rather than the statements the relooper

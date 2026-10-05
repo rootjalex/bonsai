@@ -1,0 +1,21 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_mirror_derived_loads.cpp -I. -o tests/bonsai/correctness/cpp/main_mirror_derived_loads.o
+[test] clang++ tests/bonsai/correctness/cpp/main_mirror_derived_loads.o tests/bonsai/correctness/cpp/mirror_derived_loads.o -o tests/bonsai/correctness/cpp/mirror_derived_loads
+[test] ./tests/bonsai/correctness/cpp/mirror_derived_loads
+count_within(descending, bound 40/2) = 16
+count_near(descending, bound 40/2) = 1
+count_within(descending, bound 16/2) = 8
+count_near(descending, bound 16/2) = 10
+count_within(descending, bound 1/2) = 0
+count_near(descending, bound 1/2) = 16
+count_within(ascending, bound 40/2) = 1
+count_near(ascending, bound 40/2) = 1
+count_within(ascending, bound 16/2) = 1
+count_near(ascending, bound 16/2) = 1
+count_within(ascending, bound 1/2) = 0
+count_near(ascending, bound 1/2) = 16
+count_within(dipping, bound 40/2) = 8
+count_near(dipping, bound 40/2) = 1
+count_within(dipping, bound 16/2) = 6
+count_near(dipping, bound 16/2) = 4
+count_within(dipping, bound 1/2) = 0
+count_near(dipping, bound 1/2) = 16

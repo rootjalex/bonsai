@@ -49,8 +49,10 @@ func weigh(x : f32) -> f32 {
     let @1 = sqrt(x) in
     let @2 = @1 * 3f in
     let t = @2 + 1f in
-    let @4 = 7f < t in
-    if (@4) {
+    let @69 = reinterpret_cast<i32>(7f) in
+    let @70 = reinterpret_cast<i32>(t) in
+    let @71 = @69 < @70 in
+    if (@71) {
       return t
     } else {
       let @5 = t * t in
@@ -154,10 +156,8 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   let @109 = f32x8(2f) in
   let @0 = @109 < x in
   let @110 = boolx8(false) in
-  let @111 = boolx8(true) in
-  let @69 = select(@0, @110, @111) in
+  let @164 = !@0 in
   let @91 = reduce<any>(@0) in
-  let @163 = boolx8(false) in
   if (@91) {
     let @1 = sqrt(x) in
     let @112 = f32x8(3f) in
@@ -166,11 +166,8 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
     let t = @2 + @113 in
     let @114 = f32x8(7f) in
     let @4 = @114 < t in
-    let @115 = boolx8(false) in
-    let @116 = boolx8(true) in
-    let @70 = select(@4, @115, @116) in
-    let @71 = @0 && @70 in
-    let @72 = @0 && @4 in
+    let @165 = !@4 in
+    let @71 = @0 && @165 in
     let @92 = reduce<any>(@71) in
     if (@92) {
       let @5 = t * t in
@@ -184,11 +181,11 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
       !ret!skip = t
     }
   } else {
-    @71!join = @163
+    @71!join = @110
     acc!skip = undef
     !ret!skip = undef
   }
-  let @90 = reduce<any>(@69) in
+  let @90 = reduce<any>(@164) in
   if (@90) {
     let @7 = x * x in
     let @117 = f32x8(0.5f) in
@@ -199,26 +196,22 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
     let @119 = f32x8(3f) in
     let @11 = u * @119 in
     let @12 = @10 + @11 in
-    let @120 = f32x8(1f) in
-    let @13 = @12 - @120 in
-    let @100 = select(@69, @13, (*acc!skip)) in
+    let @13 = @12 - @118 in
+    let @100 = select(@164, @13, (*acc!skip)) in
     acc!skip0 = @100
   } else {
     acc!skip0 = (*acc!skip)
   }
-  let @73 = (*@71!join) || @69 in
+  let @73 = (*@71!join) || @164 in
   let @121 = f32x8(0f) in
   let @14 = x < @121 in
-  let @122 = boolx8(false) in
-  let @123 = boolx8(true) in
-  let @74 = select(@14, @122, @123) in
-  let @75 = @73 && @74 in
+  let @166 = !@14 in
+  let @75 = @73 && @166 in
   let @76 = @73 && @14 in
   let @94 = reduce<any>(@76) in
   if (@94) {
     let @15 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @124 = f32x8(0f) in
-    let @16 = @124 - x in
+    let @16 = @121 - x in
     let @17 = reinterpret_cast<u32x8>(@16) in
     let @125 = u32x8(0u) in
     let @106 = build<[[packed]] u32x2$v8>(@17, @125) in
@@ -239,10 +232,8 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   if (@93) {
     let @134 = f32x8(4f) in
     let @20 = x < @134 in
-    let @135 = boolx8(false) in
-    let @136 = boolx8(true) in
-    let @77 = select(@20, @135, @136) in
-    let @78 = @75 && @77 in
+    let @167 = !@20 in
+    let @78 = @75 && @167 in
     let @79 = @75 && @20 in
     let @96 = reduce<any>(@79) in
     if (@96) {
@@ -292,20 +283,17 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   } else {
     classify$r6!skip2 = (*classify$r6!skip1)
   }
-  let @80 = (*@71!join) || @69 in
   let @34 = (*classify$r6!skip2).tag in
   let @155 = u8x8(0u) in
   let @81 = @34 == @155 in
-  let @82 = @80 && @81 in
+  let @82 = @73 && @81 in
   let @156 = u8x8(1u) in
   let @83 = @34 == @156 in
-  let @84 = @80 && @83 in
-  let @157 = u8x8(0u) in
-  let @85 = @34 != @157 in
-  let @158 = u8x8(1u) in
-  let @86 = @34 != @158 in
+  let @84 = @73 && @83 in
+  let @85 = @34 != @155 in
+  let @86 = @34 != @156 in
   let @87 = @85 && @86 in
-  let @88 = @80 && @87 in
+  let @88 = @73 && @87 in
   let @99 = reduce<any>(@88) in
   if (@99) {
     let _t34 = (*classify$r6!skip2).payload in
@@ -331,8 +319,7 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
     let @48 = _t30.!1 in
     let h = reinterpret_cast<f32x8>(@48) in
     let @50 = wd * h in
-    let @160 = f32x8(2f) in
-    let @51 = @50 * @160 in
+    let @51 = @50 * @109 in
     let @52 = h * h in
     let @53 = @51 + @52 in
     let @54 = @53 - wd in
@@ -358,9 +345,8 @@ func weigh$gang8_v0(x : f32x8) -> f32x8 {
   } else {
     w!skip1 = (*w!skip0)
   }
-  let @89 = (*@71!join) || @69 in
   let @68 = (*acc!skip0) + (*w!skip1) in
-  let @105 = select(@89, @68, (*!ret!skip)) in
+  let @105 = select(@73, @68, (*!ret!skip)) in
   return @105
 }
 

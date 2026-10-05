@@ -254,6 +254,7 @@ target_sources(
     src/SSA/CodeGen_Stmt.cpp
     src/SSA/CollapseLoops.cpp
     src/SSA/ConstantIntervals.cpp
+    src/SSA/MirrorLoads.cpp
     src/SSA/Contention.cpp
     src/SSA/Contract.cpp
     src/SSA/Defer.cpp

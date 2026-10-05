@@ -6,13 +6,7 @@ func grid(out : mut i32[12]) -> void {
     let @10 = reinterpret_cast<i32>(@9) in
     let @11 = c + @10 in
     let @5 = @11 >> 2 in
-    let @12 = c >> 31 in
-    let @13 = reinterpret_cast<u32>(@12) in
-    let @14 = @13 >> 30u in
-    let @15 = reinterpret_cast<i32>(@14) in
-    let @16 = c + @15 in
-    let @17 = @16 >> 2 in
-    let @18 = @17 * 4 in
+    let @18 = @5 * 4 in
     let @6 = c - @18 in
     let y = @5 in
     let x = @6 in

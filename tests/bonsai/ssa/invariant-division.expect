@@ -44,16 +44,12 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   let @18 = clz(@17) in
   let @43 = u64x8(64u) in
   let @19 = @43 - @18 in
-  let @44 = u64x8(1u) in
-  let @20 = min(@19, @44) in
-  let @45 = u64x8(1u) in
-  let @21 = max(@19, @45) in
-  let @46 = u64x8(1u) in
-  let @22 = @21 - @46 in
+  let @20 = min(@19, @42) in
+  let @21 = max(@19, @42) in
+  let @22 = @21 - @42 in
   let @47 = u64x8(18446744073709551615u) in
   let @27 = mulhi(@16, @47) in
-  let @48 = u64x8(18446744073709551615u) in
-  let @28 = @48 - @27 in
+  let @28 = @47 - @27 in
   let @29 = @28 >> @20 in
   let @30 = @27 + @29 in
   let @0 = @30 >> @22 in
@@ -67,14 +63,11 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   !exit.while_end_2 = @56
   !track.while_end_2.0 = undef
   while (reduce<any>((*!live))) {
-    let @49 = u64x8(0u) in
-    let @3 = (*v!loop) != @49 in
+    let @3 = (*v!loop) != @54 in
     let @5 = (*r!loop) < limit in
     let @6 = @3 && @5 in
-    let @50 = boolx8(false) in
-    let @51 = boolx8(true) in
-    let @32 = select(@6, @50, @51) in
-    let @33 = (*!live) && @32 in
+    let @57 = !@6 in
+    let @33 = (*!live) && @57 in
     let @34 = (*!live) && @6 in
     let @23 = mulhi(@16, (*v!loop)) in
     let @24 = (*v!loop) - @23 in
@@ -89,10 +82,8 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
     let @37 = select(@34, @14, (*r!loop)) in
     let @36 = select(@33, (*v!loop), @35) in
     let @38 = select(@33, (*r!loop), @37) in
-    let @52 = boolx8(false) in
-    let @39 = select(@33, @52, (*!live)) in
-    let @53 = boolx8(true) in
-    let @40 = select(@33, @53, (*!exit.while_end_2)) in
+    let @39 = select(@33, @56, (*!live)) in
+    let @40 = select(@33, @55, (*!exit.while_end_2)) in
     let @41 = select(@33, (*r!loop), (*!track.while_end_2.0)) in
     v!loop = @36
     r!loop = @38

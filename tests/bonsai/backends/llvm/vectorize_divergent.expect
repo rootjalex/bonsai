@@ -7,9 +7,9 @@ clamp_negative:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp olt <8 x float> %extract, zeroinitializer
-  %not. = xor <8 x i1> %0, splat (i1 true)
-  %1 = bitcast <8 x i1> %0 to i8
-  %.not = icmp eq i8 %1, 0
+  %1 = xor <8 x i1> %0, splat (i1 true)
+  %2 = bitcast <8 x i1> %0 to i8
+  %.not = icmp eq i8 %2, 0
   br i1 %.not, label %"!else_3!any", label %"!then_2"
 
 "!then_2":                                        ; preds = %clamp_negative
@@ -18,13 +18,13 @@ clamp_negative:
   br label %"!else_3!any"
 
 "!else_3!any":                                    ; preds = %"!then_2", %clamp_negative
-  %2 = bitcast <8 x i1> %not. to i8
-  %.not4 = icmp eq i8 %2, 0
+  %3 = bitcast <8 x i1> %1 to i8
+  %.not4 = icmp eq i8 %3, 0
   br i1 %.not4, label %"!par_cont_1", label %"!else_3"
 
 "!else_3":                                        ; preds = %"!else_3!any"
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %extract, ptr align 4 %out, <8 x i1> %not.)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %extract, ptr align 4 %out, <8 x i1> %1)
   br label %"!par_cont_1"
 
 "!par_cont_1":                                    ; preds = %"!else_3!any", %"!else_3"
@@ -46,9 +46,9 @@ uniform_outer:
 "!else_3":                                        ; preds = %uniform_outer
   %extract = load <8 x float>, ptr %a, align 4
   %1 = fcmp olt <8 x float> %extract, zeroinitializer
-  %not. = xor <8 x i1> %1, splat (i1 true)
-  %2 = bitcast <8 x i1> %1 to i8
-  %.not = icmp eq i8 %2, 0
+  %2 = xor <8 x i1> %1, splat (i1 true)
+  %3 = bitcast <8 x i1> %1 to i8
+  %.not = icmp eq i8 %3, 0
   br i1 %.not, label %"!else_6!any", label %"!then_5"
 
 "!then_5":                                        ; preds = %"!else_3"
@@ -57,13 +57,13 @@ uniform_outer:
   br label %"!else_6!any"
 
 "!else_6!any":                                    ; preds = %"!then_5", %"!else_3"
-  %3 = bitcast <8 x i1> %not. to i8
-  %.not6 = icmp eq i8 %3, 0
+  %4 = bitcast <8 x i1> %2 to i8
+  %.not6 = icmp eq i8 %4, 0
   br i1 %.not6, label %"!par_cont_1", label %"!else_6"
 
 "!else_6":                                        ; preds = %"!else_6!any"
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  tail call void @llvm.masked.store.v8f32.p0(<8 x float> splat (float 2.000000e+00), ptr align 4 %out, <8 x i1> %not.)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> splat (float 2.000000e+00), ptr align 4 %out, <8 x i1> %2)
   br label %"!par_cont_1"
 
 "!par_cont_1":                                    ; preds = %"!then_2", %"!else_6", %"!else_6!any"

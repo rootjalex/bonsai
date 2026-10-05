@@ -82,10 +82,8 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
     let @31 = (*tMin$i28) in
     let @32 = @31[0u] in
     let @33 = @30 < @32 in
-    let @34 = (*tMax$i28) in
-    let @35 = @34[0u] in
-    let @36 = (*tMin$i28) in
-    let @37 = @36[1u] in
+    let @35 = @29[0u] in
+    let @37 = @31[1u] in
     let @38 = @35 < @37 in
     let @39 = @33 || @38 in
     if (@39) {
@@ -94,19 +92,15 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
     } else {
       let @41 = (*tMin$i28) in
       let @42 = @41[0u] in
-      let @43 = (*tMin$i28) in
-      let @44 = @43[1u] in
+      let @44 = @41[1u] in
       let @45 = max(@42, @44) in
       let @46 = (*tMax$i28) in
       let @47 = @46[0u] in
-      let @48 = (*tMax$i28) in
-      let @49 = @48[1u] in
+      let @49 = @46[1u] in
       let @50 = min(@47, @49) in
-      let @51 = (*tMax$i28) in
-      let @52 = @51[2u] in
+      let @52 = @46[2u] in
       let @54 = @52 < @45 in
-      let @56 = (*tMin$i28) in
-      let @57 = @56[2u] in
+      let @57 = @41[2u] in
       let @58 = @50 < @57 in
       let @59 = @54 || @58 in
       if (@59) {
@@ -173,9 +167,9 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
           let @118 = select(@103, @97, @101) in
           let @119 = select(@103, @101, @97) in
           !stack[(*!count)] = @119
-          let @127 = (*!count) + 1u in
+          let @126 = (*!count) + 1u in
           instances_index!top = @118
-          !count = @127
+          !count = @126
           continue
         } else {
           let @105 = cast<u32>(_t35) in
@@ -195,12 +189,12 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
         }
       }
     }
-    let @122 = (*!count) != 0u in
-    if (@122) {
-      let @123 = (*!count) - 1u in
-      let @124 = !stack[@123] in
-      instances_index!top = @124
-      !count = @123
+    let @121 = (*!count) != 0u in
+    if (@121) {
+      let @122 = (*!count) - 1u in
+      let @123 = !stack[@122] in
+      instances_index!top = @123
+      !count = @122
       continue
     } else {
       return
@@ -259,10 +253,8 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
     let @31 = (*tMin$i29) in
     let @32 = @31[0u] in
     let @33 = @30 < @32 in
-    let @34 = (*tMax$i29) in
-    let @35 = @34[0u] in
-    let @36 = (*tMin$i29) in
-    let @37 = @36[1u] in
+    let @35 = @29[0u] in
+    let @37 = @31[1u] in
     let @38 = @35 < @37 in
     let @39 = @33 || @38 in
     if (@39) {
@@ -271,19 +263,15 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
     } else {
       let @41 = (*tMin$i29) in
       let @42 = @41[0u] in
-      let @43 = (*tMin$i29) in
-      let @44 = @43[1u] in
+      let @44 = @41[1u] in
       let @45 = max(@42, @44) in
       let @46 = (*tMax$i29) in
       let @47 = @46[0u] in
-      let @48 = (*tMax$i29) in
-      let @49 = @48[1u] in
+      let @49 = @46[1u] in
       let @50 = min(@47, @49) in
-      let @51 = (*tMax$i29) in
-      let @52 = @51[2u] in
+      let @52 = @46[2u] in
       let @54 = @52 < @45 in
-      let @56 = (*tMin$i29) in
-      let @57 = @56[2u] in
+      let @57 = @41[2u] in
       let @58 = @50 < @57 in
       let @59 = @54 || @58 in
       if (@59) {
@@ -350,9 +338,9 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
           let @134 = select(@103, @97, @101) in
           let @135 = select(@103, @101, @97) in
           !stack[(*!count)] = @135
-          let @143 = (*!count) + 1u in
+          let @142 = (*!count) + 1u in
           _subtree0_bnode!top = @134
-          !count = @143
+          !count = @142
           continue
         } else {
           let @105 = cast<u32>(_t108) in
@@ -372,8 +360,10 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
               let @116 = isect_$i4.t in
               let @118 = (*_best0) in
               let @119 = @118._field0 in
-              let @120 = @116 < @119 in
-              if (@120) {
+              let @143 = reinterpret_cast<i32>(@116) in
+              let @144 = reinterpret_cast<i32>(@119) in
+              let @145 = @143 < @144 in
+              if (@145) {
                 let @122 = instances.group1_index in
                 let @123 = @122[instances_index] in
                 let @124 = @123.split0on_nInsts in
@@ -391,12 +381,12 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
         }
       }
     }
-    let @138 = (*!count) != 0u in
-    if (@138) {
-      let @139 = (*!count) - 1u in
-      let @140 = !stack[@139] in
-      _subtree0_bnode!top = @140
-      !count = @139
+    let @137 = (*!count) != 0u in
+    if (@137) {
+      let @138 = (*!count) - 1u in
+      let @139 = !stack[@138] in
+      _subtree0_bnode!top = @139
+      !count = @138
       continue
     } else {
       return
@@ -424,9 +414,7 @@ func _traverse_tree0(ray : Ray, instances : _tree_layout0) -> _option0 {
     let @11 = @10._field0 in
     let @12 = @8[@11] in
     let @13 = instances.prims in
-    let @14 = (*_best0) in
-    let @15 = @14._field1 in
-    let @16 = @15._field1 in
+    let @16 = @10._field1 in
     let @17 = @13[@16] in
     let @18 = build<__tuple_0>(@12, @17) in
     let @19 = build<_option0>(@18, true) in
@@ -459,11 +447,8 @@ func [[export]] trace(_ret0 : mut (_option0*), ray : (Ray*), instances : (_tree_
     let @13 = @12._field1 in
     let @14 = @13._field0 in
     let @15 = @11[@14] in
-    let @16 = (*instances) in
-    let @17 = @16.prims in
-    let @18 = (*_best0$i27) in
-    let @19 = @18._field1 in
-    let @20 = @19._field1 in
+    let @17 = @10.prims in
+    let @20 = @13._field1 in
     let @21 = @17[@20] in
     let @22 = build<__tuple_0>(@15, @21) in
     let @23 = build<_option0>(@22, true) in

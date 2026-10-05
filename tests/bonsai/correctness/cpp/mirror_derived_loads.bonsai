@@ -1,0 +1,43 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/mirror_derived_loads
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_mirror_derived_loads.cpp -I. -o tests/bonsai/correctness/cpp/main_mirror_derived_loads.o, clang++ tests/bonsai/correctness/cpp/main_mirror_derived_loads.o tests/bonsai/correctness/cpp/mirror_derived_loads.o -o tests/bonsai/correctness/cpp/mirror_derived_loads, ./tests/bonsai/correctness/cpp/mirror_derived_loads, rm tests/bonsai/correctness/cpp/mirror_derived_loads, rm tests/bonsai/correctness/cpp/main_mirror_derived_loads.o, rm tests/bonsai/correctness/cpp/mirror_derived_loads.h, rm tests/bonsai/correctness/cpp/mirror_derived_loads.o
+
+// ssa/mirror-derived-loads.bonsai, run (main_mirror_derived_loads.cpp): the
+// count of elements whose bits are at most `min(bits(bound), bits(best) -
+// 1)` with `best` the least element so far, over sequences where the best
+// moves at every step, never, and in the middle, against the same loop in
+// C++; the mirror of the limit has to be refreshed at every change of the
+// best and at none other.
+
+func [[export]] count_within(xs : array[f32, 16], bound : f32) -> u32 {
+    best : mut f32 = inf;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        x = xs[i];
+        limit = min(reinterpret[[i32]](bound), reinterpret[[i32]](best) - 1);
+        if reinterpret[[i32]](x) <= limit {
+            n = n + 1u;
+        }
+        if x < best {
+            best = x;
+        }
+        i = i + 1u;
+    }
+    return n;
+}
+
+func [[export]] count_near(xs : array[f32, 16], bound : f32) -> u32 {
+    seen : mut bool = false;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        if !seen {
+            n = n + 1u;
+        }
+        if xs[i] < bound {
+            seen = true;
+        }
+        i = i + 1u;
+    }
+    return n;
+}

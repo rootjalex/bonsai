@@ -1,0 +1,34 @@
+extern table : const f32[16]
+
+func [[export]] kept(a : f32, b : f32) -> f32 {
+  let y = a - b in
+  let @1 = y * y in
+  return @1
+}
+
+func [[export]] loads(i : u32, j : u32, table : const f32[16]) -> f32 {
+  let _t0 = table[i] in
+  let @1 = table[j] in
+  let @2 = _t0 + @1 in
+  let @4 = @2 + _t0 in
+  let a = i + 1u in
+  let c = a + 1u in
+  let @13 = a + a in
+  let @14 = @13 + c in
+  let @15 = cast<f32>(@14) in
+  let @16 = @4 + @15 in
+  return @16
+}
+
+func [[export]] twice(a : f32, b : f32, c : bool) -> f32 {
+  let @0 = a * b in
+  let x = @0 + 1f in
+  if (c) {
+    return x
+  } else {
+    let @2 = x + x in
+    return @2
+  }
+}
+
+

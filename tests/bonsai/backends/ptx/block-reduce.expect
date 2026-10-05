@@ -66,24 +66,24 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofre
   %31 = icmp eq i32 %lane, 0
   br i1 %31, label %if_lane, label %if_lane_after
 
-"!par_body_2!leader":                             ; preds = %reduce_warps_after63
-  %b11_wide = sext i32 %b to i64
-  %out67 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %b11_wide
-  %acc_base = load float, ptr %out67, align 4
-  %32 = fadd float %.lcssa102, %acc_base
-  store float %32, ptr %out67, align 4
-  %rgb69 = getelementptr inbounds [16 x i8], ptr %rgb.generic, i64 %b11_wide
-  %acc_base70 = load <3 x float>, ptr %rgb69, align 16
-  %33 = fadd <3 x float> %228, %acc_base70
-  store <3 x float> %33, ptr %rgb69, align 16
-  %total71.global = addrspacecast ptr %total.generic to ptr addrspace(1)
-  %34 = atomicrmw fadd ptr addrspace(1) %total71.global, float %.lcssa98 syncscope("device") monotonic, align 4
-  %acc_base74 = load float, ptr %out67, align 4
-  %35 = fadd float %.lcssa, %acc_base74
-  store float %35, ptr %out67, align 4
+"!par_body_2!leader":                             ; preds = %reduce_warps_after57
+  %b_wide = sext i32 %b to i64
+  %out61 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %b_wide
+  %acc_base = load float, ptr %out61, align 4
+  %32 = fadd float %.lcssa96, %acc_base
+  store float %32, ptr %out61, align 4
+  %rgb63 = getelementptr inbounds [16 x i8], ptr %rgb.generic, i64 %b_wide
+  %acc_base64 = load <3 x float>, ptr %rgb63, align 16
+  %33 = fadd <3 x float> %228, %acc_base64
+  store <3 x float> %33, ptr %rgb63, align 16
+  %total65.global = addrspacecast ptr %total.generic to ptr addrspace(1)
+  %34 = atomicrmw fadd ptr addrspace(1) %total65.global, float %.lcssa92 syncscope("device") monotonic, align 4
+  %acc_base68 = load float, ptr %out61, align 4
+  %35 = fadd float %.lcssa, %acc_base68
+  store float %35, ptr %out61, align 4
   br label %"!par_body_2!done"
 
-"!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after63
+"!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after57
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
   ret void
 
@@ -110,12 +110,12 @@ if_lane_after.new:                                ; preds = %if_lane_after
 
 reduce_warps:                                     ; preds = %reduce_warps, %if_lane_after.new
   %w = phi i32 [ 0, %if_lane_after.new ], [ %w_next.7, %reduce_warps ]
-  %total13 = phi float [ 0.000000e+00, %if_lane_after.new ], [ %82, %reduce_warps ]
+  %total7 = phi float [ 0.000000e+00, %if_lane_after.new ], [ %82, %reduce_warps ]
   %niter = phi i32 [ 0, %if_lane_after.new ], [ %niter.next.7, %reduce_warps ]
   %44 = zext nneg i32 %w to i64
   %45 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %44
   %46 = load float, ptr addrspace(3) %45, align 16
-  %47 = fadd float %total13, %46
+  %47 = fadd float %total7, %46
   %48 = zext nneg i32 %w to i64
   %49 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %48
   %50 = getelementptr inbounds nuw i8, ptr addrspace(3) %49, i64 4
@@ -162,26 +162,26 @@ reduce_warps_after.unr-lcssa:                     ; preds = %reduce_warps
 
 reduce_warps.epil.preheader:                      ; preds = %reduce_warps_after.unr-lcssa, %if_lane_after
   %w.epil.init = phi i32 [ 0, %if_lane_after ], [ %w_next.7, %reduce_warps_after.unr-lcssa ]
-  %total13.epil.init = phi float [ 0.000000e+00, %if_lane_after ], [ %82, %reduce_warps_after.unr-lcssa ]
-  %lcmp.mod104 = icmp ne i32 %xtraiter, 0
-  tail call void @llvm.assume(i1 %lcmp.mod104)
+  %total7.epil.init = phi float [ 0.000000e+00, %if_lane_after ], [ %82, %reduce_warps_after.unr-lcssa ]
+  %lcmp.mod98 = icmp ne i32 %xtraiter, 0
+  tail call void @llvm.assume(i1 %lcmp.mod98)
   br label %reduce_warps.epil
 
 reduce_warps.epil:                                ; preds = %reduce_warps.epil, %reduce_warps.epil.preheader
   %w.epil = phi i32 [ %w.epil.init, %reduce_warps.epil.preheader ], [ %w_next.epil, %reduce_warps.epil ]
-  %total13.epil = phi float [ %total13.epil.init, %reduce_warps.epil.preheader ], [ %86, %reduce_warps.epil ]
+  %total7.epil = phi float [ %total7.epil.init, %reduce_warps.epil.preheader ], [ %86, %reduce_warps.epil ]
   %epil.iter = phi i32 [ 0, %reduce_warps.epil.preheader ], [ %epil.iter.next, %reduce_warps.epil ]
   %83 = zext nneg i32 %w.epil to i64
   %84 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots, i64 %83
   %85 = load float, ptr addrspace(3) %84, align 4
-  %86 = fadd float %total13.epil, %85
+  %86 = fadd float %total7.epil, %85
   %w_next.epil = add nuw nsw i32 %w.epil, 1
   %epil.iter.next = add i32 %epil.iter, 1
   %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter
   br i1 %epil.iter.cmp.not, label %reduce_warps_after, label %reduce_warps.epil, !llvm.loop !1
 
 reduce_warps_after:                               ; preds = %reduce_warps.epil, %reduce_warps_after.unr-lcssa
-  %.lcssa102 = phi float [ %82, %reduce_warps_after.unr-lcssa ], [ %86, %reduce_warps.epil ]
+  %.lcssa96 = phi float [ %82, %reduce_warps_after.unr-lcssa ], [ %86, %reduce_warps.epil ]
   %87 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float %2, i32 16, i32 %clamp)
   %88 = extractvalue { float, i1 } %87, 0
   %89 = extractvalue { float, i1 } %87, 1
@@ -245,9 +245,9 @@ reduce_warps_after:                               ; preds = %reduce_warps.epil, 
   %147 = select i1 %146, float %145, float 0.000000e+00
   %148 = fadd float %143, %147
   %149 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float %148, i32 1, i32 %clamp)
-  br i1 %31, label %if_lane24, label %if_lane_after25
+  br i1 %31, label %if_lane18, label %if_lane_after19
 
-if_lane24:                                        ; preds = %reduce_warps_after
+if_lane18:                                        ; preds = %reduce_warps_after
   %150 = extractvalue { float, i1 } %149, 1
   %151 = extractvalue { float, i1 } %149, 0
   %152 = select i1 %150, float %151, float 0.000000e+00
@@ -268,36 +268,36 @@ if_lane24:                                        ; preds = %reduce_warps_after
   store float %157, ptr addrspace(3) %165, align 4
   %166 = getelementptr inbounds nuw i8, ptr addrspace(3) %164, i64 8
   store float %153, ptr addrspace(3) %166, align 4
-  br label %if_lane_after25
+  br label %if_lane_after19
 
-if_lane_after25:                                  ; preds = %if_lane24, %reduce_warps_after
+if_lane_after19:                                  ; preds = %if_lane18, %reduce_warps_after
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  %xtraiter105 = and i32 %nwarps, 3
+  %xtraiter99 = and i32 %nwarps, 3
   %167 = icmp ult i32 %42, 3
-  br i1 %167, label %reduce_warps26.epil.preheader, label %if_lane_after25.new
+  br i1 %167, label %reduce_warps20.epil.preheader, label %if_lane_after19.new
 
-if_lane_after25.new:                              ; preds = %if_lane_after25
-  %unroll_iter112 = and i32 %nwarps, 124
-  br label %reduce_warps26
+if_lane_after19.new:                              ; preds = %if_lane_after19
+  %unroll_iter106 = and i32 %nwarps, 124
+  br label %reduce_warps20
 
-reduce_warps26:                                   ; preds = %reduce_warps26, %if_lane_after25.new
-  %w28 = phi i32 [ 0, %if_lane_after25.new ], [ %w_next32.3, %reduce_warps26 ]
-  %total29 = phi float [ 0.000000e+00, %if_lane_after25.new ], [ %208, %reduce_warps26 ]
-  %total30 = phi float [ 0.000000e+00, %if_lane_after25.new ], [ %211, %reduce_warps26 ]
-  %total31 = phi float [ 0.000000e+00, %if_lane_after25.new ], [ %214, %reduce_warps26 ]
-  %niter113 = phi i32 [ 0, %if_lane_after25.new ], [ %niter113.next.3, %reduce_warps26 ]
-  %168 = mul nuw nsw i32 %w28, 3
+reduce_warps20:                                   ; preds = %reduce_warps20, %if_lane_after19.new
+  %w22 = phi i32 [ 0, %if_lane_after19.new ], [ %w_next26.3, %reduce_warps20 ]
+  %total23 = phi float [ 0.000000e+00, %if_lane_after19.new ], [ %208, %reduce_warps20 ]
+  %total24 = phi float [ 0.000000e+00, %if_lane_after19.new ], [ %211, %reduce_warps20 ]
+  %total25 = phi float [ 0.000000e+00, %if_lane_after19.new ], [ %214, %reduce_warps20 ]
+  %niter107 = phi i32 [ 0, %if_lane_after19.new ], [ %niter107.next.3, %reduce_warps20 ]
+  %168 = mul nuw nsw i32 %w22, 3
   %169 = zext nneg i32 %168 to i64
   %170 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots1, i64 %169
   %171 = load float, ptr addrspace(3) %170, align 16
-  %172 = fadd float %total29, %171
+  %172 = fadd float %total23, %171
   %173 = getelementptr inbounds nuw i8, ptr addrspace(3) %170, i64 4
   %174 = load float, ptr addrspace(3) %173, align 4
-  %175 = fadd float %total30, %174
+  %175 = fadd float %total24, %174
   %176 = getelementptr inbounds nuw i8, ptr addrspace(3) %170, i64 8
   %177 = load float, ptr addrspace(3) %176, align 8
-  %178 = fadd float %total31, %177
-  %179 = mul nuw i32 %w28, 3
+  %178 = fadd float %total25, %177
+  %179 = mul nuw i32 %w22, 3
   %180 = sext i32 %179 to i64
   %181 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots1, i64 %180
   %182 = getelementptr inbounds nuw i8, ptr addrspace(3) %181, i64 12
@@ -309,7 +309,7 @@ reduce_warps26:                                   ; preds = %reduce_warps26, %if
   %188 = getelementptr inbounds nuw i8, ptr addrspace(3) %181, i64 20
   %189 = load float, ptr addrspace(3) %188, align 4
   %190 = fadd float %178, %189
-  %191 = mul nuw i32 %w28, 3
+  %191 = mul nuw i32 %w22, 3
   %192 = add nuw i32 %191, 6
   %193 = zext nneg i32 %192 to i64
   %194 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots1, i64 %193
@@ -321,7 +321,7 @@ reduce_warps26:                                   ; preds = %reduce_warps26, %if
   %200 = getelementptr inbounds nuw i8, ptr addrspace(3) %194, i64 8
   %201 = load float, ptr addrspace(3) %200, align 16
   %202 = fadd float %190, %201
-  %203 = mul nuw i32 %w28, 3
+  %203 = mul nuw i32 %w22, 3
   %204 = add nuw i32 %203, 9
   %205 = zext nneg i32 %204 to i64
   %206 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots1, i64 %205
@@ -333,53 +333,53 @@ reduce_warps26:                                   ; preds = %reduce_warps26, %if
   %212 = getelementptr inbounds nuw i8, ptr addrspace(3) %206, i64 8
   %213 = load float, ptr addrspace(3) %212, align 4
   %214 = fadd float %202, %213
-  %w_next32.3 = add nuw nsw i32 %w28, 4
-  %niter113.next.3 = add i32 %niter113, 4
-  %niter113.ncmp.3 = icmp eq i32 %niter113.next.3, %unroll_iter112
-  br i1 %niter113.ncmp.3, label %reduce_warps_after27.unr-lcssa, label %reduce_warps26
+  %w_next26.3 = add nuw nsw i32 %w22, 4
+  %niter107.next.3 = add i32 %niter107, 4
+  %niter107.ncmp.3 = icmp eq i32 %niter107.next.3, %unroll_iter106
+  br i1 %niter107.ncmp.3, label %reduce_warps_after21.unr-lcssa, label %reduce_warps20
 
-reduce_warps_after27.unr-lcssa:                   ; preds = %reduce_warps26
-  %lcmp.mod107.not = icmp eq i32 %xtraiter105, 0
-  br i1 %lcmp.mod107.not, label %reduce_warps_after27, label %reduce_warps26.epil.preheader
+reduce_warps_after21.unr-lcssa:                   ; preds = %reduce_warps20
+  %lcmp.mod101.not = icmp eq i32 %xtraiter99, 0
+  br i1 %lcmp.mod101.not, label %reduce_warps_after21, label %reduce_warps20.epil.preheader
 
-reduce_warps26.epil.preheader:                    ; preds = %reduce_warps_after27.unr-lcssa, %if_lane_after25
-  %w28.epil.init = phi i32 [ 0, %if_lane_after25 ], [ %w_next32.3, %reduce_warps_after27.unr-lcssa ]
-  %total29.epil.init = phi float [ 0.000000e+00, %if_lane_after25 ], [ %208, %reduce_warps_after27.unr-lcssa ]
-  %total30.epil.init = phi float [ 0.000000e+00, %if_lane_after25 ], [ %211, %reduce_warps_after27.unr-lcssa ]
-  %total31.epil.init = phi float [ 0.000000e+00, %if_lane_after25 ], [ %214, %reduce_warps_after27.unr-lcssa ]
-  %lcmp.mod111 = icmp ne i32 %xtraiter105, 0
-  tail call void @llvm.assume(i1 %lcmp.mod111)
-  br label %reduce_warps26.epil
+reduce_warps20.epil.preheader:                    ; preds = %reduce_warps_after21.unr-lcssa, %if_lane_after19
+  %w22.epil.init = phi i32 [ 0, %if_lane_after19 ], [ %w_next26.3, %reduce_warps_after21.unr-lcssa ]
+  %total23.epil.init = phi float [ 0.000000e+00, %if_lane_after19 ], [ %208, %reduce_warps_after21.unr-lcssa ]
+  %total24.epil.init = phi float [ 0.000000e+00, %if_lane_after19 ], [ %211, %reduce_warps_after21.unr-lcssa ]
+  %total25.epil.init = phi float [ 0.000000e+00, %if_lane_after19 ], [ %214, %reduce_warps_after21.unr-lcssa ]
+  %lcmp.mod105 = icmp ne i32 %xtraiter99, 0
+  tail call void @llvm.assume(i1 %lcmp.mod105)
+  br label %reduce_warps20.epil
 
-reduce_warps26.epil:                              ; preds = %reduce_warps26.epil, %reduce_warps26.epil.preheader
-  %w28.epil = phi i32 [ %w28.epil.init, %reduce_warps26.epil.preheader ], [ %w_next32.epil, %reduce_warps26.epil ]
-  %total29.epil = phi float [ %total29.epil.init, %reduce_warps26.epil.preheader ], [ %219, %reduce_warps26.epil ]
-  %total30.epil = phi float [ %total30.epil.init, %reduce_warps26.epil.preheader ], [ %222, %reduce_warps26.epil ]
-  %total31.epil = phi float [ %total31.epil.init, %reduce_warps26.epil.preheader ], [ %225, %reduce_warps26.epil ]
-  %epil.iter106 = phi i32 [ 0, %reduce_warps26.epil.preheader ], [ %epil.iter106.next, %reduce_warps26.epil ]
-  %215 = mul nuw nsw i32 %w28.epil, 3
+reduce_warps20.epil:                              ; preds = %reduce_warps20.epil, %reduce_warps20.epil.preheader
+  %w22.epil = phi i32 [ %w22.epil.init, %reduce_warps20.epil.preheader ], [ %w_next26.epil, %reduce_warps20.epil ]
+  %total23.epil = phi float [ %total23.epil.init, %reduce_warps20.epil.preheader ], [ %219, %reduce_warps20.epil ]
+  %total24.epil = phi float [ %total24.epil.init, %reduce_warps20.epil.preheader ], [ %222, %reduce_warps20.epil ]
+  %total25.epil = phi float [ %total25.epil.init, %reduce_warps20.epil.preheader ], [ %225, %reduce_warps20.epil ]
+  %epil.iter100 = phi i32 [ 0, %reduce_warps20.epil.preheader ], [ %epil.iter100.next, %reduce_warps20.epil ]
+  %215 = mul nuw nsw i32 %w22.epil, 3
   %216 = zext nneg i32 %215 to i64
   %217 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots1, i64 %216
   %218 = load float, ptr addrspace(3) %217, align 4
-  %219 = fadd float %total29.epil, %218
+  %219 = fadd float %total23.epil, %218
   %220 = getelementptr inbounds nuw i8, ptr addrspace(3) %217, i64 4
   %221 = load float, ptr addrspace(3) %220, align 4
-  %222 = fadd float %total30.epil, %221
+  %222 = fadd float %total24.epil, %221
   %223 = getelementptr inbounds nuw i8, ptr addrspace(3) %217, i64 8
   %224 = load float, ptr addrspace(3) %223, align 4
-  %225 = fadd float %total31.epil, %224
-  %w_next32.epil = add nuw nsw i32 %w28.epil, 1
-  %epil.iter106.next = add i32 %epil.iter106, 1
-  %epil.iter106.cmp.not = icmp eq i32 %epil.iter106.next, %xtraiter105
-  br i1 %epil.iter106.cmp.not, label %reduce_warps_after27, label %reduce_warps26.epil, !llvm.loop !3
+  %225 = fadd float %total25.epil, %224
+  %w_next26.epil = add nuw nsw i32 %w22.epil, 1
+  %epil.iter100.next = add i32 %epil.iter100, 1
+  %epil.iter100.cmp.not = icmp eq i32 %epil.iter100.next, %xtraiter99
+  br i1 %epil.iter100.cmp.not, label %reduce_warps_after21, label %reduce_warps20.epil, !llvm.loop !3
 
-reduce_warps_after27:                             ; preds = %reduce_warps26.epil, %reduce_warps_after27.unr-lcssa
-  %.lcssa101 = phi float [ %208, %reduce_warps_after27.unr-lcssa ], [ %219, %reduce_warps26.epil ]
-  %.lcssa100 = phi float [ %211, %reduce_warps_after27.unr-lcssa ], [ %222, %reduce_warps26.epil ]
-  %.lcssa99 = phi float [ %214, %reduce_warps_after27.unr-lcssa ], [ %225, %reduce_warps26.epil ]
-  %226 = insertelement <3 x float> poison, float %.lcssa101, i64 0
-  %227 = insertelement <3 x float> %226, float %.lcssa100, i64 1
-  %228 = insertelement <3 x float> %227, float %.lcssa99, i64 2
+reduce_warps_after21:                             ; preds = %reduce_warps20.epil, %reduce_warps_after21.unr-lcssa
+  %.lcssa95 = phi float [ %208, %reduce_warps_after21.unr-lcssa ], [ %219, %reduce_warps20.epil ]
+  %.lcssa94 = phi float [ %211, %reduce_warps_after21.unr-lcssa ], [ %222, %reduce_warps20.epil ]
+  %.lcssa93 = phi float [ %214, %reduce_warps_after21.unr-lcssa ], [ %225, %reduce_warps20.epil ]
+  %226 = insertelement <3 x float> poison, float %.lcssa95, i64 0
+  %227 = insertelement <3 x float> %226, float %.lcssa94, i64 1
+  %228 = insertelement <3 x float> %227, float %.lcssa93, i64 2
   %229 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float 1.000000e+00, i32 16, i32 %clamp)
   %230 = extractvalue { float, i1 } %229, 0
   %231 = extractvalue { float, i1 } %229, 1
@@ -401,9 +401,9 @@ reduce_warps_after27:                             ; preds = %reduce_warps26.epil
   %247 = select i1 %246, float %245, float 0.000000e+00
   %248 = fadd float %243, %247
   %249 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float %248, i32 1, i32 %clamp)
-  br i1 %31, label %if_lane43, label %if_lane_after44
+  br i1 %31, label %if_lane37, label %if_lane_after38
 
-if_lane43:                                        ; preds = %reduce_warps_after27
+if_lane37:                                        ; preds = %reduce_warps_after21
   %250 = zext nneg i32 %warp to i64
   %251 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %250
   %252 = extractvalue { float, i1 } %249, 1
@@ -411,92 +411,92 @@ if_lane43:                                        ; preds = %reduce_warps_after2
   %254 = select i1 %252, float %253, float 0.000000e+00
   %255 = fadd float %248, %254
   store float %255, ptr addrspace(3) %251, align 4
-  br label %if_lane_after44
+  br label %if_lane_after38
 
-if_lane_after44:                                  ; preds = %if_lane43, %reduce_warps_after27
+if_lane_after38:                                  ; preds = %if_lane37, %reduce_warps_after21
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  %xtraiter114 = and i32 %nwarps, 7
+  %xtraiter108 = and i32 %nwarps, 7
   %256 = icmp ult i32 %42, 7
-  br i1 %256, label %reduce_warps45.epil.preheader, label %if_lane_after44.new
+  br i1 %256, label %reduce_warps39.epil.preheader, label %if_lane_after38.new
 
-if_lane_after44.new:                              ; preds = %if_lane_after44
-  %unroll_iter119 = and i32 %nwarps, 120
-  br label %reduce_warps45
+if_lane_after38.new:                              ; preds = %if_lane_after38
+  %unroll_iter113 = and i32 %nwarps, 120
+  br label %reduce_warps39
 
-reduce_warps45:                                   ; preds = %reduce_warps45, %if_lane_after44.new
-  %w47 = phi i32 [ 0, %if_lane_after44.new ], [ %w_next49.7, %reduce_warps45 ]
-  %total48 = phi float [ 0.000000e+00, %if_lane_after44.new ], [ %295, %reduce_warps45 ]
-  %niter120 = phi i32 [ 0, %if_lane_after44.new ], [ %niter120.next.7, %reduce_warps45 ]
-  %257 = zext nneg i32 %w47 to i64
+reduce_warps39:                                   ; preds = %reduce_warps39, %if_lane_after38.new
+  %w41 = phi i32 [ 0, %if_lane_after38.new ], [ %w_next43.7, %reduce_warps39 ]
+  %total42 = phi float [ 0.000000e+00, %if_lane_after38.new ], [ %295, %reduce_warps39 ]
+  %niter114 = phi i32 [ 0, %if_lane_after38.new ], [ %niter114.next.7, %reduce_warps39 ]
+  %257 = zext nneg i32 %w41 to i64
   %258 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %257
   %259 = load float, ptr addrspace(3) %258, align 16
-  %260 = fadd float %total48, %259
-  %261 = zext nneg i32 %w47 to i64
+  %260 = fadd float %total42, %259
+  %261 = zext nneg i32 %w41 to i64
   %262 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %261
   %263 = getelementptr inbounds nuw i8, ptr addrspace(3) %262, i64 4
   %264 = load float, ptr addrspace(3) %263, align 4
   %265 = fadd float %260, %264
-  %266 = zext nneg i32 %w47 to i64
+  %266 = zext nneg i32 %w41 to i64
   %267 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %266
   %268 = getelementptr inbounds nuw i8, ptr addrspace(3) %267, i64 8
   %269 = load float, ptr addrspace(3) %268, align 8
   %270 = fadd float %265, %269
-  %271 = zext nneg i32 %w47 to i64
+  %271 = zext nneg i32 %w41 to i64
   %272 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %271
   %273 = getelementptr inbounds nuw i8, ptr addrspace(3) %272, i64 12
   %274 = load float, ptr addrspace(3) %273, align 4
   %275 = fadd float %270, %274
-  %276 = zext nneg i32 %w47 to i64
+  %276 = zext nneg i32 %w41 to i64
   %277 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %276
   %278 = getelementptr inbounds nuw i8, ptr addrspace(3) %277, i64 16
   %279 = load float, ptr addrspace(3) %278, align 16
   %280 = fadd float %275, %279
-  %281 = zext nneg i32 %w47 to i64
+  %281 = zext nneg i32 %w41 to i64
   %282 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %281
   %283 = getelementptr inbounds nuw i8, ptr addrspace(3) %282, i64 20
   %284 = load float, ptr addrspace(3) %283, align 4
   %285 = fadd float %280, %284
-  %286 = zext nneg i32 %w47 to i64
+  %286 = zext nneg i32 %w41 to i64
   %287 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %286
   %288 = getelementptr inbounds nuw i8, ptr addrspace(3) %287, i64 24
   %289 = load float, ptr addrspace(3) %288, align 8
   %290 = fadd float %285, %289
-  %291 = zext nneg i32 %w47 to i64
+  %291 = zext nneg i32 %w41 to i64
   %292 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %291
   %293 = getelementptr inbounds nuw i8, ptr addrspace(3) %292, i64 28
   %294 = load float, ptr addrspace(3) %293, align 4
   %295 = fadd float %290, %294
-  %w_next49.7 = add nuw nsw i32 %w47, 8
-  %niter120.next.7 = add i32 %niter120, 8
-  %niter120.ncmp.7 = icmp eq i32 %niter120.next.7, %unroll_iter119
-  br i1 %niter120.ncmp.7, label %reduce_warps_after46.unr-lcssa, label %reduce_warps45
+  %w_next43.7 = add nuw nsw i32 %w41, 8
+  %niter114.next.7 = add i32 %niter114, 8
+  %niter114.ncmp.7 = icmp eq i32 %niter114.next.7, %unroll_iter113
+  br i1 %niter114.ncmp.7, label %reduce_warps_after40.unr-lcssa, label %reduce_warps39
 
-reduce_warps_after46.unr-lcssa:                   ; preds = %reduce_warps45
-  %lcmp.mod116.not = icmp eq i32 %xtraiter114, 0
-  br i1 %lcmp.mod116.not, label %reduce_warps_after46, label %reduce_warps45.epil.preheader
+reduce_warps_after40.unr-lcssa:                   ; preds = %reduce_warps39
+  %lcmp.mod110.not = icmp eq i32 %xtraiter108, 0
+  br i1 %lcmp.mod110.not, label %reduce_warps_after40, label %reduce_warps39.epil.preheader
 
-reduce_warps45.epil.preheader:                    ; preds = %reduce_warps_after46.unr-lcssa, %if_lane_after44
-  %w47.epil.init = phi i32 [ 0, %if_lane_after44 ], [ %w_next49.7, %reduce_warps_after46.unr-lcssa ]
-  %total48.epil.init = phi float [ 0.000000e+00, %if_lane_after44 ], [ %295, %reduce_warps_after46.unr-lcssa ]
-  %lcmp.mod118 = icmp ne i32 %xtraiter114, 0
-  tail call void @llvm.assume(i1 %lcmp.mod118)
-  br label %reduce_warps45.epil
+reduce_warps39.epil.preheader:                    ; preds = %reduce_warps_after40.unr-lcssa, %if_lane_after38
+  %w41.epil.init = phi i32 [ 0, %if_lane_after38 ], [ %w_next43.7, %reduce_warps_after40.unr-lcssa ]
+  %total42.epil.init = phi float [ 0.000000e+00, %if_lane_after38 ], [ %295, %reduce_warps_after40.unr-lcssa ]
+  %lcmp.mod112 = icmp ne i32 %xtraiter108, 0
+  tail call void @llvm.assume(i1 %lcmp.mod112)
+  br label %reduce_warps39.epil
 
-reduce_warps45.epil:                              ; preds = %reduce_warps45.epil, %reduce_warps45.epil.preheader
-  %w47.epil = phi i32 [ %w47.epil.init, %reduce_warps45.epil.preheader ], [ %w_next49.epil, %reduce_warps45.epil ]
-  %total48.epil = phi float [ %total48.epil.init, %reduce_warps45.epil.preheader ], [ %299, %reduce_warps45.epil ]
-  %epil.iter115 = phi i32 [ 0, %reduce_warps45.epil.preheader ], [ %epil.iter115.next, %reduce_warps45.epil ]
-  %296 = zext nneg i32 %w47.epil to i64
+reduce_warps39.epil:                              ; preds = %reduce_warps39.epil, %reduce_warps39.epil.preheader
+  %w41.epil = phi i32 [ %w41.epil.init, %reduce_warps39.epil.preheader ], [ %w_next43.epil, %reduce_warps39.epil ]
+  %total42.epil = phi float [ %total42.epil.init, %reduce_warps39.epil.preheader ], [ %299, %reduce_warps39.epil ]
+  %epil.iter109 = phi i32 [ 0, %reduce_warps39.epil.preheader ], [ %epil.iter109.next, %reduce_warps39.epil ]
+  %296 = zext nneg i32 %w41.epil to i64
   %297 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots2, i64 %296
   %298 = load float, ptr addrspace(3) %297, align 4
-  %299 = fadd float %total48.epil, %298
-  %w_next49.epil = add nuw nsw i32 %w47.epil, 1
-  %epil.iter115.next = add i32 %epil.iter115, 1
-  %epil.iter115.cmp.not = icmp eq i32 %epil.iter115.next, %xtraiter114
-  br i1 %epil.iter115.cmp.not, label %reduce_warps_after46, label %reduce_warps45.epil, !llvm.loop !4
+  %299 = fadd float %total42.epil, %298
+  %w_next43.epil = add nuw nsw i32 %w41.epil, 1
+  %epil.iter109.next = add i32 %epil.iter109, 1
+  %epil.iter109.cmp.not = icmp eq i32 %epil.iter109.next, %xtraiter108
+  br i1 %epil.iter109.cmp.not, label %reduce_warps_after40, label %reduce_warps39.epil, !llvm.loop !4
 
-reduce_warps_after46:                             ; preds = %reduce_warps45.epil, %reduce_warps_after46.unr-lcssa
-  %.lcssa98 = phi float [ %295, %reduce_warps_after46.unr-lcssa ], [ %299, %reduce_warps45.epil ]
+reduce_warps_after40:                             ; preds = %reduce_warps39.epil, %reduce_warps_after40.unr-lcssa
+  %.lcssa92 = phi float [ %295, %reduce_warps_after40.unr-lcssa ], [ %299, %reduce_warps39.epil ]
   %300 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float %spec.select, i32 16, i32 %clamp)
   %301 = extractvalue { float, i1 } %300, 0
   %302 = extractvalue { float, i1 } %300, 1
@@ -518,9 +518,9 @@ reduce_warps_after46:                             ; preds = %reduce_warps45.epil
   %318 = select i1 %317, float %316, float 0.000000e+00
   %319 = fadd float %314, %318
   %320 = tail call { float, i1 } @llvm.nvvm.shfl.sync.down.f32p(i32 %member, float %319, i32 1, i32 %clamp)
-  br i1 %31, label %if_lane60, label %if_lane_after61
+  br i1 %31, label %if_lane54, label %if_lane_after55
 
-if_lane60:                                        ; preds = %reduce_warps_after46
+if_lane54:                                        ; preds = %reduce_warps_after40
   %321 = zext nneg i32 %warp to i64
   %322 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %321
   %323 = extractvalue { float, i1 } %320, 1
@@ -528,92 +528,92 @@ if_lane60:                                        ; preds = %reduce_warps_after4
   %325 = select i1 %323, float %324, float 0.000000e+00
   %326 = fadd float %319, %325
   store float %326, ptr addrspace(3) %322, align 4
-  br label %if_lane_after61
+  br label %if_lane_after55
 
-if_lane_after61:                                  ; preds = %if_lane60, %reduce_warps_after46
+if_lane_after55:                                  ; preds = %if_lane54, %reduce_warps_after40
   tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
-  %xtraiter121 = and i32 %nwarps, 7
+  %xtraiter115 = and i32 %nwarps, 7
   %327 = icmp ult i32 %42, 7
-  br i1 %327, label %reduce_warps62.epil.preheader, label %if_lane_after61.new
+  br i1 %327, label %reduce_warps56.epil.preheader, label %if_lane_after55.new
 
-if_lane_after61.new:                              ; preds = %if_lane_after61
-  %unroll_iter126 = and i32 %nwarps, 120
-  br label %reduce_warps62
+if_lane_after55.new:                              ; preds = %if_lane_after55
+  %unroll_iter120 = and i32 %nwarps, 120
+  br label %reduce_warps56
 
-reduce_warps62:                                   ; preds = %reduce_warps62, %if_lane_after61.new
-  %w64 = phi i32 [ 0, %if_lane_after61.new ], [ %w_next66.7, %reduce_warps62 ]
-  %total65 = phi float [ 0.000000e+00, %if_lane_after61.new ], [ %366, %reduce_warps62 ]
-  %niter127 = phi i32 [ 0, %if_lane_after61.new ], [ %niter127.next.7, %reduce_warps62 ]
-  %328 = zext nneg i32 %w64 to i64
+reduce_warps56:                                   ; preds = %reduce_warps56, %if_lane_after55.new
+  %w58 = phi i32 [ 0, %if_lane_after55.new ], [ %w_next60.7, %reduce_warps56 ]
+  %total59 = phi float [ 0.000000e+00, %if_lane_after55.new ], [ %366, %reduce_warps56 ]
+  %niter121 = phi i32 [ 0, %if_lane_after55.new ], [ %niter121.next.7, %reduce_warps56 ]
+  %328 = zext nneg i32 %w58 to i64
   %329 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %328
   %330 = load float, ptr addrspace(3) %329, align 16
-  %331 = fadd float %total65, %330
-  %332 = zext nneg i32 %w64 to i64
+  %331 = fadd float %total59, %330
+  %332 = zext nneg i32 %w58 to i64
   %333 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %332
   %334 = getelementptr inbounds nuw i8, ptr addrspace(3) %333, i64 4
   %335 = load float, ptr addrspace(3) %334, align 4
   %336 = fadd float %331, %335
-  %337 = zext nneg i32 %w64 to i64
+  %337 = zext nneg i32 %w58 to i64
   %338 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %337
   %339 = getelementptr inbounds nuw i8, ptr addrspace(3) %338, i64 8
   %340 = load float, ptr addrspace(3) %339, align 8
   %341 = fadd float %336, %340
-  %342 = zext nneg i32 %w64 to i64
+  %342 = zext nneg i32 %w58 to i64
   %343 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %342
   %344 = getelementptr inbounds nuw i8, ptr addrspace(3) %343, i64 12
   %345 = load float, ptr addrspace(3) %344, align 4
   %346 = fadd float %341, %345
-  %347 = zext nneg i32 %w64 to i64
+  %347 = zext nneg i32 %w58 to i64
   %348 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %347
   %349 = getelementptr inbounds nuw i8, ptr addrspace(3) %348, i64 16
   %350 = load float, ptr addrspace(3) %349, align 16
   %351 = fadd float %346, %350
-  %352 = zext nneg i32 %w64 to i64
+  %352 = zext nneg i32 %w58 to i64
   %353 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %352
   %354 = getelementptr inbounds nuw i8, ptr addrspace(3) %353, i64 20
   %355 = load float, ptr addrspace(3) %354, align 4
   %356 = fadd float %351, %355
-  %357 = zext nneg i32 %w64 to i64
+  %357 = zext nneg i32 %w58 to i64
   %358 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %357
   %359 = getelementptr inbounds nuw i8, ptr addrspace(3) %358, i64 24
   %360 = load float, ptr addrspace(3) %359, align 8
   %361 = fadd float %356, %360
-  %362 = zext nneg i32 %w64 to i64
+  %362 = zext nneg i32 %w58 to i64
   %363 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %362
   %364 = getelementptr inbounds nuw i8, ptr addrspace(3) %363, i64 28
   %365 = load float, ptr addrspace(3) %364, align 4
   %366 = fadd float %361, %365
-  %w_next66.7 = add nuw nsw i32 %w64, 8
-  %niter127.next.7 = add i32 %niter127, 8
-  %niter127.ncmp.7 = icmp eq i32 %niter127.next.7, %unroll_iter126
-  br i1 %niter127.ncmp.7, label %reduce_warps_after63.unr-lcssa, label %reduce_warps62
+  %w_next60.7 = add nuw nsw i32 %w58, 8
+  %niter121.next.7 = add i32 %niter121, 8
+  %niter121.ncmp.7 = icmp eq i32 %niter121.next.7, %unroll_iter120
+  br i1 %niter121.ncmp.7, label %reduce_warps_after57.unr-lcssa, label %reduce_warps56
 
-reduce_warps_after63.unr-lcssa:                   ; preds = %reduce_warps62
-  %lcmp.mod123.not = icmp eq i32 %xtraiter121, 0
-  br i1 %lcmp.mod123.not, label %reduce_warps_after63, label %reduce_warps62.epil.preheader
+reduce_warps_after57.unr-lcssa:                   ; preds = %reduce_warps56
+  %lcmp.mod117.not = icmp eq i32 %xtraiter115, 0
+  br i1 %lcmp.mod117.not, label %reduce_warps_after57, label %reduce_warps56.epil.preheader
 
-reduce_warps62.epil.preheader:                    ; preds = %reduce_warps_after63.unr-lcssa, %if_lane_after61
-  %w64.epil.init = phi i32 [ 0, %if_lane_after61 ], [ %w_next66.7, %reduce_warps_after63.unr-lcssa ]
-  %total65.epil.init = phi float [ 0.000000e+00, %if_lane_after61 ], [ %366, %reduce_warps_after63.unr-lcssa ]
-  %lcmp.mod125 = icmp ne i32 %xtraiter121, 0
-  tail call void @llvm.assume(i1 %lcmp.mod125)
-  br label %reduce_warps62.epil
+reduce_warps56.epil.preheader:                    ; preds = %reduce_warps_after57.unr-lcssa, %if_lane_after55
+  %w58.epil.init = phi i32 [ 0, %if_lane_after55 ], [ %w_next60.7, %reduce_warps_after57.unr-lcssa ]
+  %total59.epil.init = phi float [ 0.000000e+00, %if_lane_after55 ], [ %366, %reduce_warps_after57.unr-lcssa ]
+  %lcmp.mod119 = icmp ne i32 %xtraiter115, 0
+  tail call void @llvm.assume(i1 %lcmp.mod119)
+  br label %reduce_warps56.epil
 
-reduce_warps62.epil:                              ; preds = %reduce_warps62.epil, %reduce_warps62.epil.preheader
-  %w64.epil = phi i32 [ %w64.epil.init, %reduce_warps62.epil.preheader ], [ %w_next66.epil, %reduce_warps62.epil ]
-  %total65.epil = phi float [ %total65.epil.init, %reduce_warps62.epil.preheader ], [ %370, %reduce_warps62.epil ]
-  %epil.iter122 = phi i32 [ 0, %reduce_warps62.epil.preheader ], [ %epil.iter122.next, %reduce_warps62.epil ]
-  %367 = zext nneg i32 %w64.epil to i64
+reduce_warps56.epil:                              ; preds = %reduce_warps56.epil, %reduce_warps56.epil.preheader
+  %w58.epil = phi i32 [ %w58.epil.init, %reduce_warps56.epil.preheader ], [ %w_next60.epil, %reduce_warps56.epil ]
+  %total59.epil = phi float [ %total59.epil.init, %reduce_warps56.epil.preheader ], [ %370, %reduce_warps56.epil ]
+  %epil.iter116 = phi i32 [ 0, %reduce_warps56.epil.preheader ], [ %epil.iter116.next, %reduce_warps56.epil ]
+  %367 = zext nneg i32 %w58.epil to i64
   %368 = getelementptr inbounds nuw [4 x i8], ptr addrspace(3) @block_reduce_slots3, i64 %367
   %369 = load float, ptr addrspace(3) %368, align 4
-  %370 = fadd float %total65.epil, %369
-  %w_next66.epil = add nuw nsw i32 %w64.epil, 1
-  %epil.iter122.next = add i32 %epil.iter122, 1
-  %epil.iter122.cmp.not = icmp eq i32 %epil.iter122.next, %xtraiter121
-  br i1 %epil.iter122.cmp.not, label %reduce_warps_after63, label %reduce_warps62.epil, !llvm.loop !5
+  %370 = fadd float %total59.epil, %369
+  %w_next60.epil = add nuw nsw i32 %w58.epil, 1
+  %epil.iter116.next = add i32 %epil.iter116, 1
+  %epil.iter116.cmp.not = icmp eq i32 %epil.iter116.next, %xtraiter115
+  br i1 %epil.iter116.cmp.not, label %reduce_warps_after57, label %reduce_warps56.epil, !llvm.loop !5
 
-reduce_warps_after63:                             ; preds = %reduce_warps62.epil, %reduce_warps_after63.unr-lcssa
-  %.lcssa = phi float [ %366, %reduce_warps_after63.unr-lcssa ], [ %370, %reduce_warps62.epil ]
+reduce_warps_after57:                             ; preds = %reduce_warps56.epil, %reduce_warps_after57.unr-lcssa
+  %.lcssa = phi float [ %366, %reduce_warps_after57.unr-lcssa ], [ %370, %reduce_warps56.epil ]
   %371 = icmp eq i32 %tid, 0
   br i1 %371, label %"!par_body_2!leader", label %"!par_body_2!done"
 }

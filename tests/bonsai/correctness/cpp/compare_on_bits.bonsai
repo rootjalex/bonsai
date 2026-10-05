@@ -1,0 +1,42 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/compare_on_bits
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_compare_on_bits.cpp -I. -o tests/bonsai/correctness/cpp/main_compare_on_bits.o, clang++ tests/bonsai/correctness/cpp/main_compare_on_bits.o tests/bonsai/correctness/cpp/compare_on_bits.o -o tests/bonsai/correctness/cpp/compare_on_bits, ./tests/bonsai/correctness/cpp/compare_on_bits, rm tests/bonsai/correctness/cpp/compare_on_bits, rm tests/bonsai/correctness/cpp/main_compare_on_bits.o, rm tests/bonsai/correctness/cpp/compare_on_bits.h, rm tests/bonsai/correctness/cpp/compare_on_bits.o
+
+// ssa/compare-on-bits.bonsai, run (main_compare_on_bits.cpp): the
+// comparisons the simplifier moved onto the bits, and the one it left on the
+// floats, against the same comparisons in C++'s float arithmetic, over the
+// values on which bits and floats could part -- a NaN of either sign on
+// either side, a negative zero, the least denormal, the greatest finite
+// float, the infinities -- every answer the same.
+
+func [[export]] unknown(a : f32, b : f32) -> bool = abs(a) < abs(b);
+
+func [[export]] known(a : f32, b : f32) -> bool {
+    if !(0.0 < b) {
+        return false;
+    }
+    return abs(a) < b;
+}
+
+func [[export]] joined(a : f32, n : u32, z : f32) -> bool {
+    if !(0.0 < z) {
+        return false;
+    }
+    x = abs(a);
+    return x <= cast[[f32]](n) && x < z;
+}
+
+func [[export]] gang(as : array[f32, 8], ns : array[u32, 8], z : f32,
+                     out : mut array[bool, 8]) {
+    if !(0.0 < z) {
+        return;
+    }
+    parfor k in 0u:8u {
+        x = abs(as[k]);
+        out[k] = x <= cast[[f32]](ns[k]) && x < z;
+    }
+    return;
+}
+
+schedule {
+    gang.vectorize(k);
+}

@@ -5,12 +5,23 @@
 // (`maxi`, `mini`) and the compare on the bits, the entry distance read
 // back as a float from the integer max. The fact that removes the sort
 // key's sign flip now has to travel through two reinterpretations
-// (SSA/ConstantIntervals.h): `tnear` in [0, inf) clamped at entry, its bits
-// in [0, 0x7f800000], the integer max at least that, and the float read
-// from the max in [0, inf) again -- so `trace`'s keys go `reinterpret<
-// i32x4>` straight to `& -4 | lane` as before, while `trace_raw`, whose
-// `tnear` may be negative, keeps the `shr 31`, `& 0x7fffffff` and `xor`.
-// The node test itself is `max`/`min` on i32x4 and an integer compare.
+// (SSA/ConstantIntervals.h): `tnear` a non-negative number from the clamp
+// at entry, its bits in [0, 0x7f800000], the integer max at least that,
+// and the float read from the max with its sign bit clear in every value
+// -- so `trace`'s keys go `reinterpret<i32x4>` straight to `& -4 | lane` as
+// before, while `trace_raw`, whose `tnear` may be negative, keeps the `shr
+// 31`, `& 0x7fffffff` and `xor`.
+//
+// And the node test is one compare. The argmin's prune, `distmin(r, box) <
+// best`, is folded into the slab test's `tFar` as Embree's `tray.tfar`
+// carries the best (SSA/Simplify.cpp): the masked `distmin` is inlined and
+// its slab test merged with the node's, the prune's float compare becomes
+// one on the bits -- the entry distance's sign clear, the best a
+// non-negative number, infinity to begin with and then only a hit's
+// distance that passed `t < best` -- and `(tNear <= tFar) & (tNear <
+// bc(best))` is `tNear <= min(x, y, z, bc(min(tfar, best - 1)))`, the
+// limit a scalar min of the ray's `tfar` bits and the best's bits less one.
+// `trace_raw`'s node test folds the same way; its key keeps the flip.
 //
 // correctness/cpp/sort_key_through_bits.bonsai runs both: the same answers
 // as the float slab test gives, the raw query accepting a wall behind the
@@ -132,7 +143,12 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 extern tris : set[Triangle];
 
 // The ray as Embree's traversal reads it: its segment clamped to [0, inf).
-func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+// Not Embree's `max(tnear, 0)`, which is std::max and hands a NaN or a
+// negative zero through, but a clamp that leaves a non-negative number, so
+// that the analysis can say so of the key and of the best
+// (apps/rtq/rtq.bonsai).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
 
 func [[export]] trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);

@@ -1,13 +1,17 @@
 //! flags: -p ssa -b llvm
 
 // ssa/sort-key-through-bits.bonsai through the LLVM backend: the slab test
-// on the floats' bits, `llvm.smax`/`llvm.smin` on <4 x i32> and a signed
-// integer compare, as Embree's AVX-512 `maxi`/`mini`/`asInt` compare; and
-// the two sorted traversals side by side. `trace`, whose ray is clamped to [0, inf)
-// at entry, forms its keys as `and`/`or` of the entry distances' bits with
-// the lanes, the bits being the integer max itself; `trace_raw` has the
-// sign flip between -- a shift, an `and` and an `xor` of the vector --
-// since its keys may be negative.
+// on the floats' bits, `llvm.smax`/`llvm.smin` on <4 x i32> and one signed
+// integer compare, as Embree's AVX-512 `maxi`/`mini`/`asInt` compare, the
+// running best folded into the min chain as Embree's `tray.tfar` carries it
+// (the `llvm.smin.i32` of the ray's `tfar` bits and the best's bits less
+// one, splatted into the chain's last `llvm.smin.v4i32`, and no second
+// compare against the best); and the two sorted traversals side by side.
+// `trace`, whose ray is clamped to a non-negative number at entry, forms
+// its keys as `and`/`or` of the entry distances' bits with the lanes, the
+// bits being the integer max itself; `trace_raw` has the sign flip between
+// -- a shift, an `and` and an `xor` of the vector -- since its keys may be
+// negative.
 import stdlib/aabb;
 import stdlib/numerics;
 
@@ -119,7 +123,9 @@ func distmax(r : Ray, tri : Triangle) -> Float {
 
 extern tris : set[Triangle];
 
-func clamped(r : Ray) -> Ray = Ray{r.o, max(r.tnear, 0.0), r.d, max(r.tfar, 0.0)};
+// The segment clamped to a non-negative number (see the ssa test).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
 
 func [[export]] trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);

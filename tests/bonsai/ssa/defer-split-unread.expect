@@ -103,11 +103,10 @@ func step(x : f32, k : f32, extra : f32, _queue_hits : mut Queue_hits[2], _resul
   switch (@12) {
   case 0: {
     let @18 = atomic_add((&_queue_hits[0u].count), 1u) in
-    let @20 = @0.tag in
     let @25 = @0.payload in
     let @26 = @25[0u] in
     let @30 = _queue_hits[0u].@0_tag in
-    @30[@18] = @20
+    @30[@18] = @12
     let @33 = _queue_hits[0u].@0_payload_x in
     @33[@18] = @26
     let @36 = _queue_hits[0u]._slot in
@@ -116,11 +115,10 @@ func step(x : f32, k : f32, extra : f32, _queue_hits : mut Queue_hits[2], _resul
   } break;
   default: {
     let @39 = atomic_add((&_queue_hits[1u].count), 1u) in
-    let @41 = @0.tag in
     let @46 = @0.payload in
     let @47 = @46[0u] in
     let @51 = _queue_hits[1u].@0_tag in
-    @51[@39] = @41
+    @51[@39] = @12
     let @54 = _queue_hits[1u].@0_payload_x in
     @54[@39] = @47
     let @57 = _queue_hits[1u].extra in

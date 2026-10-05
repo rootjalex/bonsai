@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm
+
+// ssa/compare-on-bits.bonsai through the LLVM backend. What to read for:
+// `unknown` keeps its `fcmp olt` of the two absolute values; `known`
+// compares the bits, `icmp slt` of two `bitcast float to i32`; `joined` is
+// one `icmp sle` against `llvm.smin.i32` of the integer's bits and the
+// bound's bits less one; and `gang` the same on `<8 x i32>`, the one
+// scalar `add i32 %.., -1` splatted and `llvm.smin.v8i32` over the lanes,
+// one `icmp sle <8 x i32>` where the floats were compared twice and the
+// masks joined.
+
+func [[export]] unknown(a : f32, b : f32) -> bool = abs(a) < abs(b);
+
+func [[export]] known(a : f32, b : f32) -> bool {
+    if !(0.0 < b) {
+        return false;
+    }
+    return abs(a) < b;
+}
+
+func [[export]] joined(a : f32, n : u32, z : f32) -> bool {
+    if !(0.0 < z) {
+        return false;
+    }
+    x = abs(a);
+    return x <= cast[[f32]](n) && x < z;
+}
+
+func [[export]] gang(as : array[f32, 8], ns : array[u32, 8], z : f32,
+                     out : mut array[bool, 8]) {
+    if !(0.0 < z) {
+        return;
+    }
+    parfor k in 0u:8u {
+        x = abs(as[k]);
+        out[k] = x <= cast[[f32]](ns[k]) && x < z;
+    }
+    return;
+}
+
+schedule {
+    gang.vectorize(k);
+}

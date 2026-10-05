@@ -125,10 +125,10 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %63 = shufflevector <2 x float> %62, <2 x float> poison, <2 x i32> zeroinitializer
   %64 = fdiv <2 x float> %61, %63
   %65 = extractelement <2 x float> %64, i64 0
-  %.splat90.i = shufflevector <2 x float> %64, <2 x float> poison, <3 x i32> <i32 1, i32 1, i32 1>
-  %66 = fmul <3 x float> %.splat90.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
+  %.splat81.i = shufflevector <2 x float> %64, <2 x float> poison, <3 x i32> <i32 1, i32 1, i32 1>
+  %66 = fmul <3 x float> %.splat81.i, <float 0.000000e+00, float 0.000000e+00, float 1.000000e+00>
   %67 = fadd <3 x float> %66, <float 1.000000e+00, float 1.000000e+00, float 0.000000e+00>
-  %_best0.repack471 = getelementptr inbounds nuw i8, ptr %_best0, i64 4
+  %deref_temp420.elt467 = getelementptr inbounds nuw i8, ptr %_best0, i64 4
   %wide.trip.count = zext i16 %extract.unpack429 to i64
   br label %"!for_data_body_21"
 
@@ -365,17 +365,25 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %258 = tail call float @llvm.fabs.f32(float %204)
   %259 = fmul float %258, %257
   %260 = fcmp ugt float %205, %259
-  %261 = fcmp olt float %205, %deref_temp420.unpack
-  %or.cond = select i1 %260, i1 %261, i1 false
-  br i1 %or.cond, label %"!then_26", label %"!merge_25"
+  br i1 %260, label %"!then_24", label %"!merge_25"
 
-"!then_26":                                       ; preds = %"!merge_10.i"
-  store float %205, ptr %_best0, align 4
-  store i32 %69, ptr %_best0.repack471, align 4
+"!then_24":                                       ; preds = %"!merge_10.i"
+  %261 = bitcast float %205 to i32
+  %262 = bitcast float %deref_temp420.unpack to i32
+  %263 = icmp slt i32 %261, %262
+  br i1 %263, label %"!then_26", label %"!merge_25"
+
+"!then_26":                                       ; preds = %"!then_24"
+  %deref_temp420.unpack468.unpack = load i32, ptr %deref_temp420.elt467, align 4
+  %264 = fcmp olt float %deref_temp420.unpack, %205
+  %.elt = select i1 %264, float %deref_temp420.unpack, float %205
+  store float %.elt, ptr %_best0, align 4
+  %265 = select i1 %264, i32 %deref_temp420.unpack468.unpack, i32 %69
+  store i32 %265, ptr %deref_temp420.elt467, align 4
   br label %"!merge_25"
 
-"!merge_25":                                      ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for_data_body_21", %"!then_26"
-  %deref_temp420.unpack501 = phi float [ %deref_temp420.unpack, %"!merge_10.i" ], [ %deref_temp420.unpack, %"!else_9.i" ], [ %deref_temp420.unpack, %"!merge_7.i" ], [ %deref_temp420.unpack, %"!merge_3.i" ], [ %deref_temp420.unpack, %"!then_2.i" ], [ %deref_temp420.unpack, %"!for_data_body_21" ], [ %205, %"!then_26" ]
+"!merge_25":                                      ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for_data_body_21", %"!then_24", %"!then_26"
+  %deref_temp420.unpack501 = phi float [ %deref_temp420.unpack, %"!merge_10.i" ], [ %deref_temp420.unpack, %"!else_9.i" ], [ %deref_temp420.unpack, %"!merge_7.i" ], [ %deref_temp420.unpack, %"!merge_3.i" ], [ %deref_temp420.unpack, %"!then_2.i" ], [ %deref_temp420.unpack, %"!for_data_body_21" ], [ %deref_temp420.unpack, %"!then_24" ], [ %.elt, %"!then_26" ]
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
   br i1 %exitcond.not, label %"!merge_10", label %"!for_data_body_21"

@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm
+
+// ssa/mirror-derived-loads.bonsai through the LLVM backend. What to read
+// for in `count_within`: the limit is a value carried round the loop, a
+// `phi i32` beside `best`'s, recomputed (`add i32 .., -1` and
+// `llvm.smin.i32` against the bound's bits) only on the path where `best`
+// is replaced, and the loop body's compare `icmp sle i32` reads the phi;
+// `count_near` is a loop over a flag as before.
+
+func [[export]] count_within(xs : array[f32, 16], bound : f32) -> u32 {
+    best : mut f32 = inf;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        x = xs[i];
+        limit = min(reinterpret[[i32]](bound), reinterpret[[i32]](best) - 1);
+        if reinterpret[[i32]](x) <= limit {
+            n = n + 1u;
+        }
+        if x < best {
+            best = x;
+        }
+        i = i + 1u;
+    }
+    return n;
+}
+
+func [[export]] count_near(xs : array[f32, 16], bound : f32) -> u32 {
+    seen : mut bool = false;
+    n : mut u32 = 0u;
+    i : mut u32 = 0u;
+    while i < 16u {
+        if !seen {
+            n = n + 1u;
+        }
+        if xs[i] < bound {
+            seen = true;
+        }
+        i = i + 1u;
+    }
+    return n;
+}
