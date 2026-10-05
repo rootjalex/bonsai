@@ -1,0 +1,191 @@
+//! flags: -p ssa
+
+// The nearest-hit traversal of apps/rtq/rtq.bonsai in miniature -- the
+// slab test on the floats' bits and the ray clamped at entry, as
+// sort-key-through-bits.bonsai writes them -- over any-hit-prefetch
+// .bonsai's storage: references that are pointers, looked up in a `ptr
+// group`, eight children to a node, the children ordered by the ray's
+// entry distance into their boxes and prefetched.
+//
+// What to read for: the run of hits as Embree's traverseClosestHit writes
+// it (SSA/SortRecursion.cpp), a chain that peels the hit lanes one at a
+// time -- the lowest lane left (`ctz` of the mask's bits), the child at it
+// loaded off the row, its key read off a cell the chain stores the key
+// vector into once where it first compares (`@cell[ramp] = ..`, then
+// `@cell[lane]`; the bound carried to the child is the same `distmin`,
+// stored alike by the children's loop, so one cell and one load serve
+// both and the distance pushed is the key), inserted among the calls
+// peeled before it by a compare and a select per component, the lane
+// cleared (`& (bits - 1)`) and the lanes left tested (`!= 0u`): none left
+// after h peels is a run of h calls, nearest first; the lanes left after
+// four go to the general arm, the bitonic network over all eight lanes
+// with the keys packed inside it. And where the prefetch goes (SSA/
+// QueueRecursion.cpp): one `prefetch(child, 256u)` right after each peel's
+// load of its child, shared by every arm below it -- Embree's
+// `prefetch(cur)` as it takes a child -- the general arm keeping the one
+// vector prefetch under the mask, and the node's block none.
+import stdlib/aabb;
+import stdlib/numerics;
+
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+element Triangle {
+    p0 : vec3f;
+    p1 : vec3f;
+    p2 : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func zero_fix(d : vec3f) -> vec3f {
+    tiny : Float = 1e-18;
+    return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
+}
+
+// The slab test on the bits, Embree's AVX-512 intersectNode (see
+// sort-key-through-bits.bonsai).
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir = rcp(zero_fix(r.d));
+    org_rdir = r.o * rdir;
+    dirIsNeg = rdir < 0.0;
+    near = select(dirIsNeg, b.high, b.low);
+    far = select(dirIsNeg, b.low, b.high);
+    tNearV = near * rdir - org_rdir;
+    tFarV = far * rdir - org_rdir;
+    tNear = max(max(reinterpret[[i32]](tNearV.x), reinterpret[[i32]](tNearV.y)),
+                max(reinterpret[[i32]](tNearV.z), reinterpret[[i32]](r.tnear)));
+    tFar = min(min(reinterpret[[i32]](tFarV.x), reinterpret[[i32]](tFarV.y)),
+               min(reinterpret[[i32]](tFarV.z), reinterpret[[i32]](r.tfar)));
+    if tNear <= tFar {
+        return FInterval{reinterpret[[Float]](tNear), reinterpret[[Float]](tFar)};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+// Moeller-Trumbore, a hit at `t` counting where `tnear < t <= tfar`.
+func hit_distance(r : Ray, tri : Triangle) -> option[Float] {
+    e1 = tri.p1 - tri.p0;
+    e2 = tri.p2 - tri.p0;
+    p = cross(r.d, e2);
+    den = dot(e1, p);
+    if abs(den) < 1e-12 {
+        return {};
+    }
+    inv = 1.0 / den;
+    s = r.o - tri.p0;
+    u = dot(s, p) * inv;
+    if u < 0.0 || u > 1.0 {
+        return {};
+    }
+    q = cross(s, e1);
+    v = dot(r.d, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return {};
+    }
+    t = dot(e2, q) * inv;
+    if !(r.tnear < t && t <= r.tfar) {
+        return {};
+    }
+    return t;
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](hit_distance(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return -inf;
+}
+
+extern tris : set[Triangle];
+
+// The ray as Embree's traversal reads it: its segment clamped to [0, inf),
+// which is what lets the keys order as their bits (see
+// sort-key-through-bits.bonsai).
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
+
+func [[export]] trace(r0 : Ray) -> option[Triangle] {
+    r = clamped(r0);
+    return argmin(|t : Triangle| distmin(r, t),
+                  filter(|t : Triangle| intersects(r, t), tris));
+}
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    // Embree's NodeRef as it is (see any-hit-prefetch.bonsai).
+    layout tris(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 8];
+                lower_x : vector[f32, 8];
+                upper_x : vector[f32, 8];
+                lower_y : vector[f32, 8];
+                upper_y : vector[f32, 8];
+                lower_z : vector[f32, 8];
+                upper_z : vector[f32, 8];
+                lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .loopify(64);
+    trace.prefetch(tris.Interior.children);
+}

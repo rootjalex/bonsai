@@ -271,6 +271,7 @@ target_sources(
     src/SSA/InvariantDivision.cpp
     src/SSA/Linearize.cpp
     src/SSA/LoopArithmetic.cpp
+    src/SSA/MaskLanes.cpp
     src/SSA/MergeLatches.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp

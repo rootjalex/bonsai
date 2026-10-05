@@ -40,11 +40,13 @@ namespace ssa {
 //
 // A run whose conditions, keys and children are the lanes of vectors -- the
 // run a node that holds its children's boxes makes, from the loop over them
-// -- is sorted as those vectors, over the children that are hit alone (see
-// sort_lanes in SortRecursion.cpp): a switch on the count of hits, whose
-// arms for one to four hits are plain runs of that many calls, nearest
-// first, and whose arm for more is left in the shape `sorted_run` below
-// reads back.
+// -- is sorted over the children that are hit alone, as Embree's
+// traverseClosestHit is (see sort_lanes in SortRecursion.cpp): a chain that
+// peels the hit lanes one at a time, lowest first, inserting each call among
+// the ones peeled before it and testing after each peel whether any lane is
+// left. None left after h peels is a plain run of h calls, nearest first;
+// the lanes left after four peels of a wider node go to one arm over all of
+// them, left in the shape `sorted_run` below reads back.
 //
 // Returns the number of runs it reordered, which is zero for a function whose
 // recursion no schedule sorted. `target` is the machine the code is for,

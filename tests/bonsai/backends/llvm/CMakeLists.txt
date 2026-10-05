@@ -22,6 +22,7 @@ add_bonsai_tests(
     permute.bonsai
     sort-key-nonnegative.bonsai
     sort-key-through-bits.bonsai
+    sort-peel-prefetch.bonsai
     stored-lane.bonsai
     defer.bonsai
     defer-gang.bonsai

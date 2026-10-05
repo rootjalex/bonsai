@@ -2,6 +2,7 @@
 
 #include "SSA/Analysis.h"
 #include "SSA/InsertPreheader.h"
+#include "SSA/MaskLanes.h"
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
 
@@ -9,6 +10,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -1232,9 +1234,13 @@ void queue_recursion(Function &func, size_t size) {
     // the arm over every lane keeps the vector prefetch; and the one in the
     // run's block goes, once every arm has been seen. Found from an arm by
     // walking up its block's one predecessor at a time -- a sort's arms sit
-    // two or three blocks below the run's (SSA/SortRecursion.cpp) -- as the
-    // prefetch of as many lanes as the arm's children were taken from.
+    // below the run's block by one block per lane peeled, up to five
+    // (SSA/SortRecursion.cpp) -- as the prefetch of as many lanes as the
+    // arm's children were taken from.
     vector<std::pair<shared_ptr<Instruction>, shared_ptr<Block>>> relocated_prefetches;
+    // The lanes whose child an arm has fetched, where the arms of one sort
+    // share them (see below): a child peeled is fetched once, at its peel.
+    set<const Instruction *> fetched_lanes;
     const auto prefetch_above = [&](const string &from, std::optional<uint32_t> n)
         -> std::pair<shared_ptr<Instruction>, shared_ptr<Block>> {
         const auto in_block = [&](const string &block_name)
@@ -1272,7 +1278,7 @@ void queue_recursion(Function &func, size_t size) {
         // two copies of the children's test, each with a prefetch of its
         // own -- dominates nothing below the join. There the prefetches
         // stay where they are.
-        constexpr size_t kBlocksLookedAt = 12;
+        constexpr size_t kBlocksLookedAt = 24;
         const BlockId from_id = cfg.find(from);
         std::deque<string> work = {from};
         set<string> seen;
@@ -1573,117 +1579,33 @@ void queue_recursion(Function &func, size_t size) {
                 }
                 return vectors;
             };
-            // Reading lanes off the mask. Where the mask's lanes are the
-            // bits of an integer the mask is that integer (`kmov`), a lane
+            // Reading lanes off the mask, the way every lowering that takes
+            // a node's hit children one at a time does (SSA/MaskLanes.h):
+            // the mask as a word where its lane count is a word's, a lane
             // its trailing or leading zeros counted (`tzcnt`, `lzcnt`:
             // Embree's bsf and bsr on its movemask) and the lowest lane
-            // cleared by `blsr`. A four-wide mask is four bits, an integer
-            // of a width the machine has no word for, widened to the
-            // index's word below (the C++ backend's uint4_t, runtime/u4.h,
-            // is a byte read as its low four bits); Embree's BVH4 reads its
-            // four-wide mask the same way, `movemask` to a word. Otherwise
-            // -- lanes that are not a power of two -- a lane is the least
-            // or the greatest lane index the mask keeps, and clearing one
-            // is a compare against it.
-            const bool as_bits =
-                n == 4 || n == 8 || n == 16 || n == 32 || n == 64;
-            const Type bits_t = as_bits ? UInt_t::make(n) : Type();
-            // Counted at the index's width where the mask is narrower:
-            // tzcnt and lzcnt answer a zero word with its width, which is
-            // what the intrinsics mean on a 32-bit word, where an 8-bit
-            // word's zero takes a fixup first (an `or 0x100`, a `shl 24`)
-            // that LLVM drops only where it knows the word is not zero.
-            const Type wide_t =
-                as_bits && n < count_type.bits() ? count_type : bits_t;
-            const auto whole_mask =
-                [&](const shared_ptr<Block> &block) -> shared_ptr<Value> {
-                if (!as_bits) {
-                    return mask;
-                }
-                auto bits = append(func, block, bits_t,
-                                   Instruction::Op::Reinterpret, {mask});
-                if (wide_t.bits() == bits_t.bits()) {
-                    return bits;
-                }
-                return append(func, block, wide_t, Instruction::Op::Cast,
-                              {bits});
+            // cleared by `blsr`; by reductions over the lane ramp otherwise.
+            MaskLanes lane_bits(func, n, count_type);
+            const bool as_bits = lane_bits.as_bits();
+            const Type wide_t = lane_bits.wide_type();
+            const auto whole_mask = [&](const shared_ptr<Block> &block) {
+                return lane_bits.whole(block, mask);
             };
-            // `which` zeros of `bits` counted, as an index.
-            const auto count_zeros = [&](const shared_ptr<Block> &block,
-                                         const shared_ptr<Value> &bits,
-                                         ir::Intrinsic::OpType which) {
-                auto zeros = std::make_shared<Instruction>(
-                    func.get_unique_name(), wide_t, Instruction::Op::Intrinsic,
-                    vector<shared_ptr<Value>>{bits}, block);
-                zeros->intrinsic = which;
-                block->instrs.push_back(zeros);
-                auto counted = std::make_shared<Value>(zeros);
-                if (wide_t.bits() == count_type.bits()) {
-                    return counted;
-                }
-                return append(func, block, count_type, Instruction::Op::Cast,
-                              {counted});
-            };
-            std::map<const Block *, shared_ptr<Value>> ramps;
             const auto ramp = [&](const shared_ptr<Block> &block) {
-                shared_ptr<Value> &r = ramps[block.get()];
-                if (!r) {
-                    r = append(func, block, lanes_t, Instruction::Op::Ramp,
-                               {count_of(0), count_of(1)});
-                }
-                return r;
-            };
-            // The least (Min) or the greatest (Max) lane index `m` has on,
-            // the lanes it has off standing out of the way.
-            const auto extreme = [&](const shared_ptr<Block> &block,
-                                     const shared_ptr<Value> &m,
-                                     ir::VectorReduce::OpType which) {
-                auto none = append(
-                    func, block, lanes_t, Instruction::Op::Bc,
-                    {count_of(which == ir::VectorReduce::Min ? n : 0),
-                     count_of(n)});
-                auto on = append(func, block, lanes_t, Instruction::Op::Select,
-                                 {m, ramp(block), none});
-                auto reduced = std::make_shared<Instruction>(
-                    func.get_unique_name(), count_type, Instruction::Op::Reduce,
-                    vector<shared_ptr<Value>>{on}, block);
-                reduced->reduce = which;
-                block->instrs.push_back(reduced);
-                return std::make_shared<Value>(reduced);
+                return lane_bits.ramp(block);
             };
             const auto lowest = [&](const shared_ptr<Block> &block,
                                     const shared_ptr<Value> &m) {
-                return as_bits ? count_zeros(block, m, ir::Intrinsic::ctz)
-                               : extreme(block, m, ir::VectorReduce::Min);
+                return lane_bits.lowest(block, m);
             };
             const auto highest = [&](const shared_ptr<Block> &block,
                                      const shared_ptr<Value> &m) {
-                if (!as_bits) {
-                    return extreme(block, m, ir::VectorReduce::Max);
-                }
-                return append(func, block, count_type, Instruction::Op::Sub,
-                              {count_of(wide_t.bits() - 1),
-                               count_zeros(block, m, ir::Intrinsic::clz)});
+                return lane_bits.highest(block, m);
             };
-            // `m` with its lowest lane on, `lane`, off.
             const auto without_lowest = [&](const shared_ptr<Block> &block,
                                             const shared_ptr<Value> &m,
                                             const shared_ptr<Value> &lane) {
-                if (as_bits) {
-                    auto less = append(
-                        func, block, wide_t, Instruction::Op::Sub,
-                        {m, std::make_shared<Value>(
-                                Constant{wide_t, uint64_t(1)})});
-                    return append(func, block, wide_t, Instruction::Op::BwAnd,
-                                  {m, less});
-                }
-                auto others = append(
-                    func, block, mask_t, Instruction::Op::Ne,
-                    {ramp(block), append(func, block, lanes_t,
-                                         Instruction::Op::Bc,
-                                         {lane, count_of(n)})});
-                return append(func, block, mask_t, Instruction::Op::LAnd,
-                              {m, others});
+                return lane_bits.without_lowest(block, m, lane);
             };
 
             shared_ptr<Block> push; // the compacting store, where one is made
@@ -1933,37 +1855,103 @@ void queue_recursion(Function &func, size_t size) {
             }
             return {nullptr, std::nullopt};
         };
+        // The chain's calls are selects over the calls it peeled, the pair
+        // exchanged where the later one is nearer (SSA/SortRecursion.cpp),
+        // so a call's lanes are found through its selects -- and a lane
+        // that is itself a select of lanes, through those. Each lane found
+        // has its child fetched once, right after the lane is read, where
+        // the arms of the chain share it: Embree's prefetch of a child as
+        // it takes it (`cur = node->child(r); prefetch(cur)`), issued before
+        // the next lane is peeled, not after the arm has sorted them.
+        const auto lanes_through = [&](const shared_ptr<Value> &v,
+                                       vector<shared_ptr<Value>> &out,
+                                       std::optional<uint32_t> &n) {
+            const auto is_select = [&](const shared_ptr<Value> &x) {
+                const Instruction *d = definer(x);
+                return d != nullptr && d->op == Instruction::Op::Select &&
+                       d->operands.size() == 3;
+            };
+            const std::function<void(const shared_ptr<Value> &)> lane_leaves =
+                [&](const shared_ptr<Value> &lane) {
+                    if (is_select(lane)) {
+                        lane_leaves(definer(lane)->operands[1]);
+                        lane_leaves(definer(lane)->operands[2]);
+                        return;
+                    }
+                    out.push_back(lane);
+                };
+            const std::function<void(const shared_ptr<Value> &)> value_leaves =
+                [&](const shared_ptr<Value> &x) {
+                    if (is_select(x)) {
+                        value_leaves(definer(x)->operands[1]);
+                        value_leaves(definer(x)->operands[2]);
+                        return;
+                    }
+                    const auto [idx, lanes] = lane_of(x);
+                    if (!idx) {
+                        return;
+                    }
+                    if (lanes.has_value()) {
+                        n = lanes;
+                    }
+                    lane_leaves(idx);
+                };
+            value_leaves(v);
+        };
+        // The child at `lane` fetched from the vector prefetch's addresses:
+        // right after `lane` is read where that is an instruction of a
+        // block, else in the arm.
+        const auto fetch_lane = [&](const shared_ptr<Instruction> &fetch,
+                                    const shared_ptr<Value> &lane) {
+            const shared_ptr<Value> &addresses = fetch->operands[0];
+            const Instruction *d = definer(lane);
+            shared_ptr<Block> at = d == nullptr ? nullptr : d->owner.lock();
+            if (!at) {
+                scalar_prefetch(into, fetch,
+                                append(func, into,
+                                       addresses->get_type().element_of(),
+                                       Instruction::Op::ExtractIdx,
+                                       {addresses, lane}));
+                return;
+            }
+            auto &instrs = at->instrs;
+            auto pos = std::find_if(
+                instrs.begin(), instrs.end(),
+                [&](const shared_ptr<Instruction> &i) { return i.get() == d; });
+            internal_assert(pos != instrs.end())
+                << "The lane " << d->name << " is not in " << at->name;
+            auto address = std::make_shared<Instruction>(
+                func.get_unique_name(), addresses->get_type().element_of(),
+                Instruction::Op::ExtractIdx,
+                vector<shared_ptr<Value>>{addresses, lane}, at);
+            pos = instrs.insert(++pos, address);
+            auto p = std::make_shared<Instruction>(
+                Instruction::Op::Intrinsic,
+                vector<shared_ptr<Value>>{std::make_shared<Value>(address),
+                                          fetch->operands[1]},
+                at);
+            p->intrinsic = ir::Intrinsic::prefetch;
+            instrs.insert(++pos, p);
+        };
         for (size_t i = 0; i < call->args.size(); i++) {
             for (const shared_ptr<Value> &a : call->args[i]) {
-                const auto [idx, n] = lane_of(a);
-                if (!idx) {
+                vector<shared_ptr<Value>> lanes;
+                std::optional<uint32_t> n;
+                lanes_through(a, lanes, n);
+                if (lanes.empty()) {
                     continue;
                 }
                 const auto [fetch, where] = prefetch_above(name, n);
                 if (!fetch) {
                     break;
                 }
-                shared_ptr<Value> addresses = fetch->operands[0];
-                const Instruction *d = definer(a);
-                if (const Instruction *packed =
-                        d->op == Instruction::Op::ExtractIdx ? definer(d->operands[0])
-                                                              : nullptr;
-                    packed != nullptr &&
-                    packed->op == Instruction::Op::Intrinsic &&
-                    packed->intrinsic == ir::Intrinsic::compress &&
-                    packed->operands.size() >= 2) {
-                    auto compressed = append(func, into, addresses->get_type(),
-                                             Instruction::Op::Intrinsic,
-                                             {addresses, packed->operands[1]});
-                    std::get<shared_ptr<Instruction>>(compressed->data)->intrinsic =
-                        ir::Intrinsic::compress;
-                    addresses = compressed;
+                for (const shared_ptr<Value> &lane : lanes) {
+                    const Instruction *d = definer(lane);
+                    if (d != nullptr && !fetched_lanes.insert(d).second) {
+                        continue;
+                    }
+                    fetch_lane(fetch, lane);
                 }
-                scalar_prefetch(into, fetch,
-                                append(func, into,
-                                       addresses->get_type().element_of(),
-                                       Instruction::Op::ExtractIdx,
-                                       {addresses, idx}));
                 relocated_prefetches.emplace_back(fetch, where);
                 break;
             }

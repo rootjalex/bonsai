@@ -77,6 +77,7 @@ add_bonsai_tests(
     short-circuit.bonsai
     sort-key-nonnegative.bonsai
     sort-key-through-bits.bonsai
+    sort-peel-prefetch.bonsai
     sort-nested.bonsai
     sort-recursion.bonsai
     stored-lane.bonsai

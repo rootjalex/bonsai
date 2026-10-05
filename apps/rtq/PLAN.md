@@ -3535,6 +3535,268 @@ eight-wide at the same work -- and our four-wide schedules, generated from
 the same program and the same directives with a 4 where there was an 8,
 are relatively further ahead of it than the eight-wide ones are of theirs.
 
+## The four-wide nearest hit profiled against Embree's: the sorted arms are the gap (2026-10-05)
+
+The matching four-wide schedule's nearest hit is 0.94x Embree's BVH4
+kernel on pavilion's incoherent rays, 0.96x on head's and level on
+dambreak's. Profiled on the diffuse batch of each (perf-nearest.sh in
+the scratchpad: `cycles:u`, `instructions:u`, `branch-misses:u`, one
+sample per 20011 events, side 2048, five repeats, cpu 11; Embree's
+`intersect` symbol carries the driver's own use of it, tracing the
+primary rays once to make the secondary batch, which the same run with
+the occluded query has and nothing else, so its kernel is the difference
+of the two), bonsai over Embree:
+
+| mesh     | instructions | cycles | branch misses |
+|----------|-------------:|-------:|--------------:|
+| pavilion |        1.079 |  1.087 |         1.022 |
+| head     |        1.056 |  1.064 |         1.007 |
+| dambreak |        1.025 |  1.020 |         0.917 |
+
+The cycles follow the instructions; the mispredictions are level. It
+is more instructions, so the question is where. Both kernels split into
+the same five regions by address (ours from trace_all.s; Embree's from
+`perf annotate` of its BVH4 intersect, the node loop at 0x2e4a00, the
+one-hit descent at 0x2e4a85, the two-to-four-hit arms from 0x2e4ac4,
+the pop at 0x2e4ca0, the leaf from 0x2e4cc0), instruction samples by
+region, Embree's with its setup use taken out by scaling (the per-region
+subtraction wants the occluded run's annotation of the symbol; recorded
+when the machine is free):
+
+| region (head, diffuse)    | bonsai | Embree (scaled) |  ratio |
+|---------------------------|-------:|----------------:|-------:|
+| per-ray setup             |   2358 |            3272 |   0.72 |
+| node test + one-hit path  |  26098 |           23594 |   1.11 |
+| sorted arms, 2-4 hits     |   6089 |            4307 |   1.41 |
+| leaf (Moeller) + epilog   |  11842 |           11928 |   0.99 |
+| pop + cull                |   1604 |            2317 |   0.69 |
+| total                     |  47991 |           45446 |   1.056 |
+
+Pavilion the same shape but sharper: node test + arms 15101 against
+12558 (+20%), the leaf 7528 against 7028, setup and pop 1471 against
+2752; dambreak node test + arms +7%, the leaf level. The boundary
+between the node loop and the arms is blurred by sampling skid (the
+arms' first instruction, `and al, 0xf`, carries 3369 of head's samples,
+the skid of the taken `jne` into the arms), so the two are best read
+together: the traversal of interior nodes is 7-20% more instructions,
+the leaf is level, and the setup and the pop are ours by a margin.
+
+Read instruction by instruction, the node test and the one-hit descent
+are the same length -- 36 instructions a visit to Embree's 38; Embree
+spills tNear to its stack every visit (`vmovdqa [rsp+0x150], xmm1`), we
+spill only in the arms -- so the extra is in the arms, and there the
+two kernels are shaped differently. Embree's traverseClosestHit for N =
+4 (bvh_traverser1.h) walks the hit bits: `bscf` (tzcnt and blsr) gives
+a lane, the child is loaded at it and prefetched, the lane's tNear is
+read from the spilled vector with one indexed load
+(`((unsigned int*)&tNear)[r]`), and `if (likely(mask == 0))` after each
+lane is the dispatch -- the ZF of the blsr. Two hits are then one
+compare (`d0 < d1`) and a push of the farther; three and four are
+Embree's sort3/sort4 over (child, dist) pairs held in xmm registers.
+Its two-hit arm is 20 instructions beyond the one-hit prefix. Ours
+(SSA/SortRecursion.cpp, the Compact strategy, Embree's AVX512VL8 shape
+for its eight-wide kernel) packs every lane's key with its lane index
+(`ramp`, `vpternlogd`), compresses the hits' keys to the front
+(`vpcompressd`), counts them (`popcnt`) and dispatches on the count (a
+`cmp 2; je; cmp 3; jne` chain), extracts the packed keys to scalars
+(`vpextrd`), sorts them by min/max (cmov), recovers each lane with `and
+3`, loads the child at it, then spills the key vector and re-reads the
+pushed child's distance by lane (`vmovaps [rsp+0x90], xmm27; vmovss
+xmm27, [rsp+4*rcx+0x90]`), and finishes in a tail LLVM merged across
+the arms (`mov ebx, 1; ...; add ebp, ebx`). Our two-hit arm is 38
+instructions beyond the prefix; our three-hit arm about 54 to Embree's
+40. Two further differences of a size each: a hit child is prefetched
+in three lines (the widest arm's 176 bytes, Lower/Layouts.cpp) where
+Embree's BVH4 fetches two (bvh.h, `prefetch`: `N >= 8 || types >
+BVH_FLAG_ALIGNED_NODE` for the third and fourth), one instruction and
+one line request more per hit child; and the leaf's hit epilog finds
+the lane of the minimum by a blend of the lane ramp and two
+shuffle-and-min steps (seven instructions) where Embree's is a compare,
+a kmov and a tzcnt (the `lowest_lane` rule of SSA/Simplify.cpp does not
+see this shape, `reduce<min>(select(eq, ramp, 4))`).
+
+On the eight-wide tree the same arms are level with Embree because
+Embree's eight-wide kernel takes the compress shape too
+(traverseClosestHitAVX512VL8); the four-wide kernel is where Embree's
+arms are the cheap scalar walk and ours are not.
+
+The plan, in order of expected gain:
+
+1. **The sorted arms as a walk of the bits** (SSA/SortRecursion.cpp):
+   where the mask is bits, take the hits' lanes with ctz and blsr as the
+   any hit's arms already do (SSA/QueueRecursion.cpp), read each hit's
+   key from the key vector at its lane -- the one indexed load off the
+   spilled vector that the push already makes today -- dispatch on the
+   remaining bits after each lane (Embree's `likely(mask == 0)`), order
+   two hits by one compare on the two keys (branchless, as now), three
+   and four by compare-exchanges over (child, key) pairs, and push the
+   key read as the distance. What goes: the ramp, the ternlog, the
+   compress, the extracts, the `and 3` per hit, the popcount and its
+   compare chain, the second read of the pushed distance. Estimated
+   from the counts above at 18 instructions per two-hit node, about
+   half of the arms' instructions, which is the size of the gap. The
+   `sortall` arm for five or more hits (n > 4) keeps the packed keys
+   and the bitonic network, computed inside that arm alone. Measured on
+   both widths: the eight-wide's two- to four-hit arms get the same
+   change, and it has to hold its 0.99-1.13x there. The key's inf blend
+   (the previous item) stays: the walk reads hit lanes only, but the
+   proof that a hit lane's key is its tNear is the implied-comparisons
+   machinery already declined.
+2. **The third prefetch line**, measured in isolation: a scratch build
+   with the prefetch's bytes at 128 (not committed), the three meshes
+   both ways. If it pays, the width of a child's prefetch is a knob on
+   the directive for the user to approve, not a rule in the lowering.
+3. **The leaf's argmin lane as bits**: `lowest_lane` taught the shape
+   the hit epilog makes (a compare of the minimum broadcast against the
+   distances, then the least lane), ctz of the compare's bits. Seven
+   instructions to three per hit block; small, a codegen defect.
+4. **The profile firmed up**: precise sampling (`:pp`) and the
+   occluded run's annotation subtracted per region, so the arms are
+   confirmed as the gap before and after item 1.
+
+## The sort as Embree's chain: one form for every width (2026-10-05)
+
+The user's direction on item 1 above: the parametric form, with a single
+item representation determined by the layout and not by the sort
+algorithm. Both of Embree's kernels are one procedure, a chain that
+peels the hit lanes one at a time -- the lowest lane left (tzcnt), the
+call read at it, inserted among the calls peeled before it by a compare
+and an exchange of the pair, the lane cleared (blsr) and the lanes left
+tested, none left being the arm for exactly that many hits -- and they
+differ only in how an item is held: Embree's four-wide kernel as scalars
+(a StackItem's ptr and dist, in general registers), its eight-wide one
+broadcast in vector registers with a compress for the peel and a permute
+per child taken out. The lowering (SSA/SortRecursion.cpp) is now that
+chain with scalar items for every lane count: the child reference as the
+layout stores it, read off the node's row at the lane; the key's bits,
+read off a cell. The lane count decides the mask's word (SSA/MaskLanes.h,
+the lane-reading helpers the any hit's arms already used, now shared) and
+how many peels come before the general arm (four, Embree's at either
+width; a node of four lanes has no general arm), and nothing else. Past
+four peels the general arm is as before: keys packed with their lane
+index, the bitonic network, permutes, the compacting store (SortedRun).
+Gone from the counted arms: the ramp, the ternlog, the compress, the
+extracts, the popcount and its compare chain, the `and 3` per hit, the
+second read of the pushed distance.
+
+The cell. A source the children's loop fills -- the keys, a bound carried
+to the child -- is an array of the function's own that the vectorized
+loop holds in a register, and a lane of a register at a run-time index
+goes through memory. The chain stores the vector into a cell once, at
+its first comparison (so only on nodes that hit more than one child,
+where Embree's node test spills tNear on every visit), and reads each
+lane with one indexed load, `mov r13d, [rsp+rdx*4+0x30]`, Embree's
+`((unsigned int*)&tNear)[r]`. Two sources the loop fills alike -- the key
+and the carried bound are both `distmin` of the child's box in rtq.bonsai,
+stored from one value at one index in one block (fill_of, same_fill) --
+share one cell and one load per lane, so the distance pushed is the key
+itself and one compare and one cmov order both. A cell holds its values
+as the integers of their width: a 32-bit integer in a general register
+is what the compare orders, one cmov exchanges and the push stores, where
+a float would go through a vector register and a mask (`setl; kmovd;
+vmovss {k}`) for the same exchange. The prefetch of a child now issues
+where its lane is peeled, right after the child's load, once, shared by
+every arm below it (SSA/QueueRecursion.cpp finds the lanes through the
+arms' selects).
+
+Measured on the thirteen meshes, base (90310848, a worktree) and new run
+back to back per mesh (bench-ab.sh), cpu 11, side 2048, least of 5,
+Embree's own rate holding within 1% on every pair but two (zero-day's
+primary rays under the tuned four-wide schedule, +2.5%; landscape under
+the tuned eight-wide, -4 to -5%, a disturbance during that pair). Every
+ray agrees with Embree on every mesh, width and schedule. The nearest hit's
+rate, new over base, and the any hit's (which the sort does not touch):
+
+| mesh      | embree4 near pri/ao/dif | embree near pri/ao/dif | tuned4 near pri/ao/dif | tuned near pri/ao/dif | any hit, all four |
+|-----------|------------------------|------------------------|------------------------|-----------------------|-------------------|
+| head      | 1.045 1.039 1.040      | 1.078 1.052 1.054      | 1.052 1.040 1.043      | 1.069 1.058 1.056     | 0.99-1.02 |
+| ganesha   | 1.058 1.044 1.048      | 1.072 1.046 1.048      | 1.056 1.044 1.048      | 1.053 1.035 1.041     | 0.99-1.02 |
+| dragon    | 1.046 1.037 1.042      | 1.056 1.025 1.033      | 1.050 1.033 1.033      | 1.062 1.027 1.033     | 0.99-1.02 |
+| pavilion  | 1.074 1.046 1.047      | 1.057 1.069 1.069      | 1.057 1.039 1.040      | 1.059 1.078 1.075     | 1.00-1.01 |
+| zero-day  | 0.997 1.034 1.037      | 0.997 1.044 1.045      | 0.983 1.032 1.031      | 0.999 1.042 1.042     | 0.99-1.03 |
+| bmw       | 1.060 1.033 1.044      | 1.072 1.042 1.053      | 1.042 1.034 1.041      | 1.058 1.043 1.046     | 0.99-1.02 |
+| crown     | 1.021 1.025 1.027      | 1.034 1.040 1.040      | 1.022 1.039 1.040      | 1.023 1.045 1.047     | 0.99-1.02 |
+| ivy       | 1.055 1.058 1.058      | 1.051 1.061 1.064      | 1.046 1.065 1.067      | 1.038 1.072 1.075     | 1.00-1.02 |
+| villa     | 1.052 1.034 1.045      | 1.052 1.024 1.045      | 1.041 1.034 1.047      | 1.067 1.044 1.054     | 0.99-1.02 |
+| sportscar | 1.055 1.033 1.043      | 1.077 1.037 1.042      | 1.059 1.039 1.040      | 1.078 1.025 1.057     | 0.98-1.03 |
+| dambreak  | 1.059 1.045 1.060      | 1.097 1.049 1.077      | 1.058 1.051 1.057      | 1.085 1.051 1.066     | 0.99-1.02 |
+| landscape | 0.993 1.002 1.002      | 1.001 0.993 0.986      | 0.981 1.007 1.006      | 0.991 0.968 0.969     | 1.00-1.01 |
+| lte-orb   | 1.036 1.044 1.041      | 1.155 1.040 1.037      | 1.032 1.037 1.037      | 1.037 1.041 1.037     | 0.99-1.02 |
+
+The nearest hit gains 2-8% on incoherent rays and 2-10% on primary rays
+on every mesh but landscape and zero-day's primary rays, at both widths
+and under both schedules (lte-orb's eight-wide primary +15%, where the
+compress form had been 0.94x of Embree). Landscape, where the schedules
+are 1.15-1.25x Embree throughout and a node rarely hits more than one
+child, is level; zero-day's primary rays are level (its own four-wide
+tuned cell -2% against Embree's +2.5% drift). The any hit is within noise
+of itself, as the sort does not touch it (the eight-wide object's
+occluded kernel is allocated a little differently by the compiler and
+measures +1-2%). Against Embree, the nearest hit now stands at:
+
+| schedule | primary       | ao            | diffuse       |
+|----------|---------------|---------------|---------------|
+| embree4  | 1.04 - 1.20x  | 0.98 - 1.19x  | 0.99 - 1.17x  |
+| embree   | 1.07 - 1.13x  | 1.04 - 1.21x  | 1.04 - 1.19x  |
+| tuned4   | 1.04 - 1.17x  | 1.00 - 1.20x  | 1.00 - 1.21x  |
+| tuned    | 1.06 - 1.15x  | 1.10 - 1.25x  | 1.09 - 1.23x  |
+
+The four-wide matching schedule's incoherent-ray cells, 0.94-1.00x before
+(pavilion and head the low end at 0.94 and 0.95), are 0.98-1.04x now
+(head 0.98/0.99, pavilion 0.99/0.99, the rest at or above 1.00); the
+eight-wide matching schedule's 0.99-1.06x are 1.04-1.08x. The tuned
+four-wide is at or above Embree on every cell (pavilion's incoherent
+rays 1.00, villa's primary 1.04, the two cells that were below).
+
+What the code says, four-wide, the path a node with two hit children
+takes (peel4/trace_all.s in the scratchpad, 437 instructions in all
+against 446 before). The chain's own work is Embree's: `tzcnt` and the
+clear for the lanes, `mov rcx, [r14+rax*8]` for a child off the row, one
+`vmovdqa [rsp+0x30], xmm2` for the cell, `mov r13d, [rsp+rdx*4+0x30]`
+per key with no clamping, `cmp; cmovl; cmovg; cmovl` for the order of
+both children and the farther's distance together, `je` on the clear's
+flag for the dispatch. No popcount, no compress, no ternlog, no `and 3`.
+Yet the static path is 44 instructions where the compress form's was 38
+and Embree's is 20, because of what clang adds around it: three loop-
+carried registers spilled at the top of the multi-hit path and five
+reloaded in the arms (the loop holds eleven values in general registers
+-- the node, the stack count, the best hit's leaf and index, the ray's
+tfar bits and the six slab offsets -- and the chain wants eight more at
+its widest; Embree carries the same eleven and gets by with one save and
+restore, its compiler rematerializing a constant), the arms' push tails
+merged into one block with the count's increment in a register (`mov
+ebx, k; ...; add r12d, ebx`, about five instructions), the key's inf blend
+(four: the key's own miss test against the ray's tfar, dead on every lane
+the chain reads, which only the implied-comparisons machinery declined
+in "Comparisons a fact implies" could say), the third prefetch line per
+child, and the `movzx; and 0xf; dec` the four-bit mask's widening leaves
+where `blsr` would do. The measurement says the shorter dependency chain
+to the next node's address and the free dispatch outweigh the extra
+moves; the three-hit path is longer still, about 76 against 54, and
+rarer. The next things to go after, in order: the argmin's payload kept
+in its storage rather than in registers (the best hit's leaf and index
+are written on an improvement and read once at the end; Embree writes
+its hit into the ray and carries only tfar), which frees two registers;
+the push tails made distinct (the count updated first, the stores at
+constant offsets below it); the inf blend by a structural fact at the
+cell's store (a min over a superset of operands is no larger, so the
+mask's bound implies the key's); the prefetch width (item 2 above).
+
+Tests: the sorted traversals' goldens re-blessed at the ssa and llvm
+levels, all of one kind -- the switch on the count and its packed keys
+replaced by the chain (ssa/child-volumes-sorted at four lanes with every
+count an arm, ssa/child-volumes-sorted-wide at eight with the general arm
+after four peels and its keys packed inside it, ssa/sort-key-through-bits
+with one cell shared by the key and the carried bound and the key read
+at a lane as its bits, ssa/sort-key-nonnegative with the flip per lane,
+arena-rows-vectorized, ptr-arena-rows-vectorized, child-volumes-
+vectorized, tiled-leaf-vectorized, skip-leaf-helper, prefetch-children;
+the same five at the llvm level); ssa/sort-peel-prefetch and
+backends/llvm/sort-peel-prefetch new, the chain over references that are
+pointers with each child's prefetch at its peel; the any hit's goldens
+unchanged through the shared MaskLanes; every execution test as before;
+suite 1380.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -1,0 +1,175 @@
+//! flags: -p ssa -b llvm
+
+// ssa/sort-peel-prefetch.bonsai through the LLVM backend: apps/rtq's
+// nearest hit in miniature -- the slab test on the bits, the ray clamped
+// at entry -- over references that are pointers, eight children to a
+// node, the run of hits the chain Embree's traverseClosestHit writes, with
+// the children prefetched. What to read for: `llvm.cttz` for each lane
+// peeled and `and` with the mask less one to clear it; `llvm.prefetch` of
+// the child's own loaded reference (`inttoptr` of the `load i64` off the
+// node's row at the lane), four lines, right after that load, once per
+// lane and before the next is peeled, with no test of the count in front
+// of it; one `store <8 x i32>` of the keys into a stack cell where the
+// chain first compares and a `load i32` at each lane after it, the
+// carried bound reading the same cell; `icmp slt` on the keys and `select`
+// on the children and the bounds for each exchange; in the general arm
+// alone the vector form of the prefetch and the packed keys; and no
+// prefetch in the node's block before the chain.
+import stdlib/aabb;
+import stdlib/numerics;
+
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+element Triangle {
+    p0 : vec3f;
+    p1 : vec3f;
+    p2 : vec3f;
+}
+
+element FInterval {
+    low, high : Float;
+}
+
+func zero_fix(d : vec3f) -> vec3f {
+    tiny : Float = 1e-18;
+    return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
+}
+
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    rdir = rcp(zero_fix(r.d));
+    org_rdir = r.o * rdir;
+    dirIsNeg = rdir < 0.0;
+    near = select(dirIsNeg, b.high, b.low);
+    far = select(dirIsNeg, b.low, b.high);
+    tNearV = near * rdir - org_rdir;
+    tFarV = far * rdir - org_rdir;
+    tNear = max(max(reinterpret[[i32]](tNearV.x), reinterpret[[i32]](tNearV.y)),
+                max(reinterpret[[i32]](tNearV.z), reinterpret[[i32]](r.tnear)));
+    tFar = min(min(reinterpret[[i32]](tFarV.x), reinterpret[[i32]](tFarV.y)),
+               min(reinterpret[[i32]](tFarV.z), reinterpret[[i32]](r.tfar)));
+    if tNear <= tFar {
+        return FInterval{reinterpret[[Float]](tNear), reinterpret[[Float]](tFar)};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+func hit_distance(r : Ray, tri : Triangle) -> option[Float] {
+    e1 = tri.p1 - tri.p0;
+    e2 = tri.p2 - tri.p0;
+    p = cross(r.d, e2);
+    den = dot(e1, p);
+    if abs(den) < 1e-12 {
+        return {};
+    }
+    inv = 1.0 / den;
+    s = r.o - tri.p0;
+    u = dot(s, p) * inv;
+    if u < 0.0 || u > 1.0 {
+        return {};
+    }
+    q = cross(s, e1);
+    v = dot(r.d, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return {};
+    }
+    t = dot(e2, q) * inv;
+    if !(r.tnear < t && t <= r.tfar) {
+        return {};
+    }
+    return t;
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](hit_distance(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = hit_distance(r, tri);
+    if hit {
+        return *hit;
+    }
+    return -inf;
+}
+
+extern tris : set[Triangle];
+
+func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                  select(r.tfar > 0.0, r.tfar, 0.0)};
+
+func [[export]] trace(r0 : Ray) -> option[Triangle] {
+    r = clamped(r0);
+    return argmin(|t : Triangle| distmin(r, t),
+                  filter(|t : Triangle| intersects(r, t), tris));
+}
+
+schedule {
+    tree[[Triangle]] BVH8 =
+    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH8;
+
+    layout tris(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 8];
+                lower_x : vector[f32, 8];
+                upper_x : vector[f32, 8];
+                lower_y : vector[f32, 8];
+                upper_y : vector[f32, 8];
+                lower_z : vector[f32, 8];
+                upper_z : vector[f32, 8];
+                lo = vector[vec3f, 8]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .loopify(64);
+    trace.prefetch(tris.Interior.children);
+}

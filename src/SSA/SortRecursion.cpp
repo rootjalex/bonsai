@@ -2,13 +2,17 @@
 
 #include "Error.h"
 #include "IR/Equality.h"
+#include "SSA/MaskLanes.h"
+#include "SSA/Storage.h"
 #include "Utils.h"
 
 #include <algorithm>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -152,52 +156,62 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
 // are ever visited. Embree's traversal of such a node (bvh_traverser1.h,
 // traverseClosestHit) orders the hits alone.
 //
-// So a run of this shape is sorted as the vectors it is, and over the hits
-// alone, the way Embree's AVX-512 traversal does it
-// (traverseClosestHitAVX512VL8) -- the strategy a machine with a register
-// compress takes (lane_sort_strategy; ir::Target). The keys are made
-// integers that order as the floats do with each lane's own index in the
-// low bits -- Embree's `distance_i`, which makes every key distinct and
-// lets a sorted key say which lane it came from. The hits' keys are then
-// compressed to the front (ir::Intrinsic::compress, `vpcompressd`; the
-// lanes past them are never read), and a switch on their count picks the
-// arm, each arm finishing by itself with the count a constant:
+// So a run of this shape is sorted over the hits alone, in the one shape
+// both of Embree's kernels share -- traverseClosestHit for N = 4 and
+// traverseClosestHitAVX512VL8 for N = 8 are one procedure in two
+// representations -- a chain that peels the hit lanes one at a time:
 //
 // - no hit: straight on to what follows the run, as a run whose every
-//   condition is false goes;
-// - one hit: a run of one call is a call, to the hit lane of each vector
-//   packed to the front and read from lane 0 (one `vpcompressq` and a
-//   `vmovq`), which loopify descends into with nothing written to its
-//   stack -- three node tests in five on incoherent rays, and Embree's own
-//   one-hit case;
-// - two, three and four hits: the packed keys read out as scalars and
-//   sorted by insertion, a minimum and a maximum per key already placed
-//   (Embree's dist_A0/B0, A1/B1/C1, A2/B2/C2/D2 chains), and a run of
-//   exactly that many calls, nearest first and none conditional, each
-//   call's values taken from the vectors at the index in its key's low
-//   bits (Embree's permuteExtract). loopify writes such a run as h - 1
-//   scalar pushes at constant offsets from the stack top and descends into
-//   the first (SSA/QueueRecursion.cpp): Embree's `stackPtr[0].ptr = ...;
-//   stackPtr[1].ptr = ...; stackPtr += 2; cur = ...`. Nothing is permuted,
-//   no waiting mask is formed from the count, and no compacting store is
-//   made, since the count is a constant in the arm.
-// - more hits than that: all the lanes at once, the misses' keys made
-//   infinite so that they sort out of the hits' way, by Batcher's bitonic
-//   network (Batcher, "Sorting Networks and their Applications", AFIPS
-//   1968), descending, the misses first and the hits from the farthest to
-//   the nearest in the last lane; the children and whatever travels with
-//   them are then taken out by the lane index in each key's low bits with
-//   one variable permute each (ir::Intrinsic::permute, `vpermq`,
-//   `vpermps`), and the run says it in the shape of a run: call k is lane
-//   n - 1 - k of the permuted vectors (the nearest first) and is made when
-//   `k < hits`. loopify reads that shape (SortedRun, SSA/SortRecursion.h)
-//   and writes the hits that wait with one compacting store. Embree's
-//   fallback for five or more hits is the same shape: the keys sorted
-//   descending and written to the stack in a loop.
+//   condition is false goes (`if (unlikely(mask == 0)) goto pop`, a
+//   kortest);
+// - peel the lowest lane the mask has left (SSA/MaskLanes.h: `tzcnt` on
+//   the mask's word), and read the call at it -- its child, whatever
+//   travels with the child, and its key -- one extract at the lane each
+//   (Embree's `node->child(r)` and `((unsigned int*)&tNear)[r]`: a scalar
+//   load off the row, and an indexed load off the key vector);
+// - insert it among the calls peeled before it, nearest first, by a
+//   compare against each in turn and an exchange of the pair where the new
+//   one is nearer (Embree's dist_A0/B0, then A1/B1/C1, then A2 to D2), the
+//   exchange a select per component -- the key, the child, what travels
+//   with it;
+// - clear the lane (`blsr`) and test whether any is left, the flag the
+//   clear leaves (`if (likely(mask == 0))`). None left is the arm for
+//   exactly that many hits: one hit is a call to the child peeled, with
+//   nothing written to a stack (three node tests in five on incoherent
+//   rays, and Embree's one-hit case); h hits are a run of exactly h calls,
+//   the nearest first and none conditional, which loopify writes as h - 1
+//   scalar pushes at constant offsets from the stack top and a descent
+//   into the first (SSA/QueueRecursion.cpp): Embree's `stackPtr->ptr = c1;
+//   stackPtr->dist = d1; stackPtr++; cur = c0`. Some left peels the next.
+// - past four peels (a node wider than four): all the lanes at once, each
+//   key with its lane's index in its low bits so that a sorted key says
+//   which lane it came from (Embree's `distance_i`) and the misses' keys
+//   made infinite so that they sort out of the hits' way, by Batcher's
+//   bitonic network (Batcher, "Sorting Networks and their Applications",
+//   AFIPS 1968), descending, the misses first and the hits from the
+//   farthest to the nearest in the last lane; the children and whatever
+//   travels with them are then taken out by the lane index in each key's
+//   low bits with one variable permute each (ir::Intrinsic::permute,
+//   `vpermq`, `vpermps`), and the run says it in the shape of a run: call
+//   k is lane n - 1 - k of the permuted vectors (the nearest first) and is
+//   made when `k < hits`. loopify reads that shape (SortedRun,
+//   SSA/SortRecursion.h) and writes the hits that wait with one compacting
+//   store. Embree's fallback for five or more hits is the same shape: the
+//   keys sorted descending and written to the stack in a loop.
 //
-// The arms for the common counts are what the switch is for: a node a ray
-// passes through usually hits one or two of its children, and those pay
-// neither the network nor the join the general case needs.
+// The chain shares its work downward: the arm for three hits does one more
+// peel and two more exchanges than the arm for two, not three from
+// nothing, and its dispatch costs nothing beyond the clear -- no count is
+// taken, and no keys are packed or compressed, for the counts the arms
+// cover. The items are scalars throughout: the child reference as the
+// layout stores it, the key's bits, and whatever else travels. That is what
+// Embree's four-wide kernel holds (a StackItem's ptr and dist, in general
+// registers) and what its eight-wide kernel holds broadcast in vector
+// registers, with a compress for the peel and a permute per child taken
+// out; the scalar items are the one representation here, for every lane
+// count -- the count decides the mask's word and how many peels come
+// before the general arm, and nothing else (the user's direction,
+// 2026-10-05: one parametric form, the item what the layout stores).
 
 // A value's identity: the instruction it is, or the parameter it names.
 bool same_source(const Value &a, const Value &b) {
@@ -209,6 +223,119 @@ bool same_source(const Value &a, const Value &b) {
     const auto *aa = std::get_if<Argument>(&a.data);
     const auto *ab = std::get_if<Argument>(&b.data);
     return aa != nullptr && ab != nullptr && aa->name == ab->name;
+}
+
+// Does `v` refer to the value named `name`? A definition and the block
+// arguments that thread it onwards share a name (the helper
+// SSA/PromoteAllocas.cpp has, for the same reason).
+bool refers_to(const Value &v, const string &name) {
+    return std::visit(
+        overloads{
+            [&](const shared_ptr<Instruction> &i) { return i->name == name; },
+            [](const Constant &) { return false; },
+            [&](const Argument &a) { return a.name == name; },
+        },
+        v.data);
+}
+
+// What is stored into a lane source that is an array of the function's own
+// -- the keys the children's loop computes, a bound it carries to the child
+// -- as every store into it: the block, the index and the value. Nothing
+// for a source that is not such an array, or one that anything but those
+// stores and the reads of its lanes touches.
+struct Fill {
+    vector<std::tuple<const Block *, shared_ptr<Value>, shared_ptr<Value>>>
+        stores;
+};
+
+std::optional<Fill> fill_of(const Function &func,
+                            const shared_ptr<Value> &source) {
+    if (!source->get_type().is<Array_t>()) {
+        return std::nullopt;
+    }
+    string name;
+    if (const std::optional<Argument> a = source->get_argument()) {
+        name = a->name;
+    } else if (const auto *i =
+                   std::get_if<shared_ptr<Instruction>>(&source->data)) {
+        name = (*i)->name;
+    } else {
+        return std::nullopt;
+    }
+    bool allocated = false;
+    std::set<const Instruction *> addresses; // the GEPs into it
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op == Instruction::Op::Alloca && instr->name == name) {
+                allocated = true;
+                continue;
+            }
+            bool touches = false;
+            for (const auto &operand : instr->operands) {
+                touches = touches || refers_to(*operand, name);
+            }
+            if (!touches) {
+                continue;
+            }
+            if (instr->op == Instruction::Op::GEP && instr->operands.size() == 2 &&
+                refers_to(*instr->operands[0], name) &&
+                instr->operands[1]->get_type().is_scalar()) {
+                addresses.insert(instr.get());
+                continue;
+            }
+            if (instr->op == Instruction::Op::ExtractIdx &&
+                instr->operands.size() == 2 &&
+                refers_to(*instr->operands[0], name)) {
+                continue;
+            }
+            return std::nullopt;
+        }
+    }
+    if (!allocated) {
+        return std::nullopt;
+    }
+    // Every address into it is stored through or loaded from, and nothing
+    // else; the stores are the fill.
+    Fill fill;
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            for (size_t k = 0; k < instr->operands.size(); k++) {
+                const auto *held =
+                    std::get_if<shared_ptr<Instruction>>(&instr->operands[k]->data);
+                if (held == nullptr || !addresses.count(held->get())) {
+                    continue;
+                }
+                if (instr->op == Instruction::Op::Store && k == 0 &&
+                    instr->operands.size() == 2) {
+                    fill.stores.emplace_back(block.get(), (*held)->operands[1],
+                                             instr->operands[1]);
+                } else if (instr->op != Instruction::Op::Load || k != 0) {
+                    return std::nullopt;
+                }
+            }
+        }
+    }
+    if (fill.stores.empty()) {
+        return std::nullopt;
+    }
+    return fill;
+}
+
+// Whether two arrays are filled alike: the same stores, in the same blocks,
+// at the same indices, of the same values.
+bool same_fill(const Fill &a, const Fill &b) {
+    if (a.stores.size() != b.stores.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.stores.size(); i++) {
+        const auto &[block_a, index_a, value_a] = a.stores[i];
+        const auto &[block_b, index_b, value_b] = b.stores[i];
+        if (block_a != block_b || !same_source(*index_a, *index_b) ||
+            !same_source(*value_a, *value_b)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::optional<uint64_t> constant_index(const Value &value) {
@@ -378,32 +505,33 @@ vector<Layer> descending_bitonic(uint32_t n) {
 // reads in the SSA dump and is pinned by a golden per machine, and so that
 // the stack and the loop it builds are written once (see ir::Target).
 enum class LaneSortStrategy {
-    // Embree's compact-and-sort (bvh_traverser1.h,
-    // traverseClosestHitAVX512VL8), described above: the hits' keys packed
-    // to the front of a register in one instruction, a switch on their
-    // count, the common counts sorted as scalars and pushed one by one, the
-    // rest by a network over all the lanes. What a machine with a register
-    // compress -- AVX-512, SVE -- takes.
-    Compact,
+    // Embree's traversal of a node whose children's boxes it holds, in the
+    // one shape both its kernels share (bvh_traverser1.h, traverseClosestHit
+    // for N = 4 and traverseClosestHitAVX512VL8 for N = 8), described above:
+    // the hit lanes peeled one at a time, lowest first, each one's call read
+    // at its lane and inserted among the ones peeled before it, the lanes
+    // left tested after every peel, and a network over all the lanes past
+    // four peels. The items scalars -- the child reference as the layout
+    // stores it, the key's bits -- for every lane count.
+    Peel,
 };
 
 LaneSortStrategy lane_sort_strategy(const Target &target) {
-    // One strategy today, whatever the machine. A machine without a register
-    // compress -- AVX2, NEON -- gets the same code with LLVM's expansion of
-    // the compress, a store and a load per lane; Embree's own traversal on
-    // such a machine is its generic traverseClosestHit (bvh_traverser1.h): a
-    // bit-scan loop over the mask (`bscf`) with a scalar load of the child at
-    // each bit, two hits a compare and a store, three and four pushed and
-    // sorted on the stack by scalar compare-exchanges. That is the strategy
-    // to write here when a machine without a compress is measured.
+    // One strategy today, whatever the machine. The alternative a target
+    // might take, were it measured better there, is Embree's eight-wide
+    // representation of the same chain: the items kept in vector registers,
+    // the peel one compress and a shuffle per lane, each child taken out by
+    // a permute (permuteExtract) -- a permute per item where the scalar
+    // items cost an indexed load each. On this machine the scalar items are
+    // never behind for the counts the arms cover, at four lanes or eight.
     (void)target;
-    return LaneSortStrategy::Compact;
+    return LaneSortStrategy::Peel;
 }
 
 // Sorts the run `call` in `block`, which is the lanes `lanes` describe, as
 // described above; see there. Clears the run's keys, and moves the run into
-// the arms of a switch on the count of hits, which `block` ends in
-// afterwards; the reference `call` is spent.
+// the arms of the chain, which `block` ends by entering afterwards; the
+// reference `call` is spent.
 void sort_lanes(Function &func, const shared_ptr<Block> &block,
                 Terminator::MultiCall &call, const Lanes &lanes,
                 const ConstantIntervals &intervals) {
@@ -485,14 +613,9 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
     }
 
     // As integers that order as the floats do -- a negative float's magnitude
-    // bits flipped, so that the more negative is the smaller -- with the
-    // lane's own index in the low bits: Embree's `distance_i`. No two lanes
-    // are then equal, so a minimum or maximum is one lane's key exactly, and
-    // a sorted key says which lane it came from. The misses' keys are left
-    // as they are: the compress below drops them, and only the network over
-    // all the lanes (the last arm) needs them out of the hits' way, where
-    // they are made infinite. The index is a bit field of the key: with the
-    // keys scalars, `key & (n - 1)` is the lane to read a child from.
+    // bits flipped, so that the more negative is the smaller: Embree's
+    // `distance_i`. The chain reads a key at a lane and compares it as this
+    // integer; only the general arm packs the lane's index into it.
     //
     // The flip goes when the keys' sign bits are known clear in every value
     // (SSA/ConstantIntervals.h, `sign_clear`): such bits order as the
@@ -513,135 +636,312 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
                          {sign, bc(block, ci32(0x7fffffff), i32xn)});
         ordered = emit(block, i32xn, Instruction::Op::Xor, {bits, flip});
     }
-    auto lane = emit(block, i32xn, Instruction::Op::Ramp, {ci32(0), ci32(1)});
-    auto high = emit(block, i32xn, Instruction::Op::BwAnd,
-                     {ordered, bc(block, ci32(-int64_t(n)), i32xn)});
-    auto packed = emit(block, i32xn, Instruction::Op::BwOr, {high, lane});
 
-    // How many calls are made: the lanes the mask has on. Their keys, packed
-    // to the front in lane order, are what the arms for two to four hits
-    // read; nothing reads the lanes past them, so the compress fills them
-    // with nothing (Embree's `compact`).
-    auto hits = emit(block, u32, Instruction::Op::Popcount, {mask});
-    auto compressed =
-        intrinsic(block, i32xn, ir::Intrinsic::compress, {packed, mask});
-
-    // The value of each varying parameter at the lane a key names: the
-    // key's low bits are the lane (see `packed`), and the value is read
-    // from the vector there.
-    const auto at_key = [&](const shared_ptr<Block> &into,
-                            const shared_ptr<Value> &key) {
-        auto masked = emit(into, i32, Instruction::Op::BwAnd,
-                           {key, ci32(int64_t(n) - 1)});
-        auto idx = emit(into, u32, Instruction::Op::Reinterpret, {masked});
-        vector<shared_ptr<Value>> row;
+    // Where a peeled call's values are read from. A source the children's
+    // loop filled -- the keys, a bound carried to the child -- is an array
+    // of the function's own, held in a register once the loop is vectorized,
+    // and a lane of a register at a run-time index goes through memory: the
+    // chain stores the vector into a cell of its own once, at its first
+    // comparison, and reads each lane with one indexed load (Embree's
+    // `((unsigned int*)&tNear)[r]` off the tNear its node test spills --
+    // spilled here on the nodes that hit more than one child, not on every
+    // visit). Two sources the loop filled alike -- the key and the carried
+    // bound both `distmin` of the child's box, as apps/rtq's are -- share
+    // one cell and one load per lane, so the distance pushed is the key
+    // itself, Embree's `dist`, and ordering the one orders the other. Any
+    // other source -- the children, read off the node's row; a register
+    // vector of some other making -- is read at the lane as an extract,
+    // which the simplifier makes a scalar load off the row where the row is
+    // read-only storage (SSA/Simplify.cpp, ExtractIdx).
+    //
+    // A cell holds its values as the integers of their width -- a float's
+    // bits -- and the chain carries and exchanges them as such, handing a
+    // float back to the call as a float: a 32-bit integer in a general
+    // register is what the compare orders, what one `cmov` exchanges and
+    // what the push stores, where a float would go through a vector
+    // register and a mask for the same exchange (Embree's `unsigned int
+    // d0`, the dist of its StackItem).
+    struct Source {
+        shared_ptr<Value> vec; // the lanes as a vector, read in `block`
+        Type elem;             // what a lane is
+        Type held;             // what a cell holds a lane as: elem's bits
+        shared_ptr<Value> cell; // the array the vector is stored into, or null
+    };
+    vector<Source> sources; // the keys, then one per varying position
+    {
+        vector<std::optional<Fill>> fills;
+        const auto add = [&](const shared_ptr<Value> &source,
+                             const shared_ptr<Value> &vec, const Type &elem) {
+            Source s{vec, elem, elem, nullptr};
+            if (elem.is_float()) {
+                s.held = Int_t::make(elem.bits());
+            }
+            std::optional<Fill> fill = fill_of(func, source);
+            if (fill.has_value()) {
+                for (size_t i = 0; i < sources.size(); i++) {
+                    if (fills[i].has_value() && same_fill(*fills[i], *fill)) {
+                        s.cell = sources[i].cell;
+                        break;
+                    }
+                }
+                if (!s.cell) {
+                    s.cell = make_alloca(
+                        func, func.blocks.front(),
+                        Array_t::make(s.held, UIntImm::make(u32, uint64_t(n))));
+                    std::get<shared_ptr<Instruction>>(s.cell->data)->scratch =
+                        true;
+                }
+            }
+            sources.push_back(std::move(s));
+            fills.push_back(std::move(fill));
+        };
+        add(lanes.keys, keys, f32);
         for (size_t j = 0; j < values.size(); j++) {
-            row.push_back(emit(into, lanes.varying_type[j],
-                               Instruction::Op::ExtractIdx, {values[j], idx}));
+            add(lanes.varying[j], values[j], lanes.varying_type[j]);
         }
-        return row;
+    }
+    // The cells stored, once, where the chain first compares.
+    const auto store_cells = [&](const shared_ptr<Block> &into) {
+        std::set<const Value *> stored;
+        shared_ptr<Value> ramp;
+        for (const Source &s : sources) {
+            if (!s.cell || !stored.insert(s.cell.get()).second) {
+                continue;
+            }
+            if (!ramp) {
+                ramp = emit(into, Vector_t::make(u32, n), Instruction::Op::Ramp,
+                            {cu32(0), cu32(1)});
+            }
+            shared_ptr<Value> held = s.vec;
+            if (!equals(s.held, s.elem)) {
+                held = emit(into, Vector_t::make(s.held, n),
+                            Instruction::Op::Reinterpret, {s.vec});
+            }
+            auto at = emit(into, Vector_t::make(Ptr_t::make(s.held), n),
+                           Instruction::Op::GEP, {s.cell, ramp});
+            into->instrs.push_back(std::make_shared<Instruction>(
+                Instruction::Op::Store, vector<shared_ptr<Value>>{at, held},
+                into));
+        }
+    };
+    // Source `i` at `lane`, as the cell holds it where it has one and the
+    // cells are stored (one load per cell and lane), else out of the vector
+    // as the lane is.
+    std::map<std::pair<const Value *, const Value *>, shared_ptr<Value>> loaded;
+    const auto read = [&](const shared_ptr<Block> &into, size_t i,
+                          const shared_ptr<Value> &lane, bool cells) {
+        const Source &s = sources[i];
+        if (!cells || !s.cell) {
+            return emit(into, s.elem, Instruction::Op::ExtractIdx, {s.vec, lane});
+        }
+        shared_ptr<Value> &v = loaded[{s.cell.get(), lane.get()}];
+        if (!v) {
+            auto at = emit(into, Ptr_t::make(s.held), Instruction::Op::GEP,
+                           {s.cell, lane});
+            v = emit(into, s.held, Instruction::Op::Load, {at});
+        }
+        return v;
+    };
+    // Whether `read` hands source `i` back as the cell holds it.
+    const auto as_held = [&](size_t i, bool cells) {
+        return cells && sources[i].cell && !equals(sources[i].held, sources[i].elem);
+    };
+    // A key read at a lane, as the integer that orders as the float does:
+    // the vector form above, lane by lane.
+    const auto key_of = [&](const shared_ptr<Block> &into,
+                            const shared_ptr<Value> &key, bool cells) {
+        shared_ptr<Value> bits = key;
+        if (!as_held(0, cells)) {
+            bits = emit(into, i32, Instruction::Op::Reinterpret, {key});
+        }
+        if (key_range.sign_clear) {
+            return bits;
+        }
+        auto sign = emit(into, i32, Instruction::Op::Shr, {bits, ci32(31)});
+        auto flip = emit(into, i32, Instruction::Op::BwAnd,
+                         {sign, ci32(0x7fffffff)});
+        return emit(into, i32, Instruction::Op::Xor, {bits, flip});
+    };
+    // Varying value `j` of a call as the call takes it: a float again where
+    // the chain carried its bits.
+    const auto handed = [&](const shared_ptr<Block> &into, size_t j,
+                            const shared_ptr<Value> &v, bool cells) {
+        if (!as_held(1 + j, cells)) {
+            return v;
+        }
+        return emit(into, lanes.varying_type[j], Instruction::Op::Reinterpret,
+                    {v});
     };
 
-    // The switch on the count: target k for k hits, the last target for
-    // every count past the ones specialized.
-    vector<Terminator::Jump> targets;
-    {
-        // No hit: no call is made and the run is over, so straight to what
-        // follows it, as a run whose every condition is false goes -- not
-        // through the join, whose permutes and extracts would run for
-        // nothing (one node test in five on incoherent rays).
-        auto none = fresh_block(func, block->name + "!sort0");
-        none->terminator.data = call.cont;
-        func.blocks.push_back(none);
-        targets.push_back(Terminator::Jump{none->name, {}});
-    }
-    {
-        // One hit: nothing to order and nothing to wait -- a run of one
-        // call is a call. Its arguments are the hit lane of each vector,
-        // packed to the front by the mask and read from lane 0 (one
-        // `vpcompressq` and a `vmovq`: Embree's one-hit case, its first
-        // permuteExtract), with no keys, no network and no run for loopify
-        // to write a stack from: a single call goes straight to the child
-        // (SSA/QueueRecursion.cpp). Three node tests in five on incoherent
-        // rays hit one child, and this arm is what they cost.
-        auto one = fresh_block(func, block->name + "!sort1");
-        Terminator::Call single;
-        single.call = call.call;
-        single.cont = call.cont;
-        single.drop = call.drop;
-        for (size_t j = 0; j < values.size(); j++) {
-            auto packed_j = intrinsic(one, values[j]->get_type(),
-                                      ir::Intrinsic::compress,
-                                      {values[j], mask});
-            single.call.args[call.varying_at[j]] =
-                emit(one, lanes.varying_type[j], Instruction::Op::ExtractIdx,
-                     {packed_j, cu32(0)});
-        }
-        one->terminator.data = std::move(single);
-        func.blocks.push_back(one);
-        targets.push_back(Terminator::Jump{one->name, {}});
-    }
-    const uint32_t specialized = std::min<uint32_t>(n, 4);
-    for (uint32_t h = 2; h <= specialized; h++) {
-        // h hits, and h a constant here: the h packed keys read out as
-        // scalars and sorted by insertion -- each key placed with a minimum
-        // and a maximum against every key before it, Embree's chains of
-        // dist_A0 and dist_B0, then A1, B1, C1, then A2 to D2 -- and a run of
-        // exactly h calls, the nearest first and none conditional, each
-        // call's values read from the vectors at the lane its key names.
-        // loopify writes it as h - 1 scalar pushes at constant offsets from
-        // the stack top and a descent into the first (SSA/QueueRecursion
-        // .cpp), Embree's `stackPtr[0].ptr = ...; stackPtr++; cur = ...`.
-        auto block_h =
-            fresh_block(func, block->name + "!sort" + std::to_string(h));
-        vector<shared_ptr<Value>> ascending;
-        for (uint32_t k = 0; k < h; k++) {
-            shared_ptr<Value> key = emit(block_h, i32, Instruction::Op::ExtractIdx,
-                                         {compressed, cu32(k)});
-            for (shared_ptr<Value> &placed : ascending) {
-                auto lo = emit(block_h, i32, Instruction::Op::Min, {placed, key});
-                auto hi = emit(block_h, i32, Instruction::Op::Max, {placed, key});
-                placed = lo;
-                key = hi;
+    // The chain (described above). `rest` is the mask with the lanes peeled
+    // so far taken off, read as SSA/MaskLanes.h reads it, and `sorted` the
+    // calls peeled so far, nearest first. An item is a call: the lane it
+    // was peeled from, its key as the integer above, and its value at each
+    // varying position.
+    struct Item {
+        shared_ptr<Value> lane;
+        shared_ptr<Value> key;
+        vector<shared_ptr<Value>> values;
+    };
+    MaskLanes walk(func, n, u32);
+    // No hit: no call is made and the run is over, so straight to what
+    // follows it, as a run whose every condition is false goes -- through
+    // no arm, whose reads would run for nothing (one node test in five on
+    // incoherent rays): Embree's `if (unlikely(mask == 0)) goto pop`, a
+    // kortest.
+    auto none = fresh_block(func, block->name + "!sort0");
+    none->terminator.data = call.cont;
+    func.blocks.push_back(none);
+    auto some = emit(block, b, Instruction::Op::Any, {mask});
+    auto first = fresh_block(func, block->name + "!peel1");
+    func.blocks.push_back(first);
+    // How many lanes are peeled before the general arm over all of them:
+    // Embree's four, at either of its widths. A node of no more lanes than
+    // that has an arm for every count and no general arm.
+    constexpr uint32_t kPeeled = 4;
+    const uint32_t peeled = std::min(n, kPeeled);
+    shared_ptr<Block> peel = first;
+    shared_ptr<Value> rest = walk.whole(peel, mask);
+    vector<Item> sorted;
+    for (uint32_t h = 1; h <= peeled; h++) {
+        // The lowest lane left, and the call at it, read lane by lane
+        // (Embree's `r = bscf(mask); node->child(r); tNear[r]`). The first
+        // call is read as extracts, which is all its one-hit arm needs (its
+        // child, off the row) before any cell is stored; where a second is
+        // peeled the cells are stored and the first call's key and cell-held
+        // values read again, off them, for the comparisons -- the first
+        // read, dead by then where no arm but the one-hit one wanted it,
+        // costs nothing.
+        auto lane = walk.lowest(peel, rest);
+        Item item;
+        item.lane = lane;
+        const bool cells = h >= 2;
+        if (h == 2) {
+            store_cells(peel);
+            Item &first_call = sorted[0];
+            first_call.key =
+                key_of(peel, read(peel, 0, first_call.lane, true), true);
+            for (size_t j = 0; j < values.size(); j++) {
+                if (sources[1 + j].cell) {
+                    first_call.values[j] =
+                        read(peel, 1 + j, first_call.lane, true);
+                }
             }
-            ascending.push_back(key);
         }
-        Terminator::MultiCall run;
-        run.call = call.call;
-        run.cont = call.cont;
-        run.drop = call.drop;
-        run.varying_at = call.varying_at;
-        for (const shared_ptr<Value> &key : ascending) {
-            run.varying.push_back(at_key(block_h, key));
+        if (cells) {
+            item.key = key_of(peel, read(peel, 0, lane, true), true);
         }
-        block_h->terminator.data = std::move(run);
-        func.blocks.push_back(block_h);
-        targets.push_back(Terminator::Jump{block_h->name, {}});
+        for (size_t j = 0; j < values.size(); j++) {
+            item.values.push_back(read(peel, 1 + j, lane, cells));
+        }
+        // Inserted among the calls peeled before it, nearest first: a
+        // compare against each in turn, and the pair exchanged where the new
+        // one is nearer, a select per component (Embree's dist_A0/B0, then
+        // A1/B1/C1, then A2 to D2).
+        for (Item &placed : sorted) {
+            auto nearer = emit(peel, b, Instruction::Op::Lt,
+                               {placed.key, item.key});
+            const auto pick = [&](const shared_ptr<Value> &x,
+                                  const shared_ptr<Value> &y) {
+                return emit(peel, x->get_type(), Instruction::Op::Select,
+                            {nearer, x, y});
+            };
+            // (An exchanged call's lane is whichever won, which nothing
+            // after the first comparison asks; the lane stays unset.)
+            Item lo, hi;
+            lo.key = pick(placed.key, item.key);
+            hi.key = pick(item.key, placed.key);
+            for (size_t j = 0; j < values.size(); j++) {
+                lo.values.push_back(pick(placed.values[j], item.values[j]));
+                hi.values.push_back(pick(item.values[j], placed.values[j]));
+            }
+            placed = std::move(lo);
+            item = std::move(hi);
+        }
+        sorted.push_back(std::move(item));
+
+        // The arm for exactly h hits. One hit is a call, to the child
+        // peeled, with no keys, no run and nothing for loopify to write a
+        // stack from: a single call goes straight to the child (Embree's
+        // one-hit case). More are a run of exactly h calls, the nearest
+        // first and none conditional: h - 1 scalar pushes and a descent,
+        // once loopify has written it.
+        auto arm =
+            fresh_block(func, block->name + "!sort" + std::to_string(h));
+        func.blocks.push_back(arm);
+        if (h == 1) {
+            Terminator::Call single;
+            single.call = call.call;
+            single.cont = call.cont;
+            single.drop = call.drop;
+            for (size_t j = 0; j < values.size(); j++) {
+                single.call.args[call.varying_at[j]] =
+                    handed(arm, j, sorted[0].values[j], cells);
+            }
+            arm->terminator.data = std::move(single);
+        } else {
+            Terminator::MultiCall run;
+            run.call = call.call;
+            run.cont = call.cont;
+            run.drop = call.drop;
+            run.varying_at = call.varying_at;
+            for (const Item &placed : sorted) {
+                vector<shared_ptr<Value>> args;
+                for (size_t j = 0; j < values.size(); j++) {
+                    args.push_back(handed(arm, j, placed.values[j], cells));
+                }
+                run.varying.push_back(std::move(args));
+            }
+            arm->terminator.data = std::move(run);
+        }
+        if (h == n) {
+            // Every lane peeled: none can be left, and no test is made.
+            peel->terminator.data = Terminator::Jump{arm->name, {}};
+            break;
+        }
+        // The lane cleared, and whether any is left: none is this arm, some
+        // is the next peel -- or, past the last one, the general arm
+        // (Embree's `if (likely(mask == 0))` after each `bscf`).
+        rest = walk.without_lowest(peel, rest, lane);
+        auto more = walk.any(peel, rest);
+        auto next = fresh_block(
+            func, block->name + (h < peeled ? "!peel" + std::to_string(h + 1)
+                                            : string("!sortall")));
+        func.blocks.push_back(next);
+        peel->terminator.data = Terminator::Dispatch{
+            more,
+            {Terminator::Jump{arm->name, {}}, Terminator::Jump{next->name, {}}}};
+        peel = next;
     }
-    if (specialized < n) {
-        // Every count past them: all the lanes at once, the misses' infinite
-        // keys and the hits' together, by the bitonic network descending,
-        // the misses first and the hits from the farthest to the nearest in
-        // the last lane; the children and what travels with them taken out
-        // by the sorted order -- the lane index in each key's low bits --
-        // with one variable permute each; and the run in that order, the
-        // nearest first, call k made when `k < hits`: the shape loopify
-        // reads as a SortedRun.
-        auto all = fresh_block(func, block->name + "!sortall");
-        // The misses infinitely far, whatever their keys say, so that they
-        // sort first in descending order, out of the hits' way: the key of
-        // +inf (its bits are already in order, and its low bits clear) with
-        // the lane's index.
+
+    if (peeled < n) {
+        // Every count past the peels: all the lanes at once (described
+        // above). Each key with its lane's index in its low bits, so that
+        // no two are equal and a sorted key says which lane it came from
+        // (Embree's `distance_i`), and the misses infinitely far, whatever
+        // their keys say, so that they sort first in descending order, out
+        // of the hits' way: the key of +inf (its bits are already in order,
+        // and its low bits clear) with the lane's index. Then the bitonic
+        // network descending, the children and what travels with them taken
+        // out by the sorted order with one variable permute each, and the
+        // run in that order, the nearest first, call k made when `k <
+        // hits`: the shape loopify reads as a SortedRun.
+        const shared_ptr<Block> all = peel;
+        auto hits = emit(all, u32, Instruction::Op::Popcount, {mask});
+        auto lane = emit(all, i32xn, Instruction::Op::Ramp, {ci32(0), ci32(1)});
+        auto high = emit(all, i32xn, Instruction::Op::BwAnd,
+                         {ordered, bc(all, ci32(-int64_t(n)), i32xn)});
+        auto packed = emit(all, i32xn, Instruction::Op::BwOr, {high, lane});
         auto inf_key =
             emit(all, i32xn, Instruction::Op::BwOr,
                  {bc(all, ci32(0x7f800000), i32xn), lane});
-        shared_ptr<Value> sorted = emit(all, i32xn, Instruction::Op::Select,
-                                        {mask, packed, inf_key});
+        shared_ptr<Value> network = emit(all, i32xn, Instruction::Op::Select,
+                                         {mask, packed, inf_key});
         for (const Layer &comparators : descending_bitonic(n)) {
-            sorted = layer(all, sorted, comparators);
+            network = layer(all, network, comparators);
         }
         auto idx = emit(all, i32xn, Instruction::Op::BwAnd,
-                        {sorted, bc(all, ci32(int64_t(n) - 1), i32xn)});
+                        {network, bc(all, ci32(int64_t(n) - 1), i32xn)});
         vector<shared_ptr<Value>> permuted;
         for (const shared_ptr<Value> &v : values) {
             permuted.push_back(
@@ -657,54 +957,10 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
         }
         call.keys.clear();
         all->terminator.data = std::move(block->terminator.data);
-        func.blocks.push_back(all);
-        targets.push_back(Terminator::Jump{all->name, {}});
     }
-    // Not one switch on the count but Embree's traverseClosestHit in its own
-    // order: no hit first (`if (unlikely(mask == 0)) goto pop`, a kortest),
-    // then one hit (`r = bscf(mask); if (likely(mask == 0))`: `bits & (bits
-    // - 1) == 0`, one instruction on the mask as a word), then the counts
-    // from two up as the switch, on `hits - 2`. A switch on the count with
-    // arms for none, one, two, three and four hits and a default is five
-    // cases, and LLVM makes a jump table of four or more -- an indirect
-    // branch behind a load, and the dispatch done twice where the prefetch
-    // of each hit lane tests the count before it. None and one are the
-    // common cases on incoherent rays (three node tests in five hit one
-    // child); taken first, the switch left has three cases, below the table
-    // threshold, and the two tests are the ones Embree runs. The same shape
-    // as the any hit's (SSA/QueueRecursion.cpp).
-    auto some = emit(block, b, Instruction::Op::Any, {mask});
-    auto hit = fresh_block(func, block->name + "!sorthit");
-    func.blocks.push_back(hit);
-    shared_ptr<Value> one;
-    if (n == 4 || n == 8 || n == 16 || n == 32 || n == 64) {
-        // Four lanes are four bits, widened to the word as the eight are
-        // (see SSA/QueueRecursion.cpp on the four-wide mask).
-        const Type bits_t = UInt_t::make(n);
-        const Type word_t = n < 32 ? u32 : bits_t;
-        shared_ptr<Value> word =
-            emit(hit, bits_t, Instruction::Op::Reinterpret, {mask});
-        if (n < 32) {
-            word = emit(hit, word_t, Instruction::Op::Cast, {word});
-        }
-        auto one_of = std::make_shared<Value>(Constant{word_t, uint64_t(1)});
-        auto none_of = std::make_shared<Value>(Constant{word_t, uint64_t(0)});
-        auto below = emit(hit, word_t, Instruction::Op::Sub, {word, one_of});
-        auto cleared = emit(hit, word_t, Instruction::Op::BwAnd, {word, below});
-        one = emit(hit, b, Instruction::Op::Eq, {cleared, none_of});
-    } else {
-        one = emit(hit, b, Instruction::Op::Eq, {hits, cu32(1)});
-    }
-    auto from_two = fresh_block(func, block->name + "!sort2up");
-    func.blocks.push_back(from_two);
-    auto count_from_two = emit(from_two, u32, Instruction::Op::Sub, {hits, cu32(2)});
-    vector<Terminator::Jump> arms_from_two(targets.begin() + 2, targets.end());
-    from_two->terminator.data =
-        Terminator::Dispatch{count_from_two, std::move(arms_from_two)};
-    hit->terminator.data = Terminator::Dispatch{
-        one, {Terminator::Jump{from_two->name, {}}, targets[1]}};
-    block->terminator.data =
-        Terminator::Dispatch{some, {targets[0], Terminator::Jump{hit->name, {}}}};
+    // `block` enters the chain; `call` is spent either way.
+    block->terminator.data = Terminator::Dispatch{
+        some, {Terminator::Jump{none->name, {}}, Terminator::Jump{first->name, {}}}};
 }
 
 } // namespace
@@ -750,7 +1006,7 @@ std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
 size_t sort_recursion(Function &func, const Target &target,
                       const ConstantIntervals &intervals) {
     const LaneSortStrategy strategy = lane_sort_strategy(target);
-    internal_assert(strategy == LaneSortStrategy::Compact);
+    internal_assert(strategy == LaneSortStrategy::Peel);
     size_t sorted = 0;
     // Over a copy of the list: a run sorted as lanes adds the blocks of its
     // switch to the function.
