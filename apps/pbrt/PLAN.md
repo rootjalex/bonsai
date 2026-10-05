@@ -2548,7 +2548,7 @@ render that quietly leaves out a medium looks like a renderer that works.
 | 13 | `imagemap` with `mapping "planar"/"cylindrical"/"spherical"` -- **done 2026-10-03** | kroken, villa, watercolor | 3 |
 | 14 | `normalmap` on a material | bistro (131), kroken, watercolor | 3 |
 | 15 | spectral `eta` on `dielectric` (`glass-BK7`, `glass-BAF10`, `glass-F11`) -- **done 2026-10-03**, the dispersion paragraph below | dambreak, transparent-machines, crown | 3 |
-| 16 | `Shape "curve"` (millions of them) | bunny-fur, hair | 2 |
+| 16 | `Shape "curve"` (millions of them) -- **done 2026-10-04**, the curve paragraph below | bunny-fur, hair | 2 |
 | 17 | `Material "hair"` -- **done 2026-10-04**, the hair material paragraph below | bunny-fur, hair | 2 |
 | 18 | `Material "subsurface"` -- **done 2026-10-03**, the subsurface paragraph below | head, sssdragon | 2 |
 | 19 | infinite light with `portal` -- **done 2026-09-29** (d5f1a114, scenes/portal.pbrt) | kroken, watercolor | 2 |
@@ -2700,7 +2700,7 @@ Per scene, what is missing (see the converter for what is supported):
 | bistro | `zsobol`, `normalmap`, ACES env map |
 | bmw-m6 | `volpath`, `mix` -- converts as of 2026-10-03 |
 | bunny-cloud | `volpath`, `interface`, `nanovdb` medium, ACES env map -- all done by 2026-10-03: converts (147 MB grid sidecar) and renders, 0.99976x of `pbrt --wavefront` on the scalar schedule at 4 spp (the NanoVDB decision paragraph below) |
-| bunny-fur | `volpath`, `curve`, `bilinearmesh`, partial `cylinder` (**done 2026-10-03**), `hair` (**done 2026-10-04**) |
+| bunny-fur | `volpath`, `curve` (**done 2026-10-04**), `bilinearmesh` (**done 2026-10-03**), partial `cylinder` (**done 2026-10-03**), `hair` (**done 2026-10-04**) |
 | clouds | `volpath`, default `zsobol`, `Material ""`, `cloud` medium, ACES |
 | contemporary-bathroom | `sppm` |
 | crown | `volpath`, `mix`, homogeneous media -- converts as of 2026-10-03 (3,540,215 shapes) |
@@ -2709,7 +2709,7 @@ Per scene, what is missing (see the converter for what is supported):
 | explosion | `volpath`, default `zsobol`, `interface`, emissive `nanovdb`, ACES |
 | ganesha, landscape, lte-orb-simple-ball | nothing obvious; not yet run |
 | pbrt-book | nothing: renders and matches (the 2026-09-21 sweep) |
-| hair | `volpath`, `curve`, `hair` (**done 2026-10-04**) |
+| hair | `volpath`, `curve` (**done 2026-10-04**), `hair` (**done 2026-10-04**) |
 | head | `volpath`, `subsurface`, `"float cropwindow"` -- all **done 2026-10-03**; renders whole as of 2026-10-03 (the crop window paragraph below) |
 | killeroos | simple, moving, and since 2026-09-20 gold and coated-gold: nothing, all four render and match |
 | kroken | `volpath`, default `zsobol`, `mix`, `mix`/`directionmix` textures, non-uv mapping, `normalmap`, `portal`, homogeneous media -- all done by 2026-10-03, the spectral `eta` (item 15) last; converts whole (2,624,067 shapes, 10 instances) |
@@ -10140,6 +10140,342 @@ carries the CPU check. The CPU `wavefront` schedule refuses for a reason
 of its own (`full_path_step.defer`: integrator_li!Path does more with the
 result than return it), a schedule the program moved out from under, not
 looked at here either.
+
+*The curve (2026-10-04).* pbrt's Curve, the sixth shape and the one the
+hair and fur scenes are made of by the million: a cubic Bezier segment
+with a width at each end, flat (a ribbon turned to face the ray), a
+cylinder (the same with the normal turned across the width as a tube's),
+or a ribbon (a strip whose orientation the normals at its ends give).
+shapes.bonsai carries pbrt's split of the shape: a CurveCommon per curve
+directive's segment (the four control points in object space, the widths,
+a ribbon's normals with their angle and its reciprocal sine, the kind, and
+which CurveFrame -- the transform pair and the two orientation flags a
+million curves under one AttributeBegin share -- places it), and a `Crv`
+shape per [u_min, u_max] split of one, 2^splitdepth of them as pbrt's
+CreateCurve makes them; the converter takes degree 2 and 3 in the bezier
+and bspline bases and refuses what pbrt refuses (a normal-less ribbon, an
+emissive curve -- Curve::Sample is unimplemented in pbrt too). The
+intersection is Curve::IntersectRay as written: the ray into object space
+with the origin-nudge transform (`Dot(Abs(d), o.Error()) / LengthSquared(d)`
+along the direction, the quadrics' round trip without it), the segment's
+control points by blossoming, the ray space from `LookAt(o, o + d, Cross(d,
+chord))` -- whose inverse is pbrt's compensated cofactor inverse4, written
+out term by term because the control points land where pbrt's land only if
+that matrix is pbrt's to the bit -- the refinement depth off the control
+polygon's largest second difference against a twentieth of the width, and
+pbrt's depth-first recursion walked without a stack: the node named by the
+bits of the path from the root, its control points replayed by the same
+halvings (the same SubdivideCubicBezier, so the same bits), left half
+first so the nearest of several hits is kept as pbrt keeps it. The leaf is
+pbrt's: the two tangent-perpendicular edge tests, the closest point on the
+chord by the compensated dot, a ribbon's width scaled by how edge-on it is
+to the ray, distance against half the width, depth within tMax; the
+geometry pbrt's tail (dpdu the whole curve's derivative at u; dpdv a
+ribbon's normal crossed with it, a flat curve's perpendicular in the ray's
+plane, a cylinder's rotated about dpdu by v across [-90, 90] degrees; the
+error bound the width on every axis). Three forms were *fitted* rather
+than read, because gcc's fusing in pbrt is per call site
+(tree-ssa-math-opts.cc gives a product to an fma only when nothing else
+reads it, and what else reads it differs per inline site): the point lerp
+of the blossoms and de Casteljau (`lerp_p`, second product fused), the
+control points' transform into ray space (`curve_point`, first fused where
+the camera's instance of the same operator fuses the second), and the ray
+length under the hit distance (second square fused) -- each fitted over the
+curve scene's 667 recorded camera-ray hits with probe TUs over pbrt's own
+headers, and check_hits settling at 9,795 of 9,952 hit distances bit-exact,
+the remaining 157 within 5 ulps (recompiling pbrt's own source in another
+TU reproduces pbrt's bits on only 163 of the original 413 differing rays,
+so the rest is gcc's per-site fusing inside pbrt itself, not a form these
+functions can take). The driver (render_hook.cpp) pools segments as the
+other shapes and bounds one by pbrt's Curve::Bounds (the blossomed
+sub-range's control points, padded by half the larger end width, under the
+frame's transform); the sidecar carries commons and frames as two struct
+vectors at the table's end. Test: scenes/curves.pbrt -- flat cubic
+Beziers tapering as fur under the hair material, cylinders at splitdepth 1
+and 0, a quadratic Bezier, quadratic and cubic b-splines, a ribbon
+twisting between its normals under a coated material, and a flat curve
+under a mirroring scale so `flip` is told from `reverse`, under `path`
+since a curve cannot be a light -- the scalar schedule against pbrt's CPU
+`path`: normals and shading normals disagree on 0 of 81,689 pixels hit by
+both (worst 4.2e-6), radiance 0.99994x with 89.5% of pixels within 1e-3;
+wavefront-volpath against `pbrt --wavefront`: normals the same, radiance
+1.00006x, the per-pixel agreement 3.3% because the wavefront restarts its
+sample dimensions each round where the scene's `path` runs on, so the mean
+is the check. The albedo differs past 5e-3 on 1,510 pixels on both
+schedules, every one on the hair bundle: the gbuffer's sixteen-sample
+reflectance of the hair BxDF moves with `h`, and the 1.6% of hits that are
+within 5 ulps rather than bit-exact shift `v`, and `h` with it -- 93% of
+those pixels' radiance diverges too, against 7.7% elsewhere, and their
+shading normals differ by ~3e-8 where agreeing pixels' are bit-identical.
+Two cautions the scene file records: pbrt's own `--wavefront` renders a
+one-sided area light under a handedness-swapping transform 9% darker than
+its own CPU `path` (found when this scene's disk light wore a `Scale 1 -1
+1`; the light now faces down by a rotation), and `pbrt --gpu` dices curves
+into bilinear patches instead of walking them (its `--gpu` forces
+splitdepth 0 and refines), a different shape this renderer does not
+follow: the curve is one shape on every device here, so the GPU schedules
+are checked against pbrt's CPU on this scene -- gpu-optix on a volpath
+copy of it (the GPU build renders volpath alone; the scene has no media
+and no subsurface, so the integrators agree): 1 of 81,689 normals
+differing, on a silhouette, radiance 0.99949x with 82.2% of pixels within
+1e-3 under the device's fast math.
+
+## The 29-scene GPU sweep (2026-10-04)
+
+The user asked for every scene the converter takes, measured on the GPU
+against `pbrt --gpu` at 16, 64 and 128 samples per pixel, as a heatmap of
+speedups, inside six hours overnight. It ran from 00:04 to 04:11 (246
+minutes): a driver script calling `gpu_compare.sh` once per scene with
+`--resume` into one output directory, each scene under a 45-minute
+watchdog and no new scene started after five hours, then the heatmaps.
+Everything is under `apps/pbrt/compare-out-gpu-sweep/`: `table.tsv`,
+`heatmap-gpu-optix.png` (the plot asked for: `gpu-optix` is pbrt's
+wavefront on the RT cores, the like-for-like schedule), every cell's
+images as PNGs, and each scene's log. The software traversal
+(`gpu-wavefront`) ran beside it that night; the user has since said not
+to run it, and it is not in the figures below.
+
+`gpu-optix` over `pbrt --gpu`, wall time, the least of three on each side:
+
+    scene                    16 spp   64 spp  128 spp   image check
+    killeroo-simple          2.09x    1.24x    1.15x    ok
+    killeroo-gold            2.15x    1.46x    1.35x    ok
+    killeroo-coated-gold     1.55x    1.29x    1.28x    ok
+    book                     1.55x    1.23x    1.05x    ok
+    ganesha                  1.39x    1.27x    1.18x    ok
+    pavilion-day             1.32x    1.13x    1.04x    16: lit-pixel count (below)
+    zero-day frame25         1.51x    0.94x    1.34x    ok
+    lte-orb-simple-ball      1.23x    1.04x    1.02x    ok
+    lte-orb-silver           1.57x    1.31x    1.30x    ok
+    lte-orb-rough-glass      1.09x    0.99x    0.95x    ok
+    head                     2.80x    1.29x    1.22x    ok
+    sssdragon dragon_10      1.41x    1.27x    1.13x    ok
+    villa-lights-on          1.74x    1.61x    1.56x    ok
+    smoke-plume              1.45x    1.30x    1.04x    ok
+    bunny-cloud              0.97x    0.97x    0.94x    ok
+    explosion                0.91x    0.82x    0.78x    ok
+    disney-cloud             1.01x    0.98x    0.96x    ok
+    landscape view-0         1.04x    0.95x    0.92x    ok
+    zero-day frame380        1.67x    1.32x    1.23x    ok
+    crown                    1.11x    1.01x    0.98x    ok
+    kroken camera-1          2.05x    1.69x    1.66x    1.038x brighter here (below)
+    sportscar-sky            0.65x    0.62x    0.57x    ok
+    bmw-m6                   1.49x    1.35x    1.20x    0.94-0.98x darker here (below)
+    dambreak0                1.04x    0.95x    0.91x    ok
+    transparent-machines 542 0.73x    0.69x    0.68x    ok
+    villa-daylight           1.59x    1.37x    1.29x    ok
+    clouds                   0.99x    0.90x    0.90x    ok
+    sanmiguel-courtyard      1.38x    1.08x    0.99x    ok
+    bistro_cafe              1.52x    1.32x    1.27x    lit-pixel count (below)
+
+    geometric mean           1.34x    1.12x    1.07x
+
+The frame25 figure at 64 spp (0.94x against 1.51x and 1.34x either side
+of it) is a disturbed cell, not a property of the scene. Watercolor was
+not measured: its camera-1 shares a name with kroken's and the resume
+logic took it for done (fixed below), and the converter still refuses it
+for a coating's `thickness` given as a texture. Landscape's 128 spp row
+is complete for `gpu-optix`.
+
+**What the sweep's watcher got wrong, and the fixes.** The disturbance
+watcher treats any process on the GPU other than pbrt or our renderer as
+a foreign one and redoes the run; nvidia-smi names a process it cannot
+read -- one of ours on its way out -- `[No data]`, and that was taken for
+a foreign process on a quarter of the cells (the table's "redone",
+"kept disturbed" notes), each redo costing one more render. The watcher
+now ignores nvidia-smi's bracketed placeholders. The verdict column was
+cut at sixty characters, which turned "against pbrt's 1195839" into
+"against pbrt's 11" and made the lit-pixel failures read as pbrt
+rendering black; it is cut at two hundred now. Cells and rows are keyed
+by the scene's directory as well as its name, with a `path` column, so
+that kroken's and watercolor's camera-1 are two scenes (the plotter
+labels a scene by its name unless two share it). `--resume` reuses the
+converter binary as it reused the schedules'.
+
+**The hatched cells, one by one.** The image check hatches a cell when
+the lit-pixel sets differ by more than 0.1% or the means by more than
+2%. Four scenes were hatched, for three different reasons:
+
+- *bistro_cafe (all counts), pavilion-day (16 spp), sanmiguel (16 spp,
+  the software traversal only): the lit-pixel rule.* The images agree in
+  their means to 0.02% (bistro 1.00015x), and the pixels lit on one side
+  and not the other are 0.1-0.3% of them. On pavilion the one-sided
+  pixels go both ways in equal numbers (51,578 pbrt-only, 49,243
+  ours-only, of 1.36 million): paths through the glass pavilion whose
+  last bits differ between two compilers' arithmetic and part before
+  they reach the sky, which pbrt's own CPU and GPU renders show against
+  each other too (the calibration of 2026-09-29, 1.79%). On bistro they
+  are one-sided -- 6,835 pixels lit here and black in pbrt against 233
+  the other way, nearly all inside the restaurant behind its windows,
+  where only a path that leaves again through the glass finds the sky --
+  and that asymmetry is a difference of ours to find, under investigation
+  with a cropped gbuffer render of that window (the windows are
+  dielectrics with normal maps, one of them alpha-masked).
+- *kroken camera-1, 3.8% brighter here at every count.* Not noise and
+  not fireflies (clamping changes nothing): the chaise longue is 15-35%
+  brighter and the rug 10-30%, everything else within 1%. Both are the
+  scene's only `plymesh` shapes with a `"texture displacement"` -- nine
+  of the chaise, one the rug -- which pbrt refines until no edge is
+  longer than `edgelength` and displaces along the normals before
+  building its aggregate (`TriQuadMesh::Displace`, in `Shape::Create`),
+  on the CPU and the GPU alike, and which the converter had been
+  dropping: a flat rug and a smooth chaise shadow themselves less than
+  bumpy ones. The converter now does what pbrt does, with pbrt's own
+  `Displace` and pbrt's own float textures (`displaced_ply` in
+  scene_dump.cpp; the textures are created once, for this and for
+  `--print-hits`). Watercolor has four such meshes too. *Verified
+  2026-10-04* on a 1110x720 CPU gbuffer crop around the chaise
+  (pixelbounds 60 660 1170 1380 of camera-1 at 1500^2, independent 16
+  spp, volpath 15, against pbrt --wavefront): radiance mean 0.994x where
+  the scene had been 1.038x, geometric normals disagreeing on 763 pixels
+  and shading normals on 4,699, every one on a silhouette. The albedo
+  differs on 11.5% of pixels past 5e-3 -- but pbrt's own CPU volpath
+  differs from pbrt's own wavefront by 11.4% on the same crop, the
+  wavelength draws parting between integrators and tinting every
+  spectral surface's sixteen-sample estimate, so that is the scene's
+  variance and not a difference of ours. The remaining 0.6% on the
+  radiance mean (pbrt's two integrators sit 0.04% apart) is plausibly
+  the baked displacement differing from pbrt's in-process one by ulps
+  -- scene_dump is compiled with our flags, not gcc's -- and is noted,
+  not chased. A caution for the next crop: the reference scene must say
+  `"string coordinatesystem" "world"` itself -- kroken's camera-1.pbrt
+  declares `Film "gbuffer"` bare, pbrt's default is camera space
+  (film.cpp), and a reference rendered that way reads as 99.97% of
+  normals disagreeing over nothing but the frame.
+- *bmw-m6, 6% darker here at 16 spp, 3% at 64, 2% at 128.* Fireflies:
+  93-97% of the difference sits in the brightest 0.1% of pixels (pbrt's
+  brightest pixel is 11,000 at 16 spp, ours 4,100), and with both images
+  clamped at 1 the ratio is 0.998x at every count. The car's paint is a
+  coated conductor under an environment map with `regularize` on and a
+  depth of 8; a path that reaches the light through two specular bounces
+  is a rare, bright event, and once two renderers' arithmetic parts (as
+  pavilion's does) those events land in different pixels and the mean
+  of a 16-sample image follows the handful that landed. The block means
+  of the image agree to within 1% everywhere except the one block that
+  holds pbrt's brightest pixel. Whether the check should judge such a
+  scene by a firefly-robust mean as well as the plain one is a question
+  for the user; it is not a transport difference.
+- *zero-day frame25, 2.3% brighter on the software traversal only.* The
+  RT-core schedule matches pbrt on the same scene, so this is in the
+  software traversal (`gpu-wavefront`), which the user has set aside;
+  noted and not pursued.
+
+**Where we are slower, by kernel.** The per-kernel profiles the sweep
+saved (ours from BONSAI_KERNEL_STATS, pbrt's from `--stats`), summed
+into pbrt's stages at 64 spp, ours / pbrt's in milliseconds:
+
+    scene                 trace          shadow        materials      media          camera+film
+    sportscar-sky           728 /  266     401 /   55    450 /  432      8 /    0     61 / 103
+    transparent-machines   1208 / 1359    1730 /  691   2665 / 1091    331 /    0     49 / 874
+    explosion               449 /  280    1259 /  618    166 /  136   1437 / 1509     70 / 160
+    bunny-cloud            1670 /  567    6052 / 5744    781 /  583   4416 / 4640     61 / 248
+    disney-cloud           2134 /  890   11127 / 9858    587 /  187  14649 / 16068    28 / 245
+    clouds                  790 /  546    1232 /  888    426 /  105   1232 / 1184     62 / 311
+    dambreak0               692 /  847     477 /  265   1157 /  622    305 /  294     62 / 309
+    lte-orb-rough-glass     318 /  371     244 /  131    673 /  717     40 /    0     41 / 103
+    landscape view-0       1985 / 1705    1052 /  969   1301 / 1132     34 /    0    245 / 366
+    crown                   781 /  956     867 /  553   2491 / 2351    321 /  362     43 / 368
+
+Three patterns, none of them in the material code the earlier rounds
+tuned:
+
+1. *The shadow-ray kernel is slower on most of these scenes* -- 7x on
+   sportscar-sky, 2.5x on transparent-machines, 2x on explosion, 1.9x on
+   lte-orb-rough-glass, 1.8x on dambreak, 1.6x on crown -- where on
+   killeroo it is 1.4x and on book level. Without media our shadow
+   continuation is pbrt's: an `any` trace with terminate-on-first-hit and
+   no closest-hit program, then `Ld / average(r_u + r_l)`. So the cost is
+   in the trace itself or around it, not in what follows.
+2. *The closest-hit trace is slower on sportscar (2.7x) and on every
+   medium scene (1.4-2.9x)*, and faster than pbrt's on the scenes the
+   earlier rounds measured. Sportscar-sky is 48 PLY meshes of 3.6 million
+   triangles under one transform, no instances, no alpha, no custom
+   primitives: plain hardware traversal, and ours takes 2.7x pbrt's time
+   for the same rays. Bunny-cloud's geometry is trivial, so there the
+   per-ray cost of the kernel around the trace is what is 3x.
+3. *The dielectric material kernel is 2x slower on the two dispersion
+   scenes* (transparent-machines, dambreak: `dielectric` with a spectral
+   `eta`, where the path drops to one wavelength), and the medium scenes'
+   `interface` boundaries cost 3-4x in our material kernels.
+
+What differs structurally: our ray kernel is the whole step of the path
+around the trace -- 16,600 lines of PTX for `__raygen__rays` against
+pbrt's 600 for `__raygen__findClosest`, whose work after the hit lives in
+its 10,800-line closest-hit program -- so everything the step needs after
+the hit is live across the `optixTrace` call and is saved to and restored
+from the continuation stack per ray. Nsight Compute on the first sample's
+launches of sportscar (ncu over both renderers' first launches: time,
+registers, occupancy, DRAM, L2 and local-memory bytes, instructions,
+launch by launch; the scripts were scratch and died with the 2026-10-04
+reboot -- the machine went down with a driver fault while ncu sat on an
+OptiX launch, so profile OptiX with care) says that is *not* where the
+time goes: pbrt's raygen spills a
+comparable amount (419 MB of local stores per million camera rays
+against our 676 MB), both run at 128 registers and 30-33% occupancy, and
+the camera-ray launches take the same time (1.13 against 1.20 ms). What
+the profiles did find, in the order found:
+
+**(1) Sportscar traced software patches where pbrt traces hardware
+triangles -- fixed.** The 48 PLY meshes of the car are quads. The
+converter followed pbrt's CPU, whose `Shape::Create` keeps a PLY's quads
+as a bilinear patch mesh, so the whole car reached OptiX as 3,578,632
+custom primitives with our 6,000-line intersection program, run at every
+candidate hit (the runtime's new BONSAI_OPTIX_STATS report: "0 triangle
+inputs ... 1 box inputs (3578632 boxes)"); pbrt's OptiX aggregate
+(`PreparePLYMeshes`) calls `TriQuadMesh::ConvertToOnlyTriangles` on
+every PLY first, so its hardware traced 7,157,264 triangles. Our shadow
+launches executed 6.4x pbrt's instructions for the same rays, and the
+losses grew with incoherence: camera rays 0.9x, bounce rays 4-13x,
+shadow rays 9-21x per launch. `scene_dump --gpu` now converts the scene
+as `pbrt --gpu` builds it (the quads split as pbrt splits them; nothing
+else of `--gpu`'s differs for these scenes -- the dicing of curves is
+not followed), and `gpu_compare.sh` passes it, since `pbrt --gpu` is its
+reference. Sportscar-sky at 64 spp, kernel time: trace 728 -> 237 ms
+(pbrt 266), shadow 401 -> 40 (pbrt 55), total 1,680 -> 883 against
+pbrt's 922; the structure 184.5 MB compacted against pbrt's 176. No
+other swept scene has quads in its PLYs (the report, run over them all).
+
+**(2) Launches of empty queues.** Every depth, the driver launches every
+material arm's kernel (eleven), the two subsurface kernels (probes,
+exit_shadow) and the two medium kernels, whether or not the scene has
+that material, a subsurface material or a medium; each empty launch is
+the band's 1,036,800 threads exiting, 6-20 µs, and a deep scene launches
+tens of thousands of times. pbrt skips them with flags set once per
+scene (`haveBasicEvalMaterial[type]`, `haveSubsurface`, `haveMedia`,
+wavefront/integrator.cpp `updateMaterialNeeds`). From the sweep's own
+kernel profiles at 64 spp, the time in kernels whose every launch was
+empty, and the kernel-time ratio against pbrt without it:
+
+    scene                  empty share   kernels pbrt/ours   without the empties
+    transparent-machines        41%            0.79x              1.33x
+    lte-orb-rough-glass         20%            1.02x              1.28x
+    dambreak                    19%            0.99x              1.22x
+    crown                       17%            1.05x              1.26x
+    killeroo-simple             14%            1.13x              1.31x
+    clouds                      13%            0.92x              1.06x
+    book                        12%            1.18x              1.33x
+    sanmiguel                    7%            0.97x              1.05x
+
+This corrects the stage table above: transparent-machines' "shadow" and
+"materials" losses were these (its shadow kernel proper is 545 ms
+against pbrt's 603, its dielectric kernel 887 against 638). The fix
+proposed to the user: the driver computes at load time which material
+arms occur, whether any material is subsurface and whether anything
+names a medium (`have_media` and `have_subsurface` are program
+parameters already), and the generated host code skips a drain's launch
+when its queue cannot be fed -- pbrt's flags, read off the scene.
+
+**(3) The medium scenes' ray and shadow-transmittance kernels -- open.**
+On bunny-cloud, launch by launch, our ray kernel is 2-3x faster than
+pbrt's at the first depths (0.24 against 0.65 ms) and has a floor of
+0.16-0.19 ms per launch at deep depths where pbrt's is 0.06-0.10, plus
+rare launches of 3-5 ms with few instructions and 33% occupancy: warps
+resident and waiting. The shadow-transmittance launches show the same
+shape. Was under investigation with the warp-stall sections of Nsight
+Compute on one such launch against pbrt's when the machine went down
+(2026-10-04, a driver nullptr fault, likely ncu on an OptiX launch); on
+hold until the finished work is committed, and then plain renders before
+any profiler.
 
 ## Known-open, smaller
 

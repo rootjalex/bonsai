@@ -71,6 +71,7 @@
 #include <pbrt/util/hash.h>
 #include <pbrt/shapes.h>
 #include <pbrt/util/colorspace.h>
+#include <pbrt/util/splines.h>
 #include <pbrt/util/file.h>
 #include <pbrt/util/loopsubdiv.h>
 #include <pbrt/util/lowdiscrepancy.h>
@@ -797,6 +798,11 @@ void ensure_rgb_table(bonsai_scene::Scene &out) {
 // the only things it needs that are not in the parameter it is looking at.
 const CapturingBuilder *g_builder = nullptr;
 bonsai_scene::Scene *g_scene = nullptr;
+
+// The curve frames written so far (Scene::curve_frames), by their two
+// matrices and two flags, so that every curve declared under one transform
+// -- bunny-fur's million and a half -- names one entry.
+std::map<std::array<float, 34>, uint32_t> g_curve_frames;
 std::string g_scene_dir;
 std::map<std::string, int32_t> g_texture_index;
 // The pyramid PBRT built for each converted texture, by the name the material
@@ -3927,6 +3933,75 @@ const pbrt::TriQuadMesh &read_ply(const std::string &file) {
     return it->second;
 }
 
+// `--gpu`: the scene as `pbrt --gpu` builds it, where that differs from the
+// CPU's. PBRT's OptiX aggregate (gpu/optix/aggregate.cpp, PreparePLYMeshes)
+// turns every quad of every `plymesh` into two triangles
+// (TriQuadMesh::ConvertToOnlyTriangles) so that the hardware traces them,
+// where the CPU keeps the quads as bilinear patches; a renderer compared
+// against `pbrt --gpu` has to get the triangles, or it traces 3.6 million
+// bilinear patches of sportscar's body in software against pbrt's 7.2
+// million hardware triangles, and loses by 2x on every ray. (The dicing of
+// curves into patches under --gpu is not followed: the curve is a shape
+// here on both sides.)
+bool g_gpu = false;
+
+// PBRT: a `plymesh` with a `displacement` texture (shapes.cpp's plymesh
+// branch) -- kroken's chaise longue and rug, watercolor's cushions -- is
+// refined until no edge is longer than `edgelength` in render space (times
+// the --displacement-edge-scale option, 1 by default), each vertex is moved
+// along its normal by the float texture at its uv, and the normals are
+// recomputed: TriQuadMesh::Displace, which turns quads into triangles first.
+// What the renderer gets is that mesh, as PBRT's own aggregate gets it, so a
+// displaced surface shadows itself here as it does there; left out, kroken's
+// rug and chaise rendered a quarter brighter than PBRT's. The textures are
+// PBRT's own (NamedTextures, created once by `load` when a scene has such a
+// shape), evaluated by PBRT's evaluator, so the vertices land where PBRT's
+// do up to the compiler's fusing of `p + d * n`.
+const std::map<std::string, pbrt::FloatTexture> *g_float_textures = nullptr;
+
+std::string displacement_texture_of(const pbrt::ShapeSceneEntity &entity) {
+    return entity.name == "plymesh" ? entity.parameters.GetTexture("displacement")
+                                    : std::string();
+}
+
+pbrt::TriQuadMesh displaced_ply(const pbrt::ShapeSceneEntity &entity,
+                                const pbrt::TriQuadMesh &ply,
+                                const std::string &texture_name) {
+    if (g_float_textures == nullptr) {
+        fail("a plymesh with a `displacement` texture before the textures "
+             "were created");
+    }
+    const auto it = g_float_textures->find(texture_name);
+    if (it == g_float_textures->end()) {
+        fail("plymesh displacement texture \"" + texture_name +
+             "\" is not a float texture of the scene (PBRT refuses this too)");
+    }
+    const pbrt::FloatTexture displacement = it->second;
+    const float edge_length = entity.parameters.GetOneFloat("edgelength", 1.f) *
+                              pbrt::Options->displacementEdgeScale;
+    const pbrt::Transform *render_from_object = entity.renderFromObject;
+    return ply.Displace(
+        [&](pbrt::Point3f v0, pbrt::Point3f v1) {
+            v0 = (*render_from_object)(v0);
+            v1 = (*render_from_object)(v1);
+            return pbrt::Distance(v0, v1);
+        },
+        edge_length,
+        [&](pbrt::Point3f *p, const pbrt::Normal3f *n, const pbrt::Point2f *uv,
+            int n_vertices) {
+            // PBRT does this in a ParallelFor; the vertices are independent,
+            // so the order changes nothing.
+            for (int i = 0; i < n_vertices; i++) {
+                pbrt::TextureEvalContext ctx;
+                ctx.p = p[i];
+                ctx.uv = uv[i];
+                const float d = pbrt::UniversalTextureEvaluator()(displacement, ctx);
+                p[i] += pbrt::Vector3f(d * n[i]);
+            }
+        },
+        &entity.loc);
+}
+
 // transform to the vertices rather than storing it, so a shape's placement is
 // already baked in here the same way it is in PBRT.
 const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
@@ -3962,10 +4037,41 @@ const pbrt::TriangleMesh *triangulate(const pbrt::ShapeSceneEntity &entity) {
         if (file.empty()) {
             fail("a plymesh has no \"filename\"");
         }
+        const std::string displacement = displacement_texture_of(entity);
+        if (!displacement.empty()) {
+            // Displaced: triangles only, every quad split, the vertices
+            // moved -- a mesh of this shape's own, not the file's.
+            const pbrt::TriQuadMesh displaced =
+                displaced_ply(entity, read_ply(file), displacement);
+            if (displaced.triIndices.empty()) {
+                fail("the displaced PLY file " + file + " has no faces");
+            }
+            return alloc.new_object<pbrt::TriangleMesh>(
+                *entity.renderFromObject, entity.reverseOrientation,
+                displaced.triIndices, displaced.p, std::vector<pbrt::Vector3f>(),
+                displaced.n, displaced.uv, displaced.faceIndices, alloc);
+        }
+        if (g_gpu && !read_ply(file).quadIndices.empty()) {
+            // `pbrt --gpu`: the quads split into triangles, as
+            // PreparePLYMeshes splits them (above).
+            static std::map<std::string, pbrt::TriQuadMesh> as_triangles;
+            auto it = as_triangles.find(file);
+            if (it == as_triangles.end()) {
+                pbrt::TriQuadMesh split = read_ply(file);
+                split.ConvertToOnlyTriangles();
+                it = as_triangles.emplace(file, std::move(split)).first;
+            }
+            const pbrt::TriQuadMesh &tris = it->second;
+            return alloc.new_object<pbrt::TriangleMesh>(
+                *entity.renderFromObject, entity.reverseOrientation,
+                tris.triIndices, tris.p, std::vector<pbrt::Vector3f>(), tris.n,
+                tris.uv, tris.faceIndices, alloc);
+        }
         const pbrt::TriQuadMesh &ply = read_ply(file);
-        // A PLY may hold quads as well as triangles, and PBRT makes those a
-        // bilinear patch mesh rather than splitting them -- a bilinear patch
-        // is not two triangles unless it happens to be planar. The quads are
+        // A PLY may hold quads as well as triangles, and PBRT's CPU makes
+        // those a bilinear patch mesh rather than splitting them -- a
+        // bilinear patch is not two triangles unless it happens to be planar
+        // (its GPU splits them: `--gpu` above). The quads are
         // `patch_mesh_of`'s; the triangles, if there are any, are this mesh.
         if (ply.triIndices.empty()) {
             if (ply.quadIndices.empty()) {
@@ -4005,6 +4111,12 @@ patch_mesh_of(const pbrt::ShapeSceneEntity &entity) {
     }
 
     if (name == "plymesh") {
+        if (!displacement_texture_of(entity).empty() || g_gpu) {
+            // Displaced: PBRT splits the quads into triangles before
+            // displacing, so the whole mesh is `triangulate`'s; and so is
+            // every PLY's under `--gpu` (g_gpu).
+            return nullptr;
+        }
         const std::string file =
             pbrt::ResolveFilename(entity.parameters.GetOneString("filename", ""));
         const pbrt::TriQuadMesh &ply = read_ply(file);
@@ -6256,6 +6368,189 @@ void load(const char *filename, bonsai_scene::Scene &out) {
             }
             into.push_back(shape);
 
+        } else if (name == "curve") {
+            // PBRT: Curve::Create and CreateCurve. The control points are
+            // read as the degree and basis say -- a cubic Bezier takes four
+            // and shares its last with the next segment, a quadratic three,
+            // a uniform b-spline one more point per segment -- and every
+            // segment becomes a cubic Bezier by PBRT's own conversions
+            // (util/splines.h: ElevateQuadraticBezierToCubic,
+            // QuadraticBSplineToBezier, CubicBSplineToBezier), with the
+            // widths lerped to the segment's ends; a CurveCommon per
+            // segment, and 2^splitdepth Curve shapes over it, as PBRT's
+            // CreateCurve makes them. splitdepth is the scene's or 3; PBRT
+            // forces 0 under --gpu, where it dices curves into patches
+            // instead -- that is PBRT's GPU and not this renderer's, which
+            // walks the curve itself on every device. A ribbon needs a
+            // normal per segment end; normals on any other kind are dropped
+            // with a warning, as PBRT drops them. The common's derived
+            // fields -- normalized normals, the angle between them and
+            // 1 / sin of it -- come from PBRT's own CurveCommon constructor,
+            // and an emissive curve is refused, since PBRT's Curve::Sample
+            // is `LOG_FATAL("not implemented")`.
+            const pbrt::Float width = entity.parameters.GetOneFloat("width", 1.f);
+            const pbrt::Float width0 = entity.parameters.GetOneFloat("width0", width);
+            const pbrt::Float width1 = entity.parameters.GetOneFloat("width1", width);
+            const int degree = entity.parameters.GetOneInt("degree", 3);
+            if (degree != 2 && degree != 3) {
+                fail("curve: only degree 2 and 3 curves are supported -- PBRT's own error");
+            }
+            const std::string basis = entity.parameters.GetOneString("basis", "bezier");
+            if (basis != "bezier" && basis != "bspline") {
+                fail("curve: only the \"bezier\" and \"bspline\" bases are supported -- "
+                     "PBRT's own error");
+            }
+            const std::vector<pbrt::Point3f> cp = entity.parameters.GetPoint3fArray("P");
+            int n_segments = 0;
+            if (basis == "bezier") {
+                if (cp.size() < size_t(degree + 1) ||
+                    ((cp.size() - 1 - size_t(degree)) % size_t(degree)) != 0) {
+                    fail("curve: a degree " + std::to_string(degree) +
+                         " Bezier curve needs " + std::to_string(degree + 1) + " + n * " +
+                         std::to_string(degree) + " control points, and this one has " +
+                         std::to_string(cp.size()) + " -- PBRT's own error");
+                }
+                n_segments = int((cp.size() - 1) / size_t(degree));
+            } else {
+                if (cp.size() < size_t(degree + 1)) {
+                    fail("curve: a degree " + std::to_string(degree) +
+                         " b-spline needs at least " + std::to_string(degree + 1) +
+                         " control points -- PBRT's own error");
+                }
+                n_segments = int(cp.size() - size_t(degree));
+            }
+            const std::string curve_type = entity.parameters.GetOneString("type", "flat");
+            pbrt::CurveType type = pbrt::CurveType::Cylinder;
+            if (curve_type == "flat") {
+                type = pbrt::CurveType::Flat;
+            } else if (curve_type == "ribbon") {
+                type = pbrt::CurveType::Ribbon;
+            } else if (curve_type != "cylinder") {
+                fprintf(stderr, "scene_dump: unknown curve type \"%s\", using \"cylinder\" "
+                                "as PBRT does\n", curve_type.c_str());
+            }
+            std::vector<pbrt::Normal3f> norms = entity.parameters.GetNormal3fArray("N");
+            if (!norms.empty()) {
+                if (type != pbrt::CurveType::Ribbon) {
+                    fprintf(stderr, "scene_dump: curve normals are only used with "
+                                    "\"ribbon\" curves, dropped as PBRT drops them\n");
+                    norms.clear();
+                } else if (norms.size() != size_t(n_segments + 1)) {
+                    fail("curve: a ribbon with " + std::to_string(n_segments) +
+                         " segments needs " + std::to_string(n_segments + 1) +
+                         " normals, and this one has " + std::to_string(norms.size()) +
+                         " -- PBRT's own error");
+                }
+            } else if (type == pbrt::CurveType::Ribbon) {
+                fail("curve: a ribbon needs normals \"N\" at its ends -- PBRT's own error");
+            }
+            const int split_depth = entity.parameters.GetOneInt("splitdepth", 3);
+            if (split_depth < 0 || split_depth > 10) {
+                fail("curve: splitdepth has to be between 0 and 10");
+            }
+            if (light >= 0) {
+                fail("an emissive curve is not supported: PBRT's Curve::Sample is "
+                     "unimplemented (it exits), so no PBRT scene has one");
+            }
+            // The frame, shared by every curve under one transform.
+            const pbrt::Transform object_from_render = pbrt::Inverse(render_from_object);
+            bonsai_scene::CurveFrame frame;
+            write_frame(frame.render_from_object, render_from_object);
+            write_frame(frame.object_from_render, object_from_render);
+            frame.flip = (entity.reverseOrientation ^ render_from_object.SwapsHandedness())
+                             ? 1u
+                             : 0u;
+            frame.reverse = entity.reverseOrientation ? 1u : 0u;
+            std::array<float, 34> frame_key;
+            std::copy(frame.render_from_object, frame.render_from_object + 16,
+                      frame_key.begin());
+            std::copy(frame.object_from_render, frame.object_from_render + 16,
+                      frame_key.begin() + 16);
+            frame_key[32] = float(frame.flip);
+            frame_key[33] = float(frame.reverse);
+            uint32_t frame_index;
+            {
+                const auto found = g_curve_frames.find(frame_key);
+                if (found == g_curve_frames.end()) {
+                    frame_index = uint32_t(out.curve_frames.size());
+                    out.curve_frames.push_back(frame);
+                    g_curve_frames.emplace(frame_key, frame_index);
+                } else {
+                    frame_index = found->second;
+                }
+            }
+            const int n_split = 1 << split_depth;
+            size_t cp_offset = 0;
+            for (int seg = 0; seg < n_segments; seg++) {
+                pstd::array<pbrt::Point3f, 4> seg_cp;
+                if (basis == "bezier") {
+                    if (degree == 2) {
+                        seg_cp = pbrt::ElevateQuadraticBezierToCubic(
+                            pstd::MakeConstSpan(cp).subspan(cp_offset, 3));
+                    } else {
+                        for (int i = 0; i < 4; i++) {
+                            seg_cp[i] = cp[cp_offset + size_t(i)];
+                        }
+                    }
+                    cp_offset += size_t(degree);
+                } else {
+                    if (degree == 2) {
+                        const pstd::array<pbrt::Point3f, 3> bez = pbrt::QuadraticBSplineToBezier(
+                            pstd::MakeConstSpan(cp).subspan(cp_offset, 3));
+                        seg_cp = pbrt::ElevateQuadraticBezierToCubic(pstd::MakeConstSpan(bez));
+                    } else {
+                        seg_cp = pbrt::CubicBSplineToBezier(
+                            pstd::MakeConstSpan(cp).subspan(cp_offset, 4));
+                    }
+                    cp_offset++;
+                }
+                pstd::span<const pbrt::Normal3f> nspan;
+                if (!norms.empty()) {
+                    nspan = pstd::MakeSpan(&norms[size_t(seg)], 2);
+                }
+                const pbrt::Float w0 = pbrt::Lerp(pbrt::Float(seg) / pbrt::Float(n_segments),
+                                                  width0, width1);
+                const pbrt::Float w1 = pbrt::Lerp(
+                    pbrt::Float(seg + 1) / pbrt::Float(n_segments), width0, width1);
+                const pbrt::CurveCommon common(seg_cp, w0, w1, type, nspan,
+                                               &render_from_object, &object_from_render,
+                                               entity.reverseOrientation);
+                bonsai_scene::CurveCommon record;
+                for (int i = 0; i < 4; i++) {
+                    record.p[3 * i + 0] = common.cpObj[i].x;
+                    record.p[3 * i + 1] = common.cpObj[i].y;
+                    record.p[3 * i + 2] = common.cpObj[i].z;
+                }
+                record.width[0] = common.width[0];
+                record.width[1] = common.width[1];
+                if (!norms.empty()) {
+                    for (int i = 0; i < 2; i++) {
+                        record.n[3 * i + 0] = common.n[i].x;
+                        record.n[3 * i + 1] = common.n[i].y;
+                        record.n[3 * i + 2] = common.n[i].z;
+                    }
+                    record.normal_angle = common.normalAngle;
+                    record.inv_sin_normal_angle = common.invSinNormalAngle;
+                }
+                record.kind = uint32_t(type);
+                record.frame = frame_index;
+                const uint32_t common_index = uint32_t(out.curve_commons.size());
+                out.curve_commons.push_back(record);
+                for (int i = 0; i < n_split; i++) {
+                    bonsai_scene::Shape shape;
+                    shape.tag = bonsai_scene::ShapeTag::Curve;
+                    shape.curve_common = common_index;
+                    shape.u_min = float(i) / float(n_split);
+                    shape.u_max = float(i + 1) / float(n_split);
+                    shape.material = material;
+                    shape.light = light;
+                    shape.alpha = alpha;
+                    shape.medium_inside = medium_inside;
+                    shape.medium_outside = medium_outside;
+                    into.push_back(shape);
+                }
+            }
+
         } else {
             // Everything that is ultimately a mesh arrives here in render
             // space: a triangle mesh (`triangulate`), a bilinear patch mesh
@@ -6429,6 +6724,33 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         }
     };
 
+    // PBRT's own textures, created once -- CreateTextures consumes the
+    // parse's futures and can run only once -- for the displaced PLY meshes
+    // (displaced_ply, above) and for --print-hits and --print-differentials
+    // below, which build PBRT's materials and lights over them. Created only
+    // when something needs them: it reads every image texture.
+    std::optional<pbrt::NamedTextures> named_textures;
+    const auto textures_of_scene = [&]() -> pbrt::NamedTextures & {
+        if (!named_textures) {
+            named_textures = scene.CreateTextures();
+        }
+        return *named_textures;
+    };
+    {
+        bool any_displaced = false;
+        for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
+            any_displaced |= !displacement_texture_of(entity).empty();
+        }
+        for (const auto &[name, definition] : scene.instanceDefinitions) {
+            for (const pbrt::ShapeSceneEntity &entity : definition->shapes) {
+                any_displaced |= !displacement_texture_of(entity).empty();
+            }
+        }
+        if (any_displaced) {
+            g_float_textures = &textures_of_scene().floatTextures;
+        }
+    }
+
     for (const pbrt::ShapeSceneEntity &entity : scene.shapes) {
         convert_shape(entity, shapes);
     }
@@ -6564,6 +6886,40 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                     pbrt::Point3f(-s.radius, -s.radius, s.z_min),
                     pbrt::Point3f(s.radius, s.radius, s.z_max)));
             }
+            if (s.tag == bonsai_scene::ShapeTag::Curve) {
+                // PBRT: Curve::Bounds, through PBRT's own Curve over the
+                // record's common and frame.
+                const bonsai_scene::CurveCommon &c = out.curve_commons[s.curve_common];
+                const bonsai_scene::CurveFrame &f = out.curve_frames[c.frame];
+                pbrt::Float m[4][4], minv[4][4];
+                for (int r = 0; r < 4; r++) {
+                    for (int k = 0; k < 4; k++) {
+                        m[r][k] = f.render_from_object[4 * r + k];
+                        minv[r][k] = f.object_from_render[4 * r + k];
+                    }
+                }
+                const pbrt::Transform render_from_object{pbrt::SquareMatrix<4>(m),
+                                                         pbrt::SquareMatrix<4>(minv)};
+                const pbrt::Transform object_from_render{pbrt::SquareMatrix<4>(minv),
+                                                         pbrt::SquareMatrix<4>(m)};
+                pbrt::Point3f cp[4];
+                pbrt::Normal3f n[2];
+                for (int i = 0; i < 4; i++) {
+                    cp[i] = pbrt::Point3f(c.p[3 * i], c.p[3 * i + 1], c.p[3 * i + 2]);
+                }
+                for (int i = 0; i < 2; i++) {
+                    n[i] = pbrt::Normal3f(c.n[3 * i], c.n[3 * i + 1], c.n[3 * i + 2]);
+                }
+                pstd::span<const pbrt::Normal3f> nspan;
+                if (c.kind == 2) {
+                    nspan = pstd::MakeConstSpan(n, 2);
+                }
+                const pbrt::CurveCommon common(pstd::MakeConstSpan(cp, 4), c.width[0],
+                                               c.width[1], pbrt::CurveType(c.kind), nspan,
+                                               &render_from_object, &object_from_render,
+                                               f.reverse != 0);
+                return pbrt::Curve(&common, s.u_min, s.u_max).Bounds();
+            }
             if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 pbrt::Bounds3f b;
                 uint32_t corner[4];
@@ -6682,7 +7038,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // spectrum ones; the renderer, which does not know which a texture was
     // declared as, prints both and the script keeps the one PBRT printed.
     if (g_print_differentials) {
-        pbrt::NamedTextures textures = scene.CreateTextures();
+        pbrt::NamedTextures &textures = textures_of_scene();
         const pbrt::SampledWavelengths lambda =
             pbrt::SampledWavelengths::SampleVisible(0.5f);
         printf("lambda: %.9g %.9g %.9g %.9g\n", double(lambda[0]),
@@ -6816,7 +7172,7 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // primitives over them.
     if (g_print_hits) {
         std::map<std::string, pbrt::Medium> media = scene.CreateMedia();
-        pbrt::NamedTextures textures = scene.CreateTextures();
+        pbrt::NamedTextures &textures = textures_of_scene();
         std::map<int, pstd::vector<pbrt::Light> *> shape_area_lights;
         std::vector<pbrt::Light> lights =
             scene.CreateLights(textures, &shape_area_lights);
@@ -6950,6 +7306,9 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
     out.reserve(count);
     size_t next_triangle = 0;
     size_t next_patch = 0;
+    // PBRT's CurveCommons by this file's common index, shared by the
+    // segments over each as PBRT's CreateCurve shares them.
+    std::map<uint32_t, pbrt::CurveCommon *> commons;
     for (size_t i = 0; i < count; i++) {
         const bonsai_scene::Shape &s = shapes[i];
         if (s.tag == bonsai_scene::ShapeTag::Patch) {
@@ -7002,6 +7361,47 @@ std::vector<pbrt::Shape> pbrt_shapes(const bonsai_scene::Scene &scene,
                     render_from_object, object_from_render, s.reverse != 0,
                     s.radius, s.z_min, s.z_max, pbrt::Degrees(s.phi_max)));
             }
+        } else if (s.tag == bonsai_scene::ShapeTag::Curve) {
+            // PBRT's own Curve over the record's common -- one CurveCommon
+            // per common, shared by its segments as PBRT shares it -- and
+            // the frame's transforms, allocated to persist as the sphere's
+            // are.
+            auto found = commons.find(s.curve_common);
+            if (found == commons.end()) {
+                const bonsai_scene::CurveCommon &c = scene.curve_commons[s.curve_common];
+                const bonsai_scene::CurveFrame &f = scene.curve_frames[c.frame];
+                pbrt::Float m[4][4], minv[4][4];
+                for (int r = 0; r < 4; r++) {
+                    for (int k = 0; k < 4; k++) {
+                        m[r][k] = f.render_from_object[4 * r + k];
+                        minv[r][k] = f.object_from_render[4 * r + k];
+                    }
+                }
+                const pbrt::Transform *render_from_object =
+                    alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(m),
+                                                      pbrt::SquareMatrix<4>(minv));
+                const pbrt::Transform *object_from_render =
+                    alloc.new_object<pbrt::Transform>(pbrt::SquareMatrix<4>(minv),
+                                                      pbrt::SquareMatrix<4>(m));
+                pbrt::Point3f cp[4];
+                pbrt::Normal3f n[2];
+                for (int i = 0; i < 4; i++) {
+                    cp[i] = pbrt::Point3f(c.p[3 * i], c.p[3 * i + 1], c.p[3 * i + 2]);
+                }
+                for (int i = 0; i < 2; i++) {
+                    n[i] = pbrt::Normal3f(c.n[3 * i], c.n[3 * i + 1], c.n[3 * i + 2]);
+                }
+                pstd::span<const pbrt::Normal3f> nspan;
+                if (c.kind == 2) {
+                    nspan = pstd::MakeConstSpan(n, 2);
+                }
+                pbrt::CurveCommon *common = alloc.new_object<pbrt::CurveCommon>(
+                    pstd::MakeConstSpan(cp, 4), c.width[0], c.width[1],
+                    pbrt::CurveType(c.kind), nspan, render_from_object,
+                    object_from_render, f.reverse != 0);
+                found = commons.emplace(s.curve_common, common).first;
+            }
+            out.push_back(alloc.new_object<pbrt::Curve>(found->second, s.u_min, s.u_max));
         } else {
             out.push_back(triangles[next_triangle++]);
         }
@@ -7262,6 +7662,8 @@ int main(int argc, char **argv) {
         } else if (arg == "--print-hits") {
             // Likewise: PBRT's aggregate is built from the parsed scene.
             g_print_hits = true;
+        } else if (arg == "--gpu") {
+            g_gpu = true;
         } else if (arg == "--disable-pixel-jitter") {
             disable_pixel_jitter = true;
         } else if (arg == "--spp") {
@@ -7298,7 +7700,9 @@ int main(int argc, char **argv) {
         !shading_only && !light_only && !shape_sample_only &&
         positional.size() != 2) {
         fail("usage: scene_dump [--pbrt-tree] [--spp <n>] [--maxdepth <n>]"
-             " [--disable-pixel-jitter] <scene.pbrt> <out.txt>\n"
+             " [--disable-pixel-jitter] [--gpu] <scene.pbrt> <out.txt>\n"
+             "         (--gpu: the scene as `pbrt --gpu` builds it -- a PLY's"
+             " quads as triangles)\n"
              "       scene_dump --check-tables\n"
              "       scene_dump --print-sampler\n"
              "       scene_dump --print-noise\n"

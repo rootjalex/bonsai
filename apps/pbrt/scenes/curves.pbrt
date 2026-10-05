@@ -1,0 +1,150 @@
+# Curves: pbrt's Curve, the cubic Bezier segment with a width, which the
+# hair and fur scenes are made of by the million. A `Shape "curve"` gives
+# its control points in one of two bases (bezier, bspline) at degree 2 or 3,
+# a width at each end, a type -- flat (a ribbon turned to face the ray),
+# cylinder (the same, with the normal turned across the width as a tube's),
+# or ribbon (a strip whose orientation the normals `N` at its ends give) --
+# and a splitdepth, which pbrt splits each segment by into 2^d shapes.
+# The intersection is pbrt's recursive one: the curve projected into a frame
+# about the ray, halved while the ray's box overlaps a half's, and tested
+# at the leaves against its width.
+#
+# Curves here where pbrt's reference is its CPU integrator (`pbrt --gpu`
+# dices curves into bilinear patches instead, which is a different shape);
+# `Integrator "path"`, since a curve cannot be a light (pbrt's Curve::Sample
+# is unimplemented) and nothing here needs a medium. Several of every kind:
+# cubic Beziers at the default split, a two-segment one at splitdepth 1 and
+# a one-piece one at 0, a quadratic Bezier, cubic and quadratic b-splines
+# through more points, cylinders and a ribbon, under a hair material and a
+# diffuse one, with widths that taper.
+
+Integrator "path"
+    "integer maxdepth" [ 5 ]
+
+LookAt 0 2.2 6.5   0 0.9 0   0 1 0
+Camera "perspective"
+    "float fov" [ 38 ]
+
+Sampler "independent"
+    "integer pixelsamples" [ 64 ]
+
+Film "gbuffer"
+    "string filename" [ "curves.exr" ]
+    "string coordinatesystem" [ "world" ]
+    "bool savefp16" false
+    "integer xresolution" [ 400 ]
+    "integer yresolution" [ 300 ]
+
+WorldBegin
+
+# The disk faces down by a rotation, not a mirror: under a
+# handedness-swapping transform (`Scale 1 -1 1` then `Rotate -90`) pbrt's
+# own --wavefront renders this one-sided light 9% darker than its own CPU
+# `path` on the same file (0.912x on a floor-and-light scene, uniform over
+# the image, all of it in the direct term), so a mirrored light here would
+# measure pbrt against pbrt. The mirrored-geometry test this scene does
+# mean to make is the flat curve under `Scale -1 1 1` below.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0 0 0 ]
+    Translate 0 5 1
+    Rotate 90 1 0 0
+    AreaLightSource "diffuse"
+        "rgb L" [ 8 7.6 7 ]
+    Shape "disk"
+        "float radius" [ 2 ]
+AttributeEnd
+
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.4 0.4 0.45 ]
+    Shape "trianglemesh"
+        "integer indices" [ 0 1 2 2 3 0 ]
+        "point3 P" [ -20 0 -20   20 0 -20   20 0 20   -20 0 20 ]
+AttributeEnd
+
+# Flat cubic Beziers, hair-coloured, at the default split of 8: a bundle
+# leaning left, their widths tapering tip-ward as a fur's do.
+AttributeBegin
+    Material "hair"
+        "float eumelanin" [ 0.6 ]
+        "float beta_m" [ 0.4 ]
+    Translate -1.6 0 0
+    Shape "curve"
+        "float width0" [ 0.16 ]
+        "float width1" [ 0.03 ]
+        "point3 P" [ 0 0 0   -0.3 0.7 0.1   -0.2 1.4 -0.2   -0.6 1.9 0.1 ]
+    Shape "curve"
+        "float width0" [ 0.14 ]
+        "float width1" [ 0.02 ]
+        "point3 P" [ 0.3 0 0.1   0.2 0.8 0.3   -0.1 1.3 0   -0.3 1.8 -0.3 ]
+    Shape "curve"
+        "float width0" [ 0.12 ]
+        "float width1" [ 0.02 ]
+        "point3 P" [ -0.3 0 -0.2   -0.5 0.6 -0.1   -0.6 1.2 0.2   -0.9 1.6 0.4 ]
+AttributeEnd
+
+# A two-segment cubic Bezier at splitdepth 1 and a one-piece at 0, as
+# cylinders.
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.7 0.3 0.2 ]
+    Translate -0.4 0 0
+    Shape "curve"
+        "string type" [ "cylinder" ]
+        "float width" [ 0.2 ]
+        "integer splitdepth" [ 1 ]
+        "point3 P" [ 0 0 0   0.2 0.6 0.4   0.4 1 0   0.2 1.3 -0.3
+                     0 1.6 -0.6   -0.3 1.9 -0.3   -0.2 2.2 0.1 ]
+    Shape "curve"
+        "string type" [ "cylinder" ]
+        "float width0" [ 0.3 ]
+        "float width1" [ 0.1 ]
+        "integer splitdepth" [ 0 ]
+        "point3 P" [ 0.5 0 0.3   0.9 0.5 0.3   0.7 1.1 0.5   1 1.5 0.2 ]
+AttributeEnd
+
+# A quadratic Bezier and a quadratic b-spline (flat), and a cubic b-spline
+# through six points (cylinder).
+AttributeBegin
+    Material "diffuse"
+        "rgb reflectance" [ 0.2 0.5 0.7 ]
+    Translate 1 0 0
+    Shape "curve"
+        "integer degree" [ 2 ]
+        "float width" [ 0.15 ]
+        "point3 P" [ 0 0 0   0.6 1 0.4   0.1 1.9 0 ]
+    Shape "curve"
+        "integer degree" [ 2 ]
+        "string basis" [ "bspline" ]
+        "float width0" [ 0.2 ]
+        "float width1" [ 0.05 ]
+        "point3 P" [ 0.5 0 -0.4   0.9 0.6 -0.2   0.7 1.2 0.2   1.1 1.7 0.4   0.8 2.1 0.1 ]
+    Shape "curve"
+        "string basis" [ "bspline" ]
+        "string type" [ "cylinder" ]
+        "float width" [ 0.12 ]
+        "point3 P" [ 1.3 0 0.5   1.6 0.4 0.6   1.5 0.9 0.2   1.9 1.3 0.1
+                     1.6 1.7 -0.2   1.8 2.1 -0.1 ]
+AttributeEnd
+
+# A ribbon under a coated material, twisting between its end normals, and
+# a flat curve under a mirroring scale so that `flip` is told from
+# `reverse`.
+AttributeBegin
+    Material "coateddiffuse"
+        "float roughness" [ 0.1 ]
+        "rgb reflectance" [ 0.6 0.5 0.2 ]
+    Translate 2.3 0 -0.6
+    Shape "curve"
+        "string type" [ "ribbon" ]
+        "float width" [ 0.35 ]
+        "point3 P" [ 0 0 0   -0.2 0.7 0.3   0.3 1.3 0.2   0 2 -0.2 ]
+        "normal N" [ 0 0 1   1 0 0 ]
+    Scale -1 1 1
+    Translate 0.6 0 0
+    Shape "curve"
+        "float width0" [ 0.25 ]
+        "float width1" [ 0.1 ]
+        "point3 P" [ 0 0 0.6   0.4 0.6 0.9   0.2 1.2 0.6   0.5 1.7 0.9 ]
+AttributeEnd

@@ -103,6 +103,36 @@ struct Cylinder {
     object_from_render : [float : 16];
     at : Placement;
 }
+// PBRT's Curve: a segment [u_min, u_max] of the CurveCommon `common` names
+// (bonsai_scene::CurveCommon), which sits in `curve_commons` below.
+struct Curve {
+    common : uint32;
+    u_min : float;
+    u_max : float;
+    at : Placement;
+}
+// PBRT's CurveCommon: the cubic Bezier's four control points in object
+// space, the widths at its ends, a ribbon's two normals with the angle
+// between them and 1 / sin of it, the kind (0 flat, 1 cylinder, 2 ribbon),
+// and which CurveFrame places it.
+struct CurveCommon {
+    p : [float : 12];
+    width0 : float;
+    width1 : float;
+    n : [float : 6];
+    normal_angle : float;
+    inv_sin_normal_angle : float;
+    kind : uint32;
+    frame : uint32;
+}
+// The two transforms a CurveCommon points at and its orientation flags,
+// shared by every curve declared under one transform.
+struct CurveFrame {
+    render_from_object : [float : 16];
+    object_from_render : [float : 16];
+    flip : uint32;
+    reverse : uint32;
+}
 
 // bonsai_scene::Node: a BVH node, `n_prims` zero for an interior node whose
 // second child is at `offset`, else a leaf of `n_prims` primitives from
@@ -134,7 +164,7 @@ struct Definition {
 }
 
 // The shape kinds, as bonsai_scene::ShapeTag numbers them: 0 sphere, 1
-// triangle, 2 disk, 3 patch, 4 cylinder.
+// triangle, 2 disk, 3 patch, 4 cylinder, 5 curve.
 table Geometry {
     // Bumped when a record's layout changes; the reader refuses another.
     version : uint32;
@@ -171,6 +201,10 @@ table Geometry {
 
     cylinders : [Cylinder] (vector64);
     instance_cylinders : [Cylinder] (vector64);
+    curves : [Curve] (vector64);
+    instance_curves : [Curve] (vector64);
+    curve_commons : [CurveCommon] (vector64);
+    curve_frames : [CurveFrame] (vector64);
 }
 
 root_type Geometry;

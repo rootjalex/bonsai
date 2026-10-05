@@ -201,18 +201,24 @@ struct Meshes {
 struct Shapes {
     static constexpr uint64_t kTagShift = 56;
     // The tags are the Shape variant's arms in declaration order: Sph, Tri,
-    // Dsk, Blp, Cyl (shapes.bonsai).
+    // Dsk, Blp, Cyl, Crv (shapes.bonsai).
     static constexpr uint64_t kSphere = 0;
     static constexpr uint64_t kTriangle = 1;
     static constexpr uint64_t kDisk = 2;
     static constexpr uint64_t kPatch = 3;
     static constexpr uint64_t kCylinder = 4;
+    static constexpr uint64_t kCurve = 5;
 
     const Sph *spheres = nullptr;
     const Tri *triangles = nullptr;
     const Dsk *disks = nullptr;
     const Blp *patches = nullptr;
     const Cyl *cylinders = nullptr;
+    const Crv *curves = nullptr;
+    // What a curve segment refers to: its common and the common's frame
+    // (the renderer's `curve_commons` and `curve_frames` externs).
+    const CurveCommon *curve_commons = nullptr;
+    const CurveFrame *curve_frames = nullptr;
 
     static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
     static uint64_t index_of(uint64_t shape) {
@@ -229,6 +235,8 @@ struct Shapes {
     bool is_cylinder(uint64_t shape) const {
         return tag_of(shape) == kCylinder;
     }
+    bool is_curve(uint64_t shape) const { return tag_of(shape) == kCurve; }
+    const Curve &curve(uint64_t shape) const { return curves[index_of(shape)].cv; }
     const Sphere &sphere(uint64_t shape) const {
         return spheres[index_of(shape)].s;
     }
@@ -267,6 +275,40 @@ Bounds3f bounds_of(const Geometric &prim, const Meshes &pool,
             c.render_from_object,
             Bounds3f{float3{-c.radius, -c.radius, c.z_min},
                      float3{c.radius, c.radius, c.z_max}});
+    }
+    if (shapes.is_curve(prim.shape)) {
+        // pbrt: Curve::Bounds -- the box around the segment's own control
+        // points (BoundCubicBezier over [uMin, uMax]: the whole curve's
+        // where the range is [0, 1], else the blossomed sub-range's),
+        // expanded by half the larger of the widths at its ends, under the
+        // frame's transform.
+        const Curve &seg = shapes.curve(prim.shape);
+        const CurveCommon &c = shapes.curve_commons[seg.common];
+        const CurveFrame &f = shapes.curve_frames[c.frame];
+        const auto lerp3 = [](float t, float3 a, float3 b) { return (1.f - t) * a + t * b; };
+        const auto blossom = [&](float u0, float u1, float u2) {
+            const float3 a0 = lerp3(u0, c.p0, c.p1), a1 = lerp3(u0, c.p1, c.p2),
+                         a2 = lerp3(u0, c.p2, c.p3);
+            const float3 b0 = lerp3(u1, a0, a1), b1 = lerp3(u1, a1, a2);
+            return lerp3(u2, b0, b1);
+        };
+        float3 cp[4] = {c.p0, c.p1, c.p2, c.p3};
+        if (!(seg.u_min == 0.f && seg.u_max == 1.f)) {
+            cp[0] = blossom(seg.u_min, seg.u_min, seg.u_min);
+            cp[1] = blossom(seg.u_min, seg.u_min, seg.u_max);
+            cp[2] = blossom(seg.u_min, seg.u_max, seg.u_max);
+            cp[3] = blossom(seg.u_max, seg.u_max, seg.u_max);
+        }
+        Bounds3f box;
+        for (const float3 &p : cp) {
+            box = merge(box, p);
+        }
+        const float w0 = (1.f - seg.u_min) * c.width0 + seg.u_min * c.width1;
+        const float w1 = (1.f - seg.u_max) * c.width0 + seg.u_max * c.width1;
+        const float half = std::max(w0, w1) * 0.5f;
+        box.pMin -= float3{half, half, half};
+        box.pMax += float3{half, half, half};
+        return transform_bounds(f.render_from_object, box);
     }
     if (shapes.is_disk(prim.shape)) {
         const Disk &d = shapes.disk(prim.shape);
@@ -525,17 +567,20 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
 void compact_pools(std::vector<Geometric> &shapes,
                    std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
                    std::vector<Tri> &triangles, std::vector<Dsk> &disks,
-                   std::vector<Blp> &patches, std::vector<Cyl> &cylinders) {
+                   std::vector<Blp> &patches, std::vector<Cyl> &cylinders,
+                   std::vector<Crv> &curves) {
     std::vector<Sph> ordered_spheres;
     std::vector<Tri> ordered_triangles;
     std::vector<Dsk> ordered_disks;
     std::vector<Blp> ordered_patches;
     std::vector<Cyl> ordered_cylinders;
+    std::vector<Crv> ordered_curves;
     ordered_spheres.reserve(spheres.size());
     ordered_triangles.reserve(triangles.size());
     ordered_disks.reserve(disks.size());
     ordered_patches.reserve(patches.size());
     ordered_cylinders.reserve(cylinders.size());
+    ordered_curves.reserve(curves.size());
 
     for (std::vector<Geometric> *list : {&shapes, &instanced}) {
         for (Geometric &prim : *list) {
@@ -553,6 +598,9 @@ void compact_pools(std::vector<Geometric> &shapes,
             } else if (tag == Shapes::kCylinder) {
                 prim.shape = Shapes::handle(tag, ordered_cylinders.size());
                 ordered_cylinders.push_back(cylinders[index]);
+            } else if (tag == Shapes::kCurve) {
+                prim.shape = Shapes::handle(tag, ordered_curves.size());
+                ordered_curves.push_back(curves[index]);
             } else {
                 prim.shape = Shapes::handle(tag, ordered_triangles.size());
                 ordered_triangles.push_back(triangles[index]);
@@ -565,6 +613,7 @@ void compact_pools(std::vector<Geometric> &shapes,
     disks = std::move(ordered_disks);
     patches = std::move(ordered_patches);
     cylinders = std::move(ordered_cylinders);
+    curves = std::move(ordered_curves);
 }
 
 // The nodes of a tree PBRT built, packed into the layout the schedule
@@ -723,6 +772,34 @@ struct Acceleration {
                     vertex_count = std::max(vertex_count, indices[k] + 1);
                 }
                 static_assert(sizeof(std::array<float, 3>) == 3 * sizeof(float));
+                // BONSAI_OPTIX_STATS (runtime/bonsai_optix.h): each run as
+                // the hardware gets it, with its longest edge and its
+                // degenerate triangles -- a stray index makes a sliver
+                // across the scene that every ray has to test and no
+                // picture shows.
+                static const bool stats = std::getenv("BONSAI_OPTIX_STATS") != nullptr;
+                if (stats) {
+                    const std::array<float, 3> *P = meshes.positions + m.first_vertex;
+                    double longest = 0;
+                    size_t degenerate = 0;
+                    for (size_t k = 0; k < n; k++) {
+                        double edges[3];
+                        for (int e = 0; e < 3; e++) {
+                            const std::array<float, 3> &p0 = P[indices[3 * k + e]];
+                            const std::array<float, 3> &p1 = P[indices[3 * k + (e + 1) % 3]];
+                            const double dx = double(p1[0]) - p0[0], dy = double(p1[1]) - p0[1],
+                                         dz = double(p1[2]) - p0[2];
+                            edges[e] = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            longest = std::max(longest, edges[e]);
+                        }
+                        degenerate += (edges[0] == 0 || edges[1] == 0 || edges[2] == 0) ? 1 : 0;
+                    }
+                    std::fprintf(stderr,
+                                 "bonsai run: mesh %u, %zu triangles, vertices to %u, "
+                                 "longest edge %g, degenerate %zu, any-hit %s\n",
+                                 unsigned(first.mesh), n, vertex_count, longest,
+                                 degenerate, any_hit_over(i, n) ? "on" : "off");
+                }
                 triangles.push_back(bonsai_optix_triangles{
                     reinterpret_cast<const float *>(meshes.positions +
                                                     m.first_vertex),
@@ -1988,6 +2065,7 @@ int main(int argc, char **argv) {
     size_t ndisks = 0;
     size_t npatches = 0;
     size_t ncylinders = 0;
+    size_t ncurves = 0;
     size_t nshapes = 0;
     for (const std::vector<bonsai_scene::Shape> *list :
          {&loaded.shapes, &loaded.instance_shapes}) {
@@ -1996,6 +2074,7 @@ int main(int argc, char **argv) {
             ndisks += s.tag == bonsai_scene::ShapeTag::Disk;
             npatches += s.tag == bonsai_scene::ShapeTag::Patch;
             ncylinders += s.tag == bonsai_scene::ShapeTag::Cylinder;
+            ncurves += s.tag == bonsai_scene::ShapeTag::Curve;
             nshapes++;
         }
     }
@@ -2003,15 +2082,46 @@ int main(int argc, char **argv) {
     std::vector<Dsk> disk_pool(ndisks);
     std::vector<Blp> patch_pool(npatches);
     std::vector<Cyl> cylinder_pool(ncylinders);
+    std::vector<Crv> curve_pool(ncurves);
     std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks - npatches -
-                                   ncylinders);
+                                   ncylinders - ncurves);
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
     uint64_t disk_fill = 0;
     uint64_t patch_fill = 0;
     uint64_t cylinder_fill = 0;
+    uint64_t curve_fill = 0;
     uint64_t triangle_fill = 0;
+
+    // pbrt: the CurveCommons the curve segments share and the frames those
+    // share, as the renderer's `curve_commons` and `curve_frames` externs --
+    // the scene's records as the generated structs.
+    std::vector<CurveCommon> curve_commons(loaded.curve_commons.size());
+    for (size_t i = 0; i < curve_commons.size(); i++) {
+        const bonsai_scene::CurveCommon &c = loaded.curve_commons[i];
+        CurveCommon &out = curve_commons[i];
+        out.p0 = float3{c.p[0], c.p[1], c.p[2]};
+        out.p1 = float3{c.p[3], c.p[4], c.p[5]};
+        out.p2 = float3{c.p[6], c.p[7], c.p[8]};
+        out.p3 = float3{c.p[9], c.p[10], c.p[11]};
+        out.width0 = c.width[0];
+        out.width1 = c.width[1];
+        out.n0 = float3{c.n[0], c.n[1], c.n[2]};
+        out.n1 = float3{c.n[3], c.n[4], c.n[5]};
+        out.normal_angle = c.normal_angle;
+        out.inv_sin_normal_angle = c.inv_sin_normal_angle;
+        out.kind = int32_t(c.kind);
+        out.frame = c.frame;
+    }
+    std::vector<CurveFrame> curve_frames(loaded.curve_frames.size());
+    for (size_t i = 0; i < curve_frames.size(); i++) {
+        const bonsai_scene::CurveFrame &f = loaded.curve_frames[i];
+        curve_frames[i].render_from_object = to_bonsai(f.render_from_object);
+        curve_frames[i].object_from_render = to_bonsai(f.object_from_render);
+        curve_frames[i].flip = f.flip != 0;
+        curve_frames[i].reverse = f.reverse != 0;
+    }
 
     // pbrt: CreatePrimitivesForShapes, run over the top-level shapes and over
     // each instance definition's -- the same conversion, into two lists.
@@ -2062,6 +2172,9 @@ int main(int argc, char **argv) {
                 cylinder.flip = s.flip != 0;
                 cylinder.reverse = s.reverse != 0;
                 shape = Shape_Cyl(cylinder, cylinder_pool.data(), &cylinder_fill);
+            } else if (s.tag == bonsai_scene::ShapeTag::Curve) {
+                shape = Shape_Crv(Curve{s.curve_common, s.u_min, s.u_max},
+                                  curve_pool.data(), &curve_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Patch) {
                 shape = Shape_Blp(BilinearPatch{s.mesh, s.tri, s.patch_area},
                                   patch_pool.data(), &patch_fill);
@@ -2105,19 +2218,21 @@ int main(int argc, char **argv) {
     if (sphere_fill != sphere_pool.size() ||
         triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size() ||
         patch_fill != patch_pool.size() ||
-        cylinder_fill != cylinder_pool.size()) {
+        cylinder_fill != cylinder_pool.size() || curve_fill != curve_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
                         "%zu/%zu triangles, %zu/%zu disks, %zu/%zu patches, "
-                        "%zu/%zu cylinders\n",
+                        "%zu/%zu cylinders, %zu/%zu curves\n",
                 size_t(sphere_fill), sphere_pool.size(),
                 size_t(triangle_fill), triangle_pool.size(), size_t(disk_fill),
                 disk_pool.size(), size_t(patch_fill), patch_pool.size(),
-                size_t(cylinder_fill), cylinder_pool.size());
+                size_t(cylinder_fill), cylinder_pool.size(), size_t(curve_fill),
+                curve_pool.size());
         return 1;
     }
-    const Shapes shape_pools{sphere_pool.data(), triangle_pool.data(),
-                             disk_pool.data(), patch_pool.data(),
-                             cylinder_pool.data()};
+    const Shapes shape_pools{sphere_pool.data(),   triangle_pool.data(),
+                             disk_pool.data(),     patch_pool.data(),
+                             cylinder_pool.data(), curve_pool.data(),
+                             curve_commons.data(), curve_frames.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -2254,7 +2369,7 @@ int main(int argc, char **argv) {
     {
         Stage stage("compact pools");
         compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool,
-                      patch_pool, cylinder_pool);
+                      patch_pool, cylinder_pool, curve_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -2426,9 +2541,10 @@ int main(int argc, char **argv) {
         Stage stage("build acceleration structures");
         // The pools as compacted: compact_pools moved them, so the view made
         // before it is stale.
-        const Shapes compacted{sphere_pool.data(), triangle_pool.data(),
-                               disk_pool.data(), patch_pool.data(),
-                               cylinder_pool.data()};
+        const Shapes compacted{sphere_pool.data(),   triangle_pool.data(),
+                               disk_pool.data(),     patch_pool.data(),
+                               cylinder_pool.data(), curve_pool.data(),
+                               curve_commons.data(), curve_frames.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
             shapes, instanced, top, loaded.definitions, loaded.instances);
         if (tree.traversable == 0) {
@@ -2957,6 +3073,9 @@ int main(int argc, char **argv) {
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
     bonsai_buffer b_patch_pool = buffer_of(patch_pool);
     bonsai_buffer b_cylinder_pool = buffer_of(cylinder_pool);
+    bonsai_buffer b_curve_pool = buffer_of(curve_pool);
+    bonsai_buffer b_curve_commons = buffer_of(curve_commons);
+    bonsai_buffer b_curve_frames = buffer_of(curve_frames);
     bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
@@ -3012,7 +3131,8 @@ int main(int argc, char **argv) {
         &b_rgb_table, &b_pl2d, &b_pl_data, &b_pl_marginal, &b_pl_conditional,
         &b_pl_params, &b_measured_brdfs, &b_conductor_eta, &b_conductor_k,
         &b_meshes, &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
-        &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
+        &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_cie_x, &b_cie_y,
+        &b_cie_z, &b_illuminant_d65,
         &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor,
         &b_filter_f, &b_filter_cond_cdf, &b_filter_marg_func,
         &b_filter_marg_cdf,
@@ -3038,7 +3158,7 @@ int main(int argc, char **argv) {
         &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
 #endif
         &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
-        &b_patch_pool, &b_cylinder_pool
+        &b_patch_pool, &b_cylinder_pool, &b_curve_pool
         // The queues' storage, last, as the parameters are.
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
     constexpr size_t render_buffer_count =
@@ -3112,7 +3232,8 @@ int main(int argc, char **argv) {
                &b_pl_data, &b_pl_marginal, &b_pl_conditional, &b_pl_params,
                &b_measured_brdfs, &b_conductor_eta, &b_conductor_k, &b_meshes,
                &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
-               &b_mesh_uvs, &b_cie_x, &b_cie_y, &b_cie_z, &b_illuminant_d65,
+               &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_cie_x, &b_cie_y,
+               &b_cie_z, &b_illuminant_d65,
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
                &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
@@ -3128,8 +3249,8 @@ int main(int argc, char **argv) {
                &b_material_displacement, &b_material_normal_map, &b_rho_uc,
                &b_rho_ux, &b_rho_uy,
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
-               &b_disk_pool, &b_patch_pool,
-               &b_cylinder_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
+               &b_disk_pool, &b_patch_pool, &b_cylinder_pool,
+               &b_curve_pool BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`
         // waits for the device before it returns -- the generated code's
         // own wait at the return of a function that launched, pbrt's
@@ -3218,7 +3339,8 @@ int main(int argc, char **argv) {
                            &b_texture_handles,
 #endif
                            &b_meshes, &b_mesh_indices, &b_mesh_positions,
-                           &b_mesh_normals, &b_mesh_uvs, &b_filter_f,
+                           &b_mesh_normals, &b_mesh_uvs, &b_curve_commons,
+                           &b_curve_frames, &b_filter_f,
                            &b_filter_cond_cdf, &b_filter_marg_func,
                            &b_filter_marg_cdf, &b_primes,
                            &b_digit_permutations,
@@ -3228,7 +3350,7 @@ int main(int argc, char **argv) {
                            &b_blue_noise, &b_pmj_pixel_samples, tree,
                            &b_inst_pool,
                            &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
-                           &b_patch_pool, &b_cylinder_pool);
+                           &b_patch_pool, &b_cylinder_pool, &b_curve_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                            "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",
                            px, py, s, double(out[0]), double(out[1]),

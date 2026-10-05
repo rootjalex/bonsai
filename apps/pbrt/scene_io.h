@@ -115,6 +115,9 @@ enum ShapeTag : uint32_t {
     // PBRT's Cylinder: the radius, `z_min`/`z_max` and `phi_max` of a sphere's
     // fields, under the quadric's two matrices.
     Cylinder = 4,
+    // PBRT's Curve: a segment [`u_min`, `u_max`] of the CurveCommon
+    // `curve_common` names in Scene::curve_commons.
+    Curve = 5,
 };
 
 enum MaterialTag : uint32_t {
@@ -631,6 +634,36 @@ struct Material {
     int32_t alpha_texture = -1;
 };
 
+// PBRT's CurveCommon, as the renderer reads it: the cubic Bezier's four
+// control points in object space (three floats each), the widths at its
+// ends, a ribbon's two normals (normalized, as PBRT's constructor leaves
+// them) with the angle between them and 1 / sin of it (zero for a flat or
+// a cylinder curve, which PBRT leaves unset), the kind as PBRT's CurveType
+// numbers it (0 flat, 1 cylinder, 2 ribbon), and which CurveFrame places
+// it.
+struct CurveCommon {
+    float p[12] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    float width[2] = {1.f, 1.f};
+    float n[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    float normal_angle = 0.f;
+    float inv_sin_normal_angle = 0.f;
+    uint32_t kind = 0;
+    uint32_t frame = 0;
+};
+
+// The two matrices a CurveCommon's transform is, 4x4 in row order as a
+// sphere's are, and the orientation flags a Sphere carries (`flip`:
+// reverseOrientation ^ the handedness swap, which turns a hit's normal;
+// `reverse`: reverseOrientation alone).
+struct CurveFrame {
+    float render_from_object[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    float object_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
+                                    0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+    uint32_t flip = 0;
+    uint32_t reverse = 0;
+};
+
 // One triangle mesh, as a run of each of the shared pools below.
 //
 // PBRT keeps a TriangleMesh per shape and a global list of them, and a Triangle
@@ -818,6 +851,12 @@ struct Shape {
     // sum over a 3x3 subdivision -- computed by the converter as its
     // constructor computes it, since the renderer's sampling divides by it.
     float patch_area = 0.f;
+    // Curve. Which of Scene::curve_commons it is a segment of, and the
+    // segment's parameter range -- PBRT's CreateCurve splits a curve into
+    // 2^splitdepth of these, `i / nSegments` to `(i + 1) / nSegments`.
+    uint32_t curve_common = 0;
+    float u_min = 0.f;
+    float u_max = 1.f;
     // Which of the scene's materials this shape was declared under.
     uint32_t material = 0;
     // Which of the scene's lights this shape emits as, or -1 for a shape that
@@ -1128,6 +1167,14 @@ struct Scene {
     std::vector<float> positions;
     std::vector<float> normals;
     std::vector<float> uvs;
+    // PBRT's CurveCommons and the frames they are placed by: one common per
+    // segment of a `Shape "curve"` directive (a cubic Bezier after PBRT's
+    // basis conversions, with the widths PBRT's Create gives that segment),
+    // one frame per distinct transform and orientation, which a scene's
+    // million curves declared under one `AttributeBegin` share. A Curve
+    // shape (ShapeTag::Curve) names a common; a common names a frame.
+    std::vector<CurveCommon> curve_commons;
+    std::vector<CurveFrame> curve_frames;
     std::vector<Light> lights;
     // PBRT's point and spot lights, in declaration order. The driver puts
     // them after the area lights and before the infinite ones -- bounded, so
@@ -1366,6 +1413,7 @@ struct ShapeColumns {
     std::vector<geo::Sphere> spheres;
     std::vector<geo::Disk> disks;
     std::vector<geo::Cylinder> cylinders;
+    std::vector<geo::Curve> curves;
 };
 
 inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
@@ -1395,6 +1443,10 @@ inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
                                      s.flip, s.reverse,
                                      span16(s.render_from_object),
                                      span16(s.object_from_render), at);
+            break;
+        case ShapeTag::Curve:
+            c.slots.push_back(uint32_t(c.curves.size()));
+            c.curves.emplace_back(s.curve_common, s.u_min, s.u_max, at);
             break;
         case ShapeTag::Patch:
             c.slots.push_back(uint32_t(c.patches.size()));
@@ -1437,6 +1489,7 @@ inline bool write_geometry(const char *path, const Scene &scene,
     const auto spheres = fbb.CreateVectorOfStructs64(top.spheres);
     const auto disks = fbb.CreateVectorOfStructs64(top.disks);
     const auto cylinders = fbb.CreateVectorOfStructs64(top.cylinders);
+    const auto curves = fbb.CreateVectorOfStructs64(top.curves);
     const auto nodes = fbb.CreateVectorOfStructs64(nodes_of(scene.nodes));
     const ShapeColumns inst = columns_of(scene.instance_shapes);
     const auto instance_shape_kinds = fbb.CreateVector64(inst.kinds);
@@ -1446,6 +1499,23 @@ inline bool write_geometry(const char *path, const Scene &scene,
     const auto instance_spheres = fbb.CreateVectorOfStructs64(inst.spheres);
     const auto instance_disks = fbb.CreateVectorOfStructs64(inst.disks);
     const auto instance_cylinders = fbb.CreateVectorOfStructs64(inst.cylinders);
+    const auto instance_curves = fbb.CreateVectorOfStructs64(inst.curves);
+    std::vector<geo::CurveCommon> common_records;
+    common_records.reserve(scene.curve_commons.size());
+    for (const CurveCommon &c : scene.curve_commons) {
+        common_records.emplace_back(
+            flatbuffers::span<const float, 12>(c.p, 12), c.width[0], c.width[1],
+            flatbuffers::span<const float, 6>(c.n, 6), c.normal_angle,
+            c.inv_sin_normal_angle, c.kind, c.frame);
+    }
+    const auto curve_commons = fbb.CreateVectorOfStructs64(common_records);
+    std::vector<geo::CurveFrame> frame_records;
+    frame_records.reserve(scene.curve_frames.size());
+    for (const CurveFrame &f : scene.curve_frames) {
+        frame_records.emplace_back(span16(f.render_from_object),
+                                   span16(f.object_from_render), f.flip, f.reverse);
+    }
+    const auto curve_frames = fbb.CreateVectorOfStructs64(frame_records);
     const auto instance_nodes =
         fbb.CreateVectorOfStructs64(nodes_of(scene.instance_nodes));
     std::vector<geo::Prim> prim_records;
@@ -1502,6 +1572,10 @@ inline bool write_geometry(const char *path, const Scene &scene,
     gb.add_prims(prims);
     gb.add_cylinders(cylinders);
     gb.add_instance_cylinders(instance_cylinders);
+    gb.add_curves(curves);
+    gb.add_instance_curves(instance_curves);
+    gb.add_curve_commons(curve_commons);
+    gb.add_curve_frames(curve_frames);
     fbb.Finish(gb.Finish(), geo::GeometryIdentifier());
 
     std::ofstream out(geo_path(path), std::ios::binary);
@@ -1514,10 +1588,11 @@ inline bool write_geometry(const char *path, const Scene &scene,
 // A shape list back from its columns. False where a slot points past its
 // vector, which no writer of this file produces.
 template <typename Kinds, typename Slots, typename Tris, typename Patches,
-          typename Spheres, typename Disks, typename Cylinders>
+          typename Spheres, typename Disks, typename Cylinders, typename Curves>
 inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
                       const Patches *patches, const Spheres *spheres,
                       const Disks *disks, const Cylinders *cylinders,
+                      const Curves *curves, size_t n_commons,
                       std::vector<Shape> &out) {
     out.clear();
     if (kinds == nullptr || slots == nullptr) {
@@ -1587,6 +1662,21 @@ inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
                         sizeof(s.render_from_object));
             std::memcpy(s.object_from_render, r->object_from_render()->data(),
                         sizeof(s.object_from_render));
+            place(r->at(), s);
+            break;
+        }
+        case ShapeTag::Curve: {
+            if (curves == nullptr || slot >= curves->size()) {
+                return false;
+            }
+            const geo::Curve *r = curves->Get(slot);
+            s.tag = ShapeTag::Curve;
+            s.curve_common = r->common();
+            if (s.curve_common >= n_commons) {
+                return false;
+            }
+            s.u_min = r->u_min();
+            s.u_max = r->u_max();
             place(r->at(), s);
             break;
         }
@@ -1695,16 +1785,50 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
     copy_from(g->positions(), scene.positions);
     copy_from(g->normals(), scene.normals);
     copy_from(g->uvs(), scene.uvs);
+    scene.curve_frames.clear();
+    if (g->curve_frames() != nullptr) {
+        scene.curve_frames.resize(g->curve_frames()->size());
+        for (size_t i = 0; i < scene.curve_frames.size(); i++) {
+            const geo::CurveFrame *r = g->curve_frames()->Get(i);
+            CurveFrame &f = scene.curve_frames[i];
+            std::memcpy(f.render_from_object, r->render_from_object()->data(),
+                        sizeof(f.render_from_object));
+            std::memcpy(f.object_from_render, r->object_from_render()->data(),
+                        sizeof(f.object_from_render));
+            f.flip = r->flip();
+            f.reverse = r->reverse();
+        }
+    }
+    scene.curve_commons.clear();
+    if (g->curve_commons() != nullptr) {
+        scene.curve_commons.resize(g->curve_commons()->size());
+        for (size_t i = 0; i < scene.curve_commons.size(); i++) {
+            const geo::CurveCommon *r = g->curve_commons()->Get(i);
+            CurveCommon &c = scene.curve_commons[i];
+            std::memcpy(c.p, r->p()->data(), sizeof(c.p));
+            c.width[0] = r->width0();
+            c.width[1] = r->width1();
+            std::memcpy(c.n, r->n()->data(), sizeof(c.n));
+            c.normal_angle = r->normal_angle();
+            c.inv_sin_normal_angle = r->inv_sin_normal_angle();
+            c.kind = r->kind();
+            c.frame = r->frame();
+            if (c.frame >= scene.curve_frames.size() || c.kind > 2) {
+                return false;
+            }
+        }
+    }
     if (!shapes_of(g->shape_kinds(), g->shape_slots(), g->triangles(),
                    g->patches(), g->spheres(), g->disks(), g->cylinders(),
-                   scene.shapes)) {
+                   g->curves(), scene.curve_commons.size(), scene.shapes)) {
         return false;
     }
     nodes_from(g->nodes(), scene.nodes);
     if (!shapes_of(g->instance_shape_kinds(), g->instance_shape_slots(),
                    g->instance_triangles(), g->instance_patches(),
                    g->instance_spheres(), g->instance_disks(),
-                   g->instance_cylinders(), scene.instance_shapes)) {
+                   g->instance_cylinders(), g->instance_curves(),
+                   scene.curve_commons.size(), scene.instance_shapes)) {
         return false;
     }
     nodes_from(g->instance_nodes(), scene.instance_nodes);

@@ -771,6 +771,505 @@ func cylinder_hit(r : Ray, tmax : Float, cyl : Cylinder) -> option[CylinderHit] 
     return second;
 }
 
+// pbrt: CurveCommon -- what every segment of one `Shape "curve"` shares: the
+// cubic Bezier's four control points in object space (a quadratic or a
+// b-spline converted by the converter as Curve::Create converts them), the
+// widths at its two ends, a ribbon's two normals with the angle between
+// them and 1 / sin of it, which kind (0 flat, 1 cylinder, 2 ribbon), and
+// which CurveFrame places it. One `curve_commons` entry per curve segment
+// of the scene's directive, and a `Crv` shape per split of it into
+// 2^splitdepth, as pbrt's CreateCurve makes them.
+element CurveCommon {
+    p0, p1, p2, p3 : vec3f;
+    width0, width1 : Float;
+    n0, n1 : vec3f;
+    normal_angle, inv_sin_normal_angle : Float;
+    kind : i32;
+    frame : u32;
+}
+
+// pbrt: the two transforms a CurveCommon points at and its two orientation
+// flags (the Sphere's `flip` and `reverse`) -- bunny-fur's million and a
+// half curves share one, so it is a pool of its own that a common names.
+element CurveFrame {
+    render_from_object : Transform;
+    object_from_render : Transform;
+    flip : bool;
+    reverse : bool;
+}
+
+extern curve_commons : array[CurveCommon];
+extern curve_frames : array[CurveFrame];
+
+// pbrt: Curve -- one segment of a curve, [u_min, u_max] of its common's
+// parameter.
+element Curve {
+    common : u32;
+    u_min, u_max : Float;
+}
+
+// Four control points: a cubic Bezier in some space.
+element Bezier {
+    c0, c1, c2, c3 : vec3f;
+}
+
+// pbrt: EvaluateCubicBezier(cp, u, &deriv)'s two answers.
+element BezierPoint {
+    p : vec3f;
+    dpdu : vec3f;
+}
+
+// pbrt: what a curve hit records -- the distance along the ray (`pc.z /
+// rayLength`), the parameter u along the common's curve and v across its
+// width, and the width there.
+element CurveHit {
+    t : Float;
+    u, v : Float;
+    hit_width : Float;
+}
+
+// pbrt: Lerp(t, p0, p1) on points, `(1 - t) * p0 + t * p1` per component.
+// pbrt: Lerp(t, Point3f, Point3f), `(1 - t) * t0 + t * t1`, as gcc compiles
+// it in BlossomCubicBezier and in Curve::RecursiveIntersect's
+// EvaluateCubicBezier: the *second* product fused into the first (found by
+// fitting the two forms to pbrt's hit distances over the curve scene's
+// camera rays, 667 of them; the first-fused form, which Contract.h would
+// write, misses on a third of them). lerp_st below, the scalar Lerp of the
+// same leaf, fuses the first as Contract.h does -- the choice is gcc's per
+// site, and these are the two it made.
+func lerp_p(t : Float, a : vec3f, b : vec3f) -> vec3f = fma3(t, b, (1.0 - t) * a);
+
+// pbrt: BlossomCubicBezier -- the blossom of the cubic at (u0, u1, u2), of
+// which the control points of a sub-range and the point at a parameter are
+// special cases (util/splines.h).
+func blossom(c : CurveCommon, u0 : Float, u1 : Float, u2 : Float) -> vec3f {
+    a0 = lerp_p(u0, c.p0, c.p1);
+    a1 = lerp_p(u0, c.p1, c.p2);
+    a2 = lerp_p(u0, c.p2, c.p3);
+    b0 = lerp_p(u1, a0, a1);
+    b1 = lerp_p(u1, a1, a2);
+    return lerp_p(u2, b0, b1);
+}
+
+// pbrt: CubicBezierControlPoints -- the segment's own control points from
+// its common's, by blossoming at the range's ends.
+func bezier_segment(c : CurveCommon, u_min : Float, u_max : Float) -> Bezier {
+    b : Bezier = {blossom(c, u_min, u_min, u_min), blossom(c, u_min, u_min, u_max),
+                  blossom(c, u_min, u_max, u_max), blossom(c, u_max, u_max, u_max)};
+    return b;
+}
+
+// pbrt: EvaluateCubicBezier(cp, u, &deriv) -- the point by de Casteljau
+// and the derivative from the last two points, three times their
+// difference, or the chord where those coincide.
+func bezier_at(b : Bezier, u : Float) -> BezierPoint {
+    cp10 = lerp_p(u, b.c0, b.c1);
+    cp11 = lerp_p(u, b.c1, b.c2);
+    cp12 = lerp_p(u, b.c2, b.c3);
+    cp20 = lerp_p(u, cp10, cp11);
+    cp21 = lerp_p(u, cp11, cp12);
+    d = cp21 - cp20;
+    deriv = select(sqlen_(d) > 0.0, 3.0 * d, b.c3 - b.c0);
+    r : BezierPoint = {lerp_p(u, cp20, cp21), deriv};
+    return r;
+}
+
+// pbrt: SubdivideCubicBezier, the half asked for: the first four of its
+// seven points for the left half, the last four for the right.
+func bezier_half(b : Bezier, right : bool) -> Bezier {
+    m0 = (b.c0 + b.c1) / 2.0;
+    m1 = (b.c0 + 2.0 * b.c1 + b.c2) / 4.0;
+    m2 = (b.c0 + 3.0 * b.c1 + 3.0 * b.c2 + b.c3) / 8.0;
+    m3 = (b.c1 + 2.0 * b.c2 + b.c3) / 4.0;
+    m4 = (b.c2 + b.c3) / 2.0;
+    if right {
+        rgt : Bezier = {m2, m3, m4, b.c3};
+        return rgt;
+    }
+    left : Bezier = {b.c0, m0, m1, m2};
+    return left;
+}
+
+// pbrt: Transform::operator()(const Ray &) -- how a curve's ray reaches its
+// object space, and not pull_ray's plain arithmetic: the origin goes as an
+// interval (row_point_interval, unfused as pbrt's is), the direction as the
+// plain vector, and then the origin is moved along the direction by as far
+// as its error could have left it short of the surface -- `dt = Dot(Abs(d),
+// o.Error()) / LengthSquared(d); o += d * dt` -- the interval shifted end
+// by end with pbrt's outward rounding and its midpoint read. The quadrics
+// take ApplyInverse's cousin without the nudge (pull_ray's note); the curve
+// takes this one because pbrt's Curve::IntersectRay does, and every leaf
+// test below is in the nudged ray's own coordinates.
+func curve_ray(inv : Transform, r : Ray) -> Ray {
+    ox = row_point_interval(inv.r0, r.o);
+    oy = row_point_interval(inv.r1, r.o);
+    oz = row_point_interval(inv.r2, r.o);
+    d = apply_vector(inv, r.d);
+    len2 = sqlen_(d);
+    o : mut vec3f = vec3f{mid(ox), mid(oy), mid(oz)};
+    if len2 > 0.0 {
+        err = vec3f{(ox.high - ox.low) / 2.0, (oy.high - oy.low) / 2.0,
+                    (oz.high - oz.low) / 2.0};
+        dt = dot_(abs(d), err) / len2;
+        shift = d * dt;
+        o = vec3f{0.5 * (add_round_down(ox.low, shift.x) + add_round_up(ox.high, shift.x)),
+                  0.5 * (add_round_down(oy.low, shift.y) + add_round_up(oy.high, shift.y)),
+                  0.5 * (add_round_down(oz.low, shift.z) + add_round_up(oz.high, shift.z))};
+    }
+    out : Ray = {o, d};
+    return out;
+}
+
+// pbrt: a 4x4 matrix as SquareMatrix<4> holds it (rows), and the pair that
+// holds a compensated float (CompensatedFloat: a value and its error).
+element Mat4 {
+    r0, r1, r2, r3 : vec4f;
+}
+element Comp {
+    v, err : Float;
+}
+
+// pbrt: TwoProd and TwoSum, and InnerProduct over products two at a time:
+// `TwoProd(a, b)`, then the recursion `sum = TwoSum(ab.v, tp.v); {sum.v,
+// ab.err + (tp.err + sum.err)}`, read back as `v + err`.
+func two_prod(a : Float, b : Float) -> Comp {
+    ab = a * b;
+    c : Comp = {ab, fma(a, b, -ab)};
+    return c;
+}
+
+func two_sum(a : Float, b : Float) -> Comp {
+    s = a + b;
+    delta = s - a;
+    c : Comp = {s, (a - (s - delta)) + (b - delta)};
+    return c;
+}
+
+func inner_chain(ab : Comp, tp : Comp) -> Comp {
+    // `tot`: `sum` is the reduction builtin.
+    tot = two_sum(ab.v, tp.v);
+    c : Comp = {tot.v, ab.err + (tp.err + tot.err)};
+    return c;
+}
+
+func inner3(a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) -> Float {
+    r = inner_chain(two_prod(a, b), inner_chain(two_prod(c, d), two_prod(e, f)));
+    return r.v + r.err;
+}
+
+func inner6(a0 : Float, b0 : Float, a1 : Float, b1 : Float, a2 : Float, b2 : Float,
+            a3 : Float, b3 : Float, a4 : Float, b4 : Float, a5 : Float, b5 : Float) -> Float {
+    r = inner_chain(two_prod(a0, b0),
+                    inner_chain(two_prod(a1, b1),
+                                inner_chain(two_prod(a2, b2),
+                                            inner_chain(two_prod(a3, b3),
+                                                        inner_chain(two_prod(a4, b4),
+                                                                    two_prod(a5, b5))))));
+    return r.v + r.err;
+}
+
+// pbrt: Inverse(const SquareMatrix<4> &) -- the cofactor form that shares
+// its sub-determinants (Eberly's Laplace expansion, as pbrt credits ion's
+// matrixutils), every difference of products compensated and every inner
+// product summed with its error terms, then the reciprocal of the
+// determinant times each. Written out because LookAt's matrix goes through
+// it in pbrt (InvertOrExit) and the curve's ray space is that matrix, so
+// the control points land where pbrt's land only if the inverse is pbrt's
+// to the bit.
+func inverse4(m : Mat4) -> Mat4 {
+    s0 = prod_diff[[Float]](m.r0.x, m.r1.y, m.r1.x, m.r0.y);
+    s1 = prod_diff[[Float]](m.r0.x, m.r1.z, m.r1.x, m.r0.z);
+    s2 = prod_diff[[Float]](m.r0.x, m.r1.w, m.r1.x, m.r0.w);
+    s3 = prod_diff[[Float]](m.r0.y, m.r1.z, m.r1.y, m.r0.z);
+    s4 = prod_diff[[Float]](m.r0.y, m.r1.w, m.r1.y, m.r0.w);
+    s5 = prod_diff[[Float]](m.r0.z, m.r1.w, m.r1.z, m.r0.w);
+    c0 = prod_diff[[Float]](m.r2.x, m.r3.y, m.r3.x, m.r2.y);
+    c1 = prod_diff[[Float]](m.r2.x, m.r3.z, m.r3.x, m.r2.z);
+    c2 = prod_diff[[Float]](m.r2.x, m.r3.w, m.r3.x, m.r2.w);
+    c3 = prod_diff[[Float]](m.r2.y, m.r3.z, m.r3.y, m.r2.z);
+    c4 = prod_diff[[Float]](m.r2.y, m.r3.w, m.r3.y, m.r2.w);
+    c5 = prod_diff[[Float]](m.r2.z, m.r3.w, m.r3.z, m.r2.w);
+    det = inner6(s0, c5, -s1, c4, s2, c3, s3, c2, s5, c0, -s4, c1);
+    s = 1.0 / det;
+    out : Mat4 = {
+        vec4f{s * inner3(m.r1.y, c5, m.r1.w, c3, -m.r1.z, c4),
+              s * inner3(-m.r0.y, c5, m.r0.z, c4, -m.r0.w, c3),
+              s * inner3(m.r3.y, s5, m.r3.w, s3, -m.r3.z, s4),
+              s * inner3(-m.r2.y, s5, m.r2.z, s4, -m.r2.w, s3)},
+        vec4f{s * inner3(-m.r1.x, c5, m.r1.z, c2, -m.r1.w, c1),
+              s * inner3(m.r0.x, c5, m.r0.w, c1, -m.r0.z, c2),
+              s * inner3(-m.r3.x, s5, m.r3.z, s2, -m.r3.w, s1),
+              s * inner3(m.r2.x, s5, m.r2.w, s1, -m.r2.z, s2)},
+        vec4f{s * inner3(m.r1.x, c4, m.r1.w, c0, -m.r1.y, c2),
+              s * inner3(-m.r0.x, c4, m.r0.y, c2, -m.r0.w, c0),
+              s * inner3(m.r3.x, s4, m.r3.w, s0, -m.r3.y, s2),
+              s * inner3(-m.r2.x, s4, m.r2.y, s2, -m.r2.w, s0)},
+        vec4f{s * inner3(-m.r1.x, c3, m.r1.y, c1, -m.r1.z, c0),
+              s * inner3(m.r0.x, c3, m.r0.z, c0, -m.r0.y, c1),
+              s * inner3(-m.r3.x, s3, m.r3.y, s1, -m.r3.z, s0),
+              s * inner3(m.r2.x, s3, m.r2.z, s0, -m.r2.y, s1)}};
+    return out;
+}
+
+// pbrt: LookAt(pos, look, up) -- the camera-to-world matrix by columns
+// (right, newUp, dir, pos) and its inverse by inverse4; the curve's ray
+// space, `LookAt(ray.o, ray.o + ray.d, dx)`, in which the ray runs up z
+// from the origin. Both come back as Transforms: pbrt's `rayFromObject` (its
+// m, the computed inverse) and that transform's inverse (the constructed
+// matrix), which `Inverse(rayFromObject)` is.
+element RaySpace {
+    ray_from_object : Transform;
+    object_from_ray : Transform;
+}
+
+func look_at(pos : vec3f, look : vec3f, up : vec3f) -> RaySpace {
+    dir = unit_vector_(look - pos);
+    right = unit_vector_(cross_(unit_vector_(up), dir));
+    new_up = cross_(dir, right);
+    world_from_camera : Mat4 = {vec4f{right.x, new_up.x, dir.x, pos.x},
+                                vec4f{right.y, new_up.y, dir.y, pos.y},
+                                vec4f{right.z, new_up.z, dir.z, pos.z},
+                                vec4f{0.0, 0.0, 0.0, 1.0}};
+    camera_from_world = inverse4(world_from_camera);
+    rs : RaySpace = {Transform{camera_from_world.r0, camera_from_world.r1,
+                               camera_from_world.r2, camera_from_world.r3},
+                     Transform{world_from_camera.r0, world_from_camera.r1,
+                               world_from_camera.r2, world_from_camera.r3}};
+    return rs;
+}
+
+// pbrt: Transform::operator()(Point3f) as gcc compiled it in
+// Curve::IntersectRay, for the control points into ray space: each row
+// `m0 x + m1 y + m2 z + m3` with the *first* product fused into the inner
+// sum -- the form apply_row_vector has -- where apply_point (apply_row)
+// fuses the second, which is what the camera's instance of the same
+// function does. Fitted over the curve scene's camera rays as lerp_p's
+// form was: the second-fused rows miss pbrt's distance on 142 more of 667.
+func curve_point(t : Transform, p : vec3f) -> vec3f {
+    xp = apply_row_vector(t.r0, p) + t.r0.w;
+    yp = apply_row_vector(t.r1, p) + t.r1.w;
+    zp = apply_row_vector(t.r2, p) + t.r2.w;
+    wp = apply_row_vector(t.r3, p) + t.r3.w;
+    v = vec3f{xp, yp, zp};
+    return select(wp == 1.0, v, v / wp);
+}
+
+// The curve's ray space for a ray already in object space: pbrt's `dx =
+// Cross(ray.d, cpObj[3] - cpObj[0])`, or a frame about the direction where
+// the chord lies along it, and LookAt from the origin along the direction
+// with that as "up".
+func curve_ray_space(ray : Ray, cp_obj : Bezier) -> RaySpace {
+    dx0 = cross_(ray.d, cp_obj.c3 - cp_obj.c0);
+    dx : mut vec3f = dx0;
+    if sqlen_(dx0) == 0.0 {
+        made = coordinate_system(ray.d);
+        dx = made.x;
+    }
+    return look_at(ray.o, ray.o + ray.d, dx);
+}
+
+// pbrt: Bounds3f(p1, p2) and Union(Bounds3f(c0, c1), Bounds3f(c2, c3)) --
+// the box around four control points, which bounds the Bezier they
+// control -- expanded by half the width, and `Overlaps` with the ray's own
+// box, the z axis from 0 to its length times tMax. The test pbrt makes of a
+// segment at the root and at every node of the recursion.
+func curve_box_overlaps(b : Bezier, half_width : Float, z_max : Float) -> bool {
+    lo = min(min(b.c0, b.c1), min(b.c2, b.c3)) - half_width;
+    hi = max(max(b.c0, b.c1), max(b.c2, b.c3)) + half_width;
+    // rayBounds is (0, 0, 0)..(0, 0, z_max); Overlaps is each axis's
+    // `b1.pMax >= b2.pMin && b1.pMin <= b2.pMax`.
+    return (z_max >= lo.z) & (0.0 <= hi.z) & (0.0 >= lo.x) & (0.0 <= hi.x) &
+           (0.0 >= lo.y) & (0.0 <= hi.y);
+}
+
+// pbrt: Log2Int(float) -- the exponent, plus one where the significand is
+// past the midpoint of the octave (round to nearest in log space), and the
+// reciprocal's negated below one.
+func log2_int(v_in : Float) -> i32 {
+    // pbrt recurses once for `v < 1`, `-Log2Int(1 / v)`; the reciprocal is
+    // at least one, so it is one step, written flat here.
+    below = v_in < 1.0;
+    v = select(below, 1.0 / v_in, v_in);
+    bits = reinterpret[[u32]](v);
+    exponent = cast[[i32]](bits >> 23u) - 127;
+    significand = bits & 0x7FFFFFu;
+    l = exponent + select(significand >= 0x3504F3u, 1, 0);
+    return select(below, -l, l);
+}
+
+// pbrt: the ribbon's normal at u -- the two end normals blended by sines
+// (a slerp), or the first where the two agree.
+func ribbon_normal(c : CurveCommon, u : Float) -> vec3f {
+    if c.normal_angle == 0.0 {
+        return c.n0;
+    }
+    sin0 = sin((1.0 - u) * c.normal_angle) * c.inv_sin_normal_angle;
+    sin1 = sin(u * c.normal_angle) * c.inv_sin_normal_angle;
+    return sin0 * c.n0 + sin1 * c.n1;
+}
+
+// pbrt: the leaf of Curve::RecursiveIntersect -- the segment `b` in ray
+// space (the ray up z from the origin), its u range, and whether the ray's
+// point lies on the curve's width there: behind neither tangent
+// perpendicular at the ends, the closest point on the chord (w), the width
+// at the curve's u there (a ribbon's scaled by how edge-on it is to the
+// ray), the distance from the curve point at w against half the width,
+// and the depth along the ray within tMax. v is which side of the curve's
+// tangent the point is, by the edge function.
+func curve_leaf(c : CurveCommon, ray : Ray, ray_length : Float, tmax : Float,
+                b : Bezier, u0 : Float, u1 : Float) -> option[CurveHit] {
+    // pbrt: `(cp[1].y - cp[0].y) * -cp[0].y + cp[0].x * (cp[0].x - cp[1].x)`,
+    // which gcc fuses with the *second* product into the first (measured;
+    // Contract.h's choice is the other one, so the fma is written out). The
+    // sign is all that is read of it, so the form matters less than the
+    // point lerps' (lerp_p) and the ray length's (curve_hit), which decide
+    // the hit distance's last bits.
+    edge0 = fma(b.c0.x, b.c0.x - b.c1.x, (b.c1.y - b.c0.y) * -b.c0.y);
+    if edge0 < 0.0 {
+        return {};
+    }
+    edge1 = fma(b.c3.x, b.c3.x - b.c2.x, (b.c2.y - b.c3.y) * -b.c3.y);
+    if edge1 < 0.0 {
+        return {};
+    }
+    seg_dir = vec2f{b.c3.x - b.c0.x, b.c3.y - b.c0.y};
+    denom = sqr(seg_dir.x) + sqr(seg_dir.y);
+    if denom == 0.0 {
+        return {};
+    }
+    // pbrt: `Dot(-Vector2f(cp[0].x, cp[0].y), segmentDir)`, and a Vector2's
+    // Dot is SumOfProducts, the compensated form.
+    w = sum_of_products(-b.c0.x, seg_dir.x, -b.c0.y, seg_dir.y) / denom;
+    u = min(max(lerp_st(w, u0, u1), u0), u1);
+    hit_width : mut Float = lerp_st(u, c.width0, c.width1);
+    if c.kind == 2 {
+        n_hit = ribbon_normal(c, u);
+        hit_width = hit_width * (abs(dot_(n_hit, ray.d)) / ray_length);
+    }
+    at = bezier_at(b, min(max(w, 0.0), 1.0));
+    dist2 = sqr(at.p.x) + sqr(at.p.y);
+    if dist2 > sqr(hit_width) * 0.25 {
+        return {};
+    }
+    if (at.p.z < 0.0) | (at.p.z > ray_length * tmax) {
+        return {};
+    }
+    dist = sqrt(dist2);
+    edge_func = at.dpdu.x * -at.p.y + at.p.x * at.dpdu.y;
+    v = select(edge_func > 0.0, 0.5 + dist / hit_width, 0.5 - dist / hit_width);
+    hit : CurveHit = {at.p.z / ray_length, u, v, hit_width};
+    return hit;
+}
+
+// pbrt: Curve::IntersectRay and RecursiveIntersect, as one function without
+// the recursion. IntersectRay moves the ray into object space (curve_ray),
+// takes the segment's own control points (bezier_segment), builds the ray
+// space (curve_ray_space) and moves the control points into it, where the
+// ray is the z axis; tests their box; and sets the refinement depth from
+// the control polygon's curvature (L0, the largest second difference)
+// against a twentieth of the width, log base 4 as half of Log2Int, clamped
+// to [0, 10]. RecursiveIntersect then halves the Bezier maxDepth times,
+// testing each half's box and leaving a half the ray's box misses, and
+// tests the ray against the segment at the leaves (curve_leaf).
+//
+// pbrt's recursion is a depth-first walk of a binary tree of depth
+// maxDepth, left half first, which is how the nearest of several hits is
+// kept (`tHit > si->value().tHit` refuses a later farther one). This walks
+// the same tree in the same order with the node named by the bits of the
+// path from the root (`path`, one bit a level) and its depth, and
+// recomputes the node's control points by replaying the halvings from the
+// root -- the same SubdivideCubicBezier each time, so the same bits -- and
+// its u range by the same midpoints, since the program has no arrays to
+// keep a stack of them in. A node's box is tested as pbrt tests a child's
+// before descending into it. Every hit is kept to the nearest, where
+// pbrt's IntersectP leaves at the first; the answer is the same.
+func curve_hit(r : Ray, tmax : Float, seg : Curve) -> option[CurveHit] {
+    c = curve_commons[seg.common];
+    frame = curve_frames[c.frame];
+    ray = curve_ray(frame.object_from_render, r);
+    cp_obj = bezier_segment(c, seg.u_min, seg.u_max);
+    rs = curve_ray_space(ray, cp_obj);
+    root : Bezier = {curve_point(rs.ray_from_object, cp_obj.c0),
+                     curve_point(rs.ray_from_object, cp_obj.c1),
+                     curve_point(rs.ray_from_object, cp_obj.c2),
+                     curve_point(rs.ray_from_object, cp_obj.c3)};
+
+    // pbrt: `Length(ray.d)` at the top of RecursiveIntersect, `Sqr(x) +
+    // Sqr(y) + Sqr(z)` with the *second* square fused into the first where
+    // gcc compiled it there (fitted as lerp_p's form was; sqlen_ fuses the
+    // first, as pbrt's Transform::operator()(Ray) above does). The hit
+    // distance is pc.z divided by this, so its last bit is the distance's.
+    ray_length = sqrt(fma(ray.d.z, ray.d.z, fma(ray.d.y, ray.d.y, ray.d.x * ray.d.x)));
+    z_max = ray_length * tmax;
+    w_min = lerp_st(seg.u_min, c.width0, c.width1);
+    w_max = lerp_st(seg.u_max, c.width0, c.width1);
+    if !curve_box_overlaps(root, 0.5 * max(w_min, w_max), z_max) {
+        return {};
+    }
+
+    d0 = abs(root.c0 - 2.0 * root.c1 + root.c2);
+    d1 = abs(root.c1 - 2.0 * root.c2 + root.c3);
+    l0 = max(max(max(d0.x, d0.y), d0.z), max(max(d1.x, d1.y), d1.z));
+    max_depth : mut i32 = 0;
+    if l0 > 0.0 {
+        // `width_eps`: `eps` is a builtin. pbrt's "width / 20".
+        width_eps = max(c.width0, c.width1) * 0.05;
+        log4 = log2_int(1.41421356237 * 6.0 * l0 / (8.0 * width_eps)) / 2;
+        max_depth = min(max(log4, 0), 10);
+    }
+
+    best : mut option[CurveHit] = {};
+    depth : mut i32 = 0;
+    path : mut u32 = 0u;
+    done : mut bool = false;
+    while !done {
+        // The node's control points and u range, replayed from the root.
+        b : mut Bezier = root;
+        u0 : mut Float = seg.u_min;
+        u1 : mut Float = seg.u_max;
+        level : mut i32 = 0;
+        while level < depth {
+            right = ((path >> cast[[u32]](depth - 1 - level)) & 1u) != 0u;
+            b = bezier_half(b, right);
+            um = (u0 + u1) / 2.0;
+            u0 = select(right, um, u0);
+            u1 = select(right, u1, um);
+            level = level + 1;
+        }
+        overlaps : mut bool = true;
+        if depth > 0 {
+            overlaps = curve_box_overlaps(
+                b, 0.5 * max(lerp_st(u0, c.width0, c.width1),
+                             lerp_st(u1, c.width0, c.width1)), z_max);
+        }
+        if overlaps & (depth < max_depth) {
+            // Down into the left half.
+            path = path << 1u;
+            depth = depth + 1;
+        } else {
+            if overlaps {
+                leaf = curve_leaf(c, ray, ray_length, tmax, b, u0, u1);
+                if leaf {
+                    if !best || ((*leaf).t <= (*best).t) {
+                        best = leaf;
+                    }
+                }
+            }
+            // On: up past every right child, then to the right sibling.
+            while (depth > 0) & ((path & 1u) != 0u) {
+                path = path >> 1u;
+                depth = depth - 1;
+            }
+            if depth == 0 {
+                done = true;
+            } else {
+                path = path | 1u;
+            }
+        }
+    }
+    return best;
+}
+
 // pbrt: Shape, the closed set of things a ray can hit. v4 dispatches this
 // through a TaggedPointer over Sphere, Triangle, and the rest; a variant type
 // says the same thing without the pointer.
@@ -823,7 +1322,8 @@ element Shape =
     | Tri(t : Triangle)
     | Dsk(d : Disk)
     | Blp(b : BilinearPatch)
-    | Cyl(c : Cylinder);
+    | Cyl(c : Cylinder)
+    | Crv(cv : Curve);
 
 // pbrt: Shape::Intersect and Shape::IntersectP, as one function each that
 // matches on which shape it has. The tree the schedule builds calls these
@@ -872,6 +1372,13 @@ func [[inline]] distmin(q : RaySegment, sh : Shape) -> Float {
             }
             return inf;
         }
+        Crv(cv) => {
+            hit = curve_hit(q.ray, q.tmax, cv);
+            if hit {
+                return (*hit).t;
+            }
+            return inf;
+        }
     }
 }
 
@@ -906,6 +1413,13 @@ func [[inline]] distmax(q : RaySegment, sh : Shape) -> Float {
             }
             return -inf;
         }
+        Crv(cv) => {
+            hit = curve_hit(q.ray, q.tmax, cv);
+            if hit {
+                return (*hit).t;
+            }
+            return -inf;
+        }
     }
 }
 
@@ -916,6 +1430,7 @@ func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
         Dsk(d) => return cast[[bool]](disk_hit(q.ray, q.tmax, d));
         Blp(b) => return cast[[bool]](patch_hit(q.ray, q.tmax, b));
         Cyl(c) => return cast[[bool]](cylinder_hit(q.ray, q.tmax, c));
+        Crv(cv) => return cast[[bool]](curve_hit(q.ray, q.tmax, cv));
     }
 }
 
@@ -1221,6 +1736,72 @@ func cylinder_geometry(cyl : Cylinder, hit : CylinderHit) -> SurfaceGeometry {
     return push_surface(cyl.render_from_object, cyl.object_from_render, g);
 }
 
+// pbrt: Rotate(theta, axis) applied to a vector -- the rotation matrix of
+// Rotate(sinTheta, cosTheta, axis) about the normalized axis, row by row,
+// the angle in degrees as pbrt takes it.
+func rotate_vector(theta_deg : Float, axis : vec3f, v : vec3f) -> vec3f {
+    sin_t = sin(0.01745329251994329577 * theta_deg);
+    cos_t = cos(0.01745329251994329577 * theta_deg);
+    a = unit_vector_(axis);
+    r0 = vec4f{a.x * a.x + (1.0 - a.x * a.x) * cos_t,
+               a.x * a.y * (1.0 - cos_t) - a.z * sin_t,
+               a.x * a.z * (1.0 - cos_t) + a.y * sin_t, 0.0};
+    r1 = vec4f{a.x * a.y * (1.0 - cos_t) + a.z * sin_t,
+               a.y * a.y + (1.0 - a.y * a.y) * cos_t,
+               a.y * a.z * (1.0 - cos_t) - a.x * sin_t, 0.0};
+    r2 = vec4f{a.x * a.z * (1.0 - cos_t) - a.y * sin_t,
+               a.y * a.z * (1.0 - cos_t) + a.x * sin_t,
+               a.z * a.z + (1.0 - a.z * a.z) * cos_t, 0.0};
+    return vec3f{apply_row_vector(r0, v), apply_row_vector(r1, v),
+                 apply_row_vector(r2, v)};
+}
+
+// pbrt: the SurfaceInteraction a curve hit makes (the tail of
+// RecursiveIntersect's leaf). dpdu is the common's whole curve's derivative
+// at u (EvaluateCubicBezier with the derivative); dpdv is, for a ribbon,
+// the normal crossed with it at the width, and for a flat or a cylinder
+// curve the perpendicular to dpdu in the ray's plane at the width -- dpdu
+// taken into ray space by `objectFromRay.ApplyInverse`, turned there,
+// brought back -- a cylinder's rotated about dpdu by v from -90 to 90
+// degrees so the normal turns across the width as a tube's does. The
+// error bound is the width on every axis; the normal is dpdu x dpdv turned
+// by `flip`; the point is the object-space ray at t; a curve has no second
+// derivatives and no vertex normals, so the shading geometry is the
+// geometry. The ray space is rebuilt from the ray, the same bits as the hit
+// test's.
+func curve_geometry(seg : Curve, r : Ray, hit : CurveHit) -> SurfaceGeometry {
+    c = curve_commons[seg.common];
+    frame = curve_frames[c.frame];
+    ray = curve_ray(frame.object_from_render, r);
+    whole : Bezier = {c.p0, c.p1, c.p2, c.p3};
+    at = bezier_at(whole, hit.u);
+    dpdu = at.dpdu;
+    dpdv : mut vec3f = vec3f{0.0, 0.0, 0.0};
+    if c.kind == 2 {
+        n_hit = ribbon_normal(c, hit.u);
+        dpdv = unit_vector_(cross_(n_hit, dpdu)) * hit.hit_width;
+    } else {
+        rs = curve_ray_space(ray, bezier_segment(c, seg.u_min, seg.u_max));
+        dpdu_plane = apply_vector(rs.ray_from_object, dpdu);
+        dpdv_plane : mut vec3f =
+            unit_vector_(vec3f{-dpdu_plane.y, dpdu_plane.x, 0.0}) * hit.hit_width;
+        if c.kind == 1 {
+            // pbrt: `Rotate(-theta, dpduPlane)` with theta = Lerp(v, -90, 90).
+            theta = lerp_st(hit.v, -90.0, 90.0);
+            dpdv_plane = rotate_vector(-theta, dpdu_plane, dpdv_plane);
+        }
+        dpdv = apply_vector(rs.object_from_ray, dpdv_plane);
+    }
+    p_obj = ray.o + hit.t * ray.d;
+    p_error = vec3f{hit.hit_width, hit.hit_width, hit.hit_width};
+    raw_n = unit_vector(cross_(dpdu, dpdv));
+    n = select(frame.flip, -raw_n, raw_n);
+    zero = vec3f{0.0, 0.0, 0.0};
+    g : SurfaceGeometry = {n, n, dpdu, dpdv, vec2f{hit.u, hit.v}, dpdu, dpdv, zero,
+                           zero, p_obj, p_error};
+    return push_surface(frame.render_from_object, frame.object_from_render, g);
+}
+
 // pbrt: Triangle::InteractionFromIntersection.
 func triangle_geometry(tri : Triangle, b : vec3f) -> SurfaceGeometry {
     m = meshes[tri.mesh];
@@ -1419,6 +2000,7 @@ func hit_refused(sh : Shape, r : Ray) -> bool {
         Dsk(d) => return false;
         Blp(b) => return false;
         Cyl(c) => return false;
+        Crv(cv) => return false;
     }
 }
 
@@ -2798,6 +3380,9 @@ func shape_sample(sh : Shape, ctx : ShapeSampleContext,
         Dsk(d) => return disk_sample(d, ctx, u);
         Blp(b) => return patch_sample(b, ctx, u);
         Cyl(c) => return cylinder_sample(c, ctx, u);
+        // pbrt: Curve::Sample is `LOG_FATAL("not implemented")`; the
+        // converter refuses an emissive curve, so this is never asked.
+        Crv(cv) => return {};
     }
 }
 
@@ -2808,6 +3393,7 @@ func shape_pdf(sh : Shape, ctx : ShapeSampleContext, wi : vec3f) -> Float {
         Dsk(d) => return disk_pdf(d, ctx, wi);
         Blp(b) => return patch_pdf(b, ctx, wi);
         Cyl(c) => return cylinder_pdf(c, ctx, wi);
+        Crv(cv) => return 0.0;
     }
 }
 
@@ -2868,6 +3454,13 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             }
             return missed;
         }
+        Crv(cv) => {
+            hit = curve_hit(r, inf, cv);
+            if hit {
+                return curve_geometry(cv, r, *hit);
+            }
+            return missed;
+        }
     }
 }
 
@@ -2897,5 +3490,14 @@ func interaction_wo(sh : Shape, wo : vec3f) -> vec3f {
             unit_vector_(apply_vector(c.object_from_render, wo))));
         Tri(t) => return unit_vector_(wo);
         Blp(b) => return unit_vector_(wo);
+        // A curve's interaction takes `-ray.d` of the object-space ray (the
+        // plain vector transform; the nudge moves the origin alone) and the
+        // transform out, the quadric's round trip.
+        Crv(cv) => {
+            frame = curve_frames[curve_commons[cv.common].frame];
+            return unit_vector_(apply_vector(
+                frame.render_from_object,
+                unit_vector_(apply_vector(frame.object_from_render, wo))));
+        }
     }
 }
