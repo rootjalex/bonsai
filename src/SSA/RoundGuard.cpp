@@ -185,7 +185,7 @@ struct Candidate {
 
 } // namespace
 
-void pipeline_round_guards(FuncMap &funcs, ir::Program &program) {
+void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
     bool rewrote_any = false;
     for (auto &[fname, f] : funcs) {
         if (f->blocks.empty()) {
@@ -291,7 +291,7 @@ void pipeline_round_guards(FuncMap &funcs, ir::Program &program) {
             }
             // The round: the header argument one predecessor starts at zero
             // and another steps by one -- the loop's own counter, which the
-            // ring is indexed by.
+            // guard's call site names.
             string round;
             for (size_t k = 0; k < header->args.size() && round.empty(); k++) {
                 bool stepped = false, started = false;
@@ -369,7 +369,7 @@ void pipeline_round_guards(FuncMap &funcs, ir::Program &program) {
                 Terminator::Dispatch{stop, std::move(old.targets)};
 
             // The count's address, where the test loaded its value: the
-            // runtime snapshots it on the stream instead.
+            // runtime reads the four bytes there instead.
             shared_ptr<Value> queue_at = c.queues;
             if (c.slot != nullptr) {
                 queue_at = header.make_instruction(

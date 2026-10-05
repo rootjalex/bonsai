@@ -8,10 +8,10 @@
 // out[i] = 1 + .. + i, and marks[k] = 2k for every k some path reached
 // (1..7; marks[0] keeps its -1, no iteration notes zero). The same program
 // with the loops bound to GPUThread is the shape ssa/round-hoist.bonsai
-// pins (the header fill hoisted out of the rounds, the guard pipelined);
-// running THAT is apps/pbrt's compare -- the band-owned queue under a GPU
-// bind loses its results in the harness here, a latent fault older than
-// the launch-shape work (apps/pbrt/PLAN.md records it).
+// pins (the header fill hoisted out of the rounds, the guard the loop's one
+// synchronous read); running THAT is apps/pbrt's compare -- the band-owned
+// queue under a GPU bind loses its results in the harness here, a latent
+// fault older than the launch-shape work (apps/pbrt/PLAN.md records it).
 func score(k : i32) -> i32 {
     return k * 2;
 }

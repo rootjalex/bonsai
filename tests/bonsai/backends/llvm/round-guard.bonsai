@@ -1,20 +1,20 @@
 //! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu generic --gpu-arch sm_90
 
-// The round loop's pipelined guard through the LLVM backend
-// (SSA/RoundGuard.cpp). `run`'s drain is a self-recursive deferral on the
-// GPU, so it drains in rounds, and the host's test of "is this round's
-// queue empty" is a call rather than a read.
+// The round loop's guard through the LLVM backend (SSA/RoundGuard.cpp).
+// `run`'s drain is a self-recursive deferral on the GPU, so it drains in
+// rounds, and the host's test of "is this round's queue empty" is a call to
+// the runtime rather than a generic host load of device memory.
 //
 // What to read for. `bonsai_cuda_round_guard` is `declare`d with external
 // linkage under its own name and the C types of its signature -- `i32` and
 // `ptr`, the declaration the pass injects; runtime/bonsai_cuda.h implements
-// it, and nothing in this module defines it. The host's round loop calls it
-// with the round and the device address of the count of the queue drained
-// this round, and branches to the loop's exit when it answers zero. No
-// `bonsai_cuda_copy_to_host` of a count remains anywhere in the host code:
-// the one blocking read the round loop made is now the runtime's ring of
-// asynchronous snapshots, and the kernel keeps its own device-side read of
-// the count (the guard the GPU bind built, Bind.cpp).
+// it (one synchronous four-byte read: `do { launch } while (the guard says
+// go)`), and nothing in this module defines it. The host's round loop calls
+// it with the round and the device address of the count of the queue
+// drained this round, and branches to the loop's exit when it answers zero.
+// No `bonsai_cuda_copy_to_host` of a count remains anywhere in the host
+// code, and the kernel keeps its own device-side read of the count (the
+// guard the GPU bind built, Bind.cpp).
 func walk(k : i32, acc : i32) -> i32 {
     if (k <= 0) {
         return acc;

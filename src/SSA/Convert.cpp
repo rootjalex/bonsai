@@ -2665,15 +2665,16 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
     phase("drain gates");
 
-    // The round loops' guards, pipelined: the one host read a GPU round loop
-    // still makes -- the count tested between rounds -- becomes a call to
-    // the runtime's ring of asynchronous snapshots, so the stream never
-    // drains inside the loop (SSA/RoundGuard.h). Here because it needs the
-    // drains' queue facts and GPU bindings (like the gates above), and
-    // before the simplify below so the dead thread of the replaced read is
-    // swept with everything else.
+    // The round loops' guards and the inner queues' header fills
+    // (SSA/RoundGuard.h): the loop becomes `do { launch } while
+    // (bonsai_cuda_round_guard(..))` -- one synchronous four-byte read per
+    // round in place of the generic host load -- and a header a queue made
+    // inside the rounds restaged every round moves to the preheader. Here
+    // because it needs the drains' queue facts and GPU bindings (like the
+    // gates above), and before the simplify below so the dead thread of the
+    // replaced read is swept with everything else.
     if (keep_ssa != nullptr) {
-        pipeline_round_guards(fmap, *keep_ssa);
+        rewrite_round_guards(fmap, *keep_ssa);
     }
     phase("round guards");
 

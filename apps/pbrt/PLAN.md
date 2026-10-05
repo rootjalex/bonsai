@@ -10540,32 +10540,64 @@ fill to the round loop's preheader and leaves NOTHING in the loop: the
 count was already reset once a round after the drain, so even the
 one-word zero would be a second word a round. 19 staged copies and
 their events gone from every round.
-(2) The pipelined round guard (SSA/RoundGuard.cpp + runtime
-bonsai_cuda_round_guard): the one host read a GPU round loop still made
--- the count tested between rounds, a synchronous copy that drains the
-stream -- becomes a ring of asynchronous snapshots tested `depth`
-rounds late, which is exact (a count once zero stays zero; the rounds
-past the end launch kernels whose device guard sees zero), so the host
-runs up to depth+1 rounds ahead and the stream never drains inside the
-loop: pbrt's shape, one wait per band, without pbrt's fixed maxDepth+1
-trip count. With the host no longer the bottleneck this is what keeps
-the GPU fed.
+(2) The round guard (SSA/RoundGuard.cpp + runtime
+bonsai_cuda_round_guard): the host read a GPU round loop makes -- the
+count tested between rounds, which the generic lowering made a struct's
+worth of copy -- becomes one four-byte synchronous read, so the loop is
+`do { launch the round } while (the guard says go)` and stops exactly
+where the recursion did. *Ruled 2026-10-05:* this read was first built
+as a ring of asynchronous snapshots tested four rounds late -- exact,
+but overrunning every wave's end by four empty rounds -- and the user
+ruled it out as dishonest lowering; re-measured, the synchronous read
+costs ~3 us a round boundary (frame542, the 33k-round stress case,
+3.54 -> 3.64 s, 1.45x -> 1.41x) and WINS on short-wave scenes where the
+ring's tail was 4 of 10 rounds (killeroo-gold 64 spp 1.41x -> 1.51x,
+killeroo-simple 1.22x -> 1.35x; explosion and landscape also tick up).
+Net across the seven measured scenes the honest read is level or
+better. If a round boundary ever costs for real, the sanctioned next
+steps are (a) enqueueing the count copy right after the last drain that
+can push rays -- the push graph knows which -- so the wait overlaps the
+shadow/escaped/emissive launches, still exact; and (b) a trip count the
+compiler can prove (the recursion's `depth < max_depth` bounds the
+rounds), pbrt's own shape. Not a stale answer.
 (3) The runtime's per-launch fat (runtime/bonsai_cuda.h): the context
 made current once a thread rather than per call, and a launch's
 CUfunction looked up once per kernel name rather than per launch.
 Measured so far (quiet, profiler off, interleaved A/B, least of
 repeats): frame542 64 spp 4.64 -> 3.60 s with (1)+(2) alone, the
 harness verdicts matching pbrt on both scenes and the walls 1.40x
-(frame542) and 1.47x (book) of pbrt --gpu; the full table with (3),
-taken quiet in per-scene chunks (2026-10-05, least of 5, every image
-matching): frame542 1.47x/1.45x of pbrt --gpu at 16/64 spp (3.54 s
+(frame542) and 1.47x (book) of pbrt --gpu. With the synchronous guard
+(the final form), the seven-scene table (quiet chunks, least of 5,
+every image matching): frame542 1.46x/1.41x, book 1.57x/1.55x,
+rough-glass 1.42x/1.37x, killeroo-simple 2.66x/1.35x, killeroo-gold
+2.15x/1.51x, explosion 0.93x/0.90x, landscape 1.09x/0.99x -- the two
+sub-1x cells are live-kernel gaps (the shadow-Tr and trace kernels,
+below), not the loop. The ring's table before the ruling, for the
+record -- the full table with (3), taken quiet in per-scene chunks
+(2026-10-05, least of 5, every image matching): frame542 1.47x/1.45x
+of pbrt --gpu at 16/64 spp (3.54 s
 against pbrt's 5.13 at 64), lte-orb-rough-glass 1.43x/1.38x,
 killeroo-simple 2.57x/1.22x, killeroo-gold 2.03x/1.41x, book
 1.82x/1.47x -- kernels alone 1.30-1.72x, so the walls now sit near
 them. The deep-round scenes moved most (frame542 1.10x -> 1.45x at 64
 spp, book 1.16x -> 1.47x, rough-glass 1.25x -> 1.38x); the tiny
 killeroo cells are level within noise, their waves running six rounds
-with little host time to win. One measurement note: the profiler's
+with little host time to win.
+
+And the "dielectric kernel proper" above (782 against pbrt's 608)
+dissolves on inspection: the pairing matched kernel names, not stages.
+pbrt generates its ray samples in a kernel of their own ("Generate ray
+samples - HaltonSampler", 731 ms on frame542 at 64 spp) which the
+material kernels then read, where our material kernel draws its samples
+inline -- so the stage is 781 ms of ours against pbrt's 584 + 731 (and
+452 more in its empty DiffuseMaterial launches). Aligned by stage,
+frame542 now beats pbrt everywhere: sampling+eval 781 against 1767,
+closest trace 1055 against 1250, shadow 557 against 563, escaped+
+emissive 364 against 920, resets 0 against 289. Nothing on this scene
+is left to codegen; what remains against `pbrt --gpu` anywhere is the
+medium scenes' transmittance kernels (item 3 below).
+
+One measurement note: the profiler's
 event pool drains the stream every few dozen launches, which cost
 nothing while the guard read drained it anyway and now adds ~0.3 s to
 a profiled frame542 run -- gpu_compare.sh already takes its walls from
@@ -10582,17 +10614,22 @@ harness returns no results at all, correct on the CPU
 (tests/bonsai/correctness/llvm/rounds-inner-queue.bonsai is the CPU
 side; bind its loops to GPUThread for the repro).
 
-**(3) The medium scenes' ray and shadow-transmittance kernels -- open.**
-On bunny-cloud, launch by launch, our ray kernel is 2-3x faster than
-pbrt's at the first depths (0.24 against 0.65 ms) and has a floor of
-0.16-0.19 ms per launch at deep depths where pbrt's is 0.06-0.10, plus
-rare launches of 3-5 ms with few instructions and 33% occupancy: warps
-resident and waiting. The shadow-transmittance launches show the same
-shape. Was under investigation with the warp-stall sections of Nsight
-Compute on one such launch against pbrt's when the machine went down
-(2026-10-04, a driver nullptr fault, likely ncu on an OptiX launch); on
-hold until the finished work is committed, and then plain renders before
-any profiler.
+**(3) The medium scenes' ray and shadow-transmittance kernels --
+narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
+our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
+against 0.65 ms) and has a floor of 0.16-0.19 ms per launch at deep
+depths where pbrt's is 0.06-0.10, plus rare launches of 3-5 ms with few
+instructions and 33% occupancy: warps resident and waiting. The
+shadow-transmittance launches show the same shape. Was under
+investigation with the warp-stall sections of Nsight Compute on one such
+launch against pbrt's when the machine went down (2026-10-04, a driver
+nullptr fault, likely ncu on an OptiX launch). After the gates and the
+launch shape, no medium cell the hold allows still loses: disney-cloud
+measures 1.07x/1.06x of pbrt --gpu at 16/64 spp (kernels level to 1.05x,
+image matching; the per-launch floor, if it survives, is balanced inside
+pbrt's own kernel totals), and smoke-plume was 1.53x. Resumes when the
+bunny-cloud hold lifts -- a plain render first, any profiler after, and
+ncu only with the user's say-so given the crash.
 
 ## Known-open, smaller
 

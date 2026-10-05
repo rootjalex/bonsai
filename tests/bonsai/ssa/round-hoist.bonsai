@@ -13,9 +13,9 @@
 // Inside the rounds there is no store of it at all: the count was already
 // reset once a round after the drain (Defer), which covers every round
 // after the preheader's zero, so the fill leaves nothing behind. The rounds
-// run behind `bonsai_cuda_round_guard` (the pipelined guard), and both
-// drains launch over their capacity with the count read on the device
-// (Bind.cpp).
+// run as `do { launch } while (bonsai_cuda_round_guard(..))` -- the loop's
+// one synchronous read -- and both drains launch over their capacity with
+// the count read on the device (Bind.cpp).
 func score(k : i32) -> i32 {
     return k * 2;
 }

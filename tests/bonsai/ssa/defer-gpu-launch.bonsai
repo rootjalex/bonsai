@@ -15,14 +15,13 @@
 // count read that way is a device read, since the body runs on the GPU.
 // The zeroing of the next queue's count is on the host, once a round (an
 // asynchronous store, since the queue's header is device-resident). The
-// round's own test -- whether the queue is empty -- is the one read the
-// host used to wait for, and it no longer loads the count at all: the
-// header calls `bonsai_cuda_round_guard(<q>!round, (&<q>_queue[..].count))`
-// (the extern declaration at the top), which snapshots the count on the
-// stream and answers with the snapshot from a few rounds back, so the host
-// pipelines rounds ahead of the device and the stream never drains inside
-// the loop (SSA/RoundGuard.h). The count the host read for the test is
-// gone: no `.count` is loaded outside the kernels.
+// round's own test -- whether the queue is empty -- is the loop's one
+// synchronous read: the header calls `bonsai_cuda_round_guard(<q>!round,
+// (&<q>_queue[..].count))` (the extern declaration at the top), a four-byte
+// read that waits for the round's kernels and answers whether to go on --
+// `do { launch the round } while (the guard says go)`, the loop stopping
+// exactly where the recursion did (SSA/RoundGuard.h). The generic host load
+// the test used to make is gone: no `.count` is loaded outside the kernels.
 //
 // `split_run`'s drain is split into `tally_blk` and `tally_thr` (the
 // material kernels' shape, blocks of threads) and launches over the

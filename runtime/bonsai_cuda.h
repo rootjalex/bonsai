@@ -299,9 +299,6 @@ struct Driver {
     // host waiting, and an event says when a launch is done with them.
     CUresult (*cuMemHostAlloc)(void **, size_t, unsigned int);
     CUresult (*cuMemcpyHtoDAsync)(CUdeviceptr, const void *, size_t, CUstream);
-    // The round guard's snapshot of a queue's count (bonsai_cuda_round_guard):
-    // a four-byte copy into pinned memory, on the stream, read rounds later.
-    CUresult (*cuMemcpyDtoHAsync)(void *, CUdeviceptr, size_t, CUstream);
     CUresult (*cuEventSynchronize)(CUevent);
     // A host store of one word into device memory -- a queue's count zeroed
     // before its round -- as a memset on the stream, so that it neither
@@ -379,7 +376,6 @@ inline Driver &driver() {
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
         load(d.cuMemHostAlloc, "cuMemHostAlloc");
         load(d.cuMemcpyHtoDAsync, "cuMemcpyHtoDAsync_v2");
-        load(d.cuMemcpyDtoHAsync, "cuMemcpyDtoHAsync_v2");
         load(d.cuEventSynchronize, "cuEventSynchronize");
         load(d.cuMemsetD32Async, "cuMemsetD32Async");
         load(d.cuEventCreate, "cuEventCreate");
@@ -662,37 +658,6 @@ inline StagingRing &staging_ring() {
     return r;
 }
 
-// The round loop's guard, pipelined (bonsai_cuda_round_guard). The host's
-// test of "is this round's queue empty" was a synchronous read of the count,
-// which waits for every launch ahead of it: the stream drained once a round,
-// and on a deep scene -- transparent-machines runs 257 rounds a wave -- the
-// drains between reads are five short kernels, so the wait and the reissue
-// were a third of the render (apps/pbrt/PLAN.md, the launch gates section).
-// Instead each round enqueues a four-byte copy of its count into a slot of
-// this ring and tests the snapshot taken `depth` rounds ago, whose copy has
-// long finished: the host runs at most depth+1 rounds ahead of the device and
-// never drains the stream, pbrt's shape -- one wait per band -- without
-// pbrt's fixed maxDepth+1 trip count. Testing late is exact: a round with no
-// entries pushes nothing, so a count once zero stays zero, and the rounds
-// run past the end launch kernels whose device-side guard (Bind.cpp) sees
-// zero and returns. One ring per count address; nothing is reset between
-// entries of a loop, since every slot is re-armed `depth` rounds before it
-// is read again. The caller holds the driver's mutex.
-struct RoundGuardRing {
-    static constexpr uint32_t depth = 4; // rounds the host may run ahead
-    // One cache line per slot: the device writes one while the host reads
-    // another.
-    static constexpr size_t slot_bytes = 64;
-    void *address = nullptr;   // the count this ring watches
-    char *pinned = nullptr;    // slot i's count at pinned + i * slot_bytes
-    CUevent read[depth] = {};  // slot i's copy is done
-};
-
-inline std::vector<RoundGuardRing> &round_guard_rings() {
-    static std::vector<RoundGuardRing> rings;
-    return rings;
-}
-
 inline void KernelStats::print() {
     KernelStats &s = kernel_stats();
     if (!s.pending.empty()) {
@@ -861,73 +826,32 @@ bonsai_cuda_store_async(void *device, const void *host, uint64_t bytes) {
     }
 }
 
-// Whether a queue's rounds go on: 1 to run this round, 0 when the queue was
-// seen empty. `count_address` is the device address of the count of the
-// queue drained THIS round; the compiler emits this call in the round loop's
-// header, before the round's launches (SSA/RoundGuard.cpp), so the snapshot
-// this call enqueues is ordered after the kernels that filled the queue and
-// before the ones that will zero it. The test is of the snapshot from
-// `depth` rounds ago (see RoundGuardRing above for why that is exact and
-// what it buys); the first `depth` rounds run untested, as rounds whose
-// queue cannot be empty yet or whose emptiness costs only their launches.
+// Whether a queue's rounds go on: 1 to run this round, 0 when the queue is
+// empty. `count_address` is the device address of the count of the queue
+// drained THIS round; the compiler emits this call in the round loop's
+// header (SSA/RoundGuard.cpp), so the loop is `do { launch the round }
+// while (this says go)`. The read is synchronous: it returns once every
+// launch ahead of it is done and the count is the true one, so the loop
+// stops exactly where the recursion did -- the honest lowering, the user's
+// ruling of 2026-10-05, in place of a pipelined ring that tested a stale
+// snapshot and overran the end by its depth. What the wait costs is the
+// round boundary: the stream drains before the host issues the next round.
+// If that boundary matters on a scene, the answer is a trip count the
+// compiler can prove (pbrt runs a fixed maxDepth+1 rounds and never asks),
+// not a stale answer. `round` is unused here; it stays in the signature so
+// the generated call sites and their goldens name the loop's own counter.
 __attribute__((used)) inline uint32_t
 bonsai_cuda_round_guard(uint32_t round, uint32_t *count_address) {
     using namespace bonsai_cuda_detail;
+    (void)round;
     Driver &d = ready("test a round's queue");
     std::lock_guard<std::mutex> lock(d.mutex);
-    // Under BONSAI_CUDA_SYNC the read is the synchronous one it replaces, so
-    // a fault keeps its round.
-    if (synchronous_launches()) {
-        uint32_t count = 0;
-        check(d,
-              d.cuMemcpyDtoH(&count,
-                             reinterpret_cast<CUdeviceptr>(count_address), 4),
-              "cuMemcpyDtoH of a round's count");
-        return count != 0 ? 1u : 0u;
-    }
-    RoundGuardRing *ring = nullptr;
-    for (RoundGuardRing &r : round_guard_rings()) {
-        if (r.address == count_address) {
-            ring = &r;
-        }
-    }
-    if (ring == nullptr) {
-        round_guard_rings().push_back(RoundGuardRing{});
-        ring = &round_guard_rings().back();
-        ring->address = count_address;
-        void *p = nullptr;
-        check(d,
-              d.cuMemHostAlloc(&p,
-                               RoundGuardRing::depth * RoundGuardRing::slot_bytes,
-                               0),
-              "cuMemHostAlloc for a round guard");
-        ring->pinned = static_cast<char *>(p);
-        for (CUevent &e : ring->read) {
-            check(d, d.cuEventCreate(&e, CU_EVENT_DISABLE_TIMING),
-                  "cuEventCreate for a round guard");
-        }
-    }
-    const uint32_t slot = round % RoundGuardRing::depth;
-    uint32_t *snapshot = reinterpret_cast<uint32_t *>(
-        ring->pinned + slot * RoundGuardRing::slot_bytes);
-    if (round >= RoundGuardRing::depth) {
-        // This slot was armed at round - depth; its copy is behind the
-        // launches of the rounds since, so this wait is the pipelining's
-        // only one and the stream stays full through it.
-        check(d, d.cuEventSynchronize(ring->read[slot]),
-              "cuEventSynchronize on a round guard");
-        if (*snapshot == 0) {
-            return 0;
-        }
-    }
+    uint32_t count = 0;
     check(d,
-          d.cuMemcpyDtoHAsync(snapshot,
-                              reinterpret_cast<CUdeviceptr>(count_address), 4,
-                              null_stream),
-          "cuMemcpyDtoHAsync of a round's count");
-    check(d, d.cuEventRecord(ring->read[slot], null_stream),
-          "cuEventRecord after a round guard");
-    return 1;
+          d.cuMemcpyDtoH(&count,
+                         reinterpret_cast<CUdeviceptr>(count_address), 4),
+          "cuMemcpyDtoH of a round's count");
+    return count != 0 ? 1u : 0u;
 }
 
 __attribute__((used)) inline void bonsai_kernel_stats_reset() {
