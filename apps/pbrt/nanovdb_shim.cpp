@@ -4,18 +4,27 @@
 // own header -- the library pbrt reads its grids with, and the one thing
 // about such a grid the program does not describe itself.
 //
-//   nanovdb_grid(bytes, at)   the grid that begins `at` bytes into the
-//                             buffer the converter copied out of the .nvdb
-//                             file (Scene::vdb_bytes): NanoVDB's GridData is
-//                             the first thing in a grid's buffer, so the
-//                             handle is the address.
-//   nanovdb_value(g, i, j, k) the voxel at (i, j, k) of a float grid, the
-//                             background where none is stored -- NanoVDB's
-//                             tree().getValue, the root-to-leaf walk pbrt's
-//                             SampleFromVoxels<TreeType, 1, false> makes
-//                             for each of its eight reads (it is given the
-//                             tree, not an accessor, so nothing is cached
-//                             between them; the same here).
+//   nanovdb_grid(bytes, at)    the grid that begins `at` bytes into the
+//                              buffer the converter copied out of the .nvdb
+//                              file (Scene::vdb_bytes): NanoVDB's GridData
+//                              is the first thing in a grid's buffer, so
+//                              the handle is the address.
+//   nanovdb_sample(g, x, y, z) the grid filtered at a medium-space point:
+//                              pbrt's NanoVDBMedium::SamplePoint read,
+//                              verbatim -- `worldToIndexF` and then
+//                              `SampleFromVoxels<FloatGrid::TreeType, 1,
+//                              false>(tree())(pIndex)`, eight getValue tree
+//                              walks and the trilinear weights, all inside
+//                              this one function. One function on purpose:
+//                              the renderer once did the eight voxel reads
+//                              and the lerps itself over a per-voxel
+//                              primitive, the same arithmetic, and the
+//                              inliner's copy of eight tree walks in the
+//                              shadow march's step made that kernel twice
+//                              pbrt's time (explosion, 2026-10-05; ncu put
+//                              both at equal occupancy, so the step's size
+//                              was the cost -- nvcc keeps pbrt's read
+//                              outlined, and this call keeps ours so).
 //
 // Built three ways by build_nanovdb_shim.sh. Into the driver, where it
 // includes the generated header (BONSAI_SHIM_CHECK) so that these
@@ -27,6 +36,7 @@
 // module's PTX by the same flag; nvcc rather than clang because this
 // machine's CUDA is newer than clang's device headers admit.
 #include <nanovdb/NanoVDB.h>
+#include <nanovdb/util/SampleFromVoxels.h>
 
 #include <cstdint>
 
@@ -46,7 +56,11 @@ BONSAI_SHIM NanoVDBGrid nanovdb_grid(const uint8_t *bytes, uint32_t at) {
     return bytes + at;
 }
 
-BONSAI_SHIM float nanovdb_value(NanoVDBGrid g, int32_t i, int32_t j, int32_t k) {
+BONSAI_SHIM float nanovdb_sample(NanoVDBGrid g, float x, float y, float z) {
     const auto *grid = static_cast<const nanovdb::FloatGrid *>(g);
-    return grid->tree().getValue(nanovdb::Coord(i, j, k));
+    const nanovdb::Vec3<float> pIndex =
+        grid->worldToIndexF(nanovdb::Vec3<float>(x, y, z));
+    using Sampler =
+        nanovdb::SampleFromVoxels<nanovdb::FloatGrid::TreeType, 1, false>;
+    return Sampler(grid->tree())(pIndex);
 }

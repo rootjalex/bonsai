@@ -16,7 +16,7 @@ interface is compiled on each target, and what the mechanism gives up.
 ```
 extern element NanoVDBGrid;
 extern func nanovdb_grid(bytes : array[u8], at : u32) -> NanoVDBGrid;
-extern func nanovdb_value(g : NanoVDBGrid, i : i32, j : i32, k : i32) -> f32;
+extern func nanovdb_sample(g : NanoVDBGrid, x : f32, y : f32, z : f32) -> f32;
 ```
 
 `extern element Name;` declares a **foreign type** (`ir::Foreign_t`). It has
@@ -129,9 +129,12 @@ not to PTX appended to it.
 The medium declares the two functions above and an extern byte array holding
 the grid buffers the converter copied out of the `.nvdb` files, each medium
 arm carrying its grids' offsets. A density lookup makes the grid handle from
-the bytes and the offset, converts the point into the grid's index space with
-the map the converter read from the grid's header, and makes eight calls to
-`nanovdb_value` for the trilinear filter, in NanoVDB's own convention. The
+the bytes and the offset and calls `nanovdb_sample` with the medium-space
+point: the shim is pbrt's read verbatim -- the grid's own `worldToIndexF`,
+then NanoVDB's `SampleFromVoxels<FloatGrid::TreeType, 1, false>` trilinear
+filter -- one outlined call, so a march's step stays one call on the device
+(a per-voxel primitive with the filter on the bonsai side generated eight
+inlined tree walks per step and cost the shadow march 2x, 2026-10-05). The
 implementation is apps/pbrt/nanovdb_shim.cpp: two `extern "C"` functions over
 NanoVDB's header, compiled into the driver and to host bitcode for the CPU
 (`--link nanovdb_shim.bc`), and by nvcc to PTX for the GPU

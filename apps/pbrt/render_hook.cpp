@@ -1978,9 +1978,12 @@ int main(int argc, char **argv) {
                          m.wispiness, m.frequency);
             break;
         case bonsai_scene::MediumTag::NanoVDB: {
-            // A grid's map as the renderer applies it (media.bonsai,
-            // nanovdb_index): the inverse matrix's three rows, then the
-            // translation, each padded to a row of four.
+            // A grid's map, packed as the sidecar carries it: the inverse
+            // matrix's three rows, then the translation, each padded to a
+            // row of four. The renderer no longer reads it -- nanovdb_sample
+            // applies the grid's own map in the shim, as pbrt's
+            // worldToIndexF does -- but the record keeps the field for any
+            // reader that wants the map itself.
             const auto map = [](const float *m) {
                 const float rows[16] = {m[0], m[1], m[2],  0.f, m[3], m[4], m[5],  0.f,
                                         m[6], m[7], m[8],  0.f, m[9], m[10], m[11], 0.f};

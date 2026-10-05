@@ -71,8 +71,10 @@ element Grid3 {
 // NanoVDB: pbrt's NanoVDBMedium. The same two coefficient spectra scaled by
 // `scale`, a density grid and an optional temperature grid as NanoVDB
 // buffers (`density_at`, `temperature_at` into `vdb_bytes`, the second only
-// when `emissive`), each with its own map from the medium's space to its
-// index space as NanoVDB's `Map` applies it (nanovdb_index), the emission
+// when `emissive`), each read whole by nanovdb_sample (the grid's own map
+// to index space and NanoVDB's trilinear sampler, in the shim; the
+// `density_map`/`temperature_map` fields stay in the record and the sidecar
+// for a reader that wants the map itself, unread here), the emission
 // `le_scale` times a blackbody at the temperature grid's value under pbrt's
 // offset and scale, and the 64x64x64 majorant grid pbrt's constructor builds
 // over the grids' world box `low`..`high`, which the same DDA walks.
@@ -117,7 +119,17 @@ extern medium_grid : array[Float];
 // and the offset where it is read, since a foreign value is not stored.
 extern element NanoVDBGrid;
 extern func nanovdb_grid(bytes : array[u8], at : u32) -> NanoVDBGrid;
-extern func nanovdb_value(g : NanoVDBGrid, i : i32, j : i32, k : i32) -> Float;
+// pbrt's one read of a grid, whole: the medium-space point taken to index
+// space by the grid's own map (`worldToIndexF`) and filtered by NanoVDB's
+// trilinear sampler (`SampleFromVoxels<FloatGrid::TreeType, 1, false>`),
+// both inside the shim, so the generated march makes ONE call per density
+// just as pbrt's does. It was eight per-voxel reads interpolated here in
+// bonsai, the same arithmetic -- and the eight tree walks inlined into the
+// shadow march's step made that kernel twice pbrt's time on explosion
+// (2026-10-05, ncu: equal occupancy, so the step's own size was the cost;
+// nvcc keeps pbrt's walk outlined, and the shim call keeps ours so).
+extern func nanovdb_sample(g : NanoVDBGrid, x : Float, y : Float, z : Float)
+    -> Float;
 extern vdb_bytes : array[u8];
 
 // 360 to 830 nm at one nanometre, which is what a DenselySampledSpectrum holds.
@@ -270,51 +282,6 @@ func cloud_density(p : vec3f, density : Float, wispiness : Float,
     return min(max(d, 0.0), 1.0);
 }
 
-// NanoVDB: Map::applyInverseMapF, which is what the grid's `worldToIndexF`
-// is -- the point taken from the grid's world (the medium's space) to its
-// index space: the translation taken off, then the inverse matrix, row by
-// row as NanoVDB's matMult writes it, `fmaf(x, m0, fmaf(y, m1, z * m2))`.
-// The map arrives as a Transform whose first three rows hold the matrix and
-// whose fourth holds the translation (render_hook.cpp).
-func nanovdb_index(index_map : Transform, p : vec3f) -> vec3f {
-    x = p.x - index_map.r3.x;
-    y = p.y - index_map.r3.y;
-    z = p.z - index_map.r3.z;
-    return vec3f{fma(x, index_map.r0.x, fma(y, index_map.r0.y, z * index_map.r0.z)),
-                 fma(x, index_map.r1.x, fma(y, index_map.r1.y, z * index_map.r1.z)),
-                 fma(x, index_map.r2.x, fma(y, index_map.r2.y, z * index_map.r2.z))};
-}
-
-// NanoVDB: TrilinearSampler::sample's lerp, `a + w * (b - a)`.
-func nv_lerp(a : Float, b : Float, w : Float) -> Float = a + w * (b - a);
-
-// NanoVDB: SampleFromVoxels<FloatGrid::TreeType, 1, false>, which is how
-// pbrt reads a density -- the trilinear filter in index space in NanoVDB's
-// convention: the voxel at the floor of the point and the one up on each
-// axis, eight values through the accessor (nanovdb_value, each a walk of the
-// tree from the root, as pbrt's is, since pbrt gives the sampler the tree
-// and not a caching accessor), interpolated along z, then y, then x. Not
-// SampledGrid's filter (grid_lookup): that one samples at voxel centres,
-// this at voxel corners, and pbrt uses each on its own kind of grid.
-func nanovdb_trilinear(g : NanoVDBGrid, p : vec3f) -> Float {
-    f = vec3f{floor_f(p.x), floor_f(p.y), floor_f(p.z)};
-    i = cast[[i32]](f.x);
-    j = cast[[i32]](f.y);
-    k = cast[[i32]](f.z);
-    w = p - f;
-    v000 = nanovdb_value(g, i, j, k);
-    v001 = nanovdb_value(g, i, j, k + 1);
-    v010 = nanovdb_value(g, i, j + 1, k);
-    v011 = nanovdb_value(g, i, j + 1, k + 1);
-    v100 = nanovdb_value(g, i + 1, j, k);
-    v101 = nanovdb_value(g, i + 1, j, k + 1);
-    v110 = nanovdb_value(g, i + 1, j + 1, k);
-    v111 = nanovdb_value(g, i + 1, j + 1, k + 1);
-    return nv_lerp(nv_lerp(nv_lerp(v000, v001, w.z), nv_lerp(v010, v011, w.z), w.y),
-                   nv_lerp(nv_lerp(v100, v101, w.z), nv_lerp(v110, v111, w.z), w.y),
-                   w.x);
-}
-
 // pbrt: Medium::SamplePoint -- the medium's properties at `p`, a point in
 // render space. A homogeneous medium is the same everywhere; the others pull
 // the point into their own space (`renderFromMedium.ApplyInverse(p)`, which is
@@ -409,23 +376,23 @@ func medium_sample_point(m : Medium, p : vec3f, lambda : SampledWavelengths)
                 temperature_map, le_scale, temperature_offset, temperature_scale,
                 majorant) => {
             // pbrt: NanoVDBMedium::SamplePoint -- the point pulled into the
-            // medium's space, then into the density grid's index space by the
-            // grid's own map, the density read through NanoVDB's trilinear
-            // sampler and the coefficients scaled by it; the emission (Le) a
-            // blackbody at the temperature grid's value, offset and scaled
-            // and only above 100 K, times Lescale -- nothing without a
-            // temperature grid, which is what `emissive` says.
+            // medium's space and the density read by nanovdb_sample (the
+            // grid's own worldToIndexF and NanoVDB's trilinear sampler, one
+            // call: the extern's comment above), the coefficients scaled by
+            // it; the emission (Le) a blackbody at the temperature grid's
+            // value, offset and scaled and only above 100 K, times Lescale
+            // -- nothing without a temperature grid, which is what
+            // `emissive` says.
             pm = apply_inverse_point(medium_from_render, p);
             density = nanovdb_grid(vdb_bytes, density_at);
-            d = nanovdb_trilinear(density, nanovdb_index(density_map, pm));
+            d = nanovdb_sample(density, pm.x, pm.y, pm.z);
             sigma_a = medium_spectrum_at(spectra, lambda) * d;
             sigma_s = medium_spectrum_at(spectra + medium_spectrum_samples(),
                                          lambda) * d;
             le : mut vec4f = zero;
             if emissive {
                 temperature = nanovdb_grid(vdb_bytes, temperature_at);
-                temp = (nanovdb_trilinear(temperature,
-                                          nanovdb_index(temperature_map, pm)) -
+                temp = (nanovdb_sample(temperature, pm.x, pm.y, pm.z) -
                         temperature_offset) * temperature_scale;
                 if temp > 100.0 {
                     le = le_scale * blackbody_normalized(lambda.lambda, temp);

@@ -10625,11 +10625,37 @@ investigation with the warp-stall sections of Nsight Compute on one such
 launch against pbrt's when the machine went down (2026-10-04, a driver
 nullptr fault, likely ncu on an OptiX launch). After the gates and the
 launch shape, no medium cell the hold allows still loses: disney-cloud
-measures 1.07x/1.06x of pbrt --gpu at 16/64 spp (kernels level to 1.05x,
-image matching; the per-launch floor, if it survives, is balanced inside
-pbrt's own kernel totals), and smoke-plume was 1.53x. Resumes when the
-bunny-cloud hold lifts -- a plain render first, any profiler after, and
-ncu only with the user's say-so given the crash.
+measures 1.07x/1.06x of pbrt --gpu at 16/64 spp, and smoke-plume was
+1.53x.
+
+*Fixed 2026-10-05: the NanoVDB read, made pbrt's verbatim.* The
+verification sweep's one losing medium cell was explosion (0.93x/0.90x),
+and the chain that found it: kernel stats put the loss in the
+shadow-transmittance raygen alone (1.03 ms a live launch against pbrt's
+0.618, the medium-sample CUDA kernel 5% FASTER than pbrt's); ncu (one
+launch each side, cleared for this scene, the driver fine) put both
+renderers' shadow marches at the same ~17% occupancy, so the difference
+was the step's own size, not warps; the PTX put ours at 48k instructions
+and 743 global loads against pbrt's 10k and 85 -- because our density
+read was eight per-voxel `tree().getValue` calls and the trilinear
+weights written in bonsai (the same arithmetic as NanoVDB's sampler),
+all inlined into the march's step, where nvcc keeps pbrt's read one
+outlined call. The ruling's shape applied: nanovdb_value is gone and the
+shim's one primitive is `nanovdb_sample(g, x, y, z)` -- pbrt's
+NanoVDBMedium::SamplePoint read verbatim, `worldToIndexF` then
+`SampleFromVoxels<FloatGrid::TreeType, 1, false>(tree())(pIndex)`, one
+outlined device call -- and media.bonsai's own trilinear/index-map
+helpers are deleted (the grid-map fields stay in the record and the
+sidecar, unread). Measured (quiet chunks, least of 5, every image
+matching): explosion 0.93x/0.90x -> 1.10x/1.14x (the shadow march 1.03
+-> 0.74 ms a launch, the medium-sample kernel 1.38 -> 1.07 s),
+disney-cloud 1.07x/1.06x -> 1.24x/1.23x (22.9 s against pbrt's 28.1 at
+64 spp), smoke-plume 1.10x/1.22x. Two notes left open: explosion's
+shadow march still trails pbrt's per launch (0.74 against 0.62 -- the
+scene wins regardless), and its rays raygen ROSE 0.30 -> 0.47 s with
+the fix, worth a look if explosion ever matters more. Item (3) itself
+resumes when the bunny-cloud hold lifts -- a plain render first, any
+profiler after, and ncu only with the user's say-so given the crash.
 
 ## Known-open, smaller
 
