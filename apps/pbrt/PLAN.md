@@ -10505,14 +10505,82 @@ material statement is dielectric, our profile has the one material
 kernel, pbrt launches its DiffuseMaterial kernel 32768 times regardless
 (452 ms, 9.3% of its kernel time -- its default material holds the flag
 true). What the gates leave: the dielectric kernel proper (782 ms
-against pbrt's 608 at 64 spp, the stage table's standing item), and a
-wall minus kernels of 1.9 s against pbrt's 0.3 s on frame542 and two to
-seven times pbrt's on the others -- part of that is the per-launch
-event timing BONSAI_KERNEL_STATS adds to our timed run and pbrt's
---stats run does not pay (the walls above carry it, so they understate
-us), the rest the host side of the round loop; splitting those two is
-the next measurement, and it is why book's 64 spp wall sits at 1.16x
-while its kernels went from 12% empty to 1.39x of pbrt's.
+against pbrt's 608 at 64 spp, the stage table's standing item), and the
+host side of frame542's round loop: its wall minus kernels is 1.86 s
+against pbrt's 0.3 s, measured clean of the profiler
+(BONSAI_KERNEL_STATS adds 0.22 s to frame542's wall and 6 ms to book's,
+so it is not that). One correction to the table above: book's 64 spp
+wall there, 1.16x, was taken with the other session's compiles running
+below the watcher's redo threshold -- on a quiet machine book s64 is
+0.487 s, 1.50x of pbrt; the other small cells likely understate us the
+same way and the table should be re-taken quiet.
+
+*Fixed 2026-10-05: the round loop's host side.* nsys on frame542 (one
+render, 33,408 rounds) put the 1.86 s not in the five launches a round
+(those are ~9 of its ~141 us) but in what the host sent BESIDE them:
+21 cuMemcpyHtoDAsync (1.25 s over the render -- every inner queue's
+header, count zero and arrays, restaged through the staging ring every
+round although the arrays never change), their ring events (0.84 s of
+cuEventSynchronize, 0.45 s of cuEventRecord), 20 cuMemsetD32Async (the
+counts, 0.81 s), and 1.57 million cuCtxSetCurrent (ready() on every
+helper call, 0.13 s). The host could not keep up with kernels averaging
+17 us, so the GPU waited on the host, not the reverse -- the first
+attempt, pipelining the round guard alone (below), measured SLOWER
+(+0.26 s: one more driver round trip a round, and the host still the
+bottleneck), which is what exposed the real ledger. Three fixes, as one
+launch-shape slice:
+(1) The header fill hoist (SSA/RoundGuard.cpp): a queue made inside
+another queue's rounds -- every material and shadow queue, inside the
+ray queue's rounds -- had its whole header stored at its init point,
+once a round, because that is where Defer empties a queue before its
+producers; everything in it but the count is loop-invariant, and Defer
+cannot hoist it itself (when a queue is built the graph is not yet
+walkable past its own unterminated blocks). The late pass moves the
+fill to the round loop's preheader and leaves NOTHING in the loop: the
+count was already reset once a round after the drain, so even the
+one-word zero would be a second word a round. 19 staged copies and
+their events gone from every round.
+(2) The pipelined round guard (SSA/RoundGuard.cpp + runtime
+bonsai_cuda_round_guard): the one host read a GPU round loop still made
+-- the count tested between rounds, a synchronous copy that drains the
+stream -- becomes a ring of asynchronous snapshots tested `depth`
+rounds late, which is exact (a count once zero stays zero; the rounds
+past the end launch kernels whose device guard sees zero), so the host
+runs up to depth+1 rounds ahead and the stream never drains inside the
+loop: pbrt's shape, one wait per band, without pbrt's fixed maxDepth+1
+trip count. With the host no longer the bottleneck this is what keeps
+the GPU fed.
+(3) The runtime's per-launch fat (runtime/bonsai_cuda.h): the context
+made current once a thread rather than per call, and a launch's
+CUfunction looked up once per kernel name rather than per launch.
+Measured so far (quiet, profiler off, interleaved A/B, least of
+repeats): frame542 64 spp 4.64 -> 3.60 s with (1)+(2) alone, the
+harness verdicts matching pbrt on both scenes and the walls 1.40x
+(frame542) and 1.47x (book) of pbrt --gpu; the full table with (3),
+taken quiet in per-scene chunks (2026-10-05, least of 5, every image
+matching): frame542 1.47x/1.45x of pbrt --gpu at 16/64 spp (3.54 s
+against pbrt's 5.13 at 64), lte-orb-rough-glass 1.43x/1.38x,
+killeroo-simple 2.57x/1.22x, killeroo-gold 2.03x/1.41x, book
+1.82x/1.47x -- kernels alone 1.30-1.72x, so the walls now sit near
+them. The deep-round scenes moved most (frame542 1.10x -> 1.45x at 64
+spp, book 1.16x -> 1.47x, rough-glass 1.25x -> 1.38x); the tiny
+killeroo cells are level within noise, their waves running six rounds
+with little host time to win. One measurement note: the profiler's
+event pool drains the stream every few dozen launches, which cost
+nothing while the guard read drained it anyway and now adds ~0.3 s to
+a profiled frame542 run -- gpu_compare.sh already takes its walls from
+a separate profiler-off run, so the tables are clean; only a hand-run
+with BONSAI_KERNEL_STATS=1 pays it.
+
+Two latent faults the work's test (rounds-inner-queue) surfaced, both
+older than it (build-copy, frozen 2026-10-04 08:34, reproduces both;
+the renderer's extern-storage idiom avoids them): a spawned reduction
+(`spawn total += f(x)`) through a GPU-bound drain accumulates through
+pointers to the host's stack and the total comes back 0; and a
+band-owned queue (`queue(band)`) with GPU-bound drains under the JIT
+harness returns no results at all, correct on the CPU
+(tests/bonsai/correctness/llvm/rounds-inner-queue.bonsai is the CPU
+side; bind its loops to GPUThread for the repro).
 
 **(3) The medium scenes' ray and shadow-transmittance kernels -- open.**
 On bunny-cloud, launch by launch, our ray kernel is 2-3x faster than

@@ -27,6 +27,7 @@ add_bonsai_tests(
     defer-gang.bonsai
     defer-gang-bools.bonsai
     gate-drains.bonsai
+    round-guard.bonsai
     demote-atomics.bonsai
     divide_by_constant.bonsai
     dynamic-array.bonsai

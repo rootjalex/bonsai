@@ -26,6 +26,7 @@ add_bonsai_tests(
     defer-bools.bonsai
     defer-frame.bonsai
     gate-drains.bonsai
+    round-hoist.bonsai
     defer-gpu-launch.bonsai
     queue-storage.bonsai
     defer-gang.bonsai

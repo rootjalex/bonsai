@@ -3,6 +3,8 @@ type Entry_tally = struct Entry_tally{ k : i32; acc : i32; _slot : i32 }
 type Queue_sums = struct Queue_sums{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
 type Queue_tally = struct Queue_tally{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
 
+extern func bonsai_cuda_round_guard(round : u32, count : (u32*)) -> u32;
+
 func climb(k : i32, acc : i32, _queue_tally : mut (Queue_tally*), _result_tally : mut (i32*), _slot_tally : i32) -> void {
   let @0 = k <= 0 in
   if (@0) {
@@ -42,33 +44,39 @@ func run(out : mut i32[8]) -> void {
     continue
   }
   sums!round = 0u
-  while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+  do {
     let @9 = (*sums!round) & 1u in
-    let @11 = sums_queue[(*sums!round) & 1u].count in
-    let @13 = @9 ^ 1u in
-    sums_queue[@13].count = 0u
-    let @29 = cast<u32>(8) in
-    parfor sums in [0u:@29:1u] {
-      let @14 = (&sums_queue[@13]) in
-      let @32 = (&sums_queue[@9].count) in
-      let @33 = (*@32) in
-      let @34 = sums < @33 in
-      if (@34) {
-        let @18 = sums_queue[@9].k in
-        let @19 = @18[sums] in
-        let @21 = sums_queue[@9].acc in
-        let @22 = @21[sums] in
-        let @24 = sums_queue[@9]._slot in
-        let @25 = @24[sums] in
-        walk(@19, @22, @14, (&sums_result[@25]), @25)
-        continue
-      } else {
-        continue
+    let @35 = bonsai_cuda_round_guard((*sums!round), (&sums_queue[@9].count)) in
+    let @36 = @35 == 0u in
+    if (@36) {
+      break
+    } else {
+      let @13 = @9 ^ 1u in
+      sums_queue[@13].count = 0u
+      let @29 = cast<u32>(8) in
+      parfor sums in [0u:@29:1u] {
+        let @14 = (&sums_queue[@13]) in
+        let @32 = (&sums_queue[@9].count) in
+        let @33 = (*@32) in
+        let @34 = sums < @33 in
+        if (@34) {
+          let @18 = sums_queue[@9].k in
+          let @19 = @18[sums] in
+          let @21 = sums_queue[@9].acc in
+          let @22 = @21[sums] in
+          let @24 = sums_queue[@9]._slot in
+          let @25 = @24[sums] in
+          walk(@19, @22, @14, (&sums_result[@25]), @25)
+          continue
+        } else {
+          continue
+        }
       }
+      let @8 = (*sums!round) + 1u in
+      sums!round = @8
+      continue
     }
-    let @8 = (*sums!round) + 1u in
-    sums!round = @8
-  }
+  } while (true)
   parfor sums_rest in [0:8:1] {
     let @28 = sums_result[sums_rest] in
     let @0 = @28 in
@@ -98,39 +106,45 @@ func split_run(out : mut i32[64]) -> void {
     continue
   }
   tally!round = 0u
-  while (!(tally_queue[(*tally!round) & 1u].count == 0u)) {
+  do {
     let @9 = (*tally!round) & 1u in
-    let @11 = tally_queue[(*tally!round) & 1u].count in
-    let @13 = @9 ^ 1u in
-    tally_queue[@13].count = 0u
-    let @32 = cast<u32>(64) in
-    parfor tally_blk in [0u:@32:16u] {
-      let @14 = (&tally_queue[@13]) in
-      let @35 = (&tally_queue[@9].count) in
-      parfor tally_thr in [0u:16u:1u] {
-        let @36 = (&tally_queue[@9].count) in
-        let @30 = tally_blk + tally_thr in
-        let @37 = (*@36) in
-        let @31 = @30 < @37 in
-        if (@31) {
-          let tally = @30 in
-          let @18 = tally_queue[@9].k in
-          let @19 = @18[tally] in
-          let @21 = tally_queue[@9].acc in
-          let @22 = @21[tally] in
-          let @24 = tally_queue[@9]._slot in
-          let @25 = @24[tally] in
-          climb(@19, @22, @14, (&tally_result[@25]), @25)
-          continue
-        } else {
-          continue
+    let @38 = bonsai_cuda_round_guard((*tally!round), (&tally_queue[@9].count)) in
+    let @39 = @38 == 0u in
+    if (@39) {
+      break
+    } else {
+      let @13 = @9 ^ 1u in
+      tally_queue[@13].count = 0u
+      let @32 = cast<u32>(64) in
+      parfor tally_blk in [0u:@32:16u] {
+        let @14 = (&tally_queue[@13]) in
+        let @35 = (&tally_queue[@9].count) in
+        parfor tally_thr in [0u:16u:1u] {
+          let @36 = (&tally_queue[@9].count) in
+          let @30 = tally_blk + tally_thr in
+          let @37 = (*@36) in
+          let @31 = @30 < @37 in
+          if (@31) {
+            let tally = @30 in
+            let @18 = tally_queue[@9].k in
+            let @19 = @18[tally] in
+            let @21 = tally_queue[@9].acc in
+            let @22 = @21[tally] in
+            let @24 = tally_queue[@9]._slot in
+            let @25 = @24[tally] in
+            climb(@19, @22, @14, (&tally_result[@25]), @25)
+            continue
+          } else {
+            continue
+          }
         }
+        continue
       }
+      let @8 = (*tally!round) + 1u in
+      tally!round = @8
       continue
     }
-    let @8 = (*tally!round) + 1u in
-    tally!round = @8
-  }
+  } while (true)
   parfor tally_rest in [0:64:1] {
     let @28 = tally_result[tally_rest] in
     let @0 = @28 in

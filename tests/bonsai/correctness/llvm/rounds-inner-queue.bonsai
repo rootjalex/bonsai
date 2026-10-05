@@ -1,0 +1,64 @@
+//! flags: -p ssa -b llvm -e
+
+// The semantics of a queue made inside another queue's rounds: `step`
+// drains in rounds (a self-recursive deferral through `sums`), and each of
+// its iterations defers `note` into `scores`, drained once a round inside
+// the loop -- the renderer's material queues inside the ray queue's rounds,
+// here on the CPU, where the drains run to the count. The answers:
+// out[i] = 1 + .. + i, and marks[k] = 2k for every k some path reached
+// (1..7; marks[0] keeps its -1, no iteration notes zero). The same program
+// with the loops bound to GPUThread is the shape ssa/round-hoist.bonsai
+// pins (the header fill hoisted out of the rounds, the guard pipelined);
+// running THAT is apps/pbrt's compare -- the band-owned queue under a GPU
+// bind loses its results in the harness here, a latent fault older than
+// the launch-shape work (apps/pbrt/PLAN.md records it).
+func score(k : i32) -> i32 {
+    return k * 2;
+}
+
+func note(k : i32, marks : mut array[i32, 8]) -> void {
+    marks[k] = score(k);
+    return;
+}
+
+func step(k : i32, acc : i32, slot : i32, out : mut array[i32, 8],
+          marks : mut array[i32, 8]) -> void {
+    if (k <= 0) {
+        out[slot] = acc;
+        return;
+    }
+    note(k, marks);
+    step(k - 1, acc + k, slot, out, marks);
+    return;
+}
+
+func start(k : i32, out : mut array[i32, 8],
+           marks : mut array[i32, 8]) -> void {
+    step(k, 0, k, out, marks);
+    return;
+}
+
+func run(out : mut array[i32, 8], marks : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        start(i, out, marks);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {9, 9, 9, 9, 9, 9, 9, 9};
+    marks : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out, marks);
+    print(out);
+    print(marks);
+    return 0;
+}
+
+schedule {
+    run.split(i, band, i_in, 4, true);
+    sums = run.queue(band);
+    start.defer(step, sums);
+    step.defer(step, sums);
+    scores = run.queue(band);
+    step.defer(note, scores);
+}

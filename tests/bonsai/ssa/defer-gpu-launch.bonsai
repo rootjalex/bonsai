@@ -13,9 +13,16 @@
 // count`: the guard the bind put there, which lets a launch go over the
 // capacity with the threads past the count doing nothing (Bind.cpp). The
 // count read that way is a device read, since the body runs on the GPU.
-// The round's own test, whether the queue is empty, and the zeroing of the
-// next queue's count are on the host, once a round (they become copies to
-// and from the device, since the queue's header is device-resident).
+// The zeroing of the next queue's count is on the host, once a round (an
+// asynchronous store, since the queue's header is device-resident). The
+// round's own test -- whether the queue is empty -- is the one read the
+// host used to wait for, and it no longer loads the count at all: the
+// header calls `bonsai_cuda_round_guard(<q>!round, (&<q>_queue[..].count))`
+// (the extern declaration at the top), which snapshots the count on the
+// stream and answers with the snapshot from a few rounds back, so the host
+// pipelines rounds ahead of the device and the stream never drains inside
+// the loop (SSA/RoundGuard.h). The count the host read for the test is
+// gone: no `.count` is loaded outside the kernels.
 //
 // `split_run`'s drain is split into `tally_blk` and `tally_thr` (the
 // material kernels' shape, blocks of threads) and launches over the

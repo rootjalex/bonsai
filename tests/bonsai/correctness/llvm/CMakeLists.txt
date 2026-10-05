@@ -31,6 +31,7 @@ add_bonsai_tests(
     hoist-allocations.bonsai
     inline-names.bonsai
     reorder.bonsai
+    rounds-inner-queue.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai

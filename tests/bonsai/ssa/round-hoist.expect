@@ -1,0 +1,151 @@
+type Entry_scores = struct Entry_scores{ k : i32; acc : i32; slot : i32 }
+type Entry_sums = struct Entry_sums{ k : i32; acc : i32; slot : i32 }
+type Queue_scores = struct Queue_scores{ count : u32; k : i32[]; acc : i32[]; slot : i32[] }
+type Queue_sums = struct Queue_sums{ count : u32; k : i32[]; acc : i32[]; slot : i32[] }
+
+extern func bonsai_cuda_round_guard(round : u32, count : (u32*)) -> u32;
+
+func note(k : i32, marks : mut i32[8]) -> void {
+  let @0 = k << 1 in
+  marks[k] = @0
+  return
+}
+
+func run(out : mut i32[8], marks : mut i32[8]) -> void {
+  sums_k : mut i32[4]
+  sums_acc : mut i32[4]
+  sums_slot : mut i32[4]
+  sums_queue : mut Queue_sums
+  scores_k : mut i32[4]
+  scores_acc : mut i32[4]
+  scores_slot : mut i32[4]
+  scores_queue : mut Queue_scores
+  parfor band in [0:8:4] {
+    sums!round : mut u32
+    let @1 = build<Queue_sums>(0u, sums_k, sums_acc, sums_slot) in
+    sums_queue = @1
+    parfor i_in in [0:4:1] {
+      let @0 = band + i_in in
+      let i = @0 in
+      start(i, out, marks, sums_queue)
+      continue
+    }
+    let @30 = build<Queue_scores>(0u, scores_k, scores_acc, scores_slot) in
+    scores_queue = @30
+    sums!round = 0u
+    do {
+      let @27 = bonsai_cuda_round_guard((*sums!round), (&(*sums_queue).count)) in
+      let @28 = @27 == 0u in
+      if (@28) {
+        break
+      } else {
+        sums_queue.count = 0u
+        let @17 = cast<u32>(4) in
+        parfor sums in [0u:@17:1u] {
+          let @19 = (&(*sums_queue).count) in
+          let @20 = (*@19) in
+          let @21 = sums < @20 in
+          if (@21) {
+            let @7 = sums_k[sums] in
+            let @8 = sums_acc[sums] in
+            let @9 = sums_slot[sums] in
+            step(@7, @8, @9, out, marks, sums_queue, scores_queue)
+            continue
+          } else {
+            continue
+          }
+        }
+        let @22 = cast<u32>(4) in
+        parfor scores in [0u:@22:1u] {
+          let @24 = (&(*scores_queue).count) in
+          let @25 = (*@24) in
+          let @26 = scores < @25 in
+          if (@26) {
+            let @13 = scores_k[scores] in
+            let @14 = scores_acc[scores] in
+            let @15 = scores_slot[scores] in
+            step!note!k(@13, marks, @13, @14, @15, out, marks, sums_queue)
+            continue
+          } else {
+            continue
+          }
+        }
+        scores_queue.count = 0u
+        let @2 = (*sums!round) + 1u in
+        sums!round = @2
+        continue
+      }
+    } while (true)
+    continue
+  }
+  return
+}
+
+func score(k : i32) -> i32 {
+  let @0 = k << 1 in
+  return @0
+}
+
+func start(k : i32, out : mut i32[8], marks : mut i32[8], _queue_sums : mut (Queue_sums*)) -> void {
+  let @0 = build<Entry_sums>(k, 0, k) in
+  let @3 = atomic_add((&(*_queue_sums).count), 1u) in
+  let @5 = (*_queue_sums).k in
+  @5[@3] = k
+  let @8 = (*_queue_sums).acc in
+  @8[@3] = 0
+  let @11 = (*_queue_sums).slot in
+  @11[@3] = k
+  return
+}
+
+func step(k : i32, acc : i32, slot : i32, out : mut i32[8], marks : mut i32[8], _queue_sums : mut (Queue_sums*), _queue_scores : mut (Queue_scores*)) -> void {
+  let @0 = k <= 0 in
+  if (@0) {
+    out[slot] = acc
+    return
+  } else {
+    let @6 = build<Entry_scores>(k, acc, slot) in
+    let @9 = atomic_add((&(*_queue_scores).count), 1u) in
+    let @11 = (*_queue_scores).k in
+    @11[@9] = k
+    let @14 = (*_queue_scores).acc in
+    @14[@9] = acc
+    let @17 = (*_queue_scores).slot in
+    @17[@9] = slot
+    return
+  }
+}
+
+func step!after(k : i32, acc : i32, slot : i32, out : mut i32[8], marks : mut i32[8], _queue_sums : mut (Queue_sums*)) -> void {
+  let @2 = k - 1 in
+  let @3 = acc + k in
+  let @4 = build<Entry_sums>(@2, @3, slot) in
+  let @7 = atomic_add((&(*_queue_sums).count), 1u) in
+  let @9 = (*_queue_sums).k in
+  @9[@7] = @2
+  let @12 = (*_queue_sums).acc in
+  @12[@7] = @3
+  let @15 = (*_queue_sums).slot in
+  @15[@7] = slot
+  return
+}
+
+func step!note!k(k_ : i32, marks_ : mut i32[8], k : i32, acc : i32, slot : i32, out : mut i32[8], marks : mut i32[8], _queue_sums : mut (Queue_sums*)) -> void {
+  note(k_, marks_)
+  step!after(k, acc, slot, out, marks, _queue_sums)
+  return
+}
+
+
+schedule {
+    scores = run.queue(band);
+    sums = run.queue(band);
+    run.split(i, band, i_in, (i32)4, 1)
+       .bind(i_in, GPUThread)
+       .bind(sums, GPUThread)
+       .bind(scores, GPUThread)
+    start.defer(step, sums)
+    step.defer(step, sums)
+        .defer(note, scores)
+
+}

@@ -1,0 +1,62 @@
+//! flags: -p ssa
+
+// A queue made inside another queue's rounds keeps its header outside them
+// (SSA/RoundGuard.cpp, the fill hoist). The shape is the renderer's: `start`
+// defers `step` into `sums` (the camera loop pushing rays), `step` defers
+// its own recursion there too, so `sums` drains in rounds; `note`'s deferral
+// into `scores` is pushed only by that drain, so `scores` lives one pass per
+// round inside the loop -- a material queue, made inside the ray queue's
+// rounds.
+//
+// What to read for. Before the rounds, once: `scores_queue = build<
+// Queue_scores>(0u, scores_k, ..)` -- the header, whose arrays never change.
+// Inside the rounds there is no store of it at all: the count was already
+// reset once a round after the drain (Defer), which covers every round
+// after the preheader's zero, so the fill leaves nothing behind. The rounds
+// run behind `bonsai_cuda_round_guard` (the pipelined guard), and both
+// drains launch over their capacity with the count read on the device
+// (Bind.cpp).
+func score(k : i32) -> i32 {
+    return k * 2;
+}
+
+func note(k : i32, marks : mut array[i32, 8]) -> void {
+    marks[k] = score(k);
+    return;
+}
+
+func step(k : i32, acc : i32, slot : i32, out : mut array[i32, 8],
+          marks : mut array[i32, 8]) -> void {
+    if (k <= 0) {
+        out[slot] = acc;
+        return;
+    }
+    note(k, marks);
+    step(k - 1, acc + k, slot, out, marks);
+    return;
+}
+
+func start(k : i32, out : mut array[i32, 8],
+           marks : mut array[i32, 8]) -> void {
+    step(k, 0, k, out, marks);
+    return;
+}
+
+func run(out : mut array[i32, 8], marks : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        start(i, out, marks);
+    }
+    return;
+}
+
+schedule {
+    run.split(i, band, i_in, 4, true);
+    sums = run.queue(band);
+    start.defer(step, sums);
+    step.defer(step, sums);
+    scores = run.queue(band);
+    step.defer(note, scores);
+    run.bind(i_in, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(scores, GPUThread);
+}
