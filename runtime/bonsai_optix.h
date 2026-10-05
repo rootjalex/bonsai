@@ -452,7 +452,8 @@ inline OptixTraversableHandle build(Api &a, const std::vector<OptixBuildInput> &
         bonsai_cuda_free(output);
         output = compacted;
     }
-    if (validating()) {
+    static const bool stats = std::getenv("BONSAI_OPTIX_STATS") != nullptr;
+    if (validating() || stats) {
         std::fprintf(stderr, "bonsai_optix: built %s: %zu bytes, compacted to %llu\n",
                      what, sizes.outputSizeInBytes,
                      static_cast<unsigned long long>(compacted_bytes));
@@ -753,6 +754,33 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         return any_hit || always_anyhit ? OPTIX_GEOMETRY_FLAG_NONE
                                         : OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
     };
+    // BONSAI_OPTIX_STATS: what each structure is built from -- its inputs,
+    // their element counts, and whether the any-hit programs run over
+    // them -- and, below, its size; the two things that decide what a trace
+    // costs and that nothing else reports.
+    static const bool stats = std::getenv("BONSAI_OPTIX_STATS") != nullptr;
+    if (stats) {
+        uint64_t tris = 0, bxs = 0; int64_t tri_anyhit = 0, box_anyhit = 0;
+        for (int64_t i = 0; i < triangle_inputs; i++) {
+            tris += triangles[i].triangle_count;
+            tri_anyhit += triangles[i].any_hit ? 1 : 0;
+        }
+        for (int64_t i = 0; i < box_inputs; i++) {
+            bxs += boxes[i].count;
+            box_anyhit += boxes[i].any_hit ? 1 : 0;
+        }
+        std::fprintf(stderr,
+                     "bonsai_optix: geometry of %lld triangle inputs (%llu "
+                     "triangles, any-hit programs on over %lld inputs) and %lld "
+                     "box inputs (%llu boxes, any-hit on over %lld)%s\n",
+                     static_cast<long long>(triangle_inputs),
+                     static_cast<unsigned long long>(tris),
+                     static_cast<long long>(tri_anyhit),
+                     static_cast<long long>(box_inputs),
+                     static_cast<unsigned long long>(bxs),
+                     static_cast<long long>(box_anyhit),
+                     always_anyhit ? " [BONSAI_OPTIX_ANYHIT=always]" : "");
+    }
     for (int64_t i = 0; i < triangle_inputs; i++) {
         const bonsai_optix_triangles &t = triangles[i];
         flags[i] = flags_of(t.any_hit);

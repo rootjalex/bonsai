@@ -82,7 +82,11 @@ before it.
   `pmj02bn` sampler reads (pbrt's full Sobol' matrices, its blue-noise
   point sets and textures, copied from pbrt's own arrays), `.vdb` for the
   `nanovdb` media's grid buffers, copied out of their `.nvdb` files as
-  they are and read by NanoVDB's own accessor (below).
+  they are and read by NanoVDB's own accessor (below). `--gpu` converts
+  the scene as `pbrt --gpu` builds it where that differs from pbrt's CPU:
+  a PLY's quads become two triangles each (pbrt's OptiX aggregate splits
+  them so the hardware traces them; its CPU keeps bilinear patches), which
+  `gpu_compare.sh` passes, since `pbrt --gpu` is its reference.
 - `build_nanovdb_shim.sh <outdir> [sm_NN]`: builds `nanovdb_shim.cpp`, the
   implementation of the renderer's two foreign functions over NanoVDB
   (`docs/foreign-functions.md`), to host bitcode and, given a GPU

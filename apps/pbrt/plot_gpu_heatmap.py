@@ -40,9 +40,14 @@ def number(text):
 
 
 def read_tables(paths, schedule):
-    """(scene, spp) -> (speedup, matched), in the order the tables list scenes."""
+    """(scene, spp) -> (speedup, matched), in the order the tables list scenes.
+
+    A scene is keyed by its `path` column (`kroken/camera-1`) where the
+    table has one -- two scenes may share a name -- and labelled by its
+    name, or by the path where the name is not unique."""
     cells = {}
     scenes = []
+    names = {}
     spps = set()
     for path in paths:
         with open(path, newline="") as f:
@@ -53,11 +58,17 @@ def read_tables(paths, schedule):
                 if v is None:
                     continue
                 spp = int(r["spp"])
-                if r["scene"] not in scenes:
-                    scenes.append(r["scene"])
+                key = r.get("path") or r["scene"]
+                if key not in scenes:
+                    scenes.append(key)
+                    names[key] = r["scene"]
                 spps.add(spp)
-                cells[(r["scene"], spp)] = (v, r["verdict"].startswith("ok"))
-    return scenes, sorted(spps), cells
+                cells[(key, spp)] = (v, r["verdict"].startswith("ok"))
+    labels = {}
+    for key in scenes:
+        shared = sum(1 for k in scenes if names[k] == names[key]) > 1
+        labels[key] = key if shared else names[key]
+    return scenes, sorted(spps), cells, labels
 
 
 def main(argv):
@@ -72,7 +83,7 @@ def main(argv):
     parser.add_argument("--title", default=None)
     args = parser.parse_args(argv[1:])
 
-    scenes, spps, cells = read_tables(args.tables, args.schedule)
+    scenes, spps, cells, labels = read_tables(args.tables, args.schedule)
     if not scenes:
         print(f"no rows of schedule {args.schedule} in the tables given", file=sys.stderr)
         return 1
@@ -98,7 +109,7 @@ def main(argv):
     fig, ax = plt.subplots(figsize=(width, height))
     image = ax.imshow(logs, cmap="RdYlGn", norm=norm, aspect="auto")
     ax.set_xticks(range(len(scenes)))
-    ax.set_xticklabels(scenes, rotation=35, ha="right")
+    ax.set_xticklabels([labels[sc] for sc in scenes], rotation=35, ha="right")
     ax.set_yticks(range(len(spps)))
     ax.set_yticklabels([str(s) for s in spps])
     ax.set_ylabel("samples per pixel")

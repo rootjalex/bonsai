@@ -112,3 +112,4 @@ apps/rtq/rtq.h
 !**/CMakeLists.txt
 
 *.db
+*.log

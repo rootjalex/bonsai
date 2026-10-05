@@ -179,7 +179,11 @@ WORK="$(cd "$WORK" && pwd)"
 # how two builds of the compiler -- against two LLVMs, say -- are compared on
 # the same render.
 BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
-cmake --build "$BONSAI_BUILD_DIR" -j
+# A directory that only holds a compiler binary (a copy kept of an earlier
+# build) is used as it is, as gpu_compare.sh uses one.
+if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
+  cmake --build "$BONSAI_BUILD_DIR" -j
+fi
 
 # The scene is read once, by PBRT's parser, and both sides render what it says.
 # There is no second description of it to keep in step -- which is the point,

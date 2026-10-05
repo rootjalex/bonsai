@@ -129,7 +129,14 @@ OUT="$(cd "$OUT" && pwd)"
 if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
   cmake --build "$BONSAI_BUILD_DIR" -j > /dev/null
 fi
-bash $PREFIX/build_scene_dump.sh "$OUT/scene_dump"
+# The converter is one of the binaries --resume reuses, as the schedules'
+# are below: a sweep that calls this once per scene would otherwise rebuild
+# it every time.
+if [[ "$RESUME" -eq 1 && -x "$OUT/scene_dump" ]]; then
+  echo "reusing $OUT/scene_dump"
+else
+  bash $PREFIX/build_scene_dump.sh "$OUT/scene_dump"
+fi
 
 # The machine has to be idle of everything before a timed run: the user's
 # own benchmarks share it. Waits while it is not.
@@ -172,8 +179,11 @@ watched() {
   while kill -0 "$pid" 2>/dev/null; do
     # (`|| true`: under pipefail a grep that finds nothing fails the
     # pipeline, and finding nothing is the good case.)
+    # (`[No data]`, `[Not Found]`, `[Insufficient Permissions]`: what
+    # nvidia-smi prints for a process it cannot name -- one of ours on its
+    # way out, in practice -- and not someone else's.)
     gpu=$(nvidia-smi --query-compute-apps=process_name --format=csv,noheader 2>/dev/null |
-          grep -v 'pbrt\|render.out' | head -1 || true)
+          grep -v 'pbrt\|render.out\|^\[' | head -1 || true)
     if [[ -n "$gpu" ]]; then WATCHED_SEEN=1; WATCHED_WHAT="$gpu on the GPU"; fi
     top=$(ps -eo pcpu,comm --sort=-pcpu |
           awk 'NR > 1 && $2 !~ /^(pbrt|render\.out|nvidia-smi|ps|awk|bash|sort|grep|head|tail|sleep)$/ { if (int($1) >= 50) print $2 " at " int($1) "% cpu"; exit }' || true)
@@ -257,24 +267,29 @@ TAB=$'\t'
 if [[ "$RESUME" -eq 1 && -f "$TABLE" ]]; then
   echo "resuming $TABLE: a scene with every row is skipped, one begun is redone"
 else
-  printf 'scene\tspp\tside\twall_s\tkernel_ms\tspeedup\tagree\tverdict\tnote\timage\n' > "$TABLE"
+  printf 'scene\tspp\tside\twall_s\tkernel_ms\tspeedup\tagree\tverdict\tnote\timage\tpath\n' > "$TABLE"
 fi
 for SPP in $SPPS; do
 for sc in $SCENES; do
   name=$(basename "$sc"); dir="$SCENES_DIR/$(dirname "$sc")"
-  cell="$OUT/$name-s$SPP"
+  # The cell's files and its rows are keyed by the scene's directory as
+  # well as its name: kroken and watercolor both have a camera-1, and a
+  # sweep that resumed into one table took the second for the first.
+  cell="$OUT/$(basename "$(dirname "$sc")")-$name-s$SPP"
   if [[ "$RESUME" -eq 1 ]]; then
-    have=$(grep -c "^$name$TAB$SPP$TAB" "$TABLE" || true)
+    have=$(grep -c "^$name$TAB$SPP$TAB.*$TAB$sc\$" "$TABLE" || true)
     if [[ "$have" -ge $((1 + $(echo $SCHEDULES | wc -w))) ]]; then
-      echo "== $name at $SPP spp: done already"
+      echo "== $sc at $SPP spp: done already"
       continue
     fi
-    grep -v "^$name$TAB$SPP$TAB" "$TABLE" > "$TABLE.tmp" || true
+    grep -v "^$name$TAB$SPP$TAB.*$TAB$sc\$" "$TABLE" > "$TABLE.tmp" || true
     mv "$TABLE.tmp" "$TABLE"
   fi
   echo "== $name at $SPP spp"
   # This renderer's scene, converted once.
-  (cd "$dir" && "$OUT/scene_dump" --spp "$SPP" "$name.pbrt" "$cell.txt" > "$cell.dump.log" 2>&1) ||
+  # `--gpu`: the scene as `pbrt --gpu` builds it (a PLY's quads as
+  # triangles, which the hardware traces), since that is the reference.
+  (cd "$dir" && "$OUT/scene_dump" --gpu --spp "$SPP" "$name.pbrt" "$cell.txt" > "$cell.dump.log" 2>&1) ||
     { echo "scene_dump refused $sc: $(tail -1 "$cell.dump.log")" >&2; continue; }
   # pbrt: REPEATS timed renders (the least), one to a full-float image for the
   # comparison, and one under --stats for its kernel profile.
@@ -318,7 +333,7 @@ for sc in $SCENES; do
     "grep 'Total rendering time' | awk '{print \$4}'"
   pbrt_kernel="$PROFILE"
   python3 $PREFIX/to_png.py "$cell.pbrt-radiance.pfm" "$cell.pbrt.png" > /dev/null
-  printf '%s\t%s\tpbrt --gpu\t%s\t%s\t1.00x\t-\t-\t%s\t%s\n' "$name" "$SPP" "$pbrt_wall" "$pbrt_kernel" "$(note_of)" "$cell.pbrt.png" | tee -a "$TABLE"
+  printf '%s\t%s\tpbrt --gpu\t%s\t%s\t1.00x\t-\t-\t%s\t%s\t%s\n' "$name" "$SPP" "$pbrt_wall" "$pbrt_kernel" "$(note_of)" "$cell.pbrt.png" "$sc" | tee -a "$TABLE"
   # Ours: each schedule as one process rendering REPEATS times, the least of
   # them (the first is the warm-up), and once more with the kernel profile
   # on, which is of the last render.
@@ -341,10 +356,10 @@ for sc in $SCENES; do
     agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
     # The verdict line, `ok: ...` or `FAILED: ...` (`|| true`: a grep that
     # matches nothing is an exit status, and must not end the run).
-    verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-60 || true)
+    verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-200 || true)
     python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" | tee -a "$TABLE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" "$sc" | tee -a "$TABLE"
   done
 done
 done
