@@ -433,6 +433,283 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
     return std::nullopt;
 }
 
+// A loop that skips its iterations once the accumulator has settled leaves
+// instead.
+//
+// The lowering guards each element of a leaf with the accumulator's test
+// (Lower/Trees.cpp, guard_iteration): `for x in data { if (undecided) body }`,
+// a skip and not an exit, since the source language has no `break` to write
+// and ir::Break is the relooper's alone. Once the answer is settled it stays
+// settled -- that is what Monotone says -- so every iteration after is the
+// test and the skip: three instructions a block for a BVH's leaf, on every
+// block a ray tests, where Embree's leaf loop returns at the first hit
+// (TriangleMIntersector1Moeller::occluded, `if (occluded(..)) return true`).
+// So the dispatch's skipping arm, where it reaches the loop's latch through
+// blocks that compute values and nothing else, goes to the loop's exit
+// instead, with what the loop's own exit edge passes -- the header's
+// arguments, read at the gate under the names they are threaded through. A
+// loop unswitching on a condition that is invariant forward in time only.
+size_t exit_settled_loops(Function &func, const Monotone &acc) {
+    const std::optional<string> target = name_of(acc.ptr);
+    if (!target.has_value()) {
+        return 0;
+    }
+    const Cfg cfg(func);
+    const DomTree dom = compute_dominator_tree(cfg);
+
+    const auto instruction_of =
+        [](const shared_ptr<Value> &v) -> const Instruction * {
+        const auto *in = std::get_if<shared_ptr<Instruction>>(&v->data);
+        return (in != nullptr && *in != nullptr) ? in->get() : nullptr;
+    };
+    // Whether `v` reads the accumulator as "still undecided": its load,
+    // negated for a rising accumulator, and over a gang whether any lane's
+    // is -- the form undecided_in (below) writes, read back.
+    const auto is_undecided = [&](const shared_ptr<Value> &v) {
+        const Instruction *i = instruction_of(v);
+        if (i != nullptr && i->op == Instruction::Op::Any &&
+            i->operands.size() == 1) {
+            i = instruction_of(i->operands[0]);
+        }
+        if (acc.rising) {
+            if (i == nullptr || i->op != Instruction::Op::Not ||
+                i->operands.size() != 1) {
+                return false;
+            }
+            i = instruction_of(i->operands[0]);
+        }
+        return i != nullptr && i->op == Instruction::Op::Load &&
+               !i->operands.empty() && name_of(i->operands[0]) == target;
+    };
+    // A block the skip may pass through on its way to the latch: values and
+    // nothing else, so that leaving without running it changes nothing.
+    const auto computes_only = [](const Block &block) {
+        for (const auto &instr : block.instrs) {
+            if (instr->name.empty()) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    size_t exits = 0;
+    for (const auto &gate : func.blocks) {
+        auto *d = std::get_if<Terminator::Dispatch>(&gate->terminator.data);
+        if (d == nullptr || d->targets.size() != 2 || !is_undecided(d->cond)) {
+            continue;
+        }
+        const BlockId g = cfg.find(*gate);
+        if (g == NO_BLOCK || !dom.contains(g)) {
+            continue;
+        }
+        // Follow the skipping arm, the false one, to the latch: the block
+        // whose edge goes back to a block that dominates the gate, the
+        // loop's header. The exit is at the header, or at the latch itself
+        // where the loop's test is at its bottom.
+        BlockId header = NO_BLOCK, latch = NO_BLOCK;
+        const Terminator::Jump *exit_edge = nullptr;
+        std::set<BlockId> walked;
+        BlockId at = cfg.find(d->targets[0].name);
+        while (at != NO_BLOCK && at != g && !walked.contains(at) &&
+               computes_only(cfg[at])) {
+            walked.insert(at);
+            const Block &block = cfg[at];
+            if (const auto *j =
+                    std::get_if<Terminator::Jump>(&block.terminator.data)) {
+                const BlockId to = cfg.find(j->name);
+                if (to != NO_BLOCK && dom.dominates(to, g)) {
+                    header = to;
+                    latch = at;
+                    break;
+                }
+                at = to;
+                continue;
+            }
+            if (const auto *t = std::get_if<Terminator::Dispatch>(
+                    &block.terminator.data);
+                t != nullptr && t->targets.size() == 2) {
+                for (size_t k = 0; k < 2; k++) {
+                    const BlockId to = cfg.find(t->targets[k].name);
+                    if (to != NO_BLOCK && dom.dominates(to, g)) {
+                        header = to;
+                        latch = at;
+                        exit_edge = &t->targets[1 - k];
+                    }
+                }
+            }
+            break;
+        }
+        if (header == NO_BLOCK) {
+            continue;
+        }
+        // The loop: what reaches the latch without passing the header.
+        std::set<BlockId> loop = {header};
+        std::vector<BlockId> work = {latch};
+        while (!work.empty()) {
+            const BlockId b = work.back();
+            work.pop_back();
+            if (!loop.insert(b).second) {
+                continue;
+            }
+            for (const BlockId p : cfg.preds[b]) {
+                work.push_back(p);
+            }
+        }
+        if (!loop.contains(g)) {
+            continue;
+        }
+        if (exit_edge == nullptr) {
+            // The header's dispatch: one edge into the loop, one out of it.
+            const auto *h = std::get_if<Terminator::Dispatch>(
+                &cfg[header].terminator.data);
+            if (h == nullptr || h->targets.size() != 2) {
+                continue;
+            }
+            for (const Terminator::Jump &t : h->targets) {
+                const BlockId to = cfg.find(t.name);
+                if (to != NO_BLOCK && !loop.contains(to)) {
+                    exit_edge = exit_edge == nullptr ? &t : nullptr;
+                }
+            }
+        } else {
+            const BlockId to = cfg.find(exit_edge->name);
+            if (to == NO_BLOCK || loop.contains(to)) {
+                exit_edge = nullptr;
+            }
+        }
+        if (exit_edge == nullptr) {
+            continue;
+        }
+        // What the exit passes, as the gate has it: a constant as it is, a
+        // name threaded to the gate -- provided the skipped trips round the
+        // loop would not have moved it, which is so when the back edge hands
+        // the header its own argument back unchanged (an index the latch
+        // steps is not such a value: skipping to the end leaves it at the
+        // count, leaving now leaves it where it is). Anything else, and the
+        // loop is left to skip as before.
+        const Block &head = cfg[header];
+        const Terminator::Jump *back = nullptr;
+        if (const auto *j =
+                std::get_if<Terminator::Jump>(&cfg[latch].terminator.data)) {
+            back = j;
+        } else if (const auto *t = std::get_if<Terminator::Dispatch>(
+                       &cfg[latch].terminator.data)) {
+            for (const Terminator::Jump &candidate : t->targets) {
+                if (cfg.find(candidate.name) == header) {
+                    back = &candidate;
+                }
+            }
+        }
+        if (back == nullptr || back->args.size() != head.args.size()) {
+            continue;
+        }
+        const string exit_name = exit_edge->name;
+        const vector<shared_ptr<Value>> passed = exit_edge->args;
+        const auto exit_from =
+            [&](Block &from) -> std::optional<Terminator::Jump> {
+            Terminator::Jump leave{exit_name, {}};
+            for (const shared_ptr<Value> &arg : passed) {
+                if (std::get_if<Constant>(&arg->data) != nullptr) {
+                    leave.args.push_back(arg);
+                    continue;
+                }
+                const auto *a = std::get_if<Argument>(&arg->data);
+                if (a == nullptr) {
+                    return std::nullopt;
+                }
+                bool unmoved = false;
+                for (size_t k = 0; k < head.args.size(); k++) {
+                    if (head.args[k].name == a->name) {
+                        unmoved = name_of(back->args[k]) == a->name;
+                    }
+                }
+                if (!unmoved) {
+                    return std::nullopt;
+                }
+                leave.args.push_back(from.get_value(a->name, a->type));
+            }
+            return leave;
+        };
+        std::optional<Terminator::Jump> leave = exit_from(*gate);
+        if (!leave.has_value()) {
+            continue;
+        }
+        d->targets[0] = std::move(*leave);
+        exits++;
+
+        // And where the answer is settled, at the write that settles it:
+        // an accumulate of a scalar bool whose block goes straight on round
+        // the loop leaves there when what it accumulated decides the answer
+        // -- `acc.max holds hit` leaves when `hit` is true -- rather than at
+        // the next iteration's gate, so that the iteration's own test of
+        // its result is the exit, as Embree's `if (occluded(..)) return` is,
+        // and the gate is passed only by iterations that moved nothing.
+        // Only where nothing of the iteration is left after the write:
+        // the block's jump reaches the latch through blocks that compute
+        // values and nothing else, as the gate's skip does.
+        const auto rest_is_pure = [&](const string &from) {
+            std::set<BlockId> seen;
+            BlockId at = cfg.find(from);
+            while (at != NO_BLOCK && !seen.contains(at)) {
+                if (at == latch) {
+                    return true;
+                }
+                seen.insert(at);
+                if (at == header || at == g || !computes_only(cfg[at])) {
+                    return false;
+                }
+                const auto *j =
+                    std::get_if<Terminator::Jump>(&cfg[at].terminator.data);
+                if (j == nullptr) {
+                    return false;
+                }
+                at = cfg.find(j->name);
+            }
+            return false;
+        };
+        for (const BlockId b : loop) {
+            Block &writer = cfg[b];
+            const auto *j =
+                std::get_if<Terminator::Jump>(&writer.terminator.data);
+            if (j == nullptr || b == header || b == latch ||
+                !rest_is_pure(j->name)) {
+                continue;
+            }
+            shared_ptr<Value> decided;
+            for (const auto &instr : writer.instrs) {
+                if ((instr->op == Instruction::Op::AccMax ||
+                     instr->op == Instruction::Op::AccMin) &&
+                    instr->operands.size() == 2 &&
+                    name_of(instr->operands[0]) == target &&
+                    instr->operands[1]->get_type().is_bool() &&
+                    !instr->operands[1]->get_type().is_vector()) {
+                    decided = instr->operands[1];
+                }
+            }
+            if (decided == nullptr) {
+                continue;
+            }
+            std::optional<Terminator::Jump> leave_here = exit_from(writer);
+            if (!leave_here.has_value()) {
+                continue;
+            }
+            Terminator::Jump on = *j;
+            writer.terminator.data =
+                acc.rising ? Terminator::Dispatch{decided,
+                                                  {std::move(on),
+                                                   std::move(*leave_here)}}
+                           : Terminator::Dispatch{decided,
+                                                  {std::move(*leave_here),
+                                                   std::move(on)}};
+            exits++;
+        }
+    }
+    if (exits > 0) {
+        refresh_preds(func);
+    }
+    return exits;
+}
+
 // What a block's terminator calls, if it calls at all: one argument list per
 // call it makes, and the continuation reached after all of them.
 //
@@ -721,6 +998,14 @@ void queue_recursion(Function &func, size_t size) {
     // parameters directly. The varying ones are the header's arguments
     // instead, under a new name, since the parameter is one value and the
     // current node is a fresh one every trip.
+    // Before the loop's blocks exist: a loop over a leaf's elements that
+    // skips them once the answer is settled leaves instead
+    // (exit_settled_loops), over the graph as the body has it.
+    if (const std::optional<Monotone> settled =
+            find_monotone_accumulator(func)) {
+        exit_settled_loops(func, *settled);
+    }
+
     auto head = new_block(func, "!visit");
     func.blocks.push_back(head);
     vector<shared_ptr<Value>> current;

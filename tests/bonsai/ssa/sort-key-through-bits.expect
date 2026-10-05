@@ -188,129 +188,136 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         } else {
           let @77 = _t48 - 8u in
           data = 0u
-          while ((*data) < @77) {
-            let @79 = (*_holds0) in
-            let @80 = !@79 in
-            if (@80) {
-              let @81 = tris.prims in
-              let @82 = (*tris_ref!top) >> 4u in
-              let @83 = @82 + (*data) in
-              let tri$i22 = @81[@83] in
-              let _t204$i22 = tri$i22.p0 in
-              let @86 = tri$i22.p1 in
-              let e1$i22 = @86 - _t204$i22 in
-              let @88 = tri$i22.p2 in
-              let e2$i22 = @88 - _t204$i22 in
-              let _t207$i22 = r.d in
-              let @91 = _t207$i22[1] in
-              let @92 = e2$i22[2] in
-              let @93 = @91 * @92 in
-              let @94 = _t207$i22[2] in
-              let @95 = e2$i22[1] in
-              let @96 = @94 * @95 in
-              let @97 = @93 - @96 in
-              let @99 = e2$i22[0] in
-              let @100 = @94 * @99 in
-              let @101 = _t207$i22[0] in
-              let @103 = @101 * @92 in
-              let @104 = @100 - @103 in
-              let @107 = @101 * @95 in
-              let @110 = @91 * @99 in
-              let @111 = @107 - @110 in
-              let p$i22 = build<f32x3>(@97, @104, @111) in
-              let @113 = e1$i22[0] in
-              let @114 = p$i22[0] in
-              let @115 = @113 * @114 in
-              let @116 = e1$i22[1] in
-              let @117 = p$i22[1] in
-              let @118 = @116 * @117 in
-              let @119 = @115 + @118 in
-              let @120 = e1$i22[2] in
-              let @121 = p$i22[2] in
-              let @122 = @120 * @121 in
-              let den$i22 = @119 + @122 in
-              let @124 = abs(den$i22) in
-              let @274 = reinterpret_cast<i32>(@124) in
-              let @275 = reinterpret_cast<i32>(1e-12f) in
-              let @276 = @274 < @275 in
-              if (@276) {
-                let @126 = build<_option2>() in
-                hit_distance$r22 = @126
-              } else {
-                let inv$i22 = 1f / den$i22 in
-                let @128 = r.o in
-                let s$i22 = @128 - _t204$i22 in
-                let @130 = s$i22[0] in
-                let @132 = @130 * @114 in
-                let @133 = s$i22[1] in
-                let @135 = @133 * @117 in
-                let @136 = @132 + @135 in
-                let @137 = s$i22[2] in
-                let @139 = @137 * @121 in
-                let @140 = @136 + @139 in
-                let u$i22 = @140 * inv$i22 in
-                let @142 = u$i22 < 0f in
-                let @143 = 1f < u$i22 in
-                let @144 = @142 || @143 in
-                if (@144) {
-                  let @145 = build<_option2>() in
-                  hit_distance$r22 = @145
+          do {
+            let @78 = (*data) < @77 in
+            if (@78) {
+              let @79 = (*_holds0) in
+              let @80 = !@79 in
+              if (@80) {
+                let @81 = tris.prims in
+                let @82 = (*tris_ref!top) >> 4u in
+                let @83 = @82 + (*data) in
+                let tri$i22 = @81[@83] in
+                let _t204$i22 = tri$i22.p0 in
+                let @86 = tri$i22.p1 in
+                let e1$i22 = @86 - _t204$i22 in
+                let @88 = tri$i22.p2 in
+                let e2$i22 = @88 - _t204$i22 in
+                let _t207$i22 = r.d in
+                let @91 = _t207$i22[1] in
+                let @92 = e2$i22[2] in
+                let @93 = @91 * @92 in
+                let @94 = _t207$i22[2] in
+                let @95 = e2$i22[1] in
+                let @96 = @94 * @95 in
+                let @97 = @93 - @96 in
+                let @99 = e2$i22[0] in
+                let @100 = @94 * @99 in
+                let @101 = _t207$i22[0] in
+                let @103 = @101 * @92 in
+                let @104 = @100 - @103 in
+                let @107 = @101 * @95 in
+                let @110 = @91 * @99 in
+                let @111 = @107 - @110 in
+                let p$i22 = build<f32x3>(@97, @104, @111) in
+                let @113 = e1$i22[0] in
+                let @114 = p$i22[0] in
+                let @115 = @113 * @114 in
+                let @116 = e1$i22[1] in
+                let @117 = p$i22[1] in
+                let @118 = @116 * @117 in
+                let @119 = @115 + @118 in
+                let @120 = e1$i22[2] in
+                let @121 = p$i22[2] in
+                let @122 = @120 * @121 in
+                let den$i22 = @119 + @122 in
+                let @124 = abs(den$i22) in
+                let @274 = reinterpret_cast<i32>(@124) in
+                let @275 = reinterpret_cast<i32>(1e-12f) in
+                let @276 = @274 < @275 in
+                if (@276) {
+                  let @126 = build<_option2>() in
+                  hit_distance$r22 = @126
                 } else {
-                  let @148 = @133 * @120 in
-                  let @151 = @137 * @116 in
-                  let @152 = @148 - @151 in
-                  let @155 = @137 * @113 in
-                  let @158 = @130 * @120 in
-                  let @159 = @155 - @158 in
-                  let @162 = @130 * @116 in
-                  let @165 = @133 * @113 in
-                  let @166 = @162 - @165 in
-                  let q$i22 = build<f32x3>(@152, @159, @166) in
-                  let @169 = q$i22[0] in
-                  let @170 = @101 * @169 in
-                  let @172 = q$i22[1] in
-                  let @173 = @91 * @172 in
-                  let @174 = @170 + @173 in
-                  let @176 = q$i22[2] in
-                  let @177 = @94 * @176 in
-                  let @178 = @174 + @177 in
-                  let v$i22 = @178 * inv$i22 in
-                  let @180 = v$i22 < 0f in
-                  let @181 = u$i22 + v$i22 in
-                  let @182 = 1f < @181 in
-                  let @183 = @180 || @182 in
-                  if (@183) {
-                    let @184 = build<_option2>() in
-                    hit_distance$r22 = @184
+                  let inv$i22 = 1f / den$i22 in
+                  let @128 = r.o in
+                  let s$i22 = @128 - _t204$i22 in
+                  let @130 = s$i22[0] in
+                  let @132 = @130 * @114 in
+                  let @133 = s$i22[1] in
+                  let @135 = @133 * @117 in
+                  let @136 = @132 + @135 in
+                  let @137 = s$i22[2] in
+                  let @139 = @137 * @121 in
+                  let @140 = @136 + @139 in
+                  let u$i22 = @140 * inv$i22 in
+                  let @142 = u$i22 < 0f in
+                  let @143 = 1f < u$i22 in
+                  let @144 = @142 || @143 in
+                  if (@144) {
+                    let @145 = build<_option2>() in
+                    hit_distance$r22 = @145
                   } else {
-                    let @187 = @99 * @169 in
-                    let @190 = @95 * @172 in
-                    let @191 = @187 + @190 in
-                    let @194 = @92 * @176 in
-                    let @195 = @191 + @194 in
-                    let t$i22 = @195 * inv$i22 in
-                    let @197 = r.tnear in
-                    let @198 = @197 < t$i22 in
-                    let @199 = r.tfar in
-                    let @200 = t$i22 <= @199 in
-                    let @201 = @198 && @200 in
-                    let @202 = !@201 in
-                    if (@202) {
-                      let @203 = build<_option2>() in
-                      hit_distance$r22 = @203
+                    let @148 = @133 * @120 in
+                    let @151 = @137 * @116 in
+                    let @152 = @148 - @151 in
+                    let @155 = @137 * @113 in
+                    let @158 = @130 * @120 in
+                    let @159 = @155 - @158 in
+                    let @162 = @130 * @116 in
+                    let @165 = @133 * @113 in
+                    let @166 = @162 - @165 in
+                    let q$i22 = build<f32x3>(@152, @159, @166) in
+                    let @169 = q$i22[0] in
+                    let @170 = @101 * @169 in
+                    let @172 = q$i22[1] in
+                    let @173 = @91 * @172 in
+                    let @174 = @170 + @173 in
+                    let @176 = q$i22[2] in
+                    let @177 = @94 * @176 in
+                    let @178 = @174 + @177 in
+                    let v$i22 = @178 * inv$i22 in
+                    let @180 = v$i22 < 0f in
+                    let @181 = u$i22 + v$i22 in
+                    let @182 = 1f < @181 in
+                    let @183 = @180 || @182 in
+                    if (@183) {
+                      let @184 = build<_option2>() in
+                      hit_distance$r22 = @184
                     } else {
-                      let @204 = build<_option2>(t$i22, true) in
-                      hit_distance$r22 = @204
+                      let @187 = @99 * @169 in
+                      let @190 = @95 * @172 in
+                      let @191 = @187 + @190 in
+                      let @194 = @92 * @176 in
+                      let @195 = @191 + @194 in
+                      let t$i22 = @195 * inv$i22 in
+                      let @197 = r.tnear in
+                      let @198 = @197 < t$i22 in
+                      let @199 = r.tfar in
+                      let @200 = t$i22 <= @199 in
+                      let @201 = @198 && @200 in
+                      let @202 = !@201 in
+                      if (@202) {
+                        let @203 = build<_option2>() in
+                        hit_distance$r22 = @203
+                      } else {
+                        let @204 = build<_option2>(t$i22, true) in
+                        hit_distance$r22 = @204
+                      }
                     }
                   }
                 }
+                let @206 = (*hit_distance$r22).set in
+                _holds0 max= @206
+                if (!@206) {
+                  let @207 = (*data) + 1u in
+                  data = @207
+                  continue
+                }
               }
-              let @206 = (*hit_distance$r22).set in
-              _holds0 max= @206
             }
-            let @207 = (*data) + 1u in
-            data = @207
-          }
+            break
+          } while (true)
         }
         break
       } while (true)

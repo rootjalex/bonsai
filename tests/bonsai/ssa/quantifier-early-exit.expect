@@ -64,25 +64,32 @@ func _recloop_func0(items_index : u32, items : _tree_layout0, _holds0 : mut (boo
             if (@46) {
               let @47 = cast<u32>(_t26) in
               data = 0u
-              while ((*data) < @47) {
-                let @49 = (*_holds0) in
-                let @50 = !@49 in
-                if (@50) {
-                  let @51 = items.prims in
-                  let @52 = _t25.split0on_nPrims in
-                  let @53 = reinterpret_cast<_tree_layout3>(@52) in
-                  let @54 = @53.pOffset in
-                  let @55 = @54 + (*data) in
-                  let @56 = @51[@55] in
-                  let _t11 = @56.id in
-                  let @58 = lo <= _t11 in
-                  let @59 = _t11 <= hi in
-                  let @60 = @58 & @59 in
-                  _holds0 max= @60
+              do {
+                let @48 = (*data) < @47 in
+                if (@48) {
+                  let @49 = (*_holds0) in
+                  let @50 = !@49 in
+                  if (@50) {
+                    let @51 = items.prims in
+                    let @52 = _t25.split0on_nPrims in
+                    let @53 = reinterpret_cast<_tree_layout3>(@52) in
+                    let @54 = @53.pOffset in
+                    let @55 = @54 + (*data) in
+                    let @56 = @51[@55] in
+                    let _t11 = @56.id in
+                    let @58 = lo <= _t11 in
+                    let @59 = _t11 <= hi in
+                    let @60 = @58 & @59 in
+                    _holds0 max= @60
+                    if (!@60) {
+                      let @61 = (*data) + 1u in
+                      data = @61
+                      continue
+                    }
+                  }
                 }
-                let @61 = (*data) + 1u in
-                data = @61
-              }
+                break
+              } while (true)
             }
           }
         }
@@ -154,24 +161,31 @@ func _recloop_func1(items_index : u32, items : _tree_layout0, _holds1 : mut (boo
             if (@37) {
               let @38 = cast<u32>(_t53) in
               data = 0u
-              while ((*data) < @38) {
-                let @40 = (*_holds1) in
-                if (@40) {
-                  let @41 = items.prims in
-                  let @42 = _t52.split0on_nPrims in
-                  let @43 = reinterpret_cast<_tree_layout3>(@42) in
-                  let @44 = @43.pOffset in
-                  let @45 = @44 + (*data) in
-                  let @46 = @41[@45] in
-                  let _t38 = @46.id in
-                  let @48 = lo <= _t38 in
-                  let @49 = _t38 <= hi in
-                  let @50 = @48 & @49 in
-                  _holds1 min= @50
+              do {
+                let @39 = (*data) < @38 in
+                if (@39) {
+                  let @40 = (*_holds1) in
+                  if (@40) {
+                    let @41 = items.prims in
+                    let @42 = _t52.split0on_nPrims in
+                    let @43 = reinterpret_cast<_tree_layout3>(@42) in
+                    let @44 = @43.pOffset in
+                    let @45 = @44 + (*data) in
+                    let @46 = @41[@45] in
+                    let _t38 = @46.id in
+                    let @48 = lo <= _t38 in
+                    let @49 = _t38 <= hi in
+                    let @50 = @48 & @49 in
+                    _holds1 min= @50
+                    if (@50) {
+                      let @51 = (*data) + 1u in
+                      data = @51
+                      continue
+                    }
+                  }
                 }
-                let @51 = (*data) + 1u in
-                data = @51
-              }
+                break
+              } while (true)
             } else {
               _holds1 = false
             }

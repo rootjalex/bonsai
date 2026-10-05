@@ -5,7 +5,7 @@ source_filename = "bonsai_module"
 %struct._option0 = type { %struct.Triangle, i1 }
 %struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
 
-define i1 @occluded(ptr noundef nonnull readonly captures(none) %r0, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr {
+define noundef i1 @occluded(ptr noundef nonnull readonly captures(none) %r0, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr {
 occluded:
   %_mask0281345.i.sroa.0 = alloca <4 x i8>, align 4
   %"!stack346.i" = alloca [68 x i32], align 4
@@ -338,19 +338,15 @@ children0_pf_head.i.preheader:                    ; preds = %children0_pf_head.i
   %.lcssa = phi i32 [ %130, %"!par_cont_6!hits1.i" ], [ %26, %"!then_0.i.preheader" ], [ %135, %"!then_0.i.outer.backedge" ]
   %152 = add nsw i32 %.lcssa, -8
   %.not = icmp eq i32 %152, 0
-  br i1 %.not, label %"!visit_pop.i", label %"!for_data_body_12.i.lr.ph"
+  br i1 %.not, label %"!visit_pop.i", label %"!then_14.i.lr.ph"
 
-"!for_data_body_12.i.lr.ph":                      ; preds = %"!else_3.i"
+"!then_14.i.lr.ph":                               ; preds = %"!else_3.i"
   %153 = lshr i32 %"tris_ref!top1.i.lcssa", 4
   %wide.trip.count = zext i32 %152 to i64
-  br label %"!for_data_body_12.i"
+  br label %"!then_14.i"
 
-"!for_data_body_12.i":                            ; preds = %"!for_data_body_12.i.lr.ph", %"!merge_15.i"
-  %indvars.iv = phi i64 [ 0, %"!for_data_body_12.i.lr.ph" ], [ %indvars.iv.next, %"!merge_15.i" ]
-  %"_holds0$i173.151" = phi i1 [ false, %"!for_data_body_12.i.lr.ph" ], [ %"_holds0$i173.3", %"!merge_15.i" ]
-  br i1 %"_holds0$i173.151", label %"!merge_15.i", label %"!then_14.i"
-
-"!then_14.i":                                     ; preds = %"!for_data_body_12.i"
+"!then_14.i":                                     ; preds = %"!then_14.i.lr.ph", %"!merge_15.i"
+  %indvars.iv = phi i64 [ 0, %"!then_14.i.lr.ph" ], [ %indvars.iv.next, %"!merge_15.i" ]
   %154 = trunc nuw i64 %indvars.iv to i32
   %155 = add i32 %153, %154
   %_wide.i = zext i32 %155 to i64
@@ -404,12 +400,12 @@ children0_pf_head.i.preheader:                    ; preds = %children0_pf_head.i
   br i1 %191, label %"!merge_15.i", label %"!else_20.i"
 
 "!else_20.i":                                     ; preds = %"!else_17.i"
-  %shift107 = shufflevector <3 x float> %156, <3 x float> poison, <3 x i32> <i32 poison, i32 2, i32 poison>
-  %foldExtExtBinop108 = fmul <3 x float> %179, %shift107
-  %shift110 = shufflevector <3 x float> %179, <3 x float> poison, <3 x i32> <i32 poison, i32 2, i32 poison>
-  %foldExtExtBinop111 = fmul <3 x float> %shift110, %156
-  %foldExtExtBinop113 = fsub <3 x float> %foldExtExtBinop108, %foldExtExtBinop111
-  %192 = extractelement <3 x float> %foldExtExtBinop113, i64 1
+  %shift114 = shufflevector <3 x float> %156, <3 x float> poison, <3 x i32> <i32 poison, i32 2, i32 poison>
+  %foldExtExtBinop115 = fmul <3 x float> %179, %shift114
+  %shift117 = shufflevector <3 x float> %179, <3 x float> poison, <3 x i32> <i32 poison, i32 2, i32 poison>
+  %foldExtExtBinop118 = fmul <3 x float> %shift117, %156
+  %foldExtExtBinop120 = fsub <3 x float> %foldExtExtBinop115, %foldExtExtBinop118
+  %192 = extractelement <3 x float> %foldExtExtBinop120, i64 1
   %193 = shufflevector <3 x float> %179, <3 x float> poison, <2 x i32> <i32 2, i32 0>
   %194 = shufflevector <3 x float> %156, <3 x float> poison, <2 x i32> <i32 0, i32 1>
   %195 = fmul <2 x float> %193, %194
@@ -442,20 +438,17 @@ children0_pf_head.i.preheader:                    ; preds = %children0_pf_head.i
   %219 = fcmp olt float %3, %218
   %220 = fcmp ole float %218, %5
   %.not353.not.i = and i1 %219, %220
-  br label %"!merge_15.i"
+  br i1 %.not353.not.i, label %_recloop_func0.exit, label %"!merge_15.i"
 
-"!merge_15.i":                                    ; preds = %"!then_14.i", %"!else_17.i", %"!else_20.i", %"!else_23.i", %"!for_data_body_12.i"
-  %"_holds0$i173.3" = phi i1 [ true, %"!for_data_body_12.i" ], [ false, %"!then_14.i" ], [ false, %"!else_17.i" ], [ %.not353.not.i, %"!else_23.i" ], [ false, %"!else_20.i" ]
+"!merge_15.i":                                    ; preds = %"!then_14.i", %"!else_17.i", %"!else_20.i", %"!else_23.i"
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
-  br i1 %exitcond.not, label %"!visit_pop.i", label %"!for_data_body_12.i"
+  br i1 %exitcond.not, label %"!visit_pop.i", label %"!then_14.i"
 
 "!visit_pop.i":                                   ; preds = %"!merge_15.i", %children0_pf_head.i.preheader, %"!else_3.i"
   %"!count3.i.ph38" = phi i32 [ %"!count3.i.ph.lcssa37", %"!else_3.i" ], [ %"!count3.i.ph47", %children0_pf_head.i.preheader ], [ %"!count3.i.ph.lcssa37", %"!merge_15.i" ]
-  %"_holds0$i173.2" = phi i1 [ false, %"!else_3.i" ], [ false, %children0_pf_head.i.preheader ], [ %"_holds0$i173.3", %"!merge_15.i" ]
   %221 = icmp eq i32 %"!count3.i.ph38", 0
-  %.not420.i = or i1 %221, %"_holds0$i173.2"
-  br i1 %.not420.i, label %_recloop_func0.exit, label %"!visit_next.i"
+  br i1 %221, label %_recloop_func0.exit, label %"!visit_next.i"
 
 "!visit_next.i":                                  ; preds = %"!visit_pop.i"
   %222 = add i32 %"!count3.i.ph38", -1
@@ -464,10 +457,11 @@ children0_pf_head.i.preheader:                    ; preds = %children0_pf_head.i
   %extract340.i = load i32, ptr %extract_ptr339.i, align 4
   br label %"!then_0.i.preheader"
 
-_recloop_func0.exit:                              ; preds = %"!visit_pop.i"
+_recloop_func0.exit:                              ; preds = %"!visit_pop.i", %"!else_23.i"
+  %"_holds0$i173.282" = phi i1 [ true, %"!else_23.i" ], [ false, %"!visit_pop.i" ]
   call void @llvm.lifetime.end.p0(ptr nonnull %_mask0281345.i.sroa.0)
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack346.i")
-  ret i1 %"_holds0$i173.2"
+  ret i1 %"_holds0$i173.282"
 }
 
 define void @trace(ptr nofree noundef nonnull writeonly captures(none) %_ret0, ptr noundef nonnull readonly captures(none) %r0, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr {

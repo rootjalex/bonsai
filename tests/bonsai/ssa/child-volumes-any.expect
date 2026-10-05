@@ -212,21 +212,28 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         } else {
           let @105 = _t58 - 8u in
           data = 0u
-          while ((*data) < @105) {
-            let @107 = (*_holds0) in
-            let @108 = !@107 in
-            if (@108) {
-              let @109 = tris.prims in
-              let @110 = (*tris_ref!top) >> 4u in
-              let @111 = @110 + (*data) in
-              let @112 = @109[@111] in
-              let @113 = intersectsp_ray_tri(r, @112) in
-              let @114 = @113.set in
-              _holds0 max= @114
+          do {
+            let @106 = (*data) < @105 in
+            if (@106) {
+              let @107 = (*_holds0) in
+              let @108 = !@107 in
+              if (@108) {
+                let @109 = tris.prims in
+                let @110 = (*tris_ref!top) >> 4u in
+                let @111 = @110 + (*data) in
+                let @112 = @109[@111] in
+                let @113 = intersectsp_ray_tri(r, @112) in
+                let @114 = @113.set in
+                _holds0 max= @114
+                if (!@114) {
+                  let @115 = (*data) + 1u in
+                  data = @115
+                  continue
+                }
+              }
             }
-            let @115 = (*data) + 1u in
-            data = @115
-          }
+            break
+          } while (true)
         }
         break
       } while (true)

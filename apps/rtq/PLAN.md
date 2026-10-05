@@ -3111,6 +3111,131 @@ in some); backends/llvm/any-hit-arms, any-hit-prefetch, sort-key-nonnegative
 and sort-key-through-bits by the header's test folding away, 35 lines each
 beyond LLVM's renumbering. Every execution test as before; suite 1366.
 
+## An interval entry answers only while its instruction is alive (2026-10-04)
+
+Found on the way to the leaf's exit, below: ssa/vectorize-sorted-traversal's
+golden disagreed between two builds of the same source -- the compare-on-bits
+rule fired on `0 < max(root0, root1)` under one binary and not the other,
+and the two copies of that compare were merged by one and not the other --
+while `--dump-intervals` was identical between them and each binary agreed
+with itself run after run, ASLR or none. The analysis keeps what it read of
+every instruction under the instruction's address
+(SSA/ConstantIntervals.cpp, State::instrs), and the simplifier that asks it
+afterwards (the simplify after the directives, cc0095cf; a rewrite's new
+value read off its operands on demand and kept, b939082c) frees instructions
+and makes new ones through up to eight passes. A new instruction could take
+a freed one's address and be answered with the freed one's bounds: a stale
+answer, unsound in general, and one that differs from build to build, since
+which address the allocator hands back depends on everything allocated
+before it. Now the table holds a weak reference to the instruction beside
+what was read of it (State::Known; recorded(), record()), and a lookup whose
+instruction is gone, or whose address now belongs to another, is a value not
+yet read, read off its operands as a new one is. One golden moved,
+ssa/vectorize-sorted-traversal, re-blessed to what a clean table gives -- a
+broadcast and a reinterpretation merged with their earlier copies, nothing
+else -- and the suite was otherwise unmoved, so no committed golden carried a
+stale fold; two differently built compilers now agree on it to the line
+(1d3c31ab). No test can pin an allocator down to reusing an address; the
+check is that the goldens no longer depend on which binary blessed them,
+which is how this was found.
+
+## The leaf's loop leaves when the answer is settled (2026-10-04)
+
+**What was left.** After the pop stopped (above), the any hit's leaf loop
+still carried the lowering's per-element guard: `for block in leaf { if
+(!holds) test(block) }` (Lower/Trees.cpp, guard_iteration), a skip and not
+an exit -- the source language has no `break` to write and ir::Break is the
+relooper's alone. Per block tested that was `test bpl, 1; mov bpl, 1; jne`
+in front of the block's loads, three instructions on every block a ray
+tests, hit or no hit, and after a hit the remaining blocks were stepped
+over; Embree's leaf loop is `for (i < num) if (occluded(prim[i])) return
+true`, with nothing in front of a block and the return at the hit.
+
+**The rewrite** (SSA/QueueRecursion.cpp, exit_settled_loops, run by
+loopify before it builds the stack, with the Monotone analysis it already
+has): a dispatch on the accumulator's "still undecided" (the form
+undecided_in writes, read back: its load, negated for a rising
+accumulator, `any` over a gang's lanes) whose skipping arm reaches a loop's
+latch through blocks that compute values and nothing else goes to the
+loop's exit instead -- the header's dispatch's edge out of the loop, or the
+latch's own where the loop's test is at its bottom -- with what that exit
+edge passes, each argument a constant or a name threaded to the gate,
+provided the back edge hands the header that name back unchanged (an index
+the latch steps is not such a value: skipping to the end leaves it at the
+count, leaving now leaves it where it is; such a loop is left to skip as
+before). And where the answer is settled it leaves there: an `acc.max` or
+`acc.min` of a scalar bool in a block of the loop whose jump reaches the
+latch through such blocks becomes a dispatch on what it accumulated, `acc.max
+holds hit` leaving when `hit` is true, so that the iteration's own test of
+its result is the exit, as Embree's is, and the gate at the top is passed
+only by iterations that moved nothing. Loop unswitching, on a condition
+invariant forward in time only. A leaf loop that is still a parfor over its
+elements when loopify runs (a tiled layout's leaf not vectorized, as in
+any-hit-prefetch) keeps its skip: a parfor's body cannot leave the loop.
+
+**In the kernel.** With the exit at the write, `holds` is false on every
+edge into the loop's header, and LLVM folds the gate's test and the flag's
+materialization away: the leaf loop is `add r12, 0xb0; cmp r15, r12; je
+pop; <loads>; <test>; kortest; je next` and on a hit `kandw; kmovd; test
+al, 0xf; je next; jmp done` -- the block's own result is the exit, the
+`setne bpl` and the flag's register are gone, and the pop after the loop is
+`test r11d; je done; dec; mov; jmp node`, Embree's. occluded_all 406 -> 397
+static instructions (413 before the pop stopped); trace_all 579, untouched.
+
+**Measured** against 1d3c31ab (its compiler on its apps/rtq, in a worktree;
+this change's compiler likewise in a worktree of its own, so that neither
+side carried the other session's uncommitted work in the shared tree) on
+cpu 11, `--side 2048`, least of 5, every ray agreeing, Embree's own number
+holding between the sides on every pair but ivy's any hit on primary rays
+(Embree 78.85 -> 76.94, ours 84.46 -> 83.20, dropped). The any hit on head's
+incoherent rays 17.80 -> 17.94 Mrays/s on ao and 16.19 -> 16.29 on diffuse
+(0.99 -> 1.00x), the tuned schedule's 19.55 -> 19.75 and 17.82 -> 17.96
+(1.09 -> 1.10x); ivy, dragon and sportscar level within 1% on every
+incoherent batch (ivy's 0.98x and 0.97x as before, sportscar's tuned ao
+11.25 -> 11.42); primary rays within the run-to-run spread (head 97.48 ->
+96.83, 1.14 -> 1.12x against an Embree that itself moved +0.8%; sportscar
+61.36 -> 60.76, 1.06x; dragon level) -- a primary ray on head runs 26
+instructions on average, most of them missing the root, so the leaf has
+little to say there. The nearest hit's kernel is unchanged and its numbers
+level within 0.6% on every pair but head's primary, whose base-side run was
+low (63.03 -> 64.64). perf on head's diffuse rays: instructions 32600 ->
+32504 (-0.3%), branch misses 824 -> 804 (-2.4%), cycles level; three
+instructions a block came off a loop whose block costs forty, and the
+blocks after a hit were one or two. A smaller gain than the pop's, in the
+same direction, and the code is Embree's now where it was not.
+
+**Where the any hit's last 2% is**, by the profile on head's diffuse rays
+(one sample per 20011 events, our kernel against Embree's `occluded` in the
+same run, split by address into the kernel's regions): instructions 32504
+against 32103 (+1.2%), cycles 32500 against 31714 (+2.5%), branch misses
+804 against 759 (+6%). By region, instruction samples ours / Embree's: the
+ray's setup 1969 / 1750, the node loop with the one-hit path 14860 / 15262,
+the arms for two hits and more 4412 / 3153, the leaf 9910 / 10717, the pop
+1353 / 1101. The arms' excess is accounting: Embree extracts the first hit
+child before it knows how many there are, in what this split calls its node
+loop, and ours extract every child in the arm; per two-, three- and
+four-hit node the two sides run the same number of instructions (26, 37 and
+48 against 25, 36 and 47, counted in the disassembly), and the node loop
+and arms together are 19272 / 18415. The pop's quarter more is the `jmp`
+back to the node test where Embree's falls through. The leaf's 8% less is
+ours. What is left as a speed difference is the mispredictions, 45 more
+samples -- about 0.2 more per ray -- spread over the node test, the one-hit
+test and the arms' count dispatch at a few each; at some fifteen cycles a
+miss that is the cycle gap, and they are the same data-dependent branches
+Embree has (its `kortest; je`, `and ecx, edi; jne` and `je` after the second
+child carry the same weight in its profile). The kernel is Embree's shape
+now, region for region; the next percent on incoherent rays is not in the
+code's shape.
+
+**Tests.** The ten any-hit goldens again: ssa/ray-any-early-exit (the leaf
+loop printed as `do { if (idx < n) { if (!holds) { ..; holds max= hit; if
+(!hit) { idx++; continue } } } .. }`, the break the statement form writes
+as its continue's absence), ssa/quantifier-early-exit, any-hit-arms,
+child-volumes-any, sort-key-nonnegative and sort-key-through-bits the same
+way; backends/llvm/any-hit-arms, sort-key-nonnegative and
+sort-key-through-bits by the `_holds` phi leaving the loop and the branch to
+the function's exit after the block's test. Every execution test as before.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

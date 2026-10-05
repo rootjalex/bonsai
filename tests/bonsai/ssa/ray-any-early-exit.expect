@@ -203,23 +203,30 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           if ((*intersects_Ray_AABB$r1)) {
             let @175 = cast<u32>(_t61) in
             data = 0u
-            while ((*data) < @175) {
-              let @177 = (*_holds0) in
-              let @178 = !@177 in
-              if (@178) {
-                let @179 = tris.prims in
-                let @180 = _t60.split0on_nPrims in
-                let @181 = reinterpret_cast<_tree_layout3>(@180) in
-                let @182 = @181.pOffset in
-                let @183 = @182 + (*data) in
-                let @184 = @179[@183] in
-                let @185 = intersectsp_ray_tri(r, @184) in
-                let @186 = @185.set in
-                _holds0 max= @186
+            do {
+              let @176 = (*data) < @175 in
+              if (@176) {
+                let @177 = (*_holds0) in
+                let @178 = !@177 in
+                if (@178) {
+                  let @179 = tris.prims in
+                  let @180 = _t60.split0on_nPrims in
+                  let @181 = reinterpret_cast<_tree_layout3>(@180) in
+                  let @182 = @181.pOffset in
+                  let @183 = @182 + (*data) in
+                  let @184 = @179[@183] in
+                  let @185 = intersectsp_ray_tri(r, @184) in
+                  let @186 = @185.set in
+                  _holds0 max= @186
+                  if (!@186) {
+                    let @187 = (*data) + 1u in
+                    data = @187
+                    continue
+                  }
+                }
               }
-              let @187 = (*data) + 1u in
-              data = @187
-            }
+              break
+            } while (true)
           }
         }
         break
