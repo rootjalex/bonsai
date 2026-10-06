@@ -3,7 +3,8 @@ source_filename = "bonsai_module"
 
 %struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
-define void @run(ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @run(ptr noundef %out_buffer) local_unnamed_addr #0 {
 fill.exit53.7:
   %sums_queue1135 = alloca [2 x %struct.Queue_sums], align 16
   %sums_i_136 = alloca [8 x i32], align 4
@@ -166,6 +167,8 @@ sums1_pf_exit:                                    ; preds = %fill.exit
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"i32", !2, i64 0}

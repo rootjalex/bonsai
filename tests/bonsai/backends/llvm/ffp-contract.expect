@@ -50,8 +50,8 @@ no_pair:
   ret float %1
 }
 
-; Function Attrs: nofree norecurse nosync nounwind memory(none)
-define float @rebound(float noundef %k, float noundef %omega, i32 noundef %n) local_unnamed_addr #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define float @rebound(float noundef %k, float noundef %omega, i32 noundef %n) local_unnamed_addr #0 {
 rebound:
   %0 = icmp sgt i32 %n, 0
   br i1 %0, label %"!for_i_body_1.preheader", label %"!for_i_end_2"
@@ -125,18 +125,17 @@ sub_neg:
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fma.f32(float, float, float) #2
+declare float @llvm.fma.f32(float, float, float) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.sqrt.f32(float) #2
+declare float @llvm.sqrt.f32(float) #1
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
-declare void @llvm.assume(i1 noundef) #3
+declare void @llvm.assume(i1 noundef) #2
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { nofree norecurse nosync nounwind memory(none) }
-attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = distinct !{!0, !1}
 !1 = !{!"llvm.loop.unroll.disable"}

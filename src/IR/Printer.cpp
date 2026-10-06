@@ -1221,6 +1221,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_trace";
     case Intrinsic::rt_hit_t:
         return "rt_hit_t";
+    case Intrinsic::rt_barycentrics:
+        return "rt_barycentrics";
     case Intrinsic::rt_primitive_index:
         return "rt_primitive_index";
     case Intrinsic::rt_instance_id:

@@ -6,7 +6,8 @@ target triple = "nvptx64-nvidia-cuda"
 
 @0 = private unnamed_addr constant [12 x i8] c"%d, %f, %d\0A\00", align 1
 
-define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, float %x) local_unnamed_addr {
+; Function Attrs: mustprogress
+define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, float %x) local_unnamed_addr #0 {
 "!par_body_0":
   %_print_args = alloca { i32, double, i32 }, align 16
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
@@ -24,11 +25,12 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, float %x) local_u
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #0
+declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
 declare i32 @vprintf(ptr, ptr) local_unnamed_addr
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !llvm.module.flags = !{!0}
 

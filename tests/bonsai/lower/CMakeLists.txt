@@ -48,6 +48,7 @@ add_bonsai_tests(
     rect_contains.bonsai
     reference-bits.bonsai
     rtcore-any.bonsai
+    rtcore-witness.bonsai
     sort-call.bonsai
     struct_defaults.bonsai
     tight-array.bonsai

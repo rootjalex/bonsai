@@ -20,7 +20,7 @@ declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #0
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.fabs.f32(float) #0
 
-; Function Attrs: nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+; Function Attrs: mustprogress nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, i32 %"@0", %struct.Camera %c, %struct._tree_layout0 %spheres, ptr nofree writeonly captures(none) %_alloc0) local_unnamed_addr #1 {
 "!par_body_0_collapsed_i":
   %_alloc0.global = addrspacecast ptr %_alloc0 to ptr addrspace(1)
@@ -1339,7 +1339,7 @@ declare void @llvm.lifetime.start.p0(ptr captures(none)) #4
 declare void @llvm.lifetime.end.p0(ptr captures(none)) #4
 
 attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #1 = { nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }

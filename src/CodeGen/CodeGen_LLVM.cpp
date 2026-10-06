@@ -1081,6 +1081,23 @@ CodeGen_LLVM::compile_program(const Program &program,
 
 void CodeGen_LLVM::optimize_module(llvm::TargetMachine &tm,
                                    const CompilerOptions &options) {
+    // Every generated function promises forward progress, C++'s rule
+    // ([intro.progress]; clang marks every function `mustprogress` under
+    // C++11 and later, which is what the reference renderer compiles
+    // under). The promise is what lets LLVM delete a loop whose trip count
+    // it cannot prove finite when nothing reads its results -- without it,
+    // a dead numeric guard like pbrt's SetShadingGeometry rescale loop
+    // ("while the tangents are too big, divide") counts as an observable
+    // non-termination and pins every input it reads: the shading normals
+    // and their mesh loads stayed live in an any-hit program whose alpha
+    // test reads only the hit's point and uv. Bonsai's loops have no
+    // spin-forever idiom to protect: a loop is a traversal, a drain, or a
+    // source `while`, and every one of them is written to end.
+    for (llvm::Function &fn : *module) {
+        if (!fn.isDeclaration()) {
+            fn.addFnAttr(llvm::Attribute::MustProgress);
+        }
+    }
     switch (options.level) {
     case BackendOptimizationLevel::O0:
         return; // do nothing
@@ -3889,6 +3906,7 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     }
     case Intrinsic::rt_trace:
     case Intrinsic::rt_hit_t:
+    case Intrinsic::rt_barycentrics:
     case Intrinsic::rt_primitive_index:
     case Intrinsic::rt_instance_id:
     case Intrinsic::rt_sbt_base:

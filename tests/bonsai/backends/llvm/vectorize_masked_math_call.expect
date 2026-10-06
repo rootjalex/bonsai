@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @angles(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @angles(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 angles:
   %x = tail call ptr @bonsai_buffer_require(ptr %x_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -149,7 +150,8 @@ sin_join:                                         ; preds = %sin_rare, %"!then_2
   br label %"!else_3!any"
 }
 
-define void @unmasked(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @unmasked(ptr noundef %x_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 unmasked:
   %x = tail call ptr @bonsai_buffer_require(ptr %x_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -227,31 +229,32 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #0
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #1
+declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.roundeven.v8f32(<8 x float>) #1
+declare <8 x float> @llvm.roundeven.v8f32(<8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #1
+declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
-declare float @sinf(float) local_unnamed_addr #2
+declare float @sinf(float) local_unnamed_addr #3
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.copysign.v8f32(<8 x float>, <8 x float>) #1
+declare <8 x float> @llvm.copysign.v8f32(<8 x float>, <8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #1
+declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write)
-declare float @cosf(float) local_unnamed_addr #2
+declare float @cosf(float) local_unnamed_addr #3
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(errnomem: write) }
 
 !0 = !{!"branch_weights", i32 1048576, i32 1}

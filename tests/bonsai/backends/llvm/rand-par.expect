@@ -6,7 +6,8 @@ source_filename = "bonsai_module"
 @0 = private unnamed_addr constant [66 x i8] c"{%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f}\0A\00", align 1
 @1 = private unnamed_addr constant [22 x i8] c"%d, [%f, %f, %f, %f]\0A\00", align 1
 
-define noundef i32 @main() local_unnamed_addr {
+; Function Attrs: mustprogress
+define noundef i32 @main() local_unnamed_addr #0 {
 main:
   %_pfctx.i = alloca %struct._pfctx0, align 16
   %0 = tail call i32 @rand()
@@ -70,10 +71,10 @@ main:
 }
 
 ; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
-declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #0
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
 
-; Function Attrs: nofree nounwind
-define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+; Function Attrs: mustprogress nofree nounwind
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #2 {
 entry:
   %3 = load ptr, ptr %0, align 8
   %4 = icmp slt i64 %1, %2
@@ -124,22 +125,23 @@ declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 declare i32 @rand() local_unnamed_addr
 
 ; Function Attrs: nofree nounwind
-declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #2
+declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #3
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) #3
+declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) #4
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.start.p0(ptr captures(none)) #4
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #5
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.lifetime.end.p0(ptr captures(none)) #4
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #5
 
-attributes #0 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
-attributes #1 = { nofree nounwind "frame-pointer"="all" }
-attributes #2 = { nofree nounwind }
-attributes #3 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+attributes #2 = { mustprogress nofree nounwind "frame-pointer"="all" }
+attributes #3 = { nofree nounwind }
+attributes #4 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #5 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
 
 !0 = !{!"branch_weights", i32 1, i32 0}
 !1 = !{!2, !2, i64 0}

@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @bounded(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @bounded(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr #0 {
 bounded:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
@@ -20,7 +21,8 @@ bounded:
   ret void
 }
 
-define void @divide(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer, ptr noundef %r_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @divide(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer, ptr noundef %r_buffer) local_unnamed_addr #0 {
 divide:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
@@ -41,7 +43,8 @@ divide:
   ret void
 }
 
-define void @divide_signed(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @divide_signed(ptr noundef %a_buffer, ptr noundef %b_buffer, ptr noundef %q_buffer) local_unnamed_addr #0 {
 divide_signed:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %b = tail call ptr @bonsai_buffer_require(ptr %b_buffer, i32 1)
@@ -58,7 +61,7 @@ divide_signed:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i32 @scalar(i32 noundef %a, i32 noundef %b) local_unnamed_addr #0 {
+define noundef i32 @scalar(i32 noundef %a, i32 noundef %b) local_unnamed_addr #1 {
 scalar:
   %0 = udiv i32 %a, %b
   ret i32 %0
@@ -68,4 +71,5 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

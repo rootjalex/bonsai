@@ -1,0 +1,36 @@
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/sphere;
+import stdlib/triangle;
+
+// The record of the hit `intersects` reports and `distmin` keys: what a
+// query's `intersection(q, G)` map annotation answers, at the type the
+// geometric op fixes (ir::hit_record_type) -- the ray parameter, inf on a
+// miss as distmin's is, and the surface parameters of the hit (a triangle's
+// second and third barycentrics, the weights of p1 and p2; a shape whose
+// point t alone fixes leaves them zero). Under bind(RTCore) a hit program
+// reads this from the hardware instead of computing it. Its own file rather
+// than distance.bonsai's, so that a program with no witness queries carries
+// no trace of it.
+element Hit {
+    t : Float;
+    b : vec2f;
+}
+
+func intersection(ray : Ray, tri : Triangle) -> Hit {
+    isect = intersectsp_ray_tri(ray, tri);
+    if isect {
+        isect_ = *isect;
+        found : Hit = {isect_.t, vec2f{isect_.b1, isect_.b2}};
+        return found;
+    }
+    nothing : Hit = {inf, vec2f{0.0, 0.0}};
+    return nothing;
+}
+
+func intersection(ray : Ray, s : Sphere) -> Hit {
+    found : Hit = {distmin(ray, s), vec2f{0.0, 0.0}};
+    return found;
+}

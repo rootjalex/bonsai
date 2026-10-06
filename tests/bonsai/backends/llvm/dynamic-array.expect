@@ -3,7 +3,8 @@ source_filename = "bonsai_module"
 
 %struct.__dyn_array0 = type { ptr, i32, i32, <64 x i8> }
 
-define i32 @main() {
+; Function Attrs: mustprogress
+define i32 @main() #0 {
 main_entry:
   %x = alloca %struct.__dyn_array0, align 64
   %x.buffer_untyped = tail call ptr @malloc(i64 4)
@@ -71,3 +72,5 @@ declare i32 @pthread_mutex_lock(ptr)
 declare ptr @realloc(ptr, i64)
 
 declare i32 @pthread_mutex_unlock(ptr)
+
+attributes #0 = { mustprogress }

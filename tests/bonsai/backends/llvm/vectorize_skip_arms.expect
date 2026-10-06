@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @weigh_all(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 weigh_all:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -140,7 +141,7 @@ weigh_all:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define float @weigh_one(float noundef %x) local_unnamed_addr #0 {
+define float @weigh_one(float noundef %x) local_unnamed_addr #1 {
 weigh_one:
   %0 = fcmp ogt float %x, 2.000000e+00
   br i1 %0, label %"!then_0.i", label %"!else_1.i"
@@ -215,14 +216,15 @@ weigh.exit:                                       ; preds = %"!then_0.i", %"!mer
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.sqrt.f32(float) #1
+declare float @llvm.sqrt.f32(float) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #1
+declare <8 x float> @llvm.sqrt.v8f32(<8 x float>) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

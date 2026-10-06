@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @add_one(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @add_one(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 add_one:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -47,7 +48,8 @@ add_one:
   ret void
 }
 
-define void @scale(i32 noundef %n, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @scale(i32 noundef %n, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 scale:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -150,6 +152,8 @@ i1_pf_exit:                                       ; preds = %"!par_body_0.prol.l
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"f32", !2, i64 0}

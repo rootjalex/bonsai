@@ -61,6 +61,18 @@ struct LowerGeomOps : public Mutator {
             // some macro error with inlining this into internal_assert
             const bool truthy_type = call.type().is<Option_t, Bool_t>();
             internal_assert(truthy_type);
+        } else if (is_geometric_witness(name)) {
+            // The witness answers at the one record type the op fixes
+            // (ir::hit_record_type): Hit { t : f32; b : vec2f }, t = inf on
+            // a miss as distmin's inf is. An implementation answering
+            // anything else would hand the query a record its consumers --
+            // and, under bind(RTCore), the hardware's hit programs -- do
+            // not hold.
+            internal_assert(equals(call.type(), hit_record_type()))
+                << typed_name << " answers " << call.type()
+                << ", and `intersection` must answer Hit { t : f32; "
+                << "b : vec2f } (t = inf on a miss) -- the record the RT "
+                << "cores report of a hit, fixed by the op's convention";
         } else if (is_geometric_motion(name)) {
             // A motion answers the extent it moved, so it answers at the type
             // it was given -- unlike every relation here, which answers a fact

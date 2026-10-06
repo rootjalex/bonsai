@@ -5,7 +5,8 @@ declare ptr @grid_of(ptr, i32) local_unnamed_addr
 
 declare float @grid_value(ptr, i32) local_unnamed_addr
 
-define float @sample(ptr noundef %vals_buffer, i32 noundef %at, i32 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define float @sample(ptr noundef %vals_buffer, i32 noundef %at, i32 noundef %i) local_unnamed_addr #0 {
 sample:
   %vals = tail call ptr @bonsai_buffer_require(ptr %vals_buffer, i32 1)
   %0 = tail call ptr @grid_of(ptr %vals, i32 %at)
@@ -17,3 +18,5 @@ sample:
 }
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }

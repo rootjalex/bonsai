@@ -195,6 +195,13 @@ inline bool is_geometric_motion(const std::string &name) {
     return name == "transform" || name == "untransform";
 }
 
+// The witness: `intersection`, the record of the hit `intersects` reports and
+// `distmin` keys -- `option[Hit]` (ir::hit_record_type), neither a predicate
+// nor a scalar metric.
+inline bool is_geometric_witness(const std::string &name) {
+    return name == "intersection";
+}
+
 // The ordering predicates: `a` lies at or before `b` along an axis. Unlike the
 // topological relations these ask about the *world's* axes, so they are not
 // preserved by moving both operands -- a rotation changes which way x is --
@@ -209,7 +216,8 @@ inline bool is_geometric_predicate(const std::string &name) {
     for (uint32_t i = 0; i < ir::GeomOp::opcount; i++) {
         const auto op = static_cast<ir::GeomOp::OpType>(i);
         if (name == ir::GeomOp::intrinsic_name(op)) {
-            return !is_geometric_metric(name) && !is_geometric_motion(name);
+            return !is_geometric_metric(name) && !is_geometric_motion(name) &&
+                   !is_geometric_witness(name);
         }
     }
     return false;
@@ -217,7 +225,7 @@ inline bool is_geometric_predicate(const std::string &name) {
 
 inline bool is_geometric_intrinsic(const std::string &name) {
     return is_geometric_predicate(name) || is_geometric_metric(name) ||
-           is_geometric_motion(name);
+           is_geometric_motion(name) || is_geometric_witness(name);
 }
 
 // Returns a bit mask of size n.

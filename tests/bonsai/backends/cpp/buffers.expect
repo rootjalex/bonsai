@@ -45,7 +45,8 @@ static inline float total(const uint32_t n, const float* a) {
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @combine(i32 noundef %n, ptr noundef %weights_buffer, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @combine(i32 noundef %n, ptr noundef %weights_buffer, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 combine_entry:
   %weights = tail call ptr @bonsai_buffer_require(ptr %weights_buffer, i32 1)
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
@@ -99,7 +100,8 @@ i0_for_end:                                       ; preds = %i0_for.prol.loopexi
   ret void
 }
 
-define float @total(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define float @total(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr #0 {
 total_entry:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %.not = icmp eq i32 %n, 0
@@ -188,9 +190,10 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
-declare void @llvm.assume(i1 noundef) #0
+declare void @llvm.assume(i1 noundef) #1
 
-attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = !{!"branch_weights", i32 0, i32 1073741824}
 !1 = !{!2, !2, i64 0}

@@ -9,12 +9,12 @@ target triple = "nvptx64-nvidia-cuda"
 
 @params = local_unnamed_addr addrspace(4) global %_params zeroinitializer
 
-; Function Attrs: nounwind
+; Function Attrs: mustprogress nounwind
 define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
 "!par_body_0":
   %_begin = load i32, ptr addrspace(4) @params, align 8
   %_stride = load i32, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 4), align 4
-  %0 = tail call i32 asm "call ($0), _optix_get_launch_index_x, ();", "=r"() #0
+  %0 = tail call i32 asm "call ($0), _optix_get_launch_index_x, ();", "=r"() #1
   %1 = mul i32 %0, %_stride
   %i = add i32 %1, %_begin
   %out = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 8), align 8
@@ -22,7 +22,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
   %2 = icmp sgt i32 %i, 3
   %"_match0$r1" = zext i1 %2 to i32
-  tail call void asm sideeffect "call (), _optix_hitobject_reorder, ($0, $1);", "r,r"(i32 %"_match0$r1", i32 1) #0
+  tail call void asm sideeffect "call (), _optix_hitobject_reorder, ($0, $1);", "r,r"(i32 %"_match0$r1", i32 1) #1
   %3 = mul i32 %i, %i
   %4 = shl i32 %i, 1
   %"_match1$r3" = select i1 %2, i32 %3, i32 %4
@@ -32,7 +32,8 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   ret void
 }
 
-attributes #0 = { nounwind }
+attributes #0 = { mustprogress nounwind }
+attributes #1 = { nounwind }
 
 !llvm.module.flags = !{!0}
 

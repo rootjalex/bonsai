@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @read_bytes(i32 noundef %n, ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_bytes(i32 noundef %n, ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_bytes:
   %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -39,7 +40,8 @@ extract_after:                                    ; preds = %extract_lanes, %ext
   ret void
 }
 
-define void @read_halfwords(ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_halfwords(ptr noundef %table_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_halfwords:
   %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -60,7 +62,8 @@ read_halfwords:
   ret void
 }
 
-define void @read_nodes(ptr noundef %nodes_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_nodes(ptr noundef %nodes_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_nodes:
   %nodes = tail call ptr @bonsai_buffer_require(ptr %nodes_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -86,7 +89,8 @@ read_nodes:
   ret void
 }
 
-define void @read_tails(ptr noundef %tails_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_tails(ptr noundef %tails_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_tails:
   %tails = tail call ptr @bonsai_buffer_require(ptr %tails_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -108,13 +112,14 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x i32> @llvm.umin.v8i32(<8 x i32>, <8 x i32>) #0
+declare <8 x i32> @llvm.umin.v8i32(<8 x i32>, <8 x i32>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #1
+declare <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr>, <8 x i1>, <8 x i32>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr>, <8 x i1>, <8 x i8>) #1
+declare <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr>, <8 x i1>, <8 x i8>) #2
 
-attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

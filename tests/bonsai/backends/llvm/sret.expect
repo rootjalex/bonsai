@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 %struct.F4 = type { float, float, float, float }
 %struct.VN = type { <3 x float>, i32 }
 
-; Function Attrs: nofree nosync nounwind memory(argmem: write)
+; Function Attrs: mustprogress nofree nosync nounwind memory(argmem: write)
 define internal fastcc void @_unexported_count_up(ptr noalias nofree noundef nonnull writeonly align 4 captures(none) initializes((0, 16)) %_sret, %struct.F4 noundef %acc, i32 noundef range(i32 0, -1) %n) unnamed_addr #0 {
 _unexported_count_up:
   %_ret = alloca %struct.F4, align 16
@@ -44,7 +44,7 @@ common.ret:                                       ; preds = %"!merge_1", %"!then
   br label %common.ret
 }
 
-; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+; Function Attrs: mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define void @count_up(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 16)) %_ret0, ptr noundef nonnull readonly captures(none) %acc, i32 noundef %n) local_unnamed_addr #1 {
 count_up:
   %_ret = alloca %struct.F4, align 8
@@ -161,7 +161,7 @@ sum_i4:
   ret i32 %1
 }
 
-attributes #0 = { nofree nosync nounwind memory(argmem: write) }
-attributes #1 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #0 = { mustprogress nofree nosync nounwind memory(argmem: write) }
+attributes #1 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

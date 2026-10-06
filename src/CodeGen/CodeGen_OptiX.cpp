@@ -652,6 +652,26 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
             "=r", {}, /*side_effects=*/false);
         return builder->CreateBitCast(bits, f32, "_hit_t");
     }
+    case Intrinsic::rt_barycentrics: {
+        // Two floats in one call (see rt_hit_t for the register dance):
+        // the pair comes back as two `.b32` outs of one asm, an LLVM
+        // struct, and is rebuilt as the vec2f the intrinsic answers.
+        llvm::Type *two_i32 = llvm::StructType::get(i32_t, i32_t);
+        llvm::Value *pair = asm_call(
+            two_i32,
+            "{ .reg .f32 %fb<2>; "
+            "call (%fb0, %fb1), _optix_get_triangle_barycentrics, (); "
+            "mov.b32 $0, %fb0; mov.b32 $1, %fb1; }",
+            "=r,=r", {}, /*side_effects=*/false);
+        llvm::Value *b1 = builder->CreateBitCast(
+            builder->CreateExtractValue(pair, 0), f32, "_bary1");
+        llvm::Value *b2 = builder->CreateBitCast(
+            builder->CreateExtractValue(pair, 1), f32, "_bary2");
+        llvm::Value *v = llvm::PoisonValue::get(
+            llvm::FixedVectorType::get(f32, 2));
+        v = builder->CreateInsertElement(v, b1, uint64_t(0));
+        return builder->CreateInsertElement(v, b2, uint64_t(1), "_bary");
+    }
     case Intrinsic::rt_primitive_index:
         return asm_call(i32_t, "call ($0), _optix_read_primitive_idx, ();", "=r",
                         {}, /*side_effects=*/false);

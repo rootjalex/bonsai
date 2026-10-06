@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @clamp_negative(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @clamp_negative(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 clamp_negative:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -31,7 +32,8 @@ clamp_negative:
   ret void
 }
 
-define void @uniform_outer(ptr noundef %a_buffer, float noundef %flag, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @uniform_outer(ptr noundef %a_buffer, float noundef %flag, ptr noundef %out_buffer) local_unnamed_addr #0 {
 uniform_outer:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -75,6 +77,7 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #0
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }

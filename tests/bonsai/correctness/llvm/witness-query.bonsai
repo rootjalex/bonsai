@@ -1,0 +1,79 @@
+//! flags: -p ssa -b llvm -e
+
+// (`-p ssa`: the Stmt pipeline lowers tuples to structs before the set
+// functions read the query, and the annotating map's element tuple reaches
+// the filter's check as a struct. The SSA pipeline -- where all LLVM
+// lowering is headed -- orders the two correctly.)
+
+// A query carrying the hit's witness, run on the plain software path: the
+// map annotates each triangle with `intersection(r, tri)`, the filter's
+// alpha test reads the carried barycentric, and the argmin's answer hands
+// back (element, record) -- no second intersection anywhere, and the record
+// is checkable by hand. The two triangles sit square to the z axis, so the
+// barycentrics are exact: a ray through (0.5, 0.5) meets p0=(0,0), p1=(2,0),
+// p2=(0,2) at b1 = b2 = 0.25.
+//
+// Three rays: one that hits the NEAR triangle (t = 3, the argmin picks it
+// over t = 5), one aimed past the near triangle's edge that only the far one
+// catches (t = 5), and one that misses both (the query answers nothing,
+// printed as -1). The alpha test rejects the near triangle for the second
+// ray's barycentrics, so it also proves the filter reads the witness: the
+// near triangle IS hit by that ray's line, but at b1 > alpha.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/hit;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Prim {
+    tri : Triangle;
+    alpha : f32;
+}
+
+func accepts(p : Prim, h : Hit) -> bool {
+    if p.alpha < 0.0 {
+        return true;
+    }
+    return h.b.x < p.alpha;
+}
+
+func trace(r : Ray, prims : set[Prim]) =
+    argmin(|p : Prim, h : Hit| distmin(r, p.tri),
+           filter(|p : Prim, h : Hit| intersects(r, p.tri) && accepts(p, h),
+                  map(|p : Prim| (p, intersection(r, p.tri)), prims)));
+
+func probe(r : Ray, prims : set[Prim]) -> void {
+    found = trace(r, prims);
+    if found {
+        hit = *found;
+        print(hit[1].t);
+        print(hit[1].b.x);
+        print(hit[1].b.y);
+    } else {
+        print(-1.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    // The near triangle only accepts hits with b1 < 0.3; the far one
+    // accepts everything.
+    near : Prim = {Triangle{vec3f{0.0, 0.0, 3.0}, vec3f{2.0, 0.0, 3.0},
+                            vec3f{0.0, 2.0, 3.0}}, 0.3};
+    far : Prim = {Triangle{vec3f{0.0, 0.0, 5.0}, vec3f{2.0, 0.0, 5.0},
+                           vec3f{0.0, 2.0, 5.0}}, -1.0};
+    prims = set[Prim]{near, far};
+    down_z = vec3f{0.0, 0.0, 1.0};
+    // Through (0.5, 0.5): b1 = b2 = 0.25 < 0.3, the near wins at t = 3.
+    probe(Ray{vec3f{0.5, 0.5, 0.0}, down_z, inf}, prims);
+    // Through (1.0, 0.5): b1 = 0.5 > 0.3 -- the near triangle is struck but
+    // its alpha refuses the hit's barycentric, so the far one answers, t = 5
+    // with b1 = 0.5, b2 = 0.25.
+    probe(Ray{vec3f{1.0, 0.5, 0.0}, down_z, inf}, prims);
+    // Wide of both: nothing.
+    probe(Ray{vec3f{5.0, 5.0, 0.0}, down_z, inf}, prims);
+    return 0;
+}

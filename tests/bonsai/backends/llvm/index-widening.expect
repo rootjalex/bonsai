@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define range(i32 0, 256) i32 @byte_at_i32(ptr noundef %bytes_buffer, i32 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i32 0, 256) i32 @byte_at_i32(ptr noundef %bytes_buffer, i32 noundef %i) local_unnamed_addr #0 {
 byte_at_i32:
   %bytes = tail call ptr @bonsai_buffer_require(ptr %bytes_buffer, i32 1)
   %i_wide = sext i32 %i to i64
@@ -11,7 +12,8 @@ byte_at_i32:
   ret i32 %0
 }
 
-define range(i32 0, 256) i32 @byte_at_u32(ptr noundef %bytes_buffer, i32 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i32 0, 256) i32 @byte_at_u32(ptr noundef %bytes_buffer, i32 noundef %i) local_unnamed_addr #0 {
 byte_at_u32:
   %bytes = tail call ptr @bonsai_buffer_require(ptr %bytes_buffer, i32 1)
   %i_wide = zext i32 %i to i64
@@ -21,7 +23,8 @@ byte_at_u32:
   ret i32 %0
 }
 
-define range(i32 0, 256) i32 @byte_at_u64(ptr noundef %bytes_buffer, i64 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i32 0, 256) i32 @byte_at_u64(ptr noundef %bytes_buffer, i64 noundef %i) local_unnamed_addr #0 {
 byte_at_u64:
   %bytes = tail call ptr @bonsai_buffer_require(ptr %bytes_buffer, i32 1)
   %extract_ptr = getelementptr inbounds i8, ptr %bytes, i64 %i
@@ -31,3 +34,5 @@ byte_at_u64:
 }
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }

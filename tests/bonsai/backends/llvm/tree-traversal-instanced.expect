@@ -11,7 +11,7 @@ source_filename = "bonsai_module"
 %struct.__tuple_0 = type { %struct.Instance, %struct.Triangle }
 %struct.Triangle = type { <3 x float>, <3 x float>, <3 x float> }
 
-; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+; Function Attrs: mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @_recloop_func0(i32 noundef %instances_index, %struct._tree_layout0 noundef %instances, %struct.Ray noundef %r, ptr nofree noundef nonnull captures(none) %_best0) unnamed_addr #0 {
 _recloop_func0:
   %instances.group1_index = extractvalue %struct._tree_layout0 %instances, 7
@@ -143,7 +143,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   ret void
 }
 
-; Function Attrs: nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+; Function Attrs: mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @_recloop_func1(i32 noundef %_subtree0_bnode, %struct._tree_layout0 noundef %instances, %struct.Ray noundef %_pulled0, ptr nofree noundef nonnull captures(none) %_best0, i32 noundef %instances_index, i32 noundef %data) unnamed_addr #0 {
 _recloop_func1:
   %instances.group0_bnode = extractvalue %struct._tree_layout0 %instances, 3
@@ -541,7 +541,8 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   ret void
 }
 
-define void @trace(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 208)) %_ret0, ptr noundef nonnull readonly captures(none) %r, ptr noundef nonnull readonly captures(none) %instances_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @trace(ptr nofree noundef nonnull writeonly captures(none) initializes((0, 208)) %_ret0, ptr noundef nonnull readonly captures(none) %r, ptr noundef nonnull readonly captures(none) %instances_buffer) local_unnamed_addr #1 {
 trace:
   %"_best0$i3011" = alloca %struct.__tuple_2, align 16
   %tCount = load i32, ptr %instances_buffer, align 1
@@ -637,24 +638,25 @@ trace:
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #1
+declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fma.f32(float, float, float) #1
+declare float @llvm.fma.f32(float, float, float) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
+declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fabs.f32(float) #1
+declare float @llvm.fabs.f32(float) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #2
+declare <2 x float> @llvm.fma.v2f32(<2 x float>, <2 x float>, <2 x float>) #3
 
-attributes #0 = { nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{}

@@ -5,7 +5,8 @@ source_filename = "bonsai_module"
 %struct.Queue_probes = type { i32, ptr, ptr }
 %struct.Queue_hits = type { i32, ptr, ptr, ptr }
 
-define void @run(ptr noundef %values_buffer, i1 noundef %wet, ptr noundef nonnull %total, i64 noundef %surface_arms) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @run(ptr noundef %values_buffer, i1 noundef %wet, ptr noundef nonnull %total, i64 noundef %surface_arms) local_unnamed_addr #0 {
 run:
   %soaks_queue80 = alloca %struct.Queue_soaks, align 16
   %soaks_total79126 = alloca [8 x ptr], align 8
@@ -512,9 +513,10 @@ wetten.exit.1:                                    ; preds = %"!then_2.i.1", %wet
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
-declare void @llvm.assume(i1 noundef) #0
+declare void @llvm.assume(i1 noundef) #1
 
-attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u32", !2, i64 0}

@@ -16,7 +16,8 @@ define internal fastcc void @"bump$gang8_p0_v1$masked"(ptr nofree noundef nonnul
   ret void
 }
 
-define void @tally_some(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @tally_some(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #1 {
 tally_some:
   %t = alloca %"struct.Tally$v8", align 32
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
@@ -47,14 +48,15 @@ tally_some:
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #1
+declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #1 = { mustprogress }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }

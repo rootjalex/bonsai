@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @double_evens(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @double_evens(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 double_evens:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -14,7 +15,8 @@ double_evens:
   ret void
 }
 
-define void @reorder(ptr noundef %a_buffer, ptr noundef %idx_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @reorder(ptr noundef %a_buffer, ptr noundef %idx_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 reorder:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %idx = tail call ptr @bonsai_buffer_require(ptr %idx_buffer, i32 1)
@@ -33,10 +35,11 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #0
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #1
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #2
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

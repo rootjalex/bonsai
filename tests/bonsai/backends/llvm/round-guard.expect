@@ -10,7 +10,8 @@ source_filename = "bonsai_module"
 
 declare i32 @bonsai_cuda_round_guard(i32, ptr) local_unnamed_addr
 
-define void @run(ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @run(ptr noundef %out_buffer) local_unnamed_addr #0 {
 run:
   %_launch_params32 = alloca [4 x ptr], align 16
   %_launch_args31 = alloca { i32, i32, ptr, ptr }, align 16
@@ -156,10 +157,13 @@ declare void @bonsai_cuda_synchronize() local_unnamed_addr
 
 declare void @bonsai_cuda_free(ptr) local_unnamed_addr
 
-define void @bonsai_gpu_prepare() local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @bonsai_gpu_prepare() local_unnamed_addr #0 {
 prepare:
   tail call void @bonsai_cuda_load(ptr nonnull @_bonsai_ptx_text)
   ret void
 }
 
 declare void @bonsai_cuda_load(ptr) local_unnamed_addr
+
+attributes #0 = { mustprogress }

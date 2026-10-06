@@ -27,7 +27,7 @@ foo_entry:
   ret void
 }
 
-; Function Attrs: nofree nounwind
+; Function Attrs: mustprogress nofree nounwind
 define noundef i32 @main() local_unnamed_addr #1 {
 main_entry:
   %0 = tail call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, i32 11, i32 22, i32 33, double 4.200000e+01)
@@ -35,7 +35,8 @@ main_entry:
 }
 
 ; Function Attrs: nofree nounwind
-declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #1
+declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #2
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { nofree nounwind }
+attributes #1 = { mustprogress nofree nounwind }
+attributes #2 = { nofree nounwind }

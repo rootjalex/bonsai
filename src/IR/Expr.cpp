@@ -1272,6 +1272,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     // Those that take no arguments: `rand()`, and what a ray tracing
     // program reads of its hit.
     const bool nullary = op == OpType::rand || op == OpType::rt_hit_t ||
+                         op == OpType::rt_barycentrics ||
                          op == OpType::rt_primitive_index ||
                          op == OpType::rt_instance_id ||
                          op == OpType::rt_sbt_base ||
@@ -1503,6 +1504,12 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = Float_t::make_f32();
             break;
         }
+        case Intrinsic::rt_barycentrics: {
+            internal_assert(args.empty())
+                << "rt_barycentrics takes no arguments";
+            node->type = Vector_t::make(Float_t::make_f32(), 2);
+            break;
+        }
         case Intrinsic::rt_report_hit: {
             internal_assert(args.size() == 1 && args[0].type().is_float())
                 << "rt_report_hit takes the hit's ray parameter, a float";
@@ -1674,6 +1681,11 @@ Expr GeomOp::make(OpType op, Expr a, Expr b) {
             // TODO: do we need Real_t?
             // For now, just assume f32
             node->type = Float_t::make_f32();
+        } else if (op == GeomOp::intersection) {
+            // A plain record, not an option: a miss answers t = inf exactly
+            // as distmin answers inf, and validity is `intersects`' word --
+            // the conjunct that gates every consumer of the record.
+            node->type = hit_record_type();
         } else if (op == GeomOp::transform || op == GeomOp::untransform) {
             // A motion answers the extent it moved, not a fact about it.
             node->type = b.type();
@@ -1695,6 +1707,7 @@ const char *const geometric_op_names[] = {
     "contains", "covers", "disjoint",  "equals",  "intersects",
     "touches",  "within", "lex",       "ley",     "lez",
     "ltx",      "lty",    "ltz",       "distmax", "distmin",
+    "intersection",
     "transform", "untransform",
 };
 
@@ -1706,6 +1719,14 @@ static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==
 
 const char *GeomOp::intrinsic_name(const OpType &op) {
     return geometric_op_names[op];
+}
+
+Type hit_record_type() {
+    static const Type hit = Struct_t::make(
+        "Hit",
+        Struct_t::Map{TypedVar{"t", Float_t::make_f32()},
+                      TypedVar{"b", Vector_t::make(Float_t::make_f32(), 2)}});
+    return hit;
 }
 
 namespace {
@@ -1831,8 +1852,21 @@ Expr SetOp::make(OpType op, Expr a, Expr b) {
                 << "Expected lhs of map to be a function, instead received: "
                 << a << " : " << a.type();
             const Function_t *f = a.type().as<Function_t>();
-            internal_assert(f->arg_types.size() == 1 &&
-                            equals(f->arg_types[0].type, b.type().element_of()))
+            // One parameter of the element type -- or, over a set of tuples,
+            // the element taken apart componentwise, as every other set
+            // operation's lambda takes it (check_element_lambda): a map
+            // annotating a flatten's pairs binds them `|p, g|`.
+            const Tuple_t *tuple =
+                b.type().is<Set_t>()
+                    ? b.type().element_of().as<Tuple_t>()
+                    : nullptr;
+            const bool componentwise =
+                tuple != nullptr &&
+                f->arg_types.size() == tuple->etypes.size();
+            internal_assert(componentwise ||
+                            (f->arg_types.size() == 1 &&
+                             equals(f->arg_types[0].type,
+                                    b.type().element_of())))
                 << "Expected map function to accept element of type: "
                 << b.type().element_of() << " instead got " << a << " : "
                 << a.type();

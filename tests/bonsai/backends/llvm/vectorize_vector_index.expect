@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define <4 x float> @at(ptr noundef %table_buffer, <4 x i32> noundef %o) local_unnamed_addr {
+; Function Attrs: mustprogress
+define <4 x float> @at(ptr noundef %table_buffer, <4 x i32> noundef %o) local_unnamed_addr #0 {
 at:
   %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %0 = sext <4 x i32> %o to <4 x i64>
@@ -10,7 +11,8 @@ at:
   ret <4 x float> %extract
 }
 
-define void @guarded(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @guarded(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 guarded:
   %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %first = tail call ptr @bonsai_buffer_require(ptr %first_buffer, i32 1)
@@ -59,7 +61,8 @@ guarded:
   ret void
 }
 
-define void @lookup(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @lookup(ptr noundef %table_buffer, ptr noundef %first_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 lookup:
   %table = tail call ptr @bonsai_buffer_require(ptr %table_buffer, i32 1)
   %first = tail call ptr @bonsai_buffer_require(ptr %first_buffer, i32 1)
@@ -91,15 +94,16 @@ lookup:
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr>, <4 x i1>, <4 x float>) #0
+declare <4 x float> @llvm.masked.gather.v4f32.v4p0(<4 x ptr>, <4 x i1>, <4 x float>) #1
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #1
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #0
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #1
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }

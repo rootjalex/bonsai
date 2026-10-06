@@ -14,6 +14,7 @@ func distmax(r : Ray, b : AABB) -> Float {
     return inf;
 }
 
+
 func distmin(r : Ray, b : AABB) -> Float {
     interval = intersectsp_ray_aabb(r, b);
     if interval {

@@ -152,6 +152,7 @@ struct Parser {
             "ltz",
             "distmax",
             "distmin",
+            "intersection",
             "intersects",
             "contains",
             "transform",
@@ -2631,6 +2632,7 @@ struct Parser {
             {"ltz", ir::GeomOp::ltz},
             {"distmax", ir::GeomOp::distmax},
             {"distmin", ir::GeomOp::distmin},
+            {"intersection", ir::GeomOp::intersection},
             {"transform", ir::GeomOp::transform},
             {"untransform", ir::GeomOp::untransform},
         });

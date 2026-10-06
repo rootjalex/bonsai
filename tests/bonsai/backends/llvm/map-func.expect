@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define noalias noundef ptr @array_abs(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define noalias noundef ptr @array_abs(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr #0 {
 array_abs_entry:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %size64.i = zext i32 %n to i64
@@ -57,7 +58,8 @@ _traverse_array0.exit:                            ; preds = %_i00_for.i, %middle
   ret ptr %_alloc0_untyped.i
 }
 
-define noalias noundef ptr @array_abs2(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define noalias noundef ptr @array_abs2(i32 noundef %n, ptr noundef %a_buffer) local_unnamed_addr #0 {
 array_abs2_entry:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %size64.i = zext i32 %n to i64
@@ -114,33 +116,34 @@ _traverse_array1.exit:                            ; preds = %_i01_for.i, %middle
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef range(i32 0, -2147483647) i32 @bar(i32 noundef %x) local_unnamed_addr #0 {
+define noundef range(i32 0, -2147483647) i32 @bar(i32 noundef %x) local_unnamed_addr #1 {
 bar_entry:
   %common.ret.op = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
   ret i32 %common.ret.op
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef range(i32 0, -2147483647) i32 @foo(i32 noundef %x) local_unnamed_addr #0 {
+define noundef range(i32 0, -2147483647) i32 @foo(i32 noundef %x) local_unnamed_addr #1 {
 foo_entry:
   %spec.select = tail call i32 @llvm.abs.i32(i32 %x, i1 false)
   ret i32 %spec.select
 }
 
 ; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
-declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare i32 @llvm.abs.i32(i32, i1 immarg) #2
+declare i32 @llvm.abs.i32(i32, i1 immarg) #3
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1 immarg) #2
+declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1 immarg) #3
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
-attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!"branch_weights", i32 1073741824, i32 0}
 !1 = !{!2, !2, i64 0}

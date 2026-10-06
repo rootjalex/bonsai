@@ -9,7 +9,7 @@ target triple = "nvptx64-nvidia-cuda"
 
 @params = local_unnamed_addr addrspace(4) global %_params zeroinitializer
 
-; Function Attrs: nounwind memory(write, inaccessiblemem: none, target_mem: none)
+; Function Attrs: mustprogress nounwind memory(write, inaccessiblemem: none, target_mem: none)
 define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
 "!par_body_0":
   %_begin = load i32, ptr addrspace(4) @params, align 8
@@ -27,7 +27,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   ret void
 }
 
-attributes #0 = { nounwind memory(write, inaccessiblemem: none, target_mem: none) }
+attributes #0 = { mustprogress nounwind memory(write, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { nounwind }
 
 !llvm.module.flags = !{!0}

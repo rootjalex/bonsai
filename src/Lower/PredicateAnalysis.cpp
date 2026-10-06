@@ -882,6 +882,14 @@ struct PredicateAnalysis : public ir::Visitor {
             interval.max = ir::distmax(sa, sb);
             return;
         }
+        if (is_geometric_witness(ir::GeomOp::intrinsic_name(node->op))) {
+            // The hit's record: a struct has no interval. A query's pruning
+            // never needs one -- the witness rides in a map annotation, with
+            // `distmin` still the metric and `intersects` still the test --
+            // so unbounded is both honest and harmless.
+            interval = Interval{};
+            return;
+        }
 
         make_bool_bounds();
         if (ir::Expr upper = geom_upper_bound(node->op, sa, sb, va, vb);

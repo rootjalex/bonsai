@@ -6,7 +6,7 @@ target triple = "nvptx64-nvidia-cuda"
 
 @__cudart_i2opi_f = internal unnamed_addr addrspace(1) constant [6 x i32] [i32 1011060801, i32 -614296167, i32 -181084736, i32 -64530479, i32 1313084713, i32 -1560706194], align 4
 
-; Function Attrs: nounwind memory(argmem: write)
+; Function Attrs: mustprogress nounwind memory(argmem: write)
 define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, float %x, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %out.global = addrspacecast ptr %out to ptr addrspace(1)
@@ -287,7 +287,7 @@ declare void @llvm.lifetime.start.p0(ptr captures(none)) #5
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
 declare void @llvm.lifetime.end.p0(ptr captures(none)) #5
 
-attributes #0 = { nounwind memory(argmem: write) }
+attributes #0 = { mustprogress nounwind memory(argmem: write) }
 attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(none) }

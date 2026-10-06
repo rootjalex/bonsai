@@ -3,7 +3,8 @@ source_filename = "bonsai_module"
 
 %struct.Sph = type { <3 x float>, float }
 
-define i64 @Shape_Sph(<3 x float> noundef %centre, float noundef %radius, ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Sph_fill_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define i64 @Shape_Sph(<3 x float> noundef %centre, float noundef %radius, ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Sph_fill_buffer) local_unnamed_addr #0 {
 Shape_Sph:
   %Shape_Sph_pool = tail call ptr @bonsai_buffer_require(ptr %Shape_Sph_pool_buffer, i32 1)
   %Shape_Sph_fill = tail call ptr @bonsai_buffer_require(ptr %Shape_Sph_fill_buffer, i32 1)
@@ -17,7 +18,8 @@ Shape_Sph:
   ret i64 %0
 }
 
-define range(i64 72057594037927936, 0) i64 @Shape_Tri(<3 x float> noundef %a, <3 x float> noundef %b, ptr noundef %Shape_Tri_pool_buffer, ptr noundef %Shape_Tri_fill_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i64 72057594037927936, 0) i64 @Shape_Tri(<3 x float> noundef %a, <3 x float> noundef %b, ptr noundef %Shape_Tri_pool_buffer, ptr noundef %Shape_Tri_fill_buffer) local_unnamed_addr #0 {
 Shape_Tri:
   %Shape_Tri_pool = tail call ptr @bonsai_buffer_require(ptr %Shape_Tri_pool_buffer, i32 1)
   %Shape_Tri_fill = tail call ptr @bonsai_buffer_require(ptr %Shape_Tri_fill_buffer, i32 1)
@@ -32,7 +34,8 @@ Shape_Tri:
   ret i64 %1
 }
 
-define float @size(i64 noundef %s, ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Tri_pool_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define float @size(i64 noundef %s, ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Tri_pool_buffer) local_unnamed_addr #0 {
 size:
   %Shape_Sph_pool = tail call ptr @bonsai_buffer_require(ptr %Shape_Sph_pool_buffer, i32 1)
   %Shape_Tri_pool = tail call ptr @bonsai_buffer_require(ptr %Shape_Tri_pool_buffer, i32 1)
@@ -57,7 +60,8 @@ common.ret:                                       ; preds = %"!case_0", %"!case_
   br label %common.ret
 }
 
-define i64 @unit_sphere(ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Sph_fill_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define i64 @unit_sphere(ptr noundef %Shape_Sph_pool_buffer, ptr noundef %Shape_Sph_fill_buffer) local_unnamed_addr #0 {
 unit_sphere:
   %Shape_Sph_pool = tail call ptr @bonsai_buffer_require(ptr %Shape_Sph_pool_buffer, i32 1)
   %Shape_Sph_fill = tail call ptr @bonsai_buffer_require(ptr %Shape_Sph_fill_buffer, i32 1)
@@ -72,3 +76,5 @@ unit_sphere:
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }

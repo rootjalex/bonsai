@@ -374,6 +374,12 @@ struct ChildVolumes {
 };
 
 struct Rewriter : public ir::Mutator {
+    // How many trailing parameters of the query's lambdas a map annotation
+    // computes rather than the set yields (zero without one): they vary per
+    // element, are bounded by nothing, and no level's `with extent` promise
+    // speaks for them -- they are values, not levels. Set by the builders
+    // from the chain (annotation_arity); read by make_volume_map.
+    size_t annotation_args = 0;
     // The list of volumes for the currently match arms.
     std::vector<ir::Expr> volumes;
     // Volumes annotated on a node's children rather than on the node itself.
@@ -795,6 +801,14 @@ struct Rewriter : public ir::Mutator {
         }
 
         for (size_t j = 0; j < args.size(); j++) {
+            if (j + annotation_args >= args.size()) {
+                // A map annotation's parameter: computed per element,
+                // varying, and bounded by nothing. It is a value, not a
+                // level, so in particular the `with extent` promise below
+                // must not be stated for it.
+                vols[args[j].name] = ir::Expr();
+                continue;
+            }
             if (j < first_varying) {
                 // Fixed, at the element the next level in was reached through
                 // -- which is the name a bound has to use for it, since the
@@ -1208,10 +1222,35 @@ struct Rewriter : public ir::Mutator {
     using ir::Mutator::visit;
 };
 
+size_t element_arity(const ir::Type &element);
+
+// How many trailing parameters of a query's lambdas a map annotation
+// computes rather than the set yields: the annotating map's lambda takes the
+// set's own elements and answers them plus the computed tail (Algorithm 1's
+// map rule leaves the recursion alone, so the tail is a value the yields
+// carry, not a level the traversal enters). Zero without a map, and zero for
+// a map that replaces its elements outright.
+size_t annotation_arity(const ir::Expr &set) {
+    const ir::SetOp *op = set.as<ir::SetOp>();
+    while (op != nullptr && op->op == ir::SetOp::filter) {
+        op = op->b.as<ir::SetOp>();
+    }
+    if (op == nullptr || op->op != ir::SetOp::map) {
+        return 0;
+    }
+    const ir::Lambda *lambda = op->a.as<ir::Lambda>();
+    if (lambda == nullptr) {
+        return 0;
+    }
+    const size_t mapped = element_arity(ir::Expr(op).type().element_of());
+    return mapped > lambda->args.size() ? mapped - lambda->args.size() : 0;
+}
+
 ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
                       const std::map<std::string, ir::Expr> &extents,
                       const IntervalMap &intervals,
-                      const std::optional<Carry> &carry = {}) {
+                      const std::optional<Carry> &carry = {},
+                      size_t annotations = 0) {
     struct RewriteFilter : public Rewriter {
         ir::Expr predicate;
         const IntervalMap &intervals;
@@ -1364,8 +1403,9 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
     };
 
-    return RewriteFilter(std::move(predicate), extents, intervals, carry)
-        .mutate(body);
+    RewriteFilter rewrite(std::move(predicate), extents, intervals, carry);
+    rewrite.annotation_args = annotations;
+    return rewrite.mutate(body);
 }
 
 // Which end of the metric an extremum operator seeks.
@@ -1663,9 +1703,35 @@ StoredIn stored_components(const ir::Expr &set,
         stored.insert(stored.end(), right.begin(), right.end());
         return stored.size() == arity ? stored : none;
     }
+    case ir::SetOp::map: {
+        // An ANNOTATING map -- its lambda answering the tuple of its own
+        // arguments followed by computed values (a query's hit witness) --
+        // passes its set's elements through: those components keep their
+        // places, and the computed tail is held by value. Any other map
+        // yields what its function computes, which is nowhere.
+        const ir::Lambda *lambda = op->a.as<ir::Lambda>();
+        const ir::Build *build =
+            lambda != nullptr ? lambda->value.as<ir::Build>() : nullptr;
+        if (build != nullptr && build->type.is<ir::Tuple_t>() &&
+            build->values.size() > lambda->args.size()) {
+            bool passes_through = true;
+            for (size_t i = 0; i < lambda->args.size(); i++) {
+                const ir::Var *v = build->values[i].as<ir::Var>();
+                passes_through = passes_through && v != nullptr &&
+                                 v->name == lambda->args[i].name;
+            }
+            if (passes_through) {
+                StoredIn stored = stored_components(op->b, outer, tree_types);
+                if (stored.size() == element_arity(op->b.type().element_of())) {
+                    stored.resize(arity, std::nullopt);
+                    return stored;
+                }
+            }
+        }
+        return none;
+    }
     default:
-        // A `map` yields what its function computes, which is nowhere; a
-        // nested reduction yields a value of its own.
+        // A nested reduction yields a value of its own, which is nowhere.
         return none;
     }
 }
@@ -1992,9 +2058,11 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Stmt body = build_traversal(fused_filter, tree_types, extents,
                                     local_intervals, carry);
 
-    body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
-                              std::move(tuple_t), ret_type, held_t, stored_in)
-               .mutate(body);
+    RewriteArgExtremum rewrite(dir, std::move(metric), std::move(loc),
+                               std::move(tuple_t), ret_type, held_t,
+                               stored_in);
+    rewrite.annotation_args = annotation_arity(inner);
+    body = rewrite.mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
@@ -2267,9 +2335,10 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
                                     tree_types, extents, local_intervals, carry);
 
-    body = RewriteExtremum(dir, std::move(metric), std::move(loc), intervals,
-                           std::move(key), !fused)
-               .mutate(body);
+    RewriteExtremum rewrite(dir, std::move(metric), std::move(loc), intervals,
+                            std::move(key), !fused);
+    rewrite.annotation_args = annotation_arity(inner);
+    body = rewrite.mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
@@ -2537,9 +2606,10 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
     ir::Stmt footer = ir::Yield::make(ret_var);
 
     ir::Stmt body = build_traversal(inner, tree_types, extents, intervals);
-    body = RewriteQuantifier(is_any, std::move(predicate), std::move(loc),
-                             extents, intervals)
-               .mutate(body);
+    RewriteQuantifier rewrite(is_any, std::move(predicate), std::move(loc),
+                              extents, intervals);
+    rewrite.annotation_args = annotation_arity(inner);
+    body = rewrite.mutate(body);
 
     return ir::Sequence::make(
         {std::move(header), std::move(body), std::move(footer)});
@@ -3135,7 +3205,8 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
     case ir::SetOp::filter: {
         ir::Stmt body =
             build_traversal(as_set->b, tree_types, extents, intervals, carry);
-        return build_filter(body, as_set->a, extents, intervals, carry);
+        return build_filter(body, as_set->a, extents, intervals, carry,
+                            annotation_arity(as_set->b));
     }
     case ir::SetOp::map: {
         ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
@@ -3548,6 +3619,15 @@ struct LowerBVH : public ir::Mutator {
         ir::Expr tree;                      // the tree S is over, a Var
         // For a flatten: the match on the top-level element, applied.
         const ir::MatchExpr *arms = nullptr;
+        // The witness: `intersection(q, G)`, when a map between the filter
+        // and the set annotates each element with the hit's record. The
+        // annotation is the LAST of `elements`; in a hit program its value
+        // is the hardware's, not this expression's (bind_witness).
+        ir::Expr witness;
+        // The elements the set itself yields: all of them but the witness.
+        size_t data_elements() const {
+            return elements.size() - (witness.defined() ? 1 : 0);
+        }
     };
 
     RayQuery take_apart(const ir::SetOp *query) {
@@ -3609,13 +3689,53 @@ struct LowerBVH : public ir::Mutator {
                 << where << "and the metric here is not `distmin(q, G)` for "
                 << "the filter's `q` and `G`: " << m;
         }
-        // The set: a tree, or a flatten over one.
+        // The set: a tree, or a flatten over one -- either behind a map
+        // annotating each element with the hit's witness.
         ir::Expr over = rq.set;
+        if (const ir::SetOp *ann = over.as<ir::SetOp>();
+            ann != nullptr && ann->op == ir::SetOp::map) {
+            // The annotating map's lambda answers the tuple of its own
+            // arguments followed by `intersection(q, G)` -- the record of
+            // the same test the filter's `intersects(q, G)` names -- so the
+            // last lambda parameter above is the witness, not an element
+            // the set yields. Anything else between the filter and the set
+            // is not a query the RT cores answer.
+            const ir::Lambda *mapper = ann->a.as<ir::Lambda>();
+            internal_assert(mapper != nullptr &&
+                            mapper->args.size() + 1 == rq.elements.size())
+                << where << "and the map between the filter and the set "
+                << "does not annotate the set's elements with one more "
+                << "value: " << ann->a;
+            std::vector<ir::Expr> data(parts.begin(), parts.end() - 1);
+            const ir::Expr applied = apply_lambda(
+                ann->a, data.size() == 1 ? data[0] : make_tuple(data));
+            const ir::Build *tuple = applied.as<ir::Build>();
+            internal_assert(tuple != nullptr &&
+                            tuple->values.size() == rq.elements.size())
+                << where << "and the map's lambda does not answer the "
+                << "tuple of its arguments and the annotation: " << applied;
+            for (size_t i = 0; i + 1 < tuple->values.size(); i++) {
+                internal_assert(ir::equals(tuple->values[i], parts[i]))
+                    << where << "and the map's lambda does not pass element "
+                    << i << " through unchanged: " << tuple->values[i];
+            }
+            const ir::GeomOp *w = tuple->values.back().as<ir::GeomOp>();
+            internal_assert(w != nullptr &&
+                            w->op == ir::GeomOp::intersection &&
+                            ir::equals(w->a, rq.q) &&
+                            ir::equals(w->b, rq.geometry))
+                << where << "and the map's annotation is not "
+                << "`intersection(q, G)` for the filter's `q` and `G`: "
+                << tuple->values.back();
+            rq.witness = tuple->values.back();
+            keep_alive.push_back(applied);
+            over = ann->b;
+        }
         if (const ir::SetOp *flat = over.as<ir::SetOp>();
             flat != nullptr && flat->op == ir::SetOp::flatten) {
-            internal_assert(rq.elements.size() == 2)
+            internal_assert(rq.data_elements() == 2)
                 << where << "and a flatten yields pairs, where the lambdas "
-                << "here take " << rq.elements.size() << " element(s)";
+                << "here take " << rq.data_elements() << " element(s)";
             over = flat->b;
             const ir::Expr applied = apply_lambda(flat->a, parts[0]);
             rq.arms = applied.as<ir::MatchExpr>();
@@ -3625,9 +3745,9 @@ struct LowerBVH : public ir::Mutator {
                 << "element holds: " << applied;
             keep_alive.push_back(applied);
         } else {
-            internal_assert(rq.elements.size() == 1)
+            internal_assert(rq.data_elements() == 1)
                 << where << "and the set yields one element where the "
-                << "lambdas here take " << rq.elements.size();
+                << "lambdas here take " << rq.data_elements();
         }
         const ir::Var *tree = over.as<ir::Var>();
         internal_assert(tree != nullptr && tree_types.contains(tree->name))
@@ -3772,7 +3892,9 @@ struct LowerBVH : public ir::Mutator {
     // derivation finds no such condition for a conjunct, it says the program
     // matters for every element, and the hardware runs it as before.
     void add_anyhit_matters(const std::string &of, const RayQuery &rq) {
-        const ir::TypedVar &leaf = rq.elements.back();
+        // The innermost element the SET yields -- not the witness, which is
+        // no element and exists only at a hit.
+        const ir::TypedVar &leaf = rq.elements[rq.data_elements() - 1];
         std::vector<ir::Function::Argument> args;
         args.push_back(ir::Function::Argument{leaf.name, leaf.type});
         const auto element_only = [&](const ir::Expr &e) {
@@ -3872,7 +3994,12 @@ struct LowerBVH : public ir::Mutator {
     // the trace later, once every pool exists (Lower/RTCoreReads.h).
     void add_program(const std::string &of, ir::Function::OptixProgram::Kind kind,
                      const char *prefix, const ir::Type &ctx_t,
-                     std::vector<ir::Stmt> body) {
+                     std::vector<ir::Stmt> body,
+                     // "$boxes" for a hit program's custom-primitive flavor
+                     // (runtime/bonsai_optix.h attaches it to the box
+                     // inputs' groups); empty for the one program, or the
+                     // hardware triangles' flavor when two exist.
+                     const char *suffix = "") {
         std::vector<ir::Function::Argument> args;
         args.emplace_back("ctx", ctx_t, ir::Expr(), /*mutating=*/true);
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
@@ -3885,7 +4012,7 @@ struct LowerBVH : public ir::Mutator {
                                             ? tree->second
                                             : var.type);
         }
-        const std::string name = std::string(prefix) + of;
+        const std::string name = std::string(prefix) + of + suffix;
         auto f = std::make_shared<ir::Function>(
             name, std::move(args), ir::Void_t::make(), std::move(stmt),
             ir::Function::InterfaceList{},
@@ -3950,29 +4077,80 @@ struct LowerBVH : public ir::Mutator {
         ir::WriteLoc result("ctx", ctx_t);
         result.add_struct_access("result");
 
+        // The witness, bound in a hit program from the hardware rather
+        // than computed: this is the whole point of the annotation. The
+        // candidate's ray parameter is the hit's t in either flavor
+        // (optixGetRayTmax in a hit program); its surface parameters are
+        // the barycentrics the hardware reports for its own triangles, and
+        // zero over a custom-primitive input, whose shapes fix their point
+        // from t alone (the program's surface_geometry does, as pbrt's
+        // quadric hits do). Which flavor runs is the input's: the runtime
+        // attaches the `$boxes` flavor to the box inputs' hit groups.
+        const auto bind_witness = [&](bool triangles) -> ir::Stmt {
+            const ir::TypedVar &hv = rq.elements.back();
+            ir::Expr t = ir::Intrinsic::make(ir::Intrinsic::rt_hit_t, {});
+            ir::Expr b =
+                triangles
+                    ? ir::Intrinsic::make(ir::Intrinsic::rt_barycentrics, {})
+                    : make_zero(ir::Vector_t::make(f32, 2));
+            return ir::LetStmt::make(
+                ir::WriteLoc(hv.name, hv.type),
+                ir::Build::make(
+                    ir::hit_record_type(),
+                    std::vector<ir::Expr>{std::move(t), std::move(b)}));
+        };
+        // A hit program comes in one form without a witness, and in two
+        // with one -- the hardware triangles' (the plain name) and the box
+        // inputs' (`$boxes`).
+        const auto hit_flavors = [&](ir::Function::OptixProgram::Kind kind,
+                                     const char *prefix,
+                                     const std::function<std::vector<ir::Stmt>(
+                                         std::optional<bool>)> &make_body) {
+            if (!rq.witness.defined()) {
+                add_program(of, kind, prefix, ctx_t, make_body(std::nullopt));
+                return;
+            }
+            add_program(of, kind, prefix, ctx_t, make_body(true));
+            add_program(of, kind, prefix, ctx_t, make_body(false), "$boxes");
+        };
         // Closest hit: the record. Only the nearest hit wants one: `any`
         // is answered by whether the traversal ended at a hit, which the
         // hardware knows without running a program (pbrt's shadow rays:
         // a hit group with no closest-hit program, and `__miss__shadow`).
         if (rq.nearest) {
-            std::vector<ir::Stmt> body = bind_elements(rq);
-            body.push_back(ir::Store::make(
-                result, ir::Build::make(result_t,
-                                        std::vector<ir::Expr>{rq.element})));
-            add_program(of, Kind::ClosestHit, "__closesthit__", ctx_t,
-                        std::move(body));
+            hit_flavors(Kind::ClosestHit, "__closesthit__",
+                        [&](std::optional<bool> triangles) {
+                            std::vector<ir::Stmt> body = bind_elements(rq);
+                            if (triangles.has_value()) {
+                                body.push_back(bind_witness(*triangles));
+                            }
+                            body.push_back(ir::Store::make(
+                                result,
+                                ir::Build::make(
+                                    result_t,
+                                    std::vector<ir::Expr>{rq.element})));
+                            return body;
+                        });
         }
         // Any hit: the rest of the filter, on the candidate.
         if (!rq.rest.empty()) {
-            std::vector<ir::Stmt> body = bind_elements(rq);
-            body.push_back(bind_q(ir::Access::make("q", ctx)));
-            ir::Expr accepted = conjunction(rq.rest);
-            body.push_back(ir::IfElse::make(
-                ir::UnOp::make(ir::UnOp::Not, std::move(accepted)),
-                ir::LetStmt::make(
-                    ir::WriteLoc("_rt_ignored", u32),
-                    ir::Intrinsic::make(ir::Intrinsic::rt_ignore_hit, {}))));
-            add_program(of, Kind::AnyHit, "__anyhit__", ctx_t, std::move(body));
+            hit_flavors(Kind::AnyHit, "__anyhit__",
+                        [&](std::optional<bool> triangles) {
+                            std::vector<ir::Stmt> body = bind_elements(rq);
+                            if (triangles.has_value()) {
+                                body.push_back(bind_witness(*triangles));
+                            }
+                            body.push_back(bind_q(ir::Access::make("q", ctx)));
+                            ir::Expr accepted = conjunction(rq.rest);
+                            body.push_back(ir::IfElse::make(
+                                ir::UnOp::make(ir::UnOp::Not,
+                                               std::move(accepted)),
+                                ir::LetStmt::make(
+                                    ir::WriteLoc("_rt_ignored", u32),
+                                    ir::Intrinsic::make(
+                                        ir::Intrinsic::rt_ignore_hit, {}))));
+                            return body;
+                        });
             add_anyhit_matters(of, rq);
         }
         // Intersection, for the elements the hardware does not intersect

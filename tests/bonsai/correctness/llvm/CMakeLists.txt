@@ -132,6 +132,12 @@ add_bonsai_tests(
     vector-bitwise.bonsai
     void-fallthrough.bonsai
     while-loops.bonsai
+    # witness-query.bonsai -- a witness query over a PLAIN set dies at the
+    # inliner's rebuild after LowerTuples rewrites the element tuple under
+    # the componentwise lambdas (apps/pbrt/PLAN.md, the hit-witness item).
+    # Tree-bound witness queries -- every query the renderer runs -- are
+    # covered by lower/rtcore-witness, backends/ptx/rtcore-witness, and the
+    # renderer's own CPU and GPU image checks.
     x86-gather-avx2.bonsai
     x86-gather-avx512.bonsai
     x86-gather-avx512-16.bonsai

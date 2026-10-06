@@ -319,6 +319,12 @@ struct Module {
     std::vector<bool> has_programs;
     std::vector<bool> has_closesthit;
     std::vector<bool> has_anyhit;
+    // A query whose filter carries the hit's witness has hit programs in
+    // two flavors: the plain name for the hardware triangles' inputs, and
+    // `$boxes` for the custom-primitive inputs, whose witness has no
+    // barycentrics to read (Lower/Trees.cpp bind_witness).
+    std::vector<bool> has_closesthit_boxes;
+    std::vector<bool> has_anyhit_boxes;
 };
 
 struct Pipeline {
@@ -534,6 +540,10 @@ inline Module &module_of(Api &a, State &s, const char *ptx) {
         m.has_programs.push_back(has(held, query));
         m.has_closesthit.push_back(has(closesthits, "__closesthit__" + query));
         m.has_anyhit.push_back(has(anyhits, "__anyhit__" + query));
+        m.has_closesthit_boxes.push_back(
+            has(closesthits, "__closesthit__" + query + "$boxes"));
+        m.has_anyhit_boxes.push_back(
+            has(anyhits, "__anyhit__" + query + "$boxes"));
     }
     return s.modules.emplace(ptx, std::move(m)).first->second;
 }
@@ -593,6 +603,18 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
         if (m.has_programs[t]) {
             hit.hitgroup.moduleIS = m.module;
             hit.hitgroup.entryFunctionNameIS = keep("__intersection__" + query);
+            // A query carrying the hit's witness has `$boxes` flavors of
+            // its hit programs for the custom-primitive inputs, whose
+            // witness reads no barycentrics; one without has one flavor,
+            // already in `hit`.
+            if (m.has_closesthit_boxes[t]) {
+                hit.hitgroup.entryFunctionNameCH =
+                    keep("__closesthit__" + query + "$boxes");
+            }
+            if (m.has_anyhit_boxes[t]) {
+                hit.hitgroup.entryFunctionNameAH =
+                    keep("__anyhit__" + query + "$boxes");
+            }
         }
         descs.push_back(hit); // the boxes
     }

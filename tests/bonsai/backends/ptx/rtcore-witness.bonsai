@@ -1,0 +1,84 @@
+//! flags: -p ssa -b ptx
+
+// lower/rtcore-witness.bonsai's program compiled to its OptiX modules
+// (CodeGen_OptiX): the queries carry the hit's witness, so the hit programs
+// come in two flavors apiece. What to read for, in the PTX:
+//
+// - `__anyhit__trace` (the hardware triangles') calls
+//   `_optix_get_triangle_barycentrics` once and `_optix_get_ray_tmax` once,
+//   and contains NO triangle intersection: `accepts` reads the carried
+//   barycentric. `__anyhit__trace$boxes` reads the tmax alone and holds
+//   zeros where the barycentrics would be.
+//
+// - `__closesthit__trace` and its `$boxes` flavor store the witness into
+//   the context's record beside the element's index, so the raygen reads
+//   (element, t, b) back without a second intersection anywhere.
+//
+// - The `intersection` implementation itself (stdlib/distance's
+//   intersectsp_ray_tri path) appears in NO device program: the map
+//   annotation is instruction-selected to the hardware's reads in every
+//   hit program, and the raygen only copies the record out of the context.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/hit;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+func accepts(r : Ray, t : Tri, h : Hit) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    return h.b.x < t.alpha;
+}
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri, h : Hit| distmin(r, t.tri),
+           filter(|t : Tri, h : Hit| intersects(r, t.tri) && accepts(r, t, h),
+                  map(|t : Tri| (t, intersection(r, t.tri)), tris)));
+
+func trace_any(r : Ray) =
+    any(|t : Tri, h : Hit| intersects(r, t.tri) && accepts(r, t, h),
+        map(|t : Tri| (t, intersection(r, t.tri)), tris));
+
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_t : mut array[f32],
+                          hit_b1 : mut array[f32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_t[i] = hit[1].t;
+            hit_b1[i] = hit[1].b.x;
+        } else {
+            hit_t[i] = -1.0;
+            hit_b1[i] = -1.0;
+        }
+        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}

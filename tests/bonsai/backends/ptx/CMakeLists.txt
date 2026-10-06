@@ -54,6 +54,7 @@ add_bonsai_tests(
     reorder.bonsai
     rtcore-any.bonsai
     rtcore-sink-loads.bonsai
+    rtcore-witness.bonsai
     rtiow-primer.bonsai
     specialize.bonsai
     struct-capture.bonsai

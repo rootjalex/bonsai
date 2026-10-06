@@ -5,7 +5,8 @@ source_filename = "bonsai_module"
 %struct._pfctx2 = type { ptr }
 %struct._pfctx4 = type { ptr }
 
-define void @derived_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @derived_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr #0 {
 derived_bound:
   %_pfctx = alloca %struct._pfctx0, align 16
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -16,7 +17,8 @@ derived_bound:
   ret void
 }
 
-define void @per_lane_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @per_lane_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr #0 {
 per_lane_bound:
   %_pfctx = alloca %struct._pfctx2, align 16
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -27,7 +29,8 @@ per_lane_bound:
   ret void
 }
 
-define void @shared_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @shared_bound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr #0 {
 shared_bound:
   %_pfctx = alloca %struct._pfctx4, align 16
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -38,7 +41,8 @@ shared_bound:
   ret void
 }
 
-define void @shared_unbound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @shared_unbound(i32 noundef %n, ptr noundef %out_buffer) local_unnamed_addr #0 {
 shared_unbound:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
@@ -101,8 +105,8 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
-; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #0 {
+; Function Attrs: mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
 entry:
   %3 = load ptr, ptr %0, align 8
   %4 = icmp slt i64 %1, %2
@@ -163,8 +167,8 @@ done:                                             ; preds = %"!par_body_0.prol.l
 
 declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
 
-; Function Attrs: nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+; Function Attrs: mustprogress nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel3(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #2 {
 entry:
   %3 = load ptr, ptr %0, align 8
   %4 = icmp slt i64 %1, %2
@@ -270,8 +274,8 @@ done:                                             ; preds = %"!par_body_0.prol.l
   ret void
 }
 
-; Function Attrs: norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
-define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #0 {
+; Function Attrs: mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel5(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
 entry:
   %3 = load ptr, ptr %0, align 8
   %4 = icmp slt i64 %1, %2
@@ -317,11 +321,12 @@ done:                                             ; preds = %"!par_body_0.prol.l
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
-declare void @llvm.assume(i1 noundef) #2
+declare void @llvm.assume(i1 noundef) #3
 
-attributes #0 = { norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
-attributes #1 = { nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
-attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #2 = { mustprogress nofree norecurse nosync nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
 !0 = !{!"branch_weights", i32 0, i32 1}
 !1 = !{!"branch_weights", i32 0, i32 -2147483648}

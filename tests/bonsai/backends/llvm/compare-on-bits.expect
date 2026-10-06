@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @gang(ptr noundef %as_buffer, ptr noundef %ns_buffer, float noundef %z, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @gang(ptr noundef %as_buffer, ptr noundef %ns_buffer, float noundef %z, ptr noundef %out_buffer) local_unnamed_addr #0 {
 gang:
   %as = tail call ptr @bonsai_buffer_require(ptr %as_buffer, i32 1)
   %ns = tail call ptr @bonsai_buffer_require(ptr %ns_buffer, i32 1)
@@ -32,7 +33,7 @@ common.ret:                                       ; preds = %gang, %"!par_body_2
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define i1 @joined(float noundef %a, i32 noundef %n, float noundef %z) local_unnamed_addr #0 {
+define i1 @joined(float noundef %a, i32 noundef %n, float noundef %z) local_unnamed_addr #1 {
 joined:
   %0 = fcmp ule float %z, 0.000000e+00
   br i1 %0, label %common.ret, label %"!merge_1"
@@ -54,7 +55,7 @@ common.ret:                                       ; preds = %joined, %"!merge_1"
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i1 @known(float noundef %a, float noundef %b) local_unnamed_addr #0 {
+define noundef i1 @known(float noundef %a, float noundef %b) local_unnamed_addr #1 {
 known:
   %0 = fcmp ule float %b, 0.000000e+00
   br i1 %0, label %common.ret, label %"!merge_1"
@@ -72,7 +73,7 @@ common.ret:                                       ; preds = %known, %"!merge_1"
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef i1 @unknown(float noundef %a, float noundef %b) local_unnamed_addr #0 {
+define noundef i1 @unknown(float noundef %a, float noundef %b) local_unnamed_addr #1 {
 unknown:
   %0 = tail call float @llvm.fabs.f32(float %a)
   %1 = tail call float @llvm.fabs.f32(float %b)
@@ -85,16 +86,17 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #1
+declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <8 x i32> @llvm.smin.v8i32(<8 x i32>, <8 x i32>) #1
+declare <8 x i32> @llvm.smin.v8i32(<8 x i32>, <8 x i32>) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fabs.f32(float) #1
+declare float @llvm.fabs.f32(float) #2
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i32 @llvm.smin.i32(i32, i32) #1
+declare i32 @llvm.smin.i32(i32, i32) #2
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

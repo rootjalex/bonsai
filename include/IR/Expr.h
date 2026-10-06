@@ -670,6 +670,13 @@ struct Intrinsic : ExprNode<Intrinsic> {
         rt_trace,
         // In a hit program: the hit's ray parameter (`optixGetRayTmax`).
         rt_hit_t,
+        // In a hit program of a hardware-triangle input: the hit's
+        // barycentrics as the hardware reports them
+        // (`optixGetTriangleBarycentrics`) -- a vec2f (b1, b2), the weights
+        // of the triangle's second and third vertices as the build input
+        // stored them. Undefined over a custom-primitive input, so only the
+        // triangle flavor of a hit program reads it (Lower/Trees.cpp).
+        rt_barycentrics,
         // In a hit program: the primitive's index within its build input
         // (`optixGetPrimitiveIndex`), and the instance id of the instance
         // the hit is in (`optixGetInstanceId`).
@@ -774,6 +781,18 @@ struct GeomOp : ExprNode<GeomOp> {
         // Metrics.
         distmax,
         distmin,
+        // The hit's record: `distmin`'s witness. `intersection(q, G)` answers
+        // `Hit { t : f32; b : vec2f }` -- the type fixed by convention as
+        // distmin's f32 is, with t = inf on a miss exactly as distmin
+        // answers inf -- holding the ray parameter the
+        // metric keys and the surface parameters of the point it names
+        // (a triangle's barycentrics; a shape whose point `t` alone fixes
+        // leaves `b` zero). This is what the RT cores report of a hit, so a
+        // query that carries it hands its consumers the hit's geometry
+        // without a second intersection; Lower/Trees.cpp recognizes it as a
+        // map annotation beside the metric and, under bind(RTCore), reads it
+        // from the hardware in the hit programs instead of computing it.
+        intersection,
         // Motions. The odd one out, and deliberately here rather than beside
         // the relations: every op above relates two extents and answers a
         // bool or a scalar, while this one takes a *motion* and an extent and
@@ -821,6 +840,12 @@ struct GeomOp : ExprNode<GeomOp> {
 
     static const IRExprEnum node_type = IRExprEnum::GeomOp;
 };
+
+// The `Hit { t : f32; b : vec2f }` record `intersection` answers (t = inf on
+// a miss): the one struct the op's convention fixes, which a program's
+// implementations must agree with field for field (Lower/Geometrics.cpp
+// checks them against this).
+Type hit_record_type();
 
 // The set operators of Figure 2. For everything but `product`, a is a lambda
 // over the set's elements and b is the set; for `product`, a and b are sets.

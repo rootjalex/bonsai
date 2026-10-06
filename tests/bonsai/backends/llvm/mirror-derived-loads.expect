@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define range(i32 1, 17) i32 @count_near(ptr noundef %xs_buffer, float noundef %bound) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i32 1, 17) i32 @count_near(ptr noundef %xs_buffer, float noundef %bound) local_unnamed_addr #0 {
 count_near:
   %xs = tail call ptr @bonsai_buffer_require(ptr %xs_buffer, i32 1)
   %extract = load float, ptr %xs, align 4
@@ -89,7 +90,8 @@ count_near:
   ret i32 %op.rdx19
 }
 
-define range(i32 0, 17) i32 @count_within(ptr noundef %xs_buffer, float noundef %bound) local_unnamed_addr {
+; Function Attrs: mustprogress
+define range(i32 0, 17) i32 @count_within(ptr noundef %xs_buffer, float noundef %bound) local_unnamed_addr #0 {
 count_within:
   %xs = tail call ptr @bonsai_buffer_require(ptr %xs_buffer, i32 1)
   %0 = bitcast float %bound to i32
@@ -263,13 +265,14 @@ count_within:
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i32 @llvm.smin.i32(i32, i32) #0
+declare i32 @llvm.smin.i32(i32, i32) #1
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i12 @llvm.ctpop.i12(i12) #1
+declare i12 @llvm.ctpop.i12(i12) #2
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i8 @llvm.ctpop.i8(i8) #1
+declare i8 @llvm.ctpop.i8(i8) #2
 
-attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #1 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }

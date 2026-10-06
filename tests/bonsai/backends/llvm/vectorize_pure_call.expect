@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @pick_all(ptr noundef %a_buffer, ptr noundef %t_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @pick_all(ptr noundef %a_buffer, ptr noundef %t_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 pick_all:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %t = tail call ptr @bonsai_buffer_require(ptr %t_buffer, i32 1)
@@ -32,7 +33,8 @@ pick_all:
   ret void
 }
 
-define float @pick_one(float noundef %x, ptr noundef %t_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define float @pick_one(float noundef %x, ptr noundef %t_buffer) local_unnamed_addr #0 {
 pick_one:
   %t = tail call ptr @bonsai_buffer_require(ptr %t_buffer, i32 1)
   %0 = fcmp ogt float %x, 2.000000e+00
@@ -65,7 +67,7 @@ pick_one:
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc noundef float @square_plus(float noundef %x) unnamed_addr #0 {
+define internal fastcc noundef float @square_plus(float noundef %x) unnamed_addr #1 {
 square_plus:
   %0 = fmul float %x, %x
   %1 = fadd float %0, 1.000000e+00
@@ -73,7 +75,7 @@ square_plus:
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
-define internal fastcc noundef <8 x float> @"square_plus$gang8_v0$masked"(<8 x float> noundef %x) unnamed_addr #0 {
+define internal fastcc noundef <8 x float> @"square_plus$gang8_v0$masked"(<8 x float> noundef %x) unnamed_addr #1 {
 "square_plus$gang8_v0$masked":
   %0 = fmul <8 x float> %x, %x
   %1 = fadd <8 x float> %0, splat (float 1.000000e+00)
@@ -81,7 +83,7 @@ define internal fastcc noundef <8 x float> @"square_plus$gang8_v0$masked"(<8 x f
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read)
-define internal fastcc float @tabled(float noundef %x, ptr nofree noundef readonly captures(none) %t) unnamed_addr #1 {
+define internal fastcc float @tabled(float noundef %x, ptr nofree noundef readonly captures(none) %t) unnamed_addr #2 {
 tabled:
   %0 = fmul float %x, %x
   %1 = fptoui float %0 to i32
@@ -93,7 +95,7 @@ tabled:
 }
 
 ; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read)
-define internal fastcc <8 x float> @"tabled$gang8_v0$masked"(<8 x float> noundef %x, ptr noundef %t, <8 x i1> noundef %"!mask") unnamed_addr #2 {
+define internal fastcc <8 x float> @"tabled$gang8_v0$masked"(<8 x float> noundef %x, ptr noundef %t, <8 x i1> noundef %"!mask") unnamed_addr #3 {
 "tabled$gang8_v0$masked":
   %0 = fmul <8 x float> %x, %x
   %1 = fptoui <8 x float> %0 to <8 x i32>
@@ -109,9 +111,10 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #3
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #4
 
-attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) }
-attributes #2 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read) }
-attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) }
+attributes #3 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(read) }
+attributes #4 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

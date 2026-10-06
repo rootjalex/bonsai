@@ -3,7 +3,8 @@ source_filename = "bonsai_module"
 
 %struct.Queue_sums = type { i32, ptr, ptr, ptr }
 
-define void @run(ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @run(ptr noundef %out_buffer) local_unnamed_addr #0 {
 run:
   %sums_queue1140 = alloca [2 x %struct.Queue_sums], align 16
   %sums_i_141 = alloca [40 x i32], align 4
@@ -174,21 +175,22 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read)
-declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr captures(none), <16 x i1>, <16 x i32>) #0
+declare <16 x i32> @llvm.masked.load.v16i32.p0(ptr captures(none), <16 x i1>, <16 x i32>) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.compressstore.v16i32.p0(<16 x i32>, ptr captures(none), <16 x i1>) #1
+declare void @llvm.masked.compressstore.v16i32.p0(<16 x i32>, ptr captures(none), <16 x i1>) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #2
+declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #3
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare i16 @llvm.ctpop.i16(i16) #3
+declare i16 @llvm.ctpop.i16(i16) #4
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
-attributes #3 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #4 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"u32", !2, i64 0}

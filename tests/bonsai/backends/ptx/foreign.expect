@@ -6,7 +6,8 @@ target triple = "nvptx64-nvidia-cuda"
 
 declare float @grid_value(ptr, i32) local_unnamed_addr
 
-define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr %g, ptr nofree writeonly captures(none) %out) local_unnamed_addr {
+; Function Attrs: mustprogress
+define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr %g, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %out.global = addrspacecast ptr %out to ptr addrspace(1)
   %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
@@ -23,9 +24,10 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr %g, ptr nofre
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #0
+declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 
 !llvm.module.flags = !{!0}
 

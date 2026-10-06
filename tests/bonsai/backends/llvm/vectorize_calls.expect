@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @both_ways(ptr noundef %a_buffer, float noundef %k, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @both_ways(ptr noundef %a_buffer, float noundef %k, ptr noundef %out_buffer) local_unnamed_addr #0 {
 both_ways:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -26,7 +27,8 @@ both_ways:
   ret void
 }
 
-define void @conditional_store(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @conditional_store(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 conditional_store:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
@@ -48,13 +50,14 @@ conditional_store:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define noundef float @scale(float noundef %x, float noundef %k) local_unnamed_addr #0 {
+define noundef float @scale(float noundef %x, float noundef %k) local_unnamed_addr #1 {
 scale:
   %0 = fmul float %x, %k
   ret float %0
 }
 
-define void @store_to(ptr noundef %out_buffer, i32 noundef %i, float noundef %v) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @store_to(ptr noundef %out_buffer, i32 noundef %i, float noundef %v) local_unnamed_addr #0 {
 store_to:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
@@ -65,18 +68,19 @@ store_to:
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
-declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #1
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
-declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #3
 
-attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
-attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"f32", !2, i64 0}

@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @deeper(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @deeper(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr #0 {
 deeper:
   %vs = tail call ptr @bonsai_buffer_require(ptr %vs_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %vs_buffer, i32 1)
@@ -14,7 +15,8 @@ deeper:
   ret void
 }
 
-define void @touch(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @touch(ptr noundef %vs_buffer, i32 noundef %i) local_unnamed_addr #0 {
 touch:
   %vs = tail call ptr @bonsai_buffer_require(ptr %vs_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %vs_buffer, i32 1)
@@ -30,6 +32,8 @@ touch:
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
 
 !0 = !{!1, !1, i64 0}
 !1 = !{!"f32", !2, i64 0}

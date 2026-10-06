@@ -1,0 +1,91 @@
+//! flags: -p canonicalize -p lower-hardware-binds -p lower-set-functions -p lower-trees
+
+// rtcore-any.bonsai's queries with the hit's WITNESS carried: a map between
+// the filter and the set annotates each element with `intersection(r, ...)`
+// -- the record of the same test `intersects` names and `distmin` keys --
+// and the filter's alpha test reads the hit's parameters from it instead of
+// intersecting again. Lowered to the hardware's programs (Lower/Trees.cpp)
+// and printed right after that pass. What to look for:
+//
+// - The hit programs come in two flavors apiece: the plain name, for the
+//   hardware-triangle inputs, binds the witness `{ rt_hit_t(),
+//   rt_barycentrics() }`; the `$boxes` flavor, for custom-primitive inputs,
+//   binds `{ rt_hit_t(), (0, 0) }`. Neither COMPUTES the annotation -- the
+//   `intersection` call appears in no program body.
+//
+// - `__closesthit__trace` stores the element AND the witness into the
+//   context's record, so the raygen hands its consumers the hit's
+//   parameters without a second intersection.
+//
+// - `trace_any` keeps its shape: flags 12, no closest-hit program, the
+//   witness bound only in its any-hit flavors, where `accepts` reads it.
+//
+// - `trace_anyhit_matters(t)`/`trace_any_anyhit_matters(t)` are unchanged:
+//   the witness is no element, and the element-only early-accept
+//   `!(t.alpha < 0.0)` is still read off `accepts`.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/hit;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+    alpha : f32;
+} with extent = aabb_of_triangle(tri);
+
+func accepts(r : Ray, t : Tri, h : Hit) -> bool {
+    if t.alpha < 0.0 {
+        return true;
+    }
+    // The hit's own barycentric, from the carried record: pbrt's alpha
+    // evaluates the texture at the hit's uv, which the witness holds.
+    return h.b.x < t.alpha;
+}
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri, h : Hit| distmin(r, t.tri),
+           filter(|t : Tri, h : Hit| intersects(r, t.tri) && accepts(r, t, h),
+                  map(|t : Tri| (t, intersection(r, t.tri)), tris)));
+
+func trace_any(r : Ray) =
+    any(|t : Tri, h : Hit| intersects(r, t.tri) && accepts(r, t, h),
+        map(|t : Tri| (t, intersection(r, t.tri)), tris));
+
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_t : mut array[f32],
+                          hit_b1 : mut array[f32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            hit_t[i] = hit[1].t;
+            hit_b1[i] = hit[1].b.x;
+        } else {
+            hit_t[i] = -1.0;
+            hit_b1[i] = -1.0;
+        }
+        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+}
