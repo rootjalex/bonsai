@@ -1,0 +1,79 @@
+//! flags: -p ssa --ffp-contract --dump-intervals
+
+// The interval analysis's reading of one Newton step over the machine's
+// reciprocal estimate (SSA/ConstantIntervals.cpp, reciprocal_step and
+// newton_step) in the fused spellings `--ffp-contract` leaves
+// (SSA/Contract.cpp), which are the libraries' own: Embree's `fma(r,
+// fma(-x, r, 1), r)` and enoki's `fma(-(r x), r, r + r)`. The spellings as
+// written are read by ssa/intervals-from-conditions.bonsai.
+//
+//   * `embree` and `enoki`: over a non-negative operand each step is the
+//     estimate's bounds and sign, not known to be a number: `[0, inf] (+)`.
+//     Followed as arithmetic each would be everything: `1 - x r` reaches
+//     -inf at a tiny `x` (its estimate is +inf), and r (1 - x r) + r is
+//     then inf - inf.
+//   * `embree3`: the same over a three-vector, where the step's constants
+//     are broadcasts.
+//   * `bounded`: over an operand in [1, 2] the step is within the
+//     estimate's bounds, the reciprocals of the ends moved outward by
+//     2^-10 (and with no sign flag: the operand's `max` with a constant
+//     carries none, bounds or not).
+//   * `negative`: over an operand that is not non-negative the step has no
+//     sign, `[-inf, 0]` and not `(+)`.
+//   * `factored`: `r * (2 - x * r)`, the same quantity in a spelling the
+//     rule does not know -- and must not: where the estimate is infinite
+//     it is -inf and the two above are NaNs, so its sign is not the
+//     operand's where it is a number. Everything, which the dump leaves
+//     out.
+//   * `other`: Embree's spelling with another value in the residual, `r +
+//     r * (1 - y * r)`, which is not a step over `r`. Everything.
+//
+// The dump is of the SSA before the contraction, so the spellings read
+// here are the written ones; the fused ones are what the Embree and FCPW
+// modules of apps/rtq carry, and their node tests' mirrored limits
+// (SSA/MirrorLoads.h) are the evidence the fused matcher fires.
+
+func [[export]] embree(x_in : f32) -> f32 {
+    x = abs(x_in);
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
+}
+
+func [[export]] enoki(m_in : f32) -> f32 {
+    m = abs(m_in);
+    r = rcp_approx(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
+func [[export]] embree3(x_in : vector[f32, 3]) -> vector[f32, 3] {
+    x = abs(x_in);
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
+}
+
+func [[export]] bounded(x_in : f32) -> f32 {
+    x = min(max(x_in, 1.0), 2.0);
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
+}
+
+func [[export]] negative(x_in : f32) -> f32 {
+    x = 0.0 - abs(x_in);
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
+}
+
+func [[export]] factored(x_in : f32) -> f32 {
+    x = abs(x_in);
+    r = rcp_approx(x);
+    return r * (2.0 - x * r);
+}
+
+func [[export]] other(x_in : f32, y_in : f32) -> f32 {
+    x = abs(x_in);
+    y = abs(y_in);
+    r = rcp_approx(x);
+    return r + r * (1.0 - y * r);
+}

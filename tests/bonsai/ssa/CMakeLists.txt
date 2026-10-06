@@ -11,6 +11,7 @@ add_bonsai_tests(
     common-subexpressions.bonsai
     compare-on-bits.bonsai
     intervals-from-conditions.bonsai
+    intervals-reciprocal-step.bonsai
     mirror-derived-loads.bonsai
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai

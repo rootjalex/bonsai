@@ -1,0 +1,69 @@
+//! flags: -p ssa -b llvm -e --ffp-contract
+
+// What one Newton step over the machine's reciprocal estimate does at the
+// edges of the normal range, run on the host: the facts the interval
+// analysis's reading of the step stands on (SSA/ConstantIntervals.cpp,
+// newton_step). The estimate instructions differ there -- `rcpps` takes a
+// denormal operand as zero and returns a denormal quotient as zero,
+// `vrcp14ps` takes only an operand below 2^-128 as zero and returns the
+// denormal quotient -- so what is checked is what holds on both, in both
+// libraries' spellings (apps/rtq/metrics/embree.bonsai rcp_embree,
+// metrics/fcpw.bonsai rcp_fcpw):
+//
+//   * at an operand below 2^-128 the estimate is infinite and the step a NaN
+//     (inf - inf), never a negative number;
+//   * at a huge operand the step is tiny and of the operand's sign (zero on
+//     `rcpps`, the denormal quotient on `vrcp14ps`);
+//   * at zero and at infinity it is a NaN;
+//   * between, it has the operand's sign and is within a few ulps of the
+//     quotient.
+//
+// The steps are not inlined, so that their operands reach the instruction
+// as values and nothing is folded before it.
+
+element Float = f32;
+
+func [[noinline]] embree(x : Float) -> Float {
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
+}
+
+func [[noinline]] enoki(m : Float) -> Float {
+    r = rcp_approx(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
+func is_nan(v : Float) -> bool = v != v;
+func close(a : Float, b : Float) -> bool = abs(a - b) <= abs(b) * 4.0e-7;
+func tiny_nonnegative(v : Float) -> bool = v >= 0.0 && v < 1.0e-37;
+func tiny_nonpositive(v : Float) -> bool = v <= 0.0 && v > 0.0 - 1.0e-37;
+
+func main() -> i32 {
+    // An operand below 2^-128: a NaN in both spellings.
+    print(is_nan(embree(1.0e-40)));
+    print(is_nan(enoki(1.0e-40)));
+    // A huge operand: tiny, of the operand's sign.
+    print(tiny_nonnegative(embree(3.0e38)));
+    print(tiny_nonnegative(enoki(3.0e38)));
+    print(tiny_nonpositive(embree(0.0 - 3.0e38)));
+    print(tiny_nonpositive(enoki(0.0 - 3.0e38)));
+    // Zero and infinity: a NaN.
+    print(is_nan(embree(0.0)));
+    print(is_nan(enoki(0.0)));
+    print(is_nan(embree(inf)));
+    print(is_nan(enoki(inf)));
+    // Within the normal range: the quotient to a few ulps, of the operand's
+    // sign.
+    print(embree(1.0) == 1.0);
+    print(enoki(1.0) == 1.0);
+    print(close(embree(3.0), 1.0 / 3.0));
+    print(close(enoki(3.0), 1.0 / 3.0));
+    print(close(embree(0.0 - 3.0), 0.0 - 1.0 / 3.0));
+    print(close(enoki(0.0 - 3.0), 0.0 - 1.0 / 3.0));
+    print(embree(0.0 - 3.0) < 0.0);
+    print(close(embree(1.0e-30), 1.0e30));
+    print(close(enoki(1.0e-30), 1.0e30));
+    return 0;
+}

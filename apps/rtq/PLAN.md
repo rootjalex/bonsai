@@ -4396,19 +4396,34 @@ regardless, with the vectorizer making one reduction of it.
   signed zero, one's exactly one) is not written: the estimate is exact at
   one, and a zero or infinite denominator fails every comparison the same
   way on both sides. What the interval analysis makes of a reciprocal
-  (ssa/intervals-from-conditions.bonsai): the estimate of a non-negative
-  interval is non-negative, the rule the primitive has; the refined form
-  written out is everything for an unbounded operand, since intervals do
-  not carry the correlation between `r` and `x` (`x r` reads as [0, inf],
-  not as within 2^-11 of one), and the factored `r (2 - x r)` that would
-  show the sign is a reassociation the simplifier never makes. Nothing in
-  rtq needed the refined reciprocal's sign: the ray keys are non-negative
-  by the clamped `tnear` they are maxed with, and the goldens of the sort
-  keys' bit ordering are unchanged in that respect. Tests:
-  backends/llvm/rcp (the bare `rcpps` on the generic target, Embree's step
-  as its fma pair), backends/llvm/rcp-approx (`rcp14` on Zen 4, enoki's
-  step as `fma(-(r m), r, 2r)`, Embree's beside it), correctness/cpp/rcp
-  (the refinement checked against the exact quotient to a few ulps). One thing
+  (ssa/intervals-from-conditions.bonsai, ssa/intervals-reciprocal-step.bonsai):
+  the estimate of a non-negative interval is non-negative, the rule the
+  primitive has, and its bounds allow for the instruction's flushing at
+  the ends of the normal range, which differs by instruction (`rcpps`
+  takes a denormal operand as zero and returns a denormal quotient as
+  zero; `vrcp14ps` takes only an operand below 2^-128 as zero and returns
+  the denormal quotient; correctness/llvm/rcp-step-edges runs the edges
+  on the host). The refined form written out is read as what it is, one
+  Newton step over the estimate, by a rule that knows the two libraries'
+  spellings, fused and not (ConstantIntervals.cpp, reciprocal_step and
+  newton_step): the estimate's bounds and sign, not known to be a number,
+  since where the estimate is infinite the step is inf - inf, a NaN.
+  Followed as the
+  arithmetic it is spelled as the step would be everything, since
+  intervals do not carry the correlation between `r` and `x` (`x r` reads
+  as [0, inf], not as within 2^-10 of one; `1 - x r` as [-inf, 1]). The
+  spelling is part of the fact: the factored `r (2 - x r)` is -inf where
+  the estimate is infinite and these four are NaNs, so it is not read. rtq needs the
+  sign: the fold of the running best into the slab test (the next
+  section) requires the best's key to be a non-negative number, and the
+  key is `T * rcp_embree(absDen)`. Tests: backends/llvm/rcp (the bare
+  `rcpps` on the generic target, Embree's step as its fma pair),
+  backends/llvm/rcp-approx (`rcp14` on Zen 4, enoki's step as `fma(-(r m),
+  r, 2r)`, Embree's beside it), correctness/cpp/rcp (the refinement checked
+  against the exact quotient to a few ulps), correctness/llvm/rcp-step-edges
+  (the step at a tiny, a huge, a zero and an infinite operand on the host:
+  a NaN, a non-negative tiny value, a NaN, a NaN -- the facts the interval
+  rule stands on, as they hold on both instructions). One thing
   FCPW's node test does that no box test can: `mask &= neq(node.child,
   maxInt)`, since an empty slot's inverted box (boxMin = maxFloat, boxMax
   = minFloat) passes a slab test whose near and far are a min and a max
@@ -4620,9 +4635,122 @@ area) where the checker's own Ericson test went to NaN and could not say
 which side was right -- a defect of the checker, to be made robust
 (Known-open), not yet of either side.
 
+What remains between FCPW and us after the arithmetic is matched
+operation for operation, filed as precision-limited by the user's ruling
+(2026-10-06). On ganesha under fcpw4w16, 11 of 1,048,576 primary rays and
+2 of 279,885 ambient-occlusion rays differ, every any-hit answer the same,
+and the pattern repeats on dragon, bmw, crown, ivy and villa (a handful of
+rays each) and not at all on head, pavilion, zero-day, sportscar,
+dambreak, landscape and lte-orb. Every ray `--explain` printed is a hit
+within float noise of a triangle edge: barycentrics of `v = 3.97e-07`, `u
+= -1.07e-06`, `u + v = 1.000076`, `v = 0.00056` on a mesh whose
+coordinates sit near 300 and whose triangles are about 0.05 across, where
+a float barycentric is good to about a part in a thousand -- each side
+accepting an edge the other rejects, and the two hits being different
+triangles, the checker counts them as disagreements rather than ties.
+The transcription is FCPW's operation by operation (the slab test, the
+Moeller-Trumbore chain, enoki's reciprocal, `cross` as enoki's
+`fmsub(v1.yzx, v2.zxy, v1.zxy * v2.yzx)` and `dot` as its `hsum(a * b)`,
+both of which our contraction rule fuses as clang's `-ffp-contract=fast`
+does on paper), so what is left can only be the two compilers' fusion
+choices in corners, and bit identity is not chased.
+
 The measurements -- Embree before and after the layout's lane predicate
 and the tightening, and the FCPW table over its four configurations --
-are the next section's, taken in one exclusive block of the machine.
+are a later section's, taken in one exclusive block of the machine, after
+the regression the next section describes was found and fixed.
+
+## The reciprocal's sign, read from the step: the fold restored (2026-10-06)
+
+The morning's Embree table came in 2-8% below the night's on every
+nearest-hit cell (ganesha under `embree` 25.77 -> 23.79 Mrays/s, crown
+109.0 -> 101.6, pavilion 79.98 -> 74.90; the any-hit and closest-point
+cells level; Embree's own rates steady within 1%), with nothing between
+the two but a5f00468 -- `rcp_approx` as the one reciprocal primitive and
+each library's Newton step written out in its metric file. The modules
+said where: the five mirrored node-test limits (SSA/MirrorLoads.h,
+Embree's `tray.tfar`) had gone to none, on all four Embree schedules.
+
+The chain. The simplifier compares two floats on their bits when the left
+is sign-clear and the right a non-negative number (Simplify.cpp's `<` and
+`<=` rule), and when the slab test's `tNear <= tFar` and the argmin's
+`tNear < best.key` are both on bits, the pair joins into one compare
+against `min(bits(tFar), bits(best) - 1)`, whose limit MirrorLoads keeps
+in a register across the traversal. The best's key is `t = T *
+rcp_embree(absDen)`. With `rcp` a primitive, its interval rule said "a
+non-negative number where the operand is"; with the step written out, `r
++ r (1 - a r)`, the interval analysis followed it as the arithmetic it is
+and derived nothing -- not even a sign -- so the key was not known
+non-negative, the compare stayed a float compare, the pair did not join,
+and the limit was not there to mirror. Everything downstream of the leaf
+was unchanged; the 2-8% is the node test's limit re-read from memory at
+every node, which is the thing MirrorLoads exists to avoid.
+
+Why the arithmetic cannot give the sign, so that the rule is understood
+and not just added: the estimate `r = rcp_approx(x)` is +inf for a tiny
+`x` (the instruction takes it as zero), and there `1 - x r` is -inf and `r
+(1 - x r) + r` is inf - inf. Intervals read the two infinities as
+unrelated and see a possible negative; the step is in fact a NaN there.
+The information lost is a correlation (the two infinities are one), which
+a non-relational lattice does not carry. Nor is this a matter of
+reassociation that a simplifier could undo: the factored `r (2 - x r)` is
+-inf at that `x`, a negative number where the written step is a NaN, so
+the spelling is part of the fact. The sign survives rounding (round to
+nearest keeps the sign of the exact result, an fma rounds once), so it is
+not associativity that stands in the way.
+
+Three ways were weighed. Relaxing the fold's precondition to "non-negative
+where it is a number" finds nothing to relax: the analysis had no sign
+fact for the key at all. A compositional analysis in three sound pieces --
+the estimate's specification as a product rule (`x rcp_approx(x)` within
+2^-10 of one wherever both are normal), a shared-factor sign rule for
+sums of multiples of one value (`fma(r, h, r)` is `r (1 + h)` for its
+sign wherever `r` is finite, and an infinite `r` makes an infinity or a
+NaN, never a finite negative), and a backward refinement through the
+estimate ("the estimate is finite" meaning "the operand is not tiny", as
+`numbers_beneath` turns "a number" into "numbers") -- derives the sign
+for every spelling of one step without naming any, at about twice the
+code; it does not reach a second Newton step either, `x r1` for a refined
+`r1` being a relation intervals cannot hold. The user's choice was the
+minimal rule: the step recognized as the shape it is.
+
+The rule (SSA/ConstantIntervals.cpp, `reciprocal_step` and `newton_step`):
+an Add, Sub or fma that is the last operation of one Newton step over an
+estimate -- Embree's `r + r (1 - x r)` and enoki's `2 r - (r x) r`, each
+as written and as `--ffp-contract` fuses it, `fma(r, fma(-x, r, 1), r)`
+and `fma(-(r x), r, r + r)`, operands either way round, `-v` the
+contraction's `sub(-0, v)`, the one `r` and `x` throughout, compared
+through Sets -- is read as the estimate's own bounds and sign and not
+known to be a number (where the estimate is infinite the step is a NaN).
+That one fact restores the chain: `t` is `(+)`, the argmin accepts it
+only under `t < best.key`, which marks it a number (a held `<` is between
+numbers), the stored best is `[0, inf] n +`, the compare goes to bits,
+the pair joins, the limit is mirrored. Five mirrors again on all four
+Embree schedules; the FCPW modules unchanged (their node test's limit
+includes the ray's `tfar` joined with slab distances that may be NaNs, so
+the fold never applied there). Found and fixed on the way: the estimate
+rule's bounds were unsound at the ends of the normal range, giving a
+finite upper bound for an operand below the smallest normal (where
+`rcpps` returns +inf) and a positive lower bound for an operand above
+2^126 (where `rcpps` returns zero); `vrcp14ps` differs (only below 2^-128
+is taken as zero; a denormal quotient is returned, not flushed), and the
+bounds now hold on both. Tests: ssa/intervals-from-conditions (`refined`
+and `refined_enoki`, the spellings as written, `(+)` where they were
+everything), ssa/intervals-reciprocal-step (both spellings, a three-vector
+with broadcast constants, a bounded operand, a negative operand without
+the sign, the factored spelling and a step over a different operand both
+left as everything), correctness/llvm/rcp-step-edges (the step on the
+host at a tiny, a huge, a zero, an infinite and ordinary operands, in
+both spellings, asserting what holds on both instructions).
+
+Tried and dropped: a common-subexpression table that keys operands through
+the Sets that name them, which deduplicated a function inlined twice with
+its parameter bound to the same argument. Sound, and worth six lines of
+the four-wide modules, but it cost the goldens their program names (`ps.pdf`
+printed as `@7`) and in one sort-key golden made the second inlined copy
+match less rather than more (the key's canonical form depends on when
+the Set was seen); the fold did not need it. Not committed; the patch is
+in the session's scratchpad.
 
 ## Known-open, smaller
 

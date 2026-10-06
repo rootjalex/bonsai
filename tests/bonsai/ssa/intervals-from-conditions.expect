@@ -28,6 +28,17 @@ intervals of refined:
   r : [0, inf] (+)
   @5 : [0, inf] (+)
   @6 : [-inf, 1]
+  @8 : [0, inf] (+)
+  @9 : [0, inf] (+)
+intervals of refined_enoki:
+  @2 : [inf, inf] n +
+  x : [0, inf] +
+  r : [0, inf] (+)
+  t0 : [0, inf] (+)
+  t1 : [0, inf] (+)
+  @7 : [0, inf] (+)
+  @8 : [0, inf] (+)
+  @9 : [0, inf] (+)
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -69,6 +80,17 @@ intervals of refined:
   r : [0, inf] (+)
   @5 : [0, inf] (+)
   @6 : [-inf, 1]
+  @8 : [0, inf] (+)
+  @9 : [0, inf] (+)
+intervals of refined_enoki:
+  @2 : [inf, inf] n +
+  x : [0, inf] +
+  r : [0, inf] (+)
+  t0 : [0, inf] (+)
+  t1 : [0, inf] (+)
+  @7 : [0, inf] (+)
+  @8 : [0, inf] (+)
+  @9 : [0, inf] (+)
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -136,6 +158,24 @@ func [[export]] refined(a : f32, t : f32, d : f32) -> f32 {
     let @6 = 1f - @5 in
     let @7 = r * @6 in
     let @8 = r + @7 in
+    let @9 = t * @8 in
+    return @9
+  }
+}
+
+func [[export]] refined_enoki(a : f32, t : f32, d : f32) -> f32 {
+  let @0 = 0f < t in
+  let @1 = !@0 in
+  if (@1) {
+    let @2 = (f32)inf in
+    return @2
+  } else {
+    let x = abs(d) in
+    let r = rcp_approx(x) in
+    let t0 = r + r in
+    let t1 = r * x in
+    let @7 = t1 * r in
+    let @8 = t0 - @7 in
     let @9 = t * @8 in
     return @9
   }

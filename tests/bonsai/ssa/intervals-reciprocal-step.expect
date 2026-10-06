@@ -1,0 +1,164 @@
+=== intervals before the sort
+intervals of bounded:
+  @0 : [1, inf]
+  x : [1, 2]
+  r : [0.499512, 1.00098]
+  @3 : [0.499512, 2.00195]
+  @4 : [-1.00195, 0.500488]
+  @5 : [-1.00293, 0.500977]
+  @6 : [0.499512, 1.00098]
+intervals of embree:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [0, inf] (+)
+  @3 : [-inf, 1]
+  @5 : [0, inf] (+)
+intervals of embree3:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [1, 1] n +
+  @3 : [0, inf] (+)
+  @4 : [-inf, 1]
+  @6 : [0, inf] (+)
+intervals of enoki:
+  m : [0, inf] +
+  r : [0, inf] (+)
+  t0 : [0, inf] (+)
+  t1 : [0, inf] (+)
+  @4 : [0, inf] (+)
+  @5 : [0, inf] (+)
+intervals of factored:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [0, inf] (+)
+  @3 : [-inf, 2]
+intervals of negative:
+  @0 : [0, inf] +
+  x : [-inf, 0]
+  r : [-inf, 0]
+  @3 : [0, inf]
+  @4 : [-inf, 1]
+  @6 : [-inf, 0]
+intervals of other:
+  x : [0, inf] +
+  y : [0, inf] +
+  r : [0, inf] (+)
+  @3 : [0, inf] (+)
+  @4 : [-inf, 1]
+=== intervals after the directives
+intervals of bounded:
+  @0 : [1, inf]
+  x : [1, 2]
+  r : [0.499512, 1.00098]
+  @3 : [0.499512, 2.00195]
+  @4 : [-1.00195, 0.500488]
+  @5 : [-1.00293, 0.500977]
+  @6 : [0.499512, 1.00098]
+intervals of embree:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [0, inf] (+)
+  @3 : [-inf, 1]
+  @5 : [0, inf] (+)
+intervals of embree3:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [1, 1] n +
+  @3 : [0, inf] (+)
+  @4 : [-inf, 1]
+  @6 : [0, inf] (+)
+intervals of enoki:
+  m : [0, inf] +
+  r : [0, inf] (+)
+  t0 : [0, inf] (+)
+  t1 : [0, inf] (+)
+  @4 : [0, inf] (+)
+  @5 : [0, inf] (+)
+intervals of factored:
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @2 : [0, inf] (+)
+  @3 : [-inf, 2]
+intervals of negative:
+  @0 : [0, inf] +
+  x : [-inf, 0]
+  r : [-inf, 0]
+  @3 : [0, inf]
+  @4 : [-inf, 1]
+  @6 : [-inf, 0]
+intervals of other:
+  x : [0, inf] +
+  y : [0, inf] +
+  r : [0, inf] (+)
+  @3 : [0, inf] (+)
+  @4 : [-inf, 1]
+func [[export]] bounded(x_in : f32) -> f32 {
+  let @0 = max(x_in, 1f) in
+  let x = min(@0, 2f) in
+  let r = rcp_approx(x) in
+  let @7 = -0f - x in
+  let @4 = fma(@7, r, 1f) in
+  let @6 = fma(r, @4, r) in
+  return @6
+}
+
+func [[export]] embree(x_in : f32) -> f32 {
+  let x = abs(x_in) in
+  let r = rcp_approx(x) in
+  let @6 = -0f - x in
+  let @3 = fma(@6, r, 1f) in
+  let @5 = fma(r, @3, r) in
+  return @5
+}
+
+func [[export]] embree3(x_in : f32x3) -> f32x3 {
+  let x = abs(x_in) in
+  let r = rcp_approx(x) in
+  let @2 = f32x3(1f) in
+  let @7 = f32x3(-0f) in
+  let @8 = @7 - x in
+  let @4 = fma(@8, r, @2) in
+  let @6 = fma(r, @4, r) in
+  return @6
+}
+
+func [[export]] enoki(m_in : f32) -> f32 {
+  let m = abs(m_in) in
+  let r = rcp_approx(m) in
+  let t0 = r + r in
+  let t1 = r * m in
+  let @6 = -0f - t1 in
+  let @5 = fma(@6, r, t0) in
+  return @5
+}
+
+func [[export]] factored(x_in : f32) -> f32 {
+  let x = abs(x_in) in
+  let r = rcp_approx(x) in
+  let @5 = -0f - x in
+  let @3 = fma(@5, r, 2f) in
+  let @4 = r * @3 in
+  return @4
+}
+
+func [[export]] negative(x_in : f32) -> f32 {
+  let @0 = abs(x_in) in
+  let x = 0f - @0 in
+  let r = rcp_approx(x) in
+  let @7 = -0f - x in
+  let @4 = fma(@7, r, 1f) in
+  let @6 = fma(r, @4, r) in
+  return @6
+}
+
+func [[export]] other(x_in : f32, y_in : f32) -> f32 {
+  let x = abs(x_in) in
+  let y = abs(y_in) in
+  let r = rcp_approx(x) in
+  let @7 = -0f - y in
+  let @4 = fma(@7, r, 1f) in
+  let @6 = fma(r, @4, r) in
+  return @6
+}
+
+

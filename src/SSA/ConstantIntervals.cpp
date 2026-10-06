@@ -38,8 +38,33 @@ bool is_integer_type(const Type &t) {
 
 Type scalar_of(const Type &t) { return t.is_vector() ? t.element_of() : t; }
 
-// The same value: one instruction, one argument by name, or equal constants.
-bool same_value(const shared_ptr<Value> &a, const shared_ptr<Value> &b) {
+// The instruction defining `v`, or nullptr where `v` is not one's result.
+const Instruction *def_of(const ValuePtr &v) {
+    if (v == nullptr) {
+        return nullptr;
+    }
+    const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+    return held == nullptr ? nullptr : held->get();
+}
+
+// The value a chain of Sets names: a Set is the program's name for its
+// operand (SSA/Simplify.cpp), so the same value under two names is one
+// value.
+ValuePtr through_sets(ValuePtr v) {
+    for (const Instruction *d = def_of(v);
+         d != nullptr && d->op == Instruction::Op::Set && d->operands.size() == 1 &&
+         d->operands[0] != nullptr;
+         d = def_of(v)) {
+        v = d->operands[0];
+    }
+    return v;
+}
+
+// The same value: one instruction, one argument by name, or equal
+// constants, under whatever names the Sets between give it.
+bool same_value(const shared_ptr<Value> &a_named, const shared_ptr<Value> &b_named) {
+    const ValuePtr a = through_sets(a_named);
+    const ValuePtr b = through_sets(b_named);
     if (a == nullptr || b == nullptr) {
         return false;
     }
@@ -56,6 +81,162 @@ bool same_value(const shared_ptr<Value> &a, const shared_ptr<Value> &b) {
         return cb != nullptr && ca->data == cb->data && equals(ca->type, cb->type);
     }
     return false;
+}
+
+// A floating-point constant, or a broadcast of one, as a double.
+std::optional<double> float_constant(const ValuePtr &v) {
+    if (const Instruction *d = def_of(v);
+        d != nullptr && d->op == Instruction::Op::Bc && !d->operands.empty()) {
+        return float_constant(d->operands[0]);
+    }
+    const auto *c = v == nullptr ? nullptr : std::get_if<Constant>(&v->data);
+    if (c == nullptr) {
+        return std::nullopt;
+    }
+    if (const auto *d = std::get_if<double>(&c->data)) {
+        return *d;
+    }
+    if (const auto *i = std::get_if<int64_t>(&c->data)) {
+        return double(*i);
+    }
+    return std::nullopt;
+}
+
+// The machine's reciprocal estimate `r = rcp_approx(x)` that `in` is one
+// Newton step over, in one of the two spellings the libraries use --
+// Embree's `r + r (1 - x r)` and enoki's `2 r - (r x) r` -- each as
+// written and as --ffp-contract fuses it (SSA/Contract.cpp):
+//
+//     fma(r, fma(-x, r, 1), r)        r + r * (1 - x * r)
+//     fma(-(r x), r, r + r)           (r + r) - (r x) * r
+//
+// with the operands of a product or a sum either way round, `-v` the
+// contraction's `sub(-0, v)`, and the one `r` and `x` throughout. Nullptr
+// where `in` is not such a step. The spelling matters -- the factored
+// `r (2 - x r)` is -inf at an `x` whose estimate is infinite, where these
+// four are NaNs (see newton_step) -- so only these are known.
+ValuePtr reciprocal_step(const Instruction &in) {
+    // The operand of the estimate `r`, or nullptr where `r` is not one.
+    const auto estimated = [](const ValuePtr &r) -> ValuePtr {
+        const Instruction *d = def_of(through_sets(r));
+        return d != nullptr && d->op == Instruction::Op::Intrinsic &&
+                       d->intrinsic == ir::Intrinsic::rcp_approx && d->operands.size() == 1
+                   ? d->operands[0]
+                   : nullptr;
+    };
+    const auto is = [](const ValuePtr &v, Instruction::Op op,
+                       size_t arity) -> const Instruction * {
+        const Instruction *d = def_of(through_sets(v));
+        return d != nullptr && d->op == op && d->operands.size() == arity ? d : nullptr;
+    };
+    const auto is_fma = [](const ValuePtr &v) -> const Instruction * {
+        const Instruction *d = def_of(through_sets(v));
+        return d != nullptr && d->op == Instruction::Op::Intrinsic &&
+                       d->intrinsic == ir::Intrinsic::fma && d->operands.size() == 3
+                   ? d
+                   : nullptr;
+    };
+    const auto is_const = [](const ValuePtr &v, double c) {
+        const std::optional<double> k = float_constant(v);
+        return k.has_value() && *k == c && std::signbit(*k) == std::signbit(c);
+    };
+    // `-v`: the contraction's sub(-0, v).
+    const auto negated = [&](const ValuePtr &v) -> ValuePtr {
+        const Instruction *d = is(v, Instruction::Op::Sub, 2);
+        return d != nullptr && is_const(d->operands[0], -0.0) ? d->operands[1] : nullptr;
+    };
+    // `a b`, either way round.
+    const auto product_of = [&](const ValuePtr &v, const ValuePtr &a, const ValuePtr &b) {
+        const Instruction *d = is(v, Instruction::Op::Mul, 2);
+        return d != nullptr &&
+               ((same_value(d->operands[0], a) && same_value(d->operands[1], b)) ||
+                (same_value(d->operands[0], b) && same_value(d->operands[1], a)));
+    };
+    // `1 - x r`: fma(-x, r, 1), or sub(1, mul(x, r)).
+    const auto residual = [&](const ValuePtr &h, const ValuePtr &r, const ValuePtr &x) {
+        if (const Instruction *f = is_fma(h)) {
+            if (!is_const(f->operands[2], 1.0)) {
+                return false;
+            }
+            const ValuePtr n0 = negated(f->operands[0]);
+            const ValuePtr n1 = negated(f->operands[1]);
+            return (n0 != nullptr && same_value(n0, x) && same_value(f->operands[1], r)) ||
+                   (n1 != nullptr && same_value(n1, x) && same_value(f->operands[0], r));
+        }
+        const Instruction *s = is(h, Instruction::Op::Sub, 2);
+        return s != nullptr && is_const(s->operands[0], 1.0) && product_of(s->operands[1], x, r);
+    };
+    // `r + r`: the r.
+    const auto doubled = [&](const ValuePtr &v) -> ValuePtr {
+        const Instruction *d = is(v, Instruction::Op::Add, 2);
+        return d != nullptr && same_value(d->operands[0], d->operands[1]) ? d->operands[0]
+                                                                           : nullptr;
+    };
+    switch (in.op) {
+    case Instruction::Op::Intrinsic: {
+        if (in.intrinsic != ir::Intrinsic::fma || in.operands.size() != 3) {
+            return nullptr;
+        }
+        const ValuePtr &p = in.operands[0];
+        const ValuePtr &q = in.operands[1];
+        const ValuePtr &s = in.operands[2];
+        // Embree, fused: fma(r, 1 - x r, r).
+        if (const ValuePtr x = estimated(s)) {
+            if ((same_value(p, s) && residual(q, s, x)) ||
+                (same_value(q, s) && residual(p, s, x))) {
+                return s;
+            }
+        }
+        // enoki, fused: fma(-(r x), r, r + r).
+        if (const ValuePtr r = doubled(s)) {
+            if (const ValuePtr x = estimated(r)) {
+                const ValuePtr np = negated(p);
+                const ValuePtr nq = negated(q);
+                if ((same_value(q, r) && np != nullptr && product_of(np, r, x)) ||
+                    (same_value(p, r) && nq != nullptr && product_of(nq, r, x))) {
+                    return r;
+                }
+            }
+        }
+        return nullptr;
+    }
+    case Instruction::Op::Add: {
+        // Embree, as written: r + r (1 - x r).
+        if (in.operands.size() != 2) {
+            return nullptr;
+        }
+        for (size_t k = 0; k < 2; ++k) {
+            const ValuePtr &r = in.operands[k];
+            const ValuePtr x = estimated(r);
+            const Instruction *m =
+                x != nullptr ? is(in.operands[1 - k], Instruction::Op::Mul, 2) : nullptr;
+            if (m != nullptr &&
+                ((same_value(m->operands[0], r) && residual(m->operands[1], r, x)) ||
+                 (same_value(m->operands[1], r) && residual(m->operands[0], r, x)))) {
+                return r;
+            }
+        }
+        return nullptr;
+    }
+    case Instruction::Op::Sub: {
+        // enoki, as written: (r + r) - (r x) r.
+        if (in.operands.size() != 2) {
+            return nullptr;
+        }
+        const ValuePtr r = doubled(in.operands[0]);
+        const ValuePtr x = r != nullptr ? estimated(r) : nullptr;
+        const Instruction *m =
+            x != nullptr ? is(in.operands[1], Instruction::Op::Mul, 2) : nullptr;
+        if (m != nullptr &&
+            ((same_value(m->operands[0], r) && product_of(m->operands[1], r, x)) ||
+             (same_value(m->operands[1], r) && product_of(m->operands[0], r, x)))) {
+            return r;
+        }
+        return nullptr;
+    }
+    default:
+        return nullptr;
+    }
 }
 
 } // namespace
@@ -1487,8 +1668,14 @@ struct ConstantIntervals::State {
         const uint32_t lanes = type.is_vector() ? type.lanes() : 1;
         switch (in.op) {
         case Instruction::Op::Add:
+            if (const ValuePtr r = reciprocal_step(in)) {
+                return newton_step(block, r, type, lookup);
+            }
             return fit(I(0) + I(1));
         case Instruction::Op::Sub:
+            if (const ValuePtr r = reciprocal_step(in)) {
+                return newton_step(block, r, type, lookup);
+            }
             return fit(I(0) - I(1));
         case Instruction::Op::Mul:
             return fit(I(0) * I(1));
@@ -1848,6 +2035,33 @@ struct ConstantIntervals::State {
         }
     }
 
+    // One Newton step over the machine's reciprocal estimate `r`
+    // (reciprocal_step, above): the estimate's own bounds and sign, and not
+    // known to be a number.
+    //
+    // Followed as the arithmetic it is spelled as, the step is everything:
+    // `1 - x r` reaches -inf (a tiny `x`, whose estimate is +inf), and
+    // r (1 - x r) + r is then inf - inf, which intervals cannot tell from
+    // a difference of two unrelated infinities; what the arithmetic does
+    // not carry is that the two are the same one. Wherever the estimate is
+    // finite it is within 2^-10 of the quotient (a denormal estimate too,
+    // where the machine returns one), so x r is within 2^-10 of one, or
+    // is zero where the estimate was flushed, and the step is r (1 + h)
+    // with 1 + h > 0: of r's sign, within r's bounds. Where the estimate
+    // is infinite the step is a NaN -- in these spellings; the factored
+    // `r (2 - x r)` is -inf there, which is why the rule knows spellings
+    // and not the algebra (correctness/llvm/rcp-step-edges.bonsai runs the
+    // edges). Being a number is something the step's consumer learns where
+    // it is used, from a `<` that holds (ssa/intervals-from-conditions.bonsai).
+    Abstract newton_step(const string &block, const ValuePtr &r, const Type &type,
+                         const Lookup *lookup) {
+        ConstantInterval i = (lookup != nullptr ? (*lookup)(r) : value(block, r)).interval;
+        i.number = false;
+        i.sign_clear = false;
+        i.cast_to(type);
+        return Abstract::of_interval(i);
+    }
+
     Abstract intrinsic(const string &block, const Instruction &in,
                        const Lookup *lookup = nullptr) {
         const Type &type = in.type;
@@ -1871,6 +2085,9 @@ struct ConstantIntervals::State {
         case ir::Intrinsic::max:
             return fit(max(I(0), I(1)));
         case ir::Intrinsic::fma:
+            if (const ValuePtr r = reciprocal_step(in)) {
+                return newton_step(block, r, type, lookup);
+            }
             return fit(I(0) * I(1) + I(2));
         case ir::Intrinsic::sqrt: {
             // Of a negative there is no number (a NaN), so the bounds are
@@ -1900,35 +2117,46 @@ struct ConstantIntervals::State {
             // crosses zero gives everything. The instruction is the
             // machine's estimate, within a relative 1.5 * 2^-12 of the
             // quotient on the coarsest x86 has (`rcpps`), so each end is
-            // moved outward by more than that before it is used. What a
-            // program computes from the estimate -- a Newton step -- is
-            // followed as the arithmetic it is, which loses the correlation
-            // between the estimate and its operand: `r + r (1 - x r)` reads
-            // as everything where `x` is unbounded (ssa/intervals-from-
-            // conditions.bonsai).
+            // moved outward by more than that before it is used; and it
+            // may flush at both ends of the normal range whatever the
+            // rounding mode says: `rcpps` takes an operand below the
+            // smallest normal as zero (an infinite estimate) and returns a
+            // quotient below it as zero, `vrcp14ps` does the first only
+            // below 2^-128 and returns the quotient as a denormal. The
+            // bounds hold for both: no finite upper bound below the
+            // smallest normal operand, a lower bound of zero where the
+            // quotient may be below it. One Newton step a program takes
+            // over the estimate is read by newton_step, not as the
+            // arithmetic it is spelled as.
             const ConstantInterval a = I(0);
+            const double normal = scalar_of(type).bits() == 64
+                                      ? std::numeric_limits<double>::min()
+                                      : std::numeric_limits<float>::min();
             const auto outward = [](double v, bool down) {
                 const double slack = std::abs(v) * 0x1p-10;
                 return down ? v - slack : v + slack;
+            };
+            // The least the estimate of a positive operand up to `hi` is:
+            // zero where the quotient may be flushed, else the quotient
+            // moved outward.
+            const auto least = [&](double hi) {
+                return std::isfinite(hi) && hi > 0 && 1.0 / hi >= normal * (1 + 0x1p-9)
+                           ? outward(1.0 / hi, true)
+                           : 0.0;
             };
             // A number where the operand is one (the reciprocal of zero is
             // an infinity, of an infinity zero), with the operand's sign.
             ConstantInterval r;
             if (a.min_defined && a.min >= 0) {
-                r = ConstantInterval::bounded_below(
-                    a.max_defined && a.max > 0 && std::isfinite(a.max)
-                        ? outward(1.0 / a.max, true)
-                        : 0.0);
-                if (a.min > 0) {
+                r = ConstantInterval::bounded_below(a.max_defined ? least(a.max) : 0.0);
+                if (a.min >= normal) {
                     r.max = outward(1.0 / a.min, false);
                     r.max_defined = true;
                 }
             } else if (a.max_defined && a.max <= 0) {
-                r = ConstantInterval::bounded_above(
-                    a.min_defined && a.min < 0 && std::isfinite(a.min)
-                        ? outward(1.0 / a.min, false)
-                        : 0.0);
-                if (a.max < 0) {
+                const double top = a.min_defined ? least(-a.min) : 0.0;
+                r = ConstantInterval::bounded_above(top > 0 ? -top : 0.0);
+                if (a.max <= -normal) {
                     r.min = outward(1.0 / a.max, true);
                     r.min_defined = true;
                 }

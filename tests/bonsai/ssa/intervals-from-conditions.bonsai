@@ -13,17 +13,20 @@
 //   * `chosen`: the same fact inside the arm of a select, `select(lo < t,
 //     t * rcp_approx(abs(d)), inf)` in [0, inf], where the plain reading of
 //     the arm is everything;
-//   * `refined`: `guarded` with Embree's reciprocal written out over the
-//     estimate, `r + r * (1 - x * r)` (apps/rtq/metrics/embree.bonsai,
-//     rcp_embree), which is everything: the analysis follows the step as
-//     the arithmetic it is and does not know `r` and `x` are correlated,
-//     so `x * r` reads as [0, inf] rather than as within 2^-11 of one, `1 -
-//     x r` as [-inf, 1], and the sum's sign is lost. The sign of a refined
-//     reciprocal is not something intervals can carry through its
-//     implementation for an unbounded operand (it would take the factored
-//     form `r (2 - x r)`, a reassociation the simplifier never makes); what
-//     needs a sign gets it from elsewhere -- a ray's sort key from the
-//     clamped `tnear` it is maxed with, not from `rdir`;
+//   * `refined` and `refined_enoki`: `guarded` with the reciprocal written
+//     out over the estimate as Embree does, `r + r * (1 - x * r)`
+//     (apps/rtq/metrics/embree.bonsai, rcp_embree), and as enoki does, `2 r
+//     - (r x) r` (metrics/fcpw.bonsai, rcp_fcpw). Followed as the
+//     arithmetic it is spelled as, either step is everything: the analysis
+//     does not know `r` and `x` are correlated, so `x * r` reads as [0,
+//     inf] rather than as within 2^-10 of one, `1 - x r` as [-inf, 1], and
+//     the sum's sign is lost. The analysis knows the two spellings instead
+//     (ConstantIntervals.cpp, reciprocal_step) and reads each as the
+//     estimate's bounds and sign, not known to be a number -- where the
+//     estimate is infinite the step is a NaN -- so the step is `(+)`, and
+//     `t` times it
+//     `(+)`. The fused spellings `--ffp-contract` leaves are read by
+//     ssa/intervals-reciprocal-step.bonsai;
 //   * `narrow` and `run`: a running best kept behind a pointer. The caller
 //     stores infinity and hands the pointer over; the callee reads it,
 //     and lowers it with a value that is never negative. What the callee's
@@ -67,6 +70,18 @@ func [[export]] refined(a : f32, t : f32, d : f32) -> f32 {
     x = abs(d);
     r = rcp_approx(x);
     return t * (r + r * (1.0 - x * r));
+}
+
+func [[export]] refined_enoki(a : f32, t : f32, d : f32) -> f32 {
+    lo = abs(a) * 0.0;
+    if !(lo < t) {
+        return inf;
+    }
+    x = abs(d);
+    r = rcp_approx(x);
+    t0 = r + r;
+    t1 = r * x;
+    return t * (t0 - t1 * r);
 }
 
 func narrow(best : mut Pair, d : f32, i : u32) -> f32 {
