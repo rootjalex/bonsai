@@ -86,7 +86,12 @@ into a kernel (`CodeGen_PTX::link_libdevice`):
   that came in is made internal, so it is folded into its callers and
   dropped. A file links into the module whose target matches its own -- a
   host file into the host module, an `nvptx64` file into the device module
-  -- and is skipped by the other, so one command line carries both. Written
+  -- and is skipped by the other, so one command line carries both. On the
+  device the linked definitions are also marked always-inline, as
+  `CodeGen_PTX::finish` marks every device function (its own marking runs
+  before this link and never sees them); the host keeps LLVM's cost model,
+  as a C library call would
+  (tests/bonsai/backends/ptx/foreign-bitcode.bonsai). Written
   from C or C++ with `clang++ -emit-llvm -c`; the tests carry a hand-written
   `.ll` (tests/bonsai/backends/llvm/foreign-impl.ll). With it,
   foreign-linked.bonsai's `sample` is two loads and a multiply and no call
@@ -98,10 +103,18 @@ into a kernel (`CodeGen_PTX::link_libdevice`):
   declarations of the functions it defines dropped too, since PTX refuses a
   name both declared `.extern` and defined
   (`CodeGen_PTX::append_linked_ptx`). What `nvcc -ptx -rdc=true` makes of a
-  `__device__` shim. ptxas then folds the function into the kernel as it
-  folds every device function. This is the route when clang cannot compile
-  the library's header for the device, which is the case for NanoVDB's under
-  this machine's CUDA (tests/bonsai/backends/ptx/foreign.bonsai).
+  `__device__` shim. ptxas folds the function into the kernel as it folds
+  every device function -- but as a CALL: the PTX arrives after the module
+  was optimized, so nothing hoists out of a loop around it and the caller's
+  live state spills at every call site. The route of last resort
+  (tests/bonsai/backends/ptx/foreign.bonsai covers it). For a loop-hot shim
+  prefer nvptx64 bitcode even where clang's CUDA mode refuses the machine's
+  CUDA headers: compile the shim as plain C++ against the bare nvptx64
+  target with the toolchain's standard headers named explicitly
+  (`--target=nvptx64-nvidia-cuda -nostdinc++ -isystem ...`), which needs no
+  CUDA headers at all -- see build_nanovdb_shim.sh, whose device bitcode
+  inlines NanoVDB's density read into the shadow march where its PTX kept
+  an outlined call per step.
 
 A device module that calls a foreign function and has nothing defining it
 after the bitcode link is an error, with the function's name and the two

@@ -43,6 +43,8 @@ venv
 *.s
 *.ll
 *.bir
+# A test's hand-written LLVM IR input is source, not output
+!tests/**/*.ll
 
 # Build dependencies
 deps/llvm-build

@@ -32,9 +32,12 @@
 // a mismatch is a compile error. To host bitcode with `clang++ -emit-llvm`,
 // which `--link` folds into the generated module before it is optimized,
 // so that a density lookup is eight inlined walks and not eight calls. And
-// to PTX with `nvcc -rdc=true` for a GPU schedule, spliced into the device
-// module's PTX by the same flag; nvcc rather than clang because this
-// machine's CUDA is newer than clang's device headers admit.
+// for a GPU schedule, to nvptx64 bitcode the same way (plain C++ against
+// the nvptx64 target -- clang's CUDA mode refuses this machine's newer
+// CUDA headers, and nothing here needs them), so the device and OptiX
+// modules inline the lookup into the march loop exactly as nvcc inlines
+// pbrt's; `nvcc -rdc=true` PTX remains as build_nanovdb_shim.sh's loud
+// fallback, an outlined call per read.
 #include <nanovdb/NanoVDB.h>
 #include <nanovdb/util/SampleFromVoxels.h>
 

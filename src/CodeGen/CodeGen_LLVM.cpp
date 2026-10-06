@@ -518,6 +518,16 @@ void CodeGen_LLVM::link_foreign_implementations(const CompilerOptions &options,
                 !defined_before.contains(f.getName().str())) {
                 f.setLinkage(llvm::GlobalValue::InternalLinkage);
                 f.setComdat(nullptr);
+                // On the device, inlined like every other device function
+                // (CodeGen_PTX::finish marks them all, but that runs before
+                // this link and never sees these): a call left outlined
+                // marshals its arguments through local memory, and a loop
+                // around one -- the shadow march's density read -- spills
+                // its live state at every step. The host keeps LLVM's own
+                // cost model, as a C library call would.
+                if (device && !f.hasFnAttribute(llvm::Attribute::NoInline)) {
+                    f.addFnAttr(llvm::Attribute::AlwaysInline);
+                }
             }
         }
         for (llvm::GlobalVariable &g : module->globals()) {

@@ -44,17 +44,54 @@ mkdir -p "$OUTDIR"
 echo "--link"
 echo "$OUTDIR/nanovdb_shim.bc"
 if [[ -n "$ARCH" ]]; then
-  NVCC="${NVCC:-${CUDA_HOME:-/usr/local/cuda}/bin/nvcc}"
-  if [[ ! -x "$NVCC" ]]; then
-    echo "no nvcc at $NVCC -- set CUDA_HOME or NVCC" >&2
-    exit 1
+  # Device BITCODE, not PTX. PTX is opaque to the generated module's
+  # optimizer: the shim stays an outlined `.visible .func` and the shadow
+  # march pays a real call per density read -- the loop's live state
+  # spilled around every step, the grid transform recomputed inside each
+  # (explosion's march measured ~40% over pbrt's per loaded launch).
+  # Bitcode links into the device and OptiX modules BEFORE they are
+  # optimized (link_foreign_implementations routes it by its nvptx64
+  # triple), the linked functions are marked always-inline
+  # (CodeGen_PTX::finish), and the read inlines into the march loop --
+  # nvcc's own shape for pbrt's medium code, reached through the same
+  # --link mechanism. Compiled as plain C++ against the nvptx64 target
+  # rather than clang's CUDA mode, which this machine's CUDA headers are
+  # too new for; the bare target configures no standard headers, so the
+  # toolchain's are named explicitly. If any of that is missing, the old
+  # nvcc PTX is emitted instead, loudly: the renderer still works, the
+  # march just keeps the call per step.
+  CLANG_DIR="$(dirname "$(command -v "$BONSAI_CXX")")"
+  GXX_GLOB=("$CLANG_DIR"/../lib/gcc/*/*/include/c++)
+  GXX="${GXX_GLOB[0]:-}"
+  SYSROOT_GLOB=("$CLANG_DIR"/../*/sysroot/usr/include)
+  SYSROOT="${SYSROOT_GLOB[0]:-}"
+  GPU_BC=""
+  if [[ -d "$GXX" && -d "$SYSROOT" ]]; then
+    if "$BONSAI_CXX" -std=c++17 -O2 --target=nvptx64-nvidia-cuda \
+        -nostdinc++ -isystem "$GXX" -isystem "$GXX/x86_64-conda-linux-gnu" \
+        -isystem "$SYSROOT" -emit-llvm -c "$NANOVDB_INCLUDE" \
+        "$PREFIX/nanovdb_shim.cpp" -o "$OUTDIR/nanovdb_shim.gpu.bc"; then
+      GPU_BC="$OUTDIR/nanovdb_shim.gpu.bc"
+    fi
   fi
-  # -rdc=true: the function is to be called from another module's code,
-  # so it is emitted as a `.visible .func` rather than inlined away into
-  # nothing.
-  "$NVCC" -ptx -rdc=true -O3 -std=c++17 -arch="$ARCH" "$NANOVDB_INCLUDE" \
-      -x cu "$PREFIX/nanovdb_shim.cpp" -o "$OUTDIR/nanovdb_shim.ptx"
-  echo "--link"
-  echo "$OUTDIR/nanovdb_shim.ptx"
+  if [[ -n "$GPU_BC" ]]; then
+    echo "--link"
+    echo "$GPU_BC"
+  else
+    echo "WARNING: no device bitcode ($BONSAI_CXX against nvptx64 failed);" \
+         "falling back to nvcc PTX, the density read stays an outlined call" >&2
+    NVCC="${NVCC:-${CUDA_HOME:-/usr/local/cuda}/bin/nvcc}"
+    if [[ ! -x "$NVCC" ]]; then
+      echo "no nvcc at $NVCC -- set CUDA_HOME or NVCC" >&2
+      exit 1
+    fi
+    # -rdc=true: the function is to be called from another module's code,
+    # so it is emitted as a `.visible .func` rather than inlined away into
+    # nothing.
+    "$NVCC" -ptx -rdc=true -O3 -std=c++17 -arch="$ARCH" "$NANOVDB_INCLUDE" \
+        -x cu "$PREFIX/nanovdb_shim.cpp" -o "$OUTDIR/nanovdb_shim.ptx"
+    echo "--link"
+    echo "$OUTDIR/nanovdb_shim.ptx"
+  fi
 fi
 echo "NANOVDB_INCLUDE=$NANOVDB_INCLUDE"

@@ -1,0 +1,29 @@
+//! flags: -p ssa -b ptx --link tests/bonsai/backends/ptx/foreign-impl-device.ll
+
+// foreign.bonsai's kernel with the implementation supplied as nvptx64
+// BITCODE rather than PTX: the route apps/pbrt's NanoVDB shim takes
+// (docs/foreign-functions.md), and the one that costs no call. Linked PTX
+// is opaque to the module's optimizer -- the callee stays a `.visible
+// .func`, the call marshals its arguments through `.param` space, and a
+// loop around it spills its live state at every step -- where linked
+// bitcode arrives before the optimizer, is internalized and marked
+// always-inline (link_foreign_implementations), and folds into the kernel.
+// What to read for, against foreign.expect: no `call` and no `grid_value`
+// anywhere -- the kernel's body holds the load and the doubling itself.
+extern element Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func run(g : Grid, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = grid_value(g, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}
