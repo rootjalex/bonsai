@@ -30,4 +30,15 @@ schedule {
             .loopify(244);
     occluded.skip(intersectsp_ray_tri);
     occluded.prefetch(triangles.Interior.children);
+
+    // The closest-point query as embree.bonsai schedules it, four wide
+    // (BVHNIntersector1<4>::pointQuery: the same traverseClosestHit over
+    // the children's squared distances, the stack of 244).
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(244);
+    closest.prefetch(triangles.Interior.children);
 }

@@ -1,8 +1,10 @@
 // apps/rtq: a ray query against a set of triangles, as Embree answers it.
 //
 // The program says what is computed: the nearest triangle a ray hits
-// (`trace`, Embree's rtcIntersect1) and whether it hits any (`occluded`,
-// rtcOccluded1), over a set of triangles. How that is computed -- that the
+// (`trace`, Embree's rtcIntersect1), whether it hits any (`occluded`,
+// rtcOccluded1) and the triangle closest to a point (`closest`,
+// rtcPointQuery with its closest-point tutorial's callback), over a set of
+// triangles. How that is computed -- that the
 // set is Embree's BVH8 over Triangle4 leaves, that a node's eight children
 // are tested at the node and descended into nearest first, that the
 // traversal is a loop over a stack -- is the schedule's (schedules/*.bonsai),
@@ -179,6 +181,101 @@ func distmax(r : Ray, tri : Triangle) -> Float {
     return -inf;
 }
 
+// Embree: RTCPointQuery, the point of it. rtcPointQuery's query is a point
+// and a radius, and the closest-point query Embree's tutorial makes of it
+// (tutorials/closest_point) begins with the radius infinite and shrinks it
+// to the distance of each closer triangle its callback finds. The query
+// here is the point alone; the shrinking is the argmin's (`closest`).
+element Point {
+    p : vec3f;
+}
+
+// Embree: pointQuerySphereDistAndMask (node_intersector1.h) -- the point
+// clamped into the box and the squared length of the offset, `v =
+// min(max(org, lower), upper) - org; dist = v.v`, the distance Embree's
+// point query orders the children by (traverseClosestHit on `dist`) and
+// tests them by (`dist <= radius^2`). Every metric of the closest-point
+// query is a squared distance, at the box and at the triangle: squared
+// distances order as distances do and are never negative, and nothing here
+// takes a root -- where Embree's callback takes one per triangle, its
+// radius being a distance (`radius = distance(q, p)`).
+func distmin(q : Point, b : AABB) -> Float {
+    v = min(max(q.p, b.low), b.high) - q.p;
+    return dot(v, v);
+}
+
+// The farthest a point of the box can be from `q`, squared: the farther of
+// the two faces along each axis.
+func distmax(q : Point, b : AABB) -> Float {
+    v = max(abs(q.p - b.low), abs(q.p - b.high));
+    return dot(v, v);
+}
+
+// Embree: closestPointTriangle (tutorials/common/math/closest_point.h, what
+// the closest-point tutorial's callback runs on each triangle the traversal
+// hands it) -- Ericson's Voronoi-region test (Real-Time Collision
+// Detection, 5.1.5), in Embree's order: the three vertex regions by the
+// signs of six dot products, then the three edge regions, else the face,
+// where the closest point is interior and given by its barycentrics. Over
+// the triangle as the block stores it: `a` is v0, `ab = b - a` is the
+// stored edge `e1 = v0 - v1` negated, `ac = c - a` is the stored `e2 = v2 -
+// v0`, and `p - b`, `p - c` follow from `p - a` by the edges. What is
+// returned is the squared distance to the closest point, the query's
+// metric, not the point.
+func distmin(q : Point, tri : Triangle) -> Float {
+    ab = -tri.e1;
+    ac = tri.e2;
+    ap = q.p - tri.v0;
+    d1 = dot(ab, ap);
+    d2 = dot(ac, ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return dot(ap, ap);
+    }
+    bp = ap - ab;
+    d3 = dot(ab, bp);
+    d4 = dot(ac, bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return dot(bp, bp);
+    }
+    cp = ap - ac;
+    d5 = dot(ab, cp);
+    d6 = dot(ac, cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return dot(cp, cp);
+    }
+    vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        v_ab = d1 / (d1 - d3);
+        d_ab = ap - v_ab * ab;
+        return dot(d_ab, d_ab);
+    }
+    vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        v_ac = d2 / (d2 - d6);
+        d_ac = ap - v_ac * ac;
+        return dot(d_ac, d_ac);
+    }
+    va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        v_bc = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        d_bc = bp - v_bc * (ac - ab);
+        return dot(d_bc, d_bc);
+    }
+    denom = 1.0 / (va + vb + vc);
+    v = vb * denom;
+    w = vc * denom;
+    d = ap - (v * ab + w * ac);
+    return dot(d, d);
+}
+
+// Embree: TriangleM::valid -- a slot of a block that holds fewer than four
+// triangles is all zeros with ids of -1 (TriangleM::fill), and Embree's
+// point query passes over it (PrimitivePointQuery1: `if (!prim.valid(i))
+// break`). The ray queries need no such test, the zero triangle never being
+// hit; the closest-point query does, the zero triangle sitting at the
+// origin.
+func valid(tri : Triangle) -> bool = tri.geomID != 4294967295u;
+
 extern triangles : set[Triangle];
 
 // Embree: TravRay -- the ray as the traversal reads it, its segment clamped
@@ -213,9 +310,21 @@ func occluded(r0 : Ray) -> bool {
     return any(|t : Triangle| intersects(r, t), triangles);
 }
 
+// Embree: rtcPointQuery with the closest-point tutorial's callback -- the
+// triangle closest to the point, if there is one. Embree's traversal walks
+// the tree ordered by the children's distance and hands every triangle it
+// reaches to the user's function, which measures the distance and shrinks
+// the query's radius to it when it is nearer; the argmin here is that
+// search, its running best the radius.
+func closest(q : Point) -> option[Triangle] {
+    return argmin(|t : Triangle| distmin(q, t),
+                  filter(|t : Triangle| valid(t), triangles));
+}
+
 // A batch of rays, each answered with the id of the triangle it hits or
-// 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), and a batch answered with
-// 1 where something is in the way. The rays are a parfor, which a schedule
+// 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), a batch answered with 1
+// where something is in the way, and a batch of points, each answered with
+// the id of the closest triangle. The rays are a parfor, which a schedule
 // may spread over the cores; the comparison's schedule leaves it unbound,
 // a plain loop, since the measurement is single-threaded on both sides.
 func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
@@ -234,6 +343,19 @@ func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n
 func [[export]] occluded_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
     parfor i in 0u:n {
         hits[i] = select(occluded(rays[i]), 1u, 0u);
+    }
+    return;
+}
+
+func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[u32, n]) {
+    parfor i in 0u:n {
+        h = closest(points[i]);
+        if h {
+            tri = *h;
+            hits[i] = tri.primID;
+        } else {
+            hits[i] = 4294967295u;
+        }
     }
     return;
 }

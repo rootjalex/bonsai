@@ -13,14 +13,18 @@
 // the same boxes in the same places. It makes three batches of rays --
 // primary rays from a camera, and from their hits short ambient-occlusion
 // rays and long diffuse bounces, as Aila and Laine's ray sets are made --
-// traces each with both sides, checks that they agree, and times them, each
-// the least of several runs after a warm-up, both sides on one thread: the
+// and two batches of points for the closest-point query -- points pushed
+// off the primary hits, and points anywhere in the mesh's box -- traces
+// each with both sides, checks that they agree, and times them, each the
+// least of several runs after a warm-up, both sides on one thread: the
 // program's parfor over the rays is unbound by the schedule, a plain loop,
 // and Embree's rays go through a plain loop of rtcIntersect1 over an array
 // of its ray structs made before the clock starts and reset between runs
 // off the clock (a struct written field by field just before the call
 // stalls Embree's first load of it, which is the driver's cost, not the
-// traversal's). The tree's storage is mapped the way Embree maps its own
+// traversal's); Embree's closest-point query is rtcPointQuery with the
+// callback of its closest-point tutorial, which is the only form Embree
+// offers for it. The tree's storage is mapped the way Embree maps its own
 // (os_malloc: 2 MB pages where the kernel gives them), so that the two
 // traversals pay the same for their page walks.
 //
@@ -947,6 +951,59 @@ std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
 }
 
 //===----------------------------------------------------------------------===//
+// Points
+//===----------------------------------------------------------------------===//
+
+// Query points for the closest-point query, from Embree's primary hits: one
+// point per hit, pushed off the surface along the geometric normal facing
+// the camera by a random distance of up to a tenth of the scene's diagonal
+// -- points about the surface, which is what a distance field or a walk on
+// spheres asks about.
+std::vector<Point> near_points(const std::vector<Ray> &primary,
+                               const std::vector<RTCRayHit> &hits, const Mesh &mesh,
+                               uint64_t seed) {
+    const float diagonal = length(mesh.hi - mesh.lo);
+    Rng rng;
+    rng.state += seed;
+    std::vector<Point> points;
+    points.reserve(primary.size());
+    for (size_t i = 0; i < primary.size(); i++) {
+        const RTCRayHit &h = hits[i];
+        if (h.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+            continue;
+        }
+        const Vec3 o{primary[i].o.x, primary[i].o.y, primary[i].o.z};
+        const Vec3 d{primary[i].d.x, primary[i].d.y, primary[i].d.z};
+        Vec3 n = normalize(Vec3{h.hit.Ng_x, h.hit.Ng_y, h.hit.Ng_z});
+        if (dot(n, d) > 0) {
+            n = n * -1.0f;
+        }
+        const Vec3 p = o + d * h.ray.tfar + n * (rng.uniform() * 0.1f * diagonal);
+        points.push_back(Point{to_float3(p)});
+    }
+    return points;
+}
+
+// Query points anywhere: `count` points uniform in the mesh's box grown by
+// a tenth of its extent on every side, most of them far from every
+// triangle.
+std::vector<Point> volume_points(const Mesh &mesh, size_t count, uint64_t seed) {
+    const Vec3 extent = mesh.hi - mesh.lo;
+    const Vec3 lo = mesh.lo - extent * 0.1f;
+    const Vec3 span = extent * 1.2f;
+    Rng rng;
+    rng.state += seed;
+    std::vector<Point> points;
+    points.reserve(count);
+    for (size_t i = 0; i < count; i++) {
+        const Vec3 p{lo.x + span.x * rng.uniform(), lo.y + span.y * rng.uniform(),
+                     lo.z + span.z * rng.uniform()};
+        points.push_back(Point{to_float3(p)});
+    }
+    return points;
+}
+
+//===----------------------------------------------------------------------===//
 // Tracing, both sides
 //===----------------------------------------------------------------------===//
 
@@ -1040,6 +1097,146 @@ void bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays,
                  tree.layout);
 }
 
+//===----------------------------------------------------------------------===//
+// The closest point, both sides
+//===----------------------------------------------------------------------===//
+
+// Embree: closestPointTriangle (tutorials/common/math/closest_point.h), the
+// routine its closest-point tutorial runs on every triangle the traversal
+// reaches -- Ericson's Voronoi-region test (Real-Time Collision Detection,
+// 5.1.5) in Embree's order of regions, transcribed.
+Vec3 closest_point_triangle(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
+    const Vec3 ab = b - a;
+    const Vec3 ac = c - a;
+    const Vec3 ap = p - a;
+    const float d1 = dot(ab, ap);
+    const float d2 = dot(ac, ap);
+    if (d1 <= 0.f && d2 <= 0.f) {
+        return a;
+    }
+    const Vec3 bp = p - b;
+    const float d3 = dot(ab, bp);
+    const float d4 = dot(ac, bp);
+    if (d3 >= 0.f && d4 <= d3) {
+        return b;
+    }
+    const Vec3 cp = p - c;
+    const float d5 = dot(ab, cp);
+    const float d6 = dot(ac, cp);
+    if (d6 >= 0.f && d5 <= d6) {
+        return c;
+    }
+    const float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.f && d1 >= 0.f && d3 <= 0.f) {
+        const float v = d1 / (d1 - d3);
+        return a + ab * v;
+    }
+    const float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.f && d2 >= 0.f && d6 <= 0.f) {
+        const float v = d2 / (d2 - d6);
+        return a + ac * v;
+    }
+    const float va = d3 * d6 - d5 * d4;
+    if (va <= 0.f && (d4 - d3) >= 0.f && (d5 - d6) >= 0.f) {
+        const float v = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + (c - b) * v;
+    }
+    const float denom = 1.f / (va + vb + vc);
+    const float v = vb * denom;
+    const float w = vc * denom;
+    return a + ab * v + ac * w;
+}
+
+// What a closest-point query records: the triangle and its distance.
+struct ClosestResult {
+    uint32_t prim = kNoHit;
+    float distance = kInf;
+};
+
+struct ClosestState {
+    const Mesh *mesh;
+    ClosestResult *result;
+    // How many triangles the traversal handed to the callback, over a
+    // batch: Embree's leaf work, which the table reports per query.
+    uint64_t callbacks = 0;
+};
+
+// Embree: the closest-point tutorial's callback (closest_point_device.cpp,
+// closestPointFunc), the one form Embree offers for a closest-point query:
+// rtcPointQuery traverses the tree by the distance from the point to each
+// node's box and hands every triangle of every leaf it reaches to this
+// function, one triangle at a time (PrimitivePointQuery1,
+// Geometry::pointQuery), which reads the triangle's vertices from the
+// mesh, finds the closest point on it, and, where that is nearer than the
+// query's radius, shrinks the radius to it and records the triangle --
+// returning true tells the traversal the radius changed. The tutorial's
+// branches for an instanced scene are left out; this scene has none.
+bool closest_point_callback(RTCPointQueryFunctionArguments *args) {
+    ClosestState *state = static_cast<ClosestState *>(args->userPtr);
+    state->callbacks++;
+    const Mesh &mesh = *state->mesh;
+    const uint32_t prim = args->primID;
+    const Vec3 q{args->query->x, args->query->y, args->query->z};
+    const Vec3 v0 = mesh.vertices[mesh.indices[3 * prim + 0]];
+    const Vec3 v1 = mesh.vertices[mesh.indices[3 * prim + 1]];
+    const Vec3 v2 = mesh.vertices[mesh.indices[3 * prim + 2]];
+    const Vec3 p = closest_point_triangle(q, v0, v1, v2);
+    const float d = length(q - p);
+    if (d < args->query->radius) {
+        args->query->radius = d;
+        state->result->prim = prim;
+        state->result->distance = d;
+        return true;
+    }
+    return false;
+}
+
+// Embree's query structs for a batch of points, made before the clock
+// starts as the rays' are: the point, time zero, and the radius infinite,
+// as the tutorial's queries begin -- the whole mesh in range, the radius
+// shrinking to each closer triangle found.
+void embree_queries(const std::vector<Point> &points, std::vector<RTCPointQuery> &out) {
+    out.resize(points.size());
+    for (size_t i = 0; i < points.size(); i++) {
+        out[i].x = points[i].p.x;
+        out[i].y = points[i].p.y;
+        out[i].z = points[i].p.z;
+        out[i].time = 0.0f;
+        out[i].radius = kInf;
+    }
+}
+
+// What a query writes -- the radius it shrank, and the result -- reset
+// between runs, off the clock: every query begins from infinity again.
+void reset_queries(std::vector<RTCPointQuery> &queries, std::vector<ClosestResult> &results) {
+    for (RTCPointQuery &q : queries) {
+        q.radius = kInf;
+    }
+    results.assign(queries.size(), ClosestResult{});
+}
+
+// Embree over a batch of points: rtcPointQuery per point, one plain loop,
+// each with a fresh context (no instances on its stack) and the callback
+// above recording into the point's slot. Returns the number of triangles
+// the callback was handed over the batch.
+uint64_t embree_closest(RTCScene scene, const Mesh &mesh, std::vector<RTCPointQuery> &queries,
+                        std::vector<ClosestResult> &results) {
+    ClosestState state{&mesh, nullptr};
+    for (size_t i = 0; i < queries.size(); i++) {
+        RTCPointQueryContext context;
+        rtcInitPointQueryContext(&context);
+        state.result = &results[i];
+        rtcPointQuery(scene, &queries[i], &context, closest_point_callback, &state);
+    }
+    return state.callbacks;
+}
+
+void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
+                    std::vector<uint32_t> &hits) {
+    hits.resize(points.size());
+    closest_all(uint32_t(points.size()), points.data(), hits.data(), tree.layout);
+}
+
 // The CPUs this process may run on -- what numactl left it -- for the record
 // at the top of the output.
 std::string allowed_cpus() {
@@ -1117,6 +1314,10 @@ double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim) {
 struct Agreement {
     size_t rays = 0, same = 0, ties = 0, differ = 0;
     size_t embree_hits = 0, bonsai_hits = 0;
+    // The largest difference between the two distances of a tie, as a
+    // fraction of the scene's diagonal, for the record that the ties are
+    // what they claim to be.
+    double tie_gap = 0;
 };
 
 Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
@@ -1167,6 +1368,106 @@ Agreement compare_occluded(const std::vector<uint32_t> &embree,
     return a;
 }
 
+// The distance from a point to a triangle, in double precision, for telling
+// a disagreement about which triangle is closest from a tie: a point whose
+// closest point lies on an edge or a vertex that two triangles share is as
+// close to both, and which of them is answered is the arithmetic's last
+// bits -- the common case for the closest point, not the rare one.
+double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
+    if (prim == kNoHit) {
+        return std::numeric_limits<double>::infinity();
+    }
+    const Vec3 pa = mesh.vertices[mesh.indices[3 * prim + 0]];
+    const Vec3 pb = mesh.vertices[mesh.indices[3 * prim + 1]];
+    const Vec3 pc = mesh.vertices[mesh.indices[3 * prim + 2]];
+    const double a[3] = {pa.x, pa.y, pa.z}, b[3] = {pb.x, pb.y, pb.z},
+                 c[3] = {pc.x, pc.y, pc.z}, p[3] = {pt.p.x, pt.p.y, pt.p.z};
+    double ab[3], ac[3], ap[3], bp[3], cp[3];
+    for (int k = 0; k < 3; k++) {
+        ab[k] = b[k] - a[k];
+        ac[k] = c[k] - a[k];
+        ap[k] = p[k] - a[k];
+        bp[k] = p[k] - b[k];
+        cp[k] = p[k] - c[k];
+    }
+    const auto dot3 = [](const double *u, const double *v) {
+        return u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    };
+    const auto dist_to = [&](const double *q) {
+        const double d[3] = {p[0] - q[0], p[1] - q[1], p[2] - q[2]};
+        return std::sqrt(dot3(d, d));
+    };
+    const double d1 = dot3(ab, ap), d2 = dot3(ac, ap);
+    if (d1 <= 0 && d2 <= 0) {
+        return dist_to(a);
+    }
+    const double d3 = dot3(ab, bp), d4 = dot3(ac, bp);
+    if (d3 >= 0 && d4 <= d3) {
+        return dist_to(b);
+    }
+    const double d5 = dot3(ab, cp), d6 = dot3(ac, cp);
+    if (d6 >= 0 && d5 <= d6) {
+        return dist_to(c);
+    }
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+        const double v = d1 / (d1 - d3);
+        const double q[3] = {a[0] + v * ab[0], a[1] + v * ab[1], a[2] + v * ab[2]};
+        return dist_to(q);
+    }
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+        const double v = d2 / (d2 - d6);
+        const double q[3] = {a[0] + v * ac[0], a[1] + v * ac[1], a[2] + v * ac[2]};
+        return dist_to(q);
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const double v = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        const double q[3] = {b[0] + v * (c[0] - b[0]), b[1] + v * (c[1] - b[1]),
+                             b[2] + v * (c[2] - b[2])};
+        return dist_to(q);
+    }
+    const double denom = 1.0 / (va + vb + vc);
+    const double v = vb * denom, w = vc * denom;
+    const double q[3] = {a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w,
+                         a[2] + ab[2] * v + ac[2] * w};
+    return dist_to(q);
+}
+
+// Two triangles are equally close when their distances agree to a hundred
+// thousandth of the scene's diagonal: the two sides' float arithmetic
+// differs in its last bits, and a point that lands within a hair of the
+// surface has a distance whose last bits are most of it, so the test is
+// against the scene's scale, not the distance's.
+Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
+                          const std::vector<ClosestResult> &embree,
+                          const std::vector<uint32_t> &ours) {
+    const double diagonal = length(mesh.hi - mesh.lo);
+    Agreement a;
+    a.rays = points.size();
+    for (size_t i = 0; i < points.size(); i++) {
+        const uint32_t e = embree[i].prim;
+        const uint32_t b = ours[i];
+        a.embree_hits += e != kNoHit;
+        a.bonsai_hits += b != kNoHit;
+        if (e == b) {
+            a.same++;
+            continue;
+        }
+        const double de = distance_to(mesh, points[i], e);
+        const double db = distance_to(mesh, points[i], b);
+        if (std::isfinite(de) && std::isfinite(db) &&
+            std::fabs(de - db) <= 1e-5 * diagonal) {
+            a.ties++;
+            a.tie_gap = std::max(a.tie_gap, std::fabs(de - db) / diagonal);
+        } else {
+            a.differ++;
+        }
+    }
+    return a;
+}
+
 void usage() {
     std::cerr
         << "usage: rtq.out [options] <mesh.ply | mesh.ply.gz>\n"
@@ -1174,13 +1475,14 @@ void usage() {
            "  --repeats N    timed runs per measurement, the least kept "
            "(default 5)\n"
            "  --embree-stats ask Embree to print its own tree's statistics\n"
-           "  --batch B      only the rays named: primary, ao or diffuse "
-           "(default all three)\n"
-           "  --query Q      only the query named: intersect or occluded "
-           "(default both)\n"
-           "Both sides run their rays as one plain loop on the calling "
-           "thread; compare.sh pins it. --batch and --query narrow a run to "
-           "one kernel over one kind of ray, for a profile of it.\n";
+           "  --batch B      only the rays or points named: primary, ao, "
+           "diffuse, near or volume (default all)\n"
+           "  --query Q      only the query named: intersect, occluded or "
+           "closest (default all)\n"
+           "Both sides run their rays and points as one plain loop on the "
+           "calling thread; compare.sh pins it. --batch and --query narrow a "
+           "run to one kernel over one kind of ray or point, for a profile "
+           "of it.\n";
     std::exit(1);
 }
 
@@ -1203,12 +1505,14 @@ int main(int argc, char **argv) {
             embree_stats = true;
         } else if (arg == "--batch" && i + 1 < argc) {
             only_batch = argv[++i];
-            if (only_batch != "primary" && only_batch != "ao" && only_batch != "diffuse") {
+            if (only_batch != "primary" && only_batch != "ao" && only_batch != "diffuse" &&
+                only_batch != "near" && only_batch != "volume") {
                 usage();
             }
         } else if (arg == "--query" && i + 1 < argc) {
             only_query = argv[++i];
-            if (only_query != "intersect" && only_query != "occluded") {
+            if (only_query != "intersect" && only_query != "occluded" &&
+                only_query != "closest") {
                 usage();
             }
         } else if (!arg.empty() && arg[0] == '-') {
@@ -1313,6 +1617,43 @@ int main(int argc, char **argv) {
             all_agree = all_agree && occ.differ == 0;
         }
     }
+
+    // The point sets, for the closest-point query: about the surface the
+    // camera saw, and anywhere in the box, as many of each as there were
+    // primary hits.
+    const std::vector<Point> near = near_points(primary, primary_hits, mesh, 3);
+    const std::vector<Point> volume = volume_points(mesh, near.size(), 4);
+    struct PointBatch {
+        const char *name;
+        const std::vector<Point> *points;
+    };
+    const PointBatch point_batches[2] = {{"near", &near}, {"volume", &volume}};
+    for (const PointBatch &batch : point_batches) {
+        const std::vector<Point> &points = *batch.points;
+        if (points.empty() || (!only_batch.empty() && only_batch != batch.name) ||
+            (!only_query.empty() && only_query != "closest")) {
+            continue;
+        }
+        std::vector<RTCPointQuery> queries;
+        std::vector<ClosestResult> embree_closest_of;
+        std::vector<uint32_t> ours;
+        embree_queries(points, queries);
+        uint64_t callbacks = 0;
+        const double te = timed(
+            repeats, [&] { reset_queries(queries, embree_closest_of); },
+            [&] { callbacks = embree_closest(scene, mesh, queries, embree_closest_of); });
+        const double tb = timed(repeats, [&] { bonsai_closest(tree, points, ours); });
+        const Agreement c = compare_closest(mesh, points, embree_closest_of, ours);
+        std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
+                    "differ (embree found %zu, bonsai %zu; ties agree to %.1e of the "
+                    "diagonal; embree's callback ran %.1f times a query)\n",
+                    batch.name, "closest", points.size(), points.size() / te * 1e-6,
+                    points.size() / tb * 1e-6, te / tb, c.same, c.ties, c.differ,
+                    c.embree_hits, c.bonsai_hits, c.tie_gap,
+                    double(callbacks) / double(points.size()));
+        all_agree = all_agree && c.differ == 0;
+    }
+
     std::printf("\n%s\n", all_agree ? "every ray agrees with Embree (up to ties)"
                                     : "DISAGREEMENTS with Embree; see above");
 

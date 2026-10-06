@@ -18,4 +18,14 @@ schedule {
             .vectorize(triangles.Leaf.data)
             .loopify(244);
     occluded.prefetch(triangles.Interior.children);
+
+    // The closest-point query as embree4.bonsai schedules it: no step of it
+    // has yet measured worse here, so nothing is dropped.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(244);
+    closest.prefetch(triangles.Interior.children);
 }

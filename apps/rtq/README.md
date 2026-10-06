@@ -1,7 +1,8 @@
 # apps/rtq
 
-A ray query -- the nearest triangle a ray hits, and whether it hits any --
-written in bonsai and compared against Embree on Embree's own tree.
+A ray query -- the nearest triangle a ray hits, whether it hits any, and
+the triangle closest to a point -- written in bonsai and compared against
+Embree on Embree's own tree.
 `rtq.bonsai` is the program, `schedules/*.bonsai` the ways of running it,
 `schedules/trees/bvh8.bonsai` the tree and its bytes, and `rtq_hook.cpp` the
 C++ driver that reads a mesh, has Embree build the tree into the layout,
@@ -12,9 +13,11 @@ The reference is Embree 4 as shipped: on a machine with AVX it builds a
 BVH8 over Triangle4 leaves (eight children per node, the children's boxes
 stored in the parent, leaves of up to seven blocks of four triangles, the
 leaf flag and block count in the child reference's low bits) and traverses
-it with `rtcIntersect1` and `rtcOccluded1`. The program computes what Embree
-computes -- its Moeller-Trumbore triangle test and its slab test,
-transcribed -- and the schedule runs it the way Embree runs it: the
+it with `rtcIntersect1`, `rtcOccluded1` and `rtcPointQuery` (the last with
+the callback of Embree's closest-point tutorial, the one form Embree offers
+for a closest-point query). The program computes what Embree computes --
+its Moeller-Trumbore triangle test, its slab test and its closest point on
+a triangle, transcribed -- and the schedule runs it the way Embree runs it: the
 children of a node tested at the node, the hits sorted by entry distance and
 pushed, the nearest descended into, over a stack of Embree's depth. The tree
 is built by Embree's builder (`rtcBuildBVH`, with the settings of Embree's
@@ -63,12 +66,19 @@ and, with Embree's builder, the same tree into the layout; shoots a `side`
 by `side` image of primary rays from a camera a scene diagonal and a half
 away; from Embree's primary hits makes a batch of short ambient-occlusion
 rays (a tenth of the diagonal) and a batch of unbounded diffuse bounces,
-cosine-distributed about the normal; and for each batch and each query
+cosine-distributed about the normal; for each batch and each query
 (nearest hit, any hit) times Embree and the program, each the least of
-`--repeats` runs after one warm-up. Every answer is checked against
-Embree's: a nearest-hit disagreement where the two triangles are at the
-same distance is a tie, which either side may answer either way; any other
-disagreement fails the run.
+`--repeats` runs after one warm-up; and does the same for the closest-point
+query over two batches of points, as many as there were primary hits --
+`near`, the hit points pushed off the surface along the normal by up to a
+tenth of the diagonal, and `volume`, points uniform in the mesh's box grown
+by a tenth on every side. Every answer is checked against Embree's: a
+nearest-hit disagreement where the two triangles are at the same distance
+is a tie, which either side may answer either way, as is a closest-point
+disagreement where the two triangles are equally close (a point whose
+closest point is on an edge or a vertex two triangles share, the common
+case); any other disagreement fails the run. The closest-point rows also
+say how many triangles Embree's traversal handed its callback per query.
 
 The measurement is single-threaded and pinned. Both sides run their rays as
 one plain loop on one core: the program's parfor over the rays is left
@@ -98,17 +108,20 @@ The table it prints, per batch and query: rays, million rays per second for
 each side, the speedup (Embree's time over ours), and the agreement counts.
 `--embree-stats` asks Embree to print its own tree's statistics (node and
 leaf counts, SAH), beside the tree the driver built, to check that the two
-are the same tree. `--batch primary|ao|diffuse` and `--query
-intersect|occluded` narrow a run to one kernel over one kind of ray, which
-is what a profile of it wants (`perf record` over the driver, the two
-sides' kernels told apart by symbol).
+are the same tree. `--batch primary|ao|diffuse|near|volume` and `--query
+intersect|occluded|closest` narrow a run to one kernel over one kind of
+ray or point, which is what a profile of it wants (`perf record` over the
+driver, the two sides' kernels told apart by symbol).
 
 ## Layout of the files
 
 - `rtq.bonsai`: Embree's ray, triangle (a vertex and two edges, with its
   ids, as `TriangleM` stores a slot), box test (`node_intersector1.h`) and
-  triangle test (`triangle_intersector_moeller.h`), and the two queries
-  over `extern triangles : set[Triangle]`, plus the exported batches.
+  triangle test (`triangle_intersector_moeller.h`); its point, its
+  point-to-box distance (`pointQuerySphereDistAndMask`) and its closest
+  point on a triangle (`tutorials/common/math/closest_point.h`), as
+  squared distances; and the three queries over `extern triangles :
+  set[Triangle]`, plus the exported batches.
 - `schedules/trees/bvh8.bonsai`: the tree -- a node holding its eight
   children as an array with one box annotation over them, a leaf holding
   a run of triangles -- and the layout, Embree's bytes: one arena of
@@ -134,7 +147,10 @@ sides' kernels told apart by symbol).
   depth), the leaf's early exit after a block's edge tests (`skip` of the
   triangle test's early returns, Embree's `early_out`), and the prefetch of
   every hit child's storage as the node test finds it (`prefetch` of the
-  children, Embree's `BVH::prefetch`), for both queries.
+  children, Embree's `BVH::prefetch`), for both ray queries; and the
+  closest-point query sorted by the point's squared distance to each
+  child's box, as Embree's `pointQuery` orders its traversal, with the
+  same node test, leaf, stack and prefetch.
 - `schedules/tuned.bonsai`: the same without either query's early exit,
   which measures 5-7% slower on the any hit's incoherent rays and 5-14%
   slower on the nearest hit's (see PLAN.md); the schedule that departs

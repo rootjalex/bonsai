@@ -4073,6 +4073,225 @@ blend (ad9da0f0), with the tuned4 schedule 1.01-1.18x over the same
 cells. The next items stand as the section above left them: the
 prefetch width (a short A/B), then the other Embree trees.
 
+## The closest point against Embree's rtcPointQuery (2026-10-05)
+
+The user's ask: what other trees and queries Embree supports (the section
+after this one), and how we compare on the closest point, on the two
+trees in hand. The query is new in rtq; nothing in the compiler changed.
+
+What Embree offers. rtcPointQuery (rtcore_scene.h:154) takes a point and
+a radius and runs BVHNIntersector1::pointQuery
+(bvh_intersector1.cpp:211-297): the nearest hit's loop with the point's
+squared distance to each child's box where the ray has its entry
+distance -- pointQuerySphereDistAndMask (node_intersector1.h:200-212), `v
+= min(max(org, lower), upper) - org; dist = v.v; mask = dist <= rad^2`
+-- the children ordered by it with the same traverseClosestHit, and a
+popped node dropped where its distance is beyond the radius squared. The
+leaf is the user's: PrimitivePointQuery1 (geometry/primitive.h:30-45)
+calls Geometry::pointQuery (common/geometry.cpp:237-264) for each valid
+triangle of each block, which fills an argument struct and calls the
+function the query was given. Embree computes no distance to a primitive
+itself. Its closest-point tutorial's callback
+(tutorials/closest_point/closest_point_device.cpp:267-346) reads the
+triangle's vertices from the mesh, runs closestPointTriangle
+(tutorials/common/math/closest_point.h: Ericson's Voronoi-region test,
+Real-Time Collision Detection 5.1.5), takes the distance -- a square root
+-- and where it is below the radius shrinks the radius to it and records
+the triangle, returning true to say so. One more thing the code says,
+verified (context.h:102-155, geometry.cpp:253-261,
+bvh_intersector1.cpp:282): without instances, the radius the node test
+uses is never refreshed. `context->query_radius` is set at construction
+from the query's radius and rewritten only on the instance path, and
+`tquery.rad = context->query_radius` after a leaf shrinks the radius
+copies the same value -- so a query from infinity has every valid child
+of every visited node pass the mask and be pushed, and the shrinking
+radius prunes at the pop alone (`stackPtr->dist > cull_radius`).
+Correct, but the node test culls nothing and every node sorts all of its
+children.
+
+The query here (rtq.bonsai). `Point`; `distmin(Point, AABB)`, Embree's
+clamped squared distance, and `distmax`; `distmin(Point, Triangle)`,
+Ericson's test in Embree's order over the triangle as the block stores it
+(`a = v0`, `ab = -e1`, `ac = e2`, `p - b` and `p - c` from `p - a`),
+returning the squared distance; `valid(t)`, Embree's TriangleM::valid
+(`geomID != -1`), which the point query needs where the ray queries do
+not, the padding slot being the zero triangle at the origin; `closest(q)
+= argmin(|t| distmin(q, t), filter(|t| valid(t), triangles))`; and the
+exported batch. Squared distances throughout -- they order as distances
+do and are never negative -- so there is no root anywhere, where Embree's
+callback takes one per triangle. The schedule is the nearest hit's,
+directive for directive: `sort` by `distmin(q, box)`, `vectorize` of the
+children and of the leaf, `loopify`, `prefetch`, in all four files (the
+tuned ones the same as the matching, no step having measured worse yet).
+The lowering makes the traversal with `distmin(q, box) < best` at the
+node and again at the pop. The leaf is where Embree's shape cannot be
+followed, Embree having no leaf code for this query; the four-wide leaf
+over the block's stored edges is the query's own form. The kernel,
+four-wide: 552 lines of LLVM, 161 four-wide float operations, four vector
+divisions, no square root, no scalar float operation -- the seven
+Voronoi regions evaluated as selects over the four lanes.
+
+The driver. Two batches of points, as many as there were primary hits
+(side 1024: 9.5k on zero-day to 345k on villa): `near`, the hit points
+pushed along the normal facing the camera by a random distance up to a
+tenth of the diagonal (what a distance field or a walk on spheres asks);
+`volume`, uniform in the mesh's box grown by a tenth on every side.
+Embree's side is rtcPointQuery per point with a fresh context, the radius
+infinite as the tutorial's queries begin, the tutorial's callback
+transcribed (the vertices from the mesh, closestPointTriangle, the
+distance, the radius shrunk) without its branches for instances; the
+query structs made before the clock and reset between runs, as the rays'
+are. The row also counts the triangles Embree handed its callback per
+query. Agreement: the two triangles' distances in double; equal to a
+hundred-thousandth of the diagonal is a tie -- a point whose closest
+point lies on an edge or a vertex two triangles share, 1-18% of the
+points, or a point within a hair of the surface, whose distance is mostly
+last bits, which is why the test is against the scene's scale and not the
+distance's (the first form, relative to the distance, read gaps of 1e-3
+on such points). The largest tie gap over the 26 cells is 2.9e-7 of the
+diagonal, float rounding; no differences on any mesh at either width.
+
+Measured (compare.sh --query closest, side 1024, least of five, one
+thread on both sides on cpu 11, the machine quiet 19:10-19:18; the
+matching schedules alone, the tuned ones being the same directives for
+this query; a first pass at side 2048 was stopped, Embree's side taking
+minutes a mesh). Bonsai's rate over Embree's; Embree's rate in million
+queries a second and its callbacks per query from the eight-wide pass:
+
+| mesh | triangles | BVH4 near | BVH4 volume | BVH8 near | BVH8 volume | Embree Mq/s near / volume | callbacks a query near / volume |
+|---|---|---|---|---|---|---|---|
+| head | 17674 | 3.92x | 4.42x | 4.00x | 4.57x | 0.77 / 0.58 | 49.7 / 57.7 |
+| ganesha | 4323658 | 5.74x | 7.27x | 6.06x | 8.45x | 0.11 / 0.03 | 282.3 / 308.3 |
+| dragon | 7219045 | 5.90x | 7.07x | 6.44x | 8.06x | 0.05 / 0.03 | 653.4 / 534.0 |
+| pavilion | 11366 | 3.31x | 4.47x | 3.16x | 4.51x | 2.24 / 0.68 | 17.8 / 46.9 |
+| zero-day | 48960 | 3.78x | 4.07x | 4.01x | 4.24x | 0.39 / 0.33 | 110.2 / 121.8 |
+| bmw | 110592 | 4.19x | 4.57x | 4.29x | 4.82x | 0.52 / 0.31 | 70.1 / 108.2 |
+| crown | 155520 | 4.39x | 4.50x | 4.60x | 4.82x | 0.36 / 0.25 | 103.2 / 134.2 |
+| ivy | 179603 | 5.43x | 4.85x | 5.33x | 4.74x | 0.37 / 0.51 | 83.0 / 68.9 |
+| villa | 390784 | 4.38x | 4.88x | 4.56x | 5.16x | 0.33 / 0.22 | 112.6 / 153.0 |
+| sportscar | 1091232 | 4.78x | 5.34x | 4.95x | 5.79x | 0.16 / 0.12 | 238.2 / 221.6 |
+| dambreak | 1015024 | 4.04x | 5.48x | 3.98x | 5.92x | 0.72 / 0.32 | 36.7 / 40.8 |
+| landscape | 1916928 | 3.52x | 3.09x | 3.58x | 3.26x | 0.41 / 0.72 | 68.6 / 35.3 |
+| lte-orb | 3423232 | 4.77x | 5.03x | 4.99x | 5.70x | 0.07 / 0.02 | 526.8 / 1320.1 |
+
+Four-wide 3.3-5.9x on near points and 3.1-7.3x on volume points;
+eight-wide 3.2-6.4x and 3.3-8.5x. The gap grows with the mesh: head and
+pavilion at 3-4.5x with Embree handing its callback 20-60 triangles a
+query, ganesha and dragon at 6-8.5x with 300-650. Where the time goes,
+by perf on head's near points, eight-wide, cycles: Embree's callback 36%
+of the samples, Geometry::pointQuery's per-triangle dispatch 21%, its
+traversal 18%; ours, the whole query, 19%. Our entire query costs what
+Embree's traversal alone costs, and Embree's leaf -- callback and
+dispatch, 58% of the samples -- is three times our whole query. Three
+things make the gap, largest first: Embree's leaf is a function call per
+triangle (an argument struct written then read, two indirect calls, the
+vertices gathered through the mesh's indices, a square root) where ours
+reads four triangles where they lie and tests them as four lanes; Embree's
+node test culls nothing, the radius it uses being the initial infinity,
+so every visited node pushes and sorts all its children where ours tests
+them against the best; and both grow with the mesh, Embree's callback
+count most (lte-orb's volume points: 1320 triangles a query). A question
+of what Embree would do given a tighter radius was asked and withdrawn:
+the reference is measured as it ships, a real query from infinity.
+
+What this comparison is. The one query in rtq where the matching schedule
+cannot follow Embree's code at the leaf, because Embree has no leaf code
+for it; the table compares the closest-point query a user of Embree can
+write, the way Embree's own tutorial writes it, with the query here. Next
+for it: the range query (the same rtcPointQuery, the callback never
+shrinking the radius), item 1 of the plan below; and `skip` on the
+Voronoi regions' early returns as a tuned experiment, expected level, the
+leaf being four lanes of selects.
+
+## Embree's trees and queries: what is matched, what is left (2026-10-05)
+
+The inventory, from the checkout at deps/embree (4.4.1), for planning what
+rtq covers next; file paths are Embree's.
+
+Trees. Two widths, BVHN<4> and BVHN<8> (bvh.h), chosen per scene in
+Scene::create*Accel (common/scene.cpp:152-712): eight wide on a machine
+with AVX for a scene that is not compact, four wide otherwise and always
+for a compact scene. Node kinds, each with its tag in the reference's low
+bits (bvh_node_ref.h): the AABB node (bvh_node_aabb.h, the one matched);
+its motion-blur forms, bounds plus per-child deltas linear in time
+(AABBNodeMB, bvh_node_aabb_mb.h) and with a time interval per child for
+time splits (AABBNodeMB4D, bvh_node_aabb_mb4d.h); the oriented-box node
+for curves, an affine space per child (OBBNode, bvh_node_obb.h, and its
+MB form); and the quantized node, eight-bit bounds with a start and scale
+per node, dequantized at the test (QuantizedNode, bvh_node_qaabb.h),
+reachable only through the device config (`tri_accel=qbvh4.triangle4i`,
+`qbvh8.triangle4i`, `qbvh8.triangle4`, scene.cpp:223-230), not through a
+scene flag. Triangle leaves, by `mode = 2 * compact + robust`
+(scene.cpp:156-218): Triangle4 (a vertex and two edges, Moeller; the one
+matched) by default; Triangle4v (three vertices, Pluecker, with the
+robust node test) under RTC_SCENE_FLAG_ROBUST; Triangle4i (three vertex
+indices into the mesh, the vertices gathered at the test) under
+RTC_SCENE_FLAG_COMPACT, four wide only. Build quality LOW selects the
+two-level build (a top-level tree over per-geometry trees, refit or
+rebuilt per geometry) with the same leaves. Motion blur puts Triangle4i
+leaves under MB4D nodes (Triangle4vMB only by config). Beyond triangles:
+quads (Quad4v, Quad4i); curves, lines and points under mixed AABB and OBB
+nodes (Curve8v, Curve4i/8i, Line4i, Point4i, chosen per geometry in
+bvh_builder_hair.cpp); grids as subgrids with an embedded quantized box
+(SubGridQBVH4/8); subdivision patches with eager grids (SubdivPatch1,
+GridSOA), four wide only; user geometry (Object); instances
+(InstancePrimitive) and instance arrays (InstanceArrayPrimitive). Each
+geometry kind gets an accel of its own and AccelN walks them in turn
+(acceln.cpp).
+
+Queries (include/embree4/rtcore_scene.h). rtcIntersect1 and rtcOccluded1
+(matched); their packet forms rtcIntersect4/8/16 and rtcOccluded4/8/16,
+which are separate kernels (BVHNIntersectorKHybrid: a packet traversal
+that falls to single rays when few are active); each with an optional
+arguments struct (coherent/incoherent flags, a feature mask, a context,
+filter callbacks per hit, an intersect callback for user geometry).
+rtcForwardIntersect/Occluded, a ray continued from a user-geometry
+callback into another scene (for instancing done by hand). rtcPointQuery
+(matched today, below) and rtcPointQuery4/8/16, which are scalar loops
+over it (rtcore.cpp:514-597). rtcCollide, the overlap of two scenes' trees
+with every leaf pair handed to a callback, no narrow phase, user geometry
+only (bvh_collider.cpp). Geometry masks and filter functions, which are
+predicates per hit. rtcInterpolate is not a tree query. The stream API
+(rtcIntersect1M/NM/Np) is gone in 4 (CHANGELOG.md).
+
+The plan, in the order recommended, each item its layout match first,
+then the matching schedule, then every mesh and ray type, as the ray
+queries were done:
+
+1. The range query: rtcPointQuery whose callback never shrinks the radius
+   -- every triangle within a distance -- against `filter(|t| distmin(p,
+   t) <= r2, triangles)` collected or counted. The same tree and the same
+   callback shape as the closest point, an hour's work, and it measures
+   the `filter` lowering over a tree, which nothing in rtq does yet.
+2. Triangle4v, Embree's robust mode: the leaf as three vertices (the same
+   176 bytes), the Pluecker test (triangle_intersector_pluecker.h), the
+   robust node test (intersectNodeRobust: the reciprocal direction scaled
+   down by three ulps for the near slabs and up by three for the far,
+   node_intersector1.h:106-110), RTC_SCENE_FLAG_ROBUST on Embree's side.
+   The first of the other trees by the standing direction.
+3. Triangle4i and the quantized node, Embree's compact direction: the leaf
+   as indices into a second storage (the mesh's vertices), the vertices
+   gathered at the test -- the layout language's indirection -- and the
+   quantized node's eight-bit bounds dequantized at the test, comparable
+   eight wide against Triangle4 through `tri_accel=qbvh8.triangle4`.
+4. Ray packets: rtcIntersect8/16 against the parfor over the rays
+   vectorized -- the packet traversal the schedule asks for -- on coherent
+   primary rays where Embree's packets pay and on incoherent ones where
+   its hybrid falls back to single rays. The item that measures the
+   vectorizer against Embree's hand-written packet kernels.
+5. Instances: a top-level tree over transforms and per-object trees,
+   `flatten` over a match (docs/trees-of-mixed-primitives.md), against
+   rtcIntersect1 through InstancePrimitive; needs a multi-object input to
+   the driver. pbrt's scenes are where this matters.
+6. Lower, as pbrt needs them: motion blur (Triangle4i under MB4D nodes,
+   two vertex sets and a time), quads (Quad4v: two triangles sharing an
+   edge, tested as one), curves and hair (OBB nodes and the curve
+   intersectors, the hardest), rtcCollide (a join of two trees by box
+   overlap, apps/queries/joins; Embree's is user geometry only, so the
+   comparison would be on boxes), and masks and filter functions (REST
+   predicates per hit; Embree's filter is a callback per hit, the point
+   query's shape again).
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

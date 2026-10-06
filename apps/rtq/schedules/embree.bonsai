@@ -90,6 +90,26 @@ schedule {
     // traversal does (BVH::prefetch on `cur` and on each child pushed).
     occluded.prefetch(triangles.Interior.children);
 
+    // Embree: BVHNIntersector1::pointQuery (bvh_intersector1.cpp) -- the
+    // closest-point query walks the tree as the nearest hit does: the eight
+    // children tested at the node (pointQuerySphereDistAndMask, the point's
+    // squared distance to each child's box), the nearest descended into and
+    // the rest pushed by that distance (the same traverseClosestHit), the
+    // same stack, a popped node dropped where its distance is beyond the
+    // best found, and the hit children prefetched as they are taken. The
+    // leaf is where Embree's shape cannot be followed: its point query
+    // hands each triangle of a block to the user's callback one at a time
+    // (PrimitivePointQuery1, Geometry::pointQuery), a scalar routine over
+    // the mesh's own vertices, so the four-wide leaf here, over the block's
+    // stored edges, is the query's own form.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(564);
+    closest.prefetch(triangles.Interior.children);
+
     // The parfor over the rays is left unbound, so it lowers to a plain
     // sequential loop: the comparison is single-threaded on both sides
     // (compare.sh), and Embree's rays go through a loop of rtcIntersect1.
