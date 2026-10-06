@@ -1224,10 +1224,13 @@ func alpha_accepts(r : Ray, world : Ray, p : Geometric) -> bool {
     }
     g = surface_geometry(p.shape, r);
     // pbrt: `alpha.Evaluate(TextureEvalContext(intr))`, the context of a bare
-    // Interaction -- its point and uv, no footprint and no normal.
+    // Interaction -- its point and uv, no footprint and no normal. Through
+    // the BASIC evaluator, as pbrt's anyhit does (BasicTextureEvaluator):
+    // this body is the hardware's anyhit program, and the general
+    // evaluator's every-variant machinery has no place in it.
     zero = vec3f{0.0, 0.0, 0.0};
     ctx : TextureEvalContext = {g.p, zero, zero, zero, g.uv, 0.0, 0.0, 0.0, 0.0};
-    a = eval_float(p.alpha, ctx);
+    a = eval_float_basic(p.alpha, ctx);
     if a >= 1.0 {
         return true;
     }

@@ -783,6 +783,32 @@ func eval_float_leaf(t : Texture, ctx : TextureEvalContext) -> Float {
     }
 }
 
+// pbrt: BasicTextureEvaluator, the whole texture language of the GPU's
+// stochastic alpha test (gpu/optix/optix.cu, alphaKilled): an image or a
+// constant, nothing else -- pbrt refuses anything richer for alpha on the
+// GPU, and scene_dump refuses it the same way, so the other arms below are
+// unreachable and return the never-masked 1. Written apart from eval_float
+// because of where this one runs: inlined into the anyhit program the ray
+// tracing hardware calls on EVERY candidate hit of a cutout. The general
+// evaluator's three levels put ~10k lines of every texture variant's
+// machinery into that program; this one is the tag switch, a texture fetch
+// and a constant -- the program pbrt keeps to a record load and a fetch.
+func eval_float_basic(index : i32, ctx : TextureEvalContext) -> Float {
+    t = textures[cast[[u32]](index)];
+    match t {
+        Image(i) => return texture_float(i, ctx);
+        Constant(value, rgb) => return value;
+        Scale(tex, scale) => return 1.0;
+        Mix(tex1, tex2, amount) => return 1.0;
+        DirectionMix(tex1, tex2, dir) => return 1.0;
+        FBm(texture_from_render, octaves, omega) => return 1.0;
+        Wrinkled(texture_from_render, octaves, omega) => return 1.0;
+        Windy(texture_from_render) => return 1.0;
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 1.0;
+    }
+}
+
 func eval_rgb_leaf(t : Texture, ctx : TextureEvalContext) -> vec3f {
     match t {
         Image(i) => return texture_rgb(i, ctx);

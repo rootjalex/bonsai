@@ -6207,6 +6207,20 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 }
             }
         }
+        // pbrt's GPU path evaluates alpha with BasicTextureEvaluator -- an
+        // image or a constant, nothing composite -- and the renderer's
+        // anyhit program is written over exactly that set
+        // (eval_float_basic, textures.bonsai), so anything richer would be
+        // silently unmasked. Refused here instead, as pbrt refuses it.
+        if (alpha >= 0) {
+            const uint32_t kind = out.textures[size_t(alpha)].kind;
+            if (kind != bonsai_scene::TextureKind::Image &&
+                kind != bonsai_scene::TextureKind::Constant) {
+                fail("a shape's `alpha` texture has to be an image or a "
+                     "constant, the set pbrt's GPU alpha test evaluates "
+                     "(BasicTextureEvaluator)");
+            }
+        }
 
         if (name == "sphere") {
             // PBRT: Sphere::Create and the constructor -- the radius; zmin and
