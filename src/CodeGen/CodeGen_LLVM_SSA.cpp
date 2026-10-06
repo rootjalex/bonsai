@@ -112,11 +112,44 @@ struct CodeGen_LLVM::SSALowering {
     // entry block, in place of an argument.
     std::function<llvm::Value *(const Argument &)> supply_argument;
 
+    // For a kernel (run_kernel): what the kernel's blocks write, by root,
+    // and the function's instructions by name for the root walk. Within one
+    // launch every buffer has one role -- a drain reads its queue's entries
+    // and writes only other queues' -- so a root the kernel never writes is
+    // read-only for the launch, every thread's (see launch_readonly below).
+    std::optional<ir::ssa::KernelWrites> launch_writes;
+    std::unordered_map<std::string, const ir::ssa::Instruction *> kernel_defs;
+
     SSALowering(CodeGen_LLVM &cg, const ir::ssa::Function &func,
                 llvm::Function *function)
         : cg(cg), func(func), function(function) {}
 
     const std::string &entry() const { return func.blocks.front()->name; }
+
+    // A name whose root this kernel never writes reads as the scene's
+    // extern arrays do: its type gains the readonly bit (Type::as_readonly),
+    // so the loads through it carry !invariant.load -- NVPTX's
+    // ld.global.nc -- and the compiler and hardware may re-read the value
+    // at will. Sound for the launch, not the program: the same arrays are
+    // another kernel's to write, which is why the bit is set here, per
+    // kernel, and not on the storage. What it buys on the ray tracing
+    // hardware: a value the hardware may re-read need not ride the
+    // continuation stack across an optixTrace
+    // (sink_invariant_loads_past_traces, CodeGen_PTX.cpp).
+    Expr launch_readonly(const std::shared_ptr<Value> &v, Expr rebuilt) {
+        if (!launch_writes.has_value() || rebuilt.type().is_readonly() ||
+            !(rebuilt.type().is<Ptr_t>() || rebuilt.type().is_reference())) {
+            return rebuilt;
+        }
+        const ir::ssa::Roots roots = ir::ssa::roots_of(v, kernel_defs);
+        if (roots.unknown || roots.names.empty() ||
+            launch_writes->writes(roots.names)) {
+            return rebuilt;
+        }
+        const Var *var = rebuilt.as<Var>();
+        internal_assert(var != nullptr);
+        return Var::make(var->type.as_readonly(), var->name);
+    }
 
     // An operand, as an expression referring to whatever already holds it.
     Expr operand(const std::shared_ptr<Value> &v) {
@@ -125,7 +158,7 @@ struct CodeGen_LLVM::SSALowering {
             return constant(*c);
         }
         if (const auto *a = std::get_if<Argument>(&v->data)) {
-            return Var::make(a->type, a->name);
+            return launch_readonly(v, Var::make(a->type, a->name));
         }
         const auto &instr = std::get<std::shared_ptr<Instruction>>(v->data);
 
@@ -188,7 +221,7 @@ struct CodeGen_LLVM::SSALowering {
             }
             return PtrTo::make(Access::make(field, Deref::make(base)));
         }
-        return Var::make(instr->type, instr->name);
+        return launch_readonly(v, Var::make(instr->type, instr->name));
     }
 
     Expr constant(const Constant &c) {
@@ -1192,6 +1225,25 @@ struct CodeGen_LLVM::SSALowering {
                         &prologue) {
         for (const auto &block : func.blocks) {
             by_name[block->name] = block.get();
+        }
+        // The kernel's writes by root, for launch_readonly: computed over
+        // the body's own region, since the enclosing function's other
+        // blocks -- another kernel filling what this one drains -- are
+        // other launches.
+        kernel_defs = ir::ssa::instruction_names(func);
+        launch_writes = ir::ssa::kernel_writes(func, p.body.name);
+        if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+            std::cerr << "kernel over " << p.index << ": writes";
+            if (launch_writes->unknown) {
+                std::cerr << " unknown (every load stays mutable; via "
+                          << (launch_writes->why != nullptr ? launch_writes->why
+                                                            : "?")
+                          << ")";
+            }
+            for (const std::string &prefix : launch_writes->prefixes) {
+                std::cerr << " " << prefix;
+            }
+            std::cerr << "\n";
         }
         cg.frames.push_frame();
         cg.current_sret = nullptr;

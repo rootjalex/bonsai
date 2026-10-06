@@ -16,6 +16,8 @@
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/IntrinsicsNVPTX.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Verifier.h>
@@ -1179,6 +1181,98 @@ void CodeGen_PTX::link_libdevice() {
     }
 }
 
+namespace {
+
+// Whether `before` executes before `at` on every path that reaches `at`.
+bool executes_before(const llvm::DominatorTree &dt,
+                     const llvm::Instruction *before,
+                     const llvm::Instruction *at) {
+    if (before->getParent() == at->getParent()) {
+        return before->comesBefore(at);
+    }
+    return dt.properlyDominates(before->getParent(), at->getParent());
+}
+
+// A value live across an optixTrace rides the pipeline's continuation stack:
+// OptiX spills it before the call and reloads it after, bytes per thread per
+// trace. A load marked !invariant.load -- its memory does not change during
+// the launch (launch_readonly, CodeGen_LLVM_SSA.cpp) -- need not be carried
+// over at all: moved to just after the trace it is live only from there to
+// its uses, and the spill is gone. pbrt's __raygen__findClosest has the same
+// shape by construction: the hit path re-reads the ray queue inside the
+// closest-hit program rather than carrying it across the trace
+// (gpu/optix/optix.cu). Run after the optimizer, once everything is inlined
+// into the raygen and the trace calls and the loads sit in one function; a
+// module with no trace -- every CUDA module -- is untouched.
+void sink_invariant_loads_past_traces(llvm::Module &module) {
+    for (llvm::Function &fn : module) {
+        if (fn.isDeclaration()) {
+            continue;
+        }
+        std::vector<llvm::CallInst *> traces;
+        for (llvm::BasicBlock &bb : fn) {
+            for (llvm::Instruction &inst : bb) {
+                auto *call = llvm::dyn_cast<llvm::CallInst>(&inst);
+                if (call == nullptr) {
+                    continue;
+                }
+                const auto *asm_callee =
+                    llvm::dyn_cast<llvm::InlineAsm>(call->getCalledOperand());
+                if (asm_callee != nullptr &&
+                    asm_callee->getAsmString().find("_optix_trace") !=
+                        std::string::npos) {
+                    traces.push_back(call);
+                }
+            }
+        }
+        if (traces.empty()) {
+            continue;
+        }
+        const llvm::DominatorTree dt(fn);
+        // To a fixed point: a load crossing two traces moves past each in
+        // turn.
+        for (bool moved = true; moved;) {
+            moved = false;
+            std::vector<llvm::LoadInst *> loads;
+            for (llvm::BasicBlock &bb : fn) {
+                for (llvm::Instruction &inst : bb) {
+                    auto *load = llvm::dyn_cast<llvm::LoadInst>(&inst);
+                    if (load != nullptr && !load->use_empty() &&
+                        load->getMetadata(
+                            llvm::LLVMContext::MD_invariant_load) != nullptr) {
+                        loads.push_back(load);
+                    }
+                }
+            }
+            for (llvm::CallInst *trace : traces) {
+                for (llvm::LoadInst *load : loads) {
+                    if (!executes_before(dt, load, trace)) {
+                        continue;
+                    }
+                    // Every reader must run only after the trace. A phi
+                    // reads on its incoming edge, not at its own position,
+                    // so a load a phi reads stays put.
+                    const bool all_after = llvm::all_of(
+                        load->users(), [&](const llvm::User *u) {
+                            const auto *reader =
+                                llvm::dyn_cast<llvm::Instruction>(u);
+                            return reader != nullptr &&
+                                   !llvm::isa<llvm::PHINode>(reader) &&
+                                   executes_before(dt, trace, reader);
+                        });
+                    if (!all_after) {
+                        continue;
+                    }
+                    load->moveAfter(trace);
+                    moved = true;
+                }
+            }
+        }
+    }
+}
+
+} // namespace
+
 void CodeGen_PTX::finish() {
     frames.pop_frame();
     // Every device function folded into the kernels that call it. ptxas
@@ -1219,6 +1313,7 @@ void CodeGen_PTX::finish() {
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] the device module is invalid";
     optimize_module(*target_machine, *options);
+    sink_invariant_loads_past_traces(*module);
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[post-optimization] the device module is invalid";
     {

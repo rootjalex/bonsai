@@ -1,0 +1,70 @@
+//! flags: -p ssa -b ptx
+
+// A raygen program whose entry carries a value the continuation alone
+// reads: `weights[i]` feeds only the stores after the hit is known, the way
+// a wavefront queue entry's throughput and pdfs feed only the routing after
+// the trace. Two things have to happen to it, and the golden shows both in
+// `__raygen__i`. The load is `ld.global.nc`: `prepare` writes `weights`, so
+// the program-wide read-only externs machinery cannot mark it, but the
+// raygen's own kernel never writes it, and within one launch a buffer has
+// one role -- launch_readonly (CodeGen_LLVM_SSA.cpp) marks the load
+// !invariant.load from that. And the load sits AFTER the
+// `_optix_trace_typed_32` call: a value live across an optixTrace rides the
+// pipeline's continuation stack, so a load the hardware may re-read is sunk
+// past the trace instead of being carried over it
+// (sink_invariant_loads_past_traces, CodeGen_PTX.cpp). `rays[i]` feeds the
+// trace itself and stays where it is.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+} with extent = aabb_of_triangle(tri);
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri), tris));
+
+func [[export]] prepare(n : i32, weights : mut array[f32, n]) -> void {
+    parfor j in 0:n {
+        weights[j] = cast[[f32]](j);
+    }
+    return;
+}
+
+func [[export]] render(n : i32, rays : array[Ray, n],
+                       weights : array[f32, n],
+                       out : mut array[f32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        w = weights[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            out[i] = w * hit.tri.p0.x;
+        } else {
+            out[i] = -w;
+        }
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    prepare.bind(j, GPUThread);
+    render.bind(i, OptixThread);
+}

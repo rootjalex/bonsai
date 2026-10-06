@@ -647,6 +647,20 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
     }
     const unsigned continuation =
         css_rg + std::max(std::max(css_ch, css_ms), css_is + css_ah);
+    // Under BONSAI_OPTIX_STATS: what the stack costs a thread, since stack
+    // memory bounds resident warps below the register ceiling and no
+    // profiler section reports it (found 2026-10-05: same 128 registers as
+    // pbrt's raygen on landscape, 17% achieved occupancy against its 28%).
+    {
+        static const bool stats = std::getenv("BONSAI_OPTIX_STATS") != nullptr;
+        if (stats) {
+            std::fprintf(stderr,
+                         "bonsai_optix: pipeline `%s` continuation stack %u "
+                         "bytes/thread (cssRG %u, CH %u, MS %u, IS %u, AH %u)\n",
+                         raygen.c_str(), continuation, css_rg, css_ch, css_ms,
+                         css_is, css_ah);
+        }
+    }
     // Two levels: the instances, and the geometry under each.
     check(a,
           a.table.optixPipelineSetStackSize(p.pipeline, 0, 0, continuation, 2),

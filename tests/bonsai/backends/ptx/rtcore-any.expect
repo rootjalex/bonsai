@@ -40,7 +40,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %hit_any.generic = addrspacecast ptr addrspace(1) %hit_any.global to ptr
   %i_wide = sext i32 %i to i64
   %extract_ptr = getelementptr inbounds [48 x i8], ptr %rays.generic, i64 %i_wide
-  %extract = load %struct.Ray, ptr %extract_ptr, align 16
+  %extract = load %struct.Ray, ptr %extract_ptr, align 16, !invariant.load !1
   call void @llvm.lifetime.start.p0(ptr nonnull %"_ctx$i65.i")
   %.fca.0.0.extract.i = extractvalue %struct.Ray %extract, 0
   store <3 x float> %.fca.0.0.extract.i, ptr %"_ctx$i65.i", align 16
@@ -82,7 +82,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %14 = extractelement <3 x float> %deref_temp.fca.1.0.0.0.load.i, i64 0
   %.sink = select i1 %deref_temp.fca.1.1.load.i, float %14, float -1.000000e+00
   %15 = getelementptr inbounds [4 x i8], ptr %hit_x.generic, i64 %i_wide
-  store float %.sink, ptr %15, align 4, !tbaa !1
+  store float %.sink, ptr %15, align 4, !tbaa !2
   call void @llvm.lifetime.start.p0(ptr nonnull %"_ctx$i66.i")
   store <3 x float> %.fca.0.0.extract.i, ptr %"_ctx$i66.i", align 16
   %.fca.0.1.gep.i40 = getelementptr inbounds nuw i8, ptr %"_ctx$i66.i", i64 16
@@ -100,7 +100,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   call void @llvm.lifetime.end.p0(ptr nonnull %"_ctx$i66.i")
   %20 = zext i1 %deref_temp.fca.1.load.i to i32
   %hit_any33 = getelementptr inbounds [4 x i8], ptr %hit_any.generic, i64 %i_wide
-  store i32 %20, ptr %hit_any33, align 4, !tbaa !4
+  store i32 %20, ptr %hit_any33, align 4, !tbaa !5
   ret void
 }
 
@@ -120,7 +120,7 @@ __anyhit__trace:
   %_wide = zext i32 %4 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
   %5 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
-  %_rt_e0.alpha = load float, ptr %5, align 4, !invariant.load !6
+  %_rt_e0.alpha = load float, ptr %5, align 4, !invariant.load !1
   %6 = fcmp olt float %_rt_e0.alpha, 0.000000e+00
   br i1 %6, label %"!merge_4", label %"!else_1"
 
@@ -163,7 +163,7 @@ __closesthit__trace:
   %7 = add i32 %6, %_sbt_base
   %_wide = zext i32 %7 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
-  %extract = load %struct.Tri, ptr %extract_ptr, align 16, !invariant.load !6
+  %extract = load %struct.Tri, ptr %extract_ptr, align 16, !invariant.load !1
   %8 = insertvalue %struct._option0 undef, %struct.Tri %extract, 0
   %9 = insertvalue %struct._option0 %8, i1 true, 1
   %ctx_result = getelementptr inbounds nuw i8, ptr %ctx, i64 48
@@ -203,11 +203,11 @@ __intersection__trace:
   %7 = add i32 %6, %_sbt_base
   %_wide = zext i32 %7 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
-  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
   %_rt_e0.tri.elt7 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %_rt_e0.tri.unpack8 = load <3 x float>, ptr %_rt_e0.tri.elt7, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack8 = load <3 x float>, ptr %_rt_e0.tri.elt7, align 16, !invariant.load !1
   %_rt_e0.tri.elt9 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %_rt_e0.tri.unpack10 = load <3 x float>, ptr %_rt_e0.tri.elt9, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack10 = load <3 x float>, ptr %_rt_e0.tri.elt9, align 16, !invariant.load !1
   %deref_temp.unpack = load %struct.Ray, ptr %ctx, align 16
   %8 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #0
   %_hit_t = bitcast i32 %8 to float
@@ -559,7 +559,7 @@ __anyhit__trace_any:
   %_wide = zext i32 %4 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
   %5 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
-  %_rt_e0.alpha = load float, ptr %5, align 4, !invariant.load !6
+  %_rt_e0.alpha = load float, ptr %5, align 4, !invariant.load !1
   %6 = fcmp olt float %_rt_e0.alpha, 0.000000e+00
   br i1 %6, label %"!merge_4", label %"!else_1"
 
@@ -602,11 +602,11 @@ __intersection__trace_any:
   %7 = add i32 %6, %_sbt_base
   %_wide = zext i32 %7 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack2.generic, i64 %_wide
-  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
   %_rt_e0.tri.elt4 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %_rt_e0.tri.unpack5 = load <3 x float>, ptr %_rt_e0.tri.elt4, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack5 = load <3 x float>, ptr %_rt_e0.tri.elt4, align 16, !invariant.load !1
   %_rt_e0.tri.elt6 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %_rt_e0.tri.unpack7 = load <3 x float>, ptr %_rt_e0.tri.elt6, align 16, !invariant.load !6
+  %_rt_e0.tri.unpack7 = load <3 x float>, ptr %_rt_e0.tri.elt6, align 16, !invariant.load !1
   %"@5.q" = load %struct.Ray, ptr %ctx, align 16
   %8 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #0
   %_hit_t = bitcast i32 %8 to float
@@ -962,14 +962,14 @@ attributes #2 = { nocallback nofree nosync nounwind willreturn memory(argmem: re
 !llvm.module.flags = !{!0}
 
 !0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
-!1 = !{!2, !2, i64 0}
-!2 = !{!"f32", !3, i64 0}
-!3 = !{!"bonsai"}
-!4 = !{!5, !5, i64 0}
-!5 = !{!"i32", !3, i64 0}
-!6 = !{}
+!1 = !{}
+!2 = !{!3, !3, i64 0}
+!3 = !{!"f32", !4, i64 0}
+!4 = !{!"bonsai"}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"i32", !4, i64 0}
 !7 = !{!8, !8, i64 0}
-!8 = !{!"bool", !3, i64 0}
+!8 = !{!"bool", !4, i64 0}
 
 ; ---- OptiX module 0: PTX ----
 //
@@ -1012,15 +1012,15 @@ attributes #2 = { nocallback nofree nosync nounwind willreturn memory(argmem: re
 	cvta.to.global.u64 	%rd10, %rd9;
 	mul.wide.s32 	%rd11, %r83, 48;
 	add.s64 	%rd12, %rd6, %rd11;
-	ld.global.b64 	%rd13, [%rd12];
+	ld.global.nc.b64 	%rd13, [%rd12];
 	cvt.u32.u64 	%r35, %rd13;
 	mov.b64 	{_, %r36}, %rd13;
-	ld.global.b64 	%rd14, [%rd12+16];
+	ld.global.nc.b64 	%rd14, [%rd12+16];
 	cvt.u32.u64 	%r38, %rd14;
 	mov.b64 	{_, %r39}, %rd14;
-	ld.global.b32 	%r84, [%rd12+32];
-	ld.global.b32 	%r40, [%rd12+24];
-	ld.global.b32 	%r37, [%rd12+8];
+	ld.global.nc.b32 	%r84, [%rd12+32];
+	ld.global.nc.b32 	%r40, [%rd12+24];
+	ld.global.nc.b32 	%r37, [%rd12+8];
 	st.local.b32 	[%rd4+8], %r37;
 	st.local.b64 	[%rd4], %rd13;
 	st.local.b32 	[%rd4+24], %r40;

@@ -577,6 +577,56 @@ called_inside_loops(const std::map<std::string, std::shared_ptr<Function>> &func
 // make_llvm_codegen).
 bool binds_to_gpu(const Function &func);
 
+//===--------------------------------------------------------------------===//
+// What a kernel writes, by root
+//===--------------------------------------------------------------------===//
+
+// Every instruction of a function, by name. Names are function-unique, and
+// a value threaded onward as a block argument keeps its instruction's name,
+// so this is what resolves an Argument back to its definition.
+std::unordered_map<std::string, const Instruction *>
+instruction_names(const Function &func);
+
+// The roots a pointer or array value derives from: the names of the
+// captures (entry arguments) or allocations it is some chain of addresses,
+// fields and casts into. A field taken at a constant index of a named base
+// roots at `base.index`, so a struct whose fields address distinct buffers
+// -- a queue's header, one count and the entry arrays -- keeps the fields
+// apart. `unknown` is a root that cannot be named: a pointer loaded from
+// memory, or arithmetic this walk does not follow.
+struct Roots {
+    std::set<std::string> names;
+    bool unknown = false;
+};
+Roots roots_of(const std::shared_ptr<Value> &v,
+               const std::unordered_map<std::string, const Instruction *> &defs);
+
+// The roots a kernel body may write through: the launch-scoped half of the
+// wavefront's memory discipline. Within one launch every buffer has one
+// role -- a drain reads its queue's entries and writes only other queues',
+// the scene's arrays are read, an accumulator is accumulated into -- so a
+// root no instruction of the body (and no callee, conservatively through
+// the calls' pointer arguments) writes through is read-only for the whole
+// launch, every thread's. A load from such a root may take the read-only
+// path (ld.global.nc via !invariant.load) and be re-read freely, which is
+// what lets it cross an optixTrace instead of riding the continuation
+// stack. Sound on the system's own allocation discipline: distinct
+// captures address distinct buffers (extern queue storage and the layouts'
+// arrays are allocated apart, render_hook.cpp).
+//
+// `prefixes` are written roots; a read whose root equals one, refines one
+// (`H.2` under a written `H`) or coarsens one (`H` over a written `H.0`)
+// counts as written. `unknown` is a write whose target could not be named,
+// which poisons every read.
+struct KernelWrites {
+    std::set<std::string> prefixes;
+    bool unknown = false;
+    // What first made the set unknown, for the BONSAI_EXPLAIN_DEVICE print.
+    const char *why = nullptr;
+    bool writes(const std::set<std::string> &roots) const;
+};
+KernelWrites kernel_writes(const Function &func, const std::string &body_entry);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

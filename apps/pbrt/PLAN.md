@@ -10646,22 +10646,152 @@ aggregate is: pbrt's two implementations NET to 5,989 (the flips
 balance), ours nets +112,311 -- our coin is biased toward passing
 through, and that bias, not the speckle, is the open question. The
 texel path is eliminated (format follows pbrt's encoding; both srgb-
-decode an sRGB PNG's alpha byte); the next discriminator is the CPU
-gbuffer compare (first hits, bit-matched rays), blocked 2026-10-05 on
-the sort-lowering break below. villa-daylight carries the same
-signature at a tenth the size.
+decode an sRGB PNG's alpha byte); the next discriminator was the CPU
+compare, and it EXONERATES the machinery: at the scene's 64 spp with
+bit-matched rays, ours lights 2,073,564 pixels against pbrt-CPU's
+2,073,403 -- a gap of 161 in two million -- mean 0.99997x, verdict ok,
+2.63x pbrt's wall. The four-way ledger at 64 spp: ours-CPU, ours-GPU
+(2,072,405) and pbrt-CPU cluster within ~1.2k; pbrt's own GPU is the
+outlier, 7.2k BELOW its own CPU, so the sweep's 64 spp "gap of 6,207"
+was pbrt-GPU's own drift. One 16 spp question stands: ours-GPU lights
++112k over both pbrt backends there while agreeing at 64 -- run our CPU
+at 16 spp to attribute it (ours-CPU at 2.03M would make it sampling-
+rate-dependent path selection, not alpha; at 1.91M it is our GPU rays).
+villa-daylight carries the same signature at a tenth the size.
+
+Both discriminators ran 2026-10-05 evening, and both landed. (1)
+ours-CPU at 16 spp lights 2,027,988 against pbrt's 1,915,319 -- within
+149 of ours-GPU's 2,027,839 -- so the +112k is NOT the GPU rays: both
+our backends make the same choices, exceed pbrt's at 16 spp together
+and match it at 64 together. Sampling-rate-dependent, not machinery.
+(2) The same check with `lightsampler uniform` on both sides nets
++31,735 (pbrt 1,970,637, ours 2,002,372, mean 1.00128x): roughly
+seventy percent of the 16 spp excess rides on the BVH light sampler
+and goes away when both renderers choose lights uniformly. The
+traversal port was then audited line against line (render.bonsai's
+light_node_importance / bvh_descend / bvh_pmf_bounded against
+CompactLightBounds::Importance and BVHLightSampler::Sample/PMF): the
+importance formula, the d2 clamp, the SampleDiscrete descent with its
+0.99999994 remap, the leaf nonzero check, the pInfinite split and the
+bit-trail PMF all match, and the converter reads the tree back through
+pbrt's own dequantizing accessors (dump_light_tree), so the node
+floats are the ones pbrt's traversal computes with. One divergence
+found, in the CALLER, and it is pbrt's own inconsistency: the
+LightSampleContext nudge. pbrt-CPU (integrators.cpp:771, 1284, 2385,
+3287) nudges reflective-only to +wo, transmissive-only to -wo, and
+leaves reflective+transmissive alone; pbrt-GPU (surfscatter.cpp:
+267-270) nudges reflective+transmissive to -wo and pure-transmissive
+not at all -- it reads as a transposed `!`, reported to the user as a
+probable pbrt bug. Ours follows the CPU form at both call sites
+(path_sample_ld, the volpath ctx). The consequence is epsilon-scale
+either way: the shadow ray spawns from the UN-nudged point on both of
+pbrt's sides (SpawnRayTo(w.pi, ..), intr.SpawnRayTo), so the nudge
+only moves the point the sampler and SampleLi see by the intersection
+error bound, and in bistro only frosted glass (the one rough
+dielectric) exercises the differing branch. Not the +112k. Whether to
+adopt the wavefront's transposed form for bit-parity with pbrt --gpu
+is the user's call, pending. A second pbrt-side bug fell out of the
+audit, shared by both of pbrt's renderers and copied by us on purpose
+(render.bonsai:851): `d2 = max(DistanceSquared(p, pc),
+Length(bounds.Diagonal()) / 2)` in BOTH LightBounds::Importance
+(lights.cpp:112) and CompactLightBounds::Importance
+(lightsamplers.h:151) clamps a squared distance by an unsquared
+half-diagonal -- dimensionally wrong, so the guard's strength depends
+on the scene's unit scale; it cannot bias (Sample and PMF share the
+importance), it only degrades the heuristic. Explains nothing of our
+gap, worth filing upstream. Open: WHY the BVH path's choices are
+sampling-rate-dependent -- next discriminators are uniform-at-64
+(does the +31.7k residual also vanish at 64?), and one disagreeing
+pixel's descent probed on both sides, importances compared
+level by level.
 
 Found on the way and fixed: --link libraries' inline functions that
 survive outlining (NanoVDB's RootNode::getValue once SampleFromVoxels
 had eight callers) arrived in linkonce comdat groups, were internalized
 but kept their comdats, and the driver's link discarded their sections
 ("defined in discarded section"); link_foreign_implementations now
-strips the comdat with the linkage (CodeGen_LLVM.cpp). Blocked on the
-other session: 3c7eaa71 (the sort as Embree's chain) fails apps/pbrt's
-CPU wavefront-volpath compile with `element_of() on bad type: bool`
-(Type.cpp:276); bisected in a worktree -- 1c96578c with the four-wide
-tree compiles it clean -- and reported to the rtq session with the
-repro.
+strips the comdat with the linkage (CodeGen_LLVM.cpp). Blocked briefly
+on the other session: the CPU wavefront-volpath compile failed with
+`element_of() on bad type: bool` (Type.cpp:276) -- first attributed to
+their commit 3c7eaa71 by a bisect, WRONGLY: the bisect compared a clean
+worktree at 1c96578c against build-rtq built from the shared tree,
+which held an uncommitted simplifier edit of theirs, and that edit was
+the breaker (they verified 3c7eaa71 alone compiles the repro). The
+lesson, now in the shared-checkout notes: in a shared tree a bisect
+must build BOTH sides from clean worktrees, or it blames a commit for
+the working tree.
+
+**landscape's trace -- diagnosed 2026-10-05 evening; the fix is the
+continuation-stack spill.** The earlier framing ("ours 17-21%
+occupancy against pbrt's 28-29%, pbrt compiles under the register
+cap") did not survive the per-launch ncu pass: at 16 spp our EARLY
+rays launches achieve 32.5-32.7%, which IS the 128-register ceiling
+(CC 12.0: 64K registers / 128 = 16 warps of 48), pbrt's first trace
+33.0% -- both sides pin the cap, registers equal, and the old 17-21%
+was a later, emptier launch. The real signature, depth-0 trace against
+depth-0 trace (same 4050x256 grid both sides): ours 7.12 ms under ncu
+against pbrt's 847 us, warps stalled 371.6 cycles per issued
+instruction against 43.9 -- barrier-class (the traversal hand-back)
+144 against 18.2, long-scoreboard (global-load wait) 201.7 against
+18.5, lg throttle 21.5 against 1.1 -- with the memory system at 10.7%
+of the machine against pbrt's 52.3%. Our warps are resident and
+waiting; pbrt's are reading. The 16 spp kernel stats agree on where:
+rays raygen 1053.78 ms/767 launches (avg 1.374) against pbrt's trace
+419.82/768 (avg 0.547, min 0.019, max 2.302); shadow FASTER per launch
+(0.339 against 0.368); materials level. SER is not the cause -- the
+gpu-optix schedule has no sort(), rt_reorder is emitted only by an
+explicit sort() directive (Lower/Sorts.cpp, its only creator), and the
+built binary's PTX has no reorder call (verified by strings). Launch
+sizing is not either: pbrt launches capacity grids too (maxRays,
+gpu/optix/aggregate.cpp:1717), its fixed depth loop has no readback at
+all -- though its near-empty capacity launch costs 19 us where ours
+floors at 160-190 (bunny-cloud's floor): a 10x gap in the dead-thread
+exit path, real but secondary. What remains, and what pbrt avoids BY
+CONSTRUCTION: our rays raygen loads the entry's record (~170 bytes:
+beta, the two pdf accumulators, lambda, prev-ctx) before optixTrace,
+so OptiX spills it to the continuation stack (our cssRG: rays 320
+bytes/thread, probes 448, shadow 96/352 -- the stack print in
+bonsai_optix.h) and reloads it per ray; pbrt's __raygen__findClosest
+touches its RayWorkItem only on the MISS path and runs the hit-path
+enqueue inside the closest-hit program, re-deriving the index
+(optix.cu:99-127), so nothing rides its stack across the trace. The
+fix (2026-10-05, in review): per-kernel launch-read-only roots --
+within a launch every buffer has one role, a drain never writes its
+own queue -- tagged !invariant.load at lowering (kernel_writes /
+launch_readonly, SSA/Analysis.cpp + CodeGen_LLVM_SSA.cpp), ld.global
+.nc in the PTX, and the loads the continuation alone reads sunk past
+the trace after the optimizer (sink_invariant_loads_past_traces,
+CodeGen_PTX.cpp); backends/ptx/rtcore-sink-loads is the shape in
+miniature, the entry's pass-through field .nc and below the trace
+call. Inspected before measuring: in the rebuilt __raygen__rays one
+trace call has 43 loads above it -- the ray's own fields as
+ld.global.nc (they feed the trace) and @params constant-bank slot
+loads OptiX rematerializes for free -- and the entry's record below
+it, 205 loads .nc; nothing of the record rides the stack. Measured
+(gpu_compare, repeats 5, images matching pbrt at both spp): the rays
+raygen 1053.78 -> 476.24 ms at 16 spp (avg 1.374 -> 0.621 ms a
+launch), 1916.33 at 64 (avg 0.624) against pbrt's trace 419.12/
+1686.29 -- from 2.5x behind to 1.14x -- the shadow raygen now FASTER
+than pbrt's (227.31/914.75 against 235.08/948.14), kernel totals
+level with pbrt at both spp (1063.34 against 1063.53; 4293.89 against
+4292.04), and the walls 1.10x at 16 spp, 1.03x at 64: the one sub-1x
+cell of the sweep is above water. A correction to the mechanism as
+first stated: the requested continuation stack barely moved (cssRG
+320 -> 288 bytes), so the stack SIZE was a proxy -- the win is the
+reload pattern, the driver's local-memory spill-and-reload of the
+record replaced by coalesced read-only loads of the SOA arrays after
+the trace, which is what the stall counters pointed at all along.
+Remaining on the item: the trace's own 14%, the 10x dead-sweep floor,
+and re-measuring explosion/bunny-cloud (same spill, bunny-cloud on
+hold). explosion's rays raygen rising 0.30 -> 0.47 s under the
+nanovdb change may be the same spill grown. One hardening noted for
+the compiler (roots_related, SSA/Analysis.cpp): the wrapped-vs-flat
+root rule leans on Defer's parity invariant -- a drain never writes
+the slot it drains -- rather than proving it from the names; if a
+schedule ever lets a kernel read entries a callee pushes to the same
+slot, the rule must learn the drained arrays from the ParFor's
+queue_base/queue_slot. The write sets are visible per kernel under
+BONSAI_EXPLAIN_DEVICE.
 
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,

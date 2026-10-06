@@ -1441,6 +1441,379 @@ bool binds_to_gpu(const Function &func) {
     return false;
 }
 
+//===--------------------------------------------------------------------===//
+// What a kernel writes, by root
+//===--------------------------------------------------------------------===//
+
+std::unordered_map<string, const Instruction *>
+instruction_names(const Function &func) {
+    std::unordered_map<string, const Instruction *> defs;
+    for (const auto &block : func.blocks) {
+        for (const auto &in : block->instrs) {
+            if (!in->name.empty()) {
+                defs[in->name] = in.get();
+            }
+        }
+    }
+    return defs;
+}
+
+namespace {
+
+// The walk behind roots_of: down the chains of addresses, fields and casts
+// to whatever they are into, resolving a block argument to the instruction
+// of its name (threading keeps names). A visited set, because a
+// loop-carried argument's definition is computed from the argument.
+struct RootWalk {
+    const std::unordered_map<string, const Instruction *> &defs;
+    Roots result;
+    std::set<const Instruction *> visited;
+    // How many loads the chain has gone through: a handle loaded from
+    // memory roots at the cell's contents, `*(root)`, and a chain of such
+    // loads could in principle cycle, so it is bounded.
+    int loads = 0;
+
+    void walk(const shared_ptr<Value> &v, const string &suffix) {
+        if (v == nullptr || std::holds_alternative<Constant>(v->data)) {
+            return;
+        }
+        if (const auto *a = std::get_if<Argument>(&v->data)) {
+            const auto found = defs.find(a->name);
+            if (found == defs.end()) {
+                // An entry argument -- a capture -- or a loop's own index:
+                // the name is the root.
+                result.names.insert(a->name + suffix);
+                return;
+            }
+            walk_instr(found->second, suffix);
+            return;
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held == nullptr || held->get() == nullptr) {
+            result.unknown = true;
+            return;
+        }
+        walk_instr(held->get(), suffix);
+    }
+
+    void walk_instr(const Instruction *in, const string &suffix) {
+        if (!visited.insert(in).second) {
+            return;
+        }
+        switch (in->op) {
+        case Instruction::Op::Alloca:
+        case Instruction::Op::Alloc:
+            result.names.insert(in->name + suffix);
+            return;
+        case Instruction::Op::GEP:
+        case Instruction::Op::ExtractIdx:
+        case Instruction::Op::AddressOf:
+        case Instruction::Op::Set:
+        case Instruction::Op::Cast:
+        case Instruction::Op::Reinterpret:
+        case Instruction::Op::Bc:
+            // An element, the whole, or another view of the same thing: the
+            // base's roots, at the same granularity.
+            if (in->operands.empty()) {
+                result.unknown = true;
+                return;
+            }
+            walk(in->operands[0], suffix);
+            return;
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::LoadField: {
+            if (in->operands.empty()) {
+                result.unknown = true;
+                return;
+            }
+            // A field at a constant index refines the base's root; one at a
+            // run-time index is any field of it.
+            const auto *c = in->operands.size() > 1
+                                ? std::get_if<Constant>(&in->operands[1]->data)
+                                : nullptr;
+            const auto *idx =
+                c != nullptr ? std::get_if<uint64_t>(&c->data) : nullptr;
+            walk(in->operands[0],
+                 idx != nullptr ? "." + std::to_string(*idx) + suffix : suffix);
+            return;
+        }
+        case Instruction::Op::Select:
+            if (in->operands.size() < 3) {
+                result.unknown = true;
+                return;
+            }
+            walk(in->operands[1], suffix);
+            walk(in->operands[2], suffix);
+            return;
+        case Instruction::Op::MakeStruct:
+            // A struct holds whatever its reference-carrying fields do.
+            for (const shared_ptr<Value> &o : in->operands) {
+                if (o == nullptr) {
+                    continue;
+                }
+                const auto *field =
+                    std::get_if<shared_ptr<Instruction>>(&o->data);
+                if (field != nullptr && field->get() == nullptr) {
+                    continue;
+                }
+                const Type &type = o->get_type();
+                if (type.defined() && type.carries_reference()) {
+                    walk(o, "");
+                }
+            }
+            return;
+        case Instruction::Op::Load: {
+            // A handle out of memory: whatever the loaded cell holds, named
+            // relative to the cell -- `*(root)` -- so a write through it
+            // meets a read through the same cell's contents and nothing
+            // else. Distinct descriptors hold distinct buffers, the same
+            // discipline the plain roots rest on (KernelWrites).
+            if (in->operands.empty() || ++loads > 4) {
+                result.unknown = true;
+                return;
+            }
+            RootWalk cell{defs, {}, visited, loads};
+            cell.walk(in->operands[0], "");
+            if (cell.result.unknown) {
+                result.unknown = true;
+                return;
+            }
+            for (const string &r : cell.result.names) {
+                result.names.insert("*(" + r + ")" + suffix);
+            }
+            return;
+        }
+        default:
+            // Arithmetic, a call's value: not a chain this walk names.
+            result.unknown = true;
+            return;
+        }
+    }
+};
+
+} // namespace
+
+Roots roots_of(const shared_ptr<Value> &v,
+               const std::unordered_map<string, const Instruction *> &defs) {
+    RootWalk walk{defs, {}, {}};
+    walk.walk(v, "");
+    return walk.result;
+}
+
+namespace {
+
+// `*(inner)` stripped off a wrapped root, or nothing for a flat one.
+std::optional<string> unwrap_root(const string &s) {
+    if (s.rfind("*(", 0) != 0) {
+        return std::nullopt;
+    }
+    int depth = 0;
+    for (size_t i = 1; i < s.size(); i++) {
+        if (s[i] == '(') {
+            depth++;
+        } else if (s[i] == ')') {
+            if (--depth == 0) {
+                return s.substr(2, i - 2);
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+// Whether two roots may name overlapping memory. Flat against flat: equal,
+// or one refines the other (`H` and `H.0` meet, `H.0` and `H.2` do not).
+// Wrapped against wrapped: the contents of two cells may overlap when the
+// cells themselves may (`*(H)` meets `*(H.k)`; the field suffixes past the
+// wrap are not split further, conservatively).
+//
+// Wrapped against flat: never -- and this is the one rule that rests on a
+// lowering invariant rather than on the names alone. `*(H)` IS some flat
+// buffers (a queue header holds the entry arrays, which are storage
+// captures of their own), so in general the two forms can alias. What a
+// kernel actually does with them: the only writes through a header's
+// contents are a drain's pushes (SSA/Defer.h), a queue's entries are read
+// only by its own drain, and a drain never writes the slot it is draining
+// -- its push into a double-buffered queue goes to the OTHER parity's
+// buffers (the round lowering, SSA/RoundGuard.h), so in every launch the
+// locations its tagged loads read and the locations its pushes write are
+// disjoint even where the static names meet. If a schedule ever makes a
+// kernel read entries a callee of the same kernel pushes to the same
+// slot, this rule must learn the drained arrays from the ParFor's
+// queue_base/queue_slot instead of assuming them (the hardening is noted
+// in apps/pbrt/PLAN.md).
+bool roots_related(const string &a, const string &b) {
+    const std::optional<string> wa = unwrap_root(a);
+    const std::optional<string> wb = unwrap_root(b);
+    if (wa.has_value() != wb.has_value()) {
+        return false;
+    }
+    if (wa.has_value()) {
+        return roots_related(*wa, *wb);
+    }
+    if (a.size() == b.size()) {
+        return a == b;
+    }
+    const string &shorter = a.size() < b.size() ? a : b;
+    const string &longer = a.size() < b.size() ? b : a;
+    return longer.compare(0, shorter.size(), shorter) == 0 &&
+           longer[shorter.size()] == '.';
+}
+
+} // namespace
+
+bool KernelWrites::writes(const std::set<string> &roots) const {
+    if (unknown) {
+        return true;
+    }
+    for (const string &r : roots) {
+        for (const string &p : prefixes) {
+            if (roots_related(r, p)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+KernelWrites kernel_writes(const Function &func, const string &body_entry) {
+    KernelWrites writes;
+    const auto defs = instruction_names(func);
+    const auto add = [&](const shared_ptr<Value> &v, const char *at) {
+        Roots roots = roots_of(v, defs);
+        if (roots.unknown && !writes.unknown) {
+            writes.unknown = true;
+            writes.why = at;
+        }
+        writes.prefixes.insert(roots.names.begin(), roots.names.end());
+    };
+    // A write through a pointer another function is handed may land behind
+    // it too -- a callee pushes through a queue header it receives -- so a
+    // call's or an effectful intrinsic's pointer writes the root AND its
+    // contents.
+    const auto add_through = [&](const shared_ptr<Value> &v, const char *at) {
+        Roots roots = roots_of(v, defs);
+        if (roots.unknown && !writes.unknown) {
+            writes.unknown = true;
+            writes.why = at;
+        }
+        for (const string &r : roots.names) {
+            writes.prefixes.insert(r);
+            writes.prefixes.insert("*(" + r + ")");
+        }
+    };
+    // Whether a value could hold or address memory at all; a value this
+    // cannot name (a placeholder, an untyped slot) is nothing a write can
+    // go through.
+    const auto carries = [](const shared_ptr<Value> &v) {
+        if (v == nullptr) {
+            return false;
+        }
+        const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+        if (held != nullptr && held->get() == nullptr) {
+            return false;
+        }
+        const Type &type = v->get_type();
+        return type.defined() && type.carries_reference();
+    };
+    // A callee may write through any pointer it is handed; so may a nested
+    // launch through its captures.
+    const auto add_jump = [&](const Terminator::Jump &jump) {
+        for (const shared_ptr<Value> &arg : jump.args) {
+            if (carries(arg)) {
+                add_through(arg, "a call's pointer argument");
+            }
+        }
+    };
+    // A named Cfg: blocks() is a reference into it, which a temporary's
+    // would leave dangling for the loop below.
+    const Cfg region(func, body_entry);
+    for (const shared_ptr<Block> &block : region.blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const shared_ptr<Instruction> &in : block->instrs) {
+            if (in == nullptr) {
+                continue;
+            }
+            switch (in->op) {
+            case Instruction::Op::Store:
+            case Instruction::Op::AccAdd:
+            case Instruction::Op::AccMul:
+            case Instruction::Op::AccSub:
+            case Instruction::Op::AccArgmin:
+            case Instruction::Op::AccArgmax:
+            case Instruction::Op::AccMin:
+            case Instruction::Op::AccMax:
+            case Instruction::Op::AtomicAdd:
+            case Instruction::Op::Free:
+            case Instruction::Op::Append:
+                if (!in->operands.empty() && in->operands[0] != nullptr) {
+                    add(in->operands[0], op_name(in->op));
+                } else {
+                    writes.unknown = true;
+                }
+                break;
+            // A push writes the count and the entries: the header cell it is
+            // handed AND the memory behind the cell's fields -- both the
+            // flat roots and their contents, since the walk may name either
+            // the cell (a capture) or the handles it holds (a MakeStruct).
+            case Instruction::Op::Push: {
+                if (in->operands.empty() || in->operands[0] == nullptr) {
+                    writes.unknown = true;
+                    break;
+                }
+                Roots roots = roots_of(in->operands[0], defs);
+                if (roots.unknown && !writes.unknown) {
+                    writes.unknown = true;
+                    writes.why = "a push's queue";
+                }
+                for (const string &r : roots.names) {
+                    writes.prefixes.insert(r);
+                    writes.prefixes.insert("*(" + r + ")");
+                }
+                break;
+            }
+            case Instruction::Op::Intrinsic:
+                // rt_trace writes through the context it takes by address;
+                // conservatively, any effectful intrinsic may write through
+                // any pointer it takes.
+                if (ir::Intrinsic::has_effects(in->intrinsic)) {
+                    for (const shared_ptr<Value> &o : in->operands) {
+                        if (carries(o)) {
+                            add_through(o, "an effectful intrinsic's pointer");
+                        }
+                    }
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        std::visit(overloads{
+                       [&](const Terminator::Call &call) {
+                           add_jump(call.call);
+                       },
+                       [&](const Terminator::MultiCall &multi) {
+                           add_jump(multi.call);
+                           for (const auto &values : multi.varying) {
+                               for (const shared_ptr<Value> &v : values) {
+                                   if (carries(v)) {
+                                       add_through(
+                                           v, "a multicall's varying pointer");
+                                   }
+                               }
+                           }
+                       },
+                       [&](const Terminator::ParFor &loop) {
+                           add_jump(loop.body);
+                       },
+                       [&](const auto &) {},
+                   },
+                   block->terminator.data);
+    }
+    return writes;
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai
