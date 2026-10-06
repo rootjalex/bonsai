@@ -10917,6 +10917,42 @@ media; cutout scene), watercolor shadow 1.13-1.14x, bistro shadow
 the deferred second half -- and dambreak materials 1.07x
 (uninvestigated).
 
+**The remaining deficits unified -- 2026-10-06, late morning.** The
+dambreak materials pair (ncu, loaded launches, both sides 128
+registers, zero spills, ~33% occupancy): our Dielectric kernel 231.5
+us against pbrt's 173.9 (1.33x loaded; the class 1.13x because our
+empty launches are cheaper), and the counters say ours executes ~2.3x
+THE INSTRUCTIONS (556k cycles at 30.2 cycles-per-issue against 418k
+at 51.8) while pbrt runs higher bandwidth at worse L1 hit (32.7%
+against our 64.6%): our kernel computes more and reads less. The
+more-computed is surface_geometry(shape, ray) -- the materials
+kernels re-run the full triangle intersection per item (shapes.bonsai
+triangle_hit, Woop permute and shear and error bounds) where pbrt's
+MaterialEvalWorkItem arrives with the interaction already built: its
+closesthit reads the hardware's barycentrics and enqueues (mesh, tri,
+b1, b2, t), and the material kernel interpolates. The same recompute
+is the anyhit's remaining half (landscape trace 1.13x,
+watercolor/bistro shadow 1.13-1.16x). Dambreak's Diffuse kernel sits
+at parity because its geometry is the basin, not the water. So ONE
+architectural item remains: carry the hardware hit's parameterization
+(t, barycentrics; each kind its params) in the trace result and
+derive surface geometry by interpolation, pbrt's exact shape. Two
+steps: (1) per-primitive-kind anyhit programs -- purely structural,
+the flatten's match arms each get their program and SBT record, the
+shape tag constant per program (the arms machinery exists,
+Lower/Trees.cpp bind_elements) -- no semantics change, implementable
+now; (2) the hit-params carry: rt_barycentrics (the existing
+rt_* lowering-intrinsic family, optixGetTriangleBarycentrics /
+attribute registers for custom primitives), the closesthit record
+gaining the params, surface geometry derived from params at the
+consumers -- this changes trace()'s result shape in the source and
+touches the CPU path's form of the same query, so the design goes to
+the user before implementation (the sound substitution rule: inside a
+hit program, the bound element's own intersection test applied to the
+traced ray IS the hardware's reported candidate -- replace with
+(rt_hit_t, rt_barycentrics); never a heuristic beyond that
+identity).
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
