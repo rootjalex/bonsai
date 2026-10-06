@@ -3916,6 +3916,31 @@ incoherent rays: embree4 0.99-1.20x primary / 0.99-1.20x ao / 0.99-1.21x
 diffuse, embree 1.07-1.13x / 1.05-1.22x / 1.05-1.21x, tuned4 1.06-1.19x /
 1.01-1.20x / 1.02-1.21x, tuned 1.09-1.15x / 1.13-1.26x / 1.10-1.25x.
 
+The argmin's payload in storage, probed and found to make no difference
+(2026-10-05, the user's ask). The accumulator carries the best hit's key
+and the reference to its element, and LLVM promotes the whole pair into
+registers, two of them for the reference, which the chain's two-hit path
+then spills loop state around (three spills, five reloads). A probe in a
+worktree, not committed: the pair updated by a branch, the key stored as
+a value and the reference's fields through volatile stores, so that LLVM
+could not promote the reference's slot and the loop carried the key
+alone. The code came out as intended -- the two-hit path 19 instructions
+in place of 24, no spill in it, the node pointer and the first child in
+the freed registers (kernel 437 against 441) -- and measured level: on
+head, pavilion, dambreak and ganesha at both widths, new over base 0.98-
+1.01 on every cell, Embree's rate steady. The spills are store-forwarded
+and off the critical path; what paces a node visit is the chain from the
+mask to the next node's address and the key loads to the compare, not the
+count of moves beside it, which is also why the chain beat the compress
+form while being longer. So a principled form of this (the accumulator's
+payload lowered to its storage, written on an improvement) is not worth
+its machinery for rtq, and the register-pressure follow-ups (the exchange
+sorted inside the arm, the merged tails) are expected to be level too.
+What remains against Embree's four-wide kernel on incoherent rays is 1-2%
+on head and pavilion under the matching schedule, with the tuned
+schedules ahead everywhere; the next items are the prefetch width (item
+2 of the profile section, a short A/B) and the other Embree trees.
+
 Tests: the sorted traversals' goldens re-blessed, read by kind -- the
 cell stored zero-masked and the key stored as the entry distance with no
 infinity (ssa/child-volumes-sorted, -wide, sort-key-nonnegative,
