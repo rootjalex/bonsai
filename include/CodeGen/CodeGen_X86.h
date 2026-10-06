@@ -72,6 +72,13 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     // division.
     llvm::Value *reciprocal(llvm::Value *x, const std::string &name) override;
 
+    // The estimate instruction alone, the same padding and the same cases,
+    // for a program that writes the refinement itself (enoki's, which
+    // FCPW's divisions take: `2r - (r x) r`, see ir::Intrinsic::
+    // rcp_estimate).
+    llvm::Value *reciprocal_estimate(llvm::Value *x,
+                                     const std::string &name) override;
+
     // A vector permuted by a vector of indices as the one instruction the
     // machine has for the shape: `vpermd` for eight 32-bit lanes (AVX2) and
     // sixteen (AVX-512F), `vpermilps` for four (AVX); `vpermq` for eight
@@ -111,6 +118,24 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     // here exists in this machine's libmvec and is of an ISA level this
     // machine runs.
     std::set<std::string> host_vector_math;
+
+    // A value in the register the reciprocal estimate works on -- xmm for
+    // a scalar or up to four lanes, ymm for up to eight, zmm for up to
+    // sixteen -- the lanes past the value's set to one, a reciprocal the
+    // estimate has a value for; and the register's width, zero where no
+    // estimate exists for the shape (a double, or more than sixteen lanes).
+    struct Padded {
+        llvm::Value *a = nullptr;
+        llvm::FixedVectorType *vt = nullptr; // the value's, null for a scalar
+        unsigned lanes = 1;
+        unsigned width = 0;
+        bool vl = false; // AVX-512VL: `vrcp14ps` rather than `rcpps`
+    };
+    Padded pad_for_estimate(llvm::Value *x);
+    // The estimate instruction over a padded value, marked speculatable.
+    llvm::CallInst *estimate_instruction(const Padded &p, const std::string &name);
+    // Back to the value's own shape.
+    llvm::Value *unpad(const Padded &p, llvm::Value *v, const std::string &name);
 };
 
 } // namespace bonsai

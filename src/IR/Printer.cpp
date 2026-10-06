@@ -1205,6 +1205,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rand";
     case Intrinsic::rcp:
         return "rcp";
+    case Intrinsic::rcp_estimate:
+        return "rcp_estimate";
     case Intrinsic::round:
         return "round";
     case Intrinsic::sin:
@@ -1426,6 +1428,14 @@ void Printer::visit(const StoredElement *node) {
 void Printer::visit(const TiledArray *node) {
     os << "tiled[" << node->width << "](";
     print_no_parens(node->tiles);
+    for (const auto &[name, value] : node->derived) {
+        os << "; " << name << " = ";
+        print_no_parens(value);
+    }
+    if (node->valid.defined()) {
+        os << "; where ";
+        print_no_parens(node->valid);
+    }
     os << ")";
 }
 

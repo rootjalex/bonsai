@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <functional>
 #include <ranges>
+#include <set>
 
 namespace bonsai {
 namespace lower {
@@ -394,20 +395,27 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
     return Rewrite(frames).mutate(expr);
 }
 
-// The struct one tile of a group of elements is stored as: every field of the
-// element as a packed vector over the tile's lanes, in the element's order,
-// so that a tile of four triangles is `v0 : vector[vec3f, 4]` -- three packed
-// vectors, x[4] y[4] z[4] -- then e1, e2, and the two ids as four each.
-// Embree's TriangleM<4>, byte for byte (kernels/geometry/triangle.h).
+// The struct one tile of a group of elements is stored as: every stored field
+// of the tile as a packed vector over the tile's lanes, in the tile's order,
+// so that a tile of four of Embree's triangles is `v0 : vector[vec3f, 4]` --
+// three packed vectors, x[4] y[4] z[4] -- then e1, e2, and the two ids as
+// four each: Embree's TriangleM<4>, byte for byte (kernels/geometry/
+// triangle.h). A derived member (`e1 = pa - pb`) stores nothing; it is the
+// element's field computed from the stored ones at each read
+// (derived_fields, ir::TiledArray).
 ir::Type tile_struct(const ir::Group &tile, LayoutTypeMap &ltmap) {
     const uint32_t width = ir::tile_width(tile);
     const ir::Chain *chain = tile.inner.as<ir::Chain>();
     internal_assert(chain != nullptr) << tile.inner;
     ir::Struct_t::Map fields;
     for (const ir::Layout &member : chain->layouts) {
+        if (member.as<ir::Materialize>() != nullptr) {
+            continue;
+        }
         const ir::Name *name = member.as<ir::Name>();
         internal_assert(name != nullptr)
-            << "[unimplemented] a tile holds stored fields only, not "
+            << "[unimplemented] a tile holds stored and derived fields only, "
+               "not "
             << member;
         fields.emplace_back(
             name->name,
@@ -423,6 +431,46 @@ ir::Type tile_struct(const ir::Group &tile, LayoutTypeMap &ltmap) {
     ltmap.layout_to_type.try_emplace(tile.inner, struct_t);
     ltmap.layout_to_name.try_emplace(tile.inner, struct_name);
     return struct_t;
+}
+
+// What a tile says beyond its stored fields, over its members: the element's
+// fields it derives rather than stores, by name, each with its value (see
+// tile_struct), and the predicate of its `where`, which lanes hold elements
+// (ir::Group::valid). The source names a member as itself (`e1 = pa - pb`,
+// `where geomID != 4294967295u`); here each such name becomes the
+// placeholder the read's expansion substitutes the lane for
+// (ir::TiledArray::placeholder), so that nothing between takes it for a
+// variable.
+struct TileTerms {
+    std::vector<std::pair<std::string, ir::Expr>> derived;
+    ir::Expr valid;
+};
+
+TileTerms tile_terms(const ir::Group &tile) {
+    const ir::Chain *chain = tile.inner.as<ir::Chain>();
+    internal_assert(chain != nullptr) << tile.inner;
+    struct Placeholders : public ir::Mutator {
+        std::set<std::string> members;
+        ir::Expr visit(const ir::Var *var) override {
+            if (!members.contains(var->name)) {
+                return var;
+            }
+            return ir::Var::make(var->type, ir::TiledArray::placeholder(var->name));
+        }
+    } rename;
+    TileTerms terms;
+    for (const ir::Layout &member : chain->layouts) {
+        if (const ir::Name *stored = member.as<ir::Name>()) {
+            rename.members.insert(stored->name);
+        } else if (const ir::Materialize *field = member.as<ir::Materialize>()) {
+            terms.derived.emplace_back(field->name, rename.mutate(field->value));
+            rename.members.insert(field->name);
+        }
+    }
+    if (tile.valid.defined()) {
+        terms.valid = rename.mutate(tile.valid);
+    }
+    return terms;
 }
 
 ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
@@ -839,9 +887,11 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                         if (node->element.defined()) {
                             const ir::Group *tile = ir::tile_of(node->inner);
                             internal_assert(tile != nullptr);
+                            TileTerms terms = tile_terms(*tile);
                             rows = ir::TiledArray::make(
                                 std::move(rows), ir::tile_width(*tile),
-                                stored_type(node->element, ltmap.field_refs));
+                                stored_type(node->element, ltmap.field_refs),
+                                std::move(terms.derived), std::move(terms.valid));
                         }
                         frames.add_to_frame(node->declared_name,
                                             std::move(rows));

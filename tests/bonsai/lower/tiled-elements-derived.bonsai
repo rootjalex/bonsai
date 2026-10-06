@@ -1,0 +1,85 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// A tile that stores other fields than the element's and derives the
+// element's from them. lower/tiled-elements.bonsai stores a tile of four
+// triangles as the element has them, three vertices; here the tile stores a
+// vertex and two edges -- `a`, `e1`, `e2`, each a vector over the four lanes
+// -- and derives the element's three vertices, `p0 = a; p1 = a + e1; p2 = a
+// + e2`. That is what the layout language needs to lay a program's triangle
+// over storage that keeps another representation of it: FCPW's leaf packet
+// stores three vertices where Embree's slot stores a vertex and two edges,
+// and apps/rtq's triangle is Embree's, so FCPW's layout derives the edges
+// (apps/rtq/schedules/trees/mbvh4w16.bonsai).
+//
+// A tile's members are stored fields (`name : type`), which are its bytes in
+// their own order, and derived ones (`name = expr`) over them; between them
+// they provide every field of the element by name and type, each once
+// (ir::provides_fields_of). The tile's struct holds the stored fields alone
+// (Lower/Layouts.cpp, tile_struct); the array of tiles is read as the array
+// of elements through ir::TiledArray, which carries the derived fields'
+// values; and every read of an element substitutes the lane of each stored
+// field into them (Lower/TiledArrays.cpp).
+//
+// What to read for in the golden. The storage: `group0_prims` an array of
+// tiles, each `a : vector[vec3f, 4]`, `e1`, `e2` (packed, by component) and
+// nothing else. The leaf's loop reads `group0_prims[tile]` and builds the
+// triangle from lane `data` of `a`, of `a + e1` and of `a + e2` -- the
+// derived values over the lanes, `cast<f32x3x4>(...a)[data] +
+// cast<f32x3x4>(...e1)[data]` -- with no field named p0, p1 or p2 anywhere
+// in the storage.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        // Slots, four to a tile: a vertex and two edges stored, the three
+        // vertices the element has derived from them.
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                a : vec3f;
+                e1 : vec3f;
+                e2 : vec3f;
+                p0 = a;
+                p1 = a + e1;
+                p2 = a + e2;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+}

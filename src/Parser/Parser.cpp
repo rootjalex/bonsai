@@ -122,6 +122,7 @@ struct Parser {
             "pow",
             "rand",
             "rcp",
+            "rcp_estimate",
             "round",
             "sin",
             "sinh",
@@ -2540,6 +2541,7 @@ struct Parser {
             {"rand", 0, ir::Intrinsic::rand, /*skippable=*/true},
             {"rand", 1, ir::Intrinsic::rand},
             {"rcp", 1, ir::Intrinsic::rcp},
+            {"rcp_estimate", 1, ir::Intrinsic::rcp_estimate},
             {"sin", 1, ir::Intrinsic::sin},
             {"sinh", 1, ir::Intrinsic::sinh},
             {"sqr", 1, ir::Intrinsic::sqr},
@@ -4432,6 +4434,10 @@ struct Parser {
     // Members a layout construct makes for itself -- the derived field a
     // `switch <expr>` switches on -- to go into the chain just before it.
     std::vector<ir::Layout> pending_layout_members;
+    // A tile's `where <predicate>`, read at the close of its body while the
+    // body's members are still in scope, for the group that owns the body
+    // to take (see parse_layout's LSQUIGGLE and GROUP cases).
+    ir::Expr pending_where;
     size_t layout_switch_counter = 0;
     // How deep inside a lookup's shape the layout being parsed is (see
     // ir::Lookup::shape): there a group of elements may have no size.
@@ -4628,6 +4634,20 @@ struct Parser {
                 expect(Token::Type::SEMICOL);
             } while (!consume(Token::Type::RSQUIGGLE));
             pending_layout_members = std::move(enclosing_pending);
+            // `{ ... } where <predicate>`: which lanes of a tile hold
+            // elements, a predicate over the members just read -- Embree's
+            // padding slots told by their ids. Read here, with the members
+            // in scope, for the group around the body to take.
+            if (consume(Token::Type::WHERE)) {
+                ir::Expr predicate = parse_expr();
+                if (!predicate.defined() || !predicate.type().is_bool()) {
+                    report_error() << "A tile's `where` is a predicate on its "
+                                      "lanes, a bool over the tile's members, "
+                                      "not: "
+                                   << predicate;
+                }
+                pending_where = std::move(predicate);
+            }
             pop_frame();
             return ir::Chain::make(std::move(layouts));
         }
@@ -4684,6 +4704,17 @@ struct Parser {
                 add_type_to_frame(name, index_t, /* mutable=*/false);
             }
             ir::Layout inner = parse_layout();
+            // The body's `where <predicate>`, if it had one: which lanes of
+            // this (constant, anonymous) group hold elements. Only a tile
+            // can say so; the check that it is one is the outer group's,
+            // below, where the tile is recognised.
+            ir::Expr valid = std::exchange(pending_where, ir::Expr());
+            if (valid.defined() && (size.defined() ? !is_const(size) : true)) {
+                report_error() << "`where` says which lanes of a tile hold "
+                                  "elements: it follows the body of a "
+                                  "constant-size group, the tile of a group "
+                                  "of elements.";
+            }
             // An indirect group whose rows are an anonymous constant inner
             // group of the element's fields holds the set's elements, in
             // tiles -- Scion's array-of-structs-of-arrays, a group nested in
@@ -4695,15 +4726,16 @@ struct Parser {
                     const auto *as_struct =
                         layout_element_t.as<ir::Struct_t>();
                     if (as_struct == nullptr ||
-                        !holds_fields_of(tile->inner, *as_struct)) {
+                        !provides_fields_of(tile->inner, *as_struct)) {
                         report_error()
                             << "The tiles of group " << declared_name
-                            << " hold fields other than those of the set's "
+                            << " do not provide the fields of the set's "
                                "element "
                             << layout_element_t
-                            << ": a group of elements stores every field of "
-                               "the element, by its name and type, in the "
-                               "element's order, and nothing else.";
+                            << ": a tile's members are stored fields (`name : "
+                               "type`) and derived ones (`name = expr`), each "
+                               "name once, and between them they give every "
+                               "field of the element, by its name and type.";
                     }
                     // Inside a lookup's shape a group of elements may have
                     // no size: it is the run of tiles beginning where the
@@ -4737,7 +4769,8 @@ struct Parser {
             }
             return ir::Group::make(std::move(size), std::move(name),
                                    std::move(declared_name), std::move(index_t),
-                                   std::move(inner), kind, std::move(element));
+                                   std::move(inner), kind, std::move(element),
+                                   ir::Expr(), std::move(valid));
         }
         case Token::Type::IDENTIFIER: {
             std::string name = get_id();

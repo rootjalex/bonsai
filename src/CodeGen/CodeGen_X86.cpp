@@ -193,58 +193,59 @@ std::string vector_abi_name(char isa, uint32_t lanes, unsigned arity,
 // symbol present in this machine's libmvec, at a level this machine runs, is
 // ever emitted, so nothing here can fail to link or to run where it was
 // compiled; following the host means the code runs on the host.
-llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
+CodeGen_X86::Padded CodeGen_X86::pad_for_estimate(llvm::Value *x) {
+    Padded p;
     llvm::Type *t = x->getType();
     if (!t->getScalarType()->isFloatTy()) {
-        return CodeGen_LLVM::reciprocal(x, name);
+        return p;
     }
-    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
-    const unsigned lanes = vt != nullptr ? unsigned(vt->getNumElements()) : 1;
-    // The register the lanes fit: xmm for a scalar or up to four, ymm for
-    // up to eight, zmm for up to sixteen.
-    const unsigned width = lanes <= 4 ? 4 : lanes <= 8 ? 8 : lanes <= 16 ? 16 : 0;
-    const bool vl = has_feature("avx512vl");
-    const bool estimate = width == 4 || (width == 8 && (vl || has_feature("avx"))) ||
+    p.vt = llvm::dyn_cast<llvm::FixedVectorType>(t);
+    p.lanes = p.vt != nullptr ? unsigned(p.vt->getNumElements()) : 1;
+    const unsigned width = p.lanes <= 4 ? 4 : p.lanes <= 8 ? 8 : p.lanes <= 16 ? 16 : 0;
+    p.vl = has_feature("avx512vl");
+    const bool estimate = width == 4 || (width == 8 && (p.vl || has_feature("avx"))) ||
                           (width == 16 && has_feature("avx512f"));
     if (!estimate) {
-        return CodeGen_LLVM::reciprocal(x, name);
+        return p;
     }
-
-    // Into the register, the lanes past the value's set to one -- a
-    // reciprocal the estimate has a value for.
-    llvm::Type *f32 = t->getScalarType();
-    auto *rt = llvm::FixedVectorType::get(f32, width);
-    llvm::Value *a = llvm::ConstantFP::get(rt, 1.0);
-    if (vt == nullptr) {
-        a = builder->CreateInsertElement(a, x, uint64_t(0));
-    } else if (lanes != width) {
-        for (unsigned k = 0; k < lanes; k++) {
-            a = builder->CreateInsertElement(
-                a, builder->CreateExtractElement(x, uint64_t(k)), uint64_t(k));
+    p.width = width;
+    auto *rt = llvm::FixedVectorType::get(t->getScalarType(), width);
+    p.a = llvm::ConstantFP::get(rt, 1.0);
+    if (p.vt == nullptr) {
+        p.a = builder->CreateInsertElement(p.a, x, uint64_t(0));
+    } else if (p.lanes != width) {
+        for (unsigned k = 0; k < p.lanes; k++) {
+            p.a = builder->CreateInsertElement(
+                p.a, builder->CreateExtractElement(x, uint64_t(k)), uint64_t(k));
         }
     } else {
-        a = x;
+        p.a = x;
     }
+    return p;
+}
 
+llvm::CallInst *CodeGen_X86::estimate_instruction(const Padded &p,
+                                                  const std::string &name) {
+    auto *rt = llvm::cast<llvm::FixedVectorType>(p.a->getType());
     llvm::CallInst *r = nullptr;
-    if (vl) {
+    if (p.vl) {
         const llvm::Intrinsic::ID id =
-            width == 4    ? llvm::Intrinsic::x86_avx512_rcp14_ps_128
-            : width == 8  ? llvm::Intrinsic::x86_avx512_rcp14_ps_256
-                          : llvm::Intrinsic::x86_avx512_rcp14_ps_512;
+            p.width == 4    ? llvm::Intrinsic::x86_avx512_rcp14_ps_128
+            : p.width == 8  ? llvm::Intrinsic::x86_avx512_rcp14_ps_256
+                            : llvm::Intrinsic::x86_avx512_rcp14_ps_512;
         // The masked form: every lane on, nothing kept from the source.
-        llvm::Type *mask_t = width == 16 ? i16_t : i8_t;
+        llvm::Type *mask_t = p.width == 16 ? i16_t : i8_t;
         r = llvm::cast<llvm::CallInst>(builder->CreateIntrinsic(
             id, {},
-            {a, llvm::Constant::getNullValue(rt),
+            {p.a, llvm::Constant::getNullValue(rt),
              llvm::ConstantInt::getAllOnesValue(mask_t)},
-            nullptr, name + "_est"));
+            nullptr, name));
     } else {
-        const llvm::Intrinsic::ID id = width == 4
+        const llvm::Intrinsic::ID id = p.width == 4
                                            ? llvm::Intrinsic::x86_sse_rcp_ps
                                            : llvm::Intrinsic::x86_avx_rcp_ps_256;
         r = llvm::cast<llvm::CallInst>(
-            builder->CreateIntrinsic(id, {}, {a}, nullptr, name + "_est"));
+            builder->CreateIntrinsic(id, {}, {p.a}, nullptr, name));
     }
     // The estimate raises no exception and reads nothing, so it may be
     // computed where its operand is -- hoisted out of a traversal's loop
@@ -257,26 +258,49 @@ llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
     r->addFnAttr(llvm::Attribute::NoUnwind);
     r->addFnAttr(llvm::Attribute::WillReturn);
     r->setDoesNotAccessMemory();
+    return r;
+}
+
+llvm::Value *CodeGen_X86::unpad(const Padded &p, llvm::Value *v,
+                                const std::string &name) {
+    if (p.vt == nullptr) {
+        return builder->CreateExtractElement(v, uint64_t(0), name);
+    }
+    if (p.lanes != p.width) {
+        llvm::SmallVector<int, 16> keep(p.lanes);
+        for (unsigned k = 0; k < p.lanes; k++) {
+            keep[k] = int(k);
+        }
+        return builder->CreateShuffleVector(v, keep, name);
+    }
+    v->setName(name);
+    return v;
+}
+
+llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
+    const Padded p = pad_for_estimate(x);
+    if (p.width == 0) {
+        return CodeGen_LLVM::reciprocal(x, name);
+    }
+    llvm::CallInst *r = estimate_instruction(p, name + "_est");
+    auto *rt = llvm::cast<llvm::FixedVectorType>(p.a->getType());
     // One Newton step: h = 1 - a * r, then r + r * h, each a fused
     // multiply-add as Embree writes them.
     llvm::Value *h = builder->CreateIntrinsic(
         rt, llvm::Intrinsic::fma,
-        {builder->CreateFNeg(a), r, llvm::ConstantFP::get(rt, 1.0)});
+        {builder->CreateFNeg(p.a), r, llvm::ConstantFP::get(rt, 1.0)});
     llvm::Value *refined =
         builder->CreateIntrinsic(rt, llvm::Intrinsic::fma, {r, h, r});
+    return unpad(p, refined, name);
+}
 
-    if (vt == nullptr) {
-        return builder->CreateExtractElement(refined, uint64_t(0), name);
+llvm::Value *CodeGen_X86::reciprocal_estimate(llvm::Value *x,
+                                              const std::string &name) {
+    const Padded p = pad_for_estimate(x);
+    if (p.width == 0) {
+        return CodeGen_LLVM::reciprocal_estimate(x, name);
     }
-    if (lanes != width) {
-        llvm::SmallVector<int, 16> keep(lanes);
-        for (unsigned k = 0; k < lanes; k++) {
-            keep[k] = int(k);
-        }
-        return builder->CreateShuffleVector(refined, keep, name);
-    }
-    refined->setName(name);
-    return refined;
+    return unpad(p, estimate_instruction(p, name + "_raw"), name);
 }
 
 llvm::Value *CodeGen_X86::dynamic_shuffle(llvm::Value *vec,

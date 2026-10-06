@@ -64,6 +64,9 @@ add_bonsai_tests(
     tail-call.bonsai
     tight-array.bonsai
     tiled-elements.bonsai
+    tiled-elements-derived.bonsai
+    tiled-elements-where.bonsai
+    argmin-tighten-children.bonsai
     tree-traversal.bonsai
     tree-traversal-instanced.bonsai
     tree-traversal-mixed.bonsai
@@ -102,4 +105,5 @@ add_bonsai_tests(
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu znver4
     FILES
     permute-avx512.bonsai
+    rcp-estimate.bonsai
 )

@@ -34,6 +34,19 @@ namespace {
 struct Carry {
     const ir::Lambda *metric = nullptr;
     std::function<ir::Expr(const Interval &)> bound_of;
+    // Set for an extremum over every element of the set (no filter of the
+    // program's between): what the metric can reach within a child's volume
+    // -- its upper bound for a minimum -- and the accumulator to tighten with
+    // it, under the child's own test, as the children are tested: the best
+    // is then no worse than the farthest a hit child's volume holds (FCPW's
+    // `tMaxMin = min(tMaxMin, tMax[W])` on every pushed child). Inside a
+    // children's loop that a schedule vectorizes this is a reduction over the
+    // lanes into the one accumulator, which the vectorizer makes one masked
+    // cross-lane minimum (SSA/Vectorize.cpp). Unset where a filter may
+    // exclude every element of a child, where the bound would not hold.
+    std::function<ir::Expr(const Interval &)> reach_of;
+    std::optional<ir::WriteLoc> tighten;
+    ir::Accumulate::OpType tighten_op = ir::Accumulate::Min;
 };
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
@@ -997,16 +1010,30 @@ struct Rewriter : public ir::Mutator {
                 predicate_analysis(lambda->value, vols, ints);
             const ir::Expr cond = cond_of(bounds);
             // The carried bound, from the carried lambda's own interval over
-            // the same child.
+            // the same child; and, for an extremum over every element, the
+            // accumulator tightened with what the child can reach, under
+            // the child's test, in the loop (see Carry).
             ir::Expr carried_value;
+            ir::Stmt tighten;
             if (carry.has_value() && carry->metric->args.size() == 1) {
                 VolumeMap carry_vols;
                 carry_vols[carry->metric->args[0].name] =
                     array->volume_at(index);
                 IntervalMap carry_ints =
                     make_interval_map(carry->metric->args, existing);
-                carried_value = carry->bound_of(predicate_analysis(
-                    carry->metric->value, carry_vols, carry_ints));
+                const Interval carried = predicate_analysis(
+                    carry->metric->value, carry_vols, carry_ints);
+                carried_value = carry->bound_of(carried);
+                if (carry->reach_of && carry->tighten.has_value()) {
+                    if (ir::Expr reach = carry->reach_of(carried);
+                        reach.defined()) {
+                        tighten = ir::Accumulate::make(
+                            *carry->tighten, carry->tighten_op, std::move(reach));
+                        if (cond.defined()) {
+                            tighten = ir::IfElse::make(cond, std::move(tighten));
+                        }
+                    }
+                }
             }
             ir::Stmt extra;
             if (extra_at) {
@@ -1015,7 +1042,7 @@ struct Rewriter : public ir::Mutator {
                     /*in_loop=*/true);
             }
             if (!cond.defined() && !extra.defined() &&
-                !carried_value.defined()) {
+                !carried_value.defined() && !tighten.defined()) {
                 return ir::YieldFrom::make(value);
             }
             std::vector<ir::Stmt> stmts, body;
@@ -1065,6 +1092,9 @@ struct Rewriter : public ir::Mutator {
                     << array->count;
                 branches = make_tuple(std::move(paired));
             }
+            if (tighten.defined()) {
+                body.push_back(std::move(tighten));
+            }
             if (extra.defined()) {
                 body.push_back(std::move(extra));
             }
@@ -1107,13 +1137,27 @@ struct Rewriter : public ir::Mutator {
             conds.clear();
         }
         // The carried bounds, one per child from the carried lambda's
-        // interval over it, where every child has one.
+        // interval over it, where every child has one; and the tightening
+        // by what each child can reach, under its test (see Carry).
         ir::Expr branches = value;
         if (carry.has_value()) {
             std::vector<ir::Expr> carries;
+            size_t child = 0;
             for (const Interval &b :
                  child_bounds(carry->metric, value, existing)) {
                 carries.push_back(carry->bound_of(b));
+                if (carry->reach_of && carry->tighten.has_value() &&
+                    child < conds.size()) {
+                    if (ir::Expr reach = carry->reach_of(b); reach.defined()) {
+                        ir::Stmt tighten = ir::Accumulate::make(
+                            *carry->tighten, carry->tighten_op, std::move(reach));
+                        if (!is_const_one(conds[child])) {
+                            tighten = ir::IfElse::make(conds[child], std::move(tighten));
+                        }
+                        stmts.push_back(std::move(tighten));
+                    }
+                }
+                child++;
             }
             const std::vector<ir::Expr> parts = break_tuple(value);
             if (carries.size() == parts.size() &&
@@ -1928,11 +1972,25 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
     // Try to build fused filter inside. The `from`s it builds carry each
     // child's bound on the metric, for the test on arrival (bound_carry,
-    // RewriteArgExtremum::visit(RecLoop)).
+    // RewriteArgExtremum::visit(RecLoop)); and, where no filter of the
+    // program's stands between the metric and the set, each child tested
+    // tightens the metric's component of the accumulator with what the
+    // child can reach (Carry::tighten).
     auto [fused_filter, fused] =
         try_fuse_filter(dir, lambda, best_metric, inner);
+    Carry carry = bound_carry(dir, lambda);
+    if (!fused) {
+        ir::WriteLoc key = loc;
+        key.add_index_access(ir::UIntImm::make(ir::UInt_t::make(32), 0));
+        carry.reach_of = [dir](const Interval &child) {
+            return reachable_bound(dir, child);
+        };
+        carry.tighten = std::move(key);
+        carry.tighten_op = dir == Extremum::Min ? ir::Accumulate::Min
+                                                : ir::Accumulate::Max;
+    }
     ir::Stmt body = build_traversal(fused_filter, tree_types, extents,
-                                    local_intervals, bound_carry(dir, lambda));
+                                    local_intervals, carry);
 
     body = RewriteArgExtremum(dir, std::move(metric), std::move(loc),
                               std::move(tuple_t), ret_type, held_t, stored_in)
@@ -2192,10 +2250,20 @@ ir::Stmt build_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     const bool keep_scan = !fused && key.has_value();
     // Whichever rewrite builds the `from`s -- the fused filter's, or the
     // extremum's own below -- has each child carry the extremum's bound on
-    // it, for the test on arrival (RewriteExtremum::visit(RecLoop)).
-    const Carry carry{lambda, [dir](const Interval &child) {
-                          return promising_bound(dir, child);
-                      }};
+    // it, for the test on arrival (RewriteExtremum::visit(RecLoop)); and,
+    // where no filter of the program's stands between, tightens the
+    // accumulator with what each child tested can reach (Carry::tighten).
+    Carry carry{lambda, [dir](const Interval &child) {
+                    return promising_bound(dir, child);
+                }};
+    if (!fused) {
+        carry.reach_of = [dir](const Interval &child) {
+            return reachable_bound(dir, child);
+        };
+        carry.tighten = loc;
+        carry.tighten_op = dir == Extremum::Min ? ir::Accumulate::Min
+                                                : ir::Accumulate::Max;
+    }
     ir::Stmt body = build_traversal(keep_scan ? inner : fused_filter,
                                     tree_types, extents, local_intervals, carry);
 

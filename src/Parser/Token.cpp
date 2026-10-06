@@ -114,6 +114,7 @@ uint64_t Token::size() const {
     case Token::Type::PRINT:
     case Token::Type::FALSE:
     case Token::Type::WHILE:
+    case Token::Type::WHERE:
         return 5;
     case Token::Type::LAYOUT:
     case Token::Type::SWITCH:
@@ -202,6 +203,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "indirect";
     case Token::Type::PTR:
         return "ptr";
+    case Token::Type::WHERE:
+        return "where";
     case Token::Type::FROM:
         return "from";
     case Token::Type::SWITCH:

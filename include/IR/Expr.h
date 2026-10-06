@@ -629,6 +629,17 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // transcribing them says `rcp(d)` to get the same bits, where `1 /
         // d` is the correctly rounded quotient and differs in the last bits.
         rcp,
+        // The machine's reciprocal estimate and nothing after it: x86's
+        // `rcp14ps` (a relative error under 2^-14) or `rcpps` (under
+        // 1.5 * 2^-12), the GPU's `rcp.approx.f32`, and the quotient where
+        // the machine has no estimate to name (CodeGen_LLVM::
+        // reciprocal_estimate). For a program that writes a library's own
+        // refinement out: enoki's `rcp`, which FCPW divides with, is the
+        // estimate `r` then `2r - (r m) r` as one fused multiply-subtract
+        // (enoki/array_avx512.h rcp_), and rounds differently from Embree's
+        // `rcp` above in a third of all inputs, so a transcription of FCPW
+        // spells it from this (apps/rtq/metrics/fcpw.bonsai).
+        rcp_estimate,
         round,
         sin,
         sinh,
@@ -954,13 +965,42 @@ struct StoredElement : ExprNode<StoredElement> {
 // `k` is lane `k % width` of tile `k / width`, which Lower/TiledArrays.cpp
 // spells out for every `Extract` of one. Nothing but an Extract may use it:
 // the whole array has no representation as elements, only as tiles.
+//
+// A tile need not store the element's fields as they are: it stores what the
+// storage holds and derives the rest -- FCPW's packet stores a triangle's
+// three vertices where the program's triangle carries a vertex and two edges,
+// so the layout stores the vertices and derives the edges (`e1 = pa - pb`).
+// `derived` holds those fields, each a value over the tile's stored fields
+// named as variables of the element's types, which the element read
+// substitutes the lane of each stored field into.
+//
+// Nor need every lane of a tile be an element: Embree pads the last block
+// of a leaf with slots whose ids are -1, and which lanes hold elements is
+// the storage's convention, so the layout says it -- `group[4] { ... }
+// where geomID != 4294967295u` -- and `valid` holds that predicate, over
+// the tile's members as `derived`'s values are. A loop over the elements
+// leaves the lanes it fails out (Lower/ForEachs.cpp), as it leaves out
+// the lanes past a leaf's count.
 struct TiledArray : ExprNode<TiledArray> {
     Expr tiles;
     uint32_t width = 0;
+    std::vector<std::pair<std::string, Expr>> derived;
+    Expr valid;
 
     // `element` is the element type the tiles hold; `tiles` has the type of
-    // the storage, `array[<tile struct>, n]`.
-    static Expr make(Expr tiles, uint32_t width, Type element);
+    // the storage, `array[<tile struct>, n]`; `derived` the element's fields
+    // the tiles do not store, by name, with their values, which read the
+    // tile's fields as variables named by `placeholder`; `valid`, when
+    // defined, the predicate over the same variables that says which lanes
+    // are elements.
+    static Expr make(Expr tiles, uint32_t width, Type element,
+                     std::vector<std::pair<std::string, Expr>> derived = {},
+                     Expr valid = Expr());
+
+    // The variable a derived value reads the tile's field `field` through: a
+    // name no program can write, so that no pass between the layout's
+    // lowering and the read's expansion takes it for a variable of its own.
+    static std::string placeholder(const std::string &field);
 
     static const IRExprEnum node_type = IRExprEnum::TiledArray;
 };

@@ -143,6 +143,20 @@ struct TakeApart : public ir::Mutator {
         return ir::Extract::make(std::move(vec), std::move(idx));
     }
 
+    // A tile's derived fields are values computed at the read from the
+    // tile's own members (ir::TiledArray::derived), not places along the way
+    // to the element: the way goes through the tiles alone, and the values
+    // travel with the node untouched.
+    ir::Expr visit(const ir::TiledArray *node) override {
+        ir::Expr tiles = mutate(node->tiles);
+        if (tiles.same_as(node->tiles)) {
+            return node;
+        }
+        return ir::TiledArray::make(std::move(tiles), node->width,
+                                    node->type.element_of(), node->derived,
+                                    node->valid);
+    }
+
     ir::Expr visit(const ir::Var *node) override {
         // A function the layout reads a field through is code, not a place.
         if (node->type.is<ir::Function_t>()) {

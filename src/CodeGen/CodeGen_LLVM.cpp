@@ -3821,6 +3821,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = reciprocal(codegen_expr(node->args[0]), "rcp");
         return;
     }
+    case Intrinsic::rcp_estimate: {
+        internal_assert(node->args.size() == 1);
+        value = reciprocal_estimate(codegen_expr(node->args[0]), "rcp_est");
+        return;
+    }
     case Intrinsic::prefetch: {
         // An address and a byte count, and a mask once a gang carries it
         // (see emit_prefetch); a reference that reached here was never
@@ -3924,6 +3929,12 @@ llvm::Value *CodeGen_LLVM::reciprocal(llvm::Value *x, const std::string &name) {
     // No estimate instruction named for this target: the quotient itself.
     return builder->CreateFDiv(llvm::ConstantFP::get(x->getType(), 1.0), x,
                                name);
+}
+
+llvm::Value *CodeGen_LLVM::reciprocal_estimate(llvm::Value *x,
+                                               const std::string &name) {
+    // No estimate instruction named for this target: the quotient itself.
+    return reciprocal(x, name);
 }
 
 llvm::Value *CodeGen_LLVM::dynamic_shuffle(llvm::Value *vec,

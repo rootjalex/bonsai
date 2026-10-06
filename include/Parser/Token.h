@@ -49,6 +49,7 @@ class Token {
         GROUP,    // group
         INDIRECT, // indirect
         PTR,      // ptr
+        WHERE,    // where
         FROM,     // from
         SWITCH, // switch
         MATCH,  // match

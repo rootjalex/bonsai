@@ -1339,13 +1339,15 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type();
             break;
         }
-        case Intrinsic::rcp: {
+        case Intrinsic::rcp:
+        case Intrinsic::rcp_estimate: {
             // A float, or a vector of floats, to the same.
-            internal_assert(args.size() == 1) << "rcp takes one argument";
+            internal_assert(args.size() == 1)
+                << to_string(node->op) << " takes one argument";
             internal_assert(args[0].type().is_float() ||
                             (args[0].type().is_vector() &&
                              args[0].type().element_of().is_float()))
-                << "rcp of a non-float " << args[0].type();
+                << to_string(node->op) << " of a non-float " << args[0].type();
             node->type = args[0].type();
             break;
         }
@@ -2120,7 +2122,8 @@ Expr StoredElement::make(Expr tree, Expr index, Type element_type) {
     return node;
 }
 
-Expr TiledArray::make(Expr tiles, uint32_t width, Type element) {
+Expr TiledArray::make(Expr tiles, uint32_t width, Type element,
+                      std::vector<std::pair<std::string, Expr>> derived, Expr valid) {
     internal_assert(tiles.defined() && tiles.type().defined())
         << "TiledArray::make received undefined or untyped tiles";
     const Array_t *array = tiles.type().as<Array_t>();
@@ -2142,10 +2145,32 @@ Expr TiledArray::make(Expr tiles, uint32_t width, Type element) {
     if (count.defined()) {
         count = BinOp::make(BinOp::Mul, count, make_const(count.type(), width));
     }
+    // A derived field is one of the element's, with the element's type.
+    const Struct_t *fields = element.as<Struct_t>();
+    for (const auto &[name, value] : derived) {
+        const auto field = std::find_if(
+            fields->fields.begin(), fields->fields.end(),
+            [&](const auto &f) { return f.name == name; });
+        internal_assert(field != fields->fields.end())
+            << "A tile derives " << name << ", which is no field of the element "
+            << element;
+        internal_assert(value.defined() && equals(value.type(), field->type))
+            << "A tile derives " << name << " as " << value << " of type "
+            << value.type() << ", where the element's field is a " << field->type;
+    }
+    internal_assert(!valid.defined() || valid.type().is_bool())
+        << "A tile's `where` is a predicate on its lanes, not " << valid << " of type "
+        << valid.type();
     node->type = Array_t::make(std::move(element), std::move(count));
     node->tiles = std::move(tiles);
     node->width = width;
+    node->derived = std::move(derived);
+    node->valid = std::move(valid);
     return node;
+}
+
+std::string TiledArray::placeholder(const std::string &field) {
+    return "_tilefield_" + field;
 }
 
 Expr RefTo::make(Expr place, std::string tree) {

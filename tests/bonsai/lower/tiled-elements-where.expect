@@ -1,0 +1,65 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH4 = (const BVH4&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{  }
+type _tree_layout4 = [[packed]] struct _tree_layout4{  }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+
+func _traverse_tree0(r : Ray, tris : _tree_layout0) -> option<Triangle> {
+  _best0 : mut (f32, (u32)) := ((f32)inf, ())
+  rec(tris_ref : u32 = 0u, _bound0 : f32 = -(f32)inf) {
+    if (_bound0 < _best0[0]) { // gate
+      if ((tris_ref & 15u) == 0u) {
+        _mask0 : mut bool[4]
+        _carry0 : mut f32[4]
+        parfor children in [0u:4u:1u] {
+          _mask0[children] = intersects_Ray_AABB(r, build<AABB>(build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_z))[children], build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_z))[children])) && (distmin_Ray_AABB(r, build<AABB>(build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_z))[children], build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_z))[children])) < _best0[0])
+          _carry0[children] = distmin_Ray_AABB(r, build<AABB>(build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].lower_z))[children], build<f32x3x4>(cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_x), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_y), cast<f32x4>(tris.group1_row[tris_ref >> 4u].upper_z))[children]))
+        }
+        from ((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[0u], _carry0[0u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[1u], _carry0[1u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[2u], _carry0[2u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[3u], _carry0[3u])) where (_mask0[0u], _mask0[1u], _mask0[2u], _mask0[3u])
+      } else {
+        forall _idx1 in [0u:(tris_ref & 15u) - 8u:1u] {
+          parfor data in [0u:4u:1u] {
+            if (cast<u32x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].id)[data] != 4294967295u) {
+              if (intersects_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])) && (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])) < _best0[0])) {
+                _best0 argmin= (distmin_Ray_Triangle(r, build<Triangle>(cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p0)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p1)[data], cast<f32x3x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].p2)[data])), ((((tris_ref >> 4u) + _idx1) * 4u) + data))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  _best0_result : mut option<Triangle> := build<option<Triangle>>()
+  if (_best0[0] != (f32)inf) {
+    _best0_result = build<option<Triangle>>(build<Triangle>(cast<f32x3x4>(tris.group0_prims[_best0[1][0] / 4u].p0)[_best0[1][0] % 4u], cast<f32x3x4>(tris.group0_prims[_best0[1][0] / 4u].p1)[_best0[1][0] % 4u], cast<f32x3x4>(tris.group0_prims[_best0[1][0] / 4u].p2)[_best0[1][0] % 4u]))
+  }
+  yield _best0_result
+}
+
+func [[export]] trace(r : Ray, tris : _tree_layout0) -> option<Triangle> {
+  return _traverse_tree0(r, tris)
+}
+
+
+schedule {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
+  | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
+  | Leaf(data : Triangle[]) with data = data
+
+}

@@ -1,0 +1,83 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// A minimum over every element of a tree, pruned by what a child surely
+// holds. The closest triangle to a point is `argmin(|t| distmin(p, t),
+// tris)` with no filter: every triangle is a candidate, so a child's volume
+// bounds the best that child can hold from both sides -- the metric's lower
+// bound over the volume says whether the child is worth entering, and its
+// upper bound, the farthest the volume can be, says the best is no worse
+// than that once the child is known to hold something. Where the node holds
+// its children's volumes, both tests are made in the children's loop: the
+// mask `distmin(p, box) < best` as before, and now, under that same test,
+// `best.key min= distmax(p, box)` for each child that passed (Lower/Trees.cpp,
+// Carry::tighten) -- FCPW's `tMaxMin = min(tMaxMin, tMax[W])` on every
+// pushed child (fcpw/aggregates/mbvh.inl, enqueueNodes). A schedule that
+// vectorizes the loop makes that one masked minimum across the lanes
+// (SSA/Vectorize.cpp; backends/llvm/argmin-tighten-children.bonsai).
+//
+// The tightening is sound only because no filter of the program's stands
+// between the metric and the set: `trace`, an argmin over
+// `filter(intersects(r, t), tris)`, gets none, since a child's box may hold
+// no triangle the ray hits. Which lanes of a tile are triangles is the
+// layout's to say (lower/tiled-elements-where.bonsai), so that a padding
+// slot is never a candidate without the program filtering it.
+//
+// What to read for in the golden. In the interior arm's children loop, after
+// the mask's store, `if (_mask0[children]) _best0[0] min= distmax_Point_AABB(p,
+// build<AABB>(...))`; the leaf's update `_best0 argmin= (distmin(p, t), ref)`
+// as before; and the ray query's loop with no such statement.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] closest(p : Point) = argmin(|t : Triangle| distmin(p, t), tris);
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+}

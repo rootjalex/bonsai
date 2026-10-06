@@ -17,7 +17,10 @@ add_bonsai_tests(
     bvh4_child_volumes_vectorized.bonsai
     bvh4_tiled_elements.bonsai
     bvh4_tiled_elements_vectorized.bonsai
+    bvh4_tiled_elements_derived.bonsai
+    bvh4_tiled_elements_where.bonsai
     bvh4_tiled_elements_prefetch.bonsai
+    bvh4_fcpw_slabs.bonsai
     bvh4_arena.bonsai
     bvh4_ptr_arena.bonsai
     rcp.bonsai

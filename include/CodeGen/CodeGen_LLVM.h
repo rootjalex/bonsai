@@ -650,6 +650,13 @@ struct CodeGen_LLVM : public ir::Visitor {
     // does not, the division `1 / x`.
     virtual llvm::Value *reciprocal(llvm::Value *x, const std::string &name);
 
+    // The machine's reciprocal estimate of `x` and nothing after it
+    // (ir::Intrinsic::rcp_estimate): the estimate instruction where the
+    // machine has one (see CodeGen_X86), and here, for a target that does
+    // not, the division `1 / x`.
+    virtual llvm::Value *reciprocal_estimate(llvm::Value *x,
+                                             const std::string &name);
+
     // `vec` permuted by `indices`, a vector of as many integer lanes
     // (ir::Intrinsic::permute): lane k of the result is lane indices[k] of
     // `vec`. The machine's variable permute where it has one (see

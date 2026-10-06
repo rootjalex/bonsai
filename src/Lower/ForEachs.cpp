@@ -1,6 +1,7 @@
 #include "Lower/ForEachs.h"
 
 #include "IR/Analysis.h"
+#include "Lower/TiledArrays.h"
 #include "IR/Equality.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
@@ -147,8 +148,22 @@ struct LowerToForAll : public ir::Mutator {
     // `trace.vectorize(tris.Leaf.data)`. The element's index is spelled as
     // the tile's times the width plus the lane, which is what the tiled
     // array's lowering reads a tile and a lane off (Lower/TiledArrays.cpp).
-    // A range not known to begin and end on a tile iterates its elements one
-    // by one, as any other array.
+    //
+    // A range that begins on a tile but whose count is not a multiple of the
+    // width -- FCPW's leaf, `child[3]` triangles in packets of sixteen, the
+    // last packet part full -- runs over as many tiles as hold the count,
+    // with the lanes past the count left out,
+    //
+    //   => for tile in [0 : (n + width - 1) / width) {
+    //        parfor <label> in [0 : width) {
+    //          if (tile * width + <label> < n) { body[...] }
+    //        }
+    //      }
+    //
+    // which a vectorized lanes' loop runs as one test of the tile under a
+    // lane mask -- FCPW's `W = min(WIDTH, nReferences - startReference)`.
+    // A range not known to begin on a tile iterates its elements one by one,
+    // as any other array.
     ir::Stmt visit(const ir::ForEach *node) override {
         ir::Expr iterable = node->iter;
 
@@ -179,8 +194,8 @@ struct LowerToForAll : public ir::Mutator {
             const std::optional<ir::Expr> first =
                 offset.defined() ? quotient_by(offset, tiled->width)
                                  : std::optional<ir::Expr>(begin);
-            const std::optional<ir::Expr> tiles = quotient_by(end, tiled->width);
-            if (first.has_value() && tiles.has_value()) {
+            const std::optional<ir::Expr> whole = quotient_by(end, tiled->width);
+            if (first.has_value()) {
                 const ir::Type index_t = end.type();
                 const std::string tile_name = unique_idx_name();
                 ir::Expr tile = ir::Var::make(index_t, tile_name);
@@ -194,6 +209,27 @@ struct LowerToForAll : public ir::Mutator {
                     << node->name;
                 ir::Stmt body = mutate(node->body);
                 repls.erase(node->name);
+                // The lanes the tile's `where` leaves out are not elements
+                // (ir::TiledArray::valid): the body runs under the predicate
+                // at this lane -- a lane mask once the loop is vectorized.
+                if (tiled->valid.defined()) {
+                    ir::Expr tile_read =
+                        ir::Extract::make(tiled->tiles, *first + tile);
+                    body = ir::IfElse::make(
+                        tiled_lane_value(*tiled, tile_read, lane, tiled->valid),
+                        std::move(body));
+                }
+                // As many tiles as hold the count; the lanes past it, in the
+                // last, left out -- unless the count is whole tiles, when
+                // every lane is an element.
+                ir::Expr tiles;
+                if (whole.has_value()) {
+                    tiles = *whole;
+                } else {
+                    tiles = (end + make_const(index_t, tiled->width - 1)) / width;
+                    body = ir::IfElse::make(tile * width + lane < end,
+                                            std::move(body));
+                }
                 ir::Stmt lanes = ir::ParFor::make(
                     idx_name,
                     ir::ParFor::Slice{make_zero(index_t), width,
@@ -201,7 +237,7 @@ struct LowerToForAll : public ir::Mutator {
                     std::move(body));
                 return ir::ForAll::make(
                     tile_name,
-                    ir::ForAll::Slice{make_zero(index_t), *tiles,
+                    ir::ForAll::Slice{make_zero(index_t), std::move(tiles),
                                       make_one(index_t)},
                     std::move(lanes));
             }
@@ -222,6 +258,18 @@ struct LowerToForAll : public ir::Mutator {
         ir::Stmt body = mutate(node->body);
 
         repls.erase(node->name);
+
+        // An element-by-element loop over a tiled array whose tiles have a
+        // `where`: the lane's predicate, with the tile and the lane divided
+        // out of the index.
+        if (const ir::TiledArray *tiled = iterable.as<ir::TiledArray>();
+            tiled != nullptr && tiled->valid.defined()) {
+            const ir::Expr width = make_const(idx.type(), tiled->width);
+            ir::Expr tile_read = ir::Extract::make(tiled->tiles, idx / width);
+            body = ir::IfElse::make(
+                tiled_lane_value(*tiled, tile_read, idx % width, tiled->valid),
+                std::move(body));
+        }
 
         ir::ForAll::Slice slice{std::move(begin), std::move(end),
                                 std::move(stride)};

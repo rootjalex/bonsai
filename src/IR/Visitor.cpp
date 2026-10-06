@@ -230,7 +230,15 @@ void Visitor::visit(const StoredElement *node) {
     node->index.accept(this);
 }
 
-void Visitor::visit(const TiledArray *node) { node->tiles.accept(this); }
+void Visitor::visit(const TiledArray *node) {
+    node->tiles.accept(this);
+    for (const auto &[name, value] : node->derived) {
+        value.accept(this);
+    }
+    if (node->valid.defined()) {
+        node->valid.accept(this);
+    }
+}
 
 void Visitor::visit(const Deref *node) {
     node->expr.accept(this);

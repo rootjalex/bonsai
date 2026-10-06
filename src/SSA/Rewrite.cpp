@@ -682,10 +682,35 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
                     },
                 },
                 copy->terminator.data);
+            // The copy's table of names keeps the names the copy defines --
+            // its instructions', renamed by clone_region, and its
+            // arguments', renamed here -- and nothing else. What else a
+            // callee's table may hold is the callee's: a program's name for
+            // a value its blocks read directly, a name of an instruction a
+            // rewrite took out without clearing the table (a `let` of a
+            // vector the aggregate splitting replaced by its components).
+            // Carried into the caller such a name would be looked up there,
+            // and the caller may well have the same name for a value of its
+            // own -- `t1`, `v`, `d` -- which the simplifier then takes from
+            // the table (SSA/Simplify.cpp remember) as the callee's. A copy
+            // of a whole function brings only what it brought.
+            set<string> own;
+            for (const auto &instr : copy->instrs) {
+                if (!instr->name.empty()) {
+                    own.insert(instr->name);
+                }
+            }
+            for (const Argument &arg : copy->args) {
+                own.insert(arg.name);
+            }
             map<string, shared_ptr<Value>> lookups;
             for (auto &[name, v] : copy->lookups) {
+                const string renamed = defined.contains(name) ? new_name(name) : name;
+                if (!own.contains(renamed)) {
+                    continue;
+                }
                 rename_value(v);
-                lookups[defined.contains(name) ? new_name(name) : name] = v;
+                lookups[renamed] = v;
             }
             copy->lookups = std::move(lookups);
         }

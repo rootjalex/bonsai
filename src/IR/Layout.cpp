@@ -7,6 +7,7 @@
 #include "Utils.h"
 
 #include <functional>
+#include <map>
 
 namespace bonsai {
 namespace ir {
@@ -180,7 +181,7 @@ Layout Chain::make(std::vector<Layout> layouts) {
 
 Layout Group::make(Expr size, std::string name, std::string declared_name,
                    ir::Type index_t, Layout inner, Group::Type type,
-                   ir::Type element, Expr start) {
+                   ir::Type element, Expr start, Expr valid) {
     // A group of the tree's elements may have no size when it is the run of
     // tiles that begins where a looked-up row does, bounded by the range
     // over it (see Lookup::shape); every other group says how many rows it
@@ -219,6 +220,10 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
            "type: "
         << start << " for " << node->name << " : " << node->index_t;
     node->start = std::move(start);
+    internal_assert(!valid.defined() || valid.type().is_bool())
+        << "A group's `where` is a predicate on its lanes, not " << valid
+        << " of type " << valid.type();
+    node->valid = std::move(valid);
     return node;
 }
 
@@ -246,7 +251,7 @@ uint32_t tile_width(const Group &tile) {
     return static_cast<uint32_t>(*width);
 }
 
-bool holds_fields_of(const Layout &inner, const Struct_t &element) {
+bool provides_fields_of(const Layout &inner, const Struct_t &element) {
     const Chain *chain = inner.as<Chain>();
     std::vector<Layout> members;
     if (chain != nullptr) {
@@ -254,13 +259,27 @@ bool holds_fields_of(const Layout &inner, const Struct_t &element) {
     } else {
         members.push_back(inner);
     }
-    if (members.size() != element.fields.size()) {
-        return false;
+    // What each member provides, stored or derived, with its type.
+    std::map<std::string, Type> provided;
+    for (const Layout &member : members) {
+        std::string name;
+        Type type;
+        if (const Name *stored = member.as<Name>()) {
+            name = stored->name;
+            type = stored->type;
+        } else if (const Materialize *derived = member.as<Materialize>()) {
+            name = derived->name;
+            type = derived->value.type();
+        } else {
+            return false;
+        }
+        if (!provided.emplace(name, type).second) {
+            return false;
+        }
     }
-    for (size_t i = 0; i < members.size(); i++) {
-        const Name *name = members[i].as<Name>();
-        if (name == nullptr || name->name != element.fields[i].name ||
-            !equals(name->type, element.fields[i].type)) {
+    for (const auto &field : element.fields) {
+        const auto found = provided.find(field.name);
+        if (found == provided.end() || !equals(found->second, field.type)) {
             return false;
         }
     }

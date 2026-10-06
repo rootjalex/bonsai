@@ -28,8 +28,71 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <map>
+
 namespace bonsai {
 namespace lower {
+
+namespace {
+
+// The lane of every stored field of `tile`, by name, with packed storage
+// converted to what is computed with (see Vector_t::packed), and every
+// derived field's value over them in turn.
+std::map<std::string, ir::Expr> lanes_of(const ir::TiledArray &tiled,
+                                         const ir::Expr &tile, const ir::Expr &lane) {
+    const auto *tile_t = tile.type().as<ir::Struct_t>();
+    internal_assert(tile_t != nullptr) << tile.type();
+    std::map<std::string, ir::Expr> lanes;
+    for (const auto &stored : tile_t->fields) {
+        ir::Expr column = ir::Access::make(stored.name, tile);
+        if (const auto *vector = column.type().as<ir::Vector_t>();
+            vector != nullptr && vector->packed) {
+            column = ir::Cast::make(ir::Vector_t::make(vector->etype, vector->lanes),
+                                    std::move(column), ir::Cast::Mode::Convert);
+        }
+        lanes.emplace(stored.name, ir::Extract::make(std::move(column), lane));
+    }
+    // A derived field's value, the placeholder of each member it reads
+    // (ir::TiledArray::placeholder) replaced by that member's lane; a
+    // derived field written over an earlier derived one finds that one's
+    // value here too.
+    struct Lanes : public ir::Mutator {
+        const std::map<std::string, ir::Expr> &lanes;
+        explicit Lanes(const std::map<std::string, ir::Expr> &lanes) : lanes(lanes) {}
+        ir::Expr visit(const ir::Var *var) override {
+            for (const auto &[name, value] : lanes) {
+                if (var->name == ir::TiledArray::placeholder(name)) {
+                    return value;
+                }
+            }
+            return var;
+        }
+    };
+    for (const auto &[name, value] : tiled.derived) {
+        lanes[name] = Lanes(lanes).mutate(value);
+    }
+    return lanes;
+}
+
+} // namespace
+
+ir::Expr tiled_lane_value(const ir::TiledArray &tiled, const ir::Expr &tile,
+                          const ir::Expr &lane, const ir::Expr &expr) {
+    const std::map<std::string, ir::Expr> lanes = lanes_of(tiled, tile, lane);
+    struct Lanes : public ir::Mutator {
+        const std::map<std::string, ir::Expr> &lanes;
+        explicit Lanes(const std::map<std::string, ir::Expr> &lanes) : lanes(lanes) {}
+        ir::Expr visit(const ir::Var *var) override {
+            for (const auto &[name, value] : lanes) {
+                if (var->name == ir::TiledArray::placeholder(name)) {
+                    return value;
+                }
+            }
+            return var;
+        }
+    };
+    return Lanes(lanes).mutate(expr);
+}
 
 namespace {
 
@@ -113,31 +176,25 @@ struct ExpandTiledReads : public ir::Mutator {
         const ir::Type element_t = tiled->type.element_of();
         const auto *element = element_t.as<ir::Struct_t>();
         internal_assert(element != nullptr) << element_t;
-        const auto *tile_t = tile.type().as<ir::Struct_t>();
-        internal_assert(tile_t != nullptr) << tile.type();
+
+        // The lane of every stored field, by name: an element's field where
+        // the tile stores it, and what a derived field's value is computed
+        // from where it does not (ir::TiledArray::derived). A lane no field
+        // reads is dead and goes.
+        const std::map<std::string, ir::Expr> lanes = lanes_of(*tiled, tile, lane);
 
         std::vector<ir::Expr> values;
         values.reserve(element->fields.size());
         for (const auto &field : element->fields) {
-            const bool held = std::any_of(
-                tile_t->fields.begin(), tile_t->fields.end(),
-                [&](const auto &f) { return f.name == field.name; });
-            internal_assert(held)
-                << "The tile " << tile.type() << " holds no field "
-                << field.name << " of the element " << element_t;
-            ir::Expr column = ir::Access::make(field.name, tile);
-            // Stored packed, computed with unpacked (see Vector_t::packed).
-            if (const auto *vector = column.type().as<ir::Vector_t>();
-                vector != nullptr && vector->packed) {
-                column = ir::Cast::make(
-                    ir::Vector_t::make(vector->etype, vector->lanes),
-                    std::move(column), ir::Cast::Mode::Convert);
-            }
-            ir::Expr value = ir::Extract::make(std::move(column), lane);
+            const auto found = lanes.find(field.name);
+            internal_assert(found != lanes.end())
+                << "The tile " << tile.type() << " neither holds nor derives "
+                << "the field " << field.name << " of the element " << element_t;
+            const ir::Expr &value = found->second;
             internal_assert(ir::equals(value.type(), field.type))
                 << "Lane " << lane << " of the tile's " << field.name << " is a "
                 << value.type() << ", where the element's is a " << field.type;
-            values.push_back(std::move(value));
+            values.push_back(value);
         }
         return ir::Build::make(element_t, std::move(values));
     }

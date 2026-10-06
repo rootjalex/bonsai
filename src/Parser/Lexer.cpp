@@ -149,6 +149,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::INDIRECT;
     if (token == "ptr")
         return Token::Type::PTR;
+    if (token == "where")
+        return Token::Type::WHERE;
     if (token == "from")
         return Token::Type::FROM;
     if (token == "switch")

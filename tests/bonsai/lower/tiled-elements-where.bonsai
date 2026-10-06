@@ -1,0 +1,74 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// A tile whose lanes are not all elements, and the layout saying which are.
+// Embree pads the last Triangle4 block of a leaf with slots whose ids are -1
+// (TriangleM::fill), and which lanes of a block are triangles is the
+// storage's convention, not the program's: the program asks about every
+// triangle in the set, and a query over them -- the closest triangle to a
+// point, say -- must not consider a padding slot. So the tile says it:
+// `group[4] { ... } where id != 4294967295u`, a predicate over the tile's
+// members (here a stored `id` the element does not have), and the lanes
+// that fail it are not elements of the set (ir::Group::valid,
+// ir::TiledArray::valid). The alternative, a filter in the program, would
+// make padding the program's business and would also keep the lowering from
+// tightening a minimum with what a subtree surely holds (Lower/Trees.cpp,
+// Carry::tighten), since a filter may exclude every element of a subtree.
+//
+// What to read for in the golden. The storage: `group0_prims` tiles of
+// `p0`, `p1`, `p2` and `id`, four wide. The leaf's loop over the lanes runs
+// its body under `if (cast<u32x4>(...id)[data] != 4294967295u)`, the
+// predicate at the lane (Lower/ForEachs.cpp), with the triangle built from
+// the other three fields as before.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        // Slots, four to a tile; a slot is a triangle where its id is not -1.
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+}

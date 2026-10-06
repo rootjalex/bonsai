@@ -148,11 +148,16 @@ struct Group : LayoutNode<Group> {
     // the layout says (`layout tris(ref : u64 = 0u)`, Scion's reference
     // parameter with its default); undefined means zero.
     Expr start;
+    // For the tile of a group of elements: which of its lanes hold elements,
+    // a predicate over the tile's members (`group[4] { ... } where geomID !=
+    // 4294967295u`, Embree's padding slots excluded by their ids). Undefined
+    // means every lane does; see ir::TiledArray::valid.
+    Expr valid;
 
     static Layout make(Expr size, std::string name, std::string declared_name,
                        ir::Type index_t, Layout inner,
                        Type type = Type::Direct, ir::Type element = ir::Type(),
-                       Expr start = Expr());
+                       Expr start = Expr(), Expr valid = Expr());
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };
@@ -210,9 +215,12 @@ struct Lookup : LayoutNode<Lookup> {
 const Group *tile_of(const Layout &inner);
 // How many elements a tile holds.
 uint32_t tile_width(const Group &tile);
-// Whether `inner` stores exactly the fields of `element`: one field per field
-// of the struct, by name and type, in the struct's order, and nothing else.
-bool holds_fields_of(const Layout &inner, const Struct_t &element);
+// Whether `inner`, a tile's members, provides every field of `element`: each
+// member a stored field (`name : type`) or a derived one (`name = expr`),
+// each name once, and every field of the struct among them with its type --
+// stored under its own name, or derived from the stored ones (ir::TiledArray).
+// The stored members are the tile's bytes, in their own order.
+bool provides_fields_of(const Layout &inner, const Struct_t &element);
 
 using LayoutMap = std::map<std::string, Layout>;
 

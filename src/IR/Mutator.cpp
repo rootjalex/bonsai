@@ -560,11 +560,22 @@ Expr Mutator::visit(const StoredElement *node) {
 
 Expr Mutator::visit(const TiledArray *node) {
     Expr tiles = mutate(node->tiles);
-    if (tiles.same_as(node->tiles)) {
+    bool changed = !tiles.same_as(node->tiles);
+    std::vector<std::pair<std::string, Expr>> derived;
+    derived.reserve(node->derived.size());
+    for (const auto &[name, value] : node->derived) {
+        Expr mutated = mutate(value);
+        changed = changed || !mutated.same_as(value);
+        derived.emplace_back(name, std::move(mutated));
+    }
+    Expr valid = node->valid.defined() ? mutate(node->valid) : node->valid;
+    changed = changed || !valid.same_as(node->valid);
+    if (!changed) {
         return node;
     }
     return TiledArray::make(std::move(tiles), node->width,
-                            node->type.element_of());
+                            node->type.element_of(), std::move(derived),
+                            std::move(valid));
 }
 
 Expr Mutator::visit(const Deref *node) {

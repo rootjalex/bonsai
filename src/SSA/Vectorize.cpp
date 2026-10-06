@@ -2044,10 +2044,25 @@ void absorb_successors(Function &func, const shared_ptr<Block> &block,
             instr->owner = block;
             block->instrs.push_back(instr);
         }
+        // A name both tables hold denotes one value: a function's names are
+        // one per value, and what an inlined copy brings is its own (see
+        // inline_call). Two instructions under one name would be the
+        // callee's table leaking into the caller's, which the simplifier
+        // would read as the one for the other.
         for (const auto &[name, v] : next->lookups) {
-            if (!renames.count(name)) {
-                block->lookups[name] = v;
+            if (renames.count(name)) {
+                continue;
             }
+            if (const auto it = block->lookups.find(name); it != block->lookups.end()) {
+                const auto *mine = std::get_if<shared_ptr<Instruction>>(&it->second->data);
+                const auto *theirs = std::get_if<shared_ptr<Instruction>>(&v->data);
+                internal_assert(mine == nullptr || theirs == nullptr ||
+                                mine->get() == theirs->get())
+                    << "absorbing " << next->name << " into " << block->name
+                    << ": `" << name << "` names " << (*mine)->name << " in one and "
+                    << (*theirs)->name << " in the other";
+            }
+            block->lookups[name] = v;
         }
         // The merged block stands for both: a provenance the target carried
         // is kept where the block had none.

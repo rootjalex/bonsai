@@ -52,6 +52,9 @@ add_bonsai_tests(
     struct_defaults.bonsai
     tight-array.bonsai
     tiled-elements.bonsai
+    tiled-elements-derived.bonsai
+    tiled-elements-where.bonsai
+    argmin-tighten-children.bonsai
     arena-rows.bonsai
     ptr-arena-rows.bonsai
     prefetch-children.bonsai

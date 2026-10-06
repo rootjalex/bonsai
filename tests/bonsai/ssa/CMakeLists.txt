@@ -44,6 +44,7 @@ add_bonsai_tests(
     defer-single-buffer.bonsai
     defer-nested-producer.bonsai
     merge-variant-fold.bonsai
+    inline-callee-names.bonsai
     defer-split.bonsai
     defer-split-unread.bonsai
     defer-stage-cycle.bonsai

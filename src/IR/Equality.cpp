@@ -844,6 +844,27 @@ Cmp compare_exprs(const Expr &e0, const Expr &e1) {
             width != Cmp::Equals) {
             return width;
         }
+        if (const Cmp count = compare_primitives(v0->derived.size(),
+                                                 v1->derived.size());
+            count != Cmp::Equals) {
+            return count;
+        }
+        for (size_t i = 0; i < v0->derived.size(); i++) {
+            if (const Cmp name = compare_primitives(v0->derived[i].first,
+                                                    v1->derived[i].first);
+                name != Cmp::Equals) {
+                return name;
+            }
+            if (const Cmp value = compare_exprs(v0->derived[i].second,
+                                                v1->derived[i].second);
+                value != Cmp::Equals) {
+                return value;
+            }
+        }
+        if (const Cmp valid = compare_exprs(v0->valid, v1->valid);
+            valid != Cmp::Equals) {
+            return valid;
+        }
         return compare_exprs(v0->tiles, v1->tiles);
     }
     case IRExprEnum::Deref: {
@@ -1413,6 +1434,13 @@ uint64_t hash_of(const Expr &e) {
         const TiledArray *v = e.as<TiledArray>();
         h = hash_value(h, v->width);
         h = hash_exprs(h, v->tiles);
+        for (const auto &[name, value] : v->derived) {
+            h = hash_value(h, name);
+            h = hash_exprs(h, value);
+        }
+        if (v->valid.defined()) {
+            h = hash_exprs(h, v->valid);
+        }
         break;
     }
     case IRExprEnum::RefTo: {

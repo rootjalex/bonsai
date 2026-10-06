@@ -559,14 +559,38 @@ void Block::make_instruction(const std::string &name, Type type,
 
         auto &instr = *instr_ptr;
 
-        // Update name
+        // The name the instruction's counter gave it names nothing once the
+        // program's name takes its place, and an entry left for it in a
+        // block's table of names would hand this instruction to whoever
+        // asks for that name later: the simplifier takes what an
+        // instruction's name denotes from the table (SSA/Simplify.cpp
+        // remember), and a copy of this block made for another function
+        // carries the table along, where the old name is some other
+        // instruction's (SSA/Rewrite.cpp inline_call). A program's name
+        // stays: `y = ...; x = y;` renames the value `x` and `y` still
+        // denotes it.
+        if (instr->name.starts_with("@")) {
+            const auto forget = [&](Block &b) {
+                const auto it = b.lookups.find(instr->name);
+                if (it != b.lookups.end()) {
+                    const auto *held =
+                        std::get_if<std::shared_ptr<Instruction>>(&it->second->data);
+                    if (held != nullptr && held->get() == instr.get()) {
+                        b.lookups.erase(it);
+                    }
+                }
+            };
+            forget(*this);
+            if (const auto owner_block = instr->owner.lock();
+                owner_block && owner_block.get() != this) {
+                forget(*owner_block);
+            }
+        }
         instr->name = name;
 
-        // Update lookup table
-        // TODO: remove existing name??
         auto [it, inserted] = lookups.insert({name, v});
         if (!inserted) {
-            it->second = v; // overwrite existing entry
+            it->second = v; // the name rebound to this value
         }
 
         return;
