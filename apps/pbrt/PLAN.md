@@ -10953,6 +10953,45 @@ traced ray IS the hardware's reported candidate -- replace with
 (rt_hit_t, rt_barycentrics); never a heuristic beyond that
 identity).
 
+**The design proposal, for the user's ruling (2026-10-06, midday;
+BOTH steps turn out to need it).** Even the "structural" per-kind
+anyhit split needs new surface: the triangle/box partition of the
+build inputs is the DRIVER's knowledge (render_hook.cpp sorts
+elements into hardware-triangle runs by the shape's tag), invisible
+to the lowering -- the compiler's programs are generic over the
+element and correctness today rests on the app uploading vertices
+that equal the stored Tri elements. To specialize anything per input
+kind, the compiler must be told which variant the hardware
+intersects. Two options.
+OPTION A (recommended -- pbrt's full shape, fixes anyhit AND the
+materials kernels): the query carries the hit's parameterization.
+distmin computes a TriangleHit (t, barycentrics) internally and
+throws it away; let the query KEEP the metric's witness -- trace()
+returns (element, hit params), surface_geometry takes (shape, params)
+in place of (shape, ray) at its seven call sites, consumers
+interpolate instead of re-intersecting (pbrt's MaterialEvalWorkItem
+exactly). CPU: the traversal already computes the witness, carrying
+it is near-free. GPU: queue entries grow ~12 bytes (t, b1, b2)
+against saving a full re-intersection per consumer; hit programs
+read rt_hit_t + a new rt_barycentrics (the existing rt_* family,
+optixGetTriangleBarycentrics) for hardware triangles and our
+intersection program's attribute registers for the rest; the
+triangle-input/box-input program split falls out naturally since the
+params' SOURCE differs by input kind. Needs: the witness-carrying
+query form (the rtq argmin-payload precedent), rt_barycentrics, the
+renderer's call sites.
+OPTION B (smaller, partial): only a layout declaration naming the
+hardware-intersected variant ("the Tri elements are the triangle
+inputs"), enabling per-input-kind anyhit programs (the shape match
+collapses per program) and the bary substitution inside hit programs.
+Leaves the materials kernels' re-intersection (dambreak Dielectric
+stays 1.13x loaded), since queue entries still carry no params.
+Until the ruling: walls are at or ahead of pbrt on every measured
+cell; the stage cells standing open are landscape trace 1.13x,
+watercolor shadow 1.13-1.14x, bistro shadow 1.15-1.16x, dambreak
+materials 1.07x. The 13-scene 16/64/128 table the user ordered waits
+on closing these, per their gate.
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
