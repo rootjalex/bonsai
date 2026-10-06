@@ -3955,6 +3955,124 @@ vectorize-loop-mutual, vectorize-packet-traversal and their llvm forms);
 one error golden's source line. Every execution test as before; suite
 1380.
 
+## The thirteen meshes at 9440bea3: bonsai over Embree on every cell (2026-10-05)
+
+The user's ask: every mesh, both trees (Embree's BVH8 and its BVH4, each
+over Triangle4 leaves, the layouts matched byte for byte), both queries,
+every ray type, on a quiet machine, the speedup bonsai achieves over
+Embree. compare.sh with `--schedule embree4,tuned4` and then
+`--schedule embree,tuned`, side 2048 (4,194,304 primary rays; the ao and
+diffuse sets are one ray per primary hit), least of five repeats, one
+thread on both sides pinned to cpu 11, nothing else on the machine (the
+pbrt session held its work for a reserved block, 18:20-18:28, and for a
+re-run of two meshes at 18:31). The compiler is the tree's at 9440bea3
+(ad9da0f0's code; the one uncommitted file in the tree is the GPU
+runtime's header, nothing rtq reads). Every ray agrees with Embree up to
+ties on all 52 (mesh, schedule) pairs.
+
+Which cells matter. The driver measures three ray sets against both
+queries, six cells a schedule, but a renderer asks each query of
+particular rays: the nearest hit of primary and diffuse rays (the camera
+and the bounce), the any hit of ao rays (occlusion). Those are the three
+columns per schedule below; the other three (the nearest hit of ao rays,
+the any hit of primary and diffuse rays) are measured as controls and
+follow in parentheses in the second table.
+
+Bonsai's rate over Embree's, the cells that matter (nearest hit: primary,
+diffuse; any hit: ao):
+
+| mesh | embree4 pri dif ao | tuned4 pri dif ao | embree pri dif ao | tuned pri dif ao |
+|---|---|---|---|---|
+| head      | 1.10 1.00 1.02 | 1.09 1.09 1.10 | 1.10 1.05 1.01 | 1.07 1.16 1.12 |
+| ganesha   | 1.06 1.04 1.02 | 1.05 1.07 1.05 | 1.08 1.06 1.01 | 1.10 1.13 1.07 |
+| dragon    | 1.08 1.03 1.02 | 1.08 1.07 1.04 | 1.08 1.05 1.02 | 1.09 1.11 1.07 |
+| pavilion  | 1.12 0.99 1.02 | 1.10 1.01 1.03 | 1.08 1.06 1.03 | 1.06 1.11 1.05 |
+| zero-day  | 1.22 1.02 1.02 | 1.22 1.12 1.13 | 1.15 1.08 1.04 | 1.15 1.22 1.16 |
+| bmw       | 1.07 1.04 1.05 | 1.06 1.11 1.11 | 1.11 1.08 1.05 | 1.09 1.17 1.14 |
+| crown     | 1.14 1.03 1.03 | 1.14 1.15 1.14 | 1.10 1.07 1.04 | 1.12 1.26 1.18 |
+| ivy       | 1.12 1.04 0.99 | 1.11 1.14 1.13 | 1.08 1.05 1.00 | 1.09 1.22 1.13 |
+| villa     | 1.06 1.02 1.03 | 1.05 1.10 1.09 | 1.10 1.08 1.03 | 1.10 1.17 1.11 |
+| sportscar | 1.10 1.04 1.04 | 1.10 1.11 1.10 | 1.10 1.09 1.06 | 1.11 1.17 1.15 |
+| dambreak  | 1.08 1.04 1.02 | 1.07 1.07 1.06 | 1.08 1.06 1.01 | 1.09 1.10 1.07 |
+| landscape | 1.16 1.18 1.21 | 1.18 1.18 1.19 | 1.13 1.19 1.16 | 1.16 1.19 1.16 |
+| lte-orb   | 1.11 1.05 1.03 | 1.10 1.09 1.06 | 1.10 1.05 1.03 | 1.10 1.13 1.08 |
+
+The ranges over the thirteen meshes:
+
+| schedule | nearest, primary | nearest, diffuse | any, ao | cells under 1.00 |
+|---|---|---|---|---|
+| embree4 (Embree's BVH4 schedule) | 1.06-1.22 | 0.99-1.18 | 0.99-1.21 | pavilion diffuse 0.99, ivy ao 0.99 |
+| tuned4 | 1.05-1.22 | 1.01-1.18 | 1.03-1.19 | none |
+| embree (Embree's BVH8 schedule) | 1.08-1.15 | 1.05-1.19 | 1.00-1.16 | none (ivy ao 1.00) |
+| tuned | 1.06-1.16 | 1.10-1.26 | 1.05-1.18 | none |
+
+Every cell, the controls in parentheses (nearest hit of ao rays, any hit
+of primary rays, any hit of diffuse rays):
+
+| mesh | embree4 | tuned4 | embree | tuned |
+|---|---|---|---|---|
+| head      | 1.10 1.00 1.02 (0.99 1.13 1.02) | 1.09 1.09 1.10 (1.09 1.11 1.09) | 1.10 1.05 1.01 (1.05 1.13 1.01) | 1.07 1.16 1.12 (1.16 1.13 1.11) |
+| ganesha   | 1.06 1.04 1.02 (1.03 1.05 1.01) | 1.05 1.07 1.05 (1.08 1.03 1.04) | 1.08 1.06 1.01 (1.06 1.04 1.01) | 1.10 1.13 1.07 (1.13 1.04 1.04) |
+| dragon    | 1.08 1.03 1.02 (1.03 1.05 1.03) | 1.08 1.07 1.04 (1.08 1.02 1.04) | 1.08 1.05 1.02 (1.06 1.04 1.01) | 1.09 1.11 1.07 (1.14 1.04 1.05) |
+| pavilion  | 1.12 0.99 1.02 (0.99 1.13 1.02) | 1.10 1.01 1.03 (1.01 1.12 1.04) | 1.08 1.06 1.03 (1.07 1.12 1.02) | 1.06 1.11 1.05 (1.10 1.10 1.05) |
+| zero-day  | 1.22 1.02 1.02 (1.01 1.22 1.02) | 1.22 1.12 1.13 (1.11 1.23 1.13) | 1.15 1.08 1.04 (1.08 1.21 1.03) | 1.15 1.22 1.16 (1.21 1.17 1.15) |
+| bmw       | 1.07 1.04 1.05 (1.02 1.09 1.06) | 1.06 1.11 1.11 (1.10 1.07 1.10) | 1.11 1.08 1.05 (1.09 1.11 1.06) | 1.09 1.17 1.14 (1.18 1.07 1.12) |
+| crown     | 1.14 1.03 1.03 (1.02 1.15 1.03) | 1.14 1.15 1.14 (1.14 1.13 1.14) | 1.10 1.07 1.04 (1.09 1.13 1.03) | 1.12 1.26 1.18 (1.25 1.11 1.17) |
+| ivy       | 1.12 1.04 0.99 (1.04 1.12 1.02) | 1.11 1.14 1.13 (1.17 1.10 1.16) | 1.08 1.05 1.00 (1.05 1.06 0.99) | 1.09 1.22 1.13 (1.23 1.05 1.11) |
+| villa     | 1.06 1.02 1.03 (1.01 1.09 1.04) | 1.05 1.10 1.09 (1.08 1.07 1.09) | 1.10 1.08 1.03 (1.07 1.09 1.04) | 1.10 1.17 1.11 (1.16 1.09 1.10) |
+| sportscar | 1.10 1.04 1.04 (1.03 1.08 1.03) | 1.10 1.11 1.10 (1.11 1.06 1.08) | 1.10 1.09 1.06 (1.09 1.07 1.05) | 1.11 1.17 1.15 (1.20 1.07 1.12) |
+| dambreak  | 1.08 1.04 1.02 (1.03 1.06 1.04) | 1.07 1.07 1.06 (1.08 1.04 1.03) | 1.08 1.06 1.01 (1.06 1.03 1.04) | 1.09 1.10 1.07 (1.13 1.03 1.04) |
+| landscape | 1.16 1.18 1.21 (1.18 1.16 1.20) | 1.18 1.18 1.19 (1.19 1.16 1.19) | 1.13 1.19 1.16 (1.19 1.13 1.15) | 1.16 1.19 1.16 (1.20 1.12 1.17) |
+| lte-orb   | 1.11 1.05 1.03 (1.04 1.09 1.04) | 1.10 1.09 1.06 (1.08 1.07 1.05) | 1.10 1.05 1.03 (1.05 1.07 1.02) | 1.10 1.13 1.08 (1.13 1.06 1.08) |
+
+Reading it. Both tuned schedules are at or above Embree on every cell of
+every mesh, the eight-wide one by 5-26% on the cells that matter and the
+four-wide one by 1-22%. The matching schedules, the same traversal as
+Embree's kernels over the same bytes, are at or above Embree on every
+cell but two four-wide incoherent ones a point under (pavilion's diffuse
+nearest hit and ivy's ao any hit at 0.99; head's diffuse at 1.00), the
+residue of the gap the profile section opened at 0.94-1.00. Primary rays
+are the strongest column for the matching schedules (1.06-1.22x), where
+the chain's descent and the leaf's early-out pay; the tuned schedules'
+strongest is the incoherent rays (diffuse 1.10-1.26x eight-wide), where
+the nearest hit without the early-out and the any hit's arms pay. The
+any hit's ao column is the narrowest everywhere (0.99-1.21x), its code
+having been Embree's shape since the arms-by-count work; what separates
+the tuned any hit from the matching one there is the schedule's leaf
+order. Landscape stands apart at 1.13-1.21x on every schedule and cell:
+its nodes rarely hit more than one child, so the whole traversal is the
+node test and the one-hit descent, where we have been ahead since the
+fold.
+
+Two cells were disturbed in the first pass and re-run, each judged by
+Embree's own rate: head's eight-wide pass read our side at 62.4 Mrays/s
+against its 69.4-70.4 in every other run today with Embree's steady at
+64.0 (0.98x on primary rays); re-run, 70.35 and 1.10x, the table's
+value. Pavilion's four-wide pass had Embree's own rate under the tuned4
+schedule at 59.5/21.5/20.9 Mrays/s against its usual 66/23.5/22.8, ours
+steady (a false 1.21x/1.10x/1.11x); the re-run's tuned4 pass was clean
+(66.05, 1.10/1.01/1.01, the table's values) while its embree4 pass took
+the same dip on Embree's side (56.7 on primary rays, a false 1.31x), so
+pavilion's embree4 cells are the first pass's, whose Embree rate was its
+usual. Embree's BVH4 kernel on pavilion has dipped this way three times
+today (blend4t's base, this pass, the re-run), always its side and
+always the primary rays most, the only mesh that does it; worth watching,
+but it is Embree's number moving, not ours, and the table takes each
+cell from the pass where Embree's rate was its usual. Against this
+morning's runs (ad9da0f0's measurement) Embree's own rate holds within
+2% on every other cell but ivy's four-wide diffuse, where both sides
+dropped 5% together (3.87 and 4.05 against 4.06 and 4.21; the ratio
+1.04 either way), and lte-orb's eight-wide primary, whose morning log
+still held the known disturbed 0.72 and reads 1.10x here as its re-run
+did then.
+
+The day's arc on the four-wide matching schedule's incoherent rays, the
+cells this afternoon's work was about: 0.94-1.00x at 90310848 (the tree
+matched), 0.98-1.04x after the chain (3c7eaa71), 0.99-1.05x after the
+blend (ad9da0f0), with the tuned4 schedule 1.01-1.18x over the same
+cells. The next items stand as the section above left them: the
+prefetch width (a short A/B), then the other Embree trees.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also
