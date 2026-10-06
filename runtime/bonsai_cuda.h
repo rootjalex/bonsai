@@ -520,6 +520,11 @@ struct KernelStats {
     struct Entry {
         double ms = 0;
         long long launches = 0;
+        // The lightest and heaviest single launch, as pbrt's profile prints
+        // them: where a class's time lives -- a few heavy launches or many
+        // level ones -- and what an empty launch of it costs.
+        double min_ms = 1e30;
+        double max_ms = 0;
     };
     const bool on = std::getenv("BONSAI_KERNEL_STATS") != nullptr;
     std::map<std::string, Entry> entries;
@@ -587,6 +592,8 @@ struct KernelStats {
             Entry &e = entries[p.name];
             e.ms += ms;
             e.launches++;
+            e.min_ms = ms < e.min_ms ? ms : e.min_ms;
+            e.max_ms = ms > e.max_ms ? ms : e.max_ms;
             pool.emplace_back(p.start, p.stop);
         }
         pending.clear();
@@ -681,10 +688,13 @@ inline void KernelStats::print() {
         std::fprintf(stderr, "Kernel profile (BONSAI_KERNEL_STATS):\n");
     }
     for (const auto &[name, e] : rows) {
-        std::fprintf(stderr, "  %-52s %7lld launches %10.2f ms / %5.1f%% (avg %7.3f ms)\n",
+        std::fprintf(stderr,
+                     "  %-52s %7lld launches %10.2f ms / %5.1f%% "
+                     "(avg %7.3f, min %7.3f, max %7.3f ms)\n",
                      name.c_str(), e.launches, e.ms,
                      total > 0 ? 100.0 * e.ms / total : 0.0,
-                     e.launches > 0 ? e.ms / double(e.launches) : 0.0);
+                     e.launches > 0 ? e.ms / double(e.launches) : 0.0,
+                     e.launches > 0 ? e.min_ms : 0.0, e.max_ms);
     }
     std::fprintf(stderr, "  %-52s %7s          %10.2f ms\n", "total kernel time", "",
                  total);
