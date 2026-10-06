@@ -10699,11 +10699,27 @@ Length(bounds.Diagonal()) / 2)` in BOTH LightBounds::Importance
 half-diagonal -- dimensionally wrong, so the guard's strength depends
 on the scene's unit scale; it cannot bias (Sample and PMF share the
 importance), it only degrades the heuristic. Explains nothing of our
-gap, worth filing upstream. Open: WHY the BVH path's choices are
-sampling-rate-dependent -- next discriminators are uniform-at-64
-(does the +31.7k residual also vanish at 64?), and one disagreeing
-pixel's descent probed on both sides, importances compared
-level by level.
+gap, worth filing upstream. The spp curve ran 2026-10-05 late (GPU,
+counts deterministic, repeats 1): ours-minus-pbrt lit pixels +198,712
+at 1 spp (+32.2%), +245,560 at 2, +275,483 at 4, +224,984 at 8,
++112,669 at 16, +161 at 64, means agreeing to 0.13% throughout -- the
+fraction falls monotonically with averaging, the signature of a
+per-single-choice difference. The uniform-sampler control at 1 spp:
++65,010 (+12.5%, pbrt 520,874 ours 585,884; at 16 spp +31,975,
+reproducing the earlier +31,735). So the light tree's choices are
+CONFIRMED as the dominant term (~two-thirds at every spp) over a
+smaller baseline that exists under uniform sampling too. One
+candidate died on the way: light-list granularity -- pbrt makes one
+DiffuseAreaLight per TRIANGLE (scene.cpp:1328-1333) and so do we
+(the converted bistro: light_bit_trails 20,638, light_tree 41,275
+nodes; the scene's `lights 102` is only the deduplicated emission
+table). Next: the single-path probe -- maxdepth-1 variants written
+(bistro_vespa_d1.pbrt isolates first-vertex direct light), then one
+disagreeing pixel's descent printed from both renderers (a pixel-
+gated print in our sampler, a matching local printf patch in pbrt's
+BVHLightSampler::Sample) comparing first-hit p/ns, the u consumed,
+the per-node importances, the chosen light and its pmf, and the
+shadow ray's verdict.
 
 Found on the way and fixed: --link libraries' inline functions that
 survive outlining (NanoVDB's RootNode::getValue once SampleFromVoxels
@@ -10775,14 +10791,88 @@ launch), 1916.33 at 64 (avg 0.624) against pbrt's trace 419.12/
 than pbrt's (227.31/914.75 against 235.08/948.14), kernel totals
 level with pbrt at both spp (1063.34 against 1063.53; 4293.89 against
 4292.04), and the walls 1.10x at 16 spp, 1.03x at 64: the one sub-1x
-cell of the sweep is above water. A correction to the mechanism as
+cell of the sweep is above water.
+
+**The anyhit programs -- found 2026-10-05 night, narrowing written,
+measure pending.** Both generated anyhit programs (__anyhit__trace and
+__anyhit__trace_any) were ~10,470 lines of PTX with ~300 global loads:
+the hardware calls them on EVERY candidate hit of a cutout, and pbrt's
+equivalent is a record load, a texture fetch and the hash
+(optix.cu:238-243). Two causes, both in what the filter inlines, not
+in the lowering (Lower/Trees.cpp faithfully inlines the filter's
+conjuncts): alpha_accepts evaluated alpha through the GENERAL texture
+evaluator -- three levels of every variant's machinery -- where pbrt's
+GPU alpha is BasicTextureEvaluator (an image or a constant, everything
+else refused at scene time); and surface_geometry runs over the whole
+Shape ADT, recomputing the hit from the ray where pbrt reads the
+triangle's barycentrics. The sweep's fingerprints match: bistro's
+trace 0.95x (camera rays on opaque walls) against its shadow 1.33x
+(sun rays through cutout foliage). Done tonight: eval_float_basic
+(textures.bonsai) -- pbrt's basic set, the other arms constant-1 and
+unreachable -- used by alpha_accepts, with scene_dump refusing a
+non-basic alpha exactly as pbrt --gpu does (NOTE: ours refuses on CPU
+conversions too, stricter than pbrt-CPU; no scene in the suite has a
+composite alpha, flagged for the user). Deferred until the rtq
+session's IR edits are committed (shared files): a barycentric-uv
+intrinsic and per-primitive-kind anyhit programs, pbrt's exact shape,
+which drop the Shape-ADT re-intersection too. Measure with the
+nanovdb bitcode change: landscape/bistro for the anyhit, explosion/
+watercolor/disney-cloud/smoke-plume for the march, kernel classes
+attribute the two. A correction to the mechanism as
 first stated: the requested continuation stack barely moved (cssRG
 320 -> 288 bytes), so the stack SIZE was a proxy -- the win is the
 reload pattern, the driver's local-memory spill-and-reload of the
 record replaced by coalesced read-only loads of the SOA arrays after
 the trace, which is what the stall counters pointed at all along.
-Remaining on the item: the trace's own 14%, the 10x dead-sweep floor,
-and bunny-cloud when the hold lifts. explosion re-measured under the
+Remaining on the item: the trace's own 14%, and bunny-cloud when the
+hold lifts. The 14% LOCALIZED (2026-10-05, late; the kernel profile
+now prints min/avg/max per class, runtime/bonsai_cuda.h): landscape's
+rays distribution is ours 0.620 avg / 0.020 min / 2.623 max against
+pbrt's 0.546 / 0.019 / 2.268 -- the gap is UNIFORM over the loaded
+launches (max ratio 1.16 ~ avg ratio 1.14), not a tail, and the
+coherent depth-0 launch we WIN outright (369 us against pbrt's 847
+under the same ncu pass, memory 52% busy, stalls at pbrt's levels):
+what remains is the incoherent-depth traversal itself. The shadow
+class beats pbrt's across its whole distribution (0.297/0.016/1.037
+against 0.367/0.046/1.109). Explosion's march, same instrumentation:
+ours shadow$True 0.735 avg/2.217 max over 288 launches against
+pbrt's shadow-Tr 0.611/1.585 over 240 -- pbrt's own depth counters
+put shadow rays at depths 1-4 only, so netting both sides' near-empty
+launches (their depth-0, our depth-0 and extra final depth) the
+LOADED march launches are ~1.10 ms ours against ~0.76 pbrt's, about
+40% slower each, masked to 18% by the empties in the avg. The
+suspect: both renderers construct NanoVDB's SampleFromVoxels per
+density read (ours copied pbrt's SamplePoint verbatim, b274860f),
+but pbrt's is inlined into the march loop where the compiler hoists
+the grid transform and keeps the loop's live state in registers
+across steps; our shim is an outlined call per step -- the loop
+spills around every call. The fix (written 2026-10-05 late, measure
+pending): the shim's DEVICE side linked as nvptx64 BITCODE instead of
+PTX (build_nanovdb_shim.sh; compiled as plain C++ against the nvptx64
+target with the toolchain's headers named explicitly, since clang's
+CUDA mode refuses this machine's newer CUDA headers). PTX is opaque
+to the generated module's optimizer; bitcode links in before it runs
+(link_foreign_implementations already routes by the nvptx64 triple),
+the linked functions are already marked always-inline
+(CodeGen_PTX::finish), and the density read inlines into the march --
+nvcc's own shape for pbrt's medium code, through the same --link
+mechanism. nvcc PTX stays as the script's loud fallback. Re-measure
+explosion, disney-cloud and smoke-plume when the stage sweep is off
+the machine. Also seen on explosion: our
+rays avg +27% (the incoherent theme again) with a rare 3.7 ms
+outlier launch (pbrt's max 0.53) worth one look; our medium-sampling
+kernel 27% FASTER than pbrt's (0.925 against 1.267 avg). The "10x dead-sweep floor" is RETIRED (2026-10-05, late):
+on today's binary an empty capacity launch of the rays raygen costs
+7.1 us (nsys per-launch minimum over a full landscape render) against
+pbrt's own 18 us minimum -- ours is now the cheaper empty launch by
+2.6x; the 160-190 us floor was bunny-cloud on the pre-gates,
+pre-launch-shape, pre-spill binary. The dead path in the PTX is
+pbrt's shape exactly: launch index, one constant load of the count's
+address, one global load, compare, ret. Also ruled out the same
+night: managed-vs-device queue memory makes no difference on
+landscape (kernels 1063.22 against 1063.87 ms, walls within noise),
+so the round guard's per-round host read of a managed count page
+costs nothing measurable. explosion re-measured under the
 fix (2026-10-05, same harness, images matching at both spp): the rays
 raygen's nanovdb-era rise WAS the same spill -- 0.47 s back to 0.306
 at 64 spp, below the 0.30 it rose from -- and the walls 1.10x -> 1.18x
@@ -10796,6 +10886,36 @@ schedule ever lets a kernel read entries a callee pushes to the same
 slot, the rule must learn the drained arrays from the ParFor's
 queue_base/queue_slot. The write sets are visible per kernel under
 BONSAI_EXPLAIN_DEVICE.
+
+**Both fixes measured and committed, and the trace-class mystery
+resolved -- 2026-10-06 morning (ad3a66bb the march, a898dea9 the anyhit
+narrowing, 4c6b4e39 the min/max profile).** The march fix needed a
+SECOND half found by inspecting before measuring: the linked device
+bitcode was NOT being inlined -- CodeGen_PTX::finish marks device
+functions always-inline BEFORE link_foreign_implementations runs, so
+linked definitions alone carried no marking and LLVM's cost model kept
+them outlined. link_foreign_implementations now marks what it links
+(device only; backends/ptx/foreign-bitcode covers it), and the dump
+shows zero nanovdb calls anywhere. Measured (gpu_compare, least of 5,
+16/64 spp, images matching except bistro's KNOWN lit-pixel bias, same
+magnitudes as before): explosion 1.37x/1.17x walls (shadow stage OFF
+the slower list), watercolor 2.42x/2.26x, clouds 1.27x/1.24x,
+landscape 1.12x/1.05x, bistro 1.72x/1.47x (shadow stage 1.33x ->
+1.15x). THE TRACE-CLASS "DEFICIT" ON MEDIA SCENES WAS BOOKKEEPING: our
+rays raygen routes medium work inline that pbrt accounts in "Sample
+medium interaction", so the honest unit is trace+medium together --
+clouds 0.91x/0.89x of pbrt, explosion 0.77x, watercolor 0.91x, all
+AHEAD (per-depth ncu, single-pass durations both sides at locked
+clocks, confirms: our loaded trace launches converge fully, zero
+spills, and depth-1 sits at parity; pbrt resists multi-pass ncu on
+this machine -- managed memory breaks kernel replay, every counter
+n/a -- so single-pass metric sets are the tool, with per-side
+per-launch profiler overhead corrected against the unprofiled stats
+mins). What REMAINS slower, all real: landscape trace 1.13x (no
+media; cutout scene), watercolor shadow 1.13-1.14x, bistro shadow
+1.15-1.16x (both cutouts) -- the anyhit's Shape-ADT re-intersection,
+the deferred second half -- and dambreak materials 1.07x
+(uninvestigated).
 
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
