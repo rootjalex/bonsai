@@ -1,30 +1,38 @@
-// apps/rtq: a ray query against a set of triangles, as Embree answers it.
+// apps/rtq: ray and point queries against a set of triangles, as Embree and
+// FCPW answer them.
 //
 // The program says what is computed: the nearest triangle a ray hits
-// (`trace`, Embree's rtcIntersect1), whether it hits any (`occluded`,
-// rtcOccluded1) and the triangle closest to a point (`closest`,
-// rtcPointQuery with its closest-point tutorial's callback), over a set of
-// triangles. How that is computed -- that the
-// set is Embree's BVH8 over Triangle4 leaves, that a node's eight children
-// are tested at the node and descended into nearest first, that the
-// traversal is a loop over a stack -- is the schedule's (schedules/*.bonsai),
-// and the tree and its bytes are the layout's (schedules/trees/bvh8.bonsai).
-// The driver (rtq_hook.cpp) builds the tree with Embree's own builder, hands
-// the same rays to both, and compares answers and times.
+// (`trace`: Embree's rtcIntersect1, FCPW's Scene::intersect), whether it
+// hits any (`occluded`: rtcOccluded1, intersect with checkForOcclusion) and
+// the triangle closest to a point (`closest`: rtcPointQuery with Embree's
+// closest-point tutorial's callback, FCPW's findClosestPoint), over a set of
+// triangles. How that is computed -- that the set is Embree's BVH8 over
+// Triangle4 leaves or FCPW's Mbvh over packets of sixteen, that a node's
+// children are tested at the node and descended into nearest first, that
+// the traversal is a loop over a stack -- is the schedule's
+// (schedules/*.bonsai), and the tree and its bytes are the layout's
+// (schedules/trees/*.bonsai). The driver (rtq_hook.cpp) builds the tree with
+// the reference's own builder, hands the same rays and points to both, and
+// compares answers and times.
 //
-// The geometry here is Embree's, transcribed: a triangle is stored as Embree
-// stores it (TriangleM: a vertex and two edges, with its ids), tested as
-// Embree tests it (triangle_intersector_moeller.h), and a box as Embree's
-// node test tests it (node_intersector1.h, intersectNode for an AABBNode).
-// Embree's reciprocals -- an estimate instruction refined by one Newton step
-// -- are `rcp`, the same instruction and the same step on this machine
-// (CodeGen_X86), so the bits agree.
+// The arithmetic is the reference's, transcribed, and lives in a file of
+// its own compiled beside this one: metrics/embree.bonsai has Embree's slab
+// test, its Moeller-Trumbore test and its tutorial's closest point on a
+// triangle; metrics/fcpw.bonsai has FCPW's slab test, its Moeller-Trumbore
+// and its wide closest point, with its approximate reciprocals and its root
+// per lane. A comparison against a reference runs the reference's own
+// computation under the schedule and the layout, so that what the table
+// measures is the compiler's traversal against the hand-written one and
+// not one algorithm against another. Both files define, over the elements
+// below, `intersects`, `distmin`, `distmax` and `contains` for a ray and a
+// box, a ray and a triangle, a point and a box, and a point and a triangle.
 import stdlib/numerics;
 
 // Embree: RTCRay, the fields the traversal reads. `tnear` and `tfar` are the
 // segment of the ray a hit counts on; a hit at `t` is accepted where
 // `tnear < t <= tfar` (triangle_intersector_moeller.h), and a box where its
-// slab interval meets [tnear, tfar].
+// slab interval meets [tnear, tfar]. FCPW's Ray has an origin, a direction
+// and tMax, its segment beginning at zero.
 element Ray {
     o : vec3f;
     tnear : Float;
@@ -33,9 +41,12 @@ element Ray {
 }
 
 // Embree: TriangleM<M>, one of its M slots. A vertex, the two edges Embree
-// precomputes (`e1 = v0 - v1`, `e2 = v2 - v0`), and the ids. A slot of a
-// block that holds fewer than M triangles is all zeros with ids of -1, as
-// Embree fills it (TriangleM::fill), and the zero triangle never hits.
+// precomputes (`e1 = v0 - v1`, `e2 = v2 - v0`), and the ids. FCPW's packet
+// stores the three vertices, from which its layout derives these edges
+// (schedules/layouts/fcpw4w16.bonsai). Which slots of a block are triangles
+// is the layout's to say: Embree's padding slots carry ids of -1 and its
+// layouts exclude them by that mark (TriangleM::valid), FCPW's leaves
+// carry a count and its layouts exclude them by the count.
 element Triangle {
     v0 : vec3f;
     e1 : vec3f;
@@ -48,233 +59,13 @@ element AABB {
     low, high : vec3f;
 }
 
-element FInterval {
-    low, high : Float;
-}
-
-// Embree: the smallest magnitude a direction's component is allowed before
-// its reciprocal is taken (min_rcp_input, rcp_safe / zero_fix).
-func zero_fix(d : vec3f) -> vec3f {
-    tiny : Float = 1e-18;
-    return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
-}
-
-// Embree: node_intersector1.h, the slab test of `intersectNode` for one
-// child's box, as TravRay sets it up -- the reciprocal direction and
-// `org * rdir` once per ray, each slab then one fused multiply-subtract --
-// and the interval clamped to the ray's segment before the comparison, in
-// the form Embree's AVX-512 build (the one this machine runs) writes it:
-//
-//     tNear = maxi(tNearX, tNearY, tNearZ, tnear)
-//     tFar  = mini(tFarX,  tFarY,  tFarZ,  tfar)
-//     hit   = asInt(tNear) <= asInt(tFar)
-//
-// where `maxi` and `mini` are the integer max and min of the floats' bits
-// (vfloat8_avx.h: `_mm256_max_epi32` on `_mm256_castps_si256`), paired as
-// `maxi(maxi(a, b), maxi(c, d))` (emath.h), and the compare is of the bits.
-// The bits of non-negative floats order as the floats do, and with the
-// segment clamped to [0, inf) (`clamped`) `tnear` is non-negative, so the
-// max is at least it whatever the slab distances are, and a negative `tFar`
-// -- a box behind the ray -- fails the compare against it however the min
-// ordered the negatives. An integer min and max are associative and have
-// no NaN case, which is what lets the compiler fold the traversal's running
-// best into `tfar` exactly (SSA/Simplify.cpp); a float min is std::min,
-// which neither is nor has. Embree takes the reciprocal with `rcp`
-// (rcp_safe: `vrcp14ps` and one Newton step over the three components
-// padded to four), and so does this.
-func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    rdir = rcp(zero_fix(r.d));
-    org_rdir = r.o * rdir;
-    dirIsNeg = rdir < 0.0;
-    near = select(dirIsNeg, b.high, b.low);
-    far = select(dirIsNeg, b.low, b.high);
-    tNearV = near * rdir - org_rdir;
-    tFarV = far * rdir - org_rdir;
-    tNear = max(max(reinterpret[[i32]](tNearV.x), reinterpret[[i32]](tNearV.y)),
-                max(reinterpret[[i32]](tNearV.z), reinterpret[[i32]](r.tnear)));
-    tFar = min(min(reinterpret[[i32]](tFarV.x), reinterpret[[i32]](tFarV.y)),
-               min(reinterpret[[i32]](tFarV.z), reinterpret[[i32]](r.tfar)));
-    if tNear <= tFar {
-        return FInterval{reinterpret[[Float]](tNear), reinterpret[[Float]](tFar)};
-    }
-    return {};
-}
-
-func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
-
-// Where the ray enters the box, and infinitely far where it misses: as a
-// bound on the metric below it says a missed box holds nothing nearer than
-// anything, and as a sort key it puts the children the ray misses last.
-func distmin(r : Ray, b : AABB) -> Float {
-    interval = intersectsp_ray_aabb(r, b);
-    if interval {
-        extract = *interval;
-        return extract.low;
-    }
-    return inf;
-}
-
-func distmax(r : Ray, b : AABB) -> Float {
-    interval = intersectsp_ray_aabb(r, b);
-    if interval {
-        extract = *interval;
-        return extract.high;
-    }
-    return inf;
-}
-
-// A box never contains a ray, so no subtree is ever hit throughout: what
-// settles an `any` without a visit, which for a ray is never.
-func contains(r : Ray, b : AABB) -> bool = false;
-
-element TriangleHit {
-    t, u, v : Float;
-}
-
-// Embree: MoellerTrumboreIntersector1::intersect, through intersectEdge --
-// the Moeller-Trumbore test as Embree factors it, with the triangle's
-// normal from its two stored edges and the sign of the denominator folded
-// into the edge tests by flipping the sign bit (`asInt(..) ^ asInt(sgnDen)`).
-// Backface culling off, as Embree builds by default. The depth test is
-// against the ray's own segment; the comparison with the nearest hit so far
-// is the query's, below.
-func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
-    Ng = cross(tri.e2, tri.e1);
-    C = tri.v0 - r.o;
-    R = cross(C, r.d);
-    den = dot(Ng, r.d);
-    absDen = abs(den);
-    sgnDen = reinterpret[[u32]](den) & 2147483648u;
-    U = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e2)) ^ sgnDen);
-    V = reinterpret[[Float]](reinterpret[[u32]](dot(R, tri.e1)) ^ sgnDen);
-    if !(den != 0.0 && U >= 0.0 && V >= 0.0 && U + V <= absDen) {
-        return {};
-    }
-    T = reinterpret[[Float]](reinterpret[[u32]](dot(Ng, C)) ^ sgnDen);
-    if !(absDen * r.tnear < T && T <= absDen * r.tfar) {
-        return {};
-    }
-    // Embree: MoellerTrumboreHitM::finalize, `rcp(absDen)` once and the
-    // three scaled by it -- the four lanes of a Triangle4 at once, which is
-    // what this is in the vectorized leaf.
-    rcpAbsDen = rcp(absDen);
-    return TriangleHit{T * rcpAbsDen, U * rcpAbsDen, V * rcpAbsDen};
-}
-
-func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
-
-func distmin(r : Ray, tri : Triangle) -> Float {
-    hit = intersectsp_ray_tri(r, tri);
-    if hit {
-        extract = *hit;
-        return extract.t;
-    }
-    return inf;
-}
-
-func distmax(r : Ray, tri : Triangle) -> Float {
-    hit = intersectsp_ray_tri(r, tri);
-    if hit {
-        extract = *hit;
-        return extract.t;
-    }
-    return -inf;
-}
-
-// Embree: RTCPointQuery, the point of it. rtcPointQuery's query is a point
-// and a radius, and the closest-point query Embree's tutorial makes of it
-// (tutorials/closest_point) begins with the radius infinite and shrinks it
-// to the distance of each closer triangle its callback finds. The query
-// here is the point alone; the shrinking is the argmin's (`closest`).
+// The closest-point query's point. Embree's RTCPointQuery and FCPW's
+// BoundingSphere are a point and a radius, and both begin with the radius
+// infinite and shrink it to each closer triangle found; the query here is
+// the point alone, the shrinking the argmin's (`closest`).
 element Point {
     p : vec3f;
 }
-
-// Embree: pointQuerySphereDistAndMask (node_intersector1.h) -- the point
-// clamped into the box and the squared length of the offset, `v =
-// min(max(org, lower), upper) - org; dist = v.v`, the distance Embree's
-// point query orders the children by (traverseClosestHit on `dist`) and
-// tests them by (`dist <= radius^2`). Every metric of the closest-point
-// query is a squared distance, at the box and at the triangle: squared
-// distances order as distances do and are never negative, and nothing here
-// takes a root -- where Embree's callback takes one per triangle, its
-// radius being a distance (`radius = distance(q, p)`).
-func distmin(q : Point, b : AABB) -> Float {
-    v = min(max(q.p, b.low), b.high) - q.p;
-    return dot(v, v);
-}
-
-// The farthest a point of the box can be from `q`, squared: the farther of
-// the two faces along each axis.
-func distmax(q : Point, b : AABB) -> Float {
-    v = max(abs(q.p - b.low), abs(q.p - b.high));
-    return dot(v, v);
-}
-
-// Embree: closestPointTriangle (tutorials/common/math/closest_point.h, what
-// the closest-point tutorial's callback runs on each triangle the traversal
-// hands it) -- Ericson's Voronoi-region test (Real-Time Collision
-// Detection, 5.1.5), in Embree's order: the three vertex regions by the
-// signs of six dot products, then the three edge regions, else the face,
-// where the closest point is interior and given by its barycentrics. Over
-// the triangle as the block stores it: `a` is v0, `ab = b - a` is the
-// stored edge `e1 = v0 - v1` negated, `ac = c - a` is the stored `e2 = v2 -
-// v0`, and `p - b`, `p - c` follow from `p - a` by the edges. What is
-// returned is the squared distance to the closest point, the query's
-// metric, not the point.
-func distmin(q : Point, tri : Triangle) -> Float {
-    ab = -tri.e1;
-    ac = tri.e2;
-    ap = q.p - tri.v0;
-    d1 = dot(ab, ap);
-    d2 = dot(ac, ap);
-    if d1 <= 0.0 && d2 <= 0.0 {
-        return dot(ap, ap);
-    }
-    bp = ap - ab;
-    d3 = dot(ab, bp);
-    d4 = dot(ac, bp);
-    if d3 >= 0.0 && d4 <= d3 {
-        return dot(bp, bp);
-    }
-    cp = ap - ac;
-    d5 = dot(ab, cp);
-    d6 = dot(ac, cp);
-    if d6 >= 0.0 && d5 <= d6 {
-        return dot(cp, cp);
-    }
-    vc = d1 * d4 - d3 * d2;
-    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
-        v_ab = d1 / (d1 - d3);
-        d_ab = ap - v_ab * ab;
-        return dot(d_ab, d_ab);
-    }
-    vb = d5 * d2 - d1 * d6;
-    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
-        v_ac = d2 / (d2 - d6);
-        d_ac = ap - v_ac * ac;
-        return dot(d_ac, d_ac);
-    }
-    va = d3 * d6 - d5 * d4;
-    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
-        v_bc = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        d_bc = bp - v_bc * (ac - ab);
-        return dot(d_bc, d_bc);
-    }
-    denom = 1.0 / (va + vb + vc);
-    v = vb * denom;
-    w = vc * denom;
-    d = ap - (v * ab + w * ac);
-    return dot(d, d);
-}
-
-// Embree: TriangleM::valid -- a slot of a block that holds fewer than four
-// triangles is all zeros with ids of -1 (TriangleM::fill), and Embree's
-// point query passes over it (PrimitivePointQuery1: `if (!prim.valid(i))
-// break`). The ray queries need no such test, the zero triangle never being
-// hit; the closest-point query does, the zero triangle sitting at the
-// origin.
-func valid(tri : Triangle) -> bool = tri.geomID != 4294967295u;
 
 extern triangles : set[Triangle];
 
@@ -297,28 +88,33 @@ extern triangles : set[Triangle];
 func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
                                   select(r.tfar > 0.0, r.tfar, 0.0)};
 
-// Embree: rtcIntersect1 -- the nearest triangle the ray hits, if any.
+// Embree: rtcIntersect1; FCPW: Scene::intersect -- the nearest triangle the
+// ray hits, if any.
 func trace(r0 : Ray) -> option[Triangle] {
     r = clamped(r0);
     return argmin(|t : Triangle| distmin(r, t),
                   filter(|t : Triangle| intersects(r, t), triangles));
 }
 
-// Embree: rtcOccluded1 -- whether the ray hits anything at all.
+// Embree: rtcOccluded1; FCPW: Scene::intersect with checkForOcclusion --
+// whether the ray hits anything at all.
 func occluded(r0 : Ray) -> bool {
     r = clamped(r0);
     return any(|t : Triangle| intersects(r, t), triangles);
 }
 
-// Embree: rtcPointQuery with the closest-point tutorial's callback -- the
-// triangle closest to the point, if there is one. Embree's traversal walks
-// the tree ordered by the children's distance and hands every triangle it
-// reaches to the user's function, which measures the distance and shrinks
-// the query's radius to it when it is nearer; the argmin here is that
-// search, its running best the radius.
+// Embree: rtcPointQuery with the closest-point tutorial's callback; FCPW:
+// Scene::findClosestPoint -- the triangle closest to the point. Both walk
+// the tree ordered by the children's distance and shrink a radius to each
+// closer triangle found; the argmin here is that search, its running best
+// the radius, and the lowering prunes by it as both do: a child is entered
+// only where its box is nearer than the best, and the best is lowered to
+// the farthest a child's box can be, which FCPW does at every node
+// (enqueueNodes) and Embree's callback form cannot. Every triangle the set
+// holds is a candidate: which stored slots are triangles is the layout's
+// to say, not this query's.
 func closest(q : Point) -> option[Triangle] {
-    return argmin(|t : Triangle| distmin(q, t),
-                  filter(|t : Triangle| valid(t), triangles));
+    return argmin(|t : Triangle| distmin(q, t), triangles);
 }
 
 // A batch of rays, each answered with the id of the triangle it hits or

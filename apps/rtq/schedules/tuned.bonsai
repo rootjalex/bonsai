@@ -9,7 +9,7 @@
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/tuned.bonsai ...
-import apps/rtq/schedules/trees/bvh8;
+import apps/rtq/schedules/layouts/embree8;
 
 schedule {
     // The nearest-hit query as embree.bonsai schedules it, without the

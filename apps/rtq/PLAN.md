@@ -4292,8 +4292,364 @@ queries were done:
    predicates per hit; Embree's filter is a callback per hit, the point
    query's shape again).
 
+## The closest point against FCPW, on FCPW's trees (2026-10-05)
+
+The user's ask: compare the closest-point query against FCPW ("Fastest
+Closest Points in the West", Sawhney; deps/fcpw, 3b69ddb, an optional
+submodule in Embree's spirit, header-only with Eigen and enoki as
+submodules of its own) on as many of its high-performance trees as
+possible, copying its tree layout and its schedule exactly and building
+its tree in the driver, so that the comparison is fair; and say which of
+its trees or schedules the layout and scheduling languages cannot
+represent.
+
+What FCPW is, for triangles (include/fcpw). A Scene over a triangle soup
+builds a binary BVH (aggregates/bvh.inl: binned SAH, 8 buckets, leaves of
+`leafSize` triangles) and, when asked to vectorize, collapses it into its
+"Mbvh" (aggregates/mbvh.inl, collapseBvh): nodes of
+FCPW_MBVH_BRANCHING_FACTOR children, 4 by default or 8 with
+FCPW_USE_EIGHT_WIDE_BRANCHING, each node holding its children's boxes as
+component vectors (`MbvhNode<3>`: boxMin x y z, boxMax x y z, then the
+child slots as ints -- 112 bytes at four children, 224 at eight), and
+leaves of packets of FCPW_SIMD_WIDTH triangles stored as three vertices
+by component with their ids (`MbvhLeafNode<W, 3>`: 640 bytes at sixteen,
+320 at eight). The width is FCPW's build's choice by the instruction set
+(enoki's detection: AVX-512 gives 16, AVX2 8, SSE 4), and it also sets
+the binary build's leaf size, so the two widths are two different trees.
+A child slot is an index into the node array; whether it names a leaf,
+the row at the index says, by the sign of its first slot, and a leaf row
+holds no boxes but its description (`-(first packet + 1)`, the packet
+count, the offset into FCPW's primitive array, the triangle count). An
+empty slot is `maxInt` with an inverted box. The query
+(findClosestPointFromNode): a stack of (node, squared distance) 96 or
+154 deep, the root pushed untested; a popped node dropped where its
+distance is beyond the radius squared; at a node the children's boxes
+tested at once (overlapWideBox: the point clamped into each box, the
+squared length of the offset, `d2Min <= r2`), the children pushed in
+descending order of that distance by a sorting network over all four
+slots so the nearest is on top (enqueueNodes<4>), and -- this is the one
+thing our lowering does not do -- the radius lowered to the least of the
+pushed children's farthest box distance (`tMaxMin = min(tMaxMin,
+tMax[W])`). At a leaf every packet's lanes are tested at once
+(findClosestPointWideTriangle: Ericson's regions as masked selects, with
+`if (all(active)) return` after each region, enoki's `rcp` for the
+divisions, a square root per lane), and the lanes below the triangle
+count are scanned in order with `<=`, the later lane winning a tie. At a
+branching factor of 8 the generic enqueueNodes pushes the children in
+lane order and swaps the strictly nearest to the top. Nothing is
+prefetched. The scalar binary Bvh (vectorize off) tests the two children
+from the parent, nearer first with a tie broken by the farther distance,
+shrinks the radius by each child's farthest distance, and runs Ericson's
+scalar test per triangle through the mesh's vertex indices.
+
+What was built, in the order the user's directions came. The first
+measurement, with Embree's arithmetic standing in for FCPW's and the
+program's own validity filter on, read 1.24-1.73x on near points and
+1.02-1.76x on volume points over FCPW's four configurations; the user
+ruled it not yet a legitimate comparison -- the two sides must run the
+same computation -- and set three things right before any FCPW number is
+reported: FCPW's arithmetic transcribed for the FCPW comparisons, the
+padding validity owned by the layout and not the program (no filter on the
+closest point), and the lowering's tightening of the radius applied
+regardless, with the vectorizer making one reduction of it.
+
+- The reference's arithmetic in a file of its own. rtq.bonsai now holds
+  the elements, the three queries and the exports; metrics/embree.bonsai
+  and metrics/fcpw.bonsai each define `intersects`, `distmin`, `distmax`
+  and `contains` for a ray and a box, a ray and a triangle, a point and a
+  box and a point and a triangle, as that reference computes them, and
+  compare.sh compiles the one the schedule's reference calls for beside
+  the program (`RTQ_METRICS` names another, for measuring an arithmetic
+  against the same reference). FCPW's (core/wide_query_operations.h): the
+  slab test with a true-division reciprocal direction, float compares,
+  `max(0, hmax(tNear))` and `min(tMax, hmin(tFar))` (intersectWideBox);
+  Moeller-Trumbore in the textbook form with the determinant rejected
+  within the float epsilon in absolute terms and `rcp` for its reciprocal
+  (intersectWideTriangle); the point-to-box distances `u = bMin - c; v = c
+  - bMax`, `|max(max(u, v), 0)|^2` and `|min(u, v)|^2` (overlapWideBox);
+  and the closest point on a triangle in FCPW's region order with `rcp`
+  for its three divisions and a root per lane, squared back as FCPW's leaf
+  squares it (`d2 = d * d`) to compare with the radius squared. The
+  reciprocal is enoki's, not `rcp`: both begin with `vrcp14ps`, but
+  Embree's step (which `rcp` is, CodeGen_X86) is `r + r (1 - m r)` as two
+  fused multiply-adds and enoki's is `2r - (r m) r` as one fused
+  multiply-subtract of a rounded product, and a probe over 285,715 inputs
+  in [1, 2) found the two differ in the last bit on 109,804 of them (38%;
+  Embree's is the correctly rounded quotient on 99.4%, enoki's on 62%) --
+  enough to move a grazing ray across `v >= 0`, `v + w <= 1` or `d <=
+  tMax`, which showed as a handful of rays per mesh disagreeing on six of
+  the thirteen under `rcp`. The language gained `rcp_estimate`, the
+  machine's estimate and nothing after it (`vrcp14ps`/`rcpps`, PTX's
+  `rcp.approx`, the quotient on a target with no estimate; CodeGen_X86's
+  reciprocal is now the estimate and Embree's step over one padding
+  helper), and metrics/fcpw.bonsai writes enoki's step out (`rcp_fcpw`:
+  `r = rcp_estimate(m); t0 = r + r; t1 = r * m; t0 - t1 * r`), which
+  compare.sh's `--ffp-contract` (SSA/Contract.h: `c - a b` is `fma(-a, b,
+  c)`, a product consumed by a multiply is left alone) makes exactly
+  enoki's `fnmadd(t1, r, t0)` over its own `t1`. enoki's `fixupimm` after
+  the step (the table 0x0087A622: a zero's reciprocal the signed infinity,
+  an infinity's the signed zero, one's exactly one) is not written: the
+  estimate is exact at one, and a zero or infinite denominator fails every
+  comparison the same way on both sides. Tests: backends/llvm/rcp-estimate
+  (the bare `rcp14` for `rcp_estimate`, enoki's step as `fma(-(r m), r,
+  2r)`, Embree's beside it). One thing
+  FCPW's node test does that no box test can: `mask &= neq(node.child,
+  maxInt)`, since an empty slot's inverted box (boxMin = maxFloat, boxMax
+  = minFloat) passes a slab test whose near and far are a min and a max
+  of the two slab distances -- Embree's test on the bits rejects such a
+  box, FCPW's does not. The box carries the same mark as the slot, so the
+  FCPW ray-box test here tests it as FCPW does, a second conjunct of the
+  slab test's (`tMin <= tMax && proper`): one compare and an and per node.
+  Writing that conjunct exposed a compiler bug, described below. Embree's file is
+  the arithmetic the ray sections above transcribed, and its closest
+  point now takes the root Embree's callback takes (`distance(q, p)`) and
+  squares it back into the node test's domain, where Embree squares its
+  radius instead. The committed FCPW numbers above were taken with
+  Embree's arithmetic and are void; the committed Embree closest-point
+  numbers were taken with a metric that took no root, cheaper than
+  Embree's callback by one `sqrtps` per block.
+- The validity of a padding lane is the layout's. A tile's body may end
+  `where <predicate>` over its members (`group[4] { ... } where geomID !=
+  4294967295u`, Embree's `TriangleM::valid` on the stored ids), and the
+  lanes that fail it are not elements of the set (ir::Group::valid,
+  ir::TiledArray::valid; the keyword `where`, the parser's clause read
+  with the body's members in scope; Lower/ForEachs.cpp runs the leaf's
+  body under the predicate at the lane, which the vectorized loop turns
+  into one lane mask, the lane's members read through the same
+  substitution the derived fields use, Lower/TiledArrays.cpp's
+  tiled_lane_value). layouts/embree8.bonsai and embree4.bonsai carry it
+  on their Triangle4 tiles; FCPW's layouts exclude their padding by the
+  count. The program's `closest` is `argmin(|t| distmin(q, t),
+  triangles)` with no filter; `valid` is gone from it. Tests at the three
+  levels: lower/tiled-elements-where (the guard in the leaf loop),
+  backends/llvm/tiled-elements-where (one `icmp ne <4 x i32>` folded into
+  the mask), correctness/cpp/bvh4_tiled_elements_where (decoy walls in the
+  padding lanes, just before the real ones, which no ray and no point may
+  count). The predicate costs the ray queries one vector compare and an
+  and per block on Embree's layout, which Embree does not pay -- its
+  zero triangle fails the hit test -- measured below.
+- The radius tightened by what a child surely holds, regardless. The
+  lowering had this bound (Lower/Trees.cpp, reachable_bound) but emitted
+  it only outside a children's loop and only without a filter; with the
+  filter gone it applies, and from_children now emits it inside the loop
+  too (Carry::reach_of, Carry::tighten: under the child's own test,
+  `best.key min= distmax(q, box)` for each child that passed, set where
+  no filter of the program's stands between the metric and the set --
+  `trace` keeps none, a ray's box holding no promise of a hit). The
+  vectorizer makes the accumulate in the gang loop one masked
+  cross-lane minimum (SSA/Vectorize.cpp): in the LLVM a `select` of the
+  children's `distmax` to `+inf` under the mask and a two-step shuffle
+  minimum tree into one compare with the best. FCPW's `tMaxMin =
+  min(tMaxMin, tMax[W])`, exactly; and now Embree's schedules prune by it
+  too, which Embree's callback form cannot (measured below). Tests:
+  lower/argmin-tighten-children (the `min=` in the children's loop of the
+  closest query and none in the ray's), backends/llvm/argmin-tighten-
+  children (the reduction), and the execution test above, whose closest
+  points cross the tightening.
+- One tree declaration per width, shared. The four-wide tree and the
+  eight-wide tree are each declared once (schedules/trees/bvh4.bonsai,
+  bvh8.bonsai: the children's boxes in the parent, a leaf of triangles),
+  and the six layouts import them (schedules/layouts/embree4, embree8,
+  fcpw4w16, fcpw8w16, fcpw4w8, fcpw8w8.bonsai): Embree's BVH4 and FCPW's
+  four-wide Mbvh are one tree in two sets of bytes, as the user pointed
+  out, and so are the eight-wide pair. The schedules import a layout.
+- The layout language learned derived fields in a tile of elements. A
+  tile had to store exactly the element's fields; FCPW's packet stores
+  three vertices where the program's triangle, Embree's slot, has a
+  vertex and two edges, so no FCPW layout could be written. Now a tile's
+  members are stored fields, which are its bytes in their own order, and
+  derived ones (`e1 = pa - pb`), the same `name = expr` form a node row
+  has for `lo`; between them they provide the element's fields by name
+  and type (ir::provides_fields_of). The tile's struct holds the stored
+  fields alone (Lower/Layouts.cpp, tile_struct); ir::TiledArray carries
+  the derived values, over placeholders no program can name; every
+  element read substitutes the lane of each stored field into them
+  (Lower/TiledArrays.cpp), and the vectorizer makes the per-lane
+  expressions whole-vector ones as it does the stored fields. `e1 = pa -
+  pb` is exactly the negation of FCPW's own `ab = pb - pa`, and `e2 = pc
+  - pa` its `ac`, two differences FCPW computes at every test as well.
+  Tests at the three levels: lower/tiled-elements-derived,
+  backends/llvm/tiled-elements-derived (the derived vertices as `fadd <4
+  x float>` over the tile's vectors, nothing extracted to make them),
+  correctness/cpp/bvh4_tiled_elements_derived (a vertex and two edges
+  stored, the three vertices derived and checked). The user's note,
+  recorded under Known-open: ir::TiledArray is a one-level special case
+  (an indirect group whose body is one anonymous constant-size group), and
+  this extension inherits that; the composable form would make every
+  constant-size group along the way a lane dimension with the element's
+  index decomposed mixed-radix through the nesting, and the row machinery
+  (fields, derived fields, switches, lookups) the one lowering for both.
+- A leaf whose count is not a multiple of the tile width
+  (Lower/ForEachs.cpp): FCPW's leaf holds `child[3]` triangles in whole
+  packets, the last part full, and masks the lanes past the count with
+  `W = min(WIDTH, nReferences - startReference)`. The loop over such a
+  range now runs the tiles that hold the count with `tile * width + lane <
+  count` in front of the body, which the vectorized lanes' loop runs as
+  one test under a lane mask -- FCPW's mechanism, over FCPW's bytes
+  untouched. A count of whole tiles lowers as before.
+- Four layouts, FCPW's bytes (schedules/trees/mbvh4w16, mbvh8w16, mbvh4w8,
+  mbvh8w8.bonsai: branching 4 or 8, leaf width 16 or 8 -- AVX-512's and
+  AVX2's), each a group of node rows indexed by the child slot with
+  `kind = child0[31:31]` switching between the interior arm (the slots
+  cast to children, the boxes derived as `lo`/`hi`) and the leaf arm
+  (`data = range(packets, (-child0 - 1) * W, child3)`), and a tiled group
+  of packets whose stored fields are FCPW's and whose element fields are
+  derived (`v0 = pa; e1 = pa - pb; e2 = pc - pa; geomID = 0; primID =
+  primitiveIndex`). The driver (rtq_hook.cpp, RTQ_FCPW) builds FCPW's
+  scene, reaches its protected arrays through a derived class, checks
+  every size and offset against FCPW's structs at compile time, and
+  copies both arrays byte for byte into allocations of FCPW's alignment.
+  The root is row 0.
+- Four schedules (fcpw4w16, fcpw8w16, fcpw4w8, fcpw8w8.bonsai): `sort` by
+  `distmin(q, box)`, `vectorize` of the children and of the leaf,
+  `loopify(96)` or `(154)`, `skip(distmin)` for the `all(active)` early
+  exits after each region, no prefetch; the ray queries scheduled alike
+  (FCPW's intersectFromNode is the same traversal with the ray's entry
+  distance), with the prefetch left out. compare.sh compiles the driver
+  for FCPW from the schedule's name (`fcpw<branching>w<width>` ->
+  FCPW_USE_EIGHT_WIDE_BRANCHING, FCPW_SIMD_WIDTH, with the flags FCPW's
+  own CMake sets: -march=native, -ffp-contract=fast, -fno-math-errno,
+  NDEBUG), and against Embree otherwise; the driver's reference side is
+  one API over the two (make_reference, build_tree, reference_intersect,
+  reference_occluded, reference_closest), FCPW's queries through its
+  public calls (findClosestPoint from a radius of the largest float, the
+  query every user of it makes; intersect, with checkForOcclusion for the
+  any hit). `--explain N` prints the first N disagreements of a row with
+  both sides' answers and the distances compared, the rays' with the
+  barycentrics of each hit in double.
+
+What the languages cannot say of FCPW's schedules, and what is matched
+in substance but not in mechanism:
+
+1. (Settled.) The radius shrunk by the children's farthest distance: the
+   user ruled it a pruning rule of the lowering's, not a schedule point
+   -- an exact bound applies wherever it is sound -- and it is now emitted
+   inside the children's loop and reduced across the lanes, as above.
+2. The eight-wide order. FCPW's generic enqueueNodes pushes the children
+   that passed in lane order and swaps the strictly nearest to the top:
+   nearest first, the rest in stored order. `sort` orders all of them; a
+   partial order is not a form the language has, and a key that ranks the
+   nearest alone would compute the minimum over the lanes inside the
+   key. The fcpw8* schedules sort, and say so.
+3. The scalar Bvh's tie-break: its two children ordered by d2Min, and by
+   d2Max where both d2Min are zero -- a lexicographic key, where `sort`
+   takes one float. Not built here; FCPW's scalar tree is its slow path,
+   and the user asked for its fast ones.
+4. Mechanism, which the scheduling language abstracts over: FCPW's
+   four-slot sorting network over scalar indices against our
+   peel-and-insert chain over the hit lanes; its scalar scan of a packet's
+   lanes with `<=` (the later lane and the later packet winning a tie)
+   against our lane reduction; its root pushed untested. The arithmetic
+   is FCPW's to the bit (the metrics file above); the order of visits is
+   the same; the instructions around them are not FCPW's.
+
+The compiler bug the conjunct exposed, and its fix. `if tMin <= tMax &&
+proper` in the FCPW slab test, vectorized over the children, failed in
+Build::make ("Build<Vector_t> of f32x3x4 by components takes 3 values of
+type f32x4, but received t1 of type f32x3"): the children's box, built in
+the traversal from the row's three `lo` casts, had two of its three
+operands replaced -- `@12` by the callee's `t1`, `@20` by the callee's
+`tMin`. Three facts made it. (1) A `let` of a fresh value renames the
+value's instruction to the `let`'s name (`t1 = (b.high - r.o) * rinvD` is
+one multiply, named `t1`; SSA/SSA.cpp Block::make_instruction), and the
+block's table of names kept the old `@N` beside the new name -- a TODO in
+the code said as much -- so `intersectsp_ray_aabb`'s table held `@12 ->
+t1` and `@20 -> tMin` forever after. (2) The gang inliner copies a pure
+straight-line variant into its caller (SSA/Vectorize.cpp
+inline_pure_variants, SSA/Rewrite.cpp inline_call) and merges the copy's
+table into the caller's block (absorb_successors), renaming the names the
+callee defines and keeping every other key as it was -- `@12` and `@20`
+among them, which in `_recloop_func2` named the caller's own casts of
+the row's `lo`. (3) The simplifier's common-subexpression table takes
+what an instruction's name denotes from the block's table
+(SSA/Simplify.cpp remember), so when the children's second box built the
+same loads again, the CSE handed out the callee's `t1` for the caller's
+`@12` and the callee's `tMin` for its `@20`. Why the early-return form
+compiled: the merge landed in a block whose instruction names did not
+happen to coincide with the stale keys; the bug was in the numbering, not
+the shape. The fixes: a rename drops the instruction's old `@N` from the
+tables that held it (a program's own name stays, since `y = ...; x = y`
+renames the value `x` and `y` still denotes it); a copied callee brings
+only the names it defines, its instructions' and its arguments', and
+nothing the callee's table held besides (a program name of its own for a
+value, `v`, `d`, `t1`, would shadow the caller's); and absorbing a block
+asserts that a name both tables hold denotes one instruction. Every
+existing golden is byte-identical under the three. Tests:
+ssa/inline-callee-names (the FCPW slab test with its named vectors and
+its conjunct inlined into a vectorized traversal; the box built from the
+row's casts, none of the callee's names in the function),
+backends/llvm/rcp-estimate, correctness/cpp/bvh4_fcpw_slabs (the FCPW
+arithmetic, conjunct and enoki reciprocal over Embree's bytes, every ray's
+answer the one the scene was built to give). What was left as it was: the
+aggregate splitter's table entries for the vectors it takes apart, which
+the stages after the split read and map through the components -- an
+erasure there broke every vectorized traversal, so the names are kept
+and the copy boundary is where they are dropped.
+
+Also found, by `--explain`, before the arithmetic was matched: FCPW's ray
+intersection misses hits. Its wide Moeller-Trumbore rejects a triangle
+whose determinant is at most `epsilon` in absolute terms, with `epsilon`
+the float machine epsilon (core/core.h:81), so small triangles in small
+units are skipped as parallel: on head at side 512, 2 of 262k primary
+rays and 3 of 45k diffuse rays hit a nearer triangle under Embree's
+arithmetic that FCPW passed over, each inside the triangle by
+double-precision barycentrics; on villa 201 of a million; and on lte-orb,
+a mesh in small units, FCPW finds no hit at all -- which also emptied the
+point batches there, built from the reference's primary hits (the near
+points are to become surface samples, reference-independent; Known-open).
+With FCPW's own test in the program, both sides miss alike and every ray
+agrees. The closest point disagreed on ivy and dambreak by dozens to
+hundreds of points, every one involving a degenerate triangle (zero
+area) where the checker's own Ericson test went to NaN and could not say
+which side was right -- a defect of the checker, to be made robust
+(Known-open), not yet of either side.
+
+The measurements -- Embree before and after the layout's lane predicate
+and the tightening, and the FCPW table over its four configurations --
+are the next section's, taken in one exclusive block of the machine.
+
 ## Known-open, smaller
 
+- The closest point's sort key, a squared distance, is not known
+  non-negative to the sort's lowering: the chain flips the sign bit of
+  each key before comparing (`select(isneg, 0x7fffffff, 0) ^ key`, four
+  times a node in the LLVM), where the ray's key (`max(.., tnear)` with
+  `tnear` clamped) is ordered on its bits directly. The interval facts
+  that carry the ray's non-negativity (SSA/ConstantIntervals) do not
+  derive it for `dot(v, v)` or for `max(.., 0)` squared. A few
+  instructions a node on the closest point, for both references.
+- The checker's closest-point distance (rtq_hook.cpp, distance_to for a
+  point) is Ericson's test in double and goes to NaN on a degenerate
+  triangle; the ivy and dambreak meshes have them, and a disagreement
+  that involves one cannot be classified. To be made robust: the distance
+  to the three edges, the face only where the area is not zero.
+- The near-point batch is built from the reference's primary hits, so a
+  reference whose ray test finds nothing (FCPW on lte-orb) leaves it
+  empty. To be made reference-independent: surface samples, chosen by
+  area, pushed off along the normal -- the same for every reference and
+  independent of either side being right.
+- FCPW's scalar binary Bvh (vectorize off) is not matched: the layout is
+  easy (BvhNode rows of 32 bytes, a leaf's references into the primitive
+  array with the vertices gathered through the soup's indices) but its
+  children are ordered by a lexicographic key (d2Min, then d2Max where
+  both are zero), which `sort` cannot take. The user's TODO.
+- FCPW's eight-wide order -- the strictly nearest child first, the rest in
+  stored order -- is a partial sort the scheduling language has no form
+  for; the fcpw8* schedules sort fully. Expected to matter little, the
+  measured `sort` being FCPW's four-wide order and Embree's.
+- ir::TiledArray, the "group of elements in tiles", is a one-level special
+  case: an indirect group whose body is one anonymous constant-size group
+  of fields. It does not compose with the rest of the layout language --
+  a tile of tiles, a switch or a lookup inside a tile -- and the derived
+  fields added for FCPW inherit that. The composable form: every
+  constant-size group along the way to an element is a lane dimension,
+  the element's index decomposed mixed-radix through the nesting, a field
+  stored as a vector over the product of the constant widths inside the
+  level it is declared at, and the row machinery (stored and derived
+  fields, switches, lookups) the one lowering for rows and tiles alike.
+  About a day's work replacing the special case; the derived-tile tests
+  would pass through it unchanged. The user's call (option 1, 2026-10-05:
+  keep the one-level form for now, generalize afterwards).
 - The exported batch answers with the primitive id alone; Embree also
   writes `t`, `u`, `v` and the normal. Recovering `t` from the argmin
   without a second triangle test wants the key beside the element.

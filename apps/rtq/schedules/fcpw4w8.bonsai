@@ -1,0 +1,27 @@
+// The FCPW schedule over its four-wide tree with eight-lane leaves (the
+// tree FCPW builds on an AVX2 machine): fcpw4w16.bonsai's directives over
+// layouts/fcpw4w8.bonsai.
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw4w8.bonsai ...
+import apps/rtq/schedules/layouts/fcpw4w8;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(96);
+    closest.skip(distmin);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(96);
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(96);
+}

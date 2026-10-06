@@ -69,24 +69,53 @@ while [[ $# -gt 0 ]]; do
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
 
-if [[ ! -f deps/embree/CMakeLists.txt ]]; then
-  echo "Embree is not checked out: this app compares against it and needs it." >&2
-  echo "    git submodule update --init deps/embree" >&2
-  echo "    $PREFIX/build_embree.sh" >&2
-  exit 1
-fi
-EMBREE="deps/embree-install"
-if [[ ! -f "$EMBREE/include/embree4/rtcore.h" || ! -f "$EMBREE/lib/libembree4.so" ]]; then
-  echo "Embree is checked out but not built: run $PREFIX/build_embree.sh" >&2
-  exit 1
-fi
+# Which reference a schedule compares against: the fcpw* schedules (over
+# FCPW's trees, schedules/trees/mbvh*.bonsai) against FCPW, every other
+# against Embree. An fcpw schedule's name says which of FCPW's trees it is
+# over -- `fcpw<branching>w<width>`, FCPW's compile-time branching factor and
+# leaf width -- which is how the driver is told to build FCPW's tree of that
+# shape (FCPW_USE_EIGHT_WIDE_BRANCHING, FCPW_SIMD_WIDTH).
+reference_of() {
+  if [[ "$1" == fcpw* ]]; then echo fcpw; else echo embree; fi
+}
 IFS=, read -r -a SCHEDULE_LIST <<< "$SCHEDULES"
+NEEDS_EMBREE=0
+NEEDS_FCPW=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
     echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
     exit 1
   fi
+  case "$(reference_of "$SCHEDULE")" in
+    fcpw) NEEDS_FCPW=1 ;;
+    *) NEEDS_EMBREE=1 ;;
+  esac
 done
+
+EMBREE="deps/embree-install"
+if [[ $NEEDS_EMBREE == 1 ]]; then
+  if [[ ! -f deps/embree/CMakeLists.txt ]]; then
+    echo "Embree is not checked out: this app compares against it and needs it." >&2
+    echo "    git submodule update --init deps/embree" >&2
+    echo "    $PREFIX/build_embree.sh" >&2
+    exit 1
+  fi
+  if [[ ! -f "$EMBREE/include/embree4/rtcore.h" || ! -f "$EMBREE/lib/libembree4.so" ]]; then
+    echo "Embree is checked out but not built: run $PREFIX/build_embree.sh" >&2
+    exit 1
+  fi
+fi
+# FCPW is header-only, with Eigen and enoki as submodules of its own; there
+# is nothing to build.
+FCPW="deps/fcpw"
+if [[ $NEEDS_FCPW == 1 ]]; then
+  if [[ ! -f "$FCPW/include/fcpw/fcpw.h" || ! -f "$FCPW/deps/enoki/include/enoki/array.h" ||
+        ! -f "$FCPW/deps/eigen-git-mirror/Eigen/Core" ]]; then
+    echo "FCPW is not checked out with its own submodules: the fcpw* schedules compare against it." >&2
+    echo "    git submodule update --init --recursive deps/fcpw" >&2
+    exit 1
+  fi
+fi
 
 BONSAI_CXX="${BONSAI_CXX:-clang++}"
 if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
@@ -124,20 +153,54 @@ cmake --build "$BONSAI_BUILD_DIR" -j
 # The program with one schedule, as $PREFIX/rtq.out. `-p ssa` because sort
 # and loopify are SSA rewrites; `--no-heap` refuses any allocation in the
 # compiled program; `--ffp-contract` fuses `a * b + c` as Embree's build does
-# (its node test is written with msub, its dot products with madd).
+# (its node test is written with msub, its dot products with madd) and as
+# FCPW's does (enoki's dot is an explicit fmadd, and its build passes
+# -ffp-contract=fast). The driver is compiled against the one reference the
+# schedule is for: Embree's headers and library, or FCPW's headers with the
+# flags FCPW's own CMake would set -- FCPW_USE_ENOKI, the leaf width and the
+# branching of the schedule's tree, -march=native for enoki's vectors,
+# NDEBUG as a release build, enoki's -fno-math-errno and -ffp-contract=fast.
 build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
-  local inputs=(-i $PREFIX/rtq.bonsai -i "$PREFIX/schedules/$schedule.bonsai")
+  # The program, the reference's arithmetic (metrics/<reference>.bonsai:
+  # its slab test, its triangle test, its point distances, transcribed), and
+  # the schedule over the reference's tree. RTQ_METRICS names another
+  # metrics file in place of the reference's, for measuring what an
+  # arithmetic differs by against the same reference.
+  local metrics="${RTQ_METRICS:-$PREFIX/metrics/$(reference_of "$schedule").bonsai}"
+  local inputs=(-i $PREFIX/rtq.bonsai -i "$metrics" -i "$PREFIX/schedules/$schedule.bonsai")
   "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/rtq.bir
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/rtq.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/rtq
 
-  "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
-      $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
-      -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
-      -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
-      -o $PREFIX/rtq.out
+  if [[ "$(reference_of "$schedule")" == fcpw ]]; then
+    local branching width
+    if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)$ ]]; then
+      branching="${BASH_REMATCH[1]}"
+      width="${BASH_REMATCH[2]}"
+    else
+      echo "an fcpw schedule is named fcpw<branching>w<width> (fcpw4w16, fcpw8w8, ...): $schedule" >&2
+      exit 1
+    fi
+    local defines=(-DRTQ_FCPW -DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
+    if [[ "$branching" == 8 ]]; then
+      defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
+    fi
+    "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
+        "${defines[@]}" -I. -I$PREFIX \
+        -isystem "$FCPW/include" -isystem "$FCPW/deps/enoki/include" \
+        -isystem "$FCPW/deps/eigen-git-mirror" \
+        $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
+        -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
+        -o $PREFIX/rtq.out
+  else
+    "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
+        $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
+        -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
+        -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
+        -o $PREFIX/rtq.out
+  fi
 }
 
 # The core to pin to (see the top of the file): the physical core the kernel

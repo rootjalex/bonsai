@@ -6,14 +6,15 @@
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/embree4.bonsai ...
 //
-// The tree is Embree's BVH4 (trees/bvh4.bonsai). The directives are
+// The tree is the four-wide one (trees/bvh4.bonsai) in Embree's bytes
+// (layouts/embree4.bonsai). The directives are
 // embree.bonsai's, and so is what each stands for in Embree's code
 // (traverseClosestHit and traverseAnyHit of bvh_traverser1.h, which for N
 // = 4 sort two hits by one compare and three or four with sort3 and sort4
 // -- the counted arms our sort lowering makes, with no network needed, as
 // four lanes are covered by the counts; intersectNode's four-wide test;
 // stackSizeSingle = 1 + (N - 1) * maxDepth + 3 = 244).
-import apps/rtq/schedules/trees/bvh4;
+import apps/rtq/schedules/layouts/embree4;
 
 schedule {
     trace.sort(triangles.Interior,

@@ -1,0 +1,60 @@
+// FCPW's vectorized BVH ("Mbvh") over triangles at a branching factor of 8
+// and a leaf width of 16: what FCPW's build makes on an AVX-512 machine with
+// FCPW_USE_EIGHT_WIDE_BRANCHING (FCPW_MBVH_BRANCHING_FACTOR 8, stack 154),
+// over the eight-wide tree of trees/bvh8.bonsai, Embree's BVH8's tree.
+// fcpw4w16.bonsai describes the storage and the encodings; what differs
+// here is the node row -- MbvhNode<3> at eight slots, 224 bytes: boxMin as
+// three vectors of eight floats, boxMax the same, then eight child slots as
+// ints, of which a leaf's description uses the first four and leaves the
+// rest at maxInt. The packets are the same 640 bytes.
+import apps/rtq/schedules/trees/bvh8;
+
+schedule {
+    layout triangles {
+        nLeafs : u32;
+        indirect group packets[nLeafs] {
+            group[16] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = cast[[u32]](primitiveIndex);
+            };
+        };
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 8];
+            boxMin_y : vector[f32, 8];
+            boxMin_z : vector[f32, 8];
+            boxMax_x : vector[f32, 8];
+            boxMax_y : vector[f32, 8];
+            boxMax_z : vector[f32, 8];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            child4 : i32;
+            child5 : i32;
+            child6 : i32;
+            child7 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 8]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3),
+                                              cast[[u32]](child4), cast[[u32]](child5),
+                                              cast[[u32]](child6), cast[[u32]](child7)};
+                    lo = vector[vec3f, 8]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 8]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 16u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+}

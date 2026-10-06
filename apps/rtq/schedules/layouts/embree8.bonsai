@@ -1,14 +1,11 @@
-// Embree's BVH8 over Triangle4 leaves, as a tree and a layout: the storage
-// Embree's intersector reads, byte for byte, in Scion's spelling (Gyurgyik,
-// Root and Kjolstad, "Decoupling Data Layouts from Bounding Volume
-// Hierarchies", PLDI 2026). Imported by every schedule in this directory;
-// what differs between them is how the traversal runs, not what it reads.
-//
-// The tree. An interior node holds its eight children as one array with one
-// box annotation over them, `AABB(lo, hi) on children` -- Embree's AABBNode
-// bounds its children, not itself -- so the traversal tests the eight at the
-// node (Lower/Trees.cpp, from_children), which a schedule vectorizes into
-// Embree's eight-wide test. A leaf holds a run of triangles.
+// Embree's BVH8 over Triangle4 leaves, as a layout: the bytes Embree's
+// intersector reads, byte for byte, in Scion's spelling (Gyurgyik, Root and
+// Kjolstad, "Decoupling Data Layouts from Bounding Volume Hierarchies", PLDI
+// 2026), over the eight-wide tree of trees/bvh8.bonsai -- which FCPW's
+// eight-wide layouts (fcpw8w16.bonsai, fcpw8w8.bonsai) share, the tree being
+// the same and the bytes another's. Imported by the schedules that follow
+// Embree (embree.bonsai, tuned.bonsai); what differs between them is how
+// the traversal runs, not what it reads.
 //
 // The storage. One allocation of bytes, as Embree's allocator hands out one
 // address space, holding node rows and leaf blocks wherever their reference
@@ -44,14 +41,9 @@
 // struct sizes and offsets against Embree's at compile time, and reproduces
 // Embree's relocation of the largest nodes.
 
+import apps/rtq/schedules/trees/bvh8;
+
 schedule {
-    tree[[Triangle]] BVH8 =
-    | Interior(children : array[BVH8, 8], lo hi : vector[vec3f, 8])
-        with AABB(lo, hi) on children
-    | Leaf(data : array[Triangle]) with data = data;
-
-    triangles : BVH8;
-
     layout triangles(ref : u64 = root) {
         root : u64;
         bytes : u64;
@@ -69,6 +61,9 @@ schedule {
                 hi = vector[vec3f, 8]{upper_x, upper_y, upper_z};
             };
             _ => Leaf from arena[ref[4:63] * 16u] {
+                // Embree: TriangleM::valid -- a slot of a block that holds
+                // fewer than four triangles is all zeros with ids of -1
+                // (TriangleM::fill); which lanes are triangles, the ids say.
                 indirect group tiles {
                     group[4] {
                         v0 : vec3f;
@@ -76,7 +71,7 @@ schedule {
                         e2 : vec3f;
                         geomID : u32;
                         primID : u32;
-                    };
+                    } where geomID != 4294967295u;
                 };
                 data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
             };

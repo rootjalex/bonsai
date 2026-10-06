@@ -1,0 +1,22 @@
+// The four-wide tree over triangles: what Embree's BVH4 and FCPW's four-wide
+// Mbvh both are, before either gives it bytes. An interior node holds four
+// children as one array with one box annotation over them, `AABB(lo, hi) on
+// children` -- the node bounds its children, not itself, as Embree's
+// AABBNode and FCPW's MbvhNode both do -- so a traversal tests the four at
+// the node (Lower/Trees.cpp, from_children), which a schedule vectorizes
+// into one four-wide test. A leaf holds a run of triangles.
+//
+// The bytes are a layout's: schedules/layouts/embree4.bonsai (Embree's
+// AABBNode<4> rows and Triangle4 blocks in one arena, reached by address),
+// schedules/layouts/fcpw4w16.bonsai and fcpw4w8.bonsai (FCPW's MbvhNode
+// rows and packets of sixteen or eight, reached by index). Each imports
+// this file; the schedules import a layout.
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : BVH4;
+}

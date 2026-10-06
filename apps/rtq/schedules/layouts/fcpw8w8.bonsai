@@ -1,0 +1,57 @@
+// FCPW's vectorized BVH ("Mbvh") over triangles at a branching factor of 8
+// and a leaf width of 8: FCPW's build on an AVX2 machine with
+// FCPW_USE_EIGHT_WIDE_BRANCHING, over the eight-wide tree of
+// trees/bvh8.bonsai. fcpw4w16.bonsai describes the storage and the
+// encodings; the node row is fcpw8w16.bonsai's (224 bytes, eight slots) and
+// the packet fcpw4w8.bonsai's (320 bytes, eight triangles).
+import apps/rtq/schedules/trees/bvh8;
+
+schedule {
+    layout triangles {
+        nLeafs : u32;
+        indirect group packets[nLeafs] {
+            group[8] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = cast[[u32]](primitiveIndex);
+            };
+        };
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 8];
+            boxMin_y : vector[f32, 8];
+            boxMin_z : vector[f32, 8];
+            boxMax_x : vector[f32, 8];
+            boxMax_y : vector[f32, 8];
+            boxMax_z : vector[f32, 8];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            child4 : i32;
+            child5 : i32;
+            child6 : i32;
+            child7 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 8]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3),
+                                              cast[[u32]](child4), cast[[u32]](child5),
+                                              cast[[u32]](child6), cast[[u32]](child7)};
+                    lo = vector[vec3f, 8]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 8]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 8u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+}

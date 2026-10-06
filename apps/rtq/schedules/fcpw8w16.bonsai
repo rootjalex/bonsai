@@ -1,0 +1,34 @@
+// The FCPW schedule over its eight-wide tree with sixteen-lane leaves:
+// fcpw4w16.bonsai with eight lanes in the children's directives and the
+// stack FCPW sizes for a branching factor of 8 (FCPW_MBVH_MAX_DEPTH 154).
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw8w16.bonsai ...
+//
+// One departure the scheduling language cannot avoid (PLAN.md): at a
+// branching factor of 8 FCPW's enqueueNodes is the generic one, which pushes
+// the children that passed in lane order and then swaps the strictly nearest
+// to the top -- the nearest first, the rest in their stored order, not
+// sorted. `sort` orders all of them by distance; a sort that orders the
+// first alone is not a form the language has.
+import apps/rtq/schedules/layouts/fcpw8w16;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(154);
+    closest.skip(distmin);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(154);
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(154);
+}

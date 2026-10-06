@@ -5,12 +5,12 @@
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/embree.bonsai ...
 //
-// The tree is Embree's (trees/bvh8.bonsai): a node holds its eight
-// children's boxes, so a traversal tests the eight at the node, in a loop
-// over the children the tree lowering makes (Lower/Trees.cpp,
-// from_children). What this file adds is the order, the eight-wide test and
-// the stack.
-import apps/rtq/schedules/trees/bvh8;
+// The tree is the eight-wide one (trees/bvh8.bonsai) in Embree's bytes
+// (layouts/embree8.bonsai): a node holds its eight children's boxes, so a
+// traversal tests the eight at the node, in a loop over the children the
+// tree lowering makes (Lower/Trees.cpp, from_children). What this file adds
+// is the order, the eight-wide test and the stack.
+import apps/rtq/schedules/layouts/embree8;
 
 schedule {
     // Embree: traverseClosestHit -- of the children hit, the nearest is

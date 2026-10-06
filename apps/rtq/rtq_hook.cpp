@@ -8,7 +8,7 @@
 // Embree builds its own BVH8Triangle4 over and answers rtcIntersect1 and
 // rtcOccluded1 on, and to Embree's builder (rtcBuildBVH) with the settings
 // Embree's internal BVH8Triangle4 builder uses, whose callbacks write the
-// tree into the layout the schedule declared (schedules/trees/bvh8.bonsai),
+// tree into the layout the schedule declared (schedules/layouts/embree8.bonsai),
 // so that both sides traverse one tree: the same splits, the same leaves,
 // the same boxes in the same places. It makes three batches of rays --
 // primary rays from a camera, and from their hits short ambient-occlusion
@@ -33,11 +33,26 @@
 // Should a schedule bind the parfor to the threads, the parallel loop it
 // asks for is supplied by this file (bonsai_parallel_for, below) and runs
 // the body in place, so that the comparison stays single-threaded.
+//
+// Built with RTQ_FCPW (compare.sh does so for the fcpw* schedules), the
+// reference is FCPW instead (deps/fcpw, "Fastest Closest Points in the
+// West"): its Scene over the same mesh, built with its own builder into its
+// vectorized BVH (Mbvh), copied byte for byte into the layout the schedule
+// declared (schedules/layouts/fcpw*.bonsai), and queried through its public
+// calls -- findClosestPoint, and intersect for the rays -- as the reference
+// for the same three queries. Which configuration of FCPW's tree is being
+// compared (its branching factor and the width of its leaf packets) is
+// FCPW's own compile-time choice, FCPW_USE_EIGHT_WIDE_BRANCHING and
+// FCPW_SIMD_WIDTH, which compare.sh sets from the schedule's name.
 #define BONSAI_PARALLEL_EXTERNAL
 #include "rtq.h"
 
+#ifdef RTQ_FCPW
+#include <fcpw/fcpw.h>
+#else
 #include <embree4/rtcore.h>
 #include <embree4/rtcore_builder.h>
+#endif
 
 #include <sched.h>
 #include <sys/mman.h>
@@ -57,6 +72,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The measurement is single-threaded: a batch is one plain loop on the
@@ -330,9 +346,14 @@ Mesh load_ply(const std::string &path) {
     return mesh;
 }
 
+#ifndef RTQ_FCPW
+
 //===----------------------------------------------------------------------===//
 // Embree
 //===----------------------------------------------------------------------===//
+
+constexpr const char *kReference = "embree";
+constexpr const char *kReferenceTitle = "Embree";
 
 void embree_error(void *, RTCError code, const char *message) {
     std::cerr << "Embree error " << int(code) << ": " << message << '\n';
@@ -370,7 +391,7 @@ RTCScene make_embree_scene(RTCDevice device, const Mesh &mesh) {
 // Embree: NodeRefPtr<8>. The low four bits say what a reference is -- 0 an
 // AABB node, tyLeaf (8) + n a leaf of n blocks -- and the rest is the byte
 // address of the row or of the leaf's first block, which is what the layout
-// (schedules/trees/bvh8.bonsai) reads too: a `ptr group`, its rows reached
+// (schedules/layouts/embree8.bonsai) reads too: a `ptr group`, its rows reached
 // by address. While the tree is being built the references name rows and
 // blocks by index, in the arrays the builder's callbacks fill; they become
 // addresses when the storage is assembled (build_tree). An empty child slot
@@ -387,13 +408,13 @@ uint64_t leaf_ref(uint64_t first_block, uint64_t blocks) {
 // Embree's AABBNode -- the eight children, then the bounds as six vectors of
 // eight floats in Embree's order -- and a leaf's block is Embree's Triangle4,
 // four triangles with every field a vector over the four (see
-// schedules/trees/bvh8.bonsai). Both are shapes read at an offset of the
+// schedules/layouts/embree8.bonsai). Both are shapes read at an offset of the
 // arena, not arrays of the layout struct, which holds the arena alone.
 using NodeRow = _tree_layout3;
 using TriangleBlock = _tree_layout5;
 
 // How many children a node holds: the layout this driver was compiled
-// against says, eight for trees/bvh8.bonsai and four for trees/bvh4.bonsai,
+// against says, eight for layouts/embree8.bonsai and four for layouts/embree4.bonsai,
 // and everything below that depends on the width -- the builder's
 // branching factor, the loops over a row's lanes, the row's size and
 // offsets, and which tree Embree's own device is asked for -- follows it.
@@ -805,7 +826,7 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
 
     // The arena: one storage holding every row and every block, each
     // reference the address of what it names with the kind in its low four
-    // bits, Embree's NodeRef (schedules/trees/bvh8.bonsai). Embree's
+    // bits, Embree's NodeRef (schedules/layouts/embree8.bonsai). Embree's
     // allocator hands nodes and leaves out of one address space in build
     // order -- per thread, and in separate blocks for the two kinds -- and
     // its relocation copies the largest nodes to fresh space. Here the rows
@@ -855,6 +876,208 @@ Tree build_tree(RTCDevice device, const Mesh &mesh) {
     tree.layout.group0_arena = &tree.arena_buffer;
     return tree;
 }
+
+// Embree as the reference: its device and its own scene over the mesh.
+struct Reference {
+    RTCDevice device = nullptr;
+    RTCScene scene = nullptr;
+};
+
+// Embree's defaults (an unconfigured device): the ISA the machine has, the
+// builder quality medium, the BVH8 over Triangle4 leaves -- or, when this
+// driver was compiled against the four-wide layout, the BVH4 over the same
+// leaves (`tri_accel=bvh4.triangle4`, the tree Embree builds on a machine
+// without AVX2), so that both sides traverse a tree of the width being
+// compared. `stats` asks Embree to print its tree's statistics.
+void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
+    std::string config;
+    if (kWidth == 4) {
+        config = "tri_accel=bvh4.triangle4";
+    }
+    if (stats) {
+        config += config.empty() ? "verbose=2" : ",verbose=2";
+    }
+    ref.device = rtcNewDevice(config.empty() ? nullptr : config.c_str());
+    if (ref.device == nullptr) {
+        std::cerr << "no Embree device\n";
+        std::exit(1);
+    }
+    rtcSetDeviceErrorFunction(ref.device, embree_error, nullptr);
+    ref.scene = make_embree_scene(ref.device, mesh);
+}
+
+void release_reference(Reference &ref) {
+    rtcReleaseScene(ref.scene);
+    rtcReleaseDevice(ref.device);
+}
+
+Tree build_tree(Reference &ref, const Mesh &mesh) {
+    return build_tree(ref.device, mesh);
+}
+
+void describe_tree(const Tree &tree) {
+    std::cout << "tree: " << tree.nodes << " nodes (" << tree.nodes * sizeof(NodeRow)
+              << " bytes), " << tree.leaves << " leaves holding " << tree.leaf_prims
+              << " triangles in " << tree.blocks << " blocks of 4 ("
+              << tree.blocks * sizeof(TriangleBlock) << " bytes)\n";
+}
+
+#else // RTQ_FCPW
+
+//===----------------------------------------------------------------------===//
+// FCPW
+//===----------------------------------------------------------------------===//
+
+constexpr const char *kReference = "fcpw";
+constexpr const char *kReferenceTitle = "FCPW";
+
+// FCPW as the reference: its Scene over the mesh, built by its own builder
+// (Scene::build with the surface-area heuristic, vectorized) into its Mbvh
+// -- a binary BVH with leaves of FCPW_SIMD_WIDTH triangles collapsed into
+// nodes of FCPW_MBVH_BRANCHING_FACTOR children (mbvh.inl, collapseBvh) --
+// which answers findClosestPoint and intersect as shipped.
+struct Reference {
+    fcpw::Scene<3> scene;
+};
+
+void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
+    std::vector<fcpw::Vector3> vertices;
+    vertices.reserve(mesh.vertices.size());
+    for (const Vec3 &v : mesh.vertices) {
+        vertices.emplace_back(v.x, v.y, v.z);
+    }
+    std::vector<fcpw::Vector3i> indices;
+    indices.reserve(mesh.triangles());
+    for (size_t i = 0; i < mesh.triangles(); i++) {
+        indices.emplace_back(int(mesh.indices[3 * i + 0]), int(mesh.indices[3 * i + 1]),
+                             int(mesh.indices[3 * i + 2]));
+    }
+    ref.scene.setObjectCount(1);
+    ref.scene.setObjectVertices(vertices, 0);
+    ref.scene.setObjectTriangles(indices, 0);
+    ref.scene.build(fcpw::AggregateType::Bvh_SurfaceArea, /*vectorize=*/true,
+                    /*printStats=*/stats, /*reduceMemoryFootprint=*/false);
+}
+
+void release_reference(Reference &) {}
+
+// FCPW's Mbvh over triangles at the width and branching factor this driver
+// was compiled for; its two arrays, flatTree and leafNodes, are protected
+// members, read here through a derived class that names them -- the one way
+// to read them without editing FCPW.
+using FcpwMbvh = fcpw::Mbvh<FCPW_SIMD_WIDTH, 3, fcpw::Triangle>;
+struct Peek : FcpwMbvh {
+    static const auto &tree(const FcpwMbvh &m) { return m.*(&Peek::flatTree); }
+    static const auto &leaves(const FcpwMbvh &m) { return m.*(&Peek::leafNodes); }
+};
+using FcpwNode = fcpw::MbvhNode<3>;
+using FcpwPacket = fcpw::MbvhLeafNode<FCPW_SIMD_WIDTH, 3>;
+
+// The layout's structs, as the generated header spells them: a node row and
+// a packet. They are FCPW's own structs byte for byte, which the copy below
+// relies on, so the sizes and offsets are checked here against FCPW's.
+using NodeRow = _tree_layout2;
+using Packet = _tree_layout1;
+constexpr unsigned kWidth = sizeof(Packet::primitiveIndex) / sizeof(int32_t);
+constexpr unsigned kBranching = sizeof(NodeRow::boxMin_x) / sizeof(float);
+static_assert(kWidth == FCPW_SIMD_WIDTH,
+              "the layout's packet width is FCPW's leaf width (FCPW_SIMD_WIDTH)");
+static_assert(kBranching == FCPW_MBVH_BRANCHING_FACTOR,
+              "the layout's node width is FCPW's branching factor");
+static_assert(sizeof(NodeRow) == sizeof(FcpwNode), "a node row is FCPW's MbvhNode");
+static_assert(offsetof(NodeRow, boxMin_x) == offsetof(FcpwNode, boxMin) &&
+                  offsetof(NodeRow, boxMax_x) == offsetof(FcpwNode, boxMax) &&
+                  offsetof(NodeRow, child0) == offsetof(FcpwNode, child),
+              "the boxes and the child slots sit where FCPW's MbvhNode puts them");
+static_assert(sizeof(Packet) == sizeof(FcpwPacket), "a packet is FCPW's MbvhLeafNode");
+static_assert(offsetof(Packet, pa) == offsetof(FcpwPacket, positions) &&
+                  offsetof(Packet, pb) == offsetof(FcpwPacket, positions) + sizeof(Packet::pa) &&
+                  offsetof(Packet, pc) == offsetof(FcpwPacket, positions) + 2 * sizeof(Packet::pa) &&
+                  offsetof(Packet, primitiveIndex) == offsetof(FcpwPacket, primitiveIndex),
+              "the vertices and the ids sit where FCPW's MbvhLeafNode puts them");
+
+// FCPW's tree in the layout: its two arrays copied byte for byte into two
+// allocations of the same alignment as FCPW's own (std::vector's, on the
+// heap), so that the two traversals read the same bytes from the same kind
+// of memory.
+struct Tree {
+    _tree_layout0 layout{};
+    void *nodes = nullptr;
+    void *packets = nullptr;
+    bonsai_buffer nodes_buffer{}, packets_buffer{};
+    uint64_t node_rows = 0, leaf_nodes = 0, packet_count = 0, leaf_prims = 0;
+    Tree() = default;
+    Tree(const Tree &) = delete;
+    Tree &operator=(const Tree &) = delete;
+    Tree(Tree &&other) noexcept { *this = std::move(other); }
+    Tree &operator=(Tree &&other) noexcept {
+        layout = other.layout;
+        nodes = std::exchange(other.nodes, nullptr);
+        packets = std::exchange(other.packets, nullptr);
+        nodes_buffer = other.nodes_buffer;
+        packets_buffer = other.packets_buffer;
+        node_rows = other.node_rows;
+        leaf_nodes = other.leaf_nodes;
+        packet_count = other.packet_count;
+        leaf_prims = other.leaf_prims;
+        layout.group0_packets = &packets_buffer;
+        layout.group1_index = &nodes_buffer;
+        return *this;
+    }
+    ~Tree() {
+        std::free(nodes);
+        std::free(packets);
+    }
+};
+
+Tree build_tree(Reference &ref, const Mesh &) {
+    const auto *mbvh = dynamic_cast<const FcpwMbvh *>(ref.scene.getSceneData()->aggregate.get());
+    if (mbvh == nullptr) {
+        std::cerr << "FCPW's scene did not build the vectorized BVH this driver was "
+                     "compiled for (Mbvh<" << FCPW_SIMD_WIDTH << ", 3, Triangle>)\n";
+        std::exit(1);
+    }
+    const auto &rows = Peek::tree(*mbvh);
+    const auto &packets = Peek::leaves(*mbvh);
+    Tree tree;
+    tree.node_rows = rows.size();
+    tree.packet_count = packets.size();
+    for (const FcpwNode &node : rows) {
+        if (node.child[0] < 0) {
+            tree.leaf_nodes++;
+            tree.leaf_prims += uint64_t(node.child[3]);
+        }
+    }
+    const size_t nodes_bytes = rows.size() * sizeof(NodeRow);
+    const size_t packets_bytes = packets.size() * sizeof(Packet);
+    // Aligned as FCPW's vectors are: a packet to its vector's alignment, a
+    // row to its own.
+    tree.nodes = std::aligned_alloc(alignof(FcpwNode), (nodes_bytes + 63) / 64 * 64);
+    tree.packets = std::aligned_alloc(alignof(FcpwPacket), (packets_bytes + 63) / 64 * 64);
+    if (tree.nodes == nullptr || tree.packets == nullptr) {
+        std::cerr << "cannot allocate the tree's storage\n";
+        std::exit(1);
+    }
+    std::memcpy(tree.nodes, rows.data(), nodes_bytes);
+    std::memcpy(tree.packets, packets.data(), packets_bytes);
+    tree.nodes_buffer = bonsai_buffer_wrap(tree.nodes, nodes_bytes);
+    tree.packets_buffer = bonsai_buffer_wrap(tree.packets, packets_bytes);
+    tree.layout.nNodes = uint32_t(rows.size());
+    tree.layout.group1_index = &tree.nodes_buffer;
+    tree.layout.nLeafs = uint32_t(packets.size());
+    tree.layout.group0_packets = &tree.packets_buffer;
+    return tree;
+}
+
+void describe_tree(const Tree &tree) {
+    std::cout << "tree: " << tree.node_rows << " node rows of " << kBranching << " ("
+              << tree.node_rows * sizeof(NodeRow) << " bytes), " << tree.leaf_nodes
+              << " of them leaves holding " << tree.leaf_prims << " triangles in "
+              << tree.packet_count << " packets of " << kWidth << " ("
+              << tree.packet_count * sizeof(Packet) << " bytes)\n";
+}
+
+#endif // RTQ_FCPW
 
 //===----------------------------------------------------------------------===//
 // Rays
@@ -920,12 +1143,20 @@ Vec3 cosine_hemisphere(Vec3 n, Rng &rng) {
     return normalize(t * local.x + b * local.y + n * local.z);
 }
 
-// Secondary rays from Embree's primary hits: one ray per hit, leaving the
-// hit point along the hemisphere about the geometric normal facing the
+// What the reference saw along a primary ray: whether it hit, where, and the
+// geometric normal there -- what the secondary batches are made from.
+struct PrimaryHit {
+    bool hit = false;
+    float t = kInf;
+    Vec3 n;
+};
+
+// Secondary rays from the reference's primary hits: one ray per hit, leaving
+// the hit point along the hemisphere about the geometric normal facing the
 // camera, `reach` scene diagonals long -- a tenth for ambient occlusion,
 // unbounded for a diffuse bounce.
 std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
-                                const std::vector<RTCRayHit> &hits,
+                                const std::vector<PrimaryHit> &hits,
                                 const Mesh &mesh, float reach, uint64_t seed) {
     const float diagonal = length(mesh.hi - mesh.lo);
     Rng rng;
@@ -933,17 +1164,17 @@ std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
     std::vector<Ray> rays;
     rays.reserve(primary.size());
     for (size_t i = 0; i < primary.size(); i++) {
-        const RTCRayHit &h = hits[i];
-        if (h.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+        const PrimaryHit &h = hits[i];
+        if (!h.hit) {
             continue;
         }
         const Vec3 o{primary[i].o.x, primary[i].o.y, primary[i].o.z};
         const Vec3 d{primary[i].d.x, primary[i].d.y, primary[i].d.z};
-        Vec3 n = normalize(Vec3{h.hit.Ng_x, h.hit.Ng_y, h.hit.Ng_z});
+        Vec3 n = normalize(h.n);
         if (dot(n, d) > 0) {
             n = n * -1.0f;
         }
-        const Vec3 p = o + d * h.ray.tfar + n * (1e-4f * diagonal);
+        const Vec3 p = o + d * h.t + n * (1e-4f * diagonal);
         const float tfar = reach > 0 ? reach * diagonal : kInf;
         rays.push_back(make_ray(p, cosine_hemisphere(n, rng), tfar));
     }
@@ -954,13 +1185,13 @@ std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
 // Points
 //===----------------------------------------------------------------------===//
 
-// Query points for the closest-point query, from Embree's primary hits: one
-// point per hit, pushed off the surface along the geometric normal facing
-// the camera by a random distance of up to a tenth of the scene's diagonal
-// -- points about the surface, which is what a distance field or a walk on
-// spheres asks about.
+// Query points for the closest-point query, from the reference's primary
+// hits: one point per hit, pushed off the surface along the geometric normal
+// facing the camera by a random distance of up to a tenth of the scene's
+// diagonal -- points about the surface, which is what a distance field or a
+// walk on spheres asks about.
 std::vector<Point> near_points(const std::vector<Ray> &primary,
-                               const std::vector<RTCRayHit> &hits, const Mesh &mesh,
+                               const std::vector<PrimaryHit> &hits, const Mesh &mesh,
                                uint64_t seed) {
     const float diagonal = length(mesh.hi - mesh.lo);
     Rng rng;
@@ -968,17 +1199,17 @@ std::vector<Point> near_points(const std::vector<Ray> &primary,
     std::vector<Point> points;
     points.reserve(primary.size());
     for (size_t i = 0; i < primary.size(); i++) {
-        const RTCRayHit &h = hits[i];
-        if (h.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+        const PrimaryHit &h = hits[i];
+        if (!h.hit) {
             continue;
         }
         const Vec3 o{primary[i].o.x, primary[i].o.y, primary[i].o.z};
         const Vec3 d{primary[i].d.x, primary[i].d.y, primary[i].d.z};
-        Vec3 n = normalize(Vec3{h.hit.Ng_x, h.hit.Ng_y, h.hit.Ng_z});
+        Vec3 n = normalize(h.n);
         if (dot(n, d) > 0) {
             n = n * -1.0f;
         }
-        const Vec3 p = o + d * h.ray.tfar + n * (rng.uniform() * 0.1f * diagonal);
+        const Vec3 p = o + d * h.t + n * (rng.uniform() * 0.1f * diagonal);
         points.push_back(Point{to_float3(p)});
     }
     return points;
@@ -1006,6 +1237,8 @@ std::vector<Point> volume_points(const Mesh &mesh, size_t count, uint64_t seed) 
 //===----------------------------------------------------------------------===//
 // Tracing, both sides
 //===----------------------------------------------------------------------===//
+
+#ifndef RTQ_FCPW
 
 RTCRayHit to_rayhit(const Ray &r) {
     RTCRayHit rh;
@@ -1083,6 +1316,16 @@ void blocked_of(const std::vector<RTCRay> &rays, std::vector<uint32_t> &blocked)
     }
 }
 
+// The triangle each ray hit, or none.
+void prims_of(const std::vector<RTCRayHit> &hits, std::vector<uint32_t> &prims) {
+    prims.resize(hits.size());
+    for (size_t i = 0; i < hits.size(); i++) {
+        prims[i] = hits[i].hit.geomID == RTC_INVALID_GEOMETRY_ID ? kNoHit : hits[i].hit.primID;
+    }
+}
+
+#endif // !RTQ_FCPW
+
 // The program over a batch: the exported parfor, a plain loop.
 void bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays,
                       std::vector<uint32_t> &hits) {
@@ -1100,6 +1343,8 @@ void bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays,
 //===----------------------------------------------------------------------===//
 // The closest point, both sides
 //===----------------------------------------------------------------------===//
+
+#ifndef RTQ_FCPW
 
 // Embree: closestPointTriangle (tutorials/common/math/closest_point.h), the
 // routine its closest-point tutorial runs on every triangle the traversal
@@ -1231,6 +1476,8 @@ uint64_t embree_closest(RTCScene scene, const Mesh &mesh, std::vector<RTCPointQu
     return state.callbacks;
 }
 
+#endif // !RTQ_FCPW
+
 void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
                     std::vector<uint32_t> &hits) {
     hits.resize(points.size());
@@ -1286,10 +1533,15 @@ double timed(int repeats, F &&f) {
     return timed(repeats, [] {}, std::forward<F>(f));
 }
 
-// The distance along the ray to a triangle, in double precision, for
+// The distance along the ray to a triangle's plane, in double precision, for
 // telling a disagreement about which triangle is nearest from a tie: two
-// triangles at the same distance, Embree's and ours, both right.
-double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim) {
+// triangles at the same distance, the reference's and ours, both right.
+// `u` and `v`, when asked for, are the barycentric coordinates of the point
+// where the ray meets the plane, which say whether it lies in the triangle
+// (`u >= 0 && v >= 0 && u + v <= 1`): what tells a hit one side found and the
+// other missed from a false hit, when a difference is explained.
+double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim, double *u = nullptr,
+                   double *v = nullptr) {
     if (prim == kNoHit) {
         return std::numeric_limits<double>::infinity();
     }
@@ -1308,8 +1560,18 @@ double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim) {
     const double tv[3] = {r.o.x - p0.x, r.o.y - p0.y, r.o.z - p0.z};
     const double qv[3] = {tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2],
                           tv[0] * e1[1] - tv[1] * e1[0]};
+    if (u != nullptr) {
+        *u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det;
+    }
+    if (v != nullptr) {
+        *v = (d[0] * qv[0] + d[1] * qv[1] + d[2] * qv[2]) / det;
+    }
     return (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det;
 }
+
+// `--explain N`: the first N disagreements of each row, each with both
+// sides' answers and the distances the check compared, on stderr.
+int explain_limit = 0;
 
 struct Agreement {
     size_t rays = 0, same = 0, ties = 0, differ = 0;
@@ -1321,14 +1583,12 @@ struct Agreement {
 };
 
 Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
-                       const std::vector<RTCRayHit> &embree,
+                       const std::vector<uint32_t> &reference,
                        const std::vector<uint32_t> &ours) {
     Agreement a;
     a.rays = rays.size();
     for (size_t i = 0; i < rays.size(); i++) {
-        const uint32_t e = embree[i].hit.geomID == RTC_INVALID_GEOMETRY_ID
-                               ? kNoHit
-                               : embree[i].hit.primID;
+        const uint32_t e = reference[i];
         const uint32_t b = ours[i];
         a.embree_hits += e != kNoHit;
         a.bonsai_hits += b != kNoHit;
@@ -1346,20 +1606,32 @@ Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
             std::fabs(te - tb) <= 1e-4 * scale) {
             a.ties++;
         } else {
+            if (int(a.differ) < explain_limit) {
+                double ue = 0, ve = 0, ub = 0, vb = 0;
+                distance_to(mesh, rays[i], e, &ue, &ve);
+                distance_to(mesh, rays[i], b, &ub, &vb);
+                std::fprintf(stderr,
+                             "  ray %zu from (%g %g %g) along (%g %g %g), tfar %g: %s "
+                             "triangle %d at t %g (u %g v %g), bonsai triangle %d at t %g "
+                             "(u %g v %g)\n",
+                             i, rays[i].o.x, rays[i].o.y, rays[i].o.z, rays[i].d.x,
+                             rays[i].d.y, rays[i].d.z, rays[i].tfar, kReference, int(e), te,
+                             ue, ve, int(b), tb, ub, vb);
+            }
             a.differ++;
         }
     }
     return a;
 }
 
-Agreement compare_occluded(const std::vector<uint32_t> &embree,
+Agreement compare_occluded(const std::vector<uint32_t> &reference,
                            const std::vector<uint32_t> &ours) {
     Agreement a;
-    a.rays = embree.size();
-    for (size_t i = 0; i < embree.size(); i++) {
-        a.embree_hits += embree[i];
+    a.rays = reference.size();
+    for (size_t i = 0; i < reference.size(); i++) {
+        a.embree_hits += reference[i];
         a.bonsai_hits += ours[i];
-        if (embree[i] == ours[i]) {
+        if (reference[i] == ours[i]) {
             a.same++;
         } else {
             a.differ++;
@@ -1441,13 +1713,13 @@ double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
 // surface has a distance whose last bits are most of it, so the test is
 // against the scene's scale, not the distance's.
 Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
-                          const std::vector<ClosestResult> &embree,
+                          const std::vector<uint32_t> &reference,
                           const std::vector<uint32_t> &ours) {
     const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = points.size();
     for (size_t i = 0; i < points.size(); i++) {
-        const uint32_t e = embree[i].prim;
+        const uint32_t e = reference[i];
         const uint32_t b = ours[i];
         a.embree_hits += e != kNoHit;
         a.bonsai_hits += b != kNoHit;
@@ -1462,11 +1734,214 @@ Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
             a.ties++;
             a.tie_gap = std::max(a.tie_gap, std::fabs(de - db) / diagonal);
         } else {
+            if (int(a.differ) < explain_limit) {
+                std::fprintf(stderr,
+                             "  point %zu (%g %g %g): %s triangle %d at %g, bonsai "
+                             "triangle %d at %g\n",
+                             i, points[i].p.x, points[i].p.y, points[i].p.z, kReference,
+                             int(e), de, int(b), db);
+            }
             a.differ++;
         }
     }
     return a;
 }
+
+//===----------------------------------------------------------------------===//
+// The reference's answers, timed
+//===----------------------------------------------------------------------===//
+//
+// One call per query on either reference: the primary rays answered once,
+// for the record the secondary batches are made from, and each query timed
+// over a batch -- the least of `repeats` runs after a warm-up, the
+// reference's structs made before the clock starts and reset between runs
+// off the clock -- its answers left as triangle ids (kNoHit for none) or as
+// blocked flags.
+
+#ifndef RTQ_FCPW
+
+std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh &,
+                                               const std::vector<Ray> &rays) {
+    std::vector<RTCRayHit> hits;
+    embree_rayhits(rays, hits);
+    embree_intersect(ref.scene, hits);
+    std::vector<PrimaryHit> out(rays.size());
+    for (size_t i = 0; i < rays.size(); i++) {
+        if (hits[i].hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+            out[i].hit = true;
+            out[i].t = hits[i].ray.tfar;
+            out[i].n = Vec3{hits[i].hit.Ng_x, hits[i].hit.Ng_y, hits[i].hit.Ng_z};
+        }
+    }
+    return out;
+}
+
+double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                           std::vector<uint32_t> &prims) {
+    std::vector<RTCRayHit> hits;
+    embree_rayhits(rays, hits);
+    const double seconds = timed(
+        repeats, [&] { reset_rayhits(rays, hits); }, [&] { embree_intersect(ref.scene, hits); });
+    prims_of(hits, prims);
+    return seconds;
+}
+
+double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                          std::vector<uint32_t> &blocked) {
+    std::vector<RTCRay> embree_rays_of;
+    embree_rays(rays, embree_rays_of);
+    const double seconds =
+        timed(repeats, [&] { reset_rays(rays, embree_rays_of); },
+              [&] { embree_occluded(ref.scene, embree_rays_of); });
+    blocked_of(embree_rays_of, blocked);
+    return seconds;
+}
+
+// `callbacks_per_query`: the triangles Embree's traversal handed its
+// callback, per query -- its leaf work, which the table reports.
+double reference_closest(const Reference &ref, const Mesh &mesh,
+                         const std::vector<Point> &points, int repeats,
+                         std::vector<uint32_t> &prims, double &callbacks_per_query) {
+    std::vector<RTCPointQuery> queries;
+    std::vector<ClosestResult> results;
+    embree_queries(points, queries);
+    uint64_t callbacks = 0;
+    const double seconds = timed(
+        repeats, [&] { reset_queries(queries, results); },
+        [&] { callbacks = embree_closest(ref.scene, mesh, queries, results); });
+    prims.resize(points.size());
+    for (size_t i = 0; i < points.size(); i++) {
+        prims[i] = results[i].prim;
+    }
+    callbacks_per_query = double(callbacks) / double(points.size());
+    return seconds;
+}
+
+#else // RTQ_FCPW
+
+// FCPW's ray: an origin, a direction and tMax; it has no tnear, which the
+// rays here have at zero.
+fcpw::Ray<3> to_fcpw(const Ray &r) {
+    return fcpw::Ray<3>(fcpw::Vector3(r.o.x, r.o.y, r.o.z), fcpw::Vector3(r.d.x, r.d.y, r.d.z),
+                        r.tfar);
+}
+
+std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh &mesh,
+                                               const std::vector<Ray> &rays) {
+    std::vector<PrimaryHit> out(rays.size());
+    for (size_t i = 0; i < rays.size(); i++) {
+        fcpw::Ray<3> ray = to_fcpw(rays[i]);
+        fcpw::Interaction<3> it;
+        if (ref.scene.intersect(ray, it)) {
+            out[i].hit = true;
+            out[i].t = it.d;
+            // The geometric normal, from the mesh's own vertices.
+            const uint32_t p = uint32_t(it.primitiveIndex);
+            const Vec3 a = mesh.vertices[mesh.indices[3 * p + 0]];
+            const Vec3 b = mesh.vertices[mesh.indices[3 * p + 1]];
+            const Vec3 c = mesh.vertices[mesh.indices[3 * p + 2]];
+            out[i].n = cross(b - a, c - a);
+        }
+    }
+    return out;
+}
+
+// FCPW: Scene::intersect -- the nearest hit along the ray, which shortens
+// the ray's tMax and fills the interaction (its primitiveIndex the
+// triangle's id); with `checkForOcclusion` it says only whether anything
+// was hit. The rays and the interactions are made before the clock and
+// reset between runs off it, as Embree's structs are.
+double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                           std::vector<uint32_t> &prims) {
+    std::vector<fcpw::Ray<3>> fcpw_rays;
+    fcpw_rays.reserve(rays.size());
+    for (const Ray &r : rays) {
+        fcpw_rays.push_back(to_fcpw(r));
+    }
+    std::vector<fcpw::Interaction<3>> its(rays.size());
+    std::vector<uint8_t> hit(rays.size());
+    const double seconds = timed(
+        repeats,
+        [&] {
+            for (size_t i = 0; i < rays.size(); i++) {
+                fcpw_rays[i].tMax = rays[i].tfar;
+                its[i] = fcpw::Interaction<3>();
+            }
+        },
+        [&] {
+            for (size_t i = 0; i < rays.size(); i++) {
+                hit[i] = ref.scene.intersect(fcpw_rays[i], its[i]) ? 1 : 0;
+            }
+        });
+    prims.resize(rays.size());
+    for (size_t i = 0; i < rays.size(); i++) {
+        prims[i] = hit[i] ? uint32_t(its[i].primitiveIndex) : kNoHit;
+    }
+    return seconds;
+}
+
+double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                          std::vector<uint32_t> &blocked) {
+    std::vector<fcpw::Ray<3>> fcpw_rays;
+    fcpw_rays.reserve(rays.size());
+    for (const Ray &r : rays) {
+        fcpw_rays.push_back(to_fcpw(r));
+    }
+    std::vector<fcpw::Interaction<3>> its(rays.size());
+    blocked.assign(rays.size(), 0u);
+    const double seconds = timed(
+        repeats,
+        [&] {
+            for (size_t i = 0; i < rays.size(); i++) {
+                fcpw_rays[i].tMax = rays[i].tfar;
+                its[i] = fcpw::Interaction<3>();
+            }
+        },
+        [&] {
+            for (size_t i = 0; i < rays.size(); i++) {
+                blocked[i] =
+                    ref.scene.intersect(fcpw_rays[i], its[i], /*checkForOcclusion=*/true) ? 1u : 0u;
+            }
+        });
+    return seconds;
+}
+
+// FCPW: Scene::findClosestPoint -- the closest triangle to the point within
+// a squared radius that defaults to the largest float, the query every
+// FCPW user makes; the interaction's primitiveIndex is the triangle's id.
+// FCPW's leaf is its own vectorized code, no callback, so nothing is
+// counted here.
+double reference_closest(const Reference &ref, const Mesh &, const std::vector<Point> &points,
+                         int repeats, std::vector<uint32_t> &prims,
+                         double &callbacks_per_query) {
+    std::vector<fcpw::Vector3> queries;
+    queries.reserve(points.size());
+    for (const Point &p : points) {
+        queries.emplace_back(p.p.x, p.p.y, p.p.z);
+    }
+    std::vector<fcpw::Interaction<3>> its(points.size());
+    std::vector<uint8_t> found(points.size());
+    const double seconds = timed(
+        repeats,
+        [&] {
+            for (size_t i = 0; i < points.size(); i++) {
+                its[i] = fcpw::Interaction<3>();
+            }
+        },
+        [&] {
+            for (size_t i = 0; i < points.size(); i++) {
+                found[i] = ref.scene.findClosestPoint(queries[i], its[i]) ? 1 : 0;
+            }
+        });
+    prims.resize(points.size());
+    for (size_t i = 0; i < points.size(); i++) {
+        prims[i] = found[i] ? uint32_t(its[i].primitiveIndex) : kNoHit;
+    }
+    callbacks_per_query = std::numeric_limits<double>::quiet_NaN();
+    return seconds;
+}
+
+#endif // RTQ_FCPW
 
 void usage() {
     std::cerr
@@ -1479,6 +1954,8 @@ void usage() {
            "diffuse, near or volume (default all)\n"
            "  --query Q      only the query named: intersect, occluded or "
            "closest (default all)\n"
+           "  --explain N    print the first N disagreements of each row, with "
+           "both sides' answers\n"
            "Both sides run their rays and points as one plain loop on the "
            "calling thread; compare.sh pins it. --batch and --query narrow a "
            "run to one kernel over one kind of ray or point, for a profile "
@@ -1503,6 +1980,8 @@ int main(int argc, char **argv) {
             repeats = std::atoi(argv[++i]);
         } else if (arg == "--embree-stats") {
             embree_stats = true;
+        } else if (arg == "--explain" && i + 1 < argc) {
+            explain_limit = std::atoi(argv[++i]);
         } else if (arg == "--batch" && i + 1 < argc) {
             only_batch = argv[++i];
             if (only_batch != "primary" && only_batch != "ao" && only_batch != "diffuse" &&
@@ -1524,46 +2003,25 @@ int main(int argc, char **argv) {
     if (path.empty() || side == 0 || repeats < 1) {
         usage();
     }
-    // Embree's build, which is not timed, keeps its own pool on every core;
-    // the timed loops are the calling thread's.
+    // The reference's build, which is not timed, may keep a pool on every
+    // core; the timed loops are the calling thread's.
     std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus()
               << "\n";
 
     const Mesh mesh = load_ply(path);
     std::cout << "mesh: " << path << "\n  " << mesh.triangles() << " triangles, "
-              << mesh.vertices.size() << " vertices\n";
+              << mesh.vertices.size() << " vertices, box (" << mesh.lo.x << " " << mesh.lo.y
+              << " " << mesh.lo.z << ") to (" << mesh.hi.x << " " << mesh.hi.y << " "
+              << mesh.hi.z << "), diagonal " << length(mesh.hi - mesh.lo) << "\n";
 
-    // Embree's defaults (an unconfigured device): the ISA the machine has,
-    // the builder quality medium, the BVH8 over Triangle4 leaves -- or,
-    // when this driver was compiled against the four-wide layout, the BVH4
-    // over the same leaves (`tri_accel=bvh4.triangle4`, the tree Embree
-    // builds on a machine without AVX2), so that both sides traverse a
-    // tree of the width being compared.
-    std::string config;
-    if (kWidth == 4) {
-        config = "tri_accel=bvh4.triangle4";
-    }
-    if (embree_stats) {
-        config += config.empty() ? "verbose=2" : ",verbose=2";
-    }
-    RTCDevice device = rtcNewDevice(config.empty() ? nullptr : config.c_str());
-    if (device == nullptr) {
-        std::cerr << "no Embree device\n";
-        return 1;
-    }
-    rtcSetDeviceErrorFunction(device, embree_error, nullptr);
-    RTCScene scene = make_embree_scene(device, mesh);
-    const Tree tree = build_tree(device, mesh);
-    std::cout << "tree: " << tree.nodes << " nodes (" << tree.nodes * sizeof(NodeRow)
-              << " bytes), " << tree.leaves << " leaves holding " << tree.leaf_prims
-              << " triangles in " << tree.blocks << " blocks of 4 ("
-              << tree.blocks * sizeof(TriangleBlock) << " bytes)\n";
+    Reference ref;
+    make_reference(ref, mesh, embree_stats);
+    const Tree tree = build_tree(ref, mesh);
+    describe_tree(tree);
 
-    // The ray sets: the camera's, then from what it saw.
+    // The ray sets: the camera's, then from what the reference saw.
     const std::vector<Ray> primary = primary_rays(mesh, side);
-    std::vector<RTCRayHit> primary_hits;
-    embree_rayhits(primary, primary_hits);
-    embree_intersect(scene, primary_hits);
+    const std::vector<PrimaryHit> primary_hits = reference_primary_hits(ref, mesh, primary);
     const std::vector<Ray> ao = secondary_rays(primary, primary_hits, mesh, 0.1f, 1);
     const std::vector<Ray> diffuse = secondary_rays(primary, primary_hits, mesh, 0.0f, 2);
 
@@ -1573,46 +2031,38 @@ int main(int argc, char **argv) {
     };
     const Batch batches[3] = {{"primary", &primary}, {"ao", &ao}, {"diffuse", &diffuse}};
 
+    const std::string rate_column = std::string(kReference) + " Mr/s";
     std::printf("\n%-10s %-10s %10s %12s %12s %10s  %s\n", "rays", "query", "count",
-                "embree Mr/s", "bonsai Mr/s", "speedup", "agreement");
+                rate_column.c_str(), "bonsai Mr/s", "speedup", "agreement");
     bool all_agree = true;
     for (const Batch &batch : batches) {
         const std::vector<Ray> &rays = *batch.rays;
         if (rays.empty() || (!only_batch.empty() && only_batch != batch.name)) {
             continue;
         }
-        std::vector<RTCRayHit> embree_hits;
-        std::vector<RTCRay> embree_rays_of;
-        std::vector<uint32_t> embree_blocked, our_hits, our_blocked;
+        std::vector<uint32_t> ref_hits, ref_blocked, our_hits, our_blocked;
 
         if (only_query.empty() || only_query == "intersect") {
-            embree_rayhits(rays, embree_hits);
-            const double te = timed(
-                repeats, [&] { reset_rayhits(rays, embree_hits); },
-                [&] { embree_intersect(scene, embree_hits); });
+            const double te = reference_intersect(ref, rays, repeats, ref_hits);
             const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
-            const Agreement hit = compare_hits(mesh, rays, embree_hits, our_hits);
+            const Agreement hit = compare_hits(mesh, rays, ref_hits, our_hits);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
-                        "differ (embree hits %zu, bonsai %zu)\n",
+                        "differ (%s hits %zu, bonsai %zu)\n",
                         batch.name, "intersect", rays.size(), rays.size() / te * 1e-6,
                         rays.size() / tb * 1e-6, te / tb, hit.same, hit.ties, hit.differ,
-                        hit.embree_hits, hit.bonsai_hits);
+                        kReference, hit.embree_hits, hit.bonsai_hits);
             all_agree = all_agree && hit.differ == 0;
         }
 
         if (only_query.empty() || only_query == "occluded") {
-            embree_rays(rays, embree_rays_of);
-            const double oe = timed(
-                repeats, [&] { reset_rays(rays, embree_rays_of); },
-                [&] { embree_occluded(scene, embree_rays_of); });
-            blocked_of(embree_rays_of, embree_blocked);
+            const double oe = reference_occluded(ref, rays, repeats, ref_blocked);
             const double ob =
                 timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
-            const Agreement occ = compare_occluded(embree_blocked, our_blocked);
+            const Agreement occ = compare_occluded(ref_blocked, our_blocked);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu differ "
-                        "(embree blocked %zu, bonsai %zu)\n",
+                        "(%s blocked %zu, bonsai %zu)\n",
                         batch.name, "occluded", rays.size(), rays.size() / oe * 1e-6,
-                        rays.size() / ob * 1e-6, oe / ob, occ.same, occ.differ,
+                        rays.size() / ob * 1e-6, oe / ob, occ.same, occ.differ, kReference,
                         occ.embree_hits, occ.bonsai_hits);
             all_agree = all_agree && occ.differ == 0;
         }
@@ -1634,30 +2084,29 @@ int main(int argc, char **argv) {
             (!only_query.empty() && only_query != "closest")) {
             continue;
         }
-        std::vector<RTCPointQuery> queries;
-        std::vector<ClosestResult> embree_closest_of;
-        std::vector<uint32_t> ours;
-        embree_queries(points, queries);
-        uint64_t callbacks = 0;
-        const double te = timed(
-            repeats, [&] { reset_queries(queries, embree_closest_of); },
-            [&] { callbacks = embree_closest(scene, mesh, queries, embree_closest_of); });
+        std::vector<uint32_t> ref_closest, ours;
+        double callbacks_per_query = 0;
+        const double te =
+            reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
         const double tb = timed(repeats, [&] { bonsai_closest(tree, points, ours); });
-        const Agreement c = compare_closest(mesh, points, embree_closest_of, ours);
+        const Agreement c = compare_closest(mesh, points, ref_closest, ours);
         std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
-                    "differ (embree found %zu, bonsai %zu; ties agree to %.1e of the "
-                    "diagonal; embree's callback ran %.1f times a query)\n",
+                    "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
+                    "diagonal",
                     batch.name, "closest", points.size(), points.size() / te * 1e-6,
                     points.size() / tb * 1e-6, te / tb, c.same, c.ties, c.differ,
-                    c.embree_hits, c.bonsai_hits, c.tie_gap,
-                    double(callbacks) / double(points.size()));
+                    kReference, c.embree_hits, c.bonsai_hits, c.tie_gap);
+        if (!std::isnan(callbacks_per_query)) {
+            std::printf("; %s's callback ran %.1f times a query", kReference,
+                        callbacks_per_query);
+        }
+        std::printf(")\n");
         all_agree = all_agree && c.differ == 0;
     }
 
-    std::printf("\n%s\n", all_agree ? "every ray agrees with Embree (up to ties)"
-                                    : "DISAGREEMENTS with Embree; see above");
+    std::printf("\n%s %s%s\n", all_agree ? "every ray agrees with" : "DISAGREEMENTS with",
+                kReferenceTitle, all_agree ? " (up to ties)" : "; see above");
 
-    rtcReleaseScene(scene);
-    rtcReleaseDevice(device);
+    release_reference(ref);
     return all_agree ? 0 : 2;
 }

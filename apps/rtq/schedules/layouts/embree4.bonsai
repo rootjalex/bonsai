@@ -1,7 +1,8 @@
-// Embree's BVH4 over Triangle4 leaves, as a tree and a layout: the storage
-// Embree's four-wide intersector (BVHNIntersector1<4>) reads, byte for
-// byte, in Scion's spelling -- bvh8.bonsai with four children to a node,
-// and otherwise its twin; read that file for the full account of the
+// Embree's BVH4 over Triangle4 leaves, as a layout: the bytes Embree's
+// four-wide intersector (BVHNIntersector1<4>) reads, byte for byte, in
+// Scion's spelling, over the four-wide tree of trees/bvh4.bonsai (which
+// FCPW's four-wide layouts share) -- embree8.bonsai with four children to a
+// node, and otherwise its twin; read that file for the full account of the
 // references, the arena and the leaves, which are the same here.
 //
 // What Embree builds this tree for: a machine without AVX2 (scene.cpp,
@@ -17,16 +18,10 @@
 // A reference is Embree's NodeRef as before: the kind in the low four
 // bits, which a 16-byte node alignment (byteNodeAlignment = 4 * N) leaves
 // free. A leaf is Embree's TriangleM<4> blocks, 176 bytes each, as in
-// bvh8.bonsai.
+// embree8.bonsai.
+import apps/rtq/schedules/trees/bvh4;
 
 schedule {
-    tree[[Triangle]] BVH4 =
-    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
-        with AABB(lo, hi) on children
-    | Leaf(data : array[Triangle]) with data = data;
-
-    triangles : BVH4;
-
     layout triangles(ref : u64 = root) {
         root : u64;
         bytes : u64;
@@ -44,6 +39,8 @@ schedule {
                 hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
             };
             _ => Leaf from arena[ref[4:63] * 16u] {
+                // Embree: TriangleM::valid -- the padding slots' ids are -1
+                // (see embree8.bonsai).
                 indirect group tiles {
                     group[4] {
                         v0 : vec3f;
@@ -51,7 +48,7 @@ schedule {
                         e2 : vec3f;
                         geomID : u32;
                         primID : u32;
-                    };
+                    } where geomID != 4294967295u;
                 };
                 data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
             };

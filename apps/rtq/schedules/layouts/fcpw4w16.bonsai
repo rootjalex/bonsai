@@ -1,0 +1,90 @@
+// FCPW's vectorized BVH ("Mbvh") over triangles, as a layout: the bytes
+// FCPW's Mbvh<WIDTH, 3, Triangle> reads, byte for byte, at a branching
+// factor of 4 and a leaf width of 16 -- what FCPW's build makes on an
+// AVX-512 machine (FCPW_MBVH_BRANCHING_FACTOR 4, the default;
+// FCPW_SIMD_WIDTH 16, from enoki's `-march=skx`) -- over the four-wide tree
+// of trees/bvh4.bonsai, the same tree Embree's BVH4 is (MbvhNode's boxMin
+// and boxMax are the children's boxes, not its own, as Embree's AABBNode's
+// are). Imported by the schedule that follows FCPW
+// (schedules/fcpw4w16.bonsai); the driver builds the tree with FCPW's own
+// builder and copies its two arrays over.
+//
+// The storage (fcpw/aggregates/mbvh.h). Two arrays, as FCPW keeps them:
+// `flatTree`, the node rows, and `leafNodes`, the packets of sixteen
+// triangles. A node row is MbvhNode<3>, 112 bytes: boxMin as three vectors of
+// four floats (x, y, z), boxMax the same, then four child slots as ints. A
+// child slot is an index into flatTree -- of an interior node or of a leaf
+// node alike; which it is, the row at that index says, by the sign of its
+// first slot (mbvh.inl, isLeafNode: `node.child[0] < 0`). A leaf node's row
+// holds no boxes that are read; its four slots are the leaf's description
+// (collapseBvh): `child[0] = -(first packet + 1)`, `child[1]` the number of
+// packets, `child[2]` the offset into FCPW's primitive array, `child[3]` the
+// number of triangles. An empty child slot of an interior node is `maxInt`
+// with its box inverted (boxMin +max, boxMax -max), whose distance is
+// infinite, so no test ever passes it. The root is row 0.
+//
+// A packet is MbvhLeafNode<16, 3>, 640 bytes: the three vertices of sixteen
+// triangles as three VectorP<16, 3> -- each a vector of three vectors of
+// sixteen floats, x then y then z, enoki's Array<Packet<float, 16>, 3> --
+// then the sixteen triangle ids as ints (mbvh.inl, populateLeafNode). A
+// leaf's triangles are the first `child[3]` lanes of its packets, in order;
+// the lanes past them are never written by FCPW (zero under NDEBUG) and are
+// kept out by the count, as FCPW keeps them out (`W = min(WIDTH, nReferences
+// - startReference)`). The program's triangle is Embree's slot (a vertex and
+// two edges), so the edges are derived here from FCPW's vertices: `e1 = pa -
+// pb` is exactly the negation of the `ab = pb - pa` FCPW computes, and `e2 =
+// pc - pa` is its `ac`; FCPW computes the same two differences at every
+// test (findClosestPointWideTriangle), so nothing is saved or spent. A lane
+// has no geometry id in FCPW; it is given 0 here, a valid id, the lanes past
+// the count being excluded by the layout rather than by a marker.
+//
+// The driver (rtq_hook.cpp) builds the tree with FCPW's builder
+// (Scene::build, Bvh_SurfaceArea, vectorize) and copies flatTree and
+// leafNodes into the two groups, checking the struct sizes and offsets
+// against FCPW's at compile time.
+
+import apps/rtq/schedules/trees/bvh4;
+
+schedule {
+    layout triangles {
+        nLeafs : u32;
+        indirect group packets[nLeafs] {
+            group[16] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = cast[[u32]](primitiveIndex);
+            };
+        };
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 4];
+            boxMin_y : vector[f32, 4];
+            boxMin_z : vector[f32, 4];
+            boxMax_x : vector[f32, 4];
+            boxMax_y : vector[f32, 4];
+            boxMax_z : vector[f32, 4];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 4]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3)};
+                    lo = vector[vec3f, 4]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 4]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 16u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+}

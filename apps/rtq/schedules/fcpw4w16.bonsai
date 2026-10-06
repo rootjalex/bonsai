@@ -1,0 +1,60 @@
+// The FCPW schedule: apps/rtq/rtq.bonsai run the way FCPW's
+// Mbvh<16, 3, Triangle>::findClosestPointFromNode runs over its four-wide
+// tree (fcpw/aggregates/mbvh.inl) -- the schedule the comparison against
+// FCPW is made with. Compiled beside the program as a second input:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw4w16.bonsai ...
+//
+// The tree is the four-wide one (trees/bvh4.bonsai, the tree Embree's BVH4
+// is too) in FCPW's bytes (layouts/fcpw4w16.bonsai): a node holds its four
+// children's boxes, a leaf up to sixteen triangles in packets of sixteen.
+import apps/rtq/schedules/layouts/fcpw4w16;
+
+schedule {
+    // FCPW: findClosestPointFromNode -- a stack of (node, distance) pairs,
+    // FCPW_MBVH_MAX_DEPTH (96) deep; a popped node is dropped where its
+    // distance is beyond the best found (`currentDist > s.r2`). At an
+    // interior node the four children's boxes are tested at once
+    // (overlapWideBox: the point clamped into each box, the squared length of
+    // the offset, `d2Min <= r2`), and enqueueNodes<4> orders the four by that
+    // distance with a sorting network and pushes the ones that passed,
+    // farthest first, so the nearest is on top: the `sort` by `distmin` of
+    // each child's box, the key computed in the children's loop and the
+    // children pushed in its order. The leaf's packet is tested as sixteen
+    // lanes (findClosestPointWideTriangle), the best lane taken.
+    //
+    // What FCPW does that this schedule does not say: after pushing, it
+    // lowers the radius to the least of the pushed children's farthest box
+    // distance (`tMaxMin = min(tMaxMin, tMax[W])`), a bound the lowering does
+    // not emit inside a vectorized children's loop (PLAN.md); and it reads the
+    // root without testing it. FCPW prefetches nothing, so nothing is
+    // prefetched here.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(96);
+    // FCPW: findClosestPointWideTriangle's `if (enoki::all(active7)) return`
+    // after each of the first six Voronoi regions -- once every lane has its
+    // region, the rest of the test is skipped. The regions are the early
+    // returns of the point-triangle distance; `skip` puts the test of whether
+    // any lane goes on in front of what follows each.
+    closest.skip(distmin);
+
+    // The ray queries over FCPW's tree, with the directives of the Embree
+    // schedule less the prefetch: FCPW's intersectFromNode orders the
+    // children by entry distance with the same enqueueNodes and tests the
+    // packet's sixteen triangles at once (intersectWideTriangle); its
+    // occlusion query is the same traversal told to stop at the first hit.
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(96);
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(96);
+}

@@ -1,0 +1,239 @@
+// apps/rtq's geometry as FCPW computes it, transcribed from
+// fcpw/core/wide_query_operations.h: the slab test of its node test
+// (intersectWideBox), its Moeller-Trumbore triangle test
+// (intersectWideTriangle), the point-to-box distances of its point query
+// (overlapWideBox) and its closest point on a triangle
+// (findClosestPointWideTriangle). Compiled beside rtq.bonsai for every
+// comparison against FCPW (compare.sh); metrics/embree.bonsai is the same
+// set of functions as Embree computes them.
+//
+// FCPW's divisions are enoki's `rcp` (enoki/array_avx512.h rcp_, and the
+// same in array_avx.h and array_sse42.h): the machine's estimate `r` --
+// `vrcp14ps` on this machine -- then `t0 = r + r`, `t1 = r m` and
+// `t0 - t1 r` as one fused multiply-subtract, `_mm512_fnmadd_ps(t1, r,
+// t0)`. That is `rcp_fcpw` below, from the bare estimate `rcp_estimate`
+// with the step written out; under compare.sh's `--ffp-contract` the
+// subtraction and the product fuse as enoki's do, and `t1` is its own
+// rounded product as enoki's is. It is not `rcp`: that is Embree's step,
+// `r + r (1 - m r)` as two fused multiply-adds (CodeGen_X86), and the two
+// round differently in a third of all inputs, enough to move a grazing
+// ray's barycentric test or a leaf's `d <= tMax` across the line. What
+// enoki does after the step, `_mm512_fixupimm_ps` with the table
+// 0x0087A622, puts back what the step spoils of the special cases -- a
+// zero's reciprocal is the signed infinity, an infinity's the signed
+// zero, one's exactly one -- and is not written here: the estimate is
+// exact at one already, and a zero or infinite denominator reaches no
+// comparison differently, every test on an infinity or a NaN failing the
+// same way as FCPW's does. Its tests are on floats as floats, not on their
+// bits as Embree's are, so nothing here is folded through the bits. Its
+// `epsilon` is the float machine epsilon (fcpw/core/core.h:81).
+
+element FInterval {
+    low, high : Float;
+}
+
+// enoki's `rcp`: the estimate, then `2r - (r m) r` in one fused step.
+func rcp_fcpw(m : Float) -> Float {
+    r = rcp_estimate(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
+// FCPW: intersectWideBox -- the slab test with the ray's reciprocal
+// direction taken once per ray by true division (Ray's `invD =
+// d.cwiseInverse()`, no guard for a zero component), the near and far slab
+// distances per axis as min and max of the two, the entry distance the
+// largest of the three nears and zero (`max(0, hmax(tNear))`: FCPW's ray
+// begins at zero), the exit the least of the three fars and tMax, and a
+// hit where entry <= exit -- and FCPW's `mask &= neq(node.child, maxInt)`
+// beside it: an empty child slot of its node is `maxInt` with its box
+// inverted (MbvhNode(): boxMin = maxFloat, boxMax = minFloat), and since
+// min and max of the two slab distances make a box of an inverted one, the
+// slab test alone would pass it, which the slot's test is there to stop.
+// The box carries the same mark as the slot, so the test is written on the
+// box here: a hit is of a box that is not inverted, the second conjunct of
+// the slab test's as FCPW's `&=` is. One compare and an and per node, as
+// FCPW's.
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    proper = b.low.x <= b.high.x;
+    rinvD = vec3f{1.0, 1.0, 1.0} / r.d;
+    t0 = (b.low - r.o) * rinvD;
+    t1 = (b.high - r.o) * rinvD;
+    tNear = min(t0, t1);
+    tFar = max(t0, t1);
+    tMin = max(0.0, max(max(tNear.x, tNear.y), tNear.z));
+    tMax = min(r.tfar, min(min(tFar.x, tFar.y), tFar.z));
+    if tMin <= tMax && proper {
+        return FInterval{tMin, tMax};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+// FCPW: the distance a child is pushed with (enqueueNodes: `tMin[w]`), and
+// infinitely far where the ray misses, so that a missed child sorts last.
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+element TriangleHit {
+    t, u, v : Float;
+}
+
+// FCPW: intersectWideTriangle -- Moeller-Trumbore in its textbook form over
+// the two edges from the first vertex (`v1 = pb - pa`, which is the stored
+// `e1 = v0 - v1` negated; `v2 = pc - pa`, the stored `e2`): the determinant
+// rejected within `epsilon` of zero, in absolute terms; its reciprocal by
+// enoki's `rcp` (rcp_fcpw); the two barycentrics and the distance each
+// scaled by it; the distance accepted from zero (not after it) up to tMax.
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
+    epsilon : Float = 1.1920929e-7;
+    v1 = -tri.e1;
+    v2 = tri.e2;
+    p = cross(r.d, v2);
+    det = dot(v1, p);
+    if !(abs(det) > epsilon) {
+        return {};
+    }
+    invDet = rcp_fcpw(det);
+    s = r.o - tri.v0;
+    v = dot(s, p) * invDet;
+    if !(v >= 0.0 && v <= 1.0) {
+        return {};
+    }
+    q = cross(s, v1);
+    w = dot(r.d, q) * invDet;
+    if !(w >= 0.0 && v + w <= 1.0) {
+        return {};
+    }
+    d = dot(v2, q) * invDet;
+    if !(d >= 0.0 && d <= r.tfar) {
+        return {};
+    }
+    return TriangleHit{d, v, w};
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return -inf;
+}
+
+// FCPW: overlapWideBox -- `u = bMin - c; v = c - bMax`, the squared distance
+// to the box the squared length of `max(max(u, v), 0)` (d2Min, the sort key
+// and the test against the radius squared) and the farthest squared
+// distance to it the squared length of `min(u, v)` (d2Max, what FCPW lowers
+// its radius to at every node).
+func distmin(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = max(max(u, v), 0.0);
+    return dot(m, m);
+}
+
+func distmax(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = min(u, v);
+    return dot(m, m);
+}
+
+// FCPW: findClosestPointWideTriangle -- Ericson's Voronoi-region test over
+// `ab = pb - pa`, `ac = pc - pa`, `ax = x - pa` (the stored edges, the first
+// negated), the regions in FCPW's order (the three vertices, the edges ab,
+// ac, bc, the face), each a masked write of the closest point `pt` over
+// the lanes in its region with enoki's `rcp` (rcp_fcpw) for the divisions,
+// and the distance
+// `norm(x - pt)` returned -- a root per lane -- which FCPW's leaf squares
+// again to compare with its radius squared (`d2 = d * d; if (d2 <= sr2)`).
+// The same here: `x - pt` written as `ax - ab v` for `x - (pa + ab v)`, the
+// root taken and squared. FCPW writes every region's lanes in turn, a
+// later region over an earlier one where a lane is in both, and returns
+// early once every lane has a region (`if (all(active)) return`); the early
+// returns here are those exits, taken under the schedule's `skip`, and a
+// lane in two regions keeps the first, which differs from FCPW on the
+// regions' shared boundaries alone.
+func distmin(q : Point, tri : Triangle) -> Float {
+    ab = -tri.e1;
+    ac = tri.e2;
+    ax = q.p - tri.v0;
+    d1 = dot(ab, ax);
+    d2 = dot(ac, ax);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        d_a = sqrt(dot(ax, ax));
+        return d_a * d_a;
+    }
+    bx = ax - ab;
+    d3 = dot(ab, bx);
+    d4 = dot(ac, bx);
+    if d3 >= 0.0 && d4 <= d3 {
+        d_b = sqrt(dot(bx, bx));
+        return d_b * d_b;
+    }
+    cx = ax - ac;
+    d5 = dot(ab, cx);
+    d6 = dot(ac, cx);
+    if d6 >= 0.0 && d5 <= d6 {
+        d_c = sqrt(dot(cx, cx));
+        return d_c * d_c;
+    }
+    vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        v_ab = d1 * rcp_fcpw(d1 - d3);
+        diff_ab = ax - ab * v_ab;
+        d_ab = sqrt(dot(diff_ab, diff_ab));
+        return d_ab * d_ab;
+    }
+    vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        w_ac = d2 * rcp_fcpw(d2 - d6);
+        diff_ac = ax - ac * w_ac;
+        d_ac = sqrt(dot(diff_ac, diff_ac));
+        return d_ac * d_ac;
+    }
+    va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        w_bc = (d4 - d3) * rcp_fcpw((d4 - d3) + (d5 - d6));
+        diff_bc = bx - (ac - ab) * w_bc;
+        d_bc = sqrt(dot(diff_bc, diff_bc));
+        return d_bc * d_bc;
+    }
+    denom = rcp_fcpw(va + vb + vc);
+    v = vb * denom;
+    w = vc * denom;
+    diff = ax - (ab * v + ac * w);
+    d = sqrt(dot(diff, diff));
+    return d * d;
+}
