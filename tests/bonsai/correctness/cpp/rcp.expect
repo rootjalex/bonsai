@@ -4,7 +4,7 @@
 scalar rcp(1) = 1 (exact 1, 0 ulp) -- ok
 scalar rcp(2) = 0.5 (exact 0.5, 0 ulp) -- ok
 scalar rcp(3) = 0.333333 (exact 0.333333, 0 ulp) -- ok
-scalar rcp(0.1) = 10 (exact 10, 0 ulp) -- ok
+scalar rcp(0.1) = 10 (exact 10, 1 ulp) -- ok
 scalar rcp(7.5) = 0.133333 (exact 0.133333, 0 ulp) -- ok
 scalar rcp(1e-06) = 1e+06 (exact 1e+06, 0 ulp) -- ok
 scalar rcp(123456) = 8.10005e-06 (exact 8.10005e-06, 0 ulp) -- ok

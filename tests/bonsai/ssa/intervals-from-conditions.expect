@@ -22,6 +22,12 @@ intervals of narrow:
   !merge_1(was) : [0, inf] n +
   *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
   *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+intervals of refined:
+  @2 : [inf, inf] n +
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @5 : [0, inf] (+)
+  @6 : [-inf, 1]
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -57,6 +63,12 @@ intervals of narrow:
   !merge_1(was) : [0, inf] n +
   *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
   *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
+intervals of refined:
+  @2 : [inf, inf] n +
+  x : [0, inf] +
+  r : [0, inf] (+)
+  @5 : [0, inf] (+)
+  @6 : [-inf, 1]
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -76,7 +88,7 @@ func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
   let lo = abs(a) in
   let @1 = lo < t in
   let @2 = abs(d) in
-  let @3 = rcp(@2) in
+  let @3 = rcp_approx(@2) in
   let @4 = t * @3 in
   let @5 = (f32)inf in
   let @6 = select(@1, @4, @5) in
@@ -91,7 +103,7 @@ func [[export]] guarded(a : f32, t : f32, d : f32) -> f32 {
     return @2
   } else {
     let @3 = abs(d) in
-    let @4 = rcp(@3) in
+    let @4 = rcp_approx(@3) in
     let @5 = t * @4 in
     return @5
   }
@@ -109,6 +121,24 @@ func narrow(best : mut (Pair*), d : f32, i : u32) -> f32 {
     best = @6
   }
   return was
+}
+
+func [[export]] refined(a : f32, t : f32, d : f32) -> f32 {
+  let @0 = 0f < t in
+  let @1 = !@0 in
+  if (@1) {
+    let @2 = (f32)inf in
+    return @2
+  } else {
+    let x = abs(d) in
+    let r = rcp_approx(x) in
+    let @5 = x * r in
+    let @6 = 1f - @5 in
+    let @7 = r * @6 in
+    let @8 = r + @7 in
+    let @9 = t * @8 in
+    return @9
+  }
 }
 
 func [[export]] run(d : f32, i : u32) -> f32 {

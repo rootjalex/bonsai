@@ -56,86 +56,86 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
       let @37 = build<f32x3x4>(@26, @31, @36) in
       let @38 = reinterpret_cast<f32x3$v4>(@37) in
       let @39 = build<AABB$v4>(@21, @38) in
-      let @298 = @9 <= @26 in
-      let @299 = build<f32x3>(1f, 1f, 1f) in
-      let @300 = r.d in
-      let @301 = @299 / @300 in
-      let @302 = r.o in
-      let @304 = @302[0u] in
-      let @305 = f32x4(@304) in
-      let @306 = @9 - @305 in
-      let @308 = @302[1u] in
-      let @309 = f32x4(@308) in
-      let @310 = @14 - @309 in
-      let @312 = @302[2u] in
-      let @313 = f32x4(@312) in
-      let @314 = @19 - @313 in
-      let @315 = @301[0u] in
+      let @305 = @9 <= @26 in
+      let @306 = build<f32x3>(1f, 1f, 1f) in
+      let @307 = r.d in
+      let @308 = @306 / @307 in
+      let @309 = r.o in
+      let @311 = @309[0u] in
+      let @312 = f32x4(@311) in
+      let @313 = @9 - @312 in
+      let @315 = @309[1u] in
       let @316 = f32x4(@315) in
-      let @317 = @306 * @316 in
-      let @318 = @301[1u] in
-      let @319 = f32x4(@318) in
-      let @320 = @310 * @319 in
-      let @321 = @301[2u] in
-      let @322 = f32x4(@321) in
-      let @323 = @314 * @322 in
-      let @326 = @26 - @305 in
-      let @329 = @31 - @309 in
-      let @332 = @36 - @313 in
-      let @334 = @326 * @316 in
-      let @336 = @329 * @319 in
-      let @338 = @332 * @322 in
-      let @339 = min(@317, @334) in
-      let @340 = min(@320, @336) in
-      let @341 = min(@323, @338) in
-      let @342 = max(@317, @334) in
-      let @343 = max(@320, @336) in
-      let @344 = max(@323, @338) in
-      let @345 = max(@339, @340) in
-      let @346 = max(@345, @341) in
-      let @347 = f32x4(0f) in
-      let @348 = max(@347, @346) in
-      let @349 = r.tmax in
-      let @350 = min(@342, @343) in
-      let @351 = min(@350, @344) in
-      let @352 = f32x4(@349) in
-      let @353 = min(@352, @351) in
-      let @354 = @348 <= @353 in
-      let @355 = boolx4(false) in
-      let @356 = boolx4(true) in
-      let @462 = !@354 in
-      let @463 = !@298 in
-      let @361 = @354 && @463 in
-      let @375 = build<FInterval$v4>(@348, @353) in
-      let @377 = build<_option1$v4>(@375, @356) in
-      let @363 = @361 || @462 in
-      let @370 = build<FInterval$v4>(@347, @347) in
-      let @373 = build<_option1$v4>(@370, @355) in
-      let @374 = select(@363, @373, @377) in
-      let @465 = !@363 in
-      let @282 = reduce<any>(@465) in
-      if (@282) {
-        let @77 = distmin_Ray_AABB$gang4_v1$masked(r, @39, @465) in
+      let @317 = @14 - @316 in
+      let @319 = @309[2u] in
+      let @320 = f32x4(@319) in
+      let @321 = @19 - @320 in
+      let @322 = @308[0u] in
+      let @323 = f32x4(@322) in
+      let @324 = @313 * @323 in
+      let @325 = @308[1u] in
+      let @326 = f32x4(@325) in
+      let @327 = @317 * @326 in
+      let @328 = @308[2u] in
+      let @329 = f32x4(@328) in
+      let @330 = @321 * @329 in
+      let @333 = @26 - @312 in
+      let @336 = @31 - @316 in
+      let @339 = @36 - @320 in
+      let @341 = @333 * @323 in
+      let @343 = @336 * @326 in
+      let @345 = @339 * @329 in
+      let @346 = min(@324, @341) in
+      let @347 = min(@327, @343) in
+      let @348 = min(@330, @345) in
+      let @349 = max(@324, @341) in
+      let @350 = max(@327, @343) in
+      let @351 = max(@330, @345) in
+      let @352 = max(@346, @347) in
+      let @353 = max(@352, @348) in
+      let @354 = f32x4(0f) in
+      let @355 = max(@354, @353) in
+      let @356 = r.tmax in
+      let @357 = min(@349, @350) in
+      let @358 = min(@357, @351) in
+      let @359 = f32x4(@356) in
+      let @360 = min(@359, @358) in
+      let @361 = @355 <= @360 in
+      let @362 = boolx4(false) in
+      let @363 = boolx4(true) in
+      let @469 = !@361 in
+      let @470 = !@305 in
+      let @368 = @361 && @470 in
+      let @382 = build<FInterval$v4>(@355, @360) in
+      let @384 = build<_option1$v4>(@382, @363) in
+      let @370 = @368 || @469 in
+      let @377 = build<FInterval$v4>(@354, @354) in
+      let @380 = build<_option1$v4>(@377, @362) in
+      let @381 = select(@370, @380, @384) in
+      let @472 = !@370 in
+      let @289 = reduce<any>(@472) in
+      if (@289) {
+        let @77 = distmin_Ray_AABB$gang4_v1$masked(r, @39, @472) in
         let @78 = (*_best0) in
         let @79 = @78._field0 in
-        let @288 = f32x4(@79) in
-        let @80 = @77 < @288 in
-        let @289 = boolx4(false) in
-        let @283 = select(@465, @80, @289) in
-        !and_0!skip = @283
+        let @295 = f32x4(@79) in
+        let @80 = @77 < @295 in
+        let @296 = boolx4(false) in
+        let @290 = select(@472, @80, @296) in
+        !and_0!skip = @290
       } else {
-        !and_0!skip = @355
+        !and_0!skip = @362
       }
       _mask0[ramp(0u, 1u, 4)] = (*!and_0!skip)
-      let interval$i0 = @374 in
+      let interval$i0 = @381 in
       let @103 = interval$i0.set in
-      let @466 = !@103 in
+      let @473 = !@103 in
       let extract$i0 = interval$i0.value in
       let @105 = extract$i0.low in
       let @106 = (f32)inf in
-      let @292 = f32x4(@106) in
-      let @284 = select(@466, @292, @105) in
-      _carry0[ramp(0u, 1u, 4)] = @284
+      let @299 = f32x4(@106) in
+      let @291 = select(@473, @299, @105) in
+      _carry0[ramp(0u, 1u, 4)] = @291
       let @112 = @7.children in
       let _t40 = cast<u32x4>(@112) in
       let @114 = _t40[0u] in
@@ -167,146 +167,150 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
       _idx1 = 0u
       while ((*_idx1) < @126) {
         parfor data in [0u:4u:1u] {
-          intersectsp_ray_tri$r12 : mut _option2
+          intersectsp_ray_tri$r13 : mut _option2
           let @128 = tris_ref >> 4u in
           let _t106 = @128 + (*_idx1) in
           let @130 = tris.group0_prims in
           let _t107 = @130[_t106] in
           let @132 = _t107.p0 in
           let @133 = cast<f32x3x4>(@132) in
-          let _t191$i12 = @133[data] in
+          let _t191$i13 = @133[data] in
           let @135 = _t107.p1 in
           let @136 = cast<f32x3x4>(@135) in
           let @137 = @136[data] in
           let @138 = _t107.p2 in
           let @139 = cast<f32x3x4>(@138) in
           let @140 = @139[data] in
-          let v1$i12 = @137 - _t191$i12 in
-          let v2$i12 = @140 - _t191$i12 in
-          let _t194$i12 = r.d in
-          let @148 = _t194$i12[1] in
-          let @149 = v2$i12[2] in
+          let v1$i13 = @137 - _t191$i13 in
+          let v2$i13 = @140 - _t191$i13 in
+          let _t194$i13 = r.d in
+          let @148 = _t194$i13[1] in
+          let @149 = v2$i13[2] in
           let @150 = @148 * @149 in
-          let @151 = _t194$i12[2] in
-          let @152 = v2$i12[1] in
+          let @151 = _t194$i13[2] in
+          let @152 = v2$i13[1] in
           let @153 = @151 * @152 in
           let @154 = @150 - @153 in
-          let @156 = v2$i12[0] in
+          let @156 = v2$i13[0] in
           let @157 = @151 * @156 in
-          let @158 = _t194$i12[0] in
+          let @158 = _t194$i13[0] in
           let @160 = @158 * @149 in
           let @161 = @157 - @160 in
           let @164 = @158 * @152 in
           let @167 = @148 * @156 in
           let @168 = @164 - @167 in
-          let p$i12 = build<f32x3>(@154, @161, @168) in
-          let @170 = v1$i12[0] in
-          let @171 = p$i12[0] in
+          let p$i13 = build<f32x3>(@154, @161, @168) in
+          let @170 = v1$i13[0] in
+          let @171 = p$i13[0] in
           let @172 = @170 * @171 in
-          let @173 = v1$i12[1] in
-          let @174 = p$i12[1] in
+          let @173 = v1$i13[1] in
+          let @174 = p$i13[1] in
           let @175 = @173 * @174 in
           let @176 = @172 + @175 in
-          let @177 = v1$i12[2] in
-          let @178 = p$i12[2] in
+          let @177 = v1$i13[2] in
+          let @178 = p$i13[2] in
           let @179 = @177 * @178 in
-          let det$i12 = @176 + @179 in
-          let @181 = abs(det$i12) in
+          let det$i13 = @176 + @179 in
+          let @181 = abs(det$i13) in
           let @182 = 1.19209e-07f < @181 in
           let @183 = !@182 in
           if (@183) {
             let @184 = build<_option2>() in
-            intersectsp_ray_tri$r12 = @184
+            intersectsp_ray_tri$r13 = @184
           } else {
-            let invDet$i12 = rcp(det$i12) in
-            let @186 = r.o in
-            let s$i12 = @186 - _t191$i12 in
-            let @188 = s$i12[0] in
-            let @190 = @188 * @171 in
-            let @191 = s$i12[1] in
-            let @193 = @191 * @174 in
-            let @194 = @190 + @193 in
-            let @195 = s$i12[2] in
-            let @197 = @195 * @178 in
+            let r$i8$i13 = rcp_approx(det$i13) in
+            let t0$i8$i13 = r$i8$i13 + r$i8$i13 in
+            let t1$i8$i13 = r$i8$i13 * det$i13 in
+            let @188 = t1$i8$i13 * r$i8$i13 in
+            let @189 = t0$i8$i13 - @188 in
+            let @190 = r.o in
+            let s$i13 = @190 - _t191$i13 in
+            let @192 = s$i13[0] in
+            let @194 = @192 * @171 in
+            let @195 = s$i13[1] in
+            let @197 = @195 * @174 in
             let @198 = @194 + @197 in
-            let v$i12 = @198 * invDet$i12 in
-            let @200 = 0f <= v$i12 in
-            let @201 = v$i12 <= 1f in
-            let @202 = @200 && @201 in
-            let @203 = !@202 in
-            if (@203) {
-              let @204 = build<_option2>() in
-              intersectsp_ray_tri$r12 = @204
+            let @199 = s$i13[2] in
+            let @201 = @199 * @178 in
+            let @202 = @198 + @201 in
+            let v$i13 = @202 * @189 in
+            let @205 = 0f <= v$i13 in
+            let @206 = v$i13 <= 1f in
+            let @207 = @205 && @206 in
+            let @208 = !@207 in
+            if (@208) {
+              let @209 = build<_option2>() in
+              intersectsp_ray_tri$r13 = @209
             } else {
-              let @207 = @191 * @177 in
-              let @210 = @195 * @173 in
-              let @211 = @207 - @210 in
-              let @214 = @195 * @170 in
-              let @217 = @188 * @177 in
-              let @218 = @214 - @217 in
-              let @221 = @188 * @173 in
-              let @224 = @191 * @170 in
-              let @225 = @221 - @224 in
-              let q$i12 = build<f32x3>(@211, @218, @225) in
-              let @228 = q$i12[0] in
-              let @229 = @158 * @228 in
-              let @231 = q$i12[1] in
-              let @232 = @148 * @231 in
-              let @233 = @229 + @232 in
-              let @235 = q$i12[2] in
-              let @236 = @151 * @235 in
-              let @237 = @233 + @236 in
-              let w$i12 = @237 * invDet$i12 in
-              let @239 = 0f <= w$i12 in
-              let @240 = v$i12 + w$i12 in
-              let @241 = @240 <= 1f in
-              let @242 = @239 && @241 in
-              let @243 = !@242 in
-              if (@243) {
-                let @244 = build<_option2>() in
-                intersectsp_ray_tri$r12 = @244
+              let @212 = @195 * @177 in
+              let @215 = @199 * @173 in
+              let @216 = @212 - @215 in
+              let @219 = @199 * @170 in
+              let @222 = @192 * @177 in
+              let @223 = @219 - @222 in
+              let @226 = @192 * @173 in
+              let @229 = @195 * @170 in
+              let @230 = @226 - @229 in
+              let q$i13 = build<f32x3>(@216, @223, @230) in
+              let @233 = q$i13[0] in
+              let @234 = @158 * @233 in
+              let @236 = q$i13[1] in
+              let @237 = @148 * @236 in
+              let @238 = @234 + @237 in
+              let @240 = q$i13[2] in
+              let @241 = @151 * @240 in
+              let @242 = @238 + @241 in
+              let w$i13 = @242 * @189 in
+              let @245 = 0f <= w$i13 in
+              let @246 = v$i13 + w$i13 in
+              let @247 = @246 <= 1f in
+              let @248 = @245 && @247 in
+              let @249 = !@248 in
+              if (@249) {
+                let @250 = build<_option2>() in
+                intersectsp_ray_tri$r13 = @250
               } else {
-                let @247 = @156 * @228 in
-                let @250 = @152 * @231 in
-                let @251 = @247 + @250 in
-                let @254 = @149 * @235 in
-                let @255 = @251 + @254 in
-                let d$i12 = @255 * invDet$i12 in
-                let @257 = 0f <= d$i12 in
-                let @258 = r.tmax in
-                let @259 = d$i12 <= @258 in
-                let @260 = @257 && @259 in
-                let @261 = !@260 in
-                if (@261) {
-                  let @262 = build<_option2>() in
-                  intersectsp_ray_tri$r12 = @262
+                let @253 = @156 * @233 in
+                let @256 = @152 * @236 in
+                let @257 = @253 + @256 in
+                let @260 = @149 * @240 in
+                let @261 = @257 + @260 in
+                let d$i13 = @261 * @189 in
+                let @264 = 0f <= d$i13 in
+                let @265 = r.tmax in
+                let @266 = d$i13 <= @265 in
+                let @267 = @264 && @266 in
+                let @268 = !@267 in
+                if (@268) {
+                  let @269 = build<_option2>() in
+                  intersectsp_ray_tri$r13 = @269
                 } else {
-                  let @263 = build<TriangleHit>(d$i12, v$i12, w$i12) in
-                  let @264 = build<_option2>(@263, true) in
-                  intersectsp_ray_tri$r12 = @264
+                  let @270 = build<TriangleHit>(d$i13, v$i13, w$i13) in
+                  let @271 = build<_option2>(@270, true) in
+                  intersectsp_ray_tri$r13 = @271
                 }
               }
             }
           }
-          let @266 = (*intersectsp_ray_tri$r12).set in
-          if (@266) {
-            let extract$i1 = (*intersectsp_ray_tri$r12).value in
-            let @269 = extract$i1.t in
-            let @271 = (*_best0) in
-            let @272 = @271._field0 in
-            let @273 = @269 < @272 in
-            if (@273) {
-              let @275 = _t106 << 2u in
-              let @276 = @275 + data in
-              let @277 = build<__tuple_0>(@276) in
-              let @278 = build<__tuple_1>(@269, @277) in
-              _best0 argmin= @278
+          let @273 = (*intersectsp_ray_tri$r13).set in
+          if (@273) {
+            let extract$i1 = (*intersectsp_ray_tri$r13).value in
+            let @276 = extract$i1.t in
+            let @278 = (*_best0) in
+            let @279 = @278._field0 in
+            let @280 = @276 < @279 in
+            if (@280) {
+              let @282 = _t106 << 2u in
+              let @283 = @282 + data in
+              let @284 = build<__tuple_0>(@283) in
+              let @285 = build<__tuple_1>(@276, @284) in
+              _best0 argmin= @285
             }
           }
           continue
         }
-        let @279 = (*_idx1) + 1u in
-        _idx1 = @279
+        let @286 = (*_idx1) + 1u in
+        _idx1 = @286
       }
     }
   }
@@ -413,85 +417,89 @@ func distmax_Ray_Triangle(r : Ray, tri : Triangle) -> f32 {
     let @42 = build<_option2>() in
     intersectsp_ray_tri$r5 = @42
   } else {
-    let invDet$i5 = rcp(det$i5) in
-    let @44 = r.o in
-    let s$i5 = @44 - _t191$i5 in
-    let @46 = s$i5[0] in
-    let @48 = @46 * @29 in
-    let @49 = s$i5[1] in
-    let @51 = @49 * @32 in
-    let @52 = @48 + @51 in
-    let @53 = s$i5[2] in
-    let @55 = @53 * @36 in
+    let r$i14 = rcp_approx(det$i5) in
+    let t0$i14 = r$i14 + r$i14 in
+    let t1$i14 = r$i14 * det$i5 in
+    let @46 = t1$i14 * r$i14 in
+    let @47 = t0$i14 - @46 in
+    let @48 = r.o in
+    let s$i5 = @48 - _t191$i5 in
+    let @50 = s$i5[0] in
+    let @52 = @50 * @29 in
+    let @53 = s$i5[1] in
+    let @55 = @53 * @32 in
     let @56 = @52 + @55 in
-    let v$i5 = @56 * invDet$i5 in
-    let @58 = 0f <= v$i5 in
-    let @59 = v$i5 <= 1f in
-    let @60 = @58 && @59 in
-    let @61 = !@60 in
-    if (@61) {
-      let @62 = build<_option2>() in
-      intersectsp_ray_tri$r5 = @62
+    let @57 = s$i5[2] in
+    let @59 = @57 * @36 in
+    let @60 = @56 + @59 in
+    let v$i5 = @60 * @47 in
+    let @63 = 0f <= v$i5 in
+    let @64 = v$i5 <= 1f in
+    let @65 = @63 && @64 in
+    let @66 = !@65 in
+    if (@66) {
+      let @67 = build<_option2>() in
+      intersectsp_ray_tri$r5 = @67
     } else {
-      let @65 = @49 * @35 in
-      let @68 = @53 * @31 in
-      let @69 = @65 - @68 in
-      let @72 = @53 * @28 in
-      let @75 = @46 * @35 in
-      let @76 = @72 - @75 in
-      let @79 = @46 * @31 in
-      let @82 = @49 * @28 in
-      let @83 = @79 - @82 in
-      let q$i5 = build<f32x3>(@69, @76, @83) in
-      let @86 = q$i5[0] in
-      let @87 = @16 * @86 in
-      let @89 = q$i5[1] in
-      let @90 = @6 * @89 in
-      let @91 = @87 + @90 in
-      let @93 = q$i5[2] in
-      let @94 = @9 * @93 in
-      let @95 = @91 + @94 in
-      let w$i5 = @95 * invDet$i5 in
-      let @97 = 0f <= w$i5 in
-      let @98 = v$i5 + w$i5 in
-      let @99 = @98 <= 1f in
-      let @100 = @97 && @99 in
-      let @101 = !@100 in
-      if (@101) {
-        let @102 = build<_option2>() in
-        intersectsp_ray_tri$r5 = @102
+      let @70 = @53 * @35 in
+      let @73 = @57 * @31 in
+      let @74 = @70 - @73 in
+      let @77 = @57 * @28 in
+      let @80 = @50 * @35 in
+      let @81 = @77 - @80 in
+      let @84 = @50 * @31 in
+      let @87 = @53 * @28 in
+      let @88 = @84 - @87 in
+      let q$i5 = build<f32x3>(@74, @81, @88) in
+      let @91 = q$i5[0] in
+      let @92 = @16 * @91 in
+      let @94 = q$i5[1] in
+      let @95 = @6 * @94 in
+      let @96 = @92 + @95 in
+      let @98 = q$i5[2] in
+      let @99 = @9 * @98 in
+      let @100 = @96 + @99 in
+      let w$i5 = @100 * @47 in
+      let @103 = 0f <= w$i5 in
+      let @104 = v$i5 + w$i5 in
+      let @105 = @104 <= 1f in
+      let @106 = @103 && @105 in
+      let @107 = !@106 in
+      if (@107) {
+        let @108 = build<_option2>() in
+        intersectsp_ray_tri$r5 = @108
       } else {
-        let @105 = @14 * @86 in
-        let @108 = @10 * @89 in
-        let @109 = @105 + @108 in
-        let @112 = @7 * @93 in
-        let @113 = @109 + @112 in
-        let d$i5 = @113 * invDet$i5 in
-        let @115 = 0f <= d$i5 in
-        let @116 = r.tmax in
-        let @117 = d$i5 <= @116 in
-        let @118 = @115 && @117 in
-        let @119 = !@118 in
-        if (@119) {
-          let @120 = build<_option2>() in
-          intersectsp_ray_tri$r5 = @120
+        let @111 = @14 * @91 in
+        let @114 = @10 * @94 in
+        let @115 = @111 + @114 in
+        let @118 = @7 * @98 in
+        let @119 = @115 + @118 in
+        let d$i5 = @119 * @47 in
+        let @122 = 0f <= d$i5 in
+        let @123 = r.tmax in
+        let @124 = d$i5 <= @123 in
+        let @125 = @122 && @124 in
+        let @126 = !@125 in
+        if (@126) {
+          let @127 = build<_option2>() in
+          intersectsp_ray_tri$r5 = @127
         } else {
-          let @121 = build<TriangleHit>(d$i5, v$i5, w$i5) in
-          let @122 = build<_option2>(@121, true) in
-          intersectsp_ray_tri$r5 = @122
+          let @128 = build<TriangleHit>(d$i5, v$i5, w$i5) in
+          let @129 = build<_option2>(@128, true) in
+          intersectsp_ray_tri$r5 = @129
         }
       }
     }
   }
-  let @124 = (*intersectsp_ray_tri$r5).set in
-  if (@124) {
+  let @131 = (*intersectsp_ray_tri$r5).set in
+  if (@131) {
     let extract = (*intersectsp_ray_tri$r5).value in
-    let @127 = extract.t in
-    return @127
+    let @134 = extract.t in
+    return @134
   } else {
-    let @128 = (f32)inf in
-    let @129 = 0f - @128 in
-    return @129
+    let @135 = (f32)inf in
+    let @136 = 0f - @135 in
+    return @136
   }
 }
 
@@ -565,84 +573,88 @@ func distmin_Ray_Triangle(r : Ray, tri : Triangle) -> f32 {
     let @42 = build<_option2>() in
     intersectsp_ray_tri$r6 = @42
   } else {
-    let invDet$i6 = rcp(det$i6) in
-    let @44 = r.o in
-    let s$i6 = @44 - _t191$i6 in
-    let @46 = s$i6[0] in
-    let @48 = @46 * @29 in
-    let @49 = s$i6[1] in
-    let @51 = @49 * @32 in
-    let @52 = @48 + @51 in
-    let @53 = s$i6[2] in
-    let @55 = @53 * @36 in
+    let r$i15 = rcp_approx(det$i6) in
+    let t0$i15 = r$i15 + r$i15 in
+    let t1$i15 = r$i15 * det$i6 in
+    let @46 = t1$i15 * r$i15 in
+    let @47 = t0$i15 - @46 in
+    let @48 = r.o in
+    let s$i6 = @48 - _t191$i6 in
+    let @50 = s$i6[0] in
+    let @52 = @50 * @29 in
+    let @53 = s$i6[1] in
+    let @55 = @53 * @32 in
     let @56 = @52 + @55 in
-    let v$i6 = @56 * invDet$i6 in
-    let @58 = 0f <= v$i6 in
-    let @59 = v$i6 <= 1f in
-    let @60 = @58 && @59 in
-    let @61 = !@60 in
-    if (@61) {
-      let @62 = build<_option2>() in
-      intersectsp_ray_tri$r6 = @62
+    let @57 = s$i6[2] in
+    let @59 = @57 * @36 in
+    let @60 = @56 + @59 in
+    let v$i6 = @60 * @47 in
+    let @63 = 0f <= v$i6 in
+    let @64 = v$i6 <= 1f in
+    let @65 = @63 && @64 in
+    let @66 = !@65 in
+    if (@66) {
+      let @67 = build<_option2>() in
+      intersectsp_ray_tri$r6 = @67
     } else {
-      let @65 = @49 * @35 in
-      let @68 = @53 * @31 in
-      let @69 = @65 - @68 in
-      let @72 = @53 * @28 in
-      let @75 = @46 * @35 in
-      let @76 = @72 - @75 in
-      let @79 = @46 * @31 in
-      let @82 = @49 * @28 in
-      let @83 = @79 - @82 in
-      let q$i6 = build<f32x3>(@69, @76, @83) in
-      let @86 = q$i6[0] in
-      let @87 = @16 * @86 in
-      let @89 = q$i6[1] in
-      let @90 = @6 * @89 in
-      let @91 = @87 + @90 in
-      let @93 = q$i6[2] in
-      let @94 = @9 * @93 in
-      let @95 = @91 + @94 in
-      let w$i6 = @95 * invDet$i6 in
-      let @97 = 0f <= w$i6 in
-      let @98 = v$i6 + w$i6 in
-      let @99 = @98 <= 1f in
-      let @100 = @97 && @99 in
-      let @101 = !@100 in
-      if (@101) {
-        let @102 = build<_option2>() in
-        intersectsp_ray_tri$r6 = @102
+      let @70 = @53 * @35 in
+      let @73 = @57 * @31 in
+      let @74 = @70 - @73 in
+      let @77 = @57 * @28 in
+      let @80 = @50 * @35 in
+      let @81 = @77 - @80 in
+      let @84 = @50 * @31 in
+      let @87 = @53 * @28 in
+      let @88 = @84 - @87 in
+      let q$i6 = build<f32x3>(@74, @81, @88) in
+      let @91 = q$i6[0] in
+      let @92 = @16 * @91 in
+      let @94 = q$i6[1] in
+      let @95 = @6 * @94 in
+      let @96 = @92 + @95 in
+      let @98 = q$i6[2] in
+      let @99 = @9 * @98 in
+      let @100 = @96 + @99 in
+      let w$i6 = @100 * @47 in
+      let @103 = 0f <= w$i6 in
+      let @104 = v$i6 + w$i6 in
+      let @105 = @104 <= 1f in
+      let @106 = @103 && @105 in
+      let @107 = !@106 in
+      if (@107) {
+        let @108 = build<_option2>() in
+        intersectsp_ray_tri$r6 = @108
       } else {
-        let @105 = @14 * @86 in
-        let @108 = @10 * @89 in
-        let @109 = @105 + @108 in
-        let @112 = @7 * @93 in
-        let @113 = @109 + @112 in
-        let d$i6 = @113 * invDet$i6 in
-        let @115 = 0f <= d$i6 in
-        let @116 = r.tmax in
-        let @117 = d$i6 <= @116 in
-        let @118 = @115 && @117 in
-        let @119 = !@118 in
-        if (@119) {
-          let @120 = build<_option2>() in
-          intersectsp_ray_tri$r6 = @120
+        let @111 = @14 * @91 in
+        let @114 = @10 * @94 in
+        let @115 = @111 + @114 in
+        let @118 = @7 * @98 in
+        let @119 = @115 + @118 in
+        let d$i6 = @119 * @47 in
+        let @122 = 0f <= d$i6 in
+        let @123 = r.tmax in
+        let @124 = d$i6 <= @123 in
+        let @125 = @122 && @124 in
+        let @126 = !@125 in
+        if (@126) {
+          let @127 = build<_option2>() in
+          intersectsp_ray_tri$r6 = @127
         } else {
-          let @121 = build<TriangleHit>(d$i6, v$i6, w$i6) in
-          let @122 = build<_option2>(@121, true) in
-          intersectsp_ray_tri$r6 = @122
+          let @128 = build<TriangleHit>(d$i6, v$i6, w$i6) in
+          let @129 = build<_option2>(@128, true) in
+          intersectsp_ray_tri$r6 = @129
         }
       }
     }
   }
-  let @124 = (*intersectsp_ray_tri$r6).set in
-  if (@124) {
+  let @131 = (*intersectsp_ray_tri$r6).set in
+  if (@131) {
     let extract = (*intersectsp_ray_tri$r6).value in
-    let @127 = extract.t in
-    return @127
+    let @134 = extract.t in
+    return @134
   } else {
-    let @128 = (f32)inf in
-    return @128
+    let @135 = (f32)inf in
+    return @135
   }
 }
 
@@ -694,78 +706,82 @@ func intersects_Ray_Triangle(r : Ray, tri : Triangle) -> bool {
     let @42 = build<_option2>() in
     intersectsp_ray_tri$r7 = @42
   } else {
-    let invDet$i7 = rcp(det$i7) in
-    let @44 = r.o in
-    let s$i7 = @44 - _t191$i7 in
-    let @46 = s$i7[0] in
-    let @48 = @46 * @29 in
-    let @49 = s$i7[1] in
-    let @51 = @49 * @32 in
-    let @52 = @48 + @51 in
-    let @53 = s$i7[2] in
-    let @55 = @53 * @36 in
+    let r$i16 = rcp_approx(det$i7) in
+    let t0$i16 = r$i16 + r$i16 in
+    let t1$i16 = r$i16 * det$i7 in
+    let @46 = t1$i16 * r$i16 in
+    let @47 = t0$i16 - @46 in
+    let @48 = r.o in
+    let s$i7 = @48 - _t191$i7 in
+    let @50 = s$i7[0] in
+    let @52 = @50 * @29 in
+    let @53 = s$i7[1] in
+    let @55 = @53 * @32 in
     let @56 = @52 + @55 in
-    let v$i7 = @56 * invDet$i7 in
-    let @58 = 0f <= v$i7 in
-    let @59 = v$i7 <= 1f in
-    let @60 = @58 && @59 in
-    let @61 = !@60 in
-    if (@61) {
-      let @62 = build<_option2>() in
-      intersectsp_ray_tri$r7 = @62
+    let @57 = s$i7[2] in
+    let @59 = @57 * @36 in
+    let @60 = @56 + @59 in
+    let v$i7 = @60 * @47 in
+    let @63 = 0f <= v$i7 in
+    let @64 = v$i7 <= 1f in
+    let @65 = @63 && @64 in
+    let @66 = !@65 in
+    if (@66) {
+      let @67 = build<_option2>() in
+      intersectsp_ray_tri$r7 = @67
     } else {
-      let @65 = @49 * @35 in
-      let @68 = @53 * @31 in
-      let @69 = @65 - @68 in
-      let @72 = @53 * @28 in
-      let @75 = @46 * @35 in
-      let @76 = @72 - @75 in
-      let @79 = @46 * @31 in
-      let @82 = @49 * @28 in
-      let @83 = @79 - @82 in
-      let q$i7 = build<f32x3>(@69, @76, @83) in
-      let @86 = q$i7[0] in
-      let @87 = @16 * @86 in
-      let @89 = q$i7[1] in
-      let @90 = @6 * @89 in
-      let @91 = @87 + @90 in
-      let @93 = q$i7[2] in
-      let @94 = @9 * @93 in
-      let @95 = @91 + @94 in
-      let w$i7 = @95 * invDet$i7 in
-      let @97 = 0f <= w$i7 in
-      let @98 = v$i7 + w$i7 in
-      let @99 = @98 <= 1f in
-      let @100 = @97 && @99 in
-      let @101 = !@100 in
-      if (@101) {
-        let @102 = build<_option2>() in
-        intersectsp_ray_tri$r7 = @102
+      let @70 = @53 * @35 in
+      let @73 = @57 * @31 in
+      let @74 = @70 - @73 in
+      let @77 = @57 * @28 in
+      let @80 = @50 * @35 in
+      let @81 = @77 - @80 in
+      let @84 = @50 * @31 in
+      let @87 = @53 * @28 in
+      let @88 = @84 - @87 in
+      let q$i7 = build<f32x3>(@74, @81, @88) in
+      let @91 = q$i7[0] in
+      let @92 = @16 * @91 in
+      let @94 = q$i7[1] in
+      let @95 = @6 * @94 in
+      let @96 = @92 + @95 in
+      let @98 = q$i7[2] in
+      let @99 = @9 * @98 in
+      let @100 = @96 + @99 in
+      let w$i7 = @100 * @47 in
+      let @103 = 0f <= w$i7 in
+      let @104 = v$i7 + w$i7 in
+      let @105 = @104 <= 1f in
+      let @106 = @103 && @105 in
+      let @107 = !@106 in
+      if (@107) {
+        let @108 = build<_option2>() in
+        intersectsp_ray_tri$r7 = @108
       } else {
-        let @105 = @14 * @86 in
-        let @108 = @10 * @89 in
-        let @109 = @105 + @108 in
-        let @112 = @7 * @93 in
-        let @113 = @109 + @112 in
-        let d$i7 = @113 * invDet$i7 in
-        let @115 = 0f <= d$i7 in
-        let @116 = r.tmax in
-        let @117 = d$i7 <= @116 in
-        let @118 = @115 && @117 in
-        let @119 = !@118 in
-        if (@119) {
-          let @120 = build<_option2>() in
-          intersectsp_ray_tri$r7 = @120
+        let @111 = @14 * @91 in
+        let @114 = @10 * @94 in
+        let @115 = @111 + @114 in
+        let @118 = @7 * @98 in
+        let @119 = @115 + @118 in
+        let d$i7 = @119 * @47 in
+        let @122 = 0f <= d$i7 in
+        let @123 = r.tmax in
+        let @124 = d$i7 <= @123 in
+        let @125 = @122 && @124 in
+        let @126 = !@125 in
+        if (@126) {
+          let @127 = build<_option2>() in
+          intersectsp_ray_tri$r7 = @127
         } else {
-          let @121 = build<TriangleHit>(d$i7, v$i7, w$i7) in
-          let @122 = build<_option2>(@121, true) in
-          intersectsp_ray_tri$r7 = @122
+          let @128 = build<TriangleHit>(d$i7, v$i7, w$i7) in
+          let @129 = build<_option2>(@128, true) in
+          intersectsp_ray_tri$r7 = @129
         }
       }
     }
   }
-  let @124 = (*intersectsp_ray_tri$r7).set in
-  return @124
+  let @131 = (*intersectsp_ray_tri$r7).set in
+  return @131
 }
 
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option1 {
@@ -920,102 +936,115 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> _option2 {
     let @42 = build<_option2>() in
     return @42
   } else {
-    let invDet = rcp(det) in
-    let @44 = r.o in
-    let s = @44 - _t191 in
-    let @46 = s[0] in
-    let @48 = @46 * @29 in
-    let @49 = s[1] in
-    let @51 = @49 * @32 in
-    let @52 = @48 + @51 in
-    let @53 = s[2] in
-    let @55 = @53 * @36 in
+    let r$i8 = rcp_approx(det) in
+    let t0$i8 = r$i8 + r$i8 in
+    let t1$i8 = r$i8 * det in
+    let @46 = t1$i8 * r$i8 in
+    let @47 = t0$i8 - @46 in
+    let @48 = r.o in
+    let s = @48 - _t191 in
+    let @50 = s[0] in
+    let @52 = @50 * @29 in
+    let @53 = s[1] in
+    let @55 = @53 * @32 in
     let @56 = @52 + @55 in
-    let v = @56 * invDet in
-    let @58 = 0f <= v in
-    let @59 = v <= 1f in
-    let @60 = @58 && @59 in
-    let @61 = !@60 in
-    if (@61) {
-      let @62 = build<_option2>() in
-      return @62
+    let @57 = s[2] in
+    let @59 = @57 * @36 in
+    let @60 = @56 + @59 in
+    let v = @60 * @47 in
+    let @63 = 0f <= v in
+    let @64 = v <= 1f in
+    let @65 = @63 && @64 in
+    let @66 = !@65 in
+    if (@66) {
+      let @67 = build<_option2>() in
+      return @67
     } else {
-      let @65 = @49 * @35 in
-      let @68 = @53 * @31 in
-      let @69 = @65 - @68 in
-      let @72 = @53 * @28 in
-      let @75 = @46 * @35 in
-      let @76 = @72 - @75 in
-      let @79 = @46 * @31 in
-      let @82 = @49 * @28 in
-      let @83 = @79 - @82 in
-      let q = build<f32x3>(@69, @76, @83) in
-      let @86 = q[0] in
-      let @87 = @16 * @86 in
-      let @89 = q[1] in
-      let @90 = @6 * @89 in
-      let @91 = @87 + @90 in
-      let @93 = q[2] in
-      let @94 = @9 * @93 in
-      let @95 = @91 + @94 in
-      let w = @95 * invDet in
-      let @97 = 0f <= w in
-      let @98 = v + w in
-      let @99 = @98 <= 1f in
-      let @100 = @97 && @99 in
-      let @101 = !@100 in
-      if (@101) {
-        let @102 = build<_option2>() in
-        return @102
+      let @70 = @53 * @35 in
+      let @73 = @57 * @31 in
+      let @74 = @70 - @73 in
+      let @77 = @57 * @28 in
+      let @80 = @50 * @35 in
+      let @81 = @77 - @80 in
+      let @84 = @50 * @31 in
+      let @87 = @53 * @28 in
+      let @88 = @84 - @87 in
+      let q = build<f32x3>(@74, @81, @88) in
+      let @91 = q[0] in
+      let @92 = @16 * @91 in
+      let @94 = q[1] in
+      let @95 = @6 * @94 in
+      let @96 = @92 + @95 in
+      let @98 = q[2] in
+      let @99 = @9 * @98 in
+      let @100 = @96 + @99 in
+      let w = @100 * @47 in
+      let @103 = 0f <= w in
+      let @104 = v + w in
+      let @105 = @104 <= 1f in
+      let @106 = @103 && @105 in
+      let @107 = !@106 in
+      if (@107) {
+        let @108 = build<_option2>() in
+        return @108
       } else {
-        let @105 = @14 * @86 in
-        let @108 = @10 * @89 in
-        let @109 = @105 + @108 in
-        let @112 = @7 * @93 in
-        let @113 = @109 + @112 in
-        let d = @113 * invDet in
-        let @115 = 0f <= d in
-        let @116 = r.tmax in
-        let @117 = d <= @116 in
-        let @118 = @115 && @117 in
-        let @119 = !@118 in
-        if (@119) {
-          let @120 = build<_option2>() in
-          return @120
+        let @111 = @14 * @91 in
+        let @114 = @10 * @94 in
+        let @115 = @111 + @114 in
+        let @118 = @7 * @98 in
+        let @119 = @115 + @118 in
+        let d = @119 * @47 in
+        let @122 = 0f <= d in
+        let @123 = r.tmax in
+        let @124 = d <= @123 in
+        let @125 = @122 && @124 in
+        let @126 = !@125 in
+        if (@126) {
+          let @127 = build<_option2>() in
+          return @127
         } else {
-          let @121 = build<TriangleHit>(d, v, w) in
-          let @122 = build<_option2>(@121, true) in
-          return @122
+          let @128 = build<TriangleHit>(d, v, w) in
+          let @129 = build<_option2>(@128, true) in
+          return @129
         }
       }
     }
   }
 }
 
+func rcp_fcpw(m : f32) -> f32 {
+  let r = rcp_approx(m) in
+  let t0 = r + r in
+  let t1 = r * m in
+  let @3 = t1 * r in
+  let @4 = t0 - @3 in
+  return @4
+}
+
 func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0*)) -> void {
-  _best0_result$i11 : mut _option0
-  _best0$i11 : mut __tuple_1
+  _best0_result$i12 : mut _option0
+  _best0$i12 : mut __tuple_1
   let @0 = (f32)inf in
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
-  _best0$i11 = @2
+  _best0$i12 = @2
   let @4 = 0f - @0 in
   let @5 = (*r) in
   let @6 = (*tris) in
-  _recloop_func0(0u, @4, _best0$i11, @5, @6)
+  _recloop_func0(0u, @4, _best0$i12, @5, @6)
   let @7 = build<_option0>() in
-  let @8 = (*_best0$i11) in
+  let @8 = (*_best0$i12) in
   let @9 = @8._field0 in
   let @10 = (f32)inf in
   let @11 = @9 != @10 in
   if (@11) {
     let @12 = (*tris) in
-    let _t128$i11 = @12.group0_prims in
-    let @14 = (*_best0$i11) in
+    let _t128$i12 = @12.group0_prims in
+    let @14 = (*_best0$i12) in
     let @15 = @14._field1 in
     let @16 = @15._field0 in
     let @17 = @16 >> 2u in
-    let @18 = _t128$i11[@17] in
+    let @18 = _t128$i12[@17] in
     let @19 = @18.p0 in
     let @20 = cast<f32x3x4>(@19) in
     let @24 = @16 & 3u in
@@ -1028,11 +1057,11 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0
     let @49 = @44[@24] in
     let @50 = build<Triangle>(@25, @37, @49) in
     let @51 = build<_option0>(@50, true) in
-    _best0_result$i11 = @51
+    _best0_result$i12 = @51
   } else {
-    _best0_result$i11 = @7
+    _best0_result$i12 = @7
   }
-  _ret0 = (*_best0_result$i11)
+  _ret0 = (*_best0_result$i12)
   return
 }
 

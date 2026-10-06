@@ -1,19 +1,30 @@
-//! flags: -b llvm
+//! flags: -p ssa -b llvm --ffp-contract
 
-// `rcp` on the generic x86-64 this directory pins: SSE's `rcpps`, which
-// every x86-64 has, over the scalar or the three components padded to the
-// register's four lanes, refined by one Newton step as two fused
-// multiply-adds (CodeGen_X86::reciprocal) -- `llvm.x86.sse.rcp.ps` and
-// `llvm.fma`, the fma expanded by LLVM where the machine has none. With
-// AVX-512VL the estimate is `vrcp14ps` instead; a target without any
-// estimate to name divides (CodeGen_LLVM::reciprocal).
-// correctness/cpp/rcp.bonsai runs the host's.
+// `rcp_approx` on the generic x86-64 this directory pins: SSE's `rcpps`,
+// which every x86-64 has, over the scalar or the three components padded to
+// the register's four lanes (CodeGen_X86::reciprocal_approx), and nothing
+// after it -- `llvm.x86.sse.rcp.ps` and the extract or shuffle back. With
+// AVX-512VL the estimate is `vrcp14ps` instead (rcp-approx.bonsai, in the
+// Zen 4 block); a target without any estimate to name divides
+// (CodeGen_LLVM::reciprocal_approx). correctness/cpp/rcp.bonsai runs the
+// host's.
+//
+// `embree` is Embree's `rcp` written out over the estimate, `r + r * (1 - x
+// * r)` (apps/rtq/metrics/embree.bonsai, rcp_embree): under --ffp-contract
+// two `llvm.fma`, `fma(-x, r, 1)` and `fma(r, h, r)`, which is the pair
+// Embree's `_mm_fmadd_ps(r, _mm_fnmadd_ps(a, r, 1), r)` is, and which LLVM
+// expands where the machine has no fma, as this one has not.
 element vec3f = vector[f32, 3];
 
 func [[export]] scalar(x : f32) -> f32 {
-    return rcp(x);
+    return rcp_approx(x);
 }
 
 func [[export]] lanes(v : vec3f) -> vec3f {
-    return rcp(v);
+    return rcp_approx(v);
+}
+
+func [[export]] embree(x : f32) -> f32 {
+    r = rcp_approx(x);
+    return r + r * (1.0 - x * r);
 }

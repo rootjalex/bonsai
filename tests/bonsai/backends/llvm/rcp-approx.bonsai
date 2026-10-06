@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm --ffp-contract
+
+// `rcp_approx`: the machine's reciprocal estimate and nothing after it, the
+// one primitive a library's reciprocal is built on. On the AVX-512 this
+// directory's block pins it is `vrcp14ps` (`llvm.x86.avx512.rcp14.ps.*`, a
+// relative error under 2^-14), over the scalar or the three components
+// padded to the register's four lanes, with no `llvm.fma` of its own.
+//
+// The two refinements beside it are the two libraries', written out as
+// apps/rtq/metrics write them. `enoki_rcp` is enoki's (enoki/array_avx512.h
+// rcp_), which FCPW divides with: `t0 = r + r`, `t1 = r m` and `t0 - t1 r`
+// -- under --ffp-contract (SSA/Contract.h, which fuses `c - a b` as
+// `fma(-a, b, c)`) one `llvm.fma` of the negated `t1`, `r` and `t0`,
+// enoki's `_mm512_fnmadd_ps(t1, r, t0)`, with `t1` its own rounded `fmul`,
+// since a product consumed by a multiply is not fused. `embree_rcp` is
+// Embree's (common/simd/vfloat16_avx512.h, math/vec3fa.h): `r + r (1 - m
+// r)`, two `llvm.fma`, `fma(-m, r, 1)` then `fma(r, h, r)`. The two round
+// differently in a third of all inputs, which is why each metric file
+// spells its own and neither can be the compiler's (ir::Intrinsic::rcp_approx).
+element vec3f = vector[f32, 3];
+
+func [[export]] scalar(x : f32) -> f32 {
+    return rcp_approx(x);
+}
+
+func [[export]] three(x : vec3f) -> vec3f {
+    return rcp_approx(x);
+}
+
+func [[export]] enoki_rcp(m : f32) -> f32 {
+    r = rcp_approx(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
+func [[export]] embree_rcp(m : f32) -> f32 {
+    r = rcp_approx(m);
+    return r + r * (1.0 - m * r);
+}

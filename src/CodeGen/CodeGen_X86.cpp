@@ -277,30 +277,13 @@ llvm::Value *CodeGen_X86::unpad(const Padded &p, llvm::Value *v,
     return v;
 }
 
-llvm::Value *CodeGen_X86::reciprocal(llvm::Value *x, const std::string &name) {
+llvm::Value *CodeGen_X86::reciprocal_approx(llvm::Value *x,
+                                            const std::string &name) {
     const Padded p = pad_for_estimate(x);
     if (p.width == 0) {
-        return CodeGen_LLVM::reciprocal(x, name);
+        return CodeGen_LLVM::reciprocal_approx(x, name);
     }
-    llvm::CallInst *r = estimate_instruction(p, name + "_est");
-    auto *rt = llvm::cast<llvm::FixedVectorType>(p.a->getType());
-    // One Newton step: h = 1 - a * r, then r + r * h, each a fused
-    // multiply-add as Embree writes them.
-    llvm::Value *h = builder->CreateIntrinsic(
-        rt, llvm::Intrinsic::fma,
-        {builder->CreateFNeg(p.a), r, llvm::ConstantFP::get(rt, 1.0)});
-    llvm::Value *refined =
-        builder->CreateIntrinsic(rt, llvm::Intrinsic::fma, {r, h, r});
-    return unpad(p, refined, name);
-}
-
-llvm::Value *CodeGen_X86::reciprocal_estimate(llvm::Value *x,
-                                              const std::string &name) {
-    const Padded p = pad_for_estimate(x);
-    if (p.width == 0) {
-        return CodeGen_LLVM::reciprocal_estimate(x, name);
-    }
-    return unpad(p, estimate_instruction(p, name + "_raw"), name);
+    return unpad(p, estimate_instruction(p, name + "_est"), name);
 }
 
 llvm::Value *CodeGen_X86::dynamic_shuffle(llvm::Value *vec,

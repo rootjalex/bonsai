@@ -1339,8 +1339,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = args[0].type();
             break;
         }
-        case Intrinsic::rcp:
-        case Intrinsic::rcp_estimate: {
+        case Intrinsic::rcp_approx: {
             // A float, or a vector of floats, to the same.
             internal_assert(args.size() == 1)
                 << to_string(node->op) << " takes one argument";

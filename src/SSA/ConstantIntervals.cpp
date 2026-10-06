@@ -1050,8 +1050,7 @@ struct ConstantIntervals::State {
         case Instruction::Op::Intrinsic:
             switch (in.intrinsic) {
             case ir::Intrinsic::abs:
-            case ir::Intrinsic::rcp:
-            case ir::Intrinsic::rcp_estimate:
+            case ir::Intrinsic::rcp_approx:
             case ir::Intrinsic::sqrt:
             case ir::Intrinsic::sqr:
             case ir::Intrinsic::fma:
@@ -1892,24 +1891,24 @@ struct ConstantIntervals::State {
         }
         case ir::Intrinsic::sqr:
             return fit(I(0) * I(0));
-        case ir::Intrinsic::rcp:
-        case ir::Intrinsic::rcp_estimate: {
+        case ir::Intrinsic::rcp_approx: {
             // The reciprocal of an interval on one side of zero lies between
             // the reciprocals of its ends, the other way round, and goes to
-            // infinity at zero (rcp(+0) is +inf, rcp(-0) is -inf: a lower
-            // bound of zero is read as +0, the lattice's reading of a
+            // infinity at zero (the estimate of +0 is +inf, of -0 is -inf: a
+            // lower bound of zero is read as +0, the lattice's reading of a
             // non-negative float, see ConstantInterval); an interval that
-            // crosses zero gives everything. The instruction is an estimate
-            // and a Newton step (CodeGen_X86), within a few units in the last
-            // place of the quotient, so each end is moved outward by more
-            // than that before it is used; the bare estimate is within a
-            // relative 1.5 * 2^-12 of it (`rcpps`, the coarser of the two
-            // instructions), and is moved outward by more than that.
+            // crosses zero gives everything. The instruction is the
+            // machine's estimate, within a relative 1.5 * 2^-12 of the
+            // quotient on the coarsest x86 has (`rcpps`), so each end is
+            // moved outward by more than that before it is used. What a
+            // program computes from the estimate -- a Newton step -- is
+            // followed as the arithmetic it is, which loses the correlation
+            // between the estimate and its operand: `r + r (1 - x r)` reads
+            // as everything where `x` is unbounded (ssa/intervals-from-
+            // conditions.bonsai).
             const ConstantInterval a = I(0);
-            const double tolerance =
-                in.intrinsic == ir::Intrinsic::rcp ? 0x1p-20 : 0x1p-10;
-            const auto outward = [tolerance](double v, bool down) {
-                const double slack = std::abs(v) * tolerance;
+            const auto outward = [](double v, bool down) {
+                const double slack = std::abs(v) * 0x1p-10;
                 return down ? v - slack : v + slack;
             };
             // A number where the operand is one (the reciprocal of zero is

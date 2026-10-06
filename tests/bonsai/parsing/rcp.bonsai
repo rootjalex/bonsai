@@ -1,14 +1,16 @@
 //! flags: -p core
 
-// `rcp(x)`: the reciprocal of a float or of each lane of a vector of floats,
-// as the machine estimates and refines it (ir::Intrinsic::rcp). An intrinsic
-// like `sqrt`, so it parses to one and types to its argument's type.
+// `rcp_approx(x)`: the machine's approximate reciprocal of a float or of
+// each lane of a vector of floats, the estimate instruction and nothing
+// after it (ir::Intrinsic::rcp_approx). An intrinsic like `sqrt`, so it
+// parses to one and types to its argument's type; what a program refines
+// it into is the program's (apps/rtq/metrics/embree.bonsai, fcpw.bonsai).
 element vec3f = vector[f32, 3];
 
 func scalar(x : f32) -> f32 {
-    return rcp(x);
+    return rcp_approx(x);
 }
 
 func lanes(v : vec3f) -> vec3f {
-    return rcp(v);
+    return rcp_approx(v);
 }

@@ -5,12 +5,32 @@
 // of its closest-point tutorial's callback (tutorials/common/math/
 // closest_point.h). Compiled beside rtq.bonsai for every comparison against
 // Embree (compare.sh); metrics/fcpw.bonsai is the same set of functions as
-// FCPW computes them. Embree's reciprocals -- an estimate instruction
-// refined by one Newton step -- are `rcp`, the same instruction and the
-// same step on this machine (CodeGen_X86), so the bits agree.
+// FCPW computes them. Embree's reciprocals are `rcp_embree` below: the
+// machine's estimate instruction and Embree's one Newton step, written
+// out, so that the bits agree by construction.
 
 element FInterval {
     low, high : Float;
+}
+
+// Embree: `rcp` (common/simd/vfloat4_sse2.h, vfloat8_avx.h,
+// vfloat16_avx512.h, math/vec3fa.h) -- the estimate instruction, `vrcp14ps`
+// with AVX-512VL and `rcpps` without, which is `rcp_approx` here, then one
+// Newton step `r + r (1 - a r)` as two fused multiply-adds,
+// `fmadd(r, fnmadd(a, r, 1), r)`, which compare.sh's `--ffp-contract` makes
+// of this (SSA/Contract.h: `1 - a r` is `fma(-a, r, 1)` and `r + r h` is
+// `fma(r, h, r)`). A Vec3fa's reciprocal is the same over the three
+// components padded to the register's four (rcp_embree_vec3). Not enoki's
+// step, which FCPW uses (metrics/fcpw.bonsai, rcp_fcpw): the two round
+// differently in a third of all inputs.
+func rcp_embree(a : Float) -> Float {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
+}
+
+func rcp_embree_vec3(a : vec3f) -> vec3f {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
 }
 
 // Embree: the smallest magnitude a direction's component is allowed before
@@ -41,10 +61,10 @@ func zero_fix(d : vec3f) -> vec3f {
 // are associative and have no NaN case, which is what lets the compiler
 // fold the traversal's running best into `tfar` exactly (SSA/Simplify.cpp);
 // a float min is std::min, which neither is nor has. Embree takes the
-// reciprocal with `rcp` (rcp_safe: `vrcp14ps` and one Newton step over the
-// three components padded to four), and so does this.
+// reciprocal with `rcp_safe`, `rcp(zero_fix(d))` over the three components
+// padded to four, and so does this.
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    rdir = rcp(zero_fix(r.d));
+    rdir = rcp_embree_vec3(zero_fix(r.d));
     org_rdir = r.o * rdir;
     dirIsNeg = rdir < 0.0;
     near = select(dirIsNeg, b.high, b.low);
@@ -118,7 +138,7 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
     // Embree: MoellerTrumboreHitM::finalize, `rcp(absDen)` once and the
     // three scaled by it -- the four lanes of a Triangle4 at once, which is
     // what this is in the vectorized leaf.
-    rcpAbsDen = rcp(absDen);
+    rcpAbsDen = rcp_embree(absDen);
     return TriangleHit{T * rcpAbsDen, U * rcpAbsDen, V * rcpAbsDen};
 }
 

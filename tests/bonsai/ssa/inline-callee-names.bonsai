@@ -81,6 +81,14 @@ element TriangleHit {
     t, u, v : Float;
 }
 
+// enoki's reciprocal: the machine's estimate, then `2r - (r m) r`.
+func rcp_fcpw(m : Float) -> Float {
+    r = rcp_approx(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
 func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
     epsilon : Float = 1.1920929e-7;
     v1 = tri.p1 - tri.p0;
@@ -90,7 +98,7 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
     if !(abs(det) > epsilon) {
         return {};
     }
-    invDet = rcp(det);
+    invDet = rcp_fcpw(det);
     s = r.o - tri.p0;
     v = dot(s, p) * invDet;
     if !(v >= 0.0 && v <= 1.0) {

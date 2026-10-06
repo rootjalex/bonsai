@@ -62,22 +62,15 @@ struct CodeGen_X86 : public CodeGen_LLVM {
     llvm::Value *vector_int_division(llvm::Value *a, llvm::Value *b,
                                      bool is_signed, bool remainder) override;
 
-    // A single-precision reciprocal as Embree takes it on this machine: the
-    // estimate instruction -- `vrcp14ps` with AVX-512VL, fourteen bits, or
-    // `rcpps`, twelve -- refined by one Newton step, `r + r * (1 - x * r)`,
-    // as two fused multiply-adds (common/simd/vfloat4_sse2.h, vfloat8_avx.h,
-    // vfloat16_avx512.h, math/vec3fa.h). A scalar or a short vector is
-    // padded to the four lanes of an xmm register, as Embree's Vec3fa is;
+    // The machine's single-precision reciprocal estimate: `vrcp14ps` with
+    // AVX-512VL, fourteen bits, or `rcpps`, twelve, and nothing after it
+    // (ir::Intrinsic::rcp_approx; the refinement is the program's, see
+    // apps/rtq/metrics). A scalar or a short vector is padded to the four
+    // lanes of an xmm register, as Embree's Vec3fa and enoki's packets are;
     // a double, or a width the machine has no estimate for, keeps the
     // division.
-    llvm::Value *reciprocal(llvm::Value *x, const std::string &name) override;
-
-    // The estimate instruction alone, the same padding and the same cases,
-    // for a program that writes the refinement itself (enoki's, which
-    // FCPW's divisions take: `2r - (r x) r`, see ir::Intrinsic::
-    // rcp_estimate).
-    llvm::Value *reciprocal_estimate(llvm::Value *x,
-                                     const std::string &name) override;
+    llvm::Value *reciprocal_approx(llvm::Value *x,
+                                   const std::string &name) override;
 
     // A vector permuted by a vector of indices as the one instruction the
     // machine has for the shape: `vpermd` for eight 32-bit lanes (AVX2) and

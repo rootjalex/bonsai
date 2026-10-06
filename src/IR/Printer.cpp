@@ -1203,10 +1203,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "prefetch";
     case Intrinsic::rand:
         return "rand";
-    case Intrinsic::rcp:
-        return "rcp";
-    case Intrinsic::rcp_estimate:
-        return "rcp_estimate";
+    case Intrinsic::rcp_approx:
+        return "rcp_approx";
     case Intrinsic::round:
         return "round";
     case Intrinsic::sin:

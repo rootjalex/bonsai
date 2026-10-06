@@ -1,23 +1,42 @@
 //! flags: -b cpp -o tests/bonsai/correctness/cpp/rcp
 //! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_rcp.cpp -I. -o tests/bonsai/correctness/cpp/main_rcp.o, clang++ tests/bonsai/correctness/cpp/main_rcp.o tests/bonsai/correctness/cpp/rcp.o -o tests/bonsai/correctness/cpp/rcp, ./tests/bonsai/correctness/cpp/rcp, rm tests/bonsai/correctness/cpp/rcp, rm tests/bonsai/correctness/cpp/main_rcp.o, rm tests/bonsai/correctness/cpp/rcp.h, rm tests/bonsai/correctness/cpp/rcp.o
 
-// `rcp` run on the host: a scalar, a three-vector (padded to the register,
-// as Embree's Vec3fa is) and a vector of four. The driver (main_rcp.cpp)
-// checks each against the exact quotient to the precision an estimate
-// refined by one Newton step reaches -- a relative error of a few units in
-// the last place of a float, where the raw estimate's is around a part in
-// four thousand -- so that both the instruction and its refinement are
-// exercised wherever the host has them, and the plain division passes too.
+// A reciprocal refined from the machine's estimate, run on the host: a
+// scalar, a three-vector (padded to the register, as Embree's Vec3fa is)
+// and a vector of four, each `rcp_approx` and Embree's Newton step written
+// out (apps/rtq/metrics/embree.bonsai, rcp_embree). The driver
+// (main_rcp.cpp) checks each against the exact quotient to the precision
+// an estimate refined by one Newton step reaches -- a relative error of a
+// few units in the last place of a float, where the raw estimate's is
+// around a part in four thousand -- so that both the instruction and the
+// program's refinement are exercised wherever the host has the
+// instruction, and the plain division the C++ backend takes passes too.
 element vec3f = vector[f32, 3];
+element vec4f = vector[f32, 4];
+
+func rcp_embree(a : f32) -> f32 {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
+}
+
+func rcp_embree_vec3(a : vec3f) -> vec3f {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
+}
+
+func rcp_embree_vec4(a : vec4f) -> vec4f {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
+}
 
 func [[export]] rcp_scalar(x : f32) -> f32 {
-    return rcp(x);
+    return rcp_embree(x);
 }
 
 func [[export]] rcp_vec3(v : vec3f) -> vec3f {
-    return rcp(v);
+    return rcp_embree_vec3(v);
 }
 
-func [[export]] rcp_vec4(v : vector[f32, 4]) -> vector[f32, 4] {
-    return rcp(v);
+func [[export]] rcp_vec4(v : vec4f) -> vec4f {
+    return rcp_embree_vec4(v);
 }

@@ -36,8 +36,14 @@ func zero_fix(d : vec3f) -> vec3f {
     return select(abs(d) < tiny, vec3f{tiny, tiny, tiny}, d);
 }
 
+// Embree's reciprocal: the machine's estimate and one Newton step.
+func rcp_embree(a : vec3f) -> vec3f {
+    r = rcp_approx(a);
+    return r + r * (1.0 - a * r);
+}
+
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    rdir = rcp(zero_fix(r.d));
+    rdir = rcp_embree(zero_fix(r.d));
     org_rdir = r.o * rdir;
     dirIsNeg = rdir < 0.0;
     near = select(dirIsNeg, b.high, b.low);

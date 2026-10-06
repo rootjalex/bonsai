@@ -105,5 +105,5 @@ add_bonsai_tests(
     FLAGS --triple x86_64-unknown-linux-gnu --mcpu znver4
     FILES
     permute-avx512.bonsai
-    rcp-estimate.bonsai
+    rcp-approx.bonsai
 )

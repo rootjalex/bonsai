@@ -4370,29 +4370,45 @@ regardless, with the vectorizer making one reduction of it.
   and the closest point on a triangle in FCPW's region order with `rcp`
   for its three divisions and a root per lane, squared back as FCPW's leaf
   squares it (`d2 = d * d`) to compare with the radius squared. The
-  reciprocal is enoki's, not `rcp`: both begin with `vrcp14ps`, but
-  Embree's step (which `rcp` is, CodeGen_X86) is `r + r (1 - m r)` as two
-  fused multiply-adds and enoki's is `2r - (r m) r` as one fused
+  reciprocals are each library's own, written out. Both begin with the
+  machine's estimate (`vrcp14ps` here), but Embree's step is `r + r (1 - m
+  r)` as two fused multiply-adds and enoki's is `2r - (r m) r` as one fused
   multiply-subtract of a rounded product, and a probe over 285,715 inputs
   in [1, 2) found the two differ in the last bit on 109,804 of them (38%;
   Embree's is the correctly rounded quotient on 99.4%, enoki's on 62%) --
   enough to move a grazing ray across `v >= 0`, `v + w <= 1` or `d <=
   tMax`, which showed as a handful of rays per mesh disagreeing on six of
-  the thirteen under `rcp`. The language gained `rcp_estimate`, the
-  machine's estimate and nothing after it (`vrcp14ps`/`rcpps`, PTX's
-  `rcp.approx`, the quotient on a target with no estimate; CodeGen_X86's
-  reciprocal is now the estimate and Embree's step over one padding
-  helper), and metrics/fcpw.bonsai writes enoki's step out (`rcp_fcpw`:
-  `r = rcp_estimate(m); t0 = r + r; t1 = r * m; t0 - t1 * r`), which
-  compare.sh's `--ffp-contract` (SSA/Contract.h: `c - a b` is `fma(-a, b,
-  c)`, a product consumed by a multiply is left alone) makes exactly
-  enoki's `fnmadd(t1, r, t0)` over its own `t1`. enoki's `fixupimm` after
-  the step (the table 0x0087A622: a zero's reciprocal the signed infinity,
-  an infinity's the signed zero, one's exactly one) is not written: the
-  estimate is exact at one, and a zero or infinite denominator fails every
-  comparison the same way on both sides. Tests: backends/llvm/rcp-estimate
-  (the bare `rcp14` for `rcp_estimate`, enoki's step as `fma(-(r m), r,
-  2r)`, Embree's beside it). One thing
+  the thirteen while the FCPW metric still used the compiler's `rcp`,
+  which was Embree's step baked into CodeGen_X86. The user's ruling: the
+  compiler offers the machine's instruction and nothing more, and each
+  library's refinement is an inline function in its metric file. So the
+  language has `rcp_approx` -- the estimate instruction (`vrcp14ps`/
+  `rcpps`, PTX's `rcp.approx`, the quotient where there is none), Halide's
+  `fast_inverse` -- and no `rcp` any more; metrics/embree.bonsai has
+  `rcp_embree` (`r = rcp_approx(a); r + r * (1.0 - a * r)`, over a scalar
+  and over a vec3f as Vec3fa's is) and metrics/fcpw.bonsai `rcp_fcpw` (`r =
+  rcp_approx(m); t0 = r + r; t1 = r * m; t0 - t1 * r`), which compare.sh's
+  `--ffp-contract` (SSA/Contract.h: `c - a b` is `fma(-a, b, c)`, `a b + c`
+  is `fma(a, b, c)`, a product consumed by a multiply is left alone) makes
+  exactly Embree's `fmadd(r, fnmadd(a, r, 1), r)` and enoki's `fnmadd(t1, r,
+  t0)` over its own `t1`. enoki's `fixupimm` after the step (the table
+  0x0087A622: a zero's reciprocal the signed infinity, an infinity's the
+  signed zero, one's exactly one) is not written: the estimate is exact at
+  one, and a zero or infinite denominator fails every comparison the same
+  way on both sides. What the interval analysis makes of a reciprocal
+  (ssa/intervals-from-conditions.bonsai): the estimate of a non-negative
+  interval is non-negative, the rule the primitive has; the refined form
+  written out is everything for an unbounded operand, since intervals do
+  not carry the correlation between `r` and `x` (`x r` reads as [0, inf],
+  not as within 2^-11 of one), and the factored `r (2 - x r)` that would
+  show the sign is a reassociation the simplifier never makes. Nothing in
+  rtq needed the refined reciprocal's sign: the ray keys are non-negative
+  by the clamped `tnear` they are maxed with, and the goldens of the sort
+  keys' bit ordering are unchanged in that respect. Tests:
+  backends/llvm/rcp (the bare `rcpps` on the generic target, Embree's step
+  as its fma pair), backends/llvm/rcp-approx (`rcp14` on Zen 4, enoki's
+  step as `fma(-(r m), r, 2r)`, Embree's beside it), correctness/cpp/rcp
+  (the refinement checked against the exact quotient to a few ulps). One thing
   FCPW's node test does that no box test can: `mask &= neq(node.child,
   maxInt)`, since an empty slot's inverted box (boxMin = maxFloat, boxMax
   = minFloat) passes a slab test whose near and far are a min and a max
@@ -4578,7 +4594,7 @@ existing golden is byte-identical under the three. Tests:
 ssa/inline-callee-names (the FCPW slab test with its named vectors and
 its conjunct inlined into a vectorized traversal; the box built from the
 row's casts, none of the callee's names in the function),
-backends/llvm/rcp-estimate, correctness/cpp/bvh4_fcpw_slabs (the FCPW
+backends/llvm/rcp-approx, correctness/cpp/bvh4_fcpw_slabs (the FCPW
 arithmetic, conjunct and enoki reciprocal over Embree's bytes, every ray's
 answer the one the scene was built to give). What was left as it was: the
 aggregate splitter's table entries for the vectors it takes apart, which

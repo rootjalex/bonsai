@@ -620,26 +620,21 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // `BVH::prefetch` of a hit child, four `prefetchL1` for a BVH8 node.
         prefetch,
         rand,
-        // The reciprocal of a float, or of each lane of a vector of them, as
-        // the machine takes it: an estimate instruction refined by one
-        // Newton step where there is one (x86's `rcp14ps` or `rcpps`, see
-        // CodeGen_X86), a division where there is not. Embree's `rcp`
-        // (common/simd/*.h, math/vec3fa.h), which its ray-box and
-        // ray-triangle tests take their reciprocals with; a program
-        // transcribing them says `rcp(d)` to get the same bits, where `1 /
-        // d` is the correctly rounded quotient and differs in the last bits.
-        rcp,
-        // The machine's reciprocal estimate and nothing after it: x86's
-        // `rcp14ps` (a relative error under 2^-14) or `rcpps` (under
-        // 1.5 * 2^-12), the GPU's `rcp.approx.f32`, and the quotient where
-        // the machine has no estimate to name (CodeGen_LLVM::
-        // reciprocal_estimate). For a program that writes a library's own
-        // refinement out: enoki's `rcp`, which FCPW divides with, is the
-        // estimate `r` then `2r - (r m) r` as one fused multiply-subtract
-        // (enoki/array_avx512.h rcp_), and rounds differently from Embree's
-        // `rcp` above in a third of all inputs, so a transcription of FCPW
-        // spells it from this (apps/rtq/metrics/fcpw.bonsai).
-        rcp_estimate,
+        // The machine's approximate reciprocal of a float, or of each lane
+        // of a vector of them: the one instruction every machine has for
+        // it, and nothing after it. x86's `vrcp14ps` (a relative error
+        // under 2^-14) or `rcpps` (under 1.5 * 2^-12), the GPU's
+        // `rcp.approx.f32`, ARM's `frecpe` were there a backend; the
+        // quotient on a target with no estimate to name and in C++
+        // (CodeGen_LLVM::reciprocal_approx, CodeGen_X86). Halide's
+        // `fast_inverse`. The precision is the machine's, which is the
+        // point: a library refines the estimate its own way, and a program
+        // transcribing the library writes that refinement out -- Embree's
+        // `r + r (1 - m r)` as two fused multiply-adds, enoki's `2r - (r m)
+        // r` as one fused multiply-subtract (apps/rtq/metrics/embree.bonsai
+        // and fcpw.bonsai), which round differently in a third of all
+        // inputs -- rather than the compiler picking one for everybody.
+        rcp_approx,
         round,
         sin,
         sinh,

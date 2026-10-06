@@ -11,12 +11,13 @@
 // same in array_avx.h and array_sse42.h): the machine's estimate `r` --
 // `vrcp14ps` on this machine -- then `t0 = r + r`, `t1 = r m` and
 // `t0 - t1 r` as one fused multiply-subtract, `_mm512_fnmadd_ps(t1, r,
-// t0)`. That is `rcp_fcpw` below, from the bare estimate `rcp_estimate`
+// t0)`. That is `rcp_fcpw` below, from the machine's estimate `rcp_approx`
 // with the step written out; under compare.sh's `--ffp-contract` the
 // subtraction and the product fuse as enoki's do, and `t1` is its own
-// rounded product as enoki's is. It is not `rcp`: that is Embree's step,
-// `r + r (1 - m r)` as two fused multiply-adds (CodeGen_X86), and the two
-// round differently in a third of all inputs, enough to move a grazing
+// rounded product as enoki's is. It is not Embree's step (metrics/
+// embree.bonsai, rcp_embree: `r + r (1 - m r)` as two fused multiply-adds
+// over the same estimate), and the two round differently in a third of all
+// inputs, enough to move a grazing
 // ray's barycentric test or a leaf's `d <= tMax` across the line. What
 // enoki does after the step, `_mm512_fixupimm_ps` with the table
 // 0x0087A622, puts back what the step spoils of the special cases -- a
@@ -34,7 +35,7 @@ element FInterval {
 
 // enoki's `rcp`: the estimate, then `2r - (r m) r` in one fused step.
 func rcp_fcpw(m : Float) -> Float {
-    r = rcp_estimate(m);
+    r = rcp_approx(m);
     t0 = r + r;
     t1 = r * m;
     return t0 - t1 * r;

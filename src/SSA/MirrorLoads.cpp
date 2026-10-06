@@ -104,8 +104,7 @@ bool recomputable(const Instruction &in) {
         case ir::Intrinsic::fma:
         case ir::Intrinsic::sqrt:
         case ir::Intrinsic::sqr:
-        case ir::Intrinsic::rcp:
-        case ir::Intrinsic::rcp_estimate:
+        case ir::Intrinsic::rcp_approx:
             return true;
         default:
             return false;

@@ -1497,7 +1497,7 @@ class BonsaiToCpp : ir::Printer {
             ss << "sqrtf(";
             print_expr_list(node->args);
             ss << ")";
-        } else if (node->op == Intrinsic::rcp || node->op == Intrinsic::rcp_estimate) {
+        } else if (node->op == Intrinsic::rcp_approx) {
             // The quotient: C++ has no estimate to name, and a vector's
             // division is lane by lane.
             ss << "(1.0f / (";

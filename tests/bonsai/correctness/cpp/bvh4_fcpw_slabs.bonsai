@@ -38,7 +38,7 @@ element FInterval {
 // enoki's reciprocal (enoki/array_avx512.h rcp_): the machine's estimate,
 // then `t0 = r + r`, `t1 = r m`, `t0 - t1 r` as one fused multiply-subtract.
 func rcp_fcpw(m : Float) -> Float {
-    r = rcp_estimate(m);
+    r = rcp_approx(m);
     t0 = r + r;
     t1 = r * m;
     return t0 - t1 * r;

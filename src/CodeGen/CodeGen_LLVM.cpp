@@ -3826,14 +3826,9 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
                                       : builder->CreateMul(a, a);
         return;
     }
-    case Intrinsic::rcp: {
+    case Intrinsic::rcp_approx: {
         internal_assert(node->args.size() == 1);
-        value = reciprocal(codegen_expr(node->args[0]), "rcp");
-        return;
-    }
-    case Intrinsic::rcp_estimate: {
-        internal_assert(node->args.size() == 1);
-        value = reciprocal_estimate(codegen_expr(node->args[0]), "rcp_est");
+        value = reciprocal_approx(codegen_expr(node->args[0]), "rcp");
         return;
     }
     case Intrinsic::prefetch: {
@@ -3935,16 +3930,11 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     internal_assert(value) << "Intrinsic codegen failure: " << Expr(node);
 }
 
-llvm::Value *CodeGen_LLVM::reciprocal(llvm::Value *x, const std::string &name) {
+llvm::Value *CodeGen_LLVM::reciprocal_approx(llvm::Value *x,
+                                             const std::string &name) {
     // No estimate instruction named for this target: the quotient itself.
     return builder->CreateFDiv(llvm::ConstantFP::get(x->getType(), 1.0), x,
                                name);
-}
-
-llvm::Value *CodeGen_LLVM::reciprocal_estimate(llvm::Value *x,
-                                               const std::string &name) {
-    // No estimate instruction named for this target: the quotient itself.
-    return reciprocal(x, name);
 }
 
 llvm::Value *CodeGen_LLVM::dynamic_shuffle(llvm::Value *vec,

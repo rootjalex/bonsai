@@ -5,12 +5,25 @@
 // off its own dump (`--dump-intervals`, printed ahead of the SSA):
 //
 //   * `guarded`: below `if !(lo < t) { return inf; }` the value `t` is at
-//     least `lo`'s least, zero, so `t * rcp(abs(d))` is in [0, inf] -- the
-//     fact from a branch's condition in the block it leads to, and the
-//     reciprocal of a non-negative interval non-negative;
+//     least `lo`'s least, zero, so `t * rcp_approx(abs(d))` is in [0, inf]
+//     -- the fact from a branch's condition in the block it leads to, and
+//     the machine's reciprocal estimate of a non-negative interval
+//     non-negative (the one rule the analysis has for a reciprocal: the
+//     estimate instruction's);
 //   * `chosen`: the same fact inside the arm of a select, `select(lo < t,
-//     t * rcp(abs(d)), inf)` in [0, inf], where the plain reading of the
-//     arm is everything;
+//     t * rcp_approx(abs(d)), inf)` in [0, inf], where the plain reading of
+//     the arm is everything;
+//   * `refined`: `guarded` with Embree's reciprocal written out over the
+//     estimate, `r + r * (1 - x * r)` (apps/rtq/metrics/embree.bonsai,
+//     rcp_embree), which is everything: the analysis follows the step as
+//     the arithmetic it is and does not know `r` and `x` are correlated,
+//     so `x * r` reads as [0, inf] rather than as within 2^-11 of one, `1 -
+//     x r` as [-inf, 1], and the sum's sign is lost. The sign of a refined
+//     reciprocal is not something intervals can carry through its
+//     implementation for an unbounded operand (it would take the factored
+//     form `r (2 - x r)`, a reassociation the simplifier never makes); what
+//     needs a sign gets it from elsewhere -- a ray's sort key from the
+//     clamped `tnear` it is maxed with, not from `rdir`;
 //   * `narrow` and `run`: a running best kept behind a pointer. The caller
 //     stores infinity and hands the pointer over; the callee reads it,
 //     and lowers it with a value that is never negative. What the callee's
@@ -23,10 +36,11 @@
 // And the flags beside the bounds: ` n` where the value is a number (never
 // a NaN), ` +` where its sign bit is clear in every value, ` (+)` where it
 // is non-negative only as a number. `abs(d)` is `+` but not `n` (the
-// absolute value of a NaN is a NaN with its sign cleared); `t * rcp(abs(d))`
-// is `(+)` (a product of a positive number and a non-negative value, a NaN
-// where `d` is one); the best is `n +`, infinity to begin with and then
-// only ever a `t` that passed `t < best.key`, which no NaN does.
+// absolute value of a NaN is a NaN with its sign cleared); `t *
+// rcp_approx(abs(d))` is `(+)` (a product of a positive number and a
+// non-negative value, a NaN where `d` is one); the best is `n +`, infinity
+// to begin with and then only ever a `t` that passed `t < best.key`, which
+// no NaN does.
 element Pair {
     key : f32;
     id : u32;
@@ -37,12 +51,22 @@ func [[export]] guarded(a : f32, t : f32, d : f32) -> f32 {
     if !(lo < t) {
         return inf;
     }
-    return t * rcp(abs(d));
+    return t * rcp_approx(abs(d));
 }
 
 func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
     lo = abs(a);
-    return select(lo < t, t * rcp(abs(d)), inf);
+    return select(lo < t, t * rcp_approx(abs(d)), inf);
+}
+
+func [[export]] refined(a : f32, t : f32, d : f32) -> f32 {
+    lo = abs(a) * 0.0;
+    if !(lo < t) {
+        return inf;
+    }
+    x = abs(d);
+    r = rcp_approx(x);
+    return t * (r + r * (1.0 - x * r));
 }
 
 func narrow(best : mut Pair, d : f32, i : u32) -> f32 {

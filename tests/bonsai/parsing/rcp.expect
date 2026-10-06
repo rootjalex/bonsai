@@ -1,11 +1,11 @@
 type vec3f = f32x3
 
 func lanes(v : f32x3) -> f32x3 {
-  return rcp(v)
+  return rcp_approx(v)
 }
 
 func scalar(x : f32) -> f32 {
-  return rcp(x)
+  return rcp_approx(x)
 }
 
 

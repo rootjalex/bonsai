@@ -151,11 +151,13 @@ driver, the two sides' kernels told apart by symbol).
   an absolute epsilon on the determinant (`intersectWideTriangle`), its
   point-to-box distances (`overlapWideBox`) and its closest point on a
   triangle with enoki's reciprocal and a root per lane squared back
-  (`findClosestPointWideTriangle`). enoki's reciprocal is written out
-  (`rcp_fcpw`: the machine's estimate, `rcp_estimate`, then `2r - (r m) r`
-  in one fused step) because it rounds differently from Embree's `rcp` in a
-  third of all inputs. The same computation on both sides is what makes a
-  table measure the traversal and not the algorithm.
+  (`findClosestPointWideTriangle`). Each library's reciprocal is written
+  out over the machine's estimate instruction, `rcp_approx` (the one
+  reciprocal primitive the language has): Embree's `rcp_embree`, `r + r (1
+  - a r)` as two fused multiply-adds, and enoki's `rcp_fcpw`, `2r - (r m) r`
+  in one fused step, which round differently in a third of all inputs. The
+  same computation on both sides is what makes a table measure the
+  traversal and not the algorithm.
 - `schedules/trees/bvh8.bonsai`, `schedules/trees/bvh4.bonsai`: the
   trees, declared once each -- a node holding its eight (or four)
   children as an array with one box annotation over them, a leaf holding
