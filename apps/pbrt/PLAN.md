@@ -10782,9 +10782,13 @@ reload pattern, the driver's local-memory spill-and-reload of the
 record replaced by coalesced read-only loads of the SOA arrays after
 the trace, which is what the stall counters pointed at all along.
 Remaining on the item: the trace's own 14%, the 10x dead-sweep floor,
-and re-measuring explosion/bunny-cloud (same spill, bunny-cloud on
-hold). explosion's rays raygen rising 0.30 -> 0.47 s under the
-nanovdb change may be the same spill grown. One hardening noted for
+and bunny-cloud when the hold lifts. explosion re-measured under the
+fix (2026-10-05, same harness, images matching at both spp): the rays
+raygen's nanovdb-era rise WAS the same spill -- 0.47 s back to 0.306
+at 64 spp, below the 0.30 it rose from -- and the walls 1.10x -> 1.18x
+at 16 spp, 1.14x holding at 64, where the shadow-transmittance march
+(835.70 ms of 2458, 0.73 ms a launch against pbrt's ~0.62) still owns
+the time; that march stays the open explosion item. One hardening noted for
 the compiler (roots_related, SSA/Analysis.cpp): the wrapped-vs-flat
 root rule leans on Defer's parity invariant -- a drain never writes
 the slot it drains -- rather than proving it from the names; if a
