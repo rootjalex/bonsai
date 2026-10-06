@@ -10992,6 +10992,52 @@ watercolor shadow 1.13-1.14x, bistro shadow 1.15-1.16x, dambreak
 materials 1.07x. The 13-scene 16/64/128 table the user ordered waits
 on closing these, per their gate.
 
+**The witness built, measured, and honest about what it did NOT close
+-- 2026-10-06 afternoon (5a6a6b2f the compiler and stdlib; the
+renderer in the commit after this note).** The user's ruling: OptiX
+binding is instruction selection -- trace() computes the hit's record
+in the source and the binding reads it from the hardware. Implemented
+whole (the commit message carries the design); the renderer's trace
+and trace_any annotate with `intersection(q, transform(p, g))`, trace
+answers (Primitive, Geometric, Hit), hit_geometry(sh, r, h)
+interpolates a triangle's geometry from the carried barycentrics
+(pbrt's InteractionFromIntersection shape; quadrics keep their
+derivation, t-only reconstruction noted as the next cut), and
+alpha_accepts reads the hit's uv with no second intersection. The
+rescale-loop discovery en route: pbrt's own anyhit is NOT a record
+load and a fetch -- it builds the full SurfaceInteraction (optix.cu
+getTriangleIntersection), 3,964 PTX lines and 74 global loads, with
+SetShadingGeometry's divide-until-small guard loop intact, because
+neither nvcc nor our LLVM used to prove the dead loop finite. Our
+forward-progress clause (mustprogress, same commit) deletes it and
+everything it pinned, so our triangle anyhit alpha path now computes
+LESS than pbrt's own. MEASURED (gpu_compare, least of 5, 16/64 spp,
+images matching except bistro's stable known bias): the march and
+medium wins hold, walls hold (bistro 1.71x/1.46x, landscape
+1.12x/1.05x, watercolor 2.38x/2.24x), the medium-sample kernel lost
+another re-derivation (-6.9k PTX lines, t from the witness), BUT the
+three cutout stage cells barely moved: landscape trace 1.13 -> 1.10x,
+watercolor 1.19x/1.14x unchanged, bistro shadow 1.16 -> 1.21x --
+WORSE, and mustprogress moved none of them. The standing lead, same
+fingerprint as the Dielectric finding: our anyhit executes against
+171 static global loads where pbrt's holds 74 -- the per-candidate
+element bind (`stored_element` pulling the whole Geometric, the Shape
+ADT with two embedded 4x4-row transforms per quadric variant, where
+pbrt's TriangleMeshRecord is four pointers) and the five dead shape
+arms' code. NEXT, by the user's method (profile, don't guess twice):
+the ncu pair on bistro's loaded shadow launch -- instruction and
+sector counts ours against pbrt's -- then either field-narrowed
+element loads in hit programs (load what the body reads, not the
+element) or the per-kind element layout, whichever the counters
+convict. ALSO open: dambreak materials 1.07x (the hits kernels carry
+surf precomputed; the witness never touched them -- the 2.3x
+instruction excess there needs its own profile against pbrt's
+MaterialEvalWorkItem flow), and the plain-set witness gap (a query
+over a set with no tree dies at the inliner's rebuild after
+LowerTuples rewrites the element tuple under the componentwise
+lambdas; correctness/llvm/witness-query.bonsai sits unregistered with
+the diagnosis).
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24

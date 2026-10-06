@@ -1218,11 +1218,16 @@ func hit_wo(p : Primitive, sh : Shape, r : Ray) -> vec3f {
 // alpha-masked foliage -- every instanced leaf's accept flipped against
 // `pbrt --gpu`'s coin, a two-sided speckle of ~112k lit pixels at 16 spp
 // that no sampler match could close.
-func alpha_accepts(r : Ray, world : Ray, p : Geometric) -> bool {
+func alpha_accepts(r : Ray, world : Ray, p : Geometric, h : Hit) -> bool {
     if p.alpha < 0 {
         return true;
     }
-    g = surface_geometry(p.shape, r);
+    // The hit's own geometry, from the record the query carried -- a
+    // barycentric interpolation, not a second intersection: pbrt's anyhit
+    // reads optixGetTriangleBarycentrics and nothing else of the hit. The
+    // record is valid wherever this conjunct runs: it follows `intersects`,
+    // whose hit it is, and the hardware's anyhit binds it from the hit.
+    g = hit_geometry(p.shape, r, h);
     // pbrt: `alpha.Evaluate(TextureEvalContext(intr))`, the context of a bare
     // Interaction -- its point and uv, no footprint and no normal. Through
     // the BASIC evaluator, as pbrt's anyhit does (BasicTextureEvaluator):
@@ -1336,6 +1341,8 @@ extern rho_uy : array[Float];
 func distmin(q : RaySegment, p : Geometric) -> Float = distmin(q, p.shape);
 func distmax(q : RaySegment, p : Geometric) -> Float = distmax(q, p.shape);
 func intersects(q : RaySegment, p : Geometric) -> bool = intersects(q, p.shape);
+func intersection(q : RaySegment, p : Geometric) -> Hit =
+    intersection(q, p.shape);
 
 extern primitives : set[Primitive];
 
@@ -1367,12 +1374,24 @@ extern primitives : set[Primitive];
 // and the wall came out several times as bright as pbrt's.
 // `q` is pbrt's `(ray, tMax)`: the ray, and how far along it a hit counts --
 // infinity for a path's ray, `shadow_tmax()` for a shadow ray's.
+// The map annotates every candidate with `intersection(q, ...)` -- the
+// record of the same test `intersects` names and `distmin` keys (t and the
+// surface parameters, a triangle's barycentrics) -- so the hit the argmin
+// answers carries its own parameterization and nothing downstream intersects
+// it again: pbrt's wavefront, whose work items leave the closest-hit program
+// with (b0, b1, b2) already in hand. The three ask one question; the leaf
+// evaluates them together and CSE keeps one test. Under bind(RTCore) the
+// annotation is never computed at all: the hit programs read it from the
+// hardware (Lower/Trees.cpp bind_witness).
 func trace(q : RaySegment) =
-    argmin(|p : Primitive, g : Geometric| distmin(q, transform(p, g)),
-           filter(|p : Primitive, g : Geometric|
+    argmin(|p : Primitive, g : Geometric, h : Hit|
+               distmin(q, transform(p, g)),
+           filter(|p : Primitive, g : Geometric, h : Hit|
                       intersects(q, transform(p, g)) &&
-                      alpha_accepts(untransform(p, q.ray), q.ray, g),
-                  flatten(|p : Primitive| geometry(p), primitives)));
+                      alpha_accepts(untransform(p, q.ray), q.ray, g, h),
+                  map(|p : Primitive, g : Geometric|
+                          (p, g, intersection(q, transform(p, g))),
+                      flatten(|p : Primitive| geometry(p), primitives))));
 
 // pbrt: Primitive::IntersectP -- is there *anything* along this ray?
 //
@@ -1391,10 +1410,12 @@ func trace(q : RaySegment) =
 // texture, rather than the shape's cheaper occlusion test. A leaf that a camera
 // ray passes through must not cast a shadow.
 func trace_any(q : RaySegment) =
-    any(|p : Primitive, g : Geometric|
+    any(|p : Primitive, g : Geometric, h : Hit|
             intersects(q, transform(p, g)) &&
-            alpha_accepts(untransform(p, q.ray), q.ray, g),
-        flatten(|p : Primitive| geometry(p), primitives));
+            alpha_accepts(untransform(p, q.ray), q.ray, g, h),
+        map(|p : Primitive, g : Geometric|
+                (p, g, intersection(q, transform(p, g))),
+            flatten(|p : Primitive| geometry(p), primitives)));
 
 // pbrt: VisibleSurface, what a camera ray leaves behind for the film to
 // record. pbrt fills one of these from a single intersection and the gbuffer
@@ -1519,12 +1540,14 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
+    hrec = reached[2];
     // pbrt: the geometry computes its interaction in the frame it was tested
     // in -- an instance's own, for a TransformedPrimitive -- and
     // TransformedPrimitive::Intersect moves it into render space once. So the
     // ray is the one the traversal tested with, pulled back where it was, and
     // the transform is the one pbrt applies on the way out.
-    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
+    surf = transform(via,
+                     hit_geometry(prim.shape, untransform(via, ray), hrec));
     // pbrt: `Vector3f wo = -ray.d`, and *not* `isect.wo`. The two differ:
     // Interaction's constructor normalizes the direction it is handed, and this
     // integrator never asks it for one -- it negates the ray directly. A camera
@@ -1661,12 +1684,14 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
+    hrec = reached[2];
     // pbrt: the geometry computes its interaction in the frame it was tested
     // in -- an instance's own, for a TransformedPrimitive -- and
     // TransformedPrimitive::Intersect moves it into render space once. So the
     // ray is the one the traversal tested with, pulled back where it was, and
     // the transform is the one pbrt applies on the way out.
-    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
+    surf = transform(via,
+                     hit_geometry(prim.shape, untransform(via, ray), hrec));
     // Raw rather than normalized, as in `walk_step` above and for the same
     // reason: pbrt's SimplePathIntegrator writes `Vector3f wo = -ray.d`.
     wo = -ray.d;
@@ -1932,12 +1957,14 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
+    hrec = reached[2];
     // pbrt: the geometry computes its interaction in the frame it was tested
     // in -- an instance's own, for a TransformedPrimitive -- and
     // TransformedPrimitive::Intersect moves it into render space once. So the
     // ray is the one the traversal tested with, pulled back where it was, and
     // the transform is the one pbrt applies on the way out.
-    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
+    surf = transform(via,
+                     hit_geometry(prim.shape, untransform(via, ray), hrec));
     // Both of them, because pbrt uses both. `Li` writes
     // `Vector3f wo = -ray.d` and hands *that* to `Le` and to `Sample_f`;
     // `SampleLd` and the visible surface's `rho` read `isect.wo`, which
@@ -2341,13 +2368,14 @@ func vol_shadow_step(light_ray : Ray, tmax : Float, medium : i32,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
+    hrec = reached[2];
     if prim.material >= 0 {
         return blocked;
     }
     // The boundary crossed: where this segment ends, and where the next one
     // starts from.
-    surf = transform(via, surface_geometry(prim.shape,
-                                           untransform(via, light_ray)));
+    surf = transform(via, hit_geometry(prim.shape,
+                                       untransform(via, light_ray), hrec));
     t_hit = sqrt(sqlen_(light_ray.o - surf.p)) / sqrt(sqlen_(light_ray.d));
     tracked = vol_shadow_segment(light_ray, medium, t_hit, tr, rng, lambda);
     if !nonzero(tracked.t_ray) {
@@ -2786,7 +2814,8 @@ func vol_path_step(ray : Ray, medium : i32,
 // to the same three places the trace kernel sends a ray in no medium. pbrt
 // writes that routing twice ("this is all basically duplicate code"); here
 // it is `vol_route`, once.
-func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
+func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
+                       ray : Ray,
                        medium : i32,
                        camera : PerspectiveCamera, spp_scale : Float,
                        beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
@@ -2802,8 +2831,10 @@ func vol_medium_sample(isect : option[(Primitive, Geometric)], ray : Ray,
                        l : reduce(+) vec4f) -> void {
     t_hit : mut Float = inf;
     if isect {
+        // The hit's own t, carried by the query's record -- this used to
+        // re-run the intersection as `distmin(q, transform(...))`.
         ahead = *isect;
-        t_hit = distmin(RaySegment{ray, inf}, transform(ahead[0], ahead[1]));
+        t_hit = ahead[2].t;
     }
     // pbrt's wavefront: `RNG rng(Hash(ray.o, tMax), Hash(ray.d))` -- seeded
     // from the ray and the hit's distance (infinity for a miss), media.cpp:44
@@ -2941,7 +2972,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
 // spawned calls: their values go into `l` and nowhere else, so a schedule
 // may queue them (HandleEscapedRays, HandleEmissiveIntersection), and the
 // surface goes on to `vol_surface`, the material kernel.
-func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
+func vol_route(isect : option[(Primitive, Geometric, Hit)],
+               ray : Ray, medium : i32,
                camera : PerspectiveCamera,
                spp_scale : Float, beta : vec4f, r_u : vec4f, r_l : vec4f,
                depth : i32, wave : i32, specular_bounce : bool,
@@ -2968,7 +3000,9 @@ func vol_route(isect : option[(Primitive, Geometric)], ray : Ray, medium : i32,
     reached = *isect;
     via = reached[0];
     prim = reached[1];
-    surf = transform(via, surface_geometry(prim.shape, untransform(via, ray)));
+    hrec = reached[2];
+    surf = transform(via,
+                     hit_geometry(prim.shape, untransform(via, ray), hrec));
     // pbrt's wavefront, in the trace kernel's epilogue
     // (EnqueueWorkAfterIntersection, wavefront/intersect.h, and media.cpp
     // after a medium): `if (!material) { ... nextRayQueue->PushIndirectRay(
@@ -3349,7 +3383,9 @@ func vol_probe_step(o : vec3f, o_error : vec3f, o_n : vec3f, p1 : vec3f,
     reached = *isect;
     via = reached[0];
     hit_prim = reached[1];
-    surf = transform(via, surface_geometry(hit_prim.shape, untransform(via, r)));
+    hrec = reached[2];
+    surf = transform(via,
+                     hit_geometry(hit_prim.shape, untransform(via, r), hrec));
     next_count : mut i32 = n_hits;
     next_kept : mut SurfaceGeometry = kept;
     if hit_prim.material == mat {
@@ -3715,8 +3751,10 @@ func [[export]] hit_at(camera : PerspectiveCamera, sampler : Sampler,
     isect = trace(RaySegment{ray, inf});
     t_hit : mut Float = inf;
     if isect {
+        // The hit's own t, carried by the query's record -- this used to
+        // re-run the intersection as `distmin(q, transform(...))`.
         ahead = *isect;
-        t_hit = distmin(RaySegment{ray, inf}, transform(ahead[0], ahead[1]));
+        t_hit = ahead[2].t;
     }
     out[0u] = ray.o.x;
     out[1u] = ray.o.y;

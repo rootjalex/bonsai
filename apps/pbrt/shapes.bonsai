@@ -385,6 +385,20 @@ element TriangleHit {
     b : vec3f;
 }
 
+// The record the query's `intersection(q, G)` answers -- the hit's ray
+// parameter and the surface parameters of the point it names, which is what
+// the RT cores report of a hit and what pbrt's wavefront carries in its work
+// items in place of a second intersection. `b` is a triangle's second and
+// third barycentrics (the weights of p1 and p2, OptiX's convention and
+// pbrt's b1, b2); a shape whose point `t` alone fixes -- every quadric, as
+// pbrt reconstructs them -- leaves it zero. The type is the one the
+// `intersection` geometric op fixes (ir::hit_record_type): field for field
+// `{ t : f32; b : vec2f }`, checked at dispatch.
+element Hit {
+    t : Float;
+    b : vec2f;
+}
+
 // pbrt: IntersectTriangle from shapes.cpp, which is watertight: the ray is
 // moved to its own coordinate space, the largest component of its direction
 // is permuted into z, and the vertices are sheared so that the edge tests are
@@ -1431,6 +1445,72 @@ func [[inline]] intersects(q : RaySegment, sh : Shape) -> bool {
         Blp(b) => return cast[[bool]](patch_hit(q.ray, q.tmax, b));
         Cyl(c) => return cast[[bool]](cylinder_hit(q.ray, q.tmax, c));
         Crv(cv) => return cast[[bool]](curve_hit(q.ray, q.tmax, cv));
+    }
+}
+
+// The record of the hit `intersects` reports and `distmin` keys: the same
+// test once more, which costs nothing where all three are asked together --
+// the query's leaf evaluates them in one function and CSE keeps one call.
+// A miss answers t = inf exactly as distmin does; validity is `intersects`'
+// word, the conjunct that gates every consumer of the record. A triangle's
+// surface parameters are its barycentrics (b1, b2, the weights of p1 and
+// p2); every other shape reconstructs its point from `t` alone
+// (hit_geometry below), so its parameters are zero -- the bilinear patch's
+// own uv included, since the record must say the same thing on every path
+// and the hardware's custom-primitive flavor has no parameters to report
+// (v2 carries them through the intersection program's attribute registers).
+func [[inline]] intersection(q : RaySegment, sh : Shape) -> Hit {
+    zero = vec2f{0.0, 0.0};
+    nothing : Hit = {inf, zero};
+    match sh {
+        Sph(s) => {
+            hit = sphere_hit(q.ray, q.tmax, s);
+            if hit {
+                found : Hit = {(*hit).t, zero};
+                return found;
+            }
+            return nothing;
+        }
+        Tri(t) => {
+            hit = triangle_hit(q.ray, q.tmax, t);
+            if hit {
+                found : Hit = {(*hit).t, vec2f{(*hit).b.y, (*hit).b.z}};
+                return found;
+            }
+            return nothing;
+        }
+        Dsk(d) => {
+            hit = disk_hit(q.ray, q.tmax, d);
+            if hit {
+                found : Hit = {(*hit).t, zero};
+                return found;
+            }
+            return nothing;
+        }
+        Blp(b) => {
+            hit = patch_hit(q.ray, q.tmax, b);
+            if hit {
+                found : Hit = {(*hit).t, zero};
+                return found;
+            }
+            return nothing;
+        }
+        Cyl(c) => {
+            hit = cylinder_hit(q.ray, q.tmax, c);
+            if hit {
+                found : Hit = {(*hit).t, zero};
+                return found;
+            }
+            return nothing;
+        }
+        Crv(cv) => {
+            hit = curve_hit(q.ray, q.tmax, cv);
+            if hit {
+                found : Hit = {(*hit).t, zero};
+                return found;
+            }
+            return nothing;
+        }
     }
 }
 
@@ -3461,6 +3541,28 @@ func surface_geometry(sh : Shape, r : Ray) -> SurfaceGeometry {
             }
             return missed;
         }
+    }
+}
+
+// The geometry of a hit whose record the query carried (the map's
+// `intersection(q, G)` witness): no second intersection. A triangle's
+// geometry interpolates the carried barycentrics -- pbrt's wavefront shape,
+// its MaterialEvalWorkItem's (b0, b1, b2) -- and the lax re-projection
+// fallback of the record-less form above has nothing to fall back FROM: the
+// barycentrics are the hit's own, however the reporting test rounded, so
+// the hazard that form guards (a hardware hit pbrt's stricter test refuses)
+// does not arise. Every other shape keeps the derivation above for now --
+// none sits in a measured deficit -- with the `t`-only reconstruction
+// (sphere_point, cylinder_point) noted in PLAN.md as the next cut.
+func hit_geometry(sh : Shape, r : Ray, h : Hit) -> SurfaceGeometry {
+    match sh {
+        Tri(tri) => return triangle_geometry(
+            tri, vec3f{1.0 - h.b.x - h.b.y, h.b.x, h.b.y});
+        Sph(s) => return surface_geometry(sh, r);
+        Dsk(d) => return surface_geometry(sh, r);
+        Blp(b) => return surface_geometry(sh, r);
+        Cyl(c) => return surface_geometry(sh, r);
+        Crv(cv) => return surface_geometry(sh, r);
     }
 }
 
