@@ -47,12 +47,12 @@ func sum_to$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> vo
     let @3 = (*acc!loop!loop) + (*n!loop!loop) in
     let @8 = select(@6, @2, (*n!loop!loop)) in
     let @9 = select(@6, @3, (*acc!loop!loop)) in
-    let @11 = select(@6, (*!live), @10) in
+    let @26 = select(@6, @23, @10) in
     let @13 = select(@6, (*!exit.then_0), @12) in
     let @15 = select(@6, (*!track.then_0.0), @14) in
     n!loop!loop = @8
     acc!loop!loop = @9
-    !live = @11
+    !live = @26
     !exit.then_0 = @13
     !track.then_0.0 = @15
   }
@@ -126,26 +126,26 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
     let @5 = (*acc!loop!loop) + (*n!loop!loop) in
     let @16 = select(@11, @4, (*n!loop!loop)) in
     let @17 = select(@11, @5, (*acc!loop!loop)) in
-    let @20 = select(@11, (*!live), @19) in
+    let @49 = select(@11, @44, @19) in
     let @22 = select(@11, (*!exit.then_2), @21) in
     let @25 = select(@11, (*!exit.then_0), @24) in
     let @28 = select(@11, (*!track.then_0.0), @27) in
     n!loop!loop = @16
     acc!loop!loop = @17
-    !live = @20
+    !live = @49
     !exit.then_2 = @22
     !exit.then_0 = @25
     !track.then_0.0 = @28
   }
-  let @49 = !(*!exit.then_2) in
+  let @50 = !(*!exit.then_2) in
   let @15 = reduce<any>((*!exit.then_2)) in
   if (@15) {
     let @42 = i32x8(-1) in
     masked_store(out[i], @42, (*!exit.then_2))
   }
-  let @14 = reduce<any>(@49) in
+  let @14 = reduce<any>(@50) in
   if (@14) {
-    masked_store(out[i], (*!track.then_0.0), @49)
+    masked_store(out[i], (*!track.then_0.0), @50)
   }
   return
 }

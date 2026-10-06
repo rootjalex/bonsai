@@ -71,197 +71,196 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let org_rdir$i15 = @28 * rdir$i15 in
           let @30 = f32x3(0f) in
           let dirIsNeg$i15 = rdir$i15 < @30 in
-          let @432 = dirIsNeg$i15[0u] in
-          let @465 = boolx4(@432) in
-          let @435 = select(@465, @17, @9) in
-          let @436 = dirIsNeg$i15[1u] in
-          let @466 = boolx4(@436) in
-          let @439 = select(@466, @19, @11) in
-          let @440 = dirIsNeg$i15[2u] in
-          let @467 = boolx4(@440) in
-          let @443 = select(@467, @21, @13) in
-          let @444 = select(@465, @9, @17) in
-          let @445 = select(@466, @11, @19) in
-          let @446 = select(@467, @13, @21) in
-          let @447 = rdir$i15[0u] in
-          let @471 = f32x4(@447) in
-          let @448 = @435 * @471 in
-          let @449 = rdir$i15[1u] in
-          let @472 = f32x4(@449) in
-          let @450 = @439 * @472 in
-          let @451 = rdir$i15[2u] in
-          let @473 = f32x4(@451) in
-          let @452 = @443 * @473 in
-          let @453 = org_rdir$i15[0u] in
-          let @474 = f32x4(@453) in
-          let @454 = @448 - @474 in
-          let @455 = org_rdir$i15[1u] in
-          let @475 = f32x4(@455) in
-          let @456 = @450 - @475 in
-          let @457 = org_rdir$i15[2u] in
-          let @476 = f32x4(@457) in
-          let @458 = @452 - @476 in
-          let @459 = @444 * @471 in
-          let @460 = @445 * @472 in
+          let @434 = dirIsNeg$i15[0u] in
+          let @467 = boolx4(@434) in
+          let @437 = select(@467, @17, @9) in
+          let @438 = dirIsNeg$i15[1u] in
+          let @468 = boolx4(@438) in
+          let @441 = select(@468, @19, @11) in
+          let @442 = dirIsNeg$i15[2u] in
+          let @469 = boolx4(@442) in
+          let @445 = select(@469, @21, @13) in
+          let @446 = select(@467, @9, @17) in
+          let @447 = select(@468, @11, @19) in
+          let @448 = select(@469, @13, @21) in
+          let @449 = rdir$i15[0u] in
+          let @473 = f32x4(@449) in
+          let @450 = @437 * @473 in
+          let @451 = rdir$i15[1u] in
+          let @474 = f32x4(@451) in
+          let @452 = @441 * @474 in
+          let @453 = rdir$i15[2u] in
+          let @475 = f32x4(@453) in
+          let @454 = @445 * @475 in
+          let @455 = org_rdir$i15[0u] in
+          let @476 = f32x4(@455) in
+          let @456 = @450 - @476 in
+          let @457 = org_rdir$i15[1u] in
+          let @477 = f32x4(@457) in
+          let @458 = @452 - @477 in
+          let @459 = org_rdir$i15[2u] in
+          let @478 = f32x4(@459) in
+          let @460 = @454 - @478 in
           let @461 = @446 * @473 in
-          let @462 = @459 - @474 in
-          let @463 = @460 - @475 in
+          let @462 = @447 * @474 in
+          let @463 = @448 * @475 in
           let @464 = @461 - @476 in
-          let @42 = max(@454, @456) in
+          let @465 = @462 - @477 in
+          let @466 = @463 - @478 in
+          let @42 = max(@456, @458) in
           let @44 = r.tnear in
-          let @483 = f32x4(@44) in
-          let @45 = max(@458, @483) in
+          let @485 = f32x4(@44) in
+          let @45 = max(@460, @485) in
           let tNear$i15 = max(@42, @45) in
-          let @49 = min(@462, @463) in
+          let @49 = min(@464, @465) in
           let @51 = r.tfar in
-          let @484 = f32x4(@51) in
-          let @52 = min(@464, @484) in
+          let @486 = f32x4(@51) in
+          let @52 = min(@466, @486) in
           let tFar$i15 = min(@49, @52) in
           let @54 = tNear$i15 <= tFar$i15 in
-          let @485 = boolx4(false) in
-          let @761 = !@54 in
-          let @614 = (f32)inf in
-          let @615 = f32x4(@614) in
+          let @487 = boolx4(false) in
+          let @763 = !@54 in
+          let @616 = (f32)inf in
+          let @617 = f32x4(@616) in
           let @96 = (*_best0) in
           let @97 = @96._field0 in
-          let @499 = f32x4(@97) in
-          let @98 = tNear$i15 < @499 in
-          let @428 = select(@54, @98, @485) in
-          _mask0[ramp(0u, 1u, 4)] = @428
+          let @501 = f32x4(@97) in
+          let @98 = tNear$i15 < @501 in
+          let @430 = select(@54, @98, @487) in
+          _mask0[ramp(0u, 1u, 4)] = @430
           let tNear$i16 = tNear$i15 in
-          let @765 = select(@761, @615, tNear$i16) in
-          _carry0[ramp(0u, 1u, 4)] = @765
-          _keys0[ramp(0u, 1u, 4)] = @765
-          let @300 = _mask0[ramp(0u, 1u, 4)] in
-          let @302 = _keys0[ramp(0u, 1u, 4)] in
-          let @304 = _carry0[ramp(0u, 1u, 4)] in
-          let @305 = reinterpret_cast<i32x4>(@302) in
-          let @312 = reduce<any>(@300) in
+          let @767 = select(@763, @617, tNear$i16) in
+          _carry0[ramp(0u, 1u, 4)] = @767
+          _keys0[ramp(0u, 1u, 4)] = @767
+          let @305 = reinterpret_cast<i32x4>(@767) in
+          let @312 = reduce<any>(@430) in
           if (@312) {
-            let @313 = reinterpret_cast<u4>(@300) in
+            let @313 = reinterpret_cast<u4>(@430) in
             let @314 = cast<u32>(@313) in
             let @315 = ctz(@314) in
-            let @414 = reinterpret_cast<const u32[4]>((&@5[@6].children)) in
-            let @416 = @414[@315] in
-            let @317 = @304[@315] in
+            let @416 = reinterpret_cast<const u32[4]>((&@5[@6].children)) in
+            let @418 = @416[@315] in
+            let @317 = @767[@315] in
             let @318 = @314 - 1u in
             let @319 = @314 & @318 in
             let @320 = @319 != 0u in
             if (@320) {
               let @321 = ctz(@319) in
-              @311[ramp(0u, 1u, 4)] = @305
-              let @326 = @311[@315] in
-              let @327 = @326 >> 31 in
-              let @328 = @327 & 2147483647 in
-              let @329 = @326 ^ @328 in
-              let @331 = @311[@321] in
-              let @332 = @331 >> 31 in
-              let @333 = @332 & 2147483647 in
-              let @334 = @331 ^ @333 in
-              let @418 = @414[@321] in
-              let @336 = @329 < @334 in
-              let @337 = select(@336, @329, @334) in
-              let @338 = select(@336, @334, @329) in
-              let @339 = select(@336, @416, @418) in
-              let @340 = select(@336, @418, @416) in
-              let @341 = select(@336, @326, @331) in
-              let @342 = select(@336, @331, @326) in
-              let @345 = @319 - 1u in
-              let @346 = @319 & @345 in
-              let @347 = @346 != 0u in
-              if (@347) {
-                let @348 = ctz(@346) in
-                let @350 = @311[@348] in
-                let @351 = @350 >> 31 in
-                let @352 = @351 & 2147483647 in
-                let @353 = @350 ^ @352 in
-                let @420 = @414[@348] in
-                let @355 = @337 < @353 in
-                let @356 = select(@355, @337, @353) in
-                let @357 = select(@355, @353, @337) in
-                let @358 = select(@355, @339, @420) in
-                let @359 = select(@355, @420, @339) in
-                let @360 = select(@355, @341, @350) in
-                let @361 = select(@355, @350, @341) in
-                let @362 = @338 < @357 in
-                let @363 = select(@362, @338, @357) in
-                let @364 = select(@362, @357, @338) in
-                let @365 = select(@362, @340, @359) in
-                let @366 = select(@362, @359, @340) in
-                let @367 = select(@362, @342, @361) in
-                let @368 = select(@362, @361, @342) in
-                let @372 = @346 - 1u in
-                let @373 = @346 & @372 in
-                let @374 = @373 != 0u in
-                if (@374) {
-                  let @375 = ctz(@373) in
-                  let @377 = @311[@375] in
-                  let @378 = @377 >> 31 in
-                  let @379 = @378 & 2147483647 in
-                  let @380 = @377 ^ @379 in
-                  let @422 = @414[@375] in
-                  let @382 = @356 < @380 in
-                  let @384 = select(@382, @380, @356) in
-                  let @385 = select(@382, @358, @422) in
-                  let @386 = select(@382, @422, @358) in
-                  let @387 = select(@382, @360, @377) in
-                  let @388 = select(@382, @377, @360) in
-                  let @389 = @363 < @384 in
-                  let @391 = select(@389, @384, @363) in
-                  let @392 = select(@389, @365, @386) in
-                  let @393 = select(@389, @386, @365) in
-                  let @394 = select(@389, @367, @388) in
-                  let @395 = select(@389, @388, @367) in
-                  let @396 = @364 < @391 in
-                  let @399 = select(@396, @366, @393) in
-                  let @400 = select(@396, @393, @366) in
-                  let @401 = select(@396, @368, @395) in
-                  let @402 = select(@396, @395, @368) in
-                  let @403 = reinterpret_cast<f32>(@387) in
-                  let @404 = reinterpret_cast<f32>(@394) in
-                  let @405 = reinterpret_cast<f32>(@401) in
-                  let @406 = reinterpret_cast<f32>(@402) in
-                  !stack[(*!count)] = @400
-                  !stack0[(*!count)] = @406
-                  let @752 = (*!count) + 1u in
-                  !stack[@752] = @399
-                  !stack0[@752] = @405
-                  let @756 = @752 + 1u in
-                  !stack[@756] = @392
-                  !stack0[@756] = @404
-                  let @760 = @756 + 1u in
-                  tris_ref!top = @385
-                  _bound0!top = @403
-                  !count = @760
+              let @324 = i32x4(0) in
+              let @325 = select(@430, @305, @324) in
+              @311[ramp(0u, 1u, 4)] = @325
+              let @328 = @311[@315] in
+              let @329 = @328 >> 31 in
+              let @330 = @329 & 2147483647 in
+              let @331 = @328 ^ @330 in
+              let @333 = @311[@321] in
+              let @334 = @333 >> 31 in
+              let @335 = @334 & 2147483647 in
+              let @336 = @333 ^ @335 in
+              let @420 = @416[@321] in
+              let @338 = @331 < @336 in
+              let @339 = select(@338, @331, @336) in
+              let @340 = select(@338, @336, @331) in
+              let @341 = select(@338, @418, @420) in
+              let @342 = select(@338, @420, @418) in
+              let @343 = select(@338, @328, @333) in
+              let @344 = select(@338, @333, @328) in
+              let @347 = @319 - 1u in
+              let @348 = @319 & @347 in
+              let @349 = @348 != 0u in
+              if (@349) {
+                let @350 = ctz(@348) in
+                let @352 = @311[@350] in
+                let @353 = @352 >> 31 in
+                let @354 = @353 & 2147483647 in
+                let @355 = @352 ^ @354 in
+                let @422 = @416[@350] in
+                let @357 = @339 < @355 in
+                let @358 = select(@357, @339, @355) in
+                let @359 = select(@357, @355, @339) in
+                let @360 = select(@357, @341, @422) in
+                let @361 = select(@357, @422, @341) in
+                let @362 = select(@357, @343, @352) in
+                let @363 = select(@357, @352, @343) in
+                let @364 = @340 < @359 in
+                let @365 = select(@364, @340, @359) in
+                let @366 = select(@364, @359, @340) in
+                let @367 = select(@364, @342, @361) in
+                let @368 = select(@364, @361, @342) in
+                let @369 = select(@364, @344, @363) in
+                let @370 = select(@364, @363, @344) in
+                let @374 = @348 - 1u in
+                let @375 = @348 & @374 in
+                let @376 = @375 != 0u in
+                if (@376) {
+                  let @377 = ctz(@375) in
+                  let @379 = @311[@377] in
+                  let @380 = @379 >> 31 in
+                  let @381 = @380 & 2147483647 in
+                  let @382 = @379 ^ @381 in
+                  let @424 = @416[@377] in
+                  let @384 = @358 < @382 in
+                  let @386 = select(@384, @382, @358) in
+                  let @387 = select(@384, @360, @424) in
+                  let @388 = select(@384, @424, @360) in
+                  let @389 = select(@384, @362, @379) in
+                  let @390 = select(@384, @379, @362) in
+                  let @391 = @365 < @386 in
+                  let @393 = select(@391, @386, @365) in
+                  let @394 = select(@391, @367, @388) in
+                  let @395 = select(@391, @388, @367) in
+                  let @396 = select(@391, @369, @390) in
+                  let @397 = select(@391, @390, @369) in
+                  let @398 = @366 < @393 in
+                  let @401 = select(@398, @368, @395) in
+                  let @402 = select(@398, @395, @368) in
+                  let @403 = select(@398, @370, @397) in
+                  let @404 = select(@398, @397, @370) in
+                  let @405 = reinterpret_cast<f32>(@389) in
+                  let @406 = reinterpret_cast<f32>(@396) in
+                  let @407 = reinterpret_cast<f32>(@403) in
+                  let @408 = reinterpret_cast<f32>(@404) in
+                  !stack[(*!count)] = @402
+                  !stack0[(*!count)] = @408
+                  let @754 = (*!count) + 1u in
+                  !stack[@754] = @401
+                  !stack0[@754] = @407
+                  let @758 = @754 + 1u in
+                  !stack[@758] = @394
+                  !stack0[@758] = @406
+                  let @762 = @758 + 1u in
+                  tris_ref!top = @387
+                  _bound0!top = @405
+                  !count = @762
                   continue
                 } else {
-                  let @369 = reinterpret_cast<f32>(@360) in
-                  let @370 = reinterpret_cast<f32>(@367) in
-                  let @371 = reinterpret_cast<f32>(@368) in
-                  !stack[(*!count)] = @366
-                  !stack0[(*!count)] = @371
-                  let @744 = (*!count) + 1u in
-                  !stack[@744] = @365
-                  !stack0[@744] = @370
-                  let @748 = @744 + 1u in
-                  tris_ref!top = @358
-                  _bound0!top = @369
-                  !count = @748
+                  let @371 = reinterpret_cast<f32>(@362) in
+                  let @372 = reinterpret_cast<f32>(@369) in
+                  let @373 = reinterpret_cast<f32>(@370) in
+                  !stack[(*!count)] = @368
+                  !stack0[(*!count)] = @373
+                  let @746 = (*!count) + 1u in
+                  !stack[@746] = @367
+                  !stack0[@746] = @372
+                  let @750 = @746 + 1u in
+                  tris_ref!top = @360
+                  _bound0!top = @371
+                  !count = @750
                   continue
                 }
               } else {
-                let @343 = reinterpret_cast<f32>(@341) in
-                let @344 = reinterpret_cast<f32>(@342) in
-                !stack[(*!count)] = @340
-                !stack0[(*!count)] = @344
-                let @740 = (*!count) + 1u in
-                tris_ref!top = @339
-                _bound0!top = @343
-                !count = @740
+                let @345 = reinterpret_cast<f32>(@343) in
+                let @346 = reinterpret_cast<f32>(@344) in
+                !stack[(*!count)] = @342
+                !stack0[(*!count)] = @346
+                let @742 = (*!count) + 1u in
+                tris_ref!top = @341
+                _bound0!top = @345
+                !count = @742
                 continue
               }
             } else {
-              tris_ref!top = @416
+              tris_ref!top = @418
               _bound0!top = @317
               continue
             }
@@ -299,43 +298,43 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @174 = @155 * @163 in
             let @175 = @171 - @174 in
             let @178 = r.o in
-            let @632 = @142.!0 in
-            let @633 = @178[0u] in
-            let @641 = f32x4(@633) in
-            let @634 = @632 - @641 in
-            let @635 = @142.!1 in
-            let @636 = @178[1u] in
-            let @642 = f32x4(@636) in
-            let @637 = @635 - @642 in
-            let @638 = @142.!2 in
-            let @639 = @178[2u] in
-            let @643 = f32x4(@639) in
-            let @640 = @638 - @643 in
+            let @634 = @142.!0 in
+            let @635 = @178[0u] in
+            let @643 = f32x4(@635) in
+            let @636 = @634 - @643 in
+            let @637 = @142.!1 in
+            let @638 = @178[1u] in
+            let @644 = f32x4(@638) in
+            let @639 = @637 - @644 in
+            let @640 = @142.!2 in
+            let @641 = @178[2u] in
+            let @645 = f32x4(@641) in
+            let @642 = @640 - @645 in
             let _t259$i17 = r.d in
             let @182 = _t259$i17[2] in
-            let @644 = f32x4(@182) in
-            let @183 = @637 * @644 in
+            let @646 = f32x4(@182) in
+            let @183 = @639 * @646 in
             let @185 = _t259$i17[1] in
-            let @645 = f32x4(@185) in
-            let @186 = @640 * @645 in
+            let @647 = f32x4(@185) in
+            let @186 = @642 * @647 in
             let @187 = @183 - @186 in
             let @189 = _t259$i17[0] in
-            let @646 = f32x4(@189) in
-            let @190 = @640 * @646 in
-            let @193 = @634 * @644 in
+            let @648 = f32x4(@189) in
+            let @190 = @642 * @648 in
+            let @193 = @636 * @646 in
             let @194 = @190 - @193 in
-            let @197 = @634 * @645 in
-            let @200 = @637 * @646 in
+            let @197 = @636 * @647 in
+            let @200 = @639 * @648 in
             let @201 = @197 - @200 in
-            let @205 = @161 * @646 in
-            let @208 = @168 * @645 in
+            let @205 = @161 * @648 in
+            let @208 = @168 * @647 in
             let @209 = @205 + @208 in
-            let @212 = @175 * @644 in
+            let @212 = @175 * @646 in
             let den$i17 = @209 + @212 in
             let absDen$i17 = abs(den$i17) in
             let @215 = reinterpret_cast<u32x4>(den$i17) in
-            let @653 = u32x4(2147483648u) in
-            let sgnDen$i17 = @215 & @653 in
+            let @655 = u32x4(2147483648u) in
+            let sgnDen$i17 = @215 & @655 in
             let @219 = @187 * @165 in
             let @222 = @194 * @155 in
             let @223 = @219 + @222 in
@@ -352,85 +351,85 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @242 = reinterpret_cast<u32x4>(@241) in
             let @243 = @242 ^ sgnDen$i17 in
             let V$i17 = reinterpret_cast<f32x4>(@243) in
-            let @654 = f32x4(0f) in
-            let @245 = den$i17 != @654 in
-            let @246 = @654 <= U$i17 in
+            let @656 = f32x4(0f) in
+            let @245 = den$i17 != @656 in
+            let @246 = @656 <= U$i17 in
             let @247 = @245 && @246 in
-            let @248 = @654 <= V$i17 in
+            let @248 = @656 <= V$i17 in
             let @249 = @247 && @248 in
             let @250 = U$i17 + V$i17 in
             let @251 = @250 <= absDen$i17 in
             let @252 = @249 && @251 in
-            let @657 = boolx4(false) in
-            let @658 = boolx4(true) in
-            let @625 = reduce<any>(@252) in
-            let @717 = build<TriangleHit$v4>(@654, @654, @654) in
-            let @720 = build<_option2$v4>(@717, @657) in
-            if (@625) {
-              let @257 = @161 * @634 in
-              let @260 = @168 * @637 in
+            let @659 = boolx4(false) in
+            let @660 = boolx4(true) in
+            let @627 = reduce<any>(@252) in
+            let @719 = build<TriangleHit$v4>(@656, @656, @656) in
+            let @722 = build<_option2$v4>(@719, @659) in
+            if (@627) {
+              let @257 = @161 * @636 in
+              let @260 = @168 * @639 in
               let @261 = @257 + @260 in
-              let @264 = @175 * @640 in
+              let @264 = @175 * @642 in
               let @265 = @261 + @264 in
               let @266 = reinterpret_cast<u32x4>(@265) in
               let @267 = @266 ^ sgnDen$i17 in
               let T$i17 = reinterpret_cast<f32x4>(@267) in
               let @269 = r.tnear in
-              let @659 = f32x4(@269) in
-              let @270 = absDen$i17 * @659 in
+              let @661 = f32x4(@269) in
+              let @270 = absDen$i17 * @661 in
               let @271 = @270 < T$i17 in
               let @272 = r.tfar in
-              let @660 = f32x4(@272) in
-              let @273 = absDen$i17 * @660 in
+              let @662 = f32x4(@272) in
+              let @273 = absDen$i17 * @662 in
               let @274 = T$i17 <= @273 in
               let @275 = @271 && @274 in
-              let @619 = @252 && @275 in
-              let @626 = reduce<any>(@619) in
-              if (@626) {
-                let @663 = f32x4(1f) in
-                let rcpAbsDen$i17 = @663 / absDen$i17 in
+              let @621 = @252 && @275 in
+              let @628 = reduce<any>(@621) in
+              if (@628) {
+                let @665 = f32x4(1f) in
+                let rcpAbsDen$i17 = @665 / absDen$i17 in
                 let @279 = T$i17 * rcpAbsDen$i17 in
                 let @280 = U$i17 * rcpAbsDen$i17 in
                 let @281 = V$i17 * rcpAbsDen$i17 in
                 let @282 = build<TriangleHit$v4>(@279, @280, @281) in
-                let @283 = build<_option2$v4>(@282, @658) in
-                let @629 = select(@619, @283, @720) in
-                intersectsp_ray_tri$r17!skip = @629
+                let @283 = build<_option2$v4>(@282, @660) in
+                let @631 = select(@621, @283, @722) in
+                intersectsp_ray_tri$r17!skip = @631
               } else {
-                intersectsp_ray_tri$r17!skip = @720
+                intersectsp_ray_tri$r17!skip = @722
               }
-              let @630 = select(@252, (*intersectsp_ray_tri$r17!skip), @720) in
-              intersectsp_ray_tri$r17!skip0 = @630
+              let @632 = select(@252, (*intersectsp_ray_tri$r17!skip), @722) in
+              intersectsp_ray_tri$r17!skip0 = @632
             } else {
-              intersectsp_ray_tri$r17!skip0 = @720
+              intersectsp_ray_tri$r17!skip0 = @722
             }
             let @285 = (*intersectsp_ray_tri$r17!skip0).set in
-            let @627 = reduce<any>(@285) in
-            if (@627) {
+            let @629 = reduce<any>(@285) in
+            if (@629) {
               let extract$i1 = (*intersectsp_ray_tri$r17!skip0).value in
               let @288 = extract$i1.t in
               let @290 = (*_best0) in
               let @291 = @290._field0 in
-              let @689 = f32x4(@291) in
-              let @292 = @288 < @689 in
-              let @624 = @285 && @292 in
-              let @628 = reduce<any>(@624) in
-              if (@628) {
+              let @691 = f32x4(@291) in
+              let @292 = @288 < @691 in
+              let @626 = @285 && @292 in
+              let @630 = reduce<any>(@626) in
+              if (@630) {
                 let @294 = _t156 << 2u in
-                let @694 = (f32)inf in
-                let @695 = f32x4(@694) in
-                let @696 = select(@624, @288, @695) in
-                let @697 = reduce<min>(@696) in
-                let @699 = f32x4(@697) in
-                let @700 = @696 == @699 in
-                let @701 = u32x4(4u) in
-                let @702 = select(@700, ramp(0u, 1u, 4), @701) in
-                let @703 = reduce<min>(@702) in
-                let @706 = ramp(@294, 1u, 4)[@703] in
-                let @707 = build<__tuple_0>(@706) in
-                let @708 = build<__tuple_1>(@697, @707) in
-                if (@628) {
-                  _best0 argmin= @708
+                let @696 = (f32)inf in
+                let @697 = f32x4(@696) in
+                let @698 = select(@626, @288, @697) in
+                let @699 = reduce<min>(@698) in
+                let @701 = f32x4(@699) in
+                let @702 = @698 == @701 in
+                let @703 = u32x4(4u) in
+                let @704 = select(@702, ramp(0u, 1u, 4), @703) in
+                let @705 = reduce<min>(@704) in
+                let @708 = ramp(@294, 1u, 4)[@705] in
+                let @709 = build<__tuple_0>(@708) in
+                let @710 = build<__tuple_1>(@699, @709) in
+                if (@630) {
+                  _best0 argmin= @710
                 }
               }
             }
@@ -441,14 +440,14 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         break
       } while (true)
     }
-    let @733 = (*!count) != 0u in
-    if (@733) {
-      let @734 = (*!count) - 1u in
-      let @735 = !stack[@734] in
-      let @736 = !stack0[@734] in
-      tris_ref!top = @735
-      _bound0!top = @736
-      !count = @734
+    let @735 = (*!count) != 0u in
+    if (@735) {
+      let @736 = (*!count) - 1u in
+      let @737 = !stack[@736] in
+      let @738 = !stack0[@736] in
+      tris_ref!top = @737
+      _bound0!top = @738
+      !count = @736
       continue
     } else {
       return

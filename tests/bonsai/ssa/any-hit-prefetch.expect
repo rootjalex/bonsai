@@ -136,22 +136,20 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
           let @100 = @97 & @99 in
           let @164 = select(@349, @223, @100) in
           _mask0[ramp(0u, 1u, 8)] = @164
-          let @103 = _mask0[ramp(0u, 1u, 8)] in
           let @104 = _t12.children in
           let @105 = cast<u64x8>(@104) in
           let @110 = _t12.children in
           let _t89 = cast<u64x8>(@110) in
-          let @261 = _mask0[ramp(0u, 1u, 8)] in
-          let @262 = reduce<+>(cast<u32x8>(@261)) in
-          let @325 = reduce<any>(@261) in
+          let @262 = reduce<+>(cast<u32x8>(@164)) in
+          let @325 = reduce<any>(@164) in
           if (@325) {
-            let @326 = reinterpret_cast<u8>(@261) in
+            let @326 = reinterpret_cast<u8>(@164) in
             let @327 = cast<u32>(@326) in
             let @328 = @327 - 1u in
             let @329 = @327 & @328 in
             let @330 = @329 == 0u in
             if (@330) {
-              let @263 = reinterpret_cast<u8>(@261) in
+              let @263 = reinterpret_cast<u8>(@164) in
               let @264 = cast<u32>(@263) in
               let @265 = ctz(@264) in
               let @361 = reinterpret_cast<const u64[8]>((&@6[0u].children)) in
@@ -163,7 +161,7 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
               let @331 = @262 - 2u in
               switch (@331) {
               case 0: {
-                let @268 = reinterpret_cast<u8>(@261) in
+                let @268 = reinterpret_cast<u8>(@164) in
                 let @269 = cast<u32>(@268) in
                 let @270 = ctz(@269) in
                 let @271 = clz(@269) in
@@ -180,7 +178,7 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
                 continue
               } break;
               case 1: {
-                let @280 = reinterpret_cast<u8>(@261) in
+                let @280 = reinterpret_cast<u8>(@164) in
                 let @281 = cast<u32>(@280) in
                 let @282 = ctz(@281) in
                 let @283 = @281 - 1u in
@@ -204,7 +202,7 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
                 continue
               } break;
               case 2: {
-                let @299 = reinterpret_cast<u8>(@261) in
+                let @299 = reinterpret_cast<u8>(@164) in
                 let @300 = cast<u32>(@299) in
                 let @301 = ctz(@300) in
                 let @302 = @300 - 1u in
@@ -235,14 +233,14 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
                 continue
               } break;
               default: {
-                let _effect10 = prefetch(@105, 256u, @103) in
-                let @333 = reinterpret_cast<u8>(@261) in
+                let _effect10 = prefetch(@105, 256u, @164) in
+                let @333 = reinterpret_cast<u8>(@164) in
                 let @334 = cast<u32>(@333) in
                 let @335 = clz(@334) in
                 let @336 = 31u - @335 in
                 let @338 = u32x8(@336) in
                 let @339 = ramp(0u, 1u, 8) != @338 in
-                let @340 = @261 && @339 in
+                let @340 = @164 && @339 in
                 let @341 = @262 - 1u in
                 compress_store_whole(!stack[(*!count)], _t89, @340)
                 let @343 = (*!count) + @341 in

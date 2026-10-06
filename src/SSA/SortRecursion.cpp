@@ -717,6 +717,22 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
                 held = emit(into, Vector_t::make(s.held, n),
                             Instruction::Op::Reinterpret, {s.vec});
             }
+            // The lanes the mask has off hold zero: nothing reads them (the
+            // chain reads the cell at the hits' lanes alone), and saying so
+            // here is what lets the simplifier read the hits' values knowing
+            // the mask holds -- a sort key's own test of the child's box,
+            // `tNear <= min(slabs, tfar)`, is decided by the mask's `tNear <=
+            // min(slabs, tfar, best)` (SSA/Simplify.cpp, implied_comparison),
+            // and the infinity `distmin` blends in for a miss is never made.
+            // One zero-masked move in a register and a whole store, which
+            // the lane loads below forward from; a masked store would say the
+            // same and forward to nothing (the loads behind it would wait for
+            // it to retire), as measured.
+            const Type held_t = Vector_t::make(s.held, n);
+            held = emit(into, held_t, Instruction::Op::Select,
+                        {mask, held,
+                         bc(into, std::make_shared<Value>(Constant{s.held, uint64_t(0)}),
+                            held_t)});
             auto at = emit(into, Vector_t::make(Ptr_t::make(s.held), n),
                            Instruction::Op::GEP, {s.cell, ramp});
             into->instrs.push_back(std::make_shared<Instruction>(

@@ -135,17 +135,16 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           _mask0[ramp(0u, 1u, 4)] = @126
           let @95 = _t12.children in
           let _t40 = cast<u32x4>(@95) in
-          let @221 = _mask0[ramp(0u, 1u, 4)] in
-          let @222 = reduce<+>(cast<u32x4>(@221)) in
-          let @264 = reduce<any>(@221) in
+          let @222 = reduce<+>(cast<u32x4>(@126)) in
+          let @264 = reduce<any>(@126) in
           if (@264) {
-            let @265 = reinterpret_cast<u4>(@221) in
+            let @265 = reinterpret_cast<u4>(@126) in
             let @266 = cast<u32>(@265) in
             let @267 = @266 - 1u in
             let @268 = @266 & @267 in
             let @269 = @268 == 0u in
             if (@269) {
-              let @223 = reinterpret_cast<u4>(@221) in
+              let @223 = reinterpret_cast<u4>(@126) in
               let @224 = cast<u32>(@223) in
               let @225 = ctz(@224) in
               let @287 = reinterpret_cast<const u32[4]>((&@4[@5].children)) in
@@ -156,7 +155,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
               let @270 = @222 - 2u in
               switch (@270) {
               case 0: {
-                let @227 = reinterpret_cast<u4>(@221) in
+                let @227 = reinterpret_cast<u4>(@126) in
                 let @228 = cast<u32>(@227) in
                 let @229 = ctz(@228) in
                 let @230 = clz(@228) in
@@ -171,7 +170,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 continue
               } break;
               case 1: {
-                let @237 = reinterpret_cast<u4>(@221) in
+                let @237 = reinterpret_cast<u4>(@126) in
                 let @238 = cast<u32>(@237) in
                 let @239 = ctz(@238) in
                 let @240 = @238 - 1u in

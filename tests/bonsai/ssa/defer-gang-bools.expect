@@ -143,18 +143,15 @@ func walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx1
   let @15 = !mask && @0 in
   let @26 = reduce<any>(@15) in
   if (@26) {
-    let @18 = @15 && odd in
     let @35 = i32x16(100) in
     let @2 = acc + @35 in
-    let @27 = select(@18, @2, acc) in
-    let @21 = @15 && big in
     let @38 = i32x16(1000) in
-    let @4 = @27 + @38 in
-    let @28 = select(@21, @4, @27) in
-    let @24 = @15 && neg in
-    let @6 = @30 - @28 in
-    let @29 = select(@24, @6, @28) in
-    masked_store(out[i], @29, @15)
+    let @49 = select(odd, @2, acc) in
+    let @50 = @49 + @38 in
+    let @56 = select(big, @50, @49) in
+    let @57 = @30 - @56 in
+    let @61 = select(neg, @57, @56) in
+    masked_store(out[i], @61, @15)
   }
   let @25 = reduce<any>(@14) in
   if (@25) {
@@ -162,25 +159,25 @@ func walk$gang16_v0_v1_v2_v3_v4_v6$masked(n : i32x16, acc : i32x16, odd : boolx1
     let @9 = n - @42 in
     let @10 = acc + n in
     let @11 = build<Entry_sums$v16>(@9, @10, odd, big, neg, i) in
-    let @48 = reduce<+>(cast<u32x16>(@14)) in
-    let @49 = atomic_add((&(*_queue_sums).count), @48) in
-    let @50 = cast<u8x16>(odd) in
-    let @51 = cast<u8x16>(big) in
-    let @52 = u8x16(1u) in
-    let @53 = @51 << @52 in
-    let @54 = @50 | @53 in
-    let @55 = cast<u8x16>(neg) in
-    let @56 = u8x16(2u) in
-    let @57 = @55 << @56 in
-    let @58 = @54 | @57 in
-    let @60 = (*_queue_sums).n in
-    compress_store(@60[@49], @9, @14)
-    let @63 = (*_queue_sums).acc in
-    compress_store(@63[@49], @10, @14)
-    let @66 = (*_queue_sums).i in
-    compress_store(@66[@49], i, @14)
-    let @69 = (*_queue_sums)._bits0 in
-    compress_store(@69[@49], @58, @14)
+    let @63 = reduce<+>(cast<u32x16>(@14)) in
+    let @64 = atomic_add((&(*_queue_sums).count), @63) in
+    let @65 = cast<u8x16>(odd) in
+    let @66 = cast<u8x16>(big) in
+    let @67 = u8x16(1u) in
+    let @68 = @66 << @67 in
+    let @69 = @65 | @68 in
+    let @70 = cast<u8x16>(neg) in
+    let @71 = u8x16(2u) in
+    let @72 = @70 << @71 in
+    let @73 = @69 | @72 in
+    let @75 = (*_queue_sums).n in
+    compress_store(@75[@64], @9, @14)
+    let @78 = (*_queue_sums).acc in
+    compress_store(@78[@64], @10, @14)
+    let @81 = (*_queue_sums).i in
+    compress_store(@81[@64], i, @14)
+    let @84 = (*_queue_sums)._bits0 in
+    compress_store(@84[@64], @73, @14)
   }
   return
 }

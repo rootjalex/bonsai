@@ -9,12 +9,14 @@
 // the child's own loaded reference (`inttoptr` of the `load i64` off the
 // node's row at the lane), four lines, right after that load, once per
 // lane and before the next is peeled, with no test of the count in front
-// of it; one `store <8 x i32>` of the keys into a stack cell where the
-// chain first compares and a `load i32` at each lane after it, the
-// carried bound reading the same cell; `icmp slt` on the keys and `select`
-// on the children and the bounds for each exchange; in the general arm
-// alone the vector form of the prefetch and the packed keys; and no
-// prefetch in the node's block before the chain.
+// of it; one `store <8 x i32>` of the keys -- the entry distances
+// themselves, zeroed where the mask is off (a `select` on the mask), no
+// infinity blended in for a miss -- into a stack cell where the chain
+// first compares, and a `load i32` at each lane after it, the carried
+// bound reading the same cell; `icmp slt` on the keys and `select` on the
+// children and the bounds for each exchange; in the general arm alone the
+// vector form of the prefetch and the packed keys; and no prefetch in the
+// node's block before the chain.
 import stdlib/aabb;
 import stdlib/numerics;
 

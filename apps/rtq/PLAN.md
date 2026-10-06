@@ -3797,6 +3797,139 @@ pointers with each child's prefetch at its peel; the any hit's goldens
 unchanged through the shared MaskLanes; every execution test as before;
 suite 1380.
 
+## The key stored for the hits alone: the blend gone, the cell gone (2026-10-05)
+
+The inf blend, from the section above. The sort key is the schedule's
+`distmin(r, box)`, the box's entry distance where the ray hits it and
+infinity where it misses; its miss test is the slab test against the
+ray's own tfar. The node's hit mask is the same slab test against the
+running best, folded into tfar as `min(tfar, best - 1)` earlier. The
+chain reads the key only at lanes the mask has on, and a lane the mask has
+on cannot miss by the key's test -- the mask's bound is a min over the
+key's bound and the best, and a min over more things is never larger --
+so the infinity was never read, and it cost four vector instructions on
+every node that hit more than one child: two mins to redo tFar against
+the ray's tfar, a compare and a masked broadcast of infinity. Two things
+kept the compiler from seeing it. The key was stored for every child,
+whatever its test said, so no store carried the fact that only hits are
+read; and by the time the chain's cell copy existed the mirror pass had
+put the mask's bound behind a block argument, `(*@mirror)`, where the
+superset of min operands is no longer visible.
+
+What changed, each piece its own general fact:
+
+- The chain stores its cell zero-masked by the hit mask
+  (SSA/SortRecursion.cpp, store_cells): `select(mask, keys, 0)` and a
+  whole store, where before it stored the keys as they were. The lanes the
+  mask has off hold zero, which nothing reads; what the select buys is
+  that its hits' arm is read knowing the mask holds (the simplifier's
+  existing assume on a select), and under the mask the key's own test is
+  decided. One zero-masked register move, `vmovdqa32 xmm0{k1}{z}, xmm2`,
+  in place of the four instructions of the blend.
+- The simplifier learns three things (SSA/Simplify.cpp). A read of an
+  array a block has just stored, at the index it stored at, is the value
+  stored (`stored_at`), looked for back through the chain of blocks each
+  the only way into the next -- the children's loop's mask and keys,
+  written in the loop's body and read whole by the run that follows,
+  which is what hands the key's select to the cell store in the first
+  place; the any hit's arms lost a reload of the mask the same way. A
+  comparison a fact implies through a chain of mins or maxes over
+  integers is decided (`implied_comparison`): `a <= min(S)` says `a <=
+  min(T)` for T within S and denies `min(T) < a`, the strict forms where
+  the fact is strict, and the mirror image for a max; the leaves compared
+  structurally a few steps deep, since the ray's tfar read as its bits in
+  two blocks is two instructions. It fires at the simplify after the
+  directives, before the mirror pass, where the mask's chain still reads
+  `min(slabs, bc(min(tfar, best - 1)))`. And a conjunction assumed true
+  is each conjunct assumed true (Halide's learn_true), which a masked
+  store's value is now simplified under as well.
+
+Tried first and withdrawn, measured: the children's loop recording the
+key and the bound for the children that pass the test alone, so that the
+loop's own store was masked and the chain read the array in place with no
+cell. The code was the shortest yet -- one masked store a visit, Embree's
+spill of tNear -- and lost 2-14% on primary rays (pavilion 0.86, head
+0.92) and 1-4% on pavilion's and dragon's incoherent rays, with the rest
+1-4% ahead: a masked store forwards to nothing, so the lane loads behind
+it wait for it to retire, where the cell's whole store forwards to them.
+The loop-side pieces (one `let` per key or bound before the test, the
+records in one `if`, the linearizer's bypass dropped for a lane's own
+slot) went with it; the store-to-load forwarding and the implied
+comparison stayed, and the fold moved to the cell.
+
+The kernel's path for two hits now, four-wide, after the one-hit prefix:
+
+```
+tzcnt    edx, ebx                    ; l1
+mov      [rsp+0x18], r12             ; three spills of loop state
+vmovdqa32 xmm0{k1}{z}, xmm2          ; the keys, zero where the mask is off
+mov      [rsp+0x28], r15 ; mov [rsp+0x20], r13
+lea      esi, [rbx+0xe]
+mov      r12, [r14+rdx*8]            ; c1
+prefetcht0 x3
+vmovdqa  [rsp+0x30], xmm0            ; the cell, one whole store
+mov      r13d, [rsp+rdx*4+0x30]      ; k1
+mov      r15d, [rsp+rax*4+0x30]      ; k0
+mov      rax, r12 ; cmp r15d, r13d ; mov edx, r13d
+cmovl    rax, rcx ; cmovg edx, r15d ; cmovl rcx, r12
+and      esi, ebx
+je       two
+```
+
+Twenty-four instructions where the cell form's were thirty and Embree's
+are twenty (the kernel 441 in all); what remains over Embree is the
+spills and their reloads (eight), the merged push tails (five), the third
+prefetch line (two) and the four-bit mask's widening (two).
+
+Measured on the thirteen meshes (bench-ab.sh: base 3c7eaa71 and new run
+back to back per mesh, cpu 11, side 2048, least of 5; every ray agrees
+with Embree on every mesh, width and schedule), the nearest hit's rate new
+over base, primary / ao / diffuse:
+
+| mesh      | embree4           | embree            | tuned4            | tuned             |
+|-----------|-------------------|-------------------|-------------------|-------------------|
+| head      | 1.004 1.009 1.009 | 1.003 1.007 1.006 | 1.008 1.017 1.016 | 1.004 1.011 1.014 |
+| ganesha   | 1.000 1.004 1.002 | 1.010 1.007 1.006 | 1.005 1.012 1.011 | 1.015 1.019 1.019 |
+| dragon    | 1.005 1.005 1.003 | 1.005 1.008 1.000 | 1.008 1.012 1.013 | 1.010 1.011 1.011 |
+| pavilion  | 0.999 1.006 1.007 | 1.007 1.008 1.009 | 1.012 1.011 1.011 | 1.005 1.004 1.005 |
+| zero-day  | 0.992 1.008 1.010 | 0.995 1.005 1.006 | 0.997 1.006 1.009 | 0.995 1.017 1.017 |
+| bmw       | 1.008 1.010 1.009 | 1.000 1.007 1.002 | 1.009 1.012 1.008 | 1.013 1.019 1.027 |
+| crown     | 1.007 1.013 1.013 | 1.003 1.009 1.010 | 1.007 1.009 1.007 | 1.007 1.020 1.020 |
+| ivy       | 0.997 1.016 1.014 | 1.018 1.004 1.006 | 1.019 1.016 1.013 | 1.003 1.013 1.012 |
+| villa     | 1.011 1.005 1.008 | 1.002 1.007 1.002 | 1.019 1.015 1.015 | 1.010 1.017 1.022 |
+| sportscar | 1.011 1.009 1.009 | 1.005 1.005 1.015 | 1.015 1.023 1.011 | 1.010 1.020 1.020 |
+| dambreak  | 1.010 1.006 1.004 | 0.999 1.005 0.989 | 1.007 1.011 1.009 | 1.013 1.019 1.000 |
+| landscape | 0.995 0.996 0.997 | 1.005 1.001 1.004 | 1.012 0.998 0.998 | 1.004 1.004 0.999 |
+| lte-orb   | 1.003 1.002 1.005 | 1.004 0.996 1.002 | 1.008 1.002 1.005 | 1.007 1.015 1.008 |
+
+The size the count predicted: +0.5-2% on incoherent rays on every mesh
+but landscape (level, few multi-hit nodes), under both schedules at both
+widths, the tuned schedules a little more than the matching ones; primary
+rays level within noise. Embree's own rate held within 1-2% on every pair
+but two cells where the machine was disturbed (crown's four-wide primary
+and pavilion's tuned four-wide, whose new-over-base reads 1.007 and
+1.011 all the same); lte-orb's eight-wide pair first read 0.72 on primary
+rays with Embree's rate steady, and re-run on a quiet machine reads as
+the table has it. The any hit is unchanged. Against Embree
+the ranges of the previous section move up by about a point on
+incoherent rays: embree4 0.99-1.20x primary / 0.99-1.20x ao / 0.99-1.21x
+diffuse, embree 1.07-1.13x / 1.05-1.22x / 1.05-1.21x, tuned4 1.06-1.19x /
+1.01-1.20x / 1.02-1.21x, tuned 1.09-1.15x / 1.13-1.26x / 1.10-1.25x.
+
+Tests: the sorted traversals' goldens re-blessed, read by kind -- the
+cell stored zero-masked and the key stored as the entry distance with no
+infinity (ssa/child-volumes-sorted, -wide, sort-key-nonnegative,
+sort-key-through-bits, sort-peel-prefetch, arena-rows-vectorized,
+ptr-arena-rows-vectorized, child-volumes-vectorized, tiled-leaf-vectorized,
+skip-leaf-helper, vectorize-sorted-traversal and their llvm forms); the
+any hit's mask reload gone to the comparison (ssa/any-hit-arms,
+any-hit-prefetch, child-volumes-any, llvm/any-hit-prefetch); a masked
+store's value simplified under its mask, `select(m && odd, ..)` to
+`select(odd, ..)` (ssa/defer-gang-bools, vectorize-loop,
+vectorize-loop-mutual, vectorize-packet-traversal and their llvm forms);
+one error golden's source line. Every execution test as before; suite
+1380.
+
 ## Known-open, smaller
 
 - The exported batch answers with the primitive id alone; Embree also

@@ -230,9 +230,20 @@ UseCounts use_counts(const Function &func);
 
 struct Simplifier {
     explicit Simplifier(Function &func, const ConstantIntervals *intervals)
-        : func(func), intervals(intervals) {}
+        : func(func), intervals(intervals) {
+        for (const auto &b : func.blocks) {
+            for (const auto &instr : b->instrs) {
+                if (instr->op == Instruction::Op::Alloca) {
+                    allocas.insert(instr->name);
+                }
+            }
+        }
+    }
 
     Function &func;
+    // The function's own allocations, by name: what a block argument
+    // threading one is known by (see stored_at).
+    std::set<std::string> allocas;
     // What every value is known to lie between (SSA/ConstantIntervals.h),
     // when the caller computed it, for the rules that are exact only under
     // such a fact; null when none was computed, and those rules stand down.
@@ -456,6 +467,9 @@ struct Simplifier {
     // Where a rule's new instructions go: before instruction `at` of `block`.
     shared_ptr<Block> block;
     size_t at = 0;
+    // Whether an effect's operand was rewritten in place (a masked store's
+    // value, see simplify_once), which `replaced` does not record.
+    bool changed_in_place = false;
     Replacements replaced;
     // The instructions the rules made, so that a merge of two equal
     // expressions keeps the one the program had.
@@ -881,6 +895,260 @@ struct Simplifier {
     // rule under a rule under a rule is what makes a rewrite exponential.
     size_t assuming = 0;
 
+    // The name an array handle goes by: the allocation's, which the block
+    // arguments threading it share (see SSA/PromoteAllocas.cpp).
+    static std::string handle_name(const Value &v) {
+        return std::visit(
+            overloads{
+                [](const shared_ptr<Instruction> &i) { return i->name; },
+                [](const Argument &a) { return a.name; },
+                [](const Constant &) { return std::string(); },
+            },
+            v.data);
+    }
+
+    // Whether `ptr` addresses memory of the function's own -- an allocation
+    // of its, by the allocation or its name threaded in -- other than the
+    // array named `except`: such a write cannot touch that array.
+    bool other_local(const ValuePtr &ptr, const std::string &except) {
+        if (const auto *a = std::get_if<Argument>(&ptr->data)) {
+            return a->name != except && allocas.count(a->name) > 0;
+        }
+        const Instruction *d = def_of(ptr);
+        if (d == nullptr) {
+            return false;
+        }
+        switch (d->op) {
+        case Instruction::Op::Alloca:
+            return d->name != except;
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::Cast:
+        case Instruction::Op::Reinterpret:
+            return !d->operands.empty() && other_local(d->operands[0], except);
+        default:
+            return false;
+        }
+    }
+
+    // The value the array `array` was stored at `idx` -- the whole of it,
+    // at a ramp, or one element -- by the store nearest before the current
+    // instruction with nothing between that could have written the array:
+    // a store or an accumulate into another allocation of the function's
+    // own may not, anything else into memory might. Looked for in the
+    // current block and back through a chain of blocks each the only way
+    // into the next. Null where there is no such store.
+    ValuePtr stored_at(const ValuePtr &array, const ValuePtr &idx) {
+        const std::string name = handle_name(*array);
+        if (name.empty()) {
+            return nullptr;
+        }
+        const Block *b = block.get();
+        size_t i = at;
+        // Many of the blocks between are empty, the joins of branches the
+        // linearizer folded; the bound is on blocks, not on work.
+        for (size_t hops = 0; hops < 64; hops++) {
+            while (i > 0) {
+                i--;
+                const Instruction &in = *b->instrs[i];
+                if (in.op == Instruction::Op::Store) {
+                    if (in.operands.size() < 2) {
+                        return nullptr;
+                    }
+                    const Instruction *gep = def_of(in.operands[0]);
+                    if (gep != nullptr && gep->op == Instruction::Op::GEP &&
+                        gep->operands.size() == 2 &&
+                        handle_name(*gep->operands[0]) == name) {
+                        // Into this array: the value, where it is a whole
+                        // store at the same index; else the array is partly
+                        // another value now, and nothing is known.
+                        if (in.operands.size() == 2 &&
+                            same_value(gep->operands[1], idx)) {
+                            return in.operands[1];
+                        }
+                        return nullptr;
+                    }
+                    if (other_local(in.operands[0], name)) {
+                        continue;
+                    }
+                    return nullptr;
+                }
+                if (!writes_memory(in) ||
+                    (in.op == Instruction::Op::Intrinsic &&
+                     in.intrinsic == ir::Intrinsic::prefetch)) {
+                    continue; // a prefetch writes nothing
+                }
+                if (!in.operands.empty() && other_local(in.operands[0], name)) {
+                    continue; // an accumulate into another allocation
+                }
+                return nullptr;
+            }
+            // The block's start: on through the one block that leads here,
+            // if one alone does and it goes nowhere else.
+            if (b->preds.size() != 1) {
+                return nullptr;
+            }
+            const auto pred = b->preds.front().lock();
+            if (!pred || !std::holds_alternative<Terminator::Jump>(
+                             pred->terminator.data)) {
+                return nullptr;
+            }
+            b = pred.get();
+            i = b->instrs.size();
+        }
+        return nullptr;
+    }
+
+    // The leaves of a chain of mins, or of maxes (`which`), over integers:
+    // the values the chain's result is the least, or the greatest, of. A
+    // broadcast of a chain is a chain of broadcasts -- `bc(min(a, b))` is
+    // `min(bc(a), bc(b))` -- so a broadcast is looked through and a leaf
+    // that is a broadcast scalar is the scalar, and a vector chain and the
+    // broadcast of a scalar chain compare leaf for leaf. A value that is
+    // not such a chain is its own one leaf.
+    void chain_leaves(const ValuePtr &v, Instruction::Op which,
+                      vector<ValuePtr> &out, size_t &budget) {
+        const Instruction *d = def_of(v);
+        if (d != nullptr && budget > 0) {
+            if (d->op == which && d->operands.size() == 2) {
+                budget--;
+                chain_leaves(d->operands[0], which, out, budget);
+                chain_leaves(d->operands[1], which, out, budget);
+                return;
+            }
+            if (d->op == Instruction::Op::Bc && d->operands.size() == 2) {
+                chain_leaves(d->operands[0], which, out, budget);
+                return;
+            }
+        }
+        out.push_back(v);
+    }
+
+    // The comparison `x` decided by the comparison `fact` taken as `truth`,
+    // where both compare one value against a chain of mins, or of maxes,
+    // over integers and the fact's chain has every leaf of x's: a min over
+    // more things is no larger, a max over more things no smaller. `a <=
+    // min(S)` says `a <= s` for every s in S, so for T within S it says `a
+    // <= min(T)` and denies `min(T) < a`; `a < min(S)` says and denies
+    // the strict forms too; and `max(S) <= a` the mirror image. Over
+    // integers alone, whose order is total (see compare_pair on floats and
+    // NaN). What the nearest hit's node test knows of its sort key: the
+    // mask is `tNear <= min(slabs, best)` and the key's own test `tNear <=
+    // min(slabs, tfar)`, the best folded in as `min(tfar, best - 1)` -- a
+    // superset -- so where the mask holds, the key's test does, and the
+    // infinity the key blends in for a miss is never read. Nothing for a
+    // pair that is not of this shape.
+    ValuePtr implied_comparison(const ValuePtr &x, const ValuePtr &fact,
+                                bool truth) {
+        const Instruction *f = def_of(fact), *d = def_of(x);
+        const auto is_compare = [](const Instruction *in) {
+            return in != nullptr && in->operands.size() == 2 &&
+                   (in->op == Instruction::Op::Lt ||
+                    in->op == Instruction::Op::Leq);
+        };
+        if (!is_compare(f) || !is_compare(d) || !equals(f->type, d->type)) {
+            return nullptr;
+        }
+        const Type &operand_t = f->operands[0]->get_type();
+        if (!equals(operand_t, d->operands[0]->get_type()) ||
+            !scalar_of(operand_t).is_int_or_uint()) {
+            return nullptr;
+        }
+        // The fact as a true statement `l op r`: a false `a <= b` is `b < a`,
+        // a false `a < b` is `b <= a`.
+        Instruction::Op fop = f->op;
+        ValuePtr fl = f->operands[0], fr = f->operands[1];
+        if (!truth) {
+            fop = fop == Instruction::Op::Leq ? Instruction::Op::Lt
+                                              : Instruction::Op::Leq;
+            std::swap(fl, fr);
+        }
+        const bool strict = fop == Instruction::Op::Lt;
+        // One leaf as another: the same value, or the same pure operation
+        // of leaves that are -- the ray's tfar as its bits read in one block
+        // and again in another, which no scope the CSE works in holds both
+        // of. A few steps deep, which is what a bound's leaves are made of.
+        const std::function<bool(const ValuePtr &, const ValuePtr &, size_t)>
+            same_leaf = [&](const ValuePtr &a, const ValuePtr &b,
+                            size_t depth) -> bool {
+            if (same_value(a, b)) {
+                return true;
+            }
+            const Instruction *da = def_of(a), *db = def_of(b);
+            if (depth == 0 || da == nullptr || db == nullptr ||
+                da->op != db->op || !equals(da->type, db->type) ||
+                da->operands.size() != db->operands.size() || !pure(*da) ||
+                reads_memory(*da) || da->op == Instruction::Op::Intrinsic) {
+                return false;
+            }
+            for (size_t k = 0; k < da->operands.size(); k++) {
+                if (!same_leaf(da->operands[k], db->operands[k], depth - 1)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        const auto subset = [&](const vector<ValuePtr> &small,
+                                const vector<ValuePtr> &large) {
+            for (const ValuePtr &s : small) {
+                bool found = false;
+                for (const ValuePtr &l : large) {
+                    found = found || same_leaf(s, l, 3);
+                }
+                if (!found) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        // Read as `a <= min(S)` (the chain on the right) and as `max(S) <=
+        // a` (the chain on the left); whichever `x` shares its value with.
+        for (const bool chain_right : {true, false}) {
+            const ValuePtr &a = chain_right ? fl : fr;
+            const ValuePtr &chain = chain_right ? fr : fl;
+            const Instruction::Op which =
+                chain_right ? Instruction::Op::Min : Instruction::Op::Max;
+            bool x_chain_right;
+            ValuePtr x_chain;
+            if (same_value(d->operands[0], a)) {
+                x_chain_right = true;
+                x_chain = d->operands[1];
+            } else if (same_value(d->operands[1], a)) {
+                x_chain_right = false;
+                x_chain = d->operands[0];
+            } else {
+                continue;
+            }
+            vector<ValuePtr> leaves, x_leaves;
+            size_t budget = 32, x_budget = 32;
+            chain_leaves(chain, which, leaves, budget);
+            chain_leaves(x_chain, which, x_leaves, x_budget);
+            if (!subset(x_leaves, leaves)) {
+                continue;
+            }
+            // With `a <= min(S)` and T within S, `min(T) >= min(S)`: `a <=
+            // min(T)` holds, `min(T) < a` does not, and the strict forms
+            // follow where the fact is strict. The same for a max on the
+            // other side.
+            const bool x_same_side = x_chain_right == chain_right;
+            const bool x_strict = d->op == Instruction::Op::Lt;
+            std::optional<bool> decided;
+            if (x_same_side) {
+                if (!x_strict || strict) {
+                    decided = true;
+                }
+            } else {
+                if (x_strict || strict) {
+                    decided = false;
+                }
+            }
+            if (decided.has_value()) {
+                return uniform_bool_constant(d->type, *decided);
+            }
+        }
+        return nullptr;
+    }
+
     // `v` with every occurrence of `fact` in it taken as `truth` -- the
     // occurrences reached through pure value computations alone, and for a
     // mask through lanewise ones, so that a lane's fact decides that lane's
@@ -890,6 +1158,24 @@ struct Simplifier {
     // `t`, and `c` false inside `f`. Linear in the part of `v` it walks,
     // which is bounded.
     ValuePtr assume(const ValuePtr &v, const ValuePtr &fact, bool truth) {
+        // A conjunction that holds is each of its conjuncts holding, and a
+        // disjunction that fails each of its disjuncts failing (Halide's
+        // learn_true and learn_false, Simplify_And.cpp): `a & b` assumed
+        // true decides `a` inside `v` as well as `a & b` itself.
+        if (const Instruction *f = def_of(fact);
+            f != nullptr && f->operands.size() == 2 &&
+            ((truth && (f->op == Instruction::Op::LAnd ||
+                        (f->op == Instruction::Op::BwAnd &&
+                         scalar_of(f->type).is_bool()))) ||
+             (!truth && (f->op == Instruction::Op::LOr ||
+                         (f->op == Instruction::Op::BwOr &&
+                          scalar_of(f->type).is_bool()))))) {
+            ValuePtr both = assume(v, f->operands[0], truth);
+            both = assume(both, f->operands[1], truth);
+            if (!same_value(both, v)) {
+                return both;
+            }
+        }
         const Type fact_t = fact->get_type();
         const bool vector_fact = fact_t.is_vector();
         std::map<const Instruction *, ValuePtr> memo;
@@ -903,6 +1189,9 @@ struct Simplifier {
                     constant = uniform_bool_constant(fact_t, truth);
                 }
                 return constant;
+            }
+            if (ValuePtr decided = implied_comparison(x, fact, truth)) {
+                return decided;
             }
             const Instruction *d = def_of(x);
             if (d == nullptr) {
@@ -1634,6 +1923,16 @@ struct Simplifier {
             break;
         }
         case Instruction::Op::ExtractIdx: {
+            // A read of an array the block has just stored, at the index it
+            // stored at, is the value stored: the children's loop's mask,
+            // written for each child and read back by the `if` the child's
+            // work sits behind and by the run that follows, so that the
+            // `if`'s mask is the test itself and not a load of it.
+            if (ops.size() == 2 && ops[0]->get_type().is<Array_t>()) {
+                if (ValuePtr stored = stored_at(ops[0], ops[1])) {
+                    return stored;
+                }
+            }
             if (ops.size() != 2 || !ops[0]->get_type().is<Vector_t>() ||
                 !ops[1]->get_type().is_scalar()) {
                 break;
@@ -2213,6 +2512,24 @@ bool simplify_once(Function &func, const ConstantIntervals *intervals) {
             for (auto &operand : instr->operands) {
                 operand = s.resolve(operand);
             }
+            if (instr->op == Instruction::Op::Store &&
+                instr->operands.size() == 3 &&
+                instr->operands[2]->get_type().is_vector()) {
+                // What a store under a mask writes is observed in the lanes
+                // the mask has on and nowhere else, so its value is what it
+                // is where the mask holds (see assume): the key a node's
+                // children's loop stores for a child that passed its test
+                // is the child's entry distance, not the infinity the key
+                // blends in for a miss.
+                s.at = i;
+                ValuePtr value =
+                    s.assume(instr->operands[1], instr->operands[2], true);
+                if (!same_value(value, instr->operands[1])) {
+                    instr->operands[1] = std::move(value);
+                    s.changed_in_place = true;
+                }
+                i = s.at;
+            }
             if (Simplifier::writes_memory(*instr)) {
                 s.generation++;
             }
@@ -2277,7 +2594,7 @@ bool simplify_once(Function &func, const ConstantIntervals *intervals) {
             s.replaced[instr.get()] = v;
         }
     }
-    if (s.replaced.empty()) {
+    if (s.replaced.empty() && !s.changed_in_place) {
         return false;
     }
     resolve_uses(func, s);

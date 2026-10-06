@@ -11,19 +11,26 @@
 // it (SSA/SortRecursion.cpp), a chain that peels the hit lanes one at a
 // time -- the lowest lane left (`ctz` of the mask's bits), the child at it
 // loaded off the row, its key read off a cell the chain stores the key
-// vector into once where it first compares (`@cell[ramp] = ..`, then
-// `@cell[lane]`; the bound carried to the child is the same `distmin`,
-// stored alike by the children's loop, so one cell and one load serve
-// both and the distance pushed is the key), inserted among the calls
-// peeled before it by a compare and a select per component, the lane
-// cleared (`& (bits - 1)`) and the lanes left tested (`!= 0u`): none left
-// after h peels is a run of h calls, nearest first; the lanes left after
-// four go to the general arm, the bitonic network over all eight lanes
-// with the keys packed inside it. And where the prefetch goes (SSA/
-// QueueRecursion.cpp): one `prefetch(child, 256u)` right after each peel's
-// load of its child, shared by every arm below it -- Embree's
-// `prefetch(cur)` as it takes a child -- the general arm keeping the one
-// vector prefetch under the mask, and the node's block none.
+// vector into once where it first compares (`@cell[ramp] = select(mask,
+// keys, 0)`, then `@cell[lane]`; the bound carried to the child is the
+// same `distmin`, stored alike by the children's loop, so one cell and
+// one load serve both and the distance pushed is the key), inserted
+// among the calls peeled before it by a compare and a select per
+// component, the lane cleared (`& (bits - 1)`) and the lanes left tested
+// (`!= 0u`): none left after h peels is a run of h calls, nearest first;
+// the lanes left after four go to the general arm, the bitonic network
+// over all eight lanes with the keys packed inside it. The keys the cell
+// holds are the entry distances themselves: the lanes the mask has off
+// are zeroed, which nothing reads, and under the mask the key's own miss
+// test of the child's box is decided by the mask's, so the infinity
+// `distmin` blends in for a miss is never made (SSA/Simplify.cpp: the
+// loop's stores of the mask and the keys forwarded to their reads, a
+// select's arm read knowing its condition, the comparison a min chain
+// implies). And where the prefetch goes (SSA/QueueRecursion.cpp):
+// one `prefetch(child, 256u)` right after each peel's load of its child,
+// shared by every arm below it -- Embree's `prefetch(cur)` as it takes a
+// child -- the general arm keeping the one vector prefetch under the
+// mask, and the node's block none.
 import stdlib/aabb;
 import stdlib/numerics;
 
