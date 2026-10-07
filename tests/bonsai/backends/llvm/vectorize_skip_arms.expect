@@ -20,8 +20,8 @@ weigh_all:
   %6 = fcmp ule <8 x float> %5, splat (float 7.000000e+00)
   %7 = and <8 x i1> %0, %6
   %8 = bitcast <8 x i1> %7 to i8
-  %.not3.i = icmp eq i8 %8, 0
-  br i1 %.not3.i, label %"!else_1!any.i", label %"!merge_4.i"
+  %.not4.i = icmp eq i8 %8, 0
+  br i1 %.not4.i, label %"!else_1!any.i", label %"!merge_4.i"
 
 "!merge_4.i":                                     ; preds = %"!then_0.i"
   %9 = fmul <8 x float> %5, %5
@@ -29,12 +29,12 @@ weigh_all:
   br label %"!else_1!any.i"
 
 "!else_1!any.i":                                  ; preds = %"!merge_4.i", %"!then_0.i", %weigh_all
-  %"@71!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %7, %"!then_0.i" ], [ %7, %"!merge_4.i" ]
+  %"@61!join.i" = phi <8 x i1> [ zeroinitializer, %weigh_all ], [ %7, %"!then_0.i" ], [ %7, %"!merge_4.i" ]
   %"acc!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ undef, %"!then_0.i" ], [ %10, %"!merge_4.i" ]
   %"!ret!skip.i" = phi <8 x float> [ undef, %weigh_all ], [ %5, %"!then_0.i" ], [ %5, %"!merge_4.i" ]
   %11 = bitcast <8 x i1> %1 to i8
-  %.not4.i = icmp eq i8 %11, 0
-  br i1 %.not4.i, label %"!merge_2.i", label %"!else_1.i"
+  %.not5.i = icmp eq i8 %11, 0
+  br i1 %.not5.i, label %"!merge_2.i", label %"!else_1.i"
 
 "!else_1.i":                                      ; preds = %"!else_1!any.i"
   %12 = fmul <8 x float> %extract, %extract
@@ -49,9 +49,9 @@ weigh_all:
 
 "!merge_2.i":                                     ; preds = %"!else_1.i", %"!else_1!any.i"
   %"acc!skip0.i" = phi <8 x float> [ %"acc!skip.i", %"!else_1!any.i" ], [ %19, %"!else_1.i" ]
-  %20 = or <8 x i1> %"@71!join.i", %1
-  %21 = fcmp olt <8 x float> %extract, zeroinitializer
-  %22 = xor <8 x i1> %21, %20
+  %20 = or <8 x i1> %"@61!join.i", %1
+  %21 = fcmp uge <8 x float> %extract, zeroinitializer
+  %22 = and <8 x i1> %21, %20
   %23 = fneg <8 x float> %extract
   %24 = bitcast <8 x i1> %22 to i8
   %.not6.i = icmp eq i8 %24, 0
@@ -62,8 +62,8 @@ weigh_all:
   %26 = and <8 x i1> %25, %20
   %27 = fmul <8 x float> %extract, splat (float 5.000000e-01)
   %28 = bitcast <8 x i1> %26 to i8
-  %.not8.i = icmp eq i8 %28, 0
-  br i1 %.not8.i, label %"!merge_10.i", label %"!else_9.i"
+  %.not7.i = icmp eq i8 %28, 0
+  br i1 %.not7.i, label %"!merge_10.i", label %"!else_9.i"
 
 "!else_9.i":                                      ; preds = %"!else_6.i"
   %29 = fmul <8 x float> %extract, splat (float 2.500000e-01)
@@ -72,33 +72,33 @@ weigh_all:
   br label %"!merge_10.i"
 
 "!merge_10.i":                                    ; preds = %"!else_9.i", %"!else_6.i"
-  %"classify$r6!skip0.0.i" = phi <8 x i8> [ splat (i8 1), %"!else_6.i" ], [ %30, %"!else_9.i" ]
-  %"classify$r6!skip0.2.1.in.i" = phi <8 x float> [ %27, %"!else_6.i" ], [ %.v.i, %"!else_9.i" ]
-  %31 = select <8 x i1> %22, <8 x i8> %"classify$r6!skip0.0.i", <8 x i8> zeroinitializer
-  %.v12.i = select <8 x i1> %22, <8 x float> %extract, <8 x float> %23
-  %32 = select <8 x i1> %22, <8 x float> %"classify$r6!skip0.2.1.in.i", <8 x float> zeroinitializer
+  %"classify$r6$tag0!skip.i" = phi <8 x i8> [ splat (i8 1), %"!else_6.i" ], [ %30, %"!else_9.i" ]
+  %"classify$r6$payload1!skip0.1.in.i" = phi <8 x float> [ %27, %"!else_6.i" ], [ %.v.i, %"!else_9.i" ]
+  %31 = select <8 x i1> %22, <8 x i8> %"classify$r6$tag0!skip.i", <8 x i8> zeroinitializer
+  %.v8.i = select <8 x i1> %22, <8 x float> %extract, <8 x float> %23
+  %32 = select <8 x i1> %22, <8 x float> %"classify$r6$payload1!skip0.1.in.i", <8 x float> zeroinitializer
   br label %"!merge_7.i"
 
 "!merge_7.i":                                     ; preds = %"!merge_10.i", %"!merge_2.i"
-  %"classify$r6!skip2.0.i" = phi <8 x i8> [ zeroinitializer, %"!merge_2.i" ], [ %31, %"!merge_10.i" ]
-  %"classify$r6!skip2.2.0.in.i" = phi <8 x float> [ %23, %"!merge_2.i" ], [ %.v12.i, %"!merge_10.i" ]
-  %"classify$r6!skip2.2.1.i" = phi <8 x float> [ zeroinitializer, %"!merge_2.i" ], [ %32, %"!merge_10.i" ]
-  %33 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", zeroinitializer
+  %"classify$r6$tag0!skip0.i" = phi <8 x i8> [ zeroinitializer, %"!merge_2.i" ], [ %31, %"!merge_10.i" ]
+  %"classify$r6$payload1!skip2.0.in.i" = phi <8 x float> [ %23, %"!merge_2.i" ], [ %.v8.i, %"!merge_10.i" ]
+  %"classify$r6$payload1!skip2.1.i" = phi <8 x float> [ zeroinitializer, %"!merge_2.i" ], [ %32, %"!merge_10.i" ]
+  %33 = icmp eq <8 x i8> %"classify$r6$tag0!skip0.i", zeroinitializer
   %34 = and <8 x i1> %20, %33
-  %35 = icmp eq <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %35 = icmp eq <8 x i8> %"classify$r6$tag0!skip0.i", splat (i8 1)
   %36 = and <8 x i1> %20, %35
-  %37 = icmp samesign ugt <8 x i8> %"classify$r6!skip2.0.i", splat (i8 1)
+  %37 = icmp samesign ugt <8 x i8> %"classify$r6$tag0!skip0.i", splat (i8 1)
   %38 = and <8 x i1> %20, %37
   %39 = bitcast <8 x i1> %38 to i8
   %.not9.i = icmp eq i8 %39, 0
   br i1 %.not9.i, label %"!case_13!any.i", label %"!case_14.i"
 
 "!case_14.i":                                     ; preds = %"!merge_7.i"
-  %40 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
-  %41 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %40 = fmul <8 x float> %"classify$r6$payload1!skip2.0.in.i", %"classify$r6$payload1!skip2.0.in.i"
+  %41 = fmul <8 x float> %"classify$r6$payload1!skip2.1.i", %"classify$r6$payload1!skip2.1.i"
   %42 = fsub <8 x float> %40, %41
   %43 = fmul <8 x float> %42, splat (float 3.000000e+00)
-  %44 = fadd <8 x float> %"classify$r6!skip2.2.1.i", %43
+  %44 = fadd <8 x float> %"classify$r6$payload1!skip2.1.i", %43
   br label %"!case_13!any.i"
 
 "!case_13!any.i":                                 ; preds = %"!case_14.i", %"!merge_7.i"
@@ -108,11 +108,11 @@ weigh_all:
   br i1 %.not10.i, label %"!case_12!any.i", label %"!case_13.i"
 
 "!case_13.i":                                     ; preds = %"!case_13!any.i"
-  %46 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.1.i"
+  %46 = fmul <8 x float> %"classify$r6$payload1!skip2.0.in.i", %"classify$r6$payload1!skip2.1.i"
   %47 = fmul <8 x float> %46, splat (float 2.000000e+00)
-  %48 = fmul <8 x float> %"classify$r6!skip2.2.1.i", %"classify$r6!skip2.2.1.i"
+  %48 = fmul <8 x float> %"classify$r6$payload1!skip2.1.i", %"classify$r6$payload1!skip2.1.i"
   %49 = fadd <8 x float> %48, %47
-  %50 = fsub <8 x float> %49, %"classify$r6!skip2.2.0.in.i"
+  %50 = fsub <8 x float> %49, %"classify$r6$payload1!skip2.0.in.i"
   %51 = select <8 x i1> %36, <8 x float> %50, <8 x float> %"w!skip.i"
   br label %"!case_12!any.i"
 
@@ -123,11 +123,11 @@ weigh_all:
   br i1 %.not11.i, label %"weigh$gang8_v0.exit", label %"!case_12.i"
 
 "!case_12.i":                                     ; preds = %"!case_12!any.i"
-  %53 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", %"classify$r6!skip2.2.0.in.i"
+  %53 = fmul <8 x float> %"classify$r6$payload1!skip2.0.in.i", %"classify$r6$payload1!skip2.0.in.i"
   %54 = fmul <8 x float> %53, splat (float 3.000000e+00)
-  %55 = fmul <8 x float> %"classify$r6!skip2.2.0.in.i", splat (float 5.000000e-01)
+  %55 = fmul <8 x float> %"classify$r6$payload1!skip2.0.in.i", splat (float 5.000000e-01)
   %56 = fadd <8 x float> %55, %54
-  %57 = fsub <8 x float> %56, %"classify$r6!skip2.2.0.in.i"
+  %57 = fsub <8 x float> %56, %"classify$r6$payload1!skip2.0.in.i"
   %58 = select <8 x i1> %34, <8 x float> %57, <8 x float> %"w!skip0.i"
   br label %"weigh$gang8_v0.exit"
 

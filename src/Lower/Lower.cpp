@@ -360,6 +360,11 @@ PassManager register_passes(const CompilerOptions &options) {
     // could not. After CSE, which hoists by merging and must not be
     // fought; before DCE, which eats what both make wholly dead.
     ssa.push_back(std::make_unique<opt::NarrowLoads>());
+    // The narrowing leaves each split field spelled `(build ...).f` and
+    // `(*p).f`; the simplifier folds the first to the field's own
+    // expression so DCE can reap the dead fields' chains in our IR rather
+    // than leaving them for LLVM.
+    ssa.push_back(std::make_unique<opt::Simplify>());
     ssa.push_back(std::make_unique<opt::Sink>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());

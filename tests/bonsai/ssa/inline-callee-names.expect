@@ -665,7 +665,7 @@ func intersects_Ray_AABB(r : Ray, b : AABB) -> bool {
 }
 
 func intersects_Ray_Triangle(r : Ray, tri : Triangle) -> bool {
-  intersectsp_ray_tri$r7 : mut _option2
+  intersectsp_ray_tri$r7$set0 : mut bool
   let _t191$i7 = tri.p0 in
   let @1 = tri.p1 in
   let v1$i7 = @1 - _t191$i7 in
@@ -703,85 +703,78 @@ func intersects_Ray_Triangle(r : Ray, tri : Triangle) -> bool {
   let @40 = 1.19209e-07f < @39 in
   let @41 = !@40 in
   if (@41) {
-    let @42 = build<_option2>() in
-    intersectsp_ray_tri$r7 = @42
+    intersectsp_ray_tri$r7$set0 = false
   } else {
     let r$i16 = rcp_approx(det$i7) in
     let t0$i16 = r$i16 + r$i16 in
     let t1$i16 = r$i16 * det$i7 in
-    let @46 = t1$i16 * r$i16 in
-    let @47 = t0$i16 - @46 in
-    let @48 = r.o in
-    let s$i7 = @48 - _t191$i7 in
-    let @50 = s$i7[0] in
-    let @52 = @50 * @29 in
-    let @53 = s$i7[1] in
-    let @55 = @53 * @32 in
-    let @56 = @52 + @55 in
-    let @57 = s$i7[2] in
-    let @59 = @57 * @36 in
-    let @60 = @56 + @59 in
-    let v$i7 = @60 * @47 in
-    let @63 = 0f <= v$i7 in
-    let @64 = v$i7 <= 1f in
-    let @65 = @63 && @64 in
-    let @66 = !@65 in
-    if (@66) {
-      let @67 = build<_option2>() in
-      intersectsp_ray_tri$r7 = @67
+    let @47 = t1$i16 * r$i16 in
+    let @48 = t0$i16 - @47 in
+    let @49 = r.o in
+    let s$i7 = @49 - _t191$i7 in
+    let @51 = s$i7[0] in
+    let @53 = @51 * @29 in
+    let @54 = s$i7[1] in
+    let @56 = @54 * @32 in
+    let @57 = @53 + @56 in
+    let @58 = s$i7[2] in
+    let @60 = @58 * @36 in
+    let @61 = @57 + @60 in
+    let v$i7 = @61 * @48 in
+    let @64 = 0f <= v$i7 in
+    let @65 = v$i7 <= 1f in
+    let @66 = @64 && @65 in
+    let @67 = !@66 in
+    if (@67) {
+      intersectsp_ray_tri$r7$set0 = false
     } else {
-      let @70 = @53 * @35 in
-      let @73 = @57 * @31 in
-      let @74 = @70 - @73 in
-      let @77 = @57 * @28 in
-      let @80 = @50 * @35 in
-      let @81 = @77 - @80 in
-      let @84 = @50 * @31 in
-      let @87 = @53 * @28 in
-      let @88 = @84 - @87 in
-      let q$i7 = build<f32x3>(@74, @81, @88) in
-      let @91 = q$i7[0] in
-      let @92 = @16 * @91 in
-      let @94 = q$i7[1] in
-      let @95 = @6 * @94 in
-      let @96 = @92 + @95 in
-      let @98 = q$i7[2] in
-      let @99 = @9 * @98 in
-      let @100 = @96 + @99 in
-      let w$i7 = @100 * @47 in
-      let @103 = 0f <= w$i7 in
-      let @104 = v$i7 + w$i7 in
-      let @105 = @104 <= 1f in
-      let @106 = @103 && @105 in
-      let @107 = !@106 in
-      if (@107) {
-        let @108 = build<_option2>() in
-        intersectsp_ray_tri$r7 = @108
+      let @72 = @54 * @35 in
+      let @75 = @58 * @31 in
+      let @76 = @72 - @75 in
+      let @79 = @58 * @28 in
+      let @82 = @51 * @35 in
+      let @83 = @79 - @82 in
+      let @86 = @51 * @31 in
+      let @89 = @54 * @28 in
+      let @90 = @86 - @89 in
+      let q$i7 = build<f32x3>(@76, @83, @90) in
+      let @93 = q$i7[0] in
+      let @94 = @16 * @93 in
+      let @96 = q$i7[1] in
+      let @97 = @6 * @96 in
+      let @98 = @94 + @97 in
+      let @100 = q$i7[2] in
+      let @101 = @9 * @100 in
+      let @102 = @98 + @101 in
+      let w$i7 = @102 * @48 in
+      let @105 = 0f <= w$i7 in
+      let @106 = v$i7 + w$i7 in
+      let @107 = @106 <= 1f in
+      let @108 = @105 && @107 in
+      let @109 = !@108 in
+      if (@109) {
+        intersectsp_ray_tri$r7$set0 = false
       } else {
-        let @111 = @14 * @91 in
-        let @114 = @10 * @94 in
-        let @115 = @111 + @114 in
-        let @118 = @7 * @98 in
-        let @119 = @115 + @118 in
-        let d$i7 = @119 * @47 in
-        let @122 = 0f <= d$i7 in
-        let @123 = r.tmax in
-        let @124 = d$i7 <= @123 in
-        let @125 = @122 && @124 in
-        let @126 = !@125 in
-        if (@126) {
-          let @127 = build<_option2>() in
-          intersectsp_ray_tri$r7 = @127
+        let @114 = @14 * @93 in
+        let @117 = @10 * @96 in
+        let @118 = @114 + @117 in
+        let @121 = @7 * @100 in
+        let @122 = @118 + @121 in
+        let d$i7 = @122 * @48 in
+        let @125 = 0f <= d$i7 in
+        let @126 = r.tmax in
+        let @127 = d$i7 <= @126 in
+        let @128 = @125 && @127 in
+        let @129 = !@128 in
+        if (@129) {
+          intersectsp_ray_tri$r7$set0 = false
         } else {
-          let @128 = build<TriangleHit>(d$i7, v$i7, w$i7) in
-          let @129 = build<_option2>(@128, true) in
-          intersectsp_ray_tri$r7 = @129
+          intersectsp_ray_tri$r7$set0 = true
         }
       }
     }
   }
-  let @131 = (*intersectsp_ray_tri$r7).set in
-  return @131
+  return (*intersectsp_ray_tri$r7$set0)
 }
 
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> _option1 {

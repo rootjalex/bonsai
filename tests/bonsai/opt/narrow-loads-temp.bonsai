@@ -1,0 +1,36 @@
+//! flags: -p narrow-loads
+
+// The merge-temp pattern of Opt/NarrowLoads (scalar replacement of
+// aggregates): `r` is a mutable struct written WHOLE on both paths and read
+// only at `.lo` and `.sum` after the merge. What to read for in the dump:
+//
+// - `r` is gone; in its place two scalar temps, `r$lo*` and `r$sum*`,
+//   allocated where `r` was with the initializer's fields.
+// - Each arm's whole-struct store became the two field stores; the `mid`
+//   field's values -- `sqrt(x * y)` on one path, `x - y` on the other --
+//   are stored NOWHERE, and DCE (not run here) can now reap their chains
+//   arm by arm.
+// - `tag`, read whole by `probe_whole`, is left exactly as written: a
+//   whole-value use disqualifies the split.
+
+element Rec {
+    lo : f32;
+    mid : f32;
+    sum : f32;
+}
+
+func probe_whole(r : Rec) -> f32 {
+    return r.lo;
+}
+
+func [[export]] pick(x : f32, y : f32, big : bool) -> f32 {
+    r : mut Rec = {x, sqrt(x * y), x + y};
+    if big {
+        r = {y, x - y, x * y};
+    }
+    tag : mut Rec = {x, y, x};
+    if big {
+        tag = {y, x, y};
+    }
+    return r.lo + r.sum + probe_whole(tag);
+}

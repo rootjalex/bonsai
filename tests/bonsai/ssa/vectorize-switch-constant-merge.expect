@@ -79,10 +79,10 @@ func weigh(b : Blob, k : f32) -> f32 {
 
 func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let _t26 = a[ramp(0, 1, 8)] in
-  let @140 = f32x8(2f) in
-  let @27 = _t26 * @140 in
+  let @45 = f32x8(2f) in
+  let @6 = _t26 * @45 in
   let i = ramp(0, 1, 8) in
-  let weigh$r8 = @27 in
+  let weigh$r8 = @6 in
   out[ramp(0, 1, 8)] = weigh$r8
   return
 }

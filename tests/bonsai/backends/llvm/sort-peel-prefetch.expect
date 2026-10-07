@@ -8,7 +8,7 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress
 define void @trace(ptr nofree noundef nonnull writeonly captures(none) %_ret0, ptr noundef nonnull readonly captures(none) %r0, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr #0 {
 trace:
-  %"@378326.i" = alloca [8 x i32], align 4
+  %"@374326.i" = alloca [8 x i32], align 4
   %"!stack0327.i" = alloca [72 x float], align 4
   %"!stack328.i" = alloca [72 x i64], align 8
   %root = load i64, ptr %tris_buffer, align 1
@@ -24,7 +24,7 @@ trace:
   %"@0.d" = extractvalue %struct.Ray %deref_temp, 2
   %3 = fcmp ogt float %"@0.tfar", 0.000000e+00
   %4 = select i1 %3, float %"@0.tfar", float 0.000000e+00
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@378326.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@374326.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack0327.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack328.i")
   %5 = bitcast float %4 to i32
@@ -187,10 +187,10 @@ trace:
   %72 = getelementptr inbounds nuw i8, ptr %69, i64 192
   tail call void @llvm.prefetch.p0(ptr nonnull %72, i32 0, i32 3, i32 1)
   %73 = select <8 x i1> %52, <8 x i32> %67, <8 x i32> zeroinitializer
-  store <8 x i32> %73, ptr %"@378326.i", align 4
-  %extract_ptr255.i = getelementptr inbounds nuw [4 x i8], ptr %"@378326.i", i64 %_wide.i
+  store <8 x i32> %73, ptr %"@374326.i", align 4
+  %extract_ptr255.i = getelementptr inbounds nuw [4 x i8], ptr %"@374326.i", i64 %_wide.i
   %extract256.i = load i32, ptr %extract_ptr255.i, align 4
-  %extract_ptr258.i = getelementptr inbounds nuw [4 x i8], ptr %"@378326.i", i64 %_wide250.i
+  %extract_ptr258.i = getelementptr inbounds nuw [4 x i8], ptr %"@374326.i", i64 %_wide250.i
   %extract259.i = load i32, ptr %extract_ptr258.i, align 4
   %74 = icmp slt i32 %extract256.i, %extract259.i
   %75 = tail call i32 @llvm.smax.i32(i32 %extract256.i, i32 %extract259.i)
@@ -215,7 +215,7 @@ trace:
   tail call void @llvm.prefetch.p0(ptr nonnull %84, i32 0, i32 3, i32 1)
   %85 = getelementptr inbounds nuw i8, ptr %82, i64 192
   tail call void @llvm.prefetch.p0(ptr nonnull %85, i32 0, i32 3, i32 1)
-  %extract_ptr264.i = getelementptr inbounds nuw [4 x i8], ptr %"@378326.i", i64 %_wide260.i
+  %extract_ptr264.i = getelementptr inbounds nuw [4 x i8], ptr %"@374326.i", i64 %_wide260.i
   %extract265.i = load i32, ptr %extract_ptr264.i, align 4
   %86 = icmp slt i32 %80, %extract265.i
   %87 = tail call i32 @llvm.smax.i32(i32 %80, i32 %extract265.i)
@@ -250,7 +250,7 @@ trace:
 
 "!par_cont_6!sort4.i":                            ; preds = %"!par_cont_6!peel4.i"
   %103 = tail call i32 @llvm.smin.i32(i32 %80, i32 %extract265.i)
-  %extract_ptr270.i = getelementptr inbounds nuw [4 x i8], ptr %"@378326.i", i64 %_wide266.i
+  %extract_ptr270.i = getelementptr inbounds nuw [4 x i8], ptr %"@374326.i", i64 %_wide266.i
   %extract271.i = load i32, ptr %extract_ptr270.i, align 4
   %104 = tail call i32 @llvm.smax.i32(i32 %103, i32 %extract271.i)
   %105 = tail call i32 @llvm.smax.i32(i32 %91, i32 %104)
@@ -697,7 +697,7 @@ prefetch_lane296.i:                               ; preds = %prefetch_lane294.i
   br label %prefetch_done.i
 
 _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@378326.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@374326.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0327.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack328.i")
   %337 = fcmp une float %"_best0$i166.sroa.0.1", +inf

@@ -19,6 +19,7 @@ add_bonsai_tests(
     inline-rounds.bonsai
     inline-statements.bonsai
     jump-threading.bonsai
+    narrow-loads-temp.bonsai
     parallel.bonsai
     sink.bonsai
     simplify-const-array.bonsai

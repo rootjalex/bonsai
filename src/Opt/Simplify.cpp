@@ -772,8 +772,14 @@ struct Simplifier : ir::Mutator {
                 node->value.type().as<ir::Struct_t>();
             internal_assert(struct_t);
             const size_t idx = find_struct_index(node->field, struct_t->fields);
-            internal_assert(idx < build->values.size());
-            return build->values[idx];
+            // A build may lean on the struct's defaulted tail (`Ray{o, d}`
+            // with `tmax = inf`), so the field asked for is not always among
+            // the values given. Its default's expression may name sibling
+            // fields; the lowering that expands defaults owns that, not a
+            // fold, so the access stays.
+            if (idx < build->values.size()) {
+                return build->values[idx];
+            }
         }
 
         if (value.same_as(node->value)) {

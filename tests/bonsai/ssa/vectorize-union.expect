@@ -98,82 +98,77 @@ func weigh(b : Blob) -> f32 {
 
 func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let v$i6 = a[ramp(0, 1, 8)] in
-  let @85 = i32x8(1431655766) in
-  let @61 = mulhi(ramp(0, 1, 8), @85) in
-  let @86 = i32x8(31) in
-  let @62 = @61 >> @86 in
-  let @63 = reinterpret_cast<u32x8>(@62) in
-  let @87 = u32x8(31u) in
-  let @64 = @63 >> @87 in
-  let @65 = reinterpret_cast<i32x8>(@64) in
-  let @66 = @61 + @65 in
-  let @88 = i32x8(3) in
-  let @67 = @66 * @88 in
-  let _t19$i6 = ramp(0, 1, 8) - @67 in
-  let @89 = i32x8(0) in
-  let @2 = _t19$i6 == @89 in
-  let @221 = !@2 in
-  let @4 = reinterpret_cast<u32x8>(v$i6) in
-  let @92 = u32x8(0u) in
-  let @99 = u8x8(0u) in
-  let @131 = i32x8(1) in
-  let @7 = _t19$i6 == @131 in
-  let @222 = !@7 in
-  let @9 = reinterpret_cast<u32x8>(ramp(0, 1, 8)) in
-  let @134 = i32x8(10) in
-  let @10 = ramp(0, 1, 8) * @134 in
-  let @11 = reinterpret_cast<u32x8>(@10) in
-  let @141 = u8x8(1u) in
-  let @173 = f32x8(2f) in
-  let @16 = @173 * v$i6 in
-  let @17 = reinterpret_cast<u32x8>(@16) in
-  let @174 = f32x8(3f) in
-  let @18 = @174 * v$i6 in
-  let @19 = reinterpret_cast<u32x8>(@18) in
-  let @175 = f32x8(0f) in
-  let @20 = v$i6 < @175 in
-  let @21 = cast<u32x8>(@20) in
-  let @180 = u8x8(2u) in
-  let @248 = select(@222, @180, @141) in
-  let @249 = select(@221, @248, @99) in
-  let @72 = @249 == @99 in
-  let @213 = u8x8(1u) in
-  let @73 = @249 == @213 in
-  let @239 = select(@222, @21, @92) in
-  let @240 = select(@221, @239, @92) in
-  let @42 = @240 >> @92 in
-  let @217 = u32x8(255u) in
-  let @43 = @42 & @217 in
-  let neg$i7 = @43 != @92 in
-  let @241 = select(@222, @4, @9) in
-  let @242 = select(@221, @241, @4) in
-  let @46 = reinterpret_cast<f32x8>(@242) in
-  let @243 = select(@222, @17, @11) in
-  let @244 = select(@221, @243, @92) in
-  let @48 = reinterpret_cast<f32x8>(@244) in
-  let @245 = select(@222, @19, @92) in
-  let @246 = select(@221, @245, @92) in
-  let @50 = reinterpret_cast<f32x8>(@246) in
-  let @54 = @46 + @48 in
-  let _t46$i7 = @54 + @50 in
-  let @219 = f32x8(-0f) in
-  let @57 = @219 - _t46$i7 in
-  let @58 = select(neg$i7, @57, _t46$i7) in
-  let @233 = select(@222, @4, @9) in
-  let @234 = select(@221, @233, @4) in
-  let lo$i7 = reinterpret_cast<i32x8>(@234) in
-  let @235 = select(@222, @17, @11) in
-  let @236 = select(@221, @235, @92) in
-  let hi$i7 = reinterpret_cast<i32x8>(@236) in
-  let @37 = lo$i7 + hi$i7 in
-  let @38 = cast<f32x8>(@37) in
-  let @79 = select(@73, @38, @58) in
-  let @229 = select(@222, @4, @9) in
-  let @230 = select(@221, @229, @4) in
-  let x$i7 = reinterpret_cast<f32x8>(@230) in
-  let @30 = x$i7 * @173 in
-  let @80 = select(@72, @30, @79) in
-  out[ramp(0, 1, 8)] = @80
+  let @90 = i32x8(1431655766) in
+  let @51 = mulhi(ramp(0, 1, 8), @90) in
+  let @91 = i32x8(31) in
+  let @52 = @51 >> @91 in
+  let @53 = reinterpret_cast<u32x8>(@52) in
+  let @92 = u32x8(31u) in
+  let @54 = @53 >> @92 in
+  let @55 = reinterpret_cast<i32x8>(@54) in
+  let @56 = @51 + @55 in
+  let @93 = i32x8(3) in
+  let @57 = @56 * @93 in
+  let _t19$i6 = ramp(0, 1, 8) - @57 in
+  let @94 = i32x8(0) in
+  let @2 = _t19$i6 == @94 in
+  let @133 = !@2 in
+  let @3 = reinterpret_cast<u32x8>(v$i6) in
+  let @97 = i32x8(1) in
+  let @5 = _t19$i6 == @97 in
+  let @134 = !@5 in
+  let @6 = reinterpret_cast<u32x8>(ramp(0, 1, 8)) in
+  let @100 = i32x8(10) in
+  let @7 = ramp(0, 1, 8) * @100 in
+  let @8 = reinterpret_cast<u32x8>(@7) in
+  let @101 = f32x8(2f) in
+  let @11 = @101 * v$i6 in
+  let @12 = reinterpret_cast<u32x8>(@11) in
+  let @102 = f32x8(3f) in
+  let @13 = @102 * v$i6 in
+  let @14 = reinterpret_cast<u32x8>(@13) in
+  let @103 = f32x8(0f) in
+  let @15 = v$i6 < @103 in
+  let @16 = cast<u32x8>(@15) in
+  let @104 = u8x8(2u) in
+  let @105 = u8x8(1u) in
+  let @106 = u32x8(0u) in
+  let @116 = u8x8(0u) in
+  let @135 = select(@134, @104, @105) in
+  let @136 = select(@133, @135, @116) in
+  let @137 = select(@134, @3, @6) in
+  let @138 = select(@133, @137, @3) in
+  let @139 = select(@134, @12, @8) in
+  let @140 = select(@133, @139, @106) in
+  let @141 = select(@134, @14, @106) in
+  let @142 = select(@133, @141, @106) in
+  let @143 = select(@134, @16, @106) in
+  let @144 = select(@133, @143, @106) in
+  let @124 = u8x8(0u) in
+  let @62 = @136 == @124 in
+  let @125 = u8x8(1u) in
+  let @63 = @136 == @125 in
+  let @32 = @144 >> @106 in
+  let @129 = u32x8(255u) in
+  let @33 = @32 & @129 in
+  let neg$i7 = @33 != @106 in
+  let @36 = reinterpret_cast<f32x8>(@138) in
+  let @38 = reinterpret_cast<f32x8>(@140) in
+  let @40 = reinterpret_cast<f32x8>(@142) in
+  let @44 = @36 + @38 in
+  let _t46$i7 = @44 + @40 in
+  let @131 = f32x8(-0f) in
+  let @47 = @131 - _t46$i7 in
+  let @48 = select(neg$i7, @47, _t46$i7) in
+  let lo$i7 = reinterpret_cast<i32x8>(@138) in
+  let hi$i7 = reinterpret_cast<i32x8>(@140) in
+  let @28 = lo$i7 + hi$i7 in
+  let @29 = cast<f32x8>(@28) in
+  let @71 = select(@63, @29, @48) in
+  let x$i7 = reinterpret_cast<f32x8>(@138) in
+  let @22 = x$i7 * @101 in
+  let @72 = select(@62, @22, @71) in
+  out[ramp(0, 1, 8)] = @72
   return
 }
 

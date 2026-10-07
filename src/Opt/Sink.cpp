@@ -1,5 +1,7 @@
 #include "Opt/Sink.h"
 
+#include "Opt/ValueClass.h"
+
 #include "IR/Analysis.h"
 #include "IR/Mutator.h"
 #include "IR/Printer.h"
@@ -21,55 +23,6 @@ using namespace ir;
 namespace {
 
 int64_t rename_counter = 0;
-
-// What a let's value is allowed to do and still move. `sinkable` admits the
-// pure computations and the reads; `memory` marks the reads, which stop at
-// any statement that could write (there is no alias analysis here: a read
-// never crosses a write, whosever it is).
-struct ValueClass : Visitor {
-    bool sinkable = true;
-    bool memory = false;
-
-    void visit(const Call *) override { sinkable = false; }
-    void visit(const MatchExpr *) override { sinkable = false; }
-    void visit(const Generator *) override { sinkable = false; }
-    void visit(const Lambda *) override { sinkable = false; }
-    void visit(const GeomOp *) override { sinkable = false; }
-    void visit(const SetOp *) override { sinkable = false; }
-    void visit(const AggOp *) override { sinkable = false; }
-    void visit(const Construct *) override { sinkable = false; }
-    void visit(const PtrTo *) override { sinkable = false; }
-    void visit(const Deref *node) override {
-        memory = true;
-        Visitor::visit(node);
-    }
-    void visit(const StoredElement *node) override {
-        memory = true;
-        Visitor::visit(node);
-    }
-    void visit(const Unwrap *node) override {
-        // A variant read: of a tree node's bytes as often as of a value.
-        memory = true;
-        Visitor::visit(node);
-    }
-    void visit(const Intrinsic *node) override {
-        if (Intrinsic::has_effects(node->op)) {
-            sinkable = false;
-            return;
-        }
-        if (node->op == Intrinsic::rt_payload ||
-            node->op == Intrinsic::tex_sample_grad_2d) {
-            memory = true;
-        }
-        Visitor::visit(node);
-    }
-};
-
-ValueClass classify(const Expr &value) {
-    ValueClass c;
-    value.accept(&c);
-    return c;
-}
 
 std::set<std::string> free_names(const Expr &expr) {
     std::set<std::string> names;
