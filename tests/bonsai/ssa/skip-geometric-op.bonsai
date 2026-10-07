@@ -1,0 +1,123 @@
+//! flags: -p ssa
+
+// A skip that names a geometric op. `distmin` is overloaded here, for a
+// point against a box and against a triangle, and Lower/Geometrics.cpp
+// renames each implementation for its operand types
+// (`distmin_Point_Triangle`), so no function of the module is called
+// `distmin` by the time the schedule's policies are expanded. The arms of
+// the triangle distance's early returns were written in `distmin`, which
+// is what their provenance says and what `closest.skip(distmin)` names, and
+// the policy has to follow `closest` into the recursion extracted out of it
+// under that name (expand_branch_policies in SSA/Convert.cpp). Before it
+// did, the directive was dropped there, silently, and the FCPW closest
+// point's leaf ran every Voronoi region on every packet.
+//
+// What to read for: in the leaf's gang, a `reduce<any>` of the mask in
+// front of the rest of the distance after each of the two early returns --
+// the vertex regions of Ericson's test, then the edge -- as
+// skip-leaf-helper.bonsai has them after the ray test's early returns.
+import stdlib/numerics;
+
+element Point {
+    p : vec3f;
+}
+
+element Triangle {
+    v0 : vec3f;
+    e1 : vec3f;
+    e2 : vec3f;
+    primID : u32;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+func distmin(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = max(max(u, v), 0.0);
+    return dot(m, m);
+}
+
+func distmax(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = min(u, v);
+    return dot(m, m);
+}
+
+// Three regions of Ericson's test: the vertex a, the vertex b, the edge ab.
+func distmin(q : Point, tri : Triangle) -> Float {
+    ab = -tri.e1;
+    ac = tri.e2;
+    ax = q.p - tri.v0;
+    d1 = dot(ab, ax);
+    d2 = dot(ac, ax);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return dot(ax, ax);
+    }
+    bx = ax - ab;
+    d3 = dot(ab, bx);
+    d4 = dot(ac, bx);
+    if d3 >= 0.0 && d4 <= d3 {
+        return dot(bx, bx);
+    }
+    v = d1 / (d1 - d3);
+    diff = ax - ab * v;
+    return dot(diff, diff);
+}
+
+extern tris : set[Triangle];
+
+func [[export]] closest(q : Point) = argmin(|t : Triangle| distmin(q, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                v0 : vec3f;
+                e1 : vec3f;
+                e2 : vec3f;
+                primID : u32;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    closest.sort(tris.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(tris.Interior.children)
+           .vectorize(tris.Leaf.data)
+           .loopify(64);
+    // FCPW's `if (all(active)) return` after each region: the rest of the
+    // distance behind a test of whether any lane goes on.
+    closest.skip(distmin);
+}

@@ -150,7 +150,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 
 !else_12(distmin_Ray_AABB$r1 : (f32*), _best0 : (__tuple_1*), _t75 : _tree_layout1, dirIsNeg$i26 : boolx3, triangles_index : u32, triangles : _tree_layout0, ray : Ray): // preds: !then_9
   @87 = inf()
-  @88 = sub((f32)0, @87)
+  @88 = sub((f32)-0, @87)
   store distmin_Ray_AABB$r1 @88
   jmp !merge_13(distmin_Ray_AABB$r1, _best0, _t75, dirIsNeg$i26, triangles_index, triangles, ray)
 
@@ -456,7 +456,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 
 !else_12(distmin_Ray_AABB$r1 : (f32*), _best0 : (__tuple_1*), _t75 : _tree_layout1, dirIsNeg$i26 : boolx3, triangles_index : u32, triangles : _tree_layout0, ray : Ray): // preds: !then_9
   @87 = inf()
-  @88 = sub((f32)0, @87)
+  @88 = sub((f32)-0, @87)
   store distmin_Ray_AABB$r1 @88
   jmp !merge_13(distmin_Ray_AABB$r1, _best0, _t75, dirIsNeg$i26, triangles_index, triangles, ray)
 
@@ -733,7 +733,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
       distmin_Ray_AABB$r1 = @86
     } else {
       let @87 = (f32)inf in
-      let @88 = 0f - @87 in
+      let @88 = -0f - @87 in
       distmin_Ray_AABB$r1 = @88
     }
     let @90 = (*_best0) in

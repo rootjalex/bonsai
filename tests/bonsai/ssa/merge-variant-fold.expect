@@ -15,7 +15,7 @@ func pick(x : f32, flip : bool) -> f32 {
   let @2 = build<[[packed]] u32x1>(@1) in
   let @3 = build<Mode>(0u, @0, @2) in
   if (flip) {
-    let @5 = 0f - x in
+    let @5 = -0f - x in
     let @6 = reinterpret_cast<u32>(@5) in
     let @7 = build<[[packed]] u32x1>(@6) in
     let @8 = build<Mode>(0u, @0, @7) in
@@ -40,7 +40,7 @@ func [[export]] run(values : f32[8], flips : bool[8], out : mut f32[8]) -> void 
     let @4 = build<Mode>(0u, @1, @3) in
     let flip$i6 = flips[i] in
     if (flip$i6) {
-      let @7 = 0f - x$i6 in
+      let @7 = -0f - x$i6 in
       let @8 = reinterpret_cast<u32>(@7) in
       let @9 = build<[[packed]] u32x1>(@8) in
       let @10 = build<Mode>(0u, @1, @9) in

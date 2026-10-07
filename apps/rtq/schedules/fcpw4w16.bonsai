@@ -39,9 +39,10 @@ schedule {
     // FCPW: findClosestPointWideTriangle's `if (enoki::all(active7)) return`
     // after each of the first six Voronoi regions -- once every lane has its
     // region, the rest of the test is skipped. The regions are the early
-    // returns of the point-triangle distance; `skip` puts the test of whether
-    // any lane goes on in front of what follows each.
-    closest.skip(distmin);
+    // returns of offset_fcpw (metrics/fcpw.bonsai), the offset from the
+    // closest point that distmin takes the one root of; `skip` puts the test
+    // of whether any lane goes on in front of what follows each.
+    closest.skip(offset_fcpw);
 
     // The ray queries over FCPW's tree, with the directives of the Embree
     // schedule less the prefetch: FCPW's intersectFromNode orders the

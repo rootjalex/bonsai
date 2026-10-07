@@ -1296,8 +1296,14 @@ struct FunctionBuilder : Visitor {
 
         switch (node->op) {
         case UnOp::Neg: {
+            // A float is negated by subtracting it from *negative* zero,
+            // which is `-x` for every `x` (`-0.0 - (+0.0)` is `-0.0`) and
+            // what LLVM reads as `fneg`; from `+0.0` it would be `+0.0` at
+            // `x = +0.0`, and a subtraction LLVM can only keep, which left
+            // `0 - (a - b)` as `(b - a) + 0.0` in the FCPW leaf. An integer
+            // is negated from zero.
             auto zero = splat(elem.is_float()
-                                  ? Constant{elem, 0.0}
+                                  ? Constant{elem, -0.0}
                                   : Constant{elem, static_cast<int64_t>(0)});
             value = block->make_instruction(node->type, Instruction::Op::Sub,
                                             {std::move(zero), std::move(a)});
@@ -1805,11 +1811,30 @@ std::set<std::string> reach_of(const FuncMap &fmap, const std::string &start) {
 // on the type in everything the function calls.
 ir::BranchPolicyMap expand_branch_policies(const FuncMap &fmap,
                                            const ir::BranchPolicyMap &policies) {
+    // The names arms were written in, off the provenance each block carries.
+    // A cursor names a function by the name the schedule's author knows,
+    // which is not always a function of the module's: a geometric op's
+    // implementation is renamed for its operand types by Lower/Geometrics.cpp
+    // (`distmin` over a point and a triangle becomes
+    // `distmin_Point_Triangle`), while its arms still say `distmin`, the name
+    // `closest.skip(distmin)` uses and the one ir::skips matches them by.
+    // Without this the cursor was dropped here and the leaf of the FCPW
+    // closest point ran every Voronoi region on every packet, silently.
+    std::set<std::string> written_in;
+    for (const auto &[fname, f] : fmap) {
+        for (const auto &block : f->blocks) {
+            if (block->provenance.defined()) {
+                written_in.insert(block->provenance.func());
+            }
+        }
+    }
     ir::BranchPolicyMap expanded = policies;
     for (const auto &[name, policy] : policies) {
         std::vector<ir::Location> by_function;
         for (const ir::Location &cursor : policy.skip.arms) {
-            if (!cursor.names.empty() && fmap.contains(cursor.names.front())) {
+            if (!cursor.names.empty() &&
+                (fmap.contains(cursor.names.front()) ||
+                 written_in.contains(cursor.names.front()))) {
                 by_function.push_back(cursor);
             }
         }

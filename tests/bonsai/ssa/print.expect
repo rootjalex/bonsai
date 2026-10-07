@@ -3,7 +3,7 @@ func show_conditional(a : f32) -> void {
   if (@0) {
     print(a)
   } else {
-    let @1 = 0f - a in
+    let @1 = -0f - a in
     print(@1)
   }
   return

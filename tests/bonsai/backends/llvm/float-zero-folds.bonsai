@@ -4,7 +4,9 @@
 // arithmetic (opt/float-zero-folds.bonsai), all the way to LLVM: the
 // multiply by zero, the adds of zero and the subtraction from zero are
 // emitted as written, with no fast-math flags for LLVM to fold them by;
-// `x - 0.0` has folded to `x`.
+// `x - 0.0` has folded to `x`; and a negation is `fneg`, not a subtraction
+// from `+0.0`, which would be `+0.0` at `x = +0.0`.
+func [[export]] negate(x : f32) -> f32 = -x;
 func [[export]] times_zero(x : f32) -> f32 = x * 0.0;
 func [[export]] zero_plus(x : f32) -> f32 = 0.0 + x;
 func [[export]] plus_zero(x : f32) -> f32 = x + 0.0;

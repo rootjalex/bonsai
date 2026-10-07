@@ -89,7 +89,7 @@ func weigh(b : Blob) -> f32 {
     let @26 = @24 + @25 in
     let @27 = v[2u] in
     let _t46 = @26 + @27 in
-    let @29 = 0f - _t46 in
+    let @29 = -0f - _t46 in
     let @30 = select(neg, @29, _t46) in
     return @30
   }
@@ -156,7 +156,8 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @50 = reinterpret_cast<f32x8>(@246) in
   let @54 = @46 + @48 in
   let _t46$i7 = @54 + @50 in
-  let @57 = @175 - _t46$i7 in
+  let @219 = f32x8(-0f) in
+  let @57 = @219 - _t46$i7 in
   let @58 = select(neg$i7, @57, _t46$i7) in
   let @233 = select(@222, @4, @9) in
   let @234 = select(@221, @233, @4) in

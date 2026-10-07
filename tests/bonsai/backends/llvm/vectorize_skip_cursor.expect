@@ -8,7 +8,7 @@ weigh_all:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   %extract = load <8 x float>, ptr %a, align 4
   %0 = fcmp olt <8 x float> %extract, zeroinitializer
-  %1 = fsub <8 x float> zeroinitializer, %extract
+  %1 = fneg <8 x float> %extract
   %2 = fcmp uge <8 x float> %extract, splat (float 4.000000e+00)
   %3 = fmul <8 x float> %extract, splat (float 5.000000e-01)
   %4 = fmul <8 x float> %extract, splat (float 2.500000e-01)
@@ -50,7 +50,7 @@ weigh_all:
   br i1 %.not8, label %"!case_15", label %"!case_9"
 
 "!case_9":                                        ; preds = %"!case_9!any"
-  %19 = fmul <8 x float> %1, splat (float 6.000000e+00)
+  %19 = fmul <8 x float> %extract, splat (float -6.000000e+00)
   %20 = select <8 x i1> %0, <8 x float> %19, <8 x float> %"p$i9!skip0"
   br label %"!case_15"
 
@@ -150,23 +150,22 @@ weigh_one:
   br label %"!merge_16"
 
 "!case_17":                                       ; preds = %weigh_one
-  %31 = fsub float 0.000000e+00, %x
-  %32 = fmul nnan float %31, 6.000000e+00
-  %33 = fmul nnan float %x, 5.000000e-01
-  %34 = fmul float %33, %33
-  %35 = fadd float %34, 1.000000e+00
-  %36 = fmul float %31, %31
-  %37 = fcmp olt float %35, %36
-  %38 = fadd float %32, 1.000000e+00
-  %"p$i103283" = select i1 %37, float %38, float %32
-  %39 = fmul nnan float %36, 3.000000e+00
+  %31 = fmul nnan float %x, -6.000000e+00
+  %32 = fmul nnan float %x, 5.000000e-01
+  %33 = fmul float %32, %32
+  %34 = fadd float %33, 1.000000e+00
+  %35 = fmul float %x, %x
+  %36 = fcmp olt float %34, %35
+  %37 = fadd float %31, 1.000000e+00
+  %"p$i103283" = select i1 %36, float %37, float %31
+  %38 = fmul nnan float %35, 3.000000e+00
   br label %"!merge_16"
 
 "!merge_16":                                      ; preds = %"!case_19", %"!case_18", %"!case_17"
   %"p$i103276" = phi float [ %"p$i103283", %"!case_17" ], [ %"p$i1032", %"!case_18" ], [ %"p$i103274", %"!case_19" ]
-  %"a$i16" = phi float [ %39, %"!case_17" ], [ %30, %"!case_18" ], [ %19, %"!case_19" ]
-  %40 = fadd float %"p$i103276", %"a$i16"
-  ret float %40
+  %"a$i16" = phi float [ %38, %"!case_17" ], [ %30, %"!case_18" ], [ %19, %"!case_19" ]
+  %39 = fadd float %"p$i103276", %"a$i16"
+  ret float %39
 }
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr

@@ -37,8 +37,8 @@ neg_add:
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @neg_only(float noundef %a, float noundef %b) local_unnamed_addr #0 {
 neg_only:
-  %0 = fmul float %a, %b
-  %1 = fsub float 0.000000e+00, %0
+  %0 = fneg float %b
+  %1 = fmul float %a, %0
   ret float %1
 }
 

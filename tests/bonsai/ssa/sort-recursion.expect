@@ -140,7 +140,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         distmin_Ray_AABB$r1 = @86
       } else {
         let @87 = (f32)inf in
-        let @88 = 0f - @87 in
+        let @88 = -0f - @87 in
         distmin_Ray_AABB$r1 = @88
       }
       let @90 = (*_best0) in

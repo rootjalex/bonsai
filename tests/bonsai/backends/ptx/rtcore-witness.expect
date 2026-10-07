@@ -282,25 +282,25 @@ __intersection__trace:
   %12 = extractelement <3 x float> %8, i64 2
   %13 = extractelement <3 x float> %10, i64 1
   %14 = fmul float %13, %12
-  %15 = fsub float 0.000000e+00, %14
+  %15 = fneg float %14
   %16 = tail call float @llvm.fma.f32(float %9, float %11, float %15)
-  %17 = fsub float 0.000000e+00, %12
+  %17 = fneg float %12
   %18 = tail call float @llvm.fma.f32(float %17, float %13, float %14)
-  %19 = fadd float %18, %16
+  %19 = fadd float %16, %18
   %20 = extractelement <3 x float> %10, i64 0
   %21 = extractelement <3 x float> %8, i64 0
   %22 = fmul float %11, %21
-  %23 = fsub float 0.000000e+00, %22
+  %23 = fneg float %22
   %24 = tail call float @llvm.fma.f32(float %12, float %20, float %23)
-  %25 = fsub float 0.000000e+00, %21
+  %25 = fneg float %21
   %26 = tail call float @llvm.fma.f32(float %25, float %11, float %22)
-  %27 = fadd float %26, %24
+  %27 = fadd float %24, %26
   %28 = fmul float %20, %9
-  %29 = fsub float 0.000000e+00, %28
+  %29 = fneg float %28
   %30 = tail call float @llvm.fma.f32(float %21, float %13, float %29)
-  %31 = fsub float 0.000000e+00, %9
+  %31 = fneg float %9
   %32 = tail call float @llvm.fma.f32(float %31, float %20, float %28)
-  %33 = fadd float %32, %30
+  %33 = fadd float %30, %32
   %34 = insertelement <3 x float> poison, float %19, i64 0
   %35 = insertelement <3 x float> %34, float %27, i64 1
   %36 = insertelement <3 x float> %35, float %33, i64 2
@@ -398,14 +398,14 @@ __intersection__trace:
   %lane95.i = select i1 %lane_is56.i, float %92, float %lane93.i
   %lane97.i = select i1 %lane_is58.i, float %91, float %90
   %lane99.i = select i1 %lane_is60.i, float %92, float %lane97.i
-  %93 = fsub float 0.000000e+00, %lane91.i
+  %93 = fneg float %lane91.i
   %94 = fdiv float %93, %lane99.i
   %95 = fmul float %lane61.i, %94
   %.splatinsert.i = insertelement <3 x float> poison, float %95, i64 0
   %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
   %96 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
   %97 = fadd <3 x float> %77, %96
-  %98 = fsub float 0.000000e+00, %lane95.i
+  %98 = fneg float %lane95.i
   %99 = fdiv float %98, %lane99.i
   %100 = extractelement <3 x float> %97, i64 2
   %101 = fmul float %99, %100
@@ -440,25 +440,25 @@ __intersection__trace:
   %120 = extractelement <3 x float> %110, i64 1
   %121 = extractelement <3 x float> %117, i64 0
   %122 = fmul float %120, %121
-  %123 = fsub float 0.000000e+00, %122
+  %123 = fneg float %122
   %124 = tail call float @llvm.fma.f32(float %118, float %119, float %123)
-  %125 = fsub float 0.000000e+00, %120
+  %125 = fneg float %120
   %126 = tail call float @llvm.fma.f32(float %125, float %121, float %122)
-  %127 = fadd float %126, %124
+  %127 = fadd float %124, %126
   %128 = extractelement <3 x float> %103, i64 1
   %129 = extractelement <3 x float> %103, i64 0
   %130 = fmul float %119, %129
-  %131 = fsub float 0.000000e+00, %130
+  %131 = fneg float %130
   %132 = tail call float @llvm.fma.f32(float %121, float %128, float %131)
-  %133 = fsub float 0.000000e+00, %119
+  %133 = fneg float %119
   %134 = tail call float @llvm.fma.f32(float %133, float %129, float %130)
-  %135 = fadd float %134, %132
+  %135 = fadd float %132, %134
   %136 = fmul float %128, %118
-  %137 = fsub float 0.000000e+00, %136
+  %137 = fneg float %136
   %138 = tail call float @llvm.fma.f32(float %129, float %120, float %137)
-  %139 = fsub float 0.000000e+00, %128
+  %139 = fneg float %128
   %140 = tail call float @llvm.fma.f32(float %139, float %118, float %136)
-  %141 = fadd float %140, %138
+  %141 = fadd float %138, %140
   %142 = fdiv float 1.000000e+00, %lane99.i
   %143 = fcmp olt float %127, 0.000000e+00
   %144 = fcmp olt float %135, 0.000000e+00
@@ -707,25 +707,25 @@ __intersection__trace_any:
   %10 = extractelement <3 x float> %6, i64 2
   %11 = extractelement <3 x float> %8, i64 1
   %12 = fmul float %11, %10
-  %13 = fsub float 0.000000e+00, %12
+  %13 = fneg float %12
   %14 = tail call float @llvm.fma.f32(float %7, float %9, float %13)
-  %15 = fsub float 0.000000e+00, %10
+  %15 = fneg float %10
   %16 = tail call float @llvm.fma.f32(float %15, float %11, float %12)
-  %17 = fadd float %16, %14
+  %17 = fadd float %14, %16
   %18 = extractelement <3 x float> %8, i64 0
   %19 = extractelement <3 x float> %6, i64 0
   %20 = fmul float %9, %19
-  %21 = fsub float 0.000000e+00, %20
+  %21 = fneg float %20
   %22 = tail call float @llvm.fma.f32(float %10, float %18, float %21)
-  %23 = fsub float 0.000000e+00, %19
+  %23 = fneg float %19
   %24 = tail call float @llvm.fma.f32(float %23, float %9, float %20)
-  %25 = fadd float %24, %22
+  %25 = fadd float %22, %24
   %26 = fmul float %18, %7
-  %27 = fsub float 0.000000e+00, %26
+  %27 = fneg float %26
   %28 = tail call float @llvm.fma.f32(float %19, float %11, float %27)
-  %29 = fsub float 0.000000e+00, %7
+  %29 = fneg float %7
   %30 = tail call float @llvm.fma.f32(float %29, float %18, float %26)
-  %31 = fadd float %30, %28
+  %31 = fadd float %28, %30
   %32 = insertelement <3 x float> poison, float %17, i64 0
   %33 = insertelement <3 x float> %32, float %25, i64 1
   %34 = insertelement <3 x float> %33, float %31, i64 2
@@ -823,14 +823,14 @@ __intersection__trace_any:
   %lane95.i = select i1 %lane_is56.i, float %90, float %lane93.i
   %lane97.i = select i1 %lane_is58.i, float %89, float %88
   %lane99.i = select i1 %lane_is60.i, float %90, float %lane97.i
-  %91 = fsub float 0.000000e+00, %lane91.i
+  %91 = fneg float %lane91.i
   %92 = fdiv float %91, %lane99.i
   %93 = fmul float %lane61.i, %92
   %.splatinsert.i = insertelement <3 x float> poison, float %93, i64 0
   %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
   %94 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
   %95 = fadd <3 x float> %75, %94
-  %96 = fsub float 0.000000e+00, %lane95.i
+  %96 = fneg float %lane95.i
   %97 = fdiv float %96, %lane99.i
   %98 = extractelement <3 x float> %95, i64 2
   %99 = fmul float %97, %98
@@ -865,25 +865,25 @@ __intersection__trace_any:
   %118 = extractelement <3 x float> %108, i64 1
   %119 = extractelement <3 x float> %115, i64 0
   %120 = fmul float %118, %119
-  %121 = fsub float 0.000000e+00, %120
+  %121 = fneg float %120
   %122 = tail call float @llvm.fma.f32(float %116, float %117, float %121)
-  %123 = fsub float 0.000000e+00, %118
+  %123 = fneg float %118
   %124 = tail call float @llvm.fma.f32(float %123, float %119, float %120)
-  %125 = fadd float %124, %122
+  %125 = fadd float %122, %124
   %126 = extractelement <3 x float> %101, i64 1
   %127 = extractelement <3 x float> %101, i64 0
   %128 = fmul float %117, %127
-  %129 = fsub float 0.000000e+00, %128
+  %129 = fneg float %128
   %130 = tail call float @llvm.fma.f32(float %119, float %126, float %129)
-  %131 = fsub float 0.000000e+00, %117
+  %131 = fneg float %117
   %132 = tail call float @llvm.fma.f32(float %131, float %127, float %128)
-  %133 = fadd float %132, %130
+  %133 = fadd float %130, %132
   %134 = fmul float %126, %116
-  %135 = fsub float 0.000000e+00, %134
+  %135 = fneg float %134
   %136 = tail call float @llvm.fma.f32(float %127, float %118, float %135)
-  %137 = fsub float 0.000000e+00, %126
+  %137 = fneg float %126
   %138 = tail call float @llvm.fma.f32(float %137, float %116, float %134)
-  %139 = fadd float %138, %136
+  %139 = fadd float %136, %138
   %140 = fdiv float 1.000000e+00, %lane99.i
   %141 = fcmp olt float %125, 0.000000e+00
   %142 = fcmp olt float %133, 0.000000e+00
@@ -1421,24 +1421,23 @@ $L__BB2_2:
 	sub.rn.f32 	%r55, %r6, %r3;
 	sub.rn.f32 	%r56, %r5, %r2;
 	mul.rn.f32 	%r57, %r56, %r53;
-	mov.b32 	%r223, 0f00000000;
-	sub.rn.f32 	%r58, %r223, %r57;
+	neg.f32 	%r58, %r57;
 	fma.rn.f32 	%r59, %r52, %r55, %r58;
-	sub.rn.f32 	%r60, %r223, %r53;
+	neg.f32 	%r60, %r53;
 	fma.rn.f32 	%r61, %r60, %r56, %r57;
-	add.rn.f32 	%r62, %r61, %r59;
+	add.rn.f32 	%r62, %r59, %r61;
 	mul.rn.f32 	%r63, %r55, %r51;
-	sub.rn.f32 	%r64, %r223, %r63;
+	neg.f32 	%r64, %r63;
 	fma.rn.f32 	%r65, %r53, %r54, %r64;
-	sub.rn.f32 	%r66, %r223, %r51;
+	neg.f32 	%r66, %r51;
 	fma.rn.f32 	%r67, %r66, %r55, %r63;
-	add.rn.f32 	%r68, %r67, %r65;
+	add.rn.f32 	%r68, %r65, %r67;
 	mul.rn.f32 	%r69, %r54, %r52;
-	sub.rn.f32 	%r70, %r223, %r69;
+	neg.f32 	%r70, %r69;
 	fma.rn.f32 	%r71, %r51, %r56, %r70;
-	sub.rn.f32 	%r72, %r223, %r52;
+	neg.f32 	%r72, %r52;
 	fma.rn.f32 	%r73, %r72, %r54, %r69;
-	add.rn.f32 	%r74, %r73, %r71;
+	add.rn.f32 	%r74, %r71, %r73;
 	mul.rn.f32 	%r75, %r74, %r74;
 	mul.rn.f32 	%r76, %r68, %r68;
 	mul.rn.f32 	%r77, %r62, %r62;
@@ -1447,6 +1446,7 @@ $L__BB2_2:
 	add.rn.f32 	%r80, %r79, %r75;
 	setp.eq.f32 	%p1, %r80, 0f00000000;
 	mov.pred 	%p37, 0;
+	mov.b32 	%r223, 0f00000000;
 	@%p1 bra 	$L__BB5_8;
 	sub.rn.f32 	%r81, %r3, %r43;
 	sub.rn.f32 	%r82, %r1, %r41;
@@ -1506,14 +1506,14 @@ $L__BB2_2:
 	selp.f32 	%r124, %r46, %r123, %p11;
 	selp.f32 	%r125, %r45, %r44, %p12;
 	selp.f32 	%r126, %r46, %r125, %p13;
-	sub.rn.f32 	%r127, %r223, %r122;
+	neg.f32 	%r127, %r122;
 	div.rn.f32 	%r128, %r127, %r126;
 	mul.rn.f32 	%r129, %r108, %r128;
 	mul.rn.f32 	%r130, %r129, 0f00000000;
 	add.rn.f32 	%r131, %r106, %r130;
 	add.rn.f32 	%r132, %r104, %r129;
 	add.rn.f32 	%r133, %r108, %r130;
-	sub.rn.f32 	%r134, %r223, %r124;
+	neg.f32 	%r134, %r124;
 	div.rn.f32 	%r135, %r134, %r126;
 	mul.rn.f32 	%r136, %r135, %r133;
 	mul.rn.f32 	%r137, %r136, 0f00000000;
@@ -1538,23 +1538,23 @@ $L__BB2_2:
 	add.rn.f32 	%r17, %r147, %r150;
 	add.rn.f32 	%r16, %r148, %r151;
 	mul.rn.f32 	%r152, %r14, %r16;
-	sub.rn.f32 	%r153, %r223, %r152;
+	neg.f32 	%r153, %r152;
 	fma.rn.f32 	%r154, %r13, %r17, %r153;
-	sub.rn.f32 	%r155, %r223, %r14;
+	neg.f32 	%r155, %r14;
 	fma.rn.f32 	%r156, %r155, %r16, %r152;
-	add.rn.f32 	%r19, %r156, %r154;
+	add.rn.f32 	%r19, %r154, %r156;
 	mul.rn.f32 	%r157, %r17, %r10;
-	sub.rn.f32 	%r158, %r223, %r157;
+	neg.f32 	%r158, %r157;
 	fma.rn.f32 	%r159, %r16, %r11, %r158;
-	sub.rn.f32 	%r160, %r223, %r17;
+	neg.f32 	%r160, %r17;
 	fma.rn.f32 	%r161, %r160, %r10, %r157;
-	add.rn.f32 	%r20, %r161, %r159;
+	add.rn.f32 	%r20, %r159, %r161;
 	mul.rn.f32 	%r162, %r11, %r13;
-	sub.rn.f32 	%r163, %r223, %r162;
+	neg.f32 	%r163, %r162;
 	fma.rn.f32 	%r164, %r10, %r14, %r163;
-	sub.rn.f32 	%r165, %r223, %r11;
+	neg.f32 	%r165, %r11;
 	fma.rn.f32 	%r166, %r165, %r13, %r162;
-	add.rn.f32 	%r21, %r166, %r164;
+	add.rn.f32 	%r21, %r164, %r166;
 	min.f32 	%r167, %r19, %r20;
 	min.f32 	%r168, %r21, %r167;
 	setp.geu.f32 	%p14, %r168, 0f00000000;
@@ -1809,24 +1809,23 @@ $L__BB8_2:
 	sub.rn.f32 	%r51, %r6, %r3;
 	sub.rn.f32 	%r52, %r5, %r2;
 	mul.rn.f32 	%r53, %r52, %r49;
-	mov.b32 	%r219, 0f00000000;
-	sub.rn.f32 	%r54, %r219, %r53;
+	neg.f32 	%r54, %r53;
 	fma.rn.f32 	%r55, %r48, %r51, %r54;
-	sub.rn.f32 	%r56, %r219, %r49;
+	neg.f32 	%r56, %r49;
 	fma.rn.f32 	%r57, %r56, %r52, %r53;
-	add.rn.f32 	%r58, %r57, %r55;
+	add.rn.f32 	%r58, %r55, %r57;
 	mul.rn.f32 	%r59, %r51, %r47;
-	sub.rn.f32 	%r60, %r219, %r59;
+	neg.f32 	%r60, %r59;
 	fma.rn.f32 	%r61, %r49, %r50, %r60;
-	sub.rn.f32 	%r62, %r219, %r47;
+	neg.f32 	%r62, %r47;
 	fma.rn.f32 	%r63, %r62, %r51, %r59;
-	add.rn.f32 	%r64, %r63, %r61;
+	add.rn.f32 	%r64, %r61, %r63;
 	mul.rn.f32 	%r65, %r50, %r48;
-	sub.rn.f32 	%r66, %r219, %r65;
+	neg.f32 	%r66, %r65;
 	fma.rn.f32 	%r67, %r47, %r52, %r66;
-	sub.rn.f32 	%r68, %r219, %r48;
+	neg.f32 	%r68, %r48;
 	fma.rn.f32 	%r69, %r68, %r50, %r65;
-	add.rn.f32 	%r70, %r69, %r67;
+	add.rn.f32 	%r70, %r67, %r69;
 	mul.rn.f32 	%r71, %r70, %r70;
 	mul.rn.f32 	%r72, %r64, %r64;
 	mul.rn.f32 	%r73, %r58, %r58;
@@ -1835,6 +1834,7 @@ $L__BB8_2:
 	add.rn.f32 	%r76, %r75, %r71;
 	setp.eq.f32 	%p1, %r76, 0f00000000;
 	mov.pred 	%p37, 0;
+	mov.b32 	%r219, 0f00000000;
 	@%p1 bra 	$L__BB9_8;
 	sub.rn.f32 	%r77, %r3, %r39;
 	sub.rn.f32 	%r78, %r1, %r37;
@@ -1894,14 +1894,14 @@ $L__BB8_2:
 	selp.f32 	%r120, %r42, %r119, %p11;
 	selp.f32 	%r121, %r41, %r40, %p12;
 	selp.f32 	%r122, %r42, %r121, %p13;
-	sub.rn.f32 	%r123, %r219, %r118;
+	neg.f32 	%r123, %r118;
 	div.rn.f32 	%r124, %r123, %r122;
 	mul.rn.f32 	%r125, %r104, %r124;
 	mul.rn.f32 	%r126, %r125, 0f00000000;
 	add.rn.f32 	%r127, %r102, %r126;
 	add.rn.f32 	%r128, %r100, %r125;
 	add.rn.f32 	%r129, %r104, %r126;
-	sub.rn.f32 	%r130, %r219, %r120;
+	neg.f32 	%r130, %r120;
 	div.rn.f32 	%r131, %r130, %r122;
 	mul.rn.f32 	%r132, %r131, %r129;
 	mul.rn.f32 	%r133, %r132, 0f00000000;
@@ -1926,23 +1926,23 @@ $L__BB8_2:
 	add.rn.f32 	%r17, %r143, %r146;
 	add.rn.f32 	%r16, %r144, %r147;
 	mul.rn.f32 	%r148, %r14, %r16;
-	sub.rn.f32 	%r149, %r219, %r148;
+	neg.f32 	%r149, %r148;
 	fma.rn.f32 	%r150, %r13, %r17, %r149;
-	sub.rn.f32 	%r151, %r219, %r14;
+	neg.f32 	%r151, %r14;
 	fma.rn.f32 	%r152, %r151, %r16, %r148;
-	add.rn.f32 	%r19, %r152, %r150;
+	add.rn.f32 	%r19, %r150, %r152;
 	mul.rn.f32 	%r153, %r17, %r10;
-	sub.rn.f32 	%r154, %r219, %r153;
+	neg.f32 	%r154, %r153;
 	fma.rn.f32 	%r155, %r16, %r11, %r154;
-	sub.rn.f32 	%r156, %r219, %r17;
+	neg.f32 	%r156, %r17;
 	fma.rn.f32 	%r157, %r156, %r10, %r153;
-	add.rn.f32 	%r20, %r157, %r155;
+	add.rn.f32 	%r20, %r155, %r157;
 	mul.rn.f32 	%r158, %r11, %r13;
-	sub.rn.f32 	%r159, %r219, %r158;
+	neg.f32 	%r159, %r158;
 	fma.rn.f32 	%r160, %r10, %r14, %r159;
-	sub.rn.f32 	%r161, %r219, %r11;
+	neg.f32 	%r161, %r11;
 	fma.rn.f32 	%r162, %r161, %r13, %r158;
-	add.rn.f32 	%r21, %r162, %r160;
+	add.rn.f32 	%r21, %r160, %r162;
 	min.f32 	%r163, %r19, %r20;
 	min.f32 	%r164, %r21, %r163;
 	setp.geu.f32 	%p14, %r164, 0f00000000;

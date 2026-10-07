@@ -20,6 +20,7 @@ add_bonsai_tests(
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     skip-leaf-helper.bonsai
+    skip-geometric-op.bonsai
     prefetch-children.bonsai
     arena-rows-vectorized.bonsai
     ptr-arena-rows-vectorized.bonsai

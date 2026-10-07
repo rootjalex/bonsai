@@ -52,7 +52,7 @@ weigh_all:
   %20 = or <8 x i1> %"@71!join.i", %1
   %21 = fcmp olt <8 x float> %extract, zeroinitializer
   %22 = xor <8 x i1> %21, %20
-  %23 = fsub <8 x float> zeroinitializer, %extract
+  %23 = fneg <8 x float> %extract
   %24 = bitcast <8 x i1> %22 to i8
   %.not6.i = icmp eq i8 %24, 0
   br i1 %.not6.i, label %"!merge_7.i", label %"!else_6.i"
@@ -197,21 +197,20 @@ weigh_one:
   br label %"!merge_11.i"
 
 "!case_12.i":                                     ; preds = %"!merge_2.i"
-  %29 = fsub float 0.000000e+00, %x
-  %30 = fmul float %29, %29
-  %31 = fmul nnan float %30, 3.000000e+00
-  %32 = fmul nnan float %29, 5.000000e-01
-  %33 = fadd float %32, %31
-  %34 = fsub float %33, %29
+  %29 = fmul float %x, %x
+  %30 = fmul nnan float %29, 3.000000e+00
+  %31 = fmul nnan float %x, 5.000000e-01
+  %32 = fsub float %30, %31
+  %33 = fadd float %x, %32
   br label %"!merge_11.i"
 
 "!merge_11.i":                                    ; preds = %"!case_12.i", %"!case_13.i", %"!case_14.i"
-  %w.i = phi float [ %34, %"!case_12.i" ], [ %28, %"!case_13.i" ], [ %22, %"!case_14.i" ]
-  %35 = fadd float %acc.i, %w.i
+  %w.i = phi float [ %33, %"!case_12.i" ], [ %28, %"!case_13.i" ], [ %22, %"!case_14.i" ]
+  %34 = fadd float %acc.i, %w.i
   br label %weigh.exit
 
 weigh.exit:                                       ; preds = %"!then_0.i", %"!merge_11.i"
-  %common.ret.op.i = phi float [ %35, %"!merge_11.i" ], [ %3, %"!then_0.i" ]
+  %common.ret.op.i = phi float [ %34, %"!merge_11.i" ], [ %3, %"!then_0.i" ]
   ret float %common.ret.op.i
 }
 

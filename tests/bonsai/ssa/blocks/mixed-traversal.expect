@@ -234,7 +234,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
 
 !else_17(distmin_Ray_AABB$r2 : (f32*), _best0 : (__tuple_2*), _t134 : _tree_layout4, prims_index : u32, prims : _tree_layout0, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[], _t265$i36 : f32x3, _t524 : f32x3): // preds: !then_14
   @93 = inf()
-  @94 = sub((f32)0, @93)
+  @94 = sub((f32)-0, @93)
   store distmin_Ray_AABB$r2 @94
   jmp !merge_18(distmin_Ray_AABB$r2, _best0, _t134, prims_index, prims, r, Prim_Solo_pool, Prim_Inst_pool, _t265$i36, _t524)
 
@@ -618,7 +618,7 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
 
 !else_17(distmin_Ray_AABB$r8 : (f32*), _best0 : (__tuple_2*), _t211 : _tree_layout1, _subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray, prims_index : u32, data : u32): // preds: !then_14
   @93 = inf()
-  @94 = sub((f32)0, @93)
+  @94 = sub((f32)-0, @93)
   store distmin_Ray_AABB$r8 @94
   jmp !merge_18(distmin_Ray_AABB$r8, _best0, _t211, _subtree0_bnode, prims, _pulled1, prims_index, data)
 
@@ -1659,7 +1659,7 @@ _recloop_func0!loop(prims_index!top : u32): // preds: !then_21, !visit_next, _re
 
 !else_17(distmin_Ray_AABB$r2 : (f32*), _best0 : (__tuple_2*), _t134 : _tree_layout4, prims_index!top : u32, prims : _tree_layout0, r : Ray, Prim_Solo_pool : Solo[], Prim_Inst_pool : Inst[], _t265$i36 : f32x3, _t524 : f32x3): // preds: !then_14
   @93 = inf()
-  @94 = sub((f32)0, @93)
+  @94 = sub((f32)-0, @93)
   store distmin_Ray_AABB$r2 @94
   jmp !merge_18(distmin_Ray_AABB$r2, _best0, _t134, prims_index!top, prims, r, Prim_Solo_pool, Prim_Inst_pool, _t265$i36, _t524)
 
@@ -2065,7 +2065,7 @@ _recloop_func1!loop(_subtree0_bnode!top : u32): // preds: !then_21, !visit_next,
 
 !else_17(distmin_Ray_AABB$r8 : (f32*), _best0 : (__tuple_2*), _t211 : _tree_layout1, _subtree0_bnode!top : u32, prims : _tree_layout0, _pulled1 : Ray, prims_index : u32, data : u32): // preds: !then_14
   @93 = inf()
-  @94 = sub((f32)0, @93)
+  @94 = sub((f32)-0, @93)
   store distmin_Ray_AABB$r8 @94
   jmp !merge_18(distmin_Ray_AABB$r8, _best0, _t211, _subtree0_bnode!top, prims, _pulled1, prims_index, data)
 
@@ -2916,7 +2916,7 @@ func _recloop_func0(prims_index : u32, prims : _tree_layout0, r : Ray, _best0 : 
           distmin_Ray_AABB$r2 = @92
         } else {
           let @93 = (f32)inf in
-          let @94 = 0f - @93 in
+          let @94 = -0f - @93 in
           distmin_Ray_AABB$r2 = @94
         }
         let @96 = (*_best0) in
@@ -3211,7 +3211,7 @@ func _recloop_func1(_subtree0_bnode : u32, prims : _tree_layout0, _pulled1 : Ray
           distmin_Ray_AABB$r8 = @92
         } else {
           let @93 = (f32)inf in
-          let @94 = 0f - @93 in
+          let @94 = -0f - @93 in
           distmin_Ray_AABB$r8 = @94
         }
         let @96 = (*_best0) in

@@ -1218,7 +1218,7 @@ func _traverse_tree1(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   _recloop_func1(0u, @4, _best0, r, tris)
   let @5 = build<_option0>() in
   let @6 = (*_best0) in
@@ -1246,7 +1246,7 @@ func _traverse_tree2(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best1 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   _recloop_func2(0u, @4, _best1, r, tris)
   let @5 = build<_option0>() in
   let @6 = (*_best1) in
@@ -1463,7 +1463,7 @@ func distmax_Ray_Triangle(r : Ray, tri : Triangle) -> f32 {
     return @123
   } else {
     let @124 = (f32)inf in
-    let @125 = 0f - @124 in
+    let @125 = -0f - @124 in
     return @125
   }
 }
@@ -2031,7 +2031,7 @@ func [[export]] trace(_ret0 : mut (_option0*), r0 : (Ray*), tris : (_tree_layout
   let @14 = build<__tuple_0>() in
   let @15 = build<__tuple_1>(@13, @14) in
   _best0$i20 = @15
-  let @17 = 0f - @13 in
+  let @17 = -0f - @13 in
   let @19 = (*tris) in
   _recloop_func1(0u, @17, _best0$i20, @12, @19)
   let @20 = build<_option0>() in
@@ -2062,7 +2062,7 @@ func [[export]] trace_raw(_ret1 : mut (_option0*), r : (Ray*), tris : (_tree_lay
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best1$i21 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   let @5 = (*r) in
   let @6 = (*tris) in
   _recloop_func2(0u, @4, _best1$i21, @5, @6)

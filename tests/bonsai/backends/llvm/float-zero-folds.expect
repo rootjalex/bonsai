@@ -8,6 +8,13 @@ minus_zero:
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @negate(float noundef %x) local_unnamed_addr #0 {
+negate:
+  %0 = fneg float %x
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define noundef float @negative_zero() local_unnamed_addr #0 {
 negative_zero:
   ret float -0.000000e+00

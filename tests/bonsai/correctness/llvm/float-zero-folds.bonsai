@@ -17,6 +17,7 @@ func [[noinline]] zero_plus(x : f32) -> f32 = 0.0 + x;
 func [[noinline]] plus_zero(x : f32) -> f32 = x + 0.0;
 func [[noinline]] zero_minus(x : f32) -> f32 = 0.0 - x;
 func [[noinline]] minus_zero(x : f32) -> f32 = x - 0.0;
+func [[noinline]] negate(x : f32) -> f32 = -x;
 
 func main() -> i32 {
     nan = inf - inf;
@@ -42,7 +43,11 @@ func main() -> i32 {
     // x - 0.0 is x, a negative zero included.
     print(negative_zero(minus_zero(nz)));
     print(minus_zero(-3.0) == -3.0);
-    // A negated zero literal is a negative zero.
+    // A negated zero literal is a negative zero, and so is a positive zero
+    // negated at run time: the negation is `-x`, not `0.0 - x`.
     print(negative_zero(-0.0));
+    print(negative_zero(negate(pz)));
+    print(positive_zero(negate(nz)));
+    print(negate(3.0) == -3.0);
     return 0;
 }

@@ -20,7 +20,7 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(154);
-    closest.skip(distmin);
+    closest.skip(offset_fcpw);
 
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|

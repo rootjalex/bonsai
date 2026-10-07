@@ -54,7 +54,7 @@ func classify(x : f32) -> Shape {
   let @0 = x < 0f in
   if (@0) {
     let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @2 = 0f - x in
+    let @2 = -0f - x in
     let @3 = reinterpret_cast<u32>(@2) in
     let @4 = build<[[packed]] u32x2>(@3, 0u) in
     let @5 = build<Shape>(0u, @1, @4) in
@@ -148,7 +148,7 @@ func weigh(x : f32) -> f32 {
   let @0 = x < 0f in
   if (@0) {
     let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @2 = 0f - x in
+    let @2 = -0f - x in
     let @3 = reinterpret_cast<u32>(@2) in
     let @4 = build<[[packed]] u32x2>(@3, 0u) in
     let @5 = build<Shape>(0u, @1, @4) in
@@ -312,7 +312,8 @@ func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {
   let @175 = f32x8(0f) in
   let @1 = x$i9 < @175 in
   let @246 = !@1 in
-  let @3 = @175 - x$i9 in
+  let @178 = f32x8(-0f) in
+  let @3 = @178 - x$i9 in
   let @4 = reinterpret_cast<u32x8>(@3) in
   let @179 = u32x8(0u) in
   let @180 = u8x8(0u) in
@@ -452,7 +453,7 @@ func [[export]] weigh_one(x : f32) -> f32 {
   let @0 = x < 0f in
   if (@0) {
     let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @2 = 0f - x in
+    let @2 = -0f - x in
     let @3 = reinterpret_cast<u32>(@2) in
     let @4 = build<[[packed]] u32x2>(@3, 0u) in
     let @5 = build<Shape>(0u, @1, @4) in

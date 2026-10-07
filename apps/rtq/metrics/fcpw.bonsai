@@ -176,65 +176,64 @@ func distmax(q : Point, b : AABB) -> Float {
 // negated), the regions in FCPW's order (the three vertices, the edges ab,
 // ac, bc, the face), each a masked write of the closest point `pt` over
 // the lanes in its region with enoki's `rcp` (rcp_fcpw) for the divisions,
-// and the distance
-// `norm(x - pt)` returned -- a root per lane -- which FCPW's leaf squares
-// again to compare with its radius squared (`d2 = d * d; if (d2 <= sr2)`).
-// The same here: `x - pt` written as `ax - ab v` for `x - (pa + ab v)`, the
-// root taken and squared. FCPW writes every region's lanes in turn, a
-// later region over an earlier one where a lane is in both, and returns
-// early once every lane has a region (`if (all(active)) return`); the early
-// returns here are those exits, taken under the schedule's `skip`, and a
-// lane in two regions keeps the first, which differs from FCPW on the
-// regions' shared boundaries alone.
-func distmin(q : Point, tri : Triangle) -> Float {
+// and then one `norm(x - pt)` -- a root per lane, taken once -- which
+// FCPW's leaf squares again to compare with its radius squared (`d2 = d *
+// d; if (d2 <= sr2)`). The same shape here: offset_fcpw answers `x - pt` by
+// region, written as `ax - ab v` for `x - (pa + ab v)`, and distmin takes
+// the one root and squares it. (This was first written with a root in
+// every region, numerically the same per lane, but after vectorization
+// seven `vsqrtps` a packet against FCPW's one; the divider's queue was the
+// volume batch's deficit on ganesha and dragon.) FCPW writes every
+// region's lanes in turn, a later region over an earlier one where a lane
+// is in both, and returns early once every lane has a region (`if
+// (all(active)) return`); the early returns here are those exits, taken
+// under the schedule's `skip(offset_fcpw)`, and a lane in two regions
+// keeps the first, which differs from FCPW on the regions' shared
+// boundaries alone.
+func offset_fcpw(q : Point, tri : Triangle) -> vec3f {
     ab = -tri.e1;
     ac = tri.e2;
     ax = q.p - tri.v0;
     d1 = dot(ab, ax);
     d2 = dot(ac, ax);
     if d1 <= 0.0 && d2 <= 0.0 {
-        d_a = sqrt(dot(ax, ax));
-        return d_a * d_a;
+        return ax;
     }
     bx = ax - ab;
     d3 = dot(ab, bx);
     d4 = dot(ac, bx);
     if d3 >= 0.0 && d4 <= d3 {
-        d_b = sqrt(dot(bx, bx));
-        return d_b * d_b;
+        return bx;
     }
     cx = ax - ac;
     d5 = dot(ab, cx);
     d6 = dot(ac, cx);
     if d6 >= 0.0 && d5 <= d6 {
-        d_c = sqrt(dot(cx, cx));
-        return d_c * d_c;
+        return cx;
     }
     vc = d1 * d4 - d3 * d2;
     if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
         v_ab = d1 * rcp_fcpw(d1 - d3);
-        diff_ab = ax - ab * v_ab;
-        d_ab = sqrt(dot(diff_ab, diff_ab));
-        return d_ab * d_ab;
+        return ax - ab * v_ab;
     }
     vb = d5 * d2 - d1 * d6;
     if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
         w_ac = d2 * rcp_fcpw(d2 - d6);
-        diff_ac = ax - ac * w_ac;
-        d_ac = sqrt(dot(diff_ac, diff_ac));
-        return d_ac * d_ac;
+        return ax - ac * w_ac;
     }
     va = d3 * d6 - d5 * d4;
     if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
         w_bc = (d4 - d3) * rcp_fcpw((d4 - d3) + (d5 - d6));
-        diff_bc = bx - (ac - ab) * w_bc;
-        d_bc = sqrt(dot(diff_bc, diff_bc));
-        return d_bc * d_bc;
+        return bx - (ac - ab) * w_bc;
     }
     denom = rcp_fcpw(va + vb + vc);
     v = vb * denom;
     w = vc * denom;
-    diff = ax - (ab * v + ac * w);
+    return ax - (ab * v + ac * w);
+}
+
+func distmin(q : Point, tri : Triangle) -> Float {
+    diff = offset_fcpw(q, tri);
     d = sqrt(dot(diff, diff));
     return d * d;
 }

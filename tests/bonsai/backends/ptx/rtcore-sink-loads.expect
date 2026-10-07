@@ -146,7 +146,7 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   call void @llvm.lifetime.end.p0(ptr nonnull %"_ctx$i62.i")
   %14 = extractelement <3 x float> %deref_temp.fca.1.0.0.0.load.i, i64 0
   %15 = fmul float %extract12, %14
-  %16 = fsub float 0.000000e+00, %extract12
+  %16 = fneg float %extract12
   %.sink = select i1 %deref_temp.fca.1.1.load.i, float %15, float %16
   %17 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %i_wide
   store float %.sink, ptr %17, align 4, !tbaa !2
@@ -232,25 +232,25 @@ __intersection__trace:
   %12 = extractelement <3 x float> %8, i64 2
   %13 = extractelement <3 x float> %10, i64 1
   %14 = fmul float %13, %12
-  %15 = fsub float 0.000000e+00, %14
+  %15 = fneg float %14
   %16 = tail call float @llvm.fma.f32(float %9, float %11, float %15)
-  %17 = fsub float 0.000000e+00, %12
+  %17 = fneg float %12
   %18 = tail call float @llvm.fma.f32(float %17, float %13, float %14)
-  %19 = fadd float %18, %16
+  %19 = fadd float %16, %18
   %20 = extractelement <3 x float> %10, i64 0
   %21 = extractelement <3 x float> %8, i64 0
   %22 = fmul float %11, %21
-  %23 = fsub float 0.000000e+00, %22
+  %23 = fneg float %22
   %24 = tail call float @llvm.fma.f32(float %12, float %20, float %23)
-  %25 = fsub float 0.000000e+00, %21
+  %25 = fneg float %21
   %26 = tail call float @llvm.fma.f32(float %25, float %11, float %22)
-  %27 = fadd float %26, %24
+  %27 = fadd float %24, %26
   %28 = fmul float %20, %9
-  %29 = fsub float 0.000000e+00, %28
+  %29 = fneg float %28
   %30 = tail call float @llvm.fma.f32(float %21, float %13, float %29)
-  %31 = fsub float 0.000000e+00, %9
+  %31 = fneg float %9
   %32 = tail call float @llvm.fma.f32(float %31, float %20, float %28)
-  %33 = fadd float %32, %30
+  %33 = fadd float %30, %32
   %34 = insertelement <3 x float> poison, float %19, i64 0
   %35 = insertelement <3 x float> %34, float %27, i64 1
   %36 = insertelement <3 x float> %35, float %33, i64 2
@@ -348,14 +348,14 @@ __intersection__trace:
   %lane95.i = select i1 %lane_is56.i, float %92, float %lane93.i
   %lane97.i = select i1 %lane_is58.i, float %91, float %90
   %lane99.i = select i1 %lane_is60.i, float %92, float %lane97.i
-  %93 = fsub float 0.000000e+00, %lane91.i
+  %93 = fneg float %lane91.i
   %94 = fdiv float %93, %lane99.i
   %95 = fmul float %lane61.i, %94
   %.splatinsert.i = insertelement <3 x float> poison, float %95, i64 0
   %.splat.i = shufflevector <3 x float> %.splatinsert.i, <3 x float> poison, <3 x i32> zeroinitializer
   %96 = fmul <3 x float> %.splat.i, <float 1.000000e+00, float 0.000000e+00, float 0.000000e+00>
   %97 = fadd <3 x float> %77, %96
-  %98 = fsub float 0.000000e+00, %lane95.i
+  %98 = fneg float %lane95.i
   %99 = fdiv float %98, %lane99.i
   %100 = extractelement <3 x float> %97, i64 2
   %101 = fmul float %99, %100
@@ -390,25 +390,25 @@ __intersection__trace:
   %120 = extractelement <3 x float> %110, i64 1
   %121 = extractelement <3 x float> %117, i64 0
   %122 = fmul float %120, %121
-  %123 = fsub float 0.000000e+00, %122
+  %123 = fneg float %122
   %124 = tail call float @llvm.fma.f32(float %118, float %119, float %123)
-  %125 = fsub float 0.000000e+00, %120
+  %125 = fneg float %120
   %126 = tail call float @llvm.fma.f32(float %125, float %121, float %122)
-  %127 = fadd float %126, %124
+  %127 = fadd float %124, %126
   %128 = extractelement <3 x float> %103, i64 1
   %129 = extractelement <3 x float> %103, i64 0
   %130 = fmul float %119, %129
-  %131 = fsub float 0.000000e+00, %130
+  %131 = fneg float %130
   %132 = tail call float @llvm.fma.f32(float %121, float %128, float %131)
-  %133 = fsub float 0.000000e+00, %119
+  %133 = fneg float %119
   %134 = tail call float @llvm.fma.f32(float %133, float %129, float %130)
-  %135 = fadd float %134, %132
+  %135 = fadd float %132, %134
   %136 = fmul float %128, %118
-  %137 = fsub float 0.000000e+00, %136
+  %137 = fneg float %136
   %138 = tail call float @llvm.fma.f32(float %129, float %120, float %137)
-  %139 = fsub float 0.000000e+00, %128
+  %139 = fneg float %128
   %140 = tail call float @llvm.fma.f32(float %139, float %118, float %136)
-  %141 = fadd float %140, %138
+  %141 = fadd float %138, %140
   %142 = fdiv float 1.000000e+00, %lane99.i
   %143 = fcmp olt float %127, 0.000000e+00
   %144 = fcmp olt float %135, 0.000000e+00
@@ -607,7 +607,7 @@ attributes #3 = { nounwind }
 	.reg .b64 	%SPL;
 	.reg .pred 	%p<3>;
 	.reg .b16 	%rs<3>;
-	.reg .b32 	%r<58>;
+	.reg .b32 	%r<57>;
 	.reg .b64 	%rd<17>;
 
 	mov.b64 	%SPL, __local_depot0;
@@ -668,11 +668,10 @@ attributes #3 = { nounwind }
 	and.b16 	%rs2, %rs1, 1;
 	setp.ne.b16 	%p2, %rs2, 0;
 	mul.rn.f32 	%r54, %r52, %r53;
-	mov.b32 	%r55, 0f00000000;
-	sub.rn.f32 	%r56, %r55, %r52;
-	selp.f32 	%r57, %r54, %r56, %p2;
+	neg.f32 	%r55, %r52;
+	selp.f32 	%r56, %r54, %r55, %p2;
 	add.s64 	%rd16, %rd9, %rd14;
-	st.global.b32 	[%rd16], %r57;
+	st.global.b32 	[%rd16], %r56;
 	ret;
 
 }
@@ -783,24 +782,23 @@ attributes #3 = { nounwind }
 	sub.rn.f32 	%r55, %r6, %r3;
 	sub.rn.f32 	%r56, %r5, %r2;
 	mul.rn.f32 	%r57, %r56, %r53;
-	mov.b32 	%r223, 0f00000000;
-	sub.rn.f32 	%r58, %r223, %r57;
+	neg.f32 	%r58, %r57;
 	fma.rn.f32 	%r59, %r52, %r55, %r58;
-	sub.rn.f32 	%r60, %r223, %r53;
+	neg.f32 	%r60, %r53;
 	fma.rn.f32 	%r61, %r60, %r56, %r57;
-	add.rn.f32 	%r62, %r61, %r59;
+	add.rn.f32 	%r62, %r59, %r61;
 	mul.rn.f32 	%r63, %r55, %r51;
-	sub.rn.f32 	%r64, %r223, %r63;
+	neg.f32 	%r64, %r63;
 	fma.rn.f32 	%r65, %r53, %r54, %r64;
-	sub.rn.f32 	%r66, %r223, %r51;
+	neg.f32 	%r66, %r51;
 	fma.rn.f32 	%r67, %r66, %r55, %r63;
-	add.rn.f32 	%r68, %r67, %r65;
+	add.rn.f32 	%r68, %r65, %r67;
 	mul.rn.f32 	%r69, %r54, %r52;
-	sub.rn.f32 	%r70, %r223, %r69;
+	neg.f32 	%r70, %r69;
 	fma.rn.f32 	%r71, %r51, %r56, %r70;
-	sub.rn.f32 	%r72, %r223, %r52;
+	neg.f32 	%r72, %r52;
 	fma.rn.f32 	%r73, %r72, %r54, %r69;
-	add.rn.f32 	%r74, %r73, %r71;
+	add.rn.f32 	%r74, %r71, %r73;
 	mul.rn.f32 	%r75, %r74, %r74;
 	mul.rn.f32 	%r76, %r68, %r68;
 	mul.rn.f32 	%r77, %r62, %r62;
@@ -809,6 +807,7 @@ attributes #3 = { nounwind }
 	add.rn.f32 	%r80, %r79, %r75;
 	setp.eq.f32 	%p1, %r80, 0f00000000;
 	mov.pred 	%p37, 0;
+	mov.b32 	%r223, 0f00000000;
 	@%p1 bra 	$L__BB2_8;
 	sub.rn.f32 	%r81, %r3, %r43;
 	sub.rn.f32 	%r82, %r1, %r41;
@@ -868,14 +867,14 @@ attributes #3 = { nounwind }
 	selp.f32 	%r124, %r46, %r123, %p11;
 	selp.f32 	%r125, %r45, %r44, %p12;
 	selp.f32 	%r126, %r46, %r125, %p13;
-	sub.rn.f32 	%r127, %r223, %r122;
+	neg.f32 	%r127, %r122;
 	div.rn.f32 	%r128, %r127, %r126;
 	mul.rn.f32 	%r129, %r108, %r128;
 	mul.rn.f32 	%r130, %r129, 0f00000000;
 	add.rn.f32 	%r131, %r106, %r130;
 	add.rn.f32 	%r132, %r104, %r129;
 	add.rn.f32 	%r133, %r108, %r130;
-	sub.rn.f32 	%r134, %r223, %r124;
+	neg.f32 	%r134, %r124;
 	div.rn.f32 	%r135, %r134, %r126;
 	mul.rn.f32 	%r136, %r135, %r133;
 	mul.rn.f32 	%r137, %r136, 0f00000000;
@@ -900,23 +899,23 @@ attributes #3 = { nounwind }
 	add.rn.f32 	%r17, %r147, %r150;
 	add.rn.f32 	%r16, %r148, %r151;
 	mul.rn.f32 	%r152, %r14, %r16;
-	sub.rn.f32 	%r153, %r223, %r152;
+	neg.f32 	%r153, %r152;
 	fma.rn.f32 	%r154, %r13, %r17, %r153;
-	sub.rn.f32 	%r155, %r223, %r14;
+	neg.f32 	%r155, %r14;
 	fma.rn.f32 	%r156, %r155, %r16, %r152;
-	add.rn.f32 	%r19, %r156, %r154;
+	add.rn.f32 	%r19, %r154, %r156;
 	mul.rn.f32 	%r157, %r17, %r10;
-	sub.rn.f32 	%r158, %r223, %r157;
+	neg.f32 	%r158, %r157;
 	fma.rn.f32 	%r159, %r16, %r11, %r158;
-	sub.rn.f32 	%r160, %r223, %r17;
+	neg.f32 	%r160, %r17;
 	fma.rn.f32 	%r161, %r160, %r10, %r157;
-	add.rn.f32 	%r20, %r161, %r159;
+	add.rn.f32 	%r20, %r159, %r161;
 	mul.rn.f32 	%r162, %r11, %r13;
-	sub.rn.f32 	%r163, %r223, %r162;
+	neg.f32 	%r163, %r162;
 	fma.rn.f32 	%r164, %r10, %r14, %r163;
-	sub.rn.f32 	%r165, %r223, %r11;
+	neg.f32 	%r165, %r11;
 	fma.rn.f32 	%r166, %r165, %r13, %r162;
-	add.rn.f32 	%r21, %r166, %r164;
+	add.rn.f32 	%r21, %r164, %r166;
 	min.f32 	%r167, %r19, %r20;
 	min.f32 	%r168, %r21, %r167;
 	setp.geu.f32 	%p14, %r168, 0f00000000;

@@ -146,7 +146,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               let !and_1 = false in
               _mask0[children] = !and_1
               let @136 = (f32)inf in
-              let @137 = 0f - @136 in
+              let @137 = -0f - @136 in
               _carry0[children] = @137
               let @140 = entry(r, b$i0) in
               _keys0[children] = @140
@@ -438,7 +438,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   _recloop_func0(0u, @4, _best0, r, tris)
   let @5 = build<_option0>() in
   let @6 = (*_best0) in
@@ -543,7 +543,7 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0
   let @1 = build<__tuple_0>() in
   let @2 = build<__tuple_1>(@0, @1) in
   _best0$i26 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   let @5 = (*r) in
   let @6 = (*tris) in
   _recloop_func0(0u, @4, _best0$i26, @5, @6)

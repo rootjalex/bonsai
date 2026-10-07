@@ -146,7 +146,7 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
         distmin_Ray_AABB$r1 = @86
       } else {
         let @87 = (f32)inf in
-        let @88 = 0f - @87 in
+        let @88 = -0f - @87 in
         distmin_Ray_AABB$r1 = @88
       }
       let @90 = (*_best0) in
@@ -317,7 +317,7 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
         distmin_Ray_AABB$r3 = @86
       } else {
         let @87 = (f32)inf in
-        let @88 = 0f - @87 in
+        let @88 = -0f - @87 in
         distmin_Ray_AABB$r3 = @88
       }
       let @90 = (*_best0) in

@@ -172,7 +172,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
               let @1374 = select(@1371, @85, @559) in
               let @1375 = select(@1338, @1374, @559) in
               let @723 = (f32)inf in
-              let @724 = 0f - @723 in
+              let @724 = -0f - @723 in
               let @725 = f32x4(@724) in
               let @159 = (*_best0) in
               let @160 = @159._field0 in
@@ -224,7 +224,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let children = ramp(0u, 1u, 4) in
             masked_store(_mask0[ramp(0u, 1u, 4)], !and_1, @1224)
             let @243 = (f32)inf in
-            let @244 = 0f - @243 in
+            let @244 = -0f - @243 in
             let @588 = f32x4(@244) in
             masked_store(_carry0[ramp(0u, 1u, 4)], @588, @1224)
             let @1145 = f32x4(@243) in
@@ -477,7 +477,7 @@ func _traverse_tree0(r : Ray, tris : _tree_layout0) -> _option0 {
   let @1 = build<__tuple_1>() in
   let @2 = build<__tuple_2>(@0, @1) in
   _best0 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   _recloop_func0(0u, @4, _best0, r, tris)
   let @5 = build<_option0>() in
   let @6 = (*_best0) in
@@ -599,7 +599,7 @@ func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0
   let @1 = build<__tuple_1>() in
   let @2 = build<__tuple_2>(@0, @1) in
   _best0$i65 = @2
-  let @4 = 0f - @0 in
+  let @4 = -0f - @0 in
   let @5 = (*r) in
   let @6 = (*tris) in
   _recloop_func0(0u, @4, _best0$i65, @5, @6)

@@ -27,7 +27,7 @@ weigh_all:
   %16 = bitcast <8 x i32> %15 to <8 x float>
   %17 = fadd <8 x float> %10, %13
   %18 = fadd <8 x float> %17, %16
-  %19 = fsub <8 x float> <float poison, float poison, float 0.000000e+00, float poison, float poison, float 0.000000e+00, float poison, float poison>, %18
+  %19 = fneg <8 x float> %18
   %20 = select <8 x i1> %.not, <8 x float> %18, <8 x float> %19
   %21 = add <8 x i32> %12, %9
   %22 = sitofp <8 x i32> %21 to <8 x float>

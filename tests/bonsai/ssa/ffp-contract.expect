@@ -76,7 +76,7 @@ func [[export]] neg_add(a : f32, b : f32, c : f32) -> f32 {
 
 func [[export]] neg_only(a : f32, b : f32) -> f32 {
   let @0 = a * b in
-  let @1 = 0f - @0 in
+  let @1 = -0f - @0 in
   return @1
 }
 

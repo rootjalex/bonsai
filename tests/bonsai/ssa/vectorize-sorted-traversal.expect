@@ -174,7 +174,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
           distmin_Ray_Sphere$r2 = @61
         } else {
           let @62 = (f32)inf in
-          let @63 = 0f - @62 in
+          let @63 = -0f - @62 in
           distmin_Ray_Sphere$r2 = @63
         }
         let @65 = (*_best0) in
@@ -354,7 +354,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
                     distmin_Ray_Sphere$r36 = @220
                   } else {
                     let @221 = (f32)inf in
-                    let @222 = 0f - @221 in
+                    let @222 = -0f - @221 in
                     distmin_Ray_Sphere$r36 = @222
                   }
                   distmin_Ray_Shape$r4 = (*distmin_Ray_Sphere$r36)
@@ -549,7 +549,7 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
         let @633 = @617 && @630 in
         let @353 = reduce<any>(@633) in
         if (@353) {
-          let @63 = 0f - @56 in
+          let @63 = -0f - @56 in
           let @493 = f32x8(@63) in
           let @65 = (*_best0) in
           let @66 = @65._field0 in
@@ -998,7 +998,7 @@ func distmax_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       distmax_Ray_Triangle$r11 = @81
     } else {
       let @82 = (f32)inf in
-      let @83 = 0f - @82 in
+      let @83 = -0f - @82 in
       distmax_Ray_Triangle$r11 = @83
     }
     return (*distmax_Ray_Triangle$r11)
@@ -1069,7 +1069,7 @@ func distmin_Ray_Shape(r : Ray, sh : Shape) -> f32 {
       distmin_Ray_Sphere$r15 = @52
     } else {
       let @53 = (f32)inf in
-      let @54 = 0f - @53 in
+      let @54 = -0f - @53 in
       distmin_Ray_Sphere$r15 = @54
     }
     return (*distmin_Ray_Sphere$r15)
