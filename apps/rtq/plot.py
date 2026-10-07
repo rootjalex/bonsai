@@ -35,8 +35,8 @@ from matplotlib.patches import Patch  # noqa: E402
 COLOUR = {"embree": "#56B4E9", "fcpw": "#E69F00"}  # sky blue, orange (CUD)
 HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "", "volume": "///"}
 LABEL = {"primary": "primary rays", "ao": "ambient-occlusion rays",
-         "diffuse": "diffuse rays", "near": "points near the surface",
-         "volume": "points in the volume"}
+         "diffuse": "diffuse rays", "near": "points near surface",
+         "volume": "points in volume"}
 FIGURES = [
     ("firsthit", "nearest", ["primary", "ao", "diffuse"], "First hit"),
     ("anyhit", "any", ["primary", "ao", "diffuse"], "Any hit"),
