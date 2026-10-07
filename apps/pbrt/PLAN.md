@@ -11497,3 +11497,21 @@ profiler after, and ncu only with the user's say-so given the crash.
   displacement or normal map was refused here once for replacing the shading
   frame; both are implemented now -- differentials.bonsai's `bump_map` and
   `normal_map`.)
+
+**The last two splits of the night (2026-10-07, 23:20).** The
+ANYHIT=always bound: running the any-hit over EVERY input of bistro
+adds 3.6% wall and 2.2% dram -- the alpha path is bounded marginal,
+and with it every structural suspect for bistro's shadow 1.2x is
+eliminated (instructions, occupancy, registers, record bytes, queue
+layout, topology, flags, tree size 89.4 vs 85.3 MB, raygen and
+traversal via ganesha, now the any-hit itself). What remains is the
+SHADOW-RAY SET -- count and distribution per launch -- which is the
+lit-pixel bias's own subject: bugfix #1 and the last shadow cell
+are one investigation (the 1-spp bistro_vespa_d1 probe). And
+watercolor's s16-only cells are CHARACTERIZED: warm per-launch
+curves (REPEATS=2, skip past render one -- a media scene's wave is
+~12 launches of two raygens, so skip 24 is still cold there) show
+wave heads EQUAL (737 vs 749 us) and every medium-coupled launch
+after at 1.3-1.8x pbrt's, amortized clean at s64's queue sizes:
+small-grid occupancy/efficiency in the rays+shadow launches, for
+daylight occupancy counters on one small mid-wave launch.
