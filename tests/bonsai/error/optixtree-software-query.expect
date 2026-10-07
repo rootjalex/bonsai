@@ -1,5 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Lower/Trees.cpp:2633
+[internal] Error: src/Lower/Trees.cpp:3503
 trace queries `tris`, which the schedule declares an OptixTree -- the ray tracing hardware's tree, which has no traversal the compiler can build. Bind the query to the hardware, `trace.bind(RTCore);`, or lay the set out as a tree of the schedule's own.

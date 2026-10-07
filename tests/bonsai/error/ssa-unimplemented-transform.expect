@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:2396
+[internal] Error: src/SSA/Convert.cpp:2612
 
 --> b.i.names.empty()
 bind(i, RTCore) on process: RTCore binds a function's query, not a loop; write `process.bind(RTCore)`.

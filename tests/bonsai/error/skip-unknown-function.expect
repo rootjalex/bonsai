@@ -1,5 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:1879
+[internal] Error: src/SSA/Convert.cpp:1912
 skip(helper) on weigh: no arm of a match written in weigh takes helper, and nothing weigh reaches is a function named helper. No match is written in weigh. The arms of classify inlined into it (if) are named by classify.

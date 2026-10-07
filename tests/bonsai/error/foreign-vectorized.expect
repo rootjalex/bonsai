@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Vectorize.cpp:1743
+[internal] Error: src/SSA/Vectorize.cpp:1745
 
 --> original != funcs.end()
 Cannot vectorize a call to grid_value, which has no body here. A function the program declared with `extern func` is foreign (docs/foreign-functions.md): it is one scalar call with the C calling convention and cannot be given a lane's arguments or run under a mask, as ispc refuses a call to an external function with varying arguments. Call it from code the schedule does not vectorize, or with arguments that are uniform across the gang.

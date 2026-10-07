@@ -1,7 +1,8 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
 
-define void @read_fields(ptr noundef %samples_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_fields(ptr noundef %samples_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_fields:
   %samples = tail call ptr @bonsai_buffer_require(ptr %samples_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -18,7 +19,8 @@ read_fields:
   ret void
 }
 
-define void @read_flags(ptr noundef %flags_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr {
+; Function Attrs: mustprogress
+define void @read_flags(ptr noundef %flags_buffer, ptr noundef %which_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
 read_flags:
   %flags = tail call ptr @bonsai_buffer_require(ptr %flags_buffer, i32 1)
   %which = tail call ptr @bonsai_buffer_require(ptr %which_buffer, i32 1)
@@ -38,9 +40,10 @@ declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <16 x float> @llvm.x86.avx512.mask.gather.dps.512(<16 x float>, ptr, <16 x i32>, <16 x i1>, i32 immarg) #0
+declare <16 x float> @llvm.x86.avx512.mask.gather.dps.512(<16 x float>, ptr, <16 x i32>, <16 x i1>, i32 immarg) #1
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
-declare <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32>, ptr, <16 x i32>, <16 x i1>, i32 immarg) #0
+declare <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32>, ptr, <16 x i32>, <16 x i1>, i32 immarg) #1
 
-attributes #0 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

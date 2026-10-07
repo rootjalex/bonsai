@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/Lower/Trees.cpp:2841
+[internal] Error: src/Lower/Trees.cpp:3760
 
 --> rq.tree.type().as<ir::BVH_t>()->hardware
 trace.bind(RTCore): the RT cores search `tris`, which the schedule lays out as a BVH -- a tree of its own nodes. A set the hardware searches is declared `tris : OptixTree;` and laid out as its element arrays alone.
