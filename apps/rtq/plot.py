@@ -93,7 +93,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude):
                             for m in meshes], fontsize=8)
         ax.set_xlim(-0.6, len(meshes) - 0.4)
         ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("speedup over the reference")
+        ax.set_ylabel("Speedup")
         ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (MBVH<8>)"
                      + (", tuned schedules" if suffix else ""), fontsize=10)
         ax.spines["top"].set_visible(False)
