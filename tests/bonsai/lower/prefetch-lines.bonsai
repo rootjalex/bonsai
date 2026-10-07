@@ -1,9 +1,15 @@
-//! flags: -p ssa -b llvm
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-prefetches -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
 
-// ssa/prefetch-switch-arm.bonsai all the way to LLVM: the prefetch of the
-// hit children over FCPW's layout shape, the node row at the child's index
-// whatever the child is, as `llvm.prefetch` of the row's lines (112 bytes,
-// two) and no load of the row before them.
+// The prefetch directive with a count of cache lines: prefetch-switch-arm
+// .bonsai's layout, FCPW's shape, with `trace.prefetch(tris.Interior.
+// children, 4)` -- Embree's four lines of a node (ir::Prefetch::lines).
+// Without the count the fetch is the storage's own bytes, here the node
+// row's 112 (prefetch-switch-arm.bonsai); with it, the four lines the
+// schedule said, 256 bytes, so the fetch runs past the row into the next,
+// as Embree's four lines of a BVH4 node do.
+//
+// What to read for: the one prefetch of the child's row as before, now
+// `prefetch(&tris.group1_index[child], 256u)`.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;
@@ -68,9 +74,6 @@ schedule {
 
     trace.sort(tris.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
-               distmin(r, AABB{lo[i], hi[i]}))
-         .vectorize(tris.Interior.children)
-         .vectorize(tris.Leaf.data)
-         .loopify(64);
-    trace.prefetch(tris.Interior.children);
+               distmin(r, AABB{lo[i], hi[i]}));
+    trace.prefetch(tris.Interior.children, 4);
 }

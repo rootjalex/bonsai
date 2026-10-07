@@ -5283,13 +5283,120 @@ construct and waits for the user's ruling (ask before adding one);
 until then the widest-arm policy stands, as it always has, and the
 prefetch over FCPW's layout is available but not scheduled.
 
+## The prefetch's line count, Embree's four-wide count, and the prefetch that read what it fetched (2026-10-07)
+
+The user's ruling on the section above: a count of cache lines as an
+optional argument of the directive is reasonable (no architecture
+prefetches at a finer grain than its line; the count is the schedule's,
+the line is the backend's). So `prefetch(cursor, n)`: ir::Prefetch carries
+`lines`, the parser takes a positive constant after the cursor,
+Lower/Prefetches.cpp passes it on the intrinsic, and the layout lowering
+fetches `n * 64` bytes in place of the widest storage's
+(LowerReferencePrefetches::kCacheLine, the LLVM backend's line, x86's; a
+backend with another line would be asked for its own there). Zero is an
+error. Tests: lower/prefetch-lines (the child's row at `256u`; the test
+was first blessed with the two arms of the lowering as it then was, see
+below), backends/llvm/prefetch-lines (four `llvm.prefetch` a hit child),
+error/prefetch-lines-zero, and correctness/cpp/bvh4_fcpw_rows with a
+count on both queries.
+
+Embree's count, read from bvh.h (`BVH::prefetch`, the non-KNL branch): two
+lines for every N over aligned nodes, `prefetchL1(ptr + 0*64)` and `+
+1*64`, and the third and fourth only for N >= 8 or unaligned node types.
+The directive without a count fetched the widest arm: over Embree's BVH8
+layout the node's 256 bytes, Embree's four; over the BVH4 layout a
+Triangle4 tile's 144 bytes, three, where Embree fetches two. The matching
+four-wide schedule now says two, and the measurement of three against two
+(embree4 on head, pavilion, ganesha; rays at side 2048, points at 1024;
+least of 5, cpu 11, alternated twice; bonsai over Embree):
+
+| mesh | lines | primary / ao / diffuse | any ao | near / volume |
+|---|---|---|---|---|
+| head | 3 | 1.06 / 0.98 / 0.98 | 0.98 | 3.69 / 4.17 |
+| head | 2 | 1.06-1.07 / 0.97-0.98 / 0.98 | 0.98-0.99 | 3.69 / 4.16 |
+| pavilion | 3 | 1.07 / 0.96-0.97 / 0.96-0.97 | 0.98 | 3.05 / 4.12-4.13 |
+| pavilion | 2 | 1.05-1.07 / 0.96 / 0.96 | 0.98-0.99 | 3.07-3.10 / 4.12-4.13 |
+| ganesha | 3 | 1.04-1.05 / 1.02 / 1.02 | 0.99 | 5.41 / 7.03-7.04 |
+| ganesha | 2 | 1.05-1.06 / 1.02-1.03 / 1.02-1.03 | 1.00 | 5.38-5.39 / 6.79-6.80 |
+
+Within a point on every ray cell; ganesha's volume batch, the one that
+visits the most leaves, is 3.5% faster with the third line, a Triangle4
+tile's last. So embree4.bonsai writes Embree's two, tuned4.bonsai writes
+three with that measurement, and the eight-wide pair write their four
+explicitly (no change in what they fetched). The four-wide cells are not
+in the CSV yet (the eight-wide table is what the plots draw); the count
+goes in with the four-wide block.
+
+Then FCPW's tuned eight-wide tree with the count: fcpw8w16t with 2, 4 and
+6 lines against none, head, ganesha, dragon, side 1024, least of 5,
+alternated twice (bonsai over FCPW):
+
+| mesh | lines | primary / diffuse | any ao | near / volume |
+|---|---|---|---|---|
+| head | 0 | 1.86-1.87 / 1.78 | 1.91 | 1.36-1.37 / 1.70-1.71 |
+| head | 2 | 1.62-1.63 / 1.38 | 1.45 | 1.25 / 1.52-1.53 |
+| head | 4 | 1.64-1.75 / 1.39-1.42 | 1.44-1.48 | 1.20-1.21 / 1.49-1.50 |
+| head | 6 | 1.72-1.75 / 1.41-1.43 | 1.48-1.50 | 1.14-1.19 / 1.44-1.50 |
+| ganesha | 0 | 1.38-1.40 / 1.60-1.61 | 1.66 | 1.54 / 1.08 |
+| ganesha | 2 | 1.23-1.24 / 1.39 | 1.44-1.45 | 1.37-1.38 / 1.20 |
+| ganesha | 4 | 1.23 / 1.40 | 1.45 | 1.37-1.38 / 1.27-1.29 |
+| ganesha | 6 | 1.22-1.24 / 1.41 | 1.44-1.45 | 1.34-1.36 / 1.23-1.24 |
+| dragon | 0 | 1.33-1.37 / 1.50-1.51 | 1.52-1.53 | 1.40 / 1.06-1.07 |
+| dragon | 2 | 1.22-1.24 / 1.37 | 1.38-1.39 | 1.31 / 1.19 |
+| dragon | 4 | 1.23-1.25 / 1.37-1.38 | 1.38-1.40 | 1.31-1.33 / 1.25-1.27 |
+| dragon | 6 | 1.24-1.26 / 1.40 | 1.40 | 1.31-1.32 / 1.23-1.24 |
+
+Two lines cost 13-25% on every ray cell and 9-12% on the near batch, and
+no count did better than four; only the large meshes' volume batch gained
+(1.08 -> 1.27-1.29, 1.07 -> 1.25-1.27 at four). No prefetch instruction
+costs that: over Embree's layout, three lines against two is a wash. So
+the lowered code was read (tests/bonsai/lower/prefetch-switch-arm.expect
+as it was): over FCPW's layout the prefetch of a hit child was
+
+    if (((group1_index[child].child0 >> 31) & 1) == 0) {
+        prefetch(&group1_index[child], 160u)
+    } else {
+        prefetch(&group0_packets[(-group1_index[child].child0 - 1) ...], 160u)
+    }
+
+-- a load of the child row's first slot to choose the arm, and a second
+through it for the leaf's packet: a demand miss on the very line the
+prefetch was to bring in early, serialized into the parent's children
+loop once per hit child, and a branch on a value that is not there yet.
+Embree's layout never pays this, its arm being the reference's own low
+bits, in a register. The rule, and the fix, in Lower/Layouts.cpp
+(ReadsThrough, LowerReferencePrefetches): a prefetch never reads memory.
+Its address is a function of the reference's bits, and where the arm's
+kind, or an arm's address, would be read out of the row the reference
+names, the row read through is what every arm's visit reads first and
+the one thing fetchable without reading, so it is fetched in the read's
+place -- an arm whose address reads through the reference fetches the
+rows it reads instead of its storage, and when the switch's own
+conditions read through it there is no switch, and one fetch of each row
+read and of every arm's load-free storage, whatever the kind, as Embree
+fetches the same lines whatever the NodeRef points at. The bytes without
+a count are the widest storage fetched: the row's 224 over FCPW's
+eight-wide layout (four lines, the row being 32-aligned), 112 in the
+tests. The goldens: the switch gone, one `prefetch(&group1_index[child],
+112u)` under the hit mask; the LLVM of the FCPW-shaped test from 25
+`llvm.prefetch` calls and 44 branches to 9 and 38, loads 71 either way
+(the child row's were gathers). Embree's shape (prefetch-children) is
+unchanged: its arms keep their switch, their addresses being load-free.
+The correctness test over FCPW's node-row layout passes with the fetch
+(bvh4_fcpw_rows). The measurement of the fixed prefetch over FCPW's tree
+follows in the next section once the machine is free (bonsai-69's sweep
+runs until about 04:15).
+
 ## Known-open, smaller
 
-- The size of a prefetch: the directive fetches the widest arm's bytes,
-  which over FCPW's sixteen-lane layout is a 640-byte packet, ten lines a
-  child, and measures as a loss; a byte or line count as a schedule
-  argument is the proposal (the section above). Embree's four lines are
-  what to try first when it exists.
+- The tuned FCPW schedules' closest point: without FCPW's region exits
+  the near batch gains (head 1.14 -> 1.37x, ganesha 1.42 -> 1.54x) and the
+  large meshes' volume batch loses (ganesha 1.27 -> 1.08x, dragon 1.26 ->
+  1.06x) -- the exits pay where far points settle whole packets in a
+  vertex or edge region. The tuned schedule should never be worse than
+  the matching one; whether the fixed prefetch recovers the volume batch
+  without costing the near one is the measurement pending above, and
+  failing that the tuned closest point keeps FCPW's exits.
 - The eight-wide residual (the profiling section): 1-3% on diffuse rays
   on pavilion and crown against the compiler before the reciprocal change,
   the two kernels differing only in the per-ray `rcp_embree_vec3` lowering

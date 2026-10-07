@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:4211
+
+--> n.has_value() && *n > 0
+prefetch(<cursor>, <lines>) takes a positive constant count of cache lines to fetch of each hit child, received: 0

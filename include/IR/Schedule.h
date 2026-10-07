@@ -235,8 +235,22 @@ struct Vectorize {
 // (kernels/bvh/bvh_traverser1.h), four lines of L1 for a BVH8 node. Applied
 // by lower::LowerPrefetches, after the sort and before the layout; a
 // `prefetch` of a field that is not a reference is refused.
+//
+// How much to fetch is the schedule's to say, as a count of cache lines --
+// `trace.prefetch(tris.Interior.children, 4)`, Embree's four lines of a BVH8
+// node -- because what a prefetch instruction moves is a line, and whether a
+// leaf's bytes are worth fetching ahead depends on the layout's tile and
+// the machine, not on anything the lowering can know: over FCPW's
+// sixteen-lane layout the widest arm is a 640-byte packet, ten lines a hit
+// child, which measured as a loss on every ray cell (apps/rtq/PLAN.md). With
+// no count every arm fetches the widest arm's bytes, so that the arms differ
+// in the address alone. The line is the backend's -- 64 bytes on x86 (the
+// LLVM backend's emit_prefetch); a machine with 128-byte lines, or a GPU's
+// 32-byte sectors, would be told its own -- so the count is what carries
+// between machines, not a byte size.
 struct Prefetch {
     Location loc;
+    std::optional<uint64_t> lines;
 };
 
 // One copy of the function per variant of a parameter of algebraic type,

@@ -60,6 +60,7 @@ add_bonsai_tests(
     ptr-arena-rows.bonsai
     prefetch-children.bonsai
     prefetch-switch-arm.bonsai
+    prefetch-lines.bonsai
     trace_aosoa.bonsai
     trace.bonsai
     trees.bonsai

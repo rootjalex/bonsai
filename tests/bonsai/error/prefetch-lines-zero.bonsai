@@ -1,0 +1,59 @@
+//! flags: -p ssa
+
+// A prefetch's count of cache lines has to be a positive constant: zero
+// lines fetch nothing, and a count the compiler cannot read is not a
+// schedule. Refused at the schedule, before anything is lowered.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    trace.prefetch(tris.Interior.children, 0);
+}

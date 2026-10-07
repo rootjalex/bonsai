@@ -12,20 +12,25 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(244);
-    trace.prefetch(triangles.Interior.children);
+    // Three lines a hit child where Embree fetches two of a BVH4 node
+    // (embree4.bonsai): the third is the last of a Triangle4 tile's 144
+    // bytes, and measured 2026-10-07 (head, pavilion, ganesha; least of 5,
+    // alternated twice) it is level with two on every ray cell and 3%
+    // ahead on ganesha's volume batch, the one that visits the most leaves.
+    trace.prefetch(triangles.Interior.children, 3);
 
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(244);
-    occluded.prefetch(triangles.Interior.children);
+    occluded.prefetch(triangles.Interior.children, 3);
 
-    // The closest-point query as embree4.bonsai schedules it: no step of it
-    // has yet measured worse here, so nothing is dropped.
+    // The closest-point query as embree4.bonsai schedules it but for the
+    // prefetch's third line (above): no other step has measured worse here.
     closest.sort(triangles.Interior,
                  |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
                  distmin(q, AABB{lo[i], hi[i]}))
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(244);
-    closest.prefetch(triangles.Interior.children);
+    closest.prefetch(triangles.Interior.children, 3);
 }

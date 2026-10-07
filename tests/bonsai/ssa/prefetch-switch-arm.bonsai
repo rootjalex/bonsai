@@ -2,10 +2,11 @@
 
 // lower/prefetch-switch-arm.bonsai -- the prefetch of a child reference over
 // a layout whose interior arm is the node row's own switch arm, FCPW's shape
-// -- vectorized and loopified: the gang's prefetch of the hit children's
-// rows, `group1_index[child]`, and of a leaf child's first packet, at the
-// widest arm's bytes, where the directive over this layout was refused as
-// unimplemented before (Lower/Layouts.cpp, field_in_layout's Switch case).
+// -- vectorized and loopified: the gang's one prefetch of the hit children's
+// rows, `group1_index[child]` at the row's bytes, under `reduce<any>` of the
+// hit mask and nothing else -- no load of the children's first slots and no
+// switch on their sign, since a prefetch never reads memory (Lower/
+// Layouts.cpp, LowerReferencePrefetches and ReadsThrough).
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

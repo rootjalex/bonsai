@@ -1399,14 +1399,16 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
         case Intrinsic::prefetch: {
             // Before the layout: a tree reference, `prefetch(ref)`, or the
             // integer the reference is stored as once the layout has
-            // lowered its read and not yet the prefetch (Lower/Layouts.cpp).
-            // After it: a pointer and a constant byte count, and once a gang
-            // carries it, a pointer per lane and the lanes' mask. Computes
-            // nothing, so its type is void and it is bound to no name
-            // (see SSA/Convert.cpp).
+            // lowered its read and not yet the prefetch (Lower/Layouts.cpp),
+            // either with a constant count of cache lines after it when the
+            // schedule gave one (ir::Prefetch::lines). After it: a pointer
+            // and a constant byte count, and once a gang carries it, a
+            // pointer per lane and the lanes' mask. Computes nothing, so its
+            // type is void and it is bound to no name (see SSA/Convert.cpp).
             const Type &first = args.empty() ? Type() : args[0].type();
             const bool reference =
-                args.size() == 1 &&
+                (args.size() == 1 ||
+                 (args.size() == 2 && args[1].type().is_int_or_uint())) &&
                 (first.is<Ref_t>() || first.is_int_or_uint());
             // A pointer, or an address as a 64-bit integer -- a reference
             // that is a pointer with its kind bits in place, a `ptr group`'s,

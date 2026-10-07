@@ -77,10 +77,14 @@ struct ApplyPrefetch : public Mutator {
     // invented, `_subtree0`, and what a schedule names is the field it came
     // from, `Instance.blas` (see Lower/Sorts.cpp).
     std::map<std::string, std::string> nested_paths;
+    // How many cache lines of each child to fetch, when the schedule said
+    // (ir::Prefetch::lines); otherwise the layout lowering fetches the
+    // widest arm's bytes.
+    std::optional<uint64_t> lines;
 
-    ApplyPrefetch(const Location &loc, const std::string &func_name,
-                  FuncMap &funcs)
-        : loc(loc), func_name(func_name), funcs(funcs) {}
+    ApplyPrefetch(const Location &loc, std::optional<uint64_t> lines,
+                  const std::string &func_name, FuncMap &funcs)
+        : loc(loc), func_name(func_name), funcs(funcs), lines(lines) {}
 
     // The traversal is a function of its own that the scheduled function
     // calls (Lower/Trees.cpp, `_traverse_tree0`), rewritten in place where
@@ -195,9 +199,16 @@ struct ApplyPrefetch : public Mutator {
         const Expr child =
             Extract::make(Access::make(children_loop, current_match_arg), index);
         static size_t counter = 0;
+        // The reference, and the line count when the schedule gave one; the
+        // layout lowering turns the pair into an address and a byte count
+        // (Lower/Layouts.cpp, LowerReferencePrefetches).
+        std::vector<Expr> args{child};
+        if (lines.has_value()) {
+            args.push_back(UIntImm::make(UInt_t::make(32), *lines));
+        }
         Stmt fetch = LetStmt::make(
             WriteLoc("_prefetch" + std::to_string(counter++), Void_t::make()),
-            Intrinsic::make(Intrinsic::prefetch, {child}));
+            Intrinsic::make(Intrinsic::prefetch, std::move(args)));
         if (const Expr hit = mask_of(node->body, node->index); hit.defined()) {
             fetch = IfElse::make(hit, std::move(fetch));
         }
@@ -226,7 +237,8 @@ Program LowerPrefetches::run(Program program,
                 << name << ".prefetch(" << spell(prefetch->loc)
                 << "): prefetch names the field of an arm of a traversal, as "
                 << "`<tree>.<arm>.<field>` -- the children a node tests.";
-            ApplyPrefetch apply(prefetch->loc, name, program.funcs);
+            ApplyPrefetch apply(prefetch->loc, prefetch->lines, name,
+                                program.funcs);
             func->body = apply.mutate(func->body);
             internal_assert(apply.found_match)
                 << name << ".prefetch(" << spell(prefetch->loc) << "): "

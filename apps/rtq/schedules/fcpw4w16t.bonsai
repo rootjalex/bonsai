@@ -14,12 +14,12 @@
 // only where whole packets settle early -- the volume batch on the largest
 // meshes -- and the tuned schedule takes the rest.
 //
-// Not yet tried: prefetching the children, which Embree's tuned schedule
-// does and FCPW never does. The prefetch lowering fetches an arm that is a
-// row of a group or a range of tiles, and FCPW's Interior is an arm of the
-// node row's switch on its first slot's sign, so it has no storage of its
-// own to name (Lower/Prefetches.cpp refuses it); the row itself is what to
-// fetch, and that is a lowering extension (PLAN.md, known-open).
+// Prefetching the children, which Embree's tuned schedule does and FCPW
+// never does, is lowered over this layout as one fetch of the child's node
+// row, whatever the child is (Lower/Layouts.cpp, LowerReferencePrefetches:
+// the row's first slot says interior or leaf, and a prefetch never reads
+// what it fetches). Its measurements are the eight-wide tuned schedule's
+// (fcpw8w16t.bonsai, PLAN.md 2026-10-07).
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw4w16t.bonsai ...

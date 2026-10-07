@@ -7,10 +7,11 @@
 // boxes by component and four child slots, the sign of the first slot
 // saying interior or leaf, a leaf row naming its packets of four triangles
 // (apps/rtq/schedules/layouts/fcpw4w8.bonsai, with packets of four) -- and
-// `prefetch(tris.Interior.children)` on both queries. The interior arm is
-// an arm of the node row's own switch, so the prefetch fetches the row at
-// the child's index (lower/prefetch-switch-arm.bonsai pins what the layout
-// lowering makes of it). A prefetch changes no answer, and a wrong address
+// `prefetch(tris.Interior.children, 4)` on both queries, Embree's four
+// lines of each hit child. The interior arm is an arm of the node row's
+// own switch, so the prefetch fetches the row at the child's index
+// (lower/prefetch-switch-arm.bonsai pins what the layout lowering makes of
+// it, lower/prefetch-lines.bonsai the count). A prefetch changes no answer, and a wrong address
 // would still answer right, so what the run shows is that the fetched
 // addresses lie within the storage, where a bad one could fault; the
 // answers are the scene's, and a leaf's count masks the lanes its packet
@@ -188,9 +189,9 @@ schedule {
          .vectorize(tris.Interior.children)
          .vectorize(tris.Leaf.data)
          .loopify(64);
-    trace.prefetch(tris.Interior.children);
+    trace.prefetch(tris.Interior.children, 4);
     occluded.vectorize(tris.Interior.children)
             .vectorize(tris.Leaf.data)
             .loopify(64);
-    occluded.prefetch(tris.Interior.children);
+    occluded.prefetch(tris.Interior.children, 4);
 }

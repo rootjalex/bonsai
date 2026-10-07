@@ -24,13 +24,22 @@ schedule {
          .vectorize(triangles.Leaf.data)
          .loopify(244);
     trace.skip(intersectsp_ray_tri);
-    trace.prefetch(triangles.Interior.children);
+    // Embree: BVH::prefetch for N = 4 over aligned nodes is two lines
+    // (bvh.h: `prefetchL1(ptr + 0*64); prefetchL1(ptr + 1*64)`, the third
+    // and fourth only for N >= 8 or unaligned node types), the 128 bytes of
+    // a BVH4 node -- so two lines here, where the directive without a count
+    // fetches the widest arm, a Triangle4 tile's three. Measured 2026-10-07
+    // (head, pavilion, ganesha; least of 5, alternated twice): the ray
+    // queries within a point either way; ganesha's volume batch 3% slower
+    // at two, the third line being a leaf tile's last (tuned4.bonsai keeps
+    // three).
+    trace.prefetch(triangles.Interior.children, 2);
 
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(244);
     occluded.skip(intersectsp_ray_tri);
-    occluded.prefetch(triangles.Interior.children);
+    occluded.prefetch(triangles.Interior.children, 2);
 
     // The closest-point query as embree.bonsai schedules it, four wide
     // (BVHNIntersector1<4>::pointQuery: the same traverseClosestHit over
@@ -41,5 +50,5 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(244);
-    closest.prefetch(triangles.Interior.children);
+    closest.prefetch(triangles.Interior.children, 2);
 }

@@ -13,14 +13,23 @@
 // in Lower/Layouts.cpp; before it the directive was refused as
 // unimplemented).
 //
+// And the row is all it fetches, with no switch. A prefetch never reads
+// memory: here the arm's kind is the sign of the child row's first slot,
+// and the leaf arm's first packet is `(0 - child0 - 1)` packets in -- both
+// read out of the child's row, which is the very line the prefetch is to
+// bring in early; a switch on the kind would load it on the spot, once per
+// hit child (LowerReferencePrefetches, ReadsThrough; measured over FCPW's
+// eight-wide tree as 13-25% of the ray queries' time). So the row the
+// conditions and the leaf's address read through is fetched in their
+// place, whatever the child is -- the interior arm's own storage, at the
+// same address.
+//
 // What to read for. In the loop over a node's children, after the test's
 // store into `_mask0[children]`, `if _mask0[children] { prefetch(...) }` of
-// the child's reference, lowered as the switch on the child row's kind: the
-// interior arm fetches the address of `group1_index[child]`, the node row
-// (112 bytes here), and the leaf arm the first packet of its range,
-// `(0 - child0 - 1)` packets in -- each asking for the widest arm's bytes,
-// the 160 of a packet of four triangles with their indices, so that the
-// arms differ in the address alone.
+// the child's reference: one `prefetch(&tris.group1_index[child], 112u)`,
+// the node row's 112 bytes, and no `child0 >> 31` test around it. Compare
+// prefetch-children.bonsai, Embree's shape, where the kind is in the
+// reference's low bits and the two arms keep their switch.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

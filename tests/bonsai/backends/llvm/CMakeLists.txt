@@ -19,6 +19,7 @@ add_bonsai_tests(
     tiled-leaf-vectorized.bonsai
     prefetch-children.bonsai
     prefetch-switch-arm.bonsai
+    prefetch-lines.bonsai
     rcp.bonsai
     permute.bonsai
     sort-key-nonnegative.bonsai

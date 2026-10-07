@@ -49,6 +49,7 @@ add_bonsai_tests(
     skip-unknown-arm.bonsai
     skip-unknown-function.bonsai
     prefetch-not-a-reference.bonsai
+    prefetch-lines-zero.bonsai
     sort-needs-ssa.bonsai
     sort-key-index-type.bonsai
     split-not-divisible.bonsai

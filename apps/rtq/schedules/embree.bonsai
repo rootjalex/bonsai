@@ -67,11 +67,14 @@ schedule {
     // Embree: BVH::prefetch on every hit child as the traversal extracts it
     // from the node, before the sort and the pushes -- four `prefetcht0`,
     // the 256 bytes of a BVH8 node, so that a child popped later is in L1
-    // (bvh_traverser1.h, bvh.h). The children's loop prefetches what each
-    // hit child refers to: the node row or the leaf's first tile, chosen by
-    // the reference's low bits as a visit chooses, 256 bytes either way
-    // (Lower/Prefetches.cpp, Lower/Layouts.cpp).
-    trace.prefetch(triangles.Interior.children);
+    // (bvh_traverser1.h; bvh.h: two lines for every N, the third and fourth
+    // for N >= 8). The children's loop prefetches what each hit child refers
+    // to: the node row or the leaf's first tile, chosen by the reference's
+    // low bits as a visit chooses, and the count of lines is Embree's four
+    // either way (Lower/Prefetches.cpp, Lower/Layouts.cpp; without a count
+    // the directive fetches the widest arm, here the node's 256 bytes, the
+    // same four).
+    trace.prefetch(triangles.Interior.children, 4);
 
     // Embree: traverseAnyHit -- the occlusion test pushes the hit children
     // in their stored order, "simpler in sequence traversal order", and
@@ -88,7 +91,7 @@ schedule {
     occluded.skip(intersectsp_ray_tri);
     // Embree: traverseAnyHit prefetches the hit children as the closest-hit
     // traversal does (BVH::prefetch on `cur` and on each child pushed).
-    occluded.prefetch(triangles.Interior.children);
+    occluded.prefetch(triangles.Interior.children, 4);
 
     // Embree: BVHNIntersector1::pointQuery (bvh_intersector1.cpp) -- the
     // closest-point query walks the tree as the nearest hit does: the eight
@@ -108,7 +111,7 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(564);
-    closest.prefetch(triangles.Interior.children);
+    closest.prefetch(triangles.Interior.children, 4);
 
     // The parfor over the rays is left unbound, so it lowers to a plain
     // sequential loop: the comparison is single-threaded on both sides

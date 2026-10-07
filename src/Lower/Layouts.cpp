@@ -1520,6 +1520,68 @@ std::vector<std::string> switch_arm_names(const ir::Layout &layout) {
     return find.names;
 }
 
+// The memory an expression reads through a tree walk's index variable -- the
+// row the reference names, or an element stored at a position computed from
+// it -- as the innermost such reads: a field read (ir::Access) of an object
+// the index appears in, or an element read of a stored array at a position
+// the index appears in. An element that is a row of a group is a reference
+// to its fields and not a read; the read is the field's, and what it reads
+// is the row. What a prefetch of a reference must never do, and so what it
+// fetches instead (LowerReferencePrefetches).
+struct ReadsThrough : public ir::Visitor {
+    const std::string &index;
+    // Whether the index appears in what was visited.
+    bool mentions = false;
+    // The innermost reads through it, in the order found.
+    std::vector<ir::Expr> reads;
+
+    explicit ReadsThrough(const std::string &index) : index(index) {}
+
+    void visit(const ir::Var *node) override {
+        mentions = mentions || node->name == index;
+    }
+
+    // A read of `read`, whose address is computed from `parts`: the
+    // innermost reads inside those when there are any, and otherwise the
+    // read itself when the index appears in them.
+    void take(const std::vector<ir::Expr> &parts, const ir::Expr &read) {
+        ReadsThrough inner(index);
+        for (const ir::Expr &part : parts) {
+            part.accept(&inner);
+        }
+        if (!inner.reads.empty()) {
+            reads.insert(reads.end(), inner.reads.begin(), inner.reads.end());
+            mentions = true;
+        } else if (inner.mentions) {
+            reads.push_back(read);
+            mentions = true;
+        }
+    }
+
+    void visit(const ir::Access *node) override {
+        take({node->value}, node->value);
+    }
+
+    void visit(const ir::Extract *node) override {
+        if (node->vec.type().is_reference() && !node->type.is<ir::Struct_t>()) {
+            std::vector<ir::Expr> parts = {node->vec, node->idx};
+            if (node->mask.defined()) {
+                parts.push_back(node->mask);
+            }
+            take(parts, ir::Expr(node));
+            return;
+        }
+        ir::Visitor::visit(node);
+    }
+};
+
+template <typename Node>
+std::vector<ir::Expr> reads_through(const Node &node, const std::string &index) {
+    ReadsThrough find(index);
+    node.accept(&find);
+    return find.reads;
+}
+
 // A prefetch of a tree reference -- `prefetch(ref)`, which the prefetch
 // directive put into the loop over a node's children (Lower/Prefetches.cpp)
 // -- as the address of the storage the reference names: the same switch over
@@ -1533,6 +1595,24 @@ std::vector<std::string> switch_arm_names(const ir::Layout &layout) {
 // after its unwraps are lowered (LowerUnwrapAccesses), so the reference is
 // already its stored bits, and those stand in for the walk's index variable
 // in the switch's conditions and the rows' indices.
+//
+// A prefetch never reads memory. Its address is a function of the
+// reference's bits -- a row's index, a leaf's offset -- and so is the arm's
+// kind where the layout keeps it in the reference, as Embree's NodeRef keeps
+// it in the low bits. Where the kind, or an arm's address, is instead read
+// out of the row the reference names -- FCPW's layout, whose first slot's
+// sign says interior or leaf and whose leaf arm finds its packets through
+// the row's slots -- that read is a demand load of the very line the
+// prefetch meant to bring in early, serialized into the children's loop once
+// per hit child (measured over FCPW's eight-wide tree: 13-25% of the ray
+// queries' time, PLAN.md 2026-10-07). The row read through is what every
+// arm's visit reads first, and the one thing that can be fetched without
+// reading, so it is fetched in the read's place (ReadsThrough): an arm whose
+// address reads through the reference fetches the rows it reads instead of
+// its storage; and when the switch's own conditions read through it, there
+// is no switch, and one fetch each of the rows the conditions read and of
+// every arm's load-free storage, whatever the kind -- as Embree fetches the
+// same lines whatever the NodeRef points at.
 struct LowerReferencePrefetches : public ir::Mutator {
     const ir::Layout &layout;
     const ir::Expr &base;
@@ -1547,11 +1627,28 @@ struct LowerReferencePrefetches : public ir::Mutator {
         : layout(layout), base(base), tree_name(tree_name),
           tree_idx(tree_idx), ltmap(ltmap) {}
 
+    // The cache line the count of lines a schedule gives is in: the LLVM
+    // backend's (CodeGen_LLVM::emit_prefetch fetches one `llvm.prefetch`
+    // per 64 bytes), x86's. A backend with another line would be asked for
+    // its own here.
+    static constexpr uint64_t kCacheLine = 64;
+
     ir::Stmt visit(const ir::LetStmt *node) override {
         const ir::Intrinsic *in = node->value.as<ir::Intrinsic>();
+        // The reference alone, or the reference and a count of lines
+        // (ir::Prefetch::lines, carried by Lower/Prefetches.cpp); an address
+        // and a byte count is a prefetch already lowered.
         if (in == nullptr || in->op != ir::Intrinsic::prefetch ||
-            in->args.size() != 1) {
+            in->args.empty() || in->args.size() > 2 ||
+            (in->args.size() == 2 && in->args[0].type().is<ir::Ptr_t>())) {
             return ir::Mutator::visit(node);
+        }
+        std::optional<uint64_t> lines;
+        if (in->args.size() == 2) {
+            lines = get_constant_value<uint64_t>(in->args[1]);
+            internal_assert(lines.has_value() && *lines > 0)
+                << "prefetch of a line count that is not a positive "
+                << "constant: " << ir::Expr(in);
         }
         const ir::Expr &ref = in->args[0];
         internal_assert(!ref.type().is<ir::Ref_t>())
@@ -1564,9 +1661,8 @@ struct LowerReferencePrefetches : public ir::Mutator {
         const ir::Var *index = indices[0].as<ir::Var>();
         internal_assert(index != nullptr) << indices[0];
 
-        // Each arm's storage, and the widest.
+        // Each arm's storage.
         std::map<std::string, ir::Expr> rows;
-        uint64_t bytes = 0;
         for (const std::string &arm : switch_arm_names(layout)) {
             ir::Expr row = field_in_layout(
                 base, layout, ir::MapStack<std::string, ir::Expr>(), tree_name,
@@ -1575,9 +1671,13 @@ struct LowerReferencePrefetches : public ir::Mutator {
                 << "[unimplemented] a prefetch of a " << arm << " of "
                 << tree_name << ": the arm is neither a row of a group nor a "
                 << "range of tiles, so it has no storage of its own to fetch";
-            bytes = std::max(bytes, (stored_bits(row.type()) + 7) / 8);
             rows.emplace(arm, std::move(row));
         }
+        // The bytes of every fetch: the schedule's count of lines when it
+        // gave one (ir::Prefetch), and otherwise the widest storage fetched
+        // -- set below, once what is fetched is known, and read by fetch_of
+        // when the statements are made.
+        uint64_t bytes = 0;
 
         static size_t counter = 0;
         const auto fetch_of = [&](const ir::Expr &address) {
@@ -1653,25 +1753,91 @@ struct LowerReferencePrefetches : public ir::Mutator {
                 return address;
             }
         };
-        const ir::Expr first = stripped(address_of(rows.begin()->second));
-        const bool one_address = std::all_of(
-            rows.begin(), rows.end(), [&](const auto &named) {
-                return ir::equals(stripped(address_of(named.second)), first);
-            });
+        // What each arm fetches: its storage when the storage's address is
+        // computed from the reference alone, and otherwise the rows that
+        // address reads through (ReadsThrough, the struct's comment). Each
+        // distinct address once, and the widest storage among them.
+        struct Fetch {
+            ir::Expr storage;
+            ir::Expr address;
+        };
+        uint64_t widest = 0;
+        const auto add = [&](std::vector<Fetch> &to, const ir::Expr &storage) {
+            ir::Expr address = address_of(storage);
+            for (const Fetch &fetch : to) {
+                if (ir::equals(stripped(fetch.address), stripped(address))) {
+                    return;
+                }
+            }
+            widest = std::max(widest, (stored_bits(storage.type()) + 7) / 8);
+            to.push_back(Fetch{storage, std::move(address)});
+        };
+        std::map<std::string, std::vector<Fetch>> per_arm;
+        for (const auto &[arm, row] : rows) {
+            std::vector<Fetch> &fetches = per_arm[arm];
+            const std::vector<ir::Expr> through =
+                reads_through(row, index->name);
+            if (through.empty()) {
+                add(fetches, row);
+            } else {
+                for (const ir::Expr &read : through) {
+                    add(fetches, read);
+                }
+            }
+        }
+        const auto fetches_of = [&](const std::vector<Fetch> &fetches) {
+            std::vector<ir::Stmt> stmts;
+            for (const Fetch &fetch : fetches) {
+                stmts.push_back(fetch_of(fetch.address));
+            }
+            return stmts.size() == 1 ? stmts.front()
+                                     : ir::Sequence::make(std::move(stmts));
+        };
+
+        // The switch a visit goes through, and whether choosing its arm
+        // would read through the reference.
+        const ir::Stmt tree = lower_switch_tree(layout, base, tree_name, ltmap);
+        const std::vector<ir::Expr> through_conditions =
+            reads_through(tree, index->name);
         ir::Stmt chain;
-        if (one_address) {
-            // What is left after the stripping may be the reference's bits
-            // themselves, an integer (a pointer group's lookup): the
-            // backends take an integer address as one (CodeGen_LLVM::
-            // emit_prefetch; bonsai_prefetch in runtime/bonsai_cpp.h), and
-            // a gang of them stays a vector of integers, which the C++
-            // backend can name where a vector of pointers it cannot.
-            chain = fetch_of(first);
+        if (!through_conditions.empty()) {
+            // The kind is in the row the reference names: no switch, and
+            // every row the conditions read and every arm's fetch, once.
+            std::vector<Fetch> all;
+            for (const ir::Expr &read : through_conditions) {
+                add(all, read);
+            }
+            for (const auto &[arm, fetches] : per_arm) {
+                for (const Fetch &fetch : fetches) {
+                    add(all, fetch.storage);
+                }
+            }
+            bytes = lines.has_value() ? *lines * kCacheLine : widest;
+            chain = fetches_of(all);
         } else {
-            chain = lower_switch_tree(layout, base, tree_name, ltmap);
-            for (auto &[arm, row] : rows) {
-                chain = FillHole(arm, fetch_of(address_of(row)))
-                            .mutate(std::move(chain));
+            bytes = lines.has_value() ? *lines * kCacheLine : widest;
+            const std::vector<Fetch> &first = per_arm.begin()->second;
+            const bool one_address = std::all_of(
+                per_arm.begin(), per_arm.end(), [&](const auto &named) {
+                    return first.size() == 1 && named.second.size() == 1 &&
+                           ir::equals(stripped(named.second.front().address),
+                                      stripped(first.front().address));
+                });
+            if (one_address) {
+                // What is left after the stripping may be the reference's
+                // bits themselves, an integer (a pointer group's lookup):
+                // the backends take an integer address as one
+                // (CodeGen_LLVM::emit_prefetch; bonsai_prefetch in
+                // runtime/bonsai_cpp.h), and a gang of them stays a vector
+                // of integers, which the C++ backend can name where a
+                // vector of pointers it cannot.
+                chain = fetch_of(stripped(first.front().address));
+            } else {
+                chain = tree;
+                for (const auto &[arm, fetches] : per_arm) {
+                    chain = FillHole(arm, fetches_of(fetches))
+                                .mutate(std::move(chain));
+                }
             }
         }
         // The walk's index variable is the reference being visited; here it

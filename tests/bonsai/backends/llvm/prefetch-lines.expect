@@ -793,33 +793,49 @@ prefetch_lane273.i:                               ; preds = %"!and_merge_17.i"
   tail call void @llvm.prefetch.p0(ptr %prefetch_address274.i, i32 0, i32 3, i32 1)
   %352 = getelementptr inbounds nuw i8, ptr %prefetch_address274.i, i64 64
   tail call void @llvm.prefetch.p0(ptr nonnull %352, i32 0, i32 3, i32 1)
-  %353 = icmp samesign ugt i4 %349, 1
-  br i1 %353, label %prefetch_lane275.i, label %"!else_14!any.i"
+  %353 = getelementptr inbounds nuw i8, ptr %prefetch_address274.i, i64 128
+  tail call void @llvm.prefetch.p0(ptr nonnull %353, i32 0, i32 3, i32 1)
+  %354 = getelementptr inbounds nuw i8, ptr %prefetch_address274.i, i64 192
+  tail call void @llvm.prefetch.p0(ptr nonnull %354, i32 0, i32 3, i32 1)
+  %355 = icmp samesign ugt i4 %349, 1
+  br i1 %355, label %prefetch_lane275.i, label %"!else_14!any.i"
 
 prefetch_lane275.i:                               ; preds = %prefetch_lane273.i
-  %354 = extractelement <4 x i64> %prefetch_addresses271.i, i64 1
-  %prefetch_address276.i = inttoptr i64 %354 to ptr
+  %356 = extractelement <4 x i64> %prefetch_addresses271.i, i64 1
+  %prefetch_address276.i = inttoptr i64 %356 to ptr
   tail call void @llvm.prefetch.p0(ptr %prefetch_address276.i, i32 0, i32 3, i32 1)
-  %355 = getelementptr inbounds nuw i8, ptr %prefetch_address276.i, i64 64
-  tail call void @llvm.prefetch.p0(ptr nonnull %355, i32 0, i32 3, i32 1)
+  %357 = getelementptr inbounds nuw i8, ptr %prefetch_address276.i, i64 64
+  tail call void @llvm.prefetch.p0(ptr nonnull %357, i32 0, i32 3, i32 1)
+  %358 = getelementptr inbounds nuw i8, ptr %prefetch_address276.i, i64 128
+  tail call void @llvm.prefetch.p0(ptr nonnull %358, i32 0, i32 3, i32 1)
+  %359 = getelementptr inbounds nuw i8, ptr %prefetch_address276.i, i64 192
+  tail call void @llvm.prefetch.p0(ptr nonnull %359, i32 0, i32 3, i32 1)
   %.not472.i = icmp eq i4 %349, 2
   br i1 %.not472.i, label %"!else_14!any.i", label %prefetch_lane277.i
 
 prefetch_lane277.i:                               ; preds = %prefetch_lane275.i
-  %356 = extractelement <4 x i64> %prefetch_addresses271.i, i64 2
-  %prefetch_address278.i = inttoptr i64 %356 to ptr
+  %360 = extractelement <4 x i64> %prefetch_addresses271.i, i64 2
+  %prefetch_address278.i = inttoptr i64 %360 to ptr
   tail call void @llvm.prefetch.p0(ptr %prefetch_address278.i, i32 0, i32 3, i32 1)
-  %357 = getelementptr inbounds nuw i8, ptr %prefetch_address278.i, i64 64
-  tail call void @llvm.prefetch.p0(ptr nonnull %357, i32 0, i32 3, i32 1)
-  %358 = icmp eq i4 %85, -1
-  br i1 %358, label %prefetch_lane279.i, label %"!else_14!any.i"
+  %361 = getelementptr inbounds nuw i8, ptr %prefetch_address278.i, i64 64
+  tail call void @llvm.prefetch.p0(ptr nonnull %361, i32 0, i32 3, i32 1)
+  %362 = getelementptr inbounds nuw i8, ptr %prefetch_address278.i, i64 128
+  tail call void @llvm.prefetch.p0(ptr nonnull %362, i32 0, i32 3, i32 1)
+  %363 = getelementptr inbounds nuw i8, ptr %prefetch_address278.i, i64 192
+  tail call void @llvm.prefetch.p0(ptr nonnull %363, i32 0, i32 3, i32 1)
+  %364 = icmp eq i4 %85, -1
+  br i1 %364, label %prefetch_lane279.i, label %"!else_14!any.i"
 
 prefetch_lane279.i:                               ; preds = %prefetch_lane277.i
-  %359 = extractelement <4 x i64> %prefetch_addresses271.i, i64 3
-  %prefetch_address280.i = inttoptr i64 %359 to ptr
+  %365 = extractelement <4 x i64> %prefetch_addresses271.i, i64 3
+  %prefetch_address280.i = inttoptr i64 %365 to ptr
   tail call void @llvm.prefetch.p0(ptr %prefetch_address280.i, i32 0, i32 3, i32 1)
-  %360 = getelementptr inbounds nuw i8, ptr %prefetch_address280.i, i64 64
-  tail call void @llvm.prefetch.p0(ptr nonnull %360, i32 0, i32 3, i32 1)
+  %366 = getelementptr inbounds nuw i8, ptr %prefetch_address280.i, i64 64
+  tail call void @llvm.prefetch.p0(ptr nonnull %366, i32 0, i32 3, i32 1)
+  %367 = getelementptr inbounds nuw i8, ptr %prefetch_address280.i, i64 128
+  tail call void @llvm.prefetch.p0(ptr nonnull %367, i32 0, i32 3, i32 1)
+  %368 = getelementptr inbounds nuw i8, ptr %prefetch_address280.i, i64 192
+  tail call void @llvm.prefetch.p0(ptr nonnull %368, i32 0, i32 3, i32 1)
   br label %"!else_14!any.i"
 
 _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
@@ -830,12 +846,12 @@ _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
   call void @llvm.lifetime.end.p0(ptr nonnull %"@306290.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0291.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack292.i")
-  %361 = fcmp une float %"_best0$i659.sroa.0.1", +inf
-  br i1 %361, label %"!then_1", label %"!merge_2"
+  %369 = fcmp une float %"_best0$i659.sroa.0.1", +inf
+  br i1 %369, label %"!then_1", label %"!merge_2"
 
 "!then_1":                                        ; preds = %_recloop_func0.exit
-  %362 = lshr i32 %"_best0$i659.sroa.6.1", 2
-  %_wide = zext nneg i32 %362 to i64
+  %370 = lshr i32 %"_best0$i659.sroa.6.1", 2
+  %_wide = zext nneg i32 %370 to i64
   %extract_ptr = getelementptr inbounds nuw [160 x i8], ptr %group0_packets1, i64 %_wide
   %extract.unpack.elt25 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
   %extract.unpack.elt27 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
@@ -844,52 +860,52 @@ _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
   %extract.unpack19.elt53 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 80
   %extract.elt20 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 96
   %extract.unpack21.elt77 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 112
-  %363 = load <4 x float>, ptr %extract.unpack21.elt77, align 1
+  %371 = load <4 x float>, ptr %extract.unpack21.elt77, align 1
   %extract.unpack21.elt79 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 128
-  %364 = load <4 x float>, ptr %extract.unpack21.elt79, align 1
-  %365 = and i32 %"_best0$i659.sroa.6.1", 3
-  %366 = zext nneg i32 %365 to i64
-  %367 = getelementptr inbounds nuw [4 x i8], ptr %extract_ptr, i64 %366
-  %368 = load float, ptr %367, align 1
-  %369 = insertelement <3 x float> poison, float %368, i64 0
-  %370 = zext nneg i32 %365 to i64
-  %371 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack.elt25, i64 %370
-  %372 = load float, ptr %371, align 1
-  %373 = insertelement <3 x float> %369, float %372, i64 1
-  %374 = zext nneg i32 %365 to i64
-  %375 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack.elt27, i64 %374
+  %372 = load <4 x float>, ptr %extract.unpack21.elt79, align 1
+  %373 = and i32 %"_best0$i659.sroa.6.1", 3
+  %374 = zext nneg i32 %373 to i64
+  %375 = getelementptr inbounds nuw [4 x i8], ptr %extract_ptr, i64 %374
   %376 = load float, ptr %375, align 1
-  %377 = insertelement <3 x float> %373, float %376, i64 2
-  %378 = zext nneg i32 %365 to i64
-  %379 = getelementptr inbounds nuw [4 x i8], ptr %extract.elt18, i64 %378
+  %377 = insertelement <3 x float> poison, float %376, i64 0
+  %378 = zext nneg i32 %373 to i64
+  %379 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack.elt25, i64 %378
   %380 = load float, ptr %379, align 1
-  %381 = insertelement <3 x float> poison, float %380, i64 0
-  %382 = zext nneg i32 %365 to i64
-  %383 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack19.elt51, i64 %382
+  %381 = insertelement <3 x float> %377, float %380, i64 1
+  %382 = zext nneg i32 %373 to i64
+  %383 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack.elt27, i64 %382
   %384 = load float, ptr %383, align 1
-  %385 = insertelement <3 x float> %381, float %384, i64 1
-  %386 = zext nneg i32 %365 to i64
-  %387 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack19.elt53, i64 %386
+  %385 = insertelement <3 x float> %381, float %384, i64 2
+  %386 = zext nneg i32 %373 to i64
+  %387 = getelementptr inbounds nuw [4 x i8], ptr %extract.elt18, i64 %386
   %388 = load float, ptr %387, align 1
-  %389 = insertelement <3 x float> %385, float %388, i64 2
-  %390 = zext nneg i32 %365 to i64
-  %391 = getelementptr inbounds nuw [4 x i8], ptr %extract.elt20, i64 %390
+  %389 = insertelement <3 x float> poison, float %388, i64 0
+  %390 = zext nneg i32 %373 to i64
+  %391 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack19.elt51, i64 %390
   %392 = load float, ptr %391, align 1
-  %393 = insertelement <3 x float> poison, float %392, i64 0
-  %394 = extractelement <4 x float> %363, i32 %365
-  %395 = insertelement <3 x float> %393, float %394, i64 1
-  %396 = extractelement <4 x float> %364, i32 %365
-  %397 = insertelement <3 x float> %395, float %396, i64 2
+  %393 = insertelement <3 x float> %389, float %392, i64 1
+  %394 = zext nneg i32 %373 to i64
+  %395 = getelementptr inbounds nuw [4 x i8], ptr %extract.unpack19.elt53, i64 %394
+  %396 = load float, ptr %395, align 1
+  %397 = insertelement <3 x float> %393, float %396, i64 2
+  %398 = zext nneg i32 %373 to i64
+  %399 = getelementptr inbounds nuw [4 x i8], ptr %extract.elt20, i64 %398
+  %400 = load float, ptr %399, align 1
+  %401 = insertelement <3 x float> poison, float %400, i64 0
+  %402 = extractelement <4 x float> %371, i32 %373
+  %403 = insertelement <3 x float> %401, float %402, i64 1
+  %404 = extractelement <4 x float> %372, i32 %373
+  %405 = insertelement <3 x float> %403, float %404, i64 2
   br label %"!merge_2"
 
 "!merge_2":                                       ; preds = %"!then_1", %_recloop_func0.exit
-  %"_best0_result$i65.0.0" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %377, %"!then_1" ]
-  %"_best0_result$i65.0.1" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %389, %"!then_1" ]
-  %"_best0_result$i65.0.2" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %397, %"!then_1" ]
-  %398 = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i65.0.0", 0, 0
-  %399 = insertvalue %struct._option0 %398, <3 x float> %"_best0_result$i65.0.1", 0, 1
-  %400 = insertvalue %struct._option0 %399, <3 x float> %"_best0_result$i65.0.2", 0, 2
-  %"_best0_result$i65" = insertvalue %struct._option0 %400, i1 %361, 1
+  %"_best0_result$i65.0.0" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %385, %"!then_1" ]
+  %"_best0_result$i65.0.1" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %397, %"!then_1" ]
+  %"_best0_result$i65.0.2" = phi <3 x float> [ zeroinitializer, %_recloop_func0.exit ], [ %405, %"!then_1" ]
+  %406 = insertvalue %struct._option0 poison, <3 x float> %"_best0_result$i65.0.0", 0, 0
+  %407 = insertvalue %struct._option0 %406, <3 x float> %"_best0_result$i65.0.1", 0, 1
+  %408 = insertvalue %struct._option0 %407, <3 x float> %"_best0_result$i65.0.2", 0, 2
+  %"_best0_result$i65" = insertvalue %struct._option0 %408, i1 %369, 1
   store %struct._option0 %"_best0_result$i65", ptr %_ret0, align 16
   ret void
 }

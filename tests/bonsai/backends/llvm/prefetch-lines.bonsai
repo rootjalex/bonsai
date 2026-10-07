@@ -1,9 +1,10 @@
 //! flags: -p ssa -b llvm
 
-// ssa/prefetch-switch-arm.bonsai all the way to LLVM: the prefetch of the
-// hit children over FCPW's layout shape, the node row at the child's index
-// whatever the child is, as `llvm.prefetch` of the row's lines (112 bytes,
-// two) and no load of the row before them.
+// lower/prefetch-lines.bonsai all the way to LLVM, vectorized and loopified:
+// `prefetch(tris.Interior.children, 4)` over FCPW's layout shape is four
+// `llvm.prefetch` per hit child, where the directive without a count
+// fetches the row's own bytes (backends/llvm/prefetch-switch-arm.bonsai,
+// two lines of a 112-byte row).
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;
@@ -72,5 +73,5 @@ schedule {
          .vectorize(tris.Interior.children)
          .vectorize(tris.Leaf.data)
          .loopify(64);
-    trace.prefetch(tris.Interior.children);
+    trace.prefetch(tris.Interior.children, 4);
 }

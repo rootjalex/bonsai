@@ -4201,7 +4201,21 @@ struct Parser {
                 // brought into cache in the loop that tests them
                 // (ir::Prefetch).
                 ir::Location loc = loop_cursor();
-                add(ir::Prefetch{std::move(loc)});
+                // And how many cache lines of each, when the schedule says
+                // (ir::Prefetch); a positive constant.
+                std::optional<uint64_t> lines;
+                if (consume(Token::Type::COMMA)) {
+                    const ir::Expr count = parse_expr();
+                    const std::optional<uint64_t> n =
+                        get_constant_value<uint64_t>(count);
+                    internal_assert(n.has_value() && *n > 0)
+                        << "prefetch(<cursor>, <lines>) takes a positive "
+                           "constant count of cache lines to fetch of each "
+                           "hit child, received: "
+                        << count;
+                    lines = *n;
+                }
+                add(ir::Prefetch{std::move(loc), lines});
             } else if (rewrite == "specialize") {
                 // The parameter whose variants the function is copied for;
                 // with a loop before it, `render.specialize(shadow,

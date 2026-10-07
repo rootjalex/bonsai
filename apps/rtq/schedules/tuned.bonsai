@@ -31,7 +31,9 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(564);
-    trace.prefetch(triangles.Interior.children);
+    // Embree's four lines of a BVH8 node (embree.bonsai), written out as
+    // the four-wide tuned schedule writes its own count (tuned4.bonsai).
+    trace.prefetch(triangles.Interior.children, 4);
 
     // The any-hit query without the leaf's early exit. Embree's
     // `early_out` after a Triangle4 block's edge tests is a branch on
@@ -42,7 +44,7 @@ schedule {
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(564);
-    occluded.prefetch(triangles.Interior.children);
+    occluded.prefetch(triangles.Interior.children, 4);
 
     // The closest-point query as embree.bonsai schedules it: no step of it
     // has yet measured worse here, so nothing is dropped.
@@ -52,5 +54,5 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(564);
-    closest.prefetch(triangles.Interior.children);
+    closest.prefetch(triangles.Interior.children, 4);
 }
