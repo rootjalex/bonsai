@@ -93,22 +93,20 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude):
                             for m in meshes], fontsize=8)
         ax.set_xlim(-0.6, len(meshes) - 0.4)
         ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("Speedup")
-        ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (MBVH8)"
-                     + (", tuned schedules" if suffix else ""), fontsize=10)
+        ax.set_ylabel("Speedup over reference")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
         ax.set_axisbelow(True)
         handles = [Patch(facecolor=COLOUR[ref], edgecolor="black", linewidth=0.5,
-                         label=f"over {'Embree' if ref == 'embree' else 'FCPW'} ({sched})")
-                   for ref, sched in refs]
+                         label="Embree" if ref == "embree" else "FCPW")
+                   for ref, _ in refs]
         handles += [Patch(facecolor="white", edgecolor="black", linewidth=0.5,
                           hatch=HATCH[s], label=LABEL[s]) for s in sets]
-        # The legend above the axes, clear of the tallest bar.
+        # The legend above the axes, clear of the tallest bar; no title (the
+        # figure's caption says which query it is, and which schedules).
         ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower left",
                   frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0)
-        ax.set_title(ax.get_title(), fontsize=10, pad=22)
         fig.tight_layout()
         for fmt in formats:
             path = os.path.join(out_dir, f"rtq-{name}{suffix}.{fmt}")
