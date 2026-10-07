@@ -11225,6 +11225,27 @@ and the night sweep re-reading watercolor shadow and dambreak
 materials, whose pacers are SM-side and SHOULD move with 2b29f205's
 narrowing.
 
+**Correction and the closing insight of the night (2026-10-07,
+~02:00).** The GAS claim above was WRONG and the user's fix order
+rested on it: pbrt's own source (gpu/optix/aggregate.cpp,
+buildBVHForTriangles) builds ONE GAS over ALL triangle meshes --
+many build inputs, one build, identity instance -- exactly our
+topology, with the same build flags (PREFER_FAST_TRACE |
+ALLOW_COMPACTION both sides). Read the source FIRST; the rule
+existed and was not followed. And the record-narrowing (2b29f205),
+verified in the final SSA, measures 1.000 on every dynamic counter
+beside the old build: the element record's 72 bytes sit in one or
+two 128-byte lines, so narrowing WITHIN a line saves no sectors --
+record shape was never reachable as a sector win, which retroactively
+explains all three eliminations at once. The excess is DISTINCT
+LINES PER RAY, category unknown. The decisive cheap split, queued
+behind the night sweep: the same warm shadow counter pair on
+GANESHA (no alpha anywhere, the any-hit never runs; our shadow
+stage there is 0.83x, AHEAD) -- ours-vs-pbrt on ganesha isolates
+raygen + traversal lines, and bistro-minus-ganesha isolates the
+any-hit's true dynamic share, deciding between the launch mechanics
+and the alpha path with two short runs.
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
