@@ -1,0 +1,76 @@
+//! flags: -p ssa -b llvm
+
+// ssa/prefetch-switch-arm.bonsai all the way to LLVM: the prefetch of the
+// hit children over FCPW's layout shape, the node row at the child's index
+// for an interior child and the first packet for a leaf, as `llvm.prefetch`
+// of the lines of the widest arm's bytes.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        nPackets : u32;
+        indirect group packets[nPackets] {
+            group[4] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                p0 = pa;
+                p1 = pb;
+                p2 = pc;
+            };
+        };
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 4];
+            boxMin_y : vector[f32, 4];
+            boxMin_z : vector[f32, 4];
+            boxMax_x : vector[f32, 4];
+            boxMax_y : vector[f32, 4];
+            boxMax_z : vector[f32, 4];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 4]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3)};
+                    lo = vector[vec3f, 4]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 4]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 4u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .vectorize(tris.Leaf.data)
+         .loopify(64);
+    trace.prefetch(tris.Interior.children);
+}

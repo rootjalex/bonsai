@@ -18,6 +18,7 @@ add_bonsai_tests(
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     prefetch-children.bonsai
+    prefetch-switch-arm.bonsai
     rcp.bonsai
     permute.bonsai
     sort-key-nonnegative.bonsai

@@ -1,0 +1,90 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-prefetches -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// The prefetch directive over a layout whose interior arm is an arm of the
+// node row's own switch, FCPW's shape (apps/rtq/schedules/layouts/fcpw4w8):
+// a node row holds four children's boxes by component and four child slots,
+// the sign of the first slot says whether the row is an interior node or a
+// leaf, and the interior arm's children and boxes are the row's own fields
+// read under that switch -- no lookup into another group, as Embree's
+// `Interior from Nodes[ref >> 4]` is, and no range of tiles, as a leaf's
+// `data = range(...)` is. The arm has no storage of its own to name, so the
+// prefetch of a child reference fetches the row the switch sits in: the
+// node row at the child's index (field_in_layout's Switch case, kRowOfArm,
+// in Lower/Layouts.cpp; before it the directive was refused as
+// unimplemented).
+//
+// What to read for. In the loop over a node's children, after the test's
+// store into `_mask0[children]`, `if _mask0[children] { prefetch(...) }` of
+// the child's reference, lowered as the switch on the child row's kind: the
+// interior arm fetches the address of `group1_index[child]`, the node row
+// (112 bytes here), and the leaf arm the first packet of its range,
+// `(0 - child0 - 1)` packets in -- each asking for the widest arm's bytes,
+// the 160 of a packet of four triangles with their indices, so that the
+// arms differ in the address alone.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        nPackets : u32;
+        indirect group packets[nPackets] {
+            group[4] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                p0 = pa;
+                p1 = pb;
+                p2 = pc;
+            };
+        };
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 4];
+            boxMin_y : vector[f32, 4];
+            boxMin_z : vector[f32, 4];
+            boxMax_x : vector[f32, 4];
+            boxMax_y : vector[f32, 4];
+            boxMax_z : vector[f32, 4];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 4]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3)};
+                    lo = vector[vec3f, 4]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 4]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 4u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}));
+    trace.prefetch(tris.Interior.children);
+}

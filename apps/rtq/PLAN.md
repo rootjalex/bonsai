@@ -5230,13 +5230,66 @@ plots in build-rtq2/results/plots are drawn from these rows: rtq-firsthit,
 rtq-anyhit and rtq-closestpoint for the matching schedules, the same with
 -tuned for the tuned ones.
 
+## The prefetch over FCPW's layout: implemented, measured, and not taken (2026-10-06, night)
+
+The tuned FCPW schedules' next departure was Embree's: the hit children
+prefetched. The directive could not be lowered over FCPW's layout, because
+its Interior is an arm of the node row's own switch on the first slot's
+sign -- not a lookup into another group, as Embree's `Interior from
+Nodes[ref >> 4]`, nor a range of tiles, as a leaf's `data = range(...)` --
+so the arm had no storage of its own for the field resolver to name
+(Lower/Layouts.cpp, field_in_layout, kRowOfArm). Now an inline arm that
+names none resolves to the row the switch sits in, the node row at the
+child's index, when the switch is inside a group's row; at a layout's
+root there is no row to name and the refusal stands. Tests at the three
+levels: lower/prefetch-switch-arm (the prefetch lowered as the switch on
+the child row's kind, the interior arm fetching `group1_index[child]` and
+the leaf arm its first packet, both at the widest arm's bytes),
+ssa/prefetch-switch-arm and backends/llvm/prefetch-switch-arm (the gang's
+prefetch of the hit children's rows, `llvm.prefetch` of the lines),
+correctness/cpp/bvh4_fcpw_rows (bvh4_fcpw_slabs's scene and answers over
+FCPW's node-row layout with both queries prefetching; a bad address would
+fault).
+
+Measured on the eight-wide sixteen-lane tree (fcpw8w16t with and without
+`prefetch(triangles.Interior.children)` on all three queries, alternated
+twice; side 1024, least of 5; bonsai over FCPW):
+
+| mesh | cell | without | with |
+|---|---|---|---|
+| head | nearest primary / diffuse | 1.87-2.05 / 1.78-1.83 | 1.58 / 1.39 |
+| head | any ao | 1.91-1.97 | 1.45 |
+| head | closest near / volume | 1.37-1.44 / 1.71-1.78 | 1.11-1.15 / 1.42 |
+| ganesha | nearest primary / diffuse | 1.38-1.43 / 1.60-1.62 | 1.36-1.38 / 1.51 |
+| ganesha | any ao | 1.66-1.67 | 1.53 |
+| ganesha | closest near / volume | 1.54-1.55 / 1.08-1.09 | 1.35-1.41 / 1.32-1.34 |
+
+A loss on every cell but ganesha's volume batch, and a heavy one on the
+small mesh. The reason is the directive's one policy: every arm fetches
+the widest arm's bytes, so that the arms differ in the address alone and
+the backend folds them into one fetch -- Embree's own `BVH::prefetch`,
+which fetches the same four lines whatever the reference points at. Over
+Embree's layout the widest arm is a Triangle4 tile of 144-176 bytes, three
+lines; over FCPW's sixteen-lane layout it is a packet of 640 bytes, ten
+lines per hit child, and a node row is 224. Ten lines a child is more than
+the memory system returns in time for a traversal this short, and it
+crowds out the lines the walk needs now. So the tuned FCPW schedules stay
+without the prefetch, and what the measurement asks for is the size of a
+prefetch as the schedule's to say -- a byte or line count beside the
+cursor, `prefetch(triangles.Interior.children, 256)` -- since whether a
+leaf's bytes are worth fetching ahead depends on the layout's tile and
+the machine, not on anything the lowering can know. That is a scheduling
+construct and waits for the user's ruling (ask before adding one);
+until then the widest-arm policy stands, as it always has, and the
+prefetch over FCPW's layout is available but not scheduled.
+
 ## Known-open, smaller
 
-- A prefetch of FCPW's Interior: the arm is the node row's switch arm, not
-  a row of a group of its own, and Lower/Prefetches.cpp has nothing to
-  fetch for it. The row the child index names is the storage; a
-  switch-arm's prefetch should resolve to it. Blocks the tuned FCPW
-  schedules' next step (the children prefetched, as Embree's are).
+- The size of a prefetch: the directive fetches the widest arm's bytes,
+  which over FCPW's sixteen-lane layout is a 640-byte packet, ten lines a
+  child, and measures as a loss; a byte or line count as a schedule
+  argument is the proposal (the section above). Embree's four lines are
+  what to try first when it exists.
 - The eight-wide residual (the profiling section): 1-3% on diffuse rays
   on pavilion and crown against the compiler before the reciprocal change,
   the two kernels differing only in the per-ray `rcp_embree_vec3` lowering

@@ -951,6 +951,20 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                         if (rec.defined()) {
                             return rec;
                         }
+                        // Asked for the arm's storage, and the arm names
+                        // none of its own -- no lookup into another group,
+                        // no range of tiles -- because it is read out of the
+                        // row the switch sits in: FCPW's Interior, whose
+                        // children and boxes are the node row's own fields
+                        // under the switch on its first slot's sign. That
+                        // row is the storage, and what a prefetch of the
+                        // reference fetches. Only inside a group's row
+                        // (`group` is its rows); at a layout's root there
+                        // is no row to name.
+                        if (field == kRowOfArm && group.defined() &&
+                            base.defined()) {
+                            return base;
+                        }
                     }
                 }
                 break;

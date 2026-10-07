@@ -1,0 +1,36 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.o
+[test] clang++ tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.o tests/bonsai/correctness/cpp/bvh4_fcpw_rows.o -o tests/bonsai/correctness/cpp/bvh4_fcpw_rows
+[test] ./tests/bonsai/correctness/cpp/bvh4_fcpw_rows
++x: wall at x=0 z=0, occluded -- ok
+-x: wall at x=70 z=0, occluded -- ok
++x from 35: wall at x=40 z=0, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=5, occluded -- ok
+-x: wall at x=70 z=5, occluded -- ok
++x from 35: wall at x=40 z=5, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=10, occluded -- ok
+-x: wall at x=70 z=10, occluded -- ok
++x from 35: wall at x=40 z=10, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=15, occluded -- ok
+-x: wall at x=70 z=15, occluded -- ok
++x from 35: wall at x=40 z=15, occluded -- ok
++x short: miss, clear -- ok
++x between lanes: miss, clear -- ok
+diagonal: wall at x=0 z=0, occluded -- ok
++z beside: miss, clear -- ok
+---STDERR---
+tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp:116:31: warning: taking address of packed member 'child0' of class or structure '_tree_layout2' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  116 |         int32_t *slots[4] = {&n.child0, &n.child1, &n.child2, &n.child3};
+      |                               ^~~~~~~~
+tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp:116:42: warning: taking address of packed member 'child1' of class or structure '_tree_layout2' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  116 |         int32_t *slots[4] = {&n.child0, &n.child1, &n.child2, &n.child3};
+      |                                          ^~~~~~~~
+tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp:116:53: warning: taking address of packed member 'child2' of class or structure '_tree_layout2' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  116 |         int32_t *slots[4] = {&n.child0, &n.child1, &n.child2, &n.child3};
+      |                                                     ^~~~~~~~
+tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp:116:64: warning: taking address of packed member 'child3' of class or structure '_tree_layout2' may result in an unaligned pointer value [-Waddress-of-packed-member]
+  116 |         int32_t *slots[4] = {&n.child0, &n.child1, &n.child2, &n.child3};
+      |                                                                ^~~~~~~~
+4 warnings generated.

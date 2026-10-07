@@ -1,0 +1,196 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bvh4_fcpw_rows
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.o, clang++ tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.o tests/bonsai/correctness/cpp/bvh4_fcpw_rows.o -o tests/bonsai/correctness/cpp/bvh4_fcpw_rows, ./tests/bonsai/correctness/cpp/bvh4_fcpw_rows, rm tests/bonsai/correctness/cpp/bvh4_fcpw_rows, rm tests/bonsai/correctness/cpp/main_bvh4_fcpw_rows.o, rm tests/bonsai/correctness/cpp/bvh4_fcpw_rows.h, rm tests/bonsai/correctness/cpp/bvh4_fcpw_rows.o
+
+// FCPW's arithmetic over FCPW's bytes, with the hit children prefetched:
+// bvh4_fcpw_slabs.bonsai (its scene, rays and answers) over the layout of
+// FCPW's four-wide Mbvh -- one array of node rows, each four children's
+// boxes by component and four child slots, the sign of the first slot
+// saying interior or leaf, a leaf row naming its packets of four triangles
+// (apps/rtq/schedules/layouts/fcpw4w8.bonsai, with packets of four) -- and
+// `prefetch(tris.Interior.children)` on both queries. The interior arm is
+// an arm of the node row's own switch, so the prefetch fetches the row at
+// the child's index (lower/prefetch-switch-arm.bonsai pins what the layout
+// lowering makes of it). A prefetch changes no answer, and a wrong address
+// would still answer right, so what the run shows is that the fetched
+// addresses lie within the storage, where a bad one could fault; the
+// answers are the scene's, and a leaf's count masks the lanes its packet
+// does not fill, as FCPW's `W = min(WIDTH, nReferences - start)` does.
+import stdlib/aabb;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+element FInterval {
+    low, high : Float;
+}
+
+func rcp_fcpw(m : Float) -> Float {
+    r = rcp_approx(m);
+    t0 = r + r;
+    t1 = r * m;
+    return t0 - t1 * r;
+}
+
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    proper = b.low.x <= b.high.x;
+    rinvD = vec3f{1.0, 1.0, 1.0} / r.d;
+    t0 = (b.low - r.o) * rinvD;
+    t1 = (b.high - r.o) * rinvD;
+    tNear = min(t0, t1);
+    tFar = max(t0, t1);
+    tMin = max(0.0, max(max(tNear.x, tNear.y), tNear.z));
+    tMax = min(r.tmax, min(min(tFar.x, tFar.y), tFar.z));
+    if tMin <= tMax && proper {
+        return FInterval{tMin, tMax};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+element TriangleHit {
+    t, u, v : Float;
+}
+
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
+    epsilon : Float = 1.1920929e-7;
+    v1 = tri.p1 - tri.p0;
+    v2 = tri.p2 - tri.p0;
+    p = cross(r.d, v2);
+    det = dot(v1, p);
+    if !(abs(det) > epsilon) {
+        return {};
+    }
+    invDet = rcp_fcpw(det);
+    s = r.o - tri.p0;
+    v = dot(s, p) * invDet;
+    if !(v >= 0.0 && v <= 1.0) {
+        return {};
+    }
+    q = cross(s, v1);
+    w = dot(r.d, q) * invDet;
+    if !(w >= 0.0 && v + w <= 1.0) {
+        return {};
+    }
+    d = dot(v2, q) * invDet;
+    if !(d >= 0.0 && d <= r.tmax) {
+        return {};
+    }
+    return TriangleHit{d, v, w};
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return -inf;
+}
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        // Packets of four triangles, FCPW's MbvhLeafNode<4, 3>: the three
+        // vertices by component and the primitive indices.
+        nPackets : u32;
+        indirect group packets[nPackets] {
+            group[4] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : i32;
+                p0 = pa;
+                p1 = pb;
+                p2 = pc;
+            };
+        };
+        // Node rows, FCPW's MbvhNode<3> at a branching factor of 4: the
+        // boxes by component, then the four child slots; a leaf row's first
+        // slot is `-(first packet + 1)`, its second the packet count, its
+        // third the offset into the primitive array, its fourth the
+        // triangle count.
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            boxMin_x : vector[f32, 4];
+            boxMin_y : vector[f32, 4];
+            boxMin_z : vector[f32, 4];
+            boxMax_x : vector[f32, 4];
+            boxMax_y : vector[f32, 4];
+            boxMax_z : vector[f32, 4];
+            child0 : i32;
+            child1 : i32;
+            child2 : i32;
+            child3 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 4]{cast[[u32]](child0), cast[[u32]](child1),
+                                              cast[[u32]](child2), cast[[u32]](child3)};
+                    lo = vector[vec3f, 4]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 4]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(packets, cast[[u32]](0 - child0 - 1) * 4u, cast[[u32]](child3));
+                };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .vectorize(tris.Leaf.data)
+         .loopify(64);
+    trace.prefetch(tris.Interior.children);
+    occluded.vectorize(tris.Interior.children)
+            .vectorize(tris.Leaf.data)
+            .loopify(64);
+    occluded.prefetch(tris.Interior.children);
+}

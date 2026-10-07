@@ -22,6 +22,7 @@ add_bonsai_tests(
     skip-leaf-helper.bonsai
     skip-geometric-op.bonsai
     prefetch-children.bonsai
+    prefetch-switch-arm.bonsai
     arena-rows-vectorized.bonsai
     ptr-arena-rows-vectorized.bonsai
     collapse.bonsai

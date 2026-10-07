@@ -21,6 +21,7 @@ add_bonsai_tests(
     bvh4_tiled_elements_where.bonsai
     bvh4_tiled_elements_prefetch.bonsai
     bvh4_fcpw_slabs.bonsai
+    bvh4_fcpw_rows.bonsai
     bvh4_arena.bonsai
     bvh4_ptr_arena.bonsai
     rcp.bonsai
