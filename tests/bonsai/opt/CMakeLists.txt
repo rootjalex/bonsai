@@ -20,6 +20,7 @@ add_bonsai_tests(
     inline-statements.bonsai
     jump-threading.bonsai
     parallel.bonsai
+    sink.bonsai
     simplify-const-array.bonsai
     simplify-facts.bonsai
     split.bonsai

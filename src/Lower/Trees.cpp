@@ -3999,9 +3999,15 @@ struct LowerBVH : public ir::Mutator {
                      // (runtime/bonsai_optix.h attaches it to the box
                      // inputs' groups); empty for the one program, or the
                      // hardware triangles' flavor when two exist.
-                     const char *suffix = "") {
+                     const char *suffix = "",
+                     // False for a promoted-context query, whose programs
+                     // read and write the payload words themselves
+                     // (rt_payload, rt_set_payload) and take no context.
+                     bool takes_context = true) {
         std::vector<ir::Function::Argument> args;
-        args.emplace_back("ctx", ctx_t, ir::Expr(), /*mutating=*/true);
+        if (takes_context) {
+            args.emplace_back("ctx", ctx_t, ir::Expr(), /*mutating=*/true);
+        }
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
         for (const ir::TypedVar &var : ir::gather_free_vars(stmt)) {
             if (var.name == "ctx") {
@@ -4057,25 +4063,208 @@ struct LowerBVH : public ir::Mutator {
             }
             return ir::Build::make(q_t, std::move(fields));
         };
+        // The ray's residue: the fields the hardware's ray state does not
+        // carry into a program -- everything but a vec3f `o` and `d`, which
+        // q_from_hardware below reads from rt_ray_origin and
+        // rt_ray_direction, the very operands the raygen's rt_trace passes.
+        const ir::Type vec3f = ir::Vector_t::make(f32, 3);
+        const auto hardware_carried = [&](const ir::TypedVar &f) {
+            return (f.name == "o" || f.name == "d") &&
+                   ir::equals(f.type, vec3f);
+        };
+        struct Residue {
+            ir::TypedVar field;
+            bool in_ray; // under parts.ray_field rather than q's own
+        };
+        std::vector<Residue> residues;
+        for (const ir::TypedVar &f : q_t.as<ir::Struct_t>()->fields) {
+            if (!parts.ray_field.empty() && f.name == parts.ray_field) {
+                for (const ir::TypedVar &rf :
+                     f.type.as<ir::Struct_t>()->fields) {
+                    if (!hardware_carried(rf)) {
+                        residues.push_back(Residue{rf, true});
+                    }
+                }
+            } else if (!(parts.ray_field.empty() && hardware_carried(f))) {
+                residues.push_back(Residue{f, false});
+            }
+        }
 
-        // The context: the ray, and the answer.
-        const ir::Type ctx_t = ir::Struct_t::make(
-            "_RTContext_" + of,
-            ir::Struct_t::Map{ir::TypedVar{"q", q_t},
-                              ir::TypedVar{"result", result_t}});
+        // The context. When the payload registers can carry the whole of
+        // what actually crosses the trace -- the ray's residue in, the
+        // answer out; the ray itself rides the trace's own operands -- the
+        // context is PROMOTED: those fields and nothing else, one register
+        // per 32-bit word (ir::rt_context_words), and no memory holds it
+        // anywhere. The trace then takes the context by value and answers
+        // it as the programs left it, the programs take no context argument
+        // at all (they read and write the words, rt_payload and
+        // rt_set_payload), and the raygen reads the answer out of the
+        // trace's own returns. Otherwise the memory form: the ray and the
+        // answer on the raygen's stack, the address in the two payload
+        // words. The choice is the register file's capability, not a
+        // heuristic: a nearest-hit record with an option or an aggregate
+        // in it is not a run of 32-bit words, so it stays in memory; an
+        // `any`'s bool and a float extent are, so they ride the registers
+        // as pbrt's shadow payloads do (gpu/optix/optix.cu).
+        ir::Struct_t::Map promoted_fields;
+        bool names_clear = true;
+        for (const Residue &r : residues) {
+            names_clear = names_clear && r.field.name != "result";
+            promoted_fields.push_back(r.field);
+        }
+        promoted_fields.push_back(ir::TypedVar{"result", result_t});
+        const ir::Type promoted_ctx =
+            ir::Struct_t::make("_RTContext_" + of, std::move(promoted_fields));
+        const bool promoted =
+            names_clear && ir::rt_context_words(promoted_ctx).has_value();
+        const ir::Type ctx_t =
+            promoted ? promoted_ctx
+                     : ir::Struct_t::make(
+                           "_RTContext_" + of,
+                           ir::Struct_t::Map{ir::TypedVar{"q", q_t},
+                                             ir::TypedVar{"result", result_t}});
         new_types[ctx_t.as<ir::Struct_t>()->name] = ctx_t;
         const ir::Expr ctx = ir::Var::make(ctx_t, "ctx");
+        // The promoted context's first word of a top-level field.
+        const auto word_index = [&](const std::string &field) -> size_t {
+            const auto words = ir::rt_context_words(ctx_t);
+            for (size_t k = 0; k < words->size(); k++) {
+                if ((*words)[k].path.front() == field) {
+                    return k;
+                }
+            }
+            internal_error << "no context word holds `" << field << "`";
+            return 0;
+        };
+        // One word read back as a leaf's type, and a leaf as its word: a
+        // float's bits cross reinterpreted, a bool's and a narrower
+        // integer's converted (the trace widens and truncates the same way
+        // on its side, CodeGen_OptiX).
+        const auto word_as = [&](size_t k, const ir::Type &t) -> ir::Expr {
+            ir::Expr w =
+                ir::Intrinsic::make(ir::Intrinsic::rt_payload,
+                                    {ir::UIntImm::make(u32, uint64_t(k))});
+            if (t.is<ir::Float_t>()) {
+                return ir::Cast::make(t, std::move(w),
+                                      ir::Cast::Mode::Reinterpret);
+            }
+            return ir::equals(t, u32) ? w : ir::Cast::make(t, std::move(w));
+        };
+        const auto as_word = [&](ir::Expr leaf) -> ir::Expr {
+            const ir::Type t = leaf.type();
+            if (t.is<ir::Float_t>()) {
+                return ir::Cast::make(u32, std::move(leaf),
+                                      ir::Cast::Mode::Reinterpret);
+            }
+            return ir::equals(t, u32) ? leaf
+                                      : ir::Cast::make(u32, std::move(leaf));
+        };
+        // A promoted field rebuilt from its words (a struct is a Build of
+        // its leaves, in rt_context_words' own depth-first order), and a
+        // value written to them.
+        const std::function<ir::Expr(const ir::Type &, size_t &)> from_words =
+            [&](const ir::Type &t, size_t &k) -> ir::Expr {
+            if (const ir::Struct_t *s = t.as<ir::Struct_t>()) {
+                std::vector<ir::Expr> fields;
+                for (const ir::TypedVar &f : s->fields) {
+                    fields.push_back(from_words(f.type, k));
+                }
+                return ir::Build::make(t, std::move(fields));
+            }
+            return word_as(k++, t);
+        };
+        const std::function<void(const ir::Type &, const ir::Expr &, size_t &,
+                                 std::vector<ir::Stmt> &)>
+            to_words = [&](const ir::Type &t, const ir::Expr &v, size_t &k,
+                           std::vector<ir::Stmt> &out) {
+                if (const ir::Struct_t *s = t.as<ir::Struct_t>()) {
+                    for (const ir::TypedVar &f : s->fields) {
+                        to_words(f.type, ir::Access::make(f.name, v), k, out);
+                    }
+                    return;
+                }
+                out.push_back(ir::LetStmt::make(
+                    ir::WriteLoc("_rt_set" + std::to_string(k), u32),
+                    ir::Intrinsic::make(
+                        ir::Intrinsic::rt_set_payload,
+                        {ir::UIntImm::make(u32, uint64_t(k)), as_word(v)})));
+                k++;
+            };
+
         const auto bind_q = [&](ir::Expr value) {
             return ir::LetStmt::make(ir::WriteLoc(q_name, q_t), std::move(value));
         };
+        // The query's ray as a hit or intersection program reads it: `o` and
+        // `d` from the hardware's ray state (rt_ray_origin, rt_ray_direction
+        // -- optixGetWorldRay*, which answer the very operands the raygen's
+        // rt_trace passed, the query's own ray bit for bit), and only the
+        // residue from the context -- its words when promoted, its memory
+        // otherwise, and DCE drops either wherever the program never reads
+        // it. Before this the whole ray was fetched back out of the
+        // context's memory on every any-hit invocation; pbrt's alpha test
+        // reads the same registers (gpu/optix/optix.cu, alphaKilled's
+        // getWorldRay calls).
+        const auto q_from_hardware = [&]() -> ir::Expr {
+            const ir::Expr ctx_q =
+                promoted ? ir::Expr() : ir::Access::make("q", ctx);
+            const auto residue_value = [&](const ir::TypedVar &f,
+                                           const ir::Expr &home) -> ir::Expr {
+                if (!promoted) {
+                    return ir::Access::make(f.name, home);
+                }
+                size_t k = word_index(f.name);
+                return from_words(f.type, k);
+            };
+            const auto hardware_or = [&](const ir::TypedVar &f,
+                                         const ir::Expr &home) -> ir::Expr {
+                if (f.name == "o" && ir::equals(f.type, vec3f)) {
+                    return ir::Intrinsic::make(ir::Intrinsic::rt_ray_origin,
+                                               {});
+                }
+                if (f.name == "d" && ir::equals(f.type, vec3f)) {
+                    return ir::Intrinsic::make(ir::Intrinsic::rt_ray_direction,
+                                               {});
+                }
+                return residue_value(f, home);
+            };
+            std::vector<ir::Expr> fields;
+            for (const ir::TypedVar &f : q_t.as<ir::Struct_t>()->fields) {
+                if (!parts.ray_field.empty() && f.name == parts.ray_field) {
+                    const ir::Expr ctx_ray =
+                        promoted ? ir::Expr()
+                                 : ir::Access::make(f.name, ctx_q);
+                    std::vector<ir::Expr> ray_fields;
+                    for (const ir::TypedVar &rf :
+                         f.type.as<ir::Struct_t>()->fields) {
+                        ray_fields.push_back(hardware_or(rf, ctx_ray));
+                    }
+                    fields.push_back(
+                        ir::Build::make(f.type, std::move(ray_fields)));
+                } else {
+                    fields.push_back(hardware_or(f, ctx_q));
+                }
+            }
+            return ir::Build::make(q_t, std::move(fields));
+        };
+
         // What the context says before the trace: no hit yet for the
         // nearest; for `any`, that something is hit -- the miss program
         // says otherwise, and an accepted hit ends the traversal with no
         // program run at all (below).
         const ir::Expr none = rq.nearest ? ir::Build::make(result_t)
                                          : ir::BoolImm::make(true);
-        ir::WriteLoc result("ctx", ctx_t);
-        result.add_struct_access("result");
+        // The answer, written into the context's memory or its words.
+        const auto write_result = [&](const ir::Expr &value,
+                                      std::vector<ir::Stmt> &body) {
+            if (!promoted) {
+                ir::WriteLoc result("ctx", ctx_t);
+                result.add_struct_access("result");
+                body.push_back(ir::Store::make(result, value));
+                return;
+            }
+            size_t k = word_index("result");
+            to_words(result_t, value, k, body);
+        };
 
         // The witness, bound in a hit program from the hardware rather
         // than computed: this is the whole point of the annotation. The
@@ -4107,11 +4296,14 @@ struct LowerBVH : public ir::Mutator {
                                      const std::function<std::vector<ir::Stmt>(
                                          std::optional<bool>)> &make_body) {
             if (!rq.witness.defined()) {
-                add_program(of, kind, prefix, ctx_t, make_body(std::nullopt));
+                add_program(of, kind, prefix, ctx_t, make_body(std::nullopt),
+                            "", !promoted);
                 return;
             }
-            add_program(of, kind, prefix, ctx_t, make_body(true));
-            add_program(of, kind, prefix, ctx_t, make_body(false), "$boxes");
+            add_program(of, kind, prefix, ctx_t, make_body(true), "",
+                        !promoted);
+            add_program(of, kind, prefix, ctx_t, make_body(false), "$boxes",
+                        !promoted);
         };
         // Closest hit: the record. Only the nearest hit wants one: `any`
         // is answered by whether the traversal ended at a hit, which the
@@ -4124,11 +4316,11 @@ struct LowerBVH : public ir::Mutator {
                             if (triangles.has_value()) {
                                 body.push_back(bind_witness(*triangles));
                             }
-                            body.push_back(ir::Store::make(
-                                result,
+                            write_result(
                                 ir::Build::make(
                                     result_t,
-                                    std::vector<ir::Expr>{rq.element})));
+                                    std::vector<ir::Expr>{rq.element}),
+                                body);
                             return body;
                         });
         }
@@ -4140,7 +4332,7 @@ struct LowerBVH : public ir::Mutator {
                             if (triangles.has_value()) {
                                 body.push_back(bind_witness(*triangles));
                             }
-                            body.push_back(bind_q(ir::Access::make("q", ctx)));
+                            body.push_back(bind_q(q_from_hardware()));
                             ir::Expr accepted = conjunction(rq.rest);
                             body.push_back(ir::IfElse::make(
                                 ir::UnOp::make(ir::UnOp::Not,
@@ -4161,7 +4353,7 @@ struct LowerBVH : public ir::Mutator {
         {
             std::vector<ir::Stmt> body = bind_elements(rq);
             body.push_back(bind_q(with_tmax(
-                ir::Access::make("q", ctx),
+                q_from_hardware(),
                 ir::Intrinsic::make(ir::Intrinsic::rt_hit_t, {}))));
             ir::Expr q = ir::Var::make(q_t, q_name);
             ir::Expr geometry = rq.geometry;
@@ -4179,17 +4371,20 @@ struct LowerBVH : public ir::Mutator {
                     ir::WriteLoc("_rt_reported", ir::Bool_t::make()),
                     ir::Intrinsic::make(ir::Intrinsic::rt_report_hit, {t}))));
             add_program(of, Kind::Intersection, "__intersection__", ctx_t,
-                        std::move(body));
+                        std::move(body), "", !promoted);
         }
         // Miss: nothing for the nearest hit, whose context says so already;
         // for `any`, the answer, since a hit ends the traversal without a
         // word.
         if (rq.nearest) {
-            add_program(of, Kind::Miss, "__miss__", ctx_t, {ir::Return::make()});
+            add_program(of, Kind::Miss, "__miss__", ctx_t, {ir::Return::make()},
+                        "", !promoted);
         } else {
+            std::vector<ir::Stmt> miss_body;
+            write_result(ir::BoolImm::make(false), miss_body);
+            miss_body.push_back(ir::Return::make());
             add_program(of, Kind::Miss, "__miss__", ctx_t,
-                        {ir::Store::make(result, ir::BoolImm::make(false)),
-                         ir::Return::make()});
+                        std::move(miss_body), "", !promoted);
         }
 
         // The trace itself, as a function the query's expression becomes a
@@ -4197,10 +4392,27 @@ struct LowerBVH : public ir::Mutator {
         // the answer read back.
         const std::string func = "_rt_trace" + std::to_string(rt_counter++);
         std::vector<ir::Stmt> body;
-        body.push_back(ir::Allocate::make(
-            ir::WriteLoc("_ctx", ctx_t),
-            ir::Build::make(ctx_t, std::vector<ir::Expr>{rq.q, none}),
-            ir::Allocate::Memory::Stack));
+        ir::Expr seed;
+        if (promoted) {
+            // The promoted context, a value: the ray's residue and the
+            // standing answer. It crosses in the payload registers and the
+            // trace answers it as the programs left it; nothing is
+            // allocated.
+            std::vector<ir::Expr> seeded;
+            for (const Residue &r : residues) {
+                seeded.push_back(ir::Access::make(
+                    r.field.name,
+                    r.in_ray ? ir::Access::make(parts.ray_field, rq.q)
+                             : rq.q));
+            }
+            seeded.push_back(none);
+            seed = ir::Build::make(ctx_t, std::move(seeded));
+        } else {
+            body.push_back(ir::Allocate::make(
+                ir::WriteLoc("_ctx", ctx_t),
+                ir::Build::make(ctx_t, std::vector<ir::Expr>{rq.q, none}),
+                ir::Allocate::Memory::Stack));
+        }
         const ir::Expr local = ir::Var::make(ctx_t, "_ctx");
         // For `any`, OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT (4): the first hit
         // the any-hit program accepts ends the traversal; and
@@ -4231,14 +4443,29 @@ struct LowerBVH : public ir::Mutator {
         // What the programs read of the program's data joins these operands
         // once every pool exists (Lower/RTCoreReads.h), so that it reaches
         // the raygen program's launch as a capture.
-        body.push_back(ir::LetStmt::make(
-            ir::WriteLoc("_rt_traced", u32),
-            ir::Intrinsic::make(
-                ir::Intrinsic::rt_trace,
-                {ir::Intrinsic::make(ir::Intrinsic::rt_traversable, {rq.tree}),
-                 origin(rq.q), direction(rq.q), tmin, tmax, flags,
-                 ir::PtrTo::make(local)})));
-        body.push_back(ir::Return::make(ir::Access::make("result", local)));
+        if (promoted) {
+            body.push_back(ir::LetStmt::make(
+                ir::WriteLoc("_rt_ctx_out", ctx_t),
+                ir::Intrinsic::make(
+                    ir::Intrinsic::rt_trace,
+                    {ir::Intrinsic::make(ir::Intrinsic::rt_traversable,
+                                         {rq.tree}),
+                     origin(rq.q), direction(rq.q), tmin, tmax, flags,
+                     seed})));
+            body.push_back(ir::Return::make(ir::Access::make(
+                "result", ir::Var::make(ctx_t, "_rt_ctx_out"))));
+        } else {
+            body.push_back(ir::LetStmt::make(
+                ir::WriteLoc("_rt_traced", u32),
+                ir::Intrinsic::make(
+                    ir::Intrinsic::rt_trace,
+                    {ir::Intrinsic::make(ir::Intrinsic::rt_traversable,
+                                         {rq.tree}),
+                     origin(rq.q), direction(rq.q), tmin, tmax, flags,
+                     ir::PtrTo::make(local)})));
+            body.push_back(
+                ir::Return::make(ir::Access::make("result", local)));
+        }
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
 
         std::vector<ir::Function::Argument> func_args;

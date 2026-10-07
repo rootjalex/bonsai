@@ -23,7 +23,10 @@ namespace bonsai {
 // functions marked `optix_program`: `__closesthit__<query>`,
 // `__anyhit__<query>` when the query has one, `__intersection__<query>` and
 // `__miss__<query>`, each an entry point whose parameters the prologue
-// supplies: the context from the two payload words, everything else from
+// supplies: the context from the two payload words (a promoted context --
+// one the payload registers carry whole, Lower/Trees.cpp -- crosses as its
+// own words instead, and its programs take no context argument at all),
+// everything else from
 // `params` -- the slot found by following the operand of the query's
 // `rt_trace` that carries that parameter (Lower/RTCoreReads.h) back to the
 // capture it came from (find_read_slots). The queries are numbered
@@ -35,11 +38,13 @@ namespace bonsai {
 // The `rt_*` intrinsics are the OptiX device API as its headers spell it,
 // inline PTX calls to `_optix_*` symbols the OptiX compiler in the driver
 // resolves (optix_device_impl.h): `_optix_trace_typed_32` with the context's
-// address as the two payload words, `_optix_get_ray_tmax`,
+// address as the two payload words (or a promoted context's own words),
+// `_optix_get_ray_tmax`, `_optix_get_triangle_barycentrics`,
+// `_optix_get_world_ray_origin_*` and `_optix_get_world_ray_direction_*`,
 // `_optix_read_primitive_idx`, `_optix_read_instance_id`,
 // `_optix_get_sbt_data_ptr_64`, `_optix_report_intersection_0`,
-// `_optix_ignore_intersection`, `_optix_get_payload` and
-// `_optix_get_launch_index_x`.
+// `_optix_ignore_intersection`, `_optix_get_payload`, `_optix_set_payload`
+// and `_optix_get_launch_index_x`.
 struct CodeGen_OptiX : public CodeGen_PTX {
     CodeGen_OptiX();
 
@@ -62,6 +67,11 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     // is set around both.
     void begin(const ir::Program &program, const CompilerOptions &options) override;
     void finish() override;
+
+    // The widest payload use of any trace this module's raygen makes (see
+    // Kernel::payload_values), for the module's `bonsai_optix_load` call;
+    // meaningful once add_raygen has run.
+    uint64_t payload_values_used() const { return payload_values; }
 
   protected:
     // The `rt_*` intrinsics, as the inline PTX calls above.
@@ -118,6 +128,12 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     // The queries this module holds programs for, alphabetical: the ray
     // types.
     std::vector<std::string> ray_types;
+    // The widest payload use of any trace under this raygen: two (the
+    // memory form's context address) or a promoted context's word count,
+    // whichever is more. Found by find_read_slots; the launch carries it
+    // to the runtime, whose pipeline compiles every module against it
+    // (runtime/bonsai_optix.h, pipeline_options).
+    unsigned payload_values = 2;
 };
 
 } // namespace bonsai

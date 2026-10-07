@@ -73,6 +73,12 @@ struct CodeGen_PTX : public CodeGen_LLVM {
         // its body, whose iteration count is the block's size; null when
         // there is none, and the block is one thread.
         const ir::ssa::Terminator::ParFor *thread_loop = nullptr;
+        // For a raygen program: how many payload words its traces use --
+        // two for a context by address, a promoted context's own count
+        // otherwise -- which the launch hands the runtime so the pipeline
+        // is compiled against it (OptixPipelineCompileOptions'
+        // numPayloadValues).
+        uint64_t payload_values = 2;
     };
 
     // Adds the body of `loop` -- a parfor of `host` bound to GPUBlock or

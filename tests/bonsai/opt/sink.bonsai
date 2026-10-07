@@ -1,0 +1,33 @@
+//! flags: -p sink
+
+// Assignment sinking (Opt/Sink.h): a pure value moves to its latest place.
+// What to read for, in the dump:
+//
+// - `heavy` is used only under `if small`: its let moves INTO that arm, so
+//   the path through the else never computes it (partial dead code
+//   elimination, the KRS criterion).
+// - `shared` is read by both arms: it moves down to sit against the `if`
+//   but NOT into it -- duplicating into every arm improves no path.
+// - `late` is read only by the second `if`: it crosses the first `if`
+//   whole, which neither uses it nor writes anything it reads.
+// - `pinned` reads the mutable `acc` and must NOT cross the store to it:
+//   it stays above `acc = acc + 1f`, however late its use.
+
+func [[export]] probe(a : f32, b : f32, small : bool, tiny : bool) -> f32 {
+    heavy = sqrt(a * a + b * b);
+    shared = a * b;
+    late = a - b;
+    acc : mut f32 = a;
+    pinned = acc * 2.0;
+    acc = acc + 1.0;
+    out : mut f32 = 0.0;
+    if small {
+        out = heavy + shared;
+    } else {
+        out = shared;
+    }
+    if tiny {
+        out = out + late + pinned;
+    }
+    return out;
+}

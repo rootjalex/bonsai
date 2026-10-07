@@ -17,8 +17,20 @@
 //   context's record, so the raygen hands its consumers the hit's
 //   parameters without a second intersection.
 //
-// - `trace_any` keeps its shape: flags 12, no closest-hit program, the
-//   witness bound only in its any-hit flavors, where `accepts` reads it.
+// - `trace_any` keeps its shape -- flags 12, no closest-hit program, the
+//   witness bound only in its any-hit flavors, where `accepts` reads it --
+//   and its context is PROMOTED to the payload registers (Lower/Trees.cpp):
+//   `_RTContext_trace_any` is `{ tmax, result }` -- the ray's residue and
+//   the answer, nothing else -- its programs take NO context argument (the
+//   residue is `rt_payload(0)`, the miss writes `rt_set_payload(1, false)`),
+//   and `_rt_trace1` passes the context BY VALUE and reads `.result` off
+//   the trace's own return. `trace`, whose record is an option, keeps the
+//   memory context `{ q, result }`.
+//
+// - EVERY hit and intersection program reads the query ray's `o` and `d`
+//   from the hardware's ray state (`rt_ray_origin()`, `rt_ray_direction()`
+//   -- the very operands the raygen's rt_trace passed), promoted or not;
+//   only the extent still comes from the context.
 //
 // - `trace_anyhit_matters(t)`/`trace_any_anyhit_matters(t)` are unchanged:
 //   the witness is no element, and the element-only early-accept

@@ -39,25 +39,25 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   triangles_index!top = triangles_index
   !count = 0u
   do {
-    let @0 = triangles.group0_index in
-    let _t75 = @0[(*triangles_index!top)] in
     intersects_Ray_AABB$r0 : mut bool
-    let @2 = _t75.low in
-    let _t124$i26 = cast<f32x3>(@2) in
-    let @4 = _t75.high in
-    let _t123$i26 = cast<f32x3>(@4) in
     intersectsp_ray_aabb$r26 : mut _option1
-    let @7 = f32x3(1f) in
-    let @8 = ray.d in
-    let invDir$i26 = @7 / @8 in
-    let @10 = f32x3(0f) in
-    let dirIsNeg$i26 = invDir$i26 < @10 in
+    let @0 = f32x3(1f) in
+    let @1 = ray.d in
+    let invDir$i26 = @0 / @1 in
+    let @3 = f32x3(0f) in
+    let dirIsNeg$i26 = invDir$i26 < @3 in
+    let @5 = triangles.group0_index in
+    let _t75 = @5[(*triangles_index!top)] in
+    let @7 = _t75.low in
+    let _t124$i26 = cast<f32x3>(@7) in
+    let @9 = _t75.high in
+    let _t123$i26 = cast<f32x3>(@9) in
     let low_parts$i26 = select(dirIsNeg$i26, _t123$i26, _t124$i26) in
-    let high_parts$i26 = select(dirIsNeg$i26, _t124$i26, _t123$i26) in
     let _t127$i26 = ray.o in
-    let @17 = low_parts$i26 - _t127$i26 in
-    let @18 = @17 * invDir$i26 in
-    tMin$i26 = @18
+    let @16 = low_parts$i26 - _t127$i26 in
+    let @17 = @16 * invDir$i26 in
+    tMin$i26 = @17
+    let high_parts$i26 = select(dirIsNeg$i26, _t124$i26, _t123$i26) in
     let @19 = high_parts$i26 - _t127$i26 in
     let @20 = @19 * invDir$i26 in
     tMax$i26 = @20

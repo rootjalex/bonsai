@@ -40,8 +40,8 @@ intervals of negative:
   @4 : [-inf, 1]
   @6 : [-inf, 0]
 intervals of other:
-  x : [0, inf] +
   y : [0, inf] +
+  x : [0, inf] +
   r : [0, inf] (+)
   @3 : [0, inf] (+)
   @4 : [-inf, 1]
@@ -87,8 +87,8 @@ intervals of negative:
   @4 : [-inf, 1]
   @6 : [-inf, 0]
 intervals of other:
-  x : [0, inf] +
   y : [0, inf] +
+  x : [0, inf] +
   r : [0, inf] (+)
   @3 : [0, inf] (+)
   @4 : [-inf, 1]
@@ -152,8 +152,8 @@ func [[export]] negative(x_in : f32) -> f32 {
 }
 
 func [[export]] other(x_in : f32, y_in : f32) -> f32 {
-  let x = abs(x_in) in
   let y = abs(y_in) in
+  let x = abs(x_in) in
   let r = rcp_approx(x) in
   let @7 = -0f - y in
   let @4 = fma(@7, r, 1f) in

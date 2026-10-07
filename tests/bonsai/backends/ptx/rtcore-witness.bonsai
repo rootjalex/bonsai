@@ -10,6 +10,15 @@
 //   barycentric. `__anyhit__trace$boxes` reads the tmax alone and holds
 //   zeros where the barycentrics would be.
 //
+// - `trace_any`'s context is PROMOTED to the payload registers: its
+//   programs take no context pointer (no `_optix_get_payload` pair feeding
+//   an address), `__miss__trace_any` is two movs and one
+//   `_optix_set_payload`, and the raygen's `_optix_trace_typed_32` for it
+//   carries the context's own words. A program that needs the query's ray
+//   reads it from the hardware (`_optix_get_world_ray_origin_*`,
+//   `_optix_get_world_ray_direction_*`) rather than from memory, in
+//   `trace`'s memory-context programs too.
+//
 // - `__closesthit__trace` and its `$boxes` flavor store the witness into
 //   the context's record beside the element's index, so the raygen reads
 //   (element, t, b) back without a second intersection anywhere.

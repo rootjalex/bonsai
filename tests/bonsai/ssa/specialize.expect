@@ -55,10 +55,10 @@ func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
       let @50 = @49._pad in
       let @51 = @49.payload in
       let @52 = build<Mode>(0u, @50, @51) in
-      let @27 = values[i!Sum] in
+      let @28 = values[i!Sum] in
       let @17 = @51[0u] in
       let @18 = reinterpret_cast<f32>(@17) in
-      let @19 = @27 * @18 in
+      let @19 = @28 * @18 in
       out[i!Sum] = @19
       continue
     }
@@ -69,10 +69,10 @@ func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
       let @54 = @53._pad in
       let @55 = @53.payload in
       let @56 = build<Mode>(1u, @54, @55) in
-      let @43 = values[i!Clamp] in
+      let @44 = values[i!Clamp] in
       let @38 = @55[0u] in
       let @39 = reinterpret_cast<f32>(@38) in
-      let @40 = max(@43, @39) in
+      let @40 = max(@44, @39) in
       out[i!Clamp] = @40
       continue
     }

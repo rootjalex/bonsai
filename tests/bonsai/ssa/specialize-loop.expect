@@ -31,15 +31,15 @@ func [[export]] run(flag : bool, values : f32[8], out : mut f32[8], twice : mut 
   }
   if (flag) {
     parfor j!True in [0:8:1] {
-      let @19 = out[j!True] in
-      let @21 = @19 * 2f in
+      let @20 = out[j!True] in
+      let @21 = @20 * 2f in
       twice[j!True] = @21
       continue
     }
   } else {
     parfor j!False in [0:8:1] {
-      let @13 = out[j!False] in
-      let @10 = @13 + 1f in
+      let @14 = out[j!False] in
+      let @10 = @14 + 1f in
       twice[j!False] = @10
       continue
     }

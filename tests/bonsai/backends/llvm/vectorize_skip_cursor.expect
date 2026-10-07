@@ -47,14 +47,14 @@ weigh_all:
   %"p$i9!skip0" = phi <8 x float> [ %"p$i9!skip", %"!case_10!any" ], [ %17, %"!case_10" ]
   %18 = bitcast <8 x i1> %0 to i8
   %.not8 = icmp eq i8 %18, 0
-  br i1 %.not8, label %"!merge_8", label %"!case_9"
+  br i1 %.not8, label %"!case_15", label %"!case_9"
 
 "!case_9":                                        ; preds = %"!case_9!any"
   %19 = fmul <8 x float> %1, splat (float 6.000000e+00)
   %20 = select <8 x i1> %0, <8 x float> %19, <8 x float> %"p$i9!skip0"
-  br label %"!merge_8"
+  br label %"!case_15"
 
-"!merge_8":                                       ; preds = %"!case_9", %"!case_9!any"
+"!case_15":                                       ; preds = %"!case_9!any", %"!case_9"
   %"p$i9!skip1" = phi <8 x float> [ %"p$i9!skip0", %"!case_9!any" ], [ %20, %"!case_9" ]
   %21 = fmul <8 x float> %3, %3
   %22 = fadd <8 x float> %21, splat (float 1.000000e+00)
@@ -68,15 +68,15 @@ weigh_all:
   %28 = and <8 x i1> %25, %27
   br i1 %.not5, label %"!case_13", label %"!case_14"
 
-"!case_14":                                       ; preds = %"!merge_8"
+"!case_14":                                       ; preds = %"!case_15"
   %29 = fcmp olt <8 x float> %21, %24
   %30 = fcmp ogt <8 x float> %26, splat (float 1.000000e+00)
   %31 = and <8 x i1> %29, %30
   %32 = select <8 x i1> %5, <8 x i1> %28, <8 x i1> %31
   br label %"!case_13"
 
-"!case_13":                                       ; preds = %"!case_14", %"!merge_8"
-  %"hit$i12!skip" = phi <8 x i1> [ %28, %"!merge_8" ], [ %32, %"!case_14" ]
+"!case_13":                                       ; preds = %"!case_14", %"!case_15"
+  %"hit$i12!skip" = phi <8 x i1> [ %28, %"!case_15" ], [ %32, %"!case_14" ]
   br i1 %.not, label %"!case_20", label %"!case_21"
 
 "!case_21":                                       ; preds = %"!case_13"
@@ -126,7 +126,7 @@ weigh_one:
   %12 = fcmp olt float %11, %8
   %13 = and i1 %10, %12
   %14 = fadd float %5, 1.000000e+00
-  %"p$i102567" = select i1 %13, float %14, float %5
+  %"p$i103274" = select i1 %13, float %14, float %5
   %15 = fsub float %9, %11
   %16 = fmul float %15, 3.000000e+00
   %17 = fmul float %2, 5.000000e-01
@@ -145,7 +145,7 @@ weigh_one:
   %27 = fcmp ogt float %24, 1.000000e+00
   %28 = and i1 %26, %27
   %29 = fadd float %23, 1.000000e+00
-  %"p$i1025" = select i1 %28, float %29, float %23
+  %"p$i1032" = select i1 %28, float %29, float %23
   %30 = fmul nnan float %x, %20
   br label %"!merge_16"
 
@@ -158,14 +158,14 @@ weigh_one:
   %36 = fmul float %31, %31
   %37 = fcmp olt float %35, %36
   %38 = fadd float %32, 1.000000e+00
-  %"p$i102576" = select i1 %37, float %38, float %32
+  %"p$i103283" = select i1 %37, float %38, float %32
   %39 = fmul nnan float %36, 3.000000e+00
   br label %"!merge_16"
 
 "!merge_16":                                      ; preds = %"!case_19", %"!case_18", %"!case_17"
-  %"p$i102569" = phi float [ %"p$i102576", %"!case_17" ], [ %"p$i1025", %"!case_18" ], [ %"p$i102567", %"!case_19" ]
+  %"p$i103276" = phi float [ %"p$i103283", %"!case_17" ], [ %"p$i1032", %"!case_18" ], [ %"p$i103274", %"!case_19" ]
   %"a$i16" = phi float [ %39, %"!case_17" ], [ %30, %"!case_18" ], [ %19, %"!case_19" ]
-  %40 = fadd float %"p$i102569", %"a$i16"
+  %40 = fadd float %"p$i103276", %"a$i16"
   ret float %40
 }
 

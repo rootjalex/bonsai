@@ -4,8 +4,9 @@ func digits(ns : u64[8], bases : u16[8], out : mut u64[8]) -> void {
   !live : mut boolx8
   !exit.while_end_4 : mut boolx8
   !track.while_end_4.2 : mut u64x8
-  let @0 = bases[ramp(0, 1, 8)] in
-  let b = cast<u64x8>(@0) in
+  let @0 = ns[ramp(0, 1, 8)] in
+  let @1 = bases[ramp(0, 1, 8)] in
+  let b = cast<u64x8>(@1) in
   let @61 = u64x8(0u) in
   let @38 = b == @61 in
   let @62 = u64x8(1u) in
@@ -40,10 +41,9 @@ func digits(ns : u64[8], bases : u16[8], out : mut u64[8]) -> void {
   let @19 = min(@18, @62) in
   let @20 = max(@18, @62) in
   let @21 = @20 - @62 in
-  let @2 = ns[ramp(0, 1, 8)] in
   let @84 = boolx8(true) in
   let @85 = boolx8(false) in
-  v!loop = @2
+  v!loop = @0
   r!loop = @61
   !live = @84
   !exit.while_end_4 = @85
@@ -85,6 +85,7 @@ func wide(ns : u64[8], bases : u64[8], out : mut u64[8]) -> void {
   !live : mut boolx8
   !exit.while_end_4 : mut boolx8
   !track.while_end_4.2 : mut u64x8
+  let @0 = ns[ramp(0, 1, 8)] in
   let b = bases[ramp(0, 1, 8)] in
   let @14 = div_multiplier(b) in
   let @37 = u64x8(1u) in
@@ -95,11 +96,10 @@ func wide(ns : u64[8], bases : u64[8], out : mut u64[8]) -> void {
   let @18 = min(@17, @37) in
   let @19 = max(@17, @37) in
   let @20 = @19 - @37 in
-  let @1 = ns[ramp(0, 1, 8)] in
   let @47 = u64x8(0u) in
   let @48 = boolx8(true) in
   let @49 = boolx8(false) in
-  v!loop = @1
+  v!loop = @0
   r!loop = @47
   !live = @48
   !exit.while_end_4 = @49

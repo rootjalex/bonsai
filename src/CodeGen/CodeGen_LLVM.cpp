@@ -3905,8 +3905,12 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::rt_trace:
+    case Intrinsic::rt_payload:
+    case Intrinsic::rt_set_payload:
     case Intrinsic::rt_hit_t:
     case Intrinsic::rt_barycentrics:
+    case Intrinsic::rt_ray_origin:
+    case Intrinsic::rt_ray_direction:
     case Intrinsic::rt_primitive_index:
     case Intrinsic::rt_instance_id:
     case Intrinsic::rt_sbt_base:

@@ -1,0 +1,20 @@
+func [[export]] probe(a : f32, b : f32, small : bool, tiny : bool) -> f32 {
+  acc : mut f32 := a
+  let pinned = acc * 2f in
+  acc = acc + 1f
+  out : mut f32 := 0f
+  let shared = a * b in
+  if (small) {
+    let heavy = sqrt((a * a) + (b * b)) in
+    out = heavy + shared
+  } else {
+    out = shared
+  }
+  if (tiny) {
+    let late = a - b in
+    out = (out + late) + pinned
+  }
+  return out
+}
+
+

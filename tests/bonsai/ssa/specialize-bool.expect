@@ -18,15 +18,15 @@ func pick(flag : bool, x : f32) -> f32 {
 func [[export]] run(flag : bool, values : f32[8], out : mut f32[8]) -> void {
   if (flag) {
     parfor i!True in [0:8:1] {
-      let @14 = values[i!True] in
-      let @16 = @14 * 2f in
+      let @15 = values[i!True] in
+      let @16 = @15 * 2f in
       out[i!True] = @16
       continue
     }
   } else {
     parfor i!False in [0:8:1] {
-      let @8 = values[i!False] in
-      let @5 = @8 + 1f in
+      let @9 = values[i!False] in
+      let @5 = @9 + 1f in
       out[i!False] = @5
       continue
     }

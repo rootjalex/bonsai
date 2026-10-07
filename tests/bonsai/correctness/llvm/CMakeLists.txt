@@ -111,6 +111,7 @@ add_bonsai_tests(
     select-const-arms.bonsai
     shadowed-let.bonsai
     simplify-facts.bonsai
+    sink.bonsai
     specialize.bonsai
     specialize-bool.bonsai
     specialize-callee.bonsai

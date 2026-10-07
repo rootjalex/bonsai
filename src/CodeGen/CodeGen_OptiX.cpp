@@ -32,11 +32,14 @@ using ir::ssa::Value;
 namespace {
 
 // The context type a query traces with, `_RTContext_<query>`, to the
-// query's name; empty when `type` is no such thing.
+// query's name; empty when `type` is no such thing. By address (the memory
+// form) or as the struct itself (the promoted form, the context in the
+// payload registers).
 std::string query_of_context(const Type &type) {
     static const std::string prefix = "_RTContext_";
     const Ptr_t *ptr = type.as<Ptr_t>();
-    const Struct_t *s = ptr != nullptr ? ptr->etype.as<Struct_t>() : nullptr;
+    const Struct_t *s =
+        ptr != nullptr ? ptr->etype.as<Struct_t>() : type.as<Struct_t>();
     if (s == nullptr || s->name.rfind(prefix, 0) != 0) {
         return "";
     }
@@ -91,6 +94,7 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
     using ir::ssa::Definition;
     using ir::ssa::Definitions;
     read_slots.clear();
+    payload_values = 2;
 
     // The body's region and every function it reaches: where the traces
     // are, and who calls each function, from which block, with what.
@@ -328,8 +332,18 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
 
     for (const Trace &t : traces) {
         internal_assert(t.instr->operands.size() >= 7);
-        const std::string query =
-            query_of_context(t.instr->operands[6]->get_type());
+        const Type &traced_ctx = t.instr->operands[6]->get_type();
+        const std::string query = query_of_context(traced_ctx);
+        // A promoted context rides the payload registers themselves; the
+        // pipeline is compiled for the widest trace under this raygen.
+        if (traced_ctx.is<Struct_t>()) {
+            const auto words = ir::rt_context_words(traced_ctx);
+            internal_assert(words.has_value())
+                << "a trace of `" << query << "` carries its context by "
+                << "value, and the payload registers cannot: " << traced_ctx;
+            payload_values =
+                std::max(payload_values, unsigned(words->size()));
+        }
         std::vector<std::string> reads;
         for (const auto &[_, func] : program->funcs) {
             if (func->optix_program && func->optix_program->of == query) {
@@ -497,6 +511,7 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
     }
     // Which slot each of the traced queries' reads is in, for the programs.
     find_read_slots(host, loop, *body_head, captures, by_value);
+    kernel.payload_values = payload_values;
     params_ty = llvm::StructType::create(*context, slot_types, "_params");
     {
         const llvm::StructLayout *layout = dl.getStructLayout(params_ty);
@@ -593,13 +608,18 @@ void CodeGen_OptiX::add_program(const ir::Function &func,
         llvm::FunctionType::get(void_t, {}, /*isVarArg=*/false),
         llvm::GlobalValue::ExternalLinkage, symbol_name(func.name), module.get());
     fn->setCallingConv(llvm::CallingConv::PTX_Kernel);
-    internal_assert(!ssa.blocks.empty() && !ssa.blocks.front()->args.empty())
-        << func.name << " takes no context";
-    const std::string context_name = ssa.blocks.front()->args[0].name;
+    internal_assert(!ssa.blocks.empty()) << func.name << " has no body";
     compile_function(ssa, fn, [&](const ir::ssa::Argument &declared) -> llvm::Value * {
         llvm::Type *type = codegen_type(declared.type);
-        if (declared.name == context_name) {
-            // The context: its address in the two payload words.
+        // The context: its address in the two payload words. Recognized by
+        // its type, since a program of a promoted-context query takes no
+        // context at all -- it reads and writes the payload words themselves
+        // (rt_payload, rt_set_payload) and every argument of its is a read.
+        if (!query_of_context(declared.type).empty()) {
+            internal_assert(declared.type.is<Ptr_t>())
+                << func.name << " takes the context `" << declared.name
+                << "` by value; a program of a promoted-context query "
+                << "takes none (Lower/Trees.cpp)";
             llvm::Value *lo = builder->CreateZExt(payload(0), i64_t);
             llvm::Value *hi = builder->CreateZExt(payload(1), i64_t);
             llvm::Value *address = builder->CreateOr(
@@ -672,6 +692,34 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         v = builder->CreateInsertElement(v, b1, uint64_t(0));
         return builder->CreateInsertElement(v, b2, uint64_t(1), "_bary");
     }
+    case Intrinsic::rt_ray_origin:
+    case Intrinsic::rt_ray_direction: {
+        // The traced ray, read back from the hardware's ray state: three
+        // floats, one `_optix_get_world_ray_*_{x,y,z}` call each (the OptiX
+        // ABI is per-component), through `.f32` registers as rt_hit_t's is,
+        // rebuilt as the vec3f the intrinsic answers.
+        const bool o = node->op == Intrinsic::rt_ray_origin;
+        const std::string what = o ? "origin" : "direction";
+        llvm::Type *three_i32 = llvm::StructType::get(i32_t, i32_t, i32_t);
+        llvm::Value *triple = asm_call(
+            three_i32,
+            "{ .reg .f32 %fw<3>; "
+            "call (%fw0), _optix_get_world_ray_" + what + "_x, (); "
+            "call (%fw1), _optix_get_world_ray_" + what + "_y, (); "
+            "call (%fw2), _optix_get_world_ray_" + what + "_z, (); "
+            "mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }",
+            "=r,=r,=r", {}, /*side_effects=*/false);
+        llvm::Value *v =
+            llvm::PoisonValue::get(llvm::FixedVectorType::get(f32, 3));
+        for (unsigned i = 0; i < 3; i++) {
+            v = builder->CreateInsertElement(
+                v,
+                builder->CreateBitCast(
+                    builder->CreateExtractValue(triple, i), f32),
+                uint64_t(i), o ? "_ray_o" : "_ray_d");
+        }
+        return v;
+    }
     case Intrinsic::rt_primitive_index:
         return asm_call(i32_t, "call ($0), _optix_read_primitive_idx, ();", "=r",
                         {}, /*side_effects=*/false);
@@ -703,6 +751,23 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         asm_call(nullptr, "call _optix_ignore_intersection, ();", "", {},
                  /*side_effects=*/true);
         return llvm::ConstantInt::get(i32_t, 0);
+    case Intrinsic::rt_payload: {
+        // One word of a promoted context. No side effects: a generated
+        // program never writes a word it reads (include/IR/Expr.h), so two
+        // reads of one word are one.
+        internal_assert(node->args.size() == 1);
+        return asm_call(i32_t, "call ($0), _optix_get_payload, ($1);", "=r,r",
+                        {codegen_expr(node->args[0])},
+                        /*side_effects=*/false);
+    }
+    case Intrinsic::rt_set_payload: {
+        internal_assert(node->args.size() == 2);
+        llvm::Value *k = codegen_expr(node->args[0]);
+        llvm::Value *w = codegen_expr(node->args[1]);
+        asm_call(nullptr, "call _optix_set_payload, ($0, $1);", "r,r", {k, w},
+                 /*side_effects=*/true);
+        return llvm::ConstantInt::get(i32_t, 0);
+    }
     case Intrinsic::rt_trace: {
         // Seven operands say what to trace; the rest are the data the hit
         // programs read, carried here so that the launch captures them
@@ -721,8 +786,38 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         llvm::Value *tmin = codegen_expr(node->args[3]);
         llvm::Value *tmax = codegen_expr(node->args[4]);
         llvm::Value *flags = codegen_expr(node->args[5]);
-        llvm::Value *ctx = builder->CreatePtrToInt(codegen_expr(node->args[6]),
-                                                   i64_t, "_ctx_address");
+        // The context: by address (the memory form, two payload words
+        // holding it) or by value (the promoted form, one payload word per
+        // leaf field, ir::rt_context_words' order on both sides of the
+        // trace).
+        const ir::Type &ctx_t = node->args[6].type();
+        const bool promoted = ctx_t.is<Struct_t>();
+        std::optional<std::vector<ir::ContextWord>> flat;
+        std::vector<llvm::Value *> payload_in;
+        if (promoted) {
+            flat = ir::rt_context_words(ctx_t);
+            internal_assert(flat.has_value())
+                << "rt_trace of a by-value context the payload registers "
+                << "cannot carry: " << ctx_t;
+            llvm::Value *ctx_v = codegen_expr(node->args[6]);
+            for (const ir::ContextWord &w : *flat) {
+                llvm::Value *leaf =
+                    builder->CreateExtractValue(ctx_v, w.indices);
+                if (w.type.is<ir::Float_t>()) {
+                    leaf = builder->CreateBitCast(leaf, i32_t);
+                } else if (leaf->getType() != i32_t) {
+                    leaf = builder->CreateZExt(leaf, i32_t);
+                }
+                payload_in.push_back(leaf);
+            }
+        } else {
+            llvm::Value *ctx = builder->CreatePtrToInt(
+                codegen_expr(node->args[6]), i64_t, "_ctx_address");
+            payload_in = {
+                builder->CreateTrunc(ctx, i32_t),
+                builder->CreateTrunc(builder->CreateLShr(ctx, 32), i32_t),
+            };
+        }
         const auto lane = [&](llvm::Value *v, uint64_t k) {
             return builder->CreateExtractElement(v, k);
         };
@@ -730,8 +825,9 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         // registers out, and in -- the payload type, the handle, the ray,
         // the visibility mask, the flags, the shader binding table offset
         // and stride and the miss index (the query's number, with as many
-        // types as this module has), how many payload words are used (two:
-        // the context's address), then the thirty-two words.
+        // types as this module has), how many payload words are used (the
+        // context's address as two, or the promoted context's own words),
+        // then the thirty-two words.
         // The ray's nine floats cross as the bits of 32-bit registers and
         // are moved into `.f32` registers of the call's own scope (see
         // rt_hit_t).
@@ -750,10 +846,9 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
             llvm::ConstantInt::get(i32_t, ray_type),
             llvm::ConstantInt::get(i32_t, uint64_t(ray_types.size())),
             llvm::ConstantInt::get(i32_t, ray_type),
-            llvm::ConstantInt::get(i32_t, 2), // payload words used
-            builder->CreateTrunc(ctx, i32_t),
-            builder->CreateTrunc(builder->CreateLShr(ctx, 32), i32_t),
+            llvm::ConstantInt::get(i32_t, uint64_t(payload_in.size())),
         };
+        args.insert(args.end(), payload_in.begin(), payload_in.end());
         while (args.size() < 17 + 32) {
             args.push_back(llvm::ConstantInt::get(i32_t, 0));
         }
@@ -788,8 +883,30 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
         }
         std::vector<llvm::Type *> outs(32, i32_t);
         llvm::StructType *out_ty = llvm::StructType::get(*context, outs);
-        asm_call(out_ty, text, constraints, args, /*side_effects=*/true);
-        return llvm::ConstantInt::get(i32_t, 0);
+        llvm::Value *out =
+            asm_call(out_ty, text, constraints, args, /*side_effects=*/true);
+        if (!promoted) {
+            return llvm::ConstantInt::get(i32_t, 0);
+        }
+        // The promoted trace answers the context as the programs left it:
+        // the words gathered back out of the call's own returns, no memory
+        // anywhere.
+        llvm::Value *result = llvm::PoisonValue::get(codegen_type(ctx_t));
+        for (size_t k = 0; k < flat->size(); k++) {
+            const ir::ContextWord &w = (*flat)[k];
+            llvm::Value *word = builder->CreateExtractValue(out, unsigned(k));
+            llvm::Value *leaf;
+            llvm::Type *leaf_ty = codegen_type(w.type);
+            if (w.type.is<ir::Float_t>()) {
+                leaf = builder->CreateBitCast(word, leaf_ty);
+            } else if (leaf_ty != i32_t) {
+                leaf = builder->CreateTrunc(word, leaf_ty);
+            } else {
+                leaf = word;
+            }
+            result = builder->CreateInsertValue(result, leaf, w.indices);
+        }
+        return result;
     }
     case Intrinsic::rt_reorder: {
         // `optixReorder(coherenceHint, numCoherenceHintBitsFromLSB)`: the

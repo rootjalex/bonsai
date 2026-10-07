@@ -1219,10 +1219,18 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "tex_sample_grad_2d";
     case Intrinsic::rt_trace:
         return "rt_trace";
+    case Intrinsic::rt_payload:
+        return "rt_payload";
+    case Intrinsic::rt_set_payload:
+        return "rt_set_payload";
     case Intrinsic::rt_hit_t:
         return "rt_hit_t";
     case Intrinsic::rt_barycentrics:
         return "rt_barycentrics";
+    case Intrinsic::rt_ray_origin:
+        return "rt_ray_origin";
+    case Intrinsic::rt_ray_direction:
+        return "rt_ray_direction";
     case Intrinsic::rt_primitive_index:
         return "rt_primitive_index";
     case Intrinsic::rt_instance_id:

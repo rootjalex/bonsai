@@ -239,8 +239,10 @@ target_sources(
     src/Lower/ADTs.cpp
     src/Lower/WordStorage.cpp
     src/Opt/Simplify.cpp
+    src/Opt/NarrowLoads.cpp
     src/Opt/PullQueries.cpp
     src/Opt/JumpThreading.cpp
+    src/Opt/Sink.cpp
     src/Opt/Unswitch.cpp
     src/Parser/Lexer.cpp
     src/Parser/Parser.cpp

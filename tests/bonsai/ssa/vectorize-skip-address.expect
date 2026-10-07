@@ -60,11 +60,11 @@ func tally(x : f32) -> i32 {
 
 func [[export]] tally_all(a : f32[8], out : mut i32[8]) -> void {
   acc$i6!skip : mut i32x8
-  let x$i6 = a[ramp(0, 1, 8)] in
   alloc c$i6 : mut Counter$v8
   let @21 = i32x8(0) in
   let @22 = build<Counter$v8>(@21) in
   c$i6 = @22
+  let x$i6 = a[ramp(0, 1, 8)] in
   let @23 = f32x8(2f) in
   let @2 = @23 < x$i6 in
   let @16 = reduce<any>(@2) in

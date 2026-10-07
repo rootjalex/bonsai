@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include "IRHandle.h"
@@ -667,7 +668,26 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // the query the context's type names, with the context's address in
         // the two payload words; the result is nothing, and the call has an
         // effect (the programs write the context).
+        //
+        // Promoted form, when the context fits the hardware's payload
+        // registers (ir::rt_context_words): the context travels BY VALUE --
+        // `rt_trace(..., context : _RTContext_T) -> _RTContext_T` -- its
+        // words in the payload registers themselves, and the result is the
+        // context as the programs left it. No memory holds it anywhere:
+        // the programs read and write the words (rt_payload,
+        // rt_set_payload), and the raygen reads the answer out of the
+        // trace's own returns.
         rt_trace,
+        // In a program of a promoted-context query (Lower/Trees.cpp):
+        // one 32-bit word of the context, `rt_payload(k : u32) -> u32`
+        // (`optixGetPayload`), and its write,
+        // `rt_set_payload(k : u32, w : u32) -> u32` (`optixSetPayload`,
+        // an effect; the result is nothing). A generated program never
+        // reads a word it writes -- the hit and intersection programs read
+        // the query's words, the miss and closest-hit programs write the
+        // answer's -- so a read is pure.
+        rt_payload,
+        rt_set_payload,
         // In a hit program: the hit's ray parameter (`optixGetRayTmax`).
         rt_hit_t,
         // In a hit program of a hardware-triangle input: the hit's
@@ -677,6 +697,17 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // stored them. Undefined over a custom-primitive input, so only the
         // triangle flavor of a hit program reads it (Lower/Trees.cpp).
         rt_barycentrics,
+        // In a hit, intersection or miss program: the traced ray's origin
+        // and direction in the frame the ray was traced in
+        // (`optixGetWorldRayOrigin`, `optixGetWorldRayDirection`), each a
+        // vec3f. These are the very operands the raygen's `rt_trace` passed
+        // -- the query's own ray, bit for bit -- so a program that reads
+        // the query's ray reads it from the hardware's ray state instead
+        // of fetching it back out of the context's memory (Lower/Trees.cpp
+        // rebuilds `q` from them; only fields the hardware does not carry,
+        // the extent, still come from the context).
+        rt_ray_origin,
+        rt_ray_direction,
         // In a hit program: the primitive's index within its build input
         // (`optixGetPrimitiveIndex`), and the instance id of the instance
         // the hit is in (`optixGetInstanceId`).
@@ -846,6 +877,21 @@ struct GeomOp : ExprNode<GeomOp> {
 // implementations must agree with field for field (Lower/Geometrics.cpp
 // checks them against this).
 Type hit_record_type();
+
+// A query context flattened to the hardware's 32-bit payload words: every
+// leaf field, depth first in declaration order, one word each. This is the
+// single definition of the promoted-context layout -- Lower/Trees.cpp
+// assigns the programs' rt_payload indices from it and CodeGen_OptiX
+// scatters the trace's operand and gathers its returns by it, so the two
+// cannot disagree. Answers nothing when the type is outside the class the
+// registers can carry: a leaf that is not a 32-bit scalar (f32, (u)i32 or
+// narrower, bool), or more than 32 words in all.
+struct ContextWord {
+    std::vector<std::string> path; // field names from the context down
+    std::vector<unsigned> indices; // the same, as positions
+    Type type;                     // the leaf's own scalar type
+};
+std::optional<std::vector<ContextWord>> rt_context_words(const Type &context);
 
 // The set operators of Figure 2. For everything but `product`, a is a lambda
 // over the set's elements and b is the set; for `product`, a and b are sets.

@@ -40,7 +40,9 @@
 #include "Opt/Inline.h"
 #include "Opt/JumpThreading.h"
 #include "Opt/PullQueries.h"
+#include "Opt/NarrowLoads.h"
 #include "Opt/Simplify.h"
+#include "Opt/Sink.h"
 #include "Opt/Unswitch.h"
 #include "SSA/Convert.h"
 #include "SSA/DumpAnalysis.h"
@@ -181,7 +183,9 @@ PassManager register_passes(const CompilerOptions &options) {
     manager.register_pass<opt::Fusion>();
     manager.register_pass<opt::Inline>();
     manager.register_pass<opt::JumpThreading>();
+    manager.register_pass<opt::NarrowLoads>();
     manager.register_pass<opt::Simplify>();
+    manager.register_pass<opt::Sink>();
     manager.register_pass<opt::Unswitch>();
     manager.register_pass<opt::PullQueries>();
     manager.register_pass<ir::ssa::ConvertToSSA>();
@@ -347,6 +351,16 @@ PassManager register_passes(const CompilerOptions &options) {
     ssa.push_back(std::make_unique<opt::JumpThreading>());
     ssa.push_back(std::make_unique<opt::Simplify>());
     ssa.push_back(std::make_unique<opt::CSE>());
+    // With everything inlined, simplified and shared: first the aggregate
+    // loads narrow to the fields the body actually reads (dead-field
+    // elimination, Opt/NarrowLoads.h), then every value sinks to its
+    // latest place and into the branch arms that alone read it (partial
+    // dead code elimination -- see Opt/Sink.h); the order composes, the
+    // narrowed field loads sinking one by one where the whole aggregate
+    // could not. After CSE, which hoists by merging and must not be
+    // fought; before DCE, which eats what both make wholly dead.
+    ssa.push_back(std::make_unique<opt::NarrowLoads>());
+    ssa.push_back(std::make_unique<opt::Sink>());
     // Clean up any dead functions after inlining.
     ssa.push_back(std::make_unique<opt::DCE>());
     // This should always run last! It duplicates the exported functions.

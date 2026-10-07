@@ -47,20 +47,20 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         let _t61 = _t60.nPrims in
         let @5 = _t61 == 0u in
         if (@5) {
-          let @6 = _t60.low in
-          let _t143$i66 = cast<f32x3>(@6) in
-          let @8 = _t60.high in
-          let _t142$i66 = cast<f32x3>(@8) in
-          let @11 = f32x3(1f) in
-          let @12 = r.d in
-          let invDir$i66 = @11 / @12 in
-          let @14 = f32x3(0f) in
-          let dirIsNeg$i66 = invDir$i66 < @14 in
+          let @6 = f32x3(1f) in
+          let @7 = r.d in
+          let invDir$i66 = @6 / @7 in
+          let @9 = f32x3(0f) in
+          let dirIsNeg$i66 = invDir$i66 < @9 in
+          let @11 = _t60.low in
+          let _t143$i66 = cast<f32x3>(@11) in
+          let @13 = _t60.high in
+          let _t142$i66 = cast<f32x3>(@13) in
           let low_parts$i66 = select(dirIsNeg$i66, _t142$i66, _t143$i66) in
-          let high_parts$i66 = select(dirIsNeg$i66, _t143$i66, _t142$i66) in
           let _t146$i66 = r.o in
-          let @21 = low_parts$i66 - _t146$i66 in
-          let @22 = @21 * invDir$i66 in
+          let @20 = low_parts$i66 - _t146$i66 in
+          let @21 = @20 * invDir$i66 in
+          let high_parts$i66 = select(dirIsNeg$i66, _t143$i66, _t142$i66) in
           let @23 = high_parts$i66 - _t146$i66 in
           let @24 = @23 * invDir$i66 in
           let @25 = (f32)eps in
@@ -72,10 +72,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @32 = 1f + @31 in
           let @198 = @24 * f32x3(@32) in
           let @34 = @198[1u] in
-          let @36 = @22[0u] in
+          let @36 = @21[0u] in
           let @37 = @34 < @36 in
           let @39 = @198[0u] in
-          let @41 = @22[1u] in
+          let @41 = @21[1u] in
           let @42 = @39 < @41 in
           let @43 = @37 || @42 in
           if (@43) {
@@ -86,7 +86,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @54 = min(@39, @34) in
             let @56 = @198[2u] in
             let @58 = @56 < @49 in
-            let @61 = @22[2u] in
+            let @61 = @21[2u] in
             let @62 = @54 < @61 in
             let @63 = @58 || @62 in
             if (@63) {
@@ -130,20 +130,20 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             continue
           }
         } else {
-          let @93 = _t60.low in
-          let _t143$i67 = cast<f32x3>(@93) in
-          let @95 = _t60.high in
-          let _t142$i67 = cast<f32x3>(@95) in
-          let @98 = f32x3(1f) in
-          let @99 = r.d in
-          let invDir$i67 = @98 / @99 in
-          let @101 = f32x3(0f) in
-          let dirIsNeg$i67 = invDir$i67 < @101 in
+          let @93 = f32x3(1f) in
+          let @94 = r.d in
+          let invDir$i67 = @93 / @94 in
+          let @96 = f32x3(0f) in
+          let dirIsNeg$i67 = invDir$i67 < @96 in
+          let @98 = _t60.low in
+          let _t143$i67 = cast<f32x3>(@98) in
+          let @100 = _t60.high in
+          let _t142$i67 = cast<f32x3>(@100) in
           let low_parts$i67 = select(dirIsNeg$i67, _t142$i67, _t143$i67) in
-          let high_parts$i67 = select(dirIsNeg$i67, _t143$i67, _t142$i67) in
           let _t146$i67 = r.o in
-          let @108 = low_parts$i67 - _t146$i67 in
-          let @109 = @108 * invDir$i67 in
+          let @107 = low_parts$i67 - _t146$i67 in
+          let @108 = @107 * invDir$i67 in
+          let high_parts$i67 = select(dirIsNeg$i67, _t143$i67, _t142$i67) in
           let @110 = high_parts$i67 - _t146$i67 in
           let @111 = @110 * invDir$i67 in
           let @112 = (f32)eps in
@@ -155,10 +155,10 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @119 = 1f + @118 in
           let @199 = @111 * f32x3(@119) in
           let @121 = @199[1u] in
-          let @123 = @109[0u] in
+          let @123 = @108[0u] in
           let @124 = @121 < @123 in
           let @126 = @199[0u] in
-          let @128 = @109[1u] in
+          let @128 = @108[1u] in
           let @129 = @126 < @128 in
           let @130 = @124 || @129 in
           if (@130) {
@@ -169,7 +169,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @141 = min(@126, @121) in
             let @143 = @199[2u] in
             let @145 = @143 < @136 in
-            let @148 = @109[2u] in
+            let @148 = @108[2u] in
             let @149 = @141 < @148 in
             let @150 = @145 || @149 in
             if (@150) {

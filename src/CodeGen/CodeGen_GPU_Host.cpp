@@ -647,7 +647,8 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     //                          int64_t count, void *params,
     //                          int64_t param_bytes, void **slots,
     //                          int64_t nslots, bonsai_cuda_buffer *buffers,
-    //                          int64_t nbuffers, uint64_t traversable);
+    //                          int64_t nbuffers, uint64_t traversable,
+    //                          int64_t payload_values);
     // The launch parameters are the slots, as one struct; the acceleration
     // structure it traces is the `traversable` word of the tree captured,
     // read out of the slot the tree's layout struct travels in (see
@@ -658,7 +659,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         "bonsai_optix_launch",
         llvm::FunctionType::get(void_t,
                                 {ptr_t, ptr_t, i64_t, ptr_t, i64_t, ptr_t, i64_t,
-                                 ptr_t, i64_t, i64_t},
+                                 ptr_t, i64_t, i64_t, i64_t},
                                 false));
     llvm::Value *traversable = llvm::ConstantInt::get(i64_t, 0);
     if (optix) {
@@ -711,7 +712,8 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             {ptx, name, count, args,
              llvm::ConstantInt::get(i64_t, layout.getTypeAllocSize(args_ty)),
              params, llvm::ConstantInt::get(i64_t, n), buffers,
-             llvm::ConstantInt::get(i64_t, copies.size()), traversable});
+             llvm::ConstantInt::get(i64_t, copies.size()), traversable,
+             llvm::ConstantInt::get(i64_t, kernel.payload_values)});
     } else {
         builder->CreateCall(launch,
                             {ptx, name, grid, block, params,
@@ -813,11 +815,14 @@ void CodeGen_GPU_Host<CodeGen_CPU>::end_functions() {
         builder->CreateCall(
             declare, {table, llvm::ConstantInt::get(i64_t, names.size())});
     }
-    for (llvm::GlobalVariable *text : optix_texts) {
+    for (size_t k = 0; k < optix_texts.size(); k++) {
         llvm::FunctionCallee load = module->getOrInsertFunction(
             "bonsai_optix_load",
-            llvm::FunctionType::get(void_t, {ptr_t}, /*isVarArg=*/false));
-        builder->CreateCall(load, {text});
+            llvm::FunctionType::get(void_t, {ptr_t, i64_t}, /*isVarArg=*/false));
+        builder->CreateCall(
+            load, {optix_texts[k],
+                   llvm::ConstantInt::get(
+                       i64_t, optix_modules[k].first->payload_values_used())});
     }
     builder->CreateRetVoid();
     builder->restoreIP(here);

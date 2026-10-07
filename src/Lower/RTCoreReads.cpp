@@ -15,13 +15,23 @@ namespace lower {
 
 namespace {
 
+// The context struct type, out of a type that is one or addresses one;
+// null otherwise.
+const ir::Struct_t *context_struct(const ir::Type &type) {
+    static const std::string prefix = "_RTContext_";
+    const ir::Ptr_t *ptr = type.as<ir::Ptr_t>();
+    const ir::Struct_t *s =
+        ptr != nullptr ? ptr->etype.as<ir::Struct_t>() : type.as<ir::Struct_t>();
+    return s != nullptr && s->name.rfind(prefix, 0) == 0 ? s : nullptr;
+}
+
 // The query a trace is of, from the type of the context it traces with:
-// `_RTContext_<query>` (Lower/Trees.cpp).
+// `_RTContext_<query>` (Lower/Trees.cpp) -- by address (the memory form) or
+// by value (the promoted form, the context in the payload registers).
 std::string query_of(const ir::Expr &context) {
     static const std::string prefix = "_RTContext_";
-    const ir::Ptr_t *ptr = context.type().as<ir::Ptr_t>();
-    const ir::Struct_t *s = ptr != nullptr ? ptr->etype.as<ir::Struct_t>() : nullptr;
-    internal_assert(s != nullptr && s->name.rfind(prefix, 0) == 0)
+    const ir::Struct_t *s = context_struct(context.type());
+    internal_assert(s != nullptr)
         << "rt_trace with a context that is not a query's: " << context
         << " of type " << context.type();
     return s->name.substr(prefix.size());
@@ -71,8 +81,14 @@ ir::Program LowerRTCoreReads::run(ir::Program program,
             continue;
         }
         std::map<std::string, ir::Type> &of = reads[func->optix_program->of];
-        for (size_t i = 1; i < func->args.size(); i++) {
-            of.emplace(func->args[i].name, func->args[i].type);
+        // Every parameter but the context is a read. A program of a
+        // promoted-context query takes no context at all (Lower/Trees.cpp),
+        // so the context is known by its type, not its place.
+        for (const ir::Function::Argument &arg : func->args) {
+            if (context_struct(arg.type) != nullptr) {
+                continue;
+            }
+            of.emplace(arg.name, arg.type);
         }
     }
     if (reads.empty()) {

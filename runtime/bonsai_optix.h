@@ -137,8 +137,12 @@ void bonsai_optix_ray_types(const char *const *names, int64_t count);
 
 // Compiles the PTX module ahead of its first launch, so that the compile is
 // part of a driver's setup rather than of its first timed call. What the
-// generated `bonsai_gpu_prepare()` calls.
-void bonsai_optix_load(const char *ptx);
+// generated `bonsai_gpu_prepare()` calls. `payload_values` is the widest
+// payload use of any trace in the module -- two for a context by address,
+// a promoted context's own word count otherwise (Lower/Trees.cpp) -- which
+// the pipeline is compiled against; every call for one module passes the
+// same number, the compiler's.
+void bonsai_optix_load(const char *ptx, int64_t payload_values);
 
 // Runs the raygen program `raygen` of `ptx` over `count` threads, with
 // `param_bytes` of `params` as the module's launch parameters, against the
@@ -148,10 +152,12 @@ void bonsai_optix_load(const char *ptx);
 // the device for the launch and back after it, with which slot holds its
 // address -- as bonsai_cuda_launch takes them (runtime/bonsai_cuda.h). Any
 // failure prints OptiX's reason and aborts, as the CUDA launch does.
+// `payload_values` as bonsai_optix_load takes it.
 void bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
                          void *params, int64_t param_bytes, void **slots,
                          int64_t nslots, bonsai_cuda_buffer *buffers,
-                         int64_t nbuffers, uint64_t traversable);
+                         int64_t nbuffers, uint64_t traversable,
+                         int64_t payload_values);
 }
 
 #ifdef BONSAI_OPTIX_SDK_FOUND
@@ -325,6 +331,9 @@ struct Module {
     // barycentrics to read (Lower/Trees.cpp bind_witness).
     std::vector<bool> has_closesthit_boxes;
     std::vector<bool> has_anyhit_boxes;
+    // What the module was compiled against (pipeline_options): every load
+    // and launch of it must say the same.
+    int64_t payload_values = 2;
 };
 
 struct Pipeline {
@@ -470,13 +479,15 @@ inline OptixTraversableHandle build(Api &a, const std::vector<OptixBuildInput> &
 
 // The pipeline's compile options: what every module and program group of a
 // pipeline is compiled against, so they agree.
-inline OptixPipelineCompileOptions pipeline_options() {
+inline OptixPipelineCompileOptions pipeline_options(int payload_values) {
     OptixPipelineCompileOptions options = {};
     options.usesMotionBlur = 0;
     options.traversableGraphFlags =
         OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
-    // The context's address, as two words (see Lower/Trees.cpp).
-    options.numPayloadValues = 2;
+    // The context's address as two words, or a promoted context's own
+    // (Lower/Trees.cpp); the compiler's number arrives with every load and
+    // launch.
+    options.numPayloadValues = payload_values;
     // The triangles' barycentrics, which the hardware reports; the boxes'
     // intersection program reports none.
     options.numAttributeValues = 2;
@@ -485,18 +496,25 @@ inline OptixPipelineCompileOptions pipeline_options() {
     return options;
 }
 
-inline Module &module_of(Api &a, State &s, const char *ptx) {
+inline Module &module_of(Api &a, State &s, const char *ptx,
+                         int64_t payload_values) {
     if (const auto it = s.modules.find(ptx); it != s.modules.end()) {
+        if (it->second.payload_values != payload_values) {
+            fail("one OptiX module loaded with two payload widths; every "
+                 "load and launch of a module passes the compiler's number");
+        }
         return it->second;
     }
     Module m;
+    m.payload_values = payload_values;
     OptixModuleCompileOptions module_options = {};
     module_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
     module_options.optLevel = validating() ? OPTIX_COMPILE_OPTIMIZATION_LEVEL_0
                                            : OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
     module_options.debugLevel = validating() ? OPTIX_COMPILE_DEBUG_LEVEL_FULL
                                              : OPTIX_COMPILE_DEBUG_LEVEL_NONE;
-    const OptixPipelineCompileOptions pipeline = pipeline_options();
+    const OptixPipelineCompileOptions pipeline =
+        pipeline_options(int(payload_values));
     char log[4096];
     size_t log_size = sizeof(log);
     const OptixResult r = a.table.optixModuleCreate(
@@ -549,12 +567,13 @@ inline Module &module_of(Api &a, State &s, const char *ptx) {
 }
 
 inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
-                             const std::string &raygen) {
+                             const std::string &raygen,
+                             int64_t payload_values) {
     const auto key = std::make_pair(ptx, raygen);
     if (const auto it = s.pipelines.find(key); it != s.pipelines.end()) {
         return it->second;
     }
-    Module &m = module_of(a, s, ptx);
+    Module &m = module_of(a, s, ptx, payload_values);
     Pipeline p;
     std::vector<OptixProgramGroupDesc> descs;
     std::vector<std::string> names; // kept alive for the descriptors
@@ -639,7 +658,8 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
         p.hit_triangles.push_back(groups[2 + 3 * t]);
         p.hit_boxes.push_back(groups[3 + 3 * t]);
     }
-    const OptixPipelineCompileOptions compile = pipeline_options();
+    const OptixPipelineCompileOptions compile =
+        pipeline_options(int(m.payload_values));
     OptixPipelineLinkOptions link = {};
     // A raygen program traces; the hit programs it runs do not.
     link.maxTraceDepth = 1;
@@ -950,15 +970,16 @@ bonsai_optix_ray_types(const char *const *names, int64_t count) {
     s.declared = true;
 }
 
-__attribute__((used)) inline void bonsai_optix_load(const char *ptx) {
+__attribute__((used)) inline void bonsai_optix_load(const char *ptx,
+                                                    int64_t payload_values) {
     using namespace bonsai_optix_detail;
     Api &a = ready("compile the OptiX module");
     State &s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
-    Module &m = module_of(a, s, ptx);
+    Module &m = module_of(a, s, ptx, payload_values);
     // And every raygen's pipeline, so that a first launch compiles nothing.
     for (const std::string &raygen : entries_with_prefix(ptx, "__raygen__")) {
-        pipeline_of(a, s, ptx, raygen);
+        pipeline_of(a, s, ptx, raygen, payload_values);
     }
     (void)m;
 }
@@ -967,7 +988,8 @@ __attribute__((used)) inline void
 bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
                     void *params, int64_t param_bytes, void **slots,
                     int64_t nslots, bonsai_cuda_buffer *buffers,
-                    int64_t nbuffers, uint64_t traversable) {
+                    int64_t nbuffers, uint64_t traversable,
+                    int64_t payload_values) {
     using namespace bonsai_optix_detail;
     Api &a = ready((std::string("launch `") + raygen + "`").c_str());
     State &s = state();
@@ -975,8 +997,8 @@ bonsai_optix_launch(const char *ptx, const char *raygen, int64_t count,
     if (count <= 0) {
         return;
     }
-    Module &m = module_of(a, s, ptx);
-    Pipeline &p = pipeline_of(a, s, ptx, raygen);
+    Module &m = module_of(a, s, ptx, payload_values);
+    Pipeline &p = pipeline_of(a, s, ptx, raygen, payload_values);
     if (traversable == 0 && !m.ray_types.empty()) {
         // The launch would trace against nothing, with a shader binding
         // table of no hit records, and fault: the driver did not fill the
@@ -1118,12 +1140,13 @@ __attribute__((used)) inline void bonsai_optix_ray_types(const char *const *,
                                                          int64_t) {
     bonsai_optix_detail::missing("declare the program's ray types");
 }
-__attribute__((used)) inline void bonsai_optix_load(const char *) {
+__attribute__((used)) inline void bonsai_optix_load(const char *, int64_t) {
     bonsai_optix_detail::missing("compile an OptiX module");
 }
 __attribute__((used)) inline void
 bonsai_optix_launch(const char *, const char *, int64_t, void *, int64_t,
-                    void **, int64_t, bonsai_cuda_buffer *, int64_t, uint64_t) {
+                    void **, int64_t, bonsai_cuda_buffer *, int64_t, uint64_t,
+                    int64_t) {
     bonsai_optix_detail::missing("launch a raygen program");
 }
 } // extern "C"

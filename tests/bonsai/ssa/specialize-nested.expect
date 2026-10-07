@@ -119,13 +119,13 @@ func [[export]] run(mode : (Mode*), shift : (Shift*), values : f32[8], out : mut
         let @159 = @158._pad in
         let @160 = @158.payload in
         let @161 = build<Mode>(0u, @159, @160) in
-        let @163 = values[i!Sum!Down] in
-        let @139 = @160[0u] in
-        let @140 = reinterpret_cast<f32>(@139) in
-        let @141 = @163 * @140 in
+        let @164 = values[i!Sum!Down] in
+        let @140 = @160[0u] in
+        let @141 = reinterpret_cast<f32>(@140) in
+        let @142 = @164 * @141 in
         let @147 = @195[0u] in
         let @148 = reinterpret_cast<f32>(@147) in
-        let @149 = @141 - @148 in
+        let @149 = @142 - @148 in
         out[i!Sum!Down] = @149
         continue
       }
@@ -140,13 +140,13 @@ func [[export]] run(mode : (Mode*), shift : (Shift*), values : f32[8], out : mut
         let @185 = @184._pad in
         let @186 = @184.payload in
         let @187 = build<Mode>(0u, @185, @186) in
-        let @189 = values[i!Sum!Up] in
-        let @165 = @186[0u] in
-        let @166 = reinterpret_cast<f32>(@165) in
-        let @167 = @189 * @166 in
+        let @190 = values[i!Sum!Up] in
+        let @166 = @186[0u] in
+        let @167 = reinterpret_cast<f32>(@166) in
+        let @168 = @190 * @167 in
         let @178 = @199[0u] in
         let @179 = reinterpret_cast<f32>(@178) in
-        let @180 = @167 + @179 in
+        let @180 = @168 + @179 in
         out[i!Sum!Up] = @180
         continue
       }
@@ -155,15 +155,15 @@ func [[export]] run(mode : (Mode*), shift : (Shift*), values : f32[8], out : mut
   } break;
   default: {
     parfor i!Clamp in [0:8:1] {
-      @103 : mut f32
+      @98 : mut f32
       let @135 = (*mode) in
       let @136 = @135._pad in
       let @137 = @135.payload in
       let @138 = build<Mode>(1u, @136, @137) in
-      let @125 = values[i!Clamp] in
-      let @100 = @137[0u] in
-      let @101 = reinterpret_cast<f32>(@100) in
-      let @102 = max(@125, @101) in
+      let @126 = values[i!Clamp] in
+      let @101 = @137[0u] in
+      let @102 = reinterpret_cast<f32>(@101) in
+      let @103 = max(@126, @102) in
       let @104 = (*shift) in
       let @105 = @104.tag in
       switch (@105) {
@@ -172,19 +172,19 @@ func [[export]] run(mode : (Mode*), shift : (Shift*), values : f32[8], out : mut
         let @117 = @116.payload in
         let @118 = @117[0u] in
         let @119 = reinterpret_cast<f32>(@118) in
-        let @120 = @102 - @119 in
-        @103 = @120
+        let @120 = @103 - @119 in
+        @98 = @120
       } break;
       default: { // Shift.Up of shifted
         let @85 = (*shift) in
         let @86 = @85.payload in
         let @87 = @86[0u] in
         let @88 = reinterpret_cast<f32>(@87) in
-        let @89 = @102 + @88 in
-        @103 = @89
+        let @89 = @103 + @88 in
+        @98 = @89
       }
       }
-      out[i!Clamp] = (*@103)
+      out[i!Clamp] = (*@98)
       continue
     }
   }

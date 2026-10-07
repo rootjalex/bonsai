@@ -11038,6 +11038,131 @@ LowerTuples rewrites the element tuple under the componentwise
 lambdas; correctness/llvm/witness-query.bonsai sits unregistered with
 the diagnosis).
 
+**The shadow anyhit read statically, before the counters -- 2026-10-06
+afternoon (file-only, during bonsai-44's exclusive window).** The
+fat-element theory as written above is WRONG at the element level:
+`stored_element` binds a 32-byte Geometric ({i64 shape tagged-ptr,
+i32 x5} -- material, alpha ordinal, light...), the same size as pbrt's
+four-pointer record; the quadrics' embedded transforms live in per-kind
+POOLS behind the tagged pointer (Shape_Sph_pool at 160B stride etc.),
+so the five dead arms' big loads sit behind untaken branches -- static
+PTX size, not dynamic sectors. What the IR actually shows, in
+descending order of suspicion for the 1.24x:
+(1) the 32-byte Geometric is loaded as ONE aggregate under
+!invariant.load and only fields 0 and 3 are extracted -- 12 of 32
+bytes used, per candidate; the user's ruling "if LLVM is failing to
+eliminate dead fields then our compiler should" names exactly this
+(instcombine will not split an aggregate load);
+(2) the query ray is read from the ctx (the raygen's alloca frame, so
+LOCAL memory through a generic pointer, 2x16B per anyhit invocation)
+where pbrt reads the hardware's ray registers free -- and the loads
+sit ABOVE the alpha-ordinal<0 early accept and above the dispatch,
+paid even by invocations that accept immediately; they are live only
+in the stochastic-alpha hash (ours hashes the same world ray pbrt
+does), so the lowering should materialize ctx reads AT THEIR USE;
+(3) the triangle arm loads 3 positions (36B) to interpolate the hit
+POINT that the alpha test (uv-only) likely never reads -- dead-chain
+candidate the aggregate-feeding Build keeps alive;
+(4) CLEARED: both anyhit_matters exports fold to `alpha_ordinal >= 0`
+(read from the binary: cmpl $0,0x10(%rdi); setns), the per-mesh-run
+DISABLE_ANYHIT partition is intact, so over-invocation via a broken
+matters derivation is NOT the story; the shadow raygen's frame
+(_RTContext_trace_any: ray, tmax, one bool) carries NO Hit, npayloads
+is 2, so the witness did not fatten the record or the trace; bistro
+has no ObjectInstance, so the instance arm's software untransform
+(64B + 36 flops per candidate, also above the early accept) never
+fires THERE (it would on instanced scenes).
+The regression 31.97 -> 34.06 ms (fix2 -> wit, pbrt 27.5) is not
+attributable from the IR alone; the measurement is a TRIO now:
+scratchpad/ncu_bistro_shadow.sh runs ours-wit, ours-fix2 and pbrt on
+the same matched shadow launches (skip 1 count 4 of -k optixLaunch =
+shadow d0, rays d1, shadow d1, rays d2 on every side), three
+single-pass metric groups (duration+grid; executed instructions and
+global ld/st instructions; L1 global sectors, L2 read sectors, dram
+read bytes) because pbrt's managed memory forbids multi-pass replay.
+wit-vs-fix2 attributes the witness's 2 ms; ours-vs-pbrt apportions
+the absolute gap between instructions and bytes.
+
+**The trio ran; one block held, one needs realignment -- and the
+user's ordered fixes are written (2026-10-06 evening, build pending
+the machine).** The wit-vs-fix2 columns share one launch sequence, so
+they stand whatever each instance is: the witness cut executed
+instructions ~25% on every profiled launch (0.748-0.759x) with load
+sectors and dram unchanged (0.99-1.07x) -- yet shadow's wall rose
+31.97 -> 34.06 ms. The regression is NOT instruction count and NOT
+L1/L2 traffic; the lead is occupancy/latency (the second hit-program
+flavor's register pressure, or scheduling), to be settled by an
+occupancy/stall pair after the fixes land. The ours-vs-pbrt columns
+are NOT trustworthy yet: our compare binary launches __raygen__probes
+instances pbrt has no counterpart for (instance 2 measured 31.5 ms
+against a stats max of 1.03), and pbrt's instruction group shows 0
+global-st instructions on a launch whose sector group shows 18.7M st
+sectors -- the alignment must be re-derived from a 24-launch duration
+curve per side (clouds_curve technique) before any cross-renderer
+cell is read. The fixes, written and awaiting the build window:
+(1) rt_ray_origin/rt_ray_direction -- hit and intersection programs
+read the query's ray from the hardware's ray state (the world ray IS
+the traced ray bit for bit), only the extent residue still reads the
+context; (3) Opt/Sink -- assignment sinking / partial dead code
+elimination after CSE, KRS PLDI'92/'94, moving pure values and
+invariant reads into the branch arms that alone read them (the
+anyhit's hit-point chain into the point-reading texture arms);
+(4) promoted contexts -- a context the payload registers can carry
+whole (every leaf a 32-bit scalar; an any-query's extent residue +
+bool, NOT a nearest's option record) crosses BY VALUE in the payload
+registers: rt_trace takes and answers the context value, programs
+take no context argument (rt_payload/rt_set_payload), the shadow
+query's stack frame and its local-memory round trip are gone, and
+numPayloadValues threads compiler -> Kernel -> bonsai_optix_launch/
+load -> pipeline_options. Fix (2), narrowing the 32B Geometric
+aggregate load to its two used fields, is HELD pending the user's
+confirm. Tests written: opt/sink.bonsai, correctness/llvm/sink.bonsai
+(registration of the two shared CMakeLists waits for bonsai-44's
+in-flight commit); the rtcore goldens re-bless with analysis at
+build time.
+
+**All four fixes built, verified and measured -- the 13-scene table
+(2026-10-06 evening, compare-out-hwctx, least of 5, 16/64 spp).**
+The user confirmed fix (2); it landed as Opt/NarrowLoads -- a
+statement rewrite, not an expression rule, because the sound form
+narrows the aggregate AT ITS OWN LET (per-used-field loads at the
+same program point, no invariance argument) -- composed just before
+Opt/Sink so narrowed fields sink one by one. Suite 1426/1426 green
+at the merged HEAD (bonsai-44's zero-fold commit under this work);
+65 goldens analyzed and blessed in four classes: renumbering,
+same-block motion, KRS arm-duplication (the sorted traversals'
+reciprocal chain cloned into the permutation arms -- dynamically
+never worse, leaf iterations now skip it), and the designed rtcore
+changes. VERIFIED LIVE in the renderer's final SSA: the shadow
+query's programs take NO context argument (zero memory behind the
+whole trace_any context -- the frame, its local-memory round trip
+and the miss's byte all gone; the miss program is two movs and one
+set_payload), hit and intersection programs read the ray from the
+hardware's state, Sink fired at 12 sites. HONEST GAPS: NarrowLoads
+does NOT fire on the renderer's Geometric -- that aggregate is a
+load_field whose whole value crosses the match merge as a block
+argument, outside the same-sequence pattern; the extension is
+per-field narrowing across merges (split the Geometric block
+argument), which is also what keeps the hit-point chain from
+sinking into the texture arms. MEASURED: every wall cell ahead of
+pbrt, 1.07x (landscape s64) to 2.38x (watercolor s16); images match
+on 10 of 13 scenes, the 3 failures the KNOWN pre-existing biases
+unmoved by any of this (bistro +112,300 lit pixels at s16 -- the
+same figure to the pixel -- villa's smaller bias, bmw-m6's ~3.5%
+mean). Stages still slower than pbrt, all IMPROVED but not closed:
+bistro shadow 1.20x/1.18x (from 1.24x; and bistro TRACE is now
+0.88-0.90x, ahead), watercolor shadow 1.14x/1.13x and raw trace
+1.19x (trace+medium matched 0.89-0.90x, ahead), landscape trace
+1.09x/1.08x (from 1.11x), dambreak materials 1.05x/1.04x (from
+1.07x); marginal: ganesha trace 1.03x, landscape materials 1.02x.
+Clouds and explosion trace cells are bookkeeping (matched work
+0.77-0.90x ahead). NEXT for the remaining cells: the realigned ncu
+trio on bistro shadow (scratchpad/ncu_bistro_align.sh then the
+B/C groups at the right skips -- the wit-vs-fix2 counters already
+cleared instructions and L1 and point at occupancy/latency), and
+the merge-crossing extension of NarrowLoads for the Geometric and
+the hit-point chain.
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24

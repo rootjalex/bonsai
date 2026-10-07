@@ -56,26 +56,26 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             tmax$i27 : mut f32
             intersects_Ray_AABB$r0 : mut bool
             !and_0 : mut bool
-            let @5 = tris.group0_row in
-            let @6 = (*tris_ref!top) >> 4u in
-            let _t190 = @5[@6] in
-            let @8 = _t190.lo in
-            let @9 = cast<f32x3x8>(@8) in
-            let _t138$i27 = @9[children] in
-            let @11 = _t190.hi in
-            let @12 = cast<f32x3x8>(@11) in
-            let _t137$i27 = @12[children] in
+            let @5 = f32x3(1f) in
+            let @6 = r.d in
+            let invDir$i27 = @5 / @6 in
+            let @8 = f32x3(0f) in
+            let dirIsNeg$i27 = invDir$i27 < @8 in
+            let @10 = tris.group0_row in
+            let @11 = (*tris_ref!top) >> 4u in
+            let _t190 = @10[@11] in
+            let @13 = _t190.lo in
+            let @14 = cast<f32x3x8>(@13) in
+            let _t138$i27 = @14[children] in
+            let @16 = _t190.hi in
+            let @17 = cast<f32x3x8>(@16) in
+            let _t137$i27 = @17[children] in
             let b$i0 = build<AABB>(_t138$i27, _t137$i27) in
-            let @15 = f32x3(1f) in
-            let @16 = r.d in
-            let invDir$i27 = @15 / @16 in
-            let @18 = f32x3(0f) in
-            let dirIsNeg$i27 = invDir$i27 < @18 in
             let low_parts$i27 = select(dirIsNeg$i27, _t137$i27, _t138$i27) in
-            let high_parts$i27 = select(dirIsNeg$i27, _t138$i27, _t137$i27) in
             let _t141$i27 = r.o in
-            let @25 = low_parts$i27 - _t141$i27 in
-            let @26 = @25 * invDir$i27 in
+            let @24 = low_parts$i27 - _t141$i27 in
+            let @25 = @24 * invDir$i27 in
+            let high_parts$i27 = select(dirIsNeg$i27, _t138$i27, _t137$i27) in
             let @27 = high_parts$i27 - _t141$i27 in
             let @28 = @27 * invDir$i27 in
             let @29 = (f32)eps in
@@ -87,10 +87,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @36 = 1f + @35 in
             let @446 = @28 * f32x3(@36) in
             let @38 = @446[1u] in
-            let @40 = @26[0u] in
+            let @40 = @25[0u] in
             let @41 = @38 < @40 in
             let @43 = @446[0u] in
-            let @45 = @26[1u] in
+            let @45 = @25[1u] in
             let @46 = @43 < @45 in
             let @47 = @41 || @46 in
             if (@47) {
@@ -101,7 +101,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               let @58 = min(@43, @38) in
               let @60 = @446[2u] in
               let @62 = @60 < @53 in
-              let @65 = @26[2u] in
+              let @65 = @25[2u] in
               let @66 = @58 < @65 in
               let @67 = @62 || @66 in
               if (@67) {
@@ -471,10 +471,10 @@ func entry(r : Ray, b : AABB) -> f32 {
   let _t137$i12 = b.high in
   let _t138$i12 = b.low in
   let low_parts$i12 = select(dirIsNeg$i12, _t137$i12, _t138$i12) in
-  let high_parts$i12 = select(dirIsNeg$i12, _t138$i12, _t137$i12) in
   let _t141$i12 = r.o in
-  let @10 = low_parts$i12 - _t141$i12 in
-  let @11 = @10 * invDir$i12 in
+  let @9 = low_parts$i12 - _t141$i12 in
+  let @10 = @9 * invDir$i12 in
+  let high_parts$i12 = select(dirIsNeg$i12, _t138$i12, _t137$i12) in
   let @12 = high_parts$i12 - _t141$i12 in
   let @13 = @12 * invDir$i12 in
   let @14 = (f32)eps in
@@ -486,10 +486,10 @@ func entry(r : Ray, b : AABB) -> f32 {
   let @21 = 1f + @20 in
   let @76 = @13 * f32x3(@21) in
   let @23 = @76[1u] in
-  let @25 = @11[0u] in
+  let @25 = @10[0u] in
   let @26 = @23 < @25 in
   let @28 = @76[0u] in
-  let @30 = @11[1u] in
+  let @30 = @10[1u] in
   let @31 = @28 < @30 in
   let @32 = @26 || @31 in
   if (@32) {
@@ -500,7 +500,7 @@ func entry(r : Ray, b : AABB) -> f32 {
     let @43 = min(@28, @23) in
     let @45 = @76[2u] in
     let @47 = @45 < @38 in
-    let @50 = @11[2u] in
+    let @50 = @10[2u] in
     let @51 = @43 < @50 in
     let @52 = @47 || @51 in
     if (@52) {

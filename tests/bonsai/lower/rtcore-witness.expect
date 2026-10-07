@@ -10,7 +10,7 @@ type Tri = struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3
 type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
 type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
 type _RTContext_trace = struct _RTContext_trace{ q : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }; result : option<(struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; alpha : f32 }, struct Hit{ t : f32; b : f32x2 })> }
-type _RTContext_trace_any = struct _RTContext_trace_any{ q : struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }; result : bool }
+type _RTContext_trace_any = struct _RTContext_trace_any{ tmax : f32; result : bool }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -23,7 +23,7 @@ func __anyhit__trace(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixTree) -
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
   let _rt_e1 = build<Hit>(rt_hit_t(), rt_barycentrics()) in
-  let r = ctx.q in
+  let r = build<Ray>(rt_ray_origin(), rt_ray_direction(), ctx.q.tmax) in
   if (!accepts(r, _rt_e0, _rt_e1)) {
     let _rt_ignored = rt_ignore_hit() in
   }
@@ -33,27 +33,27 @@ func __anyhit__trace$boxes(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixT
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
   let _rt_e1 = build<Hit>(rt_hit_t(), f32x2(0f)) in
-  let r = ctx.q in
+  let r = build<Ray>(rt_ray_origin(), rt_ray_direction(), ctx.q.tmax) in
   if (!accepts(r, _rt_e0, _rt_e1)) {
     let _rt_ignored = rt_ignore_hit() in
   }
 }
 
-func __anyhit__trace_any(ctx : mut _RTContext_trace_any, tris : tree[[Tri]] OptixTree) -> void {
+func __anyhit__trace_any(tris : tree[[Tri]] OptixTree) -> void {
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
   let _rt_e1 = build<Hit>(rt_hit_t(), rt_barycentrics()) in
-  let r = ctx.q in
+  let r = build<Ray>(rt_ray_origin(), rt_ray_direction(), reinterpret_cast<f32>(rt_payload(0u))) in
   if (!accepts(r, _rt_e0, _rt_e1)) {
     let _rt_ignored = rt_ignore_hit() in
   }
 }
 
-func __anyhit__trace_any$boxes(ctx : mut _RTContext_trace_any, tris : tree[[Tri]] OptixTree) -> void {
+func __anyhit__trace_any$boxes(tris : tree[[Tri]] OptixTree) -> void {
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
   let _rt_e1 = build<Hit>(rt_hit_t(), f32x2(0f)) in
-  let r = ctx.q in
+  let r = build<Ray>(rt_ray_origin(), rt_ray_direction(), reinterpret_cast<f32>(rt_payload(0u))) in
   if (!accepts(r, _rt_e0, _rt_e1)) {
     let _rt_ignored = rt_ignore_hit() in
   }
@@ -76,17 +76,17 @@ func __closesthit__trace$boxes(ctx : mut _RTContext_trace, tris : tree[[Tri]] Op
 func __intersection__trace(ctx : mut _RTContext_trace, tris : tree[[Tri]] OptixTree) -> void {
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
-  let r = build<Ray>(ctx.q.o, ctx.q.d, rt_hit_t()) in
+  let r = build<Ray>(build<Ray>(rt_ray_origin(), rt_ray_direction(), ctx.q.tmax).o, build<Ray>(rt_ray_origin(), rt_ray_direction(), ctx.q.tmax).d, rt_hit_t()) in
   let _rt_t = distmin(r, _rt_e0.tri) in
   if (_rt_t != (f32)inf) {
     let _rt_reported = rt_report_hit(_rt_t) in
   }
 }
 
-func __intersection__trace_any(ctx : mut _RTContext_trace_any, tris : tree[[Tri]] OptixTree) -> void {
+func __intersection__trace_any(tris : tree[[Tri]] OptixTree) -> void {
   let _rt_idx = rt_sbt_base() + rt_primitive_index() in
   let _rt_e0 = stored_element(tris, _rt_idx) in
-  let r = build<Ray>(ctx.q.o, ctx.q.d, rt_hit_t()) in
+  let r = build<Ray>(build<Ray>(rt_ray_origin(), rt_ray_direction(), reinterpret_cast<f32>(rt_payload(0u))).o, build<Ray>(rt_ray_origin(), rt_ray_direction(), reinterpret_cast<f32>(rt_payload(0u))).d, rt_hit_t()) in
   let _rt_t = distmin(r, _rt_e0.tri) in
   if (_rt_t != (f32)inf) {
     let _rt_reported = rt_report_hit(_rt_t) in
@@ -97,8 +97,8 @@ func __miss__trace(ctx : mut _RTContext_trace) -> void {
   return
 }
 
-func __miss__trace_any(ctx : mut _RTContext_trace_any) -> void {
-  ctx.result = false
+func __miss__trace_any() -> void {
+  let _rt_set1 = rt_set_payload(1u, cast<u32>(false)) in
   return
 }
 
@@ -108,10 +108,9 @@ func _rt_trace0(r : Ray, tris : tree[[Tri]] OptixTree) -> option<(Tri, Hit)> {
   return _ctx.result
 }
 
-func _rt_trace1(r : Ray, tris : tree[[Tri]] OptixTree) -> bool {
-  _ctx : mut _RTContext_trace_any := build<_RTContext_trace_any>(r, true)
-  let _rt_traced = rt_trace(rt_traversable(tris), r.o, r.d, 1e-07f, min(r.tmax, 1e+30f), 12u, (&_ctx)) in
-  return _ctx.result
+func _rt_trace1(tris : tree[[Tri]] OptixTree, r : Ray) -> bool {
+  let _rt_ctx_out = rt_trace(rt_traversable(tris), r.o, r.d, 1e-07f, min(r.tmax, 1e+30f), 12u, build<_RTContext_trace_any>(r.tmax, true)) in
+  return _rt_ctx_out.result
 }
 
 func accepts(r : Ray, t : Tri, h : Hit) -> bool {
@@ -143,7 +142,7 @@ func [[export]] trace_all(n : i32, rays : Ray[n], hit_t : mut f32[], hit_b1 : mu
 }
 
 func trace_any(r : Ray) -> bool {
-  return _rt_trace1(r, tris)
+  return _rt_trace1(tris, r)
 }
 
 func [[export]] trace_any_anyhit_matters(_rt_e0 : Tri) -> bool {

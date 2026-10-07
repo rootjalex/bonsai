@@ -1,6 +1,7 @@
 #include "IR/Expr.h"
 
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <numeric>
 #include <set>
@@ -1273,6 +1274,8 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     // program reads of its hit.
     const bool nullary = op == OpType::rand || op == OpType::rt_hit_t ||
                          op == OpType::rt_barycentrics ||
+                         op == OpType::rt_ray_origin ||
+                         op == OpType::rt_ray_direction ||
                          op == OpType::rt_primitive_index ||
                          op == OpType::rt_instance_id ||
                          op == OpType::rt_sbt_base ||
@@ -1484,9 +1487,35 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                 << "rt_trace takes float tmin and tmax";
             internal_assert(args[5].type().is<UInt_t>())
                 << "rt_trace takes the ray flags as an unsigned integer";
+            // The context: by address (the memory form, two payload words
+            // holding it), or by value (the promoted form, its words in the
+            // payload registers themselves), in which case the trace answers
+            // the context as the programs left it.
+            if (args[6].type().is<Struct_t>()) {
+                internal_assert(rt_context_words(args[6].type()).has_value())
+                    << "rt_trace takes the context by value only when it "
+                    << "fits the payload registers (ir::rt_context_words), "
+                    << "and " << args[6].type() << " does not";
+                node->type = args[6].type();
+                break;
+            }
             internal_assert(args[6].type().is<Ptr_t>())
-                << "rt_trace takes the context by address, not "
+                << "rt_trace takes the context by address or by value, not "
                 << args[6].type();
+            node->type = UInt_t::make(32);
+            break;
+        }
+        case Intrinsic::rt_payload: {
+            internal_assert(args.size() == 1 && args[0].type().is<UInt_t>())
+                << "rt_payload takes the word's index, a u32";
+            node->type = UInt_t::make(32);
+            break;
+        }
+        case Intrinsic::rt_set_payload: {
+            internal_assert(args.size() == 2 && args[0].type().is<UInt_t>() &&
+                            args[1].type().is<UInt_t>() &&
+                            args[1].type().bits() == 32)
+                << "rt_set_payload takes the word's index and the word, u32s";
             node->type = UInt_t::make(32);
             break;
         }
@@ -1508,6 +1537,13 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             internal_assert(args.empty())
                 << "rt_barycentrics takes no arguments";
             node->type = Vector_t::make(Float_t::make_f32(), 2);
+            break;
+        }
+        case Intrinsic::rt_ray_origin:
+        case Intrinsic::rt_ray_direction: {
+            internal_assert(args.empty())
+                << Intrinsic::make(op, {}) << " takes no arguments";
+            node->type = Vector_t::make(Float_t::make_f32(), 3);
             break;
         }
         case Intrinsic::rt_report_hit: {
@@ -1727,6 +1763,44 @@ Type hit_record_type() {
         Struct_t::Map{TypedVar{"t", Float_t::make_f32()},
                       TypedVar{"b", Vector_t::make(Float_t::make_f32(), 2)}});
     return hit;
+}
+
+std::optional<std::vector<ContextWord>> rt_context_words(const Type &context) {
+    std::vector<ContextWord> words;
+    // Depth first, fields in declaration order; false when a leaf is
+    // outside what one payload register carries.
+    const std::function<bool(const Type &, std::vector<std::string> &,
+                             std::vector<unsigned> &)>
+        walk = [&](const Type &t, std::vector<std::string> &path,
+                   std::vector<unsigned> &indices) -> bool {
+        if (const Struct_t *s = t.as<Struct_t>()) {
+            for (size_t i = 0; i < s->fields.size(); i++) {
+                path.push_back(s->fields[i].name);
+                indices.push_back(unsigned(i));
+                if (!walk(s->fields[i].type, path, indices)) {
+                    return false;
+                }
+                path.pop_back();
+                indices.pop_back();
+            }
+            return true;
+        }
+        const bool word =
+            t.is<Bool_t>() || (t.is<Float_t>() && t.bits() == 32) ||
+            ((t.is<Int_t>() || t.is<UInt_t>()) && t.bits() <= 32);
+        if (!word) {
+            return false;
+        }
+        words.push_back(ContextWord{path, indices, t});
+        return true;
+    };
+    std::vector<std::string> path;
+    std::vector<unsigned> indices;
+    if (!context.is<Struct_t>() || !walk(context, path, indices) ||
+        words.size() > 32) {
+        return std::nullopt;
+    }
+    return words;
 }
 
 namespace {
@@ -2118,6 +2192,7 @@ bool Intrinsic::has_effects(OpType op) {
     case Intrinsic::rt_trace:
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:
+    case Intrinsic::rt_set_payload:
     case Intrinsic::rt_reorder:
         return true;
     default:

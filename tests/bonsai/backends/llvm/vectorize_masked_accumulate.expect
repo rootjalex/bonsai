@@ -13,14 +13,14 @@ sum_some:
   br i1 %.not, label %"!par_cont_1", label %"!then_2"
 
 "!then_2":                                        ; preds = %sum_some
-  %2 = fmul <8 x float> %extract, splat (float 3.000000e+00)
-  %3 = fmul <8 x float> %extract, splat (float 2.000000e+00)
   tail call void @bonsai_buffer_mark_dirty(ptr %sums_buffer, i32 1)
+  %2 = fmul <8 x float> %extract, splat (float 2.000000e+00)
+  %3 = fmul <8 x float> %extract, splat (float 3.000000e+00)
   %4 = select <8 x i1> %0, <8 x float> %extract, <8 x float> zeroinitializer
   %5 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %4)
-  %6 = select <8 x i1> %0, <8 x float> %3, <8 x float> zeroinitializer
+  %6 = select <8 x i1> %0, <8 x float> %2, <8 x float> zeroinitializer
   %7 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %6)
-  %8 = select <8 x i1> %0, <8 x float> %2, <8 x float> zeroinitializer
+  %8 = select <8 x i1> %0, <8 x float> %3, <8 x float> zeroinitializer
   %9 = tail call float @llvm.vector.reduce.fadd.v8f32(float 0.000000e+00, <8 x float> %8)
   %10 = insertelement <3 x float> poison, float %5, i64 0
   %11 = insertelement <3 x float> %10, float %7, i64 1
