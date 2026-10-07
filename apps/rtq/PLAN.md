@@ -4752,6 +4752,34 @@ match less rather than more (the key's canonical form depends on when
 the Set was seen); the fold did not need it. Not committed; the patch is
 in the session's scratchpad.
 
+Found on the way and fixed at the user's direction (2026-10-06): the
+front-end simplifier's zero rules fired on floats under the exact
+arithmetic that is the default. `x * 0` folded to `0` (a NaN for an
+infinite or NaN `x`, `-0.0` for a negative one), `0 + x` and `x + 0` to
+`x` (`+0.0` for `x = -0.0`), `0 - x` to `-x` (`+0.0` where `-x` is
+`-0.0`) and `x / x` to `1` (a NaN at zero, at an infinity and at a NaN);
+a negated constant was folded as `0 - c`, which made the literal `-0.0`
+into `+0.0`; and a float divided by a constant zero tripped the integer
+check instead of folding to IEEE's answer. Now the zero rules fire on a
+float only under `--fast-math` (CompilerOptions::fast_math: no NaNs, no
+infinities, the sign of a zero not observed -- the assumption each rule
+makes, and what clang's -ffast-math promises LLVM); `x - 0.0` stays
+folded, exact for every float when the zero is positive; a negated
+constant is negated; the division folds (Opt/Simplify.cpp,
+`zero_folds`). Tests: opt/float-zero-folds (the rules left standing,
+`-0f` kept) and opt/float-zero-folds-fast-math (every one folded),
+backends/llvm/float-zero-folds (the operations reach LLVM as written, with
+no flags for it to fold them by), correctness/llvm/float-zero-folds (the
+NaN and signed-zero answers on the host, sixteen of them). Three goldens
+that spell a negation `0.0 - x` now read `0f - x`, and
+intervals-from-conditions' `lo = abs(a) * 0.0` stays a multiply, `[0, 0]
+(+)`, every fact the test documents unchanged. The rcp-step-edges test's
+`[[noinline]]` wrappers, added to keep its operands out of the fold's
+reach, stay: they also keep LLVM from folding the constant calls. rtq's
+modules are unchanged by it: the Embree and FCPW four-wide modules compile
+to the same instructions before and after, attribute lines aside, so the
+Embree half of the table below stands for this commit too.
+
 ## Known-open, smaller
 
 - The closest point's sort key, a squared distance, is not known

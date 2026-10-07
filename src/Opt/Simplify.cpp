@@ -12,6 +12,7 @@
 #include "Utils.h"
 
 #include <bit>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <string>
@@ -27,6 +28,28 @@ uint64_t log2(uint64_t value) {
     internal_assert(value > 0) << value;
     return std::bit_width(value) - 1;
 }
+
+// The negation of its second operand, for folding `-x` through the binary
+// constant folder: `-x` and not `0 - x`, which differ for a float at zero
+// (`0.0 - 0.0` is `+0.0`, `-(0.0)` is `-0.0`).
+struct Negated {
+    template <typename T>
+    T operator()(T, T x) const {
+        return -x;
+    }
+};
+
+// A float constant that is a positive zero, broadcast or not: the one zero
+// that `x - 0` is exact for (`x - (+0.0)` is `x` for every `x`, `-0.0`
+// included, where `x - (-0.0)` is `+0.0` at `x = -0.0`).
+bool is_positive_zero(const ir::Expr &e) {
+    if (const auto *b = e.as<ir::Broadcast>()) {
+        return is_positive_zero(b->value);
+    }
+    const auto *f = e.as<ir::FloatImm>();
+    return f != nullptr && f->value == 0 && !std::signbit(f->value);
+}
+
 // Bit casts `a` and `b` to type T, then applies `f`.
 template <typename T, typename F>
 T apply(F f, uint64_t a, uint64_t b) {
@@ -210,8 +233,9 @@ ir::Expr make(const ir::UnOp *node, ir::Expr a) {
 
 struct Simplifier : ir::Mutator {
     Simplifier() = default;
-    explicit Simplifier(const Simplify::Knowledge &knowledge)
-        : knowledge(&knowledge), facts(knowledge.known) {}
+    explicit Simplifier(const Simplify::Knowledge &knowledge,
+                        bool fast_math = false)
+        : knowledge(&knowledge), facts(knowledge.known), fast_math(fast_math) {}
 
     ir::Expr visit(const ir::Var *node) override {
         auto it = name_to_immediate.find(node->name);
@@ -227,9 +251,10 @@ struct Simplifier : ir::Mutator {
         const ir::Expr zero = make_zero(type);
         switch (node->op) {
         case ir::UnOp::OpType::Neg:
-            if (ir::Expr e = constant_fold_integral(std::minus<>{}, zero, a);
+            if (ir::Expr e = constant_fold_integral(Negated{}, zero, a);
                 e.defined()) {
-                // -x <=> 0 - x
+                // -x, folded as the negation: `0 - x` would turn `-0.0`
+                // into `+0.0`.
                 return e;
             }
             if (auto *op = is_op<ir::UnOp>(a, ir::UnOp::OpType::Neg)) {
@@ -271,13 +296,16 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
-            if (is_const_zero(a)) {
-                // 0 + b = b
-                return b;
-            }
-            if (is_const_zero(b)) {
-                // a + 0 = a
-                return a;
+            if (zero_folds(type)) {
+                // 0 + b = b, a + 0 = a: not for a float under exact
+                // arithmetic, where `0.0 + (-0.0)` is `+0.0` (see
+                // zero_folds).
+                if (is_const_zero(a)) {
+                    return b;
+                }
+                if (is_const_zero(b)) {
+                    return a;
+                }
             }
             return make(node, std::move(a), std::move(b));
         }
@@ -286,8 +314,10 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
-            if (is_const_zero(a) || is_const_zero(b)) {
-                // x * 0 = 0
+            if (zero_folds(type) && (is_const_zero(a) || is_const_zero(b))) {
+                // x * 0 = 0: not for a float under exact arithmetic, where
+                // it is a NaN for an infinite or NaN `x` and `-0.0` for a
+                // negative one (see zero_folds).
                 return zero;
             }
             if (is_const_one(a)) {
@@ -316,7 +346,11 @@ struct Simplifier : ir::Mutator {
             return make(node, std::move(a), std::move(b));
         }
         case ir::BinOp::OpType::Div: {
-            internal_assert(!is_const_zero(b)) << ir::Expr(node);
+            // An integer divided by a constant zero has no value and must not
+            // reach here; a float divided by one has IEEE's (`1.0 / -0.0` is
+            // `-inf`, `0.0 / 0.0` a NaN), and folds like any other constant.
+            internal_assert(type.is_float() || !is_const_zero(b))
+                << ir::Expr(node);
             if (ir::Expr e = constant_fold_integral(std::divides<>{}, a, b);
                 e.defined()) {
                 return e;
@@ -325,8 +359,10 @@ struct Simplifier : ir::Mutator {
                 // a / 1 = a
                 return a;
             }
-            if (a.same_as(b)) {
-                // a / a = 1
+            if (zero_folds(type) && a.same_as(b)) {
+                // a / a = 1: not for a float under exact arithmetic, where it
+                // is a NaN at zero, at an infinity and at a NaN (see
+                // zero_folds).
                 return one;
             }
             return make(node, std::move(a), std::move(b));
@@ -336,8 +372,12 @@ struct Simplifier : ir::Mutator {
                 e.defined()) {
                 return e;
             }
-            if (is_const_zero(b)) {
-                // a - 0 = 0
+            if (is_const_zero(b) &&
+                (zero_folds(type) || is_positive_zero(b))) {
+                // a - 0 = a: exact for a float too when the zero is
+                // positive, `x - (+0.0)` being `x` for every `x`;
+                // `x - (-0.0)` is `x + 0.0`, `+0.0` at `x = -0.0`, and
+                // waits for --fast-math.
                 return a;
             }
             // TODO(cgyurgyik): This checks for pointer equality, we want to
@@ -359,8 +399,10 @@ struct Simplifier : ir::Mutator {
                 // a - a = 0
                 return zero;
             }
-            if (is_const_zero(a)) {
-                // 0 - a = -a
+            if (zero_folds(type) && is_const_zero(a)) {
+                // 0 - a = -a: not for a float under exact arithmetic, where
+                // `0.0 - 0.0` is `+0.0` and `-(0.0)` is `-0.0` (see
+                // zero_folds).
                 return -b;
             }
             // (x + y) - x = y, and (x + y) - y = x: integers only, for the
@@ -901,6 +943,25 @@ struct Simplifier : ir::Mutator {
     // The conditions decided where the mutation is, most recent last.
     ir::Facts facts;
 
+    // Whether the zero rules may fire on a float (`x * 0.0 = 0`, `0.0 + x =
+    // x`, `x + 0.0 = x`, `0.0 - x = -x`): only under --fast-math
+    // (CompilerOptions::fast_math), which promises what each of them
+    // assumes -- no NaNs, no infinities, the sign of a zero not observed:
+    // LLVM's nnan, ninf and nsz, the flags clang's -ffast-math sets. Under
+    // the exact arithmetic that is the default each one changes an answer
+    // IEEE arithmetic gives: `x * 0.0` is a NaN for an infinite or NaN `x`
+    // and `-0.0` for a negative one, `0.0 + x` and `x + 0.0` turn `-0.0`
+    // into `+0.0`, and `0.0 - x` is `+0.0` where `-x` is `-0.0`. The
+    // integer forms are exact and fire regardless, and so does `x - 0.0`
+    // for a positive zero (is_positive_zero).
+    bool fast_math = false;
+
+    // Whether a zero rule may fire on `type`: on an integer always, on a
+    // float only under --fast-math.
+    bool zero_folds(const ir::Type &type) const {
+        return !type.is_float() || fast_math;
+    }
+
     // Whether `cond` means the same thing throughout the code it guards: a
     // pure value, over names the function cannot assign.
     bool learnable(const ir::Expr &cond) const {
@@ -982,7 +1043,8 @@ ir::FuncMap Simplify::run(ir::FuncMap funcs,
     const std::set<std::string> effectful = ir::find_side_effects(concrete);
     for (auto &[name, func] : concrete) {
         const Knowledge knowledge{ir::assignable_names(*func), effectful, {}};
-        func->body = Simplifier(knowledge).mutate(std::move(func->body));
+        func->body = Simplifier(knowledge, options.fast_math)
+                         .mutate(std::move(func->body));
     }
     return funcs;
 }

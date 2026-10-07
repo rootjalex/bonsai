@@ -1,0 +1,31 @@
+// The simplifier's zero rules on a float, under the exact arithmetic that
+// is the default (no --fast-math). None of these four folds, because each
+// changes an answer IEEE arithmetic gives:
+//
+//   x * 0.0, 0.0 * x    a NaN where x is infinite or a NaN, and a negative
+//                       zero where x is negative;
+//   x + 0.0, 0.0 + x    a positive zero where x is a negative zero;
+//   0.0 - x             a positive zero where x is one, where -x is negative.
+//
+// `x - 0.0` is `x` for every float, a negative zero included, and folds; a
+// negated constant is negated, not subtracted from zero, so `-0.0` keeps
+// its sign; and the integer forms fold as they always have. The same
+// program under --fast-math, where every one folds, is
+// float-zero-folds-fast-math.bonsai.
+element vec3f = vector[f32, 3];
+
+func times_zero(x : f32) -> f32 = x * 0.0;
+func zero_times(x : f32) -> f32 = 0.0 * x;
+func plus_zero(x : f32) -> f32 = x + 0.0;
+func zero_plus(x : f32) -> f32 = 0.0 + x;
+func zero_minus(x : f32) -> f32 = 0.0 - x;
+func minus_zero(x : f32) -> f32 = x - 0.0;
+func lanes_times_zero(v : vec3f) -> vec3f = v * 0.0;
+func double_times_zero(x : f64) -> f64 = x * 0.0;
+func negative_zero() -> f32 = -0.0;
+
+func int_times_zero(y : i32) -> i32 = y * 0;
+func int_zero_plus(y : i32) -> i32 = 0 + y;
+func int_plus_zero(y : i32) -> i32 = y + 0;
+func int_zero_minus(y : i32) -> i32 = 0 - y;
+func int_minus_zero(y : i32) -> i32 = y - 0;

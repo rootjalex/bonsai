@@ -1,0 +1,48 @@
+//! flags: -p ssa -b llvm -e
+
+// The float zero rules run on the host under the default exact arithmetic:
+// what IEEE arithmetic answers where the folded form would answer
+// otherwise. The operations are in [[noinline]] functions so that the
+// operand is a parameter when the simplifier sees it (a constant operand
+// would be folded exactly, in its own precision, which is right either
+// way); the zeros fed back in are made at run time for the same reason.
+// The sign of a zero is read as the sign of its reciprocal.
+func is_nan(v : f32) -> bool = v != v;
+func negative_zero(z : f32) -> bool = z == 0.0 && 1.0 / z < 0.0;
+func positive_zero(z : f32) -> bool = z == 0.0 && 1.0 / z > 0.0;
+
+func [[noinline]] times_zero(x : f32) -> f32 = x * 0.0;
+func [[noinline]] zero_times(x : f32) -> f32 = 0.0 * x;
+func [[noinline]] zero_plus(x : f32) -> f32 = 0.0 + x;
+func [[noinline]] plus_zero(x : f32) -> f32 = x + 0.0;
+func [[noinline]] zero_minus(x : f32) -> f32 = 0.0 - x;
+func [[noinline]] minus_zero(x : f32) -> f32 = x - 0.0;
+
+func main() -> i32 {
+    nan = inf - inf;
+    // x * 0.0: a NaN for an infinity or a NaN, a zero of x's sign otherwise.
+    print(is_nan(times_zero(inf)));
+    print(is_nan(zero_times(-inf)));
+    print(is_nan(times_zero(nan)));
+    print(negative_zero(times_zero(-3.0)));
+    print(positive_zero(times_zero(3.0)));
+    print(negative_zero(zero_times(-3.0)));
+    // 0.0 + x and x + 0.0: a positive zero for a negative zero; an infinity
+    // and a NaN pass through.
+    nz = times_zero(-3.0);
+    pz = times_zero(3.0);
+    print(negative_zero(nz));
+    print(positive_zero(zero_plus(nz)));
+    print(positive_zero(plus_zero(nz)));
+    print(zero_plus(inf) == inf);
+    print(is_nan(plus_zero(nan)));
+    // 0.0 - x: a positive zero for a positive zero, where -x is negative.
+    print(positive_zero(zero_minus(pz)));
+    print(zero_minus(3.0) == -3.0);
+    // x - 0.0 is x, a negative zero included.
+    print(negative_zero(minus_zero(nz)));
+    print(minus_zero(-3.0) == -3.0);
+    // A negated zero literal is a negative zero.
+    print(negative_zero(-0.0));
+    return 0;
+}

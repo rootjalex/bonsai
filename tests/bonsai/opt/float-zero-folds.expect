@@ -1,0 +1,59 @@
+type vec3f = f32x3
+
+func double_times_zero(x : f64) -> f64 {
+  return x * 0
+}
+
+func int_minus_zero(y : i32) -> i32 {
+  return y
+}
+
+func int_plus_zero(y : i32) -> i32 {
+  return y
+}
+
+func int_times_zero(y : i32) -> i32 {
+  return 0
+}
+
+func int_zero_minus(y : i32) -> i32 {
+  return -y
+}
+
+func int_zero_plus(y : i32) -> i32 {
+  return y
+}
+
+func lanes_times_zero(v : f32x3) -> f32x3 {
+  return v * f32x3(0f)
+}
+
+func minus_zero(x : f32) -> f32 {
+  return x
+}
+
+func negative_zero() -> f32 {
+  return -0f
+}
+
+func plus_zero(x : f32) -> f32 {
+  return x + 0f
+}
+
+func times_zero(x : f32) -> f32 {
+  return x * 0f
+}
+
+func zero_minus(x : f32) -> f32 {
+  return 0f - x
+}
+
+func zero_plus(x : f32) -> f32 {
+  return 0f + x
+}
+
+func zero_times(x : f32) -> f32 {
+  return 0f * x
+}
+
+

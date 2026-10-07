@@ -1,0 +1,18 @@
+//! flags: --fast-math
+
+// float-zero-folds.bonsai under --fast-math, which promises what clang's
+// -ffast-math does (CompilerOptions::fast_math: no NaNs, no infinities, the
+// sign of a zero not observed -- LLVM's nnan, ninf and nsz): every zero rule
+// folds on a float as it does on an integer, `x * 0.0` to zero and `0.0 +
+// x`, `x + 0.0` to `x`, `0.0 - x` to `-x`.
+element vec3f = vector[f32, 3];
+
+func times_zero(x : f32) -> f32 = x * 0.0;
+func zero_times(x : f32) -> f32 = 0.0 * x;
+func plus_zero(x : f32) -> f32 = x + 0.0;
+func zero_plus(x : f32) -> f32 = 0.0 + x;
+func zero_minus(x : f32) -> f32 = 0.0 - x;
+func minus_zero(x : f32) -> f32 = x - 0.0;
+func lanes_times_zero(v : vec3f) -> vec3f = v * 0.0;
+func double_times_zero(x : f64) -> f64 = x * 0.0;
+func negative_zero() -> f32 = -0.0;

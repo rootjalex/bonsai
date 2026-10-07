@@ -6,10 +6,12 @@ intervals of chosen:
   @5 : [inf, inf] n +
   @6 : [0, inf] (+)
 intervals of guarded:
-  @2 : [inf, inf] n +
-  @3 : [0, inf] +
-  @4 : [0, inf] (+)
-  @5 : [0, inf] (+)
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
+  @5 : [0, inf] +
+  @6 : [0, inf] (+)
+  @7 : [0, inf] (+)
 intervals of narrow:
   @0 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
   was : [0, inf] n +
@@ -23,22 +25,26 @@ intervals of narrow:
   *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
   *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
 intervals of refined:
-  @2 : [inf, inf] n +
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
   x : [0, inf] +
   r : [0, inf] (+)
-  @5 : [0, inf] (+)
-  @6 : [-inf, 1]
-  @8 : [0, inf] (+)
-  @9 : [0, inf] (+)
+  @7 : [0, inf] (+)
+  @8 : [-inf, 1]
+  @10 : [0, inf] (+)
+  @11 : [0, inf] (+)
 intervals of refined_enoki:
-  @2 : [inf, inf] n +
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
   x : [0, inf] +
   r : [0, inf] (+)
   t0 : [0, inf] (+)
   t1 : [0, inf] (+)
-  @7 : [0, inf] (+)
-  @8 : [0, inf] (+)
   @9 : [0, inf] (+)
+  @10 : [0, inf] (+)
+  @11 : [0, inf] (+)
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -60,10 +66,12 @@ intervals of chosen:
   @5 : [inf, inf] n +
   @6 : [0, inf] (+)
 intervals of guarded:
-  @2 : [inf, inf] n +
-  @3 : [0, inf] +
-  @4 : [0, inf] (+)
-  @5 : [0, inf] (+)
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
+  @5 : [0, inf] +
+  @6 : [0, inf] (+)
+  @7 : [0, inf] (+)
 intervals of narrow:
   @0 : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
   was : [0, inf] n +
@@ -75,22 +83,26 @@ intervals of narrow:
   *best (stored through) : {[0, inf] n +, [0, 4.29497e+09] n +}
   *best (on entry) : {key: [0, inf] n +, id: [0, 4.29497e+09] n +}
 intervals of refined:
-  @2 : [inf, inf] n +
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
   x : [0, inf] +
   r : [0, inf] (+)
-  @5 : [0, inf] (+)
-  @6 : [-inf, 1]
-  @8 : [0, inf] (+)
-  @9 : [0, inf] (+)
+  @7 : [0, inf] (+)
+  @8 : [-inf, 1]
+  @10 : [0, inf] (+)
+  @11 : [0, inf] (+)
 intervals of refined_enoki:
-  @2 : [inf, inf] n +
+  @0 : [0, inf] +
+  lo : [0, 0] (+)
+  @4 : [inf, inf] n +
   x : [0, inf] +
   r : [0, inf] (+)
   t0 : [0, inf] (+)
   t1 : [0, inf] (+)
-  @7 : [0, inf] (+)
-  @8 : [0, inf] (+)
   @9 : [0, inf] (+)
+  @10 : [0, inf] (+)
+  @11 : [0, inf] (+)
 intervals of run:
   @0 : [inf, inf] n +
   @1 : {key: [inf, inf] n +, id: [0, 0] n +}
@@ -118,16 +130,18 @@ func [[export]] chosen(a : f32, t : f32, d : f32) -> f32 {
 }
 
 func [[export]] guarded(a : f32, t : f32, d : f32) -> f32 {
-  let @0 = 0f < t in
-  let @1 = !@0 in
-  if (@1) {
-    let @2 = (f32)inf in
-    return @2
+  let @0 = abs(a) in
+  let lo = @0 * 0f in
+  let @2 = lo < t in
+  let @3 = !@2 in
+  if (@3) {
+    let @4 = (f32)inf in
+    return @4
   } else {
-    let @3 = abs(d) in
-    let @4 = rcp_approx(@3) in
-    let @5 = t * @4 in
-    return @5
+    let @5 = abs(d) in
+    let @6 = rcp_approx(@5) in
+    let @7 = t * @6 in
+    return @7
   }
 }
 
@@ -146,38 +160,42 @@ func narrow(best : mut (Pair*), d : f32, i : u32) -> f32 {
 }
 
 func [[export]] refined(a : f32, t : f32, d : f32) -> f32 {
-  let @0 = 0f < t in
-  let @1 = !@0 in
-  if (@1) {
-    let @2 = (f32)inf in
-    return @2
+  let @0 = abs(a) in
+  let lo = @0 * 0f in
+  let @2 = lo < t in
+  let @3 = !@2 in
+  if (@3) {
+    let @4 = (f32)inf in
+    return @4
   } else {
     let x = abs(d) in
     let r = rcp_approx(x) in
-    let @5 = x * r in
-    let @6 = 1f - @5 in
-    let @7 = r * @6 in
-    let @8 = r + @7 in
-    let @9 = t * @8 in
-    return @9
+    let @7 = x * r in
+    let @8 = 1f - @7 in
+    let @9 = r * @8 in
+    let @10 = r + @9 in
+    let @11 = t * @10 in
+    return @11
   }
 }
 
 func [[export]] refined_enoki(a : f32, t : f32, d : f32) -> f32 {
-  let @0 = 0f < t in
-  let @1 = !@0 in
-  if (@1) {
-    let @2 = (f32)inf in
-    return @2
+  let @0 = abs(a) in
+  let lo = @0 * 0f in
+  let @2 = lo < t in
+  let @3 = !@2 in
+  if (@3) {
+    let @4 = (f32)inf in
+    return @4
   } else {
     let x = abs(d) in
     let r = rcp_approx(x) in
     let t0 = r + r in
     let t1 = r * x in
-    let @7 = t1 * r in
-    let @8 = t0 - @7 in
-    let @9 = t * @8 in
-    return @9
+    let @9 = t1 * r in
+    let @10 = t0 - @9 in
+    let @11 = t * @10 in
+    return @11
   }
 }
 

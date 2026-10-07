@@ -30,6 +30,7 @@ add_bonsai_tests(
     defer-vector-leaves.bonsai
     hoist-allocations.bonsai
     inline-names.bonsai
+    float-zero-folds.bonsai
     rcp-step-edges.bonsai
     reorder.bonsai
     rounds-inner-queue.bonsai

@@ -13,6 +13,8 @@ add_bonsai_tests(
     dce-scope.bonsai
     dce-struct.bonsai
     dce.bonsai
+    float-zero-folds.bonsai
+    float-zero-folds-fast-math.bonsai
     inline.bonsai
     inline-rounds.bonsai
     inline-statements.bonsai

@@ -59,7 +59,7 @@ func [[export]] guarded(flag : bool, x : f32) -> f32 {
     y = x
     c = false
   } else {
-    y = -x
+    y = 0f - x
   }
   if (c) {
     y = y + 1f
@@ -87,7 +87,7 @@ func [[export]] independent(a : bool, b : bool, x : f32) -> f32 {
     }
     return s$t5
   } else {
-    p = -x
+    p = 0f - x
     q$t6 : mut f32 := 0f
     if (b) {
       q$t6 = 1f
@@ -112,7 +112,7 @@ func [[export]] reassigned(n : i32, x : f32) -> f32 {
   if (0 < k) {
     y = x
   } else {
-    y = -x
+    y = 0f - x
   }
   k = k - 1
   if (0 < k) {
@@ -144,7 +144,7 @@ func [[export]] strict(k : i32, x : f32) -> f32 {
     let z$t7 = bump(c) in
     return (y + z$t7) + (cast<f32>(c.n) * 100f)
   } else {
-    y = -x
+    y = 0f - x
     let z$t8 = select(_t11, bump(c), 0f) in
     return (y + z$t8) + (cast<f32>(c.n) * 100f)
   }
@@ -185,7 +185,7 @@ func [[export]] wide(is_tri : bool, x : f32) -> f32 {
   if (is_tri) {
     d = a20
   } else {
-    d = -a20
+    d = 0f - a20
   }
   return d
 }

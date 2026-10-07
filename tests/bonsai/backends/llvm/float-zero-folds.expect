@@ -1,0 +1,44 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @minus_zero(float noundef returned %x) local_unnamed_addr #0 {
+minus_zero:
+  ret float %x
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @negative_zero() local_unnamed_addr #0 {
+negative_zero:
+  ret float -0.000000e+00
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @plus_zero(float noundef %x) local_unnamed_addr #0 {
+plus_zero:
+  %0 = fadd float %x, 0.000000e+00
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @times_zero(float noundef %x) local_unnamed_addr #0 {
+times_zero:
+  %0 = fmul float %x, 0.000000e+00
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @zero_minus(float noundef %x) local_unnamed_addr #0 {
+zero_minus:
+  %0 = fsub float 0.000000e+00, %x
+  ret float %0
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+define noundef float @zero_plus(float noundef %x) local_unnamed_addr #0 {
+zero_plus:
+  %0 = fadd float %x, 0.000000e+00
+  ret float %0
+}
+
+attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

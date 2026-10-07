@@ -3,7 +3,7 @@ func [[export]] deep(x : f32) -> f32 {
   leaf$r8 : mut f32
   acc$i8 : mut f32 := x
   if (acc$i8 < 0f) {
-    acc$i8 = -acc$i8
+    acc$i8 = 0f - acc$i8
   }
   acc$i8 = acc$i8 + 1f
   leaf$r8 = acc$i8
@@ -50,7 +50,7 @@ func far(a : f32, b : f32) -> f32 {
 func leaf(x : f32) -> f32 {
   acc : mut f32 := x
   if (acc < 0f) {
-    acc = -acc
+    acc = 0f - acc
   }
   acc = acc + 1f
   return acc
@@ -74,7 +74,7 @@ func p(x : f32) -> f32 {
   leaf$r4 : mut f32
   acc$i4 : mut f32 := x
   if (acc$i4 < 0f) {
-    acc$i4 = -acc$i4
+    acc$i4 = 0f - acc$i4
   }
   acc$i4 = acc$i4 + 1f
   leaf$r4 = acc$i4
@@ -89,7 +89,7 @@ func q(x : f32) -> f32 {
   leaf$r5 : mut f32
   acc$i5 : mut f32 := x
   if (acc$i5 < 0f) {
-    acc$i5 = -acc$i5
+    acc$i5 = 0f - acc$i5
   }
   acc$i5 = acc$i5 + 1f
   leaf$r5 = acc$i5

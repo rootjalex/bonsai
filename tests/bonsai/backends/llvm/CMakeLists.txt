@@ -35,6 +35,7 @@ add_bonsai_tests(
     exported-function.bonsai
     ffp-contract.bonsai
     float.bonsai
+    float-zero-folds.bonsai
     forall.bonsai
     gpu-launch-buffers.bonsai
     index.bonsai

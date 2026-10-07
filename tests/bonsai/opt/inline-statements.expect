@@ -40,7 +40,7 @@ func note(x : f32) -> void {
     print(x)
     return
   }
-  print(-x)
+  print(0f - x)
 }
 
 func pick(c : bool, a : f32, b : f32) -> f32 {
@@ -70,7 +70,7 @@ func use(x : f32, h : Hit, a : f32[4]) -> f32 {
     if (1f < clamp_pos$r0) {
       print(clamp_pos$r0)
     } else {
-      print(-clamp_pos$r0)
+      print(0f - clamp_pos$r0)
     }
   }
   let x$i3 = x + 1f in
