@@ -196,12 +196,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             let @79 = @78.offset in
             let @80 = (*shapes_index!top) + @79 in
             let @82 = !_t31 in
-            let @266 = select(@82, @76, @80) in
-            let @267 = select(@82, @80, @76) in
-            !stack[(*!count)] = @267
-            let @274 = (*!count) + 1u in
-            shapes_index!top = @266
-            !count = @274
+            let @272 = select(@82, @76, @80) in
+            let @273 = select(@82, @80, @76) in
+            !stack[(*!count)] = @273
+            let @280 = (*!count) + 1u in
+            shapes_index!top = @272
+            !count = @280
             continue
           } else {
             let @84 = cast<u16>(_t85) in
@@ -212,216 +212,196 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
               let @88 = @87.pOffset in
               let _t78 = @88 + (*data) in
               let @90 = shapes.prims in
-              let _t79 = @90[_t78] in
-              let _t334 = _t79.tag in
+              let @91 = @90[_t78] in
+              let @92 = @91.payload in
+              let _t79$payload1$w02 = @92[0] in
+              let _t79$payload1$w13 = @92[1] in
+              let _t79$payload1$w24 = @92[2] in
+              let _t79$payload1$w45 = @92[4] in
+              let _t79$payload1$w56 = @92[5] in
+              let _t79$payload1$w67 = @92[6] in
+              let _t79$payload1$w88 = @92[8] in
+              let _t79$payload1$w99 = @92[9] in
+              let _t79$payload1$w1010 = @92[10] in
+              let _t334 = @91.tag in
               switch (_t334) {
               case 0: { // Shape.Sph of intersects_Ray_Shape
-                let _t242$i3 = _t79.payload in
-                let @94 = _t242$i3[0u] in
-                let @95 = reinterpret_cast<f32>(@94) in
-                let @96 = _t242$i3[1u] in
-                let @97 = reinterpret_cast<f32>(@96) in
-                let @98 = _t242$i3[2u] in
-                let @99 = reinterpret_cast<f32>(@98) in
-                let @100 = build<f32x3>(@95, @97, @99) in
-                let @101 = _t242$i3[4u] in
-                let _t290$i21$i35 = reinterpret_cast<f32>(@101) in
-                let oc$i21$i35 = @100 - _t494 in
-                let @107 = oc$i21$i35[0] in
-                let @108 = @12 * @107 in
-                let @110 = oc$i21$i35[1] in
-                let @111 = @15 * @110 in
-                let @112 = @108 + @111 in
-                let @114 = oc$i21$i35[2] in
-                let @115 = @19 * @114 in
-                let h$i21$i35 = @112 + @115 in
-                let @118 = oc$i21$i35 * oc$i21$i35 in
-                let @119 = reduce<+>(@118) in
-                let @120 = _t290$i21$i35 * _t290$i21$i35 in
-                let c$i21$i35 = @119 - @120 in
-                let @122 = h$i21$i35 * h$i21$i35 in
-                let @123 = a$i34 * c$i21$i35 in
-                let disc$i21$i35 = @122 - @123 in
-                let @125 = disc$i21$i35 < 0f in
-                if (@125) {
-                  let @126 = build<_option1>() in
-                  intersectsp_ray_sphere$r21$i35 = @126
+                let @129 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                let @130 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                let @131 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                let @132 = build<f32x3>(@129, @130, @131) in
+                let _t290$i21$i35 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                let oc$i21$i35 = @132 - _t494 in
+                let @138 = oc$i21$i35[0] in
+                let @139 = @12 * @138 in
+                let @141 = oc$i21$i35[1] in
+                let @142 = @15 * @141 in
+                let @143 = @139 + @142 in
+                let @145 = oc$i21$i35[2] in
+                let @146 = @19 * @145 in
+                let h$i21$i35 = @143 + @146 in
+                let @149 = oc$i21$i35 * oc$i21$i35 in
+                let @150 = reduce<+>(@149) in
+                let @151 = _t290$i21$i35 * _t290$i21$i35 in
+                let c$i21$i35 = @150 - @151 in
+                let @153 = h$i21$i35 * h$i21$i35 in
+                let @154 = a$i34 * c$i21$i35 in
+                let disc$i21$i35 = @153 - @154 in
+                let @156 = disc$i21$i35 < 0f in
+                if (@156) {
+                  let @157 = build<_option1>() in
+                  intersectsp_ray_sphere$r21$i35 = @157
                 } else {
                   let sqrtd$i21$i35 = sqrt(disc$i21$i35) in
-                  let @128 = h$i21$i35 - sqrtd$i21$i35 in
-                  let root0$i21$i35 = @128 / a$i34 in
-                  let @130 = h$i21$i35 + sqrtd$i21$i35 in
-                  let root1$i21$i35 = @130 / a$i34 in
-                  let @132 = min(root0$i21$i35, root1$i21$i35) in
-                  let @133 = max(root0$i21$i35, root1$i21$i35) in
-                  let interval$i21$i35 = build<FInterval>(@132, @133) in
-                  let @135 = build<_option1>(interval$i21$i35, true) in
-                  intersectsp_ray_sphere$r21$i35 = @135
+                  let @159 = h$i21$i35 - sqrtd$i21$i35 in
+                  let root0$i21$i35 = @159 / a$i34 in
+                  let @161 = h$i21$i35 + sqrtd$i21$i35 in
+                  let root1$i21$i35 = @161 / a$i34 in
+                  let @163 = min(root0$i21$i35, root1$i21$i35) in
+                  let @164 = max(root0$i21$i35, root1$i21$i35) in
+                  let interval$i21$i35 = build<FInterval>(@163, @164) in
+                  let @166 = build<_option1>(interval$i21$i35, true) in
+                  intersectsp_ray_sphere$r21$i35 = @166
                 }
-                let @137 = (*intersectsp_ray_sphere$r21$i35).set in
-                if (@137) {
+                let @168 = (*intersectsp_ray_sphere$r21$i35).set in
+                if (@168) {
                   let extract$i35 = (*intersectsp_ray_sphere$r21$i35).value in
-                  let @140 = extract$i35.low in
-                  let @141 = r.tmax in
-                  let @142 = @140 < @141 in
-                  let @143 = extract$i35.high in
-                  let @144 = 0f < @143 in
-                  let @145 = @142 & @144 in
-                  intersects_Ray_Sphere$r35 = @145
+                  let @171 = extract$i35.low in
+                  let @172 = r.tmax in
+                  let @173 = @171 < @172 in
+                  let @174 = extract$i35.high in
+                  let @175 = 0f < @174 in
+                  let @176 = @173 & @175 in
+                  intersects_Ray_Sphere$r35 = @176
                 } else {
                   intersects_Ray_Sphere$r35 = false
                 }
                 intersects_Ray_Shape$r3 = (*intersects_Ray_Sphere$r35)
               } break;
               default: { // Shape.Tri of intersects_Ray_Shape
-                let _t255$i3 = _t79.payload in
-                let @148 = _t255$i3[0u] in
-                let @149 = reinterpret_cast<f32>(@148) in
-                let @150 = _t255$i3[1u] in
-                let @151 = reinterpret_cast<f32>(@150) in
-                let @152 = _t255$i3[2u] in
-                let @153 = reinterpret_cast<f32>(@152) in
-                let @154 = build<f32x3>(@149, @151, @153) in
-                let @155 = _t255$i3[4u] in
-                let @156 = reinterpret_cast<f32>(@155) in
-                let @157 = _t255$i3[5u] in
-                let @158 = reinterpret_cast<f32>(@157) in
-                let @159 = _t255$i3[6u] in
-                let @160 = reinterpret_cast<f32>(@159) in
-                let @161 = build<f32x3>(@156, @158, @160) in
-                let @162 = _t255$i3[8u] in
-                let @163 = reinterpret_cast<f32>(@162) in
-                let @164 = _t255$i3[9u] in
-                let @165 = reinterpret_cast<f32>(@164) in
-                let @166 = _t255$i3[10u] in
-                let @167 = reinterpret_cast<f32>(@166) in
-                let @168 = build<f32x3>(@163, @165, @167) in
-                let t$i3 = build<Triangle>(@154, @161, @168) in
-                let @170 = intersectsp_ray_tri(r, t$i3) in
-                let @171 = @170.set in
-                intersects_Ray_Shape$r3 = @171
+                let @178 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                let @179 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                let @180 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                let @181 = build<f32x3>(@178, @179, @180) in
+                let @182 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                let @183 = reinterpret_cast<f32>(_t79$payload1$w56) in
+                let @184 = reinterpret_cast<f32>(_t79$payload1$w67) in
+                let @185 = build<f32x3>(@182, @183, @184) in
+                let @186 = reinterpret_cast<f32>(_t79$payload1$w88) in
+                let @187 = reinterpret_cast<f32>(_t79$payload1$w99) in
+                let @188 = reinterpret_cast<f32>(_t79$payload1$w1010) in
+                let @189 = build<f32x3>(@186, @187, @188) in
+                let t$i3 = build<Triangle>(@181, @185, @189) in
+                let @191 = intersectsp_ray_tri(r, t$i3) in
+                let @192 = @191.set in
+                intersects_Ray_Shape$r3 = @192
               }
               }
               if ((*intersects_Ray_Shape$r3)) {
                 switch (_t334) {
                 case 0: { // Shape.Sph of distmin_Ray_Shape
-                  let _t174$i4 = _t79.payload in
-                  let @174 = _t174$i4[0u] in
-                  let @175 = reinterpret_cast<f32>(@174) in
-                  let @176 = _t174$i4[1u] in
-                  let @177 = reinterpret_cast<f32>(@176) in
-                  let @178 = _t174$i4[2u] in
-                  let @179 = reinterpret_cast<f32>(@178) in
-                  let @180 = build<f32x3>(@175, @177, @179) in
-                  let @181 = _t174$i4[4u] in
-                  let _t290$i17$i36 = reinterpret_cast<f32>(@181) in
-                  let oc$i17$i36 = @180 - _t494 in
-                  let @187 = oc$i17$i36[0] in
-                  let @188 = @12 * @187 in
-                  let @190 = oc$i17$i36[1] in
-                  let @191 = @15 * @190 in
-                  let @192 = @188 + @191 in
-                  let @194 = oc$i17$i36[2] in
-                  let @195 = @19 * @194 in
-                  let h$i17$i36 = @192 + @195 in
-                  let @198 = oc$i17$i36 * oc$i17$i36 in
-                  let @199 = reduce<+>(@198) in
-                  let @200 = _t290$i17$i36 * _t290$i17$i36 in
-                  let c$i17$i36 = @199 - @200 in
-                  let @202 = h$i17$i36 * h$i17$i36 in
-                  let @203 = a$i34 * c$i17$i36 in
-                  let disc$i17$i36 = @202 - @203 in
-                  let @205 = disc$i17$i36 < 0f in
-                  if (@205) {
-                    let @206 = build<_option1>() in
-                    intersectsp_ray_sphere$r17$i36 = @206
+                  let @194 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                  let @195 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                  let @196 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                  let @197 = build<f32x3>(@194, @195, @196) in
+                  let _t290$i17$i36 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                  let oc$i17$i36 = @197 - _t494 in
+                  let @203 = oc$i17$i36[0] in
+                  let @204 = @12 * @203 in
+                  let @206 = oc$i17$i36[1] in
+                  let @207 = @15 * @206 in
+                  let @208 = @204 + @207 in
+                  let @210 = oc$i17$i36[2] in
+                  let @211 = @19 * @210 in
+                  let h$i17$i36 = @208 + @211 in
+                  let @214 = oc$i17$i36 * oc$i17$i36 in
+                  let @215 = reduce<+>(@214) in
+                  let @216 = _t290$i17$i36 * _t290$i17$i36 in
+                  let c$i17$i36 = @215 - @216 in
+                  let @218 = h$i17$i36 * h$i17$i36 in
+                  let @219 = a$i34 * c$i17$i36 in
+                  let disc$i17$i36 = @218 - @219 in
+                  let @221 = disc$i17$i36 < 0f in
+                  if (@221) {
+                    let @222 = build<_option1>() in
+                    intersectsp_ray_sphere$r17$i36 = @222
                   } else {
                     let sqrtd$i17$i36 = sqrt(disc$i17$i36) in
-                    let @208 = h$i17$i36 - sqrtd$i17$i36 in
-                    let root0$i17$i36 = @208 / a$i34 in
-                    let @210 = h$i17$i36 + sqrtd$i17$i36 in
-                    let root1$i17$i36 = @210 / a$i34 in
-                    let @212 = min(root0$i17$i36, root1$i17$i36) in
-                    let @213 = max(root0$i17$i36, root1$i17$i36) in
-                    let interval$i17$i36 = build<FInterval>(@212, @213) in
-                    let @215 = build<_option1>(interval$i17$i36, true) in
-                    intersectsp_ray_sphere$r17$i36 = @215
+                    let @224 = h$i17$i36 - sqrtd$i17$i36 in
+                    let root0$i17$i36 = @224 / a$i34 in
+                    let @226 = h$i17$i36 + sqrtd$i17$i36 in
+                    let root1$i17$i36 = @226 / a$i34 in
+                    let @228 = min(root0$i17$i36, root1$i17$i36) in
+                    let @229 = max(root0$i17$i36, root1$i17$i36) in
+                    let interval$i17$i36 = build<FInterval>(@228, @229) in
+                    let @231 = build<_option1>(interval$i17$i36, true) in
+                    intersectsp_ray_sphere$r17$i36 = @231
                   }
-                  let @217 = (*intersectsp_ray_sphere$r17$i36).set in
-                  if (@217) {
+                  let @233 = (*intersectsp_ray_sphere$r17$i36).set in
+                  if (@233) {
                     let extract$i36 = (*intersectsp_ray_sphere$r17$i36).value in
-                    let @220 = extract$i36.low in
-                    distmin_Ray_Sphere$r36 = @220
+                    let @236 = extract$i36.low in
+                    distmin_Ray_Sphere$r36 = @236
                   } else {
-                    let @221 = (f32)inf in
-                    let @222 = -0f - @221 in
-                    distmin_Ray_Sphere$r36 = @222
+                    let @237 = (f32)inf in
+                    let @238 = -0f - @237 in
+                    distmin_Ray_Sphere$r36 = @238
                   }
                   distmin_Ray_Shape$r4 = (*distmin_Ray_Sphere$r36)
                 } break;
                 default: { // Shape.Tri of distmin_Ray_Shape
-                  let _t187$i4 = _t79.payload in
-                  let @225 = _t187$i4[0u] in
-                  let @226 = reinterpret_cast<f32>(@225) in
-                  let @227 = _t187$i4[1u] in
-                  let @228 = reinterpret_cast<f32>(@227) in
-                  let @229 = _t187$i4[2u] in
-                  let @230 = reinterpret_cast<f32>(@229) in
-                  let @231 = build<f32x3>(@226, @228, @230) in
-                  let @232 = _t187$i4[4u] in
-                  let @233 = reinterpret_cast<f32>(@232) in
-                  let @234 = _t187$i4[5u] in
-                  let @235 = reinterpret_cast<f32>(@234) in
-                  let @236 = _t187$i4[6u] in
-                  let @237 = reinterpret_cast<f32>(@236) in
-                  let @238 = build<f32x3>(@233, @235, @237) in
-                  let @239 = _t187$i4[8u] in
-                  let @240 = reinterpret_cast<f32>(@239) in
-                  let @241 = _t187$i4[9u] in
-                  let @242 = reinterpret_cast<f32>(@241) in
-                  let @243 = _t187$i4[10u] in
-                  let @244 = reinterpret_cast<f32>(@243) in
-                  let @245 = build<f32x3>(@240, @242, @244) in
-                  let t$i4 = build<Triangle>(@231, @238, @245) in
-                  let @247 = intersectsp_ray_tri(r, t$i4) in
-                  let isect$i37 = @247 in
-                  let @248 = isect$i37.set in
-                  if (@248) {
+                  let @240 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                  let @241 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                  let @242 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                  let @243 = build<f32x3>(@240, @241, @242) in
+                  let @244 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                  let @245 = reinterpret_cast<f32>(_t79$payload1$w56) in
+                  let @246 = reinterpret_cast<f32>(_t79$payload1$w67) in
+                  let @247 = build<f32x3>(@244, @245, @246) in
+                  let @248 = reinterpret_cast<f32>(_t79$payload1$w88) in
+                  let @249 = reinterpret_cast<f32>(_t79$payload1$w99) in
+                  let @250 = reinterpret_cast<f32>(_t79$payload1$w1010) in
+                  let @251 = build<f32x3>(@248, @249, @250) in
+                  let t$i4 = build<Triangle>(@243, @247, @251) in
+                  let @253 = intersectsp_ray_tri(r, t$i4) in
+                  let isect$i37 = @253 in
+                  let @254 = isect$i37.set in
+                  if (@254) {
                     let isect_$i37 = isect$i37.value in
-                    let @250 = isect_$i37.t in
-                    distmin_Ray_Triangle$r37 = @250
+                    let @256 = isect_$i37.t in
+                    distmin_Ray_Triangle$r37 = @256
                   } else {
-                    let @251 = (f32)inf in
-                    distmin_Ray_Triangle$r37 = @251
+                    let @257 = (f32)inf in
+                    distmin_Ray_Triangle$r37 = @257
                   }
                   distmin_Ray_Shape$r4 = (*distmin_Ray_Triangle$r37)
                 }
                 }
-                let @254 = 0.001f < (*distmin_Ray_Shape$r4) in
-                if (@254) {
-                  let @256 = (*_best0) in
-                  let @257 = @256._field0 in
-                  let @258 = (*distmin_Ray_Shape$r4) < @257 in
-                  if (@258) {
-                    let @260 = build<__tuple_0>(_t78) in
-                    let @261 = build<__tuple_1>((*distmin_Ray_Shape$r4), @260) in
-                    _best0 argmin= @261
+                let @260 = 0.001f < (*distmin_Ray_Shape$r4) in
+                if (@260) {
+                  let @262 = (*_best0) in
+                  let @263 = @262._field0 in
+                  let @264 = (*distmin_Ray_Shape$r4) < @263 in
+                  if (@264) {
+                    let @266 = build<__tuple_0>(_t78) in
+                    let @267 = build<__tuple_1>((*distmin_Ray_Shape$r4), @266) in
+                    _best0 argmin= @267
                   }
                 }
               }
-              let @262 = (*data) + 1u in
-              data = @262
+              let @268 = (*data) + 1u in
+              data = @268
             }
           }
         }
       }
     }
-    let @269 = (*!count) != 0u in
-    if (@269) {
-      let @270 = (*!count) - 1u in
-      let @271 = !stack[@270] in
-      shapes_index!top = @271
-      !count = @270
+    let @275 = (*!count) != 0u in
+    if (@275) {
+      let @276 = (*!count) - 1u in
+      let @277 = !stack[@276] in
+      shapes_index!top = @277
+      !count = @276
       continue
     } else {
       return
@@ -444,353 +424,333 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
   !count = 0u
   do {
     let _t285$i34 = r.d in
-    let @333 = _t285$i34.!0 in
-    let @334 = @333 * @333 in
-    let @335 = _t285$i34.!1 in
-    let @336 = @335 * @335 in
-    let @337 = _t285$i34.!2 in
-    let @338 = @337 * @337 in
-    let @339 = @334 + @336 in
-    let @340 = @339 + @338 in
+    let @339 = _t285$i34.!0 in
+    let @340 = @339 * @339 in
+    let @341 = _t285$i34.!1 in
+    let @342 = @341 * @341 in
+    let @343 = _t285$i34.!2 in
+    let @344 = @343 * @343 in
+    let @345 = @340 + @342 in
+    let @346 = @345 + @344 in
     let _t494 = r.o in
     let @4 = shapes.group0_index in
     let _t103 = @4[(*shapes_index!top)] in
     let @6 = _t103.center in
     let @7 = cast<f32x3>(@6) in
     let _t290$i34 = _t103.radius in
-    let @341 = @7[0u] in
-    let @342 = _t494.!0 in
-    let @402 = f32x8(@341) in
-    let @343 = @402 - @342 in
-    let @344 = @7[1u] in
-    let @345 = _t494.!1 in
-    let @403 = f32x8(@344) in
-    let @346 = @403 - @345 in
-    let @347 = @7[2u] in
-    let @348 = _t494.!2 in
-    let @404 = f32x8(@347) in
-    let @349 = @404 - @348 in
-    let @14 = @333 * @343 in
-    let @17 = @335 * @346 in
+    let @347 = @7[0u] in
+    let @348 = _t494.!0 in
+    let @408 = f32x8(@347) in
+    let @349 = @408 - @348 in
+    let @350 = @7[1u] in
+    let @351 = _t494.!1 in
+    let @409 = f32x8(@350) in
+    let @352 = @409 - @351 in
+    let @353 = @7[2u] in
+    let @354 = _t494.!2 in
+    let @410 = f32x8(@353) in
+    let @355 = @410 - @354 in
+    let @14 = @339 * @349 in
+    let @17 = @341 * @352 in
     let @18 = @14 + @17 in
-    let @21 = @337 * @349 in
+    let @21 = @343 * @355 in
     let h$i34 = @18 + @21 in
-    let @350 = @343 * @343 in
-    let @351 = @346 * @346 in
-    let @352 = @349 * @349 in
-    let @353 = @350 + @351 in
-    let @354 = @353 + @352 in
+    let @356 = @349 * @349 in
+    let @357 = @352 * @352 in
+    let @358 = @355 * @355 in
+    let @359 = @356 + @357 in
+    let @360 = @359 + @358 in
     let @26 = _t290$i34 * _t290$i34 in
-    let @405 = f32x8(@26) in
-    let c$i34 = @354 - @405 in
+    let @411 = f32x8(@26) in
+    let c$i34 = @360 - @411 in
     let @28 = h$i34 * h$i34 in
-    let @29 = @340 * c$i34 in
+    let @29 = @346 * c$i34 in
     let disc$i34 = @28 - @29 in
-    let @406 = f32x8(0f) in
-    let @31 = disc$i34 < @406 in
-    let @407 = boolx8(false) in
-    let @507 = !@31 in
+    let @412 = f32x8(0f) in
+    let @31 = disc$i34 < @412 in
+    let @413 = boolx8(false) in
+    let @513 = !@31 in
     let sqrtd$i34 = sqrt(disc$i34) in
     let @34 = h$i34 - sqrtd$i34 in
-    let root0$i34 = @34 / @340 in
+    let root0$i34 = @34 / @346 in
     let @36 = h$i34 + sqrtd$i34 in
-    let root1$i34 = @36 / @340 in
+    let root1$i34 = @36 / @346 in
     let @38 = min(root0$i34, root1$i34) in
     let @39 = max(root0$i34, root1$i34) in
     let @47 = r.tmax in
-    let @514 = select(@507, @38, @406) in
-    let @516 = select(@507, @39, @406) in
-    let @567 = @38 < @47 in
-    let @568 = @406 < @39 in
-    let @569 = @567 & @568 in
-    let @570 = select(@31, @407, @569) in
-    let @520 = (*!mask!top) && @570 in
-    let @313 = reduce<any>(@520) in
-    if (@313) {
+    let @520 = select(@513, @38, @412) in
+    let @522 = select(@513, @39, @412) in
+    let @573 = @38 < @47 in
+    let @574 = @412 < @39 in
+    let @575 = @573 & @574 in
+    let @576 = select(@31, @413, @575) in
+    let @526 = (*!mask!top) && @576 in
+    let @319 = reduce<any>(@526) in
+    if (@319) {
       let @56 = (f32)inf in
-      let @428 = f32x8(0.001f) in
-      let @524 = @428 < @516 in
-      let @525 = @520 && @524 in
-      let @314 = reduce<any>(@525) in
-      if (@314) {
+      let @434 = f32x8(0.001f) in
+      let @530 = @434 < @522 in
+      let @531 = @526 && @530 in
+      let @320 = reduce<any>(@531) in
+      if (@320) {
         let @63 = -0f - @56 in
-        let @433 = f32x8(@63) in
+        let @439 = f32x8(@63) in
         let @65 = (*_best0) in
         let @66 = @65._field0 in
-        let @529 = @514 < @66 in
-        let @530 = @525 && @529 in
-        let @315 = reduce<any>(@530) in
-        if (@315) {
+        let @535 = @520 < @66 in
+        let @536 = @531 && @535 in
+        let @321 = reduce<any>(@536) in
+        if (@321) {
           let _t85 = _t103.nPrims in
           let @69 = _t85 == 0u in
           if (@69) {
             let @70 = f32x3(1f) in
-            let @355 = @70[0u] in
-            let @436 = f32x8(@355) in
-            let @357 = @436 / @333 in
-            let @358 = @70[1u] in
-            let @437 = f32x8(@358) in
-            let @360 = @437 / @335 in
-            let @361 = @70[2u] in
-            let @438 = f32x8(@361) in
-            let @363 = @438 / @337 in
+            let @361 = @70[0u] in
+            let @442 = f32x8(@361) in
+            let @363 = @442 / @339 in
+            let @364 = @70[1u] in
+            let @443 = f32x8(@364) in
+            let @366 = @443 / @341 in
+            let @367 = @70[2u] in
+            let @444 = f32x8(@367) in
+            let @369 = @444 / @343 in
             let @72 = f32x3(0f) in
-            let @364 = @72[0u] in
-            let @439 = f32x8(@364) in
-            let @365 = @357 < @439 in
-            let @366 = @72[1u] in
-            let @440 = f32x8(@366) in
-            let @367 = @360 < @440 in
-            let @368 = @72[2u] in
-            let @441 = f32x8(@368) in
-            let @369 = @363 < @441 in
+            let @370 = @72[0u] in
+            let @445 = f32x8(@370) in
+            let @371 = @363 < @445 in
+            let @372 = @72[1u] in
+            let @446 = f32x8(@372) in
+            let @373 = @366 < @446 in
+            let @374 = @72[2u] in
+            let @447 = f32x8(@374) in
+            let @375 = @369 < @447 in
             let @74 = _t103.axis in
-            let @370 = @74 == 1u in
-            let @442 = boolx8(@370) in
-            let @371 = select(@442, @367, @369) in
-            let @372 = @74 == 0u in
-            let @443 = boolx8(@372) in
-            let @373 = select(@443, @365, @371) in
+            let @376 = @74 == 1u in
+            let @448 = boolx8(@376) in
+            let @377 = select(@448, @373, @375) in
+            let @378 = @74 == 0u in
+            let @449 = boolx8(@378) in
+            let @379 = select(@449, @371, @377) in
             let @76 = (*shapes_index!top) + 1u in
             let @77 = _t103.split0on_nPrims in
             let @78 = reinterpret_cast<_tree_layout2>(@77) in
             let @79 = @78.offset in
             let @80 = (*shapes_index!top) + @79 in
-            let @82 = !@373 in
-            let @328 = @82 && @530 in
-            let @329 = reduce<+>(cast<u32x8>(@530)) in
-            let @330 = reduce<+>(cast<u32x8>(@328)) in
-            let @331 = @330 + @330 in
-            let @332 = @329 < @331 in
-            let @266 = select(@332, @76, @80) in
-            let @267 = select(@332, @80, @76) in
-            !stack[(*!count)] = @267
-            !stack0[(*!count)] = @530
-            let @506 = (*!count) + 1u in
-            shapes_index!top = @266
-            !mask!top = @530
-            !count = @506
+            let @82 = !@379 in
+            let @334 = @82 && @536 in
+            let @335 = reduce<+>(cast<u32x8>(@536)) in
+            let @336 = reduce<+>(cast<u32x8>(@334)) in
+            let @337 = @336 + @336 in
+            let @338 = @335 < @337 in
+            let @272 = select(@338, @76, @80) in
+            let @273 = select(@338, @80, @76) in
+            !stack[(*!count)] = @273
+            !stack0[(*!count)] = @536
+            let @512 = (*!count) + 1u in
+            shapes_index!top = @272
+            !mask!top = @536
+            !count = @512
             continue
           } else {
             let @84 = cast<u16>(_t85) in
             data = 0u
-            a$i34 = @340
+            a$i34 = @346
             while ((*data) < @84) {
               let @86 = _t103.split0on_nPrims in
               let @87 = reinterpret_cast<_tree_layout3>(@86) in
               let @88 = @87.pOffset in
               let _t78 = @88 + (*data) in
               let @90 = shapes.prims in
-              let _t79 = @90[_t78] in
-              let _t334 = _t79.tag in
+              let @91 = @90[_t78] in
+              let @92 = @91.payload in
+              let _t79$payload1$w02 = @92[0] in
+              let _t79$payload1$w13 = @92[1] in
+              let _t79$payload1$w24 = @92[2] in
+              let _t79$payload1$w45 = @92[4] in
+              let _t79$payload1$w56 = @92[5] in
+              let _t79$payload1$w67 = @92[6] in
+              let _t79$payload1$w88 = @92[8] in
+              let _t79$payload1$w99 = @92[9] in
+              let _t79$payload1$w1010 = @92[10] in
+              let _t334 = @91.tag in
               switch (_t334) {
               case 0: { // Shape.Sph of intersects_Ray_Shape
-                let _t242$i3 = _t79.payload in
-                let @94 = _t242$i3[0u] in
-                let @95 = reinterpret_cast<f32>(@94) in
-                let @96 = _t242$i3[1u] in
-                let @97 = reinterpret_cast<f32>(@96) in
-                let @98 = _t242$i3[2u] in
-                let @99 = reinterpret_cast<f32>(@98) in
-                let @100 = build<f32x3>(@95, @97, @99) in
-                let @101 = _t242$i3[4u] in
-                let _t290$i21$i35 = reinterpret_cast<f32>(@101) in
-                let @374 = @100[0u] in
-                let @444 = f32x8(@374) in
-                let @376 = @444 - @342 in
-                let @377 = @100[1u] in
-                let @445 = f32x8(@377) in
-                let @379 = @445 - @345 in
-                let @380 = @100[2u] in
-                let @446 = f32x8(@380) in
-                let @382 = @446 - @348 in
-                let @108 = @333 * @376 in
-                let @111 = @335 * @379 in
-                let @112 = @108 + @111 in
-                let @115 = @337 * @382 in
-                let h$i21$i35 = @112 + @115 in
-                let @383 = @376 * @376 in
-                let @384 = @379 * @379 in
-                let @385 = @382 * @382 in
-                let @386 = @383 + @384 in
-                let @387 = @386 + @385 in
-                let @120 = _t290$i21$i35 * _t290$i21$i35 in
-                let @447 = f32x8(@120) in
-                let c$i21$i35 = @387 - @447 in
-                let @122 = h$i21$i35 * h$i21$i35 in
-                let @123 = (*a$i34) * c$i21$i35 in
-                let disc$i21$i35 = @122 - @123 in
-                let @125 = disc$i21$i35 < @406 in
-                let @531 = !@125 in
-                let @290 = @530 && @531 in
+                let @129 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                let @130 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                let @131 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                let @132 = build<f32x3>(@129, @130, @131) in
+                let _t290$i21$i35 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                let @380 = @132[0u] in
+                let @450 = f32x8(@380) in
+                let @382 = @450 - @348 in
+                let @383 = @132[1u] in
+                let @451 = f32x8(@383) in
+                let @385 = @451 - @351 in
+                let @386 = @132[2u] in
+                let @452 = f32x8(@386) in
+                let @388 = @452 - @354 in
+                let @139 = @339 * @382 in
+                let @142 = @341 * @385 in
+                let @143 = @139 + @142 in
+                let @146 = @343 * @388 in
+                let h$i21$i35 = @143 + @146 in
+                let @389 = @382 * @382 in
+                let @390 = @385 * @385 in
+                let @391 = @388 * @388 in
+                let @392 = @389 + @390 in
+                let @393 = @392 + @391 in
+                let @151 = _t290$i21$i35 * _t290$i21$i35 in
+                let @453 = f32x8(@151) in
+                let c$i21$i35 = @393 - @453 in
+                let @153 = h$i21$i35 * h$i21$i35 in
+                let @154 = (*a$i34) * c$i21$i35 in
+                let disc$i21$i35 = @153 - @154 in
+                let @156 = disc$i21$i35 < @412 in
+                let @537 = !@156 in
+                let @296 = @536 && @537 in
                 let sqrtd$i21$i35 = sqrt(disc$i21$i35) in
-                let @128 = h$i21$i35 - sqrtd$i21$i35 in
-                let root0$i21$i35 = @128 / (*a$i34) in
-                let @130 = h$i21$i35 + sqrtd$i21$i35 in
-                let root1$i21$i35 = @130 / (*a$i34) in
-                let @132 = min(root0$i21$i35, root1$i21$i35) in
-                let @133 = max(root0$i21$i35, root1$i21$i35) in
-                let @542 = @530 && @125 in
-                let @544 = select(@290, @132, @406) in
-                let @142 = @544 < @47 in
-                let @545 = select(@290, @133, @406) in
-                let @144 = @406 < @545 in
-                let @145 = @142 & @144 in
-                let @324 = select(@542, @407, @145) in
-                intersects_Ray_Shape$r3 = @324
+                let @159 = h$i21$i35 - sqrtd$i21$i35 in
+                let root0$i21$i35 = @159 / (*a$i34) in
+                let @161 = h$i21$i35 + sqrtd$i21$i35 in
+                let root1$i21$i35 = @161 / (*a$i34) in
+                let @163 = min(root0$i21$i35, root1$i21$i35) in
+                let @164 = max(root0$i21$i35, root1$i21$i35) in
+                let @548 = @536 && @156 in
+                let @550 = select(@296, @163, @412) in
+                let @173 = @550 < @47 in
+                let @551 = select(@296, @164, @412) in
+                let @175 = @412 < @551 in
+                let @176 = @173 & @175 in
+                let @330 = select(@548, @413, @176) in
+                intersects_Ray_Shape$r3 = @330
               } break;
               default: { // Shape.Tri of intersects_Ray_Shape
-                let _t255$i3 = _t79.payload in
-                let @148 = _t255$i3[0u] in
-                let @149 = reinterpret_cast<f32>(@148) in
-                let @150 = _t255$i3[1u] in
-                let @151 = reinterpret_cast<f32>(@150) in
-                let @152 = _t255$i3[2u] in
-                let @153 = reinterpret_cast<f32>(@152) in
-                let @154 = build<f32x3>(@149, @151, @153) in
-                let @155 = _t255$i3[4u] in
-                let @156 = reinterpret_cast<f32>(@155) in
-                let @157 = _t255$i3[5u] in
-                let @158 = reinterpret_cast<f32>(@157) in
-                let @159 = _t255$i3[6u] in
-                let @160 = reinterpret_cast<f32>(@159) in
-                let @161 = build<f32x3>(@156, @158, @160) in
-                let @162 = _t255$i3[8u] in
-                let @163 = reinterpret_cast<f32>(@162) in
-                let @164 = _t255$i3[9u] in
-                let @165 = reinterpret_cast<f32>(@164) in
-                let @166 = _t255$i3[10u] in
-                let @167 = reinterpret_cast<f32>(@166) in
-                let @168 = build<f32x3>(@163, @165, @167) in
-                let t$i3 = build<Triangle>(@154, @161, @168) in
-                let @170 = intersectsp_ray_tri$gang8_v0$masked(r, t$i3, @530) in
-                let @171 = @170.set in
-                intersects_Ray_Shape$r3 = @171
+                let @178 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                let @179 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                let @180 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                let @181 = build<f32x3>(@178, @179, @180) in
+                let @182 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                let @183 = reinterpret_cast<f32>(_t79$payload1$w56) in
+                let @184 = reinterpret_cast<f32>(_t79$payload1$w67) in
+                let @185 = build<f32x3>(@182, @183, @184) in
+                let @186 = reinterpret_cast<f32>(_t79$payload1$w88) in
+                let @187 = reinterpret_cast<f32>(_t79$payload1$w99) in
+                let @188 = reinterpret_cast<f32>(_t79$payload1$w1010) in
+                let @189 = build<f32x3>(@186, @187, @188) in
+                let t$i3 = build<Triangle>(@181, @185, @189) in
+                let @191 = intersectsp_ray_tri$gang8_v0$masked(r, t$i3, @536) in
+                let @192 = @191.set in
+                intersects_Ray_Shape$r3 = @192
               }
               }
-              let @297 = @530 && (*intersects_Ray_Shape$r3) in
-              let @316 = reduce<any>(@297) in
-              if (@316) {
+              let @303 = @536 && (*intersects_Ray_Shape$r3) in
+              let @322 = reduce<any>(@303) in
+              if (@322) {
                 switch (_t334) {
                 case 0: { // Shape.Sph of distmin_Ray_Shape
-                  let _t174$i4 = _t79.payload in
-                  let @174 = _t174$i4[0u] in
-                  let @175 = reinterpret_cast<f32>(@174) in
-                  let @176 = _t174$i4[1u] in
-                  let @177 = reinterpret_cast<f32>(@176) in
-                  let @178 = _t174$i4[2u] in
-                  let @179 = reinterpret_cast<f32>(@178) in
-                  let @180 = build<f32x3>(@175, @177, @179) in
-                  let @181 = _t174$i4[4u] in
-                  let _t290$i17$i36 = reinterpret_cast<f32>(@181) in
-                  let @388 = @180[0u] in
-                  let @470 = f32x8(@388) in
-                  let @390 = @470 - @342 in
-                  let @391 = @180[1u] in
-                  let @471 = f32x8(@391) in
-                  let @393 = @471 - @345 in
-                  let @394 = @180[2u] in
-                  let @472 = f32x8(@394) in
-                  let @396 = @472 - @348 in
-                  let @188 = @333 * @390 in
-                  let @191 = @335 * @393 in
-                  let @192 = @188 + @191 in
-                  let @195 = @337 * @396 in
-                  let h$i17$i36 = @192 + @195 in
-                  let @397 = @390 * @390 in
-                  let @398 = @393 * @393 in
-                  let @399 = @396 * @396 in
-                  let @400 = @397 + @398 in
-                  let @401 = @400 + @399 in
-                  let @200 = _t290$i17$i36 * _t290$i17$i36 in
-                  let @473 = f32x8(@200) in
-                  let c$i17$i36 = @401 - @473 in
-                  let @202 = h$i17$i36 * h$i17$i36 in
-                  let @203 = (*a$i34) * c$i17$i36 in
-                  let disc$i17$i36 = @202 - @203 in
-                  let @205 = disc$i17$i36 < @406 in
-                  let @546 = !@205 in
-                  let @302 = @297 && @546 in
+                  let @194 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                  let @195 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                  let @196 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                  let @197 = build<f32x3>(@194, @195, @196) in
+                  let _t290$i17$i36 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                  let @394 = @197[0u] in
+                  let @476 = f32x8(@394) in
+                  let @396 = @476 - @348 in
+                  let @397 = @197[1u] in
+                  let @477 = f32x8(@397) in
+                  let @399 = @477 - @351 in
+                  let @400 = @197[2u] in
+                  let @478 = f32x8(@400) in
+                  let @402 = @478 - @354 in
+                  let @204 = @339 * @396 in
+                  let @207 = @341 * @399 in
+                  let @208 = @204 + @207 in
+                  let @211 = @343 * @402 in
+                  let h$i17$i36 = @208 + @211 in
+                  let @403 = @396 * @396 in
+                  let @404 = @399 * @399 in
+                  let @405 = @402 * @402 in
+                  let @406 = @403 + @404 in
+                  let @407 = @406 + @405 in
+                  let @216 = _t290$i17$i36 * _t290$i17$i36 in
+                  let @479 = f32x8(@216) in
+                  let c$i17$i36 = @407 - @479 in
+                  let @218 = h$i17$i36 * h$i17$i36 in
+                  let @219 = (*a$i34) * c$i17$i36 in
+                  let disc$i17$i36 = @218 - @219 in
+                  let @221 = disc$i17$i36 < @412 in
+                  let @552 = !@221 in
+                  let @308 = @303 && @552 in
                   let sqrtd$i17$i36 = sqrt(disc$i17$i36) in
-                  let @208 = h$i17$i36 - sqrtd$i17$i36 in
-                  let root0$i17$i36 = @208 / (*a$i34) in
-                  let @210 = h$i17$i36 + sqrtd$i17$i36 in
-                  let root1$i17$i36 = @210 / (*a$i34) in
-                  let @212 = min(root0$i17$i36, root1$i17$i36) in
-                  let @562 = @297 && @205 in
-                  let @564 = select(@302, @212, @406) in
-                  let @327 = select(@562, @433, @564) in
-                  distmin_Ray_Shape$r4 = @327
+                  let @224 = h$i17$i36 - sqrtd$i17$i36 in
+                  let root0$i17$i36 = @224 / (*a$i34) in
+                  let @226 = h$i17$i36 + sqrtd$i17$i36 in
+                  let root1$i17$i36 = @226 / (*a$i34) in
+                  let @228 = min(root0$i17$i36, root1$i17$i36) in
+                  let @568 = @303 && @221 in
+                  let @570 = select(@308, @228, @412) in
+                  let @333 = select(@568, @439, @570) in
+                  distmin_Ray_Shape$r4 = @333
                 } break;
                 default: { // Shape.Tri of distmin_Ray_Shape
-                  let _t187$i4 = _t79.payload in
-                  let @225 = _t187$i4[0u] in
-                  let @226 = reinterpret_cast<f32>(@225) in
-                  let @227 = _t187$i4[1u] in
-                  let @228 = reinterpret_cast<f32>(@227) in
-                  let @229 = _t187$i4[2u] in
-                  let @230 = reinterpret_cast<f32>(@229) in
-                  let @231 = build<f32x3>(@226, @228, @230) in
-                  let @232 = _t187$i4[4u] in
-                  let @233 = reinterpret_cast<f32>(@232) in
-                  let @234 = _t187$i4[5u] in
-                  let @235 = reinterpret_cast<f32>(@234) in
-                  let @236 = _t187$i4[6u] in
-                  let @237 = reinterpret_cast<f32>(@236) in
-                  let @238 = build<f32x3>(@233, @235, @237) in
-                  let @239 = _t187$i4[8u] in
-                  let @240 = reinterpret_cast<f32>(@239) in
-                  let @241 = _t187$i4[9u] in
-                  let @242 = reinterpret_cast<f32>(@241) in
-                  let @243 = _t187$i4[10u] in
-                  let @244 = reinterpret_cast<f32>(@243) in
-                  let @245 = build<f32x3>(@240, @242, @244) in
-                  let t$i4 = build<Triangle>(@231, @238, @245) in
-                  let @247 = intersectsp_ray_tri$gang8_v0$masked(r, t$i4, @297) in
-                  let isect$i37 = @247 in
-                  let @248 = isect$i37.set in
-                  let @565 = !@248 in
-                  let @299 = @297 && @565 in
+                  let @240 = reinterpret_cast<f32>(_t79$payload1$w02) in
+                  let @241 = reinterpret_cast<f32>(_t79$payload1$w13) in
+                  let @242 = reinterpret_cast<f32>(_t79$payload1$w24) in
+                  let @243 = build<f32x3>(@240, @241, @242) in
+                  let @244 = reinterpret_cast<f32>(_t79$payload1$w45) in
+                  let @245 = reinterpret_cast<f32>(_t79$payload1$w56) in
+                  let @246 = reinterpret_cast<f32>(_t79$payload1$w67) in
+                  let @247 = build<f32x3>(@244, @245, @246) in
+                  let @248 = reinterpret_cast<f32>(_t79$payload1$w88) in
+                  let @249 = reinterpret_cast<f32>(_t79$payload1$w99) in
+                  let @250 = reinterpret_cast<f32>(_t79$payload1$w1010) in
+                  let @251 = build<f32x3>(@248, @249, @250) in
+                  let t$i4 = build<Triangle>(@243, @247, @251) in
+                  let @253 = intersectsp_ray_tri$gang8_v0$masked(r, t$i4, @303) in
+                  let isect$i37 = @253 in
+                  let @254 = isect$i37.set in
+                  let @571 = !@254 in
+                  let @305 = @303 && @571 in
                   let isect_$i37 = isect$i37.value in
-                  let @250 = isect_$i37.t in
-                  let @251 = (f32)inf in
-                  let @469 = f32x8(@251) in
-                  let @325 = select(@299, @469, @250) in
-                  distmin_Ray_Shape$r4 = @325
+                  let @256 = isect_$i37.t in
+                  let @257 = (f32)inf in
+                  let @475 = f32x8(@257) in
+                  let @331 = select(@305, @475, @256) in
+                  distmin_Ray_Shape$r4 = @331
                 }
                 }
-                let @254 = @428 < (*distmin_Ray_Shape$r4) in
-                let @309 = @297 && @254 in
-                let @317 = reduce<any>(@309) in
-                if (@317) {
-                  let @256 = (*_best0) in
-                  let @257 = @256._field0 in
-                  let @258 = (*distmin_Ray_Shape$r4) < @257 in
-                  let @312 = @309 && @258 in
-                  let @318 = reduce<any>(@312) in
-                  if (@318) {
-                    let @496 = u16x8(_t78) in
-                    let @497 = build<__tuple_0$v8>(@496) in
-                    let @261 = build<__tuple_1$v8>((*distmin_Ray_Shape$r4), @497) in
-                    masked_store(_best0, @261, @312 && (@261._field0 < (*_best0)._field0))
+                let @260 = @434 < (*distmin_Ray_Shape$r4) in
+                let @315 = @303 && @260 in
+                let @323 = reduce<any>(@315) in
+                if (@323) {
+                  let @262 = (*_best0) in
+                  let @263 = @262._field0 in
+                  let @264 = (*distmin_Ray_Shape$r4) < @263 in
+                  let @318 = @315 && @264 in
+                  let @324 = reduce<any>(@318) in
+                  if (@324) {
+                    let @502 = u16x8(_t78) in
+                    let @503 = build<__tuple_0$v8>(@502) in
+                    let @267 = build<__tuple_1$v8>((*distmin_Ray_Shape$r4), @503) in
+                    masked_store(_best0, @267, @318 && (@267._field0 < (*_best0)._field0))
                   }
                 }
               }
-              let @262 = (*data) + 1u in
-              data = @262
+              let @268 = (*data) + 1u in
+              data = @268
             }
           }
         }
       }
     }
-    let @499 = (*!count) != 0u in
-    if (@499) {
-      let @500 = (*!count) - 1u in
-      let @501 = !stack[@500] in
-      let @502 = !stack0[@500] in
-      shapes_index!top = @501
-      !mask!top = @502
-      !count = @500
+    let @505 = (*!count) != 0u in
+    if (@505) {
+      let @506 = (*!count) - 1u in
+      let @507 = !stack[@506] in
+      let @508 = !stack0[@506] in
+      shapes_index!top = @507
+      !mask!top = @508
+      !count = @506
       continue
     } else {
       return

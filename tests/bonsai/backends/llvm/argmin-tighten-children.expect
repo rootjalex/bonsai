@@ -4,8 +4,8 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress
 define void @closest(ptr nofree noundef nonnull writeonly captures(none) %_ret0, ptr noundef nonnull readonly captures(none) %p, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr #0 {
 closest:
-  %"@170208.i" = alloca [4 x i32], align 16
-  %"@169209.i" = alloca [4 x i32], align 16
+  %"@185208.i" = alloca [4 x i32], align 16
+  %"@184209.i" = alloca [4 x i32], align 16
   %"!stack0210.i" = alloca [64 x float], align 4
   %"!stack211.i" = alloca [64 x i32], align 4
   %0 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 4
@@ -15,8 +15,8 @@ closest:
   %group1_row = load ptr, ptr %1, align 1
   %group1_row2 = tail call ptr @bonsai_buffer_require(ptr %group1_row, i32 1)
   %deref_temp.unpack = load <3 x float>, ptr %p, align 16
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@170208.i")
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@169209.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@185208.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@184209.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack0210.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack211.i")
   %.splat117.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> zeroinitializer
@@ -147,24 +147,24 @@ closest:
   %74 = bitcast <4 x float> %41 to <4 x i32>
   %75 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %73, i1 true)
   %76 = select <4 x i1> %42, <4 x i32> %74, <4 x i32> zeroinitializer
-  store <4 x i32> %76, ptr %"@169209.i", align 16
-  store <4 x i32> %76, ptr %"@170208.i", align 16
-  %extract_ptr142.i = getelementptr inbounds nuw [4 x i8], ptr %"@169209.i", i64 %_wide136.i
+  store <4 x i32> %76, ptr %"@184209.i", align 16
+  store <4 x i32> %76, ptr %"@185208.i", align 16
+  %extract_ptr142.i = getelementptr inbounds nuw [4 x i8], ptr %"@184209.i", i64 %_wide136.i
   %extract143.i = load i32, ptr %extract_ptr142.i, align 4
   %isneg.i = icmp slt i32 %extract143.i, 0
   %77 = select i1 %isneg.i, i32 2147483647, i32 0
   %78 = xor i32 %77, %extract143.i
-  %extract_ptr145.i = getelementptr inbounds nuw [4 x i8], ptr %"@170208.i", i64 %_wide136.i
+  %extract_ptr145.i = getelementptr inbounds nuw [4 x i8], ptr %"@185208.i", i64 %_wide136.i
   %extract146.i = load i32, ptr %extract_ptr145.i, align 4
   %_wide147.i = zext nneg i32 %75 to i64
-  %extract_ptr148.i = getelementptr inbounds nuw [4 x i8], ptr %"@169209.i", i64 %_wide147.i
+  %extract_ptr148.i = getelementptr inbounds nuw [4 x i8], ptr %"@184209.i", i64 %_wide147.i
   %extract149.i = load i32, ptr %extract_ptr148.i, align 4
   %isneg389.i = icmp slt i32 %extract149.i, 0
   %79 = select i1 %isneg389.i, i32 2147483647, i32 0
   %80 = xor i32 %79, %extract149.i
   %extract_ptr151.i = getelementptr inbounds nuw [4 x i8], ptr %extract_ptr113.i, i64 %_wide147.i
   %extract152.i = load i32, ptr %extract_ptr151.i, align 4, !invariant.load !0
-  %extract_ptr154.i = getelementptr inbounds nuw [4 x i8], ptr %"@170208.i", i64 %_wide147.i
+  %extract_ptr154.i = getelementptr inbounds nuw [4 x i8], ptr %"@185208.i", i64 %_wide147.i
   %extract155.i = load i32, ptr %extract_ptr154.i, align 4
   %81 = icmp slt i32 %78, %80
   %82 = select i1 %81, i32 %extract138.i, i32 %extract152.i
@@ -181,14 +181,14 @@ closest:
   %89 = tail call i32 @llvm.smin.i32(i32 %78, i32 %80)
   %90 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %86, i1 true)
   %_wide156.i = zext nneg i32 %90 to i64
-  %extract_ptr157.i = getelementptr inbounds nuw [4 x i8], ptr %"@169209.i", i64 %_wide156.i
+  %extract_ptr157.i = getelementptr inbounds nuw [4 x i8], ptr %"@184209.i", i64 %_wide156.i
   %extract158.i = load i32, ptr %extract_ptr157.i, align 4
   %isneg391.i = icmp slt i32 %extract158.i, 0
   %91 = select i1 %isneg391.i, i32 2147483647, i32 0
   %92 = xor i32 %91, %extract158.i
   %extract_ptr160.i = getelementptr inbounds nuw [4 x i8], ptr %extract_ptr113.i, i64 %_wide156.i
   %extract161.i = load i32, ptr %extract_ptr160.i, align 4, !invariant.load !0
-  %extract_ptr163.i = getelementptr inbounds nuw [4 x i8], ptr %"@170208.i", i64 %_wide156.i
+  %extract_ptr163.i = getelementptr inbounds nuw [4 x i8], ptr %"@185208.i", i64 %_wide156.i
   %extract164.i = load i32, ptr %extract_ptr163.i, align 4
   %93 = icmp slt i32 %89, %92
   %94 = select i1 %93, i32 %82, i32 %extract161.i
@@ -212,14 +212,14 @@ closest:
   %108 = tail call i32 @llvm.smin.i32(i32 %89, i32 %92)
   %109 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %103, i1 true)
   %_wide165.i = zext nneg i32 %109 to i64
-  %extract_ptr166.i = getelementptr inbounds nuw [4 x i8], ptr %"@169209.i", i64 %_wide165.i
+  %extract_ptr166.i = getelementptr inbounds nuw [4 x i8], ptr %"@184209.i", i64 %_wide165.i
   %extract167.i = load i32, ptr %extract_ptr166.i, align 4
   %isneg393.i = icmp slt i32 %extract167.i, 0
   %110 = select i1 %isneg393.i, i32 2147483647, i32 0
   %111 = xor i32 %110, %extract167.i
   %extract_ptr169.i = getelementptr inbounds nuw [4 x i8], ptr %extract_ptr113.i, i64 %_wide165.i
   %extract170.i = load i32, ptr %extract_ptr169.i, align 4, !invariant.load !0
-  %extract_ptr172.i = getelementptr inbounds nuw [4 x i8], ptr %"@170208.i", i64 %_wide165.i
+  %extract_ptr172.i = getelementptr inbounds nuw [4 x i8], ptr %"@185208.i", i64 %_wide165.i
   %extract173.i = load i32, ptr %extract_ptr172.i, align 4
   %112 = icmp slt i32 %108, %111
   %113 = tail call i32 @llvm.smax.i32(i32 %108, i32 %111)
@@ -568,8 +568,8 @@ closest:
   br label %"_recloop_func0!loop.i"
 
 _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@170208.i")
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@169209.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@185208.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@184209.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0210.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack211.i")
   %359 = lshr i32 %"_best0$i25.sroa.7.1", 2

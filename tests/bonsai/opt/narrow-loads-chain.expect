@@ -1,0 +1,15 @@
+type Rec = struct Rec{ lo : f32; mid : f32; sum : f32 }
+
+func [[export]] pick(vs : mut Rec[], i : i32, j : i32) -> f32 {
+  let v = vs[i] in
+  let v$lo0 = vs[i].lo in
+  let v$sum1 = vs[i].sum in
+  let w = vs[j] in
+  return (v$lo0 + v$sum1) + probe_whole(w)
+}
+
+func probe_whole(r : Rec) -> f32 {
+  return r.mid
+}
+
+

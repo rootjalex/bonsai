@@ -1,0 +1,29 @@
+//! flags: -p narrow-loads
+
+// The chain form of Opt/NarrowLoads' load pattern: an element read through
+// a reference -- `vs[i]`, an access chain rooted at a mutable array
+// parameter -- is a load as much as a dereference is, and `v` is read only
+// at `.lo` and `.sum`. What to read for in the dump:
+//
+// - `v$lo*` and `v$sum*` appear beside `v`, each loaded through the
+//   field's own address (`*&vs[i].lo`), and every read of `v` now reads
+//   them; `v` itself is left standing dead (the narrowing is additive --
+//   DCE, which does not run here, collects it), so the `mid` field's
+//   bytes are never read.
+// - `w` is passed whole to `probe_whole`: left as written.
+
+element Rec {
+    lo : f32;
+    mid : f32;
+    sum : f32;
+}
+
+func probe_whole(r : Rec) -> f32 {
+    return r.mid;
+}
+
+func [[export]] pick(vs : mut array[Rec], i : i32, j : i32) -> f32 {
+    v = vs[i];
+    w = vs[j];
+    return v.lo + v.sum + probe_whole(w);
+}

@@ -105,15 +105,15 @@ __anyhit__trace:
   %_wide = zext i32 %4 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack5.generic, i64 %_wide
   %5 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
-  %_rt_e0.alpha = load float, ptr %5, align 4, !invariant.load !1
-  %6 = fcmp olt float %_rt_e0.alpha, 0.000000e+00
+  %"@4.alpha" = load float, ptr %5, align 4, !invariant.load !1
+  %6 = fcmp olt float %"@4.alpha", 0.000000e+00
   br i1 %6, label %"!merge_4", label %"!else_1"
 
 "!else_1":                                        ; preds = %__anyhit__trace
   %7 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
   %8 = extractvalue { i32, i32, i32 } %7, 1
   %9 = bitcast i32 %8 to float
-  %10 = fcmp ule float %_rt_e0.alpha, %9
+  %10 = fcmp ule float %"@4.alpha", %9
   br i1 %10, label %"!then_3", label %"!merge_4"
 
 "!then_3":                                        ; preds = %"!else_1"
@@ -172,25 +172,25 @@ __intersection__trace:
   %tris.unpack6 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
   %tris.unpack6.global = addrspacecast ptr %tris.unpack6 to ptr addrspace(1)
   %tris.unpack6.generic = addrspacecast ptr addrspace(1) %tris.unpack6.global to ptr
-  %2 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
-  %3 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
-  %4 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #3
-  %_hit_t = bitcast i32 %4 to float
-  %5 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
-  %_sbt_data = inttoptr i64 %5 to ptr
+  %2 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
+  %_sbt_data = inttoptr i64 %2 to ptr
   %_sbt_base = load i32, ptr %_sbt_data, align 4
-  %6 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
-  %7 = add i32 %6, %_sbt_base
-  %_wide = zext i32 %7 to i64
+  %3 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
+  %4 = add i32 %3, %_sbt_base
+  %5 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
+  %6 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
+  %7 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #3
+  %_hit_t = bitcast i32 %7 to float
+  %_wide = zext i32 %4 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack6.generic, i64 %_wide
-  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
-  %_rt_e0.tri.elt8 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %_rt_e0.tri.unpack9 = load <3 x float>, ptr %_rt_e0.tri.elt8, align 16, !invariant.load !1
-  %_rt_e0.tri.elt10 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %_rt_e0.tri.unpack11 = load <3 x float>, ptr %_rt_e0.tri.elt10, align 16, !invariant.load !1
-  %8 = fsub <3 x float> %_rt_e0.tri.unpack11, %_rt_e0.tri.unpack
+  %"@8.tri.unpack" = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
+  %"@8.tri.elt8" = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %"@8.tri.unpack9" = load <3 x float>, ptr %"@8.tri.elt8", align 16, !invariant.load !1
+  %"@8.tri.elt10" = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %"@8.tri.unpack11" = load <3 x float>, ptr %"@8.tri.elt10", align 16, !invariant.load !1
+  %8 = fsub <3 x float> %"@8.tri.unpack11", %"@8.tri.unpack"
   %9 = extractelement <3 x float> %8, i64 1
-  %10 = fsub <3 x float> %_rt_e0.tri.unpack9, %_rt_e0.tri.unpack
+  %10 = fsub <3 x float> %"@8.tri.unpack9", %"@8.tri.unpack"
   %11 = extractelement <3 x float> %10, i64 2
   %12 = extractelement <3 x float> %8, i64 2
   %13 = extractelement <3 x float> %10, i64 1
@@ -223,23 +223,23 @@ __intersection__trace:
   br i1 %39, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
 
 "!merge_1.i":                                     ; preds = %__intersection__trace
-  %40 = extractvalue { i32, i32, i32 } %3, 0
+  %40 = extractvalue { i32, i32, i32 } %6, 0
   %41 = insertelement <3 x i32> poison, i32 %40, i64 0
-  %42 = extractvalue { i32, i32, i32 } %3, 1
+  %42 = extractvalue { i32, i32, i32 } %6, 1
   %43 = insertelement <3 x i32> %41, i32 %42, i64 1
-  %44 = extractvalue { i32, i32, i32 } %3, 2
+  %44 = extractvalue { i32, i32, i32 } %6, 2
   %45 = insertelement <3 x i32> %43, i32 %44, i64 2
   %_ray_d4 = bitcast <3 x i32> %45 to <3 x float>
-  %46 = extractvalue { i32, i32, i32 } %2, 0
+  %46 = extractvalue { i32, i32, i32 } %5, 0
   %47 = insertelement <3 x i32> poison, i32 %46, i64 0
-  %48 = extractvalue { i32, i32, i32 } %2, 1
+  %48 = extractvalue { i32, i32, i32 } %5, 1
   %49 = insertelement <3 x i32> %47, i32 %48, i64 1
-  %50 = extractvalue { i32, i32, i32 } %2, 2
+  %50 = extractvalue { i32, i32, i32 } %5, 2
   %51 = insertelement <3 x i32> %49, i32 %50, i64 2
   %_ray_o2 = bitcast <3 x i32> %51 to <3 x float>
-  %52 = fsub <3 x float> %_rt_e0.tri.unpack, %_ray_o2
-  %53 = fsub <3 x float> %_rt_e0.tri.unpack9, %_ray_o2
-  %54 = fsub <3 x float> %_rt_e0.tri.unpack11, %_ray_o2
+  %52 = fsub <3 x float> %"@8.tri.unpack", %_ray_o2
+  %53 = fsub <3 x float> %"@8.tri.unpack9", %_ray_o2
+  %54 = fsub <3 x float> %"@8.tri.unpack11", %_ray_o2
   %55 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d4)
   %56 = extractelement <3 x float> %55, i64 0
   %57 = extractelement <3 x float> %55, i64 1
@@ -549,11 +549,11 @@ __anyhit__trace_any:
   %_wide = zext i32 %5 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack6.generic, i64 %_wide
   %6 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
-  %_rt_e0.alpha = load float, ptr %6, align 4, !invariant.load !1
-  %7 = fcmp uge float %_rt_e0.alpha, 0.000000e+00
+  %"@9.alpha" = load float, ptr %6, align 4, !invariant.load !1
+  %7 = fcmp uge float %"@9.alpha", 0.000000e+00
   %8 = extractvalue { i32, i32, i32 } %0, 1
   %9 = bitcast i32 %8 to float
-  %10 = fcmp ule float %_rt_e0.alpha, %9
+  %10 = fcmp ule float %"@9.alpha", %9
   %"accepts$r1" = select i1 %7, i1 %10, i1 false
   br i1 %"accepts$r1", label %"!then_3", label %"!merge_4"
 
@@ -571,25 +571,25 @@ __intersection__trace_any:
   %tris.unpack6 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 28), align 4
   %tris.unpack6.global = addrspacecast ptr %tris.unpack6 to ptr addrspace(1)
   %tris.unpack6.generic = addrspacecast ptr addrspace(1) %tris.unpack6.global to ptr
-  %0 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
-  %1 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
-  %2 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #3
-  %_hit_t = bitcast i32 %2 to float
-  %3 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
-  %_sbt_data = inttoptr i64 %3 to ptr
+  %0 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
+  %_sbt_data = inttoptr i64 %0 to ptr
   %_sbt_base = load i32, ptr %_sbt_data, align 4
-  %4 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
-  %5 = add i32 %4, %_sbt_base
-  %_wide = zext i32 %5 to i64
+  %1 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
+  %2 = add i32 %1, %_sbt_base
+  %3 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
+  %4 = tail call { i32, i32, i32 } asm "{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 $0, %fw0; mov.b32 $1, %fw1; mov.b32 $2, %fw2; }", "=r,=r,=r"() #3
+  %5 = tail call i32 asm "{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 $0, %ft; }", "=r"() #3
+  %_hit_t = bitcast i32 %5 to float
+  %_wide = zext i32 %2 to i64
   %extract_ptr = getelementptr inbounds nuw [64 x i8], ptr %tris.unpack6.generic, i64 %_wide
-  %_rt_e0.tri.unpack = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
-  %_rt_e0.tri.elt8 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %_rt_e0.tri.unpack9 = load <3 x float>, ptr %_rt_e0.tri.elt8, align 16, !invariant.load !1
-  %_rt_e0.tri.elt10 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %_rt_e0.tri.unpack11 = load <3 x float>, ptr %_rt_e0.tri.elt10, align 16, !invariant.load !1
-  %6 = fsub <3 x float> %_rt_e0.tri.unpack11, %_rt_e0.tri.unpack
+  %"@8.tri.unpack" = load <3 x float>, ptr %extract_ptr, align 16, !invariant.load !1
+  %"@8.tri.elt8" = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %"@8.tri.unpack9" = load <3 x float>, ptr %"@8.tri.elt8", align 16, !invariant.load !1
+  %"@8.tri.elt10" = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %"@8.tri.unpack11" = load <3 x float>, ptr %"@8.tri.elt10", align 16, !invariant.load !1
+  %6 = fsub <3 x float> %"@8.tri.unpack11", %"@8.tri.unpack"
   %7 = extractelement <3 x float> %6, i64 1
-  %8 = fsub <3 x float> %_rt_e0.tri.unpack9, %_rt_e0.tri.unpack
+  %8 = fsub <3 x float> %"@8.tri.unpack9", %"@8.tri.unpack"
   %9 = extractelement <3 x float> %8, i64 2
   %10 = extractelement <3 x float> %6, i64 2
   %11 = extractelement <3 x float> %8, i64 1
@@ -622,23 +622,23 @@ __intersection__trace_any:
   br i1 %37, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
 
 "!merge_1.i":                                     ; preds = %__intersection__trace_any
-  %38 = extractvalue { i32, i32, i32 } %1, 0
+  %38 = extractvalue { i32, i32, i32 } %4, 0
   %39 = insertelement <3 x i32> poison, i32 %38, i64 0
-  %40 = extractvalue { i32, i32, i32 } %1, 1
+  %40 = extractvalue { i32, i32, i32 } %4, 1
   %41 = insertelement <3 x i32> %39, i32 %40, i64 1
-  %42 = extractvalue { i32, i32, i32 } %1, 2
+  %42 = extractvalue { i32, i32, i32 } %4, 2
   %43 = insertelement <3 x i32> %41, i32 %42, i64 2
   %_ray_d4 = bitcast <3 x i32> %43 to <3 x float>
-  %44 = extractvalue { i32, i32, i32 } %0, 0
+  %44 = extractvalue { i32, i32, i32 } %3, 0
   %45 = insertelement <3 x i32> poison, i32 %44, i64 0
-  %46 = extractvalue { i32, i32, i32 } %0, 1
+  %46 = extractvalue { i32, i32, i32 } %3, 1
   %47 = insertelement <3 x i32> %45, i32 %46, i64 1
-  %48 = extractvalue { i32, i32, i32 } %0, 2
+  %48 = extractvalue { i32, i32, i32 } %3, 2
   %49 = insertelement <3 x i32> %47, i32 %48, i64 2
   %_ray_o2 = bitcast <3 x i32> %49 to <3 x float>
-  %50 = fsub <3 x float> %_rt_e0.tri.unpack, %_ray_o2
-  %51 = fsub <3 x float> %_rt_e0.tri.unpack9, %_ray_o2
-  %52 = fsub <3 x float> %_rt_e0.tri.unpack11, %_ray_o2
+  %50 = fsub <3 x float> %"@8.tri.unpack", %_ray_o2
+  %51 = fsub <3 x float> %"@8.tri.unpack9", %_ray_o2
+  %52 = fsub <3 x float> %"@8.tri.unpack11", %_ray_o2
   %53 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d4)
   %54 = extractelement <3 x float> %53, i64 0
   %55 = extractelement <3 x float> %53, i64 1
@@ -1160,22 +1160,22 @@ $L__BB1_3:
 	or.b64 	%rd5, %rd3, %rd4;
 	cvta.to.global.u64 	%rd6, %rd5;
 	// begin inline asm
-	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r41, %fw0; mov.b32 %r42, %fw1; mov.b32 %r43, %fw2; }
-	// end inline asm
-	// begin inline asm
-	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 %r44, %fw0; mov.b32 %r45, %fw1; mov.b32 %r46, %fw2; }
-	// end inline asm
-	// begin inline asm
-	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r47, %ft; }
-	// end inline asm
-	// begin inline asm
 	call (%rd1), _optix_get_sbt_data_ptr_64, ();
 	// end inline asm
 	ld.b32 	%r49, [%rd1];
 	// begin inline asm
-	call (%r48), _optix_read_primitive_idx, ();
+	call (%r41), _optix_read_primitive_idx, ();
 	// end inline asm
-	add.s32 	%r50, %r48, %r49;
+	add.s32 	%r50, %r41, %r49;
+	// begin inline asm
+	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r42, %fw0; mov.b32 %r43, %fw1; mov.b32 %r44, %fw2; }
+	// end inline asm
+	// begin inline asm
+	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 %r45, %fw0; mov.b32 %r46, %fw1; mov.b32 %r47, %fw2; }
+	// end inline asm
+	// begin inline asm
+	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r48, %ft; }
+	// end inline asm
 	mul.wide.u32 	%rd7, %r50, 64;
 	add.s64 	%rd8, %rd6, %rd7;
 	ld.global.nc.b32 	%r3, [%rd8+8];
@@ -1224,18 +1224,18 @@ $L__BB1_3:
 	mov.pred 	%p37, 0;
 	mov.b32 	%r223, 0f00000000;
 	@%p1 bra 	$L__BB3_8;
-	sub.rn.f32 	%r81, %r3, %r43;
-	sub.rn.f32 	%r82, %r1, %r41;
-	sub.rn.f32 	%r83, %r2, %r42;
-	sub.rn.f32 	%r84, %r6, %r43;
-	sub.rn.f32 	%r85, %r4, %r41;
-	sub.rn.f32 	%r86, %r5, %r42;
-	sub.rn.f32 	%r87, %r9, %r43;
-	sub.rn.f32 	%r88, %r7, %r41;
-	sub.rn.f32 	%r89, %r8, %r42;
-	abs.f32 	%r90, %r46;
-	abs.f32 	%r91, %r44;
-	abs.f32 	%r92, %r45;
+	sub.rn.f32 	%r81, %r3, %r44;
+	sub.rn.f32 	%r82, %r1, %r42;
+	sub.rn.f32 	%r83, %r2, %r43;
+	sub.rn.f32 	%r84, %r6, %r44;
+	sub.rn.f32 	%r85, %r4, %r42;
+	sub.rn.f32 	%r86, %r5, %r43;
+	sub.rn.f32 	%r87, %r9, %r44;
+	sub.rn.f32 	%r88, %r7, %r42;
+	sub.rn.f32 	%r89, %r8, %r43;
+	abs.f32 	%r90, %r47;
+	abs.f32 	%r91, %r45;
+	abs.f32 	%r92, %r46;
 	setp.lt.f32 	%p2, %r91, %r92;
 	selp.f32 	%r93, %r92, %r91, %p2;
 	setp.lt.f32 	%p3, %r93, %r90;
@@ -1276,12 +1276,12 @@ $L__BB1_3:
 	selp.f32 	%r118, %r87, %r117, %p11;
 	selp.f32 	%r119, %r89, %r88, %p12;
 	selp.f32 	%r120, %r87, %r119, %p13;
-	selp.f32 	%r121, %r45, %r44, %p8;
-	selp.f32 	%r122, %r46, %r121, %p9;
-	selp.f32 	%r123, %r45, %r44, %p10;
-	selp.f32 	%r124, %r46, %r123, %p11;
-	selp.f32 	%r125, %r45, %r44, %p12;
-	selp.f32 	%r126, %r46, %r125, %p13;
+	selp.f32 	%r121, %r46, %r45, %p8;
+	selp.f32 	%r122, %r47, %r121, %p9;
+	selp.f32 	%r123, %r46, %r45, %p10;
+	selp.f32 	%r124, %r47, %r123, %p11;
+	selp.f32 	%r125, %r46, %r45, %p12;
+	selp.f32 	%r126, %r47, %r125, %p13;
 	neg.f32 	%r127, %r122;
 	div.rn.f32 	%r128, %r127, %r126;
 	mul.rn.f32 	%r129, %r108, %r128;
@@ -1361,7 +1361,7 @@ $L__BB3_3:
 	add.rn.f32 	%r33, %r178, %r177;
 	setp.lt.f32 	%p17, %r23, 0f00000000;
 	setp.ge.f32 	%p18, %r33, 0f00000000;
-	mul.rn.f32 	%r34, %r23, %r47;
+	mul.rn.f32 	%r34, %r23, %r48;
 	setp.lt.f32 	%p19, %r33, %r34;
 	or.pred 	%p20, %p18, %p19;
 	and.pred 	%p21, %p17, %p20;
@@ -1516,22 +1516,22 @@ $L__BB5_2:
 	or.b64 	%rd5, %rd3, %rd4;
 	cvta.to.global.u64 	%rd6, %rd5;
 	// begin inline asm
-	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r37, %fw0; mov.b32 %r38, %fw1; mov.b32 %r39, %fw2; }
-	// end inline asm
-	// begin inline asm
-	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 %r40, %fw0; mov.b32 %r41, %fw1; mov.b32 %r42, %fw2; }
-	// end inline asm
-	// begin inline asm
-	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r43, %ft; }
-	// end inline asm
-	// begin inline asm
 	call (%rd1), _optix_get_sbt_data_ptr_64, ();
 	// end inline asm
 	ld.b32 	%r45, [%rd1];
 	// begin inline asm
-	call (%r44), _optix_read_primitive_idx, ();
+	call (%r37), _optix_read_primitive_idx, ();
 	// end inline asm
-	add.s32 	%r46, %r44, %r45;
+	add.s32 	%r46, %r37, %r45;
+	// begin inline asm
+	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r38, %fw0; mov.b32 %r39, %fw1; mov.b32 %r40, %fw2; }
+	// end inline asm
+	// begin inline asm
+	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_direction_x, (); call (%fw1), _optix_get_world_ray_direction_y, (); call (%fw2), _optix_get_world_ray_direction_z, (); mov.b32 %r41, %fw0; mov.b32 %r42, %fw1; mov.b32 %r43, %fw2; }
+	// end inline asm
+	// begin inline asm
+	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r44, %ft; }
+	// end inline asm
 	mul.wide.u32 	%rd7, %r46, 64;
 	add.s64 	%rd8, %rd6, %rd7;
 	ld.global.nc.b32 	%r3, [%rd8+8];
@@ -1580,18 +1580,18 @@ $L__BB5_2:
 	mov.pred 	%p37, 0;
 	mov.b32 	%r219, 0f00000000;
 	@%p1 bra 	$L__BB6_8;
-	sub.rn.f32 	%r77, %r3, %r39;
-	sub.rn.f32 	%r78, %r1, %r37;
-	sub.rn.f32 	%r79, %r2, %r38;
-	sub.rn.f32 	%r80, %r6, %r39;
-	sub.rn.f32 	%r81, %r4, %r37;
-	sub.rn.f32 	%r82, %r5, %r38;
-	sub.rn.f32 	%r83, %r9, %r39;
-	sub.rn.f32 	%r84, %r7, %r37;
-	sub.rn.f32 	%r85, %r8, %r38;
-	abs.f32 	%r86, %r42;
-	abs.f32 	%r87, %r40;
-	abs.f32 	%r88, %r41;
+	sub.rn.f32 	%r77, %r3, %r40;
+	sub.rn.f32 	%r78, %r1, %r38;
+	sub.rn.f32 	%r79, %r2, %r39;
+	sub.rn.f32 	%r80, %r6, %r40;
+	sub.rn.f32 	%r81, %r4, %r38;
+	sub.rn.f32 	%r82, %r5, %r39;
+	sub.rn.f32 	%r83, %r9, %r40;
+	sub.rn.f32 	%r84, %r7, %r38;
+	sub.rn.f32 	%r85, %r8, %r39;
+	abs.f32 	%r86, %r43;
+	abs.f32 	%r87, %r41;
+	abs.f32 	%r88, %r42;
 	setp.lt.f32 	%p2, %r87, %r88;
 	selp.f32 	%r89, %r88, %r87, %p2;
 	setp.lt.f32 	%p3, %r89, %r86;
@@ -1632,12 +1632,12 @@ $L__BB5_2:
 	selp.f32 	%r114, %r83, %r113, %p11;
 	selp.f32 	%r115, %r85, %r84, %p12;
 	selp.f32 	%r116, %r83, %r115, %p13;
-	selp.f32 	%r117, %r41, %r40, %p8;
-	selp.f32 	%r118, %r42, %r117, %p9;
-	selp.f32 	%r119, %r41, %r40, %p10;
-	selp.f32 	%r120, %r42, %r119, %p11;
-	selp.f32 	%r121, %r41, %r40, %p12;
-	selp.f32 	%r122, %r42, %r121, %p13;
+	selp.f32 	%r117, %r42, %r41, %p8;
+	selp.f32 	%r118, %r43, %r117, %p9;
+	selp.f32 	%r119, %r42, %r41, %p10;
+	selp.f32 	%r120, %r43, %r119, %p11;
+	selp.f32 	%r121, %r42, %r41, %p12;
+	selp.f32 	%r122, %r43, %r121, %p13;
 	neg.f32 	%r123, %r118;
 	div.rn.f32 	%r124, %r123, %r122;
 	mul.rn.f32 	%r125, %r104, %r124;
@@ -1717,7 +1717,7 @@ $L__BB6_3:
 	add.rn.f32 	%r33, %r174, %r173;
 	setp.lt.f32 	%p17, %r23, 0f00000000;
 	setp.ge.f32 	%p18, %r33, 0f00000000;
-	mul.rn.f32 	%r34, %r23, %r43;
+	mul.rn.f32 	%r34, %r23, %r44;
 	setp.lt.f32 	%p19, %r33, %r34;
 	or.pred 	%p20, %p18, %p19;
 	and.pred 	%p21, %p17, %p20;

@@ -40,93 +40,12 @@ std::set<std::string> free_names(const Stmt &stmt) {
     return names;
 }
 
-// What a statement a sink would cross can do to the value: define or write
-// names, touch memory, or be something this pass does not move anything
-// past (`barrier`) -- a loop, a call, a return, anything unrecognized. The
-// recognized set is a whitelist; everything else is a barrier, so a new
-// statement kind is safe by default.
-struct Crossing {
-    std::set<std::string> defines; // let and allocate bases
-    std::set<std::string> writes;  // store and accumulate bases
-    bool memory = false;           // could write memory a read could see
-    bool barrier = false;
-};
-
-void crossing_of(const Stmt &stmt, Crossing &c) {
-    if (!stmt.defined()) {
-        return;
-    }
-    if (const LetStmt *let = stmt.as<LetStmt>()) {
-        c.defines.insert(let->loc.base);
-        if (!classify(let->value).sinkable) {
-            // A call or an effect on the right-hand side: it may write
-            // through a mutable argument, so nothing crosses it.
-            c.barrier = true;
-        }
-        return;
-    }
-    if (const Allocate *alloc = stmt.as<Allocate>()) {
-        c.defines.insert(alloc->loc.base);
-        c.memory = true;
-        return;
-    }
-    if (const Store *store = stmt.as<Store>()) {
-        c.writes.insert(store->loc.base);
-        c.memory = true;
-        return;
-    }
-    if (const Accumulate *acc = stmt.as<Accumulate>()) {
-        c.writes.insert(acc->loc.base);
-        c.memory = true;
-        return;
-    }
-    if (stmt.as<Print>() != nullptr) {
-        // An effect, but it writes no name and no memory a read sees.
-        return;
-    }
-    if (const Sequence *seq = stmt.as<Sequence>()) {
-        for (const Stmt &s : seq->stmts) {
-            crossing_of(s, c);
-        }
-        return;
-    }
-    if (const IfElse *branch = stmt.as<IfElse>()) {
-        crossing_of(branch->then_body, c);
-        crossing_of(branch->else_body, c);
-        return;
-    }
-    if (const SwitchStmt *sw = stmt.as<SwitchStmt>()) {
-        for (const Stmt &arm : sw->arms) {
-            crossing_of(arm, c);
-        }
-        return;
-    }
-    c.barrier = true;
-}
-
-Crossing crossing_of(const Stmt &stmt) {
-    Crossing c;
-    crossing_of(stmt, c);
-    return c;
-}
-
 // Whether `stmt`'s subtree defines or writes `name` -- the guard against
 // renaming a duplicated let's uses through an inner shadow.
 bool touches_name(const Stmt &stmt, const std::string &name) {
     Crossing c = crossing_of(stmt);
     return c.barrier || c.defines.count(name) > 0 || c.writes.count(name) > 0;
 }
-
-struct RenameVar : Mutator {
-    std::string from;
-    std::string to;
-    Expr visit(const Var *node) override {
-        if (node->name == from) {
-            return Var::make(node->type, to);
-        }
-        return node;
-    }
-};
 
 struct SinkImpl : Mutator {
     const std::set<std::string> *side_effect_functions = nullptr;

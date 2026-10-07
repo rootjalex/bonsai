@@ -1,7 +1,13 @@
 #pragma once
 
+#include <set>
+#include <string>
+
 #include "IR/Expr.h"
+#include "IR/Mutator.h"
+#include "IR/Stmt.h"
 #include "IR/Visitor.h"
+#include "IR/WriteLoc.h"
 
 namespace bonsai {
 namespace opt {
@@ -57,6 +63,88 @@ inline ValueClass classify(const ir::Expr &value) {
     value.accept(&c);
     return c;
 }
+
+// What a statement a motion would cross can do to a value: define or write
+// names, touch memory, or be something these passes move nothing past
+// (`barrier`) -- a loop, a call, a return, anything unrecognized. The
+// recognized set is a whitelist; everything else is a barrier, so a new
+// statement kind is safe by default. Shared by Opt/Sink and
+// Opt/NarrowLoads.
+struct Crossing {
+    std::set<std::string> defines; // let and allocate bases
+    std::set<std::string> writes;  // store and accumulate bases
+    bool memory = false;           // could write memory a read could see
+    bool barrier = false;
+};
+
+inline void crossing_of(const ir::Stmt &stmt, Crossing &c) {
+    if (!stmt.defined()) {
+        return;
+    }
+    if (const ir::LetStmt *let = stmt.as<ir::LetStmt>()) {
+        c.defines.insert(let->loc.base);
+        if (!classify(let->value).sinkable) {
+            // A call or an effect on the right-hand side: it may write
+            // through a mutable argument, so nothing crosses it.
+            c.barrier = true;
+        }
+        return;
+    }
+    if (const ir::Allocate *alloc = stmt.as<ir::Allocate>()) {
+        c.defines.insert(alloc->loc.base);
+        c.memory = true;
+        return;
+    }
+    if (const ir::Store *store = stmt.as<ir::Store>()) {
+        c.writes.insert(store->loc.base);
+        c.memory = true;
+        return;
+    }
+    if (const ir::Accumulate *acc = stmt.as<ir::Accumulate>()) {
+        c.writes.insert(acc->loc.base);
+        c.memory = true;
+        return;
+    }
+    if (stmt.as<ir::Print>() != nullptr) {
+        // An effect, but it writes no name and no memory a read sees.
+        return;
+    }
+    if (const ir::Sequence *seq = stmt.as<ir::Sequence>()) {
+        for (const ir::Stmt &s : seq->stmts) {
+            crossing_of(s, c);
+        }
+        return;
+    }
+    if (const ir::IfElse *branch = stmt.as<ir::IfElse>()) {
+        crossing_of(branch->then_body, c);
+        crossing_of(branch->else_body, c);
+        return;
+    }
+    if (const ir::SwitchStmt *sw = stmt.as<ir::SwitchStmt>()) {
+        for (const ir::Stmt &arm : sw->arms) {
+            crossing_of(arm, c);
+        }
+        return;
+    }
+    c.barrier = true;
+}
+
+inline Crossing crossing_of(const ir::Stmt &stmt) {
+    Crossing c;
+    crossing_of(stmt, c);
+    return c;
+}
+
+struct RenameVar : ir::Mutator {
+    std::string from;
+    std::string to;
+    ir::Expr visit(const ir::Var *node) override {
+        if (node->name == from) {
+            return ir::Var::make(node->type, to);
+        }
+        return node;
+    }
+};
 
 } // namespace opt
 } // namespace bonsai
