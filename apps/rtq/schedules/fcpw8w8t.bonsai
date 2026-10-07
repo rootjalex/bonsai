@@ -1,6 +1,10 @@
 // The tuned schedule over FCPW's eight-wide tree with eight-lane leaves:
-// fcpw8w8.bonsai without the closest point's leaf exits, for the reason
-// fcpw4w16t.bonsai gives and measures.
+// fcpw8w8.bonsai without the closest point's leaf exits and with the hit
+// children prefetched, for the reasons fcpw4w16t.bonsai gives; measured on
+// this tree 2026-10-07 (head, ganesha, dragon; side 1024, least of 5,
+// alternated twice; the row against none): ganesha's volume batch 1.03-1.04
+// -> 1.21x, dragon's 1.00-1.01 -> 1.19-1.21x, the large meshes' rays 3-12%
+// up, head within noise.
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw8w8t.bonsai ...
@@ -13,6 +17,7 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(154);
+    closest.prefetch(triangles.Interior.children);
 
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
@@ -20,7 +25,9 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(154);
+    trace.prefetch(triangles.Interior.children);
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(154);
+    occluded.prefetch(triangles.Interior.children);
 }

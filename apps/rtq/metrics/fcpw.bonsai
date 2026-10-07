@@ -178,62 +178,132 @@ func distmax(q : Point, b : AABB) -> Float {
 // the lanes in its region with enoki's `rcp` (rcp_fcpw) for the divisions,
 // and then one `norm(x - pt)` -- a root per lane, taken once -- which
 // FCPW's leaf squares again to compare with its radius squared (`d2 = d *
-// d; if (d2 <= sr2)`). The same shape here: offset_fcpw answers `x - pt` by
-// region, written as `ax - ab v` for `x - (pa + ab v)`, and distmin takes
-// the one root and squares it. (This was first written with a root in
-// every region, numerically the same per lane, but after vectorization
-// seven `vsqrtps` a packet against FCPW's one; the divider's queue was the
-// volume batch's deficit on ganesha and dragon.) FCPW writes every
-// region's lanes in turn, a later region over an earlier one where a lane
-// is in both, and returns early once every lane has a region (`if
-// (all(active)) return`); the early returns here are those exits, taken
-// under the schedule's `skip(offset_fcpw)`, and a lane in two regions
-// keeps the first, which differs from FCPW on the regions' shared
-// boundaries alone.
-func offset_fcpw(q : Point, tri : Triangle) -> vec3f {
+// d; if (d2 <= sr2)`). The same shape here: closest_point_fcpw answers the
+// point `pt` and FCPW's barycentric pair `t` by region, each as FCPW writes
+// it (`pa + ab v`, not the offset `ax - ab v` the subtraction would shorten
+// to -- the same operations in the same order, so the bits agree), and
+// distmin takes `x - pt`, the one root and squares it. (This was first
+// written with a root in every region, numerically the same per lane, but
+// after vectorization seven `vsqrtps` a packet against FCPW's one; the
+// divider's queue was the volume batch's deficit on ganesha and dragon.)
+// FCPW writes every region's lanes in turn, a later region over an earlier
+// one where a lane is in both, and returns early once every lane has a
+// region (`if (all(active)) return`); the early returns here are those
+// exits, taken under the schedule's `skip(closest_point_fcpw)`, and a lane
+// in two regions keeps the first, which differs from FCPW on the regions'
+// shared boundaries alone. The pair `t` is dead in the leaf, where distmin
+// reads the point alone, and lives in the closest-point record.
+element ClosestPoint {
+    p : vec3f;
+    u, v : Float;
+}
+
+func closest_point_fcpw(q : Point, tri : Triangle) -> ClosestPoint {
+    pa = tri.v0;
     ab = -tri.e1;
     ac = tri.e2;
-    ax = q.p - tri.v0;
+    ax = q.p - pa;
     d1 = dot(ab, ax);
     d2 = dot(ac, ax);
     if d1 <= 0.0 && d2 <= 0.0 {
-        return ax;
+        return ClosestPoint{pa, 1.0, 0.0};
     }
-    bx = ax - ab;
+    pb = pa + ab;
+    bx = q.p - pb;
     d3 = dot(ab, bx);
     d4 = dot(ac, bx);
     if d3 >= 0.0 && d4 <= d3 {
-        return bx;
+        return ClosestPoint{pb, 0.0, 1.0};
     }
-    cx = ax - ac;
+    pc = pa + ac;
+    cx = q.p - pc;
     d5 = dot(ab, cx);
     d6 = dot(ac, cx);
     if d6 >= 0.0 && d5 <= d6 {
-        return cx;
+        return ClosestPoint{pc, 0.0, 0.0};
     }
     vc = d1 * d4 - d3 * d2;
     if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
         v_ab = d1 * rcp_fcpw(d1 - d3);
-        return ax - ab * v_ab;
+        return ClosestPoint{pa + ab * v_ab, 1.0 - v_ab, v_ab};
     }
     vb = d5 * d2 - d1 * d6;
     if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
         w_ac = d2 * rcp_fcpw(d2 - d6);
-        return ax - ac * w_ac;
+        return ClosestPoint{pa + ac * w_ac, 1.0 - w_ac, 0.0};
     }
     va = d3 * d6 - d5 * d4;
     if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
         w_bc = (d4 - d3) * rcp_fcpw((d4 - d3) + (d5 - d6));
-        return bx - (ac - ab) * w_bc;
+        return ClosestPoint{pb + (pc - pb) * w_bc, 0.0, 1.0 - w_bc};
     }
     denom = rcp_fcpw(va + vb + vc);
     v = vb * denom;
     w = vc * denom;
-    return ax - (ab * v + ac * w);
+    return ClosestPoint{pa + ab * v + ac * w, 1.0 - v - w, v};
 }
 
 func distmin(q : Point, tri : Triangle) -> Float {
-    diff = offset_fcpw(q, tri);
+    cp = closest_point_fcpw(q, tri);
+    diff = q.p - cp.p;
     d = sqrt(dot(diff, diff));
     return d * d;
 }
+
+// FCPW: what Scene::intersect leaves in its Interaction for the nearest hit
+// -- `d` the distance, `p` the hit point (`pa + v1 v + v2 w`), `n` the unit
+// normal (`normalize(cross(v1, v2))`), `uv` the pair `(1 - v - w, v)`, and
+// `primitiveIndex` (with the node, reference and object indices, which say
+// where in FCPW's own arrays it sat). intersectWideTriangle makes p, n and
+// uv for every lane of every packet before the lanes are scanned; the
+// record is made here once per ray, for the triangle the argmin settled
+// on, by the same test run once more over that one triangle. The one
+// departure from FCPW's instructions: enoki's `normalize` is `v *
+// rsqrt(|v|^2)` with its approximate reciprocal square root and a Newton
+// step, and the language has no `rsqrt_approx`, so the normal is divided
+// by a true root here -- a scalar per ray that hits, the bits of `n` not
+// FCPW's in the last place.
+element Hit {
+    primID : u32;
+    d : Float;
+    p : vec3f;
+    n : vec3f;
+    u, v : Float;
+}
+
+func hit_record(r : Ray, tri : Triangle) -> Hit {
+    h = intersectsp_ray_tri(r, tri);
+    if h {
+        e = *h;
+        v1 = -tri.e1;
+        v2 = tri.e2;
+        p = tri.v0 + v1 * e.u + v2 * e.v;
+        ng = cross(v1, v2);
+        n = ng * (1.0 / sqrt(dot(ng, ng)));
+        return Hit{tri.primID, e.t, p, n, 1.0 - e.u - e.v, e.u};
+    }
+    return no_hit();
+}
+
+// FCPW: a miss leaves the Interaction as constructed, `d` the largest
+// float and the rest zero.
+func no_hit() -> Hit = Hit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};
+
+// FCPW: what findClosestPoint leaves in its Interaction -- `d` the
+// distance, `p` the closest point, `uv` the barycentric pair of the region
+// it lies in, and `primitiveIndex`; made in the leaf for every lane of
+// every packet, kept for the nearest; here once, for the argmin's triangle.
+element ClosestHit {
+    primID : u32;
+    d : Float;
+    p : vec3f;
+    u, v : Float;
+}
+
+func closest_record(q : Point, tri : Triangle) -> ClosestHit {
+    cp = closest_point_fcpw(q, tri);
+    diff = q.p - cp.p;
+    return ClosestHit{tri.primID, sqrt(dot(diff, diff)), cp.p, cp.u, cp.v};
+}
+
+func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};

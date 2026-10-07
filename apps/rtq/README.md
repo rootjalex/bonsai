@@ -80,8 +80,11 @@ and, with Embree's builder, the same tree into the layout; shoots a `side`
 by `side` image of primary rays from a camera a scene diagonal and a half
 away; from Embree's primary hits makes a batch of short ambient-occlusion
 rays (a tenth of the diagonal) and a batch of unbounded diffuse bounces,
-cosine-distributed about the normal; for each batch and each query
-(nearest hit, any hit) times Embree and the program, each the least of
+cosine-distributed about the normal; times Embree and the program on each
+set under the query it is for -- the nearest hit of the primary and diffuse
+rays, the any hit of the ambient-occlusion rays, Aila and Laine's three
+sets as every traversal paper since has measured them (`--batch` with
+`--query` runs another pairing, for a probe) -- each the least of
 `--repeats` runs after one warm-up; and does the same for the closest-point
 query over two batches of points, as many as there were primary hits --
 `near`, the hit points pushed off the surface along the normal by up to a
@@ -91,8 +94,19 @@ nearest-hit disagreement where the two triangles are at the same distance
 is a tie, which either side may answer either way, as is a closest-point
 disagreement where the two triangles are equally close (a point whose
 closest point is on an edge or a vertex two triangles share, the common
-case); any other disagreement fails the run. The closest-point rows also
-say how many triangles Embree's traversal handed its callback per query.
+case); any other disagreement fails the run. Both sides answer with the
+reference's whole record, not the triangle's id alone -- for a ray what
+Embree writes into its RTCRayHit (t, u, v, the unnormalized Ng) or FCPW
+into its Interaction (the distance, the hit point, the unit normal, uv),
+for a point the closest point and its distance (and FCPW's uv) -- and each
+row reports the largest deviation of those fields over the queries both
+sides answered with the same triangle (`records within t ..., n ..., uv
+..., p ...`: a ray's t relative, the normal relative to the reference's
+length, uv absolute, the point and the closest point's distance as
+fractions of the diagonal), which should read as last bits except where
+the reference's own arithmetic is ill-conditioned (a sliver triangle's
+barycentrics). The closest-point rows also say how many triangles
+Embree's traversal handed its callback per query.
 
 The measurement is single-threaded and pinned. Both sides run their rays as
 one plain loop on one core: the program's parfor over the rays is left
@@ -132,11 +146,14 @@ driver, the two sides' kernels told apart by symbol).
 
 ## Layout of the files
 
-- `rtq.bonsai`: the elements -- Embree's ray; the triangle as a vertex
+- `elements.bonsai`: the elements -- Embree's ray; the triangle as a vertex
   and two edges with its ids, as `TriangleM` stores a slot; the box; the
-  point -- and the three queries over `extern triangles : set[Triangle]`,
-  plus the exported batches. Which stored slots are triangles is the
-  layout's to say, not the queries'.
+  point -- and `extern triangles : set[Triangle]`. Compiled first, so that
+  the metric file's answer records are declared over them and the
+  program's exports over the records.
+- `rtq.bonsai`: the three queries over the set, plus the exported batches,
+  each answered with the reference's record. Which stored slots are
+  triangles is the layout's to say, not the queries'.
 - `metrics/embree.bonsai`, `metrics/fcpw.bonsai`: the reference's
   arithmetic, transcribed, one file compiled beside the program per
   comparison -- `intersects`, `distmin`, `distmax` and `contains` for a
@@ -226,14 +243,34 @@ driver, the two sides' kernels told apart by symbol).
   past it out, as FCPW does.
 - `schedules/fcpw4w16.bonsai` and its siblings (`fcpw8w16`, `fcpw4w8`,
   `fcpw8w8`): the three queries run the way FCPW's Mbvh runs them --
-  sorted by the point's (or ray's) distance to each child's box,
-  the children tested at once and the packet as its lanes, FCPW's stack
-  depth, no prefetch, and the leaf's early exits once every lane has its
-  Voronoi region. The driver, compiled for FCPW (`RTQ_FCPW`, with the
+  sorted by the point's (or ray's) distance to each child's box, the any
+  hit included (FCPW's `intersectFromNode` is one traversal for both ray
+  queries, `checkForOcclusion` only stopping it at the first hit, so its
+  any hit sorts where Embree's does not), the children tested at once and
+  the packet as its lanes, FCPW's stack depth, no prefetch, no early exit
+  on the ray test (FCPW's has none), and the closest point's leaf exits
+  once every lane has its Voronoi region. The driver, compiled for FCPW (`RTQ_FCPW`, with the
   width and branching the schedule's name says), builds FCPW's scene,
   copies its two arrays into the layout, and queries it through its own
   calls: `findClosestPoint`, and `intersect` for the rays.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
+- `plot.py`: the comparison as three figures (first hit, any hit, closest
+  point; meshes by triangle count, the ray or point sets by hatching, the
+  reference by colour) from the results CSV, `python apps/rtq/plot.py
+  apps/rtq/results/rtq-results.csv -o apps/rtq/plots`. Each reference on
+  its own default tree: Embree's BVH8 (`embree`) and FCPW's four-wide Mbvh
+  with sixteen-lane leaves (`fcpw4w16` -- FCPW's default branching, the
+  tree its author calls the better tested, and the leaf width its build
+  picks on an AVX-512 machine); `--embree`, `--fcpw` name others.
+- `results/`, `plots/`: the measured data -- one CSV, one row per measured
+  cell (date, commit, reference, schedule, mesh, query, ray set, both rates,
+  the speedup, the agreement) -- and the figures drawn from it. Generated,
+  gitignored, kept here rather than in a build directory so that clearing a
+  build does not erase them.
+- `scratch/`: an agent's working files for this app, gitignored -- probe
+  scripts, their logs, pinned worktrees of the compiler for a measurement,
+  the script that folds `compare.sh` logs into the CSV. Kept beside the app
+  rather than under /tmp so that a reboot does not take them.
 
 The generated `rtq.h`, `rtq.o`, `rtq.bir` and `rtq.ll` are left in this
 directory by `compare.sh` only while it runs, and are not committed.

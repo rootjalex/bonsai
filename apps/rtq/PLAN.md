@@ -5387,6 +5387,454 @@ The correctness test over FCPW's node-row layout passes with the fetch
 follows in the next section once the machine is free (bonsai-69's sweep
 runs until about 04:15).
 
+## The fixed prefetch measured, the any hit FCPW sorts, and the audit (2026-10-07)
+
+The machine crashed at about 01:09, with the commit above in and the
+session's scratch -- the CSV folding script, the probe scripts, six pinned
+worktrees under /tmp -- gone with the reboot. The user's rule from it: an
+app's scratch lives under apps/<app>/scratch, gitignored (`apps/*/scratch/`),
+never under /tmp. The scripts were rewritten there: setup-wt.sh pins a
+worktree of the compiler at a commit with the shared checkout's dependencies
+linked in (measurements run inside it, so an edit in the live tree cannot
+change the compiler under a sweep); probe-prefetch.sh alternates a tuned
+FCPW schedule with and without the directive; sweep.sh runs a block of the
+table; tocsv.sh folds compare.sh logs into the CSV, carrying over the cells
+an earlier CSV has that the run did not measure. The CSV and the plots moved
+out of the build directory, which gets erased, to apps/rtq/results and
+apps/rtq/plots (gitignored data).
+
+**The fixed prefetch over FCPW's eight-wide tree.** fcpw8w16t with
+`prefetch(triangles.Interior.children)` at the row (no count: 224 bytes,
+four lines) and at 2 and 6 lines, against none, on all three queries; head,
+ganesha, dragon; side 1024, least of 5, alternated twice; the compiler at
+b4c292e0 from the pinned worktree (bonsai over FCPW, both rounds):
+
+| mesh | lines | primary / diffuse | any ao | near / volume |
+|---|---|---|---|---|
+| head | 0 | 1.86-1.89 / 1.78-1.79 | 1.91 | 1.37 / 1.70-1.71 |
+| head | 2 | 1.82-1.93 / 1.73-1.76 | 1.87-1.93 | 1.33 / 1.65-1.67 |
+| head | row (4) | 1.83-1.98 / 1.71-1.75 | 1.87-1.93 | 1.33-1.35 / 1.69-1.72 |
+| head | 6 | 1.94-1.97 / 1.74-1.78 | 1.91-1.96 | 1.26-1.34 / 1.63-1.65 |
+| ganesha | 0 | 1.39-1.40 / 1.62 | 1.67 | 1.53-1.55 / 1.08 |
+| ganesha | 2 | 1.37-1.39 / 1.64 | 1.68-1.69 | 1.51-1.58 / 1.15 |
+| ganesha | row (4) | 1.39-1.40 / 1.64-1.65 | 1.70-1.71 | 1.57-1.65 / 1.28 |
+| ganesha | 6 | 1.40-1.41 / 1.66-1.67 | 1.72 | 1.52 / 1.25-1.26 |
+| dragon | 0 | 1.33-1.39 / 1.50-1.52 | 1.53-1.54 | 1.40-1.44 / 1.06-1.07 |
+| dragon | 2 | 1.41 / 1.57-1.58 | 1.55-1.58 | 1.41-1.45 / 1.14 |
+| dragon | row (4) | 1.38-1.39 / 1.59-1.60 | 1.58-1.59 | 1.44-1.46 / 1.25-1.28 |
+| dragon | 6 | 1.41-1.45 / 1.60-1.62 | 1.60 | 1.42-1.49 / 1.22-1.24 |
+
+With the demand load out of it, the prefetch over FCPW's layout behaves as
+it does over Embree's: on the large meshes a gain on every cell -- rays 1-6%,
+the near batch 2-7%, the volume batch 1.08 -> 1.28 and 1.07 -> 1.25-1.28
+(18-20%) -- and on the small mesh a wash on the rays (within 3% both ways)
+and 2-4% off the points. Two lines fetch too little for the volume batch
+(1.15, 1.14); six do no more than four. The volume-batch gain is the tuned
+closest point's known-open loss recovered: with the row fetched, the tuned
+schedule's volume batch stands level with the matching one's (1.27, 1.26 in
+the eight-wide table) instead of 15-19% behind it, and its near batch keeps
+its lead. The same probe over the four-wide tree with sixteen-lane leaves
+(fcpw4w16t, where the row is 112 bytes, two lines) and the eight-wide tree
+with eight-lane leaves (fcpw8w8t), the row against none, same meshes and
+method:
+
+| schedule | mesh | prefetch | primary / diffuse | any ao | near / volume |
+|---|---|---|---|---|---|
+| fcpw4w16t | head | none | 1.78-1.80 / 1.85 | 2.00 | 1.35-1.36 / 1.50 |
+| fcpw4w16t | head | row | 1.74-2.09 / 1.79-1.88 | 1.95-2.07 | 1.39 / 1.55-1.56 |
+| fcpw4w16t | ganesha | none | 1.43-1.44 / 1.53-1.54 | 1.61-1.62 | 1.35-1.45 / 0.95-1.04 |
+| fcpw4w16t | ganesha | row | 1.44-1.55 / 1.58-1.61 | 1.65-1.67 | 1.38-1.39 / 1.15-1.20 |
+| fcpw4w16t | dragon | none | 1.36-1.39 / 1.42-1.47 | 1.40-1.50 | 1.29-1.32 / 1.00-1.01 |
+| fcpw4w16t | dragon | row | 1.39-1.41 / 1.50-1.52 | 1.51-1.52 | 1.32-1.38 / 1.11-1.20 |
+| fcpw8w8t | head | none | 1.80-1.96 / 1.74-1.79 | 1.84-1.90 | 1.34-1.36 / 1.65-1.68 |
+| fcpw8w8t | head | row | 1.76-1.92 / 1.68-1.71 | 1.82-1.88 | 1.33-1.34 / 1.67 |
+| fcpw8w8t | ganesha | none | 1.35-1.40 / 1.51-1.55 | 1.57-1.60 | 1.39-1.42 / 1.03-1.04 |
+| fcpw8w8t | ganesha | row | 1.40 / 1.61-1.62 | 1.63-1.64 | 1.44-1.45 / 1.21 |
+| fcpw8w8t | dragon | none | 1.34 / 1.43-1.45 | 1.47-1.48 | 1.24-1.25 / 1.00-1.01 |
+| fcpw8w8t | dragon | row | 1.40-1.50 / 1.51-1.57 | 1.54-1.58 | 1.34-1.35 / 1.19-1.21 |
+
+The same shape on both: the large meshes gain on every cell, the volume
+batch most (0.95-1.04 -> 1.15-1.21 on ganesha and 1.00 -> 1.11-1.21 on
+dragon, where the tuned four-wide schedule without it had stood under the
+matching one's 1.16), head within noise both ways. So the four tuned FCPW
+schedules write `prefetch(triangles.Interior.children)` on all three
+queries -- the row's bytes, no count -- and keep the unsorted any hit.
+
+**The answers matched: a hit record on both sides.** The user's decision
+on the audit's open item: match the answer first, then one full re-run of
+every cell, and whether the record stays is decided on the plots. So the
+exports write what the reference writes. `trace_all` fills a `Hit` per ray
+and `closest_all` a `ClosestHit` per point, both elements of the metric
+file, since their fields and their arithmetic are the reference's:
+metrics/embree.bonsai's Hit is RTCRayHit's (primID, t, u, v, the
+unnormalized Ng = cross(e2, e1)) and its ClosestHit the tutorial callback's
+(primID, p, d); metrics/fcpw.bonsai's Hit is the Interaction's (primID, d,
+p = pa + v1 v + v2 w, the unit normal, uv = (1 - v - w, v)) and its
+ClosestHit (primID, d, p, uv). Each is made once per query after the
+traversal, for the element the argmin settled on, by the reference's test
+run once more over that one element -- Embree's finalize for the last
+accepted hit (Embree finalizes every hit that improved on the best, in the
+leaf), FCPW's point, normal and uv for one lane (FCPW makes them for all
+sixteen lanes of every packet before the scan). Two things came out of
+writing it, both in the metrics: the closest-point routines had shortened
+the reference's `p = a + ab v; d = |q - p|` to `|ap - ab v|`, the same
+value algebraically but not the same roundings or the same operations
+(the comment in metrics/fcpw.bonsai even said so), and they now compute the
+point as the reference does (closest_point_embree, closest_point_fcpw -- the
+latter returning FCPW's barycentric pair too, dead in the leaf, alive in the
+record -- and `distmin` takes `q - p`); and the language has no
+`rsqrt_approx`, so FCPW's `normalize` (enoki's approximate reciprocal root
+with a Newton step) is a true root and a division in the record, a scalar
+per ray that hits, the one place the arithmetic is not FCPW's instruction
+for instruction. The driver reads both sides' records into one shape
+(RefHit, RefClosest, as_ref) and reports, beside the id agreement, the
+largest deviation of each field over the queries both sides answered alike
+-- a ray's t relative, the normal relative to the reference's length, uv
+absolute, the point and the closest point's distance as fractions of the
+diagonal -- which should read as last bits except where the reference's own
+arithmetic is ill-conditioned. The first compile said `unknown type: Hit`
+at the export: the parser resolves an element's name when it reads the
+declaration that uses it, file by file in input order, and the metric
+file, which declares the records, came after the program. So the elements
+moved to apps/rtq/elements.bonsai, compiled first (elements, metric,
+program, schedule: every file's declarations before the file that names
+them), and compare.sh's input list says so. The check on head (b4c292e0,
+side 1024, one repeat): every row of all three queries agrees with both
+references, the records within t 4-7e-6 relative, uv 3e-6 (Embree) and
+up to 5e-4 on a primary ray (FCPW -- a sliver's barycentrics), Ng
+bit-identical to Embree's, FCPW's unit normal within 2e-7 (the root), the
+points within 1e-7 of the diagonal; and the SSA of `trace_all` shows the
+argmin still carrying the leaf pointer and lane through the traversal, the
+triangle loaded from its tile only after it -- the record's cost is the
+scalar re-test and a 32-byte store per ray, nothing in the loop.
+
+**The standard cells, and only those.** The user asked why the table had
+ao rays under the first hit and primary and diffuse rays under the any hit.
+There is a standard -- Aila and Laine (2009), kept by every traversal paper
+since, Embree's included: three ray sets, each under the query it is for,
+primary and diffuse rays the nearest hit, ambient-occlusion rays the any
+hit with early termination -- and the other pairings were my
+over-completeness, answering nothing a renderer asks and costing sweep
+time. The driver now runs the standard pairing by default (`--batch` with
+`--query` still runs any pairing for a probe), the plots draw the first
+hit with primary and diffuse rays and the any hit with ao rays, and the
+table below is those cells.
+
+**The any hit FCPW sorts.** Asked why the ray queries stand 1.3-3.5x over
+FCPW on FCPW's own tree, I read mbvh.inl's intersectFromNode again, and the
+user pointed out that our any hit does not sort -- true of `occluded` in
+every schedule here, Embree's traverseAnyHit pushing its children unsorted.
+FCPW's does: intersectFromNode is one traversal for both queries,
+`checkForOcclusion` only changing what happens at a hit, and every interior
+node goes through enqueueNodes -- sortOrder4's five compare-and-swaps at
+branching 4, the nearest child swapped to the top at 8. So the matching FCPW
+schedules had under-matched FCPW's any hit since 2026-10-05, Embree's shape
+copied where FCPW's should have been read, and every FCPW any-hit cell in
+the tables above compares a sorted traversal against an unsorted one. The
+four matching schedules now write `occluded.sort(...)` with the nearest
+hit's key; the tuned ones keep the unsorted push (the sort on the any hit
+measured a loss everywhere over Embree's trees, 2026-10-05, and the table
+below says what it is over FCPW's). The driver was checked while at it:
+the any hit does call FCPW with `checkForOcclusion = true` (rtq_hook.cpp,
+reference_occluded), and FCPW's own occluded rate exceeds its intersect
+rate on every batch, the early return and the skipped hit-point work.
+
+**The audit, by the user's rule.** "Our schedules must match the reference
+engine for everything except the tuned schedules. Our layouts must match.
+Our queries must match. Only the tuned files can change the schedule, and
+only the schedule." Every matching schedule, layout and query walked against
+the reference's code, step by step:
+
+| step | Embree (embree, embree4) | FCPW (fcpw4w16, fcpw8w16, fcpw4w8, fcpw8w8) |
+|---|---|---|
+| nearest hit, children's order | traverseClosestHit sorts by entry distance: `trace.sort` | enqueueNodes sorts (4: all four; 8: nearest first, rest in lane order): `trace.sort`, full at 8 -- the one departure, a form the language lacks |
+| any hit, children's order | traverseAnyHit, unsorted: no sort | the same enqueueNodes: `occluded.sort` (fixed today) |
+| leaf early exit | `early_out` after the edge tests on both paths: `trace.skip`, `occluded.skip` | intersectWideTriangle has none: no skip |
+| prefetch | BVH::prefetch per child, 4 lines at N = 8, 2 at N = 4: `prefetch(.., 4)`, `(.., 2)` | none: none |
+| stack | stackSizeSingle 564 / 244: `loopify` | FCPW_MBVH_MAX_DEPTH 154 / 96: `loopify` |
+| node test | Embree's slab test on the bits, `tFar` folded (metrics/embree) | intersectWideBox with `neq(child, maxInt)` (metrics/fcpw) |
+| leaf test | Triangle4 Moeller-Trumbore, `valid` lanes by the layout's `where` | sixteen- or eight-lane Moeller-Trumbore, the count's lanes |
+| closest point, order and bounds | pointQuery's traverseClosestHit: `closest.sort`; the children's farthest-distance bound is ours alone (Embree's callback API cannot use it; the user's ruling: an exact bound is the lowering's) | findClosestPointFromNode: `closest.sort`, the six region exits (`closest.skip(offset_fcpw)`), `tMaxMin` tightening |
+| layout, tree | Embree's bytes, Embree's builder | FCPW's bytes, FCPW's builder |
+| the answer | rtcIntersect1 writes t, u, v, Ng, primID, geomID; ours the primID -- OPEN | Interaction: d, p, n, uv, indices; ours the primID -- OPEN |
+
+Two items open from it, both put to the user: the answer -- our exports
+return the id where both references produce a hit record, so a hit record
+(t, u, v, Ng; FCPW's point, normal, uv) written by the program after the
+argmin is the match, about Embree's epilog's work; and FCPW's eight-wide
+partial order, which would be a new scheduling form (ask first). The
+user's rulings: the answers are matched first (the hit record above) and
+every cell re-run after it, the record's fate decided on the plots; the
+partial order is not to become a scheduling form -- the two eight-wide
+FCPW schedules note the difference and it stays a documented one.
+
+**The FCPW comparison is the four-wide tree.** The user's direction: FCPW's
+author says the MBVH4 is the better-tested BVH, so the comparison against
+FCPW is made on it -- fcpw4w16, FCPW's default branching factor with the
+leaf width its build picks on this machine (sixteen lanes, AVX-512), FCPW
+as it is built here with no option set -- and the plots draw `fcpw4w16`
+beside Embree's `embree` (each reference on its own default tree, BVH8 and
+MBVH4; plot.py's defaults, `--fcpw` names another). The eight-wide
+configurations (FCPW_USE_EIGHT_WIDE_BRANCHING) stay in the schedules and
+the CSV as secondary cells, measured after the four-wide ones in a sweep.
+The eight-wide partial-order difference above therefore touches only the
+secondary cells.
+
+**The table at b4c292e0 with the records, the standard cells (2026-10-07,
+09:55-10:35).** One block after the driver reboot, from the pinned
+worktree; Embree's four schedules (rays at side 2048, points at 1024) and
+FCPW's four four-wide ones (side 1024); least of five on cpu 11; 504 rows
+in apps/rtq/results/rtq-results.csv, the plots in apps/rtq/plots drawn
+from `embree` and `fcpw4w16`. Every Embree cell agrees to ties; against
+FCPW the known residue (1-12 primary rays of a million on bmw, crown, ivy,
+villa, dambreak through the reciprocals' last bits; ivy's and dambreak's
+degenerate triangles on the point batches). Bonsai over the reference:
+
+| mesh | triangles | embree: nearest pri dif, any ao | near vol | fcpw4w16: nearest pri dif, any ao | near vol |
+|---|---|---|---|---|---|
+| pavilion | 11366 | 0.85 0.99, 0.99 | 2.75 3.93 | 1.46 1.89, 2.02 | 1.05 1.12 |
+| head | 17674 | 0.89 1.01, 0.98 | 3.58 4.03 | 1.48 1.78, 1.96 | 1.10 1.15 |
+| zero-day | 48960 | 1.04 1.06, 0.99 | 3.51 3.82 | 1.73 1.89, 2.06 | 1.28 1.31 |
+| bmw | 110592 | 0.92 1.02, 1.01 | 3.87 4.36 | 1.52 1.73, 2.07 | 1.11 1.20 |
+| crown | 155520 | 0.96 1.05, 1.00 | 4.30 4.52 | 1.70 1.82, 2.00 | 1.25 1.30 |
+| ivy | 179603 | 0.95 1.02, 0.97 | 4.67 4.16 | 1.65 1.62, 1.72 | 1.22 1.29 |
+| villa | 390784 | 0.92 1.03, 1.00 | 4.13 4.65 | 1.60 1.80, 2.05 | 1.11 1.19 |
+| dambreak | 1015024 | 0.99 1.00, 0.98 | 3.59 5.53 | 1.50 1.47, 1.77 | 1.17 1.16 |
+| sportscar | 1091232 | 0.97 1.03, 1.01 | 4.42 5.29 | 1.45 1.56, 1.78 | 1.17 1.19 |
+| landscape | 1916928 | 0.88 1.05, 1.07 | 3.31 2.99 | 1.26 2.11, 2.51 | 1.12 1.16 |
+| lte-orb | 3423232 | 0.95 1.01, 0.99 | 4.77 5.46 | 1.48 - , - | - - |
+| ganesha | 4323658 | 0.98 1.02, 0.98 | 5.43 8.02 | 1.37 1.51, 1.62 | 1.27 1.17 |
+| dragon | 7219045 | 0.99 1.02, 0.98 | 6.10 7.85 | 1.31 1.40, 1.44 | 1.22 1.12 |
+
+The tuned and four-wide Embree schedules and the other four-wide FCPW
+configurations, the same cells (pri dif, ao; near vol):
+
+| mesh | tuned | embree4 | tuned4 | fcpw4w16t | fcpw4w8 | fcpw4w8t |
+|---|---|---|---|---|---|---|
+| pavilion | 0.85 1.02, 1.02; 2.75 3.92 | 0.92 0.92, 0.99; 2.83 3.94 | 0.90 0.95, 1.03; 2.87 3.86 | 1.47 1.87, 2.11; 1.08 1.42 | 1.52 1.91, 1.98; 1.08 1.04 | 1.49 1.82, 2.02; 1.10 1.32 |
+| head | 0.90 1.10, 1.09; 3.74 4.05 | 0.95 0.96, 0.98; 3.46 3.89 | 0.95 1.05, 1.09; 3.50 3.92 | 1.46 1.75, 1.98; 1.34 1.50 | 1.49 1.78, 1.95; 1.07 1.10 | 1.76 1.79, 2.05; 1.31 1.43 |
+| zero-day | 0.95 1.14, 1.12; 3.54 3.85 | 1.01 0.95, 0.99; 3.28 3.55 | 1.05 1.08, 1.12; 3.50 3.78 | 1.76 1.88, 2.11; 1.36 1.38 | 1.87 1.80, 1.97; 1.22 1.23 | 1.84 1.79, 1.99; 1.33 1.31 |
+| bmw | 0.93 1.10, 1.11; 3.87 4.36 | 0.92 0.97, 1.01; 3.73 4.12 | 0.93 1.03, 1.10; 3.77 4.18 | 1.50 1.72, 2.10; 1.33 1.40 | 1.52 1.69, 1.99; 1.05 1.11 | 1.50 1.69, 2.06; 1.32 1.39 |
+| crown | 0.98 1.19, 1.14; 4.10 4.34 | 1.00 0.97, 1.00; 4.00 4.02 | 0.99 1.08, 1.13; 4.09 4.06 | 1.94 1.83, 2.00; 1.40 1.40 | 1.69 1.74, 1.89; 1.18 1.20 | 1.61 1.75, 1.91; 1.36 1.34 |
+| ivy | 0.98 1.15, 1.09; 4.67 4.17 | 1.01 0.98, 1.00; 4.60 4.19 | 1.00 1.09, 1.10; 4.87 4.25 | 1.59 1.62, 1.75; 1.43 1.42 | 1.58 1.56, 1.68; 1.12 1.21 | 1.58 1.60, 1.72; 1.33 1.31 |
+| villa | 0.94 1.10, 1.08; 4.12 4.63 | 0.91 0.97, 1.01; 3.89 4.36 | 0.92 1.03, 1.09; 3.90 4.38 | 1.41 1.74, 1.99; 1.36 1.45 | 1.47 1.70, 1.95; 1.04 1.09 | 1.42 1.71, 1.94; 1.30 1.35 |
+| dambreak | 0.96 1.04, 1.04; 3.59 5.52 | 0.95 0.99, 1.00; 3.63 5.00 | 0.96 1.02, 1.06; 3.64 5.12 | 1.51 1.54, 1.84; 1.38 1.30 | 1.49 1.49, 1.73; 1.12 1.12 | 1.48 1.49, 1.76; 1.32 1.07 |
+| sportscar | 0.99 1.10, 1.12; 4.52 5.24 | 0.99 0.98, 1.02; 4.25 4.71 | 0.99 1.04, 1.10; 4.27 4.86 | 1.45 1.62, 1.86; 1.36 1.29 | 1.43 1.53, 1.68; 1.12 1.12 | 1.46 1.61, 1.80; 1.27 1.19 |
+| landscape | 0.89 1.09, 1.14; 3.38 3.00 | 0.96 1.16, 1.23; 3.24 2.80 | 0.96 1.09, 1.20; 3.36 2.85 | 1.42 2.11, 2.34; 1.32 1.21 | 1.26 2.09, 2.49; 1.13 1.18 | 1.36 2.07, 2.30; 1.26 1.18 |
+| lte-orb | 0.96 1.07, 1.06; 4.76 5.43 | 0.99 0.98, 1.00; 4.23 4.51 | 0.99 1.04, 1.07; 4.29 4.71 | 1.54 - , - ; - - | 1.44 - , - ; - - | 1.52 - , - ; - - |
+| ganesha | 0.89 0.99, 1.04; 5.44 7.99 | 0.98 0.98, 1.00; 5.39 6.75 | 0.97 1.02, 1.05; 5.26 7.01 | 1.36 1.55, 1.66; 1.37 1.13 | 1.34 1.43, 1.50; 1.19 1.07 | 1.37 1.52, 1.58; 1.27 1.08 |
+| dragon | 1.00 1.06, 1.07; 6.10 7.85 | 1.00 0.99, 1.00; 5.57 6.58 | 1.00 1.03, 1.05; 5.65 6.88 | 1.36 1.50, 1.51; 1.32 1.09 | 1.30 1.35, 1.36; 1.12 1.03 | 1.37 1.48, 1.48; 1.23 1.03 |
+
+Reading it against last night's table (no record, unsorted FCPW any hit,
+eight-wide FCPW tree). The record's cost falls where the hits are: Embree's
+primary first hit went from 1.03-1.10x to 0.85-1.04x (the scalar re-test
+and the 32-byte store on the one batch of a million rays with a 17-30% hit
+rate), its diffuse first hit from 1.01-1.15x to 0.99-1.06x, its any hit --
+no record -- unmoved at 0.97-1.07x; the closest point, whose record is one
+closest-point routine per query, unmoved at 2.75-8.02x. Against FCPW's
+MBVH4 the first hit stands 1.26-1.73x on primary rays and 1.40-2.11x on
+diffuse, the any hit, now sorted as FCPW's, 1.44-2.51x, and the closest
+point 1.05-1.31x on every cell. The tuned FCPW schedules' prefetch holds
+the volume batch level with or above the matching one's on every mesh
+(ganesha 1.13 vs 1.17, dragon 1.09 vs 1.12 -- within noise, where last
+night's tuned had lost 15-19%), and their near batch leads by 0.1-0.3. The
+tuned Embree schedule is level with the matching one on primary rays and
+3-14% ahead on diffuse and ao, as before. The user decides on the record
+from these plots; the profiles (both sides, first hit and any hit) and the
+eight-wide FCPW block are the next machine blocks.
+
+**Why the ray queries beat FCPW on its own MBVH4: the profile.** The user
+asked for a profile-guided answer. perf record of cycles, instructions,
+branches and branch-misses on one cell at a time, both sides in one
+process pinned to cpu 11, fcpw4w16 (the matching schedule, the sorted any
+hit), the driver built with -g so FCPW's inlined code attributes to its
+source lines (scratch/profile.sh; reports under scratch/profile-fcpw4w16-*).
+FCPW's traversal is three symbols -- intersectFromNode, enqueueNodes<4>
+and intersectRayPrimitives<16> -- and ours one (`trace_all`,
+`occluded_all`); the ratio of the sums, FCPW over bonsai, per event:
+
+| mesh, cell | cycles | instructions | branches | branch-misses |
+|---|---|---|---|---|
+| head, first hit primary | 1.78 | 1.91 | 2.20 | 1.97 |
+| head, first hit diffuse | 2.27 | 2.70 | 3.41 | 2.16 |
+| head, any hit ao | 2.44 | 2.93 | 4.23 | 2.32 |
+| dragon, first hit primary | 1.91 | 1.73 | 1.76 | 1.78 |
+| dragon, first hit diffuse | 2.07 | 2.20 | -- | 2.24 |
+| dragon, any hit ao | 2.23 | 2.51 | -- | 2.28 |
+
+(the sampled shares of each side; dragon's branches event fell under the
+report's 1% floor for our symbol.) FCPW retires two to three times the
+instructions and takes two to four times the branches for the same rays
+and the same pruning, and misses twice as often -- the gap is instruction
+count and control flow, not the node or leaf arithmetic, which both sides
+run as the same vector operations. Where FCPW's time goes, by source line
+(head; the shares are of all cycles or misses in the process):
+
+- *enqueueNodes, 29% of FCPW's cycles and 30% of its mispredictions on
+  primary rays, 36% and 33% on ao rays.* Its hottest lines are sortOrder4's
+  compare-and-swaps (mbvh.inl:779-780, `if (t[b] < t[d])`, `if (t[b] <
+  t[c])`: each a lane extracted from an SSE register and a data-dependent
+  branch; array_sse42.h:1030 is the extract) and the push loop
+  (mbvh.inl:796-800: `if (mask[W])` per lane, the child and its distance
+  extracted lane by lane, `tMaxMin = min(..)` per lane -- `stub` on the
+  ray path, computed and thrown away). Five sort branches and four mask
+  branches a node, all on values the ray decides. Ours: the sort lowered
+  as Embree's chain, one branch on the hit count and then straight-line
+  min/max over packed key|index words, the push a vector compress; the
+  whole any-hit kernel has 12 conditional branches.
+- *intersectRayPrimitives, 19% of FCPW's cycles and 33% of its
+  mispredictions on primary rays, 33% of its mispredictions on ao rays.*
+  After the sixteen-lane Moeller-Trumbore, the per-lane scan
+  (mbvh.inl:910-914, `if (mask[w] && d[w] <= rtMax)`): the lines
+  array_avx512.h:147-148 and array_kmask.h:121 are the extraction of one
+  lane of `d` and one bit of the kmask, up to sixteen times a packet, each
+  with a branch; on the nearest hit the point, normal (a normalize: a root
+  and a division) and uv for all sixteen lanes before the scan. Ours: one
+  horizontal min with the lane index beside the key, no per-lane branch,
+  and the record made once per ray after the traversal.
+- *intersectFromNode, 52% of FCPW's cycles on primary rays.* The box test
+  itself (bvh.h:52 is the slab test's `tMin <= tMax`; array_sse42.h:174-175
+  the SSE min/max) is the one part both sides share; the rest is the stack
+  pop with its skip (mbvh.inl:978, 3.7% of the ao misses alone), the
+  `flatTree[nodeIndex]` vector indexing (stl_vector.h:1163), the gathers of
+  the ray into enoki vectors per call.
+
+So the answer to "why faster": the same tree, the same bytes, the same
+arithmetic and the same pruning, but FCPW spends between the vector
+operations -- sorting, pushing and scanning lanes one at a time with a
+branch each -- what our lowering spends in a handful of vector
+instructions. The any hit, now sorted as FCPW's, keeps the largest margin
+(2.4x in cycles) because FCPW sorts there too and its leaf scan runs for
+nothing on a hit; the primary first hit has the smallest (1.8x) because
+coherent rays predict FCPW's branches best.
+
+**The record made in the leaf: the map inside the argmin.** The record as
+first written -- a second triangle test on the winner after the traversal
+-- cost 6-18% on primary rays against Embree (pavilion 77.9 -> 64.0
+Mrays/s, head 67.3 -> 57.2, landscape 61.6 -> 52.4, dragon 36.4 -> 34.1;
+Embree's own rates and our diffuse rates unchanged, so the traversal was
+not what moved), where Embree makes its record in the leaf for each hit
+that improves on the best. The user's direction: no new compiler pass --
+apps/pbrt's `trace` already says it, `argmin(key, filter(pred, map(|p, g|
+(p, g, intersection(q, ...)), set)))`, the map annotating every candidate
+with its record so that the argmin's element is the pair, held as a
+reference to the primitive and the record by value, and the leaf evaluates
+key, predicate and record together with CSE keeping one test. rtq's
+queries now read the same way: `trace` is `argmin(|t, h| distmin(r, t),
+filter(|t, h| intersects(r, t), map(|t| (t, hit_record(r, t)), triangles)))`
+answering `option[(Triangle, Hit)]`, `closest` the same with
+`closest_record` and no filter, and the exports write the pair's record.
+One lowering bug came out of it, at its cause: build_traversal's `map`
+case did not pass the argmin's carry -- the bound each `from` carries and
+the loop over the children that tests and tightens it -- down to the tree,
+where the `filter` case does; under a filter the fused filter consumed the
+carry first, so pbrt's shape never showed it, but the filterless closest
+point over a map lost its children loop (`vectorize(triangles.Interior.
+children)` found no loop named children; `prefetch` no loop to sit in).
+The map passes the carry through now, as Algorithm 1's map rule says the
+recursion is left alone. Tests lower/argmin-over-map (the closest point
+annotated with a record, the children loop with its mask and tightening,
+the leaf's `argmin=` of `(key, (ref, record))`; trace's pair under a
+filter) and backends/llvm/argmin-over-map (the loop vectorized, the
+record's fields selected at the winning lane).
+
+**The table with the leaf-made record (12:12-12:55, compiler 27a9636f).**
+Embree: first hit on primary rays 0.95-1.03x (pavilion 0.96, head 0.97,
+zero-day 0.96, landscape 0.95, the rest 1.00-1.03), diffuse 1.01-1.12x,
+any hit on ao rays 0.96-1.15x, closest point 2.97-5.82x near / 3.06-8.09x
+volume. FCPW's MBVH4: first hit 1.35-1.95x primary / 1.40-2.13x diffuse,
+any hit 1.45-2.48x, closest point 1.11-1.28x / 1.13-1.31x. The post-
+traversal record's 0.85-0.92 on primary rays is recovered to 0.95-1.03;
+against the id-only kernel's 1.03-1.10 the remaining 4-7% is below.
+
+**The primary-ray slowdown against Embree, read off the assembly.** The
+user asked for the reason, concretely. perf on head's primary first hit,
+both sides in one process, for the current kernel and the id-only kernel
+of b4c292e0 (scratch/profile.sh --app, the b4c292e0 tree extracted beside
+it); the three kernels' disassembly read side by side (scratch/
+embree-intersect.asm from libembree4's symbol table, ours-{new,old}-
+cycles.annot.txt). Static counts of the whole kernels:
+
+| kernel | instructions | stack operands | spill stores | four-lane ops |
+|---|---|---|---|---|
+| Embree BVHNIntersector1<8>, Triangle4 Moeller | 604 | 108 | -- | 183 |
+| ours, id only (b4c292e0) | 603 | 63 | 10 | 137 |
+| ours, record in the leaf | 651 | 85 | 23 | 182 |
+
+and relative to Embree in the same run our kernel retires 7% more
+instructions and takes 3% more cycles than the id-only one did: on head,
+55.95 against 59.08 Mrays/s, which is 0.95 ns, four to five cycles, per
+ray -- not a traversal regression but a per-ray tax. Where it is, path by
+path (the leaf is the four-lane block test from `vsubps` through
+`vpcmpneqd` -- the layout's `where` predicate -- and `kortestb; je`, the
+same shape in all three kernels):
+
+- *Per block passing the depth test:* two more masked multiplies (u and v
+  scaled by the reciprocal beside t). Embree does the same three. Trivial.
+- *Per improving hit:* the record's six fields selected at the winning
+  lane -- six vector spills (`vmovaps %xmm, 0x160-0x1b0(%rsp)`), six scalar
+  loads at the lane's offset, two `vinsertps` to reassemble Ng, one
+  16-byte store into the accumulator's record slot -- about seventeen
+  instructions where the id-only kernel did one indexed load of the
+  packed lane word and one 8-byte store. Embree's own improving hit is no
+  lighter: it spills U, V, T, absDen and Ng (seven `vmovaps`), takes the
+  reciprocal and the three products into the stack, runs select_min, the
+  primID load, the geometry mask test and the filter test, then spills
+  seven ymm and five GPRs before writing the hit into the ray-hit struct.
+  Parity, not a loss.
+- *Per ray, the tax:* the accumulator grew from a 16-byte (key,
+  reference) to a 48-byte (key, reference, record) tuple on the stack,
+  and it is (a) initialized whole on every ray -- `no_hit`'s zeros, three
+  `vxorps`/`vmovaps` stores per ray, the hottest single instruction of
+  the new kernel at 2.9% of its samples -- and (b) copied out at the end
+  through a second temporary, `_best1_result` (an option of the pair,
+  built from the accumulator) and then `hits[i] = found[1]` -- loads and
+  stores of the 32-byte record twice. Embree has neither: its hit lives
+  in the caller's RTCRayHit from the start (the caller resets geomID off
+  the clock; our driver does the same for Embree) and is written in place
+  on an improvement. At about fifteen instructions and the stores' latency
+  per ray, this is the four to five cycles.
+- *Pre-existing, both kernels:* the leaf test reads the ray's constants
+  from the stack on every block (`vsubps 0x150(%rsp)`, `vmulps
+  0x110(%rsp)`: six stack operands per block) where Embree keeps them in
+  registers; the eight-wide node test's constants hold ymm23-31 and the
+  four-lane leaf's got spilled. Store-forwarded, off the critical chain
+  (the earlier payload probe found such spills free), but a register
+  allocation worth revisiting with the tuned schedule.
+
+The plan, in order:
+
+1. *The record accumulates in its destination.* The argmin's by-value
+   held component (the record) is only ever read once, after the
+   traversal, to be stored into `hits[i]`; so lower it to live there --
+   the accumulate writes the record's fields into the output element on
+   an improvement, the footer's copy and the second temporary vanish, and
+   so does the per-ray identity init of the record (the `else` branch
+   writes `no_hit` as it does now, and nothing reads the record unless the
+   key improved). This is store sinking into a reduction, a cousin of
+   Opt/Sink's assignment sinking (2278cf71, Knoop-Ruething-Steffen) and
+   of the "argmin payload in storage" probe of 2026-10-05 (9440bea3),
+   which found the reference's storage level because the reference is 8
+   bytes; the record is 32 and comes with an init and a copy. Site: after
+   the traversal is inlined (SSA), the pattern is one alloca whose record
+   component has one reader, a store to an addressable destination not
+   otherwise read -- replace the component's slot by the destination.
+   Tests at the lower/ssa/llvm levels on the argmin-over-map program, and
+   the rtq execution check. Expected: the per-ray tax gone, primary rays
+   back to about 1.00-1.03x; a day.
+2. *The key not carried twice.* The record's `t` is the key: the held
+   tuple stores both. After inlining the two are one SSA value in the
+   build of the held tuple; a component equal to the key component is
+   dropped and the result reads the key. Hours.
+3. *The ray's leaf constants in registers.* The six stack operands per
+   block in both kernels; the schedule's own concern (which constants the
+   eight-wide test and the four-lane test share) and LLVM's allocation.
+   To probe with the tuned schedule, after 1 and 2.
+
+Not in the plan: the per-hit extraction through spilled vectors, which
+Embree does the same way, and the two masked multiplies, which are the
+record's honest work.
+
 ## Known-open, smaller
 
 - The tuned FCPW schedules' closest point: without FCPW's region exits

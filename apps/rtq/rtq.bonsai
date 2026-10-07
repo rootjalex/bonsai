@@ -24,50 +24,13 @@
 // computation under the schedule and the layout, so that what the table
 // measures is the compiler's traversal against the hand-written one and
 // not one algorithm against another. Both files define, over the elements
-// below, `intersects`, `distmin`, `distmax` and `contains` for a ray and a
-// box, a ray and a triangle, a point and a box, and a point and a triangle.
-import stdlib/numerics;
-
-// Embree: RTCRay, the fields the traversal reads. `tnear` and `tfar` are the
-// segment of the ray a hit counts on; a hit at `t` is accepted where
-// `tnear < t <= tfar` (triangle_intersector_moeller.h), and a box where its
-// slab interval meets [tnear, tfar]. FCPW's Ray has an origin, a direction
-// and tMax, its segment beginning at zero.
-element Ray {
-    o : vec3f;
-    tnear : Float;
-    d : vec3f;
-    tfar : Float;
-}
-
-// Embree: TriangleM<M>, one of its M slots. A vertex, the two edges Embree
-// precomputes (`e1 = v0 - v1`, `e2 = v2 - v0`), and the ids. FCPW's packet
-// stores the three vertices, from which its layout derives these edges
-// (schedules/layouts/fcpw4w16.bonsai). Which slots of a block are triangles
-// is the layout's to say: Embree's padding slots carry ids of -1 and its
-// layouts exclude them by that mark (TriangleM::valid), FCPW's leaves
-// carry a count and its layouts exclude them by the count.
-element Triangle {
-    v0 : vec3f;
-    e1 : vec3f;
-    e2 : vec3f;
-    geomID : u32;
-    primID : u32;
-}
-
-element AABB {
-    low, high : vec3f;
-}
-
-// The closest-point query's point. Embree's RTCPointQuery and FCPW's
-// BoundingSphere are a point and a radius, and both begin with the radius
-// infinite and shrink it to each closer triangle found; the query here is
-// the point alone, the shrinking the argmin's (`closest`).
-element Point {
-    p : vec3f;
-}
-
-extern triangles : set[Triangle];
+// of elements.bonsai (the ray, the triangle, the box, the point, the set
+// of triangles -- compiled first, so that the metric's answer records are
+// declared over them and this file's exports over those), `intersects`,
+// `distmin`, `distmax` and `contains` for a ray and a box, a ray and a
+// triangle, a point and a box, and a point and a triangle, and the
+// reference's answer records (`Hit`, `ClosestHit`) with the functions that
+// fill them.
 
 // Embree: TravRay -- the ray as the traversal reads it, its segment clamped
 // to [0, inf) at entry (`tnear = max(tnear, 0)`, `tfar = max(tfar, 0)`,
@@ -89,11 +52,22 @@ func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d
                                   select(r.tfar > 0.0, r.tfar, 0.0)};
 
 // Embree: rtcIntersect1; FCPW: Scene::intersect -- the nearest triangle the
-// ray hits, if any.
-func trace(r0 : Ray) -> option[Triangle] {
+// ray hits, if any, with the reference's record of the hit. The map
+// annotates every candidate with `hit_record(r, t)`, the record of the same
+// test `intersects` names and `distmin` keys, so the hit the argmin answers
+// carries its record: the three ask one question of a candidate, the leaf
+// evaluates them together and CSE keeps one test, and the argmin holds the
+// record by value beside its reference to the triangle. That is where
+// Embree makes its record too (MoellerTrumboreHitM::finalize in the leaf,
+// for each hit nearer than the best), and where FCPW makes its point,
+// normal and uv (for every lane of every packet) -- not a second test on
+// the winner after the traversal, which cost 6-18% on primary rays. The
+// same shape as apps/pbrt's trace.
+func trace(r0 : Ray) -> option[(Triangle, Hit)] {
     r = clamped(r0);
-    return argmin(|t : Triangle| distmin(r, t),
-                  filter(|t : Triangle| intersects(r, t), triangles));
+    return argmin(|t : Triangle, h : Hit| distmin(r, t),
+                  filter(|t : Triangle, h : Hit| intersects(r, t),
+                         map(|t : Triangle| (t, hit_record(r, t)), triangles)));
 }
 
 // Embree: rtcOccluded1; FCPW: Scene::intersect with checkForOcclusion --
@@ -112,25 +86,36 @@ func occluded(r0 : Ray) -> bool {
 // the farthest a child's box can be, which FCPW does at every node
 // (enqueueNodes) and Embree's callback form cannot. Every triangle the set
 // holds is a candidate: which stored slots are triangles is the layout's
-// to say, not this query's.
-func closest(q : Point) -> option[Triangle] {
-    return argmin(|t : Triangle| distmin(q, t), triangles);
+// to say, not this query's. The map annotates each candidate with the
+// reference's record (the closest point, its distance), the same
+// computation `distmin` keys, so one evaluation serves both, as for trace.
+func closest(q : Point) -> option[(Triangle, ClosestHit)] {
+    return argmin(|t : Triangle, c : ClosestHit| distmin(q, t),
+                  map(|t : Triangle| (t, closest_record(q, t)), triangles));
 }
 
-// A batch of rays, each answered with the id of the triangle it hits or
-// 0xffffffff for none (RTC_INVALID_GEOMETRY_ID), a batch answered with 1
-// where something is in the way, and a batch of points, each answered with
-// the id of the closest triangle. The rays are a parfor, which a schedule
-// may spread over the cores; the comparison's schedule leaves it unbound,
-// a plain loop, since the measurement is single-threaded on both sides.
-func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
+// A batch of rays, each answered with the reference's hit record -- the
+// triangle's id (0xffffffff for none, RTC_INVALID_GEOMETRY_ID) and what the
+// reference writes beside it: Embree's t, u, v and Ng (RTCRayHit), FCPW's
+// distance, point, normal and uv (Interaction); `Hit`, `hit_record` and
+// `no_hit` are the metric file's, since the fields and their arithmetic are
+// the reference's -- a batch answered with 1 where something is in the way,
+// and a batch of points, each answered with the closest triangle, the point
+// on it and the distance (`ClosestHit`, `closest_record`, `no_closest`, the
+// metric file's again). The record is made once per query, for the element
+// the argmin settled on, after the traversal; the references make theirs in
+// the leaf for each candidate that improved on the best. The rays are a
+// parfor, which a schedule may spread over the cores; the comparison's
+// schedule leaves it unbound, a plain loop, since the measurement is
+// single-threaded on both sides.
+func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[Hit, n]) {
     parfor i in 0u:n {
         h = trace(rays[i]);
         if h {
-            tri = *h;
-            hits[i] = tri.primID;
+            found = *h;
+            hits[i] = found[1];
         } else {
-            hits[i] = 4294967295u;
+            hits[i] = no_hit();
         }
     }
     return;
@@ -143,14 +128,14 @@ func [[export]] occluded_all(n : u32, rays : array[Ray, n], hits : mut array[u32
     return;
 }
 
-func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[u32, n]) {
+func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[ClosestHit, n]) {
     parfor i in 0u:n {
         h = closest(points[i]);
         if h {
-            tri = *h;
-            hits[i] = tri.primID;
+            found = *h;
+            hits[i] = found[1];
         } else {
-            hits[i] = 4294967295u;
+            hits[i] = no_closest();
         }
     }
     return;

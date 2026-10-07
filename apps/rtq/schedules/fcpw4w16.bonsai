@@ -39,23 +39,29 @@ schedule {
     // FCPW: findClosestPointWideTriangle's `if (enoki::all(active7)) return`
     // after each of the first six Voronoi regions -- once every lane has its
     // region, the rest of the test is skipped. The regions are the early
-    // returns of offset_fcpw (metrics/fcpw.bonsai), the offset from the
+    // returns of closest_point_fcpw (metrics/fcpw.bonsai), the offset from the
     // closest point that distmin takes the one root of; `skip` puts the test
     // of whether any lane goes on in front of what follows each.
-    closest.skip(offset_fcpw);
+    closest.skip(closest_point_fcpw);
 
-    // The ray queries over FCPW's tree, with the directives of the Embree
-    // schedule less the prefetch: FCPW's intersectFromNode orders the
+    // The ray queries over FCPW's tree: FCPW's intersectFromNode orders the
     // children by entry distance with the same enqueueNodes and tests the
-    // packet's sixteen triangles at once (intersectWideTriangle); its
-    // occlusion query is the same traversal told to stop at the first hit.
+    // packet's sixteen triangles at once (intersectWideTriangle); nothing is
+    // prefetched. Its occlusion query is the same traversal told to stop at
+    // the first hit (checkForOcclusion), so the any hit sorts the children
+    // too -- where Embree's traverseAnyHit pushes them unsorted and
+    // embree.bonsai writes no sort for `occluded`. (This schedule carried
+    // Embree's unsorted any hit until 2026-10-07.)
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
                distmin(r, AABB{lo[i], hi[i]}))
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(96);
-    occluded.vectorize(triangles.Interior.children)
+    occluded.sort(triangles.Interior,
+                  |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                  distmin(r, AABB{lo[i], hi[i]}))
+            .vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(96);
 }

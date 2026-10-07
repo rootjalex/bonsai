@@ -164,13 +164,17 @@ cmake --build "$BONSAI_BUILD_DIR" -j
 build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
-  # The program, the reference's arithmetic (metrics/<reference>.bonsai:
-  # its slab test, its triangle test, its point distances, transcribed), and
-  # the schedule over the reference's tree. RTQ_METRICS names another
-  # metrics file in place of the reference's, for measuring what an
+  # The elements, the reference's arithmetic (metrics/<reference>.bonsai:
+  # its slab test, its triangle test, its point distances and its answer
+  # records, transcribed), the program, and the schedule over the
+  # reference's tree -- in that order, each file's declarations before the
+  # file that names them (the metric's records are declared over the
+  # elements, the program's exports over the records). RTQ_METRICS names
+  # another metrics file in place of the reference's, for measuring what an
   # arithmetic differs by against the same reference.
   local metrics="${RTQ_METRICS:-$PREFIX/metrics/$(reference_of "$schedule").bonsai}"
-  local inputs=(-i $PREFIX/rtq.bonsai -i "$metrics" -i "$PREFIX/schedules/$schedule.bonsai")
+  local inputs=(-i $PREFIX/elements.bonsai -i "$metrics" -i $PREFIX/rtq.bonsai
+                -i "$PREFIX/schedules/$schedule.bonsai")
   "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/rtq.bir
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/rtq.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/rtq

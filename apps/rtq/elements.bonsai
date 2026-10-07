@@ -1,0 +1,53 @@
+// apps/rtq's elements: the ray, the triangle, the box and the point the
+// queries (rtq.bonsai) and the reference's arithmetic (metrics/*.bonsai)
+// are written over, and the set of triangles. A file of its own, compiled
+// first, because the metric file declares the reference's answer records
+// (`Hit`, `ClosestHit`) over these elements and the program's exports are
+// declared over those records: compare.sh compiles
+//
+//     -i apps/rtq/elements.bonsai -i apps/rtq/metrics/<reference>.bonsai \
+//     -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/<schedule>.bonsai
+//
+// so that every element is declared before the file that names it.
+import stdlib/numerics;
+
+// Embree: RTCRay, the fields the traversal reads. `tnear` and `tfar` are the
+// segment of the ray a hit counts on; a hit at `t` is accepted where
+// `tnear < t <= tfar` (triangle_intersector_moeller.h), and a box where its
+// slab interval meets [tnear, tfar]. FCPW's Ray has an origin, a direction
+// and tMax, its segment beginning at zero.
+element Ray {
+    o : vec3f;
+    tnear : Float;
+    d : vec3f;
+    tfar : Float;
+}
+
+// Embree: TriangleM<M>, one of its M slots. A vertex, the two edges Embree
+// precomputes (`e1 = v0 - v1`, `e2 = v2 - v0`), and the ids. FCPW's packet
+// stores the three vertices, from which its layout derives these edges
+// (schedules/layouts/fcpw4w16.bonsai). Which slots of a block are triangles
+// is the layout's to say: Embree's padding slots carry ids of -1 and its
+// layouts exclude them by that mark (TriangleM::valid), FCPW's leaves
+// carry a count and its layouts exclude them by the count.
+element Triangle {
+    v0 : vec3f;
+    e1 : vec3f;
+    e2 : vec3f;
+    geomID : u32;
+    primID : u32;
+}
+
+element AABB {
+    low, high : vec3f;
+}
+
+// The closest-point query's point. Embree's RTCPointQuery and FCPW's
+// BoundingSphere are a point and a radius, and both begin with the radius
+// infinite and shrink it to each closer triangle found; the query here is
+// the point alone, the shrinking the argmin's (`closest`).
+element Point {
+    p : vec3f;
+}
+
+extern triangles : set[Triangle];

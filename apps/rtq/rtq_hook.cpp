@@ -105,6 +105,71 @@ Vec3 cross(Vec3 a, Vec3 b) {
     return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
 }
 float length(Vec3 a) { return std::sqrt(dot(a, a)); }
+
+// The reference's answer to a ray and to a point, read out of its own
+// record -- Embree's RTCRayHit (t in ray.tfar, u, v, the unnormalized Ng,
+// primID) or FCPW's Interaction (d, p, the unit normal n, uv,
+// primitiveIndex); for the closest point, Embree's tutorial callback's
+// record (the triangle, the point, its distance) or FCPW's Interaction (d,
+// p, uv). The fields one reference does not produce stay zero on both
+// sides. The program's exports write the same records (rtq.h's Hit and
+// ClosestHit, the metric file's elements, in the reference's arithmetic),
+// read into the same shape by as_ref, and compare_hits and compare_closest
+// check the fields beside the triangle's id.
+struct RefHit {
+    uint32_t prim = kNoHit;
+    float t = kInf, u = 0, v = 0;
+    Vec3 ng{0, 0, 0};
+    Vec3 p{0, 0, 0};
+};
+
+struct RefClosest {
+    uint32_t prim = kNoHit;
+    float d = kInf;
+    Vec3 p{0, 0, 0};
+    float u = 0, v = 0;
+};
+
+#ifdef RTQ_FCPW
+RefHit as_ref(const Hit &h) {
+    RefHit r;
+    r.prim = h.primID;
+    r.t = h.d;
+    r.u = h.u;
+    r.v = h.v;
+    r.ng = Vec3{h.n.x, h.n.y, h.n.z};
+    r.p = Vec3{h.p.x, h.p.y, h.p.z};
+    return r;
+}
+
+RefClosest as_ref(const ClosestHit &c) {
+    RefClosest r;
+    r.prim = c.primID;
+    r.d = c.d;
+    r.p = Vec3{c.p.x, c.p.y, c.p.z};
+    r.u = c.u;
+    r.v = c.v;
+    return r;
+}
+#else
+RefHit as_ref(const Hit &h) {
+    RefHit r;
+    r.prim = h.primID;
+    r.t = h.t;
+    r.u = h.u;
+    r.v = h.v;
+    r.ng = Vec3{h.ng.x, h.ng.y, h.ng.z};
+    return r;
+}
+
+RefClosest as_ref(const ClosestHit &c) {
+    RefClosest r;
+    r.prim = c.primID;
+    r.d = c.d;
+    r.p = Vec3{c.p.x, c.p.y, c.p.z};
+    return r;
+}
+#endif
 Vec3 normalize(Vec3 a) {
     const float l = length(a);
     return l > 0 ? a * (1.0f / l) : a;
@@ -1316,11 +1381,20 @@ void blocked_of(const std::vector<RTCRay> &rays, std::vector<uint32_t> &blocked)
     }
 }
 
-// The triangle each ray hit, or none.
-void prims_of(const std::vector<RTCRayHit> &hits, std::vector<uint32_t> &prims) {
-    prims.resize(hits.size());
+// What each ray's RTCRayHit says: the triangle hit, or none, and the hit's
+// t (ray.tfar, which the query shortened to it), u, v and Ng.
+void records_of(const std::vector<RTCRayHit> &hits, std::vector<RefHit> &records) {
+    records.assign(hits.size(), RefHit{});
     for (size_t i = 0; i < hits.size(); i++) {
-        prims[i] = hits[i].hit.geomID == RTC_INVALID_GEOMETRY_ID ? kNoHit : hits[i].hit.primID;
+        const RTCRayHit &rh = hits[i];
+        if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+            continue;
+        }
+        records[i].prim = rh.hit.primID;
+        records[i].t = rh.ray.tfar;
+        records[i].u = rh.hit.u;
+        records[i].v = rh.hit.v;
+        records[i].ng = Vec3{rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z};
     }
 }
 
@@ -1328,7 +1402,7 @@ void prims_of(const std::vector<RTCRayHit> &hits, std::vector<uint32_t> &prims) 
 
 // The program over a batch: the exported parfor, a plain loop.
 void bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays,
-                      std::vector<uint32_t> &hits) {
+                      std::vector<Hit> &hits) {
     hits.resize(rays.size());
     trace_all(uint32_t(rays.size()), rays.data(), hits.data(), tree.layout);
 }
@@ -1392,10 +1466,12 @@ Vec3 closest_point_triangle(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
     return a + ab * v + ac * w;
 }
 
-// What a closest-point query records: the triangle and its distance.
+// What a closest-point query records: the triangle, the closest point on
+// it and its distance.
 struct ClosestResult {
     uint32_t prim = kNoHit;
     float distance = kInf;
+    Vec3 p{0, 0, 0};
 };
 
 struct ClosestState {
@@ -1431,6 +1507,7 @@ bool closest_point_callback(RTCPointQueryFunctionArguments *args) {
         args->query->radius = d;
         state->result->prim = prim;
         state->result->distance = d;
+        state->result->p = p;
         return true;
     }
     return false;
@@ -1479,7 +1556,7 @@ uint64_t embree_closest(RTCScene scene, const Mesh &mesh, std::vector<RTCPointQu
 #endif // !RTQ_FCPW
 
 void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
-                    std::vector<uint32_t> &hits) {
+                    std::vector<ClosestHit> &hits) {
     hits.resize(points.size());
     closest_all(uint32_t(points.size()), points.data(), hits.data(), tree.layout);
 }
@@ -1573,6 +1650,41 @@ double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim, double *u = nu
 // sides' answers and the distances the check compared, on stderr.
 int explain_limit = 0;
 
+// The record's fields beside the triangle's id, over the queries both sides
+// answered with the same triangle: the largest deviation in the batch -- a
+// ray's t relative to the reference's value, the normal relative to the
+// reference's length (Embree's Ng is unnormalized; FCPW's n is a unit
+// vector, so the ratio is the absolute deviation there), uv absolute, the
+// point and the closest point's distance as fractions of the scene's
+// diagonal. The two sides
+// run the reference's arithmetic over the same triangle, so these should be
+// zero or a last bit (the FCPW normal's root is the one departure, see
+// metrics/fcpw.bonsai); a larger deviation would be a record made from the
+// wrong element or the wrong formula.
+struct Deviation {
+    double t = 0, n = 0, uv = 0, p = 0;
+};
+
+double relative(double reference, double ours, double floor) {
+    return std::fabs(reference - ours) / std::max(std::fabs(reference), floor);
+}
+
+void deviate(Deviation &d, const RefHit &e, const RefHit &b, double diagonal) {
+    d.t = std::max(d.t, relative(e.t, b.t, 1e-30));
+    d.n = std::max(d.n, double(length(e.ng - b.ng)) / std::max(double(length(e.ng)), 1e-30));
+    d.uv = std::max({d.uv, std::fabs(double(e.u) - b.u), std::fabs(double(e.v) - b.v)});
+    d.p = std::max(d.p, double(length(e.p - b.p)) / diagonal);
+}
+
+void deviate(Deviation &d, const RefClosest &e, const RefClosest &b, double diagonal) {
+    // The distance as a fraction of the diagonal, like the point: a point
+    // on the surface has a distance of a few ulps, where a ratio says
+    // nothing.
+    d.t = std::max(d.t, std::fabs(double(e.d) - b.d) / diagonal);
+    d.uv = std::max({d.uv, std::fabs(double(e.u) - b.u), std::fabs(double(e.v) - b.v)});
+    d.p = std::max(d.p, double(length(e.p - b.p)) / diagonal);
+}
+
 struct Agreement {
     size_t rays = 0, same = 0, ties = 0, differ = 0;
     size_t embree_hits = 0, bonsai_hits = 0;
@@ -1580,20 +1692,26 @@ struct Agreement {
     // fraction of the scene's diagonal, for the record that the ties are
     // what they claim to be.
     double tie_gap = 0;
+    Deviation dev;
 };
 
 Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
-                       const std::vector<uint32_t> &reference,
-                       const std::vector<uint32_t> &ours) {
+                       const std::vector<RefHit> &reference, const std::vector<Hit> &ours) {
+    const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = rays.size();
     for (size_t i = 0; i < rays.size(); i++) {
-        const uint32_t e = reference[i];
-        const uint32_t b = ours[i];
+        const RefHit &er = reference[i];
+        const RefHit br = as_ref(ours[i]);
+        const uint32_t e = er.prim;
+        const uint32_t b = br.prim;
         a.embree_hits += e != kNoHit;
         a.bonsai_hits += b != kNoHit;
         if (e == b) {
             a.same++;
+            if (e != kNoHit) {
+                deviate(a.dev, er, br, diagonal);
+            }
             continue;
         }
         // Two different triangles at (nearly) the same distance are a tie,
@@ -1713,18 +1831,23 @@ double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
 // surface has a distance whose last bits are most of it, so the test is
 // against the scene's scale, not the distance's.
 Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
-                          const std::vector<uint32_t> &reference,
-                          const std::vector<uint32_t> &ours) {
+                          const std::vector<RefClosest> &reference,
+                          const std::vector<ClosestHit> &ours) {
     const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = points.size();
     for (size_t i = 0; i < points.size(); i++) {
-        const uint32_t e = reference[i];
-        const uint32_t b = ours[i];
+        const RefClosest &er = reference[i];
+        const RefClosest br = as_ref(ours[i]);
+        const uint32_t e = er.prim;
+        const uint32_t b = br.prim;
         a.embree_hits += e != kNoHit;
         a.bonsai_hits += b != kNoHit;
         if (e == b) {
             a.same++;
+            if (e != kNoHit) {
+                deviate(a.dev, er, br, diagonal);
+            }
             continue;
         }
         const double de = distance_to(mesh, points[i], e);
@@ -1777,12 +1900,12 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
 }
 
 double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
-                           std::vector<uint32_t> &prims) {
+                           std::vector<RefHit> &records) {
     std::vector<RTCRayHit> hits;
     embree_rayhits(rays, hits);
     const double seconds = timed(
         repeats, [&] { reset_rayhits(rays, hits); }, [&] { embree_intersect(ref.scene, hits); });
-    prims_of(hits, prims);
+    records_of(hits, records);
     return seconds;
 }
 
@@ -1801,7 +1924,7 @@ double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, in
 // callback, per query -- its leaf work, which the table reports.
 double reference_closest(const Reference &ref, const Mesh &mesh,
                          const std::vector<Point> &points, int repeats,
-                         std::vector<uint32_t> &prims, double &callbacks_per_query) {
+                         std::vector<RefClosest> &records, double &callbacks_per_query) {
     std::vector<RTCPointQuery> queries;
     std::vector<ClosestResult> results;
     embree_queries(points, queries);
@@ -1809,9 +1932,11 @@ double reference_closest(const Reference &ref, const Mesh &mesh,
     const double seconds = timed(
         repeats, [&] { reset_queries(queries, results); },
         [&] { callbacks = embree_closest(ref.scene, mesh, queries, results); });
-    prims.resize(points.size());
+    records.assign(points.size(), RefClosest{});
     for (size_t i = 0; i < points.size(); i++) {
-        prims[i] = results[i].prim;
+        records[i].prim = results[i].prim;
+        records[i].d = results[i].distance;
+        records[i].p = results[i].p;
     }
     callbacks_per_query = double(callbacks) / double(points.size());
     return seconds;
@@ -1852,7 +1977,7 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
 // was hit. The rays and the interactions are made before the clock and
 // reset between runs off it, as Embree's structs are.
 double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
-                           std::vector<uint32_t> &prims) {
+                           std::vector<RefHit> &records) {
     std::vector<fcpw::Ray<3>> fcpw_rays;
     fcpw_rays.reserve(rays.size());
     for (const Ray &r : rays) {
@@ -1873,9 +1998,18 @@ double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, i
                 hit[i] = ref.scene.intersect(fcpw_rays[i], its[i]) ? 1 : 0;
             }
         });
-    prims.resize(rays.size());
+    records.assign(rays.size(), RefHit{});
     for (size_t i = 0; i < rays.size(); i++) {
-        prims[i] = hit[i] ? uint32_t(its[i].primitiveIndex) : kNoHit;
+        if (!hit[i]) {
+            continue;
+        }
+        const fcpw::Interaction<3> &it = its[i];
+        records[i].prim = uint32_t(it.primitiveIndex);
+        records[i].t = it.d;
+        records[i].u = it.uv[0];
+        records[i].v = it.uv[1];
+        records[i].ng = Vec3{it.n[0], it.n[1], it.n[2]};
+        records[i].p = Vec3{it.p[0], it.p[1], it.p[2]};
     }
     return seconds;
 }
@@ -1912,7 +2046,7 @@ double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, in
 // FCPW's leaf is its own vectorized code, no callback, so nothing is
 // counted here.
 double reference_closest(const Reference &ref, const Mesh &, const std::vector<Point> &points,
-                         int repeats, std::vector<uint32_t> &prims,
+                         int repeats, std::vector<RefClosest> &records,
                          double &callbacks_per_query) {
     std::vector<fcpw::Vector3> queries;
     queries.reserve(points.size());
@@ -1933,9 +2067,17 @@ double reference_closest(const Reference &ref, const Mesh &, const std::vector<P
                 found[i] = ref.scene.findClosestPoint(queries[i], its[i]) ? 1 : 0;
             }
         });
-    prims.resize(points.size());
+    records.assign(points.size(), RefClosest{});
     for (size_t i = 0; i < points.size(); i++) {
-        prims[i] = found[i] ? uint32_t(its[i].primitiveIndex) : kNoHit;
+        if (!found[i]) {
+            continue;
+        }
+        const fcpw::Interaction<3> &it = its[i];
+        records[i].prim = uint32_t(it.primitiveIndex);
+        records[i].d = it.d;
+        records[i].p = Vec3{it.p[0], it.p[1], it.p[2]};
+        records[i].u = it.uv[0];
+        records[i].v = it.uv[1];
     }
     callbacks_per_query = std::numeric_limits<double>::quiet_NaN();
     return seconds;
@@ -1954,6 +2096,10 @@ void usage() {
            "diffuse, near or volume (default all)\n"
            "  --query Q      only the query named: intersect, occluded or "
            "closest (default all)\n"
+           "By default each ray set runs the query it is for: primary and "
+           "diffuse rays the nearest hit, ambient-occlusion rays the any hit "
+           "(Aila and Laine's sets); --batch with --query runs another "
+           "pairing.\n"
            "  --explain N    print the first N disagreements of each row, with "
            "both sides' answers\n"
            "Both sides run their rays and points as one plain loop on the "
@@ -2040,21 +2186,38 @@ int main(int argc, char **argv) {
         if (rays.empty() || (!only_batch.empty() && only_batch != batch.name)) {
             continue;
         }
-        std::vector<uint32_t> ref_hits, ref_blocked, our_hits, our_blocked;
+        std::vector<RefHit> ref_hits;
+        std::vector<Hit> our_hits;
+        std::vector<uint32_t> ref_blocked, our_blocked;
 
-        if (only_query.empty() || only_query == "intersect") {
+        // Aila and Laine's three sets, each with the query it is for (the
+        // convention traversal papers have kept since, Embree's included):
+        // the nearest hit of primary and diffuse rays, the any hit of the
+        // ambient-occlusion rays. The other pairings answer nothing a
+        // renderer asks and are run only when --batch names the set with
+        // --query, for a probe.
+        const bool first_hit_set = std::string(batch.name) != "ao";
+        const bool named = !only_batch.empty() && !only_query.empty();
+        const bool run_intersect =
+            (only_query.empty() || only_query == "intersect") && (first_hit_set || named);
+        const bool run_occluded =
+            (only_query.empty() || only_query == "occluded") && (!first_hit_set || named);
+
+        if (run_intersect) {
             const double te = reference_intersect(ref, rays, repeats, ref_hits);
             const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
             const Agreement hit = compare_hits(mesh, rays, ref_hits, our_hits);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
-                        "differ (%s hits %zu, bonsai %zu)\n",
+                        "differ (%s hits %zu, bonsai %zu; records within t %.1e, n %.1e, "
+                        "uv %.1e, p %.1e)\n",
                         batch.name, "intersect", rays.size(), rays.size() / te * 1e-6,
                         rays.size() / tb * 1e-6, te / tb, hit.same, hit.ties, hit.differ,
-                        kReference, hit.embree_hits, hit.bonsai_hits);
+                        kReference, hit.embree_hits, hit.bonsai_hits, hit.dev.t, hit.dev.n,
+                        hit.dev.uv, hit.dev.p);
             all_agree = all_agree && hit.differ == 0;
         }
 
-        if (only_query.empty() || only_query == "occluded") {
+        if (run_occluded) {
             const double oe = reference_occluded(ref, rays, repeats, ref_blocked);
             const double ob =
                 timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
@@ -2084,7 +2247,8 @@ int main(int argc, char **argv) {
             (!only_query.empty() && only_query != "closest")) {
             continue;
         }
-        std::vector<uint32_t> ref_closest, ours;
+        std::vector<RefClosest> ref_closest;
+        std::vector<ClosestHit> ours;
         double callbacks_per_query = 0;
         const double te =
             reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
@@ -2092,10 +2256,11 @@ int main(int argc, char **argv) {
         const Agreement c = compare_closest(mesh, points, ref_closest, ours);
         std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                     "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
-                    "diagonal",
+                    "diagonal; records within d %.1e, p %.1e, uv %.1e",
                     batch.name, "closest", points.size(), points.size() / te * 1e-6,
                     points.size() / tb * 1e-6, te / tb, c.same, c.ties, c.differ,
-                    kReference, c.embree_hits, c.bonsai_hits, c.tie_gap);
+                    kReference, c.embree_hits, c.bonsai_hits, c.tie_gap, c.dev.t, c.dev.p,
+                    c.dev.uv);
         if (!std::isnan(callbacks_per_query)) {
             std::printf("; %s's callback ran %.1f times a query", kReference,
                         callbacks_per_query);

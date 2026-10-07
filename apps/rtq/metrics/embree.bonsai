@@ -193,56 +193,105 @@ func distmax(q : Point, b : AABB) -> Float {
 // edges. The callback then takes the distance, `d = distance(q, p)`, a root
 // per triangle, and compares it with its radius; the root is taken here
 // too, the same computation, and squared back into the node test's domain
-// (where Embree squares its radius once per leaf that shrank it).
-func distmin(q : Point, tri : Triangle) -> Float {
+// (where Embree squares its radius once per leaf that shrank it). The point
+// is made as Embree's routine makes it, `a + ab * v`, and the distance from
+// `q - p`, not from the offsets `ap - ab * v` that the subtraction would
+// shorten to: the same operations in the same order, so the bits agree.
+func closest_point_embree(q : Point, tri : Triangle) -> vec3f {
+    a = tri.v0;
     ab = -tri.e1;
     ac = tri.e2;
-    ap = q.p - tri.v0;
+    ap = q.p - a;
     d1 = dot(ab, ap);
     d2 = dot(ac, ap);
     if d1 <= 0.0 && d2 <= 0.0 {
-        d_a = sqrt(dot(ap, ap));
-        return d_a * d_a;
+        return a;
     }
-    bp = ap - ab;
+    b = a + ab;
+    bp = q.p - b;
     d3 = dot(ab, bp);
     d4 = dot(ac, bp);
     if d3 >= 0.0 && d4 <= d3 {
-        d_b = sqrt(dot(bp, bp));
-        return d_b * d_b;
+        return b;
     }
-    cp = ap - ac;
+    c = a + ac;
+    cp = q.p - c;
     d5 = dot(ab, cp);
     d6 = dot(ac, cp);
     if d6 >= 0.0 && d5 <= d6 {
-        d_c = sqrt(dot(cp, cp));
-        return d_c * d_c;
+        return c;
     }
     vc = d1 * d4 - d3 * d2;
     if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
         v_ab = d1 / (d1 - d3);
-        diff_ab = ap - ab * v_ab;
-        d_ab = sqrt(dot(diff_ab, diff_ab));
-        return d_ab * d_ab;
+        return a + ab * v_ab;
     }
     vb = d5 * d2 - d1 * d6;
     if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
         v_ac = d2 / (d2 - d6);
-        diff_ac = ap - ac * v_ac;
-        d_ac = sqrt(dot(diff_ac, diff_ac));
-        return d_ac * d_ac;
+        return a + ac * v_ac;
     }
     va = d3 * d6 - d5 * d4;
     if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
         v_bc = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        diff_bc = bp - (ac - ab) * v_bc;
-        d_bc = sqrt(dot(diff_bc, diff_bc));
-        return d_bc * d_bc;
+        return b + (c - b) * v_bc;
     }
     denom = 1.0 / (va + vb + vc);
     v = vb * denom;
     w = vc * denom;
-    diff = ap - (ab * v + ac * w);
+    return a + ab * v + ac * w;
+}
+
+func distmin(q : Point, tri : Triangle) -> Float {
+    diff = q.p - closest_point_embree(q, tri);
     d = sqrt(dot(diff, diff));
     return d * d;
 }
+
+// Embree: what rtcIntersect1 leaves in its RTCRayHit for the nearest hit --
+// `ray.tfar` the hit's t, `hit.u` and `hit.v` its barycentrics, `hit.Ng` the
+// triangle's unnormalized normal (`cross(e2, e1)`, the one the test used),
+// and `hit.primID` (with `geomID` and `instID`, one geometry and no
+// instances here). MoellerTrumboreHitM::finalize makes t, u and v from the
+// test's T, U and V by one reciprocal of absDen, in the leaf, for each hit
+// nearer than the ray's best so far; the record is made here once per ray,
+// for the triangle the argmin settled on, by the same test run once more
+// over that one triangle -- the last finalize's work, the earlier ones (a
+// hit later beaten) not repeated.
+element Hit {
+    primID : u32;
+    t, u, v : Float;
+    ng : vec3f;
+}
+
+func hit_record(r : Ray, tri : Triangle) -> Hit {
+    h = intersectsp_ray_tri(r, tri);
+    if h {
+        e = *h;
+        return Hit{tri.primID, e.t, e.u, e.v, cross(tri.e2, tri.e1)};
+    }
+    return no_hit();
+}
+
+// Embree: a miss leaves `geomID` at RTC_INVALID_GEOMETRY_ID and the rest
+// untouched.
+func no_hit() -> Hit = Hit{4294967295u, inf, 0.0, 0.0, vec3f{0.0, 0.0, 0.0}};
+
+// Embree: what the closest-point tutorial's callback records -- the
+// triangle, the closest point on it (closestPointTriangle) and the distance
+// to it (`d = distance(q, p)`). The callback makes both for every triangle
+// the traversal hands it and keeps the nearest; here they are made once,
+// for the triangle the argmin found, by the same routine.
+element ClosestHit {
+    primID : u32;
+    d : Float;
+    p : vec3f;
+}
+
+func closest_record(q : Point, tri : Triangle) -> ClosestHit {
+    p = closest_point_embree(q, tri);
+    diff = q.p - p;
+    return ClosestHit{tri.primID, sqrt(dot(diff, diff)), p};
+}
+
+func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}};

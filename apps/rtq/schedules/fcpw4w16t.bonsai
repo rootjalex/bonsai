@@ -3,7 +3,7 @@
 // tuned.bonsai drops Embree's -- the closest point's leaf exits. FCPW's
 // findClosestPointWideTriangle returns after each Voronoi region once every
 // lane has its region (`if (all(active7)) return`), and the matching
-// schedule's `closest.skip(offset_fcpw)` puts the same tests in the leaf;
+// schedule's `closest.skip(closest_point_fcpw)` puts the same tests in the leaf;
 // each is a branch that mispredicts about as often as FCPW's does (11.5M
 // against FCPW's 11.8M on head's near batch), where the straight-line leaf
 // runs the regions as masked arithmetic with no branch at all. Measured
@@ -14,12 +14,15 @@
 // only where whole packets settle early -- the volume batch on the largest
 // meshes -- and the tuned schedule takes the rest.
 //
-// Prefetching the children, which Embree's tuned schedule does and FCPW
-// never does, is lowered over this layout as one fetch of the child's node
-// row, whatever the child is (Lower/Layouts.cpp, LowerReferencePrefetches:
-// the row's first slot says interior or leaf, and a prefetch never reads
-// what it fetches). Its measurements are the eight-wide tuned schedule's
-// (fcpw8w16t.bonsai, PLAN.md 2026-10-07).
+// And the hit children prefetched, Embree's step that FCPW never takes:
+// over this layout the directive fetches each hit child's node row (112
+// bytes here, two lines), whatever the child is, with no load in the way
+// (Lower/Layouts.cpp, LowerReferencePrefetches; PLAN.md 2026-10-07).
+// Measured against none on head, ganesha and dragon (side 1024, least of
+// 5, alternated twice): ganesha's volume batch 0.95-1.04 -> 1.15-1.20x and
+// dragon's 1.00-1.01 -> 1.11-1.20x, where the tuned schedule without it had
+// stood under the matching one; the rays 2-8% up on the large meshes; head
+// within noise both ways.
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw4w16t.bonsai ...
@@ -32,6 +35,7 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(96);
+    closest.prefetch(triangles.Interior.children);
 
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
@@ -39,7 +43,12 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(96);
+    trace.prefetch(triangles.Interior.children);
+    // The any hit unsorted, Embree's traverseAnyHit, where the matching
+    // schedule sorts as FCPW's one traversal does; the table says which
+    // measures better over FCPW's tree.
     occluded.vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(96);
+    occluded.prefetch(triangles.Interior.children);
 }

@@ -16,10 +16,12 @@ on that cell; the line at 1 is the reference. lte-orb is left out by default
 all on that small-unit mesh, so its ao, diffuse and point batches are empty
 and the mesh says nothing about the comparison.
 
-The eight-wide trees only: Embree's BVH8 (`embree`) and FCPW's MBVH8 with
-sixteen-lane leaves (`fcpw8w16`); --embree and --fcpw name other matching
-schedules. With --tuned the bars are the tuning's gain alone: bonsai's rate
-under the tuned schedule (`tuned`, `fcpw8w16t`; --embree-tuned, --fcpw-tuned)
+Each reference on its own default tree: Embree's BVH8 (`embree`) and FCPW's
+four-wide Mbvh with sixteen-lane leaves (`fcpw4w16`, FCPW's default branching
+and the leaf width its build picks on an AVX-512 machine; the four-wide tree
+is the one FCPW's author calls the better tested); --embree and --fcpw name
+other matching schedules. With --tuned the bars are the tuning's gain alone:
+bonsai's rate under the tuned schedule (`tuned`, `fcpw4w16t`; --embree-tuned, --fcpw-tuned)
 over its rate under the matching one, cell by cell, the reference out of it,
 so the line at 1 is the matching schedule and the colour says which tree.
 The colours are the paper's (graphs.py), the Okabe-Ito colour-blind palette:
@@ -40,9 +42,11 @@ HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "", "volume": "//
 LABEL = {"primary": "primary rays", "ao": "ambient-occlusion rays",
          "diffuse": "diffuse rays", "near": "points near surface",
          "volume": "points in volume"}
+# Aila and Laine's three ray sets, each under the query it is for: the first
+# hit of primary and diffuse rays, the any hit of ambient-occlusion rays.
 FIGURES = [
-    ("firsthit", "nearest", ["primary", "ao", "diffuse"], "First hit"),
-    ("anyhit", "any", ["primary", "ao", "diffuse"], "Any hit"),
+    ("firsthit", "nearest", ["primary", "diffuse"], "First hit"),
+    ("anyhit", "any", ["ao"], "Any hit"),
     ("closestpoint", "closest", ["near", "volume"], "Closest point"),
 ]
 
@@ -139,9 +143,9 @@ def main():
                    help="the tuning's gain: bonsai under the tuned schedules over bonsai under "
                         "the matching ones, cell by cell")
     p.add_argument("--embree", default="embree", help="Embree's matching schedule (default embree)")
-    p.add_argument("--fcpw", default="fcpw8w16", help="FCPW's matching schedule (default fcpw8w16)")
+    p.add_argument("--fcpw", default="fcpw4w16", help="FCPW's matching schedule (default fcpw4w16)")
     p.add_argument("--embree-tuned", default="tuned", help="Embree's tuned schedule (default tuned)")
-    p.add_argument("--fcpw-tuned", default="fcpw8w16t", help="FCPW's tuned schedule (default fcpw8w16t)")
+    p.add_argument("--fcpw-tuned", default="fcpw4w16t", help="FCPW's tuned schedule (default fcpw4w16t)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
     p.add_argument("--exclude", default="lte-orb",
                    help="comma-separated meshes left out (default lte-orb, which FCPW finds no hit on)")

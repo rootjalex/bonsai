@@ -13,7 +13,7 @@ schedule {
            .vectorize(triangles.Interior.children)
            .vectorize(triangles.Leaf.data)
            .loopify(154);
-    closest.skip(offset_fcpw);
+    closest.skip(closest_point_fcpw);
 
     trace.sort(triangles.Interior,
                |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
@@ -21,7 +21,13 @@ schedule {
          .vectorize(triangles.Interior.children)
          .vectorize(triangles.Leaf.data)
          .loopify(154);
-    occluded.vectorize(triangles.Interior.children)
+    // FCPW's any hit is its one traversal told to stop at the first hit, so
+    // it sorts the children as the nearest hit does (fcpw4w16.bonsai), with
+    // the same departure in the eight-wide order as the trace's above.
+    occluded.sort(triangles.Interior,
+                  |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                  distmin(r, AABB{lo[i], hi[i]}))
+            .vectorize(triangles.Interior.children)
             .vectorize(triangles.Leaf.data)
             .loopify(154);
 }
