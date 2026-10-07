@@ -11246,6 +11246,34 @@ raygen + traversal lines, and bistro-minus-ganesha isolates the
 any-hit's true dynamic share, deciding between the launch mechanics
 and the alpha path with two short runs.
 
+**The split ran (2026-10-07 ~03:00) and corners the residue.**
+Ganesha shadow, warm matched launches: wall 0.83x (ahead), DRAM
+0.99x (EQUAL), L2 0.75x (ours LOWER), instructions 0.53x (pbrt's
+raygen is the fat one) -- and L1 ld sectors 2.37x, which with equal
+DRAM means our raygen's uncoalesced queue reads all hit cache:
+benign. So the launch mechanics and the traversal are CLEAR, and
+bistro's DRAM 1.9x / L2-from-texture 1.5x belong to the ALPHA PATH
+alone: the any-hit's texture fetches and scattered per-candidate
+mesh lines on foliage, possibly amplified by the +5% lit-pixel
+bias changing the shadow-ray set. Morning splits, in order: (a)
+our own bistro pair under BONSAI_OPTIX_ANYHIT=always against
+normal, bounding the per-invocation DRAM share on one renderer;
+(b) the texture path's line behavior (lts srcunit_tex) against
+pbrt's CUDA-texture mip behavior at zero gradients; (c) the
+lit-pixel bias's ray-set delta, which is ALSO bugfix #1's subject
+-- the bias investigation and the last shadow cell may be one item.
+
+**Night sweep at the merged HEAD (compare-out-night, 13 scenes,
+16/64 spp, least of 5): every wall ahead, 1.14x (landscape s16) to
+2.40x (watercolor s16); images match except the three known biases,
+byte-stable. Stage cells remaining after the night's compiler:
+bistro shadow 1.20x/1.18x, watercolor s16-only trace 1.17x and
+shadow 1.15x (s64 CLEAN -- a small-queue/per-launch overhead shape,
+not a throughput one), landscape s16 trace 1.08x (s64 CLEAN),
+dambreak materials s64 1.05x (s16 clean). Landscape s64, watercolor
+s64 and dambreak s16 all left the slower list tonight; every media
+matched-work row is ahead (0.69-0.90x).**
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
