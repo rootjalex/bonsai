@@ -6,20 +6,21 @@ ray set, both rates, the speedup).
     python apps/rtq/plot.py build-rtq2/results/rtq-results.csv -o plots/
     python apps/rtq/plot.py results.csv -o plots/ --tuned      # the tuned schedules
 
-Three figures, the thirteen meshes along the x axis in order of triangle
-count: the first hit (`nearest`) and the any hit (`any`) with six bars a
-mesh -- the three ray sets (primary, ao, diffuse) by hatching, the two
-references (Embree, FCPW) by colour -- and the closest point with four, the
-near and volume batches by hatching. Every bar is bonsai's rate over the
-reference's on that cell; the line at 1 is the reference. A cell the
-reference has no number for (FCPW finds no hit on lte-orb, so its ao,
-diffuse and point batches are empty) leaves its slot empty.
+Three figures, the meshes along the x axis in order of triangle count: the
+first hit (`nearest`) and the any hit (`any`) with six bars a mesh -- the
+three ray sets (primary, ao, diffuse) by hatching, the two references
+(Embree, FCPW) by colour -- and the closest point with four, the near and
+volume batches by hatching. Every bar is bonsai's rate over the reference's
+on that cell; the line at 1 is the reference. lte-orb is left out by default
+(--exclude names the meshes left out): FCPW's triangle test finds no hit at
+all on that small-unit mesh, so its ao, diffuse and point batches are empty
+and the mesh says nothing about the comparison.
 
 The eight-wide trees only: Embree's BVH8 (`embree`, or `tuned` with --tuned)
-and FCPW's eight-wide Mbvh with sixteen-lane leaves (`fcpw8w16`, or
-`fcpw8w16t`); --embree and --fcpw name other schedules. The colours are the
-paper's (graphs.py), the Okabe-Ito colour-blind palette: sky blue for
-Embree, orange for FCPW.
+and FCPW's MBVH<8> with sixteen-lane leaves (`fcpw8w16`, or `fcpw8w16t`);
+--embree and --fcpw name other schedules. The colours are the paper's
+(graphs.py), the Okabe-Ito colour-blind palette: sky blue for Embree, orange
+for FCPW.
 """
 import argparse
 import csv
@@ -48,10 +49,11 @@ def load(path):
         return list(csv.DictReader(f))
 
 
-def meshes_by_triangles(rows):
+def meshes_by_triangles(rows, exclude):
     tris = {}
     for r in rows:
-        tris[r["mesh"]] = int(r["triangles"])
+        if r["mesh"] not in exclude:
+            tris[r["mesh"]] = int(r["triangles"])
     return sorted(tris, key=lambda m: tris[m]), tris
 
 
@@ -63,8 +65,8 @@ def cells(rows, reference, schedule, query):
     return out
 
 
-def draw(rows, schedules, out_dir, suffix, formats):
-    meshes, tris = meshes_by_triangles(rows)
+def draw(rows, schedules, out_dir, suffix, formats, exclude):
+    meshes, tris = meshes_by_triangles(rows, exclude)
     refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
     for name, query, sets, title in FIGURES:
         data = {ref: cells(rows, ref, sched, query) for ref, sched in refs}
@@ -92,7 +94,7 @@ def draw(rows, schedules, out_dir, suffix, formats):
         ax.set_xlim(-0.6, len(meshes) - 0.4)
         ax.set_ylim(0, top * 1.08)
         ax.set_ylabel("speedup over the reference")
-        ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (eight-wide Mbvh)"
+        ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (MBVH<8>)"
                      + (", tuned schedules" if suffix else ""), fontsize=10)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -124,11 +126,14 @@ def main():
     p.add_argument("--embree", help="Embree's schedule to plot (default embree, or tuned)")
     p.add_argument("--fcpw", help="FCPW's schedule to plot (default fcpw8w16, or fcpw8w16t)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
+    p.add_argument("--exclude", default="lte-orb",
+                   help="comma-separated meshes left out (default lte-orb, which FCPW finds no hit on)")
     a = p.parse_args()
     schedules = {"embree": a.embree or ("tuned" if a.tuned else "embree"),
                  "fcpw": a.fcpw or ("fcpw8w16t" if a.tuned else "fcpw8w16")}
+    exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
-    draw(load(a.csv), schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","))
+    draw(load(a.csv), schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","), exclude)
 
 
 if __name__ == "__main__":
