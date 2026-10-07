@@ -11163,6 +11163,39 @@ cleared instructions and L1 and point at occupancy/latency), and
 the merge-crossing extension of NarrowLoads for the Geometric and
 the hit-point chain.
 
+**The bistro shadow cell CONVICTED: memory traffic, 2x pbrt's
+(2026-10-06 night, warm aligned ncu, one full wave each side).**
+The alignment run first explained the broken trio: our first-wave
+launches under ncu are CLOCK-POISONED (BONSAI_REPEATS=1 makes the
+profiled render the cold one; the 26-31 ms "instances" were wave 0
+at idle clocks -- pbrt escapes via its allocation prefetch), and the
+launch periods are ours 12/wave, pbrt 11/wave, first instance the
+camera trace on both. On WARM instances (our wave 2 skip 24, pbrt
+wave 2 skip 22), matched shadow-d0 launches: wall 1.20x; executed
+instructions 0.87x (OURS FEWER); occupancy 32% = 32%; registers
+128 = 128 -- instructions, occupancy and register pressure are ALL
+CLEARED. What is not: global-load instructions 6.3x pbrt's, L1
+global-load sectors 2.0x, L2 read sectors 1.5x, DRAM read bytes
+1.9x, store sectors 5.2x. Shadow-d1 the same shape (1.77x sectors,
+1.58x dram, wall 1.21x). The launch is memory-bound and we move
+twice the bytes per ray; the rays launches corroborate by contrast
+(ld instructions 1.8-2.3x but SECTORS ~1.0x -- the trace path's
+extra loads coalesce; the shadow path's per-candidate records do
+not) and their walls are ahead 0.82-0.91x. The excess is the
+per-candidate element traffic the static read predicted: the
+Primitive 40B record and the Geometric aggregate (32B loaded, 12B
+used -- alive because NarrowLoads cannot cross the match merge),
+against pbrt's per-MESH SBT record that a warp reads once. So the
+fix IS the merge-crossing extension (per-field narrowing through
+the match's block arguments), possibly with the per-kind element
+pools' records slimmed behind it; watercolor shadow and dambreak
+materials should be re-read after it lands. (Side note for the
+toolcraft file: pbrt's closest-trace launches report ZERO
+op_global_st instructions beside 35M st sectors on the same warm
+instance -- its queue pushes issue as something op_global_st does
+not count; judge pbrt stores by sectors, never by st instruction
+counts.)
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
