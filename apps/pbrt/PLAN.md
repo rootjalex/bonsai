@@ -11196,6 +11196,35 @@ instance -- its queue pushes issue as something op_global_st does
 not count; judge pbrt stores by sectors, never by st instruction
 counts.)
 
+**The night's eliminations on bistro shadow (2026-10-06/07,
+commits 6f8ee4c0, 2b29f205; every theory built, measured, kept or
+reverted the same night).** Three suspects executed in order, the
+wall immovable at 33.3-33.5 ms against pbrt's 27.5-27.8 (1.20x):
+(1) the MERGE traffic -- scalar replacement across the inliner's
+result temps landed (the Geometric crosses as two scalars) --
+dynamically neutral, the counters identical, because the aggregate
+LOAD survived; (2) the QUEUE LAYOUT -- packed stride-12 vec3 entry
+arrays against pbrt's component-split SOA -- built, measured WORSE
+(shadow unmoved, rays +10 ms at 16 spp), reverted; (3) the RECORD
+LOADS -- the narrowing generalized to chains, lanes and aliases
+until the any-hit reads 12 bytes of its element's 72, w1 and w4
+sunk into their arm, verified in the final SSA -- and the wall
+STILL does not move. What survives every elimination: instructions
+0.87x (fewer), occupancy 32=32, registers 128=128, L1 global-load
+sectors 2.0x, L2 1.5x, DRAM 1.9x. The only traffic no SM-side
+change touches is the RT cores' own: OUR acceleration structure is
+one flat GAS over 2.8M primitives (render_hook.cpp builds every
+mesh run into one geometry), pbrt's is a GAS PER MESH under an
+IAS (gpu/aggregate.cpp) -- different tree, different node fetches,
+all through L2/DRAM, invisible to every SM counter we cleared.
+NEXT: restructure Acceleration::geometry to a GAS per mesh (or per
+run) under the IAS the runtime already supports
+(ALLOW_SINGLE_LEVEL_INSTANCING, bonsai_optix_instance) and
+re-measure; this also squares with landscape (instanced vegetation)
+and the night sweep re-reading watercolor shadow and dambreak
+materials, whose pacers are SM-side and SHOULD move with 2b29f205's
+narrowing.
+
 **(3) The medium scenes' ray and shadow-transmittance kernels --
 narrowed to bunny-cloud, 2026-10-05.** On bunny-cloud, launch by launch,
 our ray kernel is 2-3x faster than pbrt's at the first depths (0.24
