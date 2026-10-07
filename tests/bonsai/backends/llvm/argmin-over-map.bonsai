@@ -1,0 +1,73 @@
+//! flags: -p ssa -b llvm
+
+// The closest triangle to a point annotated with its record, over a
+// four-wide tree with the children's loop and the leaf vectorized, all the
+// way to LLVM: the program of lower/argmin-over-map.bonsai. What to read
+// for: the node's block has the four-wide mask `distmin(p, box) < best` and
+// the tightening reduction of argmin-tighten-children (the children's loop
+// survives the map between the argmin and the tree), and the leaf's
+// accumulate carries the record beside the key -- the winning lane's `d`
+// and `p0` selected by the key's argmin, no second pass over the winner
+// after the traversal.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+element Record {
+    d : Float;
+    p0 : vec3f;
+}
+
+func record(p : Point, t : Triangle) -> Record = Record{distmin(p, t), t.p0};
+
+func [[export]] closest(p : Point) =
+    argmin(|t : Triangle, c : Record| distmin(p, t),
+           map(|t : Triangle| (t, record(p, t)), tris));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    closest.vectorize(tris.Interior.children).vectorize(tris.Leaf.data);
+}

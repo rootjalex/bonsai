@@ -70,6 +70,7 @@ add_bonsai_tests(
     tiled-elements-derived.bonsai
     tiled-elements-where.bonsai
     argmin-tighten-children.bonsai
+    argmin-over-map.bonsai
     tree-traversal.bonsai
     tree-traversal-instanced.bonsai
     tree-traversal-mixed.bonsai

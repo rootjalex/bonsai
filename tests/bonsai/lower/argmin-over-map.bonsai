@@ -1,0 +1,91 @@
+//! flags: -p canonicalize -p lower-trees -p lower-sorts -p lower-geometrics -p lower-externs -p lower-layouts -p lower-foreachs -p lower-element-references -p lower-tiled-arrays
+
+// An argmin over an annotating map with no filter between: the closest
+// triangle to a point, each candidate annotated with the record the answer
+// carries -- the closest point on it and the distance -- so that the record
+// is made in the leaf, once, by the same computation the key is, and not by
+// a second pass over the winner after the traversal. `closest` is
+// `argmin(|t, c| distmin(p, t), map(|t| (t, record(p, t)), tris))`: the
+// argmin's element is the pair, held as a reference to the triangle and the
+// record by value (Lower/Trees.cpp, stored_components for an annotating
+// map), and the metric names one parameter per component.
+//
+// Algorithm 1's map rule leaves the recursion alone, so what the argmin has
+// each `from` carry -- its bound, and the loop over the children that tests
+// and tightens it (lower/argmin-tighten-children.bonsai) -- passes through
+// the map to the tree beneath, as it passes through a filter. It once did
+// not: build_traversal's map case dropped the carry, and a filterless
+// argmin over a map lost its children loop (the children named one by one,
+// which no `vectorize(tris.Interior.children)` or `prefetch` could then
+// name). `trace`, the same shape under a filter, never saw it, the fused
+// filter consuming the carry first.
+//
+// What to read for in the golden: `closest` has the interior arm's children
+// loop with its mask and the `min=` tightening, as argmin-tighten-children
+// has, and its leaf updates `_best0 argmin= (distmin(p, t), (ref, record))`
+// with the record built in the leaf; `trace` is as before with its pair.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+element Record {
+    d : Float;
+    p0 : vec3f;
+}
+
+func record(p : Point, t : Triangle) -> Record = Record{distmin(p, t), t.p0};
+
+func [[export]] closest(p : Point) =
+    argmin(|t : Triangle, c : Record| distmin(p, t),
+           map(|t : Triangle| (t, record(p, t)), tris));
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle, c : Record| distmin(r, t),
+           filter(|t : Triangle, c : Record| intersects(r, t),
+                  map(|t : Triangle| (t, Record{distmin(r, t), t.p0}), tris)));
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+}

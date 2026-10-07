@@ -56,6 +56,7 @@ add_bonsai_tests(
     tiled-elements-derived.bonsai
     tiled-elements-where.bonsai
     argmin-tighten-children.bonsai
+    argmin-over-map.bonsai
     arena-rows.bonsai
     ptr-arena-rows.bonsai
     prefetch-children.bonsai

@@ -47,6 +47,11 @@ struct Carry {
     std::function<ir::Expr(const Interval &)> reach_of;
     std::optional<ir::WriteLoc> tighten;
     ir::Accumulate::OpType tighten_op = ir::Accumulate::Min;
+    // How many trailing parameters of `metric` a map annotation computes
+    // (annotation_arity): values carried with the element, not levels of
+    // the tree, so a metric over one level and its annotations is still a
+    // metric over one level, whose bound a child's volume gives.
+    size_t annotations = 0;
 };
 
 ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
@@ -918,14 +923,22 @@ struct Rewriter : public ir::Mutator {
     // them: each rewrite holds its own.
     std::vector<Interval> child_bounds(const ir::Lambda *lambda,
                                        const ir::Expr &value,
-                                       const IntervalMap &existing) const {
-        if (!has_child_volumes() || lambda->args.size() != 1 ||
+                                       const IntervalMap &existing,
+                                       size_t annotations) const {
+        // One level: the lambda's parameters less the trailing ones a map
+        // annotation computes, which make_volume_map gives no volume.
+        if (!has_child_volumes() || lambda->args.size() - annotations != 1 ||
             volumes.size() != 1) {
             return {};
         }
+        const std::vector<ir::TypedVar> levels_only(
+            lambda->args.begin(), lambda->args.end() - annotations);
         std::vector<Interval> bounds;
         for (const ir::Expr &child : break_tuple(value)) {
-            VolumeMap vols = make_volume_map(lambda->args, child);
+            VolumeMap vols = make_volume_map(levels_only, child);
+            for (size_t j = levels_only.size(); j < lambda->args.size(); j++) {
+                vols[lambda->args[j].name] = ir::Expr(); // an annotation: a value
+            }
             IntervalMap ints = make_interval_map(lambda->args, existing);
             bounds.push_back(predicate_analysis(lambda->value, vols, ints));
         }
@@ -1013,12 +1026,18 @@ struct Rewriter : public ir::Mutator {
                                      bool in_loop)> &extra_at = {},
         const std::optional<Carry> &carry = {}) {
         const std::optional<ChildVolumes::Array> array = array_children();
-        if (array.has_value() && lambda->args.size() == 1 &&
+        // One level, and the trailing parameters a map annotation computes
+        // (values the yields carry, bounded by nothing -- make_volume_map's
+        // treatment of them) do not make it more.
+        if (array.has_value() && lambda->args.size() - annotation_args == 1 &&
             volumes.size() == 1) {
             static const ir::Type index_t = ir::UInt_t::make(32);
             const ir::Expr index = ir::Var::make(index_t, array->field);
             VolumeMap vols;
             vols[lambda->args[0].name] = array->volume_at(index);
+            for (size_t j = 1; j < lambda->args.size(); j++) {
+                vols[lambda->args[j].name] = ir::Expr();
+            }
             IntervalMap ints = make_interval_map(lambda->args, existing);
             const Interval bounds =
                 predicate_analysis(lambda->value, vols, ints);
@@ -1029,10 +1048,15 @@ struct Rewriter : public ir::Mutator {
             // the child's test, in the loop (see Carry).
             ir::Expr carried_value;
             ir::Stmt tighten;
-            if (carry.has_value() && carry->metric->args.size() == 1) {
+            if (carry.has_value() &&
+                carry->metric->args.size() - carry->annotations == 1) {
                 VolumeMap carry_vols;
                 carry_vols[carry->metric->args[0].name] =
                     array->volume_at(index);
+                // A map annotation's parameters: values, bounded by nothing.
+                for (size_t j = 1; j < carry->metric->args.size(); j++) {
+                    carry_vols[carry->metric->args[j].name] = ir::Expr();
+                }
                 IntervalMap carry_ints =
                     make_interval_map(carry->metric->args, existing);
                 const Interval carried = predicate_analysis(
@@ -1125,7 +1149,7 @@ struct Rewriter : public ir::Mutator {
         }
 
         const std::vector<Interval> bounds =
-            child_bounds(lambda, value, existing);
+            child_bounds(lambda, value, existing, annotation_args);
         if (bounds.empty()) {
             return ir::YieldFrom::make(value);
         }
@@ -1158,7 +1182,8 @@ struct Rewriter : public ir::Mutator {
             std::vector<ir::Expr> carries;
             size_t child = 0;
             for (const Interval &b :
-                 child_bounds(carry->metric, value, existing)) {
+                 child_bounds(carry->metric, value, existing,
+                              carry->annotations)) {
                 carries.push_back(carry->bound_of(b));
                 if (carry->reach_of && carry->tighten.has_value() &&
                     child < conds.size()) {
@@ -2045,6 +2070,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     auto [fused_filter, fused] =
         try_fuse_filter(dir, lambda, best_metric, inner);
     Carry carry = bound_carry(dir, lambda);
+    carry.annotations = annotation_arity(inner);
     if (!fused) {
         ir::WriteLoc key = loc;
         key.add_index_access(ir::UIntImm::make(ir::UInt_t::make(32), 0));
@@ -2577,7 +2603,8 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
             std::vector<ir::Expr> conds =
-                maybe_conds(child_bounds(lambda, node->value, intervals));
+                maybe_conds(child_bounds(lambda, node->value, intervals,
+                                         annotation_args));
             ir::Stmt from = node;
             if (!conds.empty()) {
                 if (!node->conds.empty()) {
@@ -3209,7 +3236,15 @@ ir::Stmt build_traversal(const ir::Expr &expr, const ir::TypeMap &tree_types,
                             annotation_arity(as_set->b));
     }
     case ir::SetOp::map: {
-        ir::Stmt body = build_traversal(as_set->b, tree_types, extents, intervals);
+        // Algorithm 1's map rule leaves the recursion alone: the function
+        // rides along to each yield, so what the query around the map has
+        // each `from` carry -- an argmin's bound and the loop over the
+        // children that tests it -- passes through to the tree beneath, as
+        // it does through a filter. (Dropping it here lost the children's
+        // loop of an argmin over an annotating map with no filter between:
+        // the closest point annotated with its record.)
+        ir::Stmt body =
+            build_traversal(as_set->b, tree_types, extents, intervals, carry);
         return build_map(body, as_set->a);
     }
     case ir::SetOp::argmin:
