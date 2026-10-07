@@ -4780,6 +4780,214 @@ modules are unchanged by it: the Embree and FCPW four-wide modules compile
 to the same instructions before and after, attribute lines aside, so the
 Embree half of the table below stands for this commit too.
 
+## The table after the fold's return: Embree on its two trees, FCPW on its four, in one CSV (2026-10-06)
+
+The measurement the FCPW section and the one before it point at. Two
+exclusive blocks of the machine, one thread on both sides pinned to cpu 11,
+least of five repeats, every other session holding: Embree's four schedules
+over its two trees from 15:26 to 15:55 (the compiler at 9499ccbb, HEAD at
+the time, e672abee's fold restored; side 2048 for the rays, 1024 for the
+points), and FCPW's four configurations from 17:22 to 17:38 (the compiler
+at e35c7b02, whose only change since is the zero-fold fix above, which
+leaves rtq's modules the same instructions; side 1024 throughout, FCPW's
+single-thread rate being a third of Embree's so that a million rays already
+run well over the tenth of a second the larger side was chosen for). The
+block was cut at the Embree/FCPW boundary for another session's benchmark
+and the FCPW half taken later, from a clean worktree, the live tree being
+mid-edit by then.
+
+Three of the user's rules, from this run on. The numbers live in one
+file, rebuilt from the run's logs each time and holding only fresh data:
+`build-rtq2/results/rtq-results.csv` (git-ignored under `build-*`), one row
+per measured cell -- date, commit, machine, cpu, repeats, reference,
+schedule, width, mesh, triangles, nodes, leaves, query (nearest, any,
+closest), ray set (primary, ao, diffuse, near, volume), side, count, the
+reference's rate, ours, the speedup, same, ties, differ, both sides' hit
+counts, Embree's callbacks per query, units -- so that plots are made from
+it without rerunning the matrix. Meshes are ordered by triangle count,
+pavilion (11k) to dragon (7.2M). And only the matching schedules are
+measured from here on, to save benchmarking time; the tuned cells of this
+run are in the CSV and not in the tables below.
+
+Embree, bonsai's rate over Embree's, the cells a renderer asks for
+(nearest hit of primary and diffuse rays, any hit of ao rays); every ray
+agrees with Embree up to ties on every cell:
+
+| mesh | triangles | embree4: nearest pri dif, any ao | embree: nearest pri dif, any ao |
+|---|---|---|---|
+| pavilion | 11366 | 1.08 0.96, 1.00 | 0.99 0.99, 1.01 |
+| head | 17674 | 1.06 0.97, 0.98 | 1.05 1.01, 0.99 |
+| zero-day | 48960 | 1.14 0.98, 1.00 | 1.10 1.03, 1.02 |
+| bmw | 110592 | 1.03 0.99, 1.02 | 1.04 1.03, 1.02 |
+| crown | 155520 | 1.08 0.99, 1.02 | 1.04 1.03, 1.02 |
+| ivy | 179603 | 1.08 1.01, 1.00 | 1.03 1.02, 0.99 |
+| villa | 390784 | 1.02 1.00, 1.01 | 1.03 1.04, 1.00 |
+| dambreak | 1015024 | 1.05 1.01, 1.01 | 1.04 1.04, 1.00 |
+| sportscar | 1091232 | 1.05 1.01, 1.02 | 1.05 1.05, 1.03 |
+| landscape | 1916928 | 1.12 1.17, 1.19 | 1.10 1.19, 1.11 |
+| lte-orb | 3423232 | 1.07 1.02, 1.01 | 1.06 1.02, 0.99 |
+| ganesha | 4323658 | 1.04 1.01, 1.01 | 1.06 1.04, 0.99 |
+| dragon | 7219045 | 1.07 1.02, 1.01 | 1.06 1.02, 0.99 |
+
+The controls (nearest hit of ao rays; any hit of primary and diffuse
+rays), which follow the same pattern:
+
+| mesh | embree4: nearest ao; any pri dif | embree: nearest ao; any pri dif |
+|---|---|---|
+| pavilion | 0.96; 1.11 1.00 | 1.00; 1.10 1.00 |
+| head | 0.97; 1.04 0.98 | 1.01; 1.11 0.99 |
+| zero-day | 0.99; 1.20 1.00 | 1.03; 1.17 1.01 |
+| bmw | 0.98; 1.06 1.03 | 1.04; 1.06 1.01 |
+| crown | 1.00; 1.11 1.01 | 1.04; 1.11 1.01 |
+| ivy | 1.01; 1.09 1.00 | 1.01; 1.04 0.98 |
+| villa | 0.99; 1.06 1.02 | 1.03; 1.04 1.00 |
+| dambreak | 1.01; 1.04 1.01 | 1.03; 1.03 1.01 |
+| sportscar | 1.00; 1.05 1.01 | 1.06; 1.05 1.02 |
+| landscape | 1.18; 1.13 1.19 | 1.19; 1.11 1.07 |
+| lte-orb | 1.01; 1.07 1.01 | 1.03; 1.06 0.99 |
+| ganesha | 1.01; 1.03 1.00 | 1.04; 1.03 0.99 |
+| dragon | 1.02; 1.03 1.00 | 1.03; 1.02 0.99 |
+
+The closest point against rtcPointQuery with the tutorial's callback,
+Embree's arithmetic with the root as the callback takes it (the earlier
+committed closest-point numbers, taken with a metric that took no root,
+are superseded):
+
+| mesh | embree4: near vol | embree: near vol |
+|---|---|---|
+| pavilion | 3.03 4.11 | 3.00 4.19 |
+| head | 3.67 4.14 | 3.78 4.30 |
+| zero-day | 3.50 3.72 | 3.72 4.01 |
+| bmw | 3.89 4.31 | 4.02 4.53 |
+| crown | 4.09 4.20 | 4.29 4.51 |
+| ivy | 5.01 4.52 | 4.91 4.36 |
+| villa | 4.07 4.59 | 4.31 4.87 |
+| dambreak | 3.83 5.37 | 3.78 5.83 |
+| sportscar | 4.45 5.00 | 4.62 5.51 |
+| landscape | 3.36 2.93 | 3.43 3.12 |
+| lte-orb | 4.46 4.81 | 4.70 5.37 |
+| ganesha | 5.45 7.20 | 5.71 8.21 |
+| dragon | 5.52 6.83 | 6.16 7.90 |
+
+| schedule | nearest, primary | nearest, diffuse | any, ao | closest, near | closest, volume | cells under 1.00 |
+|---|---|---|---|---|---|---|
+| embree4 | 1.02-1.14 | 0.96-1.17 | 0.98-1.19 | 3.03-5.52 | 2.93-7.20 | pavilion diffuse 0.96; head diffuse 0.97, ao 0.98; zero-day, bmw, crown diffuse 0.98-0.99 |
+| embree | 0.99-1.10 | 0.99-1.19 | 0.99-1.11 | 3.00-6.16 | 3.12-8.21 | pavilion primary and diffuse 0.99; any ao 0.99 on head, ivy, lte-orb, ganesha, dragon |
+
+Reading it against the night's table (the section at 9440bea3). These
+cells sit two to five points under it on both widths, with Embree's own
+rate steady within about a percent on every cell, and the history of our
+own rate on the matching schedules across the four runs since then says
+where: the layout's lane predicate (`where` on Embree's Triangle4 tiles,
+one vector compare and an and per block that Embree does not pay, its zero
+triangle failing the hit test) cost 0.4-3.5% on the four-wide nearest hit
+of primary rays, 0.2-5% on the eight-wide, and 1-3% on the any hit of ao
+rays on both widths, measured the night the predicate went in with the
+fold still in place; the reciprocal written out then cost 1-8% more on the
+nearest hit (the fold lost, the section above); and the fold's return
+gave 1-6% of that back (ganesha eight-wide 23.79 -> 25.21 Mrays/s against
+25.77 before the regression, crown 101.6 -> 103.5 against 109.0). The any
+hit's cells did not move through the last two steps, as they should not
+have: the fold is the nearest hit's. What did not come back is the
+eight-wide nearest hit on pavilion (79.98 before the reciprocal change,
+74.90 after it, 74.87 now, Embree steady at 75.5) and most of crown's and
+villa's, 3-6% below their pre-change rates with the fold demonstrably in
+place (five mirrors in the module). Something besides the fold changed in
+that module between a0b863cf and HEAD -- the step's own code against the
+intrinsic's lowering, the estimate rule's wider bounds, or the compiler
+commits beside it -- and the probe is set up: a worktree at a0b863cf
+built beside this one, the two `embree` modules diffed with attribute
+noise removed, and the two meshes A/B'd under the table's settings; it
+waits for a machine slot and is the next thing measured.
+
+FCPW, bonsai's rate over FCPW's, on FCPW's bytes with FCPW's arithmetic
+(the metrics file, operation for operation), four configurations named
+`fcpw<branching>w<leaf width>`:
+
+| mesh | fcpw4w16: nearest pri dif, any ao | fcpw8w16 | fcpw4w8 | fcpw8w8 |
+|---|---|---|---|---|
+| pavilion | 1.85 1.95, 2.06 | 2.11 1.98, 2.19 | 2.01 1.93, 2.07 | 2.11 1.90, 2.09 |
+| head | 1.79 1.83, 1.98 | 1.86 1.78, 1.87 | 1.75 1.82, 1.99 | 1.92 1.77, 1.86 |
+| zero-day | 2.49 1.95, 2.07 | 3.48 2.06, 2.24 | 2.40 1.83, 2.01 | 3.01 1.95, 2.09 |
+| bmw | 1.81 1.80, 2.10 | 1.84 1.78, 2.03 | 1.75 1.78, 2.09 | 1.83 1.78, 2.04 |
+| crown | 2.34 1.88, 1.99 | 2.49 1.97, 2.10 | 2.02 1.78, 1.93 | 2.25 1.92, 2.01 |
+| ivy | 1.81 1.64, 1.70 | 1.87 1.70, 1.75 | 1.78 1.59, 1.69 | 2.06 1.70, 1.71 |
+| villa | 1.71 1.80, 1.98 | 1.73 1.87, 1.95 | 1.68 1.77, 1.94 | 1.70 1.84, 1.90 |
+| dambreak | 1.66 1.53, 1.80 | 1.66 1.64, 1.79 | 1.64 1.50, 1.75 | 1.59 1.59, 1.71 |
+| sportscar | 1.62 1.64, 1.82 | 1.72 1.69, 1.79 | 1.61 1.62, 1.83 | 1.63 1.68, 1.81 |
+| landscape | 1.43 2.25, 2.49 | 1.50 2.31, 2.62 | 1.35 2.24, 2.48 | 1.36 2.18, 2.45 |
+| lte-orb | 1.57 -, - | 1.59 -, - | 1.48 -, - | 1.50 -, - |
+| ganesha | 1.46 1.54, 1.62 | 1.45 1.63, 1.66 | 1.40 1.46, 1.54 | 1.37 1.53, 1.56 |
+| dragon | 1.39 1.41, 1.45 | 1.34 1.50, 1.51 | 1.36 1.37, 1.39 | 1.39 1.45, 1.48 |
+
+| mesh | fcpw4w16: nearest ao; any pri dif | fcpw8w16 | fcpw4w8 | fcpw8w8 |
+|---|---|---|---|---|
+| pavilion | 1.95; 2.29 2.06 | 2.01; 2.76 2.17 | 1.94; 2.46 2.06 | 1.92; 2.69 2.07 |
+| head | 1.86; 2.14 1.99 | 1.77; 2.33 1.89 | 1.86; 2.06 2.00 | 1.76; 2.38 1.87 |
+| zero-day | 1.96; 2.84 2.10 | 2.06; 3.97 2.24 | 1.85; 2.72 2.03 | 1.97; 3.29 2.11 |
+| bmw | 1.92; 2.04 2.23 | 1.86; 2.13 2.16 | 1.89; 1.99 2.22 | 1.89; 2.08 2.14 |
+| crown | 1.89; 2.59 1.98 | 1.99; 2.83 2.10 | 1.80; 2.24 1.93 | 1.92; 2.54 2.01 |
+| ivy | 1.66; 1.97 1.67 | 1.71; 2.07 1.71 | 1.62; 1.96 1.65 | 1.71; 2.24 1.67 |
+| villa | 1.87; 1.93 1.99 | 1.86; 2.04 1.92 | 1.83; 1.92 1.97 | 1.82; 1.96 1.88 |
+| dambreak | 1.65; 1.80 1.74 | 1.77; 1.83 1.72 | 1.61; 1.79 1.69 | 1.67; 1.74 1.63 |
+| sportscar | 1.74; 1.75 1.81 | 1.74; 1.89 1.80 | 1.70; 1.73 1.81 | 1.73; 1.75 1.75 |
+| landscape | 2.25; 1.63 2.49 | 2.31; 1.90 2.61 | 2.24; 1.52 2.47 | 2.19; 1.81 2.45 |
+| lte-orb | -; 1.59 - | -; 1.67 - | -; 1.49 - | -; 1.57 - |
+| ganesha | 1.56; 1.57 1.52 | 1.63; 1.59 1.55 | 1.47; 1.50 1.46 | 1.51; 1.47 1.46 |
+| dragon | 1.44; 1.46 1.44 | 1.48; 1.47 1.52 | 1.38; 1.40 1.40 | 1.43; 1.43 1.48 |
+
+| mesh | fcpw4w16: near vol | fcpw8w16 | fcpw4w8 | fcpw8w8 |
+|---|---|---|---|---|
+| pavilion | 1.20 1.48 | 1.22 1.64 | 1.28 1.42 | 1.20 1.59 |
+| head | 1.40 1.53 | 1.39 1.72 | 1.35 1.45 | 1.39 1.69 |
+| zero-day | 1.46 1.40 | 1.57 1.57 | 1.37 1.28 | 1.50 1.45 |
+| bmw | 1.42 1.40 | 1.50 1.63 | 1.38 1.31 | 1.48 1.55 |
+| crown | 1.51 1.38 | 1.66 1.59 | 1.43 1.30 | 1.59 1.48 |
+| ivy | 1.49 1.44 | 1.68 1.58 | 1.40 1.34 | 1.60 1.50 |
+| villa | 1.45 1.40 | 1.54 1.62 | 1.39 1.29 | 1.51 1.48 |
+| dambreak | 1.42 1.23 | 1.55 1.38 | 1.36 1.18 | 1.51 1.34 |
+| sportscar | 1.41 1.21 | 1.51 1.32 | 1.31 1.12 | 1.42 1.19 |
+| landscape | 1.35 1.19 | 1.42 1.30 | 1.25 1.23 | 1.32 1.33 |
+| lte-orb | - - | - - | - - | - - |
+| ganesha | 1.39 1.01 | 1.53 1.04 | 1.27 0.94 | 1.40 0.98 |
+| dragon | 1.29 0.97 | 1.38 1.01 | 1.18 0.93 | 1.24 0.97 |
+
+| schedule | nearest, primary | nearest, diffuse | any, ao | closest, near | closest, volume | cells under 1.00 |
+|---|---|---|---|---|---|---|
+| fcpw4w16 | 1.39-2.49 | 1.41-2.25 | 1.45-2.49 | 1.20-1.51 | 0.97-1.53 | dragon volume 0.97 |
+| fcpw8w16 | 1.34-3.48 | 1.50-2.31 | 1.51-2.62 | 1.22-1.68 | 1.01-1.72 | none |
+| fcpw4w8 | 1.35-2.40 | 1.37-2.24 | 1.39-2.48 | 1.18-1.43 | 0.93-1.45 | ganesha volume 0.94, dragon volume 0.93 |
+| fcpw8w8 | 1.36-3.01 | 1.45-2.18 | 1.48-2.45 | 1.20-1.60 | 0.97-1.69 | ganesha volume 0.98, dragon volume 0.97 |
+
+Reading it. The ray queries are 1.3-3.5x FCPW on every cell, the any hit
+and the nearest hit alike, the small meshes most (zero-day's eight-wide
+primary rays 3.48x: FCPW's own rate drops from 85 to 63 Mrays/s between
+its four- and eight-wide trees there while ours holds) and the largest
+meshes least (dragon 1.34-1.52x). The closest point is 1.2-1.7x on the near batch
+everywhere and 0.93-1.7x on the volume batch, under FCPW only on the two
+largest meshes, ganesha and dragon, where a volume query's traversal is
+longest; there the two known-open items of the closest point's lowering
+are the suspects -- the sort key's sign flip (a squared distance the
+interval analysis does not know non-negative, four instructions a node)
+and FCPW's eight-wide partial order, which the fcpw8* schedules replace
+with a full sort -- and FCPW's leaf, a wide Ericson test over sixteen
+lanes with `all(active)` exits, is the shape our `skip` reproduces. The
+night before, a quick check on ganesha at side 1024 with the early-return
+spelling of the FCPW slab test (the conjunct form could not be compiled
+until the inliner bug above was fixed) and the compiler's own `rcp` read
+1.04-1.20x on the nearest hit and 1.45-1.65x on the any hit; the committed
+form reads 1.37-1.66x there with FCPW's rates the same, so the nearest hit
+gained 40% between the two spellings and the reciprocal work, the any hit
+nothing. lte-orb has no ao, diffuse or point cells against FCPW: FCPW's
+triangle test, with its absolute epsilon, finds no hit at all on that
+small-unit mesh (the FCPW section above), so the batches built from the
+reference's primary hits are empty; its primary cells compare a miss with
+a miss on both sides, agreeing on every ray. Disagreements: on the rays at
+most 30 of a million per mesh and none on five of the thirteen, the
+precision-limited edge hits of the user's ruling; on the points none but
+on ivy (109-261) and dambreak (634-755), every one through a degenerate
+triangle the checker cannot classify (known-open, the checker's to fix).
+
 ## Known-open, smaller
 
 - The closest point's sort key, a squared distance, is not known
