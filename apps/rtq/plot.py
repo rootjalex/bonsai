@@ -16,11 +16,14 @@ on that cell; the line at 1 is the reference. lte-orb is left out by default
 all on that small-unit mesh, so its ao, diffuse and point batches are empty
 and the mesh says nothing about the comparison.
 
-The eight-wide trees only: Embree's BVH8 (`embree`, or `tuned` with --tuned)
-and FCPW's MBVH8 with sixteen-lane leaves (`fcpw8w16`, or `fcpw8w16t`);
---embree and --fcpw name other schedules. The colours are the paper's
-(graphs.py), the Okabe-Ito colour-blind palette: sky blue for Embree, orange
-for FCPW.
+The eight-wide trees only: Embree's BVH8 (`embree`) and FCPW's MBVH8 with
+sixteen-lane leaves (`fcpw8w16`); --embree and --fcpw name other matching
+schedules. With --tuned the bars are the tuning's gain alone: bonsai's rate
+under the tuned schedule (`tuned`, `fcpw8w16t`; --embree-tuned, --fcpw-tuned)
+over its rate under the matching one, cell by cell, the reference out of it,
+so the line at 1 is the matching schedule and the colour says which tree.
+The colours are the paper's (graphs.py), the Okabe-Ito colour-blind palette:
+sky blue for Embree, orange for FCPW.
 """
 import argparse
 import csv
@@ -57,19 +60,32 @@ def meshes_by_triangles(rows, exclude):
     return sorted(tris, key=lambda m: tris[m]), tris
 
 
-def cells(rows, reference, schedule, query):
+def cells(rows, reference, schedule, query, column="speedup"):
     out = {}
     for r in rows:
         if r["reference"] == reference and r["schedule"] == schedule and r["query"] == query:
-            out[(r["mesh"], r["rays"])] = float(r["speedup"])
+            out[(r["mesh"], r["rays"])] = float(r[column])
     return out
 
 
-def draw(rows, schedules, out_dir, suffix, formats, exclude):
+def tuned_over_matching(rows, reference, matching, tuned, query):
+    """Bonsai's own rate under the tuned schedule over its rate under the
+    matching one, cell by cell: the tuning's gain alone, the reference out
+    of it."""
+    base = cells(rows, reference, matching, query, "bonsai_rate")
+    over = cells(rows, reference, tuned, query, "bonsai_rate")
+    return {k: over[k] / base[k] for k in over if k in base and base[k] > 0}
+
+
+def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
     meshes, tris = meshes_by_triangles(rows, exclude)
     refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
     for name, query, sets, title in FIGURES:
-        data = {ref: cells(rows, ref, sched, query) for ref, sched in refs}
+        if tuned:
+            data = {ref: tuned_over_matching(rows, ref, schedules[ref], tuned[ref], query)
+                    for ref, _ in refs}
+        else:
+            data = {ref: cells(rows, ref, sched, query) for ref, sched in refs}
         if not any(data.values()):
             print(f"{name}: no rows for {schedules}; skipped", file=sys.stderr)
             continue
@@ -93,13 +109,13 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude):
                             for m in meshes], fontsize=8)
         ax.set_xlim(-0.6, len(meshes) - 0.4)
         ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("Speedup over reference")
+        ax.set_ylabel("Speedup over matching schedule" if tuned else "Speedup over reference")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
         ax.set_axisbelow(True)
         handles = [Patch(facecolor=COLOUR[ref], edgecolor="black", linewidth=0.5,
-                         label="Embree" if ref == "embree" else "FCPW")
+                         label=("Embree" if ref == "embree" else "FCPW") + ("'s tree" if tuned else ""))
                    for ref, _ in refs]
         handles += [Patch(facecolor="white", edgecolor="black", linewidth=0.5,
                           hatch=HATCH[s], label=LABEL[s]) for s in sets]
@@ -120,18 +136,22 @@ def main():
     p.add_argument("csv")
     p.add_argument("-o", "--out", default=".", help="directory for the figures")
     p.add_argument("--tuned", action="store_true",
-                   help="the tuned schedules (tuned, fcpw8w16t) instead of the matching ones")
-    p.add_argument("--embree", help="Embree's schedule to plot (default embree, or tuned)")
-    p.add_argument("--fcpw", help="FCPW's schedule to plot (default fcpw8w16, or fcpw8w16t)")
+                   help="the tuning's gain: bonsai under the tuned schedules over bonsai under "
+                        "the matching ones, cell by cell")
+    p.add_argument("--embree", default="embree", help="Embree's matching schedule (default embree)")
+    p.add_argument("--fcpw", default="fcpw8w16", help="FCPW's matching schedule (default fcpw8w16)")
+    p.add_argument("--embree-tuned", default="tuned", help="Embree's tuned schedule (default tuned)")
+    p.add_argument("--fcpw-tuned", default="fcpw8w16t", help="FCPW's tuned schedule (default fcpw8w16t)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
     p.add_argument("--exclude", default="lte-orb",
                    help="comma-separated meshes left out (default lte-orb, which FCPW finds no hit on)")
     a = p.parse_args()
-    schedules = {"embree": a.embree or ("tuned" if a.tuned else "embree"),
-                 "fcpw": a.fcpw or ("fcpw8w16t" if a.tuned else "fcpw8w16")}
+    schedules = {"embree": a.embree, "fcpw": a.fcpw}
+    tuned = {"embree": a.embree_tuned, "fcpw": a.fcpw_tuned} if a.tuned else None
     exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
-    draw(load(a.csv), schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","), exclude)
+    draw(load(a.csv), schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
+         exclude, tuned)
 
 
 if __name__ == "__main__":
