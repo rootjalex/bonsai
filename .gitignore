@@ -105,6 +105,9 @@ apps/pbrt/render.h
 apps/pbrt/scene_geometry_generated.h
 apps/rtiow/cpu/main.h
 apps/rtq/rtq.h
+# compare.sh's driver objects, compiled once per header within a run and
+# removed at its end; left behind only by a run that was killed.
+apps/rtq/.rtq_hook-*.o
 
 *.csv
 

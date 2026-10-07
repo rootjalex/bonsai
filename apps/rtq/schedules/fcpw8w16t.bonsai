@@ -1,0 +1,31 @@
+// The tuned schedule over FCPW's eight-wide tree with sixteen-lane leaves:
+// fcpw8w16.bonsai without the closest point's leaf exits, for the reason
+// fcpw4w16t.bonsai gives (the exits are branches that mispredict as FCPW's
+// do; the straight-line leaf has none). Measured (2026-10-06, side 1024,
+// least of 5, cpu 11; bonsai over FCPW, matching -> tuned): head near 1.13
+// -> 1.35x, volume 1.33 -> 1.68x; ganesha near 1.42 -> 1.52x, volume 1.26
+// -> 1.07x; dragon near 1.36 -> 1.39x, volume 1.25 -> 1.05x; the ray
+// queries within a point either way.
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw8w16t.bonsai ...
+import apps/rtq/schedules/layouts/fcpw8w16;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(154);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(154);
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(154);
+}

@@ -1,0 +1,26 @@
+// The tuned schedule over FCPW's eight-wide tree with eight-lane leaves:
+// fcpw8w8.bonsai without the closest point's leaf exits, for the reason
+// fcpw4w16t.bonsai gives and measures.
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/fcpw8w8t.bonsai ...
+import apps/rtq/schedules/layouts/fcpw8w8;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(154);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(154);
+    occluded.vectorize(triangles.Interior.children)
+            .vectorize(triangles.Leaf.data)
+            .loopify(154);
+}

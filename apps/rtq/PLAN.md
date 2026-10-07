@@ -4988,8 +4988,260 @@ precision-limited edge hits of the user's ruling; on the points none but
 on ivy (109-261) and dambreak (634-755), every one through a degenerate
 triangle the checker cannot classify (known-open, the checker's to fix).
 
+## The cells under the reference, profiled: not pruning, not the layout, the leaf's code (2026-10-06, evening)
+
+The user's ask: profile every cell more than 2% under its reference and
+say whether it is a pruning problem, a code generation problem, or a
+schedule or layout mismatch. The cells, from the table above: the FCPW
+closest point's volume batch on ganesha and dragon under three of the four
+configurations (0.93-0.98x), and Embree's four-wide nearest hit of diffuse
+rays on pavilion and head (0.96-0.97x). Method: perf on one cell at a time
+(cycles and instructions per symbol, both sides in one process, pinned to
+cpu 11; `prof.sh` and `build-out.sh` in the session's scratchpad), the two
+traversals read side by side, the generated kernel read in its SSA and
+LLVM forms.
+
+**FCPW closest point, volume batch.** Pruning is matched: both sides push
+the child's box distance with its stack entry and drop a popped node whose
+distance is past the current best, test the children's boxes at once
+against it, and lower the best to the least of the pushed children's
+farthest box distance; every point agrees. The layout is FCPW's bytes. The
+perf split on ganesha under fcpw4w8, the same queries on both sides:
+
+| side | share of cycles | share of instructions | relative IPC |
+|---|---|---|---|
+| ours, `closest_all` | 43.2% | 23.8% | 0.55 |
+| FCPW, traversal + enqueue | 40.7% | 29.5% | 0.73 |
+
+Fewer instructions, more cycles: a stall-bound kernel, and the leaf was
+why, in three ways, all code generation.
+
+1. *Seven roots a packet where FCPW takes one.* findClosestPointWideTriangle
+   selects the closest point per Voronoi region under a mask and takes one
+   `norm(x - pt)`; the metric as first transcribed returned `sqrt(dot) *
+   sqrt(dot)` from each of the seven regions -- FCPW's values per lane, but
+   after vectorization seven `vsqrtps` a packet on the divider unit, which
+   retires one every several cycles. metrics/fcpw.bonsai now has FCPW's
+   shape: offset_fcpw answers `x - pt` by region with the early returns,
+   distmin takes the one root and squares it.
+2. *No early exits, because `closest.skip(distmin)` did nothing.* The SSA
+   showed the leaf as one straight block. expand_branch_policies
+   (SSA/Convert.cpp) carried a cursor into the query's extracted recursion
+   only when its name was a function of the module, and a geometric op's
+   implementations are renamed per operand type by Lower/Geometrics.cpp
+   (`distmin_Point_Triangle`) while the arms' provenance keeps `distmin`,
+   the name the schedule uses and ir::skips matches by -- so the check
+   passed and the policy went nowhere. A cursor now also counts when some
+   arm of the module was written in a function of that name; the four fcpw
+   schedules skip on offset_fcpw; ssa/skip-geometric-op shows the
+   `reduce<any>` gadgets in a `distmin` leaf. Embree's
+   `trace.skip(intersectsp_ray_tri)` never had the problem: that helper is
+   not overloaded.
+3. *Negation spelled `0 - x`.* SSA/Convert.cpp subtracted a float from
+   positive zero, which is `+0.0` at `x = +0.0` (a third place for the
+   signed-zero bug the simplifier's folds had) and a subtraction LLVM can
+   only keep: `-(a - b)` came out as `(b - a) + 0.0`, three adds of zero a
+   packet. It subtracts from `-0.0` now, `-x` for every x, `fneg` in LLVM
+   and `neg.f32` in PTX; 52 goldens re-blessed, every change that spelling.
+   (The sort key's sign flip, the fourth item read off the kernel, is the
+   known-open interval fact and stands.)
+
+Measured after the three (fcpw4w16, side 1024, least of 5; the full table
+at the new commit follows below): every closest-point cell is over FCPW,
+ganesha's volume batch 1.01 -> 1.16x, dragon's 0.97 -> 1.13x, the w8
+configurations 0.93-0.98 -> 1.05-1.19x -- and the near batches gave back
+5-20% (head 1.40 -> 1.14x). Separating the two leaf changes on head and
+ganesha under fcpw4w16 (near, volume):
+
+| leaf | head | ganesha |
+|---|---|---|
+| FCPW's shape with its exits (the matching schedule) | 1.14, 1.19 | 1.28, 1.16 |
+| FCPW's shape, no exits | 1.43, 1.57 | 1.38, 1.05 |
+| the seven-root leaf with exits | 1.09, 1.13 | 1.23, 1.12 |
+| the seven-root leaf, no exits (the table's state) | 1.39, 1.53 | 1.40, 1.01 |
+
+The one root is a small gain; the exits are the swing, and the counters say
+why: with them our kernel takes 11.5M branch mispredictions on head's near
+batch against FCPW's own 11.8M on the same queries -- the same wager FCPW
+makes, at the same price -- where the straight-line leaf took 5.1M. In
+cycles our kernel is 1.41x FCPW's traversal without the exits and 1.24x
+with them; the exits pay only where whole packets settle early, which is
+the volume batch on the large meshes. The user's ruling: the matching
+schedules keep FCPW's exits, since the two sides must compute the same
+thing under the same schedule; the departures go into tuned schedules, as
+with Embree (the next section).
+
+**Embree four-wide, pavilion and head, diffuse rays.** The perf split for
+these cells is polluted by the driver's setup, which traces every primary
+ray through Embree to build the diffuse batch, so Embree's symbol carries
+that too. What the history says: these cells stood at 0.99-1.00 the night
+before, the layout's lane predicate took two to three points (measured the
+night it went in), and the eight-wide residual below took one or two.
+
+**The eight-wide residual, A/B'd.** The compiler just before the reciprocal
+change (a0b863cf, `rcp` a primitive) against the current one, alternated
+twice so the day's drift fell on both:
+
+| mesh, rays | pre-change | current |
+|---|---|---|
+| pavilion primary | 79.5, 78.0 | 78.5, 78.3 |
+| pavilion diffuse | 27.9, 27.6 | 27.4, 27.3 |
+| crown primary | 106.8, 108.3 | 105.2, 107.1 |
+| crown diffuse | 11.57, 11.56 | 11.17, 11.29 |
+
+One to three percent, real on the diffuse rays, not the six the two sweeps
+suggested (the rest was drift). The two `embree` modules differ in ten
+instructions, all in the per-ray reciprocal of the direction: `rcp_embree_vec3`
+over a `vec3f` now lowers its Newton step as a pair of `<3 x float>` fmas
+where the intrinsic worked on four lanes. Whether that alone costs 3% on
+diffuse rays, or the machine code around it moved, is for the assembly
+diff; it is small enough to leave for a quiet moment.
+
+## Tuned schedules over FCPW's trees, and the plots (2026-10-06, night)
+
+The user's direction, after the leaf fixes: the matching FCPW schedules
+keep FCPW's exits, since the two sides must compute the same thing under
+the same schedule; the departures that measure better go into tuned
+schedules, as tuned.bonsai and tuned4.bonsai are to Embree's. So
+schedules/fcpw4w16t, fcpw8w16t, fcpw4w8t and fcpw8w8t (compare.sh reads the
+`t` as the tuned schedule over the same tree, and builds FCPW's tree of
+that shape as for the matching one), each the matching schedule without
+`closest.skip(offset_fcpw)`: the leaf's regions as straight-line masked
+arithmetic, no branch to mispredict. Three departures were tried on head,
+ganesha and dragon (side 1024, least of 5), each over the two sixteen-lane
+trees:
+
+| departure | result |
+|---|---|
+| the closest point's exits dropped | taken: head near 1.13 -> 1.36x and volume 1.18 -> 1.50x (four-wide), 1.13 -> 1.35x and 1.33 -> 1.68x (eight-wide); ganesha near 1.28 -> 1.39x / 1.42 -> 1.52x but volume 1.16 -> 1.05x / 1.26 -> 1.07x; dragon near 1.24 -> 1.30x / 1.36 -> 1.39x, volume 1.13 -> 1.01x / 1.25 -> 1.05x; the ray queries within a point |
+| the children prefetched (Embree's directive) | not yet possible: the prefetch lowering fetches an arm that is a row of a group or a range of tiles, and FCPW's Interior is an arm of the node row's switch on its first slot's sign, with no storage of its own to name (Lower/Prefetches.cpp refuses it). The row is what to fetch; a lowering extension, known-open |
+| the ray test's early exits (`trace.skip(intersectsp_ray_tri)`) | untried for the same reason, having been bundled with the prefetch in the probe; to be measured on its own |
+
+The exits pay where whole packets settle early, the volume batch on the
+largest meshes, and cost everywhere else; the tuned schedule takes the
+larger side. The table below (the eight-wide trees at this commit) has
+both schedules per tree, and the plots are drawn from it.
+
+The plots (apps/rtq/plot.py, from the results CSV): three figures over
+the thirteen meshes in order of triangle count -- the first hit and the
+any hit with six bars a mesh, the three ray sets by hatching and the two
+references by colour, and the closest point with four, the near and
+volume batches by hatching -- the eight-wide trees only (Embree's BVH8,
+FCPW's eight-wide Mbvh with sixteen-lane leaves), bonsai's rate over the
+reference's with the line at 1 the reference; `--tuned` draws the same
+from the tuned schedules. The colours are the paper's (graphs.py at the
+root), the Okabe-Ito colour-blind palette: sky blue for Embree, orange for
+FCPW. A cell the reference has no number for (FCPW finds no hit on
+lte-orb, so its ao, diffuse and point batches are empty) leaves its slot
+empty. The figures land beside the CSV, under build-rtq2/results/plots.
+
+## The eight-wide table at 95544783: matching and tuned, both references (2026-10-06, night)
+
+One exclusive block, 21:41-22:06, the compiler at 95544783 (the three
+fixes above) from a clean worktree; one thread each on cpu 11, least of
+five; Embree's BVH8 under `embree` and `tuned` (rays and any hit at side
+2048, the closest point at 1024) and FCPW's eight-wide Mbvh at both leaf
+widths under its matching and tuned schedules (side 1024, all queries).
+The CSV holds this run alone (600 rows); the four-wide trees were left
+out tonight by the user's direction and are the next block's. Every ray
+and point agrees with Embree up to ties; against FCPW the known residue
+stands (rays on at most 30 of a million per mesh, points on ivy and
+dambreak through degenerate triangles).
+
+Embree, bonsai's rate over Embree's (nearest hit of primary and diffuse
+rays, any hit of ao rays; then the closest point's two batches):
+
+| mesh | triangles | embree: nearest pri dif, any ao | tuned: nearest pri dif, any ao | embree: near vol | tuned: near vol |
+|---|---|---|---|---|---|
+| pavilion | 11366 | 1.05 1.03, 1.00 | 1.02 1.04, 1.02 | 3.04 4.25 | 3.04 4.26 |
+| head | 17674 | 1.04 1.01, 0.99 | 1.03 1.11, 1.11 | 3.86 4.36 | 3.85 4.35 |
+| zero-day | 48960 | 1.10 1.03, 1.01 | 1.13 1.16, 1.15 | 3.74 4.06 | 3.74 4.07 |
+| bmw | 110592 | 1.05 1.04, 1.02 | 1.05 1.11, 1.13 | 4.05 4.56 | 4.04 4.55 |
+| crown | 155520 | 1.10 1.06, 1.01 | 1.09 1.20, 1.17 | 4.40 4.61 | 4.38 4.56 |
+| ivy | 179603 | 1.06 1.03, 0.98 | 1.05 1.16, 1.11 | 5.03 4.46 | 5.03 4.46 |
+| villa | 390784 | 1.04 1.05, 1.01 | 1.04 1.10, 1.10 | 4.33 4.87 | 4.33 4.90 |
+| dambreak | 1015024 | 1.03 1.01, 0.99 | 1.04 1.07, 1.07 | 3.78 5.77 | 3.78 5.76 |
+| sportscar | 1091232 | 1.04 1.03, 1.04 | 1.05 1.13, 1.13 | 4.64 5.48 | 4.66 5.52 |
+| landscape | 1916928 | 1.05 1.15, 1.13 | 1.09 1.22, 1.16 | 3.47 3.14 | 3.45 3.13 |
+| lte-orb | 3423232 | 1.07 1.02, 1.00 | 1.06 1.08, 1.06 | 4.70 5.42 | 4.70 5.45 |
+| ganesha | 4323658 | 1.05 1.03, 0.99 | 1.04 1.08, 1.06 | 5.65 8.24 | 5.68 8.18 |
+| dragon | 7219045 | 1.05 1.02, 0.99 | 1.05 1.08, 1.06 | 6.07 7.77 | 6.06 7.83 |
+
+| schedule | nearest, primary | nearest, diffuse | any, ao | closest, near | closest, volume | cells under 1.00 |
+|---|---|---|---|---|---|---|
+| embree | 1.03-1.10 | 1.01-1.15 | 0.98-1.13 | 3.04-6.07 | 3.14-8.24 | ivy ao 0.98; ao 0.99 on head, dambreak, ganesha, dragon |
+| tuned | 1.02-1.13 | 1.04-1.22 | 1.02-1.17 | 3.04-6.06 | 3.13-8.18 | none |
+
+The matching schedule's any hit of ao rays is the one column still level
+with Embree, as it has been since the arms-by-count work; the nearest
+hit of primary rays stands 3-10% ahead on every mesh, where this
+afternoon's table (the regressed compiler, then the fold alone) had it at
+0.99-1.10.
+
+FCPW, bonsai's rate over FCPW's, the eight-wide tree at both leaf widths:
+
+| mesh | fcpw8w16: nearest pri dif, any ao | fcpw8w16t | fcpw8w8 | fcpw8w8t |
+|---|---|---|---|---|
+| pavilion | 1.97 1.96, 2.13 | 1.97 1.93, 2.11 | 1.94 1.84, 2.01 | 1.94 1.84, 2.01 |
+| head | 2.01 1.86, 1.96 | 2.01 1.84, 1.96 | 2.00 1.80, 1.90 | 2.01 1.81, 1.91 |
+| zero-day | 3.36 2.07, 2.25 | 3.54 2.06, 2.26 | 3.53 1.99, 2.18 | 3.16 1.97, 2.11 |
+| bmw | 1.84 1.80, 2.06 | 1.85 1.81, 2.04 | 1.83 1.81, 2.06 | 1.91 1.83, 2.12 |
+| crown | 2.30 1.98, 2.09 | 2.29 1.96, 2.08 | 2.32 1.93, 2.03 | 2.58 1.97, 2.05 |
+| ivy | 2.01 1.71, 1.77 | 1.90 1.72, 1.75 | 2.05 1.71, 1.73 | 1.92 1.70, 1.73 |
+| villa | 1.70 1.86, 1.93 | 1.76 1.88, 1.96 | 1.70 1.86, 1.92 | 1.71 1.86, 1.92 |
+| dambreak | 1.62 1.64, 1.78 | 1.66 1.64, 1.79 | 1.60 1.61, 1.70 | 1.61 1.58, 1.71 |
+| sportscar | 1.63 1.69, 1.80 | 1.63 1.69, 1.79 | 1.67 1.65, 1.81 | 1.69 1.67, 1.80 |
+| landscape | 1.51 2.32, 2.64 | 1.49 2.30, 2.62 | 1.36 2.19, 2.47 | 1.37 2.18, 2.44 |
+| lte-orb | 1.64 -, - | 1.62 -, - | 1.55 -, - | 1.52 -, - |
+| ganesha | 1.38 1.62, 1.67 | 1.41 1.61, 1.66 | 1.37 1.54, 1.58 | 1.37 1.54, 1.58 |
+| dragon | 1.34 1.51, 1.53 | 1.35 1.50, 1.52 | 1.40 1.45, 1.49 | 1.35 1.45, 1.49 |
+
+| mesh | fcpw8w16: near vol | fcpw8w16t | fcpw8w8 | fcpw8w8t |
+|---|---|---|---|---|
+| pavilion | 1.15 1.25 | 1.20 1.67 | 1.13 1.19 | 1.19 1.60 |
+| head | 1.14 1.33 | 1.37 1.71 | 1.10 1.28 | 1.43 1.74 |
+| zero-day | 1.42 1.53 | 1.65 1.64 | 1.37 1.42 | 1.55 1.50 |
+| bmw | 1.17 1.43 | 1.47 1.63 | 1.12 1.31 | 1.53 1.58 |
+| crown | 1.43 1.53 | 1.74 1.64 | 1.35 1.42 | 1.65 1.53 |
+| ivy | 1.42 1.50 | 1.69 1.59 | 1.30 1.41 | 1.63 1.52 |
+| villa | 1.19 1.39 | 1.61 1.66 | 1.12 1.28 | 1.56 1.53 |
+| dambreak | 1.32 1.33 | 1.56 1.40 | 1.29 1.33 | 1.53 1.35 |
+| sportscar | 1.29 1.36 | 1.58 1.36 | 1.22 1.23 | 1.48 1.24 |
+| landscape | 1.26 1.30 | 1.44 1.28 | 1.27 1.35 | 1.35 1.36 |
+| lte-orb | - - | - - | - - | - - |
+| ganesha | 1.42 1.27 | 1.54 1.08 | 1.35 1.17 | 1.40 1.01 |
+| dragon | 1.36 1.26 | 1.39 1.06 | 1.23 1.16 | 1.25 1.01 |
+
+| schedule | nearest, primary | nearest, diffuse | any, ao | closest, near | closest, volume | cells under 1.00 |
+|---|---|---|---|---|---|---|
+| fcpw8w16 | 1.34-3.36 | 1.51-2.32 | 1.53-2.64 | 1.14-1.43 | 1.25-1.53 | none |
+| fcpw8w16t | 1.35-3.54 | 1.50-2.30 | 1.52-2.62 | 1.20-1.74 | 1.06-1.71 | none |
+| fcpw8w8 | 1.36-3.53 | 1.45-2.19 | 1.49-2.47 | 1.10-1.37 | 1.16-1.42 | none |
+| fcpw8w8t | 1.35-3.16 | 1.45-2.18 | 1.49-2.44 | 1.19-1.65 | 1.01-1.74 | none |
+
+Reading it. With FCPW's shape in the leaf, the matching schedules are over
+FCPW on every cell, the closest point by 1.10-1.53x where this afternoon's
+had the volume batch of the two largest meshes under it. The tuned
+schedules' one departure, the leaf exits dropped, is the near batch's gain
+(1.20-1.74x) and the large meshes' volume batch's loss (ganesha 1.27 ->
+1.08, dragon 1.26 -> 1.06), as the probe said; the ray queries, which the
+departure does not touch, agree between the two to within noise. The
+plots in build-rtq2/results/plots are drawn from these rows: rtq-firsthit,
+rtq-anyhit and rtq-closestpoint for the matching schedules, the same with
+-tuned for the tuned ones.
+
 ## Known-open, smaller
 
+- A prefetch of FCPW's Interior: the arm is the node row's switch arm, not
+  a row of a group of its own, and Lower/Prefetches.cpp has nothing to
+  fetch for it. The row the child index names is the storage; a
+  switch-arm's prefetch should resolve to it. Blocks the tuned FCPW
+  schedules' next step (the children prefetched, as Embree's are).
+- The eight-wide residual (the profiling section): 1-3% on diffuse rays
+  on pavilion and crown against the compiler before the reciprocal change,
+  the two kernels differing only in the per-ray `rcp_embree_vec3` lowering
+  its Newton step on three lanes where the intrinsic used four. The
+  assembly diff is the next look.
 - The closest point's sort key, a squared distance, is not known
   non-negative to the sort's lowering: the chain flips the sign bit of
   each key before comparing (`select(isneg, 0x7fffffff, 0) ^ key`, four

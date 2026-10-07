@@ -73,8 +73,9 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 # FCPW's trees, schedules/trees/mbvh*.bonsai) against FCPW, every other
 # against Embree. An fcpw schedule's name says which of FCPW's trees it is
 # over -- `fcpw<branching>w<width>`, FCPW's compile-time branching factor and
-# leaf width -- which is how the driver is told to build FCPW's tree of that
-# shape (FCPW_USE_EIGHT_WIDE_BRANCHING, FCPW_SIMD_WIDTH).
+# leaf width, with a `t` after it for the tuned schedule over the same tree
+# -- which is how the driver is told to build FCPW's tree of that shape
+# (FCPW_USE_EIGHT_WIDE_BRANCHING, FCPW_SIMD_WIDTH).
 reference_of() {
   if [[ "$1" == fcpw* ]]; then echo fcpw; else echo embree; fi
 }
@@ -176,27 +177,46 @@ build_schedule() {
 
   if [[ "$(reference_of "$schedule")" == fcpw ]]; then
     local branching width
-    if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)$ ]]; then
+    # `fcpw<branching>w<width>` is the schedule matching FCPW's over that
+    # tree; a `t` after it (fcpw4w16t) is the tuned schedule over the same
+    # tree, as tuned.bonsai is to embree.bonsai.
+    if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$ ]]; then
       branching="${BASH_REMATCH[1]}"
       width="${BASH_REMATCH[2]}"
     else
-      echo "an fcpw schedule is named fcpw<branching>w<width> (fcpw4w16, fcpw8w8, ...): $schedule" >&2
+      echo "an fcpw schedule is named fcpw<branching>w<width>[t] (fcpw4w16, fcpw8w8, fcpw4w16t, ...): $schedule" >&2
       exit 1
     fi
     local defines=(-DRTQ_FCPW -DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
     if [[ "$branching" == 8 ]]; then
       defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
     fi
-    "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
-        "${defines[@]}" -I. -I$PREFIX \
-        -isystem "$FCPW/include" -isystem "$FCPW/deps/enoki/include" \
-        -isystem "$FCPW/deps/eigen-git-mirror" \
-        $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
+    # The driver compiled once per (header, defines) within a run and linked
+    # per schedule: it includes the generated rtq.h, which two schedules over
+    # the same layout generate alike (the matching one and the tuned one),
+    # and compiling it against FCPW's headers takes longer than the
+    # measurement. Keyed by the header's checksum, so an unlike header
+    # compiles afresh; the objects go at the end of the run.
+    local key
+    key="fcpw-$(cat $PREFIX/rtq.h | md5sum | cut -c1-16)-$branching-$width"
+    if [[ ! -f "$PREFIX/.rtq_hook-$key.o" ]]; then
+      "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
+          "${defines[@]}" -I. -I$PREFIX \
+          -isystem "$FCPW/include" -isystem "$FCPW/deps/enoki/include" \
+          -isystem "$FCPW/deps/eigen-git-mirror" \
+          -c $PREFIX/rtq_hook.cpp -o "$PREFIX/.rtq_hook-$key.o"
+    fi
+    "$BONSAI_CXX" "$PREFIX/.rtq_hook-$key.o" $PREFIX/rtq.o \
         -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
         -o $PREFIX/rtq.out
   else
-    "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
-        $PREFIX/rtq_hook.cpp $PREFIX/rtq.o \
+    local key
+    key="embree-$(cat $PREFIX/rtq.h | md5sum | cut -c1-16)"
+    if [[ ! -f "$PREFIX/.rtq_hook-$key.o" ]]; then
+      "$BONSAI_CXX" -std=c++20 -O3 -I. -I$PREFIX -isystem "$EMBREE/include" \
+          -c $PREFIX/rtq_hook.cpp -o "$PREFIX/.rtq_hook-$key.o"
+    fi
+    "$BONSAI_CXX" "$PREFIX/.rtq_hook-$key.o" $PREFIX/rtq.o \
         -L"$EMBREE/lib" -Wl,-rpath,"$EMBREE/lib" -lembree4 \
         -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
         -o $PREFIX/rtq.out
@@ -242,4 +262,5 @@ for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "$@" || STATUS=$?
   rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
 done
+rm -f $PREFIX/.rtq_hook-*.o
 exit $STATUS
