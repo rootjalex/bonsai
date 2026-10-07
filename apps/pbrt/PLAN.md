@@ -11515,3 +11515,28 @@ wave heads EQUAL (737 vs 749 us) and every medium-coupled launch
 after at 1.3-1.8x pbrt's, amortized clean at s64's queue sizes:
 small-grid occupancy/efficiency in the rays+shadow launches, for
 daylight occupancy counters on one small mid-wave launch.
+
+**Bugfix #1's night narrowing (2026-10-07, 00:15; the heatmap sweep
+running beside it).** The depth-1 probe (bistro_vespa_d1, 1 spp, the
+scene made for exactly this) decomposes the +112k bias: the lit sets
+differ BOTH WAYS (229k ours-only, 76k theirs-only of 712k lit), and
+where both sides are lit the values differ almost everywhere (378k of
+407k) -- different LIGHT CHOSEN per pixel, not occlusion flips. Under
+`"string lightsampler" "uniform"` (bistro_vespa_d1u, both renderers
+honor it) the divergence persists at the same scale, so the light
+tree's walk is CLEARED -- and with 20,639 lights, floor(uc*N) flips on
+LSB-level uc differences that the one-light agreement scenes
+(96-100%) could never expose: the amplifier explains why only
+bistro/villa show it. The LIGHT ORDER theory was then tested and is
+DEAD: pbrt's CreateLights pushes area lights first (scene.cpp 1293,
+the shapes loop) and the declared lights after (1346), so bistro's
+one infinite sits LAST on both sides, exactly our layout. What
+stands: uc at dimension 6 differs in its BITS between the two GPU
+renderers -- sampler conversion, StartPixelSample state, or the
+dimension walk -- and the next step is instrumented uc dumps on both
+sides. BLOCKER for the pbrt side: its May 6 binary cannot be rebuilt
+under the bonsai env (nvcc rejects gcc 14; the build came from the
+`pbrt` conda env), so the instrumented run needs that env's
+toolchain; the 3-line probe patch was written, never built, and
+reverted. Tools left behind: scratchpad lit_diff.py (the lit-set
+decomposition), the d1/d1u probe scenes in pbrt-v4-scenes/bistro.
