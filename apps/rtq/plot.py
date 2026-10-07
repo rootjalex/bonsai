@@ -17,7 +17,7 @@ all on that small-unit mesh, so its ao, diffuse and point batches are empty
 and the mesh says nothing about the comparison.
 
 The eight-wide trees only: Embree's BVH8 (`embree`, or `tuned` with --tuned)
-and FCPW's MBVH<8> with sixteen-lane leaves (`fcpw8w16`, or `fcpw8w16t`);
+and FCPW's MBVH8 with sixteen-lane leaves (`fcpw8w16`, or `fcpw8w16t`);
 --embree and --fcpw name other schedules. The colours are the paper's
 (graphs.py), the Okabe-Ito colour-blind palette: sky blue for Embree, orange
 for FCPW.
@@ -94,7 +94,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude):
         ax.set_xlim(-0.6, len(meshes) - 0.4)
         ax.set_ylim(0, top * 1.08)
         ax.set_ylabel("Speedup")
-        ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (MBVH<8>)"
+        ax.set_title(f"{title}: bonsai over Embree (BVH8) and FCPW (MBVH8)"
                      + (", tuned schedules" if suffix else ""), fontsize=10)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
