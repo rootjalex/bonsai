@@ -1193,18 +1193,58 @@ bool executes_before(const llvm::DominatorTree &dt,
     return dt.properlyDominates(before->getParent(), at->getParent());
 }
 
+// Whether `inst` computes the same value wherever in the launch it runs, so
+// that it may be re-done after a trace instead of being carried across it:
+// a load of memory nothing in the launch writes -- one marked
+// !invariant.load (launch_readonly, CodeGen_LLVM_SSA.cpp), or one from
+// constant memory, NVPTX's address space 4, where the launch parameters
+// live -- or an instruction that touches no memory and has no effect: the
+// address-space cast and the GEP that make a queue's pointer out of a
+// parameter, arithmetic, a compare, a select, an element of an aggregate or
+// a vector. Not a phi, which reads on its incoming edge; not a call.
+bool rematerializable(const llvm::Instruction *inst) {
+    if (const auto *load = llvm::dyn_cast<llvm::LoadInst>(inst)) {
+        if (!load->isSimple()) {
+            return false;
+        }
+        return load->getMetadata(llvm::LLVMContext::MD_invariant_load) !=
+                   nullptr ||
+               load->getPointerAddressSpace() == 4;
+    }
+    if (llvm::isa<llvm::PHINode>(inst) || inst->mayHaveSideEffects() ||
+        inst->mayReadFromMemory()) {
+        return false;
+    }
+    return llvm::isa<llvm::CastInst, llvm::GetElementPtrInst,
+                     llvm::BinaryOperator, llvm::UnaryOperator, llvm::CmpInst,
+                     llvm::SelectInst, llvm::ExtractValueInst,
+                     llvm::InsertValueInst, llvm::ExtractElementInst,
+                     llvm::InsertElementInst, llvm::ShuffleVectorInst>(inst);
+}
+
 // A value live across an optixTrace rides the pipeline's continuation stack:
 // OptiX spills it before the call and reloads it after, bytes per thread per
-// trace. A load marked !invariant.load -- its memory does not change during
-// the launch (launch_readonly, CodeGen_LLVM_SSA.cpp) -- need not be carried
-// over at all: moved to just after the trace it is live only from there to
-// its uses, and the spill is gone. pbrt's __raygen__findClosest has the same
-// shape by construction: the hit path re-reads the ray queue inside the
-// closest-hit program rather than carrying it across the trace
+// trace. A value the launch could compute again -- a load of memory nothing
+// in the launch writes, and whatever is derived from one by pure arithmetic
+// (rematerializable above) -- need not be carried over at all: moved to just
+// after the trace it is live only from there to its uses, and the spill is
+// gone. The optimizer works against this: it hoists the loads of the launch
+// parameters and the address-space casts that make the queues' pointers of
+// them to the entry block, where they are then live across every trace of
+// the program (the closest-hit raygen of apps/pbrt carried 34 such pointers,
+// 68 words, over its trace, against the 30 words of pbrt's work item). pbrt's
+// __raygen__findClosest has the shape this makes by construction: it re-reads
+// its parameters after the trace, and the hit path re-reads the ray queue
+// inside the closest-hit program rather than carrying it across
 // (gpu/optix/optix.cu). Run after the optimizer, once everything is inlined
-// into the raygen and the trace calls and the loads sit in one function; a
+// into the raygen and the trace calls and the values sit in one function; a
 // module with no trace -- every CUDA module -- is untouched.
-void sink_invariant_loads_past_traces(llvm::Module &module) {
+//
+// To a fixed point, users first: an instruction moves once every reader of
+// it is after the trace, and the move puts it immediately after the trace,
+// ahead of the readers moved before it; its operands dominate its old
+// position, so they dominate the trace and the new one.
+void rematerialize_past_traces(llvm::Module &module) {
     for (llvm::Function &fn : module) {
         if (fn.isDeclaration()) {
             continue;
@@ -1229,31 +1269,27 @@ void sink_invariant_loads_past_traces(llvm::Module &module) {
             continue;
         }
         const llvm::DominatorTree dt(fn);
-        // To a fixed point: a load crossing two traces moves past each in
-        // turn.
+        // A value crossing two traces moves past each in turn.
         for (bool moved = true; moved;) {
             moved = false;
-            std::vector<llvm::LoadInst *> loads;
+            std::vector<llvm::Instruction *> candidates;
             for (llvm::BasicBlock &bb : fn) {
                 for (llvm::Instruction &inst : bb) {
-                    auto *load = llvm::dyn_cast<llvm::LoadInst>(&inst);
-                    if (load != nullptr && !load->use_empty() &&
-                        load->getMetadata(
-                            llvm::LLVMContext::MD_invariant_load) != nullptr) {
-                        loads.push_back(load);
+                    if (!inst.use_empty() && rematerializable(&inst)) {
+                        candidates.push_back(&inst);
                     }
                 }
             }
             for (llvm::CallInst *trace : traces) {
-                for (llvm::LoadInst *load : loads) {
-                    if (!executes_before(dt, load, trace)) {
+                for (llvm::Instruction *inst : candidates) {
+                    if (!executes_before(dt, inst, trace)) {
                         continue;
                     }
                     // Every reader must run only after the trace. A phi
                     // reads on its incoming edge, not at its own position,
-                    // so a load a phi reads stays put.
+                    // so a value a phi reads stays put.
                     const bool all_after = llvm::all_of(
-                        load->users(), [&](const llvm::User *u) {
+                        inst->users(), [&](const llvm::User *u) {
                             const auto *reader =
                                 llvm::dyn_cast<llvm::Instruction>(u);
                             return reader != nullptr &&
@@ -1263,7 +1299,7 @@ void sink_invariant_loads_past_traces(llvm::Module &module) {
                     if (!all_after) {
                         continue;
                     }
-                    load->moveAfter(trace);
+                    inst->moveAfter(trace);
                     moved = true;
                 }
             }
@@ -1313,7 +1349,7 @@ void CodeGen_PTX::finish() {
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[pre-optimization] the device module is invalid";
     optimize_module(*target_machine, *options);
-    sink_invariant_loads_past_traces(*module);
+    rematerialize_past_traces(*module);
     internal_assert(!llvm::verifyModule(*module, &llvm::errs()))
         << "[post-optimization] the device module is invalid";
     {

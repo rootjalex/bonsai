@@ -11866,3 +11866,213 @@ program's cost under 615.71.09; two days ago every one of them was
 The driver's two other effects seen today stay open: pbrt's own
 managed-memory stalls (bmw-m6, sportscar, villa-daylight, dambreak), and
 the GAS-build crash on frame25/bistro.
+
+## The surface stage against pbrt's: which stages, and where the programs differ (2026-10-08)
+
+The user's direction: the PLAN says which stages need work; the worst
+offenders are the surface scenes; find where and why our generated code
+differs from pbrt's structure and fix that, driver or no driver. Read
+off the kernel profiles of the 10-07 matrix (compare-out-heatmap2, 16
+spp, `BONSAI_KERNEL_STATS` against pbrt's `Wavefront Kernel Profile`),
+stage by stage, ours / pbrt's in ms:
+
+| stage | head | dragon_10 | pavilion-day | book | sanmiguel | landscape |
+|---|---|---|---|---|---|---|
+| closest-hit trace + routing (`__raygen__rays` / Trace closest hit rays) | 20.4 / 10.1 | 140 / 42 | 151 / 53 | 89 / 52 | 263 / 55 | 3796 / 419 |
+| shadow trace (`__raygen__shadow$False` / Trace shadow rays) | 1.0 / 2.1 | 6.9 / 15.6 | 45 / 17 | 8.8 / 12.6 | 63 / 21 | 1634 / 236 |
+| subsurface probe trace (`__raygen__probes` / Tracing subsurface probe rays) | 37.3 / 7.0 | 236 / 49 | | | | |
+| material kernels, summed (`hits_blk$*` / `* + BxDF eval`) | 8.9 / 5.7 | 49 / 50 | 74 / 83 | 40 / 59 | 51 / 51 | 275 / 273 |
+| camera rays + samples (`p_blk$VolPath` / Generate camera rays + ray samples) | 3.5 / 6.1 | 8.4 / 18.5 | 8.0 / 14.5 | 12.4 / 19.5 | 6.7 / 13.4 | 49 / 75 |
+| escaped, emissive, film, rest | 2.8 / 4.4 | 7.0 / 11.5 | 5.5 / 9.1 | 5.4 / 7.8 | 3.7 / 7.0 | 29 / 52 |
+| total kernel time | 78 / 45 | 464 / 211 | 284 / 178 | 156 / 153 | 387 / 149 | 5784 / 1062 |
+
+So the material kernels are at par or ahead on every scene, the camera
+and film passes are ahead everywhere, and the whole deficit is the
+three raygen launches -- the stages whose program the hardware calls
+back into: the closest-hit trace 1.7-9x behind pbrt's on every surface
+scene, the shadow trace 2.7-7x behind on the three scenes with
+alpha-tested geometry (pavilion, sanmiguel, landscape: it has no
+closest-hit program at all, so there the any-hit program is the whole
+difference) and ahead where there is none, and the subsurface probe
+trace 5x behind on both scenes that have one. Two days ago, on driver
+595, the same launches were ahead of pbrt's (landscape's rays 451 ms,
+shadows 211 ms); the driver moved the cost, but what it penalizes is
+ours to see.
+
+**Where the generated programs differ from pbrt's**, read off the PTX
+of the kept renderer (compare-out-heatmap2/gpu-optix/render.out, the
+embedded modules; apps/pbrt/scratch/surface/ptx_stats.py and
+ptx_dump.py) against pbrt's optix.ptx (build/CMakeFiles/optix.cu.dir):
+
+| program | ours | pbrt's |
+|---|---|---|
+| closest-hit raygen | `__raygen__rays`: 15,512 instructions, 841 global loads, 919 global stores, 144-byte local frame, 15 st.local / 9 ld.local around the trace | `__raygen__findClosest`: 321 instructions, 72-byte frame (the ClosestHitContext), 10 st.local |
+| closest-hit program | `__closesthit__trace`: 95 instructions -- 16 loads of the 40-byte primitive record and a GeometricPrimitive's 32, then 25 stores through the payload's generic pointer into the raygen's frame (8 of them byte stores of the record's tags, plus the option's tag) | `__closesthit__triangle`: 5,692 instructions -- the SurfaceInteraction from the mesh, 15 words through the pointer, then the ray work item re-read from the queue and the push onto the material queue, all in the program |
+| any-hit program (alpha) | `__anyhit__trace`: 6,513 instructions, 171 global loads, 101 blocks, 23 sqrt, 118 rcp/div -- the element loaded by value, `hit_geometry` matched over every shape kind, the texture over nine arms | `__anyhit__shadowTriangle`: 1,896 instructions, 79 blocks -- one shape kind per program, the SBT picks it |
+| live across the trace (defined before, used after, PTX registers) | 57: 34 are 64-bit pointers -- the queue arrays' addresses, `ld.const [params+k]` + `cvta.to.global`, hoisted by the optimizer to the entry and carried over the trace -- 20 words, 3 others | 30: the work item's 25 floats and 4 ints; the params pointers are re-read after the trace |
+
+Four differences, in the order they are worth fixing:
+
+1. **Pointers live across the trace.** A value live across `optixTrace`
+   rides the pipeline's continuation stack, spilled before and reloaded
+   after, per thread per trace; that is what Nsight showed on head's
+   camera launch (165 MB of local loads and 280 MB of stores against
+   pbrt's 63 and 187, stalls on long-scoreboard 115 vs 47 per issue).
+   `sink_invariant_loads_past_traces` (CodeGen_PTX.cpp) already moves an
+   `!invariant.load` whose every reader is after the trace; it does not
+   touch a load from constant memory (the launch parameters, address
+   space 4) nor the pure instructions that derive the queue pointers from
+   one (the address-space cast, a GEP), so 34 pointers -- 68 words -- are
+   carried where pbrt carries none. The fix: rematerialize after the
+   trace every pure instruction (a constant-memory or invariant load, a
+   cast, a GEP, arithmetic) whose readers are all after it, to a fixed
+   point, users first. Measurable on head alone.
+2. **The hit crosses by value, through memory, twice.** Our closest-hit
+   program loads the element and writes the record into the raygen's
+   frame (25 scattered stores, 8 of them bytes, through a generic
+   pointer); the raygen loads it back (9 vector loads) and only then
+   reads the fields. pbrt's hit never comes back: the program consumes
+   it. The wavefront rule for queue entries applies to the payload too
+   ([[bonsai-queue-entries-store-the-minimum]]): the closest-hit program
+   answers the hardware's hit state and nothing else -- a handle `{hit,
+   index, instance, t, barycentrics}`, six 32-bit words -- and the
+   elements are read from the tree's storage where the answer is used,
+   in the raygen, by the same `stored(tree, ...)` the program does now.
+   Six words plus the ray's residue fit the payload registers, so the
+   nearest-hit context takes the PROMOTED form trace_any already has:
+   no frame, no generic stores, no local loads, the closest-hit program
+   a dozen instructions; the one memory form left is a query whose
+   residue does not fit. This is the "record the minimum" option of the
+   10-07 list, and it subsumes the "promote the context" one.
+3. **The any-hit program is one program for every shape kind.** pbrt
+   attaches `__anyhit__triangle` to triangle inputs and nothing to
+   quadrics; ours matches on the loaded shape's kind inside, so the
+   triangle test carries every other shape's geometry in its static
+   body and its register allocation (both sides are at the 128-register
+   cap). Whether the dynamic path pays for that is what landscape's
+   shadow launch (7x) will say after 1 and 2; if it does, the hit
+   programs come in one flavor per build-input kind, as pbrt's do, the
+   way the `$boxes` flavor already exists.
+4. **The continuation's place.** pbrt's closest-hit program IS the
+   continuation: it re-reads the work item at the launch index and
+   pushes onto the material queues; its raygen holds only the miss
+   path. Ours returns to the raygen, which routes. After 1 and 2 the
+   two structures carry the same state across the trace (the work
+   item, which pbrt's findClosest also keeps live for its miss path)
+   and no hit record, so the remaining difference is where the 15k
+   instructions of routing sit. If a gap remains then, the hit arm of
+   the match on the trace's result is captured into the closest-hit
+   program -- Defer's continuation capture with the launch index as the
+   entry's key -- and that is the design to write up before doing.
+
+**The 10-07 probes, re-read.** The "stores alone" variant wrote `1` into
+every word AND the option's tag byte (`st.b8 [+136], 1`), so the
+raygen's hit continuation ran on a uniform garbage hit in it; the
+"words" and "reads" variants left the tag at none, so theirs did not.
+The ladder is then: traversal and an empty program 300 us; the
+hardware's hit state stored 335; the continuation on a uniform hit 450;
+the real record and the real, divergent continuation 950. So the "650
+us of closest-hit body" of the 10-07 write-up is the body, the
+continuation's spills and reloads around the trace, and the routing
+together, not the 95-instruction program alone -- and items 1 and 2
+are exactly what stands between the 335 and the 950.
+
+Measurement plan: head, dragon, pavilion and book at 16 spp after each
+of 1 and 2 (least of three, kernel stats, the raygen rows), landscape
+and sanmiguel after 2; images checked against pbrt as always; then the
+matrix.
+
+### Fixes 1 and 2 built and measured: right, and worth nothing on this driver (10-08, 10:00-10:40)
+
+Both are in (scratch/wt-fix, rebased onto 7b96d85a): the PTX of the
+rebuilt renderer has the parameter loads and casts after the trace, the
+closest-hit program is 12 instructions with no load, no raygen has a
+local frame, the four GPU correctness tests pass, six goldens move as
+described (lower/rtcore-witness, rtcore-any; backends/ptx/rtcore-*), and
+head's image matches pbrt. head at 16 spp: `__raygen__rays` 22.5 ms
+(was 20.4), `__raygen__probes` 38.9 (37.3) -- the same within noise.
+The camera launch under Nsight: 887 us against pbrt's 456, and the
+difference is NOT memory traffic: ours moves fewer global load sectors
+through L2 (8.2 M against 7.2 M L2 reads, 4.2 M against 5.2 M L1 misses,
+L1 hit rate 55% against 13%), the same store sectors (14.4 M vs 16.2 M)
+and local store bytes (185 MB vs 192), fewer instructions (26.6 M vs
+32.0 M), equal occupancy (32.7% vs 33.3%, 128 registers both). It is
+latency: stalls per issue long-scoreboard 102 vs 46, barrier 61 vs 31,
+lg-throttle 21 vs 4.5; local loads 165 MB vs 65 MB.
+
+Where the warps wait (`ncu --set full`, SASS sampling; pbrt's launches
+cannot be sampled, "cmdlist workloads"): OptiX compiles the raygen as two
+states, `_ss_0` up to the trace and `_ss_1` after it. 85.5% of all
+stall samples are in `_ss_1`, and **52.9% of the whole launch sits on
+one instruction**: the first use, in the hit branch, of a value loaded
+right after the trace returns -- the entry's fields (the `ld.global.nc`
+loads the sinker moved past the trace, `LDG.E.STRONG.SM` in SASS), the
+17 queue array pointers restored from the continuation stack (`LDL.128`
+x6) and the records the routing reads. The miss program, the
+closest-hit program and `_ss_0` are 15% together. So the cost is the
+continuation after the trace waiting for memory, and it is the SAME
+loads pbrt's closest-hit program does (its `RayWorkItem r =
+(*params.rayQueue)[rayIndex]` and the mesh reads of
+InteractionFromIntersection) -- with the difference that pbrt's run
+inside the hit program. Ruled out on the way, each by a probe on head:
+the queue atomics' memory-model form (`atom.relaxed.gpu` rewritten to
+plain `atom`: identical), the hit record's round trip through memory
+(fix 2: identical), the pointers live across the trace (fix 1:
+identical), and the "STRONG.SM" load form bypassing L1 (it does not:
+the L1 hit rate is 55%). pbrt's pipeline differs in three more options
+-- it never calls optixPipelineSetStackSize (its launch shows an 8 KB
+stack against our 1 KB), maxTraceDepth 2 against our 1, and exception
+flags STACK_OVERFLOW|TRACE_DEPTH against NONE -- none of which touches
+a continuation's memory latency; cheap to try but not the answer.
+
+**What this says about the structure.** A raygen's code after
+`optixTrace` runs when the whole warp's traversals are back, and every
+memory latency it incurs is exposed; a closest-hit program's run is
+scheduled by the traversal unit as each ray completes, and its loads
+overlap the other rays' traversal. Our continuation -- the entry
+re-read, the hit's records, the material resolution and the queue push,
+15k instructions -- is a raygen continuation; pbrt's identical work is
+a closest-hit program. That is difference 4 of the list above, and it
+is the one left standing. (Why the old driver hid it: unknown and no
+longer the question; the structure pbrt has is the one that is fast on
+both.) So the next step is fix 4: **the hit arm of the match on the
+trace's result becomes the closest-hit program**, and the raygen keeps
+the miss arm, as pbrt's `__raygen__findClosest` does:
+
+- The trace function `_rt_traceN` stays the query's call; after Defer
+  has made the drain (the raygen's body: entry loads, the pre-trace
+  computation -- the sampler restart -- the trace, the match on its
+  option, the hit arm's routing and pushes, the miss arm's push), an
+  SSA pass over the raygen splits at the `rt_trace`: the hit arm's
+  region, with everything it reads that is defined before the trace,
+  moves into the closest-hit program's body; the raygen's post-trace
+  code is the miss arm under `if !hit`.
+- What the hit arm reads from before the trace is re-derived in the
+  program: the launch index (`rt_launch_index`, pbrt's
+  `optixGetLaunchIndex`) names the entry, so loads of the entry are
+  re-done from it (they are invariant for the launch); pure values are
+  recomputed; anything else that is neither -- a value computed from
+  memory the launch writes -- travels in the payload words, as pbrt's
+  rayMedium does, or the split is refused with a message naming it.
+  This is Defer's continuation capture ([[bonsai-continuation-capture-
+  from-literature]]) with the launch index as the entry's key and the
+  payload as the capture record: the same analysis of free variables,
+  the same rule that a captured value is the minimum.
+- The closest-hit program then carries the pushes (the atomics and the
+  queue stores), the material resolution and the hit's record reads;
+  `rt_hit_t`, barycentrics, primitive and instance indices are read
+  from the hardware in place of the handle. The handle of fix 2 becomes
+  the memory-form fallback only (a query whose hit arm cannot be split).
+- Probes and the shadow transmittance walk (`vol_probe`,
+  `vol_shadow_track`): their trace is inside a loop whose continuation
+  loops back to another trace; pbrt's `__raygen__shadow_Tr` and
+  `__raygen__randomHit` keep theirs in the raygen too, and so do we --
+  the split applies where the hit arm ends in pushes and a return (the
+  ray drain), which is the launch that matters on every surface scene.
+- Tests: lower (the split program printed), ptx (the raygen a trace and
+  a miss branch; the closest-hit program with the pushes), gpu
+  correctness (rtcore-alpha and rtcore-tlas answer the same), then head,
+  dragon, pavilion, book against pbrt.
+
+The any-hit side (difference 3, the alpha scenes' shadow launches) is a
+separate program and a separate profile, after this.

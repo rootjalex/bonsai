@@ -12,8 +12,18 @@
 // `_optix_trace_typed_32` call: a value live across an optixTrace rides the
 // pipeline's continuation stack, so a load the hardware may re-read is sunk
 // past the trace instead of being carried over it
-// (sink_invariant_loads_past_traces, CodeGen_PTX.cpp). `rays[i]` feeds the
-// trace itself and stays where it is.
+// (rematerialize_past_traces, CodeGen_PTX.cpp). `rays[i]` feeds the trace
+// itself and stays where it is.
+//
+// The same for the pointers: the optimizer hoists the `ld.const` of every
+// launch parameter and the `cvta.to.global` that makes a pointer of it to
+// the entry, and that is 64 bits live across the trace per parameter --
+// 34 of them, 68 words, in apps/pbrt's closest-hit raygen. In the PTX of
+// `__raygen__i` the `rays` parameter's load and cast come before the trace,
+// since the trace's own operands come from it, and `weights`' and `out`'s
+// (`[params+16]`, `[params+48]`) after it: a constant-memory load and the
+// pure instructions derived from one are re-done after the trace when all
+// of their readers are after it.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;
