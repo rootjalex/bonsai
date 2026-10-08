@@ -1,0 +1,174 @@
+// apps/wosx: the walk on spheres, as WoSX runs it, compared against WoSX.
+//
+// WoSX (deps/wosx, "Walk on Spheres Extensions", Sawhney; NVIDIA's fork of
+// Zombie) solves Laplace and Poisson problems by random walks that ask the
+// boundary one question at every step: how far away is it. Its CPU solver,
+// WalkOnSpheres<T, DIM>::walk (include/wosx/point_estimation/
+// walk_on_spheres.h), loops while the distance to the absorbing boundary is
+// above an epsilon shell: it steps the walk by that distance in a direction
+// drawn uniformly on the sphere, drops a walk that has left the domain's
+// box, gives up at a maximum length, and asks FCPW for the next distance;
+// when the walk reaches the shell it projects the point onto the boundary
+// and takes the Dirichlet value there. The estimate at a point is the mean
+// over the walks that reached the boundary or the length limit.
+//
+// This file says the same: `walk` is that loop as a tail recursion over
+// the walk's position (bonsai-render-loops-are-recursive: the recursion is
+// the loop's shape, and the schedule's `walk.loopify()` makes it a loop,
+// where a `while` would have fixed it as one in the program), and `solve_all`
+// is WalkOnSpheres::solve over a batch of points. The distance query is
+// apps/rtq's `closest` -- FCPW's findClosestPoint written over the set of
+// triangles with FCPW's own arithmetic (apps/rtq/metrics/fcpw.bonsai), the
+// tree and its bytes FCPW's Mbvh (apps/rtq/schedules/layouts/fcpw4w16.bonsai,
+// imported by the schedule beside this file) -- so that what the table
+// measures is the compiler's traversal and loop against WoSX's hand-written
+// ones over the same tree, the same test and the same question. Nothing of
+// WoSX's beyond the plain walk is here: no source term (the Laplace problem,
+// WoSX's ignoreSourceContribution), no gradient, no Russian roulette or
+// splitting (the weight window at its defaults does nothing), no
+// reflecting boundary; each is an extension to add when the basic walk
+// measures right.
+//
+// Compiled from the repository root (compare.sh does so):
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/wosx/wosx.bonsai -i apps/wosx/schedules/fcpw4w16.bonsai ...
+import stdlib/numerics;
+import apps/rtq/elements;
+import apps/rtq/metrics/fcpw;
+import apps/rtq/queries;
+import apps/wosx/rng;
+
+// WoSX: the part of WalkSettings and GeometricQueries the walk reads --
+// epsilonShellForAbsorbingBoundary, maxWalkLength, and the domain's box
+// (domainMin, domainMax) a walk is dropped for leaving. One record, so that
+// the driver and the program name the same settings.
+element Problem {
+    epsilon : Float;
+    max_steps : u32;
+    lo, hi : vec3f;
+}
+
+// WoSX: PDE::dirichlet, the boundary data. A harmonic function of the
+// position, so that the solution is known -- it is this function inside
+// the domain as well -- and every estimate on either side can be checked
+// against it, not only against the other side: the error is the walk's
+// (the epsilon shell's bias, the Monte Carlo variance) and nothing else.
+// The driver's PDE is the same lambda; the two must agree.
+func dirichlet(p : vec3f) -> Float = p.x * p.x - p.y * p.y;
+
+// WoSX: SphereSampler<3>::sampleUnitSphereUniform over two draws -- the
+// height uniform in [-1, 1], the azimuth uniform in [0, 2 pi).
+func pi() -> Float = 3.14159265358979323846;
+
+func uniform_sphere(rng : mut RNG) -> vec3f {
+    u0 = next_float_pcg32(rng);
+    u1 = next_float_pcg32(rng);
+    z = 1.0 - 2.0 * u0;
+    r = sqrt(max(0.0, 1.0 - z * z));
+    phi = 2.0 * pi() * u1;
+    return vec3f{r * cos(phi), r * sin(phi), z};
+}
+
+// WoSX: GeometricQueries::outsideBoundingDomain -- any coordinate past the
+// box, the test for a walk that escaped by numerical error.
+func outside(p : vec3f, problem : Problem) -> bool =
+    p.x < problem.lo.x || p.y < problem.lo.y || p.z < problem.lo.z ||
+    p.x > problem.hi.x || p.y > problem.hi.y || p.z > problem.hi.z;
+
+// What a walk comes back with: the Dirichlet value where it ended, and how
+// many steps it took (WoSX's SampleStatistics counts them, and the mean walk
+// length is the one number that says both sides did the same work).
+element Outcome {
+    value : Float;
+    steps : u32;
+}
+
+// WoSX: getTerminalContribution for a walk that reached the shell or the
+// length limit -- projectToAbsorbingBoundary asks FCPW for the closest
+// point once more (findClosestPoint at the walk's position: WoSX's distance
+// query hands back the distance alone, its interface serving distance
+// grids as well as meshes, so the point the last query found is asked for
+// again), and the Dirichlet value is read there. The same question asked
+// again here, as WoSX asks it; the answer is the one the walk's last
+// query already held.
+func terminal(x : vec3f, steps : u32) -> option[Outcome] {
+    c = closest(Point{x});
+    if !c {
+        return {};
+    }
+    found = *c;
+    boundary = found[1];
+    done : Outcome = {dirichlet(boundary.p), steps};
+    return done;
+}
+
+// WoSX: WalkOnSpheres::walk, one iteration of its loop per call, in its
+// order. The walk arrives with its distance to the boundary (`dist`: the
+// first one the sample point's, computed once for all its walks by the
+// driver as WoSX's demo computes SamplePoint::distToAbsorbingBoundary, the
+// rest the previous call's query); within the epsilon shell it ends at the
+// boundary. Otherwise it moves by that distance in a uniform direction, is
+// dropped if that took it out of the box (WalkCompletionCode::EscapedDomain:
+// no estimate), counts the step, ends at the boundary if the count reached
+// the limit (ExceededMaxWalkLength, which WoSX projects like a walk that
+// arrived), and asks the boundary how far it is now (`closest`: FCPW's
+// findClosestPoint, which WoSX's computeDistToAbsorbingBoundary calls with
+// an infinite radius and reads `d` of). Steps queries in the loop and one
+// at the end, on each side.
+func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
+          rng : mut RNG) -> option[Outcome] {
+    if dist <= problem.epsilon {
+        return terminal(x, steps);
+    }
+    y = x + uniform_sphere(rng) * dist;
+    if outside(y, problem) {
+        return {};
+    }
+    taken = steps + 1u;
+    if taken >= problem.max_steps {
+        return terminal(y, taken);
+    }
+    c = closest(Point{y});
+    if !c {
+        return {};
+    }
+    found = *c;
+    boundary = found[1];
+    return walk(y, boundary.d, taken, problem, rng);
+}
+
+// WoSX: WalkOnSpheres::solve over a batch of points, each with its distance
+// to the boundary already known (SamplePoint::distToAbsorbingBoundary, the
+// demo's precomputation, which the driver hands to both sides), estimated
+// by `walks` walks from one generator seeded for the point (pcg32(seed, i):
+// WoSX seeds from the clock, the driver from its --seed, so that a run
+// repeats), the estimate the mean of the walks that ended on the boundary
+// (SampleStatistics::addSolutionEstimate; an escaped walk adds nothing),
+// and beside it the mean number of steps of those walks
+// (getMeanWalkLength). The points are a parfor the schedule may spread over
+// the cores; the comparison's leaves it unbound, a plain loop, the
+// measurement being single-threaded on both sides.
+func [[export]] solve_all(n : u32, points : array[Point, n], dists : array[Float, n],
+                          problem : Problem, walks : u32, seed_state : u64,
+                          solution : mut array[Float, n], mean_steps : mut array[Float, n]) {
+    parfor i in 0u:n {
+        rng : mut RNG = seed(seed_state, cast[[u64]](i));
+        total : mut Float = 0.0;
+        steps : mut u32 = 0u;
+        ended : mut u32 = 0u;
+        for w in 0u:walks {
+            o = walk(points[i].p, dists[i], 0u, problem, rng);
+            if o {
+                done = *o;
+                total = total + done.value;
+                steps = steps + done.steps;
+                ended = ended + 1u;
+            }
+        }
+        over = cast[[Float]](max(ended, 1u));
+        solution[i] = total / over;
+        mean_steps[i] = cast[[Float]](steps) / over;
+    }
+    return;
+}

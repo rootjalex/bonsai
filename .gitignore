@@ -108,6 +108,11 @@ apps/rtq/rtq.h
 # compare.sh's driver objects, compiled once per header within a run and
 # removed at its end; left behind only by a run that was killed.
 apps/rtq/.rtq_hook-*.o
+# The same for apps/wosx: its generated header and objects, left beside the
+# source only while compare.sh runs, and the slices the driver draws.
+apps/wosx/wosx.h
+apps/wosx/.wosx_hook-*.o
+apps/wosx/*.ppm
 
 *.csv
 

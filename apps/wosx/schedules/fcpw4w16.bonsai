@@ -1,0 +1,31 @@
+// The schedule matching WoSX: apps/wosx/wosx.bonsai run the way WoSX runs
+// it -- the walk a loop, and the distance query FCPW's
+// Mbvh<16, 3, Triangle>::findClosestPointFromNode over FCPW's four-wide
+// tree with sixteen-lane leaves, the tree WoSX's FcpwDirichletBoundaryHandler
+// builds when asked to vectorize (apps/rtq/schedules/layouts/fcpw4w16.bonsai,
+// the same bytes). Compiled beside the program as a second input:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/wosx/wosx.bonsai -i apps/wosx/schedules/fcpw4w16.bonsai ...
+import apps/rtq/schedules/layouts/fcpw4w16;
+
+schedule {
+    // WoSX: WalkOnSpheres::walk is a while loop over the walk's position;
+    // the recursion becomes that loop, with nothing on a stack since every
+    // call is the function's last act.
+    walk.loopify();
+
+    // FCPW: findClosestPointFromNode, directive for directive as
+    // apps/rtq/schedules/fcpw4w16.bonsai has it for the same query (its
+    // comments say what each does) -- the children ordered by the point's
+    // squared distance to their boxes and pushed farthest first, the four
+    // tested at once, the packet as sixteen lanes, FCPW's stack of 96, and
+    // the leaf's exit once every lane has its Voronoi region.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .vectorize(triangles.Leaf.data)
+           .loopify(96);
+    closest.skip(closest_point_fcpw);
+}

@@ -1,0 +1,26 @@
+// apps/wosx's random numbers: WoSX's pcg32 (deps/wosx/deps/pcg32, Wenzel
+// Jakob's header of O'Neill's PCG32), which seeds one generator per sample
+// point and draws every direction of every walk from it.
+//
+// The generator is the one apps/pbrt/rng.bonsai transcribed from pbrt, since
+// pbrt's RNG is the same header: the same multiplier, the same XSH-RR
+// output, the same seeding (pcg32::seed(initstate, initseq) is pbrt's
+// RNG::SetSequence(initseq, initstate) step for step -- state zero, the
+// stream from the sequence, a draw, the state advanced by initstate, a
+// draw), so `RNG`, `next_uint` and `set_sequence` are imported from there,
+// and `seed` below only puts pcg32's arguments in pcg32's order. What
+// differs is the float: pcg32::nextFloat sets the draw's top 23 bits into a
+// float's mantissa with an exponent of one and subtracts one -- a number in
+// [0, 1) of 23 random bits -- where pbrt's scales the whole 32-bit draw and
+// clamps below one.
+import apps/pbrt/rng;
+
+// pcg32(initstate, initseq): the generator for a sample point, WoSX's
+// seedRng(), which draws initstate from the clock and initseq from a
+// counter -- here the driver's seed and the point's index, so that a run
+// repeats.
+func seed(initstate : u64, initseq : u64) -> RNG = set_sequence(initseq, initstate);
+
+// pcg32::nextFloat.
+func next_float_pcg32(r : mut RNG) -> Float =
+    reinterpret[[Float]]((next_uint(r) >> 9u) | 0x3f800000u) - 1.0;
