@@ -69,6 +69,9 @@ struct ParallelLoop {
     std::string index;
     std::shared_ptr<Value> index_value;
     std::shared_ptr<Value> start, end, stride;
+    // The block the loop's body begins at: what an allocation has to be
+    // inside to be each iteration's own (see contention_of).
+    std::string body;
 };
 
 // The parallel loops enclosing each block of a function, outermost first.

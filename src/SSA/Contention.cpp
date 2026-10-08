@@ -1,4 +1,5 @@
 #include "SSA/Contention.h"
+#include "SSA/Analysis.h"
 
 #include "Error.h"
 
@@ -267,6 +268,29 @@ Address address_of(const std::shared_ptr<Value> &ptr) {
     return address;
 }
 
+// Whether `base`, followed back through the parameters that pass it along
+// (Origins), is an allocation made by a block of `loop`'s body: storage each
+// iteration of that loop makes for itself.
+bool allocated_inside(const std::shared_ptr<Value> &base,
+                      const ParallelLoop &loop, const std::string &block,
+                      Origins *origins) {
+    if (loop.body.empty()) {
+        return false;
+    }
+    const Resolved r = resolve(base, block, origins);
+    const Instruction *instr = as_instruction(r.value);
+    if (instr == nullptr || (instr->op != Instruction::Op::Alloca &&
+                             instr->op != Instruction::Op::Alloc)) {
+        return false;
+    }
+    const auto owner = instr->owner.lock();
+    if (!owner) {
+        return false;
+    }
+    const Cfg body(origins->func, loop.body);
+    return body.find(owner->name) != NO_BLOCK;
+}
+
 } // namespace
 
 std::map<std::string, std::vector<ParallelLoop>>
@@ -328,6 +352,7 @@ parallel_loops_by_block(const Function &f) {
                         loop.start = parfor.start;
                         loop.end = parfor.end;
                         loop.stride = parfor.stride;
+                        loop.body = parfor.body.name;
                         // The body block takes the varying index as its first
                         // parameter; that Value is what an address is compared
                         // against.
@@ -393,6 +418,18 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
             // The loop's index could not be found, so nothing can be said
             // about an address in terms of it.
             all_disjoint = false;
+            continue;
+        }
+
+        // Tier zero, the iteration's own storage: a base that is an
+        // allocation made inside this loop's body is a fresh slot per
+        // iteration -- a `mut` local of the body, the sums a point's walks
+        // add to -- which no other iteration of this loop can reach,
+        // whatever the subscripts. Without origins the function is not at
+        // hand to ask where the allocation sits, and the base is treated as
+        // any other, which keeps the atomic.
+        if (origins != nullptr &&
+            allocated_inside(address.base, loop, block, origins)) {
             continue;
         }
 

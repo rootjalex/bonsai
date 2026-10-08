@@ -18,6 +18,11 @@
 //                    the one case where the atomic is doing real work.
 //   shared_unbound   the same body with nothing bound to the loop, so nothing
 //                    runs two iterations at once and the atomic goes.
+//   own_bound        parallel, and each iteration accumulates into a local
+//                    of its own through an inner loop nothing bound: the
+//                    local is storage the iteration made for itself, which
+//                    no other iteration can reach, so the atomic goes though
+//                    its address never mentions the index.
 //
 // The middle one is the whole point. A pass that demoted everything would look
 // correct on the other two and lose updates on that one, which is why it is
@@ -56,8 +61,25 @@ func [[export]] derived_bound(n : u32, out : mut array[Float, n]) -> void {
     return;
 }
 
+// A local of the iteration, accumulated into by an inner loop the schedule
+// left alone: the sums of a point's walks (apps/wosx). The address is an
+// allocation inside the bound loop's body, so it is each iteration's own and
+// the atomic goes; before the analysis knew allocations it read the base as
+// the same address in every iteration and kept it.
+func [[export]] own_bound(n : u32, m : u32, out : mut array[Float, n]) -> void {
+    parfor i in 0u:n {
+        total : mut Float = 0.0;
+        parfor j in 0u:m {
+            atomic total += 1.0;
+        }
+        out[i] = total;
+    }
+    return;
+}
+
 schedule {
     shared_bound.bind(i, CPUThread);
     per_lane_bound.bind(i, CPUThread);
     derived_bound.bind(i, CPUThread);
+    own_bound.bind(i, CPUThread);
 }
