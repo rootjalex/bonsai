@@ -6,14 +6,18 @@ set -euo pipefail
 #
 #     apps/wosx/compare.sh [--schedule S[,S...]] [driver options] <mesh.ply[.gz]>
 #
-# One comparison point by default, `fcpw4w16`: schedules/fcpw4w16.bonsai
-# runs the walk as WoSX's loop and the distance query as FCPW's
-# findClosestPoint over FCPW's four-wide tree with sixteen-lane leaves --
-# the tree WoSX's boundary handler builds when asked to vectorize -- and its
-# table says whether the compiler makes of that structure what WoSX's and
-# FCPW's hand-written code is. Each schedule named is built and run in
-# turn, its table under a `=== schedule` line; the other arguments go to the
-# driver (wosx_hook.cpp: --side, --walks, --epsilon, --repeats, --image ...).
+# Two comparison points by default, `fcpw4w16,fcpw4w16-threads`.
+# schedules/fcpw4w16.bonsai runs the walk as WoSX's loop and the distance
+# query as FCPW's findClosestPoint over FCPW's four-wide tree with
+# sixteen-lane leaves -- the tree WoSX's boundary handler builds when asked
+# to vectorize -- one thread against one thread, and its table says whether
+# the compiler makes of that structure what WoSX's and FCPW's hand-written
+# code is; schedules/fcpw4w16-threads.bonsai is the same with the points
+# spread over the threads on both sides (WoSX's tbb::parallel_for solve
+# against the parfor bound to the CPU threads), pinned to the performance
+# cores. Each schedule named is built and run in turn, its table under a
+# `=== schedule` line; the other arguments go to the driver (wosx_hook.cpp:
+# --side, --walks, --epsilon, --repeats, --open, --image ...).
 #
 # Run from the repository root, inside the `bonsai` conda environment. WoSX
 # is an optional dependency: a submodule at deps/wosx, header-only, with
@@ -38,7 +42,7 @@ if [[ "$(pwd)" == */apps/wosx ]]; then
 fi
 
 PREFIX="apps/wosx"
-SCHEDULES="fcpw4w16"
+SCHEDULES="fcpw4w16,fcpw4w16-threads"
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -130,11 +134,11 @@ build_schedule() {
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx
 
   local branching width
-  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$ ]]; then
+  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads)?$ ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
   else
-    echo "a schedule is named fcpw<branching>w<width>[t] after FCPW's tree (fcpw4w16, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t][-threads] after FCPW's tree (fcpw4w16, fcpw4w16-threads, ...): $schedule" >&2
     exit 1
   fi
   local defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
@@ -159,9 +163,14 @@ build_schedule() {
       -o $PREFIX/wosx.out
 }
 
-# The core to pin to, chosen as apps/rtq/compare.sh chooses it (its comment
-# says why): the physical core the kernel ranks highest, one hardware
-# thread of it, with the memory of its node.
+# The cores to pin to. One thread: the physical core the kernel ranks
+# highest, one hardware thread of it, with the memory of its node, chosen
+# as apps/rtq/compare.sh chooses it (its comment says why). The threads (a
+# `-threads` schedule): the performance cores, which are the cores that
+# share that core's last-level cache -- on a part with two chiplets the
+# frequency chiplet, all its hardware threads -- so that both pools, WoSX's
+# and the program's, run on the same cores and none on the slower ones.
+# RTQ_CPUS names a set instead, for either.
 if ! command -v numactl >/dev/null 2>&1; then
   echo "numactl is needed to pin the measurement to one core" >&2
   exit 1
@@ -189,13 +198,27 @@ else
 fi
 NODE="$(basename "$(ls -d /sys/devices/system/cpu/cpu${CPU%%,*}/node[0-9]* 2>/dev/null | head -n 1)" 2>/dev/null)"
 NODE="${NODE#node}"
-echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW"
+CORES="$CPU"
+CORES_HOW="$HOW"
+if [[ -z "${RTQ_CPUS:-}" ]]; then
+  L3="/sys/devices/system/cpu/cpu${CPU%%,*}/cache/index3/shared_cpu_list"
+  if [[ -f "$L3" ]]; then
+    CORES="$(cat "$L3")"
+    CORES_HOW="the cores sharing cpu $CPU's last-level cache"
+  fi
+fi
 
 STATUS=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   echo "=== schedule $SCHEDULE ($PREFIX/schedules/$SCHEDULE.bonsai)"
   build_schedule "$SCHEDULE"
-  numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/wosx.out "$@" || STATUS=$?
+  if [[ "$SCHEDULE" == *-threads ]]; then
+    echo "pinned to cpus $CORES, memory of NUMA node ${NODE:-0}: $CORES_HOW"
+    numactl --physcpubind="$CORES" --membind="${NODE:-0}" ./$PREFIX/wosx.out --threads "$@" || STATUS=$?
+  else
+    echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW"
+    numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/wosx.out "$@" || STATUS=$?
+  fi
   rm -f $PREFIX/wosx.bir $PREFIX/wosx.ll $PREFIX/wosx.h $PREFIX/wosx.o $PREFIX/wosx.out
 done
 rm -f $PREFIX/.wosx_hook-*.o

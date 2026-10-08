@@ -51,51 +51,88 @@ git -C deps/wosx/deps/fcpw submodule update --init deps/enoki deps/eigen
 
 ## Running
 
-One mesh, one run, from the repository root, inside the `bonsai` conda
-environment, with the compiler built (`BONSAI_BUILD_DIR` names its build
+The whole table, from the repository root, inside the `bonsai` conda
+environment, with the compiler built:
+
+```bash
+apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table, geomeans
+apps/wosx/benchmark.sh --table-only    # fold and print the logs already there
+```
+
+It runs `compare.sh` over WoSX's own demo meshes (the comb electrodes, the
+whale, the car, the octopus, the beast, the rover) and the thirteen pbrt
+meshes apps/rtq measures (`RTQ_SCENES` names the checkout), under the two
+matching schedules, waiting for an idle machine before each mesh and
+resuming a stopped run (a mesh's log exists only when complete; `--fresh`
+measures again; `PAUSE` holds at a boundary); folds the logs into
+`apps/wosx/results/wosx-results.csv`, each row stamped with the compiler's
+commit; and prints, per schedule, every mesh's row and the geomean of the
+speedups with the least and the greatest named. `--meshes`, `--schedules`,
+`--side`, `--walks` and `--repeats` narrow or widen it; `--help` lists them.
+
+One mesh, one run (`BONSAI_BUILD_DIR` names the compiler's build
 directory; unset, the script takes the first of `build`, `build-*` whose
 CMake cache found an LLVM, and says which):
 
 ```bash
-apps/wosx/compare.sh [--schedule fcpw4w16] [--side 128] [--walks 64] [--repeats 3] <mesh.ply[.gz]>
+apps/wosx/compare.sh [--schedule fcpw4w16,fcpw4w16-threads] [--side 128] [--walks 64] [--repeats 3] <mesh>
 apps/wosx/compare.sh --image apps/wosx/dragon ~/projects/pbrt-v4-scenes/sssdragon/geometry/dragon.ply.gz
+apps/wosx/compare.sh deps/wosx/demo_apps/potential_flow/data/whale.obj
 ```
 
+Two schedules are built and run by default, each its own table under a
+`=== schedule` line. `fcpw4w16` is one thread against one thread: WoSX's
+`solve` with `runSingleThreaded`, the program's parfor over the points
+left unbound by the schedule (a plain loop), both under numactl on the
+physical core the kernel ranks best, as apps/rtq measures.
+`fcpw4w16-threads` is the threads against the threads: WoSX's `solve`
+through its `tbb::parallel_for` over the points, the program's parfor
+bound to the CPU threads (which the compiled code hands to the runtime's
+`tbb::parallel_for`, the same TBB), both pinned to the performance cores
+-- the cores sharing the best core's last-level cache, the frequency
+chiplet on this machine, every hardware thread of it -- so both pools have
+the same threads and none of the slower cores. `RTQ_CPUS=<cpus>` pins
+either to another set.
+
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
-scenes ship them, and it has to be closed: the sample points are the ones
-inside it. It is normalized into the unit sphere, as WoSX's demos normalize
+scenes ship them, or an OBJ, read by WoSX's own loader as its demos read
+theirs. It is normalized into the unit sphere, as WoSX's demos normalize
 theirs, so that the epsilon shell -- `--epsilon`, 1e-3 by default as in
-WoSX's demos -- means the same for every mesh.
+WoSX's demos -- means the same for every mesh. Whether the surface is
+closed the driver reads off the mesh (an edge of one triangle is a rim;
+`--open` and `--closed` override): closed, the sample points are the
+slice's interior by WoSX's own test (its parity count of ray hits along the
+axes), as for a watertight WoSX problem; open, the whole slice, as for a
+non-watertight one (WoSX's `domainIsWatertight` false), the walks ending on
+whichever side of the surface they reach.
 
 What the driver does: it loads and normalizes the mesh; has WoSX's
 `FcpwDirichletBoundaryHandler` build FCPW's vectorized BVH over it and
 copies that tree into the layout; lays a `side` by `side` grid of points on
-the plane through the middle of the mesh and keeps the ones WoSX says are
-inside (its parity count of ray hits along the axes) and outside the
-shell; and solves the Laplace problem with the Dirichlet data `x^2 - y^2`
-at each of them on both sides, `walks` walks per point, each side the
-least of `--repeats` runs after a warm-up. The data is harmonic, so the
-solution inside is the same function and both estimates are checked
-against it, not only against each other: the error is the walk's own (the
-shell's bias, the Monte Carlo variance) and nothing else.
+the plane through the middle of the mesh, keeps the ones above, outside
+the shell, and computes each one's distance to the boundary once, as
+WoSX's demos do before solving (both sides start their walks from it); and
+solves the Laplace problem with the Dirichlet data `x^2 - y^2` at each of
+them on both sides, `walks` walks per point, each side the least of
+`--repeats` runs after a warm-up. The data is harmonic, so the solution
+inside a closed surface is the same function and both estimates are
+checked against it, not only against each other: the error is the walk's
+own (the shell's bias, the Monte Carlo variance) and nothing else.
 
-The table it prints: the number of walks, million steps per second on
-each side (a step is one distance query, the one thing a walk costs; each
-side's rate from its own count of steps), the speedup (WoSX's time over
-ours), the mean walk length on each side (the one number that says both
-did the same work), each side's root-mean-square error against the known
-solution, and `z`: the difference between the two estimates at each point
-over the standard error of that difference from WoSX's own per-point
-variance, whose root mean square is one when the two sides agree to their
-noise -- the streams cannot be the same, since WoSX seeds each point's
-generator from the clock. `--image P` also writes the slice three ways,
-`P-bonsai.ppm`, `P-wosx.ppm` and `P-exact.ppm`, blue to red over [-1, 1],
-the cells with no point black.
-
-The measurement is single-threaded and pinned, as apps/rtq's is: WoSX's
-`solve` with `runSingleThreaded`, the program's parfor over the points
-left unbound by the schedule (a plain loop), both under numactl on the
-core the kernel ranks best. `RTQ_CPUS=<cpu>` pins to another.
+The table it prints: the number of points and walks, million steps per
+second on each side (a step is one distance query, the one thing a walk
+costs; each side's rate from its own count of steps over the walks that
+ended), the speedup (WoSX's time over ours), how many walks ended on each
+side (the rest escaped the box) and their mean length (the numbers that
+say both did the same work), each side's root-mean-square error against
+the known solution, and `z`: the mean signed difference between the two
+estimates over all the points divided by its standard error from WoSX's
+own per-point variances, of order one when the two sides estimate the same
+thing and large when one is biased against the other -- the streams cannot
+be the same, since WoSX seeds each point's generator from the clock.
+`--image P` also writes the slice three ways, `P-bonsai.ppm`, `P-wosx.ppm`
+and `P-exact.ppm`, blue to red over [-1, 1], the cells with no point
+black.
 
 ## Layout of the files
 
@@ -115,9 +152,13 @@ core the kernel ranks best. `RTQ_CPUS=<cpu>` pins to another.
   the same query against FCPW, over FCPW's four-wide tree with
   sixteen-lane leaves in FCPW's bytes
   (apps/rtq/schedules/layouts/fcpw4w16.bonsai, imported).
-- `wosx_hook.cpp`: the driver; `compare.sh`: the script. The mesh reader
-  and the copy of FCPW's tree into the layout are apps/rtq's
-  (`apps/rtq/mesh.h`, `apps/rtq/fcpw_tree.h`), shared.
+  `schedules/fcpw4w16-threads.bonsai`: the same with the points bound to
+  the CPU threads (`solve_all.bind(i, CPUThread)`), WoSX's parallel solve.
+- `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`: the scripts.
+  The mesh reader and the copy of FCPW's tree into the layout are
+  apps/rtq's (`apps/rtq/mesh.h`, `apps/rtq/fcpw_tree.h`), shared.
+- `results/`: the measured data, generated and gitignored -- the logs, one
+  CSV with one row per measured (mesh, schedule), the rover unzipped.
 - `scratch/`: an agent's working files for this app, gitignored.
 
 The generated `wosx.h`, `wosx.o`, `wosx.bir` and `wosx.ll` are left in this

@@ -26,12 +26,15 @@
 // statistical: the difference between the two estimates at a point against
 // the standard error WoSX's own statistics give for it.
 //
-// The parfor over the points, left unbound by the schedule, is a plain
-// loop; were a schedule to bind it to the threads, the compiled code would
-// hand it to bonsai_parallel_for, defined here to run the body in place
-// (BONSAI_PARALLEL_EXTERNAL), so that the comparison stays one thread
-// against one thread, as WoSX's runSingleThreaded is.
-#define BONSAI_PARALLEL_EXTERNAL
+// Two comparisons, told apart by --threads. Without it, one thread against
+// one thread: WoSX's solve with runSingleThreaded, and the program's parfor
+// over the points left unbound by the schedule, a plain loop. With it, the
+// threads against the threads: WoSX's solve through its tbb::parallel_for
+// over the points, and the program's parfor bound to the CPU threads by
+// the schedule (schedules/fcpw4w16-threads.bonsai), which the compiled code
+// hands to bonsai_parallel_for -- runtime/bonsai_parallel.h's
+// tbb::parallel_for, the same TBB. Both pools take the CPUs the process is
+// left (compare.sh pins the run), so the two sides have the same threads.
 #include "wosx.h"
 
 #include <wosx/point_estimation/walk_on_spheres.h>
@@ -40,6 +43,7 @@
 #include "apps/rtq/fcpw_tree.h"
 #include "apps/rtq/mesh.h"
 
+#include <oneapi/tbb/info.h>
 #include <sched.h>
 
 #include <algorithm>
@@ -54,17 +58,8 @@
 #include <string>
 #include <vector>
 
-extern "C" void bonsai_parallel_for(int64_t n, void *context,
-                                    void (*body)(void *, int64_t, int64_t)) {
-    if (n > 0) {
-        body(context, 0, n);
-    }
-}
-
 namespace {
 
-using rtq::Mesh;
-using rtq::Vec3;
 using wosx::Vector3;
 
 // wosx.bonsai: dirichlet -- the boundary data, harmonic, so the solution
@@ -116,24 +111,72 @@ double timed(int repeats, S &&setup, F &&f) {
 }
 
 // The mesh as WoSX's demos take theirs: positions and index triples,
-// normalized into the unit sphere about the centroid (wosx::normalize).
+// normalized into the unit sphere about the centroid (wosx::normalize). An
+// OBJ file is read by WoSX's own loader (loadBoundaryMesh, FCPW's OBJ
+// reader), as its demos read their meshes; a PLY file, as pbrt's scenes
+// ship theirs, by apps/rtq's reader.
 struct Boundary {
     std::vector<Vector3> positions;
     std::vector<wosx::Vector3i> indices;
-    Vector3 lo, hi; // the box of the normalized positions
+    Vector3 lo, hi;        // the box of the normalized positions
+    size_t open_edges = 0; // edges of one triangle: none for a closed surface
 };
 
-Boundary make_boundary(const Mesh &mesh) {
+// Whether the surface is closed, read off the mesh: an edge of a closed
+// surface belongs to two triangles, an edge of one triangle is a rim. What
+// WoSX's domainIsWatertight is set from (its demos set it by hand per
+// problem), and what decides whether the sample points are the slice's
+// interior (a parity count of ray hits, which a rim makes meaningless) or
+// the whole slice.
+size_t count_open_edges(const std::vector<wosx::Vector3i> &indices) {
+    std::vector<uint64_t> edges;
+    edges.reserve(indices.size() * 3);
+    for (const wosx::Vector3i &t : indices) {
+        for (int k = 0; k < 3; k++) {
+            const uint32_t a = uint32_t(t[k]), b = uint32_t(t[(k + 1) % 3]);
+            edges.push_back((uint64_t(std::min(a, b)) << 32) | std::max(a, b));
+        }
+    }
+    std::sort(edges.begin(), edges.end());
+    size_t open = 0;
+    for (size_t i = 0; i < edges.size();) {
+        size_t j = i;
+        while (j < edges.size() && edges[j] == edges[i]) {
+            j++;
+        }
+        if (j - i == 1) {
+            open++;
+        }
+        i = j;
+    }
+    return open;
+}
+
+bool ends_with(const std::string &s, const std::string &suffix) {
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+Boundary load_boundary(const std::string &path) {
     Boundary b;
-    b.positions.reserve(mesh.vertices.size());
-    for (const Vec3 &v : mesh.vertices) {
-        b.positions.emplace_back(v.x, v.y, v.z);
+    if (ends_with(path, ".obj")) {
+        wosx::loadBoundaryMesh<3>(path, b.positions, b.indices);
+    } else {
+        const rtq::Mesh mesh = rtq::load_ply(path);
+        b.positions.reserve(mesh.vertices.size());
+        for (const rtq::Vec3 &v : mesh.vertices) {
+            b.positions.emplace_back(v.x, v.y, v.z);
+        }
+        b.indices.reserve(mesh.triangles());
+        for (size_t i = 0; i < mesh.triangles(); i++) {
+            b.indices.emplace_back(int(mesh.indices[3 * i + 0]), int(mesh.indices[3 * i + 1]),
+                                   int(mesh.indices[3 * i + 2]));
+        }
     }
-    b.indices.reserve(mesh.triangles());
-    for (size_t i = 0; i < mesh.triangles(); i++) {
-        b.indices.emplace_back(int(mesh.indices[3 * i + 0]), int(mesh.indices[3 * i + 1]),
-                               int(mesh.indices[3 * i + 2]));
+    if (b.positions.empty() || b.indices.empty()) {
+        std::cerr << path << " holds no triangles\n";
+        std::exit(1);
     }
+    b.open_edges = count_open_edges(b.indices);
     wosx::normalize<3>(b.positions);
     b.lo = Vector3::Constant(std::numeric_limits<float>::infinity());
     b.hi = -b.lo;
@@ -217,8 +260,17 @@ void usage() {
                  "the clock)\n"
                  "  --image P     write the slices as P-bonsai.ppm, P-wosx.ppm "
                  "and P-exact.ppm\n"
+                 "  --open / --closed  say whether the surface is closed, instead "
+                 "of reading it off the mesh (an edge of one triangle is a rim); "
+                 "open, every point of the slice is a sample point (WoSX's "
+                 "domainIsWatertight false)\n"
+                 "  --threads     both sides solve the points over the threads "
+                 "(WoSX's tbb::parallel_for; the program's parfor bound to the "
+                 "CPU threads, which its schedule has to say)\n"
                  "  --fcpw-stats  have FCPW print its tree's statistics\n"
-                 "Both sides solve on the calling thread; compare.sh pins it.\n";
+                 "The mesh is a PLY (plain or gzipped) or an OBJ. Without --threads "
+                 "both sides solve on the calling thread; compare.sh pins the run "
+                 "either way.\n";
     std::exit(1);
 }
 
@@ -229,7 +281,8 @@ int main(int argc, char **argv) {
     float epsilon = 1e-3f;
     int repeats = 3;
     uint64_t seed = 1;
-    bool fcpw_stats = false;
+    bool fcpw_stats = false, threads = false;
+    int closed = -1; // -1: as the mesh says; 0: --open; 1: --closed
     std::string image, path;
     for (int i = 1; i < argc; i++) {
         const std::string arg = argv[i];
@@ -249,6 +302,12 @@ int main(int argc, char **argv) {
             image = argv[++i];
         } else if (arg == "--fcpw-stats") {
             fcpw_stats = true;
+        } else if (arg == "--open") {
+            closed = 0;
+        } else if (arg == "--closed") {
+            closed = 1;
+        } else if (arg == "--threads") {
+            threads = true;
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
@@ -258,13 +317,22 @@ int main(int argc, char **argv) {
     if (path.empty() || side == 0 || walks == 0 || repeats < 1 || !(epsilon > 0)) {
         usage();
     }
-    std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus() << "\n";
+    if (threads) {
+        std::cout << "the threads on both sides: " << tbb::info::default_concurrency()
+                  << " (TBB's default arena); cpus allowed: " << allowed_cpus() << "\n";
+    } else {
+        std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus() << "\n";
+    }
 
-    const Mesh mesh = rtq::load_ply(path);
-    const Boundary boundary = make_boundary(mesh);
-    std::cout << "mesh: " << path << "\n  " << mesh.triangles() << " triangles, "
-              << mesh.vertices.size() << " vertices, normalized into the unit sphere; box ("
-              << boundary.lo.transpose() << ") to (" << boundary.hi.transpose() << ")\n";
+    const Boundary boundary = load_boundary(path);
+    const bool open = closed == 0 || (closed < 0 && boundary.open_edges > 0);
+    std::cout << "mesh: " << path << "\n  " << boundary.indices.size() << " triangles, "
+              << boundary.positions.size()
+              << " vertices, normalized into the unit sphere; box (" << boundary.lo.transpose()
+              << ") to (" << boundary.hi.transpose() << "); "
+              << (boundary.open_edges == 0 ? std::string("closed")
+                                           : std::to_string(boundary.open_edges) + " rim edges")
+              << (closed < 0 ? "" : open ? ", taken as open" : ", taken as closed") << "\n";
 
     // WoSX's side: the boundary handler builds FCPW's tree (vectorized: the
     // Mbvh the layout is the bytes of), and the queries are populated from
@@ -273,7 +341,10 @@ int main(int argc, char **argv) {
     wosx::FcpwDirichletBoundaryHandler<3> handler;
     handler.buildAccelerationStructure(boundary.positions, boundary.indices, /*buildBvh=*/true,
                                        /*enableBvhVectorization=*/true, /*printStats=*/fcpw_stats);
-    wosx::GeometricQueries<3> queries(/*domainIsWatertight=*/true, boundary.lo, boundary.hi);
+    // Not closed (--open): WoSX's insideDomain says yes to every point, as
+    // it does for its non-watertight demos, and the walks from the whole
+    // slice end on whichever side of the boundary they reach.
+    wosx::GeometricQueries<3> queries(/*domainIsWatertight=*/!open, boundary.lo, boundary.hi);
     wosx::populateGeometricQueriesForDirichletBoundary<3>(handler, queries);
 
     // Our side: the same tree in the layout.
@@ -284,10 +355,13 @@ int main(int argc, char **argv) {
     const uint32_t n = uint32_t(samples.size());
     std::cout << "sample points: " << n << " of " << side << " x " << side
               << " on the slice z = " << 0.5f * (boundary.lo.z() + boundary.hi.z())
-              << " inside the boundary and outside the shell; " << walks
+              << (open ? " outside the shell (the surface is open: the whole slice); "
+                       : " inside the boundary and outside the shell; ")
+              << walks
               << " walks each, epsilon " << epsilon << ", at most " << max_steps << " steps\n";
     if (n == 0) {
-        std::cerr << "no sample point lies inside the boundary: is the mesh closed?\n";
+        std::cerr << "no sample point lies inside the boundary: is the mesh closed? "
+                     "(--open takes the whole slice)\n";
         return 1;
     }
 
@@ -338,7 +412,7 @@ int main(int argc, char **argv) {
         },
         [&] {
             wos.solve(pde, settings, walks_per_point, sample_pts, stats,
-                      /*runSingleThreaded=*/true);
+                      /*runSingleThreaded=*/!threads);
         });
 
     // The program: the same points with the same first distances (WoSX's
@@ -356,46 +430,55 @@ int main(int argc, char **argv) {
     problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
     problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
     std::vector<float> solution(n), mean_steps(n);
+    std::vector<uint32_t> walks_ended(n);
     const double t_bonsai = timed(repeats, [] {}, [&] {
         solve_all(n, points.data(), dists.data(), problem, walks, seed, solution.data(),
-                  mean_steps.data(), tree.layout);
+                  mean_steps.data(), walks_ended.data(), tree.layout);
     });
 
-    // The work: walks and steps (one distance query each, the one thing a
-    // walk costs) per second on each side, from each side's own count of
-    // steps; the agreement: each side's root-mean-square error against the
-    // known solution, and the difference between the sides at each point
-    // over the standard error WoSX's statistics give for that difference
-    // (the two estimates independent, each with WoSX's variance over its
-    // walks), whose root mean square is one when the two agree to their
-    // noise.
-    double steps_wosx = 0, steps_bonsai = 0, err_wosx = 0, err_bonsai = 0, z2 = 0;
-    size_t z_count = 0;
+    // The work: steps (one distance query each, the one thing a walk costs)
+    // per second on each side, from each side's own count of steps over the
+    // walks that ended; the agreement: how many walks ended and how long
+    // they were on each side, each side's root-mean-square error against the
+    // known solution, and `z`, the mean signed difference between the two
+    // estimates over all the points divided by its standard error (the two
+    // estimates independent, each with WoSX's variance over its walks,
+    // summed over the points): a number of order one when the two sides
+    // estimate the same thing, and large when one is biased against the
+    // other. Summed over the points rather than taken per point, since a
+    // point's own variance from a few dozen walks is too rough to divide by.
+    double steps_wosx = 0, steps_bonsai = 0, err_wosx = 0, err_bonsai = 0;
+    double difference = 0, difference_variance = 0;
+    size_t ended_wosx = 0, ended_bonsai = 0;
     std::vector<float> exact(n), reference(n);
     for (uint32_t i = 0; i < n; i++) {
         exact[i] = dirichlet(samples[i].p);
         reference[i] = stats[i].getEstimatedSolution();
+        ended_wosx += size_t(stats[i].getSolutionEstimateCount());
+        ended_bonsai += walks_ended[i];
         steps_wosx += double(stats[i].getMeanWalkLength()) * stats[i].getSolutionEstimateCount();
-        steps_bonsai += double(mean_steps[i]) * walks;
+        steps_bonsai += double(mean_steps[i]) * walks_ended[i];
         err_wosx += std::pow(double(reference[i]) - exact[i], 2);
         err_bonsai += std::pow(double(solution[i]) - exact[i], 2);
-        const double variance = stats[i].getEstimatedSolutionVariance();
         const int count = stats[i].getSolutionEstimateCount();
-        if (variance > 0 && count > 1) {
-            const double se = std::sqrt(variance / count + variance / walks);
-            z2 += std::pow((double(solution[i]) - reference[i]) / se, 2);
-            z_count++;
+        if (count > 0 && walks_ended[i] > 0) {
+            const double variance = stats[i].getEstimatedSolutionVariance();
+            difference += double(solution[i]) - reference[i];
+            difference_variance += variance / count + variance / walks_ended[i];
         }
     }
+    const double z = difference_variance > 0 ? difference / std::sqrt(difference_variance) : 0.0;
     const double total_walks = double(n) * walks;
     std::printf("\n%8s %10s %12s %12s %10s  %s\n", "points", "walks", "WoSX Msteps/s",
                 "bonsai Msteps/s", "speedup",
-                "walk length (WoSX, bonsai); rms error against the solution; z");
-    std::printf("%8u %10.0f %12.2f %12.2f %9.2fx  %.2f, %.2f; %.2e, %.2e; %.2f over %zu points\n",
-                n, total_walks, steps_wosx / t_wosx * 1e-6, steps_bonsai / t_bonsai * 1e-6,
-                t_wosx / t_bonsai, steps_wosx / total_walks, steps_bonsai / total_walks,
-                std::sqrt(err_wosx / n), std::sqrt(err_bonsai / n),
-                z_count ? std::sqrt(z2 / double(z_count)) : 0.0, z_count);
+                "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
+                "against the solution (WoSX, bonsai); z");
+    std::printf("%8u %10.0f %12.2f %12.2f %9.2fx  %zu, %zu; %.2f, %.2f; %.2e, %.2e; %.2f\n", n,
+                total_walks, steps_wosx / t_wosx * 1e-6, steps_bonsai / t_bonsai * 1e-6,
+                t_wosx / t_bonsai, ended_wosx, ended_bonsai,
+                steps_wosx / double(std::max<size_t>(ended_wosx, 1)),
+                steps_bonsai / double(std::max<size_t>(ended_bonsai, 1)),
+                std::sqrt(err_wosx / n), std::sqrt(err_bonsai / n), z);
     std::printf("times: WoSX %.3f s, bonsai %.3f s (least of %d)\n", t_wosx, t_bonsai, repeats);
 
     if (!image.empty()) {

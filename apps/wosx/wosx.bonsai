@@ -151,7 +151,8 @@ func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
 // measurement being single-threaded on both sides.
 func [[export]] solve_all(n : u32, points : array[Point, n], dists : array[Float, n],
                           problem : Problem, walks : u32, seed_state : u64,
-                          solution : mut array[Float, n], mean_steps : mut array[Float, n]) {
+                          solution : mut array[Float, n], mean_steps : mut array[Float, n],
+                          walks_ended : mut array[u32, n]) {
     parfor i in 0u:n {
         rng : mut RNG = seed(seed_state, cast[[u64]](i));
         total : mut Float = 0.0;
@@ -169,6 +170,7 @@ func [[export]] solve_all(n : u32, points : array[Point, n], dists : array[Float
         over = cast[[Float]](max(ended, 1u));
         solution[i] = total / over;
         mean_steps[i] = cast[[Float]](steps) / over;
+        walks_ended[i] = ended;
     }
     return;
 }

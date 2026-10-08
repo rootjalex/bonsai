@@ -1,0 +1,13 @@
+// The schedule matching WoSX's parallel solve: fcpw4w16.bonsai with the
+// points spread over the CPU threads -- WalkOnSpheres::solve's
+// tbb::parallel_for over the sample points, each point's walks on the
+// thread that took it -- which here is the parfor of solve_all bound to the
+// threads and handed, by the compiled code, to runtime/bonsai_parallel.h's
+// tbb::parallel_for over the same TBB. Everything else is the single-thread
+// schedule's, imported. compare.sh runs this one with the driver's
+// --threads, pinned to the performance cores.
+import apps/wosx/schedules/fcpw4w16;
+
+schedule {
+    solve_all.bind(i, CPUThread);
+}
