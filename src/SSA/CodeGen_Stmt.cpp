@@ -1808,6 +1808,17 @@ Stmt structurize(const std::string &start, const std::string &exit,
             if (idx == at->args.size() || !seen.insert(at).second) {
                 return v;
             }
+            // A parameter its block's loop reassigns is a variable of its
+            // own (ArgMutabilityMap: declared `mut` at the loop, written at
+            // the entry and at every latch), and is read under its own name
+            // wherever it is passed on. Following it along one incoming
+            // edge would bind the value of that edge alone -- the entry's,
+            // on a header its latch reaches again with the next value -- as
+            // it did for a loop whose header hands its index to the body
+            // under another name (persistent's head, SSA/Rewrite.cpp).
+            if (mut_map.at(at->name)[idx]) {
+                return v;
+            }
             bool followed = false;
             for (const std::string &pred_name : preds_named(at->name)) {
                 auto pred = block_map.at(pred_name);

@@ -173,14 +173,14 @@ func weigh(x : f32) -> f32 {
   }
   switch ((*classify$r6$tag0)) {
   case 0: { // Shape.Disc of weigh
-    let _t95 = 2u in
+    let _t95 = (*classify$r6$tag0) in
     let @15 = (*classify$r6$payload1)[0u] in
     let r = reinterpret_cast<f32>(@15) in
     let @17 = r * 6f in
     p = @17
   } break;
   case 1: { // Shape.Box of weigh
-    let _t95 = 2u in
+    let _t95 = (*classify$r6$tag0) in
     let @19 = (*classify$r6$payload1)[0u] in
     let wd = reinterpret_cast<f32>(@19) in
     let @21 = (*classify$r6$payload1)[1u] in
@@ -191,7 +191,7 @@ func weigh(x : f32) -> f32 {
     p = @25
   } break;
   default: { // Shape.Ring of weigh
-    let _t95 = 2u in
+    let _t95 = (*classify$r6$tag0) in
     let @27 = (*classify$r6$payload1)[0u] in
     let ro = reinterpret_cast<f32>(@27) in
     let @29 = (*classify$r6$payload1)[1u] in
@@ -202,7 +202,7 @@ func weigh(x : f32) -> f32 {
     p = @33
   }
   }
-  let _t95 = 2u in
+  let _t95 = (*classify$r6$tag0) in
   let @34 = x * 0.5f in
   let _t30$i7$sink14 = build<f32x3>(@34, 1f, 0f) in
   let @36 = build<f32x3>(0f, 0f, 1f) in
@@ -460,14 +460,14 @@ func [[export]] weigh_one(x : f32) -> f32 {
   }
   switch ((*classify$r14$tag0)) {
   case 0: { // Shape.Disc of weigh
-    let _t180 = 2u in
+    let _t180 = (*classify$r14$tag0) in
     let @15 = (*classify$r14$payload1)[0u] in
     let r$i10 = reinterpret_cast<f32>(@15) in
     let @17 = r$i10 * 6f in
     p$i10 = @17
   } break;
   case 1: { // Shape.Box of weigh
-    let _t180 = 2u in
+    let _t180 = (*classify$r14$tag0) in
     let @19 = (*classify$r14$payload1)[0u] in
     let wd$i10 = reinterpret_cast<f32>(@19) in
     let @21 = (*classify$r14$payload1)[1u] in
@@ -478,7 +478,7 @@ func [[export]] weigh_one(x : f32) -> f32 {
     p$i10 = @25
   } break;
   default: { // Shape.Ring of weigh
-    let _t180 = 2u in
+    let _t180 = (*classify$r14$tag0) in
     let @27 = (*classify$r14$payload1)[0u] in
     let ro$i10 = reinterpret_cast<f32>(@27) in
     let @29 = (*classify$r14$payload1)[1u] in
@@ -489,7 +489,7 @@ func [[export]] weigh_one(x : f32) -> f32 {
     p$i10 = @33
   }
   }
-  let _t180 = 2u in
+  let _t180 = (*classify$r14$tag0) in
   let @34 = x * 0.5f in
   let _t30$i15$sink30 = build<f32x3>(@34, 1f, 0f) in
   let @36 = build<f32x3>(0f, 0f, 1f) in
