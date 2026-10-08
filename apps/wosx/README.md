@@ -55,8 +55,9 @@ The whole table, from the repository root, inside the `bonsai` conda
 environment, with the compiler built:
 
 ```bash
-apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table, geomeans
-apps/wosx/benchmark.sh --table-only    # fold and print the logs already there
+apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table, geomeans, plot
+apps/wosx/benchmark.sh --table-only    # fold, print and plot the logs already there
+python3 apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots   # the plot alone
 ```
 
 It runs `compare.sh` over WoSX's own demo meshes (the comb electrodes, the
@@ -66,8 +67,17 @@ matching schedules, waiting for an idle machine before each mesh and
 resuming a stopped run (a mesh's log exists only when complete; `--fresh`
 measures again; `PAUSE` holds at a boundary); folds the logs into
 `apps/wosx/results/wosx-results.csv`, each row stamped with the compiler's
-commit; and prints, per schedule, every mesh's row and the geomean of the
-speedups with the least and the greatest named. `--meshes`, `--schedules`,
+commit; prints, per schedule, every mesh's row and the geomean of the
+speedups with the least and the greatest named; and draws the plot into
+`apps/wosx/plots` (`plot.py`: the meshes along the x axis by triangle
+count, two bars each -- one thread against one thread, solid, and the
+threads against the threads, hatched -- each bonsai's rate over WoSX's,
+the line at 1 WoSX; the landscape is left out, since nearly every walk on
+it escapes on its first step, and `--exclude` names the meshes left out).
+There is no parameter the speedup is swept over, as apps/pbrt sweeps the
+samples per pixel: a step is one distance query, and the epsilon shell
+and the walk count set how many steps a point takes, not what a step
+costs, so they stay at WoSX's demo defaults. `--meshes`, `--schedules`,
 `--side`, `--walks` and `--repeats` narrow or widen it; `--help` lists them.
 
 One mesh, one run (`BONSAI_BUILD_DIR` names the compiler's build
@@ -154,7 +164,8 @@ black.
   (apps/rtq/schedules/layouts/fcpw4w16.bonsai, imported).
   `schedules/fcpw4w16-threads.bonsai`: the same with the points bound to
   the CPU threads (`solve_all.bind(i, CPUThread)`), WoSX's parallel solve.
-- `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`: the scripts.
+- `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
+  the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are
   apps/rtq's (`apps/rtq/mesh.h`, `apps/rtq/fcpw_tree.h`), shared.
 - `results/`: the measured data, generated and gitignored -- the logs, one

@@ -278,8 +278,24 @@ What the table says:
    schedule, since that file also schedules the two ray queries this
    program does not have. compare.sh's core-pinning block is a copy of
    apps/rtq's.
-5. **apps/wos** (the stale starter, one file) is left in place; it should
-   go once this app stands.
+5. **apps/wos** (the stale starter, one file): deleted 2026-10-08 on the
+   user's word, this app standing.
+
+The user's rulings of 2026-10-08 afternoon: the scalar-BVH comparison
+(issue 1) waits; pcg32 stays in apps/pbrt (issue 3) for now.
+
+### The plot (2026-10-08)
+
+`plot.py`, apps/rtq's bar chart for this app: the meshes by triangle
+count, two bars each -- one thread against one thread, the threads against
+the threads -- bonsai's rate over WoSX's, the landscape left out (its bar
+is the cost of an escaping walk). Over the 18 plotted meshes the geomeans
+are 1.231 single-threaded (1.17-1.31) and 1.267 threaded (1.11-1.39). No
+parameter is swept, as apps/pbrt sweeps the samples per pixel: the shell
+and the walk count set how many steps a point takes, not what a step
+costs, so they stay at WoSX's demo defaults (a sweep over the shell would
+move the queries nearer the surface, and could be a second figure if the
+leaf's share of a query is ever the question).
 
 ### Next
 

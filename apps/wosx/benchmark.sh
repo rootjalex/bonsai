@@ -8,7 +8,11 @@
 #
 #     apps/wosx/benchmark.sh
 #     apps/wosx/benchmark.sh --meshes "whale dragon" --schedules fcpw4w16
-#     apps/wosx/benchmark.sh --table-only        # fold and print what is logged
+#     apps/wosx/benchmark.sh --table-only        # fold, print and plot what is logged
+#
+# The plot (plot.py) goes into apps/wosx/plots: the meshes along the x axis
+# by triangle count, two bars each, one thread against one thread and the
+# threads against the threads.
 #
 # The meshes: WoSX's own demo meshes (deps/wosx/demo_apps/*/data -- the comb
 # electrodes, the whale, the car, the octopus, the beast, the rover, which
@@ -52,6 +56,7 @@ MESHES="$ALL_MESHES"
 SCHEDULES="fcpw4w16,fcpw4w16-threads"
 OUT="apps/wosx/results/logs"
 CSV="apps/wosx/results/wosx-results.csv"
+PLOTS="apps/wosx/plots"
 SIDE=128
 WALKS=64
 REPEATS=3
@@ -206,3 +211,9 @@ for schedule in sorted({r["schedule"] for r in rows}):
               f"(least {float(lo['speedup']):.2f} {lo['mesh']}, greatest {float(hi['speedup']):.2f} {hi['mesh']})")
 EOF
 echo "rows: $CSV"
+
+# The plot: one bar per (mesh, schedule), bonsai's rate over WoSX's, into
+# apps/wosx/plots (plot.py prints its own geomeans over the plotted meshes;
+# the landscape is left out of the plot, since nearly every walk on it
+# escapes on its first step).
+python3 apps/wosx/plot.py "$CSV" -o "$PLOTS"
