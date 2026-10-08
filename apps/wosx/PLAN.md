@@ -98,7 +98,12 @@ function and the three copies are the same traversal.
 
 ### Issues raised to the user
 
-1. **Which FCPW tree WoSX runs on.** As shipped, WoSX's CMake forces
+1. **Which FCPW tree WoSX runs on.** In this comparison both sides run
+   on the same four-wide Mbvh: the driver asks WoSX's handler to
+   vectorize, WoSX's queries go through the one aggregate its scene
+   built, and `copy_fcpw_tree` casts that aggregate to the Mbvh and
+   refuses anything else, so the table is one tree against itself. The
+   question is about WoSX's default. As shipped, WoSX's CMake forces
    `FCPW_USE_ENOKI OFF` and its boundary handler's default is
    `enableBvhVectorization=false`: WoSX's CPU solver runs on FCPW's scalar
    binary BVH (`Bvh<3, Triangle>`, each node holding its own box), not the
