@@ -6017,7 +6017,7 @@ remove it, which is a language question.
 
 **The table under this compiler** (13 meshes, least of five, cpu 11, rays
 at side 2048, points at 1024, FCPW at 1024; apps/rtq/results/rtq-results.csv
-rows `199a1917+dp`, the plots in apps/rtq/plots). Every Embree cell agrees
+rows `1b14228e` (measured as that commit's compiler before its hash existed), the plots in apps/rtq/plots). Every Embree cell agrees
 to ties; against FCPW the known residue, unchanged cell for cell (bmw 6,
 crown 1, ivy 2, villa 7+1, dambreak 12, sportscar 7, landscape 15, ganesha
 11+1 rays of a million through the reciprocals' last bits; ivy's and
