@@ -390,6 +390,19 @@ void Printer::print(const Schedule &schedule) {
                                       }
                                       os << ", " << split.generate_tail << ")";
                                   },
+                                  [&](const Persistent &p) {
+                                      os << "persistent(";
+                                      print(p.i);
+                                      os << ", ";
+                                      print(p.j);
+                                      os << ", ";
+                                      if (!p.count_name.empty()) {
+                                          os << p.count_name;
+                                      } else {
+                                          print(p.count);
+                                      }
+                                      os << ")";
+                                  },
                                   [&](const Collapse &collapse) {
                                       os << "collapse(";
                                       print(collapse.io);

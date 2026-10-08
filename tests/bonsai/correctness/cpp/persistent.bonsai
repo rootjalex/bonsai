@@ -1,0 +1,33 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/persistent
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_persistent.cpp -I. -o tests/bonsai/correctness/cpp/main_persistent.o, clang++ tests/bonsai/correctness/cpp/main_persistent.o tests/bonsai/correctness/cpp/persistent.o -o tests/bonsai/correctness/cpp/persistent, ./tests/bonsai/correctness/cpp/persistent, rm tests/bonsai/correctness/cpp/persistent, rm tests/bonsai/correctness/cpp/main_persistent.o, rm tests/bonsai/correctness/cpp/persistent.h, rm tests/bonsai/correctness/cpp/persistent.o
+
+// persistent() with the workers on the CPU threads, compiled and run: the
+// workers' loop is the one call to `bonsai_parallel_for`, over four
+// iterations, and the four kernels claim the thousand elements from the
+// counter with a fetch-and-add each, racing. `scale` hands them out one at a
+// time, `chunked` eight at a time through a split whose guard stops the last
+// chunk at the end. Every element is written by the one iteration whose
+// index it is, whichever thread claimed it, and the driver checks every
+// element rather than printing them, so a claim handed out twice or never --
+// the way a counter not shared by the threads would -- fails loudly.
+func [[export]] scale(a : array[i32, 1000], out : mut array[i32, 1000]) {
+    parfor i in 0:1000 {
+        out[i] = a[i] * 2;
+    }
+    return;
+}
+
+func [[export]] chunked(k : i32, a : array[i32, 1000], out : mut array[i32, 1000]) {
+    parfor i in 0:1000 {
+        out[i] = a[i] + k;
+    }
+    return;
+}
+
+schedule {
+    scale.persistent(i, w, 4);
+    scale.bind(w, CPUThread);
+    chunked.split(i, io, ii, 8, true);
+    chunked.persistent(io, w, 4);
+    chunked.bind(w, CPUThread);
+}

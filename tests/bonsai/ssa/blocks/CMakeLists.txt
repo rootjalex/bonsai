@@ -10,6 +10,7 @@ add_bonsai_tests(
     FILES
     loopify.bonsai
     mixed-traversal.bonsai
+    persistent.bonsai
     nested-traversal.bonsai
     sort.bonsai
     switch-merge.bonsai

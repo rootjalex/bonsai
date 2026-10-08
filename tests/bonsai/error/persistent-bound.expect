@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Rewrite.cpp:479
+
+--> !parfor.binding.has_value()
+persistent(i, w, 4) on fill: i is bound to CPUThread, and once workers claim its iterations they are not a launch's. Bind w after the persistent instead.

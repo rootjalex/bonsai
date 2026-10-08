@@ -1,0 +1,62 @@
+func chunked(n : i32, a : f32[n], out : mut f32[n]) -> void {
+  io!counter : mut i32
+  io!counter = 0
+  parfor w in [0:4:1] {
+    @8 : mut i32
+    let @3 = n in
+    let @6 = io!counter in
+    let @7 = n in
+    let @10 = atomic_add(@6, 8) in
+    @8 = @10
+    while ((*@8) < @7) {
+      let io = (*@8) in
+      parfor ii in [0:8:1] {
+        let @4 = io + ii in
+        let @5 = @4 < @3 in
+        if (@5) {
+          let i = @4 in
+          let @0 = a[i] in
+          let @1 = @0 * 2f in
+          out[i] = @1
+          continue
+        } else {
+          continue
+        }
+      }
+      let @11 = atomic_add(@6, 8) in
+      @8 = @11
+    }
+    continue
+  }
+  return
+}
+
+func scale(n : i32, a : f32[n], out : mut f32[n]) -> void {
+  i!counter : mut i32
+  i!counter = 0
+  parfor w in [0:4:1] {
+    @5 : mut i32
+    let @3 = i!counter in
+    let @4 = n in
+    let @7 = atomic_add(@3, 1) in
+    @5 = @7
+    while ((*@5) < @4) {
+      let i = (*@5) in
+      let @0 = a[i] in
+      let @1 = @0 * 2f in
+      out[i] = @1
+      let @8 = atomic_add(@3, 1) in
+      @5 = @8
+    }
+    continue
+  }
+  return
+}
+
+
+schedule {
+    chunked.split(i, io, ii, (i32)8, 1)
+           .persistent(io, w, (i32)4)
+    scale.persistent(i, w, (i32)4)
+
+}

@@ -40,6 +40,17 @@ void split(FuncMap &funcs, std::string func, std::string idx, int factor,
 void split(FuncMap &funcs, std::string func, std::string idx, const Expr &factor,
            std::string outer, std::string inner, bool exact);
 
+// Makes the parfor `idx` of `func` a parfor `worker` over [0, count) of
+// persistent workers, each claiming iterations of `idx` from a counter set to
+// the loop's start before it -- `i = atomicAdd(counter, stride); while (i <
+// end) { body(i); i = atomicAdd(counter, stride) }` -- the persistent threads
+// of Aila and Laine (HPG 2009) and the self-scheduling of Tang and Yew (ICPP
+// 1986); see ir::Persistent. `count` is an expression over constants and
+// values of `func`, as split's run-time chunk is. The loop must not be bound
+// and must not be a queue's drain. Implemented in SSA/Rewrite.cpp.
+void persistent(FuncMap &funcs, std::string func, std::string idx,
+                const Expr &count, std::string worker);
+
 // Records that the parfor `index` runs on `resource`, and checks that this
 // agrees with whatever the loops around it are already bound to. Nothing about
 // the graph changes: a bind is a tag, and code generation is where it becomes

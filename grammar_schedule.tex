@@ -16,6 +16,7 @@ $Q$ : Queue \;::=\; $q$ (\code{[}$v$\code{]})$^*$ \hfill \algcomment{a queue, or
 $T$ : Transform \;::=\; \code{loopify()} \;|\; \code{loopify(}$n$\code{)} \hfill \algcomment{recursion to a loop; a branching one on a stack of $n$} \\
 \phantom{$T$ : }\;|\; \code{split(}$l$, $l_o$, $l_i$, $n$, $b$\code{)} \hfill \algcomment{$l$ into $l_o$ striding by $n$ and $l_i$ over $[0, n)$; $b$: guard the tail} \\
 \phantom{$T$ : }\;|\; \code{collapse(}$l_o$, $l_i$, $l$\code{)} \hfill \algcomment{the inverse: two loops into one} \\
+\phantom{$T$ : }\;|\; \code{persistent(}$l$, $l_w$, $n$\code{)} \hfill \algcomment{$n$ workers $l_w$ claim the iterations of $l$ from a counter} \\
 \phantom{$T$ : }\;|\; \code{reorder(}$l_i$, $l_o$\code{)} \hfill \algcomment{$l_i$ inside $l_o$; what was between them, in loops of its own} \\
 \phantom{$T$ : }\;|\; \code{vectorize(}$l$\code{)} \hfill \algcomment{the iterations of $l$ are the lanes of one gang} \\
 \phantom{$T$ : }\;|\; \code{bind(}$l$, $R$\code{)} \hfill \algcomment{an iteration of $l$ is one unit of $R$} \\

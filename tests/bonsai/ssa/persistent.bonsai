@@ -1,0 +1,32 @@
+//! flags: -p ssa
+
+// persistent(): the loop over `i` becomes a loop over four workers, each of
+// which claims iterations from a counter set to the range's start before the
+// loop -- `i = atomicAdd(counter, stride); while (i < end) { body; i =
+// atomicAdd(counter, stride) }` -- the persistent threads of Aila and Laine
+// (HPG 2009) and the self-scheduling of Tang and Yew (ICPP 1986). The range's
+// end is a run-time count, so it is threaded into the workers' blocks as an
+// argument, the way split() threads it to its guard.
+//
+// `chunked` composes it with split(): the outer loop strides by eight, so a
+// claim is a fetch-and-add of eight and a worker takes a chunk at a time,
+// the inner loop running it; the tail's guard is the split's own.
+func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+func chunked(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+schedule {
+    scale.persistent(i, w, 4);
+    chunked.split(i, io, ii, 8, true);
+    chunked.persistent(io, w, 4);
+}

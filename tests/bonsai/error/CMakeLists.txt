@@ -53,6 +53,7 @@ add_bonsai_tests(
     sort-needs-ssa.bonsai
     sort-key-index-type.bonsai
     split-not-divisible.bonsai
+    persistent-bound.bonsai
     ssa-unimplemented-transform.bonsai
     gpu-block-level-call.bonsai
     gpu-block-level-local.bonsai

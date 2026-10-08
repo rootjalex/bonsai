@@ -7,6 +7,7 @@
 #include "SSA/Rewrite.h"
 #include "SSA/LoopArithmetic.h"
 #include "SSA/SSA.h"
+#include "SSA/Storage.h"
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
@@ -19,6 +20,7 @@
 
 #include <limits>
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -37,6 +39,78 @@ using std::tuple;
 using std::vector;
 
 namespace {
+
+// An index expression the schedule wrote -- a split's run-time chunk, a
+// persistent loop's count -- emitted in `block` of `f` as a value of the
+// index type `itype`: a name is the program's value of that name, threaded
+// here from where it is defined (Block::get_value); a constant is one of the
+// index's type; arithmetic is an instruction, folded where its operands are
+// constants (arith in SSA/LoopArithmetic.h). `what` is how the directive is
+// named in a message, "split(i, n) on f".
+shared_ptr<Value> emit_index_expr(const shared_ptr<Function> &f,
+                                  const shared_ptr<Block> &block,
+                                  const Type &itype, const Expr &e,
+                                  const string &what) {
+    const auto type_of_name = [&](const string &name) -> std::optional<Type> {
+        std::optional<Type> found;
+        for (const Argument &a : f->blocks.front()->args) {
+            if (a.name == name) {
+                found = a.type;
+            }
+        }
+        for (const auto &b : f->blocks) {
+            for (const auto &in : b->instrs) {
+                if (in->name == name) {
+                    found = in->type;
+                }
+            }
+        }
+        return found;
+    };
+    std::function<shared_ptr<Value>(const Expr &)> emit =
+        [&](const Expr &e) -> shared_ptr<Value> {
+        if (const auto *i = e.as<IntImm>()) {
+            return index_constant(itype, i->value);
+        }
+        if (const auto *u = e.as<UIntImm>()) {
+            return index_constant(itype, int64_t(u->value));
+        }
+        if (const auto *v = e.as<Var>()) {
+            const auto named_type = type_of_name(v->name);
+            internal_assert(named_type.has_value())
+                << what << ": no value of the function is named " << v->name
+                << ". The expression names parameters, or values computed "
+                << "before the loop.";
+            internal_assert(named_type->is_int_or_uint())
+                << what << ": " << v->name << " is a " << *named_type
+                << ", not an integer";
+            shared_ptr<Value> value = block->get_value(v->name, *named_type);
+            if (!equals(*named_type, itype)) {
+                value = block->make_instruction(itype, Instruction::Op::Cast,
+                                                {value});
+            }
+            return value;
+        }
+        if (const auto *b = e.as<BinOp>()) {
+            Instruction::Op op;
+            switch (b->op) {
+            case BinOp::Add: op = Instruction::Op::Add; break;
+            case BinOp::Sub: op = Instruction::Op::Sub; break;
+            case BinOp::Mul: op = Instruction::Op::Mul; break;
+            case BinOp::Div: op = Instruction::Op::Div; break;
+            case BinOp::Mod: op = Instruction::Op::Mod; break;
+            default:
+                internal_error << what << ": [unimplemented] the expression "
+                               << "uses an operation other than + - * / %";
+            }
+            return arith(*block, itype, op, emit(b->a), emit(b->b));
+        }
+        internal_error << what << ": [unimplemented] the expression is of a "
+                       << "kind not handled: " << e;
+        return nullptr;
+    };
+    return emit(e);
+}
 
 // The split, with the chunk either a constant `factor_n` or the value of
 // `func` named `factor_name` (see the two overloads in SSA/Rewrite.h).
@@ -185,75 +259,10 @@ void split_impl(FuncMap &funcs, string func, string idx,
         if (factor_n.has_value()) {
             split_factor = index_constant(*factor_n);
         } else {
-            // The expression, emitted in this block: a name is the program's
-            // value of that name, threaded here from where it is defined; a
-            // constant is one of the index's type; arithmetic is an
-            // instruction, folded where its operands are constants (arith
-            // in SSA/LoopArithmetic.h).
-            const auto type_of_name = [&](const string &name) -> std::optional<Type> {
-                std::optional<Type> found;
-                for (const Argument &a : f->blocks.front()->args) {
-                    if (a.name == name) {
-                        found = a.type;
-                    }
-                }
-                for (const auto &b : f->blocks) {
-                    for (const auto &in : b->instrs) {
-                        if (in->name == name) {
-                            found = in->type;
-                        }
-                    }
-                }
-                return found;
-            };
-            std::function<shared_ptr<Value>(const Expr &)> emit =
-                [&](const Expr &e) -> shared_ptr<Value> {
-                if (const auto *i = e.as<IntImm>()) {
-                    return index_constant(i->value);
-                }
-                if (const auto *u = e.as<UIntImm>()) {
-                    return index_constant(int64_t(u->value));
-                }
-                if (const auto *v = e.as<Var>()) {
-                    const auto named_type = type_of_name(v->name);
-                    internal_assert(named_type.has_value())
-                        << "split(" << idx << ", " << factor_text << ") on " << func
-                        << ": no value of the function is named " << v->name
-                        << ". The chunk names parameters, or values computed "
-                        << "before the loop.";
-                    internal_assert(named_type->is_int_or_uint())
-                        << "split(" << idx << ", " << factor_text << ") on " << func
-                        << ": " << v->name << " is a " << *named_type
-                        << ", not an integer";
-                    shared_ptr<Value> value = block->get_value(v->name, *named_type);
-                    if (!equals(*named_type, itype)) {
-                        value = block->make_instruction(itype, Instruction::Op::Cast,
-                                                        {value});
-                    }
-                    return value;
-                }
-                if (const auto *b = e.as<BinOp>()) {
-                    Instruction::Op op;
-                    switch (b->op) {
-                    case BinOp::Add: op = Instruction::Op::Add; break;
-                    case BinOp::Sub: op = Instruction::Op::Sub; break;
-                    case BinOp::Mul: op = Instruction::Op::Mul; break;
-                    case BinOp::Div: op = Instruction::Op::Div; break;
-                    case BinOp::Mod: op = Instruction::Op::Mod; break;
-                    default:
-                        internal_error
-                            << "split(" << idx << ", " << factor_text << ") on "
-                            << func << ": [unimplemented] the chunk's expression "
-                            << "uses an operation other than + - * / %";
-                    }
-                    return arith(*block, itype, op, emit(b->a), emit(b->b));
-                }
-                internal_error << "split(" << idx << ", " << factor_text << ") on "
-                               << func << ": [unimplemented] the chunk is an "
-                               << "expression of a kind not handled: " << e;
-                return nullptr;
-            };
-            split_factor = emit(*factor_e);
+            // The expression, emitted in this block (emit_index_expr).
+            split_factor = emit_index_expr(
+                f, block, itype, *factor_e,
+                "split(" + idx + ", " + factor_text + ") on " + func);
             factor_arg = Argument{itype, f->get_unique_name()};
         }
         auto zero = index_constant(0);
@@ -437,6 +446,234 @@ void split(FuncMap &funcs, string func, string idx, const Expr &factor,
     }
     split_impl(funcs, std::move(func), std::move(idx), std::nullopt, factor,
                std::move(outer), std::move(inner), exact);
+}
+
+void persistent(FuncMap &funcs, string func, string idx, const Expr &count_e,
+                string worker) {
+    internal_assert(funcs.contains(func))
+        << "persistent applied to unknown func: " << func;
+    auto f = funcs[func];
+    const string what = [&] {
+        std::ostringstream os;
+        os << "persistent(" << idx << ", " << worker << ", " << count_e
+           << ") on " << func;
+        return os.str();
+    }();
+
+    // The loop, and the block that ends in it.
+    shared_ptr<Block> site;
+    for (const auto &block : f->blocks) {
+        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (p != nullptr && p->index == idx) {
+            internal_assert(site == nullptr)
+                << what << ": two loops named " << idx;
+            site = block;
+        }
+    }
+    internal_assert(site != nullptr) << what << ": no parfor named " << idx;
+    const Terminator::ParFor parfor =
+        std::get<Terminator::ParFor>(site->terminator.data);
+
+    // The loop made here is the workers'; the iterations of `idx` are no
+    // longer a launch's, so a bind names the workers, after.
+    internal_assert(!parfor.binding.has_value())
+        << what << ": " << idx << " is bound to " << to_string(*parfor.binding)
+        << ", and once workers claim its iterations they are not a launch's. "
+        << "Bind " << worker << " after the persistent instead.";
+    // A drain's launch is sized by its queue and guarded by the count read
+    // on the device (Terminator::ParFor::capacity, Bind.cpp); workers over
+    // one would claim from a counter against a count that is itself read
+    // at run time. Not written yet.
+    internal_assert(parfor.capacity == nullptr)
+        << what << ": " << idx << " drains a queue; [unimplemented] "
+        << "persistent workers over a drain";
+
+    const Type itype = parfor.start->get_type();
+    const BlockMap bmap = make_block_map(f);
+    internal_assert(bmap.contains(parfor.body.name))
+        << func << " has no block " << parfor.body.name;
+    const auto &loop_body = bmap.at(parfor.body.name);
+    internal_assert(!loop_body->args.empty())
+        << parfor.body.name << " has no index argument";
+    // What the loop threads into its body besides the index (see split).
+    const vector<Argument> carried(loop_body->args.begin() + 1,
+                                   loop_body->args.end());
+    internal_assert(carried.size() == parfor.body.args.size())
+        << parfor.body.name << " takes " << loop_body->args.size()
+        << " arguments but the loop passes it " << (parfor.body.args.size() + 1);
+
+    // The body's own yields: the blocks of its region that end in one, less
+    // those inside a loop nested in the body, whose yields are that loop's.
+    // Each becomes the jump that claims the next iteration.
+    const Cfg region(*f, parfor.body.name);
+    set<string> nested;
+    for (const auto &block : region.blocks()) {
+        if (const auto *inner =
+                std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            const Cfg inside(*f, inner->body.name);
+            for (const auto &b : inside.blocks()) {
+                nested.insert(b->name);
+            }
+        }
+    }
+    vector<shared_ptr<Block>> yields;
+    for (const auto &block : region.blocks()) {
+        if (std::holds_alternative<Terminator::Yield>(block->terminator.data) &&
+            nested.count(block->name) == 0) {
+            yields.push_back(block);
+        }
+    }
+    internal_assert(!yields.empty())
+        << what << ": the body of " << idx << " never yields";
+
+    // The counter: storage for one index in the loop's block, set to the
+    // start of the range just before the loop -- once per launch, and again
+    // on every pass of a loop around it. Each claim is a fetch-and-add of
+    // the stride, so the value fetched is the index claimed and the next
+    // worker's fetch begins past it; the first claim past the end ends the
+    // worker. Named for the loop it hands out.
+    auto counter = make_alloca(*f, site, itype, idx + "!counter");
+    site->make_side_effect(Instruction::Op::Store, {counter, parfor.start});
+    shared_ptr<Value> count = emit_index_expr(f, site, itype, count_e, what);
+
+    // What the workers read that the body's block does not hold -- the
+    // counter, and the end and the stride where they are not constants --
+    // threaded into the new blocks as arguments, the way the carried values
+    // are, since a block refers only to its own values. `from` is each one
+    // at the loop's site; the index into `threaded` says which argument it
+    // is in any of the new blocks.
+    struct Threaded {
+        Argument arg;
+        shared_ptr<Value> from;
+    };
+    vector<Threaded> threaded;
+    const auto thread = [&](const shared_ptr<Value> &v) -> std::optional<size_t> {
+        if (std::holds_alternative<Constant>(v->data)) {
+            return std::nullopt;
+        }
+        threaded.push_back({Argument{v->get_type(), f->get_unique_name()}, v});
+        return threaded.size() - 1;
+    };
+    const size_t at_counter = *thread(counter);
+    const std::optional<size_t> at_end = thread(parfor.end);
+    const std::optional<size_t> at_stride = thread(parfor.stride);
+    // A block's view of the end and the stride: its own argument, or the
+    // constant.
+    const auto end_in = [&](const vector<shared_ptr<Value>> &args) {
+        return at_end ? args[*at_end] : parfor.end;
+    };
+    const auto stride_in = [&](const vector<shared_ptr<Value>> &args) {
+        return at_stride ? args[*at_stride] : parfor.stride;
+    };
+    // A new block's parameters after its index: the carried values and the
+    // threaded ones, in that order; the values are what the block's
+    // instructions and jumps use.
+    struct Params {
+        vector<shared_ptr<Value>> carried;
+        vector<shared_ptr<Value>> threaded;
+    };
+    const auto declare = [&](Block &block) {
+        Params p;
+        for (const Argument &arg : carried) {
+            p.carried.push_back(block.add_argument(arg));
+        }
+        for (const Threaded &t : threaded) {
+            p.threaded.push_back(block.add_argument(t.arg));
+        }
+        return p;
+    };
+    const auto to_head = [&](const shared_ptr<Value> &index, const Params &p) {
+        vector<shared_ptr<Value>> args{index};
+        args.insert(args.end(), p.carried.begin(), p.carried.end());
+        args.insert(args.end(), p.threaded.begin(), p.threaded.end());
+        return args;
+    };
+
+    // parfor idx in start:end:stride body(idx, carried...) cont()
+    // ->
+    // parfor worker in 0:count:1 fetch(worker, carried..., threaded...) cont()
+    // block fetch(worker, ...): i = atomicadd(counter, stride); head(i, ...)
+    // block head(i, ...): dispatch (i < end) [done(), body(i, carried...)]
+    // block done(): yield
+    // body's yields -> next()
+    // block next(): i = atomicadd(counter, stride); head(i, ...)
+    //
+    // `next` is reached from the body's yields, which have no values to
+    // pass it; what it needs is threaded in from the head through the body
+    // by name (Block::get_value), once the blocks are wired and their
+    // predecessors known, so it is filled in last.
+    auto head = std::make_shared<Block>();
+    head->name = parfor.body.name + "_head_" + worker;
+    head->owner = f;
+    auto v_index = head->add_argument(Argument{itype, f->get_unique_name()});
+    const Params head_params = declare(*head);
+    auto in_range = head->make_instruction(
+        Bool_t::make(), Instruction::Op::Lt, {v_index, end_in(head_params.threaded)});
+    auto done = std::make_shared<Block>();
+    done->name = parfor.body.name + "_done_" + worker;
+    done->owner = f;
+    done->terminator.data = Terminator::Yield{};
+    vector<shared_ptr<Value>> to_body{v_index};
+    to_body.insert(to_body.end(), head_params.carried.begin(), head_params.carried.end());
+    head->terminator.data = Terminator::Dispatch{
+        in_range,
+        {Terminator::Jump{done->name}, Terminator::Jump{parfor.body.name, to_body}}};
+
+    auto fetch = std::make_shared<Block>();
+    fetch->name = parfor.body.name + "_fetch_" + worker;
+    fetch->owner = f;
+    fetch->add_argument(Argument{itype, worker});
+    const Params fetch_params = declare(*fetch);
+    auto first = fetch->make_instruction(
+        itype, Instruction::Op::AtomicAdd,
+        {fetch_params.threaded[at_counter], stride_in(fetch_params.threaded)});
+    fetch->terminator.data = Terminator::Jump{head->name, to_head(first, fetch_params)};
+
+    auto next = std::make_shared<Block>();
+    next->name = parfor.body.name + "_next_" + worker;
+    next->owner = f;
+    // Its jump to the head, the arguments to follow once threaded: the
+    // predecessor lists are rebuilt from every block's terminator.
+    next->terminator.data = Terminator::Jump{head->name};
+    for (const auto &block : yields) {
+        block->terminator.data = Terminator::Jump{next->name};
+    }
+
+    vector<shared_ptr<Value>> to_fetch = parfor.body.args;
+    for (const Threaded &t : threaded) {
+        to_fetch.push_back(t.from);
+    }
+    site->terminator.data = Terminator::ParFor{
+        worker,
+        index_constant(itype, 0),
+        count,
+        index_constant(itype, 1),
+        Terminator::Jump{fetch->name, std::move(to_fetch)},
+        parfor.cont};
+
+    const auto after = std::find(f->blocks.begin(), f->blocks.end(), site) + 1;
+    f->blocks.insert(after, {fetch, head, done, next});
+    // The new blocks' predecessors, and the body's: the head rather than
+    // the loop, and `next` after each of its yields.
+    refresh_preds(*f);
+
+    // `next`'s values, threaded in from where the head defines them through
+    // the blocks of the body to each yield's jump: the carried values and
+    // the threaded ones become parameters of every block on the way, under
+    // the names they already have (Block::get_value).
+    Params via_body;
+    for (const Argument &arg : carried) {
+        via_body.carried.push_back(next->get_value(arg.name, arg.type));
+    }
+    for (const Threaded &t : threaded) {
+        via_body.threaded.push_back(next->get_value(t.arg.name, t.arg.type));
+    }
+    auto claimed = next->make_instruction(
+        itype, Instruction::Op::AtomicAdd,
+        {via_body.threaded[at_counter], stride_in(via_body.threaded)});
+    next->terminator.data = Terminator::Jump{head->name, to_head(claimed, via_body)};
+    // The head's predecessors now include `next`.
+    refresh_preds(*f);
 }
 
 namespace {

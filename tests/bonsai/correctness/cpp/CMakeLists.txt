@@ -12,6 +12,7 @@ add_bonsai_tests(
     adt-bvh-sorted.bonsai
     adt-tagged-index.bonsai
     bind_cpu_thread.bonsai
+    persistent.bonsai
     buffers.bonsai
     bvh4_child_volumes.bonsai
     bvh4_child_volumes_vectorized.bonsai

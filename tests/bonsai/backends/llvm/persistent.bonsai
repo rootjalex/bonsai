@@ -1,0 +1,20 @@
+//! flags: -p ssa -b llvm
+
+// persistent() with the workers bound to the CPU threads: the counter is a
+// stack slot of the function, stored once before the loop and captured into
+// the kernel's context with the arrays; each claim is an `atomicrmw add` on
+// it; and the workers' loop is the one call to `bonsai_parallel_for`, over
+// four iterations. The fetch-and-add is never demoted (SSA/DemoteAtomics.h
+// takes the lock off accumulates nothing contends for; a claim's whole point
+// is the value it returns).
+func [[export]] scale(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2;
+    }
+    return;
+}
+
+schedule {
+    scale.persistent(i, w, 4);
+    scale.bind(w, CPUThread);
+}

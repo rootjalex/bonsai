@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm -e
+
+// persistent() on the GPU: the workers are the launch. `blocks` hands the
+// loop's forty iterations to three workers bound to GPUBlock -- a launch of
+// three blocks of one thread, each claiming from the counter with a
+// device-scope fetch-and-add until it is past the end -- and `threads` to
+// four workers bound to GPUThread, one block of four threads. The counter is
+// a stack slot of the host function the kernel writes, so the launch copies
+// it over and back as it does any capture the kernel writes; the host stores
+// the range's start into it before the launch. Each element is written by
+// the one iteration whose index it is, whichever worker claimed it.
+func blocks(out : mut array[i32, 40], base : i32) -> void {
+    parfor i in 0:40 {
+        out[i] = i + base;
+    }
+    return;
+}
+
+func threads(out : mut array[i32, 40], base : i32) -> void {
+    parfor i in 0:40 {
+        out[i] = i + base;
+    }
+    return;
+}
+
+func main() -> i32 {
+    b : mut array[i32, 40] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0};
+    t : mut array[i32, 40] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0};
+    blocks(b, 100);
+    threads(t, 200);
+    print(b);
+    print(t);
+    return 0;
+}
+
+schedule {
+    blocks.persistent(i, w, 3);
+    blocks.bind(w, GPUBlock);
+    threads.persistent(i, w, 4);
+    threads.bind(w, GPUThread);
+}

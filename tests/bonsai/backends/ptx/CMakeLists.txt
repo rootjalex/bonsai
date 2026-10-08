@@ -48,6 +48,7 @@ add_bonsai_tests(
     map-thread.bonsai
     math.bonsai
     mut-bound.bonsai
+    persistent.bonsai
     print.bonsai
     rand.bonsai
     raygen.bonsai

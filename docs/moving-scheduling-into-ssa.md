@@ -1,8 +1,8 @@
 # Finishing the move of scheduling into SSA
 
 Every scheduling transformation in bonsai is meant to be an SSA rewrite. Most
-are: `loopify`, `split`, `collapse`, `vectorize`, `defer`, `specialize` and
-`bind` all run off the block CFG, driven by `ConvertToSSA`. Two things are not,
+are: `loopify`, `split`, `collapse`, `persistent`, `vectorize`, `defer`,
+`specialize` and `bind` all run off the block CFG, driven by `ConvertToSSA`. Two things are not,
 and this is a note
 about what it would take to finish them. **Neither is being done now.** It is
 written down because the reasons are not obvious from the code, and because the

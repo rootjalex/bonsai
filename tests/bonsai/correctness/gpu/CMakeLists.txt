@@ -44,6 +44,7 @@ add_bonsai_tests(
     empty-launch.bonsai
     math.bonsai
     mut-bound.bonsai
+    persistent.bonsai
     print.bonsai
     rand.bonsai
     raygen.bonsai

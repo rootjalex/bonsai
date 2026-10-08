@@ -210,6 +210,41 @@ struct Split {
     std::string factor_name;
 };
 
+// Parfor `i` over [start:end:stride] becomes a parfor `j` over [0, count) of
+// persistent workers, each of which claims iterations of `i` from a shared
+// counter until the range is used up:
+//
+//     parfor j in 0:count {
+//         i = atomicAdd(counter, stride);
+//         while (i < end) { body(i); i = atomicAdd(counter, stride); }
+//     }
+//
+// with the counter set to `start` before the loop, once per launch. Written
+// `f.persistent(i, j, count)`, the new loop named as split() names its two.
+// It is the persistent-threads scheme of Aila and Laine, "Understanding the
+// Efficiency of Ray Traversal on GPUs" (HPG 2009), where a fixed number of
+// warps fetch rays from a global counter so that a slow ray holds up only
+// its own warp and not a whole launch; and before that the self-scheduling
+// of Tang and Yew (ICPP 1986) and the dynamic schedule of OpenMP, where a
+// fixed number of threads draw iterations from a counter at run time. The
+// chunk is the stride: to hand out iterations several at a time, split()
+// first and make the outer loop persistent -- `f.split(i, io, ii, 8, true);
+// f.persistent(io, j, 64)` has 64 workers claim eight at a time -- so that
+// the chunk composes with the rest of the schedule rather than being an
+// argument of its own. What runs the workers is a later bind of `j`: to
+// CPUThread, to GPUBlock, to GPUThread; `i` itself must not be bound, since
+// its iterations are no longer a launch's.
+//
+// `count` is a constant expression, or the name of a value of the function
+// that is one value for the whole loop -- the number of multiprocessors,
+// read once -- held in `count_name` as a split's chunk is (Split::factor_name).
+struct Persistent {
+    Location i;
+    Location j;
+    Expr count;
+    std::string count_name;
+};
+
 // Vectorize for-loop `i`, which must have a constant extent, turning it into
 // a single SIMD "gang" of that width (see Pharr & Mark, "ispc: A SPMD
 // Compiler for High-Performance CPU Programming"). Applied at the SSA level,
@@ -287,9 +322,9 @@ struct Specialize {
     std::string loop;
 };
 
-using Transform = std::variant<Bind, Collapse, Defer, Loopify, Prefetch,
-                               Reorder, Split, Sort, Specialize, Stage,
-                               Vectorize>;
+using Transform = std::variant<Bind, Collapse, Defer, Loopify, Persistent,
+                               Prefetch, Reorder, Split, Sort, Specialize,
+                               Stage, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

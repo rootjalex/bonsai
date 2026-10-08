@@ -1,0 +1,28 @@
+//! flags: -p ssa -b ptx
+
+// persistent() with the workers bound to GPUBlock: the kernel is one block's
+// worker, which claims indices from the counter with a device-scope
+// `atomicrmw add` (`atom.global.add` in the PTX) and runs the body for each
+// until a claim is past the end; the launch is over the three workers, not
+// the forty iterations. The counter is handed to the kernel as the one
+// capture the kernel writes.
+func offset(out : mut array[i32, 40], base : i32) -> void {
+    parfor i in 0:40 {
+        out[i] = i + base;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 40] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0};
+    offset(out, 100);
+    print(out);
+    return 0;
+}
+
+schedule {
+    offset.persistent(i, w, 3);
+    offset.bind(w, GPUBlock);
+}

@@ -1,0 +1,25 @@
+//! flags: -p ssa --dump-ssa-preschedule --dump-ssa-postschedule
+
+// persistent() as the block graph, which is what it rewrites.
+//
+// Preschedule, `scale`'s loop is one parfor over `i` whose body yields.
+// Postschedule, the loop's block allocates the counter (`i!counter`), stores
+// the range's start into it, and ends in a parfor over `w` in [0, 4) whose
+// body is the fetch block: a fetch-and-add of the stride on the counter and a
+// jump to the head, which dispatches on `index < n` between the done block
+// (a yield: this worker is finished) and the body. The body's yield is now a
+// jump to the next block, which claims again and goes round to the head. What
+// the next block needs -- the array captures, the counter and the end -- is
+// threaded from the head through the body to it under the names the head
+// gives them: the body's block gains the counter and the end as parameters,
+// and its jump to the next block passes them on.
+func scale(n : i32, a : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2.0;
+    }
+    return;
+}
+
+schedule {
+    scale.persistent(i, w, 4);
+}

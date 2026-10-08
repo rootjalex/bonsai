@@ -1,0 +1,79 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct._pfctx0 = type { ptr, ptr, ptr, i32 }
+
+; Function Attrs: mustprogress
+define void @scale(i32 noundef %n, ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+scale:
+  %_pfctx = alloca %struct._pfctx0, align 16
+  %"i!counter" = alloca i32, align 4
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  store i32 0, ptr %"i!counter", align 4, !tbaa !0
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store ptr %a, ptr %_pfctx, align 16
+  %0 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 8
+  store ptr %out, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 16
+  store ptr %"i!counter", ptr %1, align 16
+  %2 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 24
+  store i32 %n, ptr %2, align 8
+  call void @bonsai_parallel_for(i64 4, ptr nonnull %_pfctx, ptr nonnull @_pfkernel1)
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+entry:
+  %3 = load ptr, ptr %0, align 8
+  %4 = getelementptr inbounds nuw i8, ptr %0, i64 8
+  %5 = load ptr, ptr %4, align 8
+  %6 = getelementptr inbounds nuw i8, ptr %0, i64 16
+  %7 = load ptr, ptr %6, align 8
+  %8 = getelementptr inbounds nuw i8, ptr %0, i64 24
+  %9 = load i32, ptr %8, align 8
+  %10 = icmp slt i64 %1, %2
+  br i1 %10, label %"!par_body_0_fetch_w", label %done, !prof !3
+
+"!par_body_0_fetch_w":                            ; preds = %entry, %"!par_body_0_done_w"
+  %n12 = phi i64 [ %16, %"!par_body_0_done_w" ], [ %1, %entry ]
+  %11 = atomicrmw add ptr %7, i32 1 monotonic, align 4
+  %12 = icmp slt i32 %11, %9
+  br i1 %12, label %"!par_body_0", label %"!par_body_0_done_w"
+
+done:                                             ; preds = %"!par_body_0_done_w", %entry
+  ret void
+
+"!par_body_0":                                    ; preds = %"!par_body_0_fetch_w", %"!par_body_0"
+  %"@511" = phi i32 [ %14, %"!par_body_0" ], [ %11, %"!par_body_0_fetch_w" ]
+  %i_wide = sext i32 %"@511" to i64
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide
+  %extract = load i32, ptr %extract_ptr, align 4
+  %13 = shl i32 %extract, 1
+  %out10 = getelementptr inbounds [4 x i8], ptr %5, i64 %i_wide
+  store i32 %13, ptr %out10, align 4, !tbaa !0
+  %14 = atomicrmw add ptr %7, i32 1 monotonic, align 4
+  %15 = icmp slt i32 %14, %9
+  br i1 %15, label %"!par_body_0", label %"!par_body_0_done_w"
+
+"!par_body_0_done_w":                             ; preds = %"!par_body_0", %"!par_body_0_fetch_w"
+  %16 = add nsw i64 %n12, 1
+  %exitcond.not = icmp eq i64 %16, %2
+  br i1 %exitcond.not, label %done, label %"!par_body_0_fetch_w", !prof !4
+}
+
+declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"i32", !2, i64 0}
+!2 = !{!"bonsai"}
+!3 = !{!"branch_weights", i32 1, i32 0}
+!4 = !{!"branch_weights", i32 0, i32 1073741824}

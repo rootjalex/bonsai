@@ -4191,6 +4191,28 @@ struct Parser {
                     ir::Split{std::move(i), std::move(io), std::move(ii),
                               std::move(factor), generate_tail,
                               std::move(factor_name)});
+            } else if (rewrite == "persistent") {
+                // `f.persistent(i, j, count)`: `count` workers claim the
+                // iterations of `i` from a counter (see ir::Persistent). The
+                // count is a constant expression or, as a split's chunk, the
+                // name of a value of the function.
+                ir::Location i = loop_cursor();
+                expect(Token::Type::COMMA);
+                ir::Location j = loop_cursor();
+                expect(Token::Type::COMMA);
+                ir::Expr count;
+                std::string count_name;
+                if (peek().type == Token::Type::IDENTIFIER) {
+                    count_name = get_id();
+                    if (const auto f = program.funcs.find(func);
+                        f != program.funcs.end()) {
+                        f->second->schedule_uses.insert(count_name);
+                    }
+                } else {
+                    count = parse_expr();
+                }
+                add(ir::Persistent{std::move(i), std::move(j), std::move(count),
+                                   std::move(count_name)});
             } else if (rewrite == "vectorize") {
                 ir::Location i = loop_cursor();
                 add(

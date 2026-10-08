@@ -1,0 +1,69 @@
+//! flags: -p ssa -b llvm -e
+
+// persistent(), run. Thirty-seven values; `plain` is the loop as written,
+// `workers` the same loop handed out to four workers one iteration at a time
+// from a counter, the workers run as a plain loop (nothing binds them, so
+// the first worker claims everything and the other three find the counter
+// past the end), and `chunks` the loop split by eight with the outer loop
+// handed out to three: a claim is a chunk, and the split's guard keeps the
+// last chunk's eleven steps past the end from running. The same loops with
+// the workers on the CPU threads are correctness/cpp/persistent.bonsai,
+// whose driver links the runtime the JIT here does not have. Every element
+// is written by exactly one iteration from its own index, so the answer
+// does not depend on which worker claimed it.
+func plain(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func workers(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func chunks(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        out[i] = a[i] * 2 + 1;
+    }
+    return;
+}
+
+func fill(n : i32, a : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        a[i] = i * 3;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    fill(37, a);
+    p : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    w : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    c : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    plain(37, a, p);
+    workers(37, a, w);
+    chunks(37, a, c);
+    print(p);
+    print(w);
+    print(c);
+    return 0;
+}
+
+schedule {
+    workers.persistent(i, w, 4);
+    chunks.split(i, io, ii, 8, true);
+    chunks.persistent(io, w, 3);
+}

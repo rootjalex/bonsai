@@ -721,6 +721,19 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       body = collapse_loops(std::move(body), io,
                                                             ii, i, program);
                                   },
+                                  [&](const Persistent &) {
+                                      // As defer and reorder below: an SSA
+                                      // rewrite (see SSA/Rewrite.h) this
+                                      // pipeline does not run.
+                                      internal_error
+                                          << "persistent() is in the schedule "
+                                             "for "
+                                          << name
+                                          << ", but it is an SSA rewrite (see "
+                                             "SSA/Rewrite.h) and this pipeline "
+                                             "does not run one. Compile with "
+                                             "`-p ssa`.";
+                                  },
                                   [&](const Reorder &) {
                                       // As defer: an SSA rewrite (see
                                       // SSA/ReorderLoops.h) this pipeline

@@ -1655,6 +1655,26 @@ struct LoopSite {
     std::string index; // the name it goes by there
 };
 
+// The type of the value of `f` named `name` -- a parameter's or an
+// instruction's -- for a directive that names one (a split's chunk, a
+// persistent loop's count), since the schedule's scope has no types.
+std::optional<Type> type_of_value(const Function &f, const std::string &name) {
+    std::optional<Type> type;
+    for (const ir::ssa::Argument &a : f.blocks.front()->args) {
+        if (a.name == name) {
+            type = a.type;
+        }
+    }
+    for (const auto &b : f.blocks) {
+        for (const auto &in : b->instrs) {
+            if (in->name == name) {
+                type = in->type;
+            }
+        }
+    }
+    return type;
+}
+
 // Every parfor reachable from `start`, by function.
 //
 // A schedule names a function and a loop in it, but neither need be where the
@@ -2278,6 +2298,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Collapse &) { return "collapse"; },
                           [](const ir::Defer &) { return "defer"; },
                           [](const ir::Loopify &) { return "loopify"; },
+                          [](const ir::Persistent &) { return "persistent"; },
                           [](const ir::Prefetch &) { return "prefetch"; },
                           [](const ir::Reorder &) { return "reorder"; },
                           [](const ir::Split &) { return "split"; },
@@ -2595,20 +2616,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 // The named value's type, from the function
                                 // the loop is in: a parameter's or an
                                 // instruction's.
-                                std::optional<Type> type;
-                                const Function &f = *fmap.at(at.func);
-                                for (const ir::ssa::Argument &a : f.blocks.front()->args) {
-                                    if (a.name == s.factor_name) {
-                                        type = a.type;
-                                    }
-                                }
-                                for (const auto &b : f.blocks) {
-                                    for (const auto &in : b->instrs) {
-                                        if (in->name == s.factor_name) {
-                                            type = in->type;
-                                        }
-                                    }
-                                }
+                                const std::optional<Type> type =
+                                    type_of_value(*fmap.at(at.func), s.factor_name);
                                 internal_assert(type.has_value())
                                     << "split(" << s.i.names.back() << ", "
                                     << s.factor_name << ") on " << name << ": "
@@ -2622,6 +2631,34 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             split(fmap, at.func, at.index, factor,
                                   s.io.names.back() + suffix,
                                   s.ii.names.back() + suffix, !s.generate_tail);
+                        }
+                    },
+                    [&](const ir::Persistent &p) {
+                        internal_assert(!p.i.names.empty() && !p.j.names.empty())
+                            << "persistent() requires loop names for: " << name;
+                        // The count: a constant expression, or a value of
+                        // the function named as a split's chunk is. Every
+                        // variant's loop, its workers named for the variant.
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, p.i.names.back(), "persistent")) {
+                            const std::string suffix =
+                                variant_suffix(p.i.names.back(), at.index);
+                            Expr count = p.count;
+                            if (!p.count_name.empty()) {
+                                const std::optional<Type> type =
+                                    type_of_value(*fmap.at(at.func), p.count_name);
+                                internal_assert(type.has_value())
+                                    << "persistent(" << p.i.names.back() << ", "
+                                    << p.j.names.back() << ", " << p.count_name
+                                    << ") on " << name << ": " << at.func
+                                    << " has no value named " << p.count_name
+                                    << ". The count names a parameter, or a value "
+                                    << "computed before the loop that the program "
+                                    << "keeps.";
+                                count = Var::make(*type, p.count_name);
+                            }
+                            persistent(fmap, at.func, at.index, count,
+                                       p.j.names.back() + suffix);
                         }
                     },
                     [&](const ir::Collapse &c) {

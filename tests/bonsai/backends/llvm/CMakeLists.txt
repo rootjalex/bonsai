@@ -56,6 +56,7 @@ add_bonsai_tests(
     packed-struct.bonsai
     parfor-sequential.bonsai
     rand-par.bonsai
+    persistent.bonsai
     rand.bonsai
     sub-word-gather.bonsai
     index-widening.bonsai

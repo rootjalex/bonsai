@@ -92,6 +92,7 @@ add_bonsai_tests(
     loop-transforms.bonsai
     split-program-chunk.bonsai
     split-tail.bonsai
+    persistent.bonsai
     loopify.bonsai
     loopify-queue.bonsai
     nested-exported-function.bonsai

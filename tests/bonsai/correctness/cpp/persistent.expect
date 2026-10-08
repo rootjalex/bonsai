@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_persistent.cpp -I. -o tests/bonsai/correctness/cpp/main_persistent.o
+[test] clang++ tests/bonsai/correctness/cpp/main_persistent.o tests/bonsai/correctness/cpp/persistent.o -o tests/bonsai/correctness/cpp/persistent
+[test] ./tests/bonsai/correctness/cpp/persistent
+wrong: 0
+spot: 0 1998 1000 1999

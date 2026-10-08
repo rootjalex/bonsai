@@ -68,6 +68,7 @@ add_bonsai_tests(
     linearize.bonsai
     ite.bonsai
     loopify.bonsai
+    persistent.bonsai
     loopify-nested.bonsai
     loopify-queue.bonsai
     make-struct-copy.bonsai

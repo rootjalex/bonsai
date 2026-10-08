@@ -51,7 +51,7 @@ that wants to single them out:
 
 | Scope | What it marks |
 |---|---|
-| `support.function.schedule.bonsai` | `.loopify`, `.bind`, `.defer`, `.sort`, `.split`, `.queue`, `.specialize`, `.vectorize`, `.skip`, `.reorder` |
+| `support.function.schedule.bonsai` | `.loopify`, `.bind`, `.defer`, `.stage`, `.sort`, `.split`, `.collapse`, `.persistent`, `.queue`, `.specialize`, `.vectorize`, `.skip`, `.reorder`, `.prefetch` |
 | `support.constant.layout.bonsai` | `tagged_index`, `inline`, `tight` |
 | `support.constant.storage.bonsai` | `Heap`, `Stack`, `DeviceGlobal`, `DeviceShared`, `Managed`, `ExternHost`, `ExternDevice`, `ExternManaged` -- `queue()`'s storage word |
 | `support.function.builtin.bonsai` | `fma`, `sqrt`, `cast`, `range`, `select`, ... |

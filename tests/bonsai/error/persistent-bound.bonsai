@@ -1,0 +1,17 @@
+//! flags: -p ssa
+
+// persistent() on a loop already bound. Once workers claim its iterations
+// the loop's iterations are not a launch's, so the bind has to name the
+// workers' loop, after the persistent; a bind of the loop before it is
+// refused rather than silently moved.
+func fill(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * 10;
+    }
+    return;
+}
+
+schedule {
+    fill.bind(i, CPUThread);
+    fill.persistent(i, w, 4);
+}
