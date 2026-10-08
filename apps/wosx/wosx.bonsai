@@ -141,30 +141,37 @@ func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
 // WoSX: WalkOnSpheres::solve over a batch of points, each with its distance
 // to the boundary already known (SamplePoint::distToAbsorbingBoundary, the
 // demo's precomputation, which the driver hands to both sides), estimated
-// by `walks` walks from one generator seeded for the point (pcg32(seed, i):
-// WoSX seeds from the clock, the driver from its --seed, so that a run
-// repeats), the estimate the mean of the walks that ended on the boundary
-// (SampleStatistics::addSolutionEstimate; an escaped walk adds nothing),
-// and beside it the mean number of steps of those walks
-// (getMeanWalkLength). The points are a parfor the schedule may spread over
-// the cores; the comparison's leaves it unbound, a plain loop, the
-// measurement being single-threaded on both sides.
+// by `walks` walks, the estimate the mean of the walks that ended on the
+// boundary (SampleStatistics::addSolutionEstimate; an escaped walk adds
+// nothing), and beside it the mean number of steps of those walks
+// (getMeanWalkLength). Both loops are parfors: the points are independent,
+// and so are a point's walks, each from a generator of its own seeded for
+// the point and the walk (pcg32(seed, i * walks + w): WoSX seeds one
+// generator per point from the clock and draws its walks from it in turn,
+// which is the same independence written as a sequence; the driver seeds
+// from its --seed, so that a run repeats). A walk's contribution to the
+// point's sums is an atomic accumulate, the one thing the walks share; a
+// schedule that runs the walks one after another costs nothing for it
+// (SSA/DemoteAtomics.h), and one that spreads them over threads or lanes
+// keeps the sums right. The comparison's schedules leave the walks a plain
+// loop and bind the points, or neither.
 func [[export]] solve_all(n : u32, points : array[Point, n], dists : array[Float, n],
                           problem : Problem, walks : u32, seed_state : u64,
                           solution : mut array[Float, n], mean_steps : mut array[Float, n],
                           walks_ended : mut array[u32, n]) {
     parfor i in 0u:n {
-        rng : mut RNG = seed(seed_state, cast[[u64]](i));
         total : mut Float = 0.0;
         steps : mut u32 = 0u;
         ended : mut u32 = 0u;
-        for w in 0u:walks {
+        parfor w in 0u:walks {
+            rng : mut RNG = seed(seed_state,
+                                 cast[[u64]](i) * cast[[u64]](walks) + cast[[u64]](w));
             o = walk(points[i].p, dists[i], 0u, problem, rng);
             if o {
                 done = *o;
-                total = total + done.value;
-                steps = steps + done.steps;
-                ended = ended + 1u;
+                atomic total += done.value;
+                atomic steps += done.steps;
+                atomic ended += 1u;
             }
         }
         over = cast[[Float]](max(ended, 1u));

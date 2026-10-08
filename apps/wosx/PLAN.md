@@ -297,6 +297,33 @@ costs, so they stay at WoSX's demo defaults (a sweep over the shell would
 move the queries nearer the surface, and could be a second figure if the
 leaf's share of a query is ever the question).
 
+### The walks as a parfor (2026-10-08, evening)
+
+The user asked why the loop over a point's walks was a `for`. It followed
+WoSX's solve literally -- one generator per point, the walks drawn from it
+in turn -- but the walks are independent, and a `for` cannot be scheduled.
+It is now a parfor: each walk seeds its own pcg32 from the point and the
+walk (`seed, i * walks + w`; the streams could never match WoSX's anyway,
+which seeds from the clock), and a walk adds to the point's sums by atomic
+accumulates, the one thing the walks share. The comparison's schedules
+leave the walks a plain loop, so nothing in the measurement changes: the
+single-thread build has no atomics (SSA/DemoteAtomics.h takes them off a
+loop nothing runs in parallel), and the whale measures as before, 1.19x
+one thread and 1.27x the threads, the same ended counts, lengths and errors.
+
+The threaded build did keep three atomics at first: the contention analysis
+(SSA/Contention.cpp) read the sums' address -- an alloca inside the bound
+point loop's body -- as one that does not depend on the point index, and
+so as shared by every point. An allocation inside the loop's body is each
+iteration's own, which no other iteration can reach; the analysis now
+knows that (tier zero, `allocated_inside`), and the kernel has no atomics.
+backends/llvm/demote-atomics has the case (`own_bound`).
+
+The persistent directive (`solve_all.persistent(i, w, C)` then
+`bind(w, CPUThread)`) was added today for the GPU's sake and is not tried
+on this app's threads schedule; TBB's partitioner already balances the
+points here.
+
 ### Next
 
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
