@@ -90,7 +90,7 @@ apps/wosx/compare.sh --image apps/wosx/dragon ~/projects/pbrt-v4-scenes/sssdrago
 apps/wosx/compare.sh deps/wosx/demo_apps/potential_flow/data/whale.obj
 ```
 
-Two schedules are built and run by default, each its own table under a
+Three schedules are built and run by default, each its own table under a
 `=== schedule` line. `fcpw4w16` is one thread against one thread: WoSX's
 `solve` with `runSingleThreaded`, the program's parfor over the points
 left unbound by the schedule (a plain loop), both under numactl on the
@@ -101,8 +101,13 @@ bound to the CPU threads (which the compiled code hands to the runtime's
 `tbb::parallel_for`, the same TBB), both pinned to the performance cores
 -- the cores sharing the best core's last-level cache, the frequency
 chiplet on this machine, every hardware thread of it -- so both pools have
-the same threads and none of the slower cores. `RTQ_CPUS=<cpus>` pins
-either to another set.
+the same threads and none of the slower cores. `fcpw4w16-persistent` is
+the threaded schedule with the points handed to sixteen persistent workers
+(`solve_all.persistent(i, t, 16)`, one worker per hardware thread of those
+cores) that claim a point at a time from a counter, against the same WoSX
+run: beside `fcpw4w16-threads` it measures what a dynamic claim is worth
+over TBB's partition of the points when points differ in cost.
+`RTQ_CPUS=<cpus>` pins any of them to another set.
 
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
 scenes ship them, or an OBJ, read by WoSX's own loader as its demos read
@@ -142,7 +147,11 @@ thing and large when one is biased against the other -- the streams cannot
 be the same, since WoSX seeds each point's generator from the clock.
 `--image P` also writes the slice three ways, `P-bonsai.ppm`, `P-wosx.ppm`
 and `P-exact.ppm`, blue to red over [-1, 1], the cells with no point
-black.
+black. `--shuffle` solves the points in a random order on both sides
+rather than along the slice: a thread's run of points is then a scatter
+over the mesh instead of a neighbourhood of it, which tells cache sharing
+between the threads from load balance when a parallel schedule's gain is
+in question (PLAN.md, the persistent schedule).
 
 ## Layout of the files
 
@@ -164,6 +173,8 @@ black.
   (apps/rtq/schedules/layouts/fcpw4w16.bonsai, imported).
   `schedules/fcpw4w16-threads.bonsai`: the same with the points bound to
   the CPU threads (`solve_all.bind(i, CPUThread)`), WoSX's parallel solve.
+  `schedules/fcpw4w16-persistent.bonsai`: the points claimed by sixteen
+  persistent workers bound to the threads.
 - `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
   the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are

@@ -22,7 +22,9 @@
 # rim): closed, the sample points are the slice's interior; open, the
 # whole slice.
 #
-# Options: --schedules (default fcpw4w16,fcpw4w16-threads), --meshes
+# Options: --schedules (default fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent:
+# one thread each, the threads each, and the threads with the points claimed
+# by sixteen persistent workers instead of TBB's partition), --meshes
 # (default all, names as below), --out DIR for the logs (default
 # apps/wosx/results/logs), --side / --walks / --repeats (default 128 / 64 /
 # 3: the driver's slice, walks per point, and runs per side with the least
@@ -53,7 +55,7 @@ WOSX_MESHES="comb whale car octopus beast rover"
 RTQ_MESHES="pavilion head zero-day bmw crown ivy villa dambreak sportscar landscape lte-orb ganesha dragon"
 ALL_MESHES="$WOSX_MESHES $RTQ_MESHES"
 MESHES="$ALL_MESHES"
-SCHEDULES="fcpw4w16,fcpw4w16-threads"
+SCHEDULES="fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent"
 OUT="apps/wosx/results/logs"
 CSV="apps/wosx/results/wosx-results.csv"
 PLOTS="apps/wosx/plots"
@@ -193,7 +195,9 @@ done
 python3 - "$CSV" <<'EOF'
 import csv, math, sys
 rows = list(csv.DictReader(open(sys.argv[1])))
-for schedule in sorted({r["schedule"] for r in rows}):
+# The schedules in the order they were run (one thread, the threads, the
+# persistent workers), not alphabetical.
+for schedule in dict.fromkeys(r["schedule"] for r in rows):
     sel = sorted((r for r in rows if r["schedule"] == schedule), key=lambda r: int(r["triangles"]))
     print(f"\n=== {schedule} ({sel[0]['cpus'] if sel else ''}; rates in million steps per second)")
     print(f"{'mesh':<10} {'triangles':>9} {'closed':>6} {'points':>7} {'WoSX':>7} {'bonsai':>7} {'speedup':>8}  "

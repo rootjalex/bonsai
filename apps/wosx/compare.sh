@@ -15,7 +15,9 @@ set -euo pipefail
 # code is; schedules/fcpw4w16-threads.bonsai is the same with the points
 # spread over the threads on both sides (WoSX's tbb::parallel_for solve
 # against the parfor bound to the CPU threads), pinned to the performance
-# cores. Each schedule named is built and run in turn, its table under a
+# cores; schedules/fcpw4w16-persistent.bonsai is the threaded one with the
+# points handed to sixteen persistent workers instead of TBB's partition,
+# run the same way. Each schedule named is built and run in turn, its table under a
 # `=== schedule` line; the other arguments go to the driver (wosx_hook.cpp:
 # --side, --walks, --epsilon, --repeats, --open, --image ...).
 #
@@ -134,11 +136,11 @@ build_schedule() {
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx
 
   local branching width
-  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads)?$ ]]; then
+  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads|-persistent)?$ ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
   else
-    echo "a schedule is named fcpw<branching>w<width>[t][-threads] after FCPW's tree (fcpw4w16, fcpw4w16-threads, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t][-threads|-persistent] after FCPW's tree (fcpw4w16, fcpw4w16-threads, ...): $schedule" >&2
     exit 1
   fi
   local defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
@@ -212,7 +214,7 @@ STATUS=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   echo "=== schedule $SCHEDULE ($PREFIX/schedules/$SCHEDULE.bonsai)"
   build_schedule "$SCHEDULE"
-  if [[ "$SCHEDULE" == *-threads ]]; then
+  if [[ "$SCHEDULE" == *-threads || "$SCHEDULE" == *-persistent ]]; then
     echo "pinned to cpus $CORES, memory of NUMA node ${NODE:-0}: $CORES_HOW"
     numactl --physcpubind="$CORES" --membind="${NODE:-0}" ./$PREFIX/wosx.out --threads "$@" || STATUS=$?
   else

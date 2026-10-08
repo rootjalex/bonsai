@@ -55,6 +55,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -267,6 +268,12 @@ void usage() {
                  "  --threads     both sides solve the points over the threads "
                  "(WoSX's tbb::parallel_for; the program's parfor bound to the "
                  "CPU threads, which its schedule has to say)\n"
+                 "  --shuffle     solve the sample points in a random order "
+                 "rather than along the slice, on both sides: a thread's run of "
+                 "points is then spread over the mesh instead of a neighbourhood "
+                 "of it, which tells cache sharing between the threads from load "
+                 "balance when a schedule's gain is in question (the image is "
+                 "unaffected)\n"
                  "  --fcpw-stats  have FCPW print its tree's statistics\n"
                  "The mesh is a PLY (plain or gzipped) or an OBJ. Without --threads "
                  "both sides solve on the calling thread; compare.sh pins the run "
@@ -281,6 +288,7 @@ int main(int argc, char **argv) {
     float epsilon = 1e-3f;
     int repeats = 3;
     uint64_t seed = 1;
+    bool shuffle = false;
     bool fcpw_stats = false, threads = false;
     int closed = -1; // -1: as the mesh says; 0: --open; 1: --closed
     std::string image, path;
@@ -308,6 +316,8 @@ int main(int argc, char **argv) {
             closed = 1;
         } else if (arg == "--threads") {
             threads = true;
+        } else if (arg == "--shuffle") {
+            shuffle = true;
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
@@ -351,7 +361,13 @@ int main(int argc, char **argv) {
     const rtq::FcpwTree tree = rtq::copy_fcpw_tree(handler.scene);
     rtq::describe(tree);
 
-    const std::vector<Sample> samples = sample_points(boundary, queries, side, epsilon);
+    std::vector<Sample> samples = sample_points(boundary, queries, side, epsilon);
+    if (shuffle) {
+        // The points in a random order (seeded, so a run repeats): each
+        // keeps its cell, so the image is the same picture.
+        std::mt19937_64 order(seed);
+        std::shuffle(samples.begin(), samples.end(), order);
+    }
     const uint32_t n = uint32_t(samples.size());
     std::cout << "sample points: " << n << " of " << side << " x " << side
               << " on the slice z = " << 0.5f * (boundary.lo.z() + boundary.hi.z())

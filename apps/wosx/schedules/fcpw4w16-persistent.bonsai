@@ -1,0 +1,19 @@
+// The threaded schedule with persistent workers: fcpw4w16-threads.bonsai's
+// parfor over the points handed to sixteen workers -- one per hardware
+// thread of the performance cores compare.sh pins to, eight cores with two
+// threads each -- that claim points from a counter until none are left
+// (`persistent`, Aila and Laine's persistent threads), the workers `t`
+// bound to the CPU threads (`w` is the program's loop over a point's
+// walks). Against fcpw4w16-threads this measures the
+// difference between TBB's partitioning of the points over the threads and
+// a worker claiming one point at a time: the walks of a point vary in
+// length, and a thread that drew a long point holds up only itself.
+// Everything else is the single-thread schedule's, imported. compare.sh
+// runs it as a threaded schedule: the driver's --threads for WoSX's side,
+// pinned to the performance cores.
+import apps/wosx/schedules/fcpw4w16;
+
+schedule {
+    solve_all.persistent(i, t, 16);
+    solve_all.bind(t, CPUThread);
+}

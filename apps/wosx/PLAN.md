@@ -216,10 +216,10 @@ What the table says:
   the single-threaded cell on each -- and lower on the two largest:
   ganesha 1.20x, dragon 1.11x. There sixteen threads give both sides
   only 7.7-9x over one thread (dragon: WoSX 0.25 -> 1.93, bonsai 0.31 ->
-  2.14) against 11-14x on the rest: a 7M-triangle tree does not fit the
-  chiplet's cache and the solve is bound by memory, where the traversal's
-  arithmetic margin counts for less. The same on both sides; nothing in
-  our code is per-thread except TBB's partition.
+  2.14) against 11-14x on the rest. Read at the time as the solve being
+  bound by memory on a tree too big for the chiplet's cache; the
+  persistent schedule below shows what the loss actually is -- the
+  threads working far apart in that tree -- and recovers most of it.
 - The landscape is not a measurement of the traversal. It is a terrain,
   a height field whose normalized box is 0.001 thick in y, so a walk's
   first step leaves the box almost always: 1.1-1.2k of 393k walks end,
@@ -319,10 +319,87 @@ iteration's own, which no other iteration can reach; the analysis now
 knows that (tier zero, `allocated_inside`), and the kernel has no atomics.
 backends/llvm/demote-atomics has the case (`own_bound`).
 
-The persistent directive (`solve_all.persistent(i, w, C)` then
-`bind(w, CPUThread)`) was added today for the GPU's sake and is not tried
-on this app's threads schedule; TBB's partitioner already balances the
-points here.
+### The persistent schedule (2026-10-08, evening)
+
+The user asked for the new directive tried on the threads schedule, with
+as many workers as the pinned cores have hardware threads: eight cores,
+two threads each, sixteen (compare.sh's pin set 8-15,24-31; TBB's arena
+is sized by the same mask, so WoSX's side has sixteen too).
+`schedules/fcpw4w16-persistent.bonsai` is the threads schedule with
+`solve_all.persistent(i, t, 16)` and `bind(t, CPUThread)`: sixteen
+workers claim points one at a time from a counter (`w` is the program's
+walks loop, so the workers are `t`). The counter claim is the only atomic
+left in the kernel; the walks' sums are the point's own storage and the
+contention analysis takes their atomics off. compare.sh runs it as a
+threaded schedule, and benchmark.sh has it as a third default.
+
+A fresh sweep of the nineteen meshes under all three schedules (side 128,
+64 walks, least of 3; the single-thread and threads columns are this
+run's, within noise of the morning's). The threads column is bonsai's rate
+under `fcpw4w16-threads`, the persistent column under
+`fcpw4w16-persistent`, both in million steps per second on the same
+sixteen threads; the gain is the ratio; the speedup is over WoSX's
+parallel solve in the persistent run.
+
+| mesh | triangles | threads | persistent | gain | speedup over WoSX |
+|---|---|---|---|---|---|
+| comb | 600 | 78.75 | 78.48 | 1.00 | 1.37x |
+| pavilion | 11366 | 40.48 | 40.21 | 0.99 | 1.26x |
+| head | 17674 | 36.50 | 36.07 | 0.99 | 1.26x |
+| zero-day | 48960 | 14.44 | 14.29 | 0.99 | 1.34x |
+| whale | 99648 | 22.85 | 22.91 | 1.00 | 1.27x |
+| bmw | 110592 | 26.33 | 26.27 | 1.00 | 1.28x |
+| crown | 155520 | 25.49 | 27.00 | 1.06 | 1.27x |
+| ivy | 179603 | 20.67 | 20.66 | 1.00 | 1.32x |
+| car | 324640 | 28.99 | 28.91 | 1.00 | 1.25x |
+| villa | 390784 | 18.84 | 18.82 | 1.00 | 1.26x |
+| octopus | 497236 | 11.82 | 11.87 | 1.00 | 1.28x |
+| beast | 606136 | 16.55 | 16.66 | 1.01 | 1.27x |
+| dambreak | 1015024 | 25.84 | 25.85 | 1.00 | 1.27x |
+| sportscar | 1091232 | 21.08 | 20.98 | 1.00 | 1.27x |
+| rover | 1616316 | 14.96 | 15.18 | 1.01 | 1.31x |
+| landscape | 1916928 | 1.94 | 1.94 | 1.00 | 1.93x |
+| lte-orb | 3423232 | 1.75 | 2.83 | 1.62 | 1.91x |
+| ganesha | 4323658 | 5.76 | 8.08 | 1.40 | 1.70x |
+| dragon | 7219045 | 2.19 | 3.42 | 1.56 | 1.89x |
+
+Geomeans over the 19: single-thread 1.248, threads 1.294, persistent
+1.388 (over the 18 plotted, without the landscape: 1.223, 1.266, 1.363).
+Ended counts, walk lengths and errors are the same under both threaded
+schedules on every row: the work is the same, only its distribution over
+the threads changed.
+
+What the gain is. It is not load balance: the open meshes, where forty
+percent of the walks escape on their first steps and the points' costs
+differ most (head, bmw, rover, dambreak), gain nothing; the three meshes
+that gain are exactly the three trees past 3M triangles, whatever their
+openness. The test that settles it is the driver's new `--shuffle`, which
+solves the points in a random order on both sides -- every schedule's
+imbalance is what it was, but a thread's run of points is spread over
+the mesh instead of being a neighbourhood of it. Dragon, shuffled, both
+threaded schedules: bonsai 1.94 and 1.94 (unshuffled 2.19 and 3.42), WoSX
+1.70 (unshuffled 1.85). So the gain is cache sharing between the threads.
+A point's walks traverse the part of the tree around the point; sixteen
+workers claiming consecutive points work on neighbouring points at the
+same moment and share the tree's nodes and triangles in the chiplet's
+cache, where TBB's partition hands each thread its own contiguous range
+of the slice -- sixteen threads in sixteen distant regions of a tree that
+does not fit the cache -- and the shuffle, which gives every thread a
+scatter, is worst of all. On a tree that fits the cache the order does
+not matter, which is the first sixteen rows. This is also what the
+morning's "memory-bound" scaling of the two largest meshes was: the
+threads schedule's 7x on the dragon against the persistent's 11x over one
+thread is the same tree walked by the threads apart or together.
+
+Two things follow. The persistent schedule is the better parallel
+schedule on this app for big trees and costs nothing on small ones, which
+is why it is the third default rather than a variant; and WoSX's own
+parallel solve has the same loss (its tbb::parallel_for over the points,
+the same partition), which is why the speedup over it widens to 1.7-1.9x
+on those meshes rather than our rate merely rising. A fairer comparison
+to WoSX on those three would give WoSX a dynamic schedule too; that is a
+change to WoSX, not to this benchmark, and the table says which schedule
+each row is.
 
 ### Next
 

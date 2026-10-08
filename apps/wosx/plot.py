@@ -31,7 +31,10 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 COLOUR = "#E69F00"  # FCPW's orange in apps/rtq/plot.py (CUD)
-HATCH = {"single": "", "threads": "///"}
+HATCH = {"single": "", "threads": "///", "persistent": "xxx"}
+LABEL = {"single": "one thread each",
+         "threads": "the performance cores' threads each",
+         "persistent": "the same, the points claimed by 16 persistent workers"}
 
 
 def load(path):
@@ -74,7 +77,8 @@ def draw(rows, schedules, out_dir, formats, exclude):
     if not any(data.values()):
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
         return
-    kinds = list(schedules)
+    # The schedules with rows: the persistent one is drawn when measured.
+    kinds = [kind for kind in schedules if data[kind]]
     width = 0.8 / len(kinds)
     fig, ax = plt.subplots(figsize=(13, 3.4))
     top = 1.0
@@ -98,10 +102,8 @@ def draw(rows, schedules, out_dir, formats, exclude):
     ax.spines["right"].set_visible(False)
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
     ax.set_axisbelow(True)
-    handles = [Patch(facecolor=COLOUR, edgecolor="black", linewidth=0.5, hatch=HATCH["single"],
-                     label="one thread each"),
-               Patch(facecolor=COLOUR, edgecolor="black", linewidth=0.5, hatch=HATCH["threads"],
-                     label="the performance cores' threads each")]
+    handles = [Patch(facecolor=COLOUR, edgecolor="black", linewidth=0.5, hatch=HATCH[kind],
+                     label=LABEL[kind]) for kind in kinds if data[kind]]
     # The legend above the axes, clear of the tallest bar; no title (the
     # figure's caption says which tree and which schedules).
     ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower left",
@@ -122,12 +124,15 @@ def main():
                    help="the one-thread schedule (default fcpw4w16)")
     p.add_argument("--threads", default="fcpw4w16-threads",
                    help="the threaded schedule (default fcpw4w16-threads)")
+    p.add_argument("--persistent", default="fcpw4w16-persistent",
+                   help="the threaded schedule with persistent workers, drawn when its rows "
+                        "exist (default fcpw4w16-persistent)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
     p.add_argument("--exclude", default="landscape",
                    help="comma-separated meshes left out (default landscape, whose walks escape "
                         "on their first step)")
     a = p.parse_args()
-    schedules = {"single": a.single, "threads": a.threads}
+    schedules = {"single": a.single, "threads": a.threads, "persistent": a.persistent}
     exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
     rows = load(a.csv)
