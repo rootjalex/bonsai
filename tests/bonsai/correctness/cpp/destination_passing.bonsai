@@ -1,0 +1,129 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/destination_passing
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_destination_passing.cpp -I. -o tests/bonsai/correctness/cpp/main_destination_passing.o, clang++ tests/bonsai/correctness/cpp/main_destination_passing.o tests/bonsai/correctness/cpp/destination_passing.o -o tests/bonsai/correctness/cpp/destination_passing, ./tests/bonsai/correctness/cpp/destination_passing, rm tests/bonsai/correctness/cpp/destination_passing, rm tests/bonsai/correctness/cpp/main_destination_passing.o, rm tests/bonsai/correctness/cpp/destination_passing.h, rm tests/bonsai/correctness/cpp/destination_passing.o
+
+// The record of a query written where the program puts it, run
+// (SSA/DestinationPassing.h). `closest` and `trace` carry a record beside
+// the key -- the argmin's element is the pair of the triangle and
+// `Record{distmin, p0}`, made in the leaf (lower/argmin-over-map.bonsai) --
+// and each has two callers here: the single-query export, whose record
+// comes back inside the option it returns, and the batch export, which
+// writes each query's record into `hits[i]`. In the batch the record's slot
+// is filled by the traversal and copied once into `hits[i]`, so the pass
+// makes the slot `hits[i]` itself and the leaf writes the answer's memory;
+// in the single query the record is read back into the option, and the
+// slot stays a slot. The driver (main_destination_passing.cpp) runs both
+// over the scene of bvh4_tiled_elements_where -- walls in lanes, decoy
+// lanes with ids of -1 -- and checks every batch record against its single
+// query's, field by field, and against the wall each query must answer.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+element Record {
+    d : Float;
+    p0 : vec3f;
+}
+
+func no_record() -> Record = Record{inf, vec3f{0.0, 0.0, 0.0}};
+
+func [[export]] closest(p : Point) =
+    argmin(|t : Triangle, c : Record| distmin(p, t),
+           map(|t : Triangle| (t, Record{distmin(p, t), t.p0}), tris));
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle, c : Record| distmin(r, t),
+           filter(|t : Triangle, c : Record| intersects(r, t),
+                  map(|t : Triangle| (t, Record{distmin(r, t), t.p0}), tris)));
+
+func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[Record, n]) {
+    parfor i in 0u:n {
+        // No filter, so every point has an answer: the pair itself.
+        c = closest(points[i]);
+        hits[i] = c[1];
+    }
+    return;
+}
+
+func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[Record, n]) {
+    parfor i in 0u:n {
+        h = trace(rays[i]);
+        if h {
+            found = *h;
+            hits[i] = found[1];
+        } else {
+            hits[i] = no_record();
+        }
+    }
+    return;
+}
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .vectorize(tris.Interior.children)
+         .vectorize(tris.Leaf.data)
+         .loopify(64);
+    closest.sort(tris.Interior,
+                 |i : u32, p : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(p, AABB{lo[i], hi[i]}))
+           .vectorize(tris.Interior.children)
+           .vectorize(tris.Leaf.data)
+           .loopify(64);
+}

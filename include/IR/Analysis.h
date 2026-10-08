@@ -22,6 +22,11 @@ std::vector<TypedVar> gather_free_vars(const Function &func);
 std::vector<TypedVar> gather_write_vars(const WriteLoc &loc);
 
 bool always_returns(const Stmt &stmt);
+// Whether control never reaches the statement after this one: every path
+// returns or breaks out of the enclosing loop. What an if-conversion asks
+// of an arm before giving it an edge to the merge; `always_returns` is the
+// question for a function's body, where a break is not a return.
+bool never_falls_through(const Stmt &stmt);
 Type get_return_type(const Stmt &stmt);
 
 // Whether `expr` is a value of its free variables alone: arithmetic over

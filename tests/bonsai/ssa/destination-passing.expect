@@ -1,0 +1,758 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH4 = (const BVH4&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Record = struct Record{ d : f32; p0 : f32x3 }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : u32 } }
+type __tuple_2 = struct __tuple_2{ _field0 : u32; _field1 : f32 }
+type __tuple_3 = struct __tuple_3{ _field0 : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }; _field1 : struct Record{ d : f32; p0 : f32x3 } }
+type __tuple_4 = struct __tuple_4{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option1 = struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{  }
+type _tree_layout4 = [[packed]] struct _tree_layout4{  }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4; id : [[packed]] u32x4 }[(pCount + (u32)3) / (u32)4]; nCount : u32; group1_row : const [[packed]] struct _tree_layout2{ children : [[packed]] u32x4; lower_x : [[packed]] f32x4; upper_x : [[packed]] f32x4; lower_y : [[packed]] f32x4; upper_y : [[packed]] f32x4; lower_z : [[packed]] f32x4; upper_z : [[packed]] f32x4 }[nCount] }
+
+func _recloop_func0(tris_ref : u32, _bound0 : f32, _best1 : mut (__tuple_1*), p : Point, tris : _tree_layout0, _record0 : mut (Record*)) -> void {
+  tris_ref!top : mut u32
+  _bound0!top : mut f32
+  !count : mut u32
+  _idx1 : mut u32
+  !stack : mut u32[64]
+  !stack0 : mut f32[64]
+  @186 : mut i32[4]
+  @187 : mut i32[4]
+  tris_ref!top = tris_ref
+  _bound0!top = _bound0
+  !count = 0u
+  do {
+    let @0 = (*_best1) in
+    let @1 = @0._field0 in
+    let @2 = (*_bound0!top) < @1 in
+    if (@2) {
+      do {
+        let _t292 = (*tris_ref!top) & 15u in
+        let @4 = _t292 == 0u in
+        if (@4) {
+          _mask0 : mut bool[4]
+          _carry0 : mut f32[4]
+          _keys0 : mut f32[4]
+          let @5 = tris.group1_row in
+          let @6 = (*tris_ref!top) >> 4u in
+          let @7 = @5[@6] in
+          let _t12$lower_x0 = @7.lower_x in
+          let _t12$upper_x1 = @7.upper_x in
+          let _t12$lower_y2 = @7.lower_y in
+          let _t12$upper_y3 = @7.upper_y in
+          let _t12$lower_z4 = @7.lower_z in
+          let _t12$upper_z5 = @7.upper_z in
+          let @29 = cast<f32x4>(_t12$lower_x0) in
+          let @30 = cast<f32x4>(_t12$lower_y2) in
+          let @31 = cast<f32x4>(_t12$lower_z4) in
+          let @34 = cast<f32x4>(_t12$upper_x1) in
+          let @35 = cast<f32x4>(_t12$upper_y3) in
+          let @36 = cast<f32x4>(_t12$upper_z5) in
+          let v$i25 = p.vec in
+          let @317 = v$i25[0u] in
+          let @375 = f32x4(@317) in
+          let @318 = @29 - @375 in
+          let @320 = v$i25[1u] in
+          let @376 = f32x4(@320) in
+          let @321 = @30 - @376 in
+          let @323 = v$i25[2u] in
+          let @377 = f32x4(@323) in
+          let @324 = @31 - @377 in
+          let @325 = @318 * @318 in
+          let @326 = @321 * @321 in
+          let @327 = @324 * @324 in
+          let @328 = @375 < @29 in
+          let @329 = @376 < @30 in
+          let @330 = @377 < @31 in
+          let @45 = f32x3(0f) in
+          let @331 = @45[0u] in
+          let @381 = f32x4(@331) in
+          let @332 = select(@328, @325, @381) in
+          let @333 = @45[1u] in
+          let @382 = f32x4(@333) in
+          let @334 = select(@329, @326, @382) in
+          let @335 = @45[2u] in
+          let @383 = f32x4(@335) in
+          let @336 = select(@330, @327, @383) in
+          let @338 = @375 - @34 in
+          let @340 = @376 - @35 in
+          let @342 = @377 - @36 in
+          let @343 = @338 * @338 in
+          let @344 = @340 * @340 in
+          let @345 = @342 * @342 in
+          let @346 = @34 < @375 in
+          let @347 = @35 < @376 in
+          let @348 = @36 < @377 in
+          let @349 = select(@346, @343, @381) in
+          let @350 = select(@347, @344, @382) in
+          let @351 = select(@348, @345, @383) in
+          let @352 = @332 + @349 in
+          let @353 = @334 + @350 in
+          let @354 = @336 + @351 in
+          let @355 = @352 + @353 in
+          let @356 = @355 + @354 in
+          let _t45 = sqrt(@356) in
+          let @57 = (*_best1) in
+          let @58 = @57._field0 in
+          let @393 = f32x4(@58) in
+          let @59 = _t45 < @393 in
+          _mask0[ramp(0u, 1u, 4)] = @59
+          _carry0[ramp(0u, 1u, 4)] = _t45
+          let @62 = (*_best1) in
+          let @63 = @62._field0 in
+          let @394 = f32x4(@63) in
+          let @64 = _t45 < @394 in
+          let @314 = reduce<any>(@64) in
+          if (@314) {
+            let @359 = @375 - @29 in
+            let @362 = @376 - @30 in
+            let @365 = @377 - @31 in
+            let @366 = abs(@359) in
+            let @367 = abs(@362) in
+            let @368 = abs(@365) in
+            let @369 = abs(@338) in
+            let @370 = abs(@340) in
+            let @371 = abs(@342) in
+            let @372 = max(@366, @369) in
+            let @373 = max(@367, @370) in
+            let @374 = max(@368, @371) in
+            let @71 = @372 * @372 in
+            let @74 = @373 * @373 in
+            let @75 = @71 + @74 in
+            let @78 = @374 * @374 in
+            let @79 = @75 + @78 in
+            let @80 = sqrt(@79) in
+            let @400 = (f32)inf in
+            let @401 = f32x4(@400) in
+            let @402 = select(@64, @80, @401) in
+            let @403 = reduce<min>(@402) in
+            if (@314) {
+              _best1._field0 min= @403
+            }
+          }
+          _keys0[ramp(0u, 1u, 4)] = _t45
+          let @84 = tris.group1_row in
+          let @85 = (*tris_ref!top) >> 4u in
+          let @175 = _mask0[ramp(0u, 1u, 4)] in
+          let @179 = _carry0[ramp(0u, 1u, 4)] in
+          let @180 = reinterpret_cast<i32x4>(_t45) in
+          let @188 = reduce<any>(@175) in
+          if (@188) {
+            let @189 = reinterpret_cast<u4>(@175) in
+            let @190 = cast<u32>(@189) in
+            let @191 = ctz(@190) in
+            let @304 = reinterpret_cast<const u32[4]>((&@84[@85].children)) in
+            let @306 = @304[@191] in
+            let @193 = @179[@191] in
+            let @194 = @190 - 1u in
+            let @195 = @190 & @194 in
+            let @196 = @195 != 0u in
+            if (@196) {
+              let @197 = ctz(@195) in
+              let @200 = i32x4(0) in
+              let @201 = select(@175, @180, @200) in
+              @186[ramp(0u, 1u, 4)] = @201
+              let @203 = reinterpret_cast<i32x4>(@179) in
+              let @205 = select(@175, @203, @200) in
+              @187[ramp(0u, 1u, 4)] = @205
+              let @208 = @186[@191] in
+              let @209 = @208 >> 31 in
+              let @210 = @209 & 2147483647 in
+              let @211 = @208 ^ @210 in
+              let @213 = @187[@191] in
+              let @215 = @186[@197] in
+              let @216 = @215 >> 31 in
+              let @217 = @216 & 2147483647 in
+              let @218 = @215 ^ @217 in
+              let @308 = @304[@197] in
+              let @221 = @187[@197] in
+              let @222 = @211 < @218 in
+              let @223 = select(@222, @211, @218) in
+              let @224 = select(@222, @218, @211) in
+              let @225 = select(@222, @306, @308) in
+              let @226 = select(@222, @308, @306) in
+              let @227 = select(@222, @213, @221) in
+              let @228 = select(@222, @221, @213) in
+              let @231 = @195 - 1u in
+              let @232 = @195 & @231 in
+              let @233 = @232 != 0u in
+              if (@233) {
+                let @234 = ctz(@232) in
+                let @236 = @186[@234] in
+                let @237 = @236 >> 31 in
+                let @238 = @237 & 2147483647 in
+                let @239 = @236 ^ @238 in
+                let @310 = @304[@234] in
+                let @242 = @187[@234] in
+                let @243 = @223 < @239 in
+                let @244 = select(@243, @223, @239) in
+                let @245 = select(@243, @239, @223) in
+                let @246 = select(@243, @225, @310) in
+                let @247 = select(@243, @310, @225) in
+                let @248 = select(@243, @227, @242) in
+                let @249 = select(@243, @242, @227) in
+                let @250 = @224 < @245 in
+                let @251 = select(@250, @224, @245) in
+                let @252 = select(@250, @245, @224) in
+                let @253 = select(@250, @226, @247) in
+                let @254 = select(@250, @247, @226) in
+                let @255 = select(@250, @228, @249) in
+                let @256 = select(@250, @249, @228) in
+                let @260 = @232 - 1u in
+                let @261 = @232 & @260 in
+                let @262 = @261 != 0u in
+                if (@262) {
+                  let @263 = ctz(@261) in
+                  let @265 = @186[@263] in
+                  let @266 = @265 >> 31 in
+                  let @267 = @266 & 2147483647 in
+                  let @268 = @265 ^ @267 in
+                  let @312 = @304[@263] in
+                  let @271 = @187[@263] in
+                  let @272 = @244 < @268 in
+                  let @274 = select(@272, @268, @244) in
+                  let @275 = select(@272, @246, @312) in
+                  let @276 = select(@272, @312, @246) in
+                  let @277 = select(@272, @248, @271) in
+                  let @278 = select(@272, @271, @248) in
+                  let @279 = @251 < @274 in
+                  let @281 = select(@279, @274, @251) in
+                  let @282 = select(@279, @253, @276) in
+                  let @283 = select(@279, @276, @253) in
+                  let @284 = select(@279, @255, @278) in
+                  let @285 = select(@279, @278, @255) in
+                  let @286 = @252 < @281 in
+                  let @289 = select(@286, @254, @283) in
+                  let @290 = select(@286, @283, @254) in
+                  let @291 = select(@286, @256, @285) in
+                  let @292 = select(@286, @285, @256) in
+                  let @293 = reinterpret_cast<f32>(@277) in
+                  let @294 = reinterpret_cast<f32>(@284) in
+                  let @295 = reinterpret_cast<f32>(@291) in
+                  let @296 = reinterpret_cast<f32>(@292) in
+                  !stack[(*!count)] = @290
+                  !stack0[(*!count)] = @296
+                  let @822 = (*!count) + 1u in
+                  !stack[@822] = @289
+                  !stack0[@822] = @295
+                  let @826 = @822 + 1u in
+                  !stack[@826] = @282
+                  !stack0[@826] = @294
+                  let @830 = @826 + 1u in
+                  tris_ref!top = @275
+                  _bound0!top = @293
+                  !count = @830
+                  continue
+                } else {
+                  let @257 = reinterpret_cast<f32>(@248) in
+                  let @258 = reinterpret_cast<f32>(@255) in
+                  let @259 = reinterpret_cast<f32>(@256) in
+                  !stack[(*!count)] = @254
+                  !stack0[(*!count)] = @259
+                  let @814 = (*!count) + 1u in
+                  !stack[@814] = @253
+                  !stack0[@814] = @258
+                  let @818 = @814 + 1u in
+                  tris_ref!top = @246
+                  _bound0!top = @257
+                  !count = @818
+                  continue
+                }
+              } else {
+                let @229 = reinterpret_cast<f32>(@227) in
+                let @230 = reinterpret_cast<f32>(@228) in
+                !stack[(*!count)] = @226
+                !stack0[(*!count)] = @230
+                let @810 = (*!count) + 1u in
+                tris_ref!top = @225
+                _bound0!top = @229
+                !count = @810
+                continue
+              }
+            } else {
+              tris_ref!top = @306
+              _bound0!top = @193
+              continue
+            }
+          }
+        } else {
+          let @105 = _t292 - 8u in
+          _idx1 = 0u
+          while ((*_idx1) < @105) {
+            let @107 = (*tris_ref!top) >> 4u in
+            let _t289 = @107 + (*_idx1) in
+            let @109 = tris.group0_prims in
+            let _t290 = @109[_t289] in
+            let @299 = reinterpret_cast<const u32[4]>((&@109[_t289].id)) in
+            let @301 = @299[ramp(0u, 1u, 4)] in
+            let @421 = u32x4(4294967295u) in
+            let @114 = @301 != @421 in
+            let @409 = reduce<any>(@114) in
+            if (@409) {
+              let @115 = _t290.p0 in
+              let @116 = cast<f32x3x4>(@115) in
+              let _t270 = reinterpret_cast<f32x3$v4>(@116) in
+              let @118 = _t290.p1 in
+              let @119 = cast<f32x3x4>(@118) in
+              let @120 = reinterpret_cast<f32x3$v4>(@119) in
+              let @121 = _t290.p2 in
+              let @122 = cast<f32x3x4>(@121) in
+              let @123 = reinterpret_cast<f32x3$v4>(@122) in
+              let @461 = @120.!0 in
+              let @462 = _t270.!0 in
+              let @463 = @461 - @462 in
+              let @464 = @120.!1 in
+              let @465 = _t270.!1 in
+              let @466 = @464 - @465 in
+              let @467 = @120.!2 in
+              let @468 = _t270.!2 in
+              let @469 = @467 - @468 in
+              let @470 = p.vec in
+              let @471 = @470[0u] in
+              let @472 = f32x4(@471) in
+              let @473 = @472 - @462 in
+              let @474 = @470[1u] in
+              let @475 = f32x4(@474) in
+              let @476 = @475 - @465 in
+              let @477 = @470[2u] in
+              let @478 = f32x4(@477) in
+              let @479 = @478 - @468 in
+              let @480 = @463 * @473 in
+              let @481 = @466 * @476 in
+              let @482 = @480 + @481 in
+              let @483 = @469 * @479 in
+              let @484 = @482 + @483 in
+              let @486 = @123.!0 in
+              let @487 = @486 - @462 in
+              let @488 = @123.!1 in
+              let @489 = @488 - @465 in
+              let @490 = @123.!2 in
+              let @491 = @490 - @468 in
+              let @492 = @487 * @473 in
+              let @493 = @489 * @476 in
+              let @494 = @492 + @493 in
+              let @495 = @491 * @479 in
+              let @496 = @494 + @495 in
+              let @497 = f32x4(0f) in
+              let @498 = @484 <= @497 in
+              let @831 = !@498 in
+              let @502 = @114 && @831 in
+              let @503 = @114 && @498 in
+              let @505 = @496 <= @497 in
+              let @832 = !@505 in
+              let @509 = @503 && @832 in
+              let @541 = build<Point$v4>(_t270) in
+              let @542 = build<f32x3>(1f, 0f, 0f) in
+              let @545 = @542[0u] in
+              let @546 = f32x4(@545) in
+              let @547 = @542[1u] in
+              let @548 = f32x4(@547) in
+              let @549 = @542[2u] in
+              let @550 = f32x4(@549) in
+              let @551 = build<f32x3$v4>(@546, @548, @550) in
+              let @552 = build<Point$v4>(@551) in
+              let @553 = build<__tuple_4$v4>(@541, @552) in
+              let @511 = @509 || @502 in
+              let @515 = @472 - @461 in
+              let @519 = @475 - @464 in
+              let @523 = @478 - @467 in
+              let @524 = @463 * @515 in
+              let @525 = @466 * @519 in
+              let @526 = @524 + @525 in
+              let @527 = @469 * @523 in
+              let @528 = @526 + @527 in
+              let @529 = @487 * @515 in
+              let @530 = @489 * @519 in
+              let @531 = @529 + @530 in
+              let @532 = @491 * @523 in
+              let @533 = @531 + @532 in
+              let @535 = @497 <= @528 in
+              let @833 = !@535 in
+              let @539 = @511 && @833 in
+              let @540 = @511 && @535 in
+              let @554 = @533 <= @528 in
+              let @834 = !@554 in
+              let @558 = @540 && @834 in
+              let @559 = @540 && @554 in
+              let @571 = build<Point$v4>(@120) in
+              let @572 = build<f32x3>(0f, 1f, 0f) in
+              let @575 = @572[0u] in
+              let @576 = f32x4(@575) in
+              let @577 = @572[1u] in
+              let @578 = f32x4(@577) in
+              let @579 = @572[2u] in
+              let @580 = f32x4(@579) in
+              let @581 = build<f32x3$v4>(@576, @578, @580) in
+              let @582 = build<Point$v4>(@581) in
+              let @583 = build<__tuple_4$v4>(@571, @582) in
+              let @584 = select(@559, @583, @553) in
+              let @560 = @539 || @558 in
+              let @561 = @484 * @533 in
+              let @562 = @528 * @496 in
+              let @563 = @561 - @562 in
+              let @565 = @563 <= @497 in
+              let @835 = !@565 in
+              let @569 = @560 && @835 in
+              let @570 = @560 && @565 in
+              let @586 = @497 <= @484 in
+              let @836 = !@586 in
+              let @590 = @570 && @836 in
+              let @591 = @570 && @586 in
+              let @624 = @528 <= @497 in
+              let @837 = !@624 in
+              let @628 = @591 && @837 in
+              let @629 = @591 && @624 in
+              let @631 = @484 - @528 in
+              let @632 = @484 / @631 in
+              let @633 = @632 * @463 in
+              let @634 = @632 * @466 in
+              let @635 = @632 * @469 in
+              let @637 = @462 + @633 in
+              let @639 = @465 + @634 in
+              let @641 = @468 + @635 in
+              let @642 = build<f32x3$v4>(@637, @639, @641) in
+              let @643 = build<Point$v4>(@642) in
+              let @644 = f32x4(1f) in
+              let @645 = @644 - @632 in
+              let @647 = build<f32x3$v4>(@645, @632, @497) in
+              let @648 = build<Point$v4>(@647) in
+              let @649 = build<__tuple_4$v4>(@643, @648) in
+              let @650 = select(@629, @649, @584) in
+              let @592 = @569 || @628 in
+              let @593 = @592 || @590 in
+              let @597 = @472 - @486 in
+              let @601 = @475 - @488 in
+              let @605 = @478 - @490 in
+              let @606 = @463 * @597 in
+              let @607 = @466 * @601 in
+              let @608 = @606 + @607 in
+              let @609 = @469 * @605 in
+              let @610 = @608 + @609 in
+              let @611 = @487 * @597 in
+              let @612 = @489 * @601 in
+              let @613 = @611 + @612 in
+              let @614 = @491 * @605 in
+              let @615 = @613 + @614 in
+              let @617 = @497 <= @615 in
+              let @838 = !@617 in
+              let @621 = @593 && @838 in
+              let @622 = @593 && @617 in
+              let @651 = @610 <= @615 in
+              let @839 = !@651 in
+              let @655 = @622 && @839 in
+              let @656 = @622 && @651 in
+              let @668 = build<Point$v4>(@123) in
+              let @669 = build<f32x3>(0f, 0f, 1f) in
+              let @672 = @669[0u] in
+              let @673 = f32x4(@672) in
+              let @674 = @669[1u] in
+              let @675 = f32x4(@674) in
+              let @676 = @669[2u] in
+              let @677 = f32x4(@676) in
+              let @678 = build<f32x3$v4>(@673, @675, @677) in
+              let @679 = build<Point$v4>(@678) in
+              let @680 = build<__tuple_4$v4>(@668, @679) in
+              let @681 = select(@656, @680, @650) in
+              let @657 = @621 || @655 in
+              let @658 = @610 * @496 in
+              let @659 = @484 * @615 in
+              let @660 = @658 - @659 in
+              let @662 = @660 <= @497 in
+              let @840 = !@662 in
+              let @666 = @657 && @840 in
+              let @667 = @657 && @662 in
+              let @683 = @497 <= @496 in
+              let @841 = !@683 in
+              let @687 = @667 && @841 in
+              let @688 = @667 && @683 in
+              let @702 = @615 <= @497 in
+              let @842 = !@702 in
+              let @706 = @688 && @842 in
+              let @707 = @688 && @702 in
+              let @709 = @496 - @615 in
+              let @710 = @496 / @709 in
+              let @711 = @710 * @487 in
+              let @712 = @710 * @489 in
+              let @713 = @710 * @491 in
+              let @715 = @462 + @711 in
+              let @717 = @465 + @712 in
+              let @719 = @468 + @713 in
+              let @720 = build<f32x3$v4>(@715, @717, @719) in
+              let @721 = build<Point$v4>(@720) in
+              let @723 = @644 - @710 in
+              let @725 = build<f32x3$v4>(@723, @497, @710) in
+              let @726 = build<Point$v4>(@725) in
+              let @727 = build<__tuple_4$v4>(@721, @726) in
+              let @728 = select(@707, @727, @681) in
+              let @689 = @666 || @687 in
+              let @690 = @689 || @706 in
+              let @691 = @528 * @615 in
+              let @692 = @610 * @533 in
+              let @693 = @691 - @692 in
+              let @695 = @693 <= @497 in
+              let @843 = !@695 in
+              let @699 = @690 && @843 in
+              let @700 = @690 && @695 in
+              let @729 = @533 - @528 in
+              let @731 = @497 <= @729 in
+              let @844 = !@731 in
+              let @735 = @700 && @844 in
+              let @736 = @700 && @731 in
+              let @767 = @610 - @615 in
+              let @769 = @497 <= @767 in
+              let @845 = !@769 in
+              let @773 = @736 && @845 in
+              let @774 = @736 && @769 in
+              let @776 = @729 + @767 in
+              let @777 = @729 / @776 in
+              let @780 = @486 - @461 in
+              let @783 = @488 - @464 in
+              let @786 = @490 - @467 in
+              let @787 = @777 * @780 in
+              let @788 = @777 * @783 in
+              let @789 = @777 * @786 in
+              let @790 = @461 + @787 in
+              let @791 = @464 + @788 in
+              let @792 = @467 + @789 in
+              let @793 = build<f32x3$v4>(@790, @791, @792) in
+              let @794 = build<Point$v4>(@793) in
+              let @796 = @644 - @777 in
+              let @798 = build<f32x3$v4>(@497, @796, @777) in
+              let @799 = build<Point$v4>(@798) in
+              let @800 = build<__tuple_4$v4>(@794, @799) in
+              let @801 = select(@774, @800, @728) in
+              let @737 = @699 || @735 in
+              let @738 = @737 || @773 in
+              let @739 = @693 + @660 in
+              let @740 = @739 + @563 in
+              let @742 = @644 / @740 in
+              let @743 = @660 * @742 in
+              let @744 = @563 * @742 in
+              let @745 = @693 * @742 in
+              let @746 = @463 * @743 in
+              let @747 = @466 * @743 in
+              let @748 = @469 * @743 in
+              let @750 = @462 + @746 in
+              let @752 = @465 + @747 in
+              let @754 = @468 + @748 in
+              let @755 = @487 * @744 in
+              let @756 = @489 * @744 in
+              let @757 = @491 * @744 in
+              let @758 = @750 + @755 in
+              let @759 = @752 + @756 in
+              let @760 = @754 + @757 in
+              let @761 = build<f32x3$v4>(@758, @759, @760) in
+              let @762 = build<Point$v4>(@761) in
+              let @763 = build<f32x3$v4>(@745, @743, @744) in
+              let @764 = build<Point$v4>(@763) in
+              let @765 = build<__tuple_4$v4>(@762, @764) in
+              let @766 = select(@738, @765, @801) in
+              let pts$i1 = @766 in
+              let @127 = pts$i1._field0 in
+              let @128 = @127.vec in
+              let @413 = @128.!0 in
+              let @414 = @472 - @413 in
+              let @416 = @128.!1 in
+              let @417 = @475 - @416 in
+              let @419 = @128.!2 in
+              let @420 = @478 - @419 in
+              let @136 = @414 * @414 in
+              let @147 = @417 * @417 in
+              let @148 = @136 + @147 in
+              let @159 = @420 * @420 in
+              let @160 = @148 + @159 in
+              let @161 = sqrt(@160) in
+              let @163 = (*_best1) in
+              let @164 = @163._field0 in
+              let @427 = f32x4(@164) in
+              let @165 = @161 < @427 in
+              let @408 = @114 && @165 in
+              let @410 = reduce<any>(@408) in
+              if (@410) {
+                let @167 = _t289 << 2u in
+                let @432 = (f32)inf in
+                let @433 = f32x4(@432) in
+                let @434 = select(@408, @161, @433) in
+                let @435 = reduce<min>(@434) in
+                let @437 = f32x4(@435) in
+                let @438 = @434 == @437 in
+                let @439 = u32x4(4u) in
+                let @440 = select(@438, ramp(0u, 1u, 4), @439) in
+                let @441 = reduce<min>(@440) in
+                let @444 = ramp(@167, 1u, 4)[@441] in
+                let @445 = build<__tuple_0>(@444) in
+                let @446 = build<__tuple_1>(@435, @445) in
+                let @448 = @161[@441] in
+                let @451 = @462[@441] in
+                let @453 = @465[@441] in
+                let @455 = @468[@441] in
+                let @456 = build<f32x3>(@451, @453, @455) in
+                let @457 = build<Record>(@448, @456) in
+                if (@410) {
+                  _best1 argmin= @446 with _record0 = @457
+                }
+              }
+            }
+            let @173 = (*_idx1) + 1u in
+            _idx1 = @173
+          }
+        }
+        break
+      } while (true)
+    }
+    let @803 = (*!count) != 0u in
+    if (@803) {
+      let @804 = (*!count) - 1u in
+      let @805 = !stack[@804] in
+      let @806 = !stack0[@804] in
+      tris_ref!top = @805
+      _bound0!top = @806
+      !count = @804
+      continue
+    } else {
+      return
+    }
+  } while (true)
+}
+
+func _traverse_tree0(p : Point, tris : _tree_layout0) -> __tuple_3 {
+  _record0 : mut Record
+  _best1 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best1 = @2
+  let @4 = -0f - @0 in
+  _recloop_func0(0u, @4, _best1, p, tris, _record0)
+  let _t293 = tris.group0_prims in
+  let @6 = (*_best1) in
+  let @7 = @6._field1 in
+  let @8 = @7._field0 in
+  let @9 = @8 >> 2u in
+  let @10 = _t293[@9] in
+  let @11 = @10.p0 in
+  let @12 = cast<f32x3x4>(@11) in
+  let @16 = @8 & 3u in
+  let @17 = @12[@16] in
+  let @23 = @10.p1 in
+  let @24 = cast<f32x3x4>(@23) in
+  let @29 = @24[@16] in
+  let @35 = @10.p2 in
+  let @36 = cast<f32x3x4>(@35) in
+  let @41 = @36[@16] in
+  let @42 = build<Triangle>(@17, @29, @41) in
+  let @43 = (*_record0) in
+  let @44 = build<__tuple_3>(@42, @43) in
+  return @44
+}
+
+func [[export]] closest(_ret0 : mut (__tuple_3*), p : (Point*), tris : (_tree_layout0*)) -> void {
+  _record0$i2 : mut Record
+  _best1$i2 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best1$i2 = @2
+  let @4 = -0f - @0 in
+  let @5 = (*p) in
+  let @6 = (*tris) in
+  _recloop_func0(0u, @4, _best1$i2, @5, @6, _record0$i2)
+  let @7 = (*tris) in
+  let _t293$i2 = @7.group0_prims in
+  let @9 = (*_best1$i2) in
+  let @10 = @9._field1 in
+  let @11 = @10._field0 in
+  let @12 = @11 >> 2u in
+  let @13 = _t293$i2[@12] in
+  let @14 = @13.p0 in
+  let @15 = cast<f32x3x4>(@14) in
+  let @19 = @11 & 3u in
+  let @20 = @15[@19] in
+  let @26 = @13.p1 in
+  let @27 = cast<f32x3x4>(@26) in
+  let @32 = @27[@19] in
+  let @38 = @13.p2 in
+  let @39 = cast<f32x3x4>(@38) in
+  let @44 = @39[@19] in
+  let @45 = build<Triangle>(@20, @32, @44) in
+  let @46 = (*_record0$i2) in
+  let @47 = build<__tuple_3>(@45, @46) in
+  _ret0 = @47
+  return
+}
+
+func [[export]] closest_all(n : u32, points : Point[n], hits : mut Record[n], tris : (_tree_layout0*)) -> void {
+  _best1$i26 : mut __tuple_1
+  parfor i in [0u:n:1u] {
+    let @0 = (f32)inf in
+    let @1 = build<__tuple_0>() in
+    let @2 = build<__tuple_1>(@0, @1) in
+    _best1$i26 = @2
+    let p$i26 = points[i] in
+    let @5 = -0f - @0 in
+    let @6 = (*tris) in
+    _recloop_func0(0u, @5, _best1$i26, p$i26, @6, (&hits[i]))
+    let _record0$i26 = (&hits[i]) in
+    let @7 = (*_record0$i26) in
+    continue
+  }
+  return
+}
+
+func [[export]] closest_sum(n : u32, points : Point[n], hits : mut Record[n], tris : (_tree_layout0*)) -> f32 {
+  i : mut u32
+  total : mut f32
+  _best1$i27 : mut __tuple_1
+  i = 0u
+  total = 0f
+  while ((*i) < n) {
+    _record0$i27 : mut Record
+    let @1 = (f32)inf in
+    let @2 = build<__tuple_0>() in
+    let @3 = build<__tuple_1>(@1, @2) in
+    _best1$i27 = @3
+    let p$i27 = points[(*i)] in
+    let @6 = -0f - @1 in
+    let @7 = (*tris) in
+    _recloop_func0(0u, @6, _best1$i27, p$i27, @7, _record0$i27)
+    let @8 = (*_record0$i27) in
+    hits[(*i)] = @8
+    let @12 = @8.d in
+    let @13 = (*total) + @12 in
+    let @14 = (*i) + 1u in
+    i = @14
+    total = @13
+  }
+  return (*total)
+}
+
+
+schedule {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH4
+  | Interior(children : (const BVH4&)[4], lo : f32x3x4, hi : f32x3x4) with AABB(lo, hi) on children
+  | Leaf(data : Triangle[]) with data = data
+    closest.sort(tris.Interior, |i : u32, p : struct Point{ vec : f32x3 }, lo : f32x3x4, hi : f32x3x4| distmin(p, build<struct AABB{ low : f32x3; high : f32x3 }>(lo[i], hi[i])))
+           .vectorize(tris.Interior.children)
+           .vectorize(tris.Leaf.data)
+           .loopify((i32)64)
+
+}

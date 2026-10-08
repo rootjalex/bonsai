@@ -301,6 +301,13 @@ struct Instruction {
     // and Alloc.
     std::optional<Storage> storage;
 
+    // An argmin's or argmax's places written alongside its pair when the
+    // key improves (ir::Accumulate::alongside): this many (place, value)
+    // pairs close the operand list, after the place, the value and the
+    // mask a vectorized accumulate carries. The accessors below say where
+    // each part of an accumulate's operands is, so that no site counts.
+    uint32_t alongside = 0;
+
     std::vector<std::shared_ptr<Value>> operands;
     std::weak_ptr<Block> owner;
 
@@ -314,6 +321,15 @@ struct Instruction {
     Instruction(Op op, std::vector<std::shared_ptr<Value>> operands,
                 std::weak_ptr<Block> owner)
         : op(op), operands(std::move(operands)), owner(std::move(owner)) {}
+
+    // Of an accumulate's (or a store's) operands: how many precede the
+    // alongside pairs, whether a mask follows the place and the value, and
+    // where the pairs begin.
+    size_t operands_before_alongside() const {
+        return operands.size() - 2 * size_t(alongside);
+    }
+    bool has_mask() const { return operands_before_alongside() == 3; }
+    size_t alongside_begin() const { return operands_before_alongside(); }
 
     void dump(std::ostream &os) const;
 };

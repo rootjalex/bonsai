@@ -330,6 +330,10 @@ void Visitor::visit(const Store *node) {
 void Visitor::visit(const Accumulate *node) {
     visit_writeloc(this, node->loc);
     node->value.accept(this);
+    for (const auto &[place, written] : node->alongside) {
+        visit_writeloc(this, place);
+        written.accept(this);
+    }
 }
 
 void Visitor::visit(const Label *node) {

@@ -1,0 +1,40 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_destination_passing.cpp -I. -o tests/bonsai/correctness/cpp/main_destination_passing.o
+[test] clang++ tests/bonsai/correctness/cpp/main_destination_passing.o tests/bonsai/correctness/cpp/destination_passing.o -o tests/bonsai/correctness/cpp/destination_passing
+[test] ./tests/bonsai/correctness/cpp/destination_passing
++x: d=1 x=0 -- ok
+-x: d=30 x=70 -- ok
++x from 35: d=5 x=40 -- ok
++x short: d=inf x=0 -- ok
++x: d=1 x=0 -- ok
+-x: d=30 x=70 -- ok
++x from 35: d=5 x=40 -- ok
++x short: d=inf x=0 -- ok
++x: d=1 x=0 -- ok
+-x: d=30 x=70 -- ok
++x from 35: d=5 x=40 -- ok
++x short: d=inf x=0 -- ok
++x: d=1 x=0 -- ok
+-x: d=30 x=70 -- ok
++x from 35: d=5 x=40 -- ok
++x short: d=inf x=0 -- ok
++x between lanes: d=inf x=0 -- ok
+diagonal: d=1 x=0 -- ok
++z beside: d=inf x=0 -- ok
+closest before wall: d=1 x=0 -- ok
+closest before wall: d=1 x=30 -- ok
+closest before wall: d=1 x=60 -- ok
+closest past wall 2: d=2 x=20 -- ok
+closest before wall: d=1 x=0 -- ok
+closest before wall: d=1 x=30 -- ok
+closest before wall: d=1 x=60 -- ok
+closest past wall 2: d=2 x=20 -- ok
+closest before wall: d=1 x=0 -- ok
+closest before wall: d=1 x=30 -- ok
+closest before wall: d=1 x=60 -- ok
+closest past wall 2: d=2 x=20 -- ok
+closest before wall: d=1 x=0 -- ok
+closest before wall: d=1 x=30 -- ok
+closest before wall: d=1 x=60 -- ok
+closest past wall 2: d=2 x=20 -- ok
+closest from far: d=100 x=0 -- ok
+every batch record is its single query's

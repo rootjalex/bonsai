@@ -10,6 +10,7 @@
 #include "SSA/RoundGuard.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/HeapArrays.h"
+#include "SSA/DestinationPassing.h"
 #include "SSA/HoistAllocations.h"
 #include "SSA/QueueStorage.h"
 #include "SSA/ReorderLoops.h"
@@ -155,9 +156,9 @@ struct FunctionBuilder : Visitor {
         std::shared_ptr<Block> else_case =
             node->else_body.defined() ? make_block("else") : nullptr;
 
-        const bool then_needs_merge = !always_returns(node->then_body);
+        const bool then_needs_merge = !never_falls_through(node->then_body);
         const bool else_needs_merge =
-            !node->else_body.defined() || !always_returns(node->else_body);
+            !node->else_body.defined() || !never_falls_through(node->else_body);
         const bool needs_merge = then_needs_merge || else_needs_merge;
         std::shared_ptr<Block> merge_block =
             needs_merge ? make_block("merge") : nullptr;
@@ -226,7 +227,8 @@ struct FunctionBuilder : Visitor {
 
         bool needs_merge = false;
         for (const Stmt &arm : node->arms) {
-            needs_merge = needs_merge || !arm.defined() || !always_returns(arm);
+            needs_merge =
+                needs_merge || !arm.defined() || !never_falls_through(arm);
         }
         std::shared_ptr<Block> merge_block =
             needs_merge ? make_block("merge") : nullptr;
@@ -262,7 +264,7 @@ struct FunctionBuilder : Visitor {
             cases[k]->preds.push_back(curr_block);
             block = cases[k];
             node->arms[k].accept(this);
-            if (!always_returns(node->arms[k])) {
+            if (!never_falls_through(node->arms[k])) {
                 // *current* insert block is predecessor to merge.
                 merge_block->preds.push_back(block);
                 set_block_jump(merge_block->name);
@@ -365,7 +367,9 @@ struct FunctionBuilder : Visitor {
         body->preds.push_back(test);
 
         block = body;
+        loop_exits.push_back(end);
         node->body.accept(this);
+        loop_exits.pop_back();
         // A body that returned has already terminated, and there is no back
         // edge from it.
         if (!block->terminator.defined()) {
@@ -398,6 +402,25 @@ struct FunctionBuilder : Visitor {
             v = get_value(node->value);
         }
         block->terminator.data = Terminator::Return{v};
+    }
+
+    // The loops being built, innermost last: what a `break` leaves. A
+    // `break` ends its block with a jump to the innermost loop's exit, as a
+    // return ends its block; the statement after it, if any, is a merge the
+    // if-conversion knows this arm does not reach (ir::always_returns).
+    std::vector<std::shared_ptr<Block>> loop_exits;
+
+    void visit(const Break *) override {
+        internal_assert(!loop_exits.empty())
+            << "break outside of any loop in " << block->name;
+        internal_assert(loop_exits.back() != nullptr)
+            << "break inside a parallel loop's body in " << block->name
+            << ": a parallel body is a batch, and a break belongs after it";
+        internal_assert(!block->terminator.defined());
+        const std::shared_ptr<Block> &exit = loop_exits.back();
+        block->terminator.data =
+            Terminator::Jump{.name = exit->name, .args = {}};
+        exit->preds.push_back(block);
     }
 
     std::string get_call_name(const std::shared_ptr<Value> &v) const {
@@ -550,8 +573,8 @@ struct FunctionBuilder : Visitor {
         // Deref(Var(Ptr_t(base_type), name)). Register a real pointer here
         // (matching mut function arguments, see `mut_names` above) so those
         // reads and any later Store/Accumulate agree on its type.
-        auto op = (node->memory == Allocate::Stack) ? Instruction::Op::Alloca
-                                                    : Instruction::Op::Alloc;
+        const bool on_stack = node->memory == Allocate::Stack;
+        auto op = on_stack ? Instruction::Op::Alloca : Instruction::Op::Alloc;
 
         mut_names.insert(node->loc.base);
 
@@ -747,7 +770,23 @@ struct FunctionBuilder : Visitor {
 
         std::vector<std::shared_ptr<Value>> args = {std::move(ptr),
                                                     std::move(v)};
+        // The places written alongside the pair, each with its value, after
+        // the place and the value (Instruction::alongside); a mask the
+        // vectorizer adds later goes between.
+        for (const auto &[place, written] : node->alongside) {
+            std::shared_ptr<Value> written_v = get_value(written);
+            std::shared_ptr<Value> place_ptr =
+                block->get_value(place.base, base_lookup_type(place));
+            if (!place.accesses.empty()) {
+                place_ptr = walk_accesses(std::move(place_ptr), place);
+            }
+            args.push_back(std::move(place_ptr));
+            args.push_back(std::move(written_v));
+        }
         block->make_side_effect(op, std::move(args), node->atomic);
+        if (!node->alongside.empty()) {
+            block->instrs.back()->alongside = uint32_t(node->alongside.size());
+        }
     }
 
     void visit(const ParFor *node) override {
@@ -786,7 +825,13 @@ struct FunctionBuilder : Visitor {
 
         block = body_block;
 
+        // A parallel body is no loop a `break` can leave: its iterations
+        // are a batch, and a break among them belongs after the batch
+        // (Lower/ForEachs.cpp puts an element-independent one there). The
+        // null marks the boundary for visit(Break).
+        loop_exits.push_back(nullptr);
         node->body.accept(this);
+        loop_exits.pop_back();
         internal_assert(!block->terminator.defined())
             << "ParFor block for: " << node->body << " has terminator.";
         block->terminator.data = Terminator::Yield{};
@@ -845,11 +890,13 @@ struct FunctionBuilder : Visitor {
         exit_block->preds.push_back(head_block);
 
         block = body_block;
+        loop_exits.push_back(exit_block);
         node->body.accept(this);
+        loop_exits.pop_back();
         internal_assert(!block->terminator.defined())
             << "The body of loop " << node->index << " ends in " << block->name
             << ", which already has a terminator: a loop body that leaves "
-            << "early is not supported here";
+            << "early on every path has no latch";
 
         // Whatever block the body ended in is the latch.
         auto latch = std::move(block);
@@ -1587,7 +1634,6 @@ struct FunctionBuilder : Visitor {
     // RESTRICT_VISITOR(ForAll);
     RESTRICT_VISITOR(ForEach);
     RESTRICT_VISITOR(Continue);
-    RESTRICT_VISITOR(Break);
     RESTRICT_VISITOR(Launch);
     // RESTRICT_VISITOR(Append);
 };
@@ -2843,6 +2889,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
     }
     phase("contraction");
+    // A slot that is filled and then copied into the program's answer is
+    // the answer's own memory from here on, and the copy is gone
+    // (SSA/DestinationPassing.h): an argmin's record is written where the
+    // export puts it, as Embree's leaf writes the caller's RayHit. After the
+    // promotion and the simplification, which turn the copy into a load and
+    // a store with values between them; before the storage passes, which
+    // would otherwise place a slot that is about to go.
+    for (const auto &[name, f] : fmap) {
+        pass_destinations(*f, fmap);
+    }
+    phase("pass destinations");
     // Storage made inside a loop that every iteration could share is made
     // once, before the loop (SSA/HoistAllocations.h): a pass's queues before
     // the loop over passes. After the binds, which decide which loops may be

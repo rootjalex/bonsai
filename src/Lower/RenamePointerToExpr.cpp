@@ -58,9 +58,13 @@ struct Rename : public ir::Mutator {
         return make(ir::Store::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
-        return make(
-            ir::Accumulate::make(node->loc, node->op, mutate(node->value),
-                                 node->atomic, node->spawned));
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            alongside.emplace_back(place, mutate(written));
+        }
+        return make(ir::Accumulate::make(node->loc, node->op,
+                                         mutate(node->value), node->atomic,
+                                         node->spawned, std::move(alongside)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {

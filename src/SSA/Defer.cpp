@@ -411,6 +411,7 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
             instr_copy->slack = instr->slack;
             instr_copy->scratch = instr->scratch;
             instr_copy->storage = instr->storage;
+            instr_copy->alongside = instr->alongside;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
         }

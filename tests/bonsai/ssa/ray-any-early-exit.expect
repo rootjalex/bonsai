@@ -71,11 +71,11 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @36 = _t121$i51$i66 / @35 in
           let @38 = 2f * @36 in
           let @39 = 1f + @38 in
-          let @201 = @31 * f32x3(@39) in
-          let @41 = @201[1u] in
+          let @200 = @31 * f32x3(@39) in
+          let @41 = @200[1u] in
           let @43 = @28[0u] in
           let @44 = @41 < @43 in
-          let @46 = @201[0u] in
+          let @46 = @200[0u] in
           let @48 = @28[1u] in
           let @49 = @46 < @48 in
           let @50 = @44 || @49 in
@@ -85,7 +85,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           } else {
             let @56 = max(@43, @48) in
             let @61 = min(@46, @41) in
-            let @63 = @201[2u] in
+            let @63 = @200[2u] in
             let @65 = @63 < @56 in
             let @68 = @28[2u] in
             let @69 = @61 < @68 in
@@ -124,9 +124,9 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             let @97 = @96.offset in
             let @98 = (*tris_index!top) + @97 in
             !stack[(*!count)] = @98
-            let @200 = (*!count) + 1u in
+            let @199 = (*!count) + 1u in
             tris_index!top = @95
-            !count = @200
+            !count = @199
             continue
           }
         } else {
@@ -151,11 +151,11 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           let @120 = _t121$i51$i67 / @119 in
           let @122 = 2f * @120 in
           let @123 = 1f + @122 in
-          let @202 = @115 * f32x3(@123) in
-          let @125 = @202[1u] in
+          let @201 = @115 * f32x3(@123) in
+          let @125 = @201[1u] in
           let @127 = @112[0u] in
           let @128 = @125 < @127 in
-          let @130 = @202[0u] in
+          let @130 = @201[0u] in
           let @132 = @112[1u] in
           let @133 = @130 < @132 in
           let @134 = @128 || @133 in
@@ -165,7 +165,7 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
           } else {
             let @140 = max(@127, @132) in
             let @145 = min(@130, @125) in
-            let @147 = @202[2u] in
+            let @147 = @201[2u] in
             let @149 = @147 < @140 in
             let @152 = @112[2u] in
             let @153 = @145 < @152 in
@@ -204,22 +204,19 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
             do {
               let @180 = (*data) < @179 in
               if (@180) {
-                let @181 = (*_holds0) in
-                let @182 = !@181 in
-                if (@182) {
-                  let @183 = tris.prims in
-                  let @184 = reinterpret_cast<_tree_layout3>(_t60$split0on_nPrims3) in
-                  let @185 = @184.pOffset in
-                  let @186 = @185 + (*data) in
-                  let @187 = @183[@186] in
-                  let @188 = intersectsp_ray_tri(r, @187) in
-                  let @189 = @188.set in
-                  _holds0 max= @189
-                  if (!@189) {
-                    let @190 = (*data) + 1u in
-                    data = @190
-                    continue
-                  }
+                let @181 = tris.prims in
+                let @182 = reinterpret_cast<_tree_layout3>(_t60$split0on_nPrims3) in
+                let @183 = @182.pOffset in
+                let @184 = @183 + (*data) in
+                let @185 = @181[@184] in
+                let @186 = intersectsp_ray_tri(r, @185) in
+                let @187 = @186.set in
+                _holds0 max= @187
+                let @188 = (*_holds0) in
+                if (!@188) {
+                  let @189 = (*data) + 1u in
+                  data = @189
+                  continue
                 }
               }
               break
@@ -229,15 +226,15 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, _holds0 : mut (bool*
         break
       } while (true)
     }
-    let @192 = (*!count) != 0u in
-    let @193 = (*_holds0) in
-    let @194 = !@193 in
-    let @195 = @192 && @194 in
-    if (@195) {
-      let @196 = (*!count) - 1u in
-      let @197 = !stack[@196] in
-      tris_index!top = @197
-      !count = @196
+    let @191 = (*!count) != 0u in
+    let @192 = (*_holds0) in
+    let @193 = !@192 in
+    let @194 = @191 && @193 in
+    if (@194) {
+      let @195 = (*!count) - 1u in
+      let @196 = !stack[@195] in
+      tris_index!top = @196
+      !count = @195
       continue
     } else {
       return

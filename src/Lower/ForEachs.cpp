@@ -19,6 +19,9 @@ namespace lower {
 
 namespace {
 
+std::pair<ir::Stmt, ir::Stmt> split_trailing_exit(const ir::Stmt &body,
+                                                  const std::string &name);
+
 bool is_range_call(const ir::Expr &expr) {
     if (!expr.type().is<ir::Array_t>()) {
         return false;
@@ -207,7 +210,18 @@ struct LowerToForAll : public ir::Mutator {
                 internal_assert(inserted)
                     << "Lowering ForEach encountered duplicate variable: "
                     << node->name;
-                ir::Stmt body = mutate(node->body);
+                // The lanes of a tile are a parallel batch (the ParFor
+                // below), so a `break` among them takes effect when the
+                // batch is done: a trailing exit test that does not read
+                // the element -- `if (decided) break`, what a quantifier
+                // puts after each element's test (Lower/Trees.cpp,
+                // guard_iteration) -- is made once per tile, after its
+                // lanes, where the loop it leaves is the one over tiles. A
+                // test that reads the element stays with it, and the SSA
+                // conversion refuses it (SSA/Convert.cpp, visit(Break)).
+                auto [per_lane, exit_test] = split_trailing_exit(node->body, node->name);
+                ir::Stmt body = mutate(per_lane);
+                ir::Stmt after = exit_test.defined() ? mutate(exit_test) : ir::Stmt();
                 repls.erase(node->name);
                 // The lanes the tile's `where` leaves out are not elements
                 // (ir::TiledArray::valid): the body runs under the predicate
@@ -235,6 +249,9 @@ struct LowerToForAll : public ir::Mutator {
                     ir::ParFor::Slice{make_zero(index_t), width,
                                       make_one(index_t)},
                     std::move(body));
+                if (after.defined()) {
+                    lanes = ir::Sequence::make({std::move(lanes), std::move(after)});
+                }
                 return ir::ForAll::make(
                     tile_name,
                     ir::ForAll::Slice{make_zero(index_t), std::move(tiles),
@@ -277,6 +294,38 @@ struct LowerToForAll : public ir::Mutator {
         return ir::ForAll::make(idx_name, std::move(slice), std::move(body));
     }
 };
+
+// A loop body's trailing `if (c) break`, when `c` does not read the
+// element `name`, split off from the rest: {rest, the test}, or {body,
+// undefined} when the body does not end so.
+std::pair<ir::Stmt, ir::Stmt> split_trailing_exit(const ir::Stmt &body,
+                                                  const std::string &name) {
+    std::vector<ir::Stmt> stmts;
+    if (const ir::Sequence *seq = body.as<ir::Sequence>()) {
+        stmts = seq->stmts;
+    } else {
+        stmts = {body};
+    }
+    if (stmts.empty()) {
+        return {body, ir::Stmt()};
+    }
+    const ir::IfElse *last = stmts.back().as<ir::IfElse>();
+    if (last == nullptr || last->else_body.defined() ||
+        !last->then_body.as<ir::Break>()) {
+        return {body, ir::Stmt()};
+    }
+    for (const ir::TypedVar &var : ir::gather_free_vars(last->cond)) {
+        if (var.name == name) {
+            return {body, ir::Stmt()};
+        }
+    }
+    ir::Stmt exit_test = stmts.back();
+    stmts.pop_back();
+    ir::Stmt rest = stmts.empty()    ? ir::Stmt()
+                    : stmts.size() == 1 ? stmts.front()
+                                        : ir::Sequence::make(std::move(stmts));
+    return {std::move(rest), std::move(exit_test)};
+}
 
 } // namespace
 

@@ -1863,25 +1863,27 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Type tuple_t;
         // What the set yields, and how the accumulator holds it: a reference
         // into the named tree for each component `stored_in` names one for,
-        // the value of the others.
+        // the value of the others -- except the components `alongside`
+        // names a slot for, which are not carried through the traversal at
+        // all but written to their slot when the key improves (see below).
         ir::Type element_t;
         ir::Type held_t;
         StoredIn stored_in;
+        std::vector<std::optional<ir::WriteLoc>> alongside;
 
         RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
                            ir::Type t, ir::Type element_t, ir::Type held_t,
-                           StoredIn stored_in)
+                           StoredIn stored_in,
+                           std::vector<std::optional<ir::WriteLoc>> alongside)
             : dir(dir), metric(std::move(met)), loc(std::move(l)),
               tuple_t(std::move(t)), element_t(std::move(element_t)),
-              held_t(std::move(held_t)), stored_in(std::move(stored_in)) {}
+              held_t(std::move(held_t)), stored_in(std::move(stored_in)),
+              alongside(std::move(alongside)) {}
 
         using ir::Mutator::visit;
 
-        // The element as the accumulator keeps it.
-        ir::Expr hold(const ir::Expr &element) const {
-            if (ir::equals(held_t, element_t)) {
-                return element; // nothing by reference
-            }
+        // The element's components, one per level and annotation.
+        std::vector<ir::Expr> components(const ir::Expr &element) const {
             std::vector<ir::Expr> parts;
             if (element_t.is<ir::Tuple_t>()) {
                 for (size_t i = 0; i < stored_in.size(); i++) {
@@ -1891,12 +1893,44 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             } else {
                 parts.push_back(element);
             }
+            return parts;
+        }
+
+        // The element as the accumulator keeps it: the components carried
+        // through the traversal, a reference where the component is a place
+        // in a tree's storage, the value otherwise; the components written
+        // alongside are left out.
+        ir::Expr hold(const ir::Expr &element) const {
+            if (ir::equals(held_t, element_t)) {
+                return element; // nothing by reference
+            }
+            std::vector<ir::Expr> parts = components(element);
+            std::vector<ir::Expr> carried;
             for (size_t i = 0; i < parts.size(); i++) {
-                if (stored_in[i].has_value()) {
-                    parts[i] = ir::RefTo::make(parts[i], *stored_in[i]);
+                if (alongside[i].has_value()) {
+                    continue;
+                }
+                carried.push_back(stored_in[i].has_value()
+                                      ? ir::RefTo::make(parts[i], *stored_in[i])
+                                      : parts[i]);
+            }
+            return ir::Build::make(held_t, std::move(carried));
+        }
+
+        // The components written to their slots when the key improves.
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>>
+        written_alongside(const ir::Expr &element) const {
+            std::vector<std::pair<ir::WriteLoc, ir::Expr>> written;
+            if (ir::equals(held_t, element_t)) {
+                return written;
+            }
+            std::vector<ir::Expr> parts = components(element);
+            for (size_t i = 0; i < parts.size(); i++) {
+                if (alongside[i].has_value()) {
+                    written.emplace_back(*alongside[i], parts[i]);
                 }
             }
-            return ir::Build::make(held_t, std::move(parts));
+            return written;
         }
 
         // yield x => upd a arg(a, (M(x), x))
@@ -1913,6 +1947,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
             std::vector<ir::Expr> values = {std::move(value),
                                             hold(node->value)};
             ir::Expr update = ir::Build::make(tuple_t, std::move(values));
+            std::vector<std::pair<ir::WriteLoc, ir::Expr>> written =
+                written_alongside(node->value);
 
             // An Accumulate::Arg{min,max}, which is what the running best
             // takes from an element: the compare-and-select over the pair.
@@ -1929,7 +1965,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                                         dir == Extremum::Min
                                             ? ir::Accumulate::Argmin
                                             : ir::Accumulate::Argmax,
-                                        std::move(update));
+                                        std::move(update), false, false,
+                                        std::move(written));
         }
 
         ir::Stmt visit(const ir::Iterate *node) override {
@@ -1969,10 +2006,42 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     // traversal is built, because the accumulator's type is threaded through
     // it.
     const StoredIn stored_in = stored_components(inner, {}, tree_types);
+    bool any_ref = false;
+    std::vector<bool> by_ref;
+    for (const auto &in : stored_in) {
+        any_ref = any_ref || in.has_value();
+        by_ref.push_back(in.has_value());
+    }
+    // A map annotation's components -- the trailing ones, computed per
+    // element (annotation_arity) -- are not carried through the traversal
+    // when the element itself is held by reference: each gets a slot of its
+    // own, written when the key improves (Accumulate::alongside) and read
+    // once after the search. Carried, a record of several fields rides the
+    // whole traversal as that many live values -- the registers a leaf's
+    // test wants -- where the reference it travels with is one word; Embree
+    // writes its hit into the ray-hit struct on each improvement and carries
+    // tfar alone. Where the program copies the slot into its answer, the
+    // slot becomes the answer's memory and the copy goes
+    // (SSA/DestinationPassing.h), which is Embree's shape exactly; a slot
+    // nothing copies out is promoted into values as any local is. An
+    // element held by value, with no reference beside it, stays as it was.
+    static size_t counter = 0;
+    const size_t annotations = annotation_arity(inner);
+    std::vector<std::optional<ir::WriteLoc>> alongside(stored_in.size());
+    std::vector<ir::Stmt> slots;
     std::vector<ir::Type> held;
     if (const auto *tuple = ret_type.as<ir::Tuple_t>()) {
         internal_assert(stored_in.size() == tuple->etypes.size());
         for (size_t i = 0; i < stored_in.size(); i++) {
+            if (any_ref && i + annotations >= stored_in.size() &&
+                !stored_in[i].has_value()) {
+                ir::WriteLoc slot("_record" + std::to_string(counter++),
+                                  tuple->etypes[i]);
+                slots.push_back(
+                    ir::Allocate::make(slot, ir::Allocate::Memory::Stack));
+                alongside[i] = std::move(slot);
+                continue;
+            }
             held.push_back(stored_in[i].has_value()
                                ? ir::ElementRef_t::make(tuple->etypes[i],
                                                         *stored_in[i])
@@ -1984,19 +2053,12 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                            ? ir::ElementRef_t::make(ret_type, *stored_in[0])
                            : ret_type);
     }
-    bool any_ref = false;
-    std::vector<bool> by_ref;
-    for (const auto &in : stored_in) {
-        any_ref = any_ref || in.has_value();
-        by_ref.push_back(in.has_value());
-    }
     // A tuple even for one component, so that the empty build that starts
     // the accumulator has something to be empty of: a reference has no
     // literal, and a tuple of references built from nothing refers nowhere.
     const ir::Type held_t = any_ref ? ir::Tuple_t::make(held) : ret_type;
     ir::Type tuple_t = ir::Tuple_t::make({metric_t, held_t});
 
-    static size_t counter = 0;
     std::string name = "_best" + std::to_string(counter++);
     ir::WriteLoc loc(name, tuple_t);
 
@@ -2008,19 +2070,26 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Expr init = ir::Build::make(tuple_t, std::move(values));
 
     // TODO(ajr): is stack memory ok here? it's not an array.
-    ir::Stmt header =
-        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack);
+    slots.push_back(
+        ir::Allocate::make(loc, std::move(init), ir::Allocate::Memory::Stack));
+    ir::Stmt header = ir::Sequence::make(std::move(slots));
 
     ir::Expr ret_var = ir::Var::make(tuple_t, std::move(name));
     ir::Expr best_metric = ir::Extract::make(ret_var, 0);
     ir::Expr best_held = ir::Extract::make(ret_var, 1);
     // The best element back from what the accumulator holds: a component
-    // kept by reference is read through its reference, once, here.
+    // kept by reference is read through its reference, once, here; one
+    // written alongside is read from its slot, once, here.
     ir::Expr best_ref = best_held;
     if (any_ref) {
         std::vector<ir::Expr> parts;
+        int carried = 0;
         for (size_t i = 0; i < by_ref.size(); i++) {
-            ir::Expr part = ir::Extract::make(best_held, static_cast<int>(i));
+            if (alongside[i].has_value()) {
+                parts.push_back(alongside[i]->to_expr());
+                continue;
+            }
+            ir::Expr part = ir::Extract::make(best_held, carried++);
             parts.push_back(by_ref[i] ? ir::Deref::make(part) : part);
         }
         best_ref = ret_type.is<ir::Tuple_t>()
@@ -2086,8 +2155,8 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
     RewriteArgExtremum rewrite(dir, std::move(metric), std::move(loc),
                                std::move(tuple_t), ret_type, held_t,
-                               stored_in);
-    rewrite.annotation_args = annotation_arity(inner);
+                               stored_in, std::move(alongside));
+    rewrite.annotation_args = annotations;
     body = rewrite.mutate(body);
 
     return ir::Sequence::make(
@@ -2401,6 +2470,12 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             return is_any ? ~acc : acc;
         }
 
+        // The accumulator settled: `any` found its hit, `all` its miss.
+        ir::Expr decided() const {
+            ir::Expr acc = loc.to_expr();
+            return is_any ? acc : ~acc;
+        }
+
         // yield x => upd a (a | P(x)), under the same two guards `visit(Scan)`
         // puts on a subtree.
         //
@@ -2496,9 +2571,19 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             return guard_with_volume(std::move(body), subtree_bounds());
         }
 
-        // See Rewriter::guard_iteration.
+        // See Rewriter::guard_iteration. The element is tested, and the loop
+        // left the moment the accumulator is decided -- `any` found a hit,
+        // `all` a miss -- rather than tested for a decision at the top of
+        // the next element: the same iterations, one block's test of the
+        // flag fewer each, and the exit a branch on the test's own result,
+        // which is the shape of Embree's occluded leaf (`if (any(valid))
+        // return true`, triangle_intersector_moeller.h). The leaf is only
+        // entered undecided (guard_leaf), so the first element needs no
+        // test of its own.
         ir::Stmt guard_iteration(ir::Stmt body) override {
-            return ir::IfElse::make(still_undecided(), std::move(body));
+            return ir::Sequence::make(
+                {std::move(body),
+                 ir::IfElse::make(decided(), ir::Break::make())});
         }
 
         // The bounds of the predicate over the subtree currently being matched.

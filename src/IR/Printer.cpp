@@ -1742,6 +1742,15 @@ void Printer::visit(const Accumulate *node) {
     }
     }
     print_no_parens(node->value);
+    // The places written alongside the pair when the key improves.
+    const char *sep = " with ";
+    for (const auto &[place, written] : node->alongside) {
+        os << sep;
+        print(place);
+        os << " = ";
+        print_no_parens(written);
+        sep = ", ";
+    }
     end_stmt();
 }
 

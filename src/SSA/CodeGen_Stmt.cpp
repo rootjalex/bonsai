@@ -407,14 +407,21 @@ Stmt codegen_instruction(const Instruction &instr) {
         case Instruction::Op::AccMin:
         case Instruction::Op::AccMax: {
             // A third operand is the execution mask of a vectorized
-            // accumulate, as for a store below.
-            internal_assert(instr.operands.size() == 2 ||
-                            instr.operands.size() == 3)
+            // accumulate, as for a store below; an argmin's places written
+            // alongside its pair close the list.
+            internal_assert(instr.operands_before_alongside() == 2 ||
+                            instr.operands_before_alongside() == 3)
                 << instr.operands.size();
             WriteLoc loc = codegen_gep(instr.operands[0]);
             auto op = codegen_acc_op(instr.op);
             auto val = codegen_value(instr.operands[1]);
-            if (instr.operands.size() == 3) {
+            std::vector<std::pair<WriteLoc, Expr>> alongside;
+            for (size_t i = instr.alongside_begin(); i + 1 < instr.operands.size();
+                 i += 2) {
+                alongside.emplace_back(codegen_gep(instr.operands[i]),
+                                       codegen_value(instr.operands[i + 1]));
+            }
+            if (instr.has_mask()) {
                 // Spelled in statements the way CodeGen_LLVM_SSA.cpp lowers
                 // it: into per-lane memory, a masked store of the combined
                 // value; into shared memory, the accumulate under a test that
@@ -428,8 +435,12 @@ Stmt codegen_instruction(const Instruction &instr) {
                     return IfElse::make(
                         std::move(mask),
                         Accumulate::make(std::move(loc), op, std::move(val),
-                                         instr.atomic));
+                                         instr.atomic, false,
+                                         std::move(alongside)));
                 }
+                internal_assert(alongside.empty())
+                    << "[unimplemented] an argmin into per-lane memory with "
+                    << "places written alongside it";
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
                     Expr place = codegen_value(instr.operands[0]);
                     Expr current = Deref::make(
@@ -479,10 +490,10 @@ Stmt codegen_instruction(const Instruction &instr) {
                 return IfElse::make(
                     VectorReduce::make(VectorReduce::Or, std::move(mask)),
                     Accumulate::make(std::move(loc), op, std::move(val),
-                                     instr.atomic));
+                                     instr.atomic, false, std::move(alongside)));
             }
             return Accumulate::make(std::move(loc), op, std::move(val),
-                                    instr.atomic);
+                                    instr.atomic, false, std::move(alongside));
         }
         case Instruction::Op::Print:
             return Print::make(codegen_values(instr.operands));

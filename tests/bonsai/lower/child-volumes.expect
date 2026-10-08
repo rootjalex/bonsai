@@ -35,8 +35,9 @@ func _traverse_tree0(r : Ray, tris : tree[[Triangle]] BVH4) -> bool {
     | Leaf(data : Triangle[]) with data = data ->
       if (!_holds0) { // gate
         foreach [data] _iter0 in (tris as Leaf).data {
-          if (!_holds0) {
-            _holds0 max= intersects(r, _iter0)
+          _holds0 max= intersects(r, _iter0)
+          if (_holds0) {
+            break
           }
         }
       }

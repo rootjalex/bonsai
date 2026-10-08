@@ -747,11 +747,18 @@ Stmt Mutator::visit(const Store *node) {
 Stmt Mutator::visit(const Accumulate *node) {
     auto [loc, not_changed] = mutate_writeloc(node->loc);
     Expr value = mutate(node->value);
+    std::vector<std::pair<WriteLoc, Expr>> alongside;
+    for (const auto &[place, written] : node->alongside) {
+        auto [p, same_place] = mutate_writeloc(place);
+        Expr w = mutate(written);
+        not_changed = not_changed && same_place && w.same_as(written);
+        alongside.emplace_back(std::move(p), std::move(w));
+    }
     if (not_changed && value.same_as(node->value)) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value),
-                            node->atomic, node->spawned);
+                            node->atomic, node->spawned, std::move(alongside));
 }
 
 Stmt Mutator::visit(const Label *node) {

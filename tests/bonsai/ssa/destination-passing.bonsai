@@ -1,0 +1,102 @@
+//! flags: -p ssa
+
+// The record of a query written where the program puts it
+// (SSA/DestinationPassing.h). `closest` carries a record beside its key --
+// the argmin's element is the pair of the triangle and `Record{distmin,
+// p0}`, made in the leaf (lower/argmin-over-map.bonsai) -- and the leaf
+// writes the record into a slot of its own beside the pair
+// (ir::Accumulate::alongside), read once after the search. Three callers:
+//
+//   * `closest_all` copies the record into `hits[i]` and nothing else reads
+//     it: the slot becomes `hits[i]` -- `gep(hits, i)` where the alloca was,
+//     handed to the traversal in its place, and the copy gone;
+//   * `closest_sum` reads a field of the record as well as storing it: the
+//     slot stays a slot (the loaded value is read, not just stored);
+//   * `closest`, the single query, returns the record inside its answer:
+//     no store to a destination, the slot stays.
+//
+// What to read for: in `closest_all`'s body the traversal's call takes
+// `gep(hits, i)` as its record argument and the block that once stored
+// `hits[i]` has no store; in the other two the call takes `_record...`,
+// an alloca, and the copy or the return remains.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+element Record {
+    d : Float;
+    p0 : vec3f;
+}
+
+func [[export]] closest(p : Point) =
+    argmin(|t : Triangle, c : Record| distmin(p, t),
+           map(|t : Triangle| (t, Record{distmin(p, t), t.p0}), tris));
+
+func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[Record, n]) {
+    parfor i in 0u:n {
+        c = closest(points[i]);
+        hits[i] = c[1];
+    }
+    return;
+}
+
+func [[export]] closest_sum(n : u32, points : array[Point, n], hits : mut array[Record, n]) -> Float {
+    total : mut Float = 0.0;
+    for i in 0u:n {
+        c = closest(points[i]);
+        hits[i] = c[1];
+        total = total + c[1].d;
+    }
+    return total;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[4] {
+                p0 : vec3f;
+                p1 : vec3f;
+                p2 : vec3f;
+                id : u32;
+            } where id != 4294967295u;
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, (ref >> 4) * 4u, (kind - 8u) * 4u); };
+            };
+        };
+    };
+
+    closest.sort(tris.Interior,
+                 |i : u32, p : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(p, AABB{lo[i], hi[i]}))
+           .vectorize(tris.Interior.children)
+           .vectorize(tris.Leaf.data)
+           .loopify(64);
+}

@@ -483,9 +483,13 @@ struct Rename : public ir::Mutator {
         return make(ir::Store::make(node->loc, mutate(node->value)));
     }
     ir::Stmt visit(const ir::Accumulate *node) override {
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            alongside.emplace_back(place, mutate(written));
+        }
         return make(ir::Accumulate::make(node->loc, node->op,
                                          mutate(node->value), node->atomic,
-                                         node->spawned));
+                                         node->spawned, std::move(alongside)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {
@@ -855,8 +859,16 @@ class LVN : public ir::Mutator {
         if (!mutable_variables.contains(node->loc.base)) {
             mutable_variables.add_to_frame(node->loc.base);
         }
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            if (!mutable_variables.contains(place.base)) {
+                mutable_variables.add_to_frame(place.base);
+            }
+            alongside.emplace_back(place, mutate(written));
+        }
         return ir::Accumulate::make(node->loc, node->op, mutate(node->value),
-                                    node->atomic, node->spawned);
+                                    node->atomic, node->spawned,
+                                    std::move(alongside));
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {

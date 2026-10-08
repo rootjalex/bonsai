@@ -390,6 +390,17 @@ bool must_skip(const Cfg &cfg, const BlockSet &region,
                 safe_address(*instr->operands[0])) {
                 continue;
             }
+            // A write in a divergent arm is predicated by the arm's mask, so
+            // with every lane off it would write nothing (ispc's
+            // SafeToRunWithMaskAllOff says so of a masked store) -- and yet
+            // the test stays in front of it: an arm that writes is an arm
+            // that did work worth writing, a leaf's winning lane reduced and
+            // its record stored, and the test is what spares that work on
+            // the blocks no lane improved, which are most of them. Embree
+            // guards the same way (`if (none(valid)) return` before its
+            // epilog). Measured the other way on 2026-10-08: the guards gone
+            // from the argmin's update arms cost 5-10% on diffuse rays and 5%
+            // on the closest point, for no gain on the any hit.
             if (touches_memory(*instr)) {
                 return true;
             }
@@ -2359,9 +2370,11 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 instr->op != Instruction::Op::Push && !prefetch) {
                 continue;
             }
-            internal_assert(instr->operands.size() == 2)
+            internal_assert(instr->operands_before_alongside() == 2)
                 << "Write in " << name << " is already predicated";
-            instr->operands.push_back(*mask);
+            // The mask goes after the place and the value, before any places
+            // an argmin writes alongside its pair (Instruction::alongside).
+            instr->operands.insert(instr->operands.begin() + 2, *mask);
         }
     }
 

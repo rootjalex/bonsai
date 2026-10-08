@@ -1027,7 +1027,7 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                     break;
                 }
                 const shared_ptr<Value> mask =
-                    instr->operands.size() == 3 ? instr->operands[2] : nullptr;
+                    instr->has_mask() ? instr->operands[2] : nullptr;
                 const auto here = block.shared_from_this();
 
                 // One gang vector of a component (or of the whole scalar value),
@@ -1170,6 +1170,17 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                         Instruction::Op::MakeStruct, std::move(parts), here);
                     widened.push_back(rebuilt);
                     value = std::make_shared<Value>(rebuilt);
+                    // The values written alongside the pair: one per lane
+                    // like the pair's own held fields, each taken from the
+                    // same winning lane; their places are shared memory.
+                    for (size_t i = instr->alongside_begin();
+                         i + 1 < instr->operands.size(); i += 2) {
+                        internal_assert(
+                            !is_gang_wide(instr->operands[i]->get_type(), lanes))
+                            << "[unimplemented] " << instr->name
+                            << " writes a per-lane place alongside its pair";
+                        instr->operands[i + 1] = at_lane(instr->operands[i + 1]);
+                    }
                 } else if (is_widened_vector(value_type)) {
                     const Struct_t *s = value_type.as<Struct_t>();
                     vector<shared_ptr<Value>> components;

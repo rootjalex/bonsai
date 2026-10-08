@@ -13,13 +13,13 @@ _recloop_func0:
   %3 = extractvalue %struct._tree_layout0 %tris, 3
   %4 = fdiv <3 x float> splat (float 1.000000e+00), %1
   %5 = fcmp olt <3 x float> %4, zeroinitializer
-  %deref_temp.pre276 = load i1, ptr %_holds0, align 1, !tbaa !0
+  %deref_temp.pre262 = load i1, ptr %_holds0, align 1, !tbaa !0
   br label %tailrecurse
 
 tailrecurse:                                      ; preds = %"!par_cont_6!next", %_recloop_func0
-  %_holds0.promoted = phi i1 [ %deref_temp.pre276, %_recloop_func0 ], [ %_holds0.promoted279, %"!par_cont_6!next" ]
-  %deref_temp = phi i1 [ %deref_temp.pre276, %_recloop_func0 ], [ %deref_temp277, %"!par_cont_6!next" ]
-  %tris_ref.tr = phi i32 [ %tris_ref, %_recloop_func0 ], [ %extract164.unpack.unpack189, %"!par_cont_6!next" ]
+  %_holds0.promoted = phi i1 [ %deref_temp.pre262, %_recloop_func0 ], [ %_holds0.promoted265, %"!par_cont_6!next" ]
+  %deref_temp = phi i1 [ %deref_temp.pre262, %_recloop_func0 ], [ %deref_temp263, %"!par_cont_6!next" ]
+  %tris_ref.tr = phi i32 [ %tris_ref, %_recloop_func0 ], [ %extract151.unpack.unpack176, %"!par_cont_6!next" ]
   br i1 %deref_temp, label %"!merge_1", label %"!then_0"
 
 "!then_0":                                        ; preds = %tailrecurse
@@ -29,38 +29,38 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next",
 
 children0_pf_head.preheader:                      ; preds = %"!then_0"
   %8 = lshr exact i32 %tris_ref.tr, 4
-  %_wide153 = zext nneg i32 %8 to i64
-  %extract_ptr154 = getelementptr inbounds nuw [56 x i8], ptr %3, i64 %_wide153
-  %extract155.elt219 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 8
-  %extract155.unpack220.unpack.unpack = load float, ptr %extract155.elt219, align 1
-  %extract155.unpack220.unpack.elt232 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 12
-  %extract155.unpack220.unpack.unpack233 = load float, ptr %extract155.unpack220.unpack.elt232, align 1
-  %extract155.unpack220.elt227 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 16
-  %extract155.unpack220.unpack228.unpack = load float, ptr %extract155.unpack220.elt227, align 1
-  %extract155.unpack220.unpack228.elt235 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 20
-  %extract155.unpack220.unpack228.unpack236 = load float, ptr %extract155.unpack220.unpack228.elt235, align 1
-  %extract155.unpack220.elt229 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 24
-  %extract155.unpack220.unpack230.unpack = load float, ptr %extract155.unpack220.elt229, align 1
-  %extract155.unpack220.unpack230.elt238 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 28
-  %extract155.unpack220.unpack230.unpack239 = load float, ptr %extract155.unpack220.unpack230.elt238, align 1
-  %extract155.elt221 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 32
-  %extract155.unpack222.unpack.unpack = load float, ptr %extract155.elt221, align 1
-  %extract155.unpack222.unpack.elt246 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 36
-  %extract155.unpack222.unpack.unpack247 = load float, ptr %extract155.unpack222.unpack.elt246, align 1
-  %extract155.unpack222.elt241 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 40
-  %extract155.unpack222.unpack242.unpack = load float, ptr %extract155.unpack222.elt241, align 1
-  %extract155.unpack222.unpack242.elt249 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 44
-  %extract155.unpack222.unpack242.unpack250 = load float, ptr %extract155.unpack222.unpack242.elt249, align 1
-  %extract155.unpack222.elt243 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 48
-  %extract155.unpack222.unpack244.unpack = load float, ptr %extract155.unpack222.elt243, align 1
-  %extract155.unpack222.unpack244.elt252 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 52
-  %extract155.unpack222.unpack244.unpack253 = load float, ptr %extract155.unpack222.unpack244.elt252, align 1
-  %9 = insertelement <3 x float> poison, float %extract155.unpack220.unpack.unpack, i64 0
-  %10 = insertelement <3 x float> %9, float %extract155.unpack220.unpack228.unpack, i64 1
-  %11 = insertelement <3 x float> %10, float %extract155.unpack220.unpack230.unpack, i64 2
-  %12 = insertelement <3 x float> poison, float %extract155.unpack222.unpack.unpack, i64 0
-  %13 = insertelement <3 x float> %12, float %extract155.unpack222.unpack242.unpack, i64 1
-  %14 = insertelement <3 x float> %13, float %extract155.unpack222.unpack244.unpack, i64 2
+  %_wide140 = zext nneg i32 %8 to i64
+  %extract_ptr141 = getelementptr inbounds nuw [56 x i8], ptr %3, i64 %_wide140
+  %extract142.elt206 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 8
+  %extract142.unpack207.unpack.unpack = load float, ptr %extract142.elt206, align 1
+  %extract142.unpack207.unpack.elt219 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 12
+  %extract142.unpack207.unpack.unpack220 = load float, ptr %extract142.unpack207.unpack.elt219, align 1
+  %extract142.unpack207.elt214 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 16
+  %extract142.unpack207.unpack215.unpack = load float, ptr %extract142.unpack207.elt214, align 1
+  %extract142.unpack207.unpack215.elt222 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 20
+  %extract142.unpack207.unpack215.unpack223 = load float, ptr %extract142.unpack207.unpack215.elt222, align 1
+  %extract142.unpack207.elt216 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 24
+  %extract142.unpack207.unpack217.unpack = load float, ptr %extract142.unpack207.elt216, align 1
+  %extract142.unpack207.unpack217.elt225 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 28
+  %extract142.unpack207.unpack217.unpack226 = load float, ptr %extract142.unpack207.unpack217.elt225, align 1
+  %extract142.elt208 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 32
+  %extract142.unpack209.unpack.unpack = load float, ptr %extract142.elt208, align 1
+  %extract142.unpack209.unpack.elt233 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 36
+  %extract142.unpack209.unpack.unpack234 = load float, ptr %extract142.unpack209.unpack.elt233, align 1
+  %extract142.unpack209.elt228 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 40
+  %extract142.unpack209.unpack229.unpack = load float, ptr %extract142.unpack209.elt228, align 1
+  %extract142.unpack209.unpack229.elt236 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 44
+  %extract142.unpack209.unpack229.unpack237 = load float, ptr %extract142.unpack209.unpack229.elt236, align 1
+  %extract142.unpack209.elt230 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 48
+  %extract142.unpack209.unpack231.unpack = load float, ptr %extract142.unpack209.elt230, align 1
+  %extract142.unpack209.unpack231.elt239 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 52
+  %extract142.unpack209.unpack231.unpack240 = load float, ptr %extract142.unpack209.unpack231.elt239, align 1
+  %9 = insertelement <3 x float> poison, float %extract142.unpack207.unpack.unpack, i64 0
+  %10 = insertelement <3 x float> %9, float %extract142.unpack207.unpack215.unpack, i64 1
+  %11 = insertelement <3 x float> %10, float %extract142.unpack207.unpack217.unpack, i64 2
+  %12 = insertelement <3 x float> poison, float %extract142.unpack209.unpack.unpack, i64 0
+  %13 = insertelement <3 x float> %12, float %extract142.unpack209.unpack229.unpack, i64 1
+  %14 = insertelement <3 x float> %13, float %extract142.unpack209.unpack231.unpack, i64 2
   %15 = select <3 x i1> %5, <3 x float> %14, <3 x float> %11
   %16 = fsub <3 x float> %15, %0
   %17 = fmul <3 x float> %4, %16
@@ -121,24 +121,21 @@ children0_pf_head.preheader:                      ; preds = %"!then_0"
   %wide.trip.count = zext i32 %30 to i64
   br label %"!for_data_body_18"
 
-"!for_data_body_18":                              ; preds = %"!for_data_body_18.lr.ph", %"!merge_21"
-  %indvars.iv = phi i64 [ 0, %"!for_data_body_18.lr.ph" ], [ %indvars.iv.next, %"!merge_21" ]
-  %deref_temp101272 = phi i1 [ %_holds0.promoted, %"!for_data_body_18.lr.ph" ], [ %deref_temp101271, %"!merge_21" ]
-  br i1 %deref_temp101272, label %"!merge_21", label %"!then_20"
-
-"!then_20":                                       ; preds = %"!for_data_body_18"
+"!for_data_body_18":                              ; preds = %intersectsp_ray_tri.exit, %"!for_data_body_18.lr.ph"
+  %indvars.iv = phi i64 [ 0, %"!for_data_body_18.lr.ph" ], [ %indvars.iv.next, %intersectsp_ray_tri.exit ]
+  %acc_base258 = phi i1 [ %_holds0.promoted, %"!for_data_body_18.lr.ph" ], [ false, %intersectsp_ray_tri.exit ]
   %62 = trunc nuw i64 %indvars.iv to i32
   %63 = add i32 %31, %62
   %_wide = zext i32 %63 to i64
   %extract_ptr = getelementptr inbounds nuw [48 x i8], ptr %29, i64 %_wide
   %extract.unpack = load <3 x float>, ptr %extract_ptr, align 16
-  %extract.elt178 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %extract.unpack179 = load <3 x float>, ptr %extract.elt178, align 16
-  %extract.elt180 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %extract.unpack181 = load <3 x float>, ptr %extract.elt180, align 16
-  %64 = fsub <3 x float> %extract.unpack181, %extract.unpack
+  %extract.elt165 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %extract.unpack166 = load <3 x float>, ptr %extract.elt165, align 16
+  %extract.elt167 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %extract.unpack168 = load <3 x float>, ptr %extract.elt167, align 16
+  %64 = fsub <3 x float> %extract.unpack168, %extract.unpack
   %65 = extractelement <3 x float> %64, i64 1
-  %66 = fsub <3 x float> %extract.unpack179, %extract.unpack
+  %66 = fsub <3 x float> %extract.unpack166, %extract.unpack
   %67 = extractelement <3 x float> %66, i64 2
   %68 = extractelement <3 x float> %64, i64 2
   %69 = extractelement <3 x float> %66, i64 1
@@ -170,10 +167,10 @@ children0_pf_head.preheader:                      ; preds = %"!then_0"
   %95 = fcmp oeq float %94, 0.000000e+00
   br i1 %95, label %intersectsp_ray_tri.exit, label %"!merge_1.i"
 
-"!merge_1.i":                                     ; preds = %"!then_20"
+"!merge_1.i":                                     ; preds = %"!for_data_body_18"
   %96 = fsub <3 x float> %extract.unpack, %0
-  %97 = fsub <3 x float> %extract.unpack179, %0
-  %98 = fsub <3 x float> %extract.unpack181, %0
+  %97 = fsub <3 x float> %extract.unpack166, %0
+  %98 = fsub <3 x float> %extract.unpack168, %0
   %99 = extractelement <3 x float> %96, i32 %44
   %100 = extractelement <3 x float> %96, i32 %48
   %101 = extractelement <3 x float> %96, i32 %42
@@ -355,23 +352,20 @@ children0_pf_head.preheader:                      ; preds = %"!then_0"
   %250 = tail call float @llvm.fabs.f32(float %197)
   %251 = fmul float %250, %249
   %252 = fcmp ugt float %198, %251
-  br i1 %252, label %"!merge_14.i", label %intersectsp_ray_tri.exit
+  br i1 %252, label %intersectsp_ray_tri.exit.thread, label %intersectsp_ray_tri.exit
 
-"!merge_14.i":                                    ; preds = %"!merge_10.i"
-  br label %intersectsp_ray_tri.exit
+intersectsp_ray_tri.exit.thread:                  ; preds = %"!merge_10.i"
+  store i1 true, ptr %_holds0, align 1
+  br label %"!merge_1"
 
-intersectsp_ray_tri.exit:                         ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!then_20", %"!merge_14.i"
-  %_ret.sroa.10.sroa.0.0._ret.sroa.10.sroa.0.0._ret.sroa.10.0._ret.sroa.10.16..fca.1.load = phi i1 [ true, %"!merge_14.i" ], [ false, %"!then_20" ], [ false, %"!then_2.i" ], [ false, %"!merge_3.i" ], [ false, %"!merge_7.i" ], [ false, %"!else_9.i" ], [ false, %"!merge_10.i" ]
-  store i1 %_ret.sroa.10.sroa.0.0._ret.sroa.10.sroa.0.0._ret.sroa.10.0._ret.sroa.10.16..fca.1.load, ptr %_holds0, align 1
-  br label %"!merge_21"
-
-"!merge_21":                                      ; preds = %intersectsp_ray_tri.exit, %"!for_data_body_18"
-  %deref_temp101271 = phi i1 [ %_ret.sroa.10.sroa.0.0._ret.sroa.10.sroa.0.0._ret.sroa.10.0._ret.sroa.10.16..fca.1.load, %intersectsp_ray_tri.exit ], [ true, %"!for_data_body_18" ]
+intersectsp_ray_tri.exit:                         ; preds = %"!merge_10.i", %"!else_9.i", %"!merge_7.i", %"!merge_3.i", %"!then_2.i", %"!for_data_body_18"
+  store i1 %acc_base258, ptr %_holds0, align 1
   %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
-  br i1 %exitcond.not, label %"!merge_1", label %"!for_data_body_18"
+  %or.cond = select i1 %acc_base258, i1 true, i1 %exitcond.not
+  br i1 %or.cond, label %"!merge_1", label %"!for_data_body_18"
 
-"!merge_1":                                       ; preds = %"!par_cont_6!next", %tailrecurse, %"!merge_21", %"!else_3"
+"!merge_1":                                       ; preds = %"!par_cont_6!next", %tailrecurse, %intersectsp_ray_tri.exit, %intersectsp_ray_tri.exit.thread, %"!else_3"
   ret void
 
 "!else_8":                                        ; preds = %children0_pf_head.preheader
@@ -383,27 +377,27 @@ intersectsp_ray_tri.exit:                         ; preds = %"!merge_10.i", %"!e
   %254 = fcmp uge float %253, %max
   %255 = extractelement <3 x float> %17, i64 2
   %256 = fcmp uge float %min, %255
-  %.not256 = and i1 %254, %256
-  br i1 %.not256, label %"!else_11", label %"!merge_15"
+  %.not243 = and i1 %254, %256
+  br i1 %.not243, label %"!else_11", label %"!merge_15"
 
 "!else_11":                                       ; preds = %"!else_8"
-  %max_lt156 = fcmp olt float %max, %255
-  %max157 = select i1 %max_lt156, float %255, float %max
-  %min_lt158 = fcmp olt float %253, %min
-  %min159 = select i1 %min_lt158, float %253, float %min
-  %257 = fcmp ogt float %min159, 0.000000e+00
-  %258 = fcmp olt float %max157, %2
+  %max_lt143 = fcmp olt float %max, %255
+  %max144 = select i1 %max_lt143, float %255, float %max
+  %min_lt145 = fcmp olt float %253, %min
+  %min146 = select i1 %min_lt145, float %253, float %min
+  %257 = fcmp ogt float %min146, 0.000000e+00
+  %258 = fcmp olt float %max144, %2
   %259 = and i1 %258, %257
   br label %"!merge_15"
 
 "!merge_15":                                      ; preds = %"!else_8", %children0_pf_head.preheader, %"!else_11"
   %"intersects_Ray_AABB$r0" = phi i1 [ %259, %"!else_11" ], [ false, %"!else_8" ], [ false, %children0_pf_head.preheader ]
-  %260 = insertelement <3 x float> poison, float %extract155.unpack220.unpack.unpack233, i64 0
-  %261 = insertelement <3 x float> %260, float %extract155.unpack220.unpack228.unpack236, i64 1
-  %262 = insertelement <3 x float> %261, float %extract155.unpack220.unpack230.unpack239, i64 2
-  %263 = insertelement <3 x float> poison, float %extract155.unpack222.unpack.unpack247, i64 0
-  %264 = insertelement <3 x float> %263, float %extract155.unpack222.unpack242.unpack250, i64 1
-  %265 = insertelement <3 x float> %264, float %extract155.unpack222.unpack244.unpack253, i64 2
+  %260 = insertelement <3 x float> poison, float %extract142.unpack207.unpack.unpack220, i64 0
+  %261 = insertelement <3 x float> %260, float %extract142.unpack207.unpack215.unpack223, i64 1
+  %262 = insertelement <3 x float> %261, float %extract142.unpack207.unpack217.unpack226, i64 2
+  %263 = insertelement <3 x float> poison, float %extract142.unpack209.unpack.unpack234, i64 0
+  %264 = insertelement <3 x float> %263, float %extract142.unpack209.unpack229.unpack237, i64 1
+  %265 = insertelement <3 x float> %264, float %extract142.unpack209.unpack231.unpack240, i64 2
   %266 = select <3 x i1> %5, <3 x float> %265, <3 x float> %262
   %267 = fsub <3 x float> %266, %0
   %268 = fmul <3 x float> %4, %267
@@ -429,34 +423,34 @@ intersectsp_ray_tri.exit:                         ; preds = %"!merge_10.i", %"!e
   %281 = fcmp uge float %280, %max.1
   %282 = extractelement <3 x float> %268, i64 2
   %283 = fcmp uge float %min.1, %282
-  %.not256.1 = and i1 %281, %283
-  br i1 %.not256.1, label %"!else_11.1", label %"!merge_15.1"
+  %.not243.1 = and i1 %281, %283
+  br i1 %.not243.1, label %"!else_11.1", label %"!merge_15.1"
 
 "!else_11.1":                                     ; preds = %"!else_8.1"
-  %max_lt156.1 = fcmp olt float %max.1, %282
-  %max157.1 = select i1 %max_lt156.1, float %282, float %max.1
-  %min_lt158.1 = fcmp olt float %280, %min.1
-  %min159.1 = select i1 %min_lt158.1, float %280, float %min.1
-  %284 = fcmp ogt float %min159.1, 0.000000e+00
-  %285 = fcmp olt float %max157.1, %2
+  %max_lt143.1 = fcmp olt float %max.1, %282
+  %max144.1 = select i1 %max_lt143.1, float %282, float %max.1
+  %min_lt145.1 = fcmp olt float %280, %min.1
+  %min146.1 = select i1 %min_lt145.1, float %280, float %min.1
+  %284 = fcmp ogt float %min146.1, 0.000000e+00
+  %285 = fcmp olt float %max144.1, %2
   %286 = and i1 %285, %284
   br label %"!merge_15.1"
 
 "!merge_15.1":                                    ; preds = %"!else_11.1", %"!else_8.1", %"!merge_15"
   %"intersects_Ray_AABB$r0.1" = phi i1 [ %286, %"!else_11.1" ], [ false, %"!else_8.1" ], [ false, %"!merge_15" ]
-  %extract164.unpack.elt188 = getelementptr inbounds nuw i8, ptr %extract_ptr154, i64 4
-  %extract164.unpack.unpack189 = load i32, ptr %extract164.unpack.elt188, align 1
+  %extract151.unpack.elt175 = getelementptr inbounds nuw i8, ptr %extract_ptr141, i64 4
+  %extract151.unpack.unpack176 = load i32, ptr %extract151.unpack.elt175, align 1
   br i1 %"intersects_Ray_AABB$r0", label %"!par_cont_6!call", label %"!par_cont_6!next"
 
 "!par_cont_6!call":                               ; preds = %"!merge_15.1"
-  %extract164.unpack.unpack = load i32, ptr %extract_ptr154, align 1
-  tail call fastcc void @_recloop_func0(i32 %extract164.unpack.unpack, ptr %_holds0, %struct.Ray %r, %struct._tree_layout0 %tris)
+  %extract151.unpack.unpack = load i32, ptr %extract_ptr141, align 1
+  tail call fastcc void @_recloop_func0(i32 %extract151.unpack.unpack, ptr %_holds0, %struct.Ray %r, %struct._tree_layout0 %tris)
   %deref_temp.pre = load i1, ptr %_holds0, align 1, !tbaa !0
   br label %"!par_cont_6!next"
 
 "!par_cont_6!next":                               ; preds = %"!par_cont_6!call", %"!merge_15.1"
-  %_holds0.promoted279 = phi i1 [ %deref_temp.pre, %"!par_cont_6!call" ], [ %_holds0.promoted, %"!merge_15.1" ]
-  %deref_temp277 = phi i1 [ %deref_temp.pre, %"!par_cont_6!call" ], [ false, %"!merge_15.1" ]
+  %_holds0.promoted265 = phi i1 [ %deref_temp.pre, %"!par_cont_6!call" ], [ %_holds0.promoted, %"!merge_15.1" ]
+  %deref_temp263 = phi i1 [ %deref_temp.pre, %"!par_cont_6!call" ], [ false, %"!merge_15.1" ]
   br i1 %"intersects_Ray_AABB$r0.1", label %tailrecurse, label %"!merge_1"
 }
 

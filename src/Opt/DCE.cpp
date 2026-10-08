@@ -79,9 +79,17 @@ struct NameHygiene : ir::Mutator {
             return ir::Mutator::visit(node);
         }
         ir::WriteLoc location(it->second, node->loc.type);
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            auto renamed = old_to_new.find(place.base);
+            alongside.emplace_back(renamed == old_to_new.end()
+                                       ? place
+                                       : ir::WriteLoc(renamed->second, place.type),
+                                   mutate(written));
+        }
         return ir::Accumulate::make(std::move(location), node->op,
                                     mutate(node->value), node->atomic,
-                                    node->spawned);
+                                    node->spawned, std::move(alongside));
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
@@ -180,9 +188,16 @@ struct UnnameHygiene : ir::Mutator {
             return ir::Mutator::visit(node);
         }
         ir::WriteLoc loc(extract(node->loc.base), node->loc.type);
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            alongside.emplace_back(place.base.starts_with(DELIMITER)
+                                       ? ir::WriteLoc(extract(place.base), place.type)
+                                       : place,
+                                   mutate(written));
+        }
         return ir::Accumulate::make(std::move(loc), node->op,
                                     mutate(node->value), node->atomic,
-                                    node->spawned);
+                                    node->spawned, std::move(alongside));
     }
 
     ir::Stmt visit(const ir::LetStmt *node) override {
@@ -353,6 +368,21 @@ struct ComputeUseCounts : ir::Visitor {
         curr_var = node->loc.base;
         node->value.accept(this);
         curr_var.clear();
+        // The places written alongside the pair, with their values: each
+        // place is written here as the pair's own is, and what it is given
+        // is read on behalf of that place.
+        for (const auto &[place, written] : node->alongside) {
+            internal_assert(use_counts.contains(place.base))
+                << "ComputeUseCounts not active for var: " << place;
+            for (const auto &value : place.accesses) {
+                if (std::holds_alternative<ir::Expr>(value)) {
+                    std::get<ir::Expr>(value).accept(this);
+                }
+            }
+            curr_var = place.base;
+            written.accept(this);
+            curr_var.clear();
+        }
     }
 };
 
@@ -510,7 +540,19 @@ struct DeadCodeElimination : ir::Mutator {
         if (use_counts[node->loc.base] != 0) {
             return node;
         }
-        return handle_side_effects(node->loc, node->value);
+        // A place written alongside the pair that is read keeps the
+        // accumulate: the write to it is made under the pair's comparison.
+        for (const auto &[place, written] : node->alongside) {
+            if (use_counts[place.base] != 0) {
+                return node;
+            }
+        }
+        ir::Stmt side_effects = handle_side_effects(node->loc, node->value);
+        for (const auto &[place, written] : node->alongside) {
+            side_effects = merge_undef_seqs(std::move(side_effects),
+                                            handle_side_effects(place, written));
+        }
+        return side_effects;
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {

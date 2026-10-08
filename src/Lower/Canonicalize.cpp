@@ -96,12 +96,19 @@ struct RewriteVectorFields : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override {
         auto [loc, changed] = canonicalize_loc(node->loc);
         ir::Expr value = mutate(node->value);
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            auto [p, place_changed] = canonicalize_loc(place);
+            ir::Expr w = mutate(written);
+            changed = changed || place_changed || !w.same_as(written);
+            alongside.emplace_back(std::move(p), std::move(w));
+        }
         if (!changed && value.same_as(node->value)) {
             return node;
         } else {
             return ir::Accumulate::make(std::move(loc), node->op,
                                         std::move(value), node->atomic,
-                                        node->spawned);
+                                        node->spawned, std::move(alongside));
         }
     }
 

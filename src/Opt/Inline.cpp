@@ -456,9 +456,14 @@ class Inliner : public ir::Mutator {
         } else {
             value = mutate_hoisting(node->value, pre);
         }
+        std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
+        for (const auto &[place, written] : node->alongside) {
+            alongside.emplace_back(place, mutate_hoisting(written, pre));
+        }
         return with(std::move(pre),
                     ir::Accumulate::make(std::move(loc), node->op, value,
-                                         node->atomic, node->spawned));
+                                         node->atomic, node->spawned,
+                                         std::move(alongside)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {

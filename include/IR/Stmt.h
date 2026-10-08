@@ -363,8 +363,20 @@ struct Accumulate : StmtNode<Accumulate> {
     // checks), so the join is where the reducer is read.
     bool spawned = false;
 
+    // What an argmin or argmax writes beside its pair when the key improves:
+    // places of its own, each taking the value given, under the same
+    // comparison and -- in a vectorized leaf -- from the same winning lane
+    // as the pair. What travels with the key but is not carried through
+    // the traversal: a query's hit record, written to a slot that is read
+    // once after the search rather than kept live through every node (see
+    // Lower/Trees.cpp, build_arg_extremum; the slot becomes the answer's own
+    // memory where the program copies it there, SSA/DestinationPassing.h).
+    // Empty for every other op.
+    std::vector<std::pair<WriteLoc, Expr>> alongside;
+
     static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic = false,
-                     bool spawned = false);
+                     bool spawned = false,
+                     std::vector<std::pair<WriteLoc, Expr>> alongside = {});
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;
 };

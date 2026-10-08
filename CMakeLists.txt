@@ -266,6 +266,7 @@ target_sources(
     src/SSA/QueueStorage.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp
+    src/SSA/DestinationPassing.cpp
     src/SSA/DumpAnalysis.cpp
     src/SSA/HeapArrays.cpp
     src/SSA/HoistAllocations.cpp

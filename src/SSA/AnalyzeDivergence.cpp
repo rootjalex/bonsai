@@ -272,7 +272,7 @@ analyze_divergence(const Function &func, const string &entry,
     // A store or accumulate made by some lanes only: it carries a mask that is
     // not the region's own.
     const auto narrowed = [&](const Instruction &instr) {
-        return instr.operands.size() > 2 && !is_entry_mask(*instr.operands[2]);
+        return instr.has_mask() && !is_entry_mask(*instr.operands[2]);
     };
 
     // The region: a ParFor body ends at its Yield, and a Call's callee is

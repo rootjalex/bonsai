@@ -5835,6 +5835,223 @@ Not in the plan: the per-hit extraction through spilled vectors, which
 Embree does the same way, and the two masked multiplies, which are the
 record's honest work.
 
+**Fused against unfused, both against Embree (14:30-15:20, 27a9636f).**
+The user's ask: stop comparing with the kernel that makes no record, and
+measure the record's two placements against Embree -- fused (the map
+inside the argmin, the record made in the leaf: the committed program)
+and unfused (the argmin finds the triangle, `hit_record` on the winner
+after the traversal: the morning's program, scratch/unfused-app) -- the
+`embree` schedule, the standard cells, back to back (scratch/ab-fusion.sh,
+sweep-ab-{fused,unfused}). Bonsai over Embree, primary / diffuse / ao:
+
+| mesh | fused | unfused |
+|---|---|---|
+| pavilion | 0.95 / 1.01 / 0.99 | 0.85 / 0.99 / 0.99 |
+| head | 0.99 / 1.02 / 0.97 | 0.89 / 1.01 / 0.98 |
+| zero-day | 0.97 / 1.05 / 0.98 | 0.90 / 1.03 / 0.99 |
+| bmw | 1.01 / 1.04 / 1.04 | 0.92 / 1.01 / 1.00 |
+| crown | 1.00 / 1.07 / 0.99 | 0.93 / 1.06 / 1.00 |
+| ivy | 1.02 / 1.05 / 0.96 | 0.98 / 1.03 / 0.97 |
+| villa | 1.01 / 1.06 / 0.98 | 0.90 / 1.01 / 1.00 |
+| dambreak | 1.02 / 1.01 / 0.97 | 0.95 / 0.99 / 0.98 |
+| sportscar | 1.02 / 1.04 / 1.00 | 0.97 / 1.03 / 1.01 |
+| landscape | 0.95 / 1.15 / 1.11 | 0.89 / 1.09 / 1.16 |
+| lte-orb | 1.01 / 1.02 / 0.98 | 0.95 / 1.01 / 0.98 |
+| ganesha | 1.01 / 1.02 / -- | 0.96 / 1.02 / 0.99 |
+| dragon | 1.02 / 1.02 / 0.97 | 0.97 / 1.01 / 0.98 |
+
+The fusion is worth 4-11% on primary rays on every mesh and 1-5% on
+diffuse; the any hit, with no record, is level between the two. The
+fused program stays. What is left below Embree with it -- pavilion,
+zero-day and landscape at 0.95-0.97 on primary rays -- is the per-ray
+tax of the accumulator above; the user's direction is to take plan step
+1 (the record accumulated in its destination), and to never carry the
+key twice, which step 1 absorbs: the record's `t` becomes the
+destination's field and the key the loop's register copy, Embree's own
+arrangement (tfar in a register, written into the ray on each
+improvement).
+
+**The record stored, not carried: what was built (2026-10-07, afternoon).**
+LLVM's own O3 on the module had already said where the tax was: after it
+the accumulator is no alloca at all -- scalar replacement promotes the
+whole (key, reference, record) tuple, and the record's eight fields ride
+the traversal as loop-carried values, 49 phis against the id-only
+kernel's 32, which is what the 23 spill stores against 10 were. Embree
+carries tfar alone and stores u, v, Ng and primID into the ray-hit memory
+when a hit improves. So the lowering now does the same, and the user's
+rule was no new pass and nothing hacky:
+
+- `ir::Accumulate` has `alongside`: places an argmin or argmax writes
+  beside its pair when the key improves, each taking the value given,
+  under the same comparison and -- in a vectorized leaf -- from the same
+  winning lane (printed `_best argmin= (key, held) with _record = value`).
+  Every pass that rebuilds an Accumulate passes them through (Mutator,
+  Visitor, Canonicalize, RenamePointerToExpr, CSE, DCE, Inline), the
+  free-variable and mutation analyses count the places, DCE counts their
+  values as uses on the places' behalf and keeps an accumulate whose
+  alongside places are read. In the SSA an AccArgmin's operands close
+  with the (place, value) pairs after the place, the value and the mask
+  (`Instruction::alongside`, with `has_mask()` and `alongside_begin()` so
+  that no site counts operands; Linearize inserts a mask before the
+  pairs); the vectorizer's by-key tail selects each alongside value at
+  the winning lane as it does the held fields; the LLVM backend stores
+  them under the comparison's branch (`select` for the pair, a branch for
+  the stores, since nothing is to be written otherwise); the C++ source
+  emitter refuses them plainly.
+- `ir::Allocate::Memory::Stored`: stack storage that stays storage,
+  written at some points and read once after, never carried as a value
+  between. An SSA Alloca with `stored` set, which PromoteAllocas leaves
+  alone and the LLVM backend emits with volatile accesses -- the one way
+  LLVM offers to keep an alloca out of scalar replacement; one volatile
+  load of the slot at the end is enough to pin it, the per-hit stores
+  stay plain -- and the C++ emitter as `volatile`.
+- `build_arg_extremum` gives each by-value annotation component of an
+  argmin whose element is held by reference (the map's computed tail,
+  annotation_arity) a Stored slot of its own, `_recordN`, written
+  alongside the pair and read once in the footer in place of the carried
+  component; the carried tuple is the key and the reference, as it was
+  before the record. An element held by value with no reference beside
+  it stays as it was.
+
+Two bugs came out on the way, each fixed at its cause: build_traversal's
+`map` case had dropped the argmin's carry, and the three places that ask
+whether a metric is over one level counted its annotation parameters as
+levels (27a9636f); and DCE's use counter handled Accumulate by hand and
+so never saw the alongside values, letting the inliner's result temps die
+under them (the `Var ... not in current block` failure). The head check
+with the slot (one repeat): every row agrees with both references as
+before; Embree's primary first hit 0.98x against 0.99x carried and 0.92x
+unfused, the rest within noise. The four-mesh measurement at side 2048,
+least of five, follows.
+
+## The record written where the program puts it, and the any hit's exit at the hit (2026-10-07 night, 2026-10-08)
+
+The morning's record work (the section above) left the hit record carried
+through the traversal as loop-carried values: LLVM's SROA promoted the
+accumulator's slot after inlining, 49 phis against 32 in a kernel with no
+record, and the spills around the node test were the primary-ray tax
+(0.94-0.97x on head, pavilion, zero-day, landscape). Two attempts and what
+each measured, in order.
+
+**Storage that stays storage, rejected.** `Allocate::Memory::Stored` kept
+the record's slot in memory by emitting its accesses volatile. Read in the
+optimized LLVM before any run (the rule now: the assembly first, then the
+sweep): LICM's store promotion had put the slot's stores back into loop
+phis (`.promoted`, `.lcssa` names), so the record was still 55 phis through
+the traversal, and the ray paid loads of the slot before the loop and stores
+after it besides. Level at best on the four small meshes, zero-day primary
+lost. Removed, with the volatile emission and the promotion exception.
+
+**Destination passing, kept** (SSA/DestinationPassing.h, the `pass
+destinations` phase after the promotion and before the storage passes).
+Embree pays nothing for its record because its leaf writes the caller's
+RayHit through a pointer, and LLVM may not promote a conditional store to
+memory another thread could see. Our export does `hits[i] = found[1]`: a
+slot filled by the traversal and copied once. The pass replaces such a slot
+with the destination's address -- `gep(hits, i)` where the alloca was,
+handed to the traversal in its place -- and deletes the copy, when the slot
+is only written (by stores, alongside places, or callees that only write
+their parameter), loaded once, the loaded value flows through struct
+packing and block arguments into nothing but stores at one address, that
+address is computable where the slot is made, the destination's memory is
+read nowhere and stored only at that address, every path from the slot to
+the region's end stores it, and no write of the slot can follow a store to
+it (LLVM's MemCpyOpt call-slot optimization and Shaikhha et al.'s
+destination-passing style, cited in the header). `BONSAI_EXPLAIN_DESTINATIONS=1`
+prints every refusal. In rtq it fires on `trace_all` and `closest_all`; the
+leaf's five record stores land in the hit element and the found path has no
+copy. The hit kernel: 55 phis -> 28, 27 spills -> 15, the 12 stack reloads
+gone, 677 -> 633 instructions. Measured on the four small meshes (least of
+five, pinned): primary 0.95/0.99/0.97/0.95 -> 0.98/1.01/0.97/0.99
+(pavilion/head/zero-day/landscape), diffuse 1.01-1.15 -> 1.02-1.19, any hit
+and closest point unchanged (no record carried, or the same change).
+
+Not every slot is a candidate, by design: the single-query `trace` returns
+its record inside an option (the loaded value is read, not just stored), and
+`_best` is read by the callee (the key). The test
+tests/bonsai/correctness/cpp/destination_passing runs the batch exports and
+the single queries over the tiled-elements scene and checks every batch
+record against its single query's, field by field; tests/bonsai/ssa/
+destination-passing shows the three shapes (replaced, read as well, returned).
+
+**The any hit's systematic 2-3%, profiled.** Block-level cycles and retired
+instructions on head and ivy, both kernels, after the pass (perf, -F 15000,
+30 repeats): on head our kernel retires the same instructions as Embree's
+(44.66% vs 44.56% of the run) and takes 2.7% more cycles, with 3.6% more
+branches and 8.8% more mispredictions; on ivy 26% more branches. The leaf
+and the node test cost the same or less than Embree's (11.6% vs 11.7%, 12.3%
+vs 13.7% of the run); the excess is in the small control blocks (6.7% of the
+run in 35 blocks under 1% each, against Embree's 3.3% in 29). Two per-block
+branches Embree does not have: a `vptest`+branch guarding the layout's
+padding predicate (`where id != -1`, which Embree folds into its hit mask),
+and a `setne`+`test`+branch materializing the found flag and testing it at
+the next block's head, where Embree branches on the hit test's `kortest`
+straight to `return true`. The ray's leaf constants read from the stack
+(six operands) are not a gap: Embree's leaf broadcasts the ray's origin from
+memory too (three `vbroadcastss`, nine stack operands).
+
+**The exit at the hit, kept.** The quantifier's per-element guard was `if
+(undecided) body` at the top of each element; it is now `body; if (decided)
+break` (Lower/Trees.cpp, guard_iteration). In a tiled leaf the lanes are a
+parallel batch, so the ForEach lowering (Lower/ForEachs.cpp,
+split_trailing_exit) makes an element-independent trailing exit test once
+per tile, after the lane loop, where the loop it leaves is the one over
+tiles; the SSA conversion now lowers `Break` (a jump to the innermost loop's
+exit; a merge decision by `never_falls_through`, which counts a break as a
+return does; refused inside a parallel body). The any-hit kernel: 423 -> 416
+instructions, 34 -> 32 branches, no `setne`. Measured: pavilion/head/ivy any
+hit 0.97/0.97/0.97 -> 0.99/0.98/0.98; first hit and closest point unchanged.
+
+**The padding guard, left.** Removing the any-lane guard from arms whose
+only memory effect is a masked write (ispc's rule: a masked store is safe
+with every lane off) took the padding guard off -- and the guard off the
+argmin's update arm with it, so the winning lane's reduction and the five
+record stores ran on every leaf block instead of the blocks where a lane
+improved: diffuse rays -5 to -10%, closest point -5%, for no gain on the any
+hit. Embree guards that update itself (`if (none(valid)) return` before its
+epilog). Reverted; the measurement is in the comment in Linearize.cpp's
+must_skip. The padding guard stays: one `vptest` and a predicted branch per
+block, the one per-block instruction Embree does not have, worth about a
+percent on the any hit; a layout-level statement of the mask is the way to
+remove it, which is a language question.
+
+**The table under this compiler** (13 meshes, least of five, cpu 11, rays
+at side 2048, points at 1024, FCPW at 1024; apps/rtq/results/rtq-results.csv
+rows `199a1917+dp`, the plots in apps/rtq/plots). Every Embree cell agrees
+to ties; against FCPW the known residue, unchanged cell for cell (bmw 6,
+crown 1, ivy 2, villa 7+1, dambreak 12, sportscar 7, landscape 15, ganesha
+11+1 rays of a million through the reciprocals' last bits; ivy's and
+dambreak's degenerate triangles on the point batches). Bonsai over the
+reference:
+
+| mesh | embree: pri dif, ao | near vol | fcpw4w16: pri dif, ao | near vol |
+|---|---|---|---|---|
+| pavilion | 0.97 1.02, 0.99 | 2.90 4.09 | 1.67 2.07, 1.94 | 1.10 1.13 |
+| head | 1.04 1.04, 0.98 | 3.77 4.32 | 1.65 2.00, 1.81 | 1.12 1.17 |
+| zero-day | 0.97 1.05, 0.99 | 3.53 3.85 | 1.83 2.07, 1.92 | 1.29 1.32 |
+| bmw | 1.01 1.06, 1.00 | 3.90 4.40 | 1.69 2.04, 1.77 | 1.12 1.20 |
+| crown | 1.00 1.07, 1.07 | 4.41 4.61 | 1.85 1.99, 1.86 | 1.26 1.30 |
+| ivy | 1.01 1.06, 0.97 | 5.03 4.49 | 1.64 1.75, 1.63 | 1.25 1.32 |
+| villa | 1.02 1.06, 0.99 | 4.18 4.76 | 1.58 1.87, 1.84 | 1.15 1.24 |
+| dambreak | 1.02 1.02, 0.99 | 3.72 5.71 | 1.57 1.76, 1.49 | 1.20 1.17 |
+| sportscar | 1.04 1.05, 1.01 | 4.47 5.36 | 1.54 1.76, 1.61 | 1.17 1.18 |
+| landscape | 0.98 1.16, 1.16 | 3.39 3.11 | 1.37 2.48, 2.21 | 1.15 1.22 |
+| lte-orb | 1.01 1.03, 0.99 | 4.52 5.33 | 1.50 | |
+| ganesha | 1.04 1.04, 0.98 | 5.51 8.14 | 1.43 1.60, 1.51 | 1.26 1.14 |
+| dragon | 1.04 1.03, 0.98 | 5.86 7.67 | 1.35 1.43, 1.39 | 1.21 1.11 |
+
+Geomeans over the twelve plotted meshes (lte-orb excluded as plot.py does):
+Embree primary 1.011, diffuse 1.054, any hit 1.008, near points 4.14, volume
+points 4.86; FCPW primary 1.59, diffuse 1.73, any hit 1.88, near 1.19,
+volume 1.21. The user's finishing rule -- no cell more than 3% under its
+reference, the geomean a win -- holds: the cells at the line are pavilion
+and zero-day primary (0.97) and ivy's any hit (0.97), none beyond it. What
+each remaining 3% is, from the profiles above: on primary rays of the
+small meshes, the per-ray prologue (81 instructions against Embree's 51:
+the ray's splats stored, the stack and the key set up) and the per-block
+padding guard; on the any hit, the padding guard and the by-count arms'
+dispatch, whose branches Embree does not have.
+
 ## Known-open, smaller
 
 - The tuned FCPW schedules' closest point: without FCPW's region exits

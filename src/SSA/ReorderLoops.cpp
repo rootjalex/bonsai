@@ -1053,6 +1053,7 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
             copy->slack = instr->slack;
             copy->scratch = instr->scratch;
             copy->storage = instr->storage;
+            copy->alongside = instr->alongside;
             T->instrs.push_back(copy);
             auto value = std::make_shared<Value>(copy);
             T->lookups[copy->name] = value;

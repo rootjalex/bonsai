@@ -5293,7 +5293,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
                 llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
             rhs = builder->CreateCall(device_malloc, {bytes}, name);
         } else {
-            rhs = (node->memory == Allocate::Memory::Stack)
+            rhs = node->memory == Allocate::Memory::Stack
                       ? create_alloca_at_entry(etype, name, size)
                       : create_malloc(etype, size, /*zero_initialize=*/false,
                                       name);
@@ -5360,8 +5360,7 @@ void CodeGen_LLVM::visit(const Allocate *node) {
     llvm::Value *loc = create_alloca_at_entry(value_type, name);
     frames.add_to_frame(name, loc);
     if (rhs != nullptr) {
-        // TODO: when is isVolatile true?
-        builder->CreateStore(rhs, loc, /*isVolatile=*/false);
+        builder->CreateStore(rhs, loc);
     }
 }
 
@@ -5595,8 +5594,7 @@ void CodeGen_LLVM::visit(const Store *node) {
         store_to_device(rhs, dest, node->value.type());
         return;
     }
-    llvm::StoreInst *store =
-        builder->CreateStore(rhs, dest, /*isVolatile=*/false);
+    llvm::StoreInst *store = builder->CreateStore(rhs, dest);
     add_tbaa(store, node->value.type());
 }
 
@@ -6023,34 +6021,34 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
         }
         break;
     }
-    case Accumulate::Argmin: {
-        // acc = select(curr.first < update.first, curr, update)
-        llvm::Value *curr_key =
-            builder->CreateExtractValue(current, 0); // curr.first
-        llvm::Value *new_key =
-            builder->CreateExtractValue(update, 0); // update.first
-
-        internal_assert(curr_key->getType()->isFloatingPointTy());
-        llvm::Value *cmp =
-            builder->CreateFCmpOLT(curr_key, new_key); // curr_key < new_key
-
-        // Select the full struct based on which key is smaller
-        acc = builder->CreateSelect(cmp, current, update);
-        break;
-    }
+    case Accumulate::Argmin:
     case Accumulate::Argmax: {
-        // acc = select(curr.first > update.first, curr, update)
+        // acc = select(curr.first better than update.first, curr, update):
+        // the pair kept where the current key is strictly better, the update
+        // taken otherwise (so of equal keys the later one wins).
         llvm::Value *curr_key =
             builder->CreateExtractValue(current, 0); // curr.first
         llvm::Value *new_key =
             builder->CreateExtractValue(update, 0); // update.first
 
         internal_assert(curr_key->getType()->isFloatingPointTy());
-        llvm::Value *cmp =
-            builder->CreateFCmpOGT(curr_key, new_key); // curr_key > new_key
+        llvm::Value *keep = node->op == Accumulate::Argmin
+                                ? builder->CreateFCmpOLT(curr_key, new_key)
+                                : builder->CreateFCmpOGT(curr_key, new_key);
 
-        // Select the full struct based on which key is larger
-        acc = builder->CreateSelect(cmp, current, update);
+        // Select the full struct based on which key is better
+        acc = builder->CreateSelect(keep, current, update);
+
+        // The places written alongside the pair take their values exactly
+        // when the update is taken: a branch, not a select, since nothing
+        // is to be written to them otherwise (Accumulate::alongside).
+        if (!node->alongside.empty()) {
+            emit_if(builder->CreateNot(keep), [&] {
+                for (const auto &[place, written] : node->alongside) {
+                    codegen_stmt(Store::make(place, written));
+                }
+            });
+        }
         break;
     }
     case Accumulate::Min:

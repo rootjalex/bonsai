@@ -262,14 +262,26 @@ void Instruction::dump(std::ostream &os) const {
         if (compact) {
             os << (slack ? "compact whole " : "compact ");
         }
-        // A vectorized store carries a third operand, its execution mask.
-        internal_assert(operands.size() == 2 || operands.size() == 3);
+        // A vectorized store carries a third operand, its execution mask;
+        // an argmin's or argmax's places written alongside its pair close
+        // the list (Instruction::alongside).
+        internal_assert(operands_before_alongside() == 2 ||
+                        operands_before_alongside() == 3)
+            << operands.size() << " operands, " << alongside << " alongside";
         operands[0]->dump(os);
         os << " ";
         operands[1]->dump(os);
-        if (operands.size() == 3) {
+        if (has_mask()) {
             os << " mask ";
             operands[2]->dump(os);
+        }
+        const char *sep = " with ";
+        for (size_t i = alongside_begin(); i + 1 < operands.size(); i += 2) {
+            os << sep;
+            operands[i]->dump(os);
+            os << " = ";
+            operands[i + 1]->dump(os);
+            sep = ", ";
         }
         return;
     } else if (op == Instruction::Op::Append) {

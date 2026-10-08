@@ -12,6 +12,7 @@ add_bonsai_tests(
     compare-on-bits.bonsai
     cse-constant-precision.bonsai
     cse-rebound-argument.bonsai
+    destination-passing.bonsai
     intervals-from-conditions.bonsai
     intervals-reciprocal-step.bonsai
     mirror-derived-loads.bonsai

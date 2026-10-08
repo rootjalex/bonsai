@@ -623,9 +623,9 @@ struct CodeGen_LLVM::SSALowering {
             // queue's storage lives (Instruction::storage; IR/Storage.h),
             // which device_resident_allocations has already folded in.
             const Allocate::Memory memory =
-                instr->storage == ir::Storage::Managed ? Allocate::Managed
-                : instr->storage == ir::Storage::Heap  ? Allocate::Heap
-                : instr->storage == ir::Storage::Stack ? Allocate::Stack
+                instr->storage == ir::Storage::Managed   ? Allocate::Managed
+                : instr->storage == ir::Storage::Heap    ? Allocate::Heap
+                : instr->storage == ir::Storage::Stack   ? Allocate::Stack
                 : cg.device_resident.contains(instr->name) ? Allocate::Device
                 : instr->op == Instruction::Op::Alloca    ? Allocate::Stack
                                                           : Allocate::Heap;
@@ -669,11 +669,18 @@ struct CodeGen_LLVM::SSALowering {
             // (CodeGen_Stmt.cpp): its atomicity is carried on the instruction,
             // and a vector value written into a scalar place is a cross-lane
             // reduction the Accumulate lowering performs.
-            internal_assert(instr->operands.size() == 2 ||
-                            instr->operands.size() == 3)
-                << "accumulate takes a place, a value and maybe a mask";
+            internal_assert(instr->operands_before_alongside() == 2 ||
+                            instr->operands_before_alongside() == 3)
+                << "accumulate takes a place, a value and maybe a mask, then "
+                << "the places written alongside";
             WriteLoc loc = location(instr->operands[0]);
             Expr val = operand(instr->operands[1]);
+            std::vector<std::pair<WriteLoc, Expr>> alongside;
+            for (size_t i = instr->alongside_begin();
+                 i + 1 < instr->operands.size(); i += 2) {
+                alongside.emplace_back(location(instr->operands[i]),
+                                       operand(instr->operands[i + 1]));
+            }
             const Accumulate::OpType op =
                 instr->op == Instruction::Op::AccAdd ? Accumulate::OpType::Add
                 : instr->op == Instruction::Op::AccMul
@@ -687,7 +694,7 @@ struct CodeGen_LLVM::SSALowering {
                 : instr->op == Instruction::Op::AccArgmin
                     ? Accumulate::OpType::Argmin
                     : Accumulate::OpType::Argmax;
-            if (instr->operands.size() == 3) {
+            if (instr->has_mask()) {
                 // Made by some lanes only. Into per-lane memory -- the value
                 // is then gang-wide, one per slot -- it is a read, a combine
                 // and a store of the lanes that are on; into shared memory it
@@ -704,10 +711,14 @@ struct CodeGen_LLVM::SSALowering {
                     // component.
                     cg.emit_if(cg.codegen_expr(mask), [&] {
                         cg.codegen_stmt(Accumulate::make(
-                            std::move(loc), op, std::move(val), instr->atomic));
+                            std::move(loc), op, std::move(val), instr->atomic,
+                            false, std::move(alongside)));
                     });
                     return;
                 }
+                internal_assert(alongside.empty())
+                    << "[unimplemented] an argmin into per-lane memory with "
+                    << "places written alongside it: " << instr->name;
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
                     Expr place = operand(instr->operands[0]);
                     if (op == Accumulate::OpType::Argmin ||
@@ -772,12 +783,14 @@ struct CodeGen_LLVM::SSALowering {
                 cg.emit_if_any_lane(cg.codegen_expr(mask), [&] {
                     cg.codegen_stmt(Accumulate::make(std::move(loc), op,
                                                      std::move(val),
-                                                     instr->atomic));
+                                                     instr->atomic, false,
+                                                     std::move(alongside)));
                 });
                 return;
             }
             cg.codegen_stmt(Accumulate::make(std::move(loc), op, std::move(val),
-                                             instr->atomic));
+                                             instr->atomic, false,
+                                             std::move(alongside)));
             return;
         }
         if (instr->op == Instruction::Op::Store) {

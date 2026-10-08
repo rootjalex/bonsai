@@ -100,6 +100,20 @@ struct GatherFreeVars : public Visitor {
             }
         }
         node->value.accept(this);
+        // The places written alongside the pair are the traversal's to
+        // receive too.
+        for (const auto &[place, written] : node->alongside) {
+            if (!seen_vars.contains(place.base)) {
+                seen_vars.insert(place.base);
+                free_vars.push_back({place.base, place.base_type});
+            }
+            for (const auto &value : place.accesses) {
+                if (std::holds_alternative<Expr>(value)) {
+                    std::get<Expr>(value).accept(this);
+                }
+            }
+            written.accept(this);
+        }
     }
 
     void visit(const ir::Lambda *node) override {
@@ -259,9 +273,12 @@ struct AlwaysReturns : public Visitor {
     RESTRICT_VISITOR(Launch);
 
     // Going round the enclosing loop again is the opposite of returning, and
-    // so is leaving it for what comes after.
+    // so is leaving it for what comes after -- unless the question is
+    // whether the next statement is reached (never_falls_through), which a
+    // break settles as a return does.
+    bool break_leaves = false;
     void visit(const Continue *node) override { returns = false; }
-    void visit(const Break *node) override { returns = false; }
+    void visit(const Break *node) override { returns = break_leaves; }
 };
 
 struct ReturnType : public Visitor {
@@ -519,6 +536,13 @@ bool always_returns(const Stmt &stmt) {
     return check.returns;
 }
 
+bool never_falls_through(const Stmt &stmt) {
+    AlwaysReturns check;
+    check.break_leaves = true;
+    stmt.accept(&check);
+    return check.returns;
+}
+
 namespace {
 
 struct IsPureValue : Visitor {
@@ -693,6 +717,9 @@ std::set<std::string> mutated_variables(Stmt stmt) {
 
         void visit(const Accumulate *node) override {
             mutated.insert(node->loc.base);
+            for (const auto &[place, written] : node->alongside) {
+                mutated.insert(place.base);
+            }
         }
 
         void visit(const Append *node) override {

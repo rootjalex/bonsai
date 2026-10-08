@@ -325,16 +325,24 @@ Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact,
 }
 
 Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic,
-                      bool spawned) {
+                      bool spawned,
+                      std::vector<std::pair<WriteLoc, Expr>> alongside) {
     internal_assert(loc.defined())
         << "Undefined write location in Accumulate::make";
     internal_assert(value.defined()) << "Undefined value in Accumulate::make";
+    internal_assert(alongside.empty() || op == Argmin || op == Argmax)
+        << "Only an argmin or argmax writes places alongside its pair";
+    for (const auto &[place, written] : alongside) {
+        internal_assert(place.defined() && written.defined())
+            << "Undefined place or value alongside an accumulate";
+    }
     Accumulate *node = new Accumulate;
     node->loc = std::move(loc);
     node->op = op;
     node->value = std::move(value);
     node->atomic = atomic;
     node->spawned = spawned;
+    node->alongside = std::move(alongside);
     return node;
 }
 

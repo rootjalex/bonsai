@@ -43,12 +43,12 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
             intersectsp_ray_aabb$r22$set0 : mut bool
             let _t385$i22 = r.d in
             let @5 = abs(_t385$i22) in
-            let @276 = reinterpret_cast<i32x3>(@5) in
-            let @277 = reinterpret_cast<i32>(1e-18f) in
-            let @278 = i32x3(@277) in
-            let @279 = @276 < @278 in
+            let @275 = reinterpret_cast<i32x3>(@5) in
+            let @276 = reinterpret_cast<i32>(1e-18f) in
+            let @277 = i32x3(@276) in
+            let @278 = @275 < @277 in
             let @8 = build<f32x3>(1e-18f, 1e-18f, 1e-18f) in
-            let a$i13$i22 = select(@279, @8, _t385$i22) in
+            let a$i13$i22 = select(@278, @8, _t385$i22) in
             let r$i13$i22 = rcp_approx(a$i13$i22) in
             let @11 = f32x3(1f) in
             let @12 = a$i13$i22 * r$i13$i22 in
@@ -110,75 +110,75 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @74 = @72[@73] in
           let @75 = @74.children in
           let _t30 = cast<u32x4>(@75) in
-          let @226 = _mask0[ramp(0u, 1u, 4)] in
-          let @227 = reduce<+>(cast<u32x4>(@226)) in
-          let @269 = reduce<any>(@226) in
-          if (@269) {
-            let @270 = reinterpret_cast<u4>(@226) in
-            let @271 = cast<u32>(@270) in
-            let @272 = @271 - 1u in
-            let @273 = @271 & @272 in
-            let @274 = @273 == 0u in
-            if (@274) {
-              let @228 = reinterpret_cast<u4>(@226) in
-              let @229 = cast<u32>(@228) in
-              let @230 = ctz(@229) in
-              let @285 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
-              let @287 = @285[@230] in
-              tris_ref!top = @287
+          let @225 = _mask0[ramp(0u, 1u, 4)] in
+          let @226 = reduce<+>(cast<u32x4>(@225)) in
+          let @268 = reduce<any>(@225) in
+          if (@268) {
+            let @269 = reinterpret_cast<u4>(@225) in
+            let @270 = cast<u32>(@269) in
+            let @271 = @270 - 1u in
+            let @272 = @270 & @271 in
+            let @273 = @272 == 0u in
+            if (@273) {
+              let @227 = reinterpret_cast<u4>(@225) in
+              let @228 = cast<u32>(@227) in
+              let @229 = ctz(@228) in
+              let @284 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
+              let @286 = @284[@229] in
+              tris_ref!top = @286
               continue
             } else {
-              let @275 = @227 - 2u in
-              switch (@275) {
+              let @274 = @226 - 2u in
+              switch (@274) {
               case 0: {
-                let @232 = reinterpret_cast<u4>(@226) in
-                let @233 = cast<u32>(@232) in
-                let @234 = ctz(@233) in
-                let @235 = clz(@233) in
-                let @236 = 31u - @235 in
-                let @290 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
-                let @292 = @290[@234] in
-                !stack[(*!count)] = @292
-                let @240 = (*!count) + 1u in
-                let @294 = @290[@236] in
-                tris_ref!top = @294
-                !count = @240
+                let @231 = reinterpret_cast<u4>(@225) in
+                let @232 = cast<u32>(@231) in
+                let @233 = ctz(@232) in
+                let @234 = clz(@232) in
+                let @235 = 31u - @234 in
+                let @289 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
+                let @291 = @289[@233] in
+                !stack[(*!count)] = @291
+                let @239 = (*!count) + 1u in
+                let @293 = @289[@235] in
+                tris_ref!top = @293
+                !count = @239
                 continue
               } break;
               case 1: {
-                let @242 = reinterpret_cast<u4>(@226) in
-                let @243 = cast<u32>(@242) in
-                let @244 = ctz(@243) in
-                let @245 = @243 - 1u in
-                let @246 = @243 & @245 in
-                let @247 = ctz(@246) in
-                let @248 = clz(@243) in
-                let @249 = 31u - @248 in
-                let @297 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
-                let @299 = @297[@244] in
-                !stack[(*!count)] = @299
-                let @253 = (*!count) + 1u in
-                let @301 = @297[@247] in
-                !stack[@253] = @301
-                let @256 = (*!count) + 2u in
-                let @303 = @297[@249] in
-                tris_ref!top = @303
-                !count = @256
+                let @241 = reinterpret_cast<u4>(@225) in
+                let @242 = cast<u32>(@241) in
+                let @243 = ctz(@242) in
+                let @244 = @242 - 1u in
+                let @245 = @242 & @244 in
+                let @246 = ctz(@245) in
+                let @247 = clz(@242) in
+                let @248 = 31u - @247 in
+                let @296 = reinterpret_cast<const u32[4]>((&@72[@73].children)) in
+                let @298 = @296[@243] in
+                !stack[(*!count)] = @298
+                let @252 = (*!count) + 1u in
+                let @300 = @296[@246] in
+                !stack[@252] = @300
+                let @255 = (*!count) + 2u in
+                let @302 = @296[@248] in
+                tris_ref!top = @302
+                !count = @255
                 continue
               } break;
               default: {
-                let @260 = _t30[0u] in
-                !stack[(*!count)] = @260
-                let @261 = (*!count) + 1u in
-                let @263 = _t30[1u] in
-                !stack[@261] = @263
-                let @264 = (*!count) + 2u in
-                let @266 = _t30[2u] in
-                !stack[@264] = @266
-                let @267 = (*!count) + 3u in
-                let @268 = _t30[3u] in
-                tris_ref!top = @268
-                !count = @267
+                let @259 = _t30[0u] in
+                !stack[(*!count)] = @259
+                let @260 = (*!count) + 1u in
+                let @262 = _t30[1u] in
+                !stack[@260] = @262
+                let @263 = (*!count) + 2u in
+                let @265 = _t30[2u] in
+                !stack[@263] = @265
+                let @266 = (*!count) + 3u in
+                let @267 = _t30[3u] in
+                tris_ref!top = @267
+                !count = @266
                 continue
               }
               }
@@ -190,123 +190,120 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           do {
             let @86 = (*data) < @85 in
             if (@86) {
-              let @87 = (*_holds0) in
-              let @88 = !@87 in
-              if (@88) {
-                let @89 = tris.prims in
-                let @90 = (*tris_ref!top) >> 4u in
-                let @91 = @90 + (*data) in
-                let tri$i23 = @89[@91] in
-                let _t204$i23 = tri$i23.p0 in
-                let @94 = tri$i23.p1 in
-                let e1$i23 = @94 - _t204$i23 in
-                let @96 = tri$i23.p2 in
-                let e2$i23 = @96 - _t204$i23 in
-                let _t207$i23 = r.d in
-                let @99 = _t207$i23[1] in
-                let @100 = e2$i23[2] in
-                let @101 = @99 * @100 in
-                let @102 = _t207$i23[2] in
-                let @103 = e2$i23[1] in
-                let @104 = @102 * @103 in
-                let @105 = @101 - @104 in
-                let @107 = e2$i23[0] in
-                let @108 = @102 * @107 in
-                let @109 = _t207$i23[0] in
-                let @111 = @109 * @100 in
-                let @112 = @108 - @111 in
-                let @115 = @109 * @103 in
-                let @118 = @99 * @107 in
-                let @119 = @115 - @118 in
-                let p$i23 = build<f32x3>(@105, @112, @119) in
-                let @121 = e1$i23[0] in
-                let @122 = p$i23[0] in
-                let @123 = @121 * @122 in
-                let @124 = e1$i23[1] in
-                let @125 = p$i23[1] in
-                let @126 = @124 * @125 in
-                let @127 = @123 + @126 in
-                let @128 = e1$i23[2] in
-                let @129 = p$i23[2] in
-                let @130 = @128 * @129 in
-                let den$i23 = @127 + @130 in
-                let @132 = abs(den$i23) in
-                let @280 = reinterpret_cast<i32>(@132) in
-                let @281 = reinterpret_cast<i32>(1e-12f) in
-                let @282 = @280 < @281 in
-                if (@282) {
+              let @87 = tris.prims in
+              let @88 = (*tris_ref!top) >> 4u in
+              let @89 = @88 + (*data) in
+              let tri$i23 = @87[@89] in
+              let _t204$i23 = tri$i23.p0 in
+              let @92 = tri$i23.p1 in
+              let e1$i23 = @92 - _t204$i23 in
+              let @94 = tri$i23.p2 in
+              let e2$i23 = @94 - _t204$i23 in
+              let _t207$i23 = r.d in
+              let @97 = _t207$i23[1] in
+              let @98 = e2$i23[2] in
+              let @99 = @97 * @98 in
+              let @100 = _t207$i23[2] in
+              let @101 = e2$i23[1] in
+              let @102 = @100 * @101 in
+              let @103 = @99 - @102 in
+              let @105 = e2$i23[0] in
+              let @106 = @100 * @105 in
+              let @107 = _t207$i23[0] in
+              let @109 = @107 * @98 in
+              let @110 = @106 - @109 in
+              let @113 = @107 * @101 in
+              let @116 = @97 * @105 in
+              let @117 = @113 - @116 in
+              let p$i23 = build<f32x3>(@103, @110, @117) in
+              let @119 = e1$i23[0] in
+              let @120 = p$i23[0] in
+              let @121 = @119 * @120 in
+              let @122 = e1$i23[1] in
+              let @123 = p$i23[1] in
+              let @124 = @122 * @123 in
+              let @125 = @121 + @124 in
+              let @126 = e1$i23[2] in
+              let @127 = p$i23[2] in
+              let @128 = @126 * @127 in
+              let den$i23 = @125 + @128 in
+              let @130 = abs(den$i23) in
+              let @279 = reinterpret_cast<i32>(@130) in
+              let @280 = reinterpret_cast<i32>(1e-12f) in
+              let @281 = @279 < @280 in
+              if (@281) {
+                hit_distance$r23$set3 = false
+              } else {
+                let inv$i23 = 1f / den$i23 in
+                let @135 = r.o in
+                let s$i23 = @135 - _t204$i23 in
+                let @137 = s$i23[0] in
+                let @139 = @137 * @120 in
+                let @140 = s$i23[1] in
+                let @142 = @140 * @123 in
+                let @143 = @139 + @142 in
+                let @144 = s$i23[2] in
+                let @146 = @144 * @127 in
+                let @147 = @143 + @146 in
+                let u$i23 = @147 * inv$i23 in
+                let @149 = u$i23 < 0f in
+                let @150 = 1f < u$i23 in
+                let @151 = @149 || @150 in
+                if (@151) {
                   hit_distance$r23$set3 = false
                 } else {
-                  let inv$i23 = 1f / den$i23 in
-                  let @137 = r.o in
-                  let s$i23 = @137 - _t204$i23 in
-                  let @139 = s$i23[0] in
-                  let @141 = @139 * @122 in
-                  let @142 = s$i23[1] in
-                  let @144 = @142 * @125 in
-                  let @145 = @141 + @144 in
-                  let @146 = s$i23[2] in
-                  let @148 = @146 * @129 in
-                  let @149 = @145 + @148 in
-                  let u$i23 = @149 * inv$i23 in
-                  let @151 = u$i23 < 0f in
-                  let @152 = 1f < u$i23 in
-                  let @153 = @151 || @152 in
-                  if (@153) {
+                  let @156 = @140 * @126 in
+                  let @159 = @144 * @122 in
+                  let @160 = @156 - @159 in
+                  let @163 = @144 * @119 in
+                  let @166 = @137 * @126 in
+                  let @167 = @163 - @166 in
+                  let @170 = @137 * @122 in
+                  let @173 = @140 * @119 in
+                  let @174 = @170 - @173 in
+                  let q$i23 = build<f32x3>(@160, @167, @174) in
+                  let @177 = q$i23[0] in
+                  let @178 = @107 * @177 in
+                  let @180 = q$i23[1] in
+                  let @181 = @97 * @180 in
+                  let @182 = @178 + @181 in
+                  let @184 = q$i23[2] in
+                  let @185 = @100 * @184 in
+                  let @186 = @182 + @185 in
+                  let v$i23 = @186 * inv$i23 in
+                  let @188 = v$i23 < 0f in
+                  let @189 = u$i23 + v$i23 in
+                  let @190 = 1f < @189 in
+                  let @191 = @188 || @190 in
+                  if (@191) {
                     hit_distance$r23$set3 = false
                   } else {
-                    let @158 = @142 * @128 in
-                    let @161 = @146 * @124 in
-                    let @162 = @158 - @161 in
-                    let @165 = @146 * @121 in
-                    let @168 = @139 * @128 in
-                    let @169 = @165 - @168 in
-                    let @172 = @139 * @124 in
-                    let @175 = @142 * @121 in
-                    let @176 = @172 - @175 in
-                    let q$i23 = build<f32x3>(@162, @169, @176) in
-                    let @179 = q$i23[0] in
-                    let @180 = @109 * @179 in
-                    let @182 = q$i23[1] in
-                    let @183 = @99 * @182 in
-                    let @184 = @180 + @183 in
-                    let @186 = q$i23[2] in
-                    let @187 = @102 * @186 in
-                    let @188 = @184 + @187 in
-                    let v$i23 = @188 * inv$i23 in
-                    let @190 = v$i23 < 0f in
-                    let @191 = u$i23 + v$i23 in
-                    let @192 = 1f < @191 in
-                    let @193 = @190 || @192 in
-                    if (@193) {
+                    let @196 = @105 * @177 in
+                    let @199 = @101 * @180 in
+                    let @200 = @196 + @199 in
+                    let @203 = @98 * @184 in
+                    let @204 = @200 + @203 in
+                    let t$i23 = @204 * inv$i23 in
+                    let @206 = r.tnear in
+                    let @207 = @206 < t$i23 in
+                    let @208 = r.tfar in
+                    let @209 = t$i23 <= @208 in
+                    let @210 = @207 && @209 in
+                    let @211 = !@210 in
+                    if (@211) {
                       hit_distance$r23$set3 = false
                     } else {
-                      let @198 = @107 * @179 in
-                      let @201 = @103 * @182 in
-                      let @202 = @198 + @201 in
-                      let @205 = @100 * @186 in
-                      let @206 = @202 + @205 in
-                      let t$i23 = @206 * inv$i23 in
-                      let @208 = r.tnear in
-                      let @209 = @208 < t$i23 in
-                      let @210 = r.tfar in
-                      let @211 = t$i23 <= @210 in
-                      let @212 = @209 && @211 in
-                      let @213 = !@212 in
-                      if (@213) {
-                        hit_distance$r23$set3 = false
-                      } else {
-                        hit_distance$r23$set3 = true
-                      }
+                      hit_distance$r23$set3 = true
                     }
                   }
                 }
-                _holds0 max= (*hit_distance$r23$set3)
-                if (!(*hit_distance$r23$set3)) {
-                  let @217 = (*data) + 1u in
-                  data = @217
-                  continue
-                }
+              }
+              _holds0 max= (*hit_distance$r23$set3)
+              let @215 = (*_holds0) in
+              if (!@215) {
+                let @216 = (*data) + 1u in
+                data = @216
+                continue
               }
             }
             break
@@ -315,15 +312,15 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         break
       } while (true)
     }
-    let @219 = (*!count) != 0u in
-    let @220 = (*_holds0) in
-    let @221 = !@220 in
-    let @222 = @219 && @221 in
-    if (@222) {
-      let @223 = (*!count) - 1u in
-      let @224 = !stack[@223] in
-      tris_ref!top = @224
-      !count = @223
+    let @218 = (*!count) != 0u in
+    let @219 = (*_holds0) in
+    let @220 = !@219 in
+    let @221 = @218 && @220 in
+    if (@221) {
+      let @222 = (*!count) - 1u in
+      let @223 = !stack[@222] in
+      tris_ref!top = @223
+      !count = @222
       continue
     } else {
       return

@@ -1703,6 +1703,10 @@ class BonsaiToCpp : ir::Printer {
             << "generated C++ source cannot express an atomic accumulate yet "
                "(-b cppx); -b cpp and -b llvm can: "
             << Stmt(node);
+        internal_assert(node->alongside.empty())
+            << "[unimplemented] generated C++ source cannot write places "
+               "alongside an argmin (-b cppx); -b cpp and -b llvm can: "
+            << Stmt(node);
         ss << get_indent();
         /*
         if (program.globals.contains(current.to_expr())) {
