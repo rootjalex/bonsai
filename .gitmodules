@@ -17,3 +17,6 @@
 [submodule "deps/embree"]
 	path = deps/embree
 	url = https://github.com/RenderKit/embree.git
+[submodule "deps/wosx"]
+	path = deps/wosx
+	url = https://github.com/nv-tlabs/wosx.git

@@ -275,7 +275,13 @@ driver, the two sides' kernels told apart by symbol).
   width and branching the schedule's name says), builds FCPW's scene,
   copies its two arrays into the layout, and queries it through its own
   calls: `findClosestPoint`, and `intersect` for the rays.
+- `queries.bonsai`: the three queries themselves (`trace`, `occluded`,
+  `closest`), which rtq.bonsai imports and exports batches of; a file of
+  their own so that apps/wosx can ask `closest` without the batches.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
+  `mesh.h` (the PLY reader) and `fcpw_tree.h` (the copy of FCPW's Mbvh
+  into the layout, with the struct checks) are the driver's parts
+  apps/wosx's driver shares.
 - `plot.py`: the comparison as three figures (first hit, any hit, closest
   point; meshes by triangle count, the ray or point sets by hatching, the
   reference by colour) from the results CSV, `python apps/rtq/plot.py

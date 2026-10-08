@@ -32,67 +32,11 @@
 // reference's answer records (`Hit`, `ClosestHit`) with the functions that
 // fill them.
 
-// Embree: TravRay -- the ray as the traversal reads it, its segment clamped
-// to [0, inf) at entry (`tnear = max(tnear, 0)`, `tfar = max(tfar, 0)`,
-// node_intersector1.h). A box's entry distance is `max(.., tnear)`, so with
-// the clamp it is never negative, and the sort's key can be ordered as its
-// bits without the sign flip that a negative float would need: Embree's
-// `distance_i` is `asInt(tNear)` for the same reason; and the traversal's
-// running best can be folded into `tfar` on the bits (SSA/Simplify.cpp)
-// because the best is a non-negative number. The compiler carries the facts
-// from here through the calls to the key and the node test
-// (SSA/ConstantIntervals.h, SSA/SortRecursion.cpp), and for that the clamp
-// has to leave a non-negative number: Embree's `max(tnear, 0)` is std::max,
-// which hands a NaN or a negative zero through unchanged, and Embree rests
-// instead on asserting the ray valid (`ray.valid()`: `tnear >= 0`). The
-// clamp here is the same for every such ray and says so to the compiler:
-// what is above zero stays, everything else -- negative, negative zero, not
-// a number -- is zero.
-func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
-                                  select(r.tfar > 0.0, r.tfar, 0.0)};
-
-// Embree: rtcIntersect1; FCPW: Scene::intersect -- the nearest triangle the
-// ray hits, if any, with the reference's record of the hit. The map
-// annotates every candidate with `hit_record(r, t)`, the record of the same
-// test `intersects` names and `distmin` keys, so the hit the argmin answers
-// carries its record: the three ask one question of a candidate, the leaf
-// evaluates them together and CSE keeps one test, and the argmin holds the
-// record by value beside its reference to the triangle. That is where
-// Embree makes its record too (MoellerTrumboreHitM::finalize in the leaf,
-// for each hit nearer than the best), and where FCPW makes its point,
-// normal and uv (for every lane of every packet) -- not a second test on
-// the winner after the traversal, which cost 6-18% on primary rays. The
-// same shape as apps/pbrt's trace.
-func trace(r0 : Ray) -> option[(Triangle, Hit)] {
-    r = clamped(r0);
-    return argmin(|t : Triangle, h : Hit| distmin(r, t),
-                  filter(|t : Triangle, h : Hit| intersects(r, t),
-                         map(|t : Triangle| (t, hit_record(r, t)), triangles)));
-}
-
-// Embree: rtcOccluded1; FCPW: Scene::intersect with checkForOcclusion --
-// whether the ray hits anything at all.
-func occluded(r0 : Ray) -> bool {
-    r = clamped(r0);
-    return any(|t : Triangle| intersects(r, t), triangles);
-}
-
-// Embree: rtcPointQuery with the closest-point tutorial's callback; FCPW:
-// Scene::findClosestPoint -- the triangle closest to the point. Both walk
-// the tree ordered by the children's distance and shrink a radius to each
-// closer triangle found; the argmin here is that search, its running best
-// the radius, and the lowering prunes by it as both do: a child is entered
-// only where its box is nearer than the best, and the best is lowered to
-// the farthest a child's box can be, which FCPW does at every node
-// (enqueueNodes) and Embree's callback form cannot. Every triangle the set
-// holds is a candidate: which stored slots are triangles is the layout's
-// to say, not this query's. The map annotates each candidate with the
-// reference's record (the closest point, its distance), the same
-// computation `distmin` keys, so one evaluation serves both, as for trace.
-func closest(q : Point) -> option[(Triangle, ClosestHit)] {
-    return argmin(|t : Triangle, c : ClosestHit| distmin(q, t),
-                  map(|t : Triangle| (t, closest_record(q, t)), triangles));
-}
+// The three queries themselves -- `trace`, `occluded`, `closest` -- are in
+// queries.bonsai, a file of their own so that another program can import one
+// of them (apps/wosx asks `closest` at every step of its walk) without the
+// batches below.
+import apps/rtq/queries;
 
 // A batch of rays, each answered with the reference's hit record -- the
 // triangle's id (0xffffffff for none, RTC_INVALID_GEOMETRY_ID) and what the
