@@ -55,10 +55,32 @@ The `fcpw*` schedules compare against it (`compare.sh --schedule fcpw4w16`);
 
 ## Running
 
-From the repository root, inside the `bonsai` conda environment, with the
-compiler built (`BONSAI_BUILD_DIR` names its build directory; unset, the
-script takes the first of `build`, `build-*` whose CMake cache found an LLVM,
-and says which):
+The whole table, from the repository root, inside the `bonsai` conda
+environment, with the compiler built:
+
+```bash
+apps/rtq/benchmark.sh                 # 13 meshes x both references, CSV, plots, geomeans
+apps/rtq/benchmark.sh --plot-only     # fold and plot the logs already there
+```
+
+It runs `compare.sh` over the thirteen meshes of `~/projects/pbrt-v4-scenes`
+(`RTQ_SCENES` names another checkout) under the two matching schedules,
+`embree` and `fcpw4w16`, pinned and least of five; folds the logs into
+`apps/rtq/results/rtq-results.csv` with `tocsv.sh`, each row stamped with
+the compiler's commit (`<hash>+` when the tree has uncommitted compiler
+changes) and the cells not measured this time carried over; draws the three
+figures into `apps/rtq/plots` with `plot.py`; and prints, per reference and
+ray or point set, the geomean over the plotted meshes with any cell under
+0.97 named -- the rule the comparison is judged by (every geomean a win, no
+cell more than 3% under its reference). It waits for an idle machine before
+each mesh, resumes a stopped run (a cell's log exists only when complete;
+`--fresh` measures every cell again), and holds at a mesh boundary while
+`apps/rtq/results/logs/PAUSE` exists. `--meshes`, `--schedules`,
+`--repeats` and the sides narrow or widen it; `--help` lists them.
+
+One mesh, one run, with the compiler built (`BONSAI_BUILD_DIR` names its
+build directory; unset, the script takes the first of `build`, `build-*`
+whose CMake cache found an LLVM, and says which):
 
 ```bash
 apps/rtq/compare.sh [--schedule embree,tuned] [--side 1024] [--repeats 5] <mesh.ply[.gz]>

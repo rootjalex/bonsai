@@ -29,6 +29,7 @@ sky blue for Embree, orange for FCPW.
 """
 import argparse
 import csv
+import math
 import os
 import sys
 
@@ -79,6 +80,34 @@ def tuned_over_matching(rows, reference, matching, tuned, query):
     base = cells(rows, reference, matching, query, "bonsai_rate")
     over = cells(rows, reference, tuned, query, "bonsai_rate")
     return {k: over[k] / base[k] for k in over if k in base and base[k] > 0}
+
+
+def geomeans(rows, schedules, exclude, tuned):
+    """The geometric mean of each figure's bars over the plotted meshes, per
+    reference and ray or point set: the one number per cell kind the
+    comparison is judged by (the user's rule of 2026-10-07: every geomean a
+    win, no single cell more than 3% under its reference). Printed as a
+    table, with the cells under 0.97 named, since a geomean can hide one."""
+    meshes, _ = meshes_by_triangles(rows, exclude)
+    refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
+    what = "tuned over matching" if tuned else "bonsai over the reference"
+    print(f"geomeans, {what}, over {len(meshes)} meshes "
+          f"({', '.join(meshes)}):")
+    print(f"  {'reference':<10} {'schedule':<10} {'query':<8} {'rays':<8} "
+          f"{'geomean':>8} {'min':>6} {'max':>6}  below 0.97")
+    for ref, sched in refs:
+        for _, query, sets, _ in FIGURES:
+            data = (tuned_over_matching(rows, ref, sched, tuned[ref], query) if tuned
+                    else cells(rows, ref, sched, query))
+            for rays in sets:
+                values = {m: data[(m, rays)] for m in meshes if (m, rays) in data}
+                if not values:
+                    continue
+                g = math.exp(sum(math.log(v) for v in values.values()) / len(values))
+                low = " ".join(f"{m} {v:.2f}" for m, v in values.items() if v < 0.97)
+                print(f"  {ref:<10} {sched:<10} {query:<8} {rays:<8} "
+                      f"{g:8.3f} {min(values.values()):6.2f} {max(values.values()):6.2f}"
+                      f"  {low}")
 
 
 def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
@@ -154,8 +183,10 @@ def main():
     tuned = {"embree": a.embree_tuned, "fcpw": a.fcpw_tuned} if a.tuned else None
     exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
-    draw(load(a.csv), schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
+    rows = load(a.csv)
+    draw(rows, schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
          exclude, tuned)
+    geomeans(rows, schedules, exclude, tuned)
 
 
 if __name__ == "__main__":
