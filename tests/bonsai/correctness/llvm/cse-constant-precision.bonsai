@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm -e
+
+// The simplifier's common subexpressions key a constant by its exact
+// value, not by the six significant digits a stream prints it with
+// (SSA/Simplify.cpp, key_value). `x < 1.0` and `x < 0.99999994` -- the
+// second is pbrt's OneMinusEpsilon, one ulp below one -- are different
+// comparisons, and under a printed key they were one: the second was
+// merged into the first wherever both appeared over the same value
+// (found 2026-10-07 while reading the merge's key for apps/pbrt; no scene
+// of pbrt's happened to hit it). `below` is kept out of line so that `x`
+// reaches the simplifier as a value rather than a constant the folds
+// would settle first.
+//
+// below(0.99999994) is 2 (below one, not below one-minus-epsilon), below(0.5)
+// is 3, below(1.0) is 0. Merged, the first would read 3.
+
+func [[noinline]] below(x : f32) -> i32 {
+    a = select(x < 1.0, 1, 0);
+    b = select(x < 0.99999994, 1, 0);
+    return a * 2 + b;
+}
+
+func main() -> i32 {
+    print(below(0.99999994), below(0.5), below(1.0));
+    return 0;
+}

@@ -1,0 +1,33 @@
+//! flags: -p ssa -b llvm -e
+
+// The simplifier's common subexpressions key a block argument by its
+// definition, not by its name (SSA/Simplify.cpp, key_value). After the
+// allocas are promoted, `dead` is an argument of that name in every block
+// of the loop, and its value in the block after `if i == limit { dead =
+// true }` is a new one; the `!dead` there must not be the header's. Found
+// 2026-10-07 in apps/pbrt, where the layered BxDF's walk kept scattering
+// after its roulette had killed the path and every multi-bounce scene came
+// out brighter than pbrt. Merged, `count` would also take the iteration
+// that set `dead`: walk(10, 3) would print 4 rather than 3, and walk(10, 0)
+// 1 rather than 0. walk(10, 20) counts every iteration, 10.
+
+func [[export]] walk(n : i32, limit : i32) -> i32 {
+    dead : mut bool = false;
+    i : mut i32 = 0;
+    kept : mut i32 = 0;
+    while !dead && (i < n) {
+        if i == limit {
+            dead = true;
+        }
+        if !dead {
+            kept = kept + 1;
+        }
+        i = i + 1;
+    }
+    return kept;
+}
+
+func main() -> i32 {
+    print(walk(10, 3), walk(10, 0), walk(10, 20));
+    return 0;
+}

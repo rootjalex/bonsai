@@ -199,6 +199,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           } else {
             intersects_Ray_AABB$r0!skip0 = (*intersects_Ray_AABB$r0!skip)
           }
+          let @215 = tris.group1_row in
+          let @216 = (*tris_ref!top) >> 4u in
           let @267 = _mask0[ramp(0u, 1u, 4)] in
           let @269 = _keys0[ramp(0u, 1u, 4)] in
           let @271 = _carry0[ramp(0u, 1u, 4)] in
@@ -208,7 +210,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
             let @281 = reinterpret_cast<u4>(@267) in
             let @282 = cast<u32>(@281) in
             let @283 = ctz(@282) in
-            let @391 = reinterpret_cast<const u32[4]>((&@10[@11].children)) in
+            let @391 = reinterpret_cast<const u32[4]>((&@215[@216].children)) in
             let @393 = @391[@283] in
             let @285 = @271[@283] in
             let @286 = @282 - 1u in

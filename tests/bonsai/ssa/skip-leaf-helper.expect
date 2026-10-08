@@ -132,13 +132,15 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @786 = select(@782, @636, tNear$i15) in
           _carry0[ramp(0u, 1u, 4)] = @786
           _keys0[ramp(0u, 1u, 4)] = @786
+          let @127 = tris.group1_row in
+          let @128 = (*tris_ref!top) >> 4u in
           let @319 = reinterpret_cast<i32x4>(@786) in
           let @327 = reduce<any>(@457) in
           if (@327) {
             let @328 = reinterpret_cast<u4>(@457) in
             let @329 = cast<u32>(@328) in
             let @330 = ctz(@329) in
-            let @443 = reinterpret_cast<const u32[4]>((&@10[@11].children)) in
+            let @443 = reinterpret_cast<const u32[4]>((&@127[@128].children)) in
             let @445 = @443[@330] in
             let @332 = @786[@330] in
             let @333 = @329 - 1u in

@@ -46,6 +46,16 @@ def main(argv):
         raise SystemExit("--exposure means nothing for normals")
 
     width, height, values = read_pfm(args[0])
+    # A pixel that is not a number is written black and reported, not fatal:
+    # the 2026-10-07 matrix lost two cells to one NaN pixel in a radiance
+    # image each (watercolor and kroken at 128 spp), the conversion having
+    # aborted the scene's whole comparison.
+    bad = sum(1 for i in range(0, len(values), 3)
+              if any(v != v or v in (float("inf"), float("-inf"))
+                     for v in values[i:i + 3]))
+    if bad:
+        print(f"warning: {bad} pixel(s) of {args[0]} are not finite; "
+              f"written black", file=sys.stderr)
     if "--normals" in flags:
         encoded = encode_normals(width, height, values)
     else:

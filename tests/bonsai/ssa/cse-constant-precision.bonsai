@@ -1,0 +1,15 @@
+//! flags: -p ssa
+
+// The simplifier's common subexpressions (SSA/Simplify.cpp, key_value)
+// key a constant by its exact value. What to read for: `below` keeps TWO
+// comparisons of `x`, against 1.0 and against 0.99999994 (pbrt's
+// OneMinusEpsilon, one ulp below one; it prints as `1` at the printer's
+// six digits), and two selects on them. Under a key made of the printed
+// constant the second compare was the first (found 2026-10-07 while
+// reading the merge's key for apps/pbrt).
+
+func [[export]] below(x : f32) -> i32 {
+    a = select(x < 1.0, 1, 0);
+    b = select(x < 0.99999994, 1, 0);
+    return a * 2 + b;
+}

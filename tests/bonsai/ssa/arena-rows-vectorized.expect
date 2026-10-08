@@ -146,9 +146,9 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           let @85 = max(@66, @518) in
           let @89 = min(@71, @530) in
           let @559 = f32x4(0f) in
-          let @1336 = select(@1220, @1221, @552) in
-          let @1224 = !@1336 in
-          let @484 = reduce<any>(@1336) in
+          let @1346 = select(@1220, @1221, @552) in
+          let @1224 = !@1346 in
+          let @484 = reduce<any>(@1346) in
           if (@484) {
             let @1230 = select(@1221, @85, @559) in
             let @1231 = select(@1220, @1230, @559) in
@@ -159,52 +159,52 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @1233 = select(@1220, @1232, @559) in
             let @102 = @559 < @1233 in
             let @103 = @100 & @102 in
-            let @476 = @1336 && @103 in
+            let @476 = @1346 && @103 in
             let @485 = reduce<any>(@476) in
             if (@485) {
-              let @1365 = @85 < @577 in
-              let @1366 = @559 < @89 in
-              let @1367 = @1365 & @1366 in
-              let @1368 = @1221 && @1367 in
-              let @1338 = @1220 && @1368 in
-              let @1370 = true & true in
-              let @1371 = boolx4(@1370) in
-              let @1374 = select(@1371, @85, @559) in
-              let @1375 = select(@1338, @1374, @559) in
+              let @1369 = @85 < @577 in
+              let @1370 = @559 < @89 in
+              let @1371 = @1369 & @1370 in
+              let @1372 = @1221 && @1371 in
+              let @1348 = @1220 && @1372 in
+              let @1374 = true & true in
+              let @1375 = boolx4(@1374) in
+              let @1378 = select(@1375, @85, @559) in
+              let @1379 = select(@1348, @1378, @559) in
               let @723 = (f32)inf in
               let @724 = -0f - @723 in
               let @725 = f32x4(@724) in
               let @159 = (*_best0) in
               let @160 = @159._field0 in
               let @581 = f32x4(@160) in
-              let @1376 = !@1338 in
-              let @1377 = @1371 && @1376 in
-              let @1265 = select(@1377, @725, @1375) in
+              let @1380 = !@1348 in
+              let @1381 = @1375 && @1380 in
+              let @1265 = select(@1381, @725, @1379) in
               let @1266 = @1265 < @581 in
               let @1267 = select(@476, @1266, @552) in
               !and_0!skip = @1267
             } else {
               !and_0!skip = @552
             }
-            masked_store(_mask0[ramp(0u, 1u, 4)], (*!and_0!skip), @1336)
-            masked_store(_carry0[ramp(0u, 1u, 4)], @1231, @1336)
+            masked_store(_mask0[ramp(0u, 1u, 4)], (*!and_0!skip), @1346)
+            masked_store(_carry0[ramp(0u, 1u, 4)], @1231, @1346)
             let @1276 = !@471 in
-            let @1344 = select(@471, @85, @559) in
+            let @1354 = select(@471, @85, @559) in
             let @995 = (f32)inf in
             let @996 = f32x4(@995) in
-            let @1348 = @85 < @577 in
-            let @1349 = !@1348 in
-            let @1350 = @471 && @1349 in
-            let @1286 = @1276 || @1350 in
-            let @1351 = @471 && @1348 in
-            let @1354 = @559 < @89 in
-            let @1355 = !@1354 in
-            let @1356 = @1351 && @1355 in
-            let @1289 = @1286 || @1356 in
-            let @1290 = select(@1289, @996, @1344) in
-            masked_store(_keys0[ramp(0u, 1u, 4)], @1290, @1336)
-            let @170 = masked_extract(_mask0[ramp(0u, 1u, 4)], @1336) in
-            let @479 = @1336 && @170 in
+            let @1358 = @85 < @577 in
+            let @1359 = !@1358 in
+            let @1360 = @471 && @1359 in
+            let @1286 = @1276 || @1360 in
+            let @1361 = @471 && @1358 in
+            let @1364 = @559 < @89 in
+            let @1365 = !@1364 in
+            let @1366 = @1361 && @1365 in
+            let @1289 = @1286 || @1366 in
+            let @1290 = select(@1289, @996, @1354) in
+            masked_store(_keys0[ramp(0u, 1u, 4)], @1290, @1346)
+            let @170 = masked_extract(_mask0[ramp(0u, 1u, 4)], @1346) in
+            let @479 = @1346 && @170 in
             let @486 = reduce<any>(@479) in
             if (@486) {
               let @449 = reinterpret_cast<const u32[4]>((&@9[0u].children)) in
@@ -227,24 +227,105 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @244 = -0f - @243 in
             let @588 = f32x4(@244) in
             masked_store(_carry0[ramp(0u, 1u, 4)], @588, @1224)
+            let @1008 = r.d in
+            let @1009 = @11 / @1008 in
+            let @1011 = @1009 < @14 in
+            let @1014 = @1011[0u] in
+            let @1017 = boolx4(@1014) in
+            let @1018 = select(@1017, @25, @17) in
+            let @1019 = @1011[1u] in
+            let @1022 = boolx4(@1019) in
+            let @1023 = select(@1022, @27, @19) in
+            let @1024 = @1011[2u] in
+            let @1027 = boolx4(@1024) in
+            let @1028 = select(@1027, @29, @21) in
+            let @1029 = r.o in
+            let @1030 = @1029[0u] in
+            let @1031 = f32x4(@1030) in
+            let @1032 = @1018 - @1031 in
+            let @1033 = @1029[1u] in
+            let @1034 = f32x4(@1033) in
+            let @1035 = @1023 - @1034 in
+            let @1036 = @1029[2u] in
+            let @1037 = f32x4(@1036) in
+            let @1038 = @1028 - @1037 in
+            let @1039 = @1009[0u] in
+            let @1040 = f32x4(@1039) in
+            let @1041 = @1032 * @1040 in
+            let @1042 = @1009[1u] in
+            let @1043 = f32x4(@1042) in
+            let @1044 = @1035 * @1043 in
+            let @1045 = @1009[2u] in
+            let @1046 = f32x4(@1045) in
+            let @1047 = @1038 * @1046 in
+            let @1049 = select(@1017, @17, @25) in
+            let @1051 = select(@1022, @19, @27) in
+            let @1053 = select(@1027, @21, @29) in
+            let @1055 = @1049 - @1031 in
+            let @1057 = @1051 - @1034 in
+            let @1059 = @1053 - @1037 in
+            let @1061 = @1055 * @1040 in
+            let @1063 = @1057 * @1043 in
+            let @1065 = @1059 * @1046 in
+            let @1074 = @1061 * @549 in
+            let @1076 = @1063 * @549 in
+            let @1078 = @1065 * @549 in
+            let @1079 = @1076 < @1041 in
+            let @1080 = @1074 < @1044 in
+            let @1081 = @1079 || @1080 in
+            let @1306 = !@1081 in
+            let @1088 = max(@1041, @1044) in
+            let @1089 = min(@1074, @1076) in
+            let @1090 = @1078 < @1088 in
+            let @1091 = @1089 < @1047 in
+            let @1092 = @1090 || @1091 in
+            let @1307 = !@1092 in
+            let @1105 = max(@1088, @1047) in
+            let @1106 = min(@1089, @1078) in
+            let @1314 = select(@1306, @1307, @552) in
+            let @1315 = !@1314 in
+            let @1320 = select(@1307, @1105, @559) in
+            let @1134 = r.tmax in
+            let @1135 = f32x4(@1134) in
+            let @1323 = select(@1306, @1320, @559) in
+            let @1324 = @1323 < @1135 in
+            let @1325 = !@1324 in
+            let @1328 = select(@1307, @1106, @559) in
+            let @1331 = select(@1306, @1328, @559) in
+            let @1332 = @559 < @1331 in
+            let @1333 = !@1332 in
             let @1145 = f32x4(@243) in
-            masked_store(_keys0[ramp(0u, 1u, 4)], @1145, @1224)
+            let @1335 = @1314 && @1325 in
+            let @1336 = @1315 || @1335 in
+            let @1337 = @1314 && @1324 in
+            let @1338 = @1337 && @1333 in
+            let @1339 = @1336 || @1338 in
+            let @1340 = select(@1339, @1145, @1323) in
+            masked_store(_keys0[ramp(0u, 1u, 4)], @1340, @1224)
             let @249 = masked_extract(_mask0[ramp(0u, 1u, 4)], @1224) in
             let @482 = @1224 && @249 in
             let @487 = reduce<any>(@482) in
             if (@487) {
-              let @454 = reinterpret_cast<const u32[4]>((&@9[0u].children)) in
+              let @250 = tris.group0_arena in
+              let @252 = (*tris_ref!top) >> 4u in
+              let @253 = @252 << 4u in
+              let @255 = reinterpret_cast<const _tree_layout3[]>((&@250[@253])) in
+              let @454 = reinterpret_cast<const u32[4]>((&@255[0u].children)) in
               let @456 = @454[ramp(0u, 1u, 4)] in
               let @591 = u32x4(4u) in
               let @260 = @456 >> @591 in
               let @261 = @260 << @591 in
-              let _effect1 = prefetch((&@5[@261]), 144u, @482) in
+              let _effect1 = prefetch((&@250[@261]), 144u, @482) in
             }
             let @493 = select(@1224, @552, (*intersects_Ray_AABB$r0!skip)) in
             intersects_Ray_AABB$r0!skip0 = @493
           } else {
             intersects_Ray_AABB$r0!skip0 = (*intersects_Ray_AABB$r0!skip)
           }
+          let @263 = tris.group0_arena in
+          let @264 = (*tris_ref!top) >> 4u in
+          let @265 = @264 << 4u in
+          let @267 = reinterpret_cast<const _tree_layout3[]>((&@263[@265])) in
           let @325 = _mask0[ramp(0u, 1u, 4)] in
           let @327 = _keys0[ramp(0u, 1u, 4)] in
           let @329 = _carry0[ramp(0u, 1u, 4)] in
@@ -254,7 +335,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @339 = reinterpret_cast<u4>(@325) in
             let @340 = cast<u32>(@339) in
             let @341 = ctz(@340) in
-            let @459 = reinterpret_cast<const u32[4]>((&@9[0u].children)) in
+            let @459 = reinterpret_cast<const u32[4]>((&@267[0u].children)) in
             let @461 = @459[@341] in
             let @343 = @329[@341] in
             let @344 = @340 - 1u in
@@ -418,11 +499,11 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_2*), r 
               let @310 = isect_$i2.t in
               let @312 = (*_best0) in
               let @313 = @312._field0 in
-              let @1331 = reinterpret_cast<i32x4>(@310) in
-              let @1332 = reinterpret_cast<i32>(@313) in
-              let @1333 = i32x4(@1332) in
-              let @1334 = @1331 < @1333 in
-              let @1159 = @308 && @1334 in
+              let @1341 = reinterpret_cast<i32x4>(@310) in
+              let @1342 = reinterpret_cast<i32>(@313) in
+              let @1343 = i32x4(@1342) in
+              let @1344 = @1341 < @1343 in
+              let @1159 = @308 && @1344 in
               let @1161 = reduce<any>(@1159) in
               if (@1161) {
                 let @316 = (*tris_ref!top) >> 4u in

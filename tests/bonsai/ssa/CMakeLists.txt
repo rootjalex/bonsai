@@ -10,6 +10,8 @@ add_bonsai_tests(
     calls.bonsai
     common-subexpressions.bonsai
     compare-on-bits.bonsai
+    cse-constant-precision.bonsai
+    cse-rebound-argument.bonsai
     intervals-from-conditions.bonsai
     intervals-reciprocal-step.bonsai
     mirror-derived-loads.bonsai

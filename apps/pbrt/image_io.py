@@ -69,8 +69,13 @@ def linear_to_srgb(value):
 
 
 def linear_to_srgb8(value):
-    """pbrt's LinearToSRGB8: the encoded value rounded to a byte."""
-    if value <= 0:
+    """pbrt's LinearToSRGB8: the encoded value rounded to a byte.
+
+    A value that is not a number encodes as black rather than aborting the
+    conversion (the 2026-10-07 matrix lost two cells to one NaN pixel each
+    in a radiance image); the caller counts and reports such values.
+    """
+    if value <= 0 or value != value:
         return 0
     if value >= 1:
         return 255

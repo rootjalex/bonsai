@@ -1,0 +1,24 @@
+func [[export]] walk(n : i32, limit : i32) -> i32 {
+  dead : mut bool
+  i : mut i32
+  kept : mut i32
+  dead = false
+  i = 0
+  kept = 0
+  while (!(*dead) && ((*i) < n)) {
+    let @6 = (*i) == limit in
+    if (@6) {
+      dead = true
+    }
+    let @8 = !(*dead) in
+    if (@8) {
+      let @10 = (*kept) + 1 in
+      kept = @10
+    }
+    let @12 = (*i) + 1 in
+    i = @12
+  }
+  return (*kept)
+}
+
+

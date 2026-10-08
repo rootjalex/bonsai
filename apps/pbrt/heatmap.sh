@@ -26,6 +26,9 @@ if [[ "$(pwd)" == */apps/pbrt ]]; then
 fi
 PREFIX="apps/pbrt"
 
+# bunny-cloud and kroken were held out while the 595 driver's nvidia_uvm
+# lazy-free fault (the crashes of 2026-09-29, 10-04 and 10-07) stood;
+# the user lifted the hold on 2026-10-07 once driver 615.71.09 was in.
 ALL_SCENES="killeroos/killeroo-simple killeroos/killeroo-gold \
 killeroos/killeroo-coated-gold pbrt-book/book ganesha/ganesha \
 barcelona-pavilion/pavilion-day zero-day/frame25 lte-orb/lte-orb-simple-ball \

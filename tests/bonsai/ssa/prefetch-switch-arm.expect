@@ -210,15 +210,18 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
             let @431 = @875 && !and_1 in
             let @436 = reduce<any>(@431) in
             if (@436) {
-              let @211 = cast<u32>(_t258) in
-              let @214 = _t257.child1 in
+              let @207 = tris.group1_index in
+              let @209 = @207[(*tris_index!top)] in
+              let @210 = @209.child0 in
+              let @211 = cast<u32>(@210) in
+              let @214 = @209.child1 in
               let @215 = cast<u32>(@214) in
-              let @218 = _t257.child2 in
+              let @218 = @209.child2 in
               let @219 = cast<u32>(@218) in
-              let @222 = _t257.child3 in
+              let @222 = @209.child3 in
               let @223 = cast<u32>(@222) in
               let @224 = build<u32x4>(@211, @215, @219, @223) in
-              let _effect1 = prefetch((&@3[@224]), 112u, @431) in
+              let _effect1 = prefetch((&@207[@224]), 112u, @431) in
             }
             let @442 = select(@875, @501, (*intersects_Ray_AABB$r0!skip)) in
             intersects_Ray_AABB$r0!skip0 = @442

@@ -1,0 +1,27 @@
+//! flags: -p ssa
+
+// The simplifier's common subexpressions key a block argument by its
+// definition rather than its name (SSA/Simplify.cpp, key_value). What to
+// read for: after promotion `dead` is an argument of the loop's header and
+// of the merge block after `if i == limit { dead = true }`, and the two
+// `not(dead)` -- the header's, on the value carried round the loop, and the
+// body's, on the value the merge block just made -- are TWO instructions,
+// the body's dispatching on its own. Keyed by the name alone the body's
+// was the header's (2026-10-07, apps/pbrt: a killed path in the layered
+// BxDF's walk went on scattering).
+
+func [[export]] walk(n : i32, limit : i32) -> i32 {
+    dead : mut bool = false;
+    i : mut i32 = 0;
+    kept : mut i32 = 0;
+    while !dead && (i < n) {
+        if i == limit {
+            dead = true;
+        }
+        if !dead {
+            kept = kept + 1;
+        }
+        i = i + 1;
+    }
+    return kept;
+}

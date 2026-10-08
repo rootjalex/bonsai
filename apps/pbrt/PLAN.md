@@ -11540,3 +11540,329 @@ under the bonsai env (nvcc rejects gcc 14; the build came from the
 toolchain; the 3-line probe patch was written, never built, and
 reverted. Tools left behind: scratchpad lit_diff.py (the lit-set
 decomposition), the d1/d1u probe scenes in pbrt-v4-scenes/bistro.
+(The `pbrt` conda env does exist, at ~/.conda/envs/pbrt -- the build's
+CMakeCache names its nvcc and its x86_64-conda-linux-gnu-c++ -- so the
+blocker is only that the rebuild must run under that env, not ours.)
+
+**The crash of 2026-10-07 01:08, read the morning after.** The heatmap
+sweep (heatmap.sh, 00:04 on) had finished 20 of its 32 scenes and was
+rendering kroken/camera-1 under gpu-optix at 16 spp -- its log ends after
+"lights and film", i.e. inside the OptiX render -- when the machine went
+down and self-rebooted at 01:09. The user's debugging session read the EFI
+pstore dumps: the nvidia_uvm "vidmem lazy free" kernel thread NULL-
+dereferenced in free_chunk (process_lazy_free; the same RIP and chain as
+Sep 29 and Oct 4), 5.5 s later Xid 109 (ctx switch timeout) and Xid 31
+(MMU fault) against pid render.out -- OUR renderer, pbrt --gpu's run
+having finished -- then a soft lockup on the lock the dead thread held and
+kernel.softlockup_panic's reboot. A driver bug in the HMM device-page free
+path (uvm_pmm_gpu.c's devmem_page_free feeds that list), which our
+renderer exercises through eviction pressure on the 32 GB card (kroken's
+21 GB dump is the largest working set we have) but cannot cause. Notes in
+~/temp/aspen-nvidia-uvm-hang-2026-10-04.md, 2026-10-07 section. Standing
+rules until the user decides whether to test uvm_disable_hmm=1: no
+kroken, no bunny-cloud (the 2026-10-04 hold -- which heatmap.sh's default
+list BROKE: bunny-cloud ran 00:25-00:33 and is out of the list now), no
+heavy scene, no heatmap restart; short renders of small scenes only. The
+heatmap as it stands: compare-out-heatmap/table.tsv, 20 scenes x 3
+counts, drawn as heatmap-gpu-optix-partial.png; still to run: kroken,
+sportscar, bmw, dambreak, frame542, villa-daylight, clouds, the two
+sanmiguels, the two bistros, watercolor. Earlier in that boot the
+23:07:21 pbrt segfault (address 8, compare-out-night's landscape s64 pbrt
+run, not in libcuda) and six NVRM refcntRequestReference warnings each
+followed by a pbrt segfault at address 0 inside libcuda (Oct 5 and 6) are
+pbrt --gpu's own exits, recorded for the pattern.
+
+**A regression the heatmap exposed: every multi-bounce scene brightened
+between the 2026-10-04 sweep and 2026-10-05 11:25.** Found offline, from
+the images both sweeps kept (scratch/old_new_split.py; pbrt's own images
+are bit-identical between the two runs, so the reference did not move).
+Ours over pbrt, old -> new: zero-day frame25 0.992 -> 1.024, frame380
+0.998 -> 1.041, villa-lights-on 1.001 -> 1.045 (the heatmap's three
+FAILED mean cells), bunny-cloud 1.000 -> 1.014, crown 1.000 -> 1.013,
+dragon_10 1.000 -> 1.007, pavilion-day 0.998 -> 1.003, explosion,
+coated-gold and head +0.1-0.2%; and the ratio IDENTICAL to five digits on
+killeroo-gold, lte-orb-simple-ball, disney-cloud, killeroo-simple,
+ganesha, landscape and smoke-plume. Each shift is the same at 16, 64 and
+128 spp: a deterministic bias, not noise. On frame25 it is a broad gain
+over the whole image (16x16-block ratio median 1.037, the dim and the
+bright blocks alike; frame380 1.046), not a surface or a light. Cleared:
+the geometry (identical shape counts in both dumps; the --gpu quad split
+changed nothing here), an extra round (192 ray-kernel launches in both
+runs' kernel stats), the light count (dragon and bunny-cloud have one
+light; zero-day 8,916, villa 8, crown 12), maxdepth (crown's is 100,
+disney-cloud's 100 with no shift, bunny-cloud's 50 with 1.4%). What the
+shifted scenes share is energy that arrives over many scattering events
+-- interiors, media, subsurface, dielectrics -- against open single-
+object scenes that do not move: a per-bounce quantity (Russian roulette's
+draw and its compensation, an MIS weight, a throughput update) or a
+compiler fold inside one. crown already reads 1.0124 in compare-out-
+verify (built 10-05 11:25) and stays there through every later directory,
+so the window is fc3d3f52..90318314, fifteen commits: d1acf33e,
+abf39b0b, 7e0558cd, b939082c (intervals: facts from conditions),
+7af0d6b3, 462f22e4 (the curve), a294087b (tooling), efef9f92,
+1d3c31ab (intervals: liveness), 911ee5a6, 822a89d5, 2d7a33a6 (the
+gates), 13867acd, 62a6490e, 90318314 (the round loop's host side). The
+bisect runs from pinned worktrees only (scratch/bisect_step.sh:
+apps/pbrt/scratch/wt-SHA, its own compiler, its own gpu_compare.sh, the
+cell in scratch/bisect/SHA) on frame25 at 16 spp, 0.17 s a render.
+
+*The bisect (2026-10-07, 07:53-08:06, three steps of ~4 minutes: a
+21-second compiler build and the cell):* a294087b 1.02330x (bad),
+b939082c 0.99219x (good -- the sweep's mean to the digit, 0.192815),
+7af0d6b3 1.02331x (bad). b939082c and 7af0d6b3 are adjacent and
+apps/pbrt is identical between them, so **the compiler commit 7af0d6b3
+("the best folded into the slab test's tFar") is the whole cause**:
+one of its general pieces -- the simplifier's common subexpressions,
+the field-of-select / empty-build / reinterpret-of-build rules,
+`select(c, false, true)` as `!c`, the interval flags (number,
+nonnegative, sign_clear), the compare on the bits, the `(a <= b) & (a <
+c)` join, or MirrorLoads -- changes what the volpath GPU program
+computes.
+
+*The piece (2026-10-07, 08:24-08:36): the common-subexpression merge.*
+Three variants of 7af0d6b3, each one piece switched off in its own
+worktree (scratch/wt-7af0d6b3-{nomirror,nocse,nofacts}, variant_step.sh):
+MirrorLoads off 1.02331x (unchanged, bad); the merge off (find_equal
+returning nothing) **0.99219x, the pre-commit mean to the digit**; the
+third (the post-directive simplify without intervals) was cut by the
+driver swap and is moot. What the final-SSA dumps (scratch/ssa, the
+nocse variant against 7af0d6b3; scratch/ssa_merges.py, ssa_rebind.py)
+cleared by reading: the two MirrorLoads mirrors in the light tree's
+descent and PMF (updated at every write, verified line by line), merges
+across a rebinding of a block argument's name (zero in the program),
+merges across the hardware trace calls, any fold of a comparison, abs,
+min, max or branch (counts and distinct forms equal). One latent bug
+found on the way and fixed at its root in Simplify.cpp (key_value): the
+merge key printed a float constant to six digits, so 1.0 and 0.99999994
+(pbrt's OneMinusEpsilon) were one constant -- tests ssa/ and
+correctness/llvm/cse-constant-precision -- but an instrumented 7af0d6b3
+compiler (BONSAI_CSE_DEBUG) finds NO such collision in the renderer's
+compile, so it is not this regression's cause. Next, with the driver
+back: the merge switched off per instruction kind (the same probe,
+BONSAI_CSE_SKIP; scratch/skip_step.sh), four frame25 cells, then the
+winning class narrowed to the op and the op to the rule.
+
+*The op class (2026-10-07, 10:35-12:20; villa-lights-on at 16 spp, pbrt's
+mean 0.0925968 from the heatmap, ours 1.0005x right and 1.0449x wrong):*
+memory reads unmerged 1.0425x, struct/select/cast ops unmerged 1.0440x,
+arithmetic and intrinsics unmerged 1.0441x, compares/logic/addresses
+unmerged **0.99878x**; within that class, addresses 1.0425x, equality and
+ordering compares 1.0425x, **the boolean ops (Not, LAnd, LOr) unmerged
+0.99878x**. The final-SSA dumps show the same not/land/lor counts with
+and without the merge, so the wrong reuse is not a removed instruction
+but a changed wiring; the per-stage dumps (scratch/stage_dumps.sh) are
+the next read. The shape that fits: a `while` over mutable booleans
+negated again inside the body after they are set (the layered BxDF walk,
+bxdf.bonsai:1382, `!dead` after `dead = true`; the BSSRDF and medium
+walks alike), where after promotion the flag is a block argument carrying
+its source name in every merge block and the merge keys a value by that
+name.
+
+*The rule, confirmed and fixed (2026-10-07, 14:50-17:30).* An
+instrumented 7af0d6b3 compiler prints nine boolean-op merges in the whole
+renderer: four are folds of a constant, **five are `not(dead)` in a merge
+block of the layered BxDF walk (bxdf.bonsai:1382; `!merge_13/21/25/85/93`
+of vol_surface's CoatedDiffuse arm) merged into the header's `not(dead)`**
+-- the flag just set to true read as still false, so a path the walk's
+roulette or a zero cosine had killed went on scattering: more light, in
+proportion to how much of a scene's energy passes through coated layers,
+media and subsurface walks (the same shape in bssrdf.bonsai and
+media.bonsai). The common-subexpression key named a block argument by
+its bare name, and after promote_allocas a `mut` local is an argument of
+that name in every block of its loop. The fix, at the root: the key names
+an argument by its DEFINITION (SSA/Definitions.h) -- the instruction or
+parameter it is threaded from, or the block that merges it -- and
+Definitions itself learned to resolve a name a block reaches from above
+without taking it as an argument in the nearest dominator that does take
+it (it answered "unknown here", which gave one value two identities on
+either side of a parfor or a call). Two more latent bugs fixed on the way:
+the key printed float constants to six digits (1.0 and 0.99999994 were
+one constant; tests ssa+correctness/llvm cse-constant-precision), and the
+old key's merge of a parfor body's row read into the parfor's continuation
+-- a value a GPU launch could not hand on -- which the new key refuses
+(the 15 traversal goldens that move, under the rtq session's review before
+they are blessed). Tests: ssa+correctness/llvm cse-rebound-argument (the
+`!dead` loop: 3, 0, 10 right; 4, 1, 10 under the old key).
+
+*Confirmed on the GPU (18:00) and settled in form.* The first form put
+the by-name resolution into SSA/Definitions itself; that broke defer's
+captures (a continuation referred to a value it had not been handed:
+"@3099 is not bound in full_path_step"), because defer relies on the
+analysis's "unknown here" to capture such a value -- so Definitions is
+back as it was and the resolution lives in the key alone, walking the
+predecessors as Block::get_value does. With it: villa-lights-on 1.0013x,
+crown 0.9999x, dragon_10 0.99995x, bunny-cloud 0.9999x, killeroo-coated-
+gold 0.9995x of pbrt (from 1.045, 1.013, 1.007, 1.014, 1.0015), every
+image matching; the renderer compiles; all 228 C++/GPU execution tests
+and both new tests pass; 26 traversal goldens move (15 ssa + 11 llvm),
+the lost reuse of a parfor body's row read in the parfor's continuation
+and, in the vectorized traversals, selects and compares no longer shared
+across a block that rebinds their operands -- under the rtq session's
+review (scratch/golden-diffs) before they are blessed.
+
+**zero-day frame25 under 615.71.09:** reported to NVIDIA as a crash in
+the driver's acceleration-structure build for a GAS with thousands of
+build inputs (report.txt at the repository root is the write-up); a fix
+exists in a driver newer than the public 615.71.09 (2026-09-09, the
+newest public Linux release today). frame25 and frame380 stay out of the
+comparison runs until a driver with the fix is installed. The NanoVDB shim's device bitcode builds again
+(build_nanovdb_shim.sh defines __x86_64__ for glibc's <gnu/stubs.h> under
+the nvptx64 target, which is what clang's CUDA mode does for the host).
+
+**The driver after the swap (2026-10-07, 09:50-14:45).** 615.71.09 cured
+the uvm crash (killeroo-simple, killeroo-gold, book, villa-lights-on
+render and match), but **zero-day frame25 segfaults BOTH renderers at
+the same instruction inside libcuda.so.615.71.09** (ip offset 0x1c77e6,
+fault address 0x209044200, a write; ours after "compact pools", i.e. in
+the acceleration-structure build or the texture upload -- the scene has
+4.26M shapes and 0.95 GB of textures), reproducibly, before and after the
+user's further driver fix and a clean rebuild of pbrt (14:39, its own
+conda env) and of our renderer. libcuda itself is the September 9 build.
+frame25/frame380 are out until that is understood; the attribution moved
+to villa. Seen in the same cells: the NanoVDB shim's device-bitcode step
+(clang++ against nvptx64, ad3a66bb) fails under the conda clang with
+"gnu/stubs-32.h not found" and falls back to nvcc PTX -- the density read
+is an outlined call again on media scenes. NEW since the reboot: the
+heatmap run at 00:04 built the bitcode cleanly, the 09:52 readiness cell
+did not -- the driver swap brought something along (the CUDA toolkit
+under /usr/local/cuda, most likely); the include path is to be fixed
+before any media-scene number is read again.
+
+## The matrix under the fixed compiler and driver 615.71.09 (2026-10-07, 18:16-20:29)
+
+`heatmap.sh --out compare-out-heatmap2` with the fix compiler
+(scratch/wt-fix/build-copy), 28 scenes at 16/64/128 spp, each cell the
+least of three, zero-day (frame25, frame380) and bistro (two cameras) out
+for the driver's acceleration-structure crash. **Every rendered cell
+matches pbrt** but pavilion-day at 16 spp, whose lit-pixel count is 2058
+off where 1196 is allowed -- the same cell failed the same check in the
+00:04 run (gap 1610) and passes at 64 and 128 spp; a 16-spp check too
+tight for that scene, not a regression. Two cells are missing: watercolor
+and kroken at 128 spp, where our *radiance* image (not the final image)
+holds one or two NaN pixels (watercolor at (473,415) and (473,287), kroken
+at (592,374)) and to_png.py aborted the scene. The converter now writes a
+non-finite pixel black and warns (image_io.py, to_png.py); both scenes
+were redone (21:27-21:35) and filled the table (watercolor 1.51x, kroken
+0.72x at 128 spp, both matching, and no NaN pixel this time -- the NaN is
+not deterministic from run to run, which points at the GPU's reduction
+order or an uninitialised value rather than a fixed pixel's path); the NaN itself
+is a renderer bug to find -- one pixel in 2.8 million at 128 spp, none at
+16 or 64, so a rare path (a firefly's division, the same family as the
+bmw firefly mean pending above).
+
+**Speedups (wall, ours over pbrt --gpu) at 16 / 64 / 128 spp:**
+
+| scene | 16 | 64 | 128 | | scene | 16 | 64 | 128 |
+|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 2.24 | 1.38 | 1.15 | | villa-lights-on | 1.59 | 1.17 | 1.13 |
+| killeroo-gold | 1.65 | 1.21 | 1.31 | | plume | 1.71 | 1.48 | 1.40 |
+| killeroo-coated-gold | 1.56 | 1.14 | 1.23 | | bunny-cloud | 1.43 | 1.41 | 1.41 |
+| watercolor camera-1 | 1.67 | 1.53 | 1.51 | | explosion | 1.35 | 1.32 | 1.30 |
+| book | 1.28 | 0.95 | 0.88 | | disney-cloud | 1.35 | 1.34 | 1.34 |
+| ganesha | 1.08 | 0.96 | 0.87 | | clouds | 1.60 | 1.39 | 1.37 |
+| pavilion-day | 0.86 | 0.73 | 0.67 | | crown | 1.20 | 1.13 | 1.13 |
+| lte-orb-simple-ball | 1.16 | 0.94 | 0.93 | | frame542 | 1.21 | 1.13 | 1.17 |
+| lte-orb-silver | 1.18 | 0.97 | 0.95 | | kroken camera-1 | 0.83 | 0.85 | 0.72 |
+| lte-orb-rough-glass | 0.90 | 0.87 | 0.86 | | sanmiguel-courtyard | 0.83 | 0.50 | 0.45 |
+| head | 0.97 | 0.70 | 0.66 | | sanmiguel-courtyard-second | 0.49 | 0.33 | 0.26 |
+| dragon_10 | 0.61 | 0.50 | 0.49 | | landscape view-0 | 0.21 | 0.19 | 0.19 |
+
+Four scenes' wall columns are not to be read: pbrt's wall time there is
+many times its own kernel time (bmw-m6 17.1 s of wall for 213 ms of
+kernels at 16 spp, sportscar-sky 14.2 s for 888 ms at 64, villa-daylight
+1.45 s for 291 ms, dambreak0 2.15 s for 692 ms), pbrt stalling outside
+its kernels -- the nvidia_uvm thread was seen at 50-68% of a core during
+kroken's pbrt runs, so most likely managed-memory migration under the new
+driver. Their kernel-time ratios: bmw-m6 1.09 / 1.10 / 1.09, sportscar-sky
+0.76 / 0.76 / 0.76, villa-daylight 1.03 / 1.03 / 1.02, dambreak0 0.80 /
+0.81 / 0.81.
+
+**The surface scenes are 1.3-5.7x slower than two days ago, and it is the
+driver, not the compiler.** Against the 00:04 run (driver 595.91.07,
+compiler of 10-06) our kernel time rose on every surface scene -- head
+2.0-2.2x, dragon_10 2.7x, pavilion 1.85x, ganesha 1.7x, book 1.5-1.7x,
+lte-orb 1.35-1.77x, killeroo 1.3-1.6x, crown 1.26x, villa-lights-on 1.5x,
+landscape 5.7x (1019 -> 5784 ms at 16 spp) -- and not at all on the
+volume scenes (bunny-cloud, disney-cloud, explosion within 1%, plume
+faster), while pbrt's kernel times are identical to the millisecond
+across the two runs. The renderer the 00:04 run compiled is still on disk
+(compare-out-heatmap/gpu-optix/render.out, the old compiler) and on
+615.71.09 it is exactly as slow as the new one: head 83 ms either way
+(39 ms on 595), dragon 500 ms (174 ms on 595). So the fix is cleared and
+the driver swap is the cause.
+
+Where the time went (BONSAI_KERNEL_STATS, old run against new): only the
+two closest-hit raygen programs. head at 16 spp: `__raygen__rays` 9.0 ->
+20.4 ms, `__raygen__probes` 7.6 -> 37.3 ms, `__raygen__shadow$False` 0.95
+-> 1.02 ms, every CUDA kernel unchanged (hits$Subsurface 8.83 -> 8.90).
+dragon: probes 47.5 -> 236 ms, rays 38.4 -> 140 ms, shadows 7.0 -> 6.9,
+CoatedDiffuse 35.7 -> 35.0. In the media scenes `__raygen__rays` did not
+move (explosion 77 -> 79 ms, disney-cloud 260 -> 266, bunny-cloud 145 ->
+150), nor did `__raygen__shadow$True` with its 384-byte continuation
+stack -- so neither the stack nor the trace itself is the cost.
+
+Excluded, each by a relink or a recompile timed on head and dragon
+(scratch/abi_step*.sh, scratch/abi/): the OptiX ABI (linked against the
+7.7.0 SDK headers pbrt uses: identical); the PTX target (`--gpu-arch
+sm_90`, PTX 7.8 like pbrt's sm_89 PTX the driver JITs: identical; sm_89
+itself trips a compiler bug -- ptx_feature maps it to PTX 7.0 where 7.8
+is the minimum, to fix); traversableGraphFlags ALLOW_ANY; PREFER_FAST_
+BUILD; the continuation stack at four times its size; `ld.global.nc`
+rewritten to plain `ld.global` throughout the embedded PTX
+(scratch/patch_nc_loads.py); any-hit forced on every input (slower, as it
+should be). Nsight Compute on head's camera launch (570k threads, 2228
+blocks of 256, 128 registers both sides): ours 1004 us, pbrt's
+findClosest 467 us for 32 M warp-instructions against our 26.7 M -- we
+execute less and wait more: stalled warps per issue 115 long-scoreboard,
+79 barrier, 22 lg-throttle against pbrt's 47 / 31 / 4.6, with 165 MB of
+local loads and 280 MB of local stores against pbrt's 63 / 187.
+
+Then the closest-hit program itself, by probes compiled in the scratch
+worktree (an env var in CodeGen_OptiX::add_program, reverted; nsys per
+launch, the first launch of each band being the camera rays, the same
+rays and traversal in every variant):
+
+| `__closesthit__trace` body | camera launch, head 16 spp |
+|---|---|
+| the real program: load the primitive's 40-byte record (and a GeometricPrimitive's 32-byte record), write the 26 fields of the hit into the raygen's context | 941-968 us |
+| DISABLE_CLOSESTHIT on the trace (traversal only, no program) | 300-343 us |
+| an empty program (`ret`) | 295-301 us |
+| the hit-state reads alone (primitive index, instance id, sbt pointer, tmax, barycentrics) stored to the context | 335 us |
+| the 16 word stores and 10 byte stores of constants at the real offsets | ~450 us |
+| the 16 word stores alone | 341 us |
+| the old driver's biggest launch of the whole render (max over 48) | 374 us |
+
+So on 615.71.09 the body of our closest-hit program -- dependent loads of
+the primitive record scattered by primitive index, and the stores of
+what they return into the raygen's local-memory context through the
+payload's generic pointer -- costs about 650 us per 570k-thread launch,
+where on 595.91.07 the whole launch took at most 374 us. The hit-state
+intrinsics are free, constant stores cost ~100 us, the traversal is
+unchanged. pbrt's `__closesthit__triangle` does more work of the same
+kind (its SurfaceInteraction from three vertices) through the same
+payload-pointer pattern and is not slowed; what differs is not yet
+known. Written up for NVIDIA as the second issue in report.txt.
+
+**What this changes.** The 10-04 sweep's orders -- "fix codegen behind
+every slower cell" -- cannot be followed on this driver for the surface
+scenes: head, dragon, pavilion, ganesha, book, lte-orb, landscape and
+sanmiguel are slower than pbrt today only because of the closest-hit
+program's cost under 615.71.09; two days ago every one of them was
+1.05-1.6x faster. Three ways forward, the user's call:
+1. **A driver with the fix**, if NVIDIA confirms the regression -- the
+   numbers above are the report.
+2. **Lower the closest-hit program as pbrt lowers nothing but as the
+   wavefront rule says**: record the minimum at the hit (primitive
+   index, instance id, barycentrics, t -- the "reads alone" row, 335 us)
+   and load the primitive's record in the continuation, which reads it
+   anyway. A change to Lower/Trees.cpp's hit-recording, not to any
+   schedule; it is also what [[bonsai-queue-entries-store-the-minimum]]
+   asks of a queue entry. To be measured against the probe before it is
+   designed in full.
+3. **Promote the context into the payload registers** where it fits (the
+   existing promoted-context path), so the hit is handed back in
+   registers and no generic store reaches local memory; the volpath
+   context with its 137 bytes does not fit 32 words today.
+The driver's two other effects seen today stay open: pbrt's own
+managed-memory stalls (bmw-m6, sportscar, villa-daylight, dambreak), and
+the GAS-build crash on frame25/bistro.

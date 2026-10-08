@@ -133,7 +133,10 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @92 = @89 & @91 in
           let @129 = select(@278, @188, @92) in
           _mask0[ramp(0u, 1u, 4)] = @129
-          let @98 = @11.children in
+          let @95 = tris.group0_row in
+          let @96 = (*tris_ref!top) >> 4u in
+          let @97 = @95[@96] in
+          let @98 = @97.children in
           let _t40 = cast<u32x4>(@98) in
           let @225 = reduce<+>(cast<u32x4>(@129)) in
           let @267 = reduce<any>(@129) in
@@ -147,7 +150,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
               let @226 = reinterpret_cast<u4>(@129) in
               let @227 = cast<u32>(@226) in
               let @228 = ctz(@227) in
-              let @290 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
+              let @290 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
               let @292 = @290[@228] in
               tris_ref!top = @292
               continue
@@ -160,7 +163,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @232 = ctz(@231) in
                 let @233 = clz(@231) in
                 let @234 = 31u - @233 in
-                let @295 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
+                let @295 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
                 let @297 = @295[@232] in
                 !stack[(*!count)] = @297
                 let @238 = (*!count) + 1u in
@@ -178,7 +181,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @245 = ctz(@244) in
                 let @246 = clz(@241) in
                 let @247 = 31u - @246 in
-                let @302 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
+                let @302 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
                 let @304 = @302[@242] in
                 !stack[(*!count)] = @304
                 let @251 = (*!count) + 1u in

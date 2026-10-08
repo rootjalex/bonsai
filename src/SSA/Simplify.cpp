@@ -362,10 +362,89 @@ struct Simplifier {
     // The text that says what an instruction computes: its operation, its
     // type, what rides on it, and its operands as resolved -- an
     // instruction by its name, which is one per function; an argument by
-    // its name, which a value keeps as it is carried between blocks; a
-    // constant as written with its type.
+    // what it is DEFINED as where the current block reads it; a constant by
+    // its type and its exact value.
+    //
+    // An argument's name is not enough. A block's arguments carry a value
+    // from where it is computed to where it is used under one name, and
+    // after the allocas are promoted a `mut` local is an argument of that
+    // name in every block of its loop -- `dead` in a layered BxDF's walk --
+    // whose value is NEW in the merge block after `dead = true`. Keyed by
+    // the name, `!dead` there was the header's `!dead`, and a path the walk
+    // had killed went on: apps/pbrt's volpath renderer came out 1-4.5%
+    // brighter than pbrt on every multi-bounce scene (bisected 2026-10-07 to
+    // 7af0d6b3, which brought this merge; five such `not(dead)` in the
+    // renderer). So an argument is keyed by its definition
+    // (SSA/Definitions.h): the instruction or parameter it is threaded
+    // from, which is one value wherever it is read, or -- where the
+    // predecessors disagree, a merge or a loop's carried value -- the block
+    // that merges it, under which no other block's value of the name can
+    // hide. tests/bonsai/ssa/cse-rebound-argument reads for it.
+    //
+    // Exact, not as printed: Constant::dump writes a float the way a stream
+    // does, to six significant digits, and under that key 1.0 and
+    // 0.99999994 (pbrt's OneMinusEpsilon), or -1.0 and -0.99999994, are one
+    // constant (found 2026-10-07 while reading this key for apps/pbrt;
+    // tests/bonsai/ssa/cse-constant-precision has the pair).
+    void key_value(std::ostringstream &os, const ValuePtr &v) {
+        if (const auto *c = std::get_if<Constant>(&v->data)) {
+            if (const auto *d = std::get_if<double>(&c->data)) {
+                os << '(' << c->type << ')' << std::hexfloat << *d << std::defaultfloat;
+                return;
+            }
+        }
+        if (const auto *a = std::get_if<Argument>(&v->data); a != nullptr && block) {
+            if (!definitions.has_value()) {
+                definitions.emplace(func, /*lenient=*/true);
+            }
+            // The block the name is an argument of: this one, or -- for a
+            // name reached from above without being passed, which the
+            // analysis leaves at "unknown here" -- the block it is reached
+            // from, found the way the form itself finds a name
+            // (Block::get_value): back through the predecessors to the
+            // first block that takes it, or the entry. A name in scope is
+            // bound once, so any way back reaches the same binding, and the
+            // first predecessor serves. Done here rather than in the
+            // analysis: defer() relies on "unknown here" to capture such a
+            // value for the continuation it hands it to.
+            shared_ptr<Block> from = block;
+            {
+                std::set<const Block *> seen;
+                const auto takes = [&](const shared_ptr<Block> &b) {
+                    return b.get() == func.blocks.front().get() ||
+                           std::any_of(b->args.begin(), b->args.end(),
+                                       [&](const Argument &x) { return x.name == a->name; });
+                };
+                while (from && !takes(from) && seen.insert(from.get()).second) {
+                    shared_ptr<Block> next;
+                    for (const auto &weak : from->preds) {
+                        if (const auto p = weak.lock()) {
+                            next = p;
+                            break;
+                        }
+                    }
+                    from = next;
+                }
+                if (!from) {
+                    from = block;
+                }
+            }
+            const Definition d = definitions->of(from->name, v);
+            if (d.value != nullptr) {
+                if (const Instruction *i = def_of(d.value)) {
+                    os << i->name;
+                    return;
+                }
+                if (std::holds_alternative<Argument>(d.value->data)) {
+                    os << d.block << ':' << a->name;
+                    return;
+                }
+            }
+        }
+        v->dump(os);
+    }
     std::string key_of(Instruction::Op op, const Type &type,
-                       const vector<ValuePtr> &ops, const std::string &extra) const {
+                       const vector<ValuePtr> &ops, const std::string &extra) {
         std::ostringstream os;
         os << int(op) << '|' << type << '|' << extra << '|';
         for (const ValuePtr &o : ops) {
@@ -373,7 +452,7 @@ struct Simplifier {
                 os << "null,";
                 continue;
             }
-            resolve(o)->dump(os);
+            key_value(os, resolve(o));
             os << ',';
         }
         return os.str();

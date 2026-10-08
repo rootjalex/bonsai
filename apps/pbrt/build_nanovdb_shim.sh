@@ -57,9 +57,16 @@ if [[ -n "$ARCH" ]]; then
   # --link mechanism. Compiled as plain C++ against the nvptx64 target
   # rather than clang's CUDA mode, which this machine's CUDA headers are
   # too new for; the bare target configures no standard headers, so the
-  # toolchain's are named explicitly. If any of that is missing, the old
-  # nvcc PTX is emitted instead, loudly: the renderer still works, the
-  # march just keeps the call per step.
+  # toolchain's are named explicitly, and the host's ABI is stated:
+  # glibc's <gnu/stubs.h> chooses its 32- or 64-bit half by the host's
+  # macro __x86_64__, which a bare nvptx64 target does not define, so
+  # without it every standard header fails on a missing <gnu/stubs-32.h>
+  # (found 2026-10-07). Clang's own CUDA device compilation defines the
+  # host's macros for exactly this reason; its CUDA mode is not usable
+  # here (the CUDA 13.2 headers are newer than this clang supports), so the
+  # one macro the headers consult is given by hand. If any of that is
+  # missing, the old nvcc PTX is emitted instead, loudly: the renderer
+  # still works, the march just keeps the call per step.
   CLANG_DIR="$(dirname "$(command -v "$BONSAI_CXX")")"
   GXX_GLOB=("$CLANG_DIR"/../lib/gcc/*/*/include/c++)
   GXX="${GXX_GLOB[0]:-}"
@@ -68,6 +75,7 @@ if [[ -n "$ARCH" ]]; then
   GPU_BC=""
   if [[ -d "$GXX" && -d "$SYSROOT" ]]; then
     if "$BONSAI_CXX" -std=c++17 -O2 --target=nvptx64-nvidia-cuda \
+        -D__x86_64__ \
         -nostdinc++ -isystem "$GXX" -isystem "$GXX/x86_64-conda-linux-gnu" \
         -isystem "$SYSROOT" -emit-llvm -c "$NANOVDB_INCLUDE" \
         "$PREFIX/nanovdb_shim.cpp" -o "$OUTDIR/nanovdb_shim.gpu.bc"; then

@@ -10,20 +10,20 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none)
 define internal fastcc void @_recloop_func0(i32 noundef %tris_ref, float noundef %_bound0, ptr noundef nonnull %_best0, %struct.Point noundef %p, %struct._tree_layout0 noundef %tris) unnamed_addr #0 {
 _recloop_func0:
-  %_mask0100150.sroa.0 = alloca <4 x i8>, align 4
+  %_mask0100154.sroa.0 = alloca <4 x i8>, align 4
   %0 = extractvalue %struct._tree_layout0 %tris, 3
   %1 = extractvalue %struct.Point %p, 0
   %.splat107 = shufflevector <3 x float> %1, <3 x float> poison, <4 x i32> zeroinitializer
   %.splat109 = shufflevector <3 x float> %1, <3 x float> poison, <4 x i32> <i32 1, i32 1, i32 1, i32 1>
   %.splat111 = shufflevector <3 x float> %1, <3 x float> poison, <4 x i32> <i32 2, i32 2, i32 2, i32 2>
-  %_mask0100150.sroa.0.1.extract_ptr129.sroa_idx328 = getelementptr inbounds nuw i8, ptr %_mask0100150.sroa.0, i64 1
-  %_mask0100150.sroa.0.2.extract_ptr131.sroa_idx329 = getelementptr inbounds nuw i8, ptr %_mask0100150.sroa.0, i64 2
-  %_mask0100150.sroa.0.3.extract_ptr133.sroa_idx330 = getelementptr inbounds nuw i8, ptr %_mask0100150.sroa.0, i64 3
+  %_mask0100154.sroa.0.1.extract_ptr133.sroa_idx332 = getelementptr inbounds nuw i8, ptr %_mask0100154.sroa.0, i64 1
+  %_mask0100154.sroa.0.2.extract_ptr135.sroa_idx333 = getelementptr inbounds nuw i8, ptr %_mask0100154.sroa.0, i64 2
+  %_mask0100154.sroa.0.3.extract_ptr137.sroa_idx334 = getelementptr inbounds nuw i8, ptr %_mask0100154.sroa.0, i64 3
   br label %tailrecurse
 
-tailrecurse:                                      ; preds = %"!par_cont_6!next138", %_recloop_func0
-  %tris_ref.tr = phi i32 [ %tris_ref, %_recloop_func0 ], [ %extract104.unpack.unpack262, %"!par_cont_6!next138" ]
-  %_bound0.tr = phi float [ %_bound0, %_recloop_func0 ], [ %_carry0101149.sroa.0.12.vec.extract, %"!par_cont_6!next138" ]
+tailrecurse:                                      ; preds = %"!par_cont_6!next142", %_recloop_func0
+  %tris_ref.tr = phi i32 [ %tris_ref, %_recloop_func0 ], [ %extract104.unpack.unpack266, %"!par_cont_6!next142" ]
+  %_bound0.tr = phi float [ %_bound0, %_recloop_func0 ], [ %_carry0101153.sroa.0.12.vec.extract, %"!par_cont_6!next142" ]
   %"@0._field0" = load float, ptr %_best0, align 4
   %2 = fcmp olt float %_bound0.tr, %"@0._field0"
   br i1 %2, label %"!then_0", label %"!merge_1"
@@ -38,24 +38,24 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %_wide102 = zext nneg i32 %5 to i64
   %extract_ptr103 = getelementptr inbounds nuw [112 x i8], ptr %0, i64 %_wide102
   %extract104.unpack.unpack = load i32, ptr %extract_ptr103, align 1
-  %extract104.unpack.elt257 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 4
-  %extract104.unpack.unpack258 = load i32, ptr %extract104.unpack.elt257, align 1
-  %extract104.unpack.elt259 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 8
-  %extract104.unpack.unpack260 = load i32, ptr %extract104.unpack.elt259, align 1
-  %extract104.unpack.elt261 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 12
+  %extract104.unpack.elt261 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 4
   %extract104.unpack.unpack262 = load i32, ptr %extract104.unpack.elt261, align 1
-  %extract104.elt244 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 16
-  %6 = load <4 x float>, ptr %extract104.elt244, align 1
-  %extract104.elt246 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 32
-  %7 = load <4 x float>, ptr %extract104.elt246, align 1
-  %extract104.elt248 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 48
-  %8 = load <4 x float>, ptr %extract104.elt248, align 1
-  %extract104.elt250 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 64
-  %9 = load <4 x float>, ptr %extract104.elt250, align 1
-  %extract104.elt252 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 80
-  %10 = load <4 x float>, ptr %extract104.elt252, align 1
-  %extract104.elt254 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 96
-  %11 = load <4 x float>, ptr %extract104.elt254, align 1
+  %extract104.unpack.elt263 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 8
+  %extract104.unpack.unpack264 = load i32, ptr %extract104.unpack.elt263, align 1
+  %extract104.unpack.elt265 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 12
+  %extract104.unpack.unpack266 = load i32, ptr %extract104.unpack.elt265, align 1
+  %extract104.elt248 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 16
+  %6 = load <4 x float>, ptr %extract104.elt248, align 1
+  %extract104.elt250 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 32
+  %7 = load <4 x float>, ptr %extract104.elt250, align 1
+  %extract104.elt252 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 48
+  %8 = load <4 x float>, ptr %extract104.elt252, align 1
+  %extract104.elt254 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 64
+  %9 = load <4 x float>, ptr %extract104.elt254, align 1
+  %extract104.elt256 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 80
+  %10 = load <4 x float>, ptr %extract104.elt256, align 1
+  %extract104.elt258 = getelementptr inbounds nuw i8, ptr %extract_ptr103, i64 96
+  %11 = load <4 x float>, ptr %extract104.elt258, align 1
   %12 = fsub <4 x float> %6, %.splat107
   %13 = fsub <4 x float> %8, %.splat109
   %14 = fsub <4 x float> %10, %.splat111
@@ -90,12 +90,12 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %.splat114 = shufflevector <4 x float> %.splatinsert113, <4 x float> poison, <4 x i32> zeroinitializer
   %42 = fcmp olt <4 x float> %41, %.splat114
   %store_bytes = zext <4 x i1> %42 to <4 x i8>
-  store <4 x i8> %store_bytes, ptr %_mask0100150.sroa.0, align 4
+  store <4 x i8> %store_bytes, ptr %_mask0100154.sroa.0, align 4
   %43 = bitcast <4 x i1> %42 to i4
-  %.not306 = icmp eq i4 %43, 0
+  %.not310 = icmp eq i4 %43, 0
   %44 = bitcast <4 x i8> %store_bytes to <32 x i1>
   %45 = extractelement <32 x i1> %44, i64 0
-  br i1 %.not306, label %"!merge_8", label %"!then_7"
+  br i1 %.not310, label %"!merge_8", label %"!then_7"
 
 "!then_7":                                        ; preds = %"!then_2"
   %46 = fsub <4 x float> %.splat107, %6
@@ -109,14 +109,14 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %54 = tail call <4 x float> @llvm.fabs.v4f32(<4 x float> %26)
   %max_lt = fcmp olt <4 x float> %49, %52
   %max = select <4 x i1> %max_lt, <4 x float> %52, <4 x float> %49
-  %max_lt141 = fcmp olt <4 x float> %50, %53
-  %max142 = select <4 x i1> %max_lt141, <4 x float> %53, <4 x float> %50
-  %max_lt143 = fcmp olt <4 x float> %51, %54
-  %max144 = select <4 x i1> %max_lt143, <4 x float> %54, <4 x float> %51
+  %max_lt145 = fcmp olt <4 x float> %50, %53
+  %max146 = select <4 x i1> %max_lt145, <4 x float> %53, <4 x float> %50
+  %max_lt147 = fcmp olt <4 x float> %51, %54
+  %max148 = select <4 x i1> %max_lt147, <4 x float> %54, <4 x float> %51
   %55 = fmul <4 x float> %max, %max
-  %56 = fmul <4 x float> %max142, %max142
+  %56 = fmul <4 x float> %max146, %max146
   %57 = fadd <4 x float> %55, %56
-  %58 = fmul <4 x float> %max144, %max144
+  %58 = fmul <4 x float> %max148, %max148
   %59 = fadd <4 x float> %57, %58
   %60 = tail call <4 x float> @llvm.sqrt.v4f32(<4 x float> %59)
   %61 = select <4 x i1> %42, <4 x float> %60, <4 x float> splat (float +inf)
@@ -128,26 +128,26 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %67 = shufflevector <2 x float> %65, <2 x float> poison, <1 x i32> zeroinitializer
   %68 = fcmp olt <1 x float> %66, %67
   %69 = select <1 x i1> %68, <1 x float> %66, <1 x float> %67
-  %reduce_min145 = extractelement <1 x float> %69, i64 0
-  %70 = fcmp olt float %"@0._field0", %reduce_min145
-  %71 = select i1 %70, float %"@0._field0", float %reduce_min145
+  %reduce_min149 = extractelement <1 x float> %69, i64 0
+  %70 = fcmp olt float %"@0._field0", %reduce_min149
+  %71 = select i1 %70, float %"@0._field0", float %reduce_min149
   store float %71, ptr %_best0, align 4
   br label %"!merge_8"
 
 "!merge_8":                                       ; preds = %"!then_7", %"!then_2"
-  %_carry0101149.sroa.0.4.vec.extract = extractelement <4 x float> %41, i64 1
-  %_carry0101149.sroa.0.8.vec.extract = extractelement <4 x float> %41, i64 2
-  %_carry0101149.sroa.0.12.vec.extract = extractelement <4 x float> %41, i64 3
-  %_mask0100150.sroa.0.1._mask0100150.sroa.0.1._mask0100150.sroa.0.1._mask0100150.sroa.0.1.extract130 = load i1, ptr %_mask0100150.sroa.0.1.extract_ptr129.sroa_idx328, align 1
-  %_mask0100150.sroa.0.2._mask0100150.sroa.0.2._mask0100150.sroa.0.2._mask0100150.sroa.0.2.extract132 = load i1, ptr %_mask0100150.sroa.0.2.extract_ptr131.sroa_idx329, align 2
-  %_mask0100150.sroa.0.3._mask0100150.sroa.0.3._mask0100150.sroa.0.3._mask0100150.sroa.0.3.extract134 = load i1, ptr %_mask0100150.sroa.0.3.extract_ptr133.sroa_idx330, align 1
+  %_carry0101153.sroa.0.4.vec.extract = extractelement <4 x float> %41, i64 1
+  %_carry0101153.sroa.0.8.vec.extract = extractelement <4 x float> %41, i64 2
+  %_carry0101153.sroa.0.12.vec.extract = extractelement <4 x float> %41, i64 3
+  %_mask0100154.sroa.0.1._mask0100154.sroa.0.1._mask0100154.sroa.0.1._mask0100154.sroa.0.1.extract134 = load i1, ptr %_mask0100154.sroa.0.1.extract_ptr133.sroa_idx332, align 1
+  %_mask0100154.sroa.0.2._mask0100154.sroa.0.2._mask0100154.sroa.0.2._mask0100154.sroa.0.2.extract136 = load i1, ptr %_mask0100154.sroa.0.2.extract_ptr135.sroa_idx333, align 2
+  %_mask0100154.sroa.0.3._mask0100154.sroa.0.3._mask0100154.sroa.0.3._mask0100154.sroa.0.3.extract138 = load i1, ptr %_mask0100154.sroa.0.3.extract_ptr137.sroa_idx334, align 1
   br i1 %45, label %"!par_cont_6!call", label %"!par_cont_6!next"
 
 "!else_3":                                        ; preds = %"!then_0"
   %72 = extractvalue %struct._tree_layout0 %tris, 1
   %73 = add nsw i32 %3, -8
-  %.not317 = icmp eq i32 %73, 0
-  br i1 %.not317, label %"!merge_1", label %"!for__idx1_body_11.lr.ph"
+  %.not321 = icmp eq i32 %73, 0
+  br i1 %.not321, label %"!merge_1", label %"!for__idx1_body_11.lr.ph"
 
 "!for__idx1_body_11.lr.ph":                       ; preds = %"!else_3"
   %74 = lshr i32 %tris_ref.tr, 4
@@ -169,22 +169,22 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
 
 "!then_15":                                       ; preds = %"!for__idx1_body_11"
   %79 = load <4 x float>, ptr %extract_ptr, align 4
-  %extract.unpack.elt158 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %80 = load <4 x float>, ptr %extract.unpack.elt158, align 4
-  %extract.unpack.elt160 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
-  %81 = load <4 x float>, ptr %extract.unpack.elt160, align 4
-  %extract.elt151 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
-  %82 = load <4 x float>, ptr %extract.elt151, align 4
-  %extract.unpack152.elt184 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 64
-  %83 = load <4 x float>, ptr %extract.unpack152.elt184, align 4
-  %extract.unpack152.elt186 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 80
-  %84 = load <4 x float>, ptr %extract.unpack152.elt186, align 4
-  %extract.elt153 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 96
-  %85 = load <4 x float>, ptr %extract.elt153, align 4
-  %extract.unpack154.elt210 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 112
-  %86 = load <4 x float>, ptr %extract.unpack154.elt210, align 4
-  %extract.unpack154.elt212 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 128
-  %87 = load <4 x float>, ptr %extract.unpack154.elt212, align 4
+  %extract.unpack.elt162 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
+  %80 = load <4 x float>, ptr %extract.unpack.elt162, align 4
+  %extract.unpack.elt164 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 32
+  %81 = load <4 x float>, ptr %extract.unpack.elt164, align 4
+  %extract.elt155 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 48
+  %82 = load <4 x float>, ptr %extract.elt155, align 4
+  %extract.unpack156.elt188 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 64
+  %83 = load <4 x float>, ptr %extract.unpack156.elt188, align 4
+  %extract.unpack156.elt190 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 80
+  %84 = load <4 x float>, ptr %extract.unpack156.elt190, align 4
+  %extract.elt157 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 96
+  %85 = load <4 x float>, ptr %extract.elt157, align 4
+  %extract.unpack158.elt214 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 112
+  %86 = load <4 x float>, ptr %extract.unpack158.elt214, align 4
+  %extract.unpack158.elt216 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 128
+  %87 = load <4 x float>, ptr %extract.unpack158.elt216, align 4
   %88 = fsub <4 x float> %82, %79
   %89 = fsub <4 x float> %83, %80
   %90 = fsub <4 x float> %84, %81
@@ -383,8 +383,8 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %279 = fcmp olt <4 x float> %278, %.splat95
   %280 = and <4 x i1> %77, %279
   %281 = bitcast <4 x i1> %280 to i4
-  %.not243 = icmp eq i4 %281, 0
-  br i1 %.not243, label %"!merge_16", label %"!then_18"
+  %.not247 = icmp eq i4 %281, 0
+  br i1 %.not247, label %"!merge_16", label %"!then_18"
 
 "!then_18":                                       ; preds = %"!then_15"
   %282 = shl i32 %76, 2
@@ -429,30 +429,30 @@ tailrecurse:                                      ; preds = %"!par_cont_6!next13
   %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
   br i1 %exitcond.not, label %"!merge_1", label %"!for__idx1_body_11"
 
-"!merge_1":                                       ; preds = %"!par_cont_6!next138", %tailrecurse, %"!merge_16", %"!else_3"
+"!merge_1":                                       ; preds = %"!par_cont_6!next142", %tailrecurse, %"!merge_16", %"!else_3"
   ret void
 
 "!par_cont_6!call":                               ; preds = %"!merge_8"
-  %_carry0101149.sroa.0.0.vec.extract = extractelement <4 x float> %41, i64 0
-  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack, float %_carry0101149.sroa.0.0.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
+  %_carry0101153.sroa.0.0.vec.extract = extractelement <4 x float> %41, i64 0
+  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack, float %_carry0101153.sroa.0.0.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
   br label %"!par_cont_6!next"
 
 "!par_cont_6!next":                               ; preds = %"!par_cont_6!call", %"!merge_8"
-  br i1 %_mask0100150.sroa.0.1._mask0100150.sroa.0.1._mask0100150.sroa.0.1._mask0100150.sroa.0.1.extract130, label %"!par_cont_6!call135", label %"!par_cont_6!next136"
+  br i1 %_mask0100154.sroa.0.1._mask0100154.sroa.0.1._mask0100154.sroa.0.1._mask0100154.sroa.0.1.extract134, label %"!par_cont_6!call139", label %"!par_cont_6!next140"
 
-"!par_cont_6!call135":                            ; preds = %"!par_cont_6!next"
-  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack258, float %_carry0101149.sroa.0.4.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
-  br label %"!par_cont_6!next136"
+"!par_cont_6!call139":                            ; preds = %"!par_cont_6!next"
+  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack262, float %_carry0101153.sroa.0.4.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
+  br label %"!par_cont_6!next140"
 
-"!par_cont_6!next136":                            ; preds = %"!par_cont_6!call135", %"!par_cont_6!next"
-  br i1 %_mask0100150.sroa.0.2._mask0100150.sroa.0.2._mask0100150.sroa.0.2._mask0100150.sroa.0.2.extract132, label %"!par_cont_6!call137", label %"!par_cont_6!next138"
+"!par_cont_6!next140":                            ; preds = %"!par_cont_6!call139", %"!par_cont_6!next"
+  br i1 %_mask0100154.sroa.0.2._mask0100154.sroa.0.2._mask0100154.sroa.0.2._mask0100154.sroa.0.2.extract136, label %"!par_cont_6!call141", label %"!par_cont_6!next142"
 
-"!par_cont_6!call137":                            ; preds = %"!par_cont_6!next136"
-  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack260, float %_carry0101149.sroa.0.8.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
-  br label %"!par_cont_6!next138"
+"!par_cont_6!call141":                            ; preds = %"!par_cont_6!next140"
+  tail call fastcc void @_recloop_func0(i32 %extract104.unpack.unpack264, float %_carry0101153.sroa.0.8.vec.extract, ptr %_best0, %struct.Point %p, %struct._tree_layout0 %tris)
+  br label %"!par_cont_6!next142"
 
-"!par_cont_6!next138":                            ; preds = %"!par_cont_6!call137", %"!par_cont_6!next136"
-  br i1 %_mask0100150.sroa.0.3._mask0100150.sroa.0.3._mask0100150.sroa.0.3._mask0100150.sroa.0.3.extract134, label %tailrecurse, label %"!merge_1"
+"!par_cont_6!next142":                            ; preds = %"!par_cont_6!call141", %"!par_cont_6!next140"
+  br i1 %_mask0100154.sroa.0.3._mask0100154.sroa.0.3._mask0100154.sroa.0.3._mask0100154.sroa.0.3.extract138, label %tailrecurse, label %"!merge_1"
 }
 
 ; Function Attrs: mustprogress

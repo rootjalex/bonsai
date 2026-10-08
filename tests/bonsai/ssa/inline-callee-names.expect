@@ -136,7 +136,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
       let @314 = f32x4(@121) in
       let @306 = select(@488, @314, @120) in
       _carry0[ramp(0u, 1u, 4)] = @306
-      let @127 = @7.children in
+      let @124 = tris.group1_row in
+      let @125 = tris_ref >> 4u in
+      let @126 = @124[@125] in
+      let @127 = @126.children in
       let _t40 = cast<u32x4>(@127) in
       let @129 = _t40[0u] in
       let @130 = _carry0[0u] in
