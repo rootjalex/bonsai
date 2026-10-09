@@ -401,8 +401,81 @@ to WoSX on those three would give WoSX a dynamic schedule too; that is a
 change to WoSX, not to this benchmark, and the table says which schedule
 each row is.
 
+### The packet schedule (2026-10-09, morning; compiler commit 29d34c71)
+
+`schedules/fcpw4w16-packet.bonsai`: the walks as the lanes, not the tree.
+The same four-wide Mbvh in FCPW's bytes, the walk a loop, and a point's
+walks split by 32 and vectorized (`solve_all.split(w, w_gang, w_lane, 32,
+true).vectorize(w_lane)`), then `closest.sort(...).loopify(96)` and the
+leaf's `skip`: a packet traversal of a wide node -- one node for the gang,
+a child visited when any lane's query reaches its box, by the lanes that
+reach it, the children's order decided once for the gang by the majority
+of the lanes that are on (the user's decision over Embree's `any`), one
+stack of nodes, per-lane bounds and masks. Until this morning no wide node
+could be packet-traced: the driver applied every `sort` before any other
+directive whatever the schedule wrote, so the sort's chain was built on the
+scalar function and vectorized lane by lane, and the vectorizer refused a
+run with a condition per call outright. Both are fixed at the root (the
+compiler commit says how), and the directives are applied in the order
+written.
+
+Correct: on the whale (side 128, 64 walks, cpu 11) every walk ends on
+both sides with the same mean length as the matching schedule's (11.46)
+and the same rms error (5.63e-3), with and without the sort, and the new
+tests check a gang's lanes against the scalar trace on the walls scene
+(correctness/cpp/bvh4_child_volumes_packet).
+
+Slow: least of 3, pinned, against the matching schedule's 1.82 Msteps/s
+(1.20x WoSX's 1.52):
+
+| gang of walks | bonsai Msteps/s | over WoSX |
+|---|---|---|
+| 32 (the schedule) | 0.21 | 0.14x |
+| 16 | 0.25 | 0.17x |
+| 8 | 0.26 | 0.17x |
+| unsorted, 32 | 0.06 | 0.04x |
+
+Why (perf record, cpu 11, the whale): 87% of the cycles are in the gang's
+traversal, and the hot instructions are the leaf's triangle test -- the
+closest point to a triangle computed 32 lanes wide (`vsqrtps`, `vdivps`,
+the Voronoi-region compares on zmm registers), once per triangle of every
+leaf any lane reaches. The matching schedule tests a leaf's sixteen
+triangles at once for one query and never wastes a lane; the packet tests
+each triangle for 32 queries at once and wastes every lane whose walk is
+elsewhere. A point's 32 walks start at the same point, so the first step's
+query is one query for the gang, but a walk's steps are a random path and
+after a few steps the 32 are spread over the mesh: the leaves a gang
+reaches are the union of 32 walks' leaves, each tested 32 wide for a lane
+or two. Taking the slowdown at face value, about two lanes are useful at a
+leaf on average. That is the thinning Embree's hybrid kernel switches away
+from (bvh_intersector_hybrid.cpp: below 3 of 4, 5 of 8, 14 of 16 rays
+active it traverses the rest one ray at a time), and the walks are less
+coherent than a camera's rays from the second step on. The narrower gangs
+help little because the leaf's cost is per triangle per lane either way.
+The unsorted packet is three times slower again: without the nearest-first
+order the bound rarely culls a popped node, and the gang visits most of
+the tree.
+
+What would make a packet pay here, in order of how much it is:
+1. a leaf test that is per triangle *and* per lane only for the lanes on
+   -- the scalar-per-lane leaf (the matching schedule's sixteen-wide test
+   over the triangles) entered per active lane when few are on, which is
+   Embree's hybrid switch: a schedule point, not a directive today;
+2. coherence from the problem: a gang of 32 *points'* first steps rather
+   than one point's 32 walks (the first query of neighbouring sample
+   points is coherent, and WoSX's own `--shuffle` experiment showed how
+   much neighbouring points share), i.e. `solve_all.split(i, ...)
+   .vectorize(i_lane)` over the points with the walks inside -- a
+   different schedule of the same program, worth measuring next;
+3. Embree's per-ray-distance stack entry in place of the mask, so a lane
+   whose best improved after a push does not enter the popped node.
+None of these is started; the compiler change stands on its own and the
+schedule is the first packet traversal of a wide node to run.
+
 ### Next
 
+- The packet schedule over the points rather than the walks (above, 2),
+  and the hybrid switch as a schedule point to put to the user (above, 1).
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
   configuration (issue 1).
 - The extensions, one at a time against WoSX: a source term (Poisson),

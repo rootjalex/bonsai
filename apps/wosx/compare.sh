@@ -38,7 +38,8 @@ set -euo pipefail
 # default the first of `build`, `build-*` that CMake has configured with the
 # LLVM the compiler needs, which is said when it is picked); BONSAI_CXX a
 # clang++ (default `clang++`; the generated header needs clang's
-# ext_vector_type); RTQ_CPUS as above.
+# ext_vector_type); RTQ_CPUS as above; WOSX_KEEP set keeps the built
+# program and driver (wosx.out, wosx.ll, ...) after the run, for a profile.
 if [[ "$(pwd)" == */apps/wosx ]]; then
   cd ../..
 fi
@@ -136,11 +137,11 @@ build_schedule() {
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx
 
   local branching width
-  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads|-persistent)?$ ]]; then
+  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads|-persistent|-packet(-[a-z0-9]+)*)?$ ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
   else
-    echo "a schedule is named fcpw<branching>w<width>[t][-threads|-persistent] after FCPW's tree (fcpw4w16, fcpw4w16-threads, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t][-threads|-persistent|-packet[-variant...]] after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, ...): $schedule" >&2
     exit 1
   fi
   local defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
@@ -221,7 +222,11 @@ for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
     echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW"
     numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/wosx.out "$@" || STATUS=$?
   fi
-  rm -f $PREFIX/wosx.bir $PREFIX/wosx.ll $PREFIX/wosx.h $PREFIX/wosx.o $PREFIX/wosx.out
+  # WOSX_KEEP leaves the built program and driver in place (wosx.out, wosx.ll,
+  # ...) for a profile or a read of the code after the run.
+  if [[ -z "${WOSX_KEEP:-}" ]]; then
+    rm -f $PREFIX/wosx.bir $PREFIX/wosx.ll $PREFIX/wosx.h $PREFIX/wosx.o $PREFIX/wosx.out
+  fi
 done
 rm -f $PREFIX/.wosx_hook-*.o
 exit $STATUS

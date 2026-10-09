@@ -1,0 +1,32 @@
+// The packet schedule: the walks as the lanes, not the tree. Where
+// fcpw4w16.bonsai vectorizes the traversal's loops -- the four children of
+// a node tested at once, the leaf's sixteen triangles at once, one walk at a
+// time -- this one leaves the traversal scalar and vectorizes the loop over
+// a point's walks: thirty-two walks make a gang, each lane stepping its own
+// walk and traversing the tree for its own point, the nodes read per lane
+// (apps/pbrt/schedules/packet.bonsai does the same with pbrt's samples). The
+// tree and its bytes are the same four-wide Mbvh (layouts/fcpw4w16), so
+// WoSX's side is unchanged; the question is whether a gang of walks beats a
+// gang of children and triangles on this machine. Single-threaded, pinned,
+// as fcpw4w16 is run.
+import apps/rtq/schedules/layouts/fcpw4w16;
+
+schedule {
+    // The walk a loop, as WoSX's; inside a gang it is a divergent loop,
+    // each lane leaving when its own walk ends.
+    walk.loopify();
+
+    // The walks of a point in gangs of thirty-two lanes; the tail guard
+    // takes a count that is not a whole number of gangs.
+    solve_all.split(w, w_gang, w_lane, 32, true)
+             .vectorize(w_lane);
+
+    // FCPW's traversal order -- the children pushed farthest first by the
+    // point's distance to their boxes, FCPW's stack of 96 -- per lane, with
+    // no loop of the traversal vectorized.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .loopify(96);
+    closest.skip(closest_point_fcpw);
+}

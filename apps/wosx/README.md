@@ -175,6 +175,11 @@ in question (PLAN.md, the persistent schedule).
   the CPU threads (`solve_all.bind(i, CPUThread)`), WoSX's parallel solve.
   `schedules/fcpw4w16-persistent.bonsai`: the points claimed by sixteen
   persistent workers bound to the threads.
+  `schedules/fcpw4w16-packet.bonsai`: the walks as the lanes -- a point's
+  walks split by 32 and vectorized, then the traversal sorted and put on
+  a stack, a packet traversal of the same four-wide tree (single-threaded;
+  correct and slow, PLAN.md says why). Not a default of the comparison;
+  run it with `--schedule fcpw4w16,fcpw4w16-packet`.
 - `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
   the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are
