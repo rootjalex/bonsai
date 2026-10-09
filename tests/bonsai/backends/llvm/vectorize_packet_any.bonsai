@@ -1,0 +1,61 @@
+//! flags: -p ssa -b llvm
+
+// ssa/vectorize-packet-any.bonsai at the LLVM level: a gang of eight rays
+// over an `any` query of a four-wide BVH whose nodes hold their children's
+// boxes, loopified with no order asked for. What to read for, against
+// vectorize_packet_wide (the sorted run of the same tree): the children
+// loop tests a child's box against the eight rays and pushes it with no
+// branch -- the child's index, a scalar load off the row, and the `<8 x
+// i1>` of the lanes that hit it stored at the stack's top, and the count
+// advanced by the `zext` of whether any lane hit -- so the loop's body is
+// straight-line and nothing waits on the test. There is no `[4 x <8 x
+// i1>]` of the children's tests written in the loop and read back after
+// it, and no tests and pushes after the loop at all.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func [[export]] occluded_all(rs : array[Ray, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](occluded(rs[i]));
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded_all.vectorize(i);
+    occluded.loopify(64);
+}

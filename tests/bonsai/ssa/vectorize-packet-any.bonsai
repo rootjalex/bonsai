@@ -1,0 +1,73 @@
+//! flags: -p ssa
+
+// The packet traversal of a wide node for an `any` query, with no order
+// asked for: vectorize-packet-wide.bonsai's program and layout -- a BVH
+// whose nodes hold their children's boxes, four wide -- with a gang of
+// eight rays over the occluded query, loopified and unsorted. What to read
+// for (SSA/QueueRecursion.cpp, fuse_into_children_loop): the push is in
+// the children loop, where the child's test is made, and it has no branch
+// in it -- the child's index, a scalar read off the row at the loop's
+// index, and the lanes that hit it (the test and the gang's mask) are
+// written at the stack's top every time, and `!count` moves on by
+// `cast<u32>(reduce<any>(lanes))`, one where a lane hit and nothing
+// otherwise, the slot past the last pushed being the stack's slack. The
+// children go in reverse, the loop's index `3u - counter`, so that they
+// come off the stack lowest first, the order they lie in memory. There is
+// no per-lane array of the children's tests in the gang: `_mask0 : mut
+// boolx8[4]` is declared and nothing writes or reads it, there is no
+// re-and with the gang's mask, no test and push per child after the loop,
+// and after the loop the node is done. A sorted run (vectorize-packet-
+// wide.bonsai) keeps its pushes after the loop, since its order needs
+// every test first. Embree's chunk loop pushes behind a branch on the
+// child's test (bvh_intersector_hybrid.cpp); a branch decided off the end
+// of the box test's chain mispredicts dearly, and measured 7% slower on
+// dragon than the array it replaced, which is why there is none here
+// (apps/rtq/PLAN.md, 2026-10-09).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func [[export]] occluded_all(rs : array[Ray, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](occluded(rs[i]));
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded_all.vectorize(i);
+    occluded.loopify(64);
+}

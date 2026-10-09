@@ -10,8 +10,10 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <set>
 #include <string>
@@ -1368,6 +1370,579 @@ void queue_recursion(Function &func, size_t size) {
         const bool last =
             call->cont.args.empty() && only_returns(call->cont.name);
         const size_t waiting_from = last ? 1 : 0;
+
+        // A gang's run of conditioned calls -- a node whose children's boxes
+        // it tests, the packet traversal of a wide node -- pushed from the
+        // children loop, where each child's test is made, with no branch:
+        // the child's index and the lanes that hit it are written at the
+        // stack's top every time, and the count moves on by whether a lane
+        // did. The lowering below wrote the same run as the children's tests
+        // stored into a per-lane array in the loop, read back after it,
+        // and-ed with the mask again, tested one by one for a lane on and
+        // pushed one by one: an `[8 x <16 x i1>]` in memory, a masked
+        // read-modify-write a child and some seventy instructions a node
+        // after the loop (apps/rtq/PLAN.md, the any-hit packet's profile,
+        // item 3). Embree's chunk loop (bvh_intersector_hybrid.cpp) pushes
+        // from the loop too, behind a branch on the child's test, keeping
+        // the last child hit as the current; tried here, that branch --
+        // decided off the end of the box test's chain, some twenty-five
+        // cycles into the child -- mispredicted dearly and the loop came
+        // out 7% slower on dragon than the array it replaced, with fewer
+        // instructions and fewer mispredictions overall, in either order of
+        // the children (PLAN.md, 2026-10-09); Embree pays it at the top of
+        // the tree only, where its chunk loop runs. So the push is
+        // unconditional, which the stack's slack past its capacity allows,
+        // and the children go in reverse so that they come off the stack
+        // lowest first, the order the lowering below gave and Embree's
+        // single-ray traverseAnyHit takes (bscf, the lowest bit first). A
+        // sorted run needs every test before it orders them and is not
+        // this. The shape is recognized exactly as the vectorizer and the
+        // tree lowering make it, and anything else takes the lowering
+        // below: every call's mask is `M && A[k]` for one mask M and one
+        // per-lane array A, k the call's index, and its condition is whether
+        // that mask has a lane on; A is written once, in a loop, at the
+        // loop's counter -- the loop header's own argument, stepped by one
+        // on its one back edge -- under M, and read nowhere else; the run's
+        // node values are the lanes of one vector V at k, for each stack
+        // but the masks'; the loop has one entry from outside, and V can be
+        // made there.
+        const auto fuse_into_children_loop = [&]() -> bool {
+            // BONSAI_EXPLAIN_LOOPIFY=1 says why a run was not fused.
+            static const bool explain =
+                std::getenv("BONSAI_EXPLAIN_LOOPIFY") != nullptr;
+            const auto bail = [&](const char *why) {
+                if (explain) {
+                    std::cerr << "loopify: the run in " << name
+                              << " is not fused into its children loop: " << why
+                              << "\n";
+                }
+                return false;
+            };
+            if (!mask_param.has_value()) {
+                return bail("not a gang's");
+            }
+            if (call->sorted.has_value() || call->lanes.has_value()) {
+                return bail("a sorted run, or the lanes of vectors");
+            }
+            if (call->args.size() < 2 ||
+                call->conds.size() != call->args.size()) {
+                return bail("not a run of conditioned calls");
+            }
+            const size_t n = call->args.size();
+            const auto constant_index =
+                [](const shared_ptr<Value> &v) -> std::optional<uint64_t> {
+                const auto *c = std::get_if<Constant>(&v->data);
+                if (c == nullptr) {
+                    return std::nullopt;
+                }
+                if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+                    return *u;
+                }
+                if (const auto *i = std::get_if<int64_t>(&c->data);
+                    i != nullptr && *i >= 0) {
+                    return uint64_t(*i);
+                }
+                return std::nullopt;
+            };
+            // The one mask and the one array. Storage is named: a local's
+            // reads and writes refer to its alloca by name (see name_of).
+            set<string> allocas;
+            for (const auto &b : func.blocks) {
+                for (const auto &in : b->instrs) {
+                    if (in->op == Instruction::Op::Alloca) {
+                        allocas.insert(in->name);
+                    }
+                }
+            }
+            shared_ptr<Value> M;
+            string A;
+            for (size_t k = 0; k < n; k++) {
+                const shared_ptr<Value> &mk = call->args[k][*mask_param];
+                const Instruction *d = definer(mk);
+                if (d == nullptr || d->op != Instruction::Op::LAnd ||
+                    d->operands.size() != 2) {
+                    return bail("a call's mask is not an and of two");
+                }
+                const auto lane_read =
+                    [&](const shared_ptr<Value> &v) -> std::optional<string> {
+                    const Instruction *e = definer(v);
+                    if (e == nullptr || e->op != Instruction::Op::ExtractIdx ||
+                        e->operands.size() != 2) {
+                        return std::nullopt;
+                    }
+                    const std::optional<string> a = name_of(e->operands[0]);
+                    if (!a.has_value() || !allocas.contains(*a)) {
+                        return std::nullopt;
+                    }
+                    const std::optional<uint64_t> at =
+                        constant_index(e->operands[1]);
+                    if (!at.has_value() || *at != k) {
+                        return std::nullopt;
+                    }
+                    return a;
+                };
+                std::optional<string> a = lane_read(d->operands[1]);
+                shared_ptr<Value> m = d->operands[0];
+                if (!a.has_value()) {
+                    a = lane_read(d->operands[0]);
+                    m = d->operands[1];
+                }
+                if (!a.has_value()) {
+                    if (explain) {
+                        const auto describe = [&](const shared_ptr<Value> &v) {
+                            const Instruction *e = definer(v);
+                            if (e == nullptr) {
+                                return string("not an instruction");
+                            }
+                            string s = string(op_name(e->op)) + " " + e->name;
+                            for (const auto &op : e->operands) {
+                                const Instruction *o = definer(op);
+                                s += o == nullptr ? " (value)"
+                                                  : " (" + string(op_name(o->op)) +
+                                                        " " + o->name + ")";
+                            }
+                            return s;
+                        };
+                        std::cerr << "  mask " << k << ": "
+                                  << describe(d->operands[0]) << " && "
+                                  << describe(d->operands[1]) << "\n";
+                    }
+                    return bail("a call's mask is not the mask and a lane of "
+                                "a per-lane array at the call's index");
+                }
+                if (A.empty()) {
+                    A = *a;
+                    M = m;
+                } else if (A != *a || !same_value(*M, *m)) {
+                    return bail("the calls' masks differ in their mask or "
+                                "their array");
+                }
+                const Instruction *c = definer(call->conds[k]);
+                if (c == nullptr || c->op != Instruction::Op::Any ||
+                    c->operands.size() != 1 ||
+                    !same_value(*c->operands[0], *mk)) {
+                    return bail("a call's condition is not whether its mask "
+                                "has a lane on");
+                }
+            }
+            // The array's one store, and nothing else of it but the reads.
+            shared_ptr<Instruction> store;
+            shared_ptr<Block> store_block;
+            const Instruction *address = nullptr;
+            vector<shared_ptr<Block>> read_blocks;
+            for (const auto &b : func.blocks) {
+                for (const auto &in : b->instrs) {
+                    bool uses = false;
+                    for (const auto &op : in->operands) {
+                        const std::optional<string> named = name_of(op);
+                        uses = uses || (named.has_value() && *named == A);
+                    }
+                    if (!uses) {
+                        continue;
+                    }
+                    if (in->op == Instruction::Op::ExtractIdx) {
+                        read_blocks.push_back(b);
+                        continue;
+                    }
+                    if (in->op != Instruction::Op::GEP || address != nullptr ||
+                        in->operands.size() != 2 || name_of(in->operands[0]) != A) {
+                        return bail("the array is used otherwise than stored "
+                                    "at one address and read");
+                    }
+                    address = in.get();
+                }
+            }
+            if (address == nullptr || read_blocks.size() != n) {
+                return bail("the array is not stored once and read once per "
+                            "call");
+            }
+            for (const auto &b : func.blocks) {
+                for (const auto &in : b->instrs) {
+                    for (const auto &op : in->operands) {
+                        if (definer(op) != address) {
+                            continue;
+                        }
+                        if (in->op != Instruction::Op::Store || store ||
+                            in->operands.size() < 2 || in->operands.size() > 3 ||
+                            definer(in->operands[0]) != address) {
+                            return bail("the array's address is used otherwise "
+                                        "than by one store");
+                        }
+                        store = in;
+                        store_block = b;
+                    }
+                }
+            }
+            if (!store ||
+                (store->operands.size() == 3 &&
+                 !same_value(*store->operands[2], *M))) {
+                return bail("the array's store is not under the calls' mask");
+            }
+            const shared_ptr<Value> idx = address->operands[1];
+            const shared_ptr<Value> test = store->operands[1];
+            if (!test->get_type().is_vector() ||
+                !equals(test->get_type(), params[*mask_param].type)) {
+                return bail("the stored test is not a mask of the gang's width");
+            }
+            // The loop the store is in, with the run past it, entered from
+            // one block outside, and the reads past it too.
+            const Cfg g(func);
+            const DomTree dom = compute_dominator_tree(g);
+            const BlockId sb = g.find(*store_block);
+            const BlockId rb = g.find(*block);
+            if (sb == NO_BLOCK || rb == NO_BLOCK || !dom.contains(sb) ||
+                !dom.contains(rb)) {
+                return bail("the store's block or the run's is unreachable");
+            }
+            const LoopForest forest = compute_loop_forest(g, dom);
+            const Loop *loop = forest.innermost(sb);
+            if (loop == nullptr || loop->blocks.contains(rb) ||
+                !dom.dominates(loop->header, rb)) {
+                return bail("the store is not in a loop the run follows");
+            }
+            BlockId pre = NO_BLOCK;
+            for (const BlockId p : g.preds[loop->header]) {
+                if (loop->blocks.contains(p)) {
+                    continue;
+                }
+                if (pre != NO_BLOCK && pre != p) {
+                    return bail("the loop is entered from more than one block");
+                }
+                pre = p;
+            }
+            if (pre == NO_BLOCK || !dom.dominates(pre, rb)) {
+                return bail("the loop's entry does not reach the run");
+            }
+            for (const auto &b : read_blocks) {
+                const BlockId id = g.find(*b);
+                if (id == NO_BLOCK || loop->blocks.contains(id)) {
+                    return bail("the array is read inside the loop");
+                }
+            }
+            // The loop's counter: the array is stored at the loop header's
+            // own argument for it, and the loop's one back edge passes that
+            // argument plus one. The children are visited in reverse below,
+            // so the counter must be known as such.
+            const shared_ptr<Block> &header_block = g.block(loop->header);
+            std::optional<size_t> counter_at;
+            for (size_t ai = 0; ai < header_block->args.size(); ai++) {
+                if (is_named_argument(*idx, header_block->args[ai].name)) {
+                    counter_at = ai;
+                }
+            }
+            if (!counter_at.has_value()) {
+                return bail("the array's index is not the loop's own argument");
+            }
+            const string counter = header_block->args[*counter_at].name;
+            if (loop->latches.size() != 1) {
+                return bail("the loop has more than one back edge");
+            }
+            const shared_ptr<Block> &latch_block = g.block(loop->latches[0]);
+            const auto *back =
+                std::get_if<Terminator::Jump>(&latch_block->terminator.data);
+            if (back == nullptr || back->name != header_block->name ||
+                back->args.size() != header_block->args.size()) {
+                return bail("the loop's back edge is not a jump to its header");
+            }
+            const Instruction *step = definer(back->args[*counter_at]);
+            {
+                bool by_one = false;
+                if (step != nullptr && step->op == Instruction::Op::Add &&
+                    step->operands.size() == 2) {
+                    for (size_t k = 0; k < 2; k++) {
+                        const std::optional<uint64_t> one =
+                            constant_index(step->operands[1 - k]);
+                        by_one = by_one ||
+                                 (is_named_argument(*step->operands[k], counter) &&
+                                  one.has_value() && *one == 1);
+                    }
+                }
+                if (!by_one) {
+                    return bail("the loop's counter is not stepped by one on "
+                                "the back edge");
+                }
+            }
+            // The counter the store is at must be in hand where the store is,
+            // which it is as the store's own address; and the run's children:
+            // the lanes of one vector per stack, at k.
+            std::map<size_t, shared_ptr<Value>> vectors;
+            for (const Stack &stack : stacks) {
+                if (stack.param == *mask_param) {
+                    continue;
+                }
+                shared_ptr<Value> V;
+                for (size_t k = 0; k < n; k++) {
+                    const Instruction *d = definer(call->args[k][stack.param]);
+                    if (d == nullptr || d->op != Instruction::Op::ExtractIdx ||
+                        d->operands.size() != 2 ||
+                        !d->operands[0]->get_type().is_vector()) {
+                        return bail("a call's child is not a lane of a vector");
+                    }
+                    const std::optional<uint64_t> at =
+                        constant_index(d->operands[1]);
+                    if (!at.has_value() || *at != k) {
+                        return bail("a call's child is not the lane at the "
+                                    "call's index");
+                    }
+                    if (!V) {
+                        V = d->operands[0];
+                    } else if (!same_value(*V, *d->operands[0])) {
+                        return bail("the calls' children are lanes of "
+                                    "different vectors");
+                    }
+                }
+                vectors[stack.param] = V;
+            }
+            // What makes V, moved to the loop's entry where it is not already
+            // in hand there: pure instructions over values that are, in the
+            // order they depend on each other. A read of read-only storage
+            // -- the node's row -- moves; anything else that touches memory
+            // does not, and the run keeps the lowering below.
+            vector<shared_ptr<Instruction>> to_move;
+            set<const Instruction *> considered;
+            const std::function<bool(const shared_ptr<Value> &)> in_hand_at_entry =
+                [&](const shared_ptr<Value> &v) -> bool {
+                const auto *held = std::get_if<shared_ptr<Instruction>>(&v->data);
+                if (held == nullptr || *held == nullptr) {
+                    return true; // a parameter or a constant
+                }
+                const shared_ptr<Instruction> &in = *held;
+                const shared_ptr<Block> owner = in->owner.lock();
+                if (!owner) {
+                    return false;
+                }
+                const BlockId ob = g.find(*owner);
+                if (ob != NO_BLOCK && dom.contains(ob) && dom.dominates(ob, pre)) {
+                    return true;
+                }
+                if (considered.contains(in.get())) {
+                    return true;
+                }
+                switch (in->op) {
+                case Instruction::Op::Reinterpret:
+                case Instruction::Op::Cast:
+                case Instruction::Op::LoadField:
+                case Instruction::Op::MakeStruct:
+                case Instruction::Op::Bc:
+                case Instruction::Op::Add:
+                case Instruction::Op::Sub:
+                case Instruction::Op::Mul:
+                case Instruction::Op::Shl:
+                case Instruction::Op::Shr:
+                case Instruction::Op::BwAnd:
+                case Instruction::Op::BwOr:
+                    break;
+                case Instruction::Op::ExtractIdx:
+                    if (in->operands.size() != 2 ||
+                        (in->operands[0]->get_type().is_reference() &&
+                         !in->operands[0]->get_type().is_readonly())) {
+                        return false;
+                    }
+                    break;
+                default:
+                    return false;
+                }
+                for (const auto &op : in->operands) {
+                    if (!in_hand_at_entry(op)) {
+                        return false;
+                    }
+                }
+                considered.insert(in.get());
+                to_move.push_back(in);
+                return true;
+            };
+            for (const auto &[param, V] : vectors) {
+                if (!in_hand_at_entry(V)) {
+                    return bail("the children's vector cannot be made at the "
+                                "loop's entry");
+                }
+            }
+
+            // Recognized: rewrite. The array's reads, the masks made of them
+            // and the conditions over those are the run's alone and go with
+            // it; the array itself stays declared, unwritten and unread, for
+            // the backend to drop with the other dead storage, and anything
+            // else left over is pure and the simplifier's to drop.
+            {
+                vector<const Instruction *> chain;
+                for (size_t k = 0; k < n; k++) {
+                    const Instruction *c = definer(call->conds[k]);
+                    const Instruction *d = definer(call->args[k][*mask_param]);
+                    chain.push_back(c);
+                    chain.push_back(d);
+                    for (const auto &op : d->operands) {
+                        const Instruction *e = definer(op);
+                        if (e != nullptr && e->op == Instruction::Op::ExtractIdx) {
+                            chain.push_back(e);
+                        }
+                    }
+                }
+                const set<const Instruction *> dying(chain.begin(), chain.end());
+                bool used_elsewhere = false;
+                for (const auto &b : func.blocks) {
+                    for (const auto &in : b->instrs) {
+                        if (dying.contains(in.get())) {
+                            continue;
+                        }
+                        for (const auto &op : in->operands) {
+                            used_elsewhere =
+                                used_elsewhere || dying.contains(definer(op));
+                        }
+                    }
+                }
+                if (!used_elsewhere) {
+                    for (const auto &b : func.blocks) {
+                        auto &instrs = b->instrs;
+                        instrs.erase(
+                            std::remove_if(instrs.begin(), instrs.end(),
+                                           [&](const shared_ptr<Instruction> &in) {
+                                               return dying.contains(in.get());
+                                           }),
+                            instrs.end());
+                    }
+                }
+            }
+            // The vector's makers go to the entry.
+            const shared_ptr<Block> &pre_block = g.block(pre);
+            for (const shared_ptr<Instruction> &in : to_move) {
+                const shared_ptr<Block> owner = in->owner.lock();
+                auto &from = owner->instrs;
+                from.erase(std::find(from.begin(), from.end(), in));
+                in->owner = pre_block;
+                pre_block->instrs.push_back(in);
+            }
+            // The store's block ends at the store: what followed it goes on
+            // in a block of its own, reached straight when no lane hits the
+            // child and through the taking of it otherwise.
+            auto rest = new_block(func, name + "!tested");
+            func.blocks.push_back(rest);
+            {
+                auto &instrs = store_block->instrs;
+                const auto at = std::find(instrs.begin(), instrs.end(), store);
+                internal_assert(at != instrs.end());
+                for (auto it = at + 1; it != instrs.end(); ++it) {
+                    (*it)->owner = rest;
+                    rest->instrs.push_back(*it);
+                }
+                instrs.erase(at, instrs.end()); // the store with them
+                rest->terminator = std::move(store_block->terminator);
+                store_block->terminator = Terminator{};
+            }
+            const Type mask_t = params[*mask_param].type;
+            auto lanes = append(func, store_block, mask_t, Instruction::Op::LAnd,
+                                {M, test});
+            auto hit = append(func, store_block, Bool_t::make(),
+                              Instruction::Op::Any, {lanes});
+            // The children in reverse: the loop counts up, and what the body
+            // takes for the child's index is n - 1 - the count, so that the
+            // children come off the stack lowest first -- the order the
+            // lowering below gave, pushing in reverse, and the order Embree's
+            // single-ray traverseAnyHit takes (bscf, the lowest bit first).
+            // Measured against the loop's own order on dragon, it made no
+            // difference to the any hit's rate (apps/rtq/PLAN.md,
+            // 2026-10-09); it is kept so that a traversal's order does not
+            // change with its lowering. The header still tests and steps the
+            // count as it is.
+            const Type &index_t = idx->get_type();
+            shared_ptr<Value> rev;
+            {
+                auto reversed = std::make_shared<Instruction>(
+                    func.get_unique_name(), index_t, Instruction::Op::Sub,
+                    vector<shared_ptr<Value>>{
+                        std::make_shared<Value>(
+                            Constant{index_t, uint64_t(n - 1)}),
+                        idx},
+                    header_block);
+                header_block->instrs.push_back(reversed);
+                rev = std::make_shared<Value>(reversed);
+                // Every use of the count in the loop's body but the step's
+                // and the header's own -- the header tests the count as it
+                // is, and the back edge steps it -- takes the reversed index.
+                const auto redirect = [&](shared_ptr<Value> &v) {
+                    if (is_named_argument(*v, counter)) {
+                        v = rev;
+                    }
+                };
+                for (const auto &b : func.blocks) {
+                    const BlockId id = g.find(*b);
+                    const bool inside =
+                        id != NO_BLOCK && loop->blocks.contains(id);
+                    const bool made_here = b == rest;
+                    if ((!inside && !made_here) || id == loop->header) {
+                        continue;
+                    }
+                    for (const auto &in : b->instrs) {
+                        if (in.get() == step) {
+                            continue;
+                        }
+                        for (auto &op : in->operands) {
+                            redirect(op);
+                        }
+                    }
+                    if (auto *j = std::get_if<Terminator::Jump>(
+                            &b->terminator.data)) {
+                        if (b != latch_block) {
+                            for (auto &arg : j->args) {
+                                redirect(arg);
+                            }
+                        }
+                    } else if (auto *d = std::get_if<Terminator::Dispatch>(
+                                   &b->terminator.data)) {
+                        redirect(d->cond);
+                        for (auto &target : d->targets) {
+                            for (auto &arg : target.args) {
+                                redirect(arg);
+                            }
+                        }
+                    }
+                }
+            }
+            // The child's slot on the stack is written whether or not a lane
+            // hit it, and the count moves on by whether one did: a push with
+            // no branch in it. A branch on the child's test here is decided
+            // off the end of the box test's chain, some twenty-five cycles
+            // into the child, and mispredicting it there -- Embree's chunk
+            // loop has that branch, and that cost, at the top of the tree
+            // only -- took back more than the array and the pushes after the
+            // loop had cost: 7% slower on dragon with the push behind a
+            // branch, fewer instructions and fewer mispredictions
+            // notwithstanding (apps/rtq/PLAN.md, 2026-10-09). The stack has
+            // slack past its capacity (its allocation, above), so the slot
+            // past the last pushed may be written.
+            auto top = append(func, store_block, count_type, Instruction::Op::Load,
+                              {count});
+            for (const Stack &stack : stacks) {
+                auto slot =
+                    append(func, store_block, Ptr_t::make(params[stack.param].type),
+                           Instruction::Op::GEP, {stack.storage, top});
+                shared_ptr<Value> value =
+                    stack.param == *mask_param
+                        ? lanes
+                        : append(func, store_block, params[stack.param].type,
+                                 Instruction::Op::ExtractIdx,
+                                 {vectors.at(stack.param), rev});
+                append_store(store_block, slot, std::move(value));
+            }
+            auto one_if_hit = append(func, store_block, count_type,
+                                     Instruction::Op::Cast, {hit});
+            append_store(store_block, count,
+                         append(func, store_block, count_type,
+                                Instruction::Op::Add, {top, one_if_hit}));
+            store_block->terminator.data = Terminator::Jump{rest->name};
+            // Past the loop the node is done: the next comes off the stack
+            // where the run was its last act, and what followed the run
+            // follows otherwise.
+            if (last) {
+                block->terminator.data = Terminator::Jump{pop->name};
+            } else {
+                block->terminator.data = call->cont;
+            }
+            refresh_preds(func);
+            return true;
+        };
+        if (fuse_into_children_loop()) {
+            continue;
+        }
 
         // A gang's recursion is made only if some lane wants it. As a call
         // that was a test in front of the call (see specialize_calls in

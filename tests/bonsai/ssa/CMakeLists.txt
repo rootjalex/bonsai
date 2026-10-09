@@ -116,6 +116,7 @@ add_bonsai_tests(
     vectorize-loop-mutual.bonsai
     vectorize-masked-accumulate.bonsai
     vectorize-masked-math-call.bonsai
+    vectorize-packet-any.bonsai
     vectorize-packet-traversal.bonsai
     vectorize-packet-wide.bonsai
     vectorize-short-vectors.bonsai
