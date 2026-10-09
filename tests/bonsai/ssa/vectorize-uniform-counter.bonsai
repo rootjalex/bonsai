@@ -1,0 +1,54 @@
+//! flags: -p ssa
+
+// A counted loop a gang runs and each lane leaves on its own: the running
+// sum of `xs` up to the first index at which it passes the lane's limit. The
+// loop is divergent -- whether a lane goes round again depends on its own
+// sum -- so it is folded into one the gang leaves together once every lane
+// is done (SSA/UniformizeLoops.h), and the sum is per lane. The counter need
+// not be. In `first_past` nothing past the loop reads `j`, so no lane that
+// has left needs its value kept: the pure latch hands the header the stepped
+// counter as it is, the break blocks' values left out of the blend
+// (UniformLoop::local), the temporal rule at the header leaves it alone
+// (SSA/AnalyzeDivergence.cpp), and `xs[j]` is one load the gang shares. In
+// `first_index` the counter is the answer -- read after the loop by lanes
+// that left on different iterations -- so it is frozen per lane as before.
+//
+// What to look for: in first_past's gang, `j` stays an `i32` through the
+// loop (`add(j, 1)` with no select on the live mask) and `xs[j]` is one
+// `extract_idx` broadcast to the lanes; in first_index's it is an `i32x8`
+// blended on the live mask, and `xs[j]` is a gather. This is ispc's uniform
+// loop variable in a loop a varying `break` leaves, and what keeps a leaf's
+// loop over its elements, left early by the lanes that are done, indexing
+// one element for the gang (the any-hit's leaf in a packet traversal).
+func [[export]] first_past(n : i32, m : i32, xs : array[f32, m],
+                           limits : array[f32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func [[export]] first_index(n : i32, m : i32, xs : array[f32, m],
+                            limits : array[f32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = j;
+    }
+    return;
+}
+
+schedule {
+    first_past.split(i, io, ii, 8, true).vectorize(ii);
+    first_index.split(i, io, ii, 8, true).vectorize(ii);
+}

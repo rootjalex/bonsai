@@ -1,0 +1,71 @@
+//! flags: -p ssa -b llvm -e
+
+// A lane's own element read out of an array of structs with a vector
+// field, at an index of the lane's own: the gang gathers the struct field by
+// field (CodeGen_LLVM::gather_elements), and the vector field -- widened as
+// a vector of vectors, the lanes outermost, which the backend keeps as a
+// struct of component vectors -- is gathered component by component. This
+// is what a gang does when a traversal's best element is a reference into a
+// tile of Embree's Triangle4 kind and the program reads a field of it after
+// the traversal. `expected` is what each lane must read, from the numbers
+// the elements were filled with, and the two lines have to match; ten lanes
+// are a gang of eight and a tail of two. (The same read in a plain loop,
+// `tris[which[i]].p.y`, is not the reference here because LLVM's SLP
+// vectorizer asserts on it -- toScalarizedStructTy on the element's packed
+// struct type, a scalar-path bug that has nothing to do with the gang;
+// apps/rtq/PLAN.md, "Known-open".)
+element vec3f = vector[f32, 3];
+
+element Tri {
+    p : vec3f;
+    id : u32;
+}
+
+func tri(k : i32) -> Tri {
+    b = cast[[f32]](k) * 100.0;
+    return Tri{vec3f{b + 0.0, b + 1.0, b + 2.0}, cast[[u32]](k)};
+}
+
+func fill(m : i32, tris : mut array[Tri, m]) -> void {
+    parfor i in 0:m {
+        tris[i] = tri(i);
+    }
+    return;
+}
+
+// What lane i reads: element which[i]'s p.y, which is 100 which[i] + 1,
+// plus half its id, which is which[i].
+func expected(n : i32, which : array[u32, n], out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        w = cast[[f32]](which[i]);
+        out[i] = (w * 100.0 + 1.0) + w * 0.5;
+    }
+    return;
+}
+
+func gang(n : i32, m : i32, tris : array[Tri, m], which : array[u32, n],
+          out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        t = tris[which[i]];
+        out[i] = t.p.y + cast[[f32]](t.id) * 0.5;
+    }
+    return;
+}
+
+func main() -> i32 {
+    z = vec3f{0.0, 0.0, 0.0};
+    tris : mut array[Tri, 5] = {Tri{z, 0u}, Tri{z, 0u}, Tri{z, 0u}, Tri{z, 0u}, Tri{z, 0u}};
+    fill(5, tris);
+    which : mut array[u32, 10] = {0u, 1u, 2u, 3u, 4u, 4u, 3u, 2u, 1u, 0u};
+    p : mut array[f32, 10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    g : mut array[f32, 10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    expected(10, which, p);
+    gang(10, 5, tris, which, g);
+    print(p);
+    print(g);
+    return 0;
+}
+
+schedule {
+    gang.split(i, io, ii, 8, true).vectorize(ii);
+}

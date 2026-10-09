@@ -710,6 +710,55 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
     return result;
 }
 
+bool read_outside_loop(const Cfg &cfg, const BlockSet &inside,
+                       const string &arg) {
+    const auto names_arg = [&](const shared_ptr<Value> &v) {
+        const auto *a = v ? std::get_if<Argument>(&v->data) : nullptr;
+        return a != nullptr && a->name == arg;
+    };
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        Block &block = cfg[b];
+        if (!inside.contains(b)) {
+            // A read past the loop: an operand or a terminator's value. The
+            // block's lookups are left out, since a lookup only says what a
+            // name resolves to here, not that anything reads it.
+            for (const auto &instr : block.instrs) {
+                for (const auto &operand : instr->operands) {
+                    if (names_arg(operand)) {
+                        return true;
+                    }
+                }
+            }
+            bool read = false;
+            for_each_value(block.terminator, [&](shared_ptr<Value> &v) {
+                read = read || names_arg(v);
+            });
+            if (read) {
+                return true;
+            }
+            continue;
+        }
+        // Inside: the value leaves along an edge out, or by a return.
+        for (Terminator::Jump *jump : jumps_of(block)) {
+            const BlockId to = cfg.id(jump->name);
+            if (to != NO_BLOCK && inside.contains(to)) {
+                continue;
+            }
+            for (const auto &a : jump->args) {
+                if (names_arg(a)) {
+                    return true;
+                }
+            }
+        }
+        if (const auto *ret =
+                std::get_if<Terminator::Return>(&block.terminator.data);
+            ret != nullptr && names_arg(ret->value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 vector<Terminator::Jump *> jumps_of(Block &block) {
     vector<Terminator::Jump *> jumps;
     std::visit(overloads{

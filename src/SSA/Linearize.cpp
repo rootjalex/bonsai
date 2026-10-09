@@ -667,6 +667,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
     vector<BlockSet> loop_blocks;                // per loops_in entry
     vector<const UniformLoop *> loop_seeds(cfg.size(), nullptr);
     vector<BlockId> latch_header(cfg.size(), NO_BLOCK); // pure latch -> header
+    vector<const UniformLoop *> latch_loop(cfg.size(), nullptr); // pure latch -> loop
     for (size_t i = 0; i < loops_in.size(); i++) {
         const UniformLoop &loop = loops_in[i];
         BlockSet members(cfg.size());
@@ -681,6 +682,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
         loop_blocks.push_back(std::move(members));
         loop_seeds[cfg.id(loop.preheader)] = &loop;
         latch_header[cfg.id(loop.latch)] = cfg.id(loop.header);
+        latch_loop[cfg.id(loop.latch)] = &loop;
     }
 
     // The index the algorithm walks in, which has to be dominance compact and
@@ -1804,10 +1806,31 @@ BlockMasks linearize(Function &func, const string &entry_name,
         // and the slot keeps what the sources before it stored.
         auto blend_through_slot = [&](size_t j) {
             const Type &type = block->args[j].type;
-            bool same = true;
+            // A carried value nothing past a uniformized loop reads
+            // (UniformLoop::local, and the pure latch below): what a break
+            // block hands the latch for it is nothing any lane reads, so
+            // the break sources stay out, and a genuine source's value is
+            // stored as it is -- no lane that is off reads it again -- and
+            // always through the slot, since the one source left need not
+            // dominate the latch (the loop's own test may leave for the
+            // latch past the body).
+            const UniformLoop *uloop = latch_loop[b];
+            const bool local = uloop != nullptr &&
+                               uloop->local.contains(block->args[j].name);
+            const auto left_out = [&](const Incoming &source) {
+                return local && uloop->breaks.contains(cfg.name(source.from));
+            };
+            bool same = !local;
             for (const Incoming &source : sources) {
-                same = same && same_value(*value_from(sources[0], j),
-                                               *value_from(source, j));
+                const shared_ptr<Value> first = value_from(sources[0], j);
+                const shared_ptr<Value> here = value_from(source, j);
+                // The same definition, not only the same name (see the
+                // pure latch below): an argument of a uniform loop inside
+                // the region carries the outer name.
+                same = same && same_value(*first, *here) &&
+                       (!std::holds_alternative<Argument>(first->data) ||
+                        definition_block(first, sources[0].from) ==
+                            definition_block(here, source.from));
             }
             if (same) {
                 // Threaded through under its own name: still in scope.
@@ -1820,10 +1843,13 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // stored to it; what it held before is nothing to any lane.
             append_store(entry_block, slot, undef_value(type));
             for (const Incoming &source : sources) {
+                if (left_out(source)) {
+                    continue;
+                }
                 const shared_ptr<Block> &from = cfg.block(source.from);
                 shared_ptr<Value> value = value_from(source, j);
                 const auto edge = masks.edge.find({source.from, b});
-                if (edge != masks.edge.end()) {
+                if (edge != masks.edge.end() && !local) {
                     auto held =
                         append(func, from, type, Instruction::Op::Load, {slot});
                     value = append(func, from, type, Instruction::Op::Select,
@@ -1906,7 +1932,16 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     // gadget tested -- so no lane reads what it hands over.
                     return undef_value(block->args[j].type);
                 };
-                if (loop_header != nullptr) {
+                // A carried value nothing past the loop reads
+                // (UniformLoop::local) is not frozen for the lanes that have
+                // left: they never read it again, so the back edge's value
+                // goes round as it is and the break blocks' values stay out
+                // of the blend -- which is what keeps a counter every lane
+                // steps alike one scalar.
+                const UniformLoop *uloop = latch_loop[b];
+                const bool local =
+                    uloop != nullptr && uloop->local.contains(block->args[j].name);
+                if (loop_header != nullptr && !local) {
                     // The header's value of what this argument carries: the
                     // latch hands its argument k on as the header's argument
                     // k, under the header's name for it (see the pure latch
@@ -1937,6 +1972,9 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 }
                 bool through_slot = false;
                 for (const Incoming *source : in_order) {
+                    if (local && uloop->breaks.contains(cfg.name(source->from))) {
+                        continue; // a lane leaving never reads it again
+                    }
                     shared_ptr<Value> incoming_value = value_from(*source, j);
                     // The running value, brought into scope at this source:
                     // threaded through the landings on the way, which is
@@ -1968,8 +2006,31 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     // rather than computed on either side -- and selecting
                     // between a value and itself is both pointless and,
                     // since the argument is about to be replaced by this
-                    // select, self-referential.
-                    if (same_value(*value, *incoming_value)) {
+                    // select, self-referential. The same definition, not
+                    // the same name: a uniform loop inside the region
+                    // carries the value as a header argument under the
+                    // outer name (a leaf's loop inside a traversal's, its
+                    // sum under the name the traversal carries it by), and
+                    // what it hands on is that loop's last value, which the
+                    // lanes outside the region must not take.
+                    const auto same_definition = [&]() {
+                        if (!std::holds_alternative<Argument>(value->data)) {
+                            return true;
+                        }
+                        // Where the running value is resolved from: where it
+                        // was blended, or the loop header it was seeded
+                        // from. A value with neither -- a parameter, in
+                        // scope everywhere under its one name -- is its
+                        // name.
+                        const BlockId at =
+                            value_at != NO_BLOCK ? value_at : latch_header[b];
+                        if (at == NO_BLOCK) {
+                            return true;
+                        }
+                        return definition_block(value, at) ==
+                               definition_block(incoming_value, source->from);
+                    };
+                    if (same_value(*value, *incoming_value) && same_definition()) {
                         continue;
                     }
                     const auto edge = masks.edge.find({source->from, b});
@@ -2375,6 +2436,66 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // The mask goes after the place and the value, before any places
             // an argmin writes alongside its pair (Instruction::alongside).
             instr->operands.insert(instr->operands.begin() + 2, *mask);
+        }
+    }
+
+    // A uniform loop that runs under a partial mask -- a leaf's loop over
+    // its elements inside a folded arm, or inside a loop the gang leaves lane
+    // by lane -- is one the lanes that are off go round too, as a gang does
+    // everything; what they must not do is come out of it changed. A carried
+    // value something past the loop reads is therefore handed round frozen
+    // for them at each latch, `select(mask, next, current)`: ispc's rule that
+    // an assignment under the mask leaves the other lanes' values alone,
+    // applied where the loop's own iteration hands its next values round
+    // (the loops uniformized above do the same through their live masks). A
+    // value the loop alone reads -- its counter -- is left the scalar it is,
+    // as UniformLoop::local leaves a divergent loop's: no lane that is off
+    // reads it after the loop. The loops are read off the graph as
+    // linearization found it, which the folding leaves as it was for a loop
+    // it left uniform.
+    {
+        std::set<BlockId> uniformized;
+        for (const UniformLoop &ul : loops_in) {
+            uniformized.insert(cfg.id(ul.header));
+        }
+        for (const Loop &loop : loops.loops()) {
+            if (uniformized.contains(loop.header)) {
+                continue;
+            }
+            const Block &head = cfg[loop.header];
+            for (const BlockId latch : loop.latches) {
+                const auto mask = mask_of(latch);
+                if (!mask) {
+                    continue; // every lane on: nothing to keep for anyone
+                }
+                for (Terminator::Jump *jump : jumps_of(cfg[latch])) {
+                    if (cfg.id(jump->name) != loop.header) {
+                        continue;
+                    }
+                    for (size_t k = 0;
+                         k < jump->args.size() && k < head.args.size(); k++) {
+                        const Argument &arg = head.args[k];
+                        const auto held = head.lookups.find(arg.name);
+                        if (held == head.lookups.end()) {
+                            continue;
+                        }
+                        const shared_ptr<Value> current = held->second;
+                        const shared_ptr<Value> next = jump->args[k];
+                        if (same_value(*next, *current) &&
+                            (!std::holds_alternative<Argument>(next->data) ||
+                             definition_block(next, latch) ==
+                                 definition_block(current, loop.header))) {
+                            continue; // carried round unchanged
+                        }
+                        if (!read_outside_loop(cfg, loop.blocks, arg.name)) {
+                            continue; // the loop's own
+                        }
+                        jump->args[k] = append(func, cfg.block(latch), arg.type,
+                                               Instruction::Op::Select,
+                                               {*mask, next, current});
+                    }
+                }
+            }
         }
     }
 

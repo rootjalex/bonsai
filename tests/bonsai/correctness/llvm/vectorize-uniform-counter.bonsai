@@ -1,0 +1,87 @@
+//! flags: -p ssa -b llvm -e
+
+// The programs of ssa/vectorize-uniform-counter.bonsai run: a counted loop
+// a gang runs and each lane leaves on its own, once with the counter dead
+// after the loop (one scalar for the gang) and once with the counter the
+// answer (frozen per lane). `plain_*` are the same with nothing scheduled;
+// the paired lines have to match. Ten lanes are one whole gang of eight and
+// two of a second; the limits make the lanes leave on every iteration from
+// the first to past the last.
+func gang_sum(n : i32, m : i32, xs : array[f32, m], limits : array[f32, n],
+              out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func plain_sum(n : i32, m : i32, xs : array[f32, m], limits : array[f32, n],
+               out : mut array[f32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func gang_index(n : i32, m : i32, xs : array[f32, m], limits : array[f32, n],
+                out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = j;
+    }
+    return;
+}
+
+func plain_index(n : i32, m : i32, xs : array[f32, m], limits : array[f32, n],
+                 out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut f32 = 0.0;
+        j : mut i32 = 0;
+        while j < m && s < limits[i] {
+            s = s + xs[j];
+            j = j + 1;
+        }
+        out[i] = j;
+    }
+    return;
+}
+
+func main() -> i32 {
+    xs : mut array[f32, 6] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    limits : mut array[f32, 10] = {0.0, 0.5, 1.5, 3.5, 6.5, 10.5, 15.5, 21.5, 100.0, 2.0};
+    s0 : mut array[f32, 10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    s1 : mut array[f32, 10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    k0 : mut array[i32, 10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    k1 : mut array[i32, 10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    plain_sum(10, 6, xs, limits, s0);
+    gang_sum(10, 6, xs, limits, s1);
+    plain_index(10, 6, xs, limits, k0);
+    gang_index(10, 6, xs, limits, k1);
+    print(s0);
+    print(s1);
+    print(k0);
+    print(k1);
+    return 0;
+}
+
+schedule {
+    gang_sum.split(i, io, ii, 8, true).vectorize(ii);
+    gang_index.split(i, io, ii, 8, true).vectorize(ii);
+}

@@ -72,6 +72,22 @@ struct UniformLoop {
     // to. Linearization seeds the blend of a carried value with the header's
     // for that reason.
     std::string latch;
+    // The break blocks the exits were rebound through, by name. A lane that
+    // goes round again never comes through one, so what a break block hands
+    // the pure latch for a carried value is nothing the next iteration
+    // reads.
+    std::set<std::string> breaks;
+    // The carried arguments nothing past the loop reads -- not passed along
+    // any exit, not named by any block after the loop (read_outside_loop,
+    // SSA/Analysis.h) -- under the header's names. Such a value needs no
+    // per-lane freeze at the pure latch: a lane that has left never reads it
+    // again, so the latch hands the header the back edge's value as it is,
+    // the break blocks' values left out of the blend, and a counter every
+    // lane steps alike stays one scalar -- ispc's uniform loop variable in a
+    // loop a varying `break` leaves, and what keeps a leaf's loop over its
+    // elements, left early by the lanes that are done, indexing one element
+    // for the gang rather than one per lane. The others are frozen as above.
+    std::set<std::string> local;
 };
 
 struct LoopUniformization {

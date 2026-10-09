@@ -54,83 +54,82 @@ func uniform(n : i32, a : i32[n], out : mut i32[n]) -> void {
 
 func varying(n : i32, a : i32[n], out : mut i32[n]) -> void {
   parfor io in [0:n:8] {
-    @18!loop : mut i32x8
+    @18!loop : mut i32
     !live : mut boolx8
     !exit.par_cont_3 : mut boolx8
     s : mut i32x8
-    @18!loop!skip : mut i32x8
+    @18!loop!skip : mut i32
     let @7 = n in
-    let @52 = i32x8(@7) in
-    let @9 = ramp(io, 1, 8) < @52 in
-    let @53 = boolx8(false) in
-    let @54 = boolx8(true) in
+    let @50 = i32x8(@7) in
+    let @9 = ramp(io, 1, 8) < @50 in
+    let @51 = boolx8(false) in
+    let @52 = boolx8(true) in
     let @26 = reduce<any>(@9) in
     if (@26) {
-      let @55 = i32x8(0) in
-      let @56 = i32x8(31) in
-      let @10 = ramp(io, 1, 8) >> @56 in
+      let @53 = i32x8(0) in
+      let @54 = i32x8(31) in
+      let @10 = ramp(io, 1, 8) >> @54 in
       let @11 = reinterpret_cast<u32x8>(@10) in
-      let @57 = u32x8(30u) in
-      let @12 = @11 >> @57 in
+      let @55 = u32x8(30u) in
+      let @12 = @11 >> @55 in
       let @13 = reinterpret_cast<i32x8>(@12) in
       let @14 = ramp(io, 1, 8) + @13 in
-      let @58 = i32x8(2) in
-      let @15 = @14 >> @58 in
-      let @59 = i32x8(4) in
-      let @16 = @15 * @59 in
+      let @56 = i32x8(2) in
+      let @15 = @14 >> @56 in
+      let @57 = i32x8(4) in
+      let @16 = @15 * @57 in
       let @0 = ramp(io, 1, 8) - @16 in
-      let @60 = i32x8(1) in
-      let @1 = @0 + @60 in
-      @18!loop = @55
+      let @58 = i32x8(1) in
+      let @1 = @0 + @58 in
+      @18!loop = 0
       !live = @9
-      !exit.par_cont_3 = @53
-      s = @55
+      !exit.par_cont_3 = @51
+      s = @53
       while (reduce<any>((*!live))) {
-        let @19 = (*@18!loop) < @1 in
-        let @77 = !@19 in
-        let @24 = (*!live) && @77 in
+        let @59 = i32x8((*@18!loop)) in
+        let @19 = @59 < @1 in
+        let @75 = !@19 in
+        let @24 = (*!live) && @75 in
         let @25 = (*!live) && @19 in
         let @27 = reduce<any>(@25) in
         if (@27) {
-          let @33 = div_multiplier(n) in
-          let @34 = n < 0 in
-          let @35 = 0 - n in
-          let @36 = select(@34, @35, n) in
-          let @37 = @36 - 1 in
-          let @38 = clz(@37) in
-          let @39 = 32 - @38 in
-          let @40 = max(@39, 1) in
-          let @41 = @40 - 1 in
-          let @2 = ramp(io, 1, 8) + (*@18!loop) in
-          let @63 = i32x8(@33) in
-          let @42 = mulhi(@63, @2) in
-          let @43 = @42 + @2 in
-          let @64 = i32x8(@41) in
-          let @44 = @43 >> @64 in
-          let @45 = @44 < @55 in
-          let @46 = @44 + @60 in
-          let @47 = select(@45, @46, @44) in
-          let @48 = @55 - @47 in
-          let @68 = boolx8(@34) in
-          let @49 = select(@68, @48, @47) in
+          let @31 = div_multiplier(n) in
+          let @32 = n < 0 in
+          let @33 = 0 - n in
+          let @34 = select(@32, @33, n) in
+          let @35 = @34 - 1 in
+          let @36 = clz(@35) in
+          let @37 = 32 - @36 in
+          let @38 = max(@37, 1) in
+          let @39 = @38 - 1 in
+          let @76 = (*@18!loop) + io in
+          let @63 = i32x8(@31) in
+          let @40 = mulhi(@63, ramp(@76, 1, 8)) in
+          let @41 = @40 + ramp(@76, 1, 8) in
+          let @64 = i32x8(@39) in
+          let @42 = @41 >> @64 in
+          let @43 = @42 < @53 in
+          let @44 = @42 + @58 in
+          let @45 = select(@43, @44, @42) in
+          let @46 = @53 - @45 in
+          let @68 = boolx8(@32) in
+          let @47 = select(@68, @46, @45) in
           let @69 = i32x8(n) in
-          let @50 = @49 * @69 in
-          let @3 = @2 - @50 in
+          let @48 = @47 * @69 in
+          let @3 = ramp(@76, 1, 8) - @48 in
           let @4 = masked_extract(a[@3], @25) in
           let @78 = (*s) + @4 in
-          let @20 = (*@18!loop) + @60 in
-          let @28 = select(@25, @20, (*@18!loop)) in
-          @18!loop!skip = @28
+          let @20 = (*@18!loop) + 1 in
+          @18!loop!skip = @20
           s = @78
         } else {
-          @18!loop!skip = (*@18!loop)
+          @18!loop!skip = undef
         }
-        let @29 = select(@24, (*@18!loop), (*@18!loop!skip)) in
-        let @30 = select(@24, @53, (*!live)) in
-        let @31 = select(@24, @54, (*!exit.par_cont_3)) in
-        @18!loop = @29
-        !live = @30
-        !exit.par_cont_3 = @31
+        let @28 = select(@24, @51, (*!live)) in
+        let @29 = select(@24, @52, (*!exit.par_cont_3)) in
+        @18!loop = (*@18!loop!skip)
+        !live = @28
+        !exit.par_cont_3 = @29
       }
       masked_store(out[ramp(io, 1, 8)], (*s), @9)
     }

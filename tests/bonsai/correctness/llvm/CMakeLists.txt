@@ -43,6 +43,8 @@ add_bonsai_tests(
     vectorize-masked-math-call.bonsai
     vectorize-nested-parfor.bonsai
     vectorize-nested-vector.bonsai
+    vectorize-gather-nested-vector.bonsai
+    vectorize-uniform-counter.bonsai
     vectorize-uniform-around-return.bonsai
     vectorize-uniform-division.bonsai
     vectorize-vector-index.bonsai

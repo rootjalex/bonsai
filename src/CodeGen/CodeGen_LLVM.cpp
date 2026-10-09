@@ -3202,17 +3202,30 @@ llvm::Value *CodeGen_LLVM::gather_elements(const ir::Type &element,
     }
     if (const Vector_t *v = element.as<Vector_t>()) {
         // Widened as one gang vector per component (see ir::widen): each
-        // component is a gather of scalars, at a stride of the vector.
+        // component is a gather of scalars, at a stride of the vector. The
+        // gang's copy is either a struct of the component vectors -- a
+        // per-lane vector the vectorizer split (SSA/SplitAggregates.h) -- or
+        // a vector of vectors, the lanes outermost: a vector field of a
+        // struct gathered whole, as a lane's best element is read out of a
+        // tile of Embree's Triangle4 kind, where each field is a vector over
+        // the tile's slots. The Vector_t visitor lays the latter out as the
+        // same struct of component vectors, so the components are inserted
+        // the same way; a component that is itself a vector recurs here.
         const Struct_t *ws = wide_t.as<Struct_t>();
-        internal_assert(ws && ws->fields.size() == v->lanes)
+        const Vector_t *wv = wide_t.as<Vector_t>();
+        const bool nested =
+            wv != nullptr && wv->lanes == lanes && equals(wv->etype, element);
+        internal_assert((ws && ws->fields.size() == v->lanes) || nested)
             << wide_t << " is not " << element << " widened";
         const uint64_t esize =
             dl.getTypeAllocSize(codegen_type(v->etype)).getFixedValue();
         llvm::Value *result = llvm::PoisonValue::get(wide_llvm);
         for (uint32_t c = 0; c < v->lanes; c++) {
+            const Type component_t =
+                nested ? Vector_t::make(v->etype, lanes) : ws->fields[c].type;
             llvm::Value *component = gather_elements(
-                v->etype, ws->fields[c].type, base, offsets, disp + c * esize,
-                whole, lanes, mask, name + "_" + std::to_string(c));
+                v->etype, component_t, base, offsets, disp + c * esize, whole,
+                lanes, mask, name + "_" + std::to_string(c));
             result = builder->CreateInsertValue(result, component, c);
         }
         return result;

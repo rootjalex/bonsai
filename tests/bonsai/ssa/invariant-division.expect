@@ -39,35 +39,35 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
   !exit.while_end_2 : mut boolx8
   !track.while_end_2.0 : mut u64x8
   let @16 = div_multiplier(b) in
-  let @42 = u64x8(1u) in
-  let @17 = b - @42 in
+  let @40 = u64x8(1u) in
+  let @17 = b - @40 in
   let @18 = clz(@17) in
-  let @43 = u64x8(64u) in
-  let @19 = @43 - @18 in
-  let @20 = min(@19, @42) in
-  let @21 = max(@19, @42) in
-  let @22 = @21 - @42 in
-  let @47 = u64x8(18446744073709551615u) in
-  let @27 = mulhi(@16, @47) in
-  let @28 = @47 - @27 in
+  let @41 = u64x8(64u) in
+  let @19 = @41 - @18 in
+  let @20 = min(@19, @40) in
+  let @21 = max(@19, @40) in
+  let @22 = @21 - @40 in
+  let @45 = u64x8(18446744073709551615u) in
+  let @27 = mulhi(@16, @45) in
+  let @28 = @45 - @27 in
   let @29 = @28 >> @20 in
   let @30 = @27 + @29 in
   let @0 = @30 >> @22 in
   let limit = @0 - b in
-  let @54 = u64x8(0u) in
-  let @55 = boolx8(true) in
-  let @56 = boolx8(false) in
+  let @52 = u64x8(0u) in
+  let @53 = boolx8(true) in
+  let @54 = boolx8(false) in
   v!loop = n
-  r!loop = @54
-  !live = @55
-  !exit.while_end_2 = @56
+  r!loop = @52
+  !live = @53
+  !exit.while_end_2 = @54
   !track.while_end_2.0 = undef
   while (reduce<any>((*!live))) {
-    let @3 = (*v!loop) != @54 in
+    let @3 = (*v!loop) != @52 in
     let @5 = (*r!loop) < limit in
     let @6 = @3 && @5 in
-    let @57 = !@6 in
-    let @33 = (*!live) && @57 in
+    let @55 = !@6 in
+    let @33 = (*!live) && @55 in
     let @34 = (*!live) && @6 in
     let @23 = mulhi(@16, (*v!loop)) in
     let @24 = (*v!loop) - @23 in
@@ -78,18 +78,16 @@ func digits$gang8_v0_v1(n : u64x8, b : u64x8) -> u64x8 {
     let @12 = next * b in
     let @13 = (*v!loop) - @12 in
     let @14 = @10 + @13 in
-    let @35 = select(@34, next, (*v!loop)) in
-    let @37 = select(@34, @14, (*r!loop)) in
-    let @36 = select(@33, (*v!loop), @35) in
-    let @38 = select(@33, (*r!loop), @37) in
-    let @39 = select(@33, @56, (*!live)) in
-    let @40 = select(@33, @55, (*!exit.while_end_2)) in
-    let @41 = select(@33, (*r!loop), (*!track.while_end_2.0)) in
-    v!loop = @36
-    r!loop = @38
-    !live = @39
-    !exit.while_end_2 = @40
-    !track.while_end_2.0 = @41
+    let @35 = select(@34, @14, (*r!loop)) in
+    let @36 = select(@33, (*r!loop), @35) in
+    let @37 = select(@33, @54, (*!live)) in
+    let @38 = select(@33, @53, (*!exit.while_end_2)) in
+    let @39 = select(@33, (*r!loop), (*!track.while_end_2.0)) in
+    v!loop = next
+    r!loop = @36
+    !live = @37
+    !exit.while_end_2 = @38
+    !track.while_end_2.0 = @39
   }
   return (*!track.while_end_2.0)
 }

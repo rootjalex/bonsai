@@ -1,0 +1,131 @@
+func [[export]] first_index(n : i32, m : i32, xs : f32[m], limits : f32[n], out : mut i32[n]) -> void {
+  parfor io in [0:n:8] {
+    s!loop : mut f32x8
+    j!loop : mut i32x8
+    !live : mut boolx8
+    !exit.while_end_4 : mut boolx8
+    !track.while_end_4.2 : mut i32x8
+    s!loop!skip : mut f32x8
+    j!loop!skip : mut i32x8
+    let @14 = n in
+    let @31 = i32x8(@14) in
+    let @16 = ramp(io, 1, 8) < @31 in
+    let @32 = boolx8(false) in
+    let @33 = boolx8(true) in
+    let @22 = reduce<any>(@16) in
+    if (@22) {
+      let @40 = f32x8(0f) in
+      let @41 = i32x8(0) in
+      s!loop = @40
+      j!loop = @41
+      !live = @16
+      !exit.while_end_4 = @32
+      !track.while_end_4.2 = undef
+      while (reduce<any>((*!live))) {
+        let @34 = i32x8(m) in
+        let @1 = (*j!loop) < @34 in
+        let @3 = masked_extract(limits[ramp(io, 1, 8)], (*!live)) in
+        let @4 = (*s!loop) < @3 in
+        let @5 = @1 && @4 in
+        let @45 = !@5 in
+        let @20 = (*!live) && @45 in
+        let @21 = (*!live) && @5 in
+        let @23 = reduce<any>(@21) in
+        if (@23) {
+          let @8 = masked_extract(xs[(*j!loop)], @21) in
+          let @9 = (*s!loop) + @8 in
+          let @37 = i32x8(1) in
+          let @11 = (*j!loop) + @37 in
+          let @24 = select(@21, @11, (*j!loop)) in
+          s!loop!skip = @9
+          j!loop!skip = @24
+        } else {
+          s!loop!skip = undef
+          j!loop!skip = (*j!loop)
+        }
+        let @25 = select(@20, (*j!loop), (*j!loop!skip)) in
+        let @26 = select(@20, @32, (*!live)) in
+        let @27 = select(@20, @33, (*!exit.while_end_4)) in
+        let @28 = select(@20, (*j!loop), (*!track.while_end_4.2)) in
+        s!loop = (*s!loop!skip)
+        j!loop = @25
+        !live = @26
+        !exit.while_end_4 = @27
+        !track.while_end_4.2 = @28
+      }
+      masked_store(out[ramp(io, 1, 8)], (*!track.while_end_4.2), @16)
+    }
+    continue
+  }
+  return
+}
+
+func [[export]] first_past(n : i32, m : i32, xs : f32[m], limits : f32[n], out : mut f32[n]) -> void {
+  parfor io in [0:n:8] {
+    s!loop : mut f32x8
+    j!loop : mut i32
+    !live : mut boolx8
+    !exit.while_end_4 : mut boolx8
+    !track.while_end_4.2 : mut f32x8
+    s!loop!skip : mut f32x8
+    j!loop!skip : mut i32
+    let @14 = n in
+    let @31 = i32x8(@14) in
+    let @16 = ramp(io, 1, 8) < @31 in
+    let @32 = boolx8(false) in
+    let @33 = boolx8(true) in
+    let @22 = reduce<any>(@16) in
+    if (@22) {
+      let @40 = f32x8(0f) in
+      s!loop = @40
+      j!loop = 0
+      !live = @16
+      !exit.while_end_4 = @32
+      !track.while_end_4.2 = undef
+      while (reduce<any>((*!live))) {
+        let @1 = (*j!loop) < m in
+        let @3 = masked_extract(limits[ramp(io, 1, 8)], (*!live)) in
+        let @4 = (*s!loop) < @3 in
+        let @34 = boolx8(@1) in
+        let @5 = @34 && @4 in
+        let @44 = !@5 in
+        let @20 = (*!live) && @44 in
+        let @21 = (*!live) && @5 in
+        let @23 = reduce<any>(@21) in
+        if (@23) {
+          let @8 = xs[(*j!loop)] in
+          let @37 = f32x8(@8) in
+          let @9 = (*s!loop) + @37 in
+          let @11 = (*j!loop) + 1 in
+          let @24 = select(@21, @9, (*s!loop)) in
+          s!loop!skip = @24
+          j!loop!skip = @11
+        } else {
+          s!loop!skip = (*s!loop)
+          j!loop!skip = undef
+        }
+        let @25 = select(@20, (*s!loop), (*s!loop!skip)) in
+        let @26 = select(@20, @32, (*!live)) in
+        let @27 = select(@20, @33, (*!exit.while_end_4)) in
+        let @28 = select(@20, (*s!loop), (*!track.while_end_4.2)) in
+        s!loop = @25
+        j!loop = (*j!loop!skip)
+        !live = @26
+        !exit.while_end_4 = @27
+        !track.while_end_4.2 = @28
+      }
+      masked_store(out[ramp(io, 1, 8)], (*!track.while_end_4.2), @16)
+    }
+    continue
+  }
+  return
+}
+
+
+schedule {
+    first_index.split(i, io, ii, (i32)8, 1)
+               .vectorize(ii)
+    first_past.split(i, io, ii, (i32)8, 1)
+              .vectorize(ii)
+
+}

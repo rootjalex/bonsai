@@ -104,6 +104,7 @@ add_bonsai_tests(
     traverse.bonsai
     vectorize-call-guard.bonsai
     vectorize-nested-parfor.bonsai
+    vectorize-uniform-counter.bonsai
     vectorize-pure-call.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai

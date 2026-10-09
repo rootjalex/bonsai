@@ -433,6 +433,19 @@ class LoopForest {
 
 LoopForest compute_loop_forest(const Graph &g, const DomTree &dom);
 
+// Whether anything past the loop made of the blocks `inside` reads the
+// argument named `arg` of one of its blocks: an instruction or a terminator
+// of a block outside names it, an edge from a block inside to one outside
+// passes it, or a block inside returns it. A loop-carried value that nothing
+// past the loop reads need not be kept per lane once the loop's exits
+// diverge -- a lane that has left never reads it again -- so a counter every
+// lane steps alike stays one scalar (see UniformLoop::local and the temporal
+// rule at a loop header in SSA/AnalyzeDivergence.cpp). By name: a block
+// argument is referred to by its name, and a same-named argument of another
+// block outside counts, which errs towards keeping the value per lane.
+bool read_outside_loop(const Cfg &cfg, const BlockSet &inside,
+                       const std::string &arg);
+
 //===--------------------------------------------------------------------===//
 // Control dependence
 //===--------------------------------------------------------------------===//

@@ -296,6 +296,33 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         auto head = blocks.at(header);
         const size_t carried = head->args.size();
 
+        // Which of the carried arguments nothing past the loop reads (see
+        // UniformLoop::local): decided on the loop as it now stands -- the
+        // header's arguments under the names they keep from here on, every
+        // exit still an edge out of it.
+        std::set<string> local;
+        {
+            const Cfg now(func, entry);
+            BlockSet inside_now(now.size());
+            for (const string &name : loop.blocks) {
+                inside_now.insert(now.id(renamed(name)));
+            }
+            for (size_t k = 0; k < carried; k++) {
+                const string &arg = head->args[k].name;
+                const bool read = read_outside_loop(now, inside_now, arg);
+                if (!read) {
+                    local.insert(arg);
+                }
+                if (explain != nullptr && loop.header == explain) {
+                    std::cerr << "--- loop " << loop.header << ": its argument "
+                              << arg
+                              << (read ? " is read past the loop"
+                                       : " is read by nothing past the loop")
+                              << "\n";
+                }
+            }
+        }
+
         const auto latch = blocks.at(renamed(*loop.latches.begin()));
 
         // The blocks the loop is made of, under the names they have now.
@@ -807,8 +834,10 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // Rebinding the edges
         //===------------------------------------------------------------===//
 
-        // The blocks the live mask governs, collected as the edges are rebound.
+        // The blocks the live mask governs, collected as the edges are rebound,
+        // and the break blocks among them.
         set<string> inside;
+        set<string> breaks;
 
         // The back edge goes through the pure latch, carrying the masks along
         // unchanged: reaching here without exiting means no lane left on this
@@ -834,6 +863,7 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             auto from = blocks.at(exit.first);
             auto brk = new_block(func, "!break");
             inside.insert(brk->name);
+            breaks.insert(brk->name);
             // Terminated up front: the predecessor lists are rebuilt from the
             // terminators below, before there is anything to say about the
             // values this block hands on.
@@ -861,10 +891,17 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
             vector<shared_ptr<Value>> out;
             // What the loop would have carried on with. No lane that arrives
             // here goes round again, so any of it will do; the current values
-            // are what a tracker would capture anyway.
+            // are what a tracker would capture anyway. A value nothing past
+            // the loop reads (`local`) is handed over as nothing at all, so
+            // that the latch's join of this edge with the loop's own does
+            // not read as the lanes disagreeing about it (the analysis
+            // passes over an undefined value), and the latch may hand the
+            // header the loop's own value as it is (SSA/Linearize.cpp).
             for (size_t k = 0; k < carried; k++) {
-                out.push_back(brk->get_value(entry_test->args[k].name,
-                                             entry_test->args[k].type));
+                const Argument &arg = entry_test->args[k];
+                out.push_back(local.contains(arg.name)
+                                  ? undef_value(arg.type)
+                                  : brk->get_value(arg.name, arg.type));
             }
             for (const Carried &c : added) {
                 if (c.name == live_name) {
@@ -913,7 +950,8 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         inside.insert(pure->name);
 
         result.loops.push_back({entry_test->name, live, preheader, seed_arg,
-                                std::move(inside), pure->name});
+                                std::move(inside), pure->name,
+                                std::move(breaks), std::move(local)});
 
         // A loop inside another is transformed first and the outer one then
         // sees the result, so what goes wrong at the outer one is only

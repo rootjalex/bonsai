@@ -590,11 +590,31 @@ analyze_divergence(const Function &func, const string &entry,
                                             loop->latches.end(), p) &&
                                         leaves_divergently(p);
                              }));
+            // The temporal case alone -- the header of a loop some lanes
+            // leave early, entered from its preheader and from one latch, so
+            // that the lanes still going round all arrive along the same
+            // edge each iteration (a loop with several latches is a join of
+            // the paths inside it as well, and is read as one, as the loop
+            // left through a per-lane stack's pops and pushes is before it
+            // is uniformized) -- divides a lane that left from the lanes
+            // that went on only in what it keeps for after the loop. An
+            // argument nothing past the loop reads (read_outside_loop) has
+            // no after, and is varying only if something passed to it is: a
+            // counter every lane steps alike stays one scalar, as the
+            // uniform loop variable of an ispc loop left by a varying
+            // `break` does.
+            const bool temporal_only = divergent_join && loop != nullptr &&
+                                       loop->header == b &&
+                                       loop->latches.size() == 1 &&
+                                       !sync_joins.contains(b);
 
             const vector<ArgumentFlow> &incoming = flows[b];
             for (size_t j = 0; j < block.args.size(); j++) {
                 std::optional<string> common_key;
                 bool varying = false;
+                const bool kept_past_loop =
+                    !temporal_only ||
+                    read_outside_loop(cfg, loop->blocks, block.args[j].name);
                 // BONSAI_EXPLAIN_ARG=<name> prints the first time an argument
                 // of that name is marked varying in any block, and why: the
                 // edge that passed a varying value, or the join whose edges
@@ -610,10 +630,20 @@ analyze_divergence(const Function &func, const string &entry,
                         continue;
                     }
                     const Value &v = *(*flow.values)[j - flow.first_arg];
+                    // An undefined value passed along an edge says nothing
+                    // about the lanes that take it: no lane reads what it
+                    // stands for (the break block of a uniformized loop
+                    // hands the latch one for a carried value nothing past
+                    // the loop reads, UniformLoop::local).
+                    if (const auto *c = std::get_if<Constant>(&v.data);
+                        c != nullptr &&
+                        std::holds_alternative<Undefined>(c->data)) {
+                        continue;
+                    }
                     const string &from_name = cfg.name(flow.from);
                     const bool passed_varying = result.is_varying(from_name, v);
                     const string key = value_key(v);
-                    const bool differs = divergent_join &&
+                    const bool differs = divergent_join && kept_past_loop &&
                                          common_key.has_value() &&
                                          *common_key != key;
                     if (explain && (passed_varying || differs)) {
