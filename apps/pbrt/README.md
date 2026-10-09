@@ -72,6 +72,12 @@ before it.
   against its baselines. A cell whose image did not match pbrt's is hatched
   with its number struck through; a cell no table has is blank. Several
   counts come from `gpu_compare.sh --spp "16 64 256"` into one table.
+- `report_stages.py OUT_DIR [--spp 16] [--report REPORT.md]`: the
+  stage-by-stage tables of REPORT.md from a heatmap run's `.stats` files
+  -- our kernel profile and pbrt's wavefront kernel profile paired into
+  stages (trace, shadow, each material, media, camera, film), per scene and
+  per stage, worst ratio first; with `--report` it replaces the section
+  between the `stages:begin` and `stages:end` markers of that file.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format: a text
   file for the small parts (camera, materials, lights, textures, spectra)
