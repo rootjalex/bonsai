@@ -702,13 +702,17 @@ class BonsaiToCpp : ir::Printer {
     // resident anywhere between calls, and one whose length the type does
     // not say (an `array[T]`) is wrapped unsized, which is enough for a
     // host-only schedule and an error the moment a kernel needs it moved.
-    // A buffer's name as a macro: a layout field's dot, and the `!` of a
-    // specialized queue's array (`hits!Diffuse_k`, SSA/Defer.cpp), as
-    // underscores.
+    // A buffer's name as a macro: a layout field's dot, the `!` of a
+    // specialized queue's array (`hits!Diffuse_k`, SSA/Defer.cpp) and the
+    // `@` of an anonymous value's (a queue entry's field named after an SSA
+    // value the program did not name) as underscores. The header is C: a
+    // name the IR may use is not always one a compiler of C accepts, so
+    // every name that reaches it comes through here.
     static std::string macro_name(const std::string &name) {
         std::string macro = name;
         std::replace(macro.begin(), macro.end(), '.', '_');
         std::replace(macro.begin(), macro.end(), '!', '_');
+        std::replace(macro.begin(), macro.end(), '@', '_');
         return macro;
     }
 
