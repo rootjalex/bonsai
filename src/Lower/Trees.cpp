@@ -1304,19 +1304,43 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         // not been reached yet -- and there the elements' `with extent` is
         // what bounds those parameters. Where nothing makes that promise there
         // is no bound to state, which is `bounds_deeper_levels`.
+        //
+        // A parameter past the volumes that no promise bounds is not always a
+        // level this traversal has not reached: a query that annotates each
+        // element with a record (`map(|t| (t, closest_record(q, t)), tris)`,
+        // apps/rtq's closest) has a predicate over the pair, `|t, c| ...`,
+        // whose second parameter is no tree's element at all. The analysis
+        // bounds what it can and hands back a variable it cannot as itself,
+        // so a bound that names such a parameter is one nothing has bound
+        // where the arm's guard goes, and is refused; a bound that reads
+        // only the parameters the node's volume covers is the node's own,
+        // the same the recursion's test states (see visit(Scan)), and the
+        // leaf arm is guarded by it as every other arm is. Without it a
+        // leaf was entered on its parent's test alone and every triangle in
+        // it tested, which FCPW's scalar traversal never does.
         Interval node_bounds() const {
             const ir::Lambda *lambda = predicate.as<ir::Lambda>();
             if (lambda == nullptr || volumes.empty() ||
                 volumes.size() > lambda->args.size()) {
                 return Interval{};
             }
-            if (volumes.size() < lambda->args.size() &&
-                !bounds_deeper_levels()) {
-                return Interval{};
-            }
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
-            return predicate_analysis(lambda->value, vols, ints);
+            Interval bounds = predicate_analysis(lambda->value, vols, ints);
+            if (volumes.size() < lambda->args.size() &&
+                !bounds_deeper_levels()) {
+                std::set<std::string> unbounded;
+                for (size_t k = volumes.size(); k < lambda->args.size(); k++) {
+                    unbounded.insert(lambda->args[k].name);
+                }
+                if (bounds.max.defined() && ir::reads(bounds.max, unbounded)) {
+                    bounds.max = ir::Expr();
+                }
+                if (bounds.min.defined() && ir::reads(bounds.min, unbounded)) {
+                    bounds.min = ir::Expr();
+                }
+            }
+            return bounds;
         }
 
         ir::Stmt visit(const ir::Yield *node) override {
@@ -1373,10 +1397,11 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             return mutate(lower_iterate(node->value)); // a concrete loop.
         }
 
-        // See Rewriter::guard_leaf.
+        // See Rewriter::guard_leaf. A bound that is trivially true prunes
+        // nothing, and no guard is made of it (as visit(Scan) below).
         ir::Stmt guard_leaf(ir::Stmt body) override {
             Interval bounds = node_bounds();
-            if (bounds.max.defined()) {
+            if (bounds.max.defined() && !is_const_one(bounds.max)) {
                 body = ir::IfElse::make(std::move(bounds.max), std::move(body));
             }
             return body;
@@ -1870,15 +1895,39 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
         ir::Type held_t;
         StoredIn stored_in;
         std::vector<std::optional<ir::WriteLoc>> alongside;
+        const IntervalMap &intervals;
+        // The metric's component of the accumulator, to tighten on entering
+        // a subtree with what the metric can reach in it (the far side of
+        // the node's box, for a distance), where no filter of the program's
+        // stands between the metric and the set; nothing where one does
+        // (see build_arg_extremum). What RewriteExtremum::visit(YieldFrom)
+        // does for a plain extremum, and FCPW's scalar traversal does at
+        // every child it tests (`s.r2 = min(s.r2, boxHits[1])`): without
+        // it a closest-point search over a tree whose nodes bound
+        // themselves had no bound at all until its first leaf.
+        std::optional<ir::WriteLoc> tighten;
+        ir::Accumulate::OpType tighten_op = ir::Accumulate::Min;
 
         RewriteArgExtremum(Extremum dir, ir::Expr met, ir::WriteLoc l,
                            ir::Type t, ir::Type element_t, ir::Type held_t,
                            StoredIn stored_in,
-                           std::vector<std::optional<ir::WriteLoc>> alongside)
+                           std::vector<std::optional<ir::WriteLoc>> alongside,
+                           const IntervalMap &intervals)
             : dir(dir), metric(std::move(met)), loc(std::move(l)),
               tuple_t(std::move(t)), element_t(std::move(element_t)),
               held_t(std::move(held_t)), stored_in(std::move(stored_in)),
-              alongside(std::move(alongside)) {}
+              alongside(std::move(alongside)), intervals(intervals) {}
+
+        // The bounds of the metric over the subtree currently being matched
+        // (as RewriteExtremum::subtree_bounds).
+        Interval subtree_bounds() const {
+            const ir::Lambda *lambda = metric.as<ir::Lambda>();
+            internal_assert(lambda) << "Metric is not a lambda: " << metric;
+            internal_assert(volumes.size() <= lambda->args.size());
+            VolumeMap vols = make_volume_map(lambda->args);
+            IntervalMap ints = make_interval_map(lambda->args, intervals);
+            return predicate_analysis(lambda->value, vols, ints);
+        }
 
         using ir::Mutator::visit;
 
@@ -1976,7 +2025,29 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
 
         ir::Stmt visit(const ir::Scan *node) override { return node; }
 
-        ir::Stmt visit(const ir::YieldFrom *node) override { return node; }
+        // from tr => upd a.key minb(a.key, max(M, tr)); from tr
+        //
+        // The best value in this subtree is no better than the metric's
+        // bound over the subtree's volume, so the metric's component of the
+        // accumulator is tightened before recursing (see `tighten`). Where
+        // the node bounds its children instead, each child's test tightens
+        // it with what that child can reach (Carry::tighten, from_children)
+        // and the subtree's own bound is the parent's record of it: the same
+        // value again, which costs a compare and prunes nothing more.
+        ir::Stmt visit(const ir::YieldFrom *node) override {
+            if (!tighten.has_value() ||
+                (!locs.empty() &&
+                 child_volumes.contains(ir::to_string(locs.back())))) {
+                return node;
+            }
+            ir::Expr bound = reachable_bound(dir, subtree_bounds());
+            if (!bound.defined()) {
+                return node;
+            }
+            ir::Stmt do_update =
+                ir::Accumulate::make(*tighten, tighten_op, std::move(bound));
+            return ir::Sequence::make({std::move(do_update), node});
+        }
 
         // The bound each child carries, tested again on arrival (see
         // carry_bound_around): the fused filter had the `from`s carry it.
@@ -2153,10 +2224,21 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
     ir::Stmt body = build_traversal(fused_filter, tree_types, extents,
                                     local_intervals, carry);
 
-    RewriteArgExtremum rewrite(dir, std::move(metric), std::move(loc),
+    RewriteArgExtremum rewrite(dir, std::move(metric), loc,
                                std::move(tuple_t), ret_type, held_t,
-                               stored_in, std::move(alongside));
+                               stored_in, std::move(alongside),
+                               local_intervals);
     rewrite.annotation_args = annotations;
+    if (!fused) {
+        // A subtree of a node that bounds itself tightens the metric's
+        // component on entry (RewriteArgExtremum::visit(YieldFrom)), as a
+        // child's test does where the node bounds its children (Carry).
+        ir::WriteLoc key = loc;
+        key.add_index_access(ir::UIntImm::make(ir::UInt_t::make(32), 0));
+        rewrite.tighten = std::move(key);
+        rewrite.tighten_op = dir == Extremum::Min ? ir::Accumulate::Min
+                                                  : ir::Accumulate::Max;
+    }
     body = rewrite.mutate(body);
 
     return ir::Sequence::make(

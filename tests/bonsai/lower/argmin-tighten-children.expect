@@ -35,7 +35,7 @@ func _traverse_tree0(p : Point, tris : _tree_layout0) -> Triangle {
           }
         }
         from ((cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[0u], _carry0[0u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[1u], _carry0[1u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[2u], _carry0[2u]), (cast<u32x4>(tris.group1_row[tris_ref >> 4u].children)[3u], _carry0[3u])) where (_mask0[0u], _mask0[1u], _mask0[2u], _mask0[3u])
-      } else if (true) {
+      } else {
         forall _idx1 in [0u:(tris_ref & 15u) - 8u:1u] {
           parfor data in [0u:4u:1u] {
             if (cast<u32x4>(tris.group0_prims[(tris_ref >> 4u) + _idx1].id)[data] != 4294967295u) {
