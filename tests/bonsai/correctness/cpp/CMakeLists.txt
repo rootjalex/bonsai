@@ -27,6 +27,7 @@ add_bonsai_tests(
     bvh4_fcpw_rows.bonsai
     bvh4_arena.bonsai
     bvh4_ptr_arena.bonsai
+    bvh4_ptr_arena_children.bonsai
     rcp.bonsai
     permute.bonsai
     sort_key_nonnegative.bonsai

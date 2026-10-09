@@ -1,0 +1,335 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH8 = (const BVH8&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option1 = struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ root : u64; bytes : u64; group0_arena : const [[packed]] struct _tree_layout1{ byte : u8 }[bytes] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ byte : u8 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{  }
+type _tree_layout3 = [[packed]] struct _tree_layout3{ children : [[packed]] u64x8; lower_x : [[packed]] f32x8; upper_x : [[packed]] f32x8; lower_y : [[packed]] f32x8; upper_y : [[packed]] f32x8; lower_z : [[packed]] f32x8; upper_z : [[packed]] f32x8 }
+type _tree_layout4 = [[packed]] struct _tree_layout4{  }
+type _tree_layout5 = [[packed]] struct _tree_layout5{ p0 : [[packed]] f32x3x4; p1 : [[packed]] f32x3x4; p2 : [[packed]] f32x3x4 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ root : u64; bytes : u64; group0_arena : const [[packed]] struct _tree_layout1{ byte : u8 }[bytes] }
+
+func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
+  tris_ref!top : mut u64
+  !count : mut u32
+  _idx1 : mut u32
+  !stack : mut u64[72]
+  tris_ref!top = tris_ref
+  !count = 0u
+  do {
+    let @0 = (*_holds0) in
+    let @1 = !@0 in
+    if (@1) {
+      do {
+        let @2 = (*tris_ref!top) >> 3u in
+        let @3 = @2 & 1u in
+        let @4 = @3 == 0u in
+        if (@4) {
+          _mask0 : mut bool[8]
+          parfor children in [0u:8u:1u] {
+            intersectsp_ray_aabb$r65 : mut _option0
+            tmin$i65 : mut f32
+            tmax$i65 : mut f32
+            intersects_Ray_AABB$r0 : mut bool
+            let @5 = f32x3(1f) in
+            let @6 = r.d in
+            let invDir$i65 = @5 / @6 in
+            let @8 = f32x3(0f) in
+            let dirIsNeg$i65 = invDir$i65 < @8 in
+            let @10 = reinterpret_cast<(const u8*)>((*tris_ref!top)) in
+            let @11 = reinterpret_cast<const _tree_layout3[]>(@10) in
+            let @165 = reinterpret_cast<const f32[8]>((&@11[0u].lower_x)) in
+            let @167 = @165[children] in
+            let @169 = reinterpret_cast<const f32[8]>((&@11[0u].lower_y)) in
+            let @171 = @169[children] in
+            let @173 = reinterpret_cast<const f32[8]>((&@11[0u].lower_z)) in
+            let @175 = @173[children] in
+            let _t222$i65 = build<f32x3>(@167, @171, @175) in
+            let @178 = reinterpret_cast<const f32[8]>((&@11[0u].upper_x)) in
+            let @180 = @178[children] in
+            let @182 = reinterpret_cast<const f32[8]>((&@11[0u].upper_y)) in
+            let @184 = @182[children] in
+            let @186 = reinterpret_cast<const f32[8]>((&@11[0u].upper_z)) in
+            let @188 = @186[children] in
+            let _t221$i65 = build<f32x3>(@180, @184, @188) in
+            let low_parts$i65 = select(dirIsNeg$i65, _t221$i65, _t222$i65) in
+            let _t225$i65 = r.o in
+            let @49 = low_parts$i65 - _t225$i65 in
+            let @50 = @49 * invDir$i65 in
+            let high_parts$i65 = select(dirIsNeg$i65, _t222$i65, _t221$i65) in
+            let @52 = high_parts$i65 - _t225$i65 in
+            let @53 = @52 * invDir$i65 in
+            let @54 = (f32)eps in
+            let @55 = 0.5f * @54 in
+            let _t200$i50$i65 = 3f * @55 in
+            let @57 = 1f - _t200$i50$i65 in
+            let @58 = _t200$i50$i65 / @57 in
+            let @60 = 2f * @58 in
+            let @61 = 1f + @60 in
+            let @339 = @53 * f32x3(@61) in
+            let @63 = @339[1u] in
+            let @65 = @50[0u] in
+            let @66 = @63 < @65 in
+            let @68 = @339[0u] in
+            let @70 = @50[1u] in
+            let @71 = @68 < @70 in
+            let @72 = @66 || @71 in
+            if (@72) {
+              let @73 = build<_option0>() in
+              intersectsp_ray_aabb$r65 = @73
+            } else {
+              let @78 = max(@65, @70) in
+              let @83 = min(@68, @63) in
+              let @85 = @339[2u] in
+              let @87 = @85 < @78 in
+              let @90 = @50[2u] in
+              let @91 = @83 < @90 in
+              let @92 = @87 || @91 in
+              if (@92) {
+                let @93 = build<_option0>() in
+                intersectsp_ray_aabb$r65 = @93
+                tmin$i65 = @78
+                tmax$i65 = @83
+              } else {
+                let @97 = max(@78, @90) in
+                let @101 = min(@83, @85) in
+                let @104 = build<FInterval>(@97, @101) in
+                let @105 = build<_option0>(@104, true) in
+                intersectsp_ray_aabb$r65 = @105
+                tmin$i65 = @97
+                tmax$i65 = @101
+              }
+            }
+            let @107 = (*intersectsp_ray_aabb$r65).set in
+            if (@107) {
+              let extract$i0 = (*intersectsp_ray_aabb$r65).value in
+              let @110 = extract$i0.low in
+              let @111 = r.tmax in
+              let @112 = @110 < @111 in
+              let @113 = extract$i0.high in
+              let @114 = 0f < @113 in
+              let @115 = @112 & @114 in
+              intersects_Ray_AABB$r0 = @115
+            } else {
+              intersects_Ray_AABB$r0 = false
+            }
+            _mask0[children] = (*intersects_Ray_AABB$r0)
+            continue
+          }
+          let @118 = reinterpret_cast<(const u8*)>((*tris_ref!top)) in
+          let @119 = reinterpret_cast<const _tree_layout3[]>(@118) in
+          let @120 = @119[0u] in
+          let @121 = @120.children in
+          let _t84 = cast<u64x8>(@121) in
+          let @228 = _mask0[ramp(0u, 1u, 8)] in
+          let @229 = reduce<+>(cast<u32x8>(@228)) in
+          let @282 = reduce<any>(@228) in
+          if (@282) {
+            let @283 = reinterpret_cast<u8>(@228) in
+            let @284 = cast<u32>(@283) in
+            let @285 = @284 - 1u in
+            let @286 = @284 & @285 in
+            let @287 = @286 == 0u in
+            if (@287) {
+              let @230 = reinterpret_cast<u8>(@228) in
+              let @231 = cast<u32>(@230) in
+              let @232 = ctz(@231) in
+              let @304 = reinterpret_cast<const u64[8]>((&@119[0u].children)) in
+              let @306 = @304[@232] in
+              tris_ref!top = @306
+              continue
+            } else {
+              let @288 = @229 - 2u in
+              switch (@288) {
+              case 0: {
+                let @234 = reinterpret_cast<u8>(@228) in
+                let @235 = cast<u32>(@234) in
+                let @236 = ctz(@235) in
+                let @237 = clz(@235) in
+                let @238 = 31u - @237 in
+                let @309 = reinterpret_cast<const u64[8]>((&@119[0u].children)) in
+                let @311 = @309[@236] in
+                !stack[(*!count)] = @311
+                let @242 = (*!count) + 1u in
+                let @313 = @309[@238] in
+                tris_ref!top = @313
+                !count = @242
+                continue
+              } break;
+              case 1: {
+                let @244 = reinterpret_cast<u8>(@228) in
+                let @245 = cast<u32>(@244) in
+                let @246 = ctz(@245) in
+                let @247 = @245 - 1u in
+                let @248 = @245 & @247 in
+                let @249 = ctz(@248) in
+                let @250 = clz(@245) in
+                let @251 = 31u - @250 in
+                let @316 = reinterpret_cast<const u64[8]>((&@119[0u].children)) in
+                let @318 = @316[@246] in
+                !stack[(*!count)] = @318
+                let @255 = (*!count) + 1u in
+                let @320 = @316[@249] in
+                !stack[@255] = @320
+                let @258 = (*!count) + 2u in
+                let @322 = @316[@251] in
+                tris_ref!top = @322
+                !count = @258
+                continue
+              } break;
+              case 2: {
+                let @260 = reinterpret_cast<u8>(@228) in
+                let @261 = cast<u32>(@260) in
+                let @262 = ctz(@261) in
+                let @263 = @261 - 1u in
+                let @264 = @261 & @263 in
+                let @265 = ctz(@264) in
+                let @266 = @264 - 1u in
+                let @267 = @264 & @266 in
+                let @268 = ctz(@267) in
+                let @269 = clz(@261) in
+                let @270 = 31u - @269 in
+                let @325 = reinterpret_cast<const u64[8]>((&@119[0u].children)) in
+                let @327 = @325[@262] in
+                !stack[(*!count)] = @327
+                let @274 = (*!count) + 1u in
+                let @329 = @325[@265] in
+                !stack[@274] = @329
+                let @277 = (*!count) + 2u in
+                let @331 = @325[@268] in
+                !stack[@277] = @331
+                let @280 = (*!count) + 3u in
+                let @333 = @325[@270] in
+                tris_ref!top = @333
+                !count = @280
+                continue
+              } break;
+              default: {
+                let @290 = reinterpret_cast<u8>(@228) in
+                let @291 = cast<u32>(@290) in
+                let @292 = clz(@291) in
+                let @293 = 31u - @292 in
+                let @295 = u32x8(@293) in
+                let @296 = ramp(0u, 1u, 8) != @295 in
+                let @297 = @228 && @296 in
+                let @298 = @229 - 1u in
+                compress_store_whole(!stack[(*!count)], _t84, @297)
+                let @300 = (*!count) + @298 in
+                let @336 = reinterpret_cast<const u64[8]>((&@119[0u].children)) in
+                let @338 = @336[@293] in
+                tris_ref!top = @338
+                !count = @300
+                continue
+              }
+              }
+            }
+          }
+        } else {
+          let @139 = (*tris_ref!top) & 7u in
+          let @140 = cast<u32>(@139) in
+          _idx1 = 0u
+          do {
+            let @141 = (*_idx1) < @140 in
+            if (@141) {
+              parfor data in [0u:4u:1u] {
+                let @142 = (*tris_ref!top) >> 4u in
+                let @143 = @142 << 4u in
+                let @144 = reinterpret_cast<(const u8*)>(@143) in
+                let @145 = reinterpret_cast<const _tree_layout4[]>(@144) in
+                let @146 = reinterpret_cast<(const _tree_layout4*)>(@145) in
+                let @147 = reinterpret_cast<const _tree_layout5[]>(@146) in
+                let @192 = reinterpret_cast<const f32[12]>((&@147[(*_idx1)].p0)) in
+                let @194 = @192[data] in
+                let @195 = data + 4u in
+                let @197 = @192[@195] in
+                let @198 = data + 8u in
+                let @200 = @192[@198] in
+                let @201 = build<f32x3>(@194, @197, @200) in
+                let @203 = reinterpret_cast<const f32[12]>((&@147[(*_idx1)].p1)) in
+                let @205 = @203[data] in
+                let @207 = @203[@195] in
+                let @209 = @203[@198] in
+                let @210 = build<f32x3>(@205, @207, @209) in
+                let @212 = reinterpret_cast<const f32[12]>((&@147[(*_idx1)].p2)) in
+                let @214 = @212[data] in
+                let @216 = @212[@195] in
+                let @218 = @212[@198] in
+                let @219 = build<f32x3>(@214, @216, @218) in
+                let @158 = build<Triangle>(@201, @210, @219) in
+                let @159 = intersectsp_ray_tri(r, @158) in
+                let @160 = @159.set in
+                _holds0 max= @160
+                continue
+              }
+              let @161 = (*_holds0) in
+              if (!@161) {
+                let @162 = (*_idx1) + 1u in
+                _idx1 = @162
+                continue
+              }
+            }
+            break
+          } while (true)
+        }
+        break
+      } while (true)
+    }
+    let @221 = (*!count) != 0u in
+    let @222 = (*_holds0) in
+    let @223 = !@222 in
+    let @224 = @221 && @223 in
+    if (@224) {
+      let @225 = (*!count) - 1u in
+      let @226 = !stack[@225] in
+      tris_ref!top = @226
+      !count = @225
+      continue
+    } else {
+      return
+    }
+  } while (true)
+}
+
+func _traverse_tree0(r : Ray, tris : _tree_layout0) -> bool {
+  _holds0 : mut bool
+  _holds0 = false
+  let @0 = tris.root in
+  _recloop_func0(@0, _holds0, r)
+  let @1 = (*_holds0) in
+  return @1
+}
+
+func [[export]] occluded(r : (Ray*), tris : (_tree_layout0*)) -> bool {
+  _holds0$i61 : mut bool
+  _holds0$i61 = false
+  let @0 = (*tris) in
+  let @1 = @0.root in
+  let @2 = (*r) in
+  _recloop_func0(@1, _holds0$i61, @2)
+  let @3 = (*_holds0$i61) in
+  return @3
+}
+
+
+schedule {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH8
+  | Interior(children : (const BVH8&)[8], lo : f32x3x8, hi : f32x3x8) with AABB(lo, hi) on children
+  | Leaf(data : Triangle[]) with data = data
+    occluded.loopify((i32)64)
+
+}

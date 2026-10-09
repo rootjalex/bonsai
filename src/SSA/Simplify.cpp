@@ -2064,6 +2064,87 @@ struct Simplifier {
                     return make(Instruction::Op::Load, type, {at});
                 }
             }
+            // A run-time lane of a vector of vectors -- child i's box out of
+            // a node's eight, `lo[i]` with `lo : vector[vec3f, 8]` and `i`
+            // the children loop's counter where the children are not what
+            // is vectorized (a gang of rays over a wide node: the packet
+            // traversal) -- is the lane of each component vector, built
+            // into the inner vector. The backend holds a vector of vectors
+            // as one vector per component (the Vector_t visitor in CodeGen/
+            // CodeGen_LLVM.cpp; Embree's lower_x of every child, then
+            // upper_x, ...), so no instruction reads such a lane whole in
+            // any case, and each component's lane is then what the rule
+            // above makes of it where the component lives in read-only
+            // storage: a load at the lane's address, `node->lower_x[i]` as
+            // Embree reads it, where it was a vector loaded for one lane and
+            // spilled to be indexed -- six stores and six loads a child, 12
+            // of the 43 instructions of a child's test in the any-hit
+            // packet's profile (apps/rtq/PLAN.md, 2026-10-09). Two shapes
+            // reach here. The vector built from its components -- a
+            // layout's lower_x, lower_y, lower_z made into the node's `lo`
+            // -- has the lane of each operand (a build's operands are the
+            // components when they are vectors over the outer lanes; see
+            // the Build visitor). The vector read whole from packed storage
+            // has its components one after the other at its address, each
+            // the outer lanes of one scalar with nothing between them, so
+            // the lane of component c is scalar c * lanes + i of the
+            // storage; unpacked storage pads a component to its alignment
+            // and is left to the register.
+            if (constant_of(ops[1]) == nullptr &&
+                ops[0]->get_type().element_of().is<Vector_t>()) {
+                const Type &outer = ops[0]->get_type();
+                const Vector_t *inner = outer.element_of().as<Vector_t>();
+                const Type component_t =
+                    Vector_t::make(inner->etype, outer.lanes());
+                const Instruction *d = def_of(ops[0]);
+                if (d != nullptr && d->op == Instruction::Op::MakeStruct &&
+                    d->operands.size() == inner->lanes &&
+                    equals(d->operands[0]->get_type(), component_t)) {
+                    vector<ValuePtr> parts;
+                    parts.reserve(inner->lanes);
+                    for (const ValuePtr &component : d->operands) {
+                        parts.push_back(make(Instruction::Op::ExtractIdx,
+                                             inner->etype,
+                                             {component, ops[1]}));
+                    }
+                    return make(Instruction::Op::MakeStruct, type,
+                                std::move(parts));
+                }
+                if (ValuePtr whole = stored_vector_address(ops[0])) {
+                    const Type stored = whole->get_type().as<Ptr_t>()->etype;
+                    if (const Vector_t *sv = stored.as<Vector_t>();
+                        sv != nullptr && sv->packed) {
+                        const uint32_t lanes = sv->lanes;
+                        const Type view_t = Array_t::make(
+                            inner->etype,
+                            UIntImm::make(UInt_t::make(32),
+                                          uint64_t(lanes) * inner->lanes),
+                            /*readonly=*/true);
+                        ValuePtr view = make(Instruction::Op::Reinterpret,
+                                             view_t, {whole});
+                        const Type &index_t = ops[1]->get_type();
+                        vector<ValuePtr> parts;
+                        parts.reserve(inner->lanes);
+                        for (uint32_t c = 0; c < inner->lanes; c++) {
+                            ValuePtr lane =
+                                c == 0 ? ops[1]
+                                       : make(Instruction::Op::Add, index_t,
+                                              {ops[1],
+                                               make_integer_constant(
+                                                   index_t,
+                                                   int64_t(c) * lanes)});
+                            ValuePtr at = make(
+                                Instruction::Op::GEP,
+                                Ptr_t::make(inner->etype, /*readonly=*/true),
+                                {view, std::move(lane)});
+                            parts.push_back(make(Instruction::Op::Load,
+                                                 inner->etype, {at}));
+                        }
+                        return make(Instruction::Op::MakeStruct, type,
+                                    std::move(parts));
+                    }
+                }
+            }
             // Lane 0 of a compress that leaves the lanes past the packed
             // ones unspecified, and that nothing else reads, is the lane
             // the mask's lowest set bit names: `compress(v, m)[0]` is

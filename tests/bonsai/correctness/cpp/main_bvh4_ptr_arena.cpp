@@ -15,7 +15,13 @@
 // field a vector over the four, the lanes a leaf does not fill left as the
 // zero triangle. Each answer is checked against the one the scene was built
 // to give.
+#ifdef BVH4_PTR_ARENA_CHILDREN
+// bvh4_ptr_arena_children.bonsai: the same program over the same arena,
+// scheduled with the children tested one at a time (see there).
+#include "bvh4_ptr_arena_children.h"
+#else
 #include "bvh4_ptr_arena.h"
+#endif
 
 #include <algorithm>
 #include <cmath>

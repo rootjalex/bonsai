@@ -1,0 +1,83 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bvh4_ptr_arena_children
+//! commands: clang++ -std=c++20 -O3 -DBVH4_PTR_ARENA_CHILDREN -c tests/bonsai/correctness/cpp/main_bvh4_ptr_arena.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_ptr_arena_children.o, clang++ tests/bonsai/correctness/cpp/main_bvh4_ptr_arena_children.o tests/bonsai/correctness/cpp/bvh4_ptr_arena_children.o -o tests/bonsai/correctness/cpp/bvh4_ptr_arena_children, ./tests/bonsai/correctness/cpp/bvh4_ptr_arena_children, rm tests/bonsai/correctness/cpp/bvh4_ptr_arena_children, rm tests/bonsai/correctness/cpp/main_bvh4_ptr_arena_children.o, rm tests/bonsai/correctness/cpp/bvh4_ptr_arena_children.h, rm tests/bonsai/correctness/cpp/bvh4_ptr_arena_children.o
+
+// bvh4_ptr_arena.bonsai -- the same program, arena, scene, rays and known
+// answers, the same driver (main_bvh4_ptr_arena.cpp, built with
+// BVH4_PTR_ARENA_CHILDREN to take this program's header) -- scheduled with
+// the children tested one at a time: no vectorize over the children, so the
+// sort's keys and the any hit's children loop read each child's box out of
+// the row at a run-time index, `lo[i]` with `lo` built from the row's
+// lower_x, lower_y, lower_z. That read is what SSA/Simplify.cpp turns into
+// one scalar load per component at the lane's address (ssa/
+// child-bounds-at-lane.bonsai pins the form, backends/llvm/
+// child-bounds-at-lane.bonsai the LLVM); this pins that what it reads is the
+// child's box -- the right component at the right lane of each of the six
+// vectors -- since a wrong address would send a ray into the wrong child's
+// box test and change an answer below. It is also the shape the packet
+// traversal has once the rays are the gang (apps/rtq/schedules/
+// packet16.bonsai): one node for the gang, its children tested one at a
+// time, each box read for the whole gang.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func [[export]] occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris(ref : u64 = root) {
+        root : u64;
+        bytes : u64;
+        ptr group arena[bytes] { byte : u8; };
+        switch ref[3:3] {
+            0 => Interior from arena[ref] {
+                children : vector[u64, 4];
+                lower_x : vector[f32, 4];
+                upper_x : vector[f32, 4];
+                lower_y : vector[f32, 4];
+                upper_y : vector[f32, 4];
+                lower_z : vector[f32, 4];
+                upper_z : vector[f32, 4];
+                lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+                hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+            };
+            _ => Leaf from arena[ref[4:63] * 16u] {
+                indirect group tiles { group[4] { p0 : vec3f; p1 : vec3f; p2 : vec3f; }; };
+                data = range(tiles, 0u, cast[[u32]](ref[0:2] * 4u));
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+    occluded.loopify(64);
+}

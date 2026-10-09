@@ -14,6 +14,7 @@ add_bonsai_tests(
     mirror-derived-loads.bonsai
     foreign.bonsai
     foreign-linked.bonsai
+    child-bounds-at-lane.bonsai
     child-volumes.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
