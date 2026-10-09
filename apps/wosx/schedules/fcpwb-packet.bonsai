@@ -1,0 +1,16 @@
+// The packet schedule over WoSX's default tree: FCPW's scalar binary BVH
+// (layouts/fcpwb.bonsai), a point's walks split by 32 and vectorized, the
+// closest-point traversal put on a stack afterwards -- one node for the
+// gang, each child entered by the lanes whose query reaches its box, one
+// stack of nodes, per-lane bounds and masks. No sort: a node bounds itself
+// and the children are visited left then right (the layout says why).
+// Single-threaded, pinned, as fcpwb is run.
+import apps/wosx/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    solve_all.split(w, w_gang, w_lane, 32, true)
+             .vectorize(w_lane);
+    closest.loopify(64);
+    closest.skip(closest_point_fcpw);
+}

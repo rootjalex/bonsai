@@ -1,0 +1,31 @@
+// The packet schedule over the points: the lanes are sample points, not a
+// point's walks. Where fcpw4w16-packet.bonsai makes a gang of one point's
+// 32 walks -- which start together and are spread over the mesh a few
+// steps later (PLAN.md) -- this one makes a gang of 32 neighbouring sample
+// points, each lane stepping its own walks one after another: the lanes'
+// first queries are neighbours on the slice, and their walks stay
+// correlated for as long as neighbouring walks do. The tree, its bytes,
+// the traversal order and the stack are fcpw4w16-packet's. Single-threaded,
+// pinned, as fcpw4w16 is run.
+import apps/rtq/schedules/layouts/fcpw4w16;
+
+schedule {
+    // The walk a loop, as WoSX's; inside a gang it is a divergent loop,
+    // each lane leaving when its own walk ends.
+    walk.loopify();
+
+    // The points in gangs of thirty-two lanes, a lane's walks a loop
+    // inside; the tail guard takes a count that is not a whole number of
+    // gangs.
+    solve_all.split(i, i_gang, i_lane, 32, true)
+             .vectorize(i_lane);
+
+    // FCPW's traversal order -- the children sorted by the point's distance
+    // to their boxes, FCPW's stack of 96 -- for the gang: the order a
+    // majority vote, each child visited by the lanes that reach it.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .loopify(96);
+    closest.skip(closest_point_fcpw);
+}

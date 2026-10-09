@@ -180,6 +180,19 @@ in question (PLAN.md, the persistent schedule).
   a stack, a packet traversal of the same four-wide tree (single-threaded;
   correct and slow, PLAN.md says why). Not a default of the comparison;
   run it with `--schedule fcpw4w16,fcpw4w16-packet`.
+  `schedules/fcpw4w16-packet-points.bonsai`: the same packet over the
+  sample points instead, each lane's walks a loop inside.
+- `schedules/layouts/fcpwb.bonsai`: WoSX's default tree, FCPW's scalar
+  binary BVH (FCPW_USE_ENOKI off), as a tree whose nodes bound themselves
+  in FCPW's node bytes, the primitives copied out of FCPW's polygon soup
+  into an array of Triangle elements by the driver (`fcpw_bvh.h`).
+  `schedules/fcpwb.bonsai`: the matching schedule on it, nothing
+  vectorized, the children visited left then right where FCPW visits the
+  nearer first (a layout field cannot read a child's row, so a node cannot
+  hold its children's boxes; PLAN.md). `schedules/fcpwb-packet.bonsai` and
+  `schedules/fcpwb-packet-points.bonsai`: the two packets over it. The
+  comparison builds FCPW scalar for these (`compare.sh --schedule fcpwb,
+  fcpwb-packet`), so WoSX's side runs as it ships.
 - `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
   the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are

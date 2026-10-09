@@ -35,12 +35,25 @@
 // hands to bonsai_parallel_for -- runtime/bonsai_parallel.h's
 // tbb::parallel_for, the same TBB. Both pools take the CPUs the process is
 // left (compare.sh pins the run), so the two sides have the same threads.
-#include "wosx.h"
-
+// WoSX's and FCPW's headers before the program's: the program's element
+// `Triangle` is a struct in the global namespace, and WoSX's scalar-BVH
+// headers (reflectance_boundary_bvh/geometry.h, reached when FCPW is built
+// without enoki) say `Triangle` unqualified for FCPW's, which the program's
+// would make ambiguous were it declared first.
 #include <wosx/point_estimation/walk_on_spheres.h>
 #include <wosx/utils/fcpw_geometric_queries.h>
 
+#include "wosx.h"
+
+// The tree the schedule declared: FCPW's vectorized Mbvh in apps/rtq's
+// layouts (the default), or FCPW's scalar binary BVH -- WoSX's default,
+// FCPW_USE_ENOKI off -- in apps/wosx/schedules/layouts/fcpwb.bonsai when
+// built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*).
+#if defined(WOSX_BINARY_BVH)
+#include "apps/wosx/fcpw_bvh.h"
+#else
 #include "apps/rtq/fcpw_tree.h"
+#endif
 #include "apps/rtq/mesh.h"
 
 #include <oneapi/tbb/info.h>
@@ -348,9 +361,17 @@ int main(int argc, char **argv) {
     // Mbvh the layout is the bytes of), and the queries are populated from
     // it as WoSX's demos populate theirs. The domain is the box, as the
     // demos set it: a walk that leaves the box has escaped.
+    // Vectorized for apps/rtq's four-wide layouts; scalar -- WoSX's default,
+    // FCPW's CMake leaving FCPW_USE_ENOKI off -- for the binary layout.
+#if defined(WOSX_BINARY_BVH)
+    constexpr bool kVectorized = false;
+#else
+    constexpr bool kVectorized = true;
+#endif
     wosx::FcpwDirichletBoundaryHandler<3> handler;
     handler.buildAccelerationStructure(boundary.positions, boundary.indices, /*buildBvh=*/true,
-                                       /*enableBvhVectorization=*/true, /*printStats=*/fcpw_stats);
+                                       /*enableBvhVectorization=*/kVectorized,
+                                       /*printStats=*/fcpw_stats);
     // Not closed (--open): WoSX's insideDomain says yes to every point, as
     // it does for its non-watertight demos, and the walks from the whole
     // slice end on whichever side of the boundary they reach.
@@ -358,8 +379,13 @@ int main(int argc, char **argv) {
     wosx::populateGeometricQueriesForDirichletBoundary<3>(handler, queries);
 
     // Our side: the same tree in the layout.
+#if defined(WOSX_BINARY_BVH)
+    const wosx_bvh::Tree tree = wosx_bvh::copy_fcpw_bvh(handler.scene);
+    wosx_bvh::describe(tree);
+#else
     const rtq::FcpwTree tree = rtq::copy_fcpw_tree(handler.scene);
     rtq::describe(tree);
+#endif
 
     std::vector<Sample> samples = sample_points(boundary, queries, side, epsilon);
     if (shuffle) {

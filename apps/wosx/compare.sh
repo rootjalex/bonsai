@@ -17,9 +17,15 @@ set -euo pipefail
 # against the parfor bound to the CPU threads), pinned to the performance
 # cores; schedules/fcpw4w16-persistent.bonsai is the threaded one with the
 # points handed to sixteen persistent workers instead of TBB's partition,
-# run the same way. Each schedule named is built and run in turn, its table under a
-# `=== schedule` line; the other arguments go to the driver (wosx_hook.cpp:
-# --side, --walks, --epsilon, --repeats, --open, --image ...).
+# run the same way. The packet schedules (fcpw4w16-packet, the walks as the
+# lanes; fcpw4w16-packet-points, the points) are run the single-threaded
+# way. A schedule named fcpwb* runs over WoSX's default tree instead --
+# FCPW's scalar binary BVH, FCPW_USE_ENOKI off, the layout in
+# schedules/layouts/fcpwb.bonsai -- and the driver is built to have FCPW
+# build that tree for WoSX's side too (WOSX_BINARY_BVH). Each schedule
+# named is built and run in turn, its table under a `=== schedule` line;
+# the other arguments go to the driver (wosx_hook.cpp: --side, --walks,
+# --epsilon, --repeats, --open, --image ...).
 #
 # Run from the repository root, inside the `bonsai` conda environment. WoSX
 # is an optional dependency: a submodule at deps/wosx, header-only, with
@@ -136,17 +142,25 @@ build_schedule() {
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/wosx.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx
 
-  local branching width
+  # The tree the schedule's name says: fcpw<branching>w<width> is FCPW's
+  # vectorized Mbvh at that branching and width (apps/rtq's layouts), fcpwb
+  # FCPW's scalar binary BVH -- WoSX's default, FCPW_USE_ENOKI off
+  # (apps/wosx/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH).
+  local branching width defines
   if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads|-persistent|-packet(-[a-z0-9]+)*)?$ ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
+    defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
+    if [[ "$branching" == 8 ]]; then
+      defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
+    fi
+  elif [[ "$schedule" =~ ^fcpwb(-threads|-persistent|-packet(-[a-z0-9]+)*)?$ ]]; then
+    branching=2
+    width=1
+    defines=(-DNDEBUG -DWOSX_BINARY_BVH)
   else
-    echo "a schedule is named fcpw<branching>w<width>[t][-threads|-persistent|-packet[-variant...]] after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t] or fcpwb, then [-threads|-persistent|-packet[-variant...]], after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, fcpwb, fcpwb-packet, ...): $schedule" >&2
     exit 1
-  fi
-  local defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
-  if [[ "$branching" == 8 ]]; then
-    defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
   fi
   # The driver compiled once per (header, defines) within a run and linked
   # per schedule, keyed by the generated header's checksum: compiling it

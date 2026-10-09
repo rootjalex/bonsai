@@ -472,10 +472,74 @@ What would make a packet pay here, in order of how much it is:
 None of these is started; the compiler change stands on its own and the
 schedule is the first packet traversal of a wide node to run.
 
+### The packet over the points, and WoSX's default binary tree (2026-10-09, late morning)
+
+The user's next two asks, through the scheduling language alone. Whale,
+side 128, 64 walks, cpu 11, least of 3; every row agrees with WoSX (all
+walks end, the same mean length, the same rms error).
+
+| tree | schedule | WoSX Msteps/s | bonsai Msteps/s | over WoSX |
+|---|---|---|---|---|
+| four-wide Mbvh (vectorized FCPW) | fcpw4w16, matching | 1.52 | 1.82 | 1.20x |
+| | fcpw4w16-packet, a point's 32 walks | 1.52 | 0.21 | 0.14x |
+| | fcpw4w16-packet-points, 32 points | 1.53 | 0.16 | 0.10x |
+| binary BVH (WoSX's default, FCPW scalar) | fcpwb, matching | 0.65 | 0.08 | 0.12x |
+| | fcpwb-packet, a point's 32 walks | 0.65 | 0.07 | 0.10x |
+| | fcpwb-packet-points, 32 points | 0.65 | 0.06 | 0.09x |
+
+**The packet over the points** (`solve_all.split(i, i_gang, i_lane, 32,
+true).vectorize(i_lane)`, a lane's 64 walks a loop inside) is slower than
+the packet over a point's walks, not faster: the lanes' first queries are
+neighbours, but a lane runs its walks one after another, so from the second
+step on the gang's 32 queries are 32 unrelated walks at unrelated stages,
+and a lane whose walk ended early starts its next walk while the others
+are mid-walk. The coherence the first step has is one step in eleven.
+
+**WoSX's default tree.** WoSX as shipped runs FCPW with FCPW_USE_ENOKI off:
+`Bvh<3, BvhNode<3>, Triangle>`, a binary tree whose node is its own box
+(pMin, pMax, 32 bytes with the child offset and the reference count), its
+leaves at most four triangles read through indices into the polygon soup,
+and a traversal that tests both children's boxes at the parent and
+descends into the nearer first (bvh.inl, processSubtreeForClosestPoint;
+the box's far distance also tightens the search radius). WoSX itself runs
+2.3x slower on it than on the vectorized tree (0.65 against 1.52
+Msteps/s). `schedules/layouts/fcpwb.bonsai` declares it in FCPW's node
+bytes (checked by static asserts in `fcpw_bvh.h`, which copies the rows
+and materializes the triangles out of the soup in the build's order),
+and compare.sh builds the driver with FCPW scalar for the `fcpwb*`
+schedules, so WoSX's side runs exactly as it ships.
+
+What the language cannot say about it: a node bounding its children
+(`with AABB(lo, hi) on children`, the four-wide tree's declaration) needs
+the children's boxes as the node's fields, and FCPW's binary node holds
+only its own box; a layout field cannot read another row (`Nodes[index +
+1u].pMin` is "unknown var: Nodes"). So the tree is declared bounding
+itself, each child's box is tested as the child is entered, and the
+children are visited left then right with no key to order them. On a
+closest-point query that costs dearly: with no nearest-first order the
+bound stays loose until a leaf happens to be near, and the traversal
+visits far more of the tree than FCPW's, which is the 0.12x of the
+matching schedule -- the first matching schedule in this app that is far
+behind its reference, and the reason is a layout-language gap, not the
+code the compiler makes of the traversal. The packets over it inherit
+that and add the leaf-lane waste of the four-wide case; the binary leaf
+of at most four triangles makes the per-lane leaf test cheaper, which is
+why the packets lose less against the matching schedule here (0.07 and
+0.06 against 0.08) than on the wide tree (0.21 against 1.82).
+
+**To put to the user.** The one extension that would let the binary tree
+be declared as FCPW traverses it is a layout field that reads a row of a
+group by index -- `Nodes[index + 1u].pMin`, a load through a reference
+the lowering already makes for `Interior from Nodes[...]` -- so that an
+interior node's `lo`/`hi` can be its two children's boxes and the tree
+declared `with AABB(lo, hi) on children` with the sort key `distmin(q,
+AABB{lo[i], hi[i]})`, FCPW's order exactly. Not started: it is a new form
+in the layout language, and the user decides those.
+
 ### Next
 
-- The packet schedule over the points rather than the walks (above, 2),
-  and the hybrid switch as a schedule point to put to the user (above, 1).
+- The layout-language extension above, if the user wants WoSX's default
+  tree matched; the hybrid switch as a schedule point (the packet section).
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
   configuration (issue 1).
 - The extensions, one at a time against WoSX: a source term (Poisson),

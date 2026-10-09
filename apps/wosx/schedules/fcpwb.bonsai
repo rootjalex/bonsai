@@ -1,0 +1,15 @@
+// WoSX's default tree: FCPW's scalar binary BVH (layouts/fcpwb.bonsai), the
+// walk a loop, the closest-point traversal on a stack of FCPW's depth, the
+// leaf's Voronoi arms skipped where no lane needs them -- the matching
+// schedule against WoSX built as it ships (FCPW_USE_ENOKI off), one thread
+// against one thread. Nothing is vectorized: FCPW's scalar traversal tests
+// one box and one triangle at a time, and so does this. The children are
+// visited left then right where FCPW visits the nearer first (the layout
+// says why).
+import apps/wosx/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    closest.loopify(64);
+    closest.skip(closest_point_fcpw);
+}

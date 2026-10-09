@@ -1,0 +1,55 @@
+// FCPW's scalar BVH -- the tree WoSX builds by default, FCPW's CMake
+// leaving FCPW_USE_ENOKI off -- as a tree declaration and the layout that
+// is its bytes: fcpw::Bvh<3, BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/
+// aggregates/bvh.h). A node is its own box (BoundingBox<3>: pMin, pMax, two
+// Vector3f of 12 bytes), one int that is the second child's offset for an
+// interior node and the first reference's index for a leaf (a union), and
+// the leaf's reference count, zero for an interior node: 32 bytes, a binary
+// tree whose left child is the next row and whose leaves reference FCPW's
+// primitives in the order its build left them (Bvh::primitives). The
+// primitives are copied into a plain array of triangles by the driver
+// (apps/wosx/fcpw_bvh.h), each its three corners and FCPW's pIndex, the
+// fields apps/rtq's Triangle element reads as the four-wide layout's
+// packets provide them (apps/rtq/schedules/layouts/fcpw4w16.bonsai).
+//
+// FCPW's scalar traversal tests both children's boxes at the parent and
+// descends into the nearer first (bvh.inl, processSubtreeForClosestPoint).
+// A node here bounds itself, so each child's box is tested as the child is
+// entered, and the children are visited left then right: a layout field
+// cannot read another row's fields (`Nodes[index + 1].pMin` is not in the
+// layout language), so a node cannot hold its children's boxes and no key
+// can order them. That is the one departure from FCPW's algorithm on this
+// tree, noted in PLAN.md.
+schedule {
+    tree[[Triangle]] BVH2(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BVH2, right : BVH2)
+    | Leaf(data : array[Triangle]) with data = data;
+    triangles : BVH2;
+
+    layout triangles {
+        // The primitives in the order FCPW's build left them
+        // (Bvh::primitives), one Triangle element each, which the driver
+        // fills from FCPW's: FCPW's scalar leaf reads each triangle's three
+        // corners through its indices into the polygon soup, which no
+        // element array can be the bytes of, so the corners are copied out
+        // once (as FCPW's own vectorized leaf copies them into its packets).
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            offset : i32;
+            nReferences : i32;
+            switch nReferences {
+                0 => Interior {
+                    left = index + 1u;
+                    right = index + cast[[u32]](offset);
+                };
+                _ => Leaf {
+                    data = range(prims, cast[[u32]](offset), cast[[u32]](nReferences));
+                };
+            };
+        };
+    };
+}
