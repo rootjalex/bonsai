@@ -1,0 +1,76 @@
+//! flags: -p ssa -b llvm --triple x86_64-unknown-linux-gnu --mcpu generic --gpu-arch sm_90
+
+// A tree reaching a GPU launch through a queue's round loop. `walk` is a
+// self-recursive deferral on the GPU, as round-guard.bonsai has it, and each
+// step queries the tree; the drain of `sums` is the launch, inside the
+// round loop the deferral makes, and the tree reaches it not as the
+// exported parameter `triangles` itself but as the loop's own copy of the
+// struct, threaded through the round's blocks under another name. The
+// launch marshaling has to see through that to the descriptors `run` was
+// handed (CodeGen_GPU_Host.cpp, exported_of_value).
+//
+// What to look for: before each launch that queries the tree, a
+// `bonsai_buffer_require(..., i32 2)` of each array field of the tree --
+// its primitives and its node group, read off `run`'s descriptor -- and the
+// launch arguments holding that struct of DEVICE pointers; never a load of
+// the host's struct into the arguments. That was the bug of 2026-10-08, by
+// which every element load of apps/pbrt's ray and probe launches read the
+// driver's host memory over the bus.
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/triangle;
+
+extern triangles : set[Triangle];
+
+func trace(ray : Ray) = argmin(|tri| distmin(ray, tri), filter(|tri| intersects(ray, tri), triangles));
+
+func walk(k : i32, r : Ray, acc : f32) -> f32 {
+    if (k <= 0) {
+        return acc;
+    }
+    found = trace(r);
+    if !found {
+        return acc;
+    }
+    hit = *found;
+    return walk(k - 1, r, acc + hit.p0.x);
+}
+
+func [[export]] run(rays : array[Ray, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(3, rays[i], 0.0);
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] TriangleBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TriangleBVH, right : TriangleBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    triangles : TriangleBVH;
+
+    layout triangles {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            high : vec3f;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1; right = index + offset; };
+                _ => Leaf { pOffset : u32; data = range(prims, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+
+    trace.loopify(64);
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

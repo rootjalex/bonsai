@@ -41,6 +41,7 @@ add_bonsai_tests(
     float-zero-folds.bonsai
     forall.bonsai
     gpu-launch-buffers.bonsai
+    gpu-launch-tree-copy.bonsai
     index.bonsai
     isel.bonsai
     ivector.bonsai
