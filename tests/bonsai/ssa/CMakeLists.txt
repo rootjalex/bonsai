@@ -101,6 +101,7 @@ add_bonsai_tests(
     split-unsigned.bonsai
     stage.bonsai
     stage-mut-param.bonsai
+    stage-then-defer.bonsai
     switch-merge.bonsai
     traverse.bonsai
     vectorize-call-guard.bonsai

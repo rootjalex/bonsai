@@ -40,6 +40,17 @@
 // one: a self-call of `f` that defer() has already made a push is not a
 // call, so the chain from the owner through `f` to `f!after` has no other
 // recursion, which defer() requires.
+//
+// A deferral written after the stage -- `f.defer(h, q2)` where `f`'s call
+// to `h` lies in the rest -- finds its call in `f!after`: the schedule's
+// name for a function stands for it and for the continuations split off
+// from it (call_holder below, which the conversion asks before every
+// deferral). The order is the schedule's to choose because the drains run
+// in the order their queues are deferred: pbrt's sample stage comes before
+// its trace, and the trace's function is the one that defers the medium
+// sampling (`vol_path_step.stage(vol_ray_samples, traced)` ahead of
+// `vol_path_step.defer(vol_medium_sample, medium_samples)`,
+// apps/pbrt/schedules/gpu-optix.bonsai).
 
 #include "SSA/Defer.h"
 #include "SSA/Rewrite.h"
@@ -77,6 +88,14 @@ std::vector<Type> stage(FuncMap &funcs, const std::string &func,
 std::vector<Type> defer_continuation(FuncMap &funcs, const std::string &func,
                                      const std::string &callee,
                                      const QueueSpec &queue);
+
+// The function among `func` and the continuations split off from it
+// (`func!after`, `func!after!after`, ...: a stage's rest, or a deferral's
+// with its continuation) that makes a call to `callee`; `func` itself when
+// it does, or when none of them does, so that the caller's own refusal
+// names what the schedule wrote.
+std::string call_holder(const FuncMap &funcs, const std::string &func,
+                        const std::string &callee);
 
 // Whether `func`'s one call to `callee` is neither in tail position nor
 // spawned, and `callee` is not a recursion back into `func`: what makes

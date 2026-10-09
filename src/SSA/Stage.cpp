@@ -446,6 +446,27 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
     return defer(funcs, func_name, split.after_name, queue);
 }
 
+string call_holder(const FuncMap &funcs, const string &func_name,
+                   const string &callee_name) {
+    string holder = func_name;
+    while (funcs.contains(holder)) {
+        for (const auto &block : funcs.at(holder)->blocks) {
+            if (const auto *call =
+                    std::get_if<Terminator::Call>(&block->terminator.data);
+                call != nullptr && call->call.name == callee_name) {
+                return holder;
+            }
+            if (const auto *multi =
+                    std::get_if<Terminator::MultiCall>(&block->terminator.data);
+                multi != nullptr && multi->call.name == callee_name) {
+                return holder;
+            }
+        }
+        holder += "!after";
+    }
+    return func_name;
+}
+
 bool has_nontail_call(const FuncMap &funcs, const string &func_name,
                       const string &callee_name) {
     if (!funcs.contains(func_name) || !funcs.contains(callee_name)) {

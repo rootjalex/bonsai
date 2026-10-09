@@ -1,0 +1,128 @@
+type Entry_hits = struct Entry_hits{ @0 : f32; _slot : i32 }
+type Entry_q = struct Entry_q{ r : f32; _slot : u32 }
+type Float = f32
+type Half = f16
+type Queue_hits = struct Queue_hits{ count : u32; @0 : f32[]; _slot : i32[] }
+type Queue_q = struct Queue_q{ count : u32; r : f32[]; _slot : u32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func finish(r : f32, k : f32) -> f32 {
+  let @0 = r + k in
+  return @0
+}
+
+func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
+  hits_result : mut f32[8]
+  hits_@0 : mut f32[8]
+  hits__slot : mut i32[8]
+  hits_queue : mut Queue_hits
+  let @4 = build<Queue_hits>(0u, hits_@0, hits__slot) in
+  hits_queue = @4
+  q_rest_@10 : mut (f32*)[8]
+  q_result : mut f32[8]
+  q_r : mut f32[8]
+  q__slot : mut u32[8]
+  q_queue : mut Queue_q
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, k, hits_queue, (&hits_result[i]), i)
+    continue
+  }
+  let @5 = (*hits_queue) in
+  let @6 = @5.count in
+  let @15 = build<Queue_q>(0u, q_r, q__slot) in
+  q_queue = @15
+  parfor hits in [0u:@6:1u] {
+    let @7 = hits_@0[hits] in
+    let @9 = hits__slot[hits] in
+    q_rest_@10[hits] = (&hits_result[@9])
+    step!after(@7, k, q_queue, (&q_result[hits]), hits)
+    continue
+  }
+  let @17 = (*q_queue) in
+  let @18 = @17.count in
+  parfor q in [0u:@18:1u] {
+    let @19 = q_r[q] in
+    let @21 = q__slot[q] in
+    let @20 = step!after!finish!k(@19, k) in
+    let @22 = (&q_result[@21]) in
+    @22 = @20
+    continue
+  }
+  q_queue.count = 0u
+  parfor q_rest in [0:8:1] {
+    let @25 = q_result[q_rest] in
+    let @27 = q_rest_@10[q_rest] in
+    let @8 = @25 in
+    let @10 = @27 in
+    @10 = @8
+    continue
+  }
+  hits_queue.count = 0u
+  parfor hits_rest in [0:8:1] {
+    let @13 = hits_result[hits_rest] in
+    let @1 = @13 in
+    let i = hits_rest in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func step(x : f32, k : f32, _queue_hits : mut (Queue_hits*), _result_hits : mut (f32*), _slot_hits : i32) -> void {
+  let @0 = work(x) in
+  let @5 = build<Entry_hits>(@0, _slot_hits) in
+  let @8 = atomic_add((&(*_queue_hits).count), 1u) in
+  let @10 = (*_queue_hits).@0 in
+  @10[@8] = @0
+  let @13 = (*_queue_hits)._slot in
+  @13[@8] = _slot_hits
+  return
+}
+
+func step!after(@0 : f32, k : f32, _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : u32) -> void {
+  let r = @0 in
+  let @1 = 4f < r in
+  if (@1) {
+    let @5 = build<Entry_q>(r, _slot_q) in
+    let @8 = atomic_add((&(*_queue_q).count), 1u) in
+    let @10 = (*_queue_q).r in
+    @10[@8] = r
+    let @13 = (*_queue_q)._slot in
+    @13[@8] = _slot_q
+    return
+  } else {
+    let @4 = r + k in
+    _result_q = @4
+    return
+  }
+}
+
+func step!after!after(@2 : f32) -> f32 {
+  let s = @2 in
+  let @3 = s * 0.5f in
+  return @3
+}
+
+func step!after!finish!k(r : f32, k : f32) -> f32 {
+  let $finish = finish(r, k) in
+  let $k = step!after!after($finish) in
+  return $k
+}
+
+func work(x : f32) -> f32 {
+  let @0 = x * 2f in
+  return @0
+}
+
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(work, hits)
+        .defer(finish, q)
+
+}

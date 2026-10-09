@@ -2617,10 +2617,18 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         // a spawned one is deferred as it is. The entry,
                         // queue and flag types made are the program's now,
                         // for the printer and the backends' declarations.
-                        const bool with_rest = has_nontail_call(fmap, name, callee);
+                        // The function that makes the call: `name`, or the
+                        // continuation a stage (or a deferral with its
+                        // continuation) written before this one split off
+                        // from it, when the call lies after that boundary
+                        // (SSA/Stage.h, call_holder) -- the medium-sample
+                        // deferral the trace's function makes after its
+                        // sample stage.
+                        const std::string holder = call_holder(fmap, name, callee);
+                        const bool with_rest = has_nontail_call(fmap, holder, callee);
                         for (const Type &made :
-                             with_rest ? defer_continuation(fmap, name, callee, spec)
-                                       : defer(fmap, name, callee, spec)) {
+                             with_rest ? defer_continuation(fmap, holder, callee, spec)
+                                       : defer(fmap, holder, callee, spec)) {
                             const auto *s = made.as<Struct_t>();
                             internal_assert(s) << made;
                             if (keep_ssa != nullptr) {

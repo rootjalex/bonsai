@@ -1,0 +1,59 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferral written after a stage. `step.stage(work, hits)` moves the rest
+// of `step` -- the call to `finish` among it -- into `step!after`, and the
+// `step.defer(finish, q)` that follows has to find its call there: the
+// schedule's name for a function stands for it and for the continuations
+// split off from it (SSA/Stage.h, call_holder). The order is the schedule's
+// to choose because the drains run in the order their queues are deferred
+// -- pbrt's sample stage comes before its trace, and the trace's function
+// is the one that defers the medium sampling (apps/pbrt/schedules/
+// gpu-optix.bonsai). The call is not in tail position, so it is deferred
+// with its continuation; what is checked is that every element gets the
+// unstaged program's answer.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func finish(r : Float, k : Float) -> Float {
+    return r + k;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = work(x);
+    if r > 4.0 {
+        s = finish(r, k);
+        return s * 0.5;
+    }
+    return r + k;
+}
+
+// Not exported: an exported function called from `main` gets an unexported
+// copy for that call, and the chain a deferral runs may be entered from one
+// owner only (the same rule the defer tests follow).
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    // 2x + 1 up to the test, (2x + 1) / 2 past it: 1, 3, 5, 3.5, 4.5, 5.5,
+    // 6.5, 7.5.
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(work, hits);
+    step.defer(finish, q);
+}

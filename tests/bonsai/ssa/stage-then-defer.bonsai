@@ -1,0 +1,43 @@
+//! flags: -p ssa
+
+// A deferral written after a stage finds its call in the stage's rest:
+// `step.stage(work, hits)` moves the call to `finish` into `step!after`,
+// and `step.defer(finish, q)` then defers it from there, with its
+// continuation (SSA/Stage.h, call_holder). What to look for: `step` draws
+// `work` and pushes onto `hits`; `step!after` makes no call to `finish` but
+// pushes onto `q`; and `q`'s drain runs `step!after!finish!k`, the call and
+// the rest of the branch. The drains follow the producer loop in the order
+// the queues were deferred, `hits` then `q`.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func finish(r : Float, k : Float) -> Float {
+    return r + k;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = work(x);
+    if r > 4.0 {
+        s = finish(r, k);
+        return s * 0.5;
+    }
+    return r + k;
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(work, hits);
+    step.defer(finish, q);
+}

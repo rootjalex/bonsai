@@ -129,6 +129,7 @@ add_bonsai_tests(
     ssa-intrinsics.bonsai
     ssa-pipeline.bonsai
     stage.bonsai
+    stage-then-defer.bonsai
     alias-edges.bonsai
     map-func.bonsai
     match-expr.bonsai
