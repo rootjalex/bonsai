@@ -3878,8 +3878,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // & 1]`). When the successors are pushed by another queue's drain, after
     // this one's pass is over -- the recursion's call is in the staged rest
     // of the callee, so the cycle is rays to hits to rays -- one queue serves
-    // every round: its count is read for the pass and reset before it, and
-    // the other drain fills it again (QueueSpec::drain_pushes_self).
+    // every round: its count is read for the pass and cleared once the pass
+    // is over (`<queue>!drained`, below), and the other drain fills it again
+    // (QueueSpec::drain_pushes_self).
     const bool rounds = callee_in_chain;
     const bool double_buffered = rounds && queue.drain_pushes_self;
     // Two for a double buffer, one per queue of a split, one otherwise; the
@@ -4132,19 +4133,27 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         afters.push_back(fresh_block(sq.path + "!ran"));
     }
     auto exit = fresh_block(prefix + "exit");
-    shared_ptr<Block> header, pre, latch;
+    shared_ptr<Block> header, pre, latch, drained;
     if (rounds) {
         header = fresh_block(prefix + "round");
         pre = fresh_block(prefix + "batch");
         latch = fresh_block(prefix + "next");
+        if (!double_buffered) {
+            // One buffer: cleared after its pass, not ahead of it (below).
+            drained = fresh_block(prefix + "drained");
+        }
     }
     // The drain's ends, for the deferrals that come after this one
-    // (Function::OwnedQueue::entry, exit).
+    // (Function::OwnedQueue::entry, exit), and the block that clears a
+    // one-buffer round queue after its pass, which a deferral whose
+    // producer is the pass is spliced after (OwnedQueue::drained).
     O->queue_sizes[queue.name].entry = drain_entry->name;
     O->queue_sizes[queue.name].exit = exit->name;
+    O->queue_sizes[queue.name].drained = drained ? drained->name : "";
     for (const SubQueue &sq : subqueues) {
         O->queue_sizes[sq.path].entry = drain_entry->name;
         O->queue_sizes[sq.path].exit = exit->name;
+        O->queue_sizes[sq.path].drained = drained ? drained->name : "";
     }
 
     // Where the drain sits: after the producer loop, in place of its
@@ -4169,6 +4178,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         set<string> runs = reachable_functions(funcs, callee_name);
         runs.insert(callee_name);
         while (true) {
+            // The block that clears a one-buffer round queue after its pass
+            // (OwnedQueue::drained) is stepped over, so that this drain's
+            // pushes onto that queue come after the clearing. No refusal
+            // for it: a round queue is refilled after its pass for the round
+            // after, which is the cycle, not a lost entry.
+            const auto cleared = std::find_if(
+                O->queue_sizes.begin(), O->queue_sizes.end(), [&](const auto &kv) {
+                    return !kv.second.drained.empty() && kv.second.drained == link->name;
+                });
+            if (cleared != O->queue_sizes.end()) {
+                link_block = omap.at(cleared->second.drained);
+                link = &std::get<Terminator::Jump>(link_block->terminator.data);
+                continue;
+            }
             const auto placed = std::find_if(
                 O->queue_sizes.begin(), O->queue_sizes.end(),
                 [&](const auto &kv) { return kv.second.entry == link->name; });
@@ -4221,13 +4244,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             /*cond=*/nullptr,
             {Terminator::Jump{pre->name}, Terminator::Jump{exit->name}}};
         pre->preds = {header};
+        const shared_ptr<Block> &after_pass = drained ? drained : latch;
         pre->terminator.data = Terminator::ParFor{queue.name,
                                                   constant_u32(0),
                                                   /*end=*/nullptr,
                                                   constant_u32(1),
                                                   Terminator::Jump{bodies[0]->name},
-                                                  Terminator::Jump{latch->name}};
-        latch->preds = {pre};
+                                                  Terminator::Jump{after_pass->name}};
+        if (drained) {
+            drained->preds = {pre};
+            drained->terminator.data = Terminator::Jump{latch->name};
+        }
+        latch->preds = {drained ? drained : pre};
         {
             auto next_round = latch->make_instruction(
                 u32(), Instruction::Op::Add, {reach(latch, round), constant_u32(1)});
@@ -4253,22 +4281,30 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             Bool_t::make(), Instruction::Op::Eq, {pending, constant_u32(0)});
         std::get<Terminator::Dispatch>(header->terminator.data).cond = empty;
 
-        // batch: the queue this round's successors go to is emptied -- the
-        // other one, or this one now that its count has been read for the
-        // pass and nothing the pass runs pushes onto it -- and then every
-        // entry of this round's is run. Its address is made here, once per
-        // round and before the parfor, so that a later deferral whose
-        // producer is this drain finds the value the drain passes its callee
-        // defined where its own drain can reach it.
+        // batch: the queue this round's successors go to is emptied, and
+        // then every entry of this round's is run. With two buffers the
+        // other one is emptied ahead of the pass; with one, this one is
+        // emptied after its pass (`drained`): a drain launched over the
+        // queue's capacity tests each index against the count on the device
+        // (SSA/Bind.cpp), so the count has to stand until the pass is over,
+        // and the drains spliced after the pass -- the trace, the materials
+        // -- then push onto a cleared queue for the round after. The address
+        // of the queue pushed to is made here, once per round and before
+        // the parfor, so that a later deferral whose producer is this drain
+        // finds the value the drain passes its callee defined where its own
+        // drain can reach it.
         nxt = double_buffered
                   ? pre->make_instruction(u32(), Instruction::Op::Xor,
                                           {reach(pre, cur), constant_u32(1)})
                   : cur;
         next_queue = queue_at(pre, nxt);
-        auto count_ptr = pre->make_instruction(
-            Ptr_t::make(u32()), Instruction::Op::FieldPtr,
-            {next_queue, constant_u32(0)});
-        pre->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
+        {
+            const shared_ptr<Block> &at = double_buffered ? pre : drained;
+            auto count_ptr = at->make_instruction(
+                Ptr_t::make(u32()), Instruction::Op::FieldPtr,
+                {reach(at, next_queue), constant_u32(0)});
+            at->make_side_effect(Instruction::Op::Store, {count_ptr, constant_u32(0)});
+        }
         {
             Terminator::ParFor &drain = std::get<Terminator::ParFor>(pre->terminator.data);
             drain.end = reach(pre, pending);

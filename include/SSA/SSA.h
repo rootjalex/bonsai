@@ -567,6 +567,14 @@ struct Function {
         // one of them: an entry pushed after the pass is over waits for a
         // round that the last round does not have.
         std::set<std::string> pushers;
+        // For a round queue with one buffer, the block after its pass that
+        // clears its count (`<queue>!drained`, SSA/Defer.cpp). A later
+        // deferral whose producer is the pass is spliced after it, so that
+        // the pushes its drain makes onto this queue come after the
+        // clearing, and it is not refused for pushing onto a queue already
+        // drained: a round queue is refilled after its pass for the round
+        // after, which is the cycle. Empty otherwise.
+        std::string drained;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
     // The addresses of the record slots deferrals of this function have made

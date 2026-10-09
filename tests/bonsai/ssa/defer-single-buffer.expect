@@ -32,7 +32,6 @@ func run(a : i32[4], total : mut (i32*)) -> void {
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
     let @6 = (*rays_queue).count in
-    rays_queue.count = 0u
     let @11 = build<Queue_hits>(0u, hits_x, hits_depth) in
     hits_queue = @11
     parfor rays in [0u:@6:1u] {
@@ -41,6 +40,7 @@ func run(a : i32[4], total : mut (i32*)) -> void {
       trace_step(@9, @10, total, rays_queue, hits_queue)
       continue
     }
+    rays_queue.count = 0u
     let @12 = (*hits_queue) in
     let @13 = @12.count in
     parfor hits in [0u:@13:1u] {

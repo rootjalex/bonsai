@@ -40,7 +40,6 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
     let @10 = (*rays_queue).count in
-    rays_queue.count = 0u
     let @19 = build<Queue_hits>(0u, hits_@0, hits_n, hits__slot) in
     hits_queue = @19
     parfor rays in [0u:@10:1u] {
@@ -50,6 +49,7 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
       step(@13, @14, k, rays_queue, (&rays_result[@15]), @15, hits_queue, @15)
       continue
     }
+    rays_queue.count = 0u
     let @20 = (*hits_queue) in
     let @21 = @20.count in
     parfor hits in [0u:@21:1u] {
