@@ -6115,3 +6115,417 @@ dispatch, whose branches Embree does not have.
 - `--side 2048` was used for the tables above so that a single-threaded
   Embree run lasts over a tenth of a second; the default 1024 is fine for
   checking agreement.
+
+## Ray packets against rtcIntersect16 (2026-10-08)
+
+The user's ask: one more benchmark, our packet tracing against Embree's --
+on a tree we already have if Embree traces packets on one, else a list of
+the trees it does, for the user to choose from. It does: Embree's packet
+queries, rtcIntersect4/8/16 and rtcOccluded4/8/16, run over the same
+BVH8Triangle4 the single-ray comparison is made on (and over BVH4Triangle4;
+bvh8_factory.cpp registers `BVH8Triangle4Intersector{4,8,16}HybridMoeller`
+for them), through one kernel, BVHNIntersectorKHybrid<N, K>
+(kernels/bvh/bvh_intersector_hybrid.cpp). Our Embree build has
+EMBREE_RAY_PACKETS=ON with the AVX2 and AVX-512 kernels, and
+rtcGetDeviceProperty says packets of 16 are native on this machine. So no
+new tree: the packet comparison is the program's rays in gangs of sixteen
+over Embree's layout against rtcIntersect16 and rtcOccluded16 -- item 4 of
+the plan of 2026-10-05 ("Ray packets: rtcIntersect8/16 against the parfor
+over the rays vectorized"). The point query has no packet form
+(rtcPointQuery4/8/16 are scalar loops, rtcore.cpp), so the packet
+comparison is the two ray queries.
+
+### Embree's packet kernel, step by step (v4.4.1, the audit)
+
+`BVHNIntersectorKHybrid<8, 16, BVH_AN1, false, ArrayIntersectorK_1<16,
+TriangleMIntersectorKMoeller<4, 16, true>>, single = true>::intersect`,
+what rtcIntersect16 with its default arguments runs on this tree:
+
+1. Entry. The valid mask from the caller's sixteen ints (`*valid_i == -1`);
+   `tnear` and `tfar` clamped to `max(.., 0)`; TravRayK: `rdir =
+   rcp_safe(dir)`, `org_rdir = org * rdir`, `nearXYZ` (the near-slab
+   offsets per axis, for the single-ray fallback).
+2. With RTC_RAY_QUERY_FLAG_COHERENT in the arguments, a different kernel,
+   `intersectCoherent`: a frustum over the packet's rays tested against the
+   node's eight boxes at once (`intersectNodeFrustum`), each frustum-hit
+   child then tested per ray, a scalar stack of 564 carrying
+   `toScalar(childDist)`, `BVH::prefetch` on every hit child. The default
+   flag is INCOHERENT; this is the kernel below. (The driver's `--coherent`
+   runs the frustum kernel for a probe; it is not the default comparison.)
+3. `switchThreshold`: 14 for K = 16 ("seems to work best for KNL"), 7 for
+   K = 8 over N = 8 (5 over N = 4), 3 for K = 4; 2 under the coherent flag.
+4. The octant partition. `octant = ray.octant()` (the three sign bits of
+   the direction). If any two valid rays have opposing signs on every axis
+   (`split`), the packet is traversed as sub-packets: the first valid ray's
+   octant, and every ray within one sign bit of it (`count_diff_octant <=
+   1`), is one sub-packet, `tnear = +inf` and `tfar = -inf` for the rays
+   not in it; the next sub-packet from the first ray left; and so on. A
+   packet with no opposing pair is one sub-packet. Each sub-packet gets
+   its own stack and its own traversal, one after another.
+5. The stack: `stack_node[561]` of NodeRefs and `stack_near[561]` of
+   sixteen-wide floats (stackSizeChunk = 1 + (N - 1) * maxDepth, no +3),
+   an invalid sentinel at the bottom, the root pushed with `tray.tnear`.
+6. Pop. `curDist = *sptr_near`; `active = curDist < tray.tfar`; `none` ->
+   next pop. The hybrid switch: if `popcnt(active) <= switchThreshold`,
+   for each active lane i, `intersect1(bvh, cur, i, ...)` -- the single
+   ray's kernel from this node: TravRay built from lane i, a stack of 564
+   with `dist` culling, BVHNNodeIntersector1 (the eight-wide node test of
+   one ray), BVHNNodeTraverser1Hit::traverseClosestHit (the sorted descent
+   with `BVH::prefetch`), the leaf as `TriangleMIntersectorKMoeller::
+   intersect(pre, ray, k, ...)`, the four-wide Triangle4 test of ray k with
+   its `early_out`, its epilog writing lane k of the packet's hit -- then
+   `tray.tfar = min(tray.tfar, ray.tfar)` and the next pop.
+7. Down traversal (`while (!cur.isLeaf())`): `valid_node = tfar > curDist`;
+   `cur = empty; curDist = +inf`; for i in 0..N: `child = children[i]`,
+   break at the first empty; `lhit = valid_node`, then
+   `BVHNNodeIntersectorK::intersect(nodeRef, i, tray, .., lnearP, lhit)` =
+   `intersectNodeK`: child i's six bounds broadcast against the sixteen
+   rays, `lclipMin = msub(lower, rdir, org_rdir)` and so on, `lnearP =
+   maxi(min(..), min(..), min(..))`, `lfarP = mini(max(..), ..)` (the
+   mixed float/int form for K = 16 on AVX-512), `lhit = asInt(maxi(lnearP,
+   tnear)) <= asInt(mini(lfarP, tfar))`. If `any(lhit)`: `childDist =
+   select(lhit, lnearP, inf)`; if `any(childDist < curDist)` { if cur
+   not empty, push (cur, curDist); `cur = child; curDist = childDist` }
+   else push (child, childDist). No prefetch anywhere in this loop.
+8. After the children: `cur` empty -> pop. If two or more were pushed,
+   `if (any(near[-2] < near[-1])) swap`; if three or more, the same for
+   [-3] vs [-1], then [-3] vs [-2] -- a partial sort of the stack's top by
+   lane-wise any-compares. Then SWITCH_DURING_DOWN_TRAVERSAL: if `popcnt(
+   tfar > curDist) <= switchThreshold`, push (cur, curDist) and go to pop,
+   where step 6 hands the lanes to single rays.
+9. Leaf. `valid_leaf = tfar > curDist`; none -> pop. `TriangleMIntersectorK
+   Moeller<4, 16>::intersect(valid_leaf, ..)` over the leaf's blocks: for
+   each slot i of a block, `if (!tri.valid(i)) break`, then
+   `MoellerTrumboreIntersectorK::intersectK`: the slot broadcast (`v0, e1,
+   e2, Ng = cross(e2, e1)` as vectors of sixteen), `C = v0 - org`, `R =
+   cross(C, dir)`, `den = dot(Ng, dir)`, `U = dot(e2, R) ^ sgnDen` with
+   `valid &= U >= 0; if (none(valid)) return`, the same for `V`, for
+   `W = absDen - U - V`, the depth test `absDen * tnear < T <= absDen *
+   tfar`, `den != 0`; the epilog (IntersectKEpilogM): the ray mask test,
+   masked stores of t (into tfar), Ng, u, v, primID, geomID per lane. Then
+   `tray.tfar = select(valid_leaf, ray.tfar, tray.tfar)`.
+10. `occluded`: the same entry and stack; `terminated = !valid`; the switch
+    at a pop to `occluded1` per active lane (the single ray's any hit:
+    traverseAnyHit, prefetch, stack of 564), `set(terminated, i)` on a hit;
+    the down traversal with no ordering at all -- for each hit child, push
+    the previous `cur` and take this one, so the last hit child is
+    descended into and the earlier ones wait, the single ray's
+    traverseAnyHit order; the leaf OccludedKEpilogM, `terminated |= hits`,
+    `if (all(terminated)) break`, `tfar = select(terminated, -inf, tfar)`;
+    at the end `tfar = -inf` stored for the terminated lanes.
+
+### What the schedule says of it, and what it cannot
+
+schedules/packet16.bonsai, over the same layout (layouts/embree8.bonsai):
+
+| Embree | Directive |
+|---|---|
+| K = 16, a packet of consecutive rays (the driver's grouping) | `trace_all.split(i, i_gang, i_lane, 16, true).vectorize(i_lane)`, the same on `occluded_all`; the tail gang's guard is the driver's `valid` ints |
+| step 7, each child against the sixteen rays, the children in stored order | the children's loop left a loop inside the gang (not `vectorize(triangles.Interior.children)`) |
+| step 7-8, the nearest hit child descended into, the rest pushed, by entry distance | `trace.sort(triangles.Interior, \|i, r, lo, hi\| distmin(r, AABB{lo[i], hi[i]}))` -- each lane's own key, `inf` where the lane misses, the order one decision for the gang by a vote per comparison |
+| step 5, the stack of 561 | `.loopify(561)`, after the gang and the sort: one stack of nodes and one of masks for the gang |
+| step 6, the cull at a pop | the argmin lowering's bound test at a node's entry, per lane |
+| step 9, a block's slots one at a time against the sixteen rays | the leaf's loop left a loop inside the gang |
+| step 9, `none(valid) return` after each edge test | `trace.skip(intersectsp_ray_tri)`: the any-lane test before what follows each `if` |
+| step 9, the epilog's masked update of each lane's best | the argmin's own |
+| no prefetch in the chunk loop | no `prefetch` |
+| step 10, no order in the any hit, the last hit child descended into | `occluded.loopify(561)` with no sort (the lowering's order for an unsorted run is Embree's single-ray one, matched since 2026-10-02) |
+| step 10, a lane done at its first hit, the packet done when every lane is | the gang's `any`: one bool per lane |
+| step 1, the clamp of tnear and tfar | `clamped` in queries.bonsai, as for every schedule |
+
+Not said by any directive, and recorded in the schedule file so the table
+is read right:
+
+- Steps 3, 6 and 8: the hybrid. At fourteen or fewer active rays the packet
+  is put back and each active ray traversed alone with the single-ray
+  kernel (prefetch, sorted eight-wide descent, four-wide leaf), the packet
+  resumed after. Our gang traverses as a packet to the end. This is the
+  construct the comparison most wants and does not have: "when fewer than
+  T lanes are active at this recursion, continue each active lane under
+  the scalar schedule" -- Benthin et al. 2012's switch, a scheduling
+  construct, and so the user's call (bonsai-ask-before-new-scheduling-
+  constructs).
+- Step 4: the octant partition of a packet into sub-packets of like
+  direction. A partition of a gang by a key before the traversal, each
+  part traversed in turn: no directive says it.
+- Steps 7-8: the order is a scan with lane-wise any-compares and a partial
+  sort of the stack's top three, not a full sort; here the vote settles
+  each comparison of a full network, and the user decided (2026-10-08,
+  with bonsai-58's change) that the vote is the majority of the on-lanes:
+  the gang descends in the order most of its rays want, where Embree
+  descends in the first order any ray wants. A decided departure, recorded
+  so the table is read with it.
+- Step 5: Embree's stack carries the sixteen distances per entry and
+  re-derives the active lanes from them at a pop; ours carries the mask.
+
+### The driver
+
+rtq_hook.cpp, `--packet K` (4, 8 or 16) and `--coherent`: the batch is laid
+in packets of K consecutive rays -- Embree's struct of arrays
+(RTCRayHit16: one array of sixteen per field, 64-byte aligned, a `valid`
+array of sixteen ints beside it, -1 for a ray and 0 for a lane past the
+batch's end) -- made before the clock, reset between runs off the clock
+(tfar, geomID, primID of the live lanes), and answered with
+rtcIntersect<K> or rtcOccluded<K> per packet, the arguments left null as
+the single-ray calls leave them (INCOHERENT) or the one flag set. The
+answers are read back lane by lane into the same records as the single
+rays (RefHit: primID, t, u, v, Ng; blocked from `tfar < 0`), so the same
+checks run. The primary hits the secondary batches are made from stay
+rtcIntersect1's, so every schedule is measured over the same rays.
+compare.sh reads the width off a `packet<K>` schedule's name and passes
+`--packet K`, as it reads FCPW's tree off an `fcpw<b>w<w>` name;
+benchmark.sh runs a packet schedule for the two ray queries only;
+tocsv.sh gives a packet row the tree's width (8), the packet's being in
+the schedule's name; plot.py draws `rtq-packet` from the `packet16` rows
+and prints their geomeans.
+
+Checked on head at side 256 and 512 (cpu 13, one repeat, a check and not
+a measurement): every packet answer agrees with the program's, 0 ties, 0
+differ, at K = 16, 8 and 4, with and without the coherent flag -- the same
+Moeller-Trumbore per lane, the same tree.
+
+### The compiler, today: the packet traversal of a wide node is refused
+
+The schedule does not compile: `vectorize() over a traversal whose nodes
+bound their children (`with ... on <child>`): the run in !par_cont_6!sortall
+has a condition per call, and a gang would have to make each call under its
+own mask` (src/SSA/Vectorize.cpp:1631). bonsai-58, who hit the same wall
+with apps/wosx's packet schedule over FCPW's four-wide tree, has traced it
+to two causes and proposed the fix to the user: (1) SSA/Convert.cpp applies
+every `sort` before any other directive whatever the textual order, so the
+sorted run is built on the scalar function and the vectorizer then runs it
+per lane; (2) a run with a condition per call (a wide node's children) is
+refused outright. The change: `sort` in textual order (a sort after a
+loopify refused), and a sorted lanes run in a gang made with votes -- the
+per-lane compare of two children's keys (`inf` where a lane missed), then
+the vote across the on-lanes, the lanes' own hit bits as the child's mask
+-- the vote being the majority of the on-lanes, as the binary packet
+traversal's is, by the user's decision of 2026-10-08 (an any-vote would
+have been Embree's `any(near_a < near_b)` scan). Owned by bonsai-58
+(src/SSA/{Convert,SortRecursion,Vectorize,QueueRecursion}.cpp and tests);
+nothing of it is touched here. The packet cells of the table wait on it.
+
+### First numbers: Embree's packets against its single rays
+
+Before the compiler change there is one measurement to make: what Embree's
+own packets are worth over its single rays on this machine, which is the
+context the packet table will be read in. (The sweep's logs are
+apps/rtq/scratch/packet/embree16/*.log: the `embree` schedule, i.e. bonsai
+scalar, against Embree answering in packets of sixteen, side 2048, least
+of three, cpu 11; Embree16 / Embree1 follows from each cell's bonsai rate
+being the same program as the CSV's `embree` rows.) The probe on head at
+side 512 (cpu 13, one repeat) says what to expect:
+
+| head, side 512 | Embree16 incoherent (default) | Embree1 (via bonsai scalar, ~1.0x) | Embree16 coherent flag (side 256) |
+|---|---|---|---|
+| primary, nearest hit | 53.2 Mr/s, 1.02x of scalar | 52.2 | 70.4 Mr/s, 1.50x |
+| diffuse, nearest hit | 13.4, 0.99x | 13.5 | 5.7, 0.45x |
+| ao, any hit | 20.9, 1.30x | 16.0 | -- |
+
+With its default flag Embree's packet of sixteen is level with its single
+rays on the nearest hit -- the hybrid at threshold 14 is single-ray
+traversal below the first few levels -- and 1.3x on the any hit; the
+coherent flag's frustum kernel is 1.5x on primary rays and loses more than
+half on diffuse rays. Packets of 8 (threshold 7) and 4 (threshold 3)
+measured level with or under single rays on the same probe.
+
+The sweep (12 meshes, side 2048, least of three, cpu 11, every packet
+answer agreeing with the program's): Embree's rtcIntersect16 and
+rtcOccluded16 with the default flag over its rtcIntersect1 and
+rtcOccluded1, the single-ray rate taken from the CSV's `embree` rows at
+a4cd033e (the bonsai scalar rate measured in both runs agrees to 1-4%, the
+drift check), million rays a second:
+
+| mesh | primary E16 / E1 | diffuse E16 / E1 | ao E16 / E1 |
+|---|---|---|---|
+| pavilion | 85.7 / 76.1 = 1.13 | 29.0 / 27.0 = 1.07 | 68.4 / 30.1 = 2.27 |
+| head | 70.5 / 64.5 = 1.09 | 14.0 / 14.2 = 0.99 | 26.5 / 17.9 = 1.48 |
+| zero-day | 208.7 / 159.8 = 1.31 | 14.7 / 14.1 = 1.04 | 19.3 / 16.4 = 1.18 |
+| bmw | 50.0 / 47.3 = 1.06 | 12.4 / 12.2 = 1.01 | 21.7 / 17.8 = 1.22 |
+| crown | 116.6 / 99.6 = 1.17 | 11.1 / 10.8 = 1.03 | 15.1 / 13.0 = 1.17 |
+| ivy | 68.9 / 63.6 = 1.08 | 5.0 / 4.9 = 1.01 | 7.0 / 6.7 = 1.04 |
+| villa | 38.6 / 36.9 = 1.05 | 11.4 / 11.2 = 1.02 | 19.4 / 15.7 = 1.24 |
+| dambreak | 27.9 / 27.2 = 1.03 | 7.9 / 8.0 = 0.99 | 15.4 / 14.4 = 1.07 |
+| sportscar | 46.5 / 43.9 = 1.06 | 7.7 / 7.7 = 1.01 | 11.6 / 10.1 = 1.15 |
+| landscape | 66.7 / 59.1 = 1.13 | 56.9 / 48.0 = 1.19 | 76.1 / 53.0 = 1.44 |
+| ganesha | 25.3 / 24.0 = 1.05 | 6.2 / 6.2 = 1.01 | 7.7 / 7.2 = 1.06 |
+| dragon | 36.2 / 34.7 = 1.04 | 4.1 / 4.2 = 0.98 | 5.3 / 5.1 = 1.04 |
+| geomean | 1.10 | 1.03 | 1.25 |
+
+So on this machine Embree's packet of sixteen, as shipped and with its
+default flag, is worth a tenth on primary rays over its single rays, nothing
+on diffuse rays, and a quarter on the ambient-occlusion any hit (where a
+terminated lane costs nothing and the short rays keep the packet together
+longest; pavilion's 2.27 is its small tree). That is the bar the packet
+schedule is measured against: a `packet16` cell at 1.0 is a traversal as
+good as Embree's hybrid, and the `embree` cells already say what the same
+program does at single rays.
+
+Also probed, since the stack-first order (loopify, then vectorize: each
+lane walking the tree for its own ray over a stack of its own, the nodes
+gathered -- apps/pbrt's perlane schedule, apps/wosx's packet schedule over
+FCPW's four-wide tree) is the other way a gang can traverse: over Embree's
+eight-wide layout it does not compile either today, `src/SSA/Linearize.cpp
+:1243: hop.inside == NO_BLOCK -- The region of !par_cont_6!sortall leaves
+for !par_cont_6!sort4 from both !break_2 and !par_cont_6!sortall!push`
+(the schedule is apps/rtq/scratch/packet/perlane/perlane16.bonsai). Reported
+to bonsai-58 with the other two; a linearizer bug over the loopified sorted
+run of a wide node, not the per-lane form's cost. It is not the matching
+schedule in any case -- Embree's packet kernel shares one node across the
+packet -- and would be a secondary cell at most.
+
+### The night's split, and the two things found past the vectorizer (2026-10-09)
+
+The user, in the evening: get the packet tracer going over the night --
+"sort + vectorize + loopify -> majority-vote packet tracing" -- and report
+by morning. bonsai-58 owns the sort/vectorize side (Convert applying sort in
+textual order; the gang's sorted run peeled lane by lane with each compare
+decided by the majority; the conditioned run's calls each under their own
+mask) and had the rtq packet16 schedule through the vectorizer within the
+hour, against their in-progress build. What it then hit, both of which are
+this side's and are fixed in the pinned worktree (apps/rtq/scratch/wt, off
+fc1dd1e6, to be rebased onto their commit):
+
+1. **A loop's counter made per lane by a per-lane exit.** The any hit's
+   leaf (`occluded`) leaves its loop over a leaf's blocks, and the loop over
+   a block's four slots, at the first hit: `if (decided) break` after the
+   lane loop (Trees.cpp's guard_iteration), and in a gang `decided` is each
+   lane's own. UniformizeLoops folds such an exit into a live mask, as it
+   should, and linearization then froze *every* carried value for the lanes
+   that had left -- `select(live, next, old)` -- which is right for a value
+   read after the loop (a lane that left on iteration three keeps its own)
+   and wrong for the counter: nothing past the loop reads it, the live lanes
+   step it alike, and frozen per lane it made the tile's address per lane,
+   `const u32[4]x16`, which no backend gathers and no packet traversal
+   wants (Embree's chunk loop indexes one block for the packet). The fix is
+   ispc's rule for a uniform loop variable under a varying `break`:
+   `read_outside_loop` (SSA/Analysis.h) says whether anything past a loop
+   reads a carried argument; UniformizeLoops records the ones nothing does
+   (`UniformLoop::local`, decided after the preheader is inserted, since
+   that renames the carried arguments) and hands the pure latch an
+   undefined value for them on the break edges; the divergence analysis
+   passes over an undefined incoming value, and at a loop header applies
+   its temporal rule only to a header with one latch (several latches are a
+   join of the paths inside the loop too -- the loopified traversal's pops
+   and pushes -- and stay as they were) and only to an argument read past
+   the loop; and Linearize leaves such an argument unfrozen, the break
+   sources out of its blend. The uniform-counter test
+   (tests/bonsai/ssa/vectorize-uniform-counter.bonsai) shows the two forms
+   side by side: `first_past`'s counter an `i32` with `xs[j]` one load,
+   `first_index`'s -- the counter being the answer -- an `i32x8` as before.
+   Two latent bugs came out with it, both in Linearize.cpp. The blend of a
+   join compared values by *name*, and a uniform loop nested in a masked
+   region carries the outer value as a header argument under the outer
+   name (a leaf loop's `total` under the traversal's), so the freeze was
+   skipped as "a select between a value and itself": compared by defining
+   block now (definition_block). And a uniform loop that runs under a
+   partial mask had no freeze of its own at all: the lanes that are off go
+   round it like everyone else and came out of it changed -- the
+   vectorize_nested_loops test printed every lane's answer for n + 1 the
+   moment its inner loop stopped being divergent. Such a loop now freezes,
+   at each latch, every carried value something past it reads,
+   `select(mask, next, current)`, exactly what a uniformized loop does
+   through its live mask; its counter, read by nothing past it, stays a
+   scalar.
+2. **Reading a lane's best element out of a Triangle4 tile.** After the
+   traversal the program dereferences the per-lane best (`found = *h;
+   hits[i] = found[1]`, and the test's `t.p0.x`), which is a per-lane
+   reference into an AoSoA tile: a gather of the tile's fields through
+   per-lane addresses. CodeGen_LLVM::gather_elements had the struct case and
+   the split-vector case but not a vector field widened as a vector of
+   vectors, the lanes outermost -- `f32x3x8 is not f32x3 widened` -- which
+   the Vector_t visitor lays out as the same struct of component vectors;
+   it gathers them component by component now (test
+   correctness/llvm/vectorize-gather-nested-vector). For rtq's trace the
+   element's fields are dead (`found[1]` is all the program keeps) and
+   LLVM's SROA drops the gathers after the fact; the SSA pipeline cannot,
+   since the whole option is passed through a block argument that is read
+   whole. A pre-existing LLVM bug surfaced beside it: SLP's vectorizeGEPIndices
+   asserts (`toScalarizedStructTy: expected unpacked struct literal`) on a
+   plain scalar loop reading `tris[which[i]].p.y` out of an array of
+   structs with a vector field -- nothing to do with the gang, left open
+   below.
+
+The measurement of packet16 waits on bonsai-58's commit, onto which the
+worktree's changes are rebased.
+
+### The any-hit packet cell, measured (2026-10-09, 07:55)
+
+bonsai-58's commit had not landed by the small hours (their session sat on
+a prompt), so their eight dirty compiler files were snapshotted as they
+stood at 07:36 (apps/rtq/scratch/packet/combined/bonsai-58-wip-0736.patch)
+and built in the worktree on top of this side's two fixes -- a labelled,
+preliminary compiler, to be re-run once the commit is in. With it, the
+any hit's packet schedule compiles end to end and agrees with Embree's
+rtcOccluded16 on every ray of every mesh. The nearest hit still fails after
+the traversal, at the gang's read of a lane's best triangle out of its
+Triangle4 tile: three things in the expression layer and the backend --
+`Extract::make` and `PtrTo::make` do not type a vector of array references
+indexed per lane as a per-lane place (each lane its own tile, through the
+reference the traversal kept), CodeGen_Stmt's GEP case refuses such a base,
+and CodeGen_LLVM's Extract visitor routes it to `extract_lane` rather than
+a gather through the lanes' pointers -- all written up in this section's
+first part and left for the day. So the any hit was measured on its own,
+under schedules/packet16-anyhit.bonsai (the any hit as packet16.bonsai has
+it, the nearest hit and the closest point as embree.bonsai has them; only
+its `any` rows are packet cells), side 2048, least of five, pinned to cpu
+11 with the GPU sweep paused:
+
+| mesh | rtcOccluded16 Mr/s | packet16 Mr/s | speedup |
+|---|---|---|---|
+| pavilion | 65.6 | 49.8 | 0.76 |
+| head | 26.1 | 25.6 | 0.98 |
+| zero-day | 18.7 | 14.8 | 0.79 |
+| bmw | 20.9 | 19.1 | 0.91 |
+| crown | 14.7 | 13.1 | 0.89 |
+| ivy | 6.7 | 4.7 | 0.70 |
+| villa | 19.2 | 17.0 | 0.88 |
+| dambreak | 15.1 | 11.2 | 0.75 |
+| sportscar | 11.5 | 8.8 | 0.76 |
+| landscape | 75.0 | 79.2 | 1.06 |
+| ganesha | 7.6 | 5.5 | 0.73 |
+| dragon | 5.4 | 3.9 | 0.72 |
+| geomean | | | 0.82 |
+
+(apps/rtq/results/logs/*.packet-anyhit.occluded.log; the rows are in the
+CSV under schedule `packet16-anyhit`, commit `fc1dd1e6+`, and
+apps/rtq/plots/rtq-packet.png draws them.) Read against the two tables
+above it: Embree's rtcOccluded16 is 1.25x its rtcOccluded1 on these meshes
+(the table of 2026-10-08), and the scalar matching schedule's any hit is
+1.02x of rtcOccluded1, so the gang's any hit is level with the same
+program's scalar any hit, a shade under -- 0.82 x 1.25 / 1.02 -- while
+Embree's hybrid gains a quarter over its single rays. That is what a pure
+packet traversal costs against a hybrid on rays this incoherent: the gang
+visits the union of its sixteen rays' paths to the end, where Embree, with
+fourteen or fewer rays still active, puts the node back and traces each
+alone (step 6 of the audit), and short ambient-occlusion rays from
+neighbouring pixels keep a packet together only at the top of the tree.
+landscape, whose ambient-occlusion rays are the most coherent of the set
+(the terrain's normals agree), is the one cell over 1; the open meshes
+(pavilion, ivy, dambreak) and the two largest (ganesha, dragon), whose rays
+scatter the gang's lanes soonest, are the lowest.
+
+What the generated code is (apps/rtq/scratch/packet/anyhit-occ.ll, the
+any-hit gang inlined into `occluded_all`, read before the sweep as the rule
+asks): no gather and no scatter anywhere in the traversal -- its memory
+operations are the node reference and the eight-wide bound vectors loaded
+once per node, the tile's four-wide slot vectors loaded once per block, and
+two stacks, `[561 x i64]` of node references and `[561 x <16 x i1>]` of
+lane masks, with `[8 x <16 x i1>]` for the eight children's masks; the
+ray test is sixteen-wide fused multiply-adds (23 `fma.v16f32`, the three
+`rcp14.ps.512` of the reciprocal direction) with no per-lane scalar
+arithmetic; the only gathers are the eight that read a gang's sixteen rays
+out of the array of structs the driver hands over, once per gang, before
+the traversal. The rays could be handed over as a struct of arrays, as the
+driver already lays them out for Embree; a measurement for the morning,
+not a fault of the traversal.
+
+Open for the day, in order: (1) the nearest hit's packet cell (the
+per-lane tile read above); (2) bonsai-58's commit, the rebase of the
+worktree's fixes onto it, the suite, and the re-measurement of both ray
+queries under packet16.bonsai proper; (3) the three steps of Embree's
+kernel no directive says -- the hybrid switch above all, which is where
+the quarter is -- as a question for the user, since each is a scheduling
+construct; (4) the per-lane order (Linearize.cpp:1243) as a secondary
+cell; (5) the SLP assertion on a scalar struct-array read, an LLVM-side
+bug to reduce and report.

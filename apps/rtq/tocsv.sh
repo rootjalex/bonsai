@@ -12,8 +12,11 @@
 # the driver's `  N triangles, ...` line, the node and leaf counts off its
 # `tree: ...` line (Embree's `N nodes ..., M leaves`; FCPW's `N node rows of
 # B ..., M of them leaves`), the width off the schedule's name (embree/tuned
-# 8, embree4/tuned4 4, fcpw<b>w<w> b), the cpu off compare.sh's `pinned to
-# cpu` line. Columns, as plot.py reads them:
+# 8, embree4/tuned4 4, fcpw<b>w<w> b, packet<K> 8 -- the tree's width, not
+# the packet's, which the schedule's name keeps: a packet<K> row's reference
+# rate is Embree's rtcIntersect<K> or rtcOccluded<K> over packets of K rays),
+# the cpu off compare.sh's `pinned to cpu` line. Columns, as plot.py reads
+# them:
 #
 #   date,commit,machine,cpu,repeats,reference,schedule,width,mesh,triangles,
 #   nodes,leaves,query,rays,side,count,reference_rate,bonsai_rate,speedup,
@@ -58,6 +61,7 @@ for log in "${LOGS[@]}"; do
       -v mesh="$mesh" -v side_given="$side" '
     function width_of(s) {
       if (s ~ /^fcpw/) { sub(/^fcpw/, "", s); sub(/w.*$/, "", s); return s }
+      if (s ~ /^packet/) return 8
       if (s ~ /4$/) return 4
       return 8
     }

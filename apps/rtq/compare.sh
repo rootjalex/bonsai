@@ -15,7 +15,13 @@ set -euo pipefail
 # tree is `embree4,tuned4` (schedules/trees/bvh4.bonsai): the driver reads
 # the width off the layout it is compiled against and asks Embree's device
 # for the tree of that width (`tri_accel=bvh4.triangle4`), so each side of
-# a table traverses a tree of the same width as the other.
+# a table traverses a tree of the same width as the other. A packet
+# schedule, `packet<K>` (schedules/packet16.bonsai), runs the rays in gangs
+# of K over the eight-wide tree, and Embree's side is told to answer them in
+# packets of K too (the driver's `--packet K`: rtcIntersect<K> and
+# rtcOccluded<K> in place of rtcIntersect1, the same K consecutive rays a
+# packet on both sides); its closest-point rows are the scalar query's, since
+# Embree has no packet point query.
 #
 # Run from the repository root, inside the `bonsai` conda environment. Embree
 # is an optional dependency: a submodule at deps/embree, built by
@@ -79,6 +85,14 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 reference_of() {
   if [[ "$1" == fcpw* ]]; then echo fcpw; else echo embree; fi
 }
+# The packet width a schedule's name asks of Embree's side: `packet<K>` is
+# the program's rays in gangs of K against rtcIntersect<K>, and so is a
+# `packet<K>-<variant>` (packet16-anyhit: the any hit alone in gangs, the
+# rest scalar); every other schedule is single rays against rtcIntersect1
+# (empty).
+packet_of() {
+  if [[ "$1" =~ ^packet([0-9]+)(-.*)?$ ]]; then echo "${BASH_REMATCH[1]}"; fi
+}
 IFS=, read -r -a SCHEDULE_LIST <<< "$SCHEDULES"
 NEEDS_EMBREE=0
 NEEDS_FCPW=0
@@ -91,6 +105,11 @@ for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
     fcpw) NEEDS_FCPW=1 ;;
     *) NEEDS_EMBREE=1 ;;
   esac
+  K="$(packet_of "$SCHEDULE")"
+  if [[ -n "$K" && "$K" != 4 && "$K" != 8 && "$K" != 16 ]]; then
+    echo "a packet schedule is named packet<K> for one of Embree's packet widths, 4, 8 or 16: $SCHEDULE" >&2
+    exit 1
+  fi
 done
 
 EMBREE="deps/embree-install"
@@ -263,7 +282,11 @@ STATUS=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   echo "=== schedule $SCHEDULE ($PREFIX/schedules/$SCHEDULE.bonsai)"
   build_schedule "$SCHEDULE"
-  numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "$@" || STATUS=$?
+  # Embree answers a packet schedule's rays in packets of the same width.
+  PACKET=()
+  K="$(packet_of "$SCHEDULE")"
+  if [[ -n "$K" ]]; then PACKET=(--packet "$K"); fi
+  numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "${PACKET[@]}" "$@" || STATUS=$?
   rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
 done
 rm -f $PREFIX/.rtq_hook-*.o

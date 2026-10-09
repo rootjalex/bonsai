@@ -11,7 +11,10 @@
 #
 # Options: --schedules (default embree,fcpw4w16, the two matching schedules
 # the plots draw; a tuned or four-wide schedule may be added, each a `===
-# schedule` section of the same runs), --meshes (default the thirteen, in
+# schedule` section of the same runs; a packet schedule, packet16, runs its
+# own sections -- the two ray queries only, against Embree's rtcIntersect16
+# and rtcOccluded16, which compare.sh asks of the driver by the schedule's
+# name -- since Embree has no packet point query), --meshes (default the thirteen, in
 # order of triangle count), --out DIR for the logs (default
 # apps/rtq/results/logs), --repeats (default 5, each number the least of
 # them after a warm-up), --rays-side / --points-side / --fcpw-side (2048 /
@@ -114,8 +117,11 @@ wait_idle() {
 
 EMBREE_SCHEDULES=""
 FCPW_SCHEDULES=""
+PACKET_SCHEDULES=""
 for s in $(tr , ' ' <<< "$SCHEDULES"); do
-  if [[ "$s" == fcpw* ]]; then FCPW_SCHEDULES="$FCPW_SCHEDULES${FCPW_SCHEDULES:+,}$s"; else EMBREE_SCHEDULES="$EMBREE_SCHEDULES${EMBREE_SCHEDULES:+,}$s"; fi
+  if [[ "$s" == fcpw* ]]; then FCPW_SCHEDULES="$FCPW_SCHEDULES${FCPW_SCHEDULES:+,}$s"
+  elif [[ "$s" == packet* ]]; then PACKET_SCHEDULES="$PACKET_SCHEDULES${PACKET_SCHEDULES:+,}$s"
+  else EMBREE_SCHEDULES="$EMBREE_SCHEDULES${EMBREE_SCHEDULES:+,}$s"; fi
 done
 
 run() {  # run <log> <compare.sh args...>
@@ -143,6 +149,12 @@ if (( ! PLOT_ONLY )); then
       run "$OUT/$mesh.s$RAYS_SIDE.intersect.log" --schedule "$EMBREE_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query intersect "$path"
       run "$OUT/$mesh.s$RAYS_SIDE.occluded.log" --schedule "$EMBREE_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query occluded "$path"
       run "$OUT/$mesh.s$POINTS_SIDE.closest.log" --schedule "$EMBREE_SCHEDULES" --side "$POINTS_SIDE" --repeats "$REPEATS" --query closest "$path"
+    fi
+    # The packet schedules: the ray queries against Embree's packets; no
+    # closest-point run, which Embree has no packet form of.
+    if [[ -n "$PACKET_SCHEDULES" ]]; then
+      run "$OUT/$mesh.s$RAYS_SIDE.packet.intersect.log" --schedule "$PACKET_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query intersect "$path"
+      run "$OUT/$mesh.s$RAYS_SIDE.packet.occluded.log" --schedule "$PACKET_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query occluded "$path"
     fi
     if [[ -n "$FCPW_SCHEDULES" ]]; then
       run "$OUT/$mesh.s$FCPW_SIDE.fcpw.log" --schedule "$FCPW_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"

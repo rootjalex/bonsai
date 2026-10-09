@@ -1,0 +1,163 @@
+// The packet schedule: apps/rtq/rtq.bonsai run the way Embree's
+// BVHNIntersectorKHybrid<8, 16> runs a packet of sixteen rays -- the schedule
+// the comparison against rtcIntersect16 and rtcOccluded16 is made with
+// (compare.sh --schedule packet16, which has the driver answer Embree's side
+// in packets of sixteen too, the same sixteen consecutive rays a packet on
+// both sides). Compiled beside the program as a second input:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/rtq.bonsai -i apps/rtq/schedules/packet16.bonsai ...
+//
+// The tree and its bytes are embree.bonsai's, the eight-wide tree
+// (trees/bvh8.bonsai) in Embree's bytes (layouts/embree8.bonsai); what
+// differs is which loop is the gang. embree.bonsai vectorizes the loops of
+// the traversal -- a node's eight children tested at once, a leaf's four
+// triangles at once, one ray at a time. This file vectorizes the loop over
+// the rays instead, and leaves the traversal's loops as loops: sixteen rays
+// make a gang, the machine's AVX-512 register of 32-bit lanes and Embree's
+// K for rtcIntersect16, and the traversal is made by the gang as a whole --
+// one node the lanes share, a mask of the lanes whose ray reached it, one
+// stack for the gang -- which is a packet traversal (Wald, Slusallek,
+// Benthin & Wagner, "Interactive Rendering with Coherent Ray Tracing",
+// Eurographics 2001) written as the composition of the directives below,
+// in this order: the gang first, then the sort, then the stack (see
+// apps/pbrt/schedules/packet.bonsai and tests/bonsai/ssa/
+// vectorize-packet-traversal.bonsai for the same composition over a binary
+// tree). Embree's packet kernel over this tree is BVHNIntersectorKHybrid
+// (kernels/bvh/bvh_intersector_hybrid.cpp, `intersect` and `occluded`),
+// audited step for step against this file in PLAN.md ("Ray packets against
+// rtcIntersect16"); what each directive answers of it is noted beside it,
+// and what no directive answers is noted at the end.
+import apps/rtq/schedules/layouts/embree8;
+
+schedule {
+    // Embree: K = 16, a packet of sixteen rays through rtcIntersect16. The
+    // batch's parfor over the rays in gangs of sixteen, the machine's
+    // vector width in 32-bit lanes; `n` is a runtime count, and vectorize
+    // wants a constant gang width, so split peels a width-sixteen inner
+    // loop off it first and that is what is vectorized. The `true` asks for
+    // the split's tail: a batch whose count is not a multiple of sixteen
+    // runs its last gang partly full, the guard the tail puts in front of
+    // the body being that gang's mask -- as the driver turns off the last
+    // lanes of Embree's last packet (its `valid` ints). The gang is made
+    // before the traversals below are sorted and put on their stacks, and
+    // the order is the point (see the top of the file).
+    trace_all.split(i, i_gang, i_lane, 16, true)
+             .vectorize(i_lane);
+    occluded_all.split(i, i_gang, i_lane, 16, true)
+                .vectorize(i_lane);
+
+    // Embree: the chunk loop of BVHNIntersectorKHybrid::intersect. At a
+    // node, each child in stored order is tested against the sixteen rays
+    // at once (BVHNNodeIntersectorK::intersect: the child's six bounds
+    // broadcast against the rays' reciprocal directions, `intersectNodeK`),
+    // a child no ray hits is passed over, and of the children hit the one
+    // the rays enter nearest is descended into and the rest wait on the
+    // stack -- the same traversal as the single ray's, over a gang: the
+    // key is each lane's own `distmin`, the slab test's entry distance,
+    // `inf` where the lane's ray misses the child (Embree's
+    // `select(lhit, lnearP, inf)`), and the order is settled once for the
+    // gang by a vote of the lanes on each comparison -- the majority of
+    // the lanes that are on, the user's choice of 2026-10-08
+    // (Instruction::Op::Vote, SSA/SortRecursion.cpp) -- since one child is
+    // descended into for the whole gang. The loop over the children is NOT
+    // vectorized here: the lanes are the rays, and a node's children are
+    // tested one at a time against all of them, as Embree's chunk loop does
+    // (`for (unsigned i = 0; i < N; i++)`), not eight at a time against
+    // one ray as embree.bonsai does.
+    //
+    // Embree: stack_node[stackSizeChunk] with stackSizeChunk = 1 + (N - 1) *
+    // maxDepth = 561 for N = 8 and maxDepth 80 (bvh_intersector_hybrid.h;
+    // no +3 here: the chunk stack is not written sixteen wide) -- the most
+    // a packet's traversal can have waiting. Loopify puts the gang's
+    // recursion on one stack of that depth: a stack of node references and
+    // one of lane masks (SSA/QueueRecursion.h), where Embree keeps a stack
+    // of node references and one of the sixteen rays' entry distances
+    // (`stack_near`), from which it re-derives the active lanes at each pop
+    // (`curDist < tray.tfar`).
+    //
+    // Embree: TriangleMIntersectorKMoeller<4, 16>::intersect -- at a leaf,
+    // each triangle of a Triangle4 block in turn against the sixteen rays
+    // (`for (size_t i = 0; i < M; i++) { if (!tri.valid(i)) break; ...
+    // intersectK }`), the block's slot broadcast and the rays the lanes. The
+    // loop over a leaf's triangles is left a loop here too, each triangle
+    // tested by the gang; the epilog's masked update of each lane's best is
+    // the argmin's own.
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .loopify(561);
+    // Embree: MoellerTrumboreIntersectorK::intersectK -- `if (likely(none
+    // (valid))) return false` after each of the three edge tests and the
+    // depth test: in a gang, a test of whether any lane goes on in front of
+    // what follows each `if` of intersectsp_ray_tri (SSA/Linearize.h,
+    // "Which arms get a gadget"), which is what the directive puts there
+    // (`skip`). The same directive as embree.bonsai's, for a different
+    // reason: there it is the single ray's `early_out` over the block's four
+    // lanes; here it is the packet's over the sixteen rays.
+    trace.skip(intersectsp_ray_tri);
+    // Embree: no prefetch in the chunk loop -- BVH::prefetch is called in
+    // the coherent (frustum) path and in the single-ray traversal only --
+    // so none is scheduled here.
+
+    // Embree: the chunk loop of BVHNIntersectorKHybrid::occluded -- the
+    // same test of each child against the sixteen rays, the children hit
+    // taken in their stored order with no sort (`cur = child` for each hit
+    // child, the one before it pushed: the last hit child is descended into
+    // and the earlier ones wait, as the single ray's traverseAnyHit orders
+    // them), a lane that finds a hit turned off (`terminated`, its tfar set
+    // to -inf) and the traversal ended when every lane is (`if (all
+    // (terminated)) break`), which is the gang's `any`: one bool per lane,
+    // settled only when every lane's is (SSA/QueueRecursion.h). The leaf is
+    // TriangleMIntersectorKMoeller::occluded, the same per-triangle test of
+    // the sixteen rays with the same `none(valid)` exits.
+    occluded.loopify(561);
+    occluded.skip(intersectsp_ray_tri);
+
+    // The closest-point query as embree.bonsai runs it, one point at a
+    // time with the node test eight wide: Embree has no packet form of
+    // rtcPointQuery (rtcPointQuery4/8/16 are scalar loops over it,
+    // kernels/common/rtcore.cpp), so there is no packet comparison to make,
+    // and the driver's closest-point rows under this schedule are the
+    // scalar query's (benchmark.sh does not run them for a packet
+    // schedule).
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .loopify(564);
+    closest.prefetch(triangles.Interior.children, 4);
+
+    // What Embree's kernel does that no directive here says -- the steps
+    // the comparison does not match, recorded so the table is read right
+    // (PLAN.md has the audit):
+    //
+    // 1. It is a hybrid (Benthin, Wald, Woop, Ernst & Mark, "Combining
+    //    Single and Packet-Ray Tracing for Arbitrary Ray Distributions on
+    //    the Intel MIC Architecture", TVCG 2012): at each pop, and again
+    //    after a node's children are tested, if at most switchThreshold of
+    //    the sixteen rays are still active -- 14 for K = 16 (7 for K = 8
+    //    over an eight-wide tree, 3 for K = 4) -- it pushes the node back
+    //    and traverses each active ray alone from it, with rtcIntersect1's
+    //    own kernel (intersect1: the eight-wide node test of one ray, its
+    //    sorted descent, its stack of 564, its prefetch, the four-wide
+    //    Triangle4 test of that one ray), then continues popping with the
+    //    packet. The schedule here traverses the gang as a packet to the
+    //    end.
+    // 2. Before traversing, it partitions the packet by direction octant
+    //    (`ray.octant()`, the three sign bits): where the packet holds rays
+    //    of opposing signs it is traversed as sub-packets, each the rays
+    //    within one sign bit of its first ray's octant, one after another
+    //    over their own stack. The gang here is the sixteen rays as given.
+    // 3. Its order of the hit children is a scan with lane-wise any-compares
+    //    -- the child kept to descend into is replaced when `any(childDist <
+    //    curDist)`, the others pushed as met, then the top two or three of
+    //    the stack swapped by `any(near[-2] < near[-1])` and its kin -- not
+    //    a full sort; here the majority of the lanes decides each comparison
+    //    of a full sorting network, by the user's decision (2026-10-08: the
+    //    majority vote for the vectorized sort), so the gang's order is the
+    //    order most of its rays want, where Embree's is the first order any
+    //    ray wants.
+    // The directives to say 1 and 2 do not exist, and adding a scheduling
+    // construct is the user's call; 3 is decided.
+}

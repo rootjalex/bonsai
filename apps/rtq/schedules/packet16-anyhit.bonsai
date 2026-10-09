@@ -1,0 +1,42 @@
+// The packet schedule for the any hit alone: `occluded` as packet16.bonsai
+// runs it -- the rays in gangs of sixteen, the traversal made by the gang
+// over one node and one stack, against rtcOccluded16 -- while the nearest
+// hit and the closest point stay as embree.bonsai runs them, one ray at a
+// time with the node test eight wide. A file of its own, measured on
+// 2026-10-09 while the nearest hit's packet form was still refused by the
+// compiler past the vectorizer (apps/rtq/PLAN.md, "Ray packets against
+// rtcIntersect16": the gang's read of a lane's best element out of a
+// Triangle4 tile after the traversal), so that the any-hit packet cell could
+// be measured on its own. Under this file only the `any` rows of a table
+// are packet cells; its `nearest` and `closest` rows are the matching
+// scalar schedule's and are not entered as packet cells. packet16.bonsai is
+// the whole packet schedule and supersedes this one once it compiles.
+import apps/rtq/schedules/layouts/embree8;
+
+schedule {
+    // The nearest hit as embree.bonsai: single rays, Embree's
+    // BVHNIntersector1<8>.
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .vectorize(triangles.Interior.children)
+         .vectorize(triangles.Leaf.data)
+         .loopify(564);
+    trace.skip(intersectsp_ray_tri);
+    trace.prefetch(triangles.Interior.children, 4);
+
+    // The any hit as packet16.bonsai: see there for the step-by-step
+    // reading of Embree's chunk loop of BVHNIntersectorKHybrid::occluded.
+    occluded_all.split(i, i_gang, i_lane, 16, true)
+                .vectorize(i_lane);
+    occluded.loopify(561);
+    occluded.skip(intersectsp_ray_tri);
+
+    // The closest point as embree.bonsai.
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .vectorize(triangles.Interior.children)
+           .loopify(564);
+    closest.prefetch(triangles.Interior.children, 4);
+}

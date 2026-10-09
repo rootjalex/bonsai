@@ -65,7 +65,8 @@ apps/rtq/benchmark.sh --plot-only     # fold and plot the logs already there
 
 It runs `compare.sh` over the thirteen meshes of `~/projects/pbrt-v4-scenes`
 (`RTQ_SCENES` names another checkout) under the two matching schedules,
-`embree` and `fcpw4w16`, pinned and least of five; folds the logs into
+`embree` and `fcpw4w16` (`--schedules embree,fcpw4w16,packet16` adds the
+packet schedule, run for the two ray queries), pinned and least of five; folds the logs into
 `apps/rtq/results/rtq-results.csv` with `tocsv.sh`, each row stamped with
 the compiler's commit (`<hash>+` when the tree has uncommitted compiler
 changes) and the cells not measured this time carried over; draws the three
@@ -91,7 +92,18 @@ Two schedules are built and run by default, each its own table under a
 its table says whether the compiler makes of that structure what Embree's
 hand-written code is; `tuned` departs from it where a step measures worse
 on this machine, and its table says what the schedule language can do
-beyond it. `--schedule` names one, or several separated by commas.
+beyond it. `--schedule` names one, or several separated by commas. The
+packet schedule, `packet16`, runs the rays in gangs of sixteen -- the
+traversal made by the gang as a whole, one node the lanes share, one stack
+(a packet traversal) -- and against it `compare.sh` has Embree answer in
+packets of sixteen too (`rtcIntersect16`, `rtcOccluded16`, the driver's
+`--packet 16`): the same sixteen consecutive rays a packet on both sides,
+over the same BVH8. Embree's packet kernel is its hybrid (packet traversal
+while more than fourteen of the sixteen rays are active at a node, each
+ray alone below that), with its default `RTC_RAY_QUERY_FLAG_INCOHERENT`;
+`--coherent` asks for its frustum kernel instead, for a probe. Embree has
+no packet form of the point query, so the packet comparison is the two ray
+queries.
 
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
 scenes ship them (`~/projects/pbrt-v4-scenes/ganesha/geometry/ganesha.ply.gz`,
@@ -240,6 +252,26 @@ driver, the two sides' kernels told apart by symbol).
   which measures 5-7% slower on the any hit's incoherent rays and 5-14%
   slower on the nearest hit's (see PLAN.md); the schedule that departs
   from Embree's where a step is measured worse.
+- `schedules/packet16.bonsai`: the rays in gangs of sixteen over the same
+  layout, against Embree's `rtcIntersect16` and `rtcOccluded16`
+  (`BVHNIntersectorKHybrid`, its packet kernel). The loop over the batch
+  is split by sixteen and vectorized; the traversal's loops are left as
+  loops, so a node's children are tested one at a time against the
+  sixteen rays, as Embree's chunk loop tests them, and `sort` then
+  `loopify` make the gang's recursion one packet traversal over one stack
+  of Embree's chunk depth (561), the order of the hit children settled
+  once for the gang by a vote (the majority of the lanes that are on, the
+  user's decision); `skip` puts Embree's `none(valid)` exits
+  after each edge test of the sixteen-wide triangle test; no prefetch, as
+  Embree's chunk loop has none. The file lists what Embree's kernel does
+  that no directive says: the hybrid's switch to single rays at fourteen
+  or fewer active, its partition of a packet by direction octant, and its
+  any-compare scan in place of a full sort (PLAN.md, "Ray packets against
+  rtcIntersect16", has the audit). `schedules/packet16-anyhit.bonsai` is
+  the any hit alone in gangs, the other two queries scalar: the interim
+  file the any-hit packet cell was first measured with, while the nearest
+  hit's packet form was still refused past the vectorizer; only its `any`
+  rows are packet cells.
 - `schedules/layouts/embree4.bonsai`, `schedules/embree4.bonsai`,
   `schedules/tuned4.bonsai`: the same over Embree's four-wide tree, the
   BVH4 over Triangle4 leaves that Embree builds on a machine without AVX2
@@ -289,7 +321,12 @@ driver, the two sides' kernels told apart by symbol).
   its own default tree: Embree's BVH8 (`embree`) and FCPW's four-wide Mbvh
   with sixteen-lane leaves (`fcpw4w16` -- FCPW's default branching, the
   tree its author calls the better tested, and the leaf width its build
-  picks on an AVX-512 machine); `--embree`, `--fcpw` name others.
+  picks on an AVX-512 machine); `--embree`, `--fcpw` name others. A
+  fourth figure, `rtq-packet`, is drawn when the CSV has the packet
+  schedule's rows (`packet16`; `--packet` names another): three bars a
+  mesh, the gangs of sixteen over Embree's packets of sixteen, primary and
+  diffuse rays under the nearest hit and ambient-occlusion rays under the
+  any hit.
 - `results/`, `plots/`: the measured data -- one CSV, one row per measured
   cell (date, commit, reference, schedule, mesh, query, ray set, both rates,
   the speedup, the agreement) -- and the figures drawn from it. Generated,

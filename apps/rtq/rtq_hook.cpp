@@ -26,7 +26,12 @@
 // callback of its closest-point tutorial, which is the only form Embree
 // offers for it. The tree's storage is mapped the way Embree maps its own
 // (os_malloc: 2 MB pages where the kernel gives them), so that the two
-// traversals pay the same for their page walks.
+// traversals pay the same for their page walks. Under `--packet K` (4, 8 or
+// 16; compare.sh passes it for a `packet<K>` schedule) Embree answers the
+// ray batches in packets of K consecutive rays instead, rtcIntersect<K>
+// and rtcOccluded<K> over its struct-of-arrays packets, for the comparison
+// against a schedule that runs the rays in gangs of K (see "Embree's ray
+// packets" below).
 //
 // Embree's traversal is the reference for what the schedule should cost;
 // its answers are the reference for what the program should compute.
@@ -1045,6 +1050,278 @@ void records_of(const std::vector<RTCRayHit> &hits, std::vector<RefHit> &records
     }
 }
 
+//===----------------------------------------------------------------------===//
+// Embree's ray packets: rtcIntersect4/8/16, rtcOccluded4/8/16
+//===----------------------------------------------------------------------===//
+//
+// `--packet K` has Embree answer a batch in packets of K consecutive rays --
+// rtcIntersect16 and rtcOccluded16 for K = 16 -- in place of the loop of
+// rtcIntersect1: the reference for a schedule that vectorizes the parfor
+// over the rays into gangs of K (schedules/packet16.bonsai), so that both
+// sides take the same K rays together. Embree's packet is a struct of
+// arrays, one array of K per field (RTCRayHit16), aligned to its width in
+// floats, with a mask of K ints beside it, -1 where the lane is a ray; a
+// batch whose count is not a multiple of K ends in a packet with its last
+// lanes off, as the program's split runs its last gang partly full. The
+// packets are made before the clock starts and reset between runs off the
+// clock, as the single rays are, and the answers are read back lane by lane
+// into the same records the single rays fill, so the checks are the same.
+//
+// Embree's kernel for a packet is BVHNIntersectorKHybrid
+// (kernels/bvh/bvh_intersector_hybrid.cpp), the "hybrid" of Benthin et al.
+// 2012: the packet is traversed as one while more than a threshold of its
+// rays are active at a node -- 14 of 16, 7 of 8 on an eight-wide tree, 3 of
+// 4 -- and each ray still active below that is traversed alone, with
+// rtcIntersect1's own kernel. Which rays of the batch share a packet is
+// this driver's choice and the same on both sides: consecutive rays, as the
+// program's split makes its gangs. The flags are Embree's documented
+// default, RTC_RAY_QUERY_FLAG_INCOHERENT; `--coherent` asks for
+// RTC_RAY_QUERY_FLAG_COHERENT instead, under which Embree traverses the
+// packet by a frustum (intersectCoherent), a different kernel.
+//
+// The primary hits the secondary batches are made from stay the answers of
+// rtcIntersect1 (reference_primary_hits), so that every schedule, packet or
+// not, is measured over the same rays.
+
+// 0 for single rays (the loop of rtcIntersect1); 4, 8 or 16 for packets.
+int packet_size = 0;
+bool coherent_packets = false;
+
+template <int K>
+struct EmbreePacket;
+
+template <>
+struct EmbreePacket<4> {
+    using RayHit = RTCRayHit4;
+    using Ray = RTCRay4;
+    static constexpr RTCDeviceProperty kNative = RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED;
+    static void intersect(const int *valid, RTCScene scene, RayHit *rh,
+                          RTCIntersectArguments *args) {
+        rtcIntersect4(valid, scene, rh, args);
+    }
+    static void occluded(const int *valid, RTCScene scene, Ray *ray,
+                         RTCOccludedArguments *args) {
+        rtcOccluded4(valid, scene, ray, args);
+    }
+};
+
+template <>
+struct EmbreePacket<8> {
+    using RayHit = RTCRayHit8;
+    using Ray = RTCRay8;
+    static constexpr RTCDeviceProperty kNative = RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED;
+    static void intersect(const int *valid, RTCScene scene, RayHit *rh,
+                          RTCIntersectArguments *args) {
+        rtcIntersect8(valid, scene, rh, args);
+    }
+    static void occluded(const int *valid, RTCScene scene, Ray *ray,
+                         RTCOccludedArguments *args) {
+        rtcOccluded8(valid, scene, ray, args);
+    }
+};
+
+template <>
+struct EmbreePacket<16> {
+    using RayHit = RTCRayHit16;
+    using Ray = RTCRay16;
+    static constexpr RTCDeviceProperty kNative = RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED;
+    static void intersect(const int *valid, RTCScene scene, RayHit *rh,
+                          RTCIntersectArguments *args) {
+        rtcIntersect16(valid, scene, rh, args);
+    }
+    static void occluded(const int *valid, RTCScene scene, Ray *ray,
+                         RTCOccludedArguments *args) {
+        rtcOccluded16(valid, scene, ray, args);
+    }
+};
+
+// A packet with its mask beside it. Embree wants both aligned to the
+// packet's width in floats (16 bytes for 4, 64 for 16); 64 serves every
+// width.
+template <int K>
+struct alignas(64) RayHitPacket {
+    typename EmbreePacket<K>::RayHit rh;
+    alignas(64) int valid[K];
+};
+
+template <int K>
+struct alignas(64) RayPacket {
+    typename EmbreePacket<K>::Ray ray;
+    alignas(64) int valid[K];
+};
+
+// Lane l of a packet's RTCRay<K> written from a ray, or from nothing for a
+// lane past the batch's end: the mask is what turns a lane off, and the
+// lane's fields are left as a ray Embree would find valid should it look.
+template <typename RayK>
+void write_lane(RayK &ray, int l, const Ray *r) {
+    const Ray off{float3{0.0f, 0.0f, 0.0f}, 0.0f, float3{0.0f, 0.0f, 1.0f}, 0.0f};
+    const Ray &src = r != nullptr ? *r : off;
+    ray.org_x[l] = src.o.x;
+    ray.org_y[l] = src.o.y;
+    ray.org_z[l] = src.o.z;
+    ray.tnear[l] = src.tnear;
+    ray.dir_x[l] = src.d.x;
+    ray.dir_y[l] = src.d.y;
+    ray.dir_z[l] = src.d.z;
+    ray.time[l] = 0.0f;
+    ray.tfar[l] = src.tfar;
+    ray.mask[l] = ~0u;
+    ray.id[l] = 0;
+    ray.flags[l] = 0;
+}
+
+template <int K>
+void embree_rayhit_packets(const std::vector<Ray> &rays,
+                           std::vector<RayHitPacket<K>> &packets) {
+    const size_t n = (rays.size() + K - 1) / K;
+    packets.assign(n, RayHitPacket<K>{});
+    for (size_t p = 0; p < n; p++) {
+        RayHitPacket<K> &pk = packets[p];
+        for (int l = 0; l < K; l++) {
+            const size_t i = p * K + l;
+            const bool on = i < rays.size();
+            write_lane(pk.rh.ray, l, on ? &rays[i] : nullptr);
+            pk.rh.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
+            pk.rh.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
+            pk.rh.hit.instID[0][l] = RTC_INVALID_GEOMETRY_ID;
+            pk.valid[l] = on ? -1 : 0;
+        }
+    }
+}
+
+template <int K>
+void reset_rayhit_packets(const std::vector<Ray> &rays,
+                          std::vector<RayHitPacket<K>> &packets) {
+    for (size_t i = 0; i < rays.size(); i++) {
+        RayHitPacket<K> &pk = packets[i / K];
+        const int l = int(i % K);
+        pk.rh.ray.tfar[l] = rays[i].tfar;
+        pk.rh.hit.geomID[l] = RTC_INVALID_GEOMETRY_ID;
+        pk.rh.hit.primID[l] = RTC_INVALID_GEOMETRY_ID;
+    }
+}
+
+template <int K>
+void embree_intersect_packets(RTCScene scene, std::vector<RayHitPacket<K>> &packets,
+                              RTCIntersectArguments *args) {
+    for (RayHitPacket<K> &pk : packets) {
+        EmbreePacket<K>::intersect(pk.valid, scene, &pk.rh, args);
+    }
+}
+
+template <int K>
+void records_of_packets(const std::vector<RayHitPacket<K>> &packets, size_t count,
+                        std::vector<RefHit> &records) {
+    records.assign(count, RefHit{});
+    for (size_t i = 0; i < count; i++) {
+        const RayHitPacket<K> &pk = packets[i / K];
+        const int l = int(i % K);
+        if (pk.rh.hit.geomID[l] == RTC_INVALID_GEOMETRY_ID) {
+            continue;
+        }
+        records[i].prim = pk.rh.hit.primID[l];
+        records[i].t = pk.rh.ray.tfar[l];
+        records[i].u = pk.rh.hit.u[l];
+        records[i].v = pk.rh.hit.v[l];
+        records[i].ng = Vec3{pk.rh.hit.Ng_x[l], pk.rh.hit.Ng_y[l], pk.rh.hit.Ng_z[l]};
+    }
+}
+
+template <int K>
+void embree_ray_packets(const std::vector<Ray> &rays, std::vector<RayPacket<K>> &packets) {
+    const size_t n = (rays.size() + K - 1) / K;
+    packets.assign(n, RayPacket<K>{});
+    for (size_t p = 0; p < n; p++) {
+        RayPacket<K> &pk = packets[p];
+        for (int l = 0; l < K; l++) {
+            const size_t i = p * K + l;
+            const bool on = i < rays.size();
+            write_lane(pk.ray, l, on ? &rays[i] : nullptr);
+            pk.valid[l] = on ? -1 : 0;
+        }
+    }
+}
+
+template <int K>
+void reset_ray_packets(const std::vector<Ray> &rays, std::vector<RayPacket<K>> &packets) {
+    for (size_t i = 0; i < rays.size(); i++) {
+        packets[i / K].ray.tfar[i % K] = rays[i].tfar;
+    }
+}
+
+template <int K>
+void embree_occluded_packets(RTCScene scene, std::vector<RayPacket<K>> &packets,
+                             RTCOccludedArguments *args) {
+    for (RayPacket<K> &pk : packets) {
+        EmbreePacket<K>::occluded(pk.valid, scene, &pk.ray, args);
+    }
+}
+
+// Embree: an occluded lane has its tfar set to -inf, as a single ray does.
+template <int K>
+void blocked_of_packets(const std::vector<RayPacket<K>> &packets, size_t count,
+                        std::vector<uint32_t> &blocked) {
+    blocked.resize(count);
+    for (size_t i = 0; i < count; i++) {
+        blocked[i] = packets[i / K].ray.tfar[i % K] < 0.0f ? 1u : 0u;
+    }
+}
+
+// Embree's rays of a packet batch, timed as the single rays are: the packets
+// made once, reset between runs off the clock, the least of `repeats`.
+// Without `--coherent` the arguments are left to Embree's defaults as the
+// single-ray calls leave them (a null argument struct, RTC_RAY_QUERY_FLAG_
+// INCOHERENT); with it, the one flag is set.
+template <int K>
+double reference_intersect_packets(RTCScene scene, const std::vector<Ray> &rays, int repeats,
+                                   std::vector<RefHit> &records) {
+    std::vector<RayHitPacket<K>> packets;
+    embree_rayhit_packets<K>(rays, packets);
+    RTCIntersectArguments args;
+    rtcInitIntersectArguments(&args);
+    args.flags = RTC_RAY_QUERY_FLAG_COHERENT;
+    RTCIntersectArguments *const argp = coherent_packets ? &args : nullptr;
+    const double seconds =
+        timed(repeats, [&] { reset_rayhit_packets<K>(rays, packets); },
+              [&] { embree_intersect_packets<K>(scene, packets, argp); });
+    records_of_packets<K>(packets, rays.size(), records);
+    return seconds;
+}
+
+template <int K>
+double reference_occluded_packets(RTCScene scene, const std::vector<Ray> &rays, int repeats,
+                                  std::vector<uint32_t> &blocked) {
+    std::vector<RayPacket<K>> packets;
+    embree_ray_packets<K>(rays, packets);
+    RTCOccludedArguments args;
+    rtcInitOccludedArguments(&args);
+    args.flags = RTC_RAY_QUERY_FLAG_COHERENT;
+    RTCOccludedArguments *const argp = coherent_packets ? &args : nullptr;
+    const double seconds =
+        timed(repeats, [&] { reset_ray_packets<K>(rays, packets); },
+              [&] { embree_occluded_packets<K>(scene, packets, argp); });
+    blocked_of_packets<K>(packets, rays.size(), blocked);
+    return seconds;
+}
+
+// Whether the device runs packets of `packet_size` on its own vector width
+// (RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED and its kin: a packet wider
+// than the machine's ISA is traversed as two of half the width), for the
+// record at the top of the output.
+bool packets_native(RTCDevice device) {
+    switch (packet_size) {
+    case 4:
+        return rtcGetDeviceProperty(device, EmbreePacket<4>::kNative) != 0;
+    case 8:
+        return rtcGetDeviceProperty(device, EmbreePacket<8>::kNative) != 0;
+    case 16:
+        return rtcGetDeviceProperty(device, EmbreePacket<16>::kNative) != 0;
+    default:
+        return false;
+    }
+}
+
 #endif // !RTQ_FCPW
 
 // The program over a batch: the exported parfor, a plain loop.
@@ -1546,8 +1823,20 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
     return out;
 }
 
+// Single rays through rtcIntersect1, or, under `--packet K`, packets of K
+// through rtcIntersect<K> (see "Embree's ray packets" above).
 double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
                            std::vector<RefHit> &records) {
+    switch (packet_size) {
+    case 4:
+        return reference_intersect_packets<4>(ref.scene, rays, repeats, records);
+    case 8:
+        return reference_intersect_packets<8>(ref.scene, rays, repeats, records);
+    case 16:
+        return reference_intersect_packets<16>(ref.scene, rays, repeats, records);
+    default:
+        break;
+    }
     std::vector<RTCRayHit> hits;
     embree_rayhits(rays, hits);
     const double seconds = timed(
@@ -1558,6 +1847,16 @@ double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, i
 
 double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
                           std::vector<uint32_t> &blocked) {
+    switch (packet_size) {
+    case 4:
+        return reference_occluded_packets<4>(ref.scene, rays, repeats, blocked);
+    case 8:
+        return reference_occluded_packets<8>(ref.scene, rays, repeats, blocked);
+    case 16:
+        return reference_occluded_packets<16>(ref.scene, rays, repeats, blocked);
+    default:
+        break;
+    }
     std::vector<RTCRay> embree_rays_of;
     embree_rays(rays, embree_rays_of);
     const double seconds =
@@ -1749,6 +2048,15 @@ void usage() {
            "pairing.\n"
            "  --explain N    print the first N disagreements of each row, with "
            "both sides' answers\n"
+#ifndef RTQ_FCPW
+           "  --packet K     Embree answers the rays in packets of K "
+           "consecutive rays, K = 4, 8 or 16 (rtcIntersect<K>, "
+           "rtcOccluded<K>), in place of the loop of rtcIntersect1: the "
+           "reference for a schedule that runs the rays in gangs of K\n"
+           "  --coherent     with --packet: RTC_RAY_QUERY_FLAG_COHERENT "
+           "(Embree's frustum traversal) in place of its default, "
+           "RTC_RAY_QUERY_FLAG_INCOHERENT\n"
+#endif
            "Both sides run their rays and points as one plain loop on the "
            "calling thread; compare.sh pins it. --batch and --query narrow a "
            "run to one kernel over one kind of ray or point, for a profile "
@@ -1787,6 +2095,16 @@ int main(int argc, char **argv) {
                 only_query != "closest") {
                 usage();
             }
+#ifndef RTQ_FCPW
+        } else if (arg == "--packet" && i + 1 < argc) {
+            packet_size = std::atoi(argv[++i]);
+            if (packet_size != 4 && packet_size != 8 && packet_size != 16) {
+                std::cerr << "--packet takes 4, 8 or 16, Embree's packet widths\n";
+                usage();
+            }
+        } else if (arg == "--coherent") {
+            coherent_packets = true;
+#endif
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
@@ -1796,6 +2114,12 @@ int main(int argc, char **argv) {
     if (path.empty() || side == 0 || repeats < 1) {
         usage();
     }
+#ifndef RTQ_FCPW
+    if (coherent_packets && packet_size == 0) {
+        std::cerr << "--coherent is a flag of Embree's packet queries: give --packet too\n";
+        usage();
+    }
+#endif
     // The reference's build, which is not timed, may keep a pool on every
     // core; the timed loops are the calling thread's.
     std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus()
@@ -1811,6 +2135,20 @@ int main(int argc, char **argv) {
     make_reference(ref, mesh, embree_stats);
     const Tree tree = build_tree(ref, mesh);
     describe_tree(tree);
+#ifndef RTQ_FCPW
+    // The record of what Embree's side runs when it is packets: the calls,
+    // the flag, and whether the device traverses a packet of this width on
+    // its own vector width (an AVX-512 machine for 16).
+    if (packet_size != 0) {
+        std::cout << "embree packets: " << packet_size << " consecutive rays a packet, rtcIntersect"
+                  << packet_size << " and rtcOccluded" << packet_size << ", "
+                  << (coherent_packets ? "RTC_RAY_QUERY_FLAG_COHERENT"
+                                       : "RTC_RAY_QUERY_FLAG_INCOHERENT (Embree's default)")
+                  << ", " << (packets_native(ref.device) ? "native" : "NOT native")
+                  << " on this device; the closest-point query stays rtcPointQuery, "
+                     "which has no packet form\n";
+    }
+#endif
 
     // The ray sets: the camera's, then from what the reference saw.
     const std::vector<Ray> primary = primary_rays(mesh, side);
