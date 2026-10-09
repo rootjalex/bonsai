@@ -566,6 +566,13 @@ struct CodeGen_LLVM::SSALowering {
     }
 
     void emit_instruction_unguarded(const std::shared_ptr<Instruction> &instr) {
+        // `BONSAI_TRACE_EMIT=1` names each instruction as it is emitted, for
+        // finding the one an LLVM assertion is about.
+        if (std::getenv("BONSAI_TRACE_EMIT") != nullptr) {
+            std::cerr << "emit: ";
+            instr->dump(std::cerr);
+            std::cerr << "\n";
+        }
         // Pure address and shape helpers, written out at their uses by
         // operand() rather than bound to a name of their own.
         if (instr->op == Instruction::Op::GEP ||
@@ -716,9 +723,11 @@ struct CodeGen_LLVM::SSALowering {
                     });
                     return;
                 }
-                internal_assert(alongside.empty())
-                    << "[unimplemented] an argmin into per-lane memory with "
-                    << "places written alongside it: " << instr->name;
+                internal_assert(alongside.empty() ||
+                                op == Accumulate::OpType::Argmin ||
+                                op == Accumulate::OpType::Argmax)
+                    << "Places written alongside an accumulate that is not "
+                    << "an argmin or argmax: " << instr->name;
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
                     Expr place = operand(instr->operands[0]);
                     if (op == Accumulate::OpType::Argmin ||
@@ -727,7 +736,11 @@ struct CodeGen_LLVM::SSALowering {
                         // against the pair its own slot holds: the lanes that
                         // are on and whose key is the better one write theirs
                         // -- a store of the value under that mask, since a
-                        // lane that does not write keeps what it had.
+                        // lane that does not write keeps what it had. The
+                        // places written alongside the pair -- the record of
+                        // a closest-point query -- are written by the same
+                        // lanes, decided once, before the pair's store
+                        // changes what the slot holds.
                         internal_assert(!instr->atomic)
                             << "[unimplemented] an atomic argmin/argmax into "
                             << "per-lane memory: " << instr->name;
@@ -743,10 +756,26 @@ struct CodeGen_LLVM::SSALowering {
                                       Access::make(key, current)
                                 : Access::make(key, current) <
                                       Access::make(key, val);
-                        cg.codegen_stmt(Store::make(
-                            std::move(loc), std::move(val),
-                            BinOp::make(BinOp::LAnd, std::move(mask),
-                                        std::move(better))));
+                        Expr writes = BinOp::make(BinOp::LAnd, std::move(mask),
+                                                  std::move(better));
+                        if (alongside.empty()) {
+                            cg.codegen_stmt(Store::make(
+                                std::move(loc), std::move(val),
+                                std::move(writes)));
+                            return;
+                        }
+                        const std::string name = instr->name + "!writes";
+                        const Type writes_t = writes.type();
+                        cg.codegen_stmt(LetStmt::make(WriteLoc(name, writes_t),
+                                                      std::move(writes)));
+                        cg.codegen_stmt(Store::make(std::move(loc),
+                                                    std::move(val),
+                                                    Var::make(writes_t, name)));
+                        for (auto &[where, what] : alongside) {
+                            cg.codegen_stmt(Store::make(
+                                std::move(where), std::move(what),
+                                Var::make(writes_t, name)));
+                        }
                         return;
                     }
                     if (instr->atomic) {

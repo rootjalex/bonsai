@@ -1,0 +1,5 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/Sorts.cpp:535
+Bonsai expects sort() to be applied before any other scheduling primitives: trace

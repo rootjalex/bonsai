@@ -438,9 +438,11 @@ Stmt codegen_instruction(const Instruction &instr) {
                                          instr.atomic, false,
                                          std::move(alongside)));
                 }
-                internal_assert(alongside.empty())
-                    << "[unimplemented] an argmin into per-lane memory with "
-                    << "places written alongside it";
+                internal_assert(alongside.empty() ||
+                                op == Accumulate::OpType::Argmin ||
+                                op == Accumulate::OpType::Argmax)
+                    << "Places written alongside an accumulate that is not "
+                    << "an argmin or argmax";
                 if (val.type().is_vector() || val.type().is<Struct_t>()) {
                     Expr place = codegen_value(instr.operands[0]);
                     Expr current = Deref::make(
@@ -449,7 +451,11 @@ Stmt codegen_instruction(const Instruction &instr) {
                         op == Accumulate::OpType::Argmax) {
                         // Each lane's pair against its own slot's: the lanes
                         // on whose key is the better write theirs (see
-                        // CodeGen_LLVM_SSA.cpp).
+                        // CodeGen_LLVM_SSA.cpp). The places written alongside
+                        // the pair -- the record of a closest-point query --
+                        // are written by the same lanes, so the lanes that
+                        // write are decided once, before the pair's store
+                        // changes what the slot holds.
                         const Struct_t *pair = val.type().as<Struct_t>();
                         internal_assert(pair != nullptr && !pair->fields.empty())
                             << "An argmin's value is not a pair: " << val;
@@ -462,10 +468,29 @@ Stmt codegen_instruction(const Instruction &instr) {
                                 : BinOp::make(BinOp::OpType::Lt,
                                               Access::make(key, current),
                                               Access::make(key, val));
-                        return Store::make(
-                            std::move(loc), std::move(val),
-                            BinOp::make(BinOp::OpType::LAnd, std::move(mask),
-                                        std::move(better)));
+                        Expr writes = BinOp::make(BinOp::OpType::LAnd,
+                                                  std::move(mask),
+                                                  std::move(better));
+                        if (alongside.empty()) {
+                            return Store::make(std::move(loc), std::move(val),
+                                               std::move(writes));
+                        }
+                        static size_t counter = 0;
+                        const std::string name =
+                            "_writes" + std::to_string(counter++);
+                        const Type writes_t = writes.type();
+                        std::vector<Stmt> stmts;
+                        stmts.push_back(LetStmt::make(WriteLoc(name, writes_t),
+                                                      std::move(writes)));
+                        stmts.push_back(Store::make(std::move(loc),
+                                                    std::move(val),
+                                                    Var::make(writes_t, name)));
+                        for (auto &[where, what] : alongside) {
+                            stmts.push_back(Store::make(
+                                std::move(where), std::move(what),
+                                Var::make(writes_t, name)));
+                        }
+                        return Sequence::make(std::move(stmts));
                     }
                     // Booleans' minimum and maximum are their and and or.
                     const bool bools = val.type().element_of().is_bool();
@@ -1485,18 +1510,47 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
     // which is the block holding its test; an infinite loop has no test, and
     // its back edge can be reached from arbitrarily deep inside -- so it is the
     // header that wraps the body, and the latch below only says `continue`.
-    for (auto &[name, bi] : info) {
-        const bool inf = bi.role == BlockInfo::Role::InfLoopLatch;
-        if (bi.role != BlockInfo::Role::DoWhileLatch && !inf) {
-            continue;
+    //
+    // A loop closed in several places -- a traversal's stack loop, which
+    // comes back from the pop and, where a run's first call is made under a
+    // condition, straight down from the push as well -- is a `while (true)`
+    // whatever its latches test: each back edge is a `continue`, and a
+    // latch that tested its way round (a DoWhileLatch) is an `if` in the
+    // body again, one arm the `continue` (see branch_region). A do-while
+    // proper has one latch, and that latch holds its test.
+    {
+        std::map<std::string, std::set<std::string>> latches_of;
+        for (auto &[name, bi] : info) {
+            if (bi.role == BlockInfo::Role::DoWhileLatch ||
+                bi.role == BlockInfo::Role::InfLoopLatch) {
+                latches_of[bi.loop_header].insert(name);
+            }
         }
-        BlockInfo &head = info.at(bi.loop_header);
-        if (head.role != BlockInfo::Role::Normal) {
-            continue;
+        for (auto &[header, latches] : latches_of) {
+            BlockInfo &head = info.at(header);
+            if (head.role != BlockInfo::Role::Normal) {
+                continue;
+            }
+            bool inf = latches.size() > 1;
+            for (const std::string &latch : latches) {
+                inf = inf ||
+                      info.at(latch).role == BlockInfo::Role::InfLoopLatch;
+            }
+            head.role = BlockInfo::Role::DoWhileHeader;
+            head.infinite = inf;
+            if (!inf) {
+                head.loop_exit = info.at(*latches.begin()).loop_exit;
+                continue;
+            }
+            head.loop_exit.clear();
+            for (const std::string &latch : latches) {
+                BlockInfo &li = info.at(latch);
+                if (li.role == BlockInfo::Role::DoWhileLatch) {
+                    li.role = BlockInfo::Role::Normal;
+                    li.loop_exit.clear();
+                }
+            }
         }
-        head.role = BlockInfo::Role::DoWhileHeader;
-        head.infinite = inf;
-        head.loop_exit = bi.loop_exit;
     }
 
     // Pass 4: where an infinite loop is left to. The ways out of the loop
@@ -1925,6 +1979,15 @@ Stmt structurize(const std::string &start, const std::string &exit,
                              const std::string &header) -> Stmt {
         std::vector<Stmt> body;
         jump_args(edge.name, edge.args, body);
+        // An arm that goes straight round the enclosing loop again -- a
+        // push's descent into the first child it pushed for, the other arm
+        // the pop -- is the loop's `continue`, handed what the edge brings,
+        // as a jump to the header is (below).
+        if (!header.empty() && edge.name == header &&
+            header == loop_header) {
+            body.push_back(Continue::make());
+            return Sequence::make(std::move(body));
+        }
         Stmt rest = structurize(edge.name, region_exit, block_map, dom, info,
                                 mut_map, func_type_map, preds_of, header,
                                 /*is_loop_body=*/false, in_scope,
@@ -2154,6 +2217,15 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         }
                         std::string merge =
                             find_merge_block(branches, block_map, stop);
+                        // An arm that is the enclosing loop's header -- the
+                        // descent a push makes into its first child -- is
+                        // where the other arm also ends up, round the loop;
+                        // that is not the arms coming back together but the
+                        // loop going round, a `continue` in each (see
+                        // branch_region, and the jump case below).
+                        if (!loop_header.empty() && merge == loop_header) {
+                            merge.clear();
+                        }
 
                         // Allocate mutable args of the merge block BEFORE the
                         // if/else

@@ -54,6 +54,7 @@ add_bonsai_tests(
     sort-key-index-type.bonsai
     split-not-divisible.bonsai
     persistent-bound.bonsai
+    sort-after-loopify.bonsai
     ssa-unimplemented-transform.bonsai
     gpu-block-level-call.bonsai
     gpu-block-level-local.bonsai

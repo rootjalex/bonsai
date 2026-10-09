@@ -2111,42 +2111,60 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         dump_ssa(std::cout, "preschedule", fmap, options.is_verbose);
     }
 
-    // Sort before anything else, and before loopify in particular: loopify
-    // replaces a run of recursive calls with pushes onto a stack, and a sort
-    // applied after that has nothing left to permute.
-    //
-    // Every function, rather than the ones the schedule names, because the
-    // recursion a `trace.sort(...)` is about lives in a traversal function that
-    // lowering invented and the schedule cannot name. The keys are on the IR by
-    // now, so a function no schedule sorted has none and this does nothing to
-    // it.
+    // A sort is applied where the schedule wrote it, like every other
+    // directive (the ordered loop below), over the functions its name stands
+    // for: the recursion a `trace.sort(...)` is about lives in a traversal
+    // function that lowering invented and the schedule cannot name, and in
+    // whatever gang copies a vectorize written before it has made of that
+    // function (Function::specialized_from). The keys are on the IR from
+    // lowering, so a function no schedule sorted has none and the sort does
+    // nothing to it. The order is what the schedule says: sorted and then
+    // vectorized, a run is ordered by the executor the sort found, one lane
+    // of a gang each; vectorized and then sorted, it is ordered once for
+    // the gang, by the lanes' majority (SSA/SortRecursion.cpp). A sort
+    // written after the loopify of its recursion finds no run left to
+    // permute and is refused there (SSA/QueueRecursion.cpp).
     //
     // What every value is known to lie between, over the whole program as
     // it stands, is what lets a sort leave out the sign flip of a key that
-    // cannot be negative (SSA/ConstantIntervals.h); the rewrites below make
-    // values this never saw, which is fine, since an unknown value is
-    // everything.
-    {
+    // cannot be negative (SSA/ConstantIntervals.h); the rewrites before and
+    // after it make values the intervals never saw, which is fine, since an
+    // unknown value is everything.
+    const auto sort_reach = [&](const std::string &name) {
+        std::set<std::string> reach = reach_of(fmap, name);
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (const auto &[fname, f] : fmap) {
+                if (!reach.contains(fname) &&
+                    reach.contains(f->specialized_from)) {
+                    reach.insert(fname);
+                    grew = true;
+                }
+            }
+        }
         const ConstantIntervals intervals(fmap);
         if (std::getenv("BONSAI_INTERVALS") != nullptr) {
-            for (const auto &[name, f] : fmap) {
+            for (const auto &[fname, f] : fmap) {
                 intervals.dump(std::cerr, *f);
             }
         }
         if (options.dump_intervals) {
-            std::cout << "=== intervals before the sort\n";
-            for (const auto &[name, f] : fmap) {
+            std::cout << "=== intervals before the sort of " << name << "\n";
+            for (const auto &[fname, f] : fmap) {
                 intervals.dump(std::cout, *f);
             }
         }
-        for (const auto &[name, f] : fmap) {
-            sort_recursion(*f, options.target, intervals);
+        for (const std::string &fname : reach) {
+            const auto f = fmap.find(fname);
+            if (f == fmap.end()) {
+                continue;
+            }
+            sort_recursion(*f->second, fmap, options.target, intervals);
             // What the network compared was built by rule; this is where it
             // is looked at (see SSA/Simplify.h).
-            simplify(*f);
+            simplify(*f->second);
         }
-    }
-    phase("sort and simplify");
+    };
 
     // A division by a value that does not change while its loop runs becomes
     // a multiply, with the multiplier computed where the divisor is (see
@@ -2250,6 +2268,23 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         }
         return false;
     };
+
+    // What every value lies between as the directives find the program
+    // (--dump-intervals); each sort prints its own view again, above.
+    if (options.dump_intervals) {
+        const ConstantIntervals intervals(fmap);
+        std::cout << "=== intervals before the directives\n";
+        for (const auto &[name, f] : fmap) {
+            intervals.dump(std::cout, *f);
+        }
+    }
+
+    // Every function simplified once before the directives see it (see
+    // SSA/Simplify.h), as it was when the sort of every function ran here.
+    for (const auto &[fname, f] : fmap) {
+        simplify(*f);
+    }
+    phase("simplify");
 
     // The time each transform takes (BONSAI_TIME_PASSES, above).
     phase("before the directives");
@@ -2593,8 +2628,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                         }
                     },
+                    // The keys were put on the recursion in lowering
+                    // (Lower/Sorts.cpp); the run is ordered by them here,
+                    // where the schedule wrote the sort (see sort_reach).
+                    [&](const ir::Sort &) { sort_reach(name); },
                     // Applied earlier in lowering, by the pass named.
-                    [&](const ir::Sort &) {}, // Lower/Sorts.cpp
                     [&](const ir::Prefetch &) {}, // Lower/Prefetches.cpp
                     [&](const ir::Split &s) {
                         internal_assert(!s.i.names.empty() &&

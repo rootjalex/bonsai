@@ -985,10 +985,30 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
             // up to the gang width.
             vector<size_t> to_broadcast = value_operands(*instr);
             if (per_lane_write) {
-                // The value, and the mask if there is one.
+                // The value, and the mask if there is one -- not an address:
+                // the record an argmin writes beside its place (`with`) is
+                // per-lane memory behind one pointer, as the place is, and a
+                // broadcast of it would be a vector of one address.
                 for (size_t k = 1; k < instr->operands.size(); k++) {
+                    if (instr->operands[k]->get_type().is<Ptr_t>()) {
+                        continue;
+                    }
                     to_broadcast.push_back(k);
                 }
+            }
+            // A read of a per-lane array at one index -- a node's children's
+            // tests and keys, `bool[4]` and `f32[4]` per lane, held as four
+            // gang vectors each (see widen()) -- is that element, a gang
+            // vector already: the index names the element, the same one for
+            // every lane, and is no lane's value to broadcast.
+            if (instr->op == Instruction::Op::ExtractIdx &&
+                instr->operands.size() == 2 &&
+                instr->operands[0]->get_type().is<Array_t>() &&
+                is_gang_wide(
+                    instr->operands[0]->get_type().as<Array_t>()->etype,
+                    lanes) &&
+                !is_gang_wide(instr->operands[1]->get_type(), lanes)) {
+                to_broadcast.clear();
             }
             for (const size_t k : to_broadcast) {
                 shared_ptr<Value> &operand = instr->operands[k];
@@ -1580,6 +1600,45 @@ void guard_call(Function &func, Cfg &region, BlockId b) {
     region[region.id(cont->name)].preds.push_back(guarded);
 }
 
+// A run whose calls each have a condition (Terminator::MultiCall::conds: a
+// node that holds its children's boxes, each child's call under the
+// parent's test of its box) is made by a gang the way Embree's chunk
+// traversal makes it (bvh_intersector_hybrid.cpp, the packet traversal of
+// a wide node): one node for the gang, every child whose box any lane
+// meets visited, by the lanes that meet it. So each call's condition
+// becomes the lanes that make it -- the block's mask and the child's test,
+// per lane -- which specialize_calls hands the callee as that call's
+// `!mask` argument and tests for a lane on. Made here, before the
+// divergence analysis the widening reads, so that the masks are seen per
+// lane; a run no lane's mask narrows (the region's own, with no mask of
+// its own) keeps the tests as they are.
+void mask_conditioned_runs(Function &func, const string &entry,
+                           const BlockMasks &masks,
+                           const shared_ptr<Value> &entry_mask) {
+    const Cfg region(func, entry);
+    for (BlockId b = 0; b < region.size(); b++) {
+        const shared_ptr<Block> &block = region.block(b);
+        auto *run =
+            std::get_if<Terminator::MultiCall>(&block->terminator.data);
+        if (run == nullptr || run->conds.empty()) {
+            continue;
+        }
+        const auto found = masks.find(block->name);
+        const shared_ptr<Value> on =
+            found != masks.end() ? found->second : entry_mask;
+        if (on == nullptr) {
+            continue;
+        }
+        for (shared_ptr<Value> &cond : run->conds) {
+            auto both = std::make_shared<Instruction>(
+                func.get_unique_name(), Bool_t::make(), Instruction::Op::LAnd,
+                vector<shared_ptr<Value>>{on, cond}, block);
+            block->instrs.push_back(both);
+            cond = std::make_shared<Value>(both);
+        }
+    }
+}
+
 // Points each call in `region` at a variant of its callee taking the
 // arguments in the shape this gang has them in.
 //
@@ -1621,18 +1680,14 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
         // all of them: they share every argument but the ones at
         // `varying_at`, and a parameter there arrives in whatever shape the
         // widest of the run's values for it has.
-        const auto *run =
-            std::get_if<Terminator::MultiCall>(&block->terminator.data);
+        auto *run = std::get_if<Terminator::MultiCall>(&block->terminator.data);
         // A run whose calls each have a condition (Terminator::MultiCall::
-        // conds, a node whose children's boxes it tests) under a gang would
-        // make each call under its own per-lane mask -- the gang's mask and
-        // that child's test -- which is the packet traversal of a wide BVH
-        // and is not built yet.
-        internal_assert(run == nullptr || run->conds.empty())
-            << "[unimplemented] vectorize() over a traversal whose nodes "
-               "bound their children (`with ... on <child>`): the run in "
-            << name << " has a condition per call, and a gang would have to "
-            << "make each call under its own mask.";
+        // conds, a node whose children's boxes it tests) makes each call
+        // under its own mask -- the lanes on in the block for which that
+        // child's test holds (mask_conditioned_runs) -- handed to the
+        // callee as the call's `!mask` argument below; the condition the
+        // run keeps is whether that mask has a lane on.
+        const bool conditioned = run != nullptr && !run->conds.empty();
         const auto values_at = [&](size_t position) {
             vector<const Value *> values{call->args[position].get()};
             if (run != nullptr) {
@@ -1665,7 +1720,7 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
         const auto callee = funcs.find(call->name);
         const bool recurses =
             callee != funcs.end() && is_recursive(*callee->second);
-        key.masked = conditional || recurses;
+        key.masked = conditional || recurses || conditioned;
 
         // The key describes the callee's own parameters, not the values being
         // passed: a per-lane vector argument was split into components, and
@@ -1721,7 +1776,31 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
         }
         call->name = name_of_variant;
 
-        if (conditional) {
+        if (conditioned) {
+            // Each call of the run under the lanes that make it: the mask
+            // is one more value the calls differ in, at the `!mask`
+            // parameter the variant takes last, and the call's condition
+            // is whether a lane is on in it -- a child no lane's box test
+            // let through is not visited, by anyone. Behind that test no
+            // guard is needed (compare guard_call).
+            const auto mask = masks.find(name);
+            call->args.push_back(
+                mask != masks.end()  ? mask->second
+                : entry_mask != nullptr
+                    ? entry_mask
+                    : std::make_shared<Value>(Constant{Bool_t::make(), true}));
+            run->varying_at.push_back(call->args.size() - 1);
+            for (size_t k = 0; k < run->conds.size(); k++) {
+                const shared_ptr<Value> lanes = run->conds[k];
+                run->varying[k].push_back(lanes);
+                auto any = std::make_shared<Instruction>(
+                    func.get_unique_name(), Bool_t::make(),
+                    Instruction::Op::Any, vector<shared_ptr<Value>>{lanes},
+                    block);
+                block->instrs.push_back(any);
+                run->conds[k] = std::make_shared<Value>(any);
+            }
+        } else if (conditional) {
             // The mask the call site runs under, which linearization computed
             // when it folded the branch that made the call conditional. For a
             // run it is shared by every call, as the arguments after
@@ -1945,9 +2024,12 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
         variant->dump(std::cerr);
     }
 
-    // With the masks known, a run's votes on its order become counts of the
-    // lanes that are on (see lower_votes). Before the analysis below, which
-    // has to see the counts and not the votes.
+    // With the masks known, a run whose calls each have a condition makes
+    // each under the lanes that meet it (mask_conditioned_runs), and a
+    // run's votes on its order become counts of the lanes that are on (see
+    // lower_votes). Both before the analysis below, which has to see the
+    // masks and the counts.
+    mask_conditioned_runs(*variant, entry, masks, mask);
     lower_votes(*variant, entry, analyze(varying_args, masked_blocks), masks,
                 mask, key.lanes);
 
@@ -2309,6 +2391,7 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
         std::cerr << "--- after linearizing " << func << ":\n";
         f->dump(std::cerr);
     }
+    mask_conditioned_runs(*f, entry, masks, nullptr);
     lower_votes(*f, entry,
                 analyze_divergence(*f, entry, {idx}, {}, varying_args, {},
                                    nullptr, masked_blocks, folded_arms),

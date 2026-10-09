@@ -91,6 +91,7 @@ add_bonsai_tests(
     vectorize_masked_math_call.bonsai
     vector_math.bonsai
     vectorize_packet_traversal.bonsai
+    vectorize_packet_wide.bonsai
     vectorize_scale.bonsai
     vectorize_short_vectors.bonsai
     vectorize_soa.bonsai

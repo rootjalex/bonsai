@@ -2,6 +2,7 @@
 
 #include "Error.h"
 #include "IR/Equality.h"
+#include "SSA/Analysis.h"
 #include "SSA/MaskLanes.h"
 #include "SSA/Storage.h"
 #include "Utils.h"
@@ -70,8 +71,15 @@ void compare_and_swap(Function &func, const shared_ptr<Block> &block,
         << "A sort's keys have different types, " << key_type << " and "
         << keys[l]->get_type();
 
+    // Keys that are a gang's vectors -- a run sorted after the vectorize
+    // that made the gang -- compare lane by lane, and the vote below is
+    // what makes one order of the lanes' answers (settle_votes).
+    const Type compared_t =
+        key_type.is<Vector_t>()
+            ? Vector_t::make(Bool_t::make(), key_type.lanes())
+            : Bool_t::make();
     shared_ptr<Value> compared =
-        append(func, block, Bool_t::make(), Instruction::Op::Lt,
+        append(func, block, compared_t, Instruction::Op::Lt,
                ascending ? vector<shared_ptr<Value>>{keys[i], keys[l]}
                          : vector<shared_ptr<Value>>{keys[l], keys[i]});
     // Named after the comparison it decides, so that the vote reads as what
@@ -1019,7 +1027,76 @@ std::optional<LaneRun> lane_run(const Terminator::MultiCall &call) {
     return run;
 }
 
-size_t sort_recursion(Function &func, const Target &target,
+// The mask a run's calls are made under where the run is a gang's: the
+// masked variant the vectorizer calls (SSA/Vectorize.cpp, specialize_calls)
+// takes the lanes that are on as its last parameter, `!mask`, and the run
+// hands it the mask of the block the run sits in. Nothing for a run of any
+// other callee, whose every lane is on, and nothing where that mask is one
+// bool, the gang's before the region was widened.
+shared_ptr<Value> run_mask(const FuncMap &funcs,
+                           const Terminator::MultiCall &call) {
+    const auto callee = funcs.find(call.call.name);
+    if (callee == funcs.end() || callee->second->blocks.empty()) {
+        return nullptr;
+    }
+    const vector<Argument> &params = callee->second->blocks.front()->args;
+    if (params.empty() || params.back().name != "!mask" ||
+        call.call.args.size() != params.size()) {
+        return nullptr;
+    }
+    const shared_ptr<Value> &mask = call.call.args.back();
+    return mask->get_type().is<Vector_t>() ? mask : nullptr;
+}
+
+// Settles the votes the network left in `block` where the run is a gang's
+// already -- a run sorted after the vectorize that made the gang, whose
+// keys are vectors and whose comparisons are one answer per lane. A run
+// sorted before is settled by lower_votes (SSA/Vectorize.cpp) when the gang
+// is made, and this is that rule again: the majority of the lanes that are
+// on, `2 * popcount(x & m) > popcount(m)`, a lane that is off having no say
+// and a tie leaving the order as written (the user's decision, 2026-10-08:
+// a vectorized sort is decided by majority -- Embree's chunk traversal
+// takes `any`, which is not symmetric). A vote on one answer -- a scalar
+// comparison -- is left for whoever makes the run (see compare_and_swap).
+void settle_votes(Function &func, const shared_ptr<Block> &block,
+                  const shared_ptr<Value> &on) {
+    const Type count_t = UInt_t::make(32);
+    vector<shared_ptr<Instruction>> votes;
+    for (const auto &instr : block->instrs) {
+        if (instr->op == Instruction::Op::Vote &&
+            instr->operands.size() == 1 &&
+            instr->operands[0]->get_type().is<Vector_t>()) {
+            votes.push_back(instr);
+        }
+    }
+    for (const auto &vote : votes) {
+        const shared_ptr<Value> asked = vote->operands[0];
+        auto at = std::find(block->instrs.begin(), block->instrs.end(), vote);
+        internal_assert(at != block->instrs.end());
+        const auto emit = [&](Type type, Instruction::Op op,
+                              vector<shared_ptr<Value>> operands) {
+            auto instr = std::make_shared<Instruction>(
+                func.get_unique_name(), std::move(type), op,
+                std::move(operands), block);
+            at = block->instrs.insert(at, instr) + 1;
+            return std::make_shared<Value>(instr);
+        };
+        shared_ptr<Value> yes_of = asked;
+        shared_ptr<Value> total = std::make_shared<Value>(
+            Constant{count_t, uint64_t(asked->get_type().lanes())});
+        if (on) {
+            yes_of = emit(asked->get_type(), Instruction::Op::LAnd, {asked, on});
+            total = emit(count_t, Instruction::Op::Popcount, {on});
+        }
+        auto yes = emit(count_t, Instruction::Op::Popcount, {yes_of});
+        auto twice = emit(count_t, Instruction::Op::Add, {yes, yes});
+        auto majority = emit(Bool_t::make(), Instruction::Op::Lt, {total, twice});
+        replace_uses(func, vote.get(), majority);
+    }
+}
+
+size_t sort_recursion(Function &func, const FuncMap &funcs,
+                      const Target &target,
                       const ConstantIntervals &intervals) {
     const LaneSortStrategy strategy = lane_sort_strategy(target);
     internal_assert(strategy == LaneSortStrategy::Peel);
@@ -1055,6 +1132,7 @@ size_t sort_recursion(Function &func, const Target &target,
             }
             sort_network(func, block, call->keys, call->varying,
                          call->conds);
+            settle_votes(func, block, run_mask(funcs, *call));
             sorted++;
         }
         call->keys.clear();

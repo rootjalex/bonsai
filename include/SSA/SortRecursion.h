@@ -54,8 +54,13 @@ namespace ssa {
 // handed to loopify (see lane_sort_strategy in SortRecursion.cpp).
 // `intervals` is what the program's values are known to lie between
 // (SSA/ConstantIntervals.h): a key that cannot be negative is ordered as
-// its bits without the sign flip.
-size_t sort_recursion(Function &func, const Target &target,
+// its bits without the sign flip. `funcs` holds the run's callee: where
+// `func` is a gang's already -- sorted after the vectorize that made it --
+// the callee's mask parameter says which lanes are on, and the votes are
+// settled here by their majority (settle_votes in SortRecursion.cpp).
+using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
+size_t sort_recursion(Function &func, const FuncMap &funcs,
+                      const Target &target,
                       const ConstantIntervals &intervals);
 
 // A run sort_recursion() ordered as vectors, read off the shape it left: call

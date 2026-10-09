@@ -1,0 +1,108 @@
+//! flags: -p ssa
+
+// The program of child-volumes-sorted.bonsai -- a BVH whose nodes hold
+// their children's boxes, four wide -- with the schedule the other way
+// round: the gang is made first, over eight rays, and the traversal is
+// ordered and put on a stack afterwards. That is the packet traversal of a
+// wide node (vectorize-packet-traversal.bonsai is the binary tree's), as
+// Embree's chunk traversal makes it (bvh_intersector_hybrid.cpp). What to
+// look for:
+//
+//   * the traversal's node parameter stays a scalar `u32`: the gang shares
+//     one node, and the node's four boxes are one load each, tested against
+//     every lane's ray at once in the children's loop;
+//   * each child's call is made under its own mask -- the lanes on at the
+//     node whose ray meets that child's box (`@n && _mask0[k]`), the
+//     argument for the callee's `!mask` parameter, one per call of the run
+//     -- and the run's condition for the child is whether that mask has a
+//     lane on (`any`); a child no lane's ray meets is neither descended
+//     into nor pushed (SSA/Vectorize.cpp, mask_conditioned_runs);
+//   * the sort, applied after the vectorize as it is written, finds keys
+//     that are vectors -- each lane's entry distance into each child's box
+//     -- and orders the four children with the bitonic network, each
+//     comparison decided once for the gang by the majority of the lanes
+//     that are on: `2 * popcount(nearer & on) > popcount(on)`
+//     (SSA/SortRecursion.cpp, settle_votes);
+//   * the stack is three: `!stack` of `u32` nodes, `!stack0` of the per-lane
+//     bounds and `!stack1` of `boolx8` masks, the bound and the mask being
+//     what varies between the recursive calls besides the node; a child is
+//     pushed where its condition holds, and the first child is descended
+//     into straight from the push where its own holds, else the next comes
+//     off the stack (SSA/QueueRecursion.cpp).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+// What a ray hit, as one number: the triangle's first corner's x, or -1 for
+// nothing.
+func hit_x(r : Ray) -> f32 {
+    h = trace(r);
+    if !h {
+        return -1.0;
+    }
+    t = *h;
+    return t.p0.x;
+}
+
+func [[export]] hit_x_all(rs : array[Ray, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = hit_x(rs[i]);
+    }
+    return;
+}
+
+// The distance at which the ray enters a box, and infinity where it misses.
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    // The gang first, then the order and the stack: see the comment at the
+    // top. The directives are applied in the order they are written.
+    hit_x_all.vectorize(i);
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+}

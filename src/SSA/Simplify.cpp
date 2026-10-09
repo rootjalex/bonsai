@@ -1909,6 +1909,38 @@ struct Simplifier {
             if (ops.size() != 2) {
                 break;
             }
+            // cast(a) < cast(b), a and b bools, both to one numeric type:
+            // the only way a number made from a bool is below another is
+            // false below true, so this is !a & b. Lane by lane for a
+            // gang's vectors of bools (a sort key made of a lane's test,
+            // compared after the vectorize that made the gang). Ahead of
+            // the bits rule below, which would otherwise take the compare
+            // first -- a number made from a bool is non-negative -- and
+            // leave two reinterprets and a compare of them.
+            if (op == Instruction::Op::Lt) {
+                const Instruction *da = def_of(ops[0]), *db = def_of(ops[1]);
+                const auto bool_cast = [&](const Instruction *d) {
+                    if (d == nullptr || d->op != Instruction::Op::Cast ||
+                        d->operands.size() != 1) {
+                        return false;
+                    }
+                    const Type to = scalar_of(d->type);
+                    const Type &from = d->operands[0]->get_type();
+                    return (to.is_int() || to.is_uint() || to.is_float()) &&
+                           scalar_of(from).is<Bool_t>() &&
+                           from.is<Vector_t>() == d->type.is<Vector_t>() &&
+                           (!from.is<Vector_t>() ||
+                            from.lanes() == d->type.lanes());
+                };
+                if (bool_cast(da) && bool_cast(db) &&
+                    equals(da->type, db->type)) {
+                    const Type bools = da->operands[0]->get_type();
+                    ValuePtr not_a = make(Instruction::Op::Not, bools,
+                                          {da->operands[0]});
+                    return make(Instruction::Op::LAnd, bools,
+                                {not_a, db->operands[0]});
+                }
+            }
             // A `<` or `<=` of two 32-bit floats is the same comparison of
             // their bits as signed integers where the right side is a
             // non-negative number -- its bits in [0, 0x7f800000], ordered as
@@ -1978,26 +2010,6 @@ struct Simplifier {
                 // x < x, x == x, and the rest, for anything without a NaN.
                 return make_bool(op == Instruction::Op::Leq ||
                                  op == Instruction::Op::Eq);
-            }
-            if (op != Instruction::Op::Lt) {
-                break;
-            }
-            // cast(a) < cast(b), a and b bools, both to one numeric type:
-            // the only way a number made from a bool is below another is
-            // false below true, so this is !a & b.
-            const Instruction *da = def_of(ops[0]), *db = def_of(ops[1]);
-            const auto bool_cast = [](const Instruction *d) {
-                return d != nullptr && d->op == Instruction::Op::Cast &&
-                       d->operands.size() == 1 && d->type.is_scalar() &&
-                       (d->type.is_int() || d->type.is_uint() ||
-                        d->type.is_float()) &&
-                       d->operands[0]->get_type().is<Bool_t>();
-            };
-            if (bool_cast(da) && bool_cast(db) && equals(da->type, db->type)) {
-                ValuePtr not_a = make(Instruction::Op::Not, Bool_t::make(),
-                                      {da->operands[0]});
-                return make(Instruction::Op::LAnd, Bool_t::make(),
-                            {not_a, db->operands[0]});
             }
             break;
         }

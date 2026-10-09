@@ -1,0 +1,28 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.o
+[test] clang++ tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.o tests/bonsai/correctness/cpp/bvh4_child_volumes_packet.o -o tests/bonsai/correctness/cpp/bvh4_child_volumes_packet
+[test] ./tests/bonsai/correctness/cpp/bvh4_child_volumes_packet
+wall at x=0, occluded
+wall at x=70, occluded
+wall at x=40, occluded
+miss, clear
+wall at x=0, occluded
+wall at x=70, occluded
+wall at x=40, occluded
+miss, clear
+wall at x=0, occluded
+wall at x=70, occluded
+wall at x=40, occluded
+miss, clear
+wall at x=0, occluded
+wall at x=70, occluded
+wall at x=40, occluded
+miss, clear
+miss, clear
+wall at x=0, occluded
+miss, clear
+miss, clear
+miss, clear
+miss, clear
+miss, clear
+miss, clear
+same as scalar

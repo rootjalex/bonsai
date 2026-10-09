@@ -1,0 +1,119 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/bvh4_child_volumes_packet
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.o, clang++ tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.o tests/bonsai/correctness/cpp/bvh4_child_volumes_packet.o -o tests/bonsai/correctness/cpp/bvh4_child_volumes_packet, ./tests/bonsai/correctness/cpp/bvh4_child_volumes_packet, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_packet, rm tests/bonsai/correctness/cpp/main_bvh4_child_volumes_packet.o, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_packet.h, rm tests/bonsai/correctness/cpp/bvh4_child_volumes_packet.o
+
+// bvh4_child_volumes.bonsai's scene and tree -- a BVH whose nodes hold their
+// children's boxes, four wide -- traced by gangs of eight rays with the
+// schedule the other way round: the gang is made first, and the traversal is
+// ordered and put on a stack afterwards. That is the packet traversal of a
+// wide node, as Embree's chunk traversal makes it (bvh_intersector_hybrid
+// .cpp): one node for the gang, a child visited when any lane's ray meets
+// its box, by the lanes that meet it -- each child's call made under its own
+// mask (SSA/Vectorize.cpp, mask_conditioned_runs) -- the four children's
+// order decided once for the gang, by the majority of the lanes that are on
+// (SSA/SortRecursion.cpp, settle_votes), and one stack of nodes, bounds and
+// masks (SSA/QueueRecursion.cpp). The occluded query is the same without an
+// order.
+//
+// The rays are bvh4_child_volumes.bonsai's -- down each lane towards +x and
+// back towards -x, from between two walls, too short to reach a wall,
+// between the lanes, across them, beside them -- in gangs of eight, so that
+// a gang holds rays wanting different children first and rays wanting none,
+// and every lane's answer has to match the same ray traced alone by the
+// scalar `hit_x_one` and `occluded_one`.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+// What a ray hit, as one number: the wall's x, or -1 for nothing.
+func hit_x(r : Ray) -> f32 {
+    h = trace(r);
+    if !h {
+        return -1.0;
+    }
+    t = *h;
+    return t.p0.x;
+}
+
+func [[export]] hit_x_one(r : Ray) -> f32 {
+    return hit_x(r);
+}
+
+func [[export]] hit_x_all(rs : array[Ray, 8], out : mut array[f32, 8]) {
+    parfor i in 0:8 {
+        out[i] = hit_x(rs[i]);
+    }
+    return;
+}
+
+func [[export]] occluded_one(r : Ray) -> i32 {
+    return cast[[i32]](occluded(r));
+}
+
+func [[export]] occluded_all(rs : array[Ray, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](occluded(rs[i]));
+    }
+    return;
+}
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        if extract.low < r.tmax && extract.high > 0.0 {
+            return extract.low;
+        }
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        // A reference's low four bits say what it is: 0 an interior node at
+        // row `ref >> 4`, 8 + n a leaf of n triangles starting at `ref >> 4`.
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    // The gang first, then the order and the stack: see the comment at the
+    // top. The directives are applied in the order they are written.
+    hit_x_all.vectorize(i);
+    occluded_all.vectorize(i);
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+    occluded.loopify(64);
+}

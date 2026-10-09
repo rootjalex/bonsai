@@ -3,6 +3,7 @@
 #include "SSA/Analysis.h"
 #include "SSA/InsertPreheader.h"
 #include "SSA/MaskLanes.h"
+#include "SSA/MergeLatches.h"
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
 
@@ -751,6 +752,16 @@ std::optional<RecursiveCall> called_by(const Block &block) {
                         c->conds.size() == c->varying.size())
             << "The run in " << block.name << " has " << c->conds.size()
             << " conditions for " << c->varying.size() << " calls";
+        // A sort is applied where the schedule wrote it (SSA/Convert.cpp),
+        // and a run that still carries its keys here has not met one: the
+        // sort was written after this loopify, and once the run is pushes
+        // on a stack there is nothing left for it to permute.
+        internal_assert(c->keys.empty())
+            << "The recursion in " << block.name
+            << " is put on a stack (loopify) while its run still carries "
+            << "the keys of a sort(): the sort is written after the loopify. "
+            << "Write the sort first; the order of a schedule's directives "
+            << "is the order they are applied in.";
         std::optional<SortedRun> sorted = sorted_run(*c);
         std::optional<LaneRun> lanes =
             sorted.has_value() ? std::nullopt : lane_run(*c);
@@ -1377,8 +1388,31 @@ void queue_recursion(Function &func, size_t size) {
             return same_value(mask, Value(params[*mask_param])) ||
                    known_nonempty(cfg, dom, cfg.id(name), mask);
         };
-        if (mask_param.has_value() && !nonempty(*call->args[0][*mask_param])) {
-            const shared_ptr<Value> wanted = call->args[0][*mask_param];
+        // The masks the run's calls pass: one for the whole run, or one per
+        // call where each call is made under its own -- a run whose calls
+        // each have a condition, in a gang (mask_conditioned_runs in
+        // SSA/Vectorize.cpp): the lanes on in the block for which that
+        // child's test holds. Then the run is made if any call's mask has
+        // a lane on, the union of them tested once.
+        vector<shared_ptr<Value>> run_masks;
+        if (mask_param.has_value()) {
+            for (const auto &args : call->args) {
+                const shared_ptr<Value> &m = args[*mask_param];
+                if (std::none_of(run_masks.begin(), run_masks.end(),
+                                 [&](const shared_ptr<Value> &seen) {
+                                     return same_value(*seen, *m);
+                                 })) {
+                    run_masks.push_back(m);
+                }
+            }
+        }
+        if (!run_masks.empty() &&
+            !(run_masks.size() == 1 && nonempty(*run_masks[0]))) {
+            shared_ptr<Value> wanted = run_masks[0];
+            for (size_t k = 1; k < run_masks.size(); k++) {
+                wanted = append(func, block, wanted->get_type(),
+                                Instruction::Op::LOr, {wanted, run_masks[k]});
+            }
             auto on = append(func, block, Bool_t::make(), Instruction::Op::Any,
                              {wanted});
             into = new_block(func, name + "!push");
@@ -2043,6 +2077,27 @@ void queue_recursion(Function &func, size_t size) {
         }
     }
     refresh_preds(func);
+    // One way round the stack loop. A visit goes round again from the pop
+    // (visit_next) and, where a run's first call is made under a condition
+    // -- a wide node's child in a gang, visited when some lane's test lets
+    // it through -- from the push as well, straight down into that child:
+    // two back edges to the header. The relooper (SSA/CodeGen_Stmt.cpp)
+    // structures a loop with one latch, and the uniformizer asks for one
+    // too, so the edges are joined in one (SSA/MergeLatches.h).
+    {
+        const auto header = make_block_map(func).at(body_name);
+        std::set<string> latches;
+        for (const auto &weak : header->preds) {
+            const auto pred = weak.lock();
+            if (pred != nullptr && pred->name != entry->name) {
+                latches.insert(pred->name);
+            }
+        }
+        if (latches.size() > 1) {
+            merge_latches(func, body_name, latches);
+            refresh_preds(func);
+        }
+    }
     // The runs are gone, and with them the only readers of what was made for
     // the calls alone: a sorted run's lanes and conditions (SortedRun).
     remove_dead(func);
