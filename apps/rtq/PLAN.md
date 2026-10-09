@@ -6529,3 +6529,149 @@ the quarter is -- as a question for the user, since each is a scheduling
 construct; (4) the per-lane order (Linearize.cpp:1243) as a secondary
 cell; (5) the SLP assertion on a scalar struct-array read, an LLVM-side
 bug to reduce and report.
+
+### The any-hit packet cell, profiled (2026-10-09, 10:30)
+
+The user asked why the packet is slower for occlusion, and for the
+generated code of both sides. Two meshes, head (the cell at 0.98) and
+dragon (0.72), ambient-occlusion rays at side 2048, `perf record` of
+cycles, instructions and branch misses on cpu 11 (bonsai-76's GPU profile
+pinned elsewhere), the same rays and repeats for every kernel, our kernel
+the packet16-anyhit schedule's `occluded_all` and, for the baseline, the
+embree schedule's; Embree's two symbols are the chunk loop of
+`BVHNIntersectorKHybrid<8,16>::occluded` and its single-ray fallback
+`occluded1`. Everything below is under apps/rtq/scratch/packet/prof:
+the perf data (head-ao, dragon-ao, scalar/), the per-symbol counts
+(symbols.txt), the annotated disassembly of the three kernels (ours-annot,
+embree-occluded16-annot, embree-occluded1-annot), our LLVM IR (rtq.ll),
+and visits.sh with its output visits.txt.
+
+Per ray, the same count of rays for every kernel:
+
+| | head instr | head cycles | dragon instr | dragon cycles |
+|---|---|---|---|---|
+| ours, packet16-anyhit | 476 | 236 | 1919 | 1461 |
+| Embree rtcOccluded16, both kernels | 392 | 213 | 648 | 1057 |
+| -- of which the single-ray fallback | 238 (61%) | 122 (57%) | 545 (84%) | 936 (88%) |
+| -- of which the chunk loop | 154 | 91 | 103 | 121 |
+| ours, scalar (embree schedule) | 471 | 320 | 620 | 1126 |
+| Embree rtcOccluded1 | 485 | 315 | 641 | 1105 |
+
+IPC: ours 2.01 on head and 1.31 on dragon; Embree's fallback 1.96 and
+0.58, its chunk 1.69 and 0.85. Branch misses per ray, head: ours 1.5,
+Embree 2.3 (the gang's control flow is uniform). So on head we are 1.11x
+Embree's cycles at 1.21x its instructions, and on dragon 1.38x its cycles
+at 3.0x its instructions, where Embree's single rays are memory bound
+(0.58 instructions a cycle, a 7M-triangle tree walked one node at a time,
+four prefetches a node) and our gang's one path through it is not.
+
+**Where the time is: node visits.** The instruction samples, summed over
+a loop body of known length, say how often the body ran (visits.sh; skid
+averages out over 25-45 instructions, take the counts as +-10%). Our
+children loop runs eight times a node; Embree's chunk tests the eight
+children of a node in a loop too; its fallback tests a node's eight boxes
+in one eight-wide step per ray. Per sixteen rays:
+
+| per 16 rays | head | dragon |
+|---|---|---|
+| ours: nodes the gang visits | 7.9 | 30.3 |
+| Embree: nodes the packet visits in the chunk loop | 2.6 | 2.1 |
+| Embree: nodes the sixteen rays then visit one at a time | 20.8 | 109 |
+
+and what a visit costs, counted in the generated code: ours 43
+instructions a child, 344 a node, plus about 70 after the loop (below);
+Embree's chunk 31 a child plus about 12 for each child hit; Embree's
+single ray 26 a node plus the push. So on head the gang's seven visits
+cost about 2700 instructions in node tests where Embree's 2.6 + 20.8 cost
+about 1200, and on dragon 10,400 against 3300 -- the 3.1x of the table.
+The union of sixteen paths is shorter than their sum (7.9 against 23.4
+node steps on head, 30 against 111 on dragon), but a step of the gang
+costs thirteen single-ray steps, so it pays only while most lanes are on:
+at 26 instructions a lone ray's node against 344 for the gang's, the gang
+breaks even at about ten active lanes, and Embree switches at fourteen.
+Dividing Embree's steps by our union gives the lanes that are useful at
+one of our nodes, roughly: eight of sixteen on head, five on dragon.
+That is the dominant cause, and it is the hybrid switch (step 6 of the
+audit) that answers it, as Embree's own split says: 57% of its packet
+time on head and 88% on dragon is spent tracing rays one at a time.
+
+**The generated code, ours against Embree's chunk loop, per child.** The
+IR (rtq.ll, `!par_body_5.i`) and the assembly (ours-occluded.asm,
+0x24af0-0x24bfd) say where the 43 go against Embree's 31
+(embree-occluded16.asm, 0x394b20-0x394bf7):
+
+1. *The child's bounds.* We load the node's six eight-wide bound vectors
+   once per node and read the child's with `extractelement <8 x float>
+   %v, i32 %child` -- a variable index, which LLVM lowers through the
+   stack, inside the loop, after any hoisting: six `vmovaps ymm ->
+   stack` and six `vbroadcastss (stack)` per child, 12 of the 43. Embree
+   broadcasts from the node, `vbroadcastss 0x40(%rax,%rdx,4)` and
+   `vfmsub132ps 0x60(%rax,%rdx,4){1to16}`, 3 instructions and 3 memory
+   operands. Ours to fix: a one-element read at a variable index of a
+   vector that was loaded is a load at the element's address.
+2. *The slab test's form.* Ours keeps the single-ray form, the plane
+   chosen by the direction's sign: three `vcmpltps` (the sign tests,
+   recomputed every child because all eight mask registers are live),
+   three `vblendmps` and three masked `vmovaps`, then six FMAs and six
+   integer min/max -- 21. Embree's chunk computes both planes and takes
+   their min and max (`intersectNodeK`): six FMS with the broadcast
+   folded in, six `vminps`/`vmaxps`, four integer min/max with the near
+   and far bounds, 16, no select. Its single-ray kernel uses the
+   sign-chosen form through precomputed near/far offsets, as our scalar
+   schedule does. A question for the user: the packet's slab test
+   written as Embree's packet kernel writes it, under the ruling that
+   the slab test is on bits.
+3. *The children's masks.* Each child's test is written into a per-lane
+   `bool[8]` that lives in memory, `[8 x <16 x i1>]`, as a masked
+   read-modify-write: `kmovw` load, `kandnw`, `korw`, `kmovw` store, 4
+   a child -- 16% of our samples sit on that `korw`/`kmovw` pair, part
+   of it the skid of the compare chain before them -- and after the
+   loop the eight masks are loaded back, and-ed with the active mask
+   again (the array holds stale lanes from earlier nodes), spilled to a
+   second slot because eight masks, the active mask and the running
+   union do not fit eight `k` registers, tested one by one for a lane on,
+   and pushed one by one in reverse (0x24c03-0x24dfb): about 70 a node.
+   Embree keeps no per-child mask: a child any lane hits is pushed in the
+   loop as it is found, with the sixteen distances as the entry
+   (`vmovaps %zmm0,(%r12)`), and the lanes come back at the pop as
+   `curDist < tfar` (`vcmpltps 0x440(%rsp),%zmm1,%k0`). Ours to fix for
+   the unsorted run: loopify's lowering of a gang's run with no sort can
+   push each child inside the children loop as its test completes, as
+   Embree's does, and the array goes away; for the sorted run the chain
+   needs the eight tests first, and whether the entry carries distances
+   (Embree) or a mask (ours) is the design question already open.
+4. *The leaf.* 28% of our cycles, 0x24e40-0x25024: a tile's four slots in
+   a loop, each slot's triangle broadcast from the four-wide block (no
+   gather), the Moller test sixteen wide, the t-range skipped when no lane
+   passes the barycentric test (the `!else_19` branch). Two things Embree
+   does that we do not: it narrows the slot's valid lanes by the hits so
+   far and leaves the tile when none are left (`occludedK`, `if
+   (none(valid0)) break`), and it stops at the first empty slot where we
+   test each slot's validity word. On these rays hits are rare (3.6% of
+   head's ambient-occlusion rays are blocked, 13.6% of dragon's), so this
+   is small here; it is ours to fix for the any hit all the same.
+5. *The rays.* Eight `vgatherdps` per gang read sixteen rays out of the
+   array of structs; Embree is handed a struct of arrays. Eight
+   instructions in about 900 per gang on head; the measurement stands
+   from the morning's list.
+
+What the two kinds of cost would return, by the shares above: our per-node
+cost taken from about 414 instructions to Embree's chunk's roughly 290 by
+items 1 and 3 moves head from 0.98 to about 1.15 and dragon from 0.72 to
+about 0.85, since node processing is 57% of our cycles (children loop
+43%, the masks and pushes after it 14%); the rest of dragon's gap, and
+most of the geomean's, is the hybrid switch.
+
+Done this morning besides: the worktree's compiler change is committed
+and cherry-picked onto ajr/ssa as 761f13d1 (the uniform counter, the two
+Linearize fixes, the nested gather), after bonsai-58 confirmed nothing of
+theirs was building; the ptr-arena packet test stays out until the
+nearest hit's tile read works.
+
+For the user, in order: (a) the hybrid switch -- a traversal that, at a
+pop with fourteen or fewer lanes on, traces each lane's node with the
+scalar traversal and returns to the gang's loop after; a scheduling
+construct, so a question first; (b) the stack entry's contents, distances
+or a mask (item 3); (c) the packet's slab test in the min/max form (item
+2). Ours without asking: items 1, 3 (the unsorted push), 4 and 5, then
+the nearest hit's tile read and the packet16 cells proper.
