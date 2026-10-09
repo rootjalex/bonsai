@@ -6783,3 +6783,65 @@ loads at their addresses marked invariant; the vectorized-children
 tests read the components as dense loads off the row where they loaded
 the row whole; nothing else but numbering). Suite 1506 of 1506 in the
 worktree.
+
+### The push moved into the children loop, three ways (2026-10-09, 12:20)
+
+Item 3 of the profile: the gang's run of conditioned calls wrote each
+child's test into a per-lane `bool[8]` in memory (a masked
+read-modify-write a child), read the eight back after the loop, and-ed
+them with the mask again, tested each for a lane on and pushed each
+behind its test, about seventy instructions a node after the loop. The
+rewrite (SSA/QueueRecursion.cpp, fuse_into_children_loop) recognizes
+that shape exactly as the vectorizer and the tree lowering make it --
+every call's mask `M && A[k]`, A written once in a loop at the loop
+header's own counter, the children the lanes of one vector -- and moves
+the push to where the test is made. Three forms were built and measured,
+dragon, pinned, two rounds alternating with the same driver object
+(scratch/packet/item3/ab.sh, ab.txt), against the state after item 1:
+
+| form | dragon Mr/s | our kernel's instructions | branch misses |
+|---|---|---|---|
+| item 1 alone (the array, pushes after the loop) | 4.27, 4.26 | 4.19e9 | 2.22e7 |
+| Embree's chunk loop: push behind `if any(lanes)`, the last hit kept as current | 3.99, 3.98 | 3.78e9 | 2.03e7 |
+| the same with the children in reverse (lowest first off the stack) | 4.02, 3.97 | 3.97e9 | 2.03e7 |
+| branch-free: the slot written every child, the count moved by `any` | 4.48, 4.41 | 3.70e9 | 0.82e7 |
+
+The first lesson cost an hour: Embree's own loop shape lost 7% with 10%
+fewer instructions and fewer mispredictions. Its branch on the child's
+test is decided off the end of the box test's chain, some twenty-five
+cycles into the child, so a misprediction there is found late and costs
+most of a child's work in flight; the array form branched after the loop
+on values long since ready. The hottest instructions of that kernel were
+the first two at the hit branch's target (10% and 9% of its cycles).
+Embree pays that too, but its chunk loop runs at the top of the tree
+only. The order of the children -- last hit first, as Embree's chunk
+loop has it, against lowest first, as its single rays and our lowering
+have it -- made no difference. The branch-free form is what a pure
+packet wants: the child's index (a scalar load off the row) and the
+lanes that hit it are stored at the stack's top whether or not a lane
+did, and the count moves on by `cast<u32>(any(lanes))`; the stack's
+slack past its capacity takes the write past the last push. LLVM unrolls
+the loop by two of its own accord once it is straight-line. The children
+go in reverse so that the pops come lowest first, the order the traversal
+had, since a lowering should not change a traversal's order; it measured
+the same either way.
+
+The cells, side 2048, least of five on cpu 11 (scratch/packet/item3/
+*.log; before item 3 in brackets, the morning's in the second pair):
+
+| mesh | rtcOccluded16 Mr/s | packet16 Mr/s | speedup |
+|---|---|---|---|
+| head | 26.42 | 31.12 | 1.18 (0.98, 0.98) |
+| dragon | 5.48 | 4.42 | 0.81 (0.77, 0.72) |
+
+Every ray agrees. Head gains 20% in our rate -- a small tree whose gang
+visits eight nodes a sixteen rays, so the seventy instructions a node
+after the loop were a third of its traversal -- and dragon 4.7% on top of
+item 1's 8%. Per child the loop is the box test, two stores, a `kortest`
+and a `setne`: what is left against Embree's chunk loop is item 2, the
+sign tests and blends. Tests: ssa/vectorize-packet-any and backends/llvm/
+vectorize_packet_any (the four-wide tree's `any` query in a gang of
+eight: the push in the loop, no branch, no array, no pushes after), and
+correctness/cpp/bvh4_child_volumes_packet runs the same lowering against
+the scalar answers. The sorted run is untouched: its order needs every
+test first, and its goldens did not move.
