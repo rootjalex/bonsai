@@ -1,0 +1,66 @@
+//! flags: -p ssa -b llvm -e
+
+// A divergent loop in a gang with two ways round -- the `if` arm and the
+// rest both go back to the header -- writing through an array the loop is
+// handed and reading the array after it. The merged latch (SSA/MergeLatches)
+// takes the loop's values from both ways round under names of its own,
+// `out!latch`, and hands them to the header as `out`: two names for one
+// value. The uniformizer follows the copies and sees the array handle is
+// the same on every iteration, so it is handed past the loop as it is,
+// where a capture per lane -- the treatment of a value the loop computes --
+// cannot be made of an address. `plain` is the same with nothing
+// scheduled; the two lines have to match.
+func plain(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        for j in 0:(i % 5) {
+            if (a[(i + j) % n] > 7) {
+                s += 2;
+                out[(i + j) % n] += 1;
+            } else {
+                s += 1;
+            }
+        }
+        out[i] += s;
+    }
+    return;
+}
+
+func gang(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        for j in 0:(i % 5) {
+            if (a[(i + j) % n] > 7) {
+                s += 2;
+                out[(i + j) % n] += 1;
+            } else {
+                s += 1;
+            }
+        }
+        out[i] += s;
+    }
+    return;
+}
+
+func fill(n : i32, a : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        a[i] = i * 3;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    fill(8, a);
+    p : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    g : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    plain(8, a, p);
+    gang(8, a, g);
+    print(p);
+    print(g);
+    return 0;
+}
+
+schedule {
+    gang.split(i, io, ii, 8, true).vectorize(ii);
+}

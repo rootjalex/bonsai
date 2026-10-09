@@ -160,6 +160,37 @@ struct Splitter {
         return emit(value->get_type(), Instruction::Op::MakeStruct, *split);
     }
 
+    // A per-lane vector of `type` made of `parts`, one per component, as a
+    // value that is already split: the literal, spelled as the builder
+    // spells one (see whole()), with its parts recorded as its components,
+    // so that a read of one is the part and a use of the whole is the
+    // literal. What a component of a vector of vectors becomes.
+    shared_ptr<Value> make_split(const Type &type, Components parts) {
+        auto literal = emit_instr(type, Instruction::Op::MakeStruct, parts);
+        instrs[literal.get()] = std::move(parts);
+        return std::make_shared<Value>(std::move(literal));
+    }
+
+    // The components of a per-lane vector of vectors -- `vector[vec3f, 4]`,
+    // a node's four children's boxes read by a lane traversing on its own --
+    // each a per-lane vector itself and split in turn: component k is the
+    // inner vector made of `scalar(k, j)` over its components j. ispc's
+    // structure of arrays taken one level further: a vector of vectors held
+    // per lane becomes one gang-wide vector per scalar in it.
+    template <typename Scalar>
+    Components split_nested(const Type &type, Scalar scalar) {
+        const Type element = type.element_of();
+        Components components;
+        for (uint32_t k = 0; k < type.lanes(); k++) {
+            Components parts;
+            for (uint32_t j = 0; j < element.lanes(); j++) {
+                parts.push_back(scalar(k, j));
+            }
+            components.push_back(make_split(element, std::move(parts)));
+        }
+        return components;
+    }
+
     shared_ptr<Value> resolve(const shared_ptr<Value> &value) {
         const auto it = folded.find(
             std::holds_alternative<shared_ptr<Instruction>>(value->data)
@@ -368,16 +399,38 @@ SplitResult split_aggregates(Function &func, const string &entry,
                     const uint32_t n = vec_type.lanes();
                     const auto &index = instr->operands[1];
                     const Type index_type = index->get_type();
-                    shared_ptr<Value> picked = splitter.component(vec, n - 1);
-                    for (uint32_t c = n - 1; c-- > 0;) {
-                        auto is_c = splitter.emit(
-                            Bool_t::make(), Instruction::Op::Eq,
-                            {index, constant_of(index_type, c)});
-                        picked = splitter.emit(
-                            vec_type.element_of(), Instruction::Op::Select,
-                            {is_c, splitter.component(vec, c), picked});
+                    // The tests, once each, shared by every scalar picked.
+                    vector<shared_ptr<Value>> is_c(n - 1);
+                    for (uint32_t c = 0; c + 1 < n; c++) {
+                        is_c[c] = splitter.emit(Bool_t::make(), Instruction::Op::Eq,
+                                                {index, constant_of(index_type, c)});
                     }
-                    splitter.folded[instr.get()] = picked;
+                    // What is picked among: the components, or, of a vector
+                    // of vectors, each component's scalars -- the element
+                    // picked is then a per-lane vector of its own and is
+                    // split as one, since the selects are made per scalar.
+                    const auto pick = [&](auto component_c) {
+                        shared_ptr<Value> picked = component_c(n - 1);
+                        for (uint32_t c = n - 1; c-- > 0;) {
+                            picked = splitter.emit(
+                                component_c(c)->get_type(), Instruction::Op::Select,
+                                {is_c[c], component_c(c), picked});
+                        }
+                        return picked;
+                    };
+                    const Type picked_type = vec_type.element_of();
+                    if (picked_type.is_vector()) {
+                        Components scalars;
+                        for (uint32_t j = 0; j < picked_type.lanes(); j++) {
+                            scalars.push_back(pick([&](uint32_t c) {
+                                return splitter.component(splitter.component(vec, c), j);
+                            }));
+                        }
+                        splitter.instrs[instr.get()] = std::move(scalars);
+                        continue;
+                    }
+                    splitter.folded[instr.get()] =
+                        pick([&](uint32_t c) { return splitter.component(vec, c); });
                     continue;
                 }
             }
@@ -454,6 +507,23 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 continue;
             }
 
+            if (is_elementwise(*instr) && element.is_vector()) {
+                // On vectors of vectors, the operation on every scalar: the
+                // components' components of each operand.
+                const Type scalar = element.element_of();
+                splitter.instrs[instr.get()] = splitter.split_nested(
+                    instr->type, [&](uint32_t k, uint32_t j) {
+                        vector<shared_ptr<Value>> operands;
+                        for (const auto &operand : instr->operands) {
+                            operands.push_back(splitter.component(
+                                splitter.component(operand, k), j));
+                        }
+                        return splitter.emit_like(*instr, scalar,
+                                                  std::move(operands));
+                    });
+                continue;
+            }
+
             if (is_elementwise(*instr)) {
                 Components components;
                 for (uint32_t k = 0; k < lanes; k++) {
@@ -472,6 +542,23 @@ SplitResult split_aggregates(Function &func, const string &entry,
             if (instr->op == Instruction::Op::Bc) {
                 Components components(lanes, instr->operands[0]);
                 splitter.instrs[instr.get()] = std::move(components);
+                continue;
+            }
+
+            // A vector of vectors built from its component planes -- a
+            // node's boxes as the tree lowering reads them off FCPW's
+            // layout, the four children's x's, then their y's, then their
+            // z's, each plane a `vector[f32, 4]` (the one spelling codegen's
+            // Build accepts besides the lanes, CodeGen_LLVM.cpp) -- is the
+            // transpose of its components: lane k's inner vector is the k-th
+            // scalar of every plane.
+            if (instr->op == Instruction::Op::MakeStruct && element.is_vector() &&
+                instr->operands.size() == element.lanes() &&
+                instr->operands.size() != lanes) {
+                splitter.instrs[instr.get()] = splitter.split_nested(
+                    instr->type, [&](uint32_t k, uint32_t j) {
+                        return splitter.component(instr->operands[j], k);
+                    });
                 continue;
             }
 

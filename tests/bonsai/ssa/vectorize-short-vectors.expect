@@ -109,12 +109,12 @@ func pick_axis(a : f32[8], axis : i32[8], out : mut f32[8]) -> void {
   let @13 = f32x8(20f) in
   let @2 = _t1 + @13 in
   let @4 = axis[ramp(0, 1, 8)] in
-  let @14 = i32x8(1) in
+  let @14 = i32x8(0) in
   let @8 = @4 == @14 in
-  let @9 = select(@8, @1, @2) in
-  let @15 = i32x8(0) in
-  let @10 = @4 == @15 in
-  let @11 = select(@10, _t1, @9) in
+  let @15 = i32x8(1) in
+  let @9 = @4 == @15 in
+  let @10 = select(@9, @1, @2) in
+  let @11 = select(@8, _t1, @10) in
   out[ramp(0, 1, 8)] = @11
   return
 }

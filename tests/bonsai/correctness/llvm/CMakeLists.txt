@@ -39,8 +39,10 @@ add_bonsai_tests(
     vector-math.bonsai
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai
+    vectorize-latch-copies.bonsai
     vectorize-masked-math-call.bonsai
     vectorize-nested-parfor.bonsai
+    vectorize-nested-vector.bonsai
     vectorize-uniform-around-return.bonsai
     vectorize-uniform-division.bonsai
     vectorize-vector-index.bonsai

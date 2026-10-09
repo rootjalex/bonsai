@@ -1,0 +1,87 @@
+//! flags: -p ssa -b llvm -e
+
+// A per-lane vector of vectors in a gang: each lane builds its own
+// `vector[vec3f, 4]` -- a node's four boxes, in a tree -- and picks one of
+// the four at an index of its own. The split into one gang-wide vector per
+// scalar goes one level further than for a `vec3f` (SplitAggregates:
+// split_nested): the pick at a computed index becomes three select chains,
+// one per scalar of the inner vector, and the doubling is twelve scalar
+// products. `plain` is the same with nothing scheduled, and the two lines
+// have to match. Ten elements are one whole gang of eight and two of a
+// second. (The other way a vector of vectors is built, from its component
+// planes as the tree lowering reads FCPW's nodes, is split the same way
+// and is exercised by apps/wosx's packet schedule.)
+element vec3f = vector[f32, 3];
+
+func plain(n : i32, m : i32, boxes : array[f32, m], which : array[u32, n],
+           k : i32, out : mut array[f32, k]) -> void {
+    parfor i in 0:n {
+        o = i * 12;
+        b = vector[vec3f, 4]{vec3f{boxes[o], boxes[o + 1], boxes[o + 2]},
+                             vec3f{boxes[o + 3], boxes[o + 4], boxes[o + 5]},
+                             vec3f{boxes[o + 6], boxes[o + 7], boxes[o + 8]},
+                             vec3f{boxes[o + 9], boxes[o + 10], boxes[o + 11]}};
+        v = b[which[i]] * 2.0;
+        out[i * 3] = v[0u];
+        out[i * 3 + 1] = v[1u];
+        out[i * 3 + 2] = v[2u];
+    }
+    return;
+}
+
+func gang(n : i32, m : i32, boxes : array[f32, m], which : array[u32, n],
+          k : i32, out : mut array[f32, k]) -> void {
+    parfor i in 0:n {
+        o = i * 12;
+        b = vector[vec3f, 4]{vec3f{boxes[o], boxes[o + 1], boxes[o + 2]},
+                             vec3f{boxes[o + 3], boxes[o + 4], boxes[o + 5]},
+                             vec3f{boxes[o + 6], boxes[o + 7], boxes[o + 8]},
+                             vec3f{boxes[o + 9], boxes[o + 10], boxes[o + 11]}};
+        v = b[which[i]] * 2.0;
+        out[i * 3] = v[0u];
+        out[i * 3 + 1] = v[1u];
+        out[i * 3 + 2] = v[2u];
+    }
+    return;
+}
+
+func fill(n : i32, m : i32, boxes : mut array[f32, m], which : mut array[u32, n]) -> void {
+    parfor i in 0:n {
+        for c in 0:12 {
+            boxes[i * 12 + c] = cast[[f32]](i) + cast[[f32]](c) * 0.25;
+        }
+        which[i] = cast[[u32]](i % 4);
+    }
+    return;
+}
+
+func main() -> i32 {
+    boxes : mut array[f32, 120] = {
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    which : mut array[u32, 10] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    fill(10, 120, boxes, which);
+    p : mut array[f32, 30] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                              0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                              0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    g : mut array[f32, 30] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                              0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                              0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    plain(10, 120, boxes, which, 30, p);
+    gang(10, 120, boxes, which, 30, g);
+    print(p);
+    print(g);
+    return 0;
+}
+
+schedule {
+    gang.split(i, io, ii, 8, true).vectorize(ii);
+}

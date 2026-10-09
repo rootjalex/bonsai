@@ -318,7 +318,29 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // hold one of. What makes a header argument loop-defined is a back
         // edge passing it something other than itself, which the scan below
         // catches like any other in-loop redefinition.
+        //
+        // A value passed on under another name is not thereby redefined. A
+        // merged latch (SSA/MergeLatches.h) takes the loop's values as
+        // `x!latch` from every latch and hands them to the header as `x`, so
+        // `x` is fed `x!latch` and `x!latch` is fed `x`: two names for one
+        // value, which a test of names alone reads as two definitions -- and
+        // then wants to capture a pointer per lane, which cannot be done.
+        // So the names are followed: a parameter is defined in the loop when
+        // some jump passes it a computed value or a constant, or a name that
+        // is itself defined in the loop, or two different names from outside
+        // the loop (a join of two values, which may differ by iteration);
+        // otherwise every name it is fed is a copy of one value, and it is
+        // that value, invariant. To a fixed point, since a copy's source may
+        // be settled later; what is left unsettled is a cycle of copies with
+        // no new value in it.
+        set<string> loop_params;
+        map<string, set<string>> fed_by; // parameter -> the names passed to it
         set<string> defined_in_loop;
+        for (const string &name : in_loop) {
+            for (const Argument &a : blocks.at(name)->args) {
+                loop_params.insert(a.name);
+            }
+        }
         for (const string &name : in_loop) {
             Block &block = *blocks.at(name);
             for (Terminator::Jump *jump : jumps_of(block)) {
@@ -332,8 +354,52 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                     target->second->args.size() - jump->args.size();
                 for (size_t j = 0; j < jump->args.size(); j++) {
                     const string &param = target->second->args[j + offset].name;
-                    if (!is_named_argument(*jump->args[j], param)) {
+                    const auto *a = std::get_if<Argument>(&jump->args[j]->data);
+                    if (a == nullptr) {
                         defined_in_loop.insert(param);
+                    } else if (a->name != param) {
+                        fed_by[param].insert(a->name);
+                    }
+                }
+            }
+        }
+        {
+            // The one value each copy is of, as far as settled.
+            map<string, string> source_of;
+            for (bool changed = true; changed;) {
+                changed = false;
+                for (const auto &[param, names] : fed_by) {
+                    if (defined_in_loop.count(param) || source_of.count(param)) {
+                        continue;
+                    }
+                    string source;
+                    bool settled = true;
+                    for (const string &n : names) {
+                        string root;
+                        if (defined_in_loop.count(n)) {
+                            defined_in_loop.insert(param);
+                            settled = false;
+                            break;
+                        } else if (!loop_params.count(n)) {
+                            root = n;
+                        } else if (source_of.count(n)) {
+                            root = source_of.at(n);
+                        } else {
+                            settled = false; // not yet
+                            break;
+                        }
+                        if (!source.empty() && source != root) {
+                            defined_in_loop.insert(param);
+                            settled = false;
+                            break;
+                        }
+                        source = root;
+                    }
+                    if (settled || defined_in_loop.count(param)) {
+                        if (settled) {
+                            source_of[param] = source;
+                        }
+                        changed = true;
                     }
                 }
             }

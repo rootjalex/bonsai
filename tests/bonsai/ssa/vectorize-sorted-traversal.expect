@@ -568,11 +568,11 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
               let @510 = f32x8(@436) in
               let @437 = @431 < @510 in
               let @74 = _t103.axis in
-              let @511 = u8x8(1u) in
-              let @438 = @74 == @511 in
-              let @439 = select(@438, @435, @437) in
-              let @440 = @74 == @502 in
-              let @441 = select(@440, @433, @439) in
+              let @438 = @74 == @502 in
+              let @512 = u8x8(1u) in
+              let @439 = @74 == @512 in
+              let @440 = select(@439, @435, @437) in
+              let @441 = select(@438, @433, @440) in
               let @513 = u16x8(1u) in
               let @76 = (*shapes_index!top!loop) + @513 in
               let @77 = _t103.split0on_nPrims in

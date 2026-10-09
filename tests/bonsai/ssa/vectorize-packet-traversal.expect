@@ -525,12 +525,12 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             let @447 = f32x8(@374) in
             let @375 = @369 < @447 in
             let @74 = _t103.axis in
-            let @376 = @74 == 1u in
-            let @448 = boolx8(@376) in
-            let @377 = select(@448, @373, @375) in
-            let @378 = @74 == 0u in
-            let @449 = boolx8(@378) in
-            let @379 = select(@449, @371, @377) in
+            let @376 = @74 == 0u in
+            let @377 = @74 == 1u in
+            let @448 = boolx8(@377) in
+            let @378 = select(@448, @373, @375) in
+            let @449 = boolx8(@376) in
+            let @379 = select(@449, @371, @378) in
             let @76 = (*shapes_index!top) + 1u in
             let @77 = _t103.split0on_nPrims in
             let @78 = reinterpret_cast<_tree_layout2>(@77) in
