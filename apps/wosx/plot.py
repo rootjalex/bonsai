@@ -32,9 +32,10 @@ from matplotlib.patches import Patch  # noqa: E402
 
 COLOUR = "#E69F00"  # FCPW's orange in apps/rtq/plot.py (CUD)
 HATCH = {"single": "", "threads": "///", "persistent": "xxx"}
-LABEL = {"single": "sequential: bonsai on one thread over WoSX on one thread",
-         "threads": "parallel: bonsai on 16 threads over WoSX on 16 threads",
-         "persistent": "persistent: bonsai's 16 persistent workers over WoSX on 16 threads"}
+# sequential: bonsai on one thread over WoSX on one thread; parallel: bonsai
+# on the threads over WoSX on the threads; persistent: bonsai's persistent
+# workers over WoSX on the threads.
+LABEL = {"single": "sequential", "threads": "parallel", "persistent": "persistent"}
 
 
 def load(path):
