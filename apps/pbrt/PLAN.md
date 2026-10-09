@@ -12739,3 +12739,25 @@ bounce's samples inside the material kernel where pbrt has a separate
 sample kernel, and pbrt launches a material kernel for every material of
 the scene at every depth whether or not a ray reached it (its profile
 shows those as launches at its 0.015 ms floor), which ours never does.
+
+### The dielectric kernel profiled (10-09, 10:15): the sampler draws in a kernel with few items
+
+REPORT.md, "Profiled: the dielectric material kernel", has the numbers.
+The short of it: a launch of `hits_blk$Dielectric` has a few hundred
+working warps among 17,000, so its time is one warp's dependent chain,
+and half of that chain is the bounce's seven Halton draws (`vol_surface`:
+direct_uc, direct_u, uc, u, u_rr, drawn for every hit as pbrt's wavefront
+consumes them) -- a 64-bit division call and about six dependent 16-bit
+permutation gathers each, the sampler state's dimension reloaded from and
+stored to global memory around each. pbrt's wavefront draws the same
+seven in `GenerateRaySamples`, its own kernel over the ray queue before
+the trace, which our schedule has no counterpart for (the program draws
+where the CPU integrator draws). Deferred, pending the user: a sample
+stage as the wavefront has it (the program's or the schedule's structure,
+not a compiler fix). Deferred, for the compiler regardless: (1) a `mut`
+aggregate parameter of a GPU-bound function (`state : mut SamplerState`)
+kept in global memory and written back after every field update rather
+than promoted to registers; (2) a GPU kernel's by-value layout captures
+(28 array base pointers here) read from a params struct in global memory
+at the top of every thread rather than passed in the constant bank;
+(3) the 64-bit unsigned division lowered to an out-of-line call.
