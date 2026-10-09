@@ -6675,3 +6675,111 @@ construct, so a question first; (b) the stack entry's contents, distances
 or a mask (item 3); (c) the packet's slab test in the min/max form (item
 2). Ours without asking: items 1, 3 (the unsorted push), 4 and 5, then
 the nearest hit's tile read and the packet16 cells proper.
+
+### The hybrid switch as a specialize (2026-10-09, the user's question)
+
+The user asked whether the schedule can say the single-ray fallback, and
+whether it is a `specialize()`: "something like `specialize(count >=
+14).vectorize(forloop).loopify().else().loopify().vectorize(leaf)`", and
+how Halide represents the if/else. Halide's `Func::specialize(cond)`
+(src/Func.h): it makes a copy of the stage's definition whose schedule
+"inherits every directive made about the parent Func's schedule so far",
+returns a handle to that copy, and the directives written on the handle
+apply to the copy alone; the condition is a boolean over the pipeline's
+parameters and constants, tested once around the stage's loop nest, so
+the generated code is `if (cond) { the copy's nest } else { the
+parent's }`; several specializations of one stage are tested in the order
+written, an if / else-if chain whose final else is the parent as it is
+scheduled -- directives written on the parent after the specialize apply
+to that else alone; a specialization may itself be specialized, a nested
+if; and `specialize_fail(message)` ends the chain with a call to
+halide_error in place of the else. Our `specialize()` is that shape
+already (SSA/Specialize.h): a copy per variant or bool of a parameter,
+the copies named `f[Label]`, dispatched where the loop is entered, the
+directives after it addressed to one copy or to all.
+
+What Embree's switch is in those terms, and the one thing it adds. Its
+condition is not a parameter: it is the count of lanes still on at a node
+of the gang's traversal, which changes at every node, so the test cannot
+sit once around the loop nest -- it sits at the recursive call, per node.
+And its two arms are the two schedules of the same recursion the user
+wrote: above the count, the rays as a gang over one node (the packet:
+`vectorize(i_lane)`, then the sort and `loopify` over one stack), and at
+or below it, each lane's ray alone from that node (the matching
+schedule: `loopify`, `vectorize(children)`, `prefetch`), the gang's loop
+resuming after. That is Halide's `f.specialize(width >= 8).vectorize(x,
+8)` -- the stage vectorized under a condition on the loop's extent, the
+scalar loop otherwise -- with the extent being the lanes that are live,
+which is a quantity the schedule can name once the loop is a gang's, and
+with the test repeated at each call of the recursion because the extent
+shrinks as lanes finish. So: yes, a specialize, written on the recursion
+with a condition over the live count of the vectorized loop:
+
+    occluded_all.split(i, i_gang, i_lane, 16, true).vectorize(i_lane);
+    occluded.specialize(count(i_lane) > 14);     // at each recursive call
+    occluded[True].loopify(561);                  // the gang: one node, one stack
+    occluded[False].loopify(564)                  // each live lane alone, the matching schedule
+                   .vectorize(triangles.Interior.children)
+                   .prefetch(triangles.Interior.children, 4);
+
+(`count(i_lane) > 14` is Embree's `popcnt(valid) > switchThreshold` for
+K = 16; the nearest hit adds its sort to the `True` arm and the `False`
+arm keeps the matching schedule's sort.) What the compiler would do with
+it: the vectorizer makes the gang copy of `occluded` as now; at the gang
+copy's recursive call it tests `popcount(mask) > 14` and, under the
+condition, calls the gang copy (which loopify then puts on the gang's
+stack); otherwise it runs a loop over the lanes that are on and calls the
+scalar `occluded` for each with that lane's ray and the node -- the
+scalar function as its own directives schedule it, which exists already,
+since a vectorized function's scalar original is kept for whoever calls
+it that way -- and continues. Embree's SWITCH_DURING_DOWN_TRAVERSAL is
+the same test at the same place. Three things are new to the language,
+each small: a condition that is an expression over a loop's live count
+rather than a parameter's variant; a specialize whose test is at a
+recursive call rather than a loop's entry (the loop form,
+`run.specialize(j, flag)`, is the nearest existing one); and the `False`
+arm meaning "the scalar function, once per live lane", which is what the
+unvectorized parent is for a loop that was vectorized. A new construct,
+so it waits for the user's word on the syntax; the stack entry's
+contents (distances, Embree's, or a mask, ours) come with it, since the
+fallback starts each lane at the node it popped with whatever the entry
+holds.
+
+### The child's box read off the node (2026-10-09, 11:45)
+
+Item 1 of the profile, done: SSA/Simplify.cpp's ExtractIdx rule now
+takes a run-time lane of a vector of vectors -- `lo[i]` with `lo` the
+node's eight boxes and `i` the children loop's counter -- as the lane of
+each component, and the rule it already had for a lane of a stored
+vector turns each into a load at the lane's address (the commit in
+apps/rtq/scratch/wt, d5e79877: a vector built from its components, the
+layout's lower_x, lower_y, lower_z, and a vector of vectors stored whole
+and packed, whose components follow one another). The any-hit packet's
+children loop went from 43 instructions a child to 35 (scratch/packet/
+prof/anyhit-new.asm): six `vbroadcastss 0x40(%r12,%rax,4)` straight off
+the node, no store, where Embree's chunk loop has 31. What is left in the
+loop against Embree's is item 2 (the sign tests and blends, 9 of the 35)
+and item 3 (the mask read-modify-write, 4, and the reload, re-and and
+eight pushes after the loop). rtq's scalar schedules are unchanged, the
+same LLVM, since their children are vectorized and read the vectors
+whole.
+
+Measured, head and dragon, side 2048, least of five on cpu 11 (scratch/
+packet/rule1/*.log; the morning's cells in brackets):
+
+| mesh | rtcOccluded16 Mr/s | packet16 Mr/s | speedup |
+|---|---|---|---|
+| head | 26.55 | 26.00 | 0.98 (0.98) |
+| dragon | 5.49 | 4.22 | 0.77 (0.72) |
+
+Every ray agrees. Dragon gains 8% in our rate (3.89 to 4.22 Mr/s) and
+head 1.6%, Embree's own rates having moved by 1 to 1.5% between the two
+runs: the stack round trip cost most where the gang visits most nodes
+per ray (30 a gang on dragon against 8 on head). Tests: ssa and
+backends/llvm child-bounds-at-lane, correctness/cpp/bvh4_ptr_arena_
+children; nineteen ssa and seventeen LLVM goldens re-blessed, each diff
+read (the lane extracts of a node's boxes and a tile's vertices now
+loads at their addresses marked invariant; the vectorized-children
+tests read the components as dense loads off the row where they loaded
+the row whole; nothing else but numbering). Suite 1506 of 1506 in the
+worktree.
