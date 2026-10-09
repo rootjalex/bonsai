@@ -109,7 +109,8 @@ schedule {
                  |i : u32, q : Point, lo : vector[vec3f, 8], hi : vector[vec3f, 8]|
                  distmin(q, AABB{lo[i], hi[i]}))
            .vectorize(triangles.Interior.children)
-           .vectorize(triangles.Leaf.data)
+        // Embree does not vectorize the callback over leaves.
+        //    .vectorize(triangles.Leaf.data)
            .loopify(564);
     closest.prefetch(triangles.Interior.children, 4);
 
