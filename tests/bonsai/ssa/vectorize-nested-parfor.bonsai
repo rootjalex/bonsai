@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// A parfor nested in a loop being vectorized. A parfor promises only that
+// its iterations may run in any order, and inside a gang each lane runs the
+// nested loop for itself, one iteration after another: the vectorizer makes
+// it the sequential loop it also is (sequentialize, SSA/Rewrite.cpp) before
+// the gang's analyses look at the region, so that a nested loop whose trip
+// count differs between the lanes -- `i % 4 + 1` here -- is a divergent
+// loop like any `for` written in the body, left together once every lane is
+// done. `uniform` has the same shape with a trip count the lanes share.
+func varying(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        parfor j in 0:(i % 4 + 1) {
+            s += a[(i + j) % n];
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func uniform(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        parfor j in 0:3 {
+            s += a[(i + j) % n];
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+schedule {
+    varying.split(i, io, ii, 8, true).vectorize(ii);
+    uniform.split(i, io, ii, 8, true).vectorize(ii);
+}

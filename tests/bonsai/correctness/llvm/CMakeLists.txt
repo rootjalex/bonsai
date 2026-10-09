@@ -40,6 +40,7 @@ add_bonsai_tests(
     vectorize-bounded-division.bonsai
     vectorize-division.bonsai
     vectorize-masked-math-call.bonsai
+    vectorize-nested-parfor.bonsai
     vectorize-uniform-around-return.bonsai
     vectorize-uniform-division.bonsai
     vectorize-vector-index.bonsai

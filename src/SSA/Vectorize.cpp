@@ -31,6 +31,34 @@ using std::vector;
 
 namespace {
 
+// Every parfor nested in the region of `func` entered at `entry` -- the body
+// of the loop being vectorized, or a callee specialized for the gang -- made
+// the sequential loop it also is (sequentialize, SSA/Rewrite.cpp). A parfor
+// promises only that its iterations may run in any order, and one after
+// another is an order; in a gang each lane runs the nested loop for itself,
+// and the analyses of the region (divergence, the uniformizing of loops the
+// lanes leave at different iterations, linearization) want it as the blocks
+// a `for` converts to, which they already know. One at a time, since a loop
+// nested in a nested loop is in the region too and is met once its outer
+// one has been rewritten. A bound loop inside the gang is a schedule error,
+// which sequentialize reports.
+void sequentialize_nested(Function &func, const string &entry) {
+    for (;;) {
+        shared_ptr<Block> nested;
+        const Cfg region(func, entry);
+        for (const auto &block : region.blocks()) {
+            if (std::holds_alternative<Terminator::ParFor>(block->terminator.data)) {
+                nested = block;
+                break;
+            }
+        }
+        if (!nested) {
+            return;
+        }
+        sequentialize(func, nested);
+    }
+}
+
 // The lanes of the gang, i.e. the extent of the loop being vectorized. The
 // schedule is expected to have split the loop down to the gang width already
 // (see the comment on vectorize() below), so this must come out exact.
@@ -1840,6 +1868,10 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
     const string entry = entry_block.name;
     promote_allocas(*variant, entry);
+    // A parfor in the callee -- a tree query's loop over a leaf's elements
+    // or a node's children that the schedule left as a loop -- is, in a
+    // gang, a loop each lane runs for itself (sequentialize_nested).
+    sequentialize_nested(*variant, entry);
 
     // Linearization folds a region down to a single path, so the function
     // needs a single exit for that path to end at.
@@ -2212,6 +2244,11 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     const uint32_t lanes = gang_width(parfor);
 
     const string entry = parfor.body.name;
+
+    // A parfor nested in the body is, in a gang, a loop each lane runs for
+    // itself; made the sequential loop it also is before the analyses look
+    // at the region (sequentialize_nested).
+    sequentialize_nested(*f, entry);
 
     // Linearization folds the body down to a single path, so the body needs
     // a single end for that path to reach -- as a specialized callee gets one

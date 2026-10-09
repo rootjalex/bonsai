@@ -103,6 +103,7 @@ add_bonsai_tests(
     switch-merge.bonsai
     traverse.bonsai
     vectorize-call-guard.bonsai
+    vectorize-nested-parfor.bonsai
     vectorize-pure-call.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai

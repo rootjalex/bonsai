@@ -1,0 +1,58 @@
+//! flags: -p ssa -b llvm -e
+
+// A parfor nested in a vectorized loop, run: each lane runs the nested loop
+// for itself (sequentialize, SSA/Rewrite.cpp), here with a trip count that
+// differs between the lanes, `i % 4 + 1`, so the lanes leave the nested loop
+// at different iterations. `plain` is the same program with nothing
+// scheduled; the two lines have to match. Thirty-seven elements are four
+// whole gangs of eight and five of a fifth.
+func plain(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        parfor j in 0:(i % 4 + 1) {
+            s += a[(i + j) % n];
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func gang(n : i32, a : array[i32, n], out : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        s : mut i32 = 0;
+        parfor j in 0:(i % 4 + 1) {
+            s += a[(i + j) % n];
+        }
+        out[i] = s;
+    }
+    return;
+}
+
+func fill(n : i32, a : mut array[i32, n]) -> void {
+    parfor i in 0:n {
+        a[i] = i * 3 + 1;
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    fill(37, a);
+    p : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    g : mut array[i32, 37] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              0, 0, 0, 0, 0};
+    plain(37, a, p);
+    gang(37, a, g);
+    print(p);
+    print(g);
+    return 0;
+}
+
+schedule {
+    gang.split(i, io, ii, 8, true).vectorize(ii);
+}

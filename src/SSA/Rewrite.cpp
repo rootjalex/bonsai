@@ -448,6 +448,169 @@ void split(FuncMap &funcs, string func, string idx, const Expr &factor,
                std::move(outer), std::move(inner), exact);
 }
 
+void sequentialize(Function &f, const shared_ptr<Block> &site) {
+    const auto *at = std::get_if<Terminator::ParFor>(&site->terminator.data);
+    internal_assert(at != nullptr)
+        << "sequentialize: " << site->name << " does not end in a parfor";
+    const Terminator::ParFor parfor = *at;
+    const string what = "the loop over " + parfor.index + " in " +
+                        f.blocks.front()->name;
+    internal_assert(!parfor.binding.has_value())
+        << what << " is bound to " << to_string(*parfor.binding)
+        << ", and a loop that is to run one iteration after another cannot "
+        << "also be a launch";
+    internal_assert(parfor.capacity == nullptr)
+        << what << " drains a queue; [unimplemented] a drain run as a "
+        << "sequential loop inside a gang";
+
+    const Type itype = parfor.start->get_type();
+    const BlockMap bmap = make_block_map(f);
+    internal_assert(bmap.contains(parfor.body.name))
+        << f.blocks.front()->name << " has no block " << parfor.body.name;
+    const auto &loop_body = bmap.at(parfor.body.name);
+    internal_assert(!loop_body->args.empty())
+        << parfor.body.name << " has no index argument";
+    const vector<Argument> carried(loop_body->args.begin() + 1,
+                                   loop_body->args.end());
+    internal_assert(carried.size() == parfor.body.args.size())
+        << parfor.body.name << " takes " << loop_body->args.size()
+        << " arguments but the loop passes it " << (parfor.body.args.size() + 1);
+
+    // The body's own yields, as persistent() finds them: the region's less
+    // those of a loop nested in it.
+    const Cfg region(f, parfor.body.name);
+    set<string> nested;
+    for (const auto &block : region.blocks()) {
+        if (const auto *inner =
+                std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            const Cfg inside(f, inner->body.name);
+            for (const auto &b : inside.blocks()) {
+                nested.insert(b->name);
+            }
+        }
+    }
+    vector<shared_ptr<Block>> yields;
+    for (const auto &block : region.blocks()) {
+        if (std::holds_alternative<Terminator::Yield>(block->terminator.data) &&
+            nested.count(block->name) == 0) {
+            yields.push_back(block);
+        }
+    }
+    internal_assert(!yields.empty()) << what << ": its body never yields";
+
+    // What the header and the latch read besides the index and the carried
+    // values: the end and the stride where they are not constants, threaded
+    // as arguments (a block refers only to its own values).
+    struct Threaded {
+        Argument arg;
+        shared_ptr<Value> from;
+    };
+    vector<Threaded> threaded;
+    const auto thread = [&](const shared_ptr<Value> &v) -> std::optional<size_t> {
+        if (std::holds_alternative<Constant>(v->data)) {
+            return std::nullopt;
+        }
+        threaded.push_back({Argument{v->get_type(), f.get_unique_name()}, v});
+        return threaded.size() - 1;
+    };
+    const std::optional<size_t> at_end = thread(parfor.end);
+    const std::optional<size_t> at_stride = thread(parfor.stride);
+
+    // site: jmp head(start, carried..., threaded...)
+    // block head(i, carried..., threaded...):
+    //   dispatch (i < end) [cont(...), body(i, carried...)]
+    // body's yields -> latch()
+    // block latch(): i' = i + stride; jmp head(i', carried..., threaded...)
+    //
+    // The head's jump to the continuation and the latch's values are filled
+    // in once the blocks are wired, threaded in by name (Block::get_value):
+    // the continuation's arguments are values of the site, and the latch's
+    // are the head's, which reach it through the body.
+    auto head = std::make_shared<Block>();
+    head->name = parfor.body.name + "_for_" + parfor.index;
+    head->owner = site->owner;
+    auto v_index = head->add_argument(Argument{itype, f.get_unique_name()});
+    vector<shared_ptr<Value>> head_carried, head_threaded;
+    for (const Argument &arg : carried) {
+        head_carried.push_back(head->add_argument(arg));
+    }
+    for (const Threaded &t : threaded) {
+        head_threaded.push_back(head->add_argument(t.arg));
+    }
+    auto in_range = head->make_instruction(
+        Bool_t::make(), Instruction::Op::Lt,
+        {v_index, at_end ? head_threaded[*at_end] : parfor.end});
+    vector<shared_ptr<Value>> to_body{v_index};
+    to_body.insert(to_body.end(), head_carried.begin(), head_carried.end());
+    head->terminator.data = Terminator::Dispatch{
+        in_range,
+        {Terminator::Jump{parfor.cont.name},
+         Terminator::Jump{parfor.body.name, std::move(to_body)}}};
+
+    auto latch = std::make_shared<Block>();
+    latch->name = parfor.body.name + "_next_" + parfor.index;
+    latch->owner = site->owner;
+    latch->terminator.data = Terminator::Jump{head->name};
+    for (const auto &block : yields) {
+        block->terminator.data = Terminator::Jump{latch->name};
+    }
+
+    vector<shared_ptr<Value>> to_head{parfor.start};
+    to_head.insert(to_head.end(), parfor.body.args.begin(), parfor.body.args.end());
+    for (const Threaded &t : threaded) {
+        to_head.push_back(t.from);
+    }
+    site->terminator.data = Terminator::Jump{head->name, std::move(to_head)};
+
+    const auto after = std::find(f.blocks.begin(), f.blocks.end(), site) + 1;
+    f.blocks.insert(after, {head, latch});
+    refresh_preds(f);
+
+    // The latch's values first: the index and the stride, the carried and
+    // threaded values, each threaded from the head through the body. First,
+    // because threading the continuation's values into the head below adds
+    // arguments to the head and to every jump into it, the latch's included,
+    // and the latch's jump has to exist to be added to.
+    vector<shared_ptr<Value>> back;
+    auto index_here = latch->get_value(head->args.front().name, itype);
+    shared_ptr<Value> stride_here = parfor.stride;
+    vector<shared_ptr<Value>> carried_here, threaded_here;
+    for (const Argument &arg : carried) {
+        carried_here.push_back(latch->get_value(arg.name, arg.type));
+    }
+    for (const Threaded &t : threaded) {
+        threaded_here.push_back(latch->get_value(t.arg.name, t.arg.type));
+    }
+    if (at_stride) {
+        stride_here = threaded_here[*at_stride];
+    }
+    back.push_back(latch->make_instruction(itype, Instruction::Op::Add,
+                                           {index_here, stride_here}));
+    back.insert(back.end(), carried_here.begin(), carried_here.end());
+    back.insert(back.end(), threaded_here.begin(), threaded_here.end());
+    latch->terminator.data = Terminator::Jump{head->name, std::move(back)};
+    refresh_preds(f);
+
+    // The continuation's arguments, from the head: values of the site, which
+    // the head's edge from the site supplies and its edge from the latch
+    // carries round (Block::get_value adds them to the head and to both
+    // jumps into it).
+    auto *dispatch = std::get_if<Terminator::Dispatch>(&head->terminator.data);
+    for (const auto &a : parfor.cont.args) {
+        std::visit(overloads{
+                       [&](const Constant &) { dispatch->targets[0].args.push_back(a); },
+                       [&](const Argument &arg) {
+                           dispatch->targets[0].args.push_back(
+                               head->get_value(arg.name, arg.type));
+                       },
+                       [&](const shared_ptr<Instruction> &in) {
+                           dispatch->targets[0].args.push_back(
+                               head->get_value(in->name, in->type));
+                       }},
+                   a->data);
+    }
+}
+
 void persistent(FuncMap &funcs, string func, string idx, const Expr &count_e,
                 string worker) {
     internal_assert(funcs.contains(func))

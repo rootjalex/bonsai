@@ -51,6 +51,18 @@ void split(FuncMap &funcs, std::string func, std::string idx, const Expr &factor
 void persistent(FuncMap &funcs, std::string func, std::string idx,
                 const Expr &count, std::string worker);
 
+// Makes the parfor that ends `site`, a block of `func`, the sequential loop
+// it also is: a header that tests the index against the end and dispatches
+// to the body or to the loop's continuation, the body's yields jumps to a
+// latch that steps the index and goes round -- the blocks a `for` converts
+// to (SSA/Convert.cpp). A parfor promises only that its iterations may run
+// in any order, and one after another is an order; what asks for this is a
+// parfor nested in a loop being vectorized, where each lane runs the nested
+// loop for itself and the analyses of the gang's region want an ordinary
+// loop (vectorize, SSA/Vectorize.cpp). The loop must not be bound.
+// Implemented in SSA/Rewrite.cpp.
+void sequentialize(Function &func, const std::shared_ptr<Block> &site);
+
 // Records that the parfor `index` runs on `resource`, and checks that this
 // agrees with whatever the loops around it are already bound to. Nothing about
 // the graph changes: a bind is a tag, and code generation is where it becomes
