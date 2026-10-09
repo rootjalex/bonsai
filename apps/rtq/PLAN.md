@@ -6845,3 +6845,31 @@ eight: the push in the loop, no branch, no array, no pushes after), and
 correctness/cpp/bvh4_child_volumes_packet runs the same lowering against
 the scalar answers. The sorted run is untouched: its order needs every
 test first, and its goldens did not move.
+
+The twelve meshes again, after both fixes (results/logs/*.packet-anyhit.
+occluded.log, the morning's at scratch/packet/anyhit-logs-0755; side
+2048, least of five on cpu 11; the morning's cell in brackets):
+
+| mesh | rtcOccluded16 Mr/s | packet16 Mr/s | speedup |
+|---|---|---|---|
+| pavilion | 67.70 | 57.78 | 0.85 (0.76) |
+| head | 26.42 | 30.64 | 1.16 (0.98) |
+| zero-day | 19.27 | 20.02 | 1.04 (0.79) |
+| bmw | 21.45 | 24.61 | 1.15 (0.91) |
+| crown | 15.17 | 18.27 | 1.20 (0.89) |
+| ivy | 6.94 | 6.60 | 0.95 (0.70) |
+| villa | 19.92 | 21.92 | 1.10 (0.88) |
+| dambreak | 15.45 | 15.04 | 0.97 (0.75) |
+| sportscar | 11.78 | 11.26 | 0.96 (0.76) |
+| landscape | 73.87 | 108.87 | 1.47 (1.06) |
+| ganesha | 7.71 | 6.83 | 0.89 (0.73) |
+| dragon | 5.50 | 4.42 | 0.80 (0.72) |
+| geomean | | | 1.03 (0.82) |
+
+Every ray agrees on every mesh. The pure packet is now level with
+Embree's hybrid on the set, ahead on the coherent and the mid-sized
+meshes (landscape by half, crown by a fifth) and behind on the open
+ones and the two largest, where the gang's lanes thin out soonest and
+Embree's single rays take over: the shape the profile predicted, with
+the two code-quality costs paid. What remains is the switch itself,
+which is the user's question of specialize.
