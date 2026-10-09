@@ -224,11 +224,11 @@ hit_z_all:
   br i1 %60, label %"!then_18.i", label %"!else_19.i"
 
 "!then_18.i":                                     ; preds = %"!then_16.i"
-  %61 = icmp eq i8 %extract.unpack146.i, 1
-  %.splatinsert115.i = insertelement <8 x i1> poison, i1 %61, i64 0
+  %61 = icmp eq i8 %extract.unpack146.i, 0
+  %62 = icmp eq i8 %extract.unpack146.i, 1
+  %.splatinsert115.i = insertelement <8 x i1> poison, i1 %62, i64 0
   %.splat116.i = shufflevector <8 x i1> %.splatinsert115.i, <8 x i1> poison, <8 x i32> zeroinitializer
-  %62 = icmp eq i8 %extract.unpack146.i, 0
-  %.splatinsert117.i = insertelement <8 x i1> poison, i1 %62, i64 0
+  %.splatinsert117.i = insertelement <8 x i1> poison, i1 %61, i64 0
   %.splat118.i = shufflevector <8 x i1> %.splatinsert117.i, <8 x i1> poison, <8 x i32> zeroinitializer
   %63 = add i16 %"shapes_index!top.i", 1
   %64 = bitcast <2 x i8> %22 to i16
@@ -561,14 +561,14 @@ define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias n
   %deref_temp.fca.0.load = load <8 x float>, ptr %p0t, align 32
   %deref_temp.fca.1.load = load <8 x float>, ptr %35, align 32
   %deref_temp.fca.2.load = load <8 x float>, ptr %36, align 32
-  %60 = icmp eq <8 x i32> %55, splat (i32 1)
-  %61 = select <8 x i1> %60, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
-  %62 = icmp eq <8 x i32> %55, zeroinitializer
-  %63 = select <8 x i1> %62, <8 x float> %deref_temp.fca.0.load, <8 x float> %61
-  %64 = icmp eq <8 x i32> %59, splat (i32 1)
-  %65 = select <8 x i1> %64, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
-  %66 = icmp eq <8 x i32> %59, zeroinitializer
-  %67 = select <8 x i1> %66, <8 x float> %deref_temp.fca.0.load, <8 x float> %65
+  %60 = icmp eq <8 x i32> %55, zeroinitializer
+  %61 = icmp eq <8 x i32> %55, splat (i32 1)
+  %62 = select <8 x i1> %61, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
+  %63 = select <8 x i1> %60, <8 x float> %deref_temp.fca.0.load, <8 x float> %62
+  %64 = icmp eq <8 x i32> %59, zeroinitializer
+  %65 = icmp eq <8 x i32> %59, splat (i32 1)
+  %66 = select <8 x i1> %65, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
+  %67 = select <8 x i1> %64, <8 x float> %deref_temp.fca.0.load, <8 x float> %66
   %not. = xor <8 x i1> %52, splat (i1 true)
   %68 = and <8 x i1> %50, %not.
   %69 = select <8 x i1> %68, <8 x float> %deref_temp.fca.1.load, <8 x float> %deref_temp.fca.2.load
@@ -579,10 +579,10 @@ define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias n
   %deref_temp19.fca.0.load = load <8 x float>, ptr %p1t, align 32
   %deref_temp19.fca.1.load = load <8 x float>, ptr %40, align 32
   %deref_temp19.fca.2.load = load <8 x float>, ptr %41, align 32
-  %71 = select <8 x i1> %60, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
-  %72 = select <8 x i1> %62, <8 x float> %deref_temp19.fca.0.load, <8 x float> %71
-  %73 = select <8 x i1> %64, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
-  %74 = select <8 x i1> %66, <8 x float> %deref_temp19.fca.0.load, <8 x float> %73
+  %71 = select <8 x i1> %61, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
+  %72 = select <8 x i1> %60, <8 x float> %deref_temp19.fca.0.load, <8 x float> %71
+  %73 = select <8 x i1> %65, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
+  %74 = select <8 x i1> %64, <8 x float> %deref_temp19.fca.0.load, <8 x float> %73
   %75 = select <8 x i1> %68, <8 x float> %deref_temp19.fca.1.load, <8 x float> %deref_temp19.fca.2.load
   %76 = select <8 x i1> %52, <8 x float> %deref_temp19.fca.0.load, <8 x float> %75
   call void @llvm.masked.store.v8f32.p0(<8 x float> %72, ptr nonnull align 32 %p1t, <8 x i1> %"!mask")
@@ -591,19 +591,19 @@ define internal fastcc void @"intersectsp_ray_tri$gang8_v0$masked"(ptr noalias n
   %deref_temp20.fca.0.load = load <8 x float>, ptr %p2t, align 32
   %deref_temp20.fca.1.load = load <8 x float>, ptr %45, align 32
   %deref_temp20.fca.2.load = load <8 x float>, ptr %46, align 32
-  %77 = select <8 x i1> %60, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
-  %78 = select <8 x i1> %62, <8 x float> %deref_temp20.fca.0.load, <8 x float> %77
-  %79 = select <8 x i1> %64, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
-  %80 = select <8 x i1> %66, <8 x float> %deref_temp20.fca.0.load, <8 x float> %79
+  %77 = select <8 x i1> %61, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
+  %78 = select <8 x i1> %60, <8 x float> %deref_temp20.fca.0.load, <8 x float> %77
+  %79 = select <8 x i1> %65, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
+  %80 = select <8 x i1> %64, <8 x float> %deref_temp20.fca.0.load, <8 x float> %79
   %81 = select <8 x i1> %68, <8 x float> %deref_temp20.fca.1.load, <8 x float> %deref_temp20.fca.2.load
   %82 = select <8 x i1> %52, <8 x float> %deref_temp20.fca.0.load, <8 x float> %81
   call void @llvm.masked.store.v8f32.p0(<8 x float> %78, ptr nonnull align 32 %p2t, <8 x i1> %"!mask")
   call void @llvm.masked.store.v8f32.p0(<8 x float> %80, ptr nonnull align 32 %45, <8 x i1> %"!mask")
   call void @llvm.masked.store.v8f32.p0(<8 x float> %82, ptr nonnull align 32 %46, <8 x i1> %"!mask")
-  %83 = select <8 x i1> %60, <8 x float> %"_t307.!1", <8 x float> %"_t307.!2"
-  %84 = select <8 x i1> %62, <8 x float> %"_t307.!0", <8 x float> %83
-  %85 = select <8 x i1> %64, <8 x float> %"_t307.!1", <8 x float> %"_t307.!2"
-  %86 = select <8 x i1> %66, <8 x float> %"_t307.!0", <8 x float> %85
+  %83 = select <8 x i1> %61, <8 x float> %"_t307.!1", <8 x float> %"_t307.!2"
+  %84 = select <8 x i1> %60, <8 x float> %"_t307.!0", <8 x float> %83
+  %85 = select <8 x i1> %65, <8 x float> %"_t307.!1", <8 x float> %"_t307.!2"
+  %86 = select <8 x i1> %64, <8 x float> %"_t307.!0", <8 x float> %85
   %87 = select <8 x i1> %68, <8 x float> %"_t307.!1", <8 x float> %"_t307.!2"
   %88 = select <8 x i1> %52, <8 x float> %"_t307.!0", <8 x float> %87
   %89 = fneg <8 x float> %84
