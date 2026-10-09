@@ -43,24 +43,29 @@ awning -- the lit-pixel bias open since the 10-05 investigation (PLAN.md,
 10-04 sweep and under both GPU schedules, so untouched by anything since.
 vespa at 128 passes as the gap closes with spp.
 
-Stages, at 16 spp over all 30 scenes (the tables below): beaten on every
-scene that has them are the camera rays and samples (0.32 of pbrt's summed
-time), the escaped-ray and emitter kernels (0.50, 0.40), the film and the
-rest (0.10), the coated-diffuse, conductor and coated-conductor materials
+Stages, at 16 spp over all 30 scenes (the tables below, which from 12:50
+pair pbrt's sample kernel with a sample-draws row of its own rather than
+with the camera rays): beaten on every scene that has them are the
+escaped-ray and emitter kernels (0.50, 0.40), the film and the rest
+(0.10), the coated-diffuse, conductor and coated-conductor materials
 (0.57, 0.39, 0.55), the subsurface probe trace and exit (0.85, 0.51) and
-medium sampling (0.66). Behind somewhere: the closest-hit trace on 2 of
-30 scenes (landscape 1.08, disney-cloud 1.02; 0.91 summed), the shadow
-traces on the two bistros (1.23, 1.11; 0.83 summed), the dielectric
-material on 11 of 16 (worst sanmiguel 1.53; frame542 194 against 146 ms is
-most of it; 1.12 summed), the diffuse material on 7 of 22 (worst sportscar
-1.33; 0.55 summed), diffuse-transmission on 4 of 8, measured on 3 of 3
-(1.09 summed), subsurface on 2 of 2 (1.17), thin-dielectric on 2 of 2
-(1.35) and medium scattering on 3 of 9 (plume 1.11, explosion 1.10,
-bunny-cloud 1.07; 0.80 summed). Two caveats on the material rows: ours
-draws a bounce's samples in the material kernel where pbrt has a separate
-sample kernel (charged here to the camera row), and pbrt's profile lists
-the launches it made for a material no ray reached (empty launches at its
-floor of about 0.015 ms each), which ours never makes.
+medium sampling (0.66). Behind somewhere: the camera rays, against pbrt's
+camera kernel alone, on 29 of 30 (1.34 summed; the earlier 0.32 of this row
+had pbrt's sample kernel in it), the closest-hit trace on 2 of 30
+(landscape 1.08, disney-cloud 1.02; 0.91 summed), the shadow traces on
+the two bistros (1.23, 1.11; 0.83 summed), the dielectric material on 11
+of 16 in the sweep (worst sanmiguel 1.53; frame542 194 against 146 ms is
+most of it; 1.12 summed -- the sample stage below turns this round), the
+diffuse material on 7 of 22 (worst sportscar 1.33; 0.55 summed),
+diffuse-transmission on 4 of 8, measured on 3 of 3 (1.09 summed),
+subsurface on 2 of 2 (1.17), thin-dielectric on 2 of 2 (1.35) and medium
+scattering on 3 of 9 (plume 1.11, explosion 1.10, bunny-cloud 1.07; 0.80
+summed). Two caveats on the material rows of the sweep: ours drew a
+bounce's samples in the material kernel where pbrt has a separate sample
+kernel (the "materials with their sample draws" view adds the two), and
+pbrt's profile lists the launches it made for a material no ray reached
+(empty launches at its floor of about 0.015 ms each), which ours never
+makes.
 
 ### The fix behind it
 
@@ -141,10 +146,145 @@ where pbrt's parameters sit in the constant bank; the 64-bit division as
 a call made seven times. Our empty launch at 3.6 µs against pbrt's 23 µs
 is the gated launch at work and is the one place we are ahead here.
 
-**The decision pending:** a sample stage as the wavefront has it -- the
-bounce's seven samples drawn per ray in their own kernel over the ray
-queue and carried in the ray entry -- is a change to the program's
-structure or the schedule, not a compiler fix, and is the user's call.
+**The decision taken (the user, 10-09 10:20): match pbrt's schedule.** The
+sample stage is in (below), and the audit that follows is of everything
+else.
+
+**The like-for-like sum.** Our material kernels did the draws that pbrt's
+sample kernel does, so the fair comparison of the material rows is ours
+against pbrt's material kernels plus its `Generate ray samples`. The
+generated tables below carry that as "materials with their sample draws
+(a view, not a stage)": summed over the 30 scenes ours is 3,476 ms against
+pbrt's 6,565 (0.53), and no scene is above 0.93 (sportscar). On the scenes
+the dielectric row singled out: sanmiguel 50.9 against 50.7 + 8.0 = 58.7
+(0.87, where the dielectric row alone said 1.53), frame542 194 against
+259 + 182 = 440 (0.44, against 1.33), crown 439 against 565 + 79 = 644
+(0.68, against 1.26). The dielectric row was an accounting artifact of
+where the draws ran; the latency chain it exposed was real, and the sample
+stage removes it from every material kernel at once.
+
+### Audit: pbrt's wavefront kernels against the gpu-optix schedule (2026-10-09)
+
+pbrt's `WavefrontPathIntegrator::Render` (wavefront/integrator.cpp), one
+sample of one scanline band at a time (our `p_band` pass), against the
+drains the schedule makes, in pbrt's order. A kernel is "matched" when ours
+does the same work over the same queue at the same point of the round.
+
+| pbrt | ours | matched |
+|---|---|---|
+| Reset ray queue; Reset queues before tracing rays; Reset shadowRayQueue | the counts are reset by the round's own kernels | no kernel needed |
+| Generate camera rays (with the camera's sample dimensions, `StartPixelSample(pPixel, sampleIndex, 0)`) | `p_blk$VolPath` | yes |
+| Generate ray samples (the bounce's seven dimensions per ray, `6 + 7·depth`, plus three with subsurface) | the `rays` drain, `vol_ray_samples` -- **added 10-09**; until then drawn inside each material and medium kernel | yes, from 10-09 |
+| Trace closest hit rays (`__raygen__findClosest`; the closest-hit program builds the interaction and routes the ray: escaped, emissive, a material's queue, the medium-sample queue, or straight on across a medium boundary) | `__raygen__traced`: the trace and `vol_route` | yes; ours routes in the raygen after the trace returns, pbrt in its closest-hit program (the uncommitted mesh-entity series of 10-08 moves ours there too) |
+| Update camera / indirect ray stats | -- | statistics only |
+| Sample medium interaction | `medium_samples_blk` | yes |
+| Sample direct/indirect - Henyey-Greenstein | `medium_scatters_blk` | yes |
+| Handle escaped rays | `escaped_blk` | yes |
+| Handle emitters hit by indirect rays | `emissive_blk` | yes |
+| `if (wavefrontDepth == maxDepth) break` -- the loop ends here, before the material kernels | ours runs the material drains at the last depth too, on empty queues (head: 48 launches against 32, 0.016 ms each) | nearly: a gate on the depth would drop them |
+| `<Material>Material + BxDF eval`, one kernel per material **and per texture evaluator** (Basic / Universal queues) | `hits_blk$<Material>`, one per material | nearly: no texture-evaluator split (pbrt keeps the common kernel's registers down by sending materials with image or mixed textures to a second kernel) |
+| Trace shadow rays / Tracing shadow Tr rays | `__raygen__shadow$<have_media>` | yes |
+| Get BSSRDF and enqueue probe ray (a kernel over `bssrdfEvalQueue`) | folded into `hits_blk$Subsurface`: `vol_subsurface` is the material kernel's tail | **no** -- a queue and kernel of its own in pbrt |
+| Tracing subsurface scattering probe rays (`__raygen__randomHit`) | `__raygen__probes` | yes |
+| Handle out-scattering after SSS | `exits_blk` | yes |
+| Trace shadow rays, the second pass | `__raygen__exit_shadow$<have_media>` | yes |
+| Update film (once per sample) | `rays_rest_blk` | yes |
+| the image from the film, after the last sample | `q_blk` | yes |
+
+So after the sample stage two structural differences remain: the BSSRDF
+kernel folded into the subsurface material kernel (a schedule change:
+`vol_surface.defer(vol_subsurface, bssrdfs)` with the probes deferred from
+it, measured on head and dragon next), and the texture-evaluator split of
+the material queues, which needs a per-material fact the program does not
+yet carry (whether every texture of the material is one the basic
+evaluator takes). The empty material launches at the last depth are a
+third, small one.
+
+**The sample stage (10-09, 10:30).** `vol_ray_samples` draws the seven
+(or ten) dimensions at the top of `vol_path_step`, right after the sampler
+is restarted at the bounce's dimensions, and the material, medium and
+subsurface kernels read the `RaySamples` value instead of drawing; the
+values are the same dimensions in the same order, so every image is
+unchanged bit for bit. `vol_path_step.stage(vol_ray_samples, traced)` in
+gpu-optix.bonsai and gpu-wavefront.bonsai makes the `rays` drain the
+sample kernel and the new `traced` queue's drain the trace, in pbrt's
+order. It needed one compiler fix: the drains run in the order the
+schedule defers their queues, so the stage has to come before the
+medium-sample deferral that the same function makes, and that deferral
+then found no call in `vol_path_step` -- the stage had moved it into
+`vol_path_step!after`. A deferral now looks in the continuations split off
+from the function it names (SSA/Stage.h, `call_holder`; tests
+ssa/stage-then-defer and correctness/llvm/stage-then-defer). Two more
+compiler fixes followed before it rendered: the C header's identifiers
+(an anonymous SSA name reached it), and a round queue with one buffer
+clearing its count ahead of its pass, which a GPU drain, launched over the
+capacity and testing each index against the count on the device, read as
+empty -- the first one-buffer round queue a GPU schedule had, since the
+ray queue stopped being pushed by its own drain once the trace moved to
+`traced` (eddc0297, with the two before it).
+
+**Measured (10-09 12:40, `scratch/surface/compare-stage`, 16 spp, kernel
+ms; images identical to the sweep's pixel for pixel):**
+
+| scene | before (the sweep) | with the stage | pbrt |
+|---|---|---|---|
+| killeroo-simple | 34.1 | 40.6 | 49.4 |
+| head | 34.6 | 40.7 | 45.5 |
+| sanmiguel-courtyard | 129.5 | 138.8 | 149.4 |
+| frame542 | 711 | 749 | 1206 |
+
+| kernel | before | with the stage | pbrt |
+|---|---|---|---|
+| frame542, dielectric material | 194.0 | 71.5 | 145.7 |
+| sanmiguel, dielectric material | 4.32 | 2.10 | 2.83 |
+| sanmiguel, diffuse material | 25.7 | 21.0 | 24.5 |
+| sanmiguel, coated-diffuse material | 14.6 | 12.7 | 17.8 |
+| sanmiguel, the trace launch | 49.9 | 52.0 | 55.3 |
+| sanmiguel, the sample kernel | -- | 17.4 | 8.0 |
+| killeroo-simple, the sample kernel | -- | 8.6 | 3.6 |
+| frame542, the sample kernel | -- | 189 | 182 |
+
+So the stage does to the material kernels what the profile said it would
+-- the dielectric kernel is ahead of pbrt on every scene now, frame542 at
+0.49 -- and the stage itself costs more than it saves on a dense scene: our
+sample kernel is 2.2x pbrt's on sanmiguel and 2.4x on killeroo. The reason
+is the stage's form, not the draws: a stage's continuation is a new queue,
+so every ray's state (about 200 bytes: ray, throughput, the two
+probabilities, wavelengths, the previous vertex, depth, flags) is written
+onto `traced` by the sample kernel and read back by the trace, once more
+per bounce, where pbrt writes 40 bytes of samples into a per-pixel array
+and traces the same ray queue it sampled. On frame542, whose launches are
+small, the per-launch floor dominates both and the two kernels cost the
+same. The matching structure is a stage *in place*: the rest of the
+function run as a second pass over the same queue, the staged call's value
+kept in a per-entry side array (pbrt's `pixelSampleState.samples`), which
+is compiler work -- the decision pending below. The other point, the
+draws made in the trace launch itself ahead of `optixTrace` with no stage
+(`schedules/gpu-optix-draws-in-trace.bonsai`: the same program under the
+committed schedule), measured 13:05 (`scratch/surface/compare-stage-c`,
+images identical again):
+
+| 16 spp, kernel ms | before | stage | draws in the trace launch | pbrt |
+|---|---|---|---|---|
+| killeroo-simple | 34.1 | 40.6 | 35.8 | 49.3 |
+| head | 34.6 | 40.7 | 37.9 | 45.2 |
+| sanmiguel-courtyard | 129.5 | 138.8 | 129.2 | 148.1 |
+| frame542 | 711 | 749 | 724 | 1205 |
+
+Per kernel the draws cost about the same wherever they run and only move:
+on sanmiguel the trace launch grows 49.9 to 60.0 ms while the material
+kernels lose 8.8 (diffuse 25.7 to 21.2, coated-diffuse 14.6 to 12.4,
+dielectric 4.3 to 2.1); on frame542 the trace launch grows 285 to 433 ms
+while the dielectric kernel loses 122 (194 to 72). So the sum is close to
+conserved: a dense material kernel already hides the chain's latency, and
+the one that did not (the dielectric kernel) was small in absolute terms
+except on frame542, where pbrt's own structure costs pbrt 182 ms of sample
+kernel at its launch floor. What the stage buys is parity of structure and
+of per-stage accounting, not time: an in-place stage would cost about what
+pbrt's sample kernel costs (8 ms on sanmiguel, 3.6 on killeroo) and break
+about even with the draws left in the material kernels. The committed
+state is the latter; the program and schedule change is uncommitted in the
+shared tree and saved as `scratch/surface/sample-stage.patch`.
 
 <!-- stages:begin -->
 Generated by `report_stages.py` from `compare-out-heatmap3` (30 scenes; kernel times at 16 spp).
@@ -192,12 +332,14 @@ The wall speedup is pbrt's process over ours, both warm, from table.tsv. Images:
 |---|---|---|---|---|---|---|
 | closest-hit trace + routing | 30 | 2 | 1.08 (landscape/view-0) | 2883 | 3181 | 0.91 |
 | shadow traces (every pass) | 30 | 2 | 1.23 (bistro/bistro_cafe) | 4422 | 5303 | 0.83 |
-| camera rays + samples | 30 | 0 | 0.77 (lte-orb/lte-orb-silver) | 330.9 | 1045 | 0.32 |
+| sample draws (the bounce's dimensions, per ray) | 30 | 0 | - | 0 | 798.5 | pbrt only |
+| camera rays | 30 | 29 | 1.77 (lte-orb/lte-orb-rough-glass) | 330.9 | 246.2 | 1.34 |
 | escaped rays | 30 | 0 | 0.64 (villa/villa-lights-on) | 205.1 | 407.4 | 0.50 |
 | emitters hit | 30 | 0 | 0.62 (kroken/camera-1) | 155.6 | 387.3 | 0.40 |
 | material: CoatedDiffuse | 21 | 0 | 0.88 (landscape/view-0) | 1241 | 2195 | 0.57 |
 | material: Diffuse | 22 | 7 | 1.33 (sportscar/sportscar-sky) | 783.4 | 1421 | 0.55 |
 | film + the rest | 30 | 0 | 0.54 (pbrt-book/book) | 83.8 | 814.5 | 0.10 |
+| materials with their sample draws (a view, not a stage) | 30 | 0 | 0.93 (sportscar/sportscar-sky) | 3476 | 6565 | 0.53 |
 | material: Conductor | 11 | 0 | 0.50 (villa/villa-daylight) | 212.8 | 539.3 | 0.39 |
 | material: CoatedConductor | 6 | 0 | 0.67 (bistro/bistro_cafe) | 261.1 | 470.7 | 0.55 |
 | material: Dielectric | 16 | 11 | 1.53 (sanmiguel/sanmiguel-courtyard) | 487.9 | 436.5 | 1.12 |
@@ -286,42 +428,79 @@ ours: `__raygen__shadow$<alpha>` and `__raygen__exit_shadow$<alpha>`; pbrt: the 
 | killeroos/killeroo-simple | 3.16 | 4.70 | 0.67 |
 | pbrt-book/book | 7.44 | 12.5 | 0.59 |
 
-##### camera rays + samples
+##### sample draws (the bounce's dimensions, per ray)
 
-ours draws a bounce's samples where they are used, so pbrt's per-bounce sample kernel has no counterpart here and is charged to this row.
+ours: the `rays` drain of the sample stage (10-09); a run before it has no kernel here, its draws having run inside the material and medium kernels, so pbrt's stands alone there.
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| lte-orb/lte-orb-silver | 8.46 | 10.9 | 0.77 |
-| ganesha/ganesha | 12.5 | 18.8 | 0.67 |
-| landscape/view-0 | 50.6 | 78.4 | 0.64 |
-| pbrt-book/book | 12.4 | 19.5 | 0.64 |
-| sportscar/sportscar-sky | 12.6 | 20.0 | 0.63 |
-| bistro/bistro_cafe (image FAILED) | 12.6 | 21.1 | 0.60 |
-| bistro/bistro_vespa (image FAILED) | 12.6 | 21.5 | 0.59 |
-| head/head | 3.52 | 6.08 | 0.58 |
-| sanmiguel/sanmiguel-courtyard-second | 9.40 | 16.3 | 0.58 |
-| lte-orb/lte-orb-simple-ball | 8.80 | 16.1 | 0.55 |
-| killeroos/killeroo-coated-gold | 8.44 | 15.6 | 0.54 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 8.21 | 15.2 | 0.54 |
-| killeroos/killeroo-gold | 8.44 | 15.7 | 0.54 |
-| sanmiguel/sanmiguel-courtyard | 6.66 | 13.5 | 0.49 |
-| killeroos/killeroo-simple | 3.03 | 6.17 | 0.49 |
-| bmw-m6/bmw-m6 | 8.32 | 17.1 | 0.49 |
-| villa/villa-lights-on | 2.73 | 5.72 | 0.48 |
-| villa/villa-daylight | 9.55 | 20.1 | 0.48 |
-| sssdragon/dragon_10 | 8.40 | 18.6 | 0.45 |
-| smoke-plume/plume | 8.56 | 19.7 | 0.43 |
-| explosion/explosion | 14.2 | 33.0 | 0.43 |
-| watercolor/camera-1 | 16.9 | 40.0 | 0.42 |
-| lte-orb/lte-orb-rough-glass | 8.38 | 22.8 | 0.37 |
-| kroken/camera-1 | 14.3 | 45.8 | 0.31 |
-| bunny-cloud/bunny-cloud | 12.3 | 58.0 | 0.21 |
-| clouds/clouds | 12.8 | 68.1 | 0.19 |
-| dambreak/dambreak0 | 12.6 | 69.1 | 0.18 |
-| crown/crown | 8.48 | 85.6 | 0.10 |
-| disney-cloud/disney-cloud | 5.51 | 57.3 | 0.10 |
-| transparent-machines/frame542 | 9.73 | 188.9 | 0.05 |
+| killeroos/killeroo-simple | 0 | 3.63 | pbrt only |
+| killeroos/killeroo-gold | 0 | 9.12 | pbrt only |
+| killeroos/killeroo-coated-gold | 0 | 9.03 | pbrt only |
+| pbrt-book/book | 0 | 10.4 | pbrt only |
+| ganesha/ganesha | 0 | 9.74 | pbrt only |
+| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 8.55 | pbrt only |
+| lte-orb/lte-orb-simple-ball | 0 | 8.81 | pbrt only |
+| lte-orb/lte-orb-silver | 0 | 6.09 | pbrt only |
+| lte-orb/lte-orb-rough-glass | 0 | 18.1 | pbrt only |
+| head/head | 0 | 3.17 | pbrt only |
+| sssdragon/dragon_10 | 0 | 12.0 | pbrt only |
+| villa/villa-lights-on | 0 | 3.34 | pbrt only |
+| smoke-plume/plume | 0 | 13.0 | pbrt only |
+| bunny-cloud/bunny-cloud | 0 | 48.9 | pbrt only |
+| explosion/explosion | 0 | 21.8 | pbrt only |
+| disney-cloud/disney-cloud | 0 | 57.3 | pbrt only |
+| landscape/view-0 | 0 | 40.7 | pbrt only |
+| crown/crown | 0 | 78.8 | pbrt only |
+| kroken/camera-1 | 0 | 34.4 | pbrt only |
+| sportscar/sportscar-sky | 0 | 10.9 | pbrt only |
+| bmw-m6/bmw-m6 | 0 | 10.5 | pbrt only |
+| dambreak/dambreak0 | 0 | 60.0 | pbrt only |
+| transparent-machines/frame542 | 0 | 181.5 | pbrt only |
+| villa/villa-daylight | 0 | 12.8 | pbrt only |
+| clouds/clouds | 0 | 58.6 | pbrt only |
+| sanmiguel/sanmiguel-courtyard | 0 | 7.98 | pbrt only |
+| bistro/bistro_cafe (image FAILED) | 0 | 11.7 | pbrt only |
+| bistro/bistro_vespa (image FAILED) | 0 | 11.8 | pbrt only |
+| watercolor/camera-1 | 0 | 26.6 | pbrt only |
+| sanmiguel/sanmiguel-courtyard-second | 0 | 9.17 | pbrt only |
+
+##### camera rays
+
+both sides draw the camera's own dimensions here.
+
+| scene | ours | pbrt | ratio |
+|---|---|---|---|
+| lte-orb/lte-orb-rough-glass | 8.38 | 4.73 | **1.77** |
+| lte-orb/lte-orb-silver | 8.46 | 4.84 | **1.75** |
+| sportscar/sportscar-sky | 12.6 | 9.10 | **1.38** |
+| ganesha/ganesha | 12.5 | 9.09 | **1.38** |
+| dambreak/dambreak0 | 12.6 | 9.13 | **1.38** |
+| pbrt-book/book | 12.4 | 9.08 | **1.37** |
+| bunny-cloud/bunny-cloud | 12.3 | 9.09 | **1.35** |
+| bistro/bistro_cafe (image FAILED) | 12.6 | 9.37 | **1.34** |
+| landscape/view-0 | 50.6 | 37.7 | **1.34** |
+| clouds/clouds | 12.8 | 9.52 | **1.34** |
+| transparent-machines/frame542 | 9.73 | 7.34 | **1.33** |
+| villa/villa-daylight | 9.55 | 7.21 | **1.32** |
+| sanmiguel/sanmiguel-courtyard-second | 9.40 | 7.11 | **1.32** |
+| bistro/bistro_vespa (image FAILED) | 12.6 | 9.68 | **1.30** |
+| killeroos/killeroo-gold | 8.44 | 6.56 | **1.29** |
+| killeroos/killeroo-coated-gold | 8.44 | 6.59 | **1.28** |
+| sssdragon/dragon_10 | 8.40 | 6.58 | **1.28** |
+| smoke-plume/plume | 8.56 | 6.72 | **1.27** |
+| watercolor/camera-1 | 16.9 | 13.4 | **1.26** |
+| explosion/explosion | 14.2 | 11.2 | **1.26** |
+| crown/crown | 8.48 | 6.74 | **1.26** |
+| bmw-m6/bmw-m6 | 8.32 | 6.62 | **1.26** |
+| kroken/camera-1 | 14.3 | 11.5 | **1.25** |
+| barcelona-pavilion/pavilion-day (image FAILED) | 8.21 | 6.69 | **1.23** |
+| lte-orb/lte-orb-simple-ball | 8.80 | 7.26 | **1.21** |
+| head/head | 3.52 | 2.91 | **1.21** |
+| sanmiguel/sanmiguel-courtyard | 6.66 | 5.51 | **1.21** |
+| killeroos/killeroo-simple | 3.03 | 2.54 | **1.19** |
+| villa/villa-lights-on | 2.73 | 2.38 | **1.15** |
+| disney-cloud/disney-cloud | 5.51 | 0 | ours only |
 
 ##### escaped rays
 
@@ -482,6 +661,43 @@ ours: `rays_rest_blk` and `q_blk`; pbrt: Update film, the queue resets, the stat
 | disney-cloud/disney-cloud | 1.30 | 24.8 | 0.05 |
 | transparent-machines/frame542 | 2.32 | 75.6 | 0.03 |
 | kroken/camera-1 | 5.41 | 407.8 | 0.01 |
+
+##### materials with their sample draws (a view, not a stage)
+
+the material kernels above summed with the sample draws on each side -- pbrt's `Generate ray samples`, and our sample kernel where the run has one (until the sample stage of 10-09 the bounce's draws ran inside our material kernels) -- the like-for-like sum either way; a second view of rows already counted, left out of the totals.
+
+| scene | ours | pbrt | ratio |
+|---|---|---|---|
+| sportscar/sportscar-sky | 105.0 | 113.0 | 0.93 |
+| lte-orb/lte-orb-simple-ball | 113.7 | 129.6 | 0.88 |
+| landscape/view-0 | 272.9 | 313.5 | 0.87 |
+| sanmiguel/sanmiguel-courtyard | 50.9 | 58.7 | 0.87 |
+| sanmiguel/sanmiguel-courtyard-second | 62.5 | 73.7 | 0.85 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 73.6 | 91.4 | 0.81 |
+| head/head | 9.12 | 11.9 | 0.77 |
+| dambreak/dambreak0 | 159.0 | 212.4 | 0.75 |
+| sssdragon/dragon_10 | 47.6 | 67.3 | 0.71 |
+| crown/crown | 439.4 | 643.5 | 0.68 |
+| bistro/bistro_cafe (image FAILED) | 125.5 | 196.5 | 0.64 |
+| bmw-m6/bmw-m6 | 82.8 | 132.4 | 0.63 |
+| bistro/bistro_vespa (image FAILED) | 120.1 | 197.0 | 0.61 |
+| killeroos/killeroo-simple | 13.6 | 22.6 | 0.60 |
+| lte-orb/lte-orb-rough-glass | 109.6 | 187.2 | 0.59 |
+| pbrt-book/book | 39.9 | 69.6 | 0.57 |
+| villa/villa-daylight | 109.4 | 193.6 | 0.57 |
+| bunny-cloud/bunny-cloud | 99.2 | 195.3 | 0.51 |
+| villa/villa-lights-on | 28.2 | 55.8 | 0.50 |
+| disney-cloud/disney-cloud | 51.2 | 103.3 | 0.50 |
+| ganesha/ganesha | 45.2 | 91.7 | 0.49 |
+| killeroos/killeroo-coated-gold | 44.8 | 93.4 | 0.48 |
+| smoke-plume/plume | 17.8 | 37.1 | 0.48 |
+| explosion/explosion | 26.4 | 55.2 | 0.48 |
+| lte-orb/lte-orb-silver | 43.2 | 93.5 | 0.46 |
+| kroken/camera-1 | 400.9 | 905.0 | 0.44 |
+| transparent-machines/frame542 | 194.0 | 440.1 | 0.44 |
+| killeroos/killeroo-gold | 29.1 | 77.0 | 0.38 |
+| watercolor/camera-1 | 561.0 | 1619 | 0.35 |
+| clouds/clouds | 0 | 85.0 | pbrt only |
 
 ##### material: Conductor
 

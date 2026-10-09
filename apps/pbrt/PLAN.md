@@ -12761,3 +12761,81 @@ than promoted to registers; (2) a GPU kernel's by-value layout captures
 (28 array base pointers here) read from a params struct in global memory
 at the top of every thread rather than passed in the constant bank;
 (3) the 64-bit unsigned division lowered to an out-of-line call.
+
+### The sample stage (10-09, 10:20-11:30): pbrt's GenerateRaySamples as a stage
+
+The user's decision (10:20): match pbrt's schedule. `vol_ray_samples`
+draws the bounce's seven (ten with subsurface) dimensions at the top of
+`vol_path_step`, the material, medium and subsurface kernels read the
+`RaySamples` value, and `vol_path_step.stage(vol_ray_samples, traced)`
+makes the `rays` drain the sample kernel and `traced` the trace (gpu-optix
+and gpu-wavefront). Two compiler fixes on the way: (a) a deferral on a
+staged function finds its call in the continuation the stage split off
+(SSA/Stage.h `call_holder`; the drains run in the order the queues are
+deferred, so the stage must precede the medium-sample deferral the same
+function makes; tests ssa/stage-then-defer, correctness/llvm/
+stage-then-defer); (b) the C header's identifiers go through
+`macro_name`, which now also maps `@`: the staged call's value reaches the
+queue entry under the conversion's anonymous name (`@42`), so its fields
+were `traced_@42_direct_uc`. Deferred: give the staged value the program's
+own name (`rs`) in `split_at_call` -- the continuation's leading argument
+is the conversion's `@N`, the program's name a binding in the block --
+so that the entry's fields read `traced_rs_direct_uc`; a handful of ssa
+goldens of the stage tests change with it.
+
+And a third, a real bug the stage uncovered (black images, every kernel
+launched once per sample): a round queue with ONE buffer cleared its count
+ahead of its pass -- sound for the CPU drain, whose loop is bounded by the
+count read before -- but a GPU drain is launched over the queue's capacity
+and each thread tests its index against the count on the device (SSA/
+Bind.cpp), so the sample kernel found zero. The ray queue had been double-
+buffered until now because the trace drain itself pushed onto it (the
+medium-boundary skip, pbrt's `nextRayQueue` push from the closest-hit
+program); with the trace staged into `traced`, no drain pushes onto the
+queue it reads and the ray queue became one buffer, which no GPU schedule
+had exercised. Fixed in Defer.cpp: a one-buffer round queue clears its
+count in a block after its pass (`<queue>!drained`), and a deferral whose
+producer is that pass is spliced after it (OwnedQueue::drained), so the
+drains that refill the queue for the next round push onto a cleared one;
+the two-buffer case is unchanged (the other buffer, ahead of the pass).
+
+Measured 12:40 (REPORT.md, "The sample stage"): images identical to the
+sweep's; the dielectric kernel 194 -> 71.5 ms on frame542 (pbrt 146) and
+4.3 -> 2.1 on sanmiguel (pbrt 2.8), diffuse and coated-diffuse 13-18%
+less; but the stage's own kernel is 2.2-2.4x pbrt's sample kernel on the
+dense scenes and the totals are 5-19% worse (killeroo 34.1 -> 40.6, head
+34.6 -> 40.7, sanmiguel 129.5 -> 138.8, frame542 711 -> 749), because a
+stage's continuation is a new queue and the ray's whole state (~200 B)
+crosses it once more per bounce, where pbrt writes 40 B of samples beside
+the ray queue it then traces. Deferred, the user's decision: a stage IN
+PLACE -- the rest of the function as a second pass over the same queue,
+the staged call's value in a per-entry side array (pbrt's
+pixelSampleState.samples); in the schedule perhaps the stage onto the
+producer's own queue, `vol_path_step.stage(vol_ray_samples, rays)`. The
+other point, the draws in the trace launch ahead of optixTrace with no
+stage (schedules/gpu-optix-draws-in-trace.bonsai), measured 13:05:
+killeroo 35.8, head 37.9, sanmiguel 129.2, frame542 724 -- between the
+two, the trace launch taking what the material kernels shed (sanmiguel
++10 against -8.8, frame542 +148 against -122). The draws' cost is close
+to conserved across placements; the stage buys parity of structure and
+accounting, not time (REPORT.md). The program and schedule change stays
+UNCOMMITTED pending the user's call, saved as scratch/surface/
+sample-stage.patch; the committed state draws in the material kernels.
+
+Also from the finer stage mapping of 12:50 (pbrt's sample kernel in a row
+of its own): our camera-ray kernel is 1.34x pbrt's `Generate camera rays`
+summed over the sweep, behind on 29 of 30 scenes (head 3.49 against 2.91
+ms) -- a small row (85 ms over 30 scenes) to look at after the stage.
+
+Also noted (the user, 11:10): the ssa golden of a deferral after a stage
+has five loops where three would do. The design runs the producer's rest
+(`out[i] = ...`, the renderer's film write) as a pass over the record after
+the drains (pbrt's UpdateFilm; Defer.h), which is one of the two extra;
+the other is the chained case making a new result array, a pointer array
+and a copy pass where the hits drain's rest is nothing but the store of
+the value into its own slot -- an identity continuation that should hand
+the outer slot's address through (the eta-rule of CPS). To do: the
+chained slot pass-through (four loops); whether the producer's own rest
+folds into the drains when it is a plain store, giving three, is the
+user's call, since it changes the design's stated shape and every defer
+golden.

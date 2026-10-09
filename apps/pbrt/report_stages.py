@@ -51,10 +51,14 @@ STAGES = [
      ["Sample medium interaction"], ""),
     ("medium scattering", r"^_kernel_medium_scatters_blk$",
      ["Sample direct/indirect - Henyey-Greenstein"], ""),
-    ("camera rays + samples", r"^_kernel_p_blk\$VolPath(\$prologue)?$",
-     ["Generate camera rays", "Generate ray samples - *"],
-     "ours draws a bounce's samples where they are used, so pbrt's per-bounce "
-     "sample kernel has no counterpart here and is charged to this row"),
+    ("sample draws (the bounce's dimensions, per ray)", r"^_kernel_rays_blk$",
+     ["Generate ray samples - *"],
+     "ours: the `rays` drain of the sample stage (10-09); a run before it has "
+     "no kernel here, its draws having run inside the material and medium "
+     "kernels, so pbrt's stands alone there"),
+    ("camera rays", r"^_kernel_p_blk\$VolPath(\$prologue)?$",
+     ["Generate camera rays"],
+     "both sides draw the camera's own dimensions here"),
     ("escaped rays", r"^_kernel_escaped_blk$", ["Handle escaped rays"], ""),
     ("emitters hit", r"^_kernel_emissive_blk$",
      ["Handle emitters hit by indirect rays"], ""),
@@ -146,6 +150,15 @@ def take_re(kernels, pattern):
     return total
 
 
+VIEW = "materials with their sample draws (a view, not a stage)"
+VIEW_NOTE = ("the material kernels above summed with the sample draws on each "
+             "side -- pbrt's `Generate ray samples`, and our sample kernel where "
+             "the run has one (until the sample stage of 10-09 the bounce's "
+             "draws ran inside our material kernels) -- the like-for-like sum "
+             "either way; a second view of rows already counted, left out of "
+             "the totals")
+
+
 def split_stages(ours, pbrt, launches=None):
     """Pair the two profiles' kernels into stages.
 
@@ -153,6 +166,8 @@ def split_stages(ours, pbrt, launches=None):
     """
     ours, pbrt, launches = dict(ours), dict(pbrt), launches or {}
     rows = []
+    pbrt_samples = sum(v for k, v in pbrt.items() if k.startswith("Generate ray samples"))
+    ours_samples = sum(v for k, v in ours.items() if k == "_kernel_rays_blk")
     for stage, ours_re, pbrt_names, note in STAGES:
         a, b = take_re(ours, ours_re), take(pbrt, pbrt_names)
         if a or b:
@@ -173,6 +188,11 @@ def split_stages(ours, pbrt, launches=None):
             rows.append(("material: " + name.split("Material")[0] + " (pbrt only)", 0.0, b,
                          PBRT_ONLY_NOTE, detail))
     rows.append((REST, sum(ours.values()), sum(pbrt.values()), REST_NOTE, ""))
+    ours_materials = sum(a for stage, a, _, _, _ in rows if stage.startswith("material: "))
+    pbrt_materials = sum(b for stage, _, b, _, _ in rows if stage.startswith("material: "))
+    if ours_materials or pbrt_materials:
+        rows.append((VIEW, ours_materials + ours_samples, pbrt_materials + pbrt_samples,
+                     VIEW_NOTE, ""))
     return rows
 
 
