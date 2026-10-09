@@ -12076,3 +12076,637 @@ the miss arm, as pbrt's `__raygen__findClosest` does:
 
 The any-hit side (difference 3, the alpha scenes' shadow launches) is a
 separate program and a separate profile, after this.
+
+### Why the OptiX code came out wrong, and the plan to restructure (2026-10-08, 10:50)
+
+The user's question: the directive was OptiX code as close to pbrt's as
+possible -- is the compiler limited? No. The limit was a design choice in
+Lower/Trees.cpp's RT-core lowering, made when the query was first put on
+the hardware: a query is an *expression*, so the lowering made the trace
+a *function call* -- `_rt_traceN(ray) -> option[hit]` -- whose caller
+goes on with the answer. That is the one shape in which the hit's
+consumer is necessarily the raygen: the call returns, so the continuation
+runs where the call was. pbrt's shape is the other one: the trace never
+returns a hit; the hit program is the hit's consumer, and the raygen's
+continuation is the miss path alone (`__raygen__findClosest`,
+`__closesthit__triangle`, gpu/optix/optix.cu). Nothing in the language or
+the scheduling model forbids that shape -- it is exactly what the
+compiler already does for `f.stage(g, q)`: cut `f` at its call to `g`
+and run the rest as the queue's drain (SSA/Stage.h, split_at_call;
+Nielsen's selective CPS transformation, Kelsey's correspondence between
+SSA blocks and continuations). The hardware binding of a query is that
+same cut with the hit program as the "drain": `trace.bind(RTCore)` says
+the rest of the step after `trace` is the closest-hit program's. So the
+restructuring is a stage boundary at the trace, built from the stage and
+defer machinery, and no new directive.
+
+**The transform, HitContinuations (SSA/HitContinuations.{h,cpp}), in
+Convert.cpp after gate_drains and before lower_pushes** -- the drains are
+final there and a push is still one instruction:
+
+1. *The trace survives as a call.* Lower/Trees.cpp marks a nearest-hit
+   query's `_rt_traceN` `held` (Function::Attribute::held, what stage()
+   uses for the same reason), so the frontend inliner leaves the call
+   where the directive will find it; the pass drops `held` when it is
+   done, and the backend folds the function in as before.
+2. *Which call is cut.* For each parfor bound to OptixThread (a raygen
+   over a drained queue), the one call to a nearest-hit `_rt_traceN` in
+   the functions the body reaches, with the conditions pbrt's own shape
+   meets: the region from the drain body's entry (after the count guard)
+   to the call has no memory effect but loads -- no store, atomic, push
+   or call with effects -- and the call's continuation reaches no other
+   trace and no loop back to one. The ray drain's `vol_path_step` is
+   that: `start_pixel_sample_at` (pure), the trace, then the medium push
+   or the routing's pushes, and a return. The probe walk and the
+   transmittance walk trace in a loop and keep the raygen continuation,
+   as pbrt's `__raygen__randomHit` and `__raygen__shadow_Tr` do. A
+   drain that does not meet the conditions keeps the old shape, with the
+   reason under BONSAI_EXPLAIN_HIT_CONTINUATIONS.
+3. *The closest-hit program is the drain body again, specialized on a
+   hit.* Not the continuation alone: pbrt's hit program re-reads the
+   work item at the launch index and recomputes what it needs
+   (`(*params.rayQueue)[rayIndex]`), and so does ours -- the program is a
+   copy of the drain body's region and of the call chain down to the
+   trace (clone_region / clone_function), with the body's index replaced
+   by a new intrinsic `rt_launch_iteration()` (`_begin + optixGetLaunchIndex
+   * _stride`, the very index the raygen computes), the count guard
+   dropped (the raygen passed it), and the `_rt_traceN` call replaced by
+   a call to `_rt_traceN!hit`: the trace function's own hit branch with
+   the `rt_trace` instruction replaced by the handle read from the
+   hardware -- hit true, `rt_sbt_base() + rt_primitive_index()`,
+   `rt_instance_id()`, `rt_hit_t()`, `rt_barycentrics()` (zeros in the
+   `$boxes` flavor) -- and the ray's residue from the payload words as
+   the generic programs read it. Everything before the trace is
+   recomputed in the program, which condition 2 makes sound (loads of
+   memory nothing in the launch writes: the drained queue, the scene);
+   the continuation's loads and pushes then run inside the program, where
+   their latency overlaps the warp's other traversals. The program sets
+   the context's `hit` word so the raygen knows. Two flavors, as the
+   generic programs have: the hardware triangles' and `$boxes`.
+4. *The raygen keeps the miss path.* In the body's own copy of the
+   chain the trace call's continuation becomes `if hit { return }` --
+   the program did the rest -- `else` the old continuation, which the
+   simplifier specializes on `None`. The handle of fix 2 stays as the
+   trace's answer for this and for the memory-form fallback.
+5. *What the program reads.* Its free values are the drain body's
+   captures (the queues' arrays, the scene, the lights, textures...), by
+   name, since the copy keeps the body's names. A specialized program
+   carries `OptixProgram::for_loop` (the raygen's loop) and reads each
+   parameter from the launch parameter of the capture of that name --
+   CodeGen_OptiX maps it by name against the body head's captures,
+   instead of through the trace's operands, which stay the generic
+   programs' reads. The symbol emitted is the generic one
+   (`__closesthit__<query>[$boxes]`, `OptixProgram::symbol`), so the
+   runtime's shader binding table is untouched; add_raygen chooses, per
+   kind and flavor, the program made for this loop over the generic one.
+   One OptiX module per raygen already compiles its own copies of the
+   programs, so the ray drain's module holds the specialized program and
+   the probe drain's the generic.
+6. *Order and interplay.* After gate_drains (the drains are final and
+   gated), before lower_pushes (so the copy's Push instructions lower
+   with everyone's), before the simplify that prunes the specialized
+   copies, before promote_allocas. find_read_slots and
+   rematerialize_past_traces keep working on the raygen, whose post-trace
+   code is now the miss path.
+7. *Tests, each level.* ssa/hit-continuation (the split printed: the
+   program a copy of the body with the launch iteration, the raygen's
+   continuation under `if !hit`), backends/ptx/rtcore-* (the closest-hit
+   programs carry the continuation's stores; the raygen's `_ss_1` is the
+   miss path), correctness/gpu rtcore-alpha and rtcore-tlas (same
+   answers), an error test for a refused split (a store before the
+   trace). Then head, dragon, pavilion, book against pbrt, images
+   checked, and the matrix.
+
+What it does not do, and why: it does not change the any-hit or
+intersection programs (difference 3, separately); it does not carry live
+values in the payload (pbrt does not either -- its rayMedium is the one
+word, and ours comes back out of the entry); it does not touch the
+software traversals or the CPU wavefront.
+
+### Fix 4 built: pbrt's shape, pbrt's answers, and not pbrt's time (10-08, 11:00-11:45)
+
+The pass is in (SSA/HitContinuations.cpp, scratch/wt-fix). On the ray
+drain the chain is body -> `vol_path_step` -> `trace` -> `_rt_trace0`,
+the cut at `vol_path_step`'s call of `trace` (the query function
+tail-calls the trace function), and what comes before the trace passed
+the effect check once it was told the truth about three things: a `Set`
+is a named binding, not an effect; an `Alloc` is a local under
+--no-heap; and a store through a callee's parameter is judged at the
+call site (`start_pixel_sample`'s `mut` state, `sobol_interval_to_index`'s
+`c`), the address followed back through block arguments to the local it
+is (SSA/Definitions.h). BONSAI_EXPLAIN_HIT_CONTINUATIONS=1 prints: "the
+raygen over `rays` hands its continuation after `_rt_trace0` to
+`__closesthit__trace$rays` and `__closesthit__trace$boxes$rays` (2 calls
+deep)"; the shadow drains have no nearest hit to split; the probe and
+transmittance walks are refused for the loop back to the trace, as
+designed. Tests: ssa/hit-continuation (the split printed), the four
+backends/ptx/rtcore goldens (the raygen 38 instructions, the closest-hit
+program carrying the store), correctness/gpu/rtcore-tlas reshaped so its
+first loop splits (passes; its any-hit query moved to a second loop),
+rtcore-alpha the refusal case (its continuation traces again). head's
+image matches pbrt with the continuation in the program.
+
+**Measured on head at 16 spp: `__raygen__rays` 24.6 ms** (three runs
+24.6-26.5) against 20.4 before the split and pbrt's 10.1; probes 34.5
+(37.3). The raygen is 971 PTX instructions now, the closest-hit program
+20,344 SASS instructions, and Nsight on the camera launch (1.02 ms,
+against 0.89 before and pbrt's 0.46) shows the same stall moved with the
+code: 74% of all samples in the closest-hit program, 50% of the launch on
+ONE instruction -- the first use of a byte loaded, right after the
+push's four stores, from a struct a launch parameter points at (`LDC.64
+R2, c[0x3][R99+0x388]`, then `LDG.E.S8 [R2]`, `[R2+8..0x20]`: a queue's
+descriptor, read before the push can address its arrays). Stalls per
+issue: long-scoreboard 90, barrier 96 (was 61), lg-throttle 13.
+Occupancy unchanged at 33%. So the continuation's placement was NOT what
+the driver penalizes: a hit program's loads do not overlap the warp's
+other traversals any better here than the raygen's did.
+
+Ruled out in the same hour: the register cap (`--gpu-max-registers 128`
+off, no `.maxnreg` as pbrt's PTX: rays 25.2 ms, no change); the load
+flavor (pbrt's compiled module, carved from the OptiX cache at
+/var/tmp/OptixCache_ajroot/optix7cache.db and disassembled with
+cuobjdump, has the same `LDG.E.STRONG.SM` / `ST.E.STRONG.SM` on every
+access -- it is how this ptxas spells a plain load, scratch/surface/
+optix-cache); the texture-evaluator calls our module keeps as real
+functions (`eval_float_1`, `eval_float_2`, recursive: zero executed on
+head's camera launch).
+
+**What is left, with numbers.** Per warp with a hit, our closest-hit
+program executes 1,300 instructions, 142 global loads, 70 global
+stores, 95 local-memory ops (spill stores and reloads: 583k STL per
+launch, 18% of stall samples sit on them); pbrt's whole launch is 32M
+warp-instructions against our 30M, so the counts are not the gap -- the
+*dependency depth* of our memory chain per hit is. A static attribution
+of the program's loads to the launch parameters they read through
+(scratch/surface/ptx_loads_by_slot.py over fix4-ch.ptx with
+BONSAI_EXPLAIN_DEVICE's slot table) puts most of them on the queues'
+descriptors -- every push first loads the queue's leaf-array pointers,
+count address and capacity from the descriptor struct in global memory
+(~20 dependent loads before a store can be addressed), one round trip
+per push -- and on the element records behind tagged indices (the
+Primitive record, the shape pool, the mesh, the material: pool after
+pool), where pbrt's record is the SBT entry (constant-cached) and its
+mesh two loads away. The hottest instruction waits on exactly such a
+descriptor read. The next step is therefore not another placement but
+the data path of a hit: (a) queue descriptors into the launch parameters
+(constant memory, as pbrt's `params.*Queue` pointers are, its SOA field
+pointers one hop beyond) so a push addresses its arrays with no global
+load; (b) the element chain shortened for the hardware's hit -- the
+closest-hit program should reach the triangle's vertices and the
+material in two loads as pbrt's does. To attribute dynamically rather
+than statically, the PTX needs line information (`.loc` from the IR's
+provenance) so Nsight's SASS sampling can be read by source line; that
+tooling is worth building before the next round.
+
+### The two hit programs read side by side: what pbrt does that ours does not (10-08, 13:30-14:30)
+
+The previous paragraph's guess is withdrawn: the queue descriptors are
+not the difference. Read directly (scratch/surface/pbrt-ch.ptx against
+fix4-ch.ptx, and the SASS of both carved from the OptiX cache,
+scratch/surface/optix-cache), pbrt's `WorkQueue<T>` is the same object
+as our `Queue_<name>`: an SOA header in global memory, a pointer per
+field, the count beside them, the header's address a launch parameter;
+a push is one atomic on the count, then per field a 64-bit load of the
+array pointer from the header and a store. pbrt's closest-hit does 15
+pushes with 699 pointer loads and 671 stores, ours 14 with 703 and 878
+(the extra stores: a SampledSpectrum is one `st.v4.f32` for pbrt, four
+scalars for us). The load flavors are the same too: `LDG.E.STRONG.SM`
+in both SASS; pbrt's SOA accesses are even generic `LD.E`/`ST.E`. Our
+127 byte loads are 112 reads of the Perlin permutation table plus tag
+bytes, executed seven times per warp on head. None of that is the gap.
+
+What differs, static counts of the closest-hit program:
+
+    pbrt __closesthit__triangle   5,952 SASS   LDL/STL 19/11   LDC 31    optixGetInstanceId: none
+    ours __closesthit__trace     20,344 SASS   LDL/STL 152/139 LDC 188   optixGetInstanceId: every hit
+
+and the hottest instruction (67% of the program's samples, one compare)
+waits on the tag byte of our 40-byte Primitive record, whose index is
+`inst == 0 ? sbt_base + prim : inst - 1`. The instance id is not a
+register: the SASS shows it as a dependent load from the acceleration
+structure's instance node (the 1152-byte-stride record; the constant
+appears twice in our SASS and never in pbrt's). So each hit of ours
+serializes an AS-memory load, then the Primitive record, then the
+shape pool, the mesh and the material's tag byte, then the push. pbrt
+never asks for the instance id or walks a pool: its per-hit data is
+the SBT record (TriangleMesh pointer, Material, Light, MediumInterface,
+alpha texture), addressed by arithmetic on the SBT base, the material's
+tag in the pointer's bits; instancing is per-instance SBT offsets.
+
+The four things pbrt does that we do not, in order of cost:
+
+1. **The SBT record is the element.** One hit-group record per geometry
+   (and per instance, by sbtOffset) holding the layout indices the
+   match arms would bind -- primitive, shape, mesh, material, light,
+   medium interface -- resolved when the SBT is built. The hit reads
+   `rt_sbt_data` + primitive index and nothing else; `rt_instance_id`
+   and the Primitive/Inst pool hops leave the hit path. Our record today
+   holds a base index (bind_elements, Trees.cpp ~3950), so the mechanism
+   exists; the record's contents grow from one index to the chain.
+2. **Dispatch by program and by bits, not by loaded tags.** pbrt's shape
+   kinds are separate programs chosen by the SBT (`__closesthit__triangle`,
+   `__closesthit__quadric`, ...); its ADT dispatch is bit tests on the
+   TaggedPointer. Ours is one program for every shape kind with six
+   `brx.idx` switches on tag bytes read from pools. The `$boxes` flavor
+   generalized to a flavor per shape kind takes the shape match out of
+   the program and cuts its code 3-4x; the tagged-index rule applied to
+   Primitive and Material puts their tags in the index bits.
+3. **The hit program is a leaf: no calls.** Ours keeps 15 calls (the
+   recursive texture evaluators, `eval_float_1` at 22k instructions),
+   and the ABI saves the live state to local memory around them: 139
+   stores at the program's entry, every hit, whether or not a call runs
+   (0.58M warp-level STL on head). pbrt's closest-hit evaluates textures
+   only with BasicTextureEvaluator, inline, and routes anything else to
+   the universal material queue. Match that: the hit path gets the
+   inlinable texture kinds; others are a push.
+4. **The continuation starts at the trace.** The split copies the loop
+   body from its top down to the cut, so the pre-trace prefix runs again
+   in the program; pbrt's findClosest has no prefix, its hit re-reads
+   the work item and nothing more. With (1) most of the prefix is gone;
+   what remains should be rematerialized where used, as the parameter
+   loads already are, so the program reads from the entry only what the
+   continuation needs.
+
+Where we can end up ahead: the entry already stores the minimum where
+pbrt re-reads its whole 30-word RayWorkItem and pushes a 50-word
+MaterialEvalWorkItem; vector stores for spectra; and per-shape-kind
+programs let the triangle program carry no quadric or curve code at all.
+
+### Design: the shader binding table record is the hit's element (10-08, 14:30)
+
+The hit path of every program reads what it needs of the hit from the SBT
+record and the primitive index alone, as pbrt's do (gpu/optix/optix.cu:
+`optixGetSbtDataPointer()` and `optixGetPrimitiveIndex()`, never
+`optixGetInstanceId`). The record's address is arithmetic on the table's
+base; the instance id is a load from the acceleration structure's instance
+node -- the dependent AS-memory read every hit of ours serialized before
+its element record, and the hottest instruction of the surface scenes.
+
+**The record (runtime/bonsai_optix.h, `bonsai_optix_record`, mirrored by
+the IR type `_RTRecord`):** `{ base : u32; holder : u32 }`. `base` is
+where the build input's elements start in the tree's storage, as before.
+`holder` is the index, in the top tree's element array, of the element
+whose field holds the hit tree -- the instance primitive -- or
+`BONSAI_OPTIX_OWN` (all ones) for the tree's own elements. The records are
+laid out per INSTANCE of the scene, input by input, ray type by ray type,
+so that an instance's records carry its holder; `sbtOffset` is the
+instance's first record. `bonsai_optix_instance.id` becomes `holder`;
+OptiX's instanceId is set to the instance's number for debugging and read
+by nothing.
+
+**The intrinsic:** `rt_sbt_record() -> _RTRecord` replaces `rt_sbt_base`;
+`rt_instance_id` is gone. CodeGen_OptiX: `_optix_get_sbt_data_ptr_64` and
+two 32-bit loads.
+
+**Binding an element from a hit (Lower/Trees.cpp bind_elements):**
+
+    rec = rt_sbt_record(); idx = rec.base + rt_primitive_index()
+    own = rec.holder == OWN;  top = own ? idx : rec.holder
+    e0 = stored(tree, top)
+    e1 = own ? <the one-element arm's payload of e0>
+             : stored(<the tree arm's field of e0>, idx)
+
+When the flatten's match has exactly one one-element arm and one tree arm,
+`e1` is a select on `own` over the arms' Unwraps and reads no tag; with
+more arms of a kind it stays a match on `e0`'s tag. The payload record
+`_RTHit_<q> { hit, top, idx, [t, b0, b1] }` carries `top` where it
+carried `inst`, and the raygen's rebinding (the fallback when the
+continuation split is refused) binds `e0 = stored(tree, top)` and `e1` by
+the match.
+
+**The hit-side trace function (Trees.cpp):** beside `_rt_traceN` the
+lowering emits `_rt_traceN!hit` (and `!hit$boxes` when the query carries
+a witness), device-only, same parameters: `rt_set_payload(hit word, 1)`,
+the hit record from the hardware, the elements bound, the option
+answered. The generic `__closesthit__` program writes the same record.
+SSA/HitContinuations then only clones the chain and redirects the trace
+call to the sibling by name (arguments matched by parameter name); the
+instruction surgery that rebuilt the record in SSA goes, and the flavors
+a loop's program comes in are the siblings that exist.
+
+**Driver (apps/pbrt/render_hook.cpp):** the scene's own geometry is
+placed with `holder = OWN`; the instance at top-level index i with
+`holder = i` (it was `id = i + 1`).
+
+Tests: lower/rtcore-{witness,any}, backends/ptx/rtcore-*, ssa/hit-
+continuation re-blessed after reading the diffs (the record read, the
+select on `own`, no instance id); correctness/gpu/rtcore-{tlas,alpha}
+must pass unchanged -- tlas is the instanced case, where `holder` does
+the instance id's work. Then head and the instanced scenes against pbrt.
+
+### The record built and measured: the instance id is gone, the stall moves one hop down (10-08, 15:30-16:00)
+
+Built in scratch/wt-fix as designed above (Trees.cpp bind_elements and the
+`!hit` variants, rt_sbt_record, the runtime's per-instance records,
+render_hook's holder). All 20 RT-core tests pass, the two GPU execution
+tests among them -- rtcore-tlas is the instanced case, where `holder` now
+does the instance id's work -- and head, killeroo-simple and dragon_10
+match pbrt's images. The closest-hit program's intrinsics are now
+exactly pbrt's: `_optix_get_sbt_data_ptr_64`, `_optix_read_primitive_idx`,
+ray tmax, barycentrics, set payload; `_optix_read_instance_id` appears
+nowhere.
+
+    16 spp, ms          pbrt    10-07 raygen    fix 4    fix 4 + record
+    head rays           10.0        20.4         24.6        22.7
+    head probes          6.9        37.3         34.5        34.7
+    killeroo rays       16.7        (26)           --        33.2
+    dragon rays         41.7       140            --        170
+    dragon probes       48.4       236            --        210
+
+So the record buys back a fifth of what fix 4 cost on head and not more,
+and dragon's rays are worse under fix 4 than under the raygen
+continuation. The profile of head's camera launch (ncu-head-record,
+record-sass.csv) says where the time went: 80% of the samples in the
+closest-hit program, 86% of those on one instruction, which is now the
+FIRST USE of the Primitive record -- `STL [R1+0x6c], R20` with R20 the
+record's tag byte, i.e. the loaded element spilled to the frame the
+moment it arrives. The chain before it is the record's two words
+(generic loads off the SBT pointer), the primitive index (which OptiX
+itself loads, `LDG.E.CONSTANT` under a predicate), then the eight loads
+of the 40-byte Primitive record at `prims[base + prim]`. That record is
+per TRIANGLE (one Geometric per triangle, 700 KB for head's 17,674) and
+scattered by the hit, so it is an L2 round trip on every hit, and the
+Shape_Tri record behind it (`Triangle { mesh, tri }`, per triangle again)
+is a second one before the mesh header is reached. pbrt's chain from the
+record is mesh header (per mesh, L1) then the triangle's indices and
+positions; ours has two scattered per-triangle hops in front of the same
+loads, and the first of them is what the program waits on.
+
+What that leaves, in order:
+
+(a) The Shape's Tri arm stored inline in the Geometric rather than behind
+    the Shape_Tri pool: `Triangle { mesh, tri }` is eight bytes, the
+    handle it replaces is eight bytes, and one scattered hop goes. A
+    layout choice the language already has (ADTLayout: an Inline storage
+    with the Tri arm inline and the others tagged_index); whether the
+    schedule block's syntax allows it per arm is to check.
+(b) The per-run-constant part of the element in the record itself, as
+    pbrt's TriangleMeshRecord holds the mesh, material, alpha and medium
+    for the whole mesh: with our runs being one mesh's consecutive
+    triangles, every Geometric field but `shape.tri` and `light` is one
+    value over the run, and the hit could rebuild the element from the
+    record plus `prim` with no element load at all. That needs the
+    compiler to know which fields are uniform over a build input -- a
+    word in the OptixTree layout, which is a new scheduling construct
+    and so the user's call.
+(c) The spill at first use: the element is live until the hits-queue
+    push at the end of the continuation, and the 20k-instruction program
+    keeps it in local memory meanwhile. Shorter continuation (item 4 of
+    the proposal) or the per-shape-kind program (item 2) shrinks the
+    live range and the frame.
+
+### Design: the mesh is the entity, as pbrt's GPU has it (10-08, 16:30)
+
+pbrt's GPU aggregate (gpu/optix/aggregate.cpp) has no per-triangle
+primitive: one `Shape "trianglemesh"` statement is one TriangleMesh, one
+build input, one record `{mesh*, material, alphaTexture, areaLights,
+mediumInterface*}`; material, alpha and medium are the statement's
+graphics state, the only per-triangle attribute is `areaLights[prim]`,
+and everything else per triangle is the mesh's arrays at
+`optixGetPrimitiveIndex()`. A quadric is a build input of one primitive
+whose record is the shape. Our program is pbrt's CPU model -- a Geometric
+per triangle, with the mesh's attributes copied onto each -- and the hit
+program loads that per-triangle record because the program says it is
+there (measured 10-08: 86% of the closest-hit samples on its first use).
+The user's call (10-08, 16:15): the program says what pbrt's GPU says.
+
+**The program (render.bonsai, shapes.bonsai).**
+- `TriangleMesh` gains the GeometricPrimitive attributes: `material,
+  alpha, medium_inside, medium_outside : i32` and `first_light : i32`,
+  the light ordinal of triangle 0 or -1 (a mesh's triangle lights are
+  consecutive ordinals: scene_dump numbers them in one loop per mesh,
+  pbrt builds its area-light list in the same order).
+- `func triangle_geometric(t : Triangle) -> Geometric` builds the
+  Geometric the integrator reads from `meshes[t.mesh]` and `t.tri`:
+  `{Tri(t), first_light < 0 ? -1 : first_light + tri, material, alpha,
+  media}`. Nothing in the integrators changes.
+- `Primitive` gains `Mesh(mesh : u32, tris : set[Triangle])` beside
+  `Geom(g)` (kept for spheres, disks, cylinders, curves, patches: one
+  primitive each, pbrt's QuadricRecord) and `Inst`. `geometry(p)`'s Mesh
+  arm is `map(|t| triangle_geometric(t), tris)` -- the mapped nested set
+  the traversal already supports (`maps_elements`, the volume map
+  derived from the extent; the Mesh arm's extent is the identity, so the
+  map carries the boxes unchanged). transform/untransform/hit_wo gain a
+  Mesh arm that is the Geom arm's.
+- `layout Shape { Tri = inline; Sph, Dsk, Blp, Cyl, Crv = tagged_index }`:
+  a Triangle is eight bytes, the handle it replaces is eight, and a
+  Geometric built in device code needs no pool to write a `Tri` into.
+  The Shape_Tri pool goes. `layout Primitive { Geom, Mesh = inline; Inst
+  = tagged_index }`.
+- Instances stay as they are in this stage: `Inst.blas : set[Geometric]`
+  over per-triangle `geoms` (landscape's meshes are all instanced and
+  keep the old chain until the next stage puts an Object = Mesh | Geom
+  level under Inst, which is OptiX's IAS -> GAS build input -> primitive
+  exactly).
+
+**The trees.** trees/optix.bonsai: `Mesh.tris : OptixTree from tris;`
+with `tCount; tris : array[Triangle, tCount]` in the layout (a mesh's
+run of its triangles, in mesh order: the build input is the mesh's own
+index buffer, as now). trees/bvh.bonsai: `tree[[Triangle]] MeshBVH`,
+`Mesh.tris : MeshBVH from MeshNodes`, nodes in an indirect group as the
+instances' are. The CPU schedules get a tree per mesh under the top
+tree, which is pbrt's GPU structure and not its CPU one (a flat BVH over
+triangles); accepted for now (the user, 10-08), to be measured and, if
+it costs, a layout over a flatten's elements asked for then. pbrt's own
+BVH can no longer be adopted (`loaded.nodes`) since its primitives are
+per triangle; the driver builds.
+
+**The compiler (Lower/Trees.cpp).** take_apart admits a third arm form,
+`map(f, <tree the element holds>)`; bind_elements binds that arm's
+element as `f(stored(tree, idx))`; the hit record and the SBT record are
+unchanged (`holder` = the Mesh primitive, `base` = its run's start). The
+hit's chain is then record -> `prims[holder]` (one Mesh record per mesh,
+L1) -> `meshes[mesh]` (L1) -> `tris[base + prim]` (8 bytes, L2) ->
+indices -> positions; pbrt's is record -> mesh -> indices -> positions.
+The one hop more is the stored triangle identity, which a synthesized
+set (the k-th element is `Triangle{mesh, k}`) would remove -- a layout
+construct, asked for separately if the measurement says so.
+`<query>_anyhit_matters(g : Geometric)` is unchanged; the driver asks it
+of each mesh's synthesized Geometric once.
+
+**The driver (render_hook.cpp).** One Mesh primitive per top-level mesh,
+`tris` the triangles in (mesh, tri) order, the mesh's attributes and
+first_light taken from its triangles' shapes (asserted uniform over the
+mesh); one triangle build input per Mesh primitive, the box input for
+the Geom primitives; a MeshBVH per mesh under the CPU schedules; lights
+built from `Shape_Tri(Triangle{mesh, tri})` directly; the `Shapes`
+helper over the inline Shape struct instead of a 64-bit handle; the
+Shape_Tri pool and its compaction gone.
+
+**Tests.** A mixed-tlas-style test with a mesh arm whose set is a map
+over a stored triangle set, at every level (lower golden, ptx golden,
+GPU and CPU execution), beside the existing rtcore tests, which keep
+passing. Then head, killeroo-simple, dragon_10 against pbrt, and one CPU
+scene for the two-level cost.
+
+**After this (the user, 10-08, 16:40):** a thorough audit of apps/pbrt
+against pbrt's GPU wavefront renderer, matching its behavior wherever
+it deviates from pbrt's CPU path -- the data model (this section is its
+first item), the kernels' order and queue contents, the texture
+evaluator split, the shadow-ray and probe kernels, the sampler and film
+paths -- recorded here as a checklist with each item's status.
+
+### The mesh entity built and measured (10-08, 18:30)
+
+Built as designed in scratch/wt-fix: TriangleMesh carries the attributes
+and `first_light`, `Primitive::Mesh(mesh, tris)` with `geometry`'s arm
+`map(|t| triangle_geometric(t), tris)`, `layout Shape { Tri = inline; ...
+}`, `Mesh.tris : OptixTree from tris` / `MeshBVH from MeshNodes`, the
+driver's mesh primitives, per-mesh trees and per-mesh build inputs whose
+records carry the mesh primitive as `holder`. Compiler changes on the way,
+each a bug the second nested tree exposed: a flatten arm may be a map over
+the held tree (Lower/Trees.cpp take_apart/bind_elements); a scan already
+mapped composes with the query's map and is paired with the outer element
+(build_map, PairWith); a layout's second indirect group was named `group0_`
+in its walkable form (Lower/Layouts.cpp, the walkable chain now keeps every
+group in place); the `let` binding a nested tree's root kept the tree's
+type while its value became the row index (Layouts' LetStmt visitor retypes
+it from field_refs -- the instance arm had been retyped by luck on another
+path). New test correctness/cpp/mesh-tlas (mixed-tlas with a mesh arm, inline,
+mapped), 44 tree and RT-core tests pass, all images match pbrt's.
+
+    16 spp, ms          pbrt    10-07 raygen   fix4+record   + mesh entity
+    head rays           10.0        20.4          22.7           16.2
+    head probes          6.9        37.3          34.7           40.4 (?)
+    killeroo rays       16.7        (26)          33.2           24.8
+    dragon rays         41.7       140           170            106
+    dragon probes       48.4       236           210            167
+    dragon total       211         --            468            359
+
+The hit's chain is now record -> `prims[holder]` (one Mesh record per
+mesh) -> `meshes[mesh]` -> `tris[base + prim]` -> indices -> positions,
+one scattered hop more than pbrt's, and the ray launches moved by a third
+to a half on every scene. Head's probe launch moved the other way (34.7 ->
+40.4; dragon's improved), to be profiled: the probe walk is the one loop
+whose continuation stays in the raygen, so its element rebinding is the
+payload path (`idx`, `top`, then the match), and it is the next thing to
+read. Remaining against pbrt: head 1.6x, killeroo 1.5x on the ray launch;
+dragon 2.5x on rays and 3.5x on probes.
+
+Still to do in this stage: the full test suite; the CPU scalar check of
+killeroo-simple (two-level tree) and its time against the 10-07 CPU
+numbers; then the commit of fix 2, fix 4, the record and the mesh entity
+together as the structure (the user decides).
+
+**The CPU check (18:50-19:30).** killeroo-simple at 4 spp under the scalar
+schedule first came out 144x slower than the unchanged tree (21.9 s against
+152 ms) with the image matching -- not the two-level tree's cost but a
+missing bound: `build_quantifier` (and the filter's `node_bounds`) counted
+the query's annotation parameter (the hit witness `h`) as a tree level the
+walk had not reached, so at the innermost level of a nested tree an
+annotated `any` found `volumes.size() < args.size()` and stated no bound at
+all -- every node of every mesh tree descended, every leaf tested, on every
+shadow ray. The instance arm had the same hole and no scene with instances
+and shadow rays under a CPU schedule had shown it. Fixed at the root (the
+levels are the parameters less `annotation_args`), with the filter's
+guard_leaf no longer emitting a trivially true guard the bound now reaches
+(lower/argmin-over-map unchanged). With it: 159 ms against the 152 ms
+baseline (pbrt 220 ms), the two-level tree's whole cost on this scene, and
+the full suite passes (1466 tests). The GPU numbers above are unaffected
+(the RT cores walk no software tree).
+
+### The whole surface deficit was one bug: the tree's arrays crossed as host pointers (10-08, 20:45-22:15)
+
+The user's direction (20:45): nothing is committed until the generated
+code is understood against pbrt's; where are we going wrong, and what fixes
+it. Read with Nsight Compute on head's probe launch (the worst, 6.5x; ours
+2.3 ms against pbrt's 0.35) and ray launch (1.7x), the kernel's own
+instruction and memory counters, pbrt's launches sampled for the same
+counters (scratch/surface/ncu_launch.sh, the CSVs beside it), and the SASS
+control codes of our module and pbrt's carved from the OptiX cache
+(scratch/surface/sass_ctrl.py decodes the scoreboard a wait names):
+
+- We execute FEWER instructions than pbrt (55M against 86M on the probe
+  launch) and move the same number of L1 requests (8.6M against 8.7M), yet
+  our L2 sits at 6% of peak against pbrt's 50%, and every stall class is
+  12-14x longer per warp. 56% of all warp time sat on ONE instruction, the
+  first use of a 4-byte gather from the per-triangle array (`tris[idx].mesh`),
+  22% on the record's second word plus the continuation-stack reloads, 4% on
+  the record's first word; by Little's law 60-85 microseconds per gather,
+  which no cache, DRAM or bus explains. The decoded scoreboards confirmed
+  the waits were on exactly those loads. The ray launch's closest-hit
+  program showed the same two loads at 43% and 46%.
+- The loads that waited were all from the TREE's arrays (`prims`, `tris`;
+  at the record stage, the per-triangle Primitive record; on 10-07 "the
+  records the routing reads"); loads from the named arrays (`meshes`,
+  `mesh_indices`, `mesh_positions`, the queues, the SBT record) in the same
+  programs, later gathers included, returned in under a microsecond.
+- Ruled out by experiment, each identical to the baseline: queues in device
+  rather than managed memory; the scene arrays' device copies in managed
+  memory; every device allocation carved from one 4 GB pool (page size);
+  pbrt's pipeline options (no optixPipelineSetStackSize, exceptions
+  STACK_OVERFLOW|TRACE_DEPTH, maxTraceDepth 2, ALLOW_ANY); and earlier
+  today the register cap, the load flavors, the continuation's placement.
+  System-memory and peer apertures read zero sectors on both renderers.
+- Then the launch parameters themselves, asked of the driver with
+  cuPointerGetAttribute (scratch/surface/probe-pipeline/dump): `meshes`
+  and `mesh_positions` are device memory; the tree's `geoms`, `tris` and
+  `prims` are "not a CUDA pointer" -- the host heap, the driver's
+  std::vectors. The GPU had been reading the acceleration structure's
+  element arrays over the system-memory path, which this machine's HMM
+  setup allows (correct images, tens of microseconds a gather, outside the
+  L2's sysmem counters). The device copies the driver stages were never
+  read. Driver 615's "2-5x slower closest-hit programs" of 10-05 was this;
+  595 presumably migrated the pages.
+
+**The cause (src/CodeGen/CodeGen_GPU_Host.cpp, the launch marshaling shared
+by CUDA kernels and OptiX raygens).** A capture that is an exported
+function's layout struct is found by its NAME in `exported_buffers`, and
+then crosses as the struct of its arrays' DEVICE pointers built from the
+descriptors (`unwrap_layout(descriptor, layout, device=true)`). The ray,
+probe and shadow drains sit inside the round loop; the loopified recursion
+loads the struct by value ahead of it (`@3688 = load(primitives)`, a copy of
+the HOST-unwrapped struct) and threads it through `rays!round!go`, a block
+entered by a `callc` edge, under the anonymous name -- so the name lookup
+failed, the capture was a plain by-value struct, and the host's copy was
+copied into the parameters. The CUDA kernels that take the tree (the
+software-tree schedules) capture the parameter itself and were right.
+
+**The fix.** `exported_of_value` resolves a capture: through the block
+arguments it is threaded along (SSA/Definitions.h), by name (a parameter, or
+a block argument carrying its name -- the form keeps a threaded value's
+name), a value a block refers to by name from above to the instruction of
+that name, and a `Load` whose address is an exported layout parameter to
+that buffer. Used for both the by-value decision and the slot's value. A
+BONSAI_EXPLAIN_DEVICE print per launch now says, for each capture, what it
+is defined as and whether it is an exported buffer. Verified by the pointer
+dump (all device) and by time.
+
+**head at 16 spp, kernel ms (fix in the scratch worktree, uncommitted):**
+
+    stage                     10-07   18:30 (mesh entity)   22:10 (fix)   pbrt
+    __raygen__rays             20.4        16.2                 8.1       10.1
+    __raygen__probes           37.3        40.4                 5.6        6.9
+    __raygen__shadow            1.0         1.05                1.05       2.2
+    hits_blk$Subsurface         9.0         9.0                 8.5        5.3
+    total kernel time          78          75                  34.0       45.6
+
+Both trace launches are faster than pbrt's now; the subsurface material
+kernel is the one stage of head still behind (1.6x). Everything since fix 1
+stays uncommitted together (fix 2, fix 4, the record, the mesh entity, this)
+until the images are re-checked (compare-fixed, running) and the GPU tests
+pass; a test for this at the LLVM level (a launch capturing a loaded layout
+struct) is owed, and a runtime validation that every pointer slot of a
+launch is device memory would have caught this class on day one -- it
+needs the compiler to pass the launch a mask of its pointer slots.
+
+**The driver against pbrt's OptiX setup (the user, 22:00).** Read side by
+side (runtime/bonsai_optix.h, render_hook.cpp against gpu/optix/
+aggregate.cpp): the same structure -- one GAS over all top-level triangle
+meshes as one build input each, one over the custom primitives, one GAS
+per instance definition placed once per instance, an IAS over them with a
+per-instance SBT offset; the same flags (PREFER_FAST_TRACE |
+ALLOW_COMPACTION, compacted; DISABLE_ANYHIT on inputs without an alpha
+texture; numSbtRecords 1; instance flags NONE, mask 255; FLOAT3 vertices,
+UNSIGNED_INT3 indices). pbrt builds against OptiX 7.7, we against 9.1; the
+7.7 -> 9.1 difference in build, geometry, instance, ray and pipeline flags
+is nothing but curve primitive types (and the removed DEBUG exception
+flag). The two things 9.1 has that 7.7 does not and that could matter
+later: optixTraverse/optixInvoke with hit objects (shader execution
+reordering, the SER memory) and cluster acceleration structures
+(optixClusterAccelBuild, for very large meshes). Neither is needed for
+parity; both are candidates once the stages still behind are known.
+
+The per-stage, per-scene progress toward beating pbrt is kept from here on
+in apps/pbrt/REPORT.md (the user, 22:00), and the benchmarking that feeds it
+runs in windows agreed with the other sessions on the machine.

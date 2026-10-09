@@ -10,6 +10,8 @@
 #include <llvm/IR/GlobalVariable.h>
 
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <set>
 
 namespace bonsai {
@@ -365,6 +367,17 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     }
     const size_t n = arg_exprs.size();
 
+    // The captures as the launching block refers to them, for following one
+    // that is a threaded argument back to where it came from
+    // (SSA/Definitions.h; CodeGen_LLVM::allocation_of does the same for an
+    // address computed in the function).
+    ir::ssa::Definitions defs(loop.func, /*lenient=*/true);
+    std::string launch_block;
+    for (const auto &block : loop.func.blocks) {
+        if (std::get_if<Terminator::ParFor>(&block->terminator.data) == &p) {
+            launch_block = block->name;
+        }
+    }
     // Which captures travel as values. A pointer to a struct the kernel
     // only reads -- the camera, a sampler, a layout struct of device
     // pointers -- is the struct itself as a kernel parameter, which costs
@@ -378,21 +391,130 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         return std::get_if<ir::ssa::Argument>(
             &p.body.args[slot_arg[i] - 1]->data);
     };
+    // The exported function's buffer a capture is: the parameter the
+    // capture is, or is threaded from through the block arguments on the
+    // way to the launching block. A launch deep in the loop structure a
+    // schedule made -- a queue's drain under its gates -- is handed the
+    // function's tree under a block argument's name, and the exported
+    // buffers are kept by the parameter's; found by name alone, the tree
+    // would cross as the host's struct, its arrays' HOST addresses, which
+    // the device then reads over the bus (found 2026-10-08: every element
+    // load of the ray and probe launches, tens of microseconds each).
+    //
+    // Two steps the definitions do not take on their own. A block may refer
+    // by name to a value a block above it defined (the lenient form answers
+    // "defined here" for such a name): that name's instruction is looked
+    // up. And the tree may have been LOADED -- `@n = load(primitives)`, the
+    // struct by value, hoisted ahead of the round loop -- so a load whose
+    // address is the exported layout parameter is that buffer: the struct
+    // the kernel gets is then built from the descriptors at the launch,
+    // not copied from the host's.
+    std::map<std::string, std::shared_ptr<Instruction>> instruction_named;
+    std::map<std::string, const Block *> block_named;
+    for (const auto &block : loop.func.blocks) {
+        block_named[block->name] = block.get();
+        for (const auto &instr : block->instrs) {
+            if (!instr->name.empty()) {
+                instruction_named[instr->name] = instr;
+            }
+        }
+    }
+    const std::function<const CodeGen_LLVM::ExportedBuffer *(
+        const std::string &, const std::shared_ptr<Value> &, int)>
+        exported_of_value = [&](const std::string &block,
+                                const std::shared_ptr<Value> &v,
+                                int depth) -> const CodeGen_LLVM::ExportedBuffer * {
+        if (depth > 8) {
+            return nullptr;
+        }
+        const ir::ssa::Definition d = defs.of(block, v);
+        if (const auto *a = std::get_if<ir::ssa::Argument>(&d.value->data)) {
+            // A parameter, or a block argument carrying one under its own
+            // name (the form keeps a threaded value's name): names are the
+            // function's, so the name says which.
+            const auto found = exported_buffers.find(a->name);
+            if (found != exported_buffers.end()) {
+                return &found->second;
+            }
+            // Reached by name from a block above (the lenient form's "defined
+            // here"): the instruction of that name, followed in turn.
+            const auto bfound = block_named.find(d.block);
+            const Block *b = bfound != block_named.end() ? bfound->second : nullptr;
+            const bool is_argument_of_block =
+                b != nullptr && std::any_of(b->args.begin(), b->args.end(),
+                                            [&](const ir::ssa::Argument &arg) {
+                                                return arg.name == a->name;
+                                            });
+            if (!is_argument_of_block) {
+                const auto ifound = instruction_named.find(a->name);
+                if (ifound != instruction_named.end()) {
+                    const std::shared_ptr<Value> as_value =
+                        std::make_shared<Value>(ifound->second);
+                    return exported_of_value(d.block, as_value, depth + 1);
+                }
+            }
+            return nullptr;
+        }
+        if (const auto *instr =
+                std::get_if<std::shared_ptr<Instruction>>(&d.value->data)) {
+            if ((*instr)->op == Instruction::Op::Load && !(*instr)->operands.empty()) {
+                const CodeGen_LLVM::ExportedBuffer *loaded =
+                    exported_of_value(d.block, (*instr)->operands[0], depth + 1);
+                // Only a layout struct is a buffer when loaded: the load of
+                // an array's element is a value of its own.
+                return loaded != nullptr && loaded->layout != nullptr ? loaded : nullptr;
+            }
+        }
+        return nullptr;
+    };
+    const auto exported_of_capture =
+        [&](size_t i) -> const CodeGen_LLVM::ExportedBuffer * {
+        if (i < 2) {
+            return nullptr;
+        }
+        return exported_of_value(launch_block, p.body.args[slot_arg[i] - 1], 0);
+    };
     std::vector<bool> by_value(n - 2, false);
     for (size_t i = 2; i < n; i++) {
         const Ptr_t *ptr_t = arg_types[i].as<Ptr_t>();
         if (ptr_t == nullptr || !ptr_t->etype.is<Struct_t>()) {
             continue;
         }
-        const ir::ssa::Argument *argument = argument_of(i);
-        if (argument != nullptr &&
-            exported_buffers.count(argument->name) != 0 &&
-            exported_buffers.at(argument->name).layout != nullptr) {
+        const CodeGen_LLVM::ExportedBuffer *exported = exported_of_capture(i);
+        if (exported != nullptr && exported->layout != nullptr) {
             by_value[i - 2] = true;
             continue;
         }
+        const ir::ssa::Argument *argument = argument_of(i);
         by_value[i - 2] = argument != nullptr &&
                           !capture_written(*program, loop.func, p, argument->name);
+    }
+    // BONSAI_EXPLAIN_DEVICE: where each capture comes from, as the launching
+    // block has it -- the function's parameter it is threaded from and the
+    // exported buffer that is, or the instruction or merge it is instead.
+    if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
+        std::cerr << "launch of body `" << p.body.name << "` from block `"
+                  << launch_block << "`: " << (n - 2) << " captures\n";
+        for (size_t i = 2; i < n; i++) {
+            const std::shared_ptr<Value> &v = p.body.args[slot_arg[i] - 1];
+            const ir::ssa::Definition d = defs.of(launch_block, v);
+            std::cerr << "  " << arg_names[i] << ": " << arg_types[i]
+                      << (by_value[i - 2] ? ", by value" : "") << "; defined as ";
+            if (const auto *a = std::get_if<ir::ssa::Argument>(&d.value->data)) {
+                std::cerr << "argument `" << a->name << "` of block `" << d.block << "`";
+            } else if (const auto *instr =
+                           std::get_if<std::shared_ptr<Instruction>>(&d.value->data)) {
+                std::cerr << "instruction `" << (*instr)->name << "` in block `"
+                          << d.block << "`";
+            } else {
+                std::cerr << "a constant";
+            }
+            if (const CodeGen_LLVM::ExportedBuffer *e = exported_of_capture(i)) {
+                std::cerr << "; the exported buffer"
+                          << (e->layout != nullptr ? " (a layout struct)" : "");
+            }
+            std::cerr << "\n";
+        }
     }
     const CodeGen_PTX::Kernel kernel =
         optix ? raygen_module->add_raygen(loop.func, p, by_value)
@@ -461,15 +583,12 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         if (i < 2) {
             return nullptr;
         }
-        const std::shared_ptr<Value> &v = p.body.args[slot_arg[i] - 1];
-        if (const auto *a = std::get_if<ir::ssa::Argument>(&v->data)) {
-            const auto found = exported_buffers.find(a->name);
-            if (found != exported_buffers.end()) {
-                return &found->second;
-            }
+        if (const CodeGen_LLVM::ExportedBuffer *found = exported_of_capture(i)) {
+            return found;
         }
         // Part of such an array -- an address computed from it -- would
         // reach the device as a pointer into memory that is not there.
+        const std::shared_ptr<Value> &v = p.body.args[slot_arg[i] - 1];
         const std::shared_ptr<Value> *base = &v;
         while (const auto *instr =
                    std::get_if<std::shared_ptr<Instruction>>(&(*base)->data)) {
@@ -481,7 +600,11 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
             }
             base = &(*instr)->operands[0];
         }
-        if (const auto *a = std::get_if<ir::ssa::Argument>(&(*base)->data)) {
+        const ir::ssa::Argument *a = defs.parameter(launch_block, *base);
+        if (a == nullptr) {
+            a = std::get_if<ir::ssa::Argument>(&(*base)->data);
+        }
+        if (a != nullptr) {
             internal_assert(exported_buffers.find(a->name) ==
                             exported_buffers.end())
                 << "[unimplemented] the loop bound to the GPU reads `"
@@ -502,16 +625,6 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     std::vector<Copy> copies;
     std::vector<std::pair<size_t, const CodeGen_LLVM::ExportedBuffer *>>
         descriptor_params;
-    // The captures as the launching block refers to them, for following one
-    // that is a threaded argument back to the address it was computed from
-    // (CodeGen_LLVM::allocation_of).
-    ir::ssa::Definitions defs(loop.func, /*lenient=*/true);
-    std::string launch_block;
-    for (const auto &block : loop.func.blocks) {
-        if (std::get_if<Terminator::ParFor>(&block->terminator.data) == &p) {
-            launch_block = block->name;
-        }
-    }
     // The slot values: computed first, since building a layout's device
     // struct asks for its buffers on the device.
     std::vector<llvm::Value *> slot_values(n, nullptr);
