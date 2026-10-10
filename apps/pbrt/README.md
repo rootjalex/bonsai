@@ -39,14 +39,16 @@ before it.
   against a half-quantized one loses its last digit of agreement and, on
   an emissive medium, counts every pixel lit by 1e-20 here and rounded to
   black there as a pixel lit on one side only.
-- `gpu_clock.sh`: sourced by `gpu_compare.sh` and `heatmap.sh`; every
-  timed GPU run needs the GPU's clocks locked (the SM clock at 2400 MHz by
-  default, `--clock N` or `BONSAI_GPU_CLOCK=N` for another, the memory
-  clock at its maximum), since an unlocked GeForce boosts by load and a
-  speedup moves with it. Locking takes root (`sudo nvidia-smi -lgc
-  2400,2400 && sudo nvidia-smi -lmc 14001,14001`; `-rgc`/`-rmc` release),
-  so the scripts check the clock and refuse to start while it is not
-  locked, printing those commands; the table's last line says the lock.
+- `gpu_clock.sh`: sourced by `gpu_compare.sh` and `heatmap.sh`; reads the
+  idle GPU's clocks before a run and the table's last line says whether
+  they were locked or not. An unlocked GeForce boosts by load and a
+  speedup moves with it, so timing at a locked clock is the sound way
+  (`--clock N`, or `BONSAI_GPU_CLOCK_REQUIRED=1` for the default 2400 MHz
+  SM with the memory clock at its maximum, refuse to run without the
+  lock); the default since 2026-10-10 records the clock and runs either
+  way, since the card is shared with another project's benchmarks that
+  must not run locked. Locking takes root: `sudo nvidia-smi -lgc 2400,2400
+  && sudo nvidia-smi -lmc 14001,14001`; `-rgc`/`-rmc` release.
 - `gpu_compare.sh [--spp N] [--repeats N] [--schedules "..."] [--scenes "..."]
   [--out DIR] [--resume] [--clock MHZ]`: the GPU table. pbrt `--gpu` and every GPU
   schedule on every scene, no number ever one run's: pbrt's time is the

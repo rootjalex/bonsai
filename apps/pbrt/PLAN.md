@@ -12982,11 +12982,22 @@ The 0.3 s of host time per kroken render and its trace launch's growth
 cuMemPrefetchAsync 1097 times a render, 267 us each (293 ms) -- the
 driver's prefetch of every queue array, managed memory, before the
 kernels -- and a memory sampler put the card at 32.2 of 32.6 GB during the
-render. The scene dump is 21.2 GB of geometry (2.6 M shapes, ten
-instances holding 285 M triangles, a primitive record per triangle; pbrt
-reports 348 MiB of vertex and index buffers), and with 22 material queues
-of 302 B an entry (7.7 GiB of queue arrays at the band's capacity) the
-managed memory oversubscribes and thrashes. With eleven it fit. The sweep
+render. The scene is pbrt's exactly -- 287.9 M triangles in 248 meshes
+by pbrt's own count (247.7 M from its displacement tessellation at load),
+the dump's 2.6 M shapes plus ten instances holding 285.3 M -- but here
+every triangle is a primitive with a 32-byte Geometric record (shape,
+material, light, alpha, two media) and an 8-byte triangle record, 11.5 GB
+over the 288 M, where pbrt's GPU keeps one material-and-media record per
+mesh in the shader binding table. Measured with nvidia-smi during a
+render: 32.2 of 32.6 GB on our side (the card full), 27.2 GB on pbrt's.
+(The 348 MiB I first quoted from pbrt's statistics is one bookkeeping
+category, "Redundant vertex and index buffers", not its footprint.) With
+22 material queues of 302 B an entry (7.7 GiB of queue arrays at the
+band's capacity) the managed memory oversubscribes and thrashes; with
+eleven, and the mesh-entity series in the sweep's binaries, it fit. The
+mesh entity is the per-mesh record; the dump on disk (21 GB, 20 s to
+read) still writes a Placement per triangle and should write it per mesh
+as pbrt's TriangleMesh carries it -- the follow-up once the series is in. The sweep
 of 10-09 morning (compare-out-heatmap3) was run from scratch/wt-fix with
 the uncommitted mesh-entity series, which removes the per-triangle
 records and moved the ray launches by a third to a half -- so every

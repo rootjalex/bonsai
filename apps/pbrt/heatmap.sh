@@ -9,9 +9,10 @@
 #                          [--out DIR] [--repeats N] [--title TEXT]
 #                          [--clock MHZ]
 #
-# The GPU's clocks have to be locked for the whole run (gpu_clock.sh;
-# `--clock`, 2400 MHz SM by default): the run refuses to start while they
-# are not, and says how to lock them. The lock is written to heatmap.log.
+# The GPU's clock is read before the run and written to heatmap.log
+# (gpu_clock.sh): locked at `--clock N`, which requires the lock, or
+# unlocked, the default for now (the card is shared with another project's
+# benchmarks that must not run locked; the user, 2026-10-10).
 #
 # Defaults: every scene known to convert (the 29 of the 2026-10-04 sweep
 # and the three verification additions), sample counts 16 64 128, repeats 3
@@ -58,7 +59,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
-    --clock) export BONSAI_GPU_CLOCK="$2"; shift 2 ;;
+    --clock) export BONSAI_GPU_CLOCK="$2" BONSAI_GPU_CLOCK_REQUIRED=1; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done

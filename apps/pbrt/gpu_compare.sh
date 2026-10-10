@@ -29,11 +29,12 @@
 # pbrt's as compare.sh checks it, converted to a PNG, and the table says
 # where each is.
 #
-# The GPU's clocks have to be locked for the run (gpu_clock.sh: `--clock N`
-# or BONSAI_GPU_CLOCK, 2400 MHz SM by default, the memory clock at its
-# maximum); the run refuses to start while they are not, printing the
-# `nvidia-smi -lgc` commands, which take root. Every number of a table is
-# at that clock, and the table's last line says which.
+# The GPU's clock is read before the run (gpu_clock.sh) and the table's
+# last line says whether it was locked (`--clock N` asks for a lock at N
+# MHz and refuses to run without it; BONSAI_GPU_CLOCK_REQUIRED=1 does the
+# same for the default 2400) or unlocked, which is the default for now:
+# the card is shared with another project's benchmarks that must not run
+# locked (the user, 2026-10-10). Locking takes root (`nvidia-smi -lgc`).
 #
 # The machine is checked idle before every timed run, and watched during it:
 # another process on the GPU, or someone else's process at the top of the
@@ -68,7 +69,7 @@ while [[ $# -gt 0 ]]; do
     --resume) RESUME=1; shift ;;
     --schedules) SCHEDULES="$2"; shift 2 ;;
     --scenes) SCENES="$2"; shift 2 ;;
-    --clock) export BONSAI_GPU_CLOCK="$2"; shift 2 ;;
+    --clock) export BONSAI_GPU_CLOCK="$2" BONSAI_GPU_CLOCK_REQUIRED=1; shift 2 ;;
     -h|--help) sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 1 ;;
   esac

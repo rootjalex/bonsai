@@ -34,13 +34,20 @@ binaries carried the uncommitted mesh-entity series of 10-08
 (scratch/wt-fix), which the committed tree does not, and that series
 moved the ray launches by a third to a half and takes the per-triangle
 primitive records out of the scene. Kroken's loss is the series' absence
-before anything else: its scene carries 21 GB of geometry here (pbrt's
-vertex and index buffers are 348 MiB), and with the material queues
-doubled the card's 32 GB fill (32.2 of 32.6 GB measured) and the managed
-queue memory thrashes ("pbrt's structure, matched" below). Landing the
-series is the user's call, and the next sweep should run with it. The
-next sweep also runs with the GPU clock locked, which every GPU number
-from 10-10 on does; the numbers below are the unlocked morning's.
+before anything else. The scene is the same on both sides -- 287.9
+million triangles in 248 meshes by pbrt's own count, 247.7 million of
+them made by pbrt's displacement tessellation at load, and the dump holds
+the same 287.9 million -- but here every triangle carries a primitive
+record of its own (material, light, alpha, the two media and the shape:
+32 bytes, 9 GB in all, plus 8 bytes of triangle record, 2.3 GB) where
+pbrt keeps one such record per mesh in its hit records, so the scene
+takes about 38 GB of device memory here against pbrt's 27.2 GB (both
+measured with nvidia-smi during a render), the card's 32.6 GB fill, and
+the managed queue memory thrashes ("pbrt's structure, matched" below).
+The mesh-entity series is exactly the per-mesh record; it lands next, and
+the sweep runs with it. The GPU clock stays unlocked for now (the user,
+10-10: another project's benchmarks share the card); the scripts record
+what it read.
 
 **Every cell of the sweep is faster than pbrt --gpu.** The 30-scene, three-
 sample-count sweep run after the fix below (`heatmap.sh`, 10-09 07:00 to
@@ -439,21 +446,32 @@ launches above compare a tree without the series against one with it,
 and the draws' share of the difference is not known from these numbers;
 it will be once the series is in.
 
-Kroken's loss was traced (00:20-00:40, nsys and a memory sampler on one
-render): its scene dump carries 21.2 GB of geometry here -- 2.6 million
-shapes plus ten instances of objects holding 285 million triangles, each
-with a primitive record of its own -- where pbrt reports 348 MiB of vertex
-and index buffers; with the material queues doubled (22 queues of 302
-bytes an entry at the band's capacity, 7.7 GiB of queue arrays in all) the
-card's memory peaks at 32.2 of its 32.6 GB, and the queue arrays, which
-are managed memory, thrash: the per-render prefetch of the 1097 queue
-arrays takes 293 ms of host time (cuMemPrefetchAsync, 267 us each on
-average) and the launches page-fault -- the 0.3 s of kroken's wall time
-that its kernels do not account for (1.20 s against 0.90), and some part of
-its trace launch's growth. With the sweep's eleven material queues the
-scene fit. Watercolor, with 5 GB of geometry, does not thrash (47 ms of
-host time per render). The mesh entity removes the per-triangle records,
-which is most of kroken's 21 GB.
+Kroken's loss was traced (00:20-01:00, nsys and a memory sampler on one
+render of each side). The scene is the same on both sides: pbrt's own
+statistics count 287.9 million triangles in 248 meshes, 247.7 million of
+them made by its displacement tessellation at load, and the dump holds
+2.6 million shapes plus ten instances of objects holding 285.3 million --
+the same 287.9 million. What differs is the record per triangle. Here each
+triangle is a primitive of its own: a Geometric record (the shape's
+tagged index, material, light, alpha, two media; 32 bytes) and a triangle
+record (mesh and index, 8 bytes), 11.5 GB over the 288 million, where
+pbrt's GPU keeps one material-and-media record per mesh in the shader
+binding table and lets the hardware name the triangle. So the scene takes
+about 38 GB of device memory here against pbrt's 27.2 GB (nvidia-smi's
+peak during a render: 32.2 of 32.6 GB on our side, which is the card
+full, 27.2 on pbrt's), and with the material queues doubled (22 queues of
+302 bytes an entry at the band's capacity, 7.7 GiB of queue arrays) the
+managed memory oversubscribes and thrashes: the per-render prefetch of
+the 1097 queue arrays takes 293 ms of host time (cuMemPrefetchAsync, 267
+us each on average) and the launches page-fault -- the 0.3 s of kroken's
+wall time that its kernels do not account for (1.20 s against 0.90), and
+some part of its trace launch's growth. With the sweep's eleven material
+queues, and the mesh-entity series in those binaries, the scene fit.
+Watercolor, with 5 GB of geometry, does not thrash (47 ms of host time per
+render). The mesh entity is the per-mesh record, as pbrt has it: it
+removes the 11.5 GB. (The dump file on disk, 21 GB, still writes the
+placement per triangle; writing it per mesh, as pbrt's TriangleMesh
+carries it, is the follow-up once the series is in.)
 
 Two smaller findings from the same trace. Each round's host work is 54
 device writes of a queue's count (cuMemsetD32Async, 0.9 us each) plus the
