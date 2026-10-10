@@ -53,11 +53,12 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
     continue
   }
   q_queue.count = 0u
-  parfor q_rest in [0:8:1] {
-    let @25 = q_result[q_rest] in
-    let @27 = q_rest_@10[q_rest] in
-    let @8 = @25 in
-    let @10 = @27 in
+  let @24 = cast<i32>(@6) in
+  parfor q_rest in [0:@24:1] {
+    let @26 = q_result[q_rest] in
+    let @28 = q_rest_@10[q_rest] in
+    let @8 = @26 in
+    let @10 = @28 in
     @10 = @8
     continue
   }

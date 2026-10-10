@@ -2483,8 +2483,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // when that loop is another queue's drain, inside its rounds -- where
     // the drained queue's storage was made, before the rounds.
     shared_ptr<Block> alloc_point = point;
-    // Whether the producer loop is another queue's drain, and if so the
-    // block after that queue's rounds (Function::OwnedQueue::after).
+    // Whether the producer loop is another queue's drain, and if so that
+    // drain's count: the record is sized by the drained queue's capacity,
+    // but the pass over it after the drain (below) may only run the slots
+    // the drain's iterations wrote -- its count, read ahead of its pass --
+    // since a slot past the count holds whatever the allocation held.
+    bool producer_is_drain = false;
+    shared_ptr<Value> producer_drain_count;
     {
         const auto *producer_loop =
             producer_loop_block
@@ -2494,6 +2499,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             producer_loop ? O->queue_sizes.find(producer_loop->index)
                           : O->queue_sizes.end();
         if (drained != O->queue_sizes.end()) {
+            producer_is_drain = true;
+            producer_drain_count = producer_loop->end;
             // The producer loop is another queue's drain (a drain's parfor
             // is named after its queue): a round's count is known only at
             // run time, but each entry it runs pushes at most one here, so
@@ -4671,11 +4678,23 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             pass_exit->terminator.data = std::move(exit->terminator.data);
             exit->terminator.data = Terminator::Jump{pass->name};
             pass->preds = {exit};
-            // One iteration per record: the producer's count, in its type.
+            // One iteration per record: the producer's count, in its type --
+            // for a producer that is another queue's drain, that drain's
+            // count rather than the capacity the record was sized by, since
+            // only the slots its iterations wrote have a rest to run
+            // (producer_drain_count, above).
             const Type itype = count->get_type();
+            shared_ptr<Value> rest_count = count;
+            if (producer_is_drain && producers.size() == 1) {
+                rest_count = producer_drain_count;
+                if (!rest_count->get_type().same_as(itype)) {
+                    rest_count = pass->make_instruction(itype, Instruction::Op::Cast,
+                                                        {reach(pass, rest_count)});
+                }
+            }
             pass->terminator.data = Terminator::ParFor{rest_name,
                                                        index_constant(itype, 0),
-                                                       reach(pass, count),
+                                                       reach(pass, rest_count),
                                                        index_constant(itype, 1),
                                                        Terminator::Jump{run->name},
                                                        Terminator::Jump{pass_exit->name}};
