@@ -6873,3 +6873,36 @@ ones and the two largest, where the gang's lanes thin out soonest and
 Embree's single rays take over: the shape the profile predicted, with
 the two code-quality costs paid. What remains is the switch itself,
 which is the user's question of specialize.
+
+### The hybrid switch, tried and dropped (2026-10-09 evening)
+
+The user kept this language's specialize notation for it, and the whole
+hybrid was built and measured in one evening: `occluded.specialize(count(
+i_lane) > 14)`, a specialize on a gang's state, tested at every call of
+the gang copies of occluded's recursion (SSA/Specialize.h,
+specialize_gang: the gang copy a dispatcher on the popcount of its mask,
+the arms `occluded[True]` and `occluded[False]` copies of the gang's
+traversal as it stood, each re-testing at its own entry, so that a
+loopified arm decides at every pop, where Embree decides); and a second
+directive, `occluded[False].serialize(i_lane)`, ispc's foreach_active,
+which ran the False arm's lanes one at a time through a scalar copy of the
+traversal scheduled as embree.bonsai's occluded. Correct on every ray of
+every mesh; slower than the pure packet everywhere but dragon: geomean
+0.83 against the pure packet's 1.03 over the twelve meshes, head 0.80
+against 1.16, landscape 0.94 against 1.47, dragon 0.89 against 0.80. The
+profile on head said why: our fallback visited fewer nodes than Embree's
+single-ray fallback (4.9M against 6.2M) and still cost 1.14x its
+instructions, because an entry below the switch does about two scalar
+node visits and each lane paid a full ray setup per entry (the inverse
+direction with its Newton step, the signs, the origin products), which
+Embree's occluded1 reads out of a TravRayK precomputed once per packet.
+LICM cannot hoist it, since the lane varies at every pop, and LLVM's
+vector passes scalarize rather than widen a single-lane extract; the fix
+would have been a memoizing rewrite of our own (a lane of a pure function
+of the gang's arguments is that lane of the gang-wide function) behind an
+SSA-level inline of the scalar copy. The user's ruling: a bad rabbit
+hole. The serialize directive, the hybrid schedule
+(packet16-hybrid-anyhit) and its logs were removed; the specialize on a
+count stays, with its tests (ssa/specialize-count, error/specialize-count-
+no-gang), as a schedule point over a gang's occupancy with both arms gangs.
+The any-hit packet cell of the morning (1.03) stands as the result.
