@@ -1,0 +1,241 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/placed-tlas
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_placed_tlas.cpp -I. -o $<>/main_placed_tlas.o, clang++ $<>/main_placed_tlas.o $<>/placed-tlas.o -o $<>/placed-tlas, ./$<>/placed-tlas, rm $<>/placed-tlas, rm $<>/main_placed_tlas.o, rm $<>/placed-tlas.h, rm $<>/placed-tlas.o
+
+// mesh-tlas.bonsai's scene with a fourth kind of primitive: a PLACED mesh,
+// an instance's placement of one mesh of its object -- pbrt's GPU reaches
+// an instanced mesh through the OptixInstance that places its definition's
+// structure, and the record it reaches is the mesh's (gpu/optix/
+// aggregate.cpp) -- as apps/pbrt renders instanced meshes with no record
+// per triangle. The arm holds the instance's transform, the mesh and the
+// mesh's set of triangles, whose tree is the mesh's own and shared by
+// every placement of it (`Placed.tris : MeshBVH from MeshNodes`, the
+// same group as `Mesh.tris`); the flatten's arm is the Mesh arm's map,
+// and transform, untransform and the placing of a hit are the Inst arm's.
+// Object A is two meshes of one triangle each, placed twice; object B
+// stays an instance over a tree; the standalone mesh and triangle are
+// mesh-tlas's. The same eight rays: in lane z = +1 the placed mesh at
+// x = 0 has to win over the standalone mesh's triangle at x = 8, in lane
+// z = -1 to lose to it, and a hit through a placed mesh names its mesh.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Transform {
+    m0, m1, m2, m3 : vec3f;
+    i0, i1, i2, i3 : vec3f;
+}
+
+func apply(t : Transform, p : vec3f) -> vec3f =
+    t.m0 * p.x + t.m1 * p.y + t.m2 * p.z + t.m3;
+
+func transform(t : Transform, b : AABB) -> AABB {
+    c0 = apply(t, vec3f{b.low.x, b.low.y, b.low.z});
+    c1 = apply(t, vec3f{b.high.x, b.low.y, b.low.z});
+    c2 = apply(t, vec3f{b.low.x, b.high.y, b.low.z});
+    c3 = apply(t, vec3f{b.high.x, b.high.y, b.low.z});
+    c4 = apply(t, vec3f{b.low.x, b.low.y, b.high.z});
+    c5 = apply(t, vec3f{b.high.x, b.low.y, b.high.z});
+    c6 = apply(t, vec3f{b.low.x, b.high.y, b.high.z});
+    c7 = apply(t, vec3f{b.high.x, b.high.y, b.high.z});
+    lo = min(min(min(c0, c1), min(c2, c3)), min(min(c4, c5), min(c6, c7)));
+    hi = max(max(max(c0, c1), max(c2, c3)), max(max(c4, c5), max(c6, c7)));
+    out : AABB = {lo, hi};
+    return out;
+}
+
+func untransform(t : Transform, r : Ray) -> Ray {
+    o = t.i0 * r.o.x + t.i1 * r.o.y + t.i2 * r.o.z + t.i3;
+    d = t.i0 * r.d.x + t.i1 * r.d.y + t.i2 * r.d.z;
+    out : Ray = {o, d, r.tmax};
+    return out;
+}
+
+// A mesh's record: what every triangle of it shares. Here a marker the
+// query hands back, standing for apps/pbrt's material and the rest.
+element MeshInfo {
+    marker : i32;
+}
+
+extern mesh_infos : array[MeshInfo];
+
+// pbrt: Primitive -- a GeometricPrimitive, a mesh, an instance's placement
+// of one of its object's meshes, or a TransformedPrimitive over a tree.
+element Prim =
+    | Solo(tri : Triangle)
+    | Mesh(mesh : u32, tris : set[Triangle])
+    | Placed(render_from_instance : Transform, mesh : u32, tris : set[Triangle])
+    | Inst(render_from_instance : Transform, blas : set[Triangle]);
+
+// A triangle of a mesh as the query sees it (apps/pbrt rebuilds the
+// triangle's Geometric from the mesh's record here).
+func of_mesh(mesh : u32, t : Triangle) -> Triangle {
+    out : Triangle = {t.p0, t.p1, t.p2};
+    return out;
+}
+
+// pbrt: what Primitive::Intersect dispatches to.
+func geometry(p : Prim) -> set[Triangle] =
+    match p {
+        Solo(tri) => set[Triangle]{tri},
+        Mesh(mesh, tris) => map(|t : Triangle| of_mesh(mesh, t), tris),
+        Placed(m, mesh, tris) => map(|t : Triangle| of_mesh(mesh, t), tris),
+        Inst(m, blas) => blas
+    };
+
+// pbrt: Primitive::Bounds(), through the same dispatch.
+element Prim with extent = |p| transform(p, geometry(p).AABB);
+
+func transform(p : Prim, b : AABB) -> AABB {
+    match p {
+        Solo(tri) => return b;
+        Mesh(mesh, tris) => return b;
+        Placed(m, mesh, tris) => return transform(m, b);
+        Inst(m, blas) => return transform(m, b);
+    }
+}
+
+func untransform(p : Prim, r : Ray) -> Ray {
+    match p {
+        Solo(tri) => return r;
+        Mesh(mesh, tris) => return r;
+        Placed(m, mesh, tris) => return untransform(m, r);
+        Inst(m, blas) => return untransform(m, r);
+    }
+}
+
+func [[export]] transform(p : Prim, tri : Triangle) -> Triangle {
+    match p {
+        Solo(t) => return tri;
+        Mesh(mesh, tris) => return tri;
+        Placed(m, mesh, tris) => {
+            out : Triangle = {apply(m, tri.p0), apply(m, tri.p1),
+                              apply(m, tri.p2)};
+            return out;
+        }
+        Inst(m, blas) => {
+            out : Triangle = {apply(m, tri.p0), apply(m, tri.p1),
+                              apply(m, tri.p2)};
+            return out;
+        }
+    }
+}
+
+// Which arm a hit came through: 0 standalone, 1 a mesh, 2 an instance's
+// tree, 3 a placed mesh.
+func [[export]] kind_of(p : Prim) -> i32 {
+    match p {
+        Solo(tri) => return 0;
+        Mesh(mesh, tris) => return 1;
+        Placed(m, mesh, tris) => return 3;
+        Inst(m, blas) => return 2;
+    }
+}
+
+// The mesh's marker for a hit through a mesh, placed or not, -1 otherwise.
+func [[export]] marker_of(p : Prim) -> i32 {
+    match p {
+        Solo(tri) => return -1;
+        Mesh(mesh, tris) => return mesh_infos[mesh].marker;
+        Placed(m, mesh, tris) => return mesh_infos[mesh].marker;
+        Inst(m, blas) => return -1;
+    }
+}
+
+extern prims : set[Prim];
+
+func [[export]] trace(r : Ray) =
+    argmin(|p : Prim, tri : Triangle| distmin(r, transform(p, tri)),
+           filter(|p : Prim, tri : Triangle|
+                      intersects(r, transform(p, tri)) &&
+                      distmin(r, transform(p, tri)) > 0.001,
+                  flatten(|p : Prim| geometry(p), prims)));
+
+func [[export]] trace_any(r : Ray) =
+    any(|p : Prim, tri : Triangle|
+            intersects(r, transform(p, tri)) &&
+            distmin(r, transform(p, tri)) > 0.001,
+        flatten(|p : Prim| geometry(p), prims));
+
+schedule {
+    layout Prim {
+        Solo = inline;
+        Mesh = inline;
+        // Two matrices: a row of a pool, as an instance is.
+        Placed = tagged_index;
+        Inst = tagged_index;
+    }
+    tree[[Triangle]] BLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BLAS, right : BLAS, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+    tree[[Triangle]] MeshBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : MeshBVH, right : MeshBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+    tree[[Prim]] TLAS(low high : vec3f) with AABB(low, high) =
+    | Interior(left : TLAS, right : TLAS, axis : u8)
+    | Leaf(data : array[Prim]) with data = data;
+    prims : TLAS;
+    Inst.blas : BLAS from BlasNodes;
+    // A mesh's tree is the mesh's whether the scene or an instance places
+    // it: both fields are rows of the one node pool.
+    Mesh.tris : MeshBVH from MeshNodes;
+    Placed.tris : MeshBVH from MeshNodes;
+    layout prims {
+        tCount : u32;
+        tris : array[Triangle, tCount];
+        bCount : u32;
+        indirect group BlasNodes[bCount] bnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = bnode + 1;
+                                right = bnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(tris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        // The meshes' triangles, mesh by mesh, and the trees over them.
+        mtCount : u32;
+        mtris : array[Triangle, mtCount];
+
+        mCount : u32;
+        indirect group MeshNodes[mCount] mnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = mnode + 1;
+                                right = mnode + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(mtris, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        pCount : u32;
+        elems : array[Prim, pCount];
+
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8;
+            switch nPrims {
+                0 => Interior { offset : u32; left = index + 1;
+                                right = index + offset; };
+                _ => Leaf { pOffset : u32;
+                            data = range(elems, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+    };
+}

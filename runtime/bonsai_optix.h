@@ -148,11 +148,19 @@ struct bonsai_optix_record {
 // geometry's id, and the holder its records carry -- the index of the
 // top-level element whose field holds this geometry's tree, or
 // BONSAI_OPTIX_OWN for the scene's own. A build input with a holder of its
-// own (bonsai_optix_triangles::holder) overrides it for its records.
+// own (bonsai_optix_triangles::holder) overrides it for its records. With
+// `holder_per_input` set, the k-th build input's records carry `holder +
+// k`: the placement's elements are one per input, laid out consecutively
+// from `holder` -- an instance's placed meshes, one primitive per mesh of
+// its definition (apps/pbrt's `Placed`), the definition's structure built
+// once and placed by every instance of it, as pbrt's GPU places one
+// structure per definition under each OptixInstance and reaches the mesh's
+// own record through the instance's SBT offset.
 struct bonsai_optix_instance {
     float transform[12];
     uint64_t geometry;
     uint32_t holder;
+    uint32_t holder_per_input;
 };
 
 // Builds the instance acceleration structure over `instances`, and returns
@@ -336,6 +344,7 @@ struct Scene {
     struct Placed {
         uint64_t geometry;
         uint32_t holder;
+        uint32_t holder_per_input; // as bonsai_optix_instance's
     };
     std::vector<Placed> instances;
     std::vector<uint32_t> record_start;
@@ -789,12 +798,19 @@ inline const OptixShaderBindingTable &table_of(Api &a, State &s, Module &m,
     const size_t first_hit = records.size();
     for (const Scene::Placed &placed : scene.instances) {
         const Geometry &geometry = s.geometries.at(placed.geometry);
-        for (const Input &input : geometry.inputs) {
+        for (size_t k = 0; k < geometry.inputs.size(); k++) {
+            const Input &input = geometry.inputs[k];
+            // The record's holder: the input's own when it has one, else
+            // the placement's -- the k-th input's `holder + k` for a
+            // placement whose elements are one per input.
+            const uint32_t holder =
+                input.holder != BONSAI_OPTIX_OWN ? input.holder
+                : placed.holder_per_input != 0  ? placed.holder + uint32_t(k)
+                                                : placed.holder;
             for (size_t t = 0; t < types; t++) {
                 records.emplace_back();
                 records.back().data.base = input.base;
-                records.back().data.holder =
-                    input.holder != BONSAI_OPTIX_OWN ? input.holder : placed.holder;
+                records.back().data.holder = holder;
                 check(a,
                       a.table.optixSbtRecordPackHeader(
                           input.triangles ? p.hit_triangles[t] : p.hit_boxes[t],
@@ -962,7 +978,8 @@ bonsai_optix_scene(const bonsai_optix_instance *instances, int64_t count) {
             fail("instance " + std::to_string(i) + " names geometry " +
                  std::to_string(g) + ", which bonsai_optix_geometry did not build");
         }
-        scene.instances.push_back(Scene::Placed{g, instances[i].holder});
+        scene.instances.push_back(
+            Scene::Placed{g, instances[i].holder, instances[i].holder_per_input});
         scene.record_start.push_back(scene.records);
         scene.records += uint32_t(s.geometries[g].inputs.size());
     }

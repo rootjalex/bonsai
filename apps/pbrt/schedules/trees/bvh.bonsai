@@ -45,6 +45,7 @@ schedule {
     // is placed -- pbrt's forty-three trees over one BVHAggregate.
     Inst.blas : InstanceBVH from InstanceNodes;
     Mesh.tris : MeshBVH from MeshNodes;
+    Placed.tris : MeshBVH from MeshNodes;
 
     // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
     // discriminated on nPrims is pbrt's union of primitivesOffset and

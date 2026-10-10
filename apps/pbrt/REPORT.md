@@ -33,21 +33,26 @@ on kroken -- but that comparison is not like for like: the sweep's
 binaries carried the uncommitted mesh-entity series of 10-08
 (scratch/wt-fix), which the committed tree does not, and that series
 moved the ray launches by a third to a half and takes the per-triangle
-primitive records out of the scene. Kroken's loss is the series' absence
-before anything else. The scene is the same on both sides -- 287.9
+primitive records out of the scene. Kroken's loss was memory, and it is
+fixed (10-10, 03:10). The scene is the same on both sides -- 287.9
 million triangles in 248 meshes by pbrt's own count, 247.7 million of
 them made by pbrt's displacement tessellation at load, and the dump holds
-the same 287.9 million -- but here every triangle carries a primitive
-record of its own (material, light, alpha, the two media and the shape:
-32 bytes, 9 GB in all, plus 8 bytes of triangle record, 2.3 GB) where
-pbrt keeps one such record per mesh in its hit records, so the scene
-takes about 38 GB of device memory here against pbrt's 27.2 GB (both
-measured with nvidia-smi during a render), the card's 32.6 GB fill, and
-the managed queue memory thrashes ("pbrt's structure, matched" below).
-The mesh-entity series is exactly the per-mesh record; it lands next, and
-the sweep runs with it. The GPU clock stays unlocked for now (the user,
-10-10: another project's benchmarks share the card); the scripts record
-what it read.
+the same 287.9 million -- but every triangle carried a primitive record
+of its own (material, light, alpha, the two media and the shape: 32
+bytes, 9 GB in all, plus 8 bytes of triangle record, 2.3 GB) where pbrt
+keeps one such record per mesh in its hit records, so the scene took
+about 38 GB of device memory against pbrt's 27.2 GB, the card's 32.6 GB
+filled, and the managed queue memory thrashed. Three changes since, all
+pbrt's representation: the mesh-entity series landed (1ed2eabb), the
+scene file is per mesh (6aba4023: the placement on the mesh, no record
+per triangle, no tree of pbrt's), and an instanced mesh is a primitive of
+its own, placed by its instance, with the definition's structure shared
+by every instance of it as pbrt shares it. With them kroken renders at
+779 ms of kernels (the sweep's 764, pbrt's 1733) with the host gap gone
+(0.80 s of wall), within pbrt's memory, and kroken, landscape, head and
+killeroo render pixel for pixel with pbrt ("pbrt's structure, matched"
+below). The GPU clock stays unlocked for now (the user, 10-10: another
+project's benchmarks share the card); the scripts record what it read.
 
 **Every cell of the sweep is faster than pbrt --gpu.** The 30-scene, three-
 sample-count sweep run after the fix below (`heatmap.sh`, 10-09 07:00 to
@@ -473,8 +478,41 @@ removes the 11.5 GB. (The dump file on disk wrote the placement per
 triangle too, 21 GB on kroken; since 01:30 on 10-10 it is per mesh, as
 pbrt's TriangleMesh carries it, with no record per triangle and no tree
 of pbrt's: landscape's file went from 2.16 to 1.12 GB, head's to half a
-megabyte, and killeroo, head and landscape render pixel for pixel as
-before.)
+megabyte, kroken's from 21.2 to 10.6, and killeroo, head and landscape
+render pixel for pixel as before.)
+
+**Resolved (10-10, 03:10): the instanced mesh as a primitive.** The
+mesh-entity series left an instance's object per triangle, and kroken's
+285 million triangles are all inside ten instances, so the series alone
+left the card full (32.2 GB again). pbrt's GPU places one structure per
+definition under each OptixInstance and reaches the mesh's own record
+through the instance's SBT offset; the same here, without a third tree
+level in the program (PLAN.md, "The instanced mesh as a primitive"): a
+`Placed` primitive per instance use and mesh -- the instance's two
+transforms, the mesh, the mesh's run of `tris` -- the definition's
+structure built once with a build input per mesh and placed by every
+instance of it, its records naming the instance's placed meshes
+consecutively (runtime/bonsai_optix.h, `holder_per_input`). The
+definition's other shapes stay the instance's `blas`. So no record per
+triangle is left on the device, and a hit through an instanced mesh costs
+what a hit through a scene's own mesh does plus one pool row for the
+transforms, as pbrt's costs its instance node.
+
+| 16 spp, kernel ms | the sweep (10-09 morning) | pbrt's structure, 23:40 | pbrt's representation, 03:10 | pbrt |
+|---|---|---|---|---|
+| killeroo-simple | 34.1 | 32.8 | 36.1 | 49.5 |
+| head | 34.6 | 38.4 | 39.6 | 45.7 |
+| landscape | 1008 | -- | 1012 | 1064 |
+| kroken | 764 | 896 | 779 | 1733 |
+
+Kroken's wall time is 0.80 s for 0.78 s of kernels now (1.20 for 0.90
+before), its camera-ray kernel back from 29 to 14 ms, its trace launch
+236 ms against the sweep's 193 -- the draws' placement, still to be read
+off a sweep whose two sides are the same tree. The card's peak over the
+whole compare, pbrt's renders included, is 27.2 GB, pbrt's own figure.
+Every image matches pbrt. Tests: correctness/gpu/rtcore-placed (the
+definition of two meshes placed twice, with consecutive holders) and
+correctness/cpp/placed-tlas (the same on the CPU trees).
 
 Two smaller findings from the same trace. Each round's host work is 54
 device writes of a queue's count (cuMemsetD32Async, 0.9 us each) plus the

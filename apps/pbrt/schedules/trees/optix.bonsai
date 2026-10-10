@@ -22,6 +22,7 @@ schedule {
     // buildBVHForTriangles makes one per mesh too), the mesh's own index
     // buffer from the run's first triangle on.
     Mesh.tris : OptixTree from tris;
+    Placed.tris : OptixTree from tris;
 
     layout primitives {
         // Every instanced GeometricPrimitive in the scene, each definition's

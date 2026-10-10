@@ -1107,6 +1107,18 @@ func get_medium(prim : Geometric, n : vec3f, w : vec3f,
 element Primitive =
     | Geom(g : Geometric)
     | Mesh(mesh : u32, tris : set[Triangle])
+    // pbrt: an ObjectInstance's placement of one of its object's triangle
+    // meshes -- the mesh reached through the instance's transforms, as
+    // pbrt's GPU reaches an instanced mesh's hit record through the
+    // OptixInstance that places its definition's structure (gpu/optix/
+    // aggregate.cpp). One primitive per instance use and mesh, so that an
+    // instanced mesh is a primitive as a scene's own is and carries no
+    // record per triangle; the instance's object shares its triangles and
+    // their tree with every placement of it. The object's other shapes --
+    // quadrics and curves in a definition, which pbrt's GPU builds as its
+    // own structure -- stay under `Inst`.
+    | Placed(render_from_instance : Transform, instance_from_render : Transform,
+             mesh : u32, tris : set[Triangle])
     | Inst(render_from_instance : Transform, instance_from_render : Transform,
            blas : set[Geometric]);
 
@@ -1131,6 +1143,8 @@ func geometry(p : Primitive) -> set[Geometric] =
     match p {
         Geom(g) => set[Geometric]{g},
         Mesh(mesh, tris) => map(|t : Triangle| triangle_geometric(t), tris),
+        Placed(render_from_instance, instance_from_render, mesh, tris) =>
+            map(|t : Triangle| triangle_geometric(t), tris),
         Inst(render_from_instance, instance_from_render, blas) => blas
     };
 
@@ -1177,6 +1191,8 @@ func transform(p : Primitive, b : AABB) -> AABB {
     match p {
         Geom(g) => return b;
         Mesh(mesh, tris) => return b;
+        Placed(render_from_instance, instance_from_render, mesh, tris) =>
+            return transform_bounds(render_from_instance, b);
         Inst(render_from_instance, instance_from_render, blas) =>
             return transform_bounds(render_from_instance, b);
     }
@@ -1186,6 +1202,8 @@ func untransform(p : Primitive, r : Ray) -> Ray {
     match p {
         Geom(g) => return r;
         Mesh(mesh, tris) => return r;
+        Placed(render_from_instance, instance_from_render, mesh, tris) =>
+            return pull_ray(instance_from_render, r);
         Inst(render_from_instance, instance_from_render, blas) =>
             return pull_ray(instance_from_render, r);
     }
@@ -1203,6 +1221,8 @@ func transform(p : Primitive, s : SurfaceGeometry) -> SurfaceGeometry {
     match p {
         Geom(g) => return s;
         Mesh(mesh, tris) => return s;
+        Placed(render_from_instance, instance_from_render, mesh, tris) =>
+            return push_surface(render_from_instance, instance_from_render, s);
         Inst(render_from_instance, instance_from_render, blas) =>
             return push_surface(render_from_instance, instance_from_render, s);
     }
@@ -1217,6 +1237,8 @@ func hit_wo(p : Primitive, sh : Shape, r : Ray) -> vec3f {
     match p {
         Geom(g) => return wo;
         Mesh(mesh, tris) => return wo;
+        Placed(render_from_instance, instance_from_render, mesh, tris) =>
+            return unit_vector_(apply_vector(render_from_instance, wo));
         Inst(render_from_instance, instance_from_render, blas) =>
             return unit_vector_(apply_vector(render_from_instance, wo));
     }
@@ -4160,6 +4182,11 @@ schedule {
         Geom = inline;
         // A mesh is its index and where its triangles start: two words.
         Mesh = inline;
+        // A placed mesh and an instance carry two matrices each, so both
+        // are rows of a pool, as pbrt's GPU keeps an instance's transform
+        // in the acceleration structure's instance node and not in the
+        // record: a hit through one loads its row.
+        Placed = tagged_index;
         Inst = tagged_index;
     }
 

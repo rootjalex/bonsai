@@ -51,6 +51,7 @@ add_bonsai_tests(
     reorder.bonsai
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai
+    rtcore-placed.bonsai
     struct-capture.bonsai
     texture-cpp.bonsai
     threads.bonsai

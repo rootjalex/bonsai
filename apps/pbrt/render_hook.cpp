@@ -630,7 +630,10 @@ void compact_pools(std::vector<Geometric> &shapes,
 // bounds placed by its transform and for a mesh the box around its
 // triangles.
 struct TopLevel {
-    enum Kind { Shape, Mesh, Instance };
+    // A Placed is an instance's placement of one of its definition's meshes
+    // (render.bonsai's `Placed`; `index` into placed_meshes), an Instance
+    // the instance's placement of its definition's other shapes.
+    enum Kind { Shape, Mesh, Placed, Instance };
     Kind kind = Shape;
     uint32_t index = 0;
     Bounds3f bounds;
@@ -646,13 +649,23 @@ struct MeshPrim {
     uint32_t count = 0;
 };
 
-// An instance definition's run of `instanced`: its shapes, then a Geometric
-// per triangle of each of its triangle meshes (`Inst.blas : set[Geometric]`
-// keeps the object per triangle until the object level under an instance,
-// pbrt's IAS over per-mesh GAS, is in; PLAN.md 2026-10-08).
+// An instance definition's run of `instanced`: its shapes other than
+// triangle meshes -- quadrics, curves, patches -- a Geometric each, which
+// stay the instance's `blas` (`Inst.blas : set[Geometric]`). Its triangle
+// meshes are placed meshes (below).
 struct DefRun {
     uint32_t first = 0;
     uint32_t count = 0;
+};
+
+// One instance use's placement of one triangle mesh of its definition:
+// render.bonsai's `Placed`, a primitive per instance and mesh (the
+// instance's transforms, the mesh, its run of `tris` shared with every
+// other placement), as pbrt's GPU reaches an instanced mesh through the
+// OptixInstance placing its definition's structure.
+struct PlacedMesh {
+    uint32_t instance = 0;
+    uint32_t mesh = 0;
 };
 
 // Sixteen floats in row order, as scene_dump wrote them.
@@ -900,34 +913,49 @@ struct Acceleration {
         return bonsai_optix_geometry(inputs.data(), int64_t(inputs.size()), nullptr, 0);
     }
 
-    // The scene: the structures over the scene's own shapes -- `prims[0]`
-    // to `prims[own)`, which is where the top-level order below puts them
-    // -- and over its meshes, and one per instance definition, over its run
-    // of `instanced` (`geoms`), placed once per instance. Returns the
-    // traversable handle.
+    // The scene, as pbrt's OptiXAggregate builds it: the structures over the
+    // scene's own shapes -- `prims[0]` to `prims[own)`, which is where the
+    // top-level order below puts them -- and over its meshes, placed once by
+    // the identity; and per instance definition one structure over its
+    // triangle meshes (a build input per mesh) and one over its other
+    // shapes, each built once and placed by every instance of the
+    // definition under the instance's transform. Returns the traversable
+    // handle.
     uint64_t scene(const std::vector<Geometric> &own_shapes,
                    const std::vector<MeshPrim> &mesh_prims,
                    const std::vector<Triangle> &tris,
                    const std::vector<Geometric> &instanced,
                    const std::vector<TopLevel> &top,
                    const std::vector<DefRun> &definitions,
+                   const std::vector<std::vector<MeshPrim>> &definition_meshes,
+                   const std::vector<PlacedMesh> &placed_meshes,
                    const std::vector<bonsai_scene::Instance> &placed) {
+        std::vector<std::optional<uint64_t>> definition_mesh_structure(definitions.size());
         std::vector<Built> of_definition(definitions.size());
         for (size_t d = 0; d < definitions.size(); d++) {
-            const DefRun &def = definitions[d];
-            if (def.count == 0) {
-                continue; // pbrt: a null primitive, never instanced.
+            if (!definition_meshes[d].empty()) {
+                // The records' holders are the placing instance's, one per
+                // input from its first placed mesh on (holder_per_input).
+                const std::vector<uint32_t> own(definition_meshes[d].size(),
+                                                BONSAI_OPTIX_OWN);
+                definition_mesh_structure[d] =
+                    meshes_geometry(definition_meshes[d], tris, own);
             }
-            of_definition[d] = geometry(instanced.data() + def.first, def.count,
-                                        def.first);
+            const DefRun &def = definitions[d];
+            if (def.count > 0) {
+                of_definition[d] = geometry(instanced.data() + def.first, def.count,
+                                            def.first);
+            }
         }
         // Each structure of a set, placed by one transform under one
         // holder: the index in `prims` of the instance primitive whose
-        // `blas` the structure is, or none for the scene's own shapes
-        // (what the hit programs' records carry, bonsai_optix_record).
+        // `blas` the structure is, or of the first of the instance's placed
+        // meshes when the structure is its definition's meshes (one holder
+        // per input from there), or none for the scene's own shapes (what
+        // the hit programs' records carry, bonsai_optix_record).
         std::vector<bonsai_optix_instance> instances;
         const auto place = [&](const Built &built, const float transform[12],
-                               uint32_t holder) {
+                               uint32_t holder, uint32_t holder_per_input) {
             for (const std::optional<uint64_t> &g : {built.triangles, built.boxes}) {
                 if (!g.has_value()) {
                     continue;
@@ -936,12 +964,14 @@ struct Acceleration {
                 std::copy(transform, transform + 12, inst.transform);
                 inst.geometry = *g;
                 inst.holder = holder;
+                inst.holder_per_input = holder_per_input;
                 instances.push_back(inst);
             }
         };
-        // The top level's order: the own shapes, then the meshes, then the
-        // instances -- the shapes first so that a box input's `base` is its
-        // first shape's index in `prims`.
+        // The top level's order: the own shapes, the meshes, the placed
+        // meshes (an instance's together, in its definition's order), then
+        // the instances with shapes of their own -- the shapes first so that
+        // a box input's `base` is its first shape's index in `prims`.
         size_t own = 0;
         while (own < top.size() && top[own].kind == TopLevel::Shape) {
             own++;
@@ -952,36 +982,70 @@ struct Acceleration {
             holder_of.at(top[after_meshes].index) = uint32_t(after_meshes);
             after_meshes++;
         }
-        for (size_t i = after_meshes; i < top.size(); i++) {
+        // Each instance's first placed mesh in `prims`, and the check that
+        // its placed meshes follow it in its definition's order.
+        std::vector<uint32_t> first_placed(placed.size(), BONSAI_OPTIX_OWN);
+        size_t after_placed = after_meshes;
+        while (after_placed < top.size() && top[after_placed].kind == TopLevel::Placed) {
+            const PlacedMesh &pm = placed_meshes.at(top[after_placed].index);
+            if (first_placed[pm.instance] == BONSAI_OPTIX_OWN) {
+                first_placed[pm.instance] = uint32_t(after_placed);
+            }
+            const size_t k = after_placed - first_placed[pm.instance];
+            const std::vector<MeshPrim> &of_def =
+                definition_meshes[placed[pm.instance].definition];
+            if (k >= of_def.size() || of_def[k].mesh != pm.mesh) {
+                fprintf(stderr, "instance %u's placed meshes are not its definition's "
+                                "in order at primitive %zu\n",
+                        pm.instance, after_placed);
+                exit(1);
+            }
+            after_placed++;
+        }
+        for (size_t i = after_placed; i < top.size(); i++) {
             if (top[i].kind != TopLevel::Instance) {
-                fprintf(stderr, "the hardware's order puts a shape or mesh after "
-                                "an instance at primitive %zu\n",
+                fprintf(stderr, "the hardware's order puts a shape, mesh or placed "
+                                "mesh after an instance at primitive %zu\n",
                         i);
                 exit(1);
             }
         }
-        if (own != own_shapes.size() || after_meshes - own != mesh_prims.size()) {
-            fprintf(stderr, "the top level names %zu shapes of %zu and %zu meshes of %zu\n",
-                    own, own_shapes.size(), after_meshes - own, mesh_prims.size());
+        if (own != own_shapes.size() || after_meshes - own != mesh_prims.size() ||
+            after_placed - after_meshes != placed_meshes.size()) {
+            fprintf(stderr,
+                    "the top level names %zu shapes of %zu, %zu meshes of %zu and %zu "
+                    "placed meshes of %zu\n",
+                    own, own_shapes.size(), after_meshes - own, mesh_prims.size(),
+                    after_placed - after_meshes, placed_meshes.size());
             exit(1);
         }
         const float identity[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f,
                                     0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
         if (own > 0) {
-            place(geometry(own_shapes.data(), own, 0), identity, BONSAI_OPTIX_OWN);
+            place(geometry(own_shapes.data(), own, 0), identity, BONSAI_OPTIX_OWN, 0);
         }
         if (const std::optional<uint64_t> own_meshes =
                 meshes_geometry(mesh_prims, tris, holder_of);
             own_meshes.has_value()) {
-            place(Built{own_meshes, std::nullopt}, identity, BONSAI_OPTIX_OWN);
+            place(Built{own_meshes, std::nullopt}, identity, BONSAI_OPTIX_OWN, 0);
         }
-        for (size_t i = after_meshes; i < top.size(); i++) {
+        // OptiX's transform is the top three rows of the matrix, row major
+        // -- the first twelve of the sixteen scene_dump wrote. Every
+        // instance places its definition's mesh structure, its records'
+        // holders its placed meshes from the first on; an instance with
+        // shapes of its own places their structure too, under the instance
+        // primitive itself, `prims[i]`.
+        for (uint32_t i = 0; i < placed.size(); i++) {
+            const bonsai_scene::Instance &inst = placed[i];
+            if (first_placed[i] != BONSAI_OPTIX_OWN) {
+                place(Built{definition_mesh_structure[inst.definition], std::nullopt},
+                      inst.render_from_instance, first_placed[i], 1);
+            }
+        }
+        for (size_t i = after_placed; i < top.size(); i++) {
             const bonsai_scene::Instance &inst = placed[top[i].index];
-            // OptiX's transform is the top three rows of the matrix, row
-            // major -- the first twelve of the sixteen scene_dump wrote.
-            // The holder is the instance primitive itself, `prims[i]`.
             place(of_definition[inst.definition], inst.render_from_instance,
-                  uint32_t(i));
+                  uint32_t(i), 0);
         }
         if (instances.empty()) {
             return 0;
@@ -2284,61 +2348,69 @@ int main(int argc, char **argv) {
     };
     std::vector<Geometric> shapes = convert(loaded.shapes);
 
-    // pbrt's GPU primitive model (wavefront/aggregate.cpp): a triangle mesh is
+    // pbrt's GPU primitive model (gpu/optix/aggregate.cpp): a triangle mesh is
     // one primitive, its material, alpha texture and medium interface the
     // statement's graphics state kept once on the mesh, its area lights one
     // per triangle in the mesh's order -- which is how the scene file holds
-    // it (scene_io.h, version 3). Each of the scene's own triangle meshes is
-    // a mesh primitive (render.bonsai's `Mesh`, with `triangle_geometric`
-    // rebuilding a triangle's Geometric from the mesh and its index) over its
-    // run of `tris`, the triangles in mesh order; the other shapes are
-    // Geometrics of their own. A patch mesh's patches are shapes (converted
-    // above) and the mesh itself makes no primitive.
-    std::vector<MeshPrim> mesh_prims;
+    // it (scene_io.h, version 3). Every triangle mesh of the scene, the
+    // scene's own and the definitions', has its run of `tris`, the
+    // triangles in mesh order, shared by every placement of the mesh; a
+    // patch mesh's patches are shapes (converted above) and the mesh itself
+    // makes no primitive.
+    std::vector<uint32_t> mesh_first(loaded.meshes.size(), 0);
     std::vector<Triangle> tris;
-    for (uint32_t m = loaded.top_first_mesh;
-         m < loaded.top_first_mesh + loaded.top_mesh_count; m++) {
-        const bonsai_scene::Mesh &lm = loaded.meshes[m];
-        if (lm.kind != bonsai_scene::MeshTriangles) {
+    const auto is_triangle_mesh = [&](uint32_t m) {
+        return loaded.meshes[m].kind == bonsai_scene::MeshTriangles;
+    };
+    for (uint32_t m = 0; m < loaded.meshes.size(); m++) {
+        if (!is_triangle_mesh(m)) {
             continue;
         }
-        mesh_prims.push_back(MeshPrim{m, uint32_t(tris.size()), lm.prim_count});
-        for (uint32_t k = 0; k < lm.prim_count; k++) {
+        mesh_first[m] = uint32_t(tris.size());
+        for (uint32_t k = 0; k < loaded.meshes[m].prim_count; k++) {
             tris.push_back(Triangle{m, k});
         }
     }
-    // An instance's object is still a Geometric per triangle on the device
-    // (`Inst.blas : set[Geometric]`; the object level under an instance,
-    // pbrt's IAS over per-mesh GAS, is the next stage): each definition's
-    // run of `instanced` is its shapes, then a Geometric per triangle of
-    // each of its triangle meshes, made from the mesh as the device's
-    // `triangle_geometric` makes it.
-    std::vector<Geometric> instanced;
-    std::vector<DefRun> def_runs(loaded.definitions.size());
-    {
-        const std::vector<Geometric> instance_shapes = convert(loaded.instance_shapes);
-        for (size_t d = 0; d < loaded.definitions.size(); d++) {
-            const bonsai_scene::Definition &def = loaded.definitions[d];
-            def_runs[d].first = uint32_t(instanced.size());
-            instanced.insert(instanced.end(),
-                             instance_shapes.begin() + def.first_shape,
-                             instance_shapes.begin() + def.first_shape + def.shape_count);
-            for (uint32_t m = def.first_mesh; m < def.first_mesh + def.mesh_count; m++) {
-                const bonsai_scene::Mesh &lm = loaded.meshes[m];
-                if (lm.kind != bonsai_scene::MeshTriangles) {
-                    continue;
-                }
-                for (uint32_t k = 0; k < lm.prim_count; k++) {
-                    Shape shape;
-                    Shape_Tri(shape, Triangle{m, k});
-                    instanced.push_back(Geometric{
-                        shape, lm.light_ordinal < 0 ? -1 : lm.light_ordinal + int32_t(k),
-                        material_slot.at(lm.material), lm.alpha, lm.medium_inside,
-                        lm.medium_outside});
-                }
-            }
-            def_runs[d].count = uint32_t(instanced.size()) - def_runs[d].first;
+    // The scene's own triangle meshes are mesh primitives (render.bonsai's
+    // `Mesh`, with `triangle_geometric` rebuilding a triangle's Geometric
+    // from the mesh and its index); the other shapes are Geometrics of their
+    // own.
+    std::vector<MeshPrim> mesh_prims;
+    for (uint32_t m = loaded.top_first_mesh;
+         m < loaded.top_first_mesh + loaded.top_mesh_count; m++) {
+        if (is_triangle_mesh(m)) {
+            mesh_prims.push_back(MeshPrim{m, mesh_first[m], loaded.meshes[m].prim_count});
         }
+    }
+    // A definition's triangle meshes, the mesh primitives its structure is
+    // built over (one build input per mesh, pbrt's buildBVHForTriangles over
+    // the definition's shapes), and every instance's placed meshes: one
+    // `Placed` primitive per instance use and mesh of its definition, in the
+    // definition's order, so that a placement's records name them
+    // consecutively (bonsai_optix_instance::holder_per_input).
+    std::vector<std::vector<MeshPrim>> definition_meshes(loaded.definitions.size());
+    for (size_t d = 0; d < loaded.definitions.size(); d++) {
+        const bonsai_scene::Definition &def = loaded.definitions[d];
+        for (uint32_t m = def.first_mesh; m < def.first_mesh + def.mesh_count; m++) {
+            if (is_triangle_mesh(m)) {
+                definition_meshes[d].push_back(
+                    MeshPrim{m, mesh_first[m], loaded.meshes[m].prim_count});
+            }
+        }
+    }
+    std::vector<PlacedMesh> placed_meshes;
+    for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+        for (const MeshPrim &mp : definition_meshes[loaded.instances[i].definition]) {
+            placed_meshes.push_back(PlacedMesh{i, mp.mesh});
+        }
+    }
+    // The definitions' other shapes stay the instance's `blas`: a Geometric
+    // each, each definition's a run of `instanced`.
+    std::vector<Geometric> instanced = convert(loaded.instance_shapes);
+    std::vector<DefRun> def_runs(loaded.definitions.size());
+    for (size_t d = 0; d < loaded.definitions.size(); d++) {
+        def_runs[d] = DefRun{loaded.definitions[d].first_shape,
+                             loaded.definitions[d].shape_count};
     }
 
     // Which emission each light ordinal draws its spectrum from. The ordinal is
@@ -2417,7 +2489,7 @@ int main(int argc, char **argv) {
     // The row each definition's tree is rooted at (the software trees'), and
     // each mesh primitive's.
     std::vector<uint32_t> roots(loaded.definitions.size(), 0);
-    std::vector<uint32_t> mesh_roots(mesh_prims.size(), 0);
+    std::vector<uint32_t> mesh_roots(loaded.meshes.size(), 0); // by mesh
 #ifdef BONSAI_HAS_OPTIX
     {
         Stage stage("order primitives for the hardware");
@@ -2449,19 +2521,32 @@ int main(int argc, char **argv) {
 
     // The top-level tree's primitives, in the order its leaves name them.
     std::vector<TopLevel> top;
-    top.reserve(shapes.size() + mesh_prims.size() + loaded.instances.size());
+    top.reserve(shapes.size() + mesh_prims.size() + placed_meshes.size() +
+                loaded.instances.size());
+    // An instance whose definition has shapes other than meshes places them
+    // as an `Inst` primitive; one whose definition is meshes alone -- the
+    // usual case -- has only its placed meshes.
+    const auto has_shapes = [&](uint32_t instance) {
+        return def_runs[loaded.instances[instance].definition].count > 0;
+    };
 #ifdef BONSAI_HAS_OPTIX
     // The hardware's structure is built over the primitives in this order:
-    // the scene's own shapes as rt_order left them, its meshes, then the
-    // instances (Acceleration::scene).
+    // the scene's own shapes as rt_order left them, its meshes, the placed
+    // meshes (an instance's together, in its definition's order), then the
+    // instances with shapes of their own (Acceleration::scene).
     for (uint32_t i = 0; i < shapes.size(); i++) {
         top.push_back(TopLevel{TopLevel::Shape, i, Bounds3f{}});
     }
     for (uint32_t i = 0; i < mesh_prims.size(); i++) {
         top.push_back(TopLevel{TopLevel::Mesh, i, Bounds3f{}});
     }
+    for (uint32_t i = 0; i < placed_meshes.size(); i++) {
+        top.push_back(TopLevel{TopLevel::Placed, i, Bounds3f{}});
+    }
     for (uint32_t i = 0; i < loaded.instances.size(); i++) {
-        top.push_back(TopLevel{TopLevel::Instance, i, Bounds3f{}});
+        if (has_shapes(i)) {
+            top.push_back(TopLevel{TopLevel::Instance, i, Bounds3f{}});
+        }
     }
 #else
     const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
@@ -2473,9 +2558,10 @@ int main(int argc, char **argv) {
         return transform_bounds(to_bonsai(inst.render_from_instance),
                                 Bounds3f{low, high});
     };
-    // The meshes' trees: one per mesh primitive over its run of `tris`, rows
-    // of one node pool (`Mesh.tris : MeshBVH from MeshNodes`), the run left
-    // in its leaves' order.
+    // The meshes' trees: one per triangle mesh over its run of `tris`, rows
+    // of one node pool (`Mesh.tris` and `Placed.tris : MeshBVH from
+    // MeshNodes`), the run left in its leaves' order; a definition's mesh
+    // has one tree however many instances place it.
     std::vector<_tree_layout4> mesh_nodes;
     {
         Stage stage("build mesh trees");
@@ -2486,14 +2572,17 @@ int main(int argc, char **argv) {
                                   Meshes::widen(pool.positions[c[1]])},
                          Meshes::widen(pool.positions[c[2]]));
         };
-        for (size_t k = 0; k < mesh_prims.size(); k++) {
-            const MeshPrim &mp = mesh_prims[k];
-            mesh_roots[k] = build_bvh(tris.data() + mp.first, mp.count, mp.first,
+        for (uint32_t m = 0; m < loaded.meshes.size(); m++) {
+            if (!is_triangle_mesh(m)) {
+                continue;
+            }
+            mesh_roots[m] = build_bvh(tris.data() + mesh_first[m],
+                                      loaded.meshes[m].prim_count, mesh_first[m],
                                       triangle_bounds, mesh_nodes);
         }
     }
-    const auto mesh_bounds = [&](size_t k) {
-        const _tree_layout4 &root = mesh_nodes[mesh_roots[k]];
+    const auto mesh_bounds = [&](uint32_t m) {
+        const _tree_layout4 &root = mesh_nodes[mesh_roots[m]];
         return Bounds3f{float3{root.low[0], root.low[1], root.low[2]},
                         float3{root.high[0], root.high[1], root.high[2]}};
     };
@@ -2508,11 +2597,23 @@ int main(int argc, char **argv) {
                                    bounds_of(shapes[i], pool, shape_pools)});
         }
         for (uint32_t k = 0; k < mesh_prims.size(); k++) {
-            top.push_back(TopLevel{TopLevel::Mesh, k, mesh_bounds(k)});
+            top.push_back(TopLevel{TopLevel::Mesh, k, mesh_bounds(mesh_prims[k].mesh)});
+        }
+        // A placed mesh's bounds: the mesh's box under the instance's
+        // transform, pbrt's TransformedPrimitive::Bounds for the one mesh.
+        for (uint32_t i = 0; i < placed_meshes.size(); i++) {
+            const PlacedMesh &pm = placed_meshes[i];
+            const bonsai_scene::Instance &inst = loaded.instances[pm.instance];
+            top.push_back(TopLevel{
+                TopLevel::Placed, i,
+                transform_bounds(to_bonsai(inst.render_from_instance),
+                                 mesh_bounds(pm.mesh))});
         }
         for (uint32_t i = 0; i < loaded.instances.size(); i++) {
-            top.push_back(TopLevel{TopLevel::Instance, i,
-                                   instance_bounds(loaded.instances[i])});
+            if (has_shapes(i)) {
+                top.push_back(TopLevel{TopLevel::Instance, i,
+                                       instance_bounds(loaded.instances[i])});
+            }
         }
         build_bvh(
             top.data(), top.size(), 0,
@@ -2678,8 +2779,14 @@ int main(int argc, char **argv) {
     // directly, in the leaves' order -- and an instance's behind a row of the
     // `Inst` pool: its two matrices and the row its object's tree starts at.
     // Only that pool is the driver's to size.
-    std::vector<Inst> inst_pool(loaded.instances.size());
+    size_t instances_with_shapes = 0;
+    for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+        instances_with_shapes += has_shapes(i) ? 1 : 0;
+    }
+    std::vector<Inst> inst_pool(instances_with_shapes);
     uint64_t inst_fill = 0;
+    std::vector<Placed> placed_pool(placed_meshes.size());
+    uint64_t placed_fill = 0;
     std::vector<Primitive> prims(top.size());
     {
         size_t next_shape = 0;
@@ -2692,7 +2799,17 @@ int main(int argc, char **argv) {
                 // tris`).
                 const MeshPrim &mp = mesh_prims[t.index];
                 Primitive_Mesh(prims[i], mp.mesh,
-                               kRTCore ? mp.first : mesh_roots[t.index]);
+                               kRTCore ? mp.first : mesh_roots[mp.mesh]);
+            } else if (t.kind == TopLevel::Placed) {
+                // A placed mesh: the instance's two matrices, the mesh, and
+                // what the mesh stores of its triangles, as above -- the
+                // same run or tree for every placement of the mesh.
+                const PlacedMesh &pm = placed_meshes[t.index];
+                const bonsai_scene::Instance &inst = loaded.instances[pm.instance];
+                Primitive_Placed(prims[i], to_bonsai(inst.render_from_instance),
+                                 to_bonsai(inst.instance_from_render), pm.mesh,
+                                 kRTCore ? mesh_first[pm.mesh] : mesh_roots[pm.mesh],
+                                 placed_pool.data(), &placed_fill);
             } else if (t.kind == TopLevel::Instance) {
                 const bonsai_scene::Instance &inst = loaded.instances[t.index];
                 // What the instance stores of its object's tree: the row of
@@ -2709,10 +2826,11 @@ int main(int argc, char **argv) {
             }
         }
     }
-    if (inst_fill != inst_pool.size()) {
+    if (inst_fill != inst_pool.size() || placed_fill != placed_pool.size()) {
         fprintf(stderr, "instance pool fill disagrees with the count: "
-                        "%zu/%zu instances\n",
-                size_t(inst_fill), inst_pool.size());
+                        "%zu/%zu instances, %zu/%zu placed meshes\n",
+                size_t(inst_fill), inst_pool.size(), size_t(placed_fill),
+                placed_pool.size());
         return 1;
     }
 
@@ -2750,7 +2868,8 @@ int main(int argc, char **argv) {
                                curve_pool.data(),    curve_commons.data(),
                                curve_frames.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
-            shapes, mesh_prims, tris, instanced, top, def_runs, loaded.instances);
+            shapes, mesh_prims, tris, instanced, top, def_runs, definition_meshes,
+            placed_meshes, loaded.instances);
         if (tree.traversable == 0) {
             fprintf(stderr, "the scene has nothing for the hardware to trace\n");
             return 1;
@@ -3271,6 +3390,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_rho_uc = buffer_of(rho_uc);
     bonsai_buffer b_rho_ux = buffer_of(rho_ux);
     bonsai_buffer b_rho_uy = buffer_of(rho_uy);
+    bonsai_buffer b_placed_pool = buffer_of(placed_pool);
     bonsai_buffer b_inst_pool = buffer_of(inst_pool);
     bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
@@ -3361,7 +3481,7 @@ int main(int argc, char **argv) {
         &b_geoms, &b_group0_bnode, &b_tris, &b_group1_mnode, &b_prims,
         &b_group2_index,
 #endif
-        &b_inst_pool, &b_sphere_pool, &b_disk_pool,
+        &b_placed_pool, &b_inst_pool, &b_sphere_pool, &b_disk_pool,
         &b_patch_pool, &b_cylinder_pool, &b_curve_pool
         // The queues' storage, last, as the parameters are.
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
@@ -3598,7 +3718,7 @@ int main(int argc, char **argv) {
                &b_materials,
                &b_material_displacement, &b_material_normal_map, &b_rho_uc,
                &b_rho_ux, &b_rho_uy,
-               tree, &b_inst_pool, &b_sphere_pool,
+               tree, &b_placed_pool, &b_inst_pool, &b_sphere_pool,
                &b_disk_pool, &b_patch_pool, &b_cylinder_pool,
                &b_curve_pool
                // The splits' arm masks land before the queues' storage,
@@ -3722,7 +3842,7 @@ int main(int argc, char **argv) {
                            &b_zsobol_permutations, &b_vdc_matrices,
                            &b_vdc_matrices_inv, &b_pmj02bn_samples,
                            &b_blue_noise, &b_pmj_pixel_samples, tree,
-                           &b_inst_pool,
+                           &b_placed_pool, &b_inst_pool,
                            &b_sphere_pool, &b_disk_pool,
                            &b_patch_pool, &b_cylinder_pool, &b_curve_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "

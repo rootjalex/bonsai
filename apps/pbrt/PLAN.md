@@ -13064,29 +13064,53 @@ makes it on the device, each definition's run its shapes then its meshes'
 triangles (DefRun); the light ordinals of a mesh's triangles map to the
 mesh's emission. The tree-adoption path is gone with the file's trees.
 
-**Still to do for kroken (the next stage, the 10-08 design's): the object
-level under an instance.** pbrt's GPU (gpu/optix/aggregate.cpp, 1430-1560):
-per instance definition one GAS of triangles with a build input per mesh
-(each input's SBT record the mesh's), one of bilinear patches, one of
-quadrics; then ONE flat IAS whose OptixInstances are the scene's own three
-GASes under the identity and, per instance use, one per GAS of its
-definition under its transform -- no IAS inside an IAS. Our driver's
-`of_definition` already builds a definition's GAS with an input per mesh
-run; what has to change is the record and the chain. Program: `Object = |
-Geom(g) | Mesh(mesh, tris)` and `Inst(.., blas : set[Object])` (pbrt's
-definition holds meshes and shapes, never instances), geometry(Inst) a
-flatten over the objects' geometry; layout `Inst.blas : OptixTree from
-objects; objects : array[Object, oCount]`, `Mesh.tris : OptixTree from
-tris` for the Mesh arm at both levels. Record: `holder` the Inst primitive
-as now, `base` the object's index in `objects` (today it is the run's
-start in `geoms`), and the object's Mesh arm carries its run's start in
-`tris` as the top-level Mesh does (`Primitive_Mesh(.., mp.first)`), so the
-chain is `e0 = prims[holder]` (Inst), `e1 = objects[base]` (the mesh),
-`e2 = tris[e1.first + prim]` mapped through `triangle_geometric` -- one
-level more than bind_elements (Lower/Trees.cpp) binds today (e0, e1 with
-`idx = base + prim`); the own-mesh case keeps `e1 = tris[base + prim]`.
-With it an instanced mesh is one primitive too and the 11.5 GB of
-per-triangle records leave the device. After it: the synthesized triangle
-set (the k-th element is `Triangle{mesh, k}`), a layout construct to ask
-the user for, which removes the 8-byte `tris` record per triangle (2.3 GB
-on kroken) that pbrt does not have either.
+**The instanced mesh as a primitive (10-10, 02:30-).** pbrt's GPU
+(gpu/optix/aggregate.cpp, 1430-1560): per instance definition one GAS of
+triangles with a build input per mesh (each input's SBT record the mesh's),
+one of bilinear patches, one of quadrics; then ONE flat IAS whose
+OptixInstances are the scene's own three GASes under the identity and, per
+instance use, one per GAS of its definition under the instance's transform
+-- no IAS inside an IAS; the hit programs read the instance's transform
+from OptiX. A third tree level in the program (`Inst.blas : set[Object]`,
+`Object = Mesh | Geom`) would be the literal transcription, and the tree
+lowering (Lower/Trees.cpp, bind_elements) binds two levels today -- a
+flatten over a tree whose arms are one element or one held tree -- so that
+level is a compiler project. The same device representation without it:
+a `Placed` primitive per instance use and mesh of its definition
+(render.bonsai: `Placed(render_from_instance, instance_from_render, mesh,
+tris : set[Triangle])`, `layout Primitive { Placed = tagged_index }`, a row
+of a pool like an instance's, since it carries two matrices), its geometry
+`map(triangle_geometric, tris)` as a Mesh's, the arms of transform,
+untransform, hit_wo and the surface push the Inst's; `Placed.tris :
+OptixTree from tris` / `MeshBVH from MeshNodes`. The definition's other
+shapes -- quadrics, curves, patches -- stay the instance's `blas`, a
+Geometric each. Driver: every triangle mesh has its run of `tris` once
+(`mesh_first`), shared by its placements; the definition's mesh structure
+is built once (`meshes_geometry` over its meshes, a build input per mesh)
+and placed by each instance with `holder_per_input` (runtime/
+bonsai_optix.h: the k-th input's records carry `holder + k`, the
+instance's placed meshes lying consecutively in `prims` from its first,
+in the definition's order -- pbrt's `sbtOffset` per instance with one
+record set per definition). The top-level order on the hardware: own
+shapes, own meshes, placed meshes, instances with shapes. On the CPU a
+Placed's bounds are the mesh's box under the instance's transform and the
+per-mesh tree is shared. So the hit chain is the Mesh's, record ->
+prims[holder] (the Placed, its matrices one pool row away) -> meshes[mesh]
+-> tris[base + prim] -> indices -> positions, and no record per triangle
+is left on the device; kroken's 11.5 GB go, its queues fit beside pbrt's
+27 GB. After it: the synthesized triangle set (the k-th element is
+`Triangle{mesh, k}`), a layout construct to ask the user for, which
+removes the 8-byte `tris` record per triangle (2.3 GB on kroken) that pbrt
+does not have either.
+
+Built and measured (03:10, scratch/surface/compare-placed): no compiler
+change was needed -- the Placed arm is a mapped held tree like Mesh's,
+and the layout binds `Placed.tris` beside `Mesh.tris`. Killeroo 36.1,
+head 39.6, landscape 1012 (30034 instances of 32 objects, 254 thousand
+placed meshes), kroken 779 ms of kernels at 16 spp (the sweep's 764,
+pbrt's 1733) and 0.80 s of wall for 0.78 of kernels (1.20 for 0.90 under
+the thrash); the card's peak over the whole compare 27.2 GB, pbrt's own.
+Every image matches pbrt. Tests correctness/gpu/rtcore-placed (two
+meshes as one definition structure of two inputs, placed twice with
+holder_per_input) and correctness/cpp/placed-tlas (the arm on the CPU
+trees, the mesh tree shared by two placements).
