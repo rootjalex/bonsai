@@ -18,10 +18,13 @@
 // 1. A split queue's variant (QueueSpec::split, `hits.specialize(material)`):
 //    whether any entry can carry the variant's tag is a fact about the
 //    scene's data -- whether any material in the pool IS that arm -- which
-//    only the driver can know. Each ADT a queue is split on adds one `u64`
-//    parameter to the owner, `<adt>_arms`, bit `tag` meaning the arm occurs;
-//    the leaf queue `hits!...!Diffuse` is gated on its bit. The driver owns
-//    the promise: all-on (the generated header's `..._ARMS_ALL`) is always
+//    only the driver can know. Each node of a queue's split adds one `u64`
+//    parameter to the owner -- `<adt>_arms` for the root, `<path>_<adt>_
+//    arms` for a split under a variant (`hits[Basic].specialize(material)`
+//    adds `basic_material_arms`, pbrt's haveBasicEvalMaterial[]) -- bit
+//    `tag` meaning the arm occurs; the leaf queue `hits!Basic!Diffuse` is
+//    gated on the bits of every node on its path. The driver owns the
+//    promise: all-on (the generated header's `..._ARMS_ALL`) is always
 //    sound and is what a driver that computes nothing passes. An `option`
 //    key gets no mask; its two queues launch as before.
 //

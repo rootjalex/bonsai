@@ -1,0 +1,299 @@
+type Entry_hits = struct Entry_hits{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; f : struct Finish{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x0 }; x : f32 }
+type Finish = struct Finish{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x0 }
+type Flat = struct Flat{  }
+type Float = f32
+type Fuzz = struct Fuzz{ a : f32 }
+type Gloss = struct Gloss{  }
+type Half = f16
+type Matte = struct Matte{ a : f32 }
+type Queue_hits = struct Queue_hits{ count : u32; s_tag : u8[]; s_payload_x : u32[]; f_tag : u8[]; x : f32[] }
+type Surface = struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func classify(x : f32) -> Surface {
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    return @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    return @8
+  }
+}
+
+func finish_of(x : f32) -> Finish {
+  let @0 = x < 15f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = build<[[packed]] u32x0>() in
+    let @3 = build<Finish>(0u, @1, @2) in
+    return @3
+  } else {
+    let @4 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @5 = build<[[packed]] u32x0>() in
+    let @6 = build<Finish>(1u, @4, @5) in
+    return @6
+  }
+}
+
+func main() -> i32 {
+  total : mut f32
+  total = 0f
+  let @0 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@0, total, 3u, 3u)
+  let @1 = (*total) in
+  print(@1)
+  return 0
+}
+
+func run(values : f32[8], total : mut (f32*), surface_arms : u64, fuzz_finish_arms : u64) -> void {
+  hits!Matte_s_payload_x : mut u32[8]
+  hits!Matte_x : mut f32[8]
+  hits!Fuzz!Flat_s_payload_x : mut u32[8]
+  hits!Fuzz!Gloss_s_payload_x : mut u32[8]
+  hits_queue : mut Queue_hits[3]
+  let @1 = build<Queue_hits>(0u, undef, hits!Matte_s_payload_x, undef, hits!Matte_x) in
+  hits_queue[0u] = @1
+  let @3 = build<Queue_hits>(0u, undef, hits!Fuzz!Flat_s_payload_x, undef, undef) in
+  hits_queue[1u] = @3
+  let @5 = build<Queue_hits>(0u, undef, hits!Fuzz!Gloss_s_payload_x, undef, undef) in
+  hits_queue[2u] = @5
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, total, hits_queue)
+    continue
+  }
+  let @8 = hits_queue[0u] in
+  let @9 = @8.count in
+  let @52 = surface_arms >> 0u in
+  let @53 = @52 & 1u in
+  let @54 = @53 != 0u in
+  if (@54) {
+    parfor hits!Matte in [0u:@9:1u] {
+      let @11 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @13 = hits_queue[0u].s_payload_x in
+      let @14 = @13[hits!Matte] in
+      let @15 = build<[[packed]] u32x1>(@14) in
+      let @16 = build<Surface>(undef, @11, @15) in
+      let @18 = hits_queue[0u].x in
+      let @19 = @18[hits!Matte] in
+      shade!Matte(@16, undef, @19, total)
+      continue
+    }
+  }
+  let @21 = hits_queue[1u] in
+  let @22 = @21.count in
+  let @55 = fuzz_finish_arms >> 0u in
+  let @56 = @55 & 1u in
+  let @57 = @56 != 0u in
+  let @58 = surface_arms >> 1u in
+  let @59 = @58 & 1u in
+  let @60 = @59 != 0u in
+  let @61 = @57 && @60 in
+  if (@61) {
+    parfor hits!Fuzz!Flat in [0u:@22:1u] {
+      let @24 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @26 = hits_queue[1u].s_payload_x in
+      let @27 = @26[hits!Fuzz!Flat] in
+      let @28 = build<[[packed]] u32x1>(@27) in
+      let @29 = build<Surface>(undef, @24, @28) in
+      let @31 = build<[[packed]] u32x0>() in
+      let @32 = build<Finish>(undef, @24, @31) in
+      shade!Fuzz!Flat(@29, @32, undef, total)
+      continue
+    }
+  }
+  let @34 = hits_queue[2u] in
+  let @35 = @34.count in
+  let @62 = fuzz_finish_arms >> 1u in
+  let @63 = @62 & 1u in
+  let @64 = @63 != 0u in
+  let @68 = @64 && @60 in
+  if (@68) {
+    parfor hits!Fuzz!Gloss in [0u:@35:1u] {
+      let @37 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @39 = hits_queue[2u].s_payload_x in
+      let @40 = @39[hits!Fuzz!Gloss] in
+      let @41 = build<[[packed]] u32x1>(@40) in
+      let @42 = build<Surface>(undef, @37, @41) in
+      let @44 = build<[[packed]] u32x0>() in
+      let @45 = build<Finish>(undef, @37, @44) in
+      shade!Fuzz!Gloss(@42, @45, undef, total)
+      continue
+    }
+  }
+  hits_queue[0u].count = 0u
+  hits_queue[1u].count = 0u
+  hits_queue[2u].count = 0u
+  return
+}
+
+func shade(s : Surface, f : Finish, x : f32, total : mut (f32*)) -> void {
+  let @0 = s.tag in
+  switch (@0) {
+  case 0: { // Surface.Matte of shade
+    let @1 = s.payload in
+    let @2 = @1[0u] in
+    let a = reinterpret_cast<f32>(@2) in
+    let @4 = a * x in
+    total += @4
+  } break;
+  default: { // Surface.Fuzz of shade
+    let @5 = s.payload in
+    let @6 = @5[0u] in
+    let a$1 = reinterpret_cast<f32>(@6) in
+    let @8 = f.tag in
+    switch (@8) {
+    case 0: { // Finish.Flat of shade
+      total += a$1
+    } break;
+    default: { // Finish.Gloss of shade
+      let @9 = a$1 * 2f in
+      total += @9
+    }
+    }
+  }
+  }
+  return
+}
+
+func shade!Fuzz(s : Surface, f : Finish, x : f32, total : mut (f32*)) -> void {
+  let @10 = s._pad in
+  let @11 = s.payload in
+  let s!Fuzz = build<Surface>(1u, @10, @11) in
+  let @6 = @11[0u] in
+  let a$1 = reinterpret_cast<f32>(@6) in
+  let @8 = f.tag in
+  switch (@8) {
+  case 0: { // Finish.Flat of shade
+    total += a$1
+  } break;
+  default: { // Finish.Gloss of shade
+    let @9 = a$1 * 2f in
+    total += @9
+  }
+  }
+  return
+}
+
+func shade!Fuzz!Flat(s : Surface, f : Finish, x : f32, total : mut (f32*)) -> void {
+  let @12 = f._pad in
+  let @13 = f.payload in
+  let f!Flat = build<Finish>(0u, @12, @13) in
+  let @10 = s._pad in
+  let @11 = s.payload in
+  let s!Fuzz = build<Surface>(1u, @10, @11) in
+  let @6 = @11[0u] in
+  let a$1 = reinterpret_cast<f32>(@6) in
+  total += a$1
+  return
+}
+
+func shade!Fuzz!Gloss(s : Surface, f : Finish, x : f32, total : mut (f32*)) -> void {
+  let @12 = f._pad in
+  let @13 = f.payload in
+  let f!Gloss = build<Finish>(1u, @12, @13) in
+  let @10 = s._pad in
+  let @11 = s.payload in
+  let s!Fuzz = build<Surface>(1u, @10, @11) in
+  let @6 = @11[0u] in
+  let a$1 = reinterpret_cast<f32>(@6) in
+  let @9 = a$1 * 2f in
+  total += @9
+  return
+}
+
+func shade!Matte(s : Surface, f : Finish, x : f32, total : mut (f32*)) -> void {
+  let @10 = s._pad in
+  let @11 = s.payload in
+  let s!Matte = build<Surface>(0u, @10, @11) in
+  let @2 = @11[0u] in
+  let a = reinterpret_cast<f32>(@2) in
+  let @4 = a * x in
+  total += @4
+  return
+}
+
+func step(x : f32, total : mut (f32*), _queue_hits : mut Queue_hits[3]) -> void {
+  classify$r6 : mut Surface
+  finish_of$r7 : mut Finish
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    classify$r6 = @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    classify$r6 = @8
+  }
+  let @9 = x < 15f in
+  if (@9) {
+    let @10 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @11 = build<[[packed]] u32x0>() in
+    let @12 = build<Finish>(0u, @10, @11) in
+    finish_of$r7 = @12
+  } else {
+    let @13 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @14 = build<[[packed]] u32x0>() in
+    let @15 = build<Finish>(1u, @13, @14) in
+    finish_of$r7 = @15
+  }
+  let @18 = build<Entry_hits>((*classify$r6), (*finish_of$r7), x) in
+  let @19 = (*classify$r6).tag in
+  switch (@19) {
+  case 0: {
+    let @28 = atomic_add((&_queue_hits[0u].count), 1u) in
+    let @35 = (*classify$r6).payload in
+    let @36 = @35[0u] in
+    let @46 = _queue_hits[0u].s_payload_x in
+    @46[@28] = @36
+    let @49 = _queue_hits[0u].x in
+    @49[@28] = x
+    return
+  } break;
+  default: {
+    let @17 = (*finish_of$r7) in
+    let @16 = (*classify$r6) in
+    let @22 = @17.tag in
+    switch (@22) {
+    case 0: {
+      let @52 = atomic_add((&_queue_hits[1u].count), 1u) in
+      let @59 = (*classify$r6).payload in
+      let @60 = @59[0u] in
+      let @70 = _queue_hits[1u].s_payload_x in
+      @70[@52] = @60
+      return
+    } break;
+    default: {
+      let @73 = atomic_add((&_queue_hits[2u].count), 1u) in
+      let @80 = (*classify$r6).payload in
+      let @81 = @80[0u] in
+      let @91 = _queue_hits[2u].s_payload_x in
+      @91[@73] = @81
+      return
+    }
+    }
+  }
+  }
+}
+
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits)
+
+}

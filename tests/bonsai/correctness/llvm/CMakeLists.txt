@@ -130,6 +130,8 @@ add_bonsai_tests(
     ssa-pipeline.bonsai
     stage.bonsai
     stage-then-defer.bonsai
+    specialize-then-defer.bonsai
+    gate-drains-nested.bonsai
     alias-edges.bonsai
     map-func.bonsai
     match-expr.bonsai

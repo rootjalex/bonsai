@@ -33,6 +33,7 @@ add_bonsai_tests(
     defer-bools.bonsai
     defer-frame.bonsai
     gate-drains.bonsai
+    gate-drains-nested.bonsai
     round-hoist.bonsai
     defer-gpu-launch.bonsai
     queue-storage.bonsai
@@ -102,6 +103,7 @@ add_bonsai_tests(
     stage.bonsai
     stage-mut-param.bonsai
     stage-then-defer.bonsai
+    specialize-then-defer.bonsai
     switch-merge.bonsai
     traverse.bonsai
     vectorize-call-guard.bonsai

@@ -407,22 +407,40 @@ gate_drains(FuncMap &fmap,
         return {};
     }
 
-    // --- The split masks: one u64 parameter on the owner per ADT a queue
-    // is split on, bit = variant tag; the leaf's drain wears its bit. The
-    // drained function is read off a leaf body's call (`hits!Matte!run`
-    // calls `shade!Matte`), the key's type off the function the schedule
-    // named it in, and an `option` key gets no mask. Only an unnested split
-    // is gated; a deeper one launches as before.
+    // --- The split masks: one u64 parameter on the owner per node of a
+    // queue's split -- the ADT it is split on, under the variant path the
+    // schedule split it at -- bit = variant tag; a leaf's drain wears the
+    // bits of every node on its path. `hits.specialize(evaluator)` adds
+    // `textureevaluator_arms`; `hits[Basic].specialize(material)` adds
+    // `basic_material_arms` and `hits[Universal].specialize(material)`
+    // `universal_material_arms` -- pbrt's haveBasicEvalMaterial[] and
+    // haveUniversalEvalMaterial[] -- and the Diffuse leaf under Basic
+    // launches only when its two bits are on, as pbrt launches a material
+    // kernel for one evaluator and not the other. The drained function is
+    // read off a leaf body's call (`hits!Matte!run` calls `shade!Matte`),
+    // the key's type off that copy, which keeps the key's name, and an
+    // `option` key gets no mask. Parents before their children, so a
+    // child's leaves inherit the bits above them.
     vector<ir::Program::ArmMask> masks;
-    map<string, Alt> mask_alt; // leaf queue name -> its MaskBit conjunct
-    map<string, vector<KeyVariant>> family_variants;
+    map<string, Alt> mask_alt; // a split node's or leaf's path -> its bits
+    map<string, vector<KeyVariant>> variants_at; // a split node's path -> variants
+    vector<const ir::QueueSpecialize *> ordered_splits;
     for (const ir::QueueSpecialize &qs : queue_splits) {
+        ordered_splits.push_back(&qs);
+    }
+    std::stable_sort(ordered_splits.begin(), ordered_splits.end(),
+                     [](const ir::QueueSpecialize *a, const ir::QueueSpecialize *b) {
+                         return a->under.size() < b->under.size();
+                     });
+    for (const ir::QueueSpecialize *qsp : ordered_splits) {
+        const ir::QueueSpecialize &qs = *qsp;
+        string node = qs.queue;
+        for (const string &label : qs.under) {
+            node += "!" + label;
+        }
         if (std::getenv("BONSAI_DEBUG_GATES") != nullptr) {
             std::fprintf(stderr, "gate_drains: split %s key %s under %zu\n",
-                         qs.queue.c_str(), qs.key.c_str(), qs.under.size());
-        }
-        if (!qs.under.empty()) {
-            continue;
+                         node.c_str(), qs.key.c_str(), qs.under.size());
         }
         // The function the key lives in: the callee a drain of this family
         // runs -- a copy where the split replaced the original, and a copy
@@ -478,6 +496,12 @@ gate_drains(FuncMap &fmap,
         }
         const string adt = key_struct->name;
         string param;
+        for (const string &label : qs.under) {
+            for (const char ch : label) {
+                param += char(std::tolower(static_cast<unsigned char>(ch)));
+            }
+            param += "_";
+        }
         for (const char ch : adt) {
             param += char(std::tolower(static_cast<unsigned char>(ch)));
         }
@@ -498,13 +522,15 @@ gate_drains(FuncMap &fmap,
                 fresh = false; // two splits on one ADT share the mask
             }
         }
+        const Alt above = mask_alt.contains(node) ? mask_alt.at(node) : Alt{};
         for (const KeyVariant &v : variants) {
             m.arm_bits.push_back({v.label, v.tag});
             m.all_on |= uint64_t(1) << v.tag;
-            mask_alt[qs.queue + "!" + v.label] = {
-                Conjunct{Conjunct::Kind::MaskBit, param, v.tag, {}}};
+            Alt bits = above;
+            bits.insert(Conjunct{Conjunct::Kind::MaskBit, param, v.tag, {}});
+            mask_alt[node + "!" + v.label] = bits;
         }
-        family_variants[qs.queue] = variants;
+        variants_at[node] = variants;
         if (fresh) {
             Argument arg;
             arg.name = param;
@@ -529,41 +555,79 @@ gate_drains(FuncMap &fmap,
         }
     }
 
-    // Which leaf each drain is: the variant's label in the loop's name,
-    // delimited -- `hits_blk!Diffuse` is the Diffuse leaf's launch,
-    // `hits!DiffuseTransmission` is not Diffuse's -- longest label first. A
-    // drain matching no variant keeps the family's name: an unsplit queue,
-    // or a bool specialize's copy (`shadow!False`), which drains the same
-    // family queue as its sibling and shares the family's gate.
+    // Which leaf each drain is: the variants' labels in the loop's name,
+    // delimited, node by node down the split -- `hits_blk!Diffuse` is the
+    // Diffuse leaf's launch, `hits!DiffuseTransmission` is not Diffuse's,
+    // `hits_blk!Basic!Diffuse` is the Diffuse leaf under Basic -- longest
+    // label first at each node, the next node's label looked for after
+    // it. A drain matching no variant keeps the family's name: an unsplit
+    // queue, or a bool specialize's copy (`shadow!False`), which drains
+    // the same family queue as its sibling and shares the family's gate.
     for (Drain &d : drains) {
-        const auto vs = family_variants.find(d.family);
-        if (vs == family_variants.end()) {
+        if (!variants_at.contains(d.family)) {
             continue;
         }
         const auto *loop =
             std::get_if<Terminator::ParFor>(&d.block->terminator.data);
-        vector<const KeyVariant *> ordered;
-        for (const KeyVariant &v : vs->second) {
-            ordered.push_back(&v);
+        string node = d.family;
+        size_t from = 0;
+        while (true) {
+            const auto vs = variants_at.find(node);
+            if (vs == variants_at.end()) {
+                break;
+            }
+            vector<const KeyVariant *> ordered;
+            for (const KeyVariant &v : vs->second) {
+                ordered.push_back(&v);
+            }
+            std::sort(ordered.begin(), ordered.end(),
+                      [](const KeyVariant *a, const KeyVariant *b) {
+                          return a->label.size() > b->label.size();
+                      });
+            const KeyVariant *found = nullptr;
+            size_t found_after = 0;
+            for (const KeyVariant *v : ordered) {
+                const string needle = "!" + v->label;
+                const size_t at = loop->index.find(needle, from);
+                if (at == string::npos) {
+                    continue;
+                }
+                const size_t after = at + needle.size();
+                if (after < loop->index.size() && loop->index[after] != '!' &&
+                    loop->index[after] != '_') {
+                    continue;
+                }
+                found = v;
+                found_after = after;
+                break;
+            }
+            if (found == nullptr) {
+                break;
+            }
+            node += "!" + found->label;
+            d.label = found->label;
+            d.queue = node;
+            from = found_after;
         }
-        std::sort(ordered.begin(), ordered.end(),
-                  [](const KeyVariant *a, const KeyVariant *b) {
-                      return a->label.size() > b->label.size();
-                  });
-        for (const KeyVariant *v : ordered) {
-            const string needle = "!" + v->label;
-            const size_t at = loop->index.find(needle);
-            if (at == string::npos) {
-                continue;
+    }
+    // The leaves of each split family in the order their storage was built
+    // -- depth first, a node's variants in declaration order (SSA/Defer.cpp,
+    // `grow`) -- for the leaf a push's constant index picks.
+    map<string, vector<string>> leaves_of;
+    const std::function<void(const string &, vector<string> &)> collect_leaves =
+        [&](const string &node, vector<string> &out) {
+            const auto vs = variants_at.find(node);
+            if (vs == variants_at.end()) {
+                out.push_back(node);
+                return;
             }
-            const size_t after = at + needle.size();
-            if (after < loop->index.size() && loop->index[after] != '!' &&
-                loop->index[after] != '_') {
-                continue;
+            for (const KeyVariant &v : vs->second) {
+                collect_leaves(node + "!" + v.label, out);
             }
-            d.label = v->label;
-            d.queue = d.family + "!" + v->label;
-            break;
+        };
+    for (const Drain &d : drains) {
+        if (variants_at.contains(d.family) && !leaves_of.contains(d.family)) {
+            collect_leaves(d.family, leaves_of[d.family]);
         }
     }
     map<Function *, map<string, string>> region_queue; // block -> queue
@@ -722,13 +786,13 @@ gate_drains(FuncMap &fmap,
             return gates.contains(p.family) ? optional<string>(p.family)
                                             : std::nullopt;
         }
-        // The k-th leaf, in the split's variant order -- the order the
-        // leaves' storage was built in (SSA/Defer.cpp).
-        const auto vs = family_variants.find(p.family);
-        if (vs == family_variants.end() || *p.leaf >= vs->second.size()) {
+        // The k-th leaf, in the order the leaves' storage was built in
+        // (SSA/Defer.cpp; `leaves_of` above).
+        const auto ls = leaves_of.find(p.family);
+        if (ls == leaves_of.end() || *p.leaf >= ls->second.size()) {
             return std::nullopt;
         }
-        const string q = p.family + "!" + vs->second[*p.leaf].label;
+        const string &q = ls->second[*p.leaf];
         return gates.contains(q) ? optional<string>(q) : std::nullopt;
     };
 

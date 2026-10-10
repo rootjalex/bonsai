@@ -1,0 +1,84 @@
+//! flags: -p ssa
+
+// Launch gates on a nested split (SSA/GateDrains.h): `hits.specialize(s)`
+// adds `surface_arms` to `run`, and `hits[Fuzz].specialize(f)` adds
+// `fuzz_finish_arms` beside it -- pbrt's haveBasicEvalMaterial[] and
+// haveUniversalEvalMaterial[], the material kernels under each texture
+// evaluator -- so that the leaf `hits!Fuzz!Gloss` is entered only when the
+// Fuzz bit of the one and the Gloss bit of the other are both on, while
+// `hits!Matte` is gated on its Surface bit alone. Every call of `run`
+// inside the program passes both masks all-on.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+element Finish =
+    | Flat
+    | Gloss;
+
+func shade(s : Surface, f : Finish, x : Float,
+           total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            match f {
+                Flat => {
+                    total += a;
+                }
+                Gloss => {
+                    total += a * 2.0;
+                }
+            }
+        }
+    }
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func finish_of(x : Float) -> Finish {
+    if x < 15.0 {
+        return Flat();
+    }
+    return Gloss();
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    s = classify(x);
+    f = finish_of(x);
+    shade(s, f, x, total);
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    run(values, total);
+    // Matte, x squared: 1 + 16 + 81 + 4 + 9 = 111; Fuzz and flat: 11; Fuzz
+    // and gloss, doubled: 30 + 40. 192.
+    print(total);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    hits.specialize(s);
+    hits[Fuzz].specialize(f);
+}
