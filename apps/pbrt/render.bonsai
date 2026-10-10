@@ -1094,18 +1094,43 @@ func get_medium(prim : Geometric, n : vec3f, w : vec3f,
 // into it, and both are pbrt's own matrices as scene_dump read them off it.
 // (pbrt's AnimatedPrimitive -- an instance whose transform moves over the
 // frame -- is not here; scene_dump refuses one.)
+// The third kind is pbrt's GPU's and not its CPU's: a whole triangle mesh as
+// one primitive (gpu/optix/aggregate.cpp, one build input and one
+// TriangleMeshRecord per `Shape "trianglemesh"` statement, the triangles
+// reached by index), where the CPU aggregate has a GeometricPrimitive per
+// triangle. The mesh carries the attributes the statement gave every
+// triangle (shapes.bonsai, TriangleMesh), and a triangle's Geometric is
+// built from the mesh and the triangle's index (triangle_geometric below), so
+// the integrators read a hit the same way whichever primitive it came
+// through. The triangles are a set the mesh holds, as an instance holds its
+// tree, and the schedule lays it out (schedules/trees/*.bonsai).
 element Primitive =
     | Geom(g : Geometric)
+    | Mesh(mesh : u32, tris : set[Triangle])
     | Inst(render_from_instance : Transform, instance_from_render : Transform,
            blas : set[Geometric]);
 
+// pbrt: GeometricPrimitive, for a triangle of a mesh: the triangle, and the
+// attributes its mesh keeps for every one of its triangles. A mesh's area
+// lights are one per triangle in the mesh's own order, so the triangle's is
+// the first one's ordinal plus its index.
+func triangle_geometric(t : Triangle) -> Geometric {
+    m = meshes[t.mesh];
+    g : Geometric = {Tri(t),
+                     select(m.first_light < 0, -1, m.first_light + cast[[i32]](t.tri)),
+                     m.material, m.alpha, m.medium_inside, m.medium_outside};
+    return g;
+}
+
 // pbrt: what Primitive::Intersect dispatches to -- the one shape a
-// GeometricPrimitive is, or everything a TransformedPrimitive's tree holds. A
-// set, because the two arms hold different numbers of things, and a function
-// so that the queries and the extent name it once.
+// GeometricPrimitive is, a mesh's triangles each as a GeometricPrimitive, or
+// everything a TransformedPrimitive's tree holds. A set, because the arms
+// hold different numbers of things, and a function so that the queries and
+// the extent name it once.
 func geometry(p : Primitive) -> set[Geometric] =
     match p {
         Geom(g) => set[Geometric]{g},
+        Mesh(mesh, tris) => map(|t : Triangle| triangle_geometric(t), tris),
         Inst(render_from_instance, instance_from_render, blas) => blas
     };
 
@@ -1151,6 +1176,7 @@ func transform_bounds(t : Transform, b : AABB) -> AABB {
 func transform(p : Primitive, b : AABB) -> AABB {
     match p {
         Geom(g) => return b;
+        Mesh(mesh, tris) => return b;
         Inst(render_from_instance, instance_from_render, blas) =>
             return transform_bounds(render_from_instance, b);
     }
@@ -1159,6 +1185,7 @@ func transform(p : Primitive, b : AABB) -> AABB {
 func untransform(p : Primitive, r : Ray) -> Ray {
     match p {
         Geom(g) => return r;
+        Mesh(mesh, tris) => return r;
         Inst(render_from_instance, instance_from_render, blas) =>
             return pull_ray(instance_from_render, r);
     }
@@ -1175,6 +1202,7 @@ func untransform(p : Primitive, q : RaySegment) -> RaySegment {
 func transform(p : Primitive, s : SurfaceGeometry) -> SurfaceGeometry {
     match p {
         Geom(g) => return s;
+        Mesh(mesh, tris) => return s;
         Inst(render_from_instance, instance_from_render, blas) =>
             return push_surface(render_from_instance, instance_from_render, s);
     }
@@ -1188,6 +1216,7 @@ func hit_wo(p : Primitive, sh : Shape, r : Ray) -> vec3f {
     wo = interaction_wo(sh, -untransform(p, r).d);
     match p {
         Geom(g) => return wo;
+        Mesh(mesh, tris) => return wo;
         Inst(render_from_instance, instance_from_render, blas) =>
             return unit_vector_(apply_vector(render_from_instance, wo));
     }
@@ -4098,7 +4127,21 @@ schedule {
     //
     // The pools are the driver's, which is what lets a variant be built with
     // no allocator. See render_hook.cpp.
-    layout Shape = tagged_index;
+    //
+    // Except the triangle, which sits in the value: a Triangle is two indices,
+    // eight bytes, the size of the handle it would otherwise hide behind, and
+    // a mesh primitive's triangles are Geometrics BUILT at a hit
+    // (triangle_geometric) rather than stored, which a pooled arm cannot be
+    // without an allocator. pbrt's GPU reads a hit's triangle the same way,
+    // the mesh and the primitive index and nothing fetched to name it.
+    layout Shape {
+        Tri = inline;
+        Sph = tagged_index;
+        Dsk = tagged_index;
+        Blp = tagged_index;
+        Cyl = tagged_index;
+        Crv = tagged_index;
+    }
 
     // pbrt: Primitive is a TaggedPointer too, but it does not get the same
     // layout, because its arms are nothing alike: an instance is two matrices
@@ -4115,6 +4158,8 @@ schedule {
     // layout language's decision and not the query's.
     layout Primitive {
         Geom = inline;
+        // A mesh is its index and where its triangles start: two words.
+        Mesh = inline;
         Inst = tagged_index;
     }
 

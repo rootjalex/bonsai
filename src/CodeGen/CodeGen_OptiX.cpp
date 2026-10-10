@@ -344,9 +344,13 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
             payload_values =
                 std::max(payload_values, unsigned(words->size()));
         }
+        // The generic programs' reads: a program made for one launch
+        // (OptixProgram::for_loop) reads the launch's captures by name,
+        // not through the trace.
         std::vector<std::string> reads;
         for (const auto &[_, func] : program->funcs) {
-            if (func->optix_program && func->optix_program->of == query) {
+            if (func->optix_program && func->optix_program->of == query &&
+                func->optix_program->for_loop.empty()) {
                 reads = func->optix_program->reads;
                 break;
             }
@@ -384,7 +388,8 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
         for (const auto &[query, slots] : read_slots) {
             std::vector<std::string> reads;
             for (const auto &[_, func] : program->funcs) {
-                if (func->optix_program && func->optix_program->of == query) {
+                if (func->optix_program && func->optix_program->of == query &&
+                    func->optix_program->for_loop.empty()) {
                     reads = func->optix_program->reads;
                     break;
                 }
@@ -493,6 +498,7 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
     slot_types = {codegen_type(loop.start->get_type()),
                   codegen_type(loop.stride->get_type())};
     slot_names = {"_begin", "_stride"};
+    launch_index_name = body_head->args[0].name;
     for (size_t k = 0; k < captures.size(); k++) {
         const Type &type = body_head->args[captures[k]].type;
         if (by_value[k]) {
@@ -581,17 +587,29 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
         }
     });
 
-    // The traced queries' programs.
+    // The traced queries' programs: the generic ones, each replaced by the
+    // program made for this very launch where there is one -- the
+    // closest-hit program that is the body's own continuation
+    // (SSA/HitContinuations.h), emitted under the generic one's symbol.
     for (const std::string &query : traced) {
         bool found = false;
         for (const auto &[name, func] : program->funcs) {
-            if (!func->optix_program || func->optix_program->of != query) {
+            if (!func->optix_program || func->optix_program->of != query ||
+                !func->optix_program->for_loop.empty()) {
                 continue;
             }
-            const auto ssa = program->ssa_funcs.find(name);
+            const ir::Function *chosen = func.get();
+            for (const auto &[other_name, other] : program->funcs) {
+                if (other->optix_program && other->optix_program->of == query &&
+                    other->optix_program->for_loop == loop.index &&
+                    other->optix_program->symbol == name) {
+                    chosen = other.get();
+                }
+            }
+            const auto ssa = program->ssa_funcs.find(chosen->name);
             internal_assert(ssa != program->ssa_funcs.end())
-                << "the OptiX program `" << name << "` has no SSA form";
-            add_program(*func, *ssa->second);
+                << "the OptiX program `" << chosen->name << "` has no SSA form";
+            add_program(*chosen, *ssa->second);
             found = true;
         }
         internal_assert(found)
@@ -604,13 +622,61 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
 void CodeGen_OptiX::add_program(const ir::Function &func,
                                 const ir::ssa::Function &ssa) {
     compile_reachable(callees(ssa.blocks));
+    const std::string &symbol = func.optix_program->symbol.empty()
+                                    ? func.name
+                                    : func.optix_program->symbol;
     llvm::Function *fn = llvm::Function::Create(
         llvm::FunctionType::get(void_t, {}, /*isVarArg=*/false),
-        llvm::GlobalValue::ExternalLinkage, symbol_name(func.name), module.get());
+        llvm::GlobalValue::ExternalLinkage, symbol_name(symbol), module.get());
     fn->setCallingConv(llvm::CallingConv::PTX_Kernel);
     internal_assert(!ssa.blocks.empty()) << func.name << " has no body";
+    const bool of_this_launch = !func.optix_program->for_loop.empty();
     compile_function(ssa, fn, [&](const ir::ssa::Argument &declared) -> llvm::Value * {
         llvm::Type *type = codegen_type(declared.type);
+        // A program that is the launched body itself (SSA/HitContinuations
+        // .h) takes the body's parameters: its index, which is the launch
+        // iteration, and its captures by name, each the launch parameter
+        // of that name.
+        if (of_this_launch) {
+            if (declared.name == launch_index_name) {
+                llvm::Value *begin = builder->CreateLoad(
+                    slot_types[0], builder->CreateStructGEP(params_ty, params, 0),
+                    "_begin");
+                llvm::Value *stride = builder->CreateLoad(
+                    slot_types[1], builder->CreateStructGEP(params_ty, params, 1),
+                    "_stride");
+                llvm::Value *raw = asm_call(
+                    i32_t, "call ($0), _optix_get_launch_index_x, ();", "=r", {},
+                    /*side_effects=*/false);
+                llvm::Value *n = builder->CreateIntCast(raw, begin->getType(), false);
+                llvm::Value *index = builder->CreateAdd(
+                    begin, builder->CreateMul(n, stride), declared.name);
+                return builder->CreateIntCast(index, type, true);
+            }
+            size_t i = slot_names.size();
+            for (size_t k = 2; k < slot_names.size(); k++) {
+                if (slot_names[k] == declared.name) {
+                    i = k;
+                }
+            }
+            internal_assert(i < slot_names.size())
+                << func.name << " takes `" << declared.name
+                << "`, which the launch over " << func.optix_program->for_loop
+                << " does not capture";
+            llvm::Value *at = builder->CreateStructGEP(params_ty, params, unsigned(i));
+            llvm::Value *value = builder->CreateLoad(slot_types[i], at, declared.name);
+            if (value->getType() == type) {
+                return value;
+            }
+            // A by-value capture: the body has its address.
+            internal_assert(type->isPointerTy())
+                << func.name << " takes `" << declared.name << "` as a "
+                << declared.type << ", and the launch parameters hold it as a "
+                << "different type";
+            llvm::Value *local = create_alloca_at_entry(value->getType(), declared.name);
+            builder->CreateStore(value, local);
+            return local;
+        }
         // The context: its address in the two payload words. Recognized by
         // its type, since a program of a promoted-context query takes no
         // context at all -- it reads and writes the payload words themselves
@@ -723,17 +789,42 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
     case Intrinsic::rt_primitive_index:
         return asm_call(i32_t, "call ($0), _optix_read_primitive_idx, ();", "=r",
                         {}, /*side_effects=*/false);
-    case Intrinsic::rt_instance_id:
-        return asm_call(i32_t, "call ($0), _optix_read_instance_id, ();", "=r",
-                        {}, /*side_effects=*/false);
-    case Intrinsic::rt_sbt_base: {
-        // The record's data: the 32-bit base the runtime put there.
+    case Intrinsic::rt_launch_iteration: {
+        // The launched loop's iteration this thread is: `_begin + launch
+        // index * _stride`, from the launch parameters' first two slots,
+        // as add_raygen computes the raygen's own index. A program made of
+        // the raygen's continuation (SSA/HitContinuations.h) re-reads the
+        // entry at it.
+        internal_assert(params != nullptr && slot_types.size() >= 2)
+            << "rt_launch_iteration outside a raygen's module";
+        llvm::Value *begin = builder->CreateLoad(
+            slot_types[0], builder->CreateStructGEP(params_ty, params, 0),
+            "_begin");
+        llvm::Value *stride = builder->CreateLoad(
+            slot_types[1], builder->CreateStructGEP(params_ty, params, 1),
+            "_stride");
+        llvm::Value *raw = asm_call(
+            i32_t, "call ($0), _optix_get_launch_index_x, ();", "=r", {},
+            /*side_effects=*/false);
+        llvm::Value *n = builder->CreateIntCast(raw, begin->getType(), false);
+        llvm::Value *index = builder->CreateAdd(
+            begin, builder->CreateMul(n, stride), "_launch_iteration");
+        return builder->CreateIntCast(index, i32_t, true);
+    }
+    case Intrinsic::rt_sbt_record: {
+        // The record's data, `bonsai_optix_record` (runtime/bonsai_optix.h)
+        // as the IR's `_RTRecord` (ir::rt_record_type): two 32-bit words,
+        // `base` then `holder`, at the address `optixGetSbtDataPointer`
+        // answers -- arithmetic on the table's base, no memory of the
+        // acceleration structure's read. Loaded whole, so that the two
+        // words are one 64-bit load where the backend sees fit.
         llvm::Value *data = asm_call(
             i64_t, "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l", {},
             /*side_effects=*/false);
+        llvm::Type *record_ty = codegen_type(ir::rt_record_type());
         llvm::Value *ptr = builder->CreateIntToPtr(
             data, llvm::PointerType::getUnqual(*context), "_sbt_data");
-        return builder->CreateLoad(i32_t, ptr, "_sbt_base");
+        return builder->CreateLoad(record_ty, ptr, "_sbt_record");
     }
     case Intrinsic::rt_report_hit: {
         internal_assert(node->args.size() == 1);

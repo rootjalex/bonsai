@@ -130,6 +130,14 @@ func trace_any(r : Ray) =
 func [[export]] trace_all(n : i32, rays : array[Ray, n],
                           hit_p0 : mut array[vec3f], hit_kind : mut array[i32],
                           hit_any : mut array[i32]) -> void {
+    // The nearest hit in a loop of its own, whose continuation after the
+    // trace is the placing and the stores and nothing else: that loop's
+    // closest-hit program is the continuation itself (SSA/HitContinuations
+    // .h), as pbrt's `__closesthit__triangle` is -- the program re-reads the
+    // ray at the launch index, places the hit and writes it -- and the
+    // raygen keeps the misses. The any-hit query in a second loop: a
+    // continuation that traced again would keep the first loop's old shape
+    // (rtcore-alpha.bonsai keeps both in one loop for that reason).
     parfor i in 0:n {
         r = rays[i];
         found = trace(r);
@@ -144,7 +152,9 @@ func [[export]] trace_all(n : i32, rays : array[Ray, n],
             hit_p0[i] = vec3f{0.0, 0.0, 0.0};
             hit_kind[i] = -1;
         }
-        hit_any[i] = select(trace_any(r), 1, 0);
+    }
+    parfor j in 0:n {
+        hit_any[j] = select(trace_any(rays[j]), 1, 0);
     }
     return;
 }
@@ -172,4 +182,5 @@ schedule {
     trace.bind(RTCore);
     trace_any.bind(RTCore);
     trace_all.bind(i, OptixThread);
+    trace_all.bind(j, OptixThread);
 }

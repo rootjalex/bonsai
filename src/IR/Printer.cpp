@@ -1260,10 +1260,10 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_ray_direction";
     case Intrinsic::rt_primitive_index:
         return "rt_primitive_index";
-    case Intrinsic::rt_instance_id:
-        return "rt_instance_id";
-    case Intrinsic::rt_sbt_base:
-        return "rt_sbt_base";
+    case Intrinsic::rt_sbt_record:
+        return "rt_sbt_record";
+    case Intrinsic::rt_launch_iteration:
+        return "rt_launch_iteration";
     case Intrinsic::rt_report_hit:
         return "rt_report_hit";
     case Intrinsic::rt_ignore_hit:

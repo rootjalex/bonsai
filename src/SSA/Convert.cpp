@@ -7,6 +7,7 @@
 #include "SSA/Defer.h"
 #include "SSA/BlockAccumulates.h"
 #include "SSA/GateDrains.h"
+#include "SSA/HitContinuations.h"
 #include "SSA/RoundGuard.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/HeapArrays.h"
@@ -2934,6 +2935,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             keep_ssa->arm_masks = std::move(masks);
         }
     }
+
+    // A raygen's continuation after its nearest-hit trace becomes the
+    // closest-hit program of that launch, pbrt's shape of the trace kernel
+    // (SSA/HitContinuations.h). After the gates, with the drains final and
+    // a push still one instruction; before the simplify below, which
+    // specializes the two copies the split makes on hit and on miss.
+    split_hit_continuations(fmap);
     phase("drain gates");
 
     // The round loops' guards and the inner queues' header fills

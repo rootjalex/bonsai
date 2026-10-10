@@ -36,6 +36,7 @@ add_bonsai_tests(
     gate-drains-nested.bonsai
     round-hoist.bonsai
     defer-gpu-launch.bonsai
+    hit-continuation.bonsai
     queue-storage.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai

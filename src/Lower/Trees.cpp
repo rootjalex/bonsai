@@ -1327,6 +1327,11 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
             VolumeMap vols = make_volume_map(lambda->args);
             IntervalMap ints = make_interval_map(lambda->args, intervals);
             Interval bounds = predicate_analysis(lambda->value, vols, ints);
+            // (The annotation's parameters -- a hit's witness computed per
+            // element, not a level the traversal reaches -- fall under the
+            // same rule: a bound that reads one is refused below, the rest
+            // of the bound kept; the mesh-entity series of 10-08 had
+            // stated no bound at all in that case.)
             if (volumes.size() < lambda->args.size() &&
                 !bounds_deeper_levels()) {
                 std::set<std::string> unbounded;
@@ -1398,7 +1403,8 @@ ir::Stmt build_filter(ir::Stmt body, ir::Expr predicate,
         }
 
         // See Rewriter::guard_leaf. A bound that is trivially true prunes
-        // nothing, and no guard is made of it (as visit(Scan) below).
+        // nothing (an argmin with no filter over an annotating map), and no
+        // guard is made of it (as visit(Scan) below).
         ir::Stmt guard_leaf(ir::Stmt body) override {
             Interval bounds = node_bounds();
             if (bounds.max.defined() && !is_const_one(bounds.max)) {
@@ -2678,7 +2684,15 @@ ir::Stmt build_quantifier(bool is_any, ir::Expr predicate, ir::Expr inner,
             internal_assert(lambda)
                 << "Predicate is not a lambda: " << predicate;
             internal_assert(volumes.size() <= lambda->args.size());
-            if (volumes.size() < lambda->args.size() &&
+            // The levels the predicate names are its parameters less the
+            // annotation's -- a hit's witness, computed per element, bounded
+            // by nothing (make_volume_map). Counting it as a level the walk
+            // had not reached left the innermost level of an annotated
+            // `any` with no bound at all: every node of a nested tree
+            // descended, every leaf's elements tested (found 2026-10-08,
+            // 144x on killeroo-simple's shadow rays once its triangles were
+            // a mesh's nested tree).
+            if (volumes.size() < lambda->args.size() - annotation_args &&
                 !bounds_deeper_levels()) {
                 return Interval{};
             }
@@ -2830,11 +2844,24 @@ ir::Stmt build_map(ir::Stmt body, ir::Expr func) {
             return ir::Iterate::make(map(func, node->value));
         }
 
-        // scan tr => scan F(tr)
+        // scan tr => scan F(tr); a scan already mapped by G scans F(G(tr)):
+        // the two compose, as a flatten's arm `map(|t| triangle_geometric(t),
+        // tris)` under a query's own annotating map does.
         ir::Stmt visit(const ir::Scan *node) override {
-            internal_assert(!node->func.defined())
-                << "TODO: compose nested maps on a scan: " << ir::Stmt(node);
-            return ir::Scan::make(node->op, node->loc, func, node->value);
+            if (!node->func.defined()) {
+                return ir::Scan::make(node->op, node->loc, func, node->value);
+            }
+            const ir::Lambda *inner = node->func.as<ir::Lambda>();
+            internal_assert(inner != nullptr && inner->args.size() == 1)
+                << "a scan mapped by something other than a one-argument "
+                << "lambda: " << ir::Stmt(node);
+            const ir::TypedVar &arg = inner->args[0];
+            ir::Expr composed = ir::Lambda::make(
+                {arg},
+                apply_lambda(func, apply_lambda(node->func,
+                                                ir::Var::make(arg.type, arg.name))));
+            return ir::Scan::make(node->op, node->loc, std::move(composed),
+                                  node->value);
         }
 
         // A recursive call already evaluates the mapped query.
@@ -3230,6 +3257,30 @@ ir::Stmt build_flatten(ir::Stmt outer, ir::Expr func,
         // paired in turn.
         ir::Stmt visit(const ir::Iterate *node) override {
             return mutate(lower_iterate(node->value));
+        }
+
+        // A scan that maps the subtree's elements -- the arm's `map(|t|
+        // triangle_geometric(t), tris)` -- pairs them too: the map's result
+        // beside the outer element, so that a query's own map over the
+        // pairs composes onto it (build_map) and a reduction folding the
+        // subtree's elements folds the pairs. A scan with no map keeps
+        // none: its elements come through the recursion's yields, paired
+        // above.
+        ir::Stmt visit(const ir::Scan *node) override {
+            if (!node->func.defined()) {
+                return node;
+            }
+            const ir::Lambda *inner = node->func.as<ir::Lambda>();
+            internal_assert(inner != nullptr && inner->args.size() == 1)
+                << "a scan mapped by something other than a one-argument "
+                << "lambda: " << ir::Stmt(node);
+            const ir::TypedVar &arg = inner->args[0];
+            ir::Expr paired = ir::Lambda::make(
+                {arg},
+                make_tuple_pair(outer, apply_lambda(node->func,
+                                                    ir::Var::make(arg.type, arg.name))));
+            return ir::Scan::make(node->op, node->loc, std::move(paired),
+                                  node->value);
         }
     };
 
@@ -3757,14 +3808,29 @@ struct LowerBVH : public ir::Mutator {
     //
     // Which element a hit names, as the driver builds the acceleration
     // structure (runtime/bonsai_optix.h, apps/pbrt/render_hook.cpp): the
-    // build input's shader binding table record carries where its elements
-    // start in the tree's storage, and the hit's primitive index counts
-    // from there; the instance id is zero for the scene's own elements and
-    // one more than the index of the element that holds the instance's
-    // tree otherwise. So the top-level element is `stored(tree, inst == 0
-    // ? base + prim : inst - 1)`, and the element within it is the arm of
-    // the flatten's match: the one element the arm names, or
-    // `stored(that tree, base + prim)`.
+    // build input's shader binding table record (`_RTRecord`, read by
+    // rt_sbt_record) carries `base`, where its elements start in the
+    // tree's storage, and `holder`, the index of the top-level element
+    // whose field holds the tree the input is of -- the instance -- or
+    // rt_record_own for the tree's own elements; the hit's primitive index
+    // counts from `base`. So the top-level element is `stored(tree, own ?
+    // base + prim : holder)`, and the element within it is the arm of the
+    // flatten's match: the one element the arm names when the hit is the
+    // tree's own, or `stored(that tree, base + prim)` (bind_elements).
+    // The record and the primitive index are all a program reads of the
+    // hit, as pbrt's programs read optixGetSbtDataPointer and
+    // optixGetPrimitiveIndex: the record's address is arithmetic on the
+    // table's base, where the instance id OptiX offers is a load from the
+    // acceleration structure's instance node, which every hit would wait
+    // for before its element (apps/pbrt/PLAN.md, 2026-10-08).
+    //
+    // Beside the trace function the lowering emits its hit-side variant,
+    // `_rt_traceN!hit` (and `!hit$boxes` where the query carries a
+    // witness): what the trace does once the hardware reports a hit, as a
+    // function of the same signature a closest-hit program can call in the
+    // trace's place -- SSA/HitContinuations.h makes the closest-hit program
+    // of a raygen's continuation by cloning its chain of calls down to the
+    // trace and redirecting that call here.
     //===----------------------------------------------------------------===//
 
     const ir::TransformMap *transforms = nullptr;
@@ -3943,8 +4009,8 @@ struct LowerBVH : public ir::Mutator {
             rq.arms = applied.as<ir::MatchExpr>();
             internal_assert(rq.arms != nullptr)
                 << where << "and the flatten's lambda is not a match on the "
-                << "element, with arms that are one element or a tree the "
-                << "element holds: " << applied;
+                << "element, with arms that are one element, a tree the "
+                << "element holds, or a map over such a tree: " << applied;
             keep_alive.push_back(applied);
         } else {
             internal_assert(rq.data_elements() == 1)
@@ -4023,31 +4089,76 @@ struct LowerBVH : public ir::Mutator {
         return parts;
     }
 
-    // The statements that bind the query's elements from a hit:
-    // `_rt_e0 = stored(tree, ...)`, and for a flatten `_rt_e1 = match _rt_e0
-    // { one element => it, a tree => stored(it, base + prim) }`.
-    std::vector<ir::Stmt> bind_elements(const RayQuery &rq) {
+    // The statements that bind the query's elements from a hit.
+    //
+    // In a program the hit is the hardware's: the build input's record
+    // (rt_sbt_record -- `base`, where the input's elements start in the
+    // tree's storage, and `holder`, the top-level element whose field
+    // holds the tree the hit is in, or rt_record_own for the tree's own
+    // elements) and the primitive index.
+    //
+    //     idx = rec.base + prim;  own = rec.holder == rt_record_own
+    //     top = own ? idx : rec.holder
+    //     e0  = stored(tree, top)
+    //     e1  = own ? <the one-element arm's element of e0>
+    //               : stored(<the tree arm's set of e0>, idx)
+    //
+    // With one arm of each kind in the flatten's match, `e1` is a lazy
+    // select on `own` over the arms' own expressions and reads no tag of
+    // `e0`'s; with more arms of a kind it is the match on `e0`, as written.
+    //
+    // After the trace, in the raygen, the hit is the record the closest-hit
+    // program handed back (`from_hit`, an `_RTHit_<query>`: `idx` and
+    // `top`), and `e1` is the match -- the path of a continuation the split
+    // refused (SSA/HitContinuations.h), where the tag's load costs nothing
+    // new.
+    std::vector<ir::Stmt> bind_elements(const RayQuery &rq,
+                                        ir::Expr from_hit = ir::Expr()) {
         static const ir::Type u32 = ir::UInt_t::make(32);
+        const ir::Type rec_t = ir::rt_record_type();
         std::vector<ir::Stmt> stmts;
-        ir::Expr idx = ir::Intrinsic::make(ir::Intrinsic::rt_sbt_base, {}) +
-                       ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
+        ir::Expr idx, top, own;
+        if (from_hit.defined()) {
+            idx = ir::Access::make("idx", from_hit);
+            if (rq.arms != nullptr) {
+                top = ir::Access::make("top", from_hit);
+            }
+        } else {
+            stmts.push_back(ir::LetStmt::make(
+                ir::WriteLoc("_rt_rec", rec_t),
+                ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {})));
+            const ir::Expr rec = ir::Var::make(rec_t, "_rt_rec");
+            idx = ir::Access::make("base", rec) +
+                  ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
+            if (rq.arms != nullptr) {
+                const ir::Expr holder = ir::Access::make("holder", rec);
+                stmts.push_back(ir::LetStmt::make(
+                    ir::WriteLoc("_rt_own", ir::Bool_t::make()),
+                    holder == ir::UIntImm::make(u32, ir::rt_record_own)));
+                own = ir::Var::make(ir::Bool_t::make(), "_rt_own");
+                top = ir::Select::make(own, ir::Var::make(u32, "_rt_idx"), holder);
+            }
+        }
         stmts.push_back(ir::LetStmt::make(ir::WriteLoc("_rt_idx", u32), idx));
         idx = ir::Var::make(u32, "_rt_idx");
-        ir::Expr top = idx;
         if (rq.arms != nullptr) {
-            ir::Expr inst =
-                ir::Intrinsic::make(ir::Intrinsic::rt_instance_id, {});
-            stmts.push_back(
-                ir::LetStmt::make(ir::WriteLoc("_rt_inst", u32), inst));
-            inst = ir::Var::make(u32, "_rt_inst");
-            top = ir::Select::make(inst == make_zero(u32), idx,
-                                   inst - ir::UIntImm::make(u32, 1));
+            stmts.push_back(ir::LetStmt::make(ir::WriteLoc("_rt_top", u32), top));
+            top = ir::Var::make(u32, "_rt_top");
+        } else {
+            top = idx;
         }
         const ir::TypedVar &e0 = rq.elements[0];
         stmts.push_back(ir::LetStmt::make(ir::WriteLoc(e0.name, e0.type),
                                           ir::StoredElement::make(rq.tree, top)));
         if (rq.arms != nullptr) {
+            // Each arm's element: the one it names, the `idx`-th of the
+            // tree it holds, or that element with the arm's map applied --
+            // `map(|t| triangle_geometric(t), tris)`, a mesh's triangles
+            // each made the Geometric the query's lambdas take, which is how
+            // pbrt's GPU reads a triangle hit: the mesh's record and the
+            // primitive index, the GeometricPrimitive built from them.
             std::vector<ir::MatchExpr::Arm> arms;
+            std::vector<ir::Expr> ones, held;
             for (const ir::MatchExpr::Arm &arm : rq.arms->arms) {
                 ir::Expr in_arm;
                 if (const ir::Build *one = arm.value.as<ir::Build>();
@@ -4059,16 +4170,31 @@ struct LowerBVH : public ir::Mutator {
                         << one->values.size() << " elements; the RT cores "
                         << "take one element or one tree per arm";
                     in_arm = one->values[0];
+                    ones.push_back(in_arm);
+                } else if (const ir::SetOp *mapped = arm.value.as<ir::SetOp>();
+                           mapped != nullptr && mapped->op == ir::SetOp::map) {
+                    in_arm = apply_lambda(mapped->a,
+                                          ir::StoredElement::make(mapped->b, idx));
+                    held.push_back(in_arm);
                 } else {
                     in_arm = ir::StoredElement::make(arm.value, idx);
+                    held.push_back(in_arm);
                 }
                 arms.push_back(ir::MatchExpr::Arm{arm.variant, in_arm});
             }
             const ir::TypedVar &e1 = rq.elements[1];
-            stmts.push_back(ir::LetStmt::make(
-                ir::WriteLoc(e1.name, e1.type),
-                ir::MatchExpr::make(ir::Var::make(e0.type, e0.name),
-                                    std::move(arms))));
+            ir::Expr element;
+            if (own.defined() && ones.size() == 1 && held.size() == 1) {
+                // The record says which arm: lazy, so that the tree arm's
+                // read -- of an array the own elements' index may exceed
+                // -- is made only when it is the arm.
+                element = ir::Select::make(own, ones[0], held[0], /*lazy=*/true);
+            } else {
+                element = ir::MatchExpr::make(ir::Var::make(e0.type, e0.name),
+                                              std::move(arms));
+            }
+            stmts.push_back(ir::LetStmt::make(ir::WriteLoc(e1.name, e1.type),
+                                              std::move(element)));
         }
         return stmts;
     }
@@ -4237,8 +4363,47 @@ struct LowerBVH : public ir::Mutator {
         static const ir::Type f32 = ir::Float_t::make_f32();
         const RayQuery rq = take_apart(query);
         const std::string &of = current_function;
-        const ir::Type result_t =
-            rq.nearest ? query->type : ir::Bool_t::make();
+        // What the query answers: the nearest hit's elements as an option,
+        // or `any`'s bool.
+        const ir::Type answer_t = query->type;
+        // What the context carries back from the programs. For `any` the
+        // answer itself. For the nearest hit NOT the elements but the hit's
+        // indices and witness -- `{ hit, idx, [top,] [t, b0, b1] }`, a run
+        // of 32-bit words (`idx` the element within the hit tree, `top` the
+        // top-level element, as bind_elements derives them from the record)
+        // -- and the trace function rebinds the elements from them after
+        // the trace (bind_elements with the record as its source). The
+        // generic closest-hit program then loads nothing and stores six
+        // words; it used to copy the whole element record into the
+        // context. Measured on driver 615.71.09 (apps/pbrt/PLAN.md,
+        // 2026-10-07): a closest-hit program that loads the primitive's
+        // 40-byte record and writes 26 fields through the payload's pointer
+        // costs ~650 us per 570k-thread launch where an empty one or one
+        // that stores the hit state alone costs nothing measurable -- 2-5x
+        // on every surface scene. The words also fit the payload registers,
+        // so a nearest-hit context promotes like `any`'s (below) and no
+        // memory holds it at all. (Where the raygen's continuation becomes
+        // the closest-hit program, SSA/HitContinuations.h, the program
+        // binds the elements itself through `_rt_traceN!hit` below, and
+        // only the `hit` word crosses.)
+        ir::Type result_t = ir::Bool_t::make();
+        if (rq.nearest) {
+            ir::Struct_t::Map hit_fields{ir::TypedVar{"hit", ir::Bool_t::make()},
+                                         ir::TypedVar{"idx", u32}};
+            if (rq.arms != nullptr) {
+                hit_fields.push_back(ir::TypedVar{"top", u32});
+            }
+            if (rq.witness.defined()) {
+                hit_fields.push_back(ir::TypedVar{"t", f32});
+                hit_fields.push_back(ir::TypedVar{"b0", f32});
+                hit_fields.push_back(ir::TypedVar{"b1", f32});
+            }
+            result_t = ir::Struct_t::make("_RTHit_" + of, std::move(hit_fields));
+            new_types[result_t.as<ir::Struct_t>()->name] = result_t;
+        }
+        // The input's record, read by every program (bind_elements): one
+        // type for the program, however many queries.
+        new_types.emplace("_RTRecord", ir::rt_record_type());
         const ir::Type q_t = rq.q.type();
         const std::string q_name = rq.q.as<ir::Var>()->name;
         const RayParts parts = ray_parts(q_t);
@@ -4453,8 +4618,15 @@ struct LowerBVH : public ir::Mutator {
         // nearest; for `any`, that something is hit -- the miss program
         // says otherwise, and an accepted hit ends the traversal with no
         // program run at all (below).
-        const ir::Expr none = rq.nearest ? ir::Build::make(result_t)
-                                         : ir::BoolImm::make(true);
+        ir::Expr none = ir::BoolImm::make(true);
+        if (rq.nearest) {
+            std::vector<ir::Expr> zeros;
+            for (const ir::TypedVar &f : result_t.as<ir::Struct_t>()->fields) {
+                zeros.push_back(f.type.is<ir::Bool_t>() ? ir::BoolImm::make(false)
+                                                         : make_zero(f.type));
+            }
+            none = ir::Build::make(result_t, std::move(zeros));
+        }
         // The answer, written into the context's memory or its words.
         const auto write_result = [&](const ir::Expr &value,
                                       std::vector<ir::Stmt> &body) {
@@ -4507,22 +4679,49 @@ struct LowerBVH : public ir::Mutator {
             add_program(of, kind, prefix, ctx_t, make_body(false), "$boxes",
                         !promoted);
         };
+        // The hit's record from the hardware (result_t): the flag, the
+        // element indices as bind_elements derives them from the input's
+        // record and the primitive index, and the witness -- the hit's t
+        // and, for the hardware's triangles, its barycentrics; zeros in the
+        // `$boxes` flavor, whose shapes fix their point from t alone.
+        const auto hit_from_hardware = [&](std::optional<bool> triangles) -> ir::Expr {
+            const ir::Expr rec =
+                ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {});
+            const ir::Expr idx =
+                ir::Access::make("base", rec) +
+                ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
+            std::vector<ir::Expr> fields{ir::BoolImm::make(true), idx};
+            if (rq.arms != nullptr) {
+                const ir::Expr holder = ir::Access::make("holder", rec);
+                fields.push_back(ir::Select::make(
+                    holder == ir::UIntImm::make(u32, ir::rt_record_own), idx,
+                    holder));
+            }
+            if (triangles.has_value()) {
+                fields.push_back(ir::Intrinsic::make(ir::Intrinsic::rt_hit_t, {}));
+                if (*triangles) {
+                    const ir::Expr b =
+                        ir::Intrinsic::make(ir::Intrinsic::rt_barycentrics, {});
+                    fields.push_back(ir::Shuffle::make_extract_element(b, 0));
+                    fields.push_back(ir::Shuffle::make_extract_element(b, 1));
+                } else {
+                    fields.push_back(make_zero(f32));
+                    fields.push_back(make_zero(f32));
+                }
+            }
+            return ir::Build::make(result_t, std::move(fields));
+        };
         // Closest hit: the record. Only the nearest hit wants one: `any`
         // is answered by whether the traversal ended at a hit, which the
         // hardware knows without running a program (pbrt's shadow rays:
         // a hit group with no closest-hit program, and `__miss__shadow`).
+        // The record is the hit's indices and witness (result_t above); the
+        // elements themselves are bound after the trace, in the raygen.
         if (rq.nearest) {
             hit_flavors(Kind::ClosestHit, "__closesthit__",
                         [&](std::optional<bool> triangles) {
-                            std::vector<ir::Stmt> body = bind_elements(rq);
-                            if (triangles.has_value()) {
-                                body.push_back(bind_witness(*triangles));
-                            }
-                            write_result(
-                                ir::Build::make(
-                                    result_t,
-                                    std::vector<ir::Expr>{rq.element}),
-                                body);
+                            std::vector<ir::Stmt> body;
+                            write_result(hit_from_hardware(triangles), body);
                             return body;
                         });
         }
@@ -4654,8 +4853,6 @@ struct LowerBVH : public ir::Mutator {
                                          {rq.tree}),
                      origin(rq.q), direction(rq.q), tmin, tmax, flags,
                      seed})));
-            body.push_back(ir::Return::make(ir::Access::make(
-                "result", ir::Var::make(ctx_t, "_rt_ctx_out"))));
         } else {
             body.push_back(ir::LetStmt::make(
                 ir::WriteLoc("_rt_traced", u32),
@@ -4665,24 +4862,126 @@ struct LowerBVH : public ir::Mutator {
                                          {rq.tree}),
                      origin(rq.q), direction(rq.q), tmin, tmax, flags,
                      ir::PtrTo::make(local)})));
-            body.push_back(
-                ir::Return::make(ir::Access::make("result", local)));
+        }
+        const ir::Expr result = ir::Access::make(
+            "result", promoted ? ir::Var::make(ctx_t, "_rt_ctx_out") : local);
+        if (!rq.nearest) {
+            body.push_back(ir::Return::make(result));
+        } else {
+            // The nearest hit's elements, bound here from the indices the
+            // closest-hit program handed back (see result_t): the option
+            // of the query's tuple when there was a hit, none otherwise.
+            body.push_back(ir::LetStmt::make(ir::WriteLoc("_rt_hit", result_t),
+                                             result));
+            const ir::Expr hit = ir::Var::make(result_t, "_rt_hit");
+            std::vector<ir::Stmt> found = bind_elements(rq, hit);
+            if (rq.witness.defined()) {
+                const ir::TypedVar &hv = rq.elements.back();
+                found.push_back(ir::LetStmt::make(
+                    ir::WriteLoc(hv.name, hv.type),
+                    ir::Build::make(
+                        ir::hit_record_type(),
+                        std::vector<ir::Expr>{
+                            ir::Access::make("t", hit),
+                            ir::Shuffle::make_concat(
+                                {ir::Access::make("b0", hit),
+                                 ir::Access::make("b1", hit)})})));
+            }
+            found.push_back(ir::Return::make(ir::Build::make(
+                answer_t, std::vector<ir::Expr>{rq.element})));
+            body.push_back(ir::IfElse::make(
+                ir::Access::make("hit", hit), ir::Sequence::make(std::move(found)),
+                ir::Return::make(ir::Build::make(answer_t))));
         }
         ir::Stmt stmt = ir::Sequence::make(std::move(body));
 
+        // The hit-side variants of the trace function, `_rt_traceN!hit`
+        // (and `!hit$boxes` with a witness): what the trace function does
+        // once the hardware reports a hit, as a function a closest-hit
+        // program calls in the trace's place (SSA/HitContinuations.h, which
+        // clones the raygen's chain of calls down to the trace and
+        // redirects that call here) -- the context's `hit` word set, for
+        // the raygen's test of the trace's answer; the elements bound from
+        // the input's record and the primitive index (bind_elements) and
+        // the witness from the hardware; the option answered. Device-only,
+        // since it reads the hardware's hit state, and of the trace
+        // function's own signature, below, so that the call it replaces
+        // passes the same arguments. Only a promoted context has them: the
+        // raygen's test is of a payload word.
+        std::vector<std::pair<std::string, ir::Stmt>> hit_variants;
+        if (rq.nearest && promoted) {
+            const auto variant = [&](std::optional<bool> triangles) -> ir::Stmt {
+                std::vector<ir::Stmt> hb;
+                hb.push_back(ir::LetStmt::make(
+                    ir::WriteLoc("_rt_set_hit", u32),
+                    ir::Intrinsic::make(
+                        ir::Intrinsic::rt_set_payload,
+                        {ir::UIntImm::make(u32, uint64_t(word_index("result"))),
+                         ir::UIntImm::make(u32, 1)})));
+                for (ir::Stmt &s : bind_elements(rq)) {
+                    hb.push_back(std::move(s));
+                }
+                if (triangles.has_value()) {
+                    hb.push_back(bind_witness(*triangles));
+                }
+                hb.push_back(ir::Return::make(ir::Build::make(
+                    answer_t, std::vector<ir::Expr>{rq.element})));
+                return ir::Sequence::make(std::move(hb));
+            };
+            if (rq.witness.defined()) {
+                hit_variants.emplace_back(func + "!hit", variant(true));
+                hit_variants.emplace_back(func + "!hit$boxes", variant(false));
+            } else {
+                hit_variants.emplace_back(func + "!hit", variant(std::nullopt));
+            }
+        }
+
+        // The parameters: what the trace function reads, and what its
+        // variants read, one list for all of them.
         std::vector<ir::Function::Argument> func_args;
         std::vector<ir::Expr> call_args;
-        for (const ir::TypedVar &var : ir::gather_free_vars(stmt)) {
-            const auto tree = tree_types.find(var.name);
-            const ir::Type type =
-                tree != tree_types.cend() ? tree->second : var.type;
-            func_args.emplace_back(var.name, type);
-            call_args.push_back(ir::Var::make(type, var.name));
+        {
+            std::set<std::string> named;
+            const auto take = [&](const ir::Stmt &of) {
+                for (const ir::TypedVar &var : ir::gather_free_vars(of)) {
+                    if (!named.insert(var.name).second) {
+                        continue;
+                    }
+                    const auto tree = tree_types.find(var.name);
+                    const ir::Type type =
+                        tree != tree_types.cend() ? tree->second : var.type;
+                    func_args.emplace_back(var.name, type);
+                    call_args.push_back(ir::Var::make(type, var.name));
+                }
+            };
+            take(stmt);
+            for (const auto &[_, variant_stmt] : hit_variants) {
+                take(variant_stmt);
+            }
+        }
+        for (auto &[variant_name, variant_stmt] : hit_variants) {
+            auto hf = std::make_shared<ir::Function>(
+                variant_name, func_args, query->type, std::move(variant_stmt),
+                ir::Function::InterfaceList{},
+                std::vector<ir::Function::Attribute>{
+                    ir::Function::Attribute::device_only});
+            internal_assert(!new_funcs.contains(variant_name));
+            new_funcs[variant_name] = std::move(hf);
+        }
+        // A nearest hit's trace function is HELD -- kept a call through the
+        // frontend inliner, as stage() keeps the call it cuts at -- so that
+        // SSA/HitContinuations.cpp finds it in the raygen's call chain and
+        // makes the closest-hit program of what follows it; the pass drops
+        // the attribute when it is done, and the backend folds the function
+        // in as before. `any` is answered by the trace alone and is inlined
+        // as before.
+        std::vector<ir::Function::Attribute> trace_attributes;
+        if (rq.nearest) {
+            trace_attributes.push_back(ir::Function::Attribute::held);
         }
         auto f = std::make_shared<ir::Function>(
             func, std::move(func_args), query->type, std::move(stmt),
-            ir::Function::InterfaceList{},
-            std::vector<ir::Function::Attribute>{});
+            ir::Function::InterfaceList{}, std::move(trace_attributes));
         ir::Type call_type = f->call_type();
         new_funcs[func] = std::move(f);
         return ir::Call::make(ir::Var::make(std::move(call_type), func),

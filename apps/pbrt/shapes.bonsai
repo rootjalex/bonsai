@@ -84,6 +84,21 @@ element TriangleMesh {
     has_uv : bool;
     // pbrt: reverseOrientation ^ transformSwapsHandedness. See Sphere above.
     flip : bool;
+    // pbrt: what its GPU keeps per mesh rather than per triangle
+    // (gpu/optix/aggregate.cpp, TriangleMeshRecord): the GeometricPrimitive
+    // attributes of the `Shape "trianglemesh"` statement the mesh came from
+    // -- its material, alpha texture and medium interface, graphics state
+    // that is one value for every triangle of the statement -- and, since
+    // every triangle of an emissive mesh is its own light and pbrt numbers
+    // them in one run (its `areaLights[prim]`), the light ordinal of
+    // triangle 0, or -1 for a mesh that emits nothing. A triangle's
+    // Geometric is built from these and its index (render.bonsai,
+    // triangle_geometric); see Geometric there for what each means.
+    material : i32;
+    alpha : i32;
+    medium_inside : i32;
+    medium_outside : i32;
+    first_light : i32;
 }
 
 extern meshes : array[TriangleMesh];

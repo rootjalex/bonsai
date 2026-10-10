@@ -709,14 +709,28 @@ struct Intrinsic : ExprNode<Intrinsic> {
         rt_ray_origin,
         rt_ray_direction,
         // In a hit program: the primitive's index within its build input
-        // (`optixGetPrimitiveIndex`), and the instance id of the instance
-        // the hit is in (`optixGetInstanceId`).
+        // (`optixGetPrimitiveIndex`).
         rt_primitive_index,
-        rt_instance_id,
-        // In a hit program: the 32-bit base the build input's shader binding
-        // table record carries -- where the input's elements start in the
-        // tree's storage.
-        rt_sbt_base,
+        // In a hit, any-hit or intersection program: the build input's
+        // shader binding table record, `rt_sbt_record() -> _RTRecord`
+        // (ir::rt_record_type; runtime/bonsai_optix.h's
+        // bonsai_optix_record): `base`, where the input's elements start
+        // in the tree's storage, and `holder`, the index of the element
+        // whose field holds the hit tree -- the instance -- or
+        // ir::rt_record_own for the tree's own elements. With the primitive
+        // index it is everything a hit says about its element, read by
+        // arithmetic on the record's address (`optixGetSbtDataPointer`);
+        // the instance id OptiX offers instead is a load from the
+        // acceleration structure's instance node, which no program makes.
+        rt_sbt_record,
+        // In a hit program made of a raygen's continuation
+        // (SSA/HitContinuations.h): the iteration of the launched loop
+        // that this thread's trace belongs to -- `_begin + launch index *
+        // _stride`, the very index the raygen computed -- so that the
+        // program re-reads the entry the raygen read, as pbrt's
+        // `__closesthit__triangle` re-reads `(*params.rayQueue)[rayIndex]`.
+        // `rt_launch_iteration() -> i32`.
+        rt_launch_iteration,
         // In an intersection program: reports a hit at `t : f32`; true when
         // it was accepted. An effect.
         rt_report_hit,
@@ -877,6 +891,14 @@ struct GeomOp : ExprNode<GeomOp> {
 // implementations must agree with field for field (Lower/Geometrics.cpp
 // checks them against this).
 Type hit_record_type();
+
+// The shader binding table record a hit program reads (Intrinsic::
+// rt_sbt_record): `_RTRecord { base : u32; holder : u32 }`, laid out as
+// runtime/bonsai_optix.h's bonsai_optix_record.
+Type rt_record_type();
+// The `holder` of a record over a tree's own elements: no element holds
+// the tree (BONSAI_OPTIX_OWN in runtime/bonsai_optix.h).
+constexpr uint32_t rt_record_own = 0xffffffffu;
 
 // A query context flattened to the hardware's 32-bit payload words: every
 // leaf field, depth first in declaration order, one word each. This is the

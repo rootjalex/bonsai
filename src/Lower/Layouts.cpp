@@ -663,19 +663,38 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
         // of, which only exists now that the chain is finished -- and it needs
         // the chain around it, not just the group: a leaf of that group reads
         // the primitive array declared beside it, and dropping the chain would
-        // put that out of scope. So the walkable form is this chain with the
-        // *other* groups taken out and this one walked directly.
+        // put that out of scope. So the walkable form is this chain with this
+        // group walked directly and every *other* group kept in its place but
+        // not walked (an indirect group, whose rows a lookup may still name):
+        // kept, because a group's field in the struct is named by its
+        // position among the chain's groups (group_name), and a chain with a
+        // group taken out would name the ones after it wrongly -- the second
+        // nested tree of a layout read `group0_` where its rows are `group1_`.
         for (const auto &[declared, group] : named_here) {
             std::vector<ir::Layout> members;
+            uint32_t position = 0;
             for (const auto &l : chain->layouts) {
                 if (const ir::Group *g = l.as<ir::Group>()) {
-                    if (g != group) {
-                        continue;
-                    }
+                    const ir::Group::Type walked_as =
+                        g == group ? ir::Group::Type::Direct
+                        : g->type == ir::Group::Type::Direct
+                            ? ir::Group::Type::Indirect
+                            : g->type;
+                    // An indirect group has to carry a name; a direct group
+                    // the layout did not name (the top-level tree's own
+                    // nodes) is given one here that nothing looks up.
+                    const std::string declared =
+                        walked_as != ir::Group::Type::Direct && g->declared_name.empty()
+                            ? "_unwalked" + std::to_string(position)
+                            : g->declared_name;
+                    // A group not walked keeps no starting reference: that is
+                    // where a walk of it begins, and only a direct group has
+                    // one.
                     members.push_back(ir::Group::make(
-                        g->size, g->name, g->declared_name, g->index_t,
-                        g->inner, ir::Group::Type::Direct, g->element,
-                        g->start));
+                        g->size, g->name, declared, g->index_t, g->inner,
+                        walked_as, g->element,
+                        walked_as == ir::Group::Type::Direct ? g->start : ir::Expr()));
+                    position++;
                     continue;
                 }
                 members.push_back(l);
@@ -1938,6 +1957,21 @@ struct LowerMatches : public ir::Mutator {
                     element->name + "." + access->field;
                 const auto group = tree_field_groups.find(path);
                 if (group != tree_field_groups.cend()) {
+                    // What the field stores is where the tree's walk starts
+                    // -- a row index (field_refs), not the tree -- and that
+                    // is the type the name is bound at from here on: the
+                    // recursion below starts its index from this name. The
+                    // let was typed as the tree when the traversal was built
+                    // (Lower/Trees.cpp); the value's own type changes when
+                    // the element's storage is lowered, whichever way its
+                    // arm is stored, and the binding has to change with it.
+                    const auto ref = ltmap.field_refs.find(path);
+                    if (ref != ltmap.field_refs.cend() &&
+                        !ir::equals(ref->second, node->loc.base_type)) {
+                        return mutate(ir::LetStmt::make(
+                            ir::WriteLoc(node->loc.base, ref->second),
+                            node->value));
+                    }
                     const auto named = ltmap.groups.find(group->second);
                     internal_assert(named != ltmap.groups.cend())
                         << "No group named " << group->second << " for "

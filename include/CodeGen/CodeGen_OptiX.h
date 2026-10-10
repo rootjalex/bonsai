@@ -41,8 +41,8 @@ namespace bonsai {
 // address as the two payload words (or a promoted context's own words),
 // `_optix_get_ray_tmax`, `_optix_get_triangle_barycentrics`,
 // `_optix_get_world_ray_origin_*` and `_optix_get_world_ray_direction_*`,
-// `_optix_read_primitive_idx`, `_optix_read_instance_id`,
-// `_optix_get_sbt_data_ptr_64`, `_optix_report_intersection_0`,
+// `_optix_read_primitive_idx`, `_optix_get_sbt_data_ptr_64` (the record,
+// Lower/Trees.cpp's `_RTRecord`), `_optix_report_intersection_0`,
 // `_optix_ignore_intersection`, `_optix_get_payload`, `_optix_set_payload`
 // and `_optix_get_launch_index_x`.
 struct CodeGen_OptiX : public CodeGen_PTX {
@@ -121,6 +121,10 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     llvm::StructType *params_ty = nullptr;
     llvm::GlobalVariable *params = nullptr;
     std::vector<std::string> slot_names;
+    // The launched body's index argument, for a program made of the body
+    // itself (OptixProgram::for_loop): its parameter of that name is the
+    // launch iteration, the others are the captures by name (add_program).
+    std::string launch_index_name;
     std::vector<llvm::Type *> slot_types;
     // Per traced query, the slot of each read at its place in the query's
     // list (ir::Function::OptixProgram::reads).

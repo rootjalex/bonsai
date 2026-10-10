@@ -26,6 +26,17 @@ schedule {
     | Interior(left : PrimitiveBVH, right : PrimitiveBVH, axis : u8)
     | Leaf(data : array[Primitive]) with data = data;
 
+    // A mesh primitive's triangles (render.bonsai, `Mesh`): a tree per mesh
+    // under the top-level one, rows of one node pool as the instances'
+    // trees are. pbrt's CPU aggregate has no such level -- its BVH is flat
+    // over every triangle -- and this is pbrt's GPU structure instead, the
+    // program's primitive model being the GPU's (apps/pbrt/PLAN.md,
+    // 2026-10-08); whether a flat tree over the flattened triangles is
+    // worth a layout of its own is measured against this.
+    tree[[Triangle]] MeshBVH(low high : vec3f) with AABB(low, high) =
+    | Interior(left : MeshBVH, right : MeshBVH, axis : u8)
+    | Leaf(data : array[Triangle]) with data = data;
+
     primitives : PrimitiveBVH;
     // An instance's tree has no layout of its own: its nodes are rows of the
     // group below, in the layout of the object that holds every tree, and the
@@ -33,6 +44,7 @@ schedule {
     // the same row, which is how the object is stored once however often it
     // is placed -- pbrt's forty-three trees over one BVHAggregate.
     Inst.blas : InstanceBVH from InstanceNodes;
+    Mesh.tris : MeshBVH from MeshNodes;
 
     // pbrt: LinearBVHNode, field for field and 32 bytes like it. The offset
     // discriminated on nPrims is pbrt's union of primitivesOffset and
@@ -55,6 +67,24 @@ schedule {
             switch nPrims {
                 0 => Interior { offset : u32; left = bnode + 1; right = bnode + offset; };
                 _ => Leaf { pOffset : u32; data = range(geoms, pOffset, cast[[u32]](nPrims)); };
+            };
+        };
+
+        // Every triangle of the scene's own meshes, in the order the mesh
+        // trees' leaves name them, and those trees' nodes.
+        tCount : u32;
+        tris : array[Triangle, tCount];
+
+        mCount : u32;
+        indirect group MeshNodes[mCount] mnode : u32 {
+            low : vec3f;
+            high : vec3f;
+            nPrims : u16;
+            axis : u8;
+            8; // pad bits.
+            switch nPrims {
+                0 => Interior { offset : u32; left = mnode + 1; right = mnode + offset; };
+                _ => Leaf { pOffset : u32; data = range(tris, pOffset, cast[[u32]](nPrims)); };
             };
         };
 

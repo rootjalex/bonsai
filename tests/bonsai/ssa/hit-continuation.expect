@@ -1,0 +1,202 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Tri = struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type _RTContext_trace = struct _RTContext_trace{ tmax : f32; result : struct _RTHit_trace{ hit : bool; idx : u32 } }
+type _RTHit_trace = struct _RTHit_trace{ hit : bool; idx : u32 }
+type _RTRecord = struct _RTRecord{ base : u32; holder : u32 }
+type __tuple_0 = struct __tuple_0{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }; set : bool = false }
+type _option1 = struct _option1{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option2 = struct _option2{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ traversable : u64; n : u32; elems : struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[n] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ traversable : u64; n : u32; elems : struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }[n] }
+
+func __closesthit__trace() -> void {
+  let _rt_set1 = rt_set_payload(1u, 1u) in
+  let @1 = rt_sbt_record() in
+  let @2 = @1.base in
+  let @3 = rt_primitive_index() in
+  let @4 = @2 + @3 in
+  let _rt_set2 = rt_set_payload(2u, @4) in
+  return
+}
+
+func __closesthit__trace$i(i : i32, rays : Ray[n], weights : f32[n], out : f32[], tris : (_tree_layout0*)) -> void {
+  let @0 = rays[i] in
+  let @1 = weights[i] in
+  let @2 = (*tris) in
+  shade!hit(@0, @1, i, out, @2)
+  return
+}
+
+func __intersection__trace(tris : _tree_layout0) -> void {
+  distmin_Ray_Triangle$r0 : mut f32
+  let @0 = rt_ray_origin() in
+  let @1 = rt_ray_direction() in
+  let @2 = rt_hit_t() in
+  let r = build<Ray>(@0, @1, @2) in
+  let _rt_rec = rt_sbt_record() in
+  let @5 = _rt_rec.base in
+  let @6 = rt_primitive_index() in
+  let _rt_idx = @5 + @6 in
+  let @8 = tris.elems in
+  let _rt_e0 = @8[_rt_idx] in
+  let tri$i0 = _rt_e0.tri in
+  let @11 = intersectsp_ray_tri(r, tri$i0) in
+  let isect$i0 = @11 in
+  let @12 = isect$i0.set in
+  if (@12) {
+    let isect_$i0 = isect$i0.value in
+    let @14 = isect_$i0.t in
+    distmin_Ray_Triangle$r0 = @14
+  } else {
+    let @15 = (f32)inf in
+    distmin_Ray_Triangle$r0 = @15
+  }
+  let @17 = (f32)inf in
+  let @18 = (*distmin_Ray_Triangle$r0) != @17 in
+  if (@18) {
+    let _rt_reported = rt_report_hit((*distmin_Ray_Triangle$r0)) in
+  }
+  return
+}
+
+func __miss__trace() -> void {
+  return
+}
+
+func _rt_trace0(tris : _tree_layout0, r : Ray) -> _option0 {
+  let _t13 = r.tmax in
+  let @1 = tris.traversable in
+  let @2 = r.o in
+  let @3 = r.d in
+  let @4 = min(_t13, 1e+30f) in
+  let @5 = build<_RTHit_trace>(false, 0u) in
+  let @6 = build<_RTContext_trace>(_t13, @5) in
+  let _rt_ctx_out = rt_trace(@1, @2, @3, 1e-07f, @4, 0u, @6, tris) in
+  let _rt_hit = _rt_ctx_out.result in
+  let @9 = _rt_hit.hit in
+  if (@9) {
+    let _rt_idx = _rt_hit.idx in
+    let @11 = tris.elems in
+    let _rt_e0 = @11[_rt_idx] in
+    let @13 = build<_option0>(_rt_e0, true) in
+    return @13
+  } else {
+    let @14 = build<_option0>() in
+    return @14
+  }
+}
+
+func _rt_trace0!hit(tris : _tree_layout0, r : Ray) -> _option0 {
+  let _rt_set_hit = rt_set_payload(1u, 1u) in
+  let _rt_rec = rt_sbt_record() in
+  let @2 = _rt_rec.base in
+  let @3 = rt_primitive_index() in
+  let _rt_idx = @2 + @3 in
+  let @5 = tris.elems in
+  let _rt_e0 = @5[_rt_idx] in
+  let @7 = build<_option0>(_rt_e0, true) in
+  return @7
+}
+
+func [[export]] render(n : i32, rays : Ray[n], weights : f32[n], out : mut f32[], tris : (_tree_layout0*)) -> void {
+  parfor i in [0:n:1] {
+    let @0 = rays[i] in
+    let @1 = weights[i] in
+    let @2 = (*tris) in
+    shade!miss(@0, @1, i, out, @2)
+    continue
+  }
+  return
+}
+
+func shade(r : Ray, w : f32, i : i32, out : mut f32[], tris : _tree_layout0) -> void {
+  let @0 = trace(r, tris) in
+  let found = @0 in
+  let @1 = found.set in
+  if (@1) {
+    let hit = found.value in
+    let @3 = hit.tri in
+    let @4 = @3.p0 in
+    let @5 = @4[0u] in
+    let @6 = w * @5 in
+    out[i] = @6
+  } else {
+    let @8 = -0f - w in
+    out[i] = @8
+  }
+  return
+}
+
+func shade!hit(r : Ray, w : f32, i : i32, out : mut f32[], tris : _tree_layout0) -> void {
+  let @0 = trace!hit(r, tris) in
+  let found = @0 in
+  let @1 = found.set in
+  if (@1) {
+    let hit = found.value in
+    let @3 = hit.tri in
+    let @4 = @3.p0 in
+    let @5 = @4[0u] in
+    let @6 = w * @5 in
+    out[i] = @6
+  } else {
+    let @8 = -0f - w in
+    out[i] = @8
+  }
+  return
+}
+
+func shade!miss(r : Ray, w : f32, i : i32, out : mut f32[], tris : _tree_layout0) -> void {
+  let @0 = trace(r, tris) in
+  let @10 = @0.set in
+  if (@10) {
+    return
+  } else {
+    let found = @0 in
+    let @1 = found.set in
+    if (@1) {
+      let hit = found.value in
+      let @3 = hit.tri in
+      let @4 = @3.p0 in
+      let @5 = @4[0u] in
+      let @6 = w * @5 in
+      out[i] = @6
+    } else {
+      let @8 = -0f - w in
+      out[i] = @8
+    }
+    return
+  }
+}
+
+func trace(r : Ray, tris : _tree_layout0) -> _option0 {
+  let @0 = _rt_trace0(tris, r) in
+  return @0
+}
+
+func trace!hit(r : Ray, tris : _tree_layout0) -> _option0 {
+  let @0 = _rt_trace0!hit(tris, r) in
+  return @0
+}
+
+
+schedule {
+    tris : tree[[struct Tri{ tri : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 } }]] OptixTree
+  | Leaf(data : Tri[]) with data = data
+    render.bind(i, OptixThread)
+    trace.bind(, RTCore)
+
+}

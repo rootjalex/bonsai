@@ -84,7 +84,7 @@ int main() {
         top.transform[4 * row + row] = 1.0f;
     }
     top.geometry = geometry;
-    top.id = 0;
+    top.holder = BONSAI_OPTIX_OWN; // the scene's own triangles
     const uint64_t traversable = bonsai_optix_scene(&top, 1);
 
     // The rays: along +x from x = -10.

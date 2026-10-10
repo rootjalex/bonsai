@@ -13,19 +13,25 @@
 //   binds `{ rt_hit_t(), (0, 0) }`. Neither COMPUTES the annotation -- the
 //   `intersection` call appears in no program body.
 //
-// - `__closesthit__trace` stores the element AND the witness into the
-//   context's record, so the raygen hands its consumers the hit's
-//   parameters without a second intersection.
+// - `__closesthit__trace` stores NO element: its record is the hit's
+//   indices and witness, `_RTHit_trace { hit, idx, t, b0, b1 }` -- six
+//   payload words (`rt_set_payload(1..6, ...)`) -- and `_rt_trace0` binds
+//   the element from them after the trace (`_rt_idx = _rt_hit.idx`,
+//   `stored(tris, _rt_idx)`, the witness rebuilt from `t`, `b0`, `b1`) and
+//   answers the option. So the raygen still hands its consumers the hit's
+//   parameters without a second intersection, and the closest-hit program
+//   neither loads the element nor stores through the payload's pointer
+//   (which driver 615.71.09 charged 2-5x for, apps/pbrt/PLAN.md 2026-10-07).
 //
-// - `trace_any` keeps its shape -- flags 12, no closest-hit program, the
-//   witness bound only in its any-hit flavors, where `accepts` reads it --
-//   and its context is PROMOTED to the payload registers (Lower/Trees.cpp):
-//   `_RTContext_trace_any` is `{ tmax, result }` -- the ray's residue and
-//   the answer, nothing else -- its programs take NO context argument (the
-//   residue is `rt_payload(0)`, the miss writes `rt_set_payload(1, false)`),
-//   and `_rt_trace1` passes the context BY VALUE and reads `.result` off
-//   the trace's own return. `trace`, whose record is an option, keeps the
-//   memory context `{ q, result }`.
+// - BOTH contexts are therefore PROMOTED to the payload registers
+//   (Lower/Trees.cpp): `_RTContext_trace` is `{ tmax, result : _RTHit_trace }`
+//   and `_RTContext_trace_any` is `{ tmax, result }` -- the ray's residue
+//   and the answer, nothing else -- the programs take NO context argument
+//   (the residue is `rt_payload(0)`, `__miss__trace_any` writes
+//   `rt_set_payload(1, false)`), and both `_rt_trace` functions pass the
+//   context BY VALUE and read `.result` off the trace's own return. `trace_any`
+//   keeps its shape otherwise: flags 12, no closest-hit program, the
+//   witness bound only in its any-hit flavors, where `accepts` reads it.
 //
 // - EVERY hit and intersection program reads the query ray's `o` and `d`
 //   from the hardware's ray state (`rt_ray_origin()`, `rt_ray_direction()`

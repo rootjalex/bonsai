@@ -111,6 +111,13 @@ struct Function {
         // the callee drops this and folds the callee in (SSA/Defer.cpp),
         // where `noinline` would keep it a call to the end.
         held,
+        // Reached only from a program the ray tracing hardware runs: a copy
+        // of a raygen's call chain specialized for its closest-hit program
+        // (SSA/HitContinuations.h), which reads the hit from the hardware
+        // and so cannot be compiled for the host. The host backends skip
+        // it as they skip the programs themselves; the OptiX module
+        // compiles it as the program's callee.
+        device_only,
         // A foreign function: `extern func name(..) -> R;`, a signature with
         // no body, implemented outside the program and called with the C
         // calling convention under its own name. Kept in
@@ -150,6 +157,19 @@ struct Function {
         Kind kind;
         std::string of;
         std::vector<std::string> reads;
+        // A program made for one raygen launch -- the closest-hit program
+        // that is the launched loop's own continuation (SSA/HitContinuations
+        // .h): `for_loop` names the loop (Terminator::ParFor::index), and
+        // the program's parameters are the loop body's own (its index, then
+        // its captures, by name), which CodeGen_OptiX reads from the launch
+        // parameters directly rather than through the trace's operands.
+        // `symbol` is the entry name it is emitted under -- the generic
+        // program's, `__closesthit__<of>` or `__closesthit__<of>$boxes`, so
+        // that the shader binding table finds it in that launch's module
+        // where it stands in for the generic one. Both empty for a generic
+        // program, whose symbol is its name.
+        std::string for_loop;
+        std::string symbol;
     };
     std::optional<OptixProgram> optix_program;
 
@@ -262,6 +282,11 @@ struct Function {
     bool is_held() const {
         return std::find(attributes.cbegin(), attributes.cend(),
                          Attribute::held) != attributes.cend();
+    }
+
+    bool is_device_only() const {
+        return std::find(attributes.cbegin(), attributes.cend(),
+                         Attribute::device_only) != attributes.cend();
     }
 
     bool is_kernel() const {

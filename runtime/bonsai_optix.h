@@ -40,13 +40,19 @@
 // placement. The handle it returns is what the tree's layout keeps in its
 // `traversable` word (Lower/Layouts.cpp) and what `rt_trace` traces.
 //
-// What a hit tells the programs (Lower/Trees.cpp): each build input's
-// shader binding table record carries `base`, where the input's elements
-// start in the tree's storage, and the hit's primitive index counts from
-// there; the instance's `id` is what `rt_instance_id` reads -- the compiler
-// takes zero for the scene's own elements and one more than the index of the
-// element holding the instance's tree otherwise. The driver lays the storage
-// out so that each input's elements are one contiguous run.
+// What a hit tells the programs (Lower/Trees.cpp): the hit-group record
+// (bonsai_optix_record, the IR's `_RTRecord`, read by `rt_sbt_record`)
+// carries `base`, where the build input's elements start in the tree's
+// storage -- the hit's primitive index counts from there -- and `holder`,
+// the index of the top-level element whose field holds the tree the input
+// is of, which is the instance's `holder`, or BONSAI_OPTIX_OWN for the
+// scene's own elements. That record and the primitive index are all a
+// program reads of a hit, as pbrt's programs read optixGetSbtDataPointer
+// and optixGetPrimitiveIndex: the record's address is arithmetic on the
+// table's base, where OptiX's instance id is a load from the acceleration
+// structure's instance node that every hit would wait for before its
+// element. The driver lays the storage out so that each input's elements
+// are one contiguous run.
 //
 // One pipeline per raygen program: its module, a program group for the
 // raygen, and per ray type -- one per RTCore query of the *program*, in
@@ -55,13 +61,14 @@
 // groups, one for the hardware's triangles and one for the boxes with the
 // intersection program; a query this module has no programs for gets empty
 // ones. The shader binding table is built per pipeline and scene: one
-// hit-group record per build input per ray type, laid out geometry by
-// geometry, input by input, type by type, so that an instance's `sbtOffset`
-// is where its geometry's records start and the trace's stride is the
-// number of ray types, as OptiX indexes them. That stride is baked into the
-// instance acceleration structure, so it has to be the program's and not one
-// module's: the program declares its ray types first, in its
-// `bonsai_gpu_prepare` (bonsai_optix_ray_types), and a scene is built after.
+// hit-group record per instance per build input of its geometry per ray
+// type, laid out instance by instance, input by input, type by type, so
+// that an instance's `sbtOffset` is where its own records start (they
+// carry its holder) and the trace's stride is the number of ray types, as
+// OptiX indexes them. That stride is baked into the instance acceleration
+// structure, so it has to be the program's and not one module's: the
+// program declares its ray types first, in its `bonsai_gpu_prepare`
+// (bonsai_optix_ray_types), and a scene is built after.
 //
 // Header-only, like bonsai_cuda.h, so that a driver has the whole runtime by
 // including the generated header; the compiler includes it once too
@@ -75,6 +82,11 @@
 #endif
 
 extern "C" {
+
+// The `holder` of a record over a tree's own elements: no element holds
+// their tree (ir::rt_record_own). Also a build input's word for "the
+// instance's holder applies".
+#define BONSAI_OPTIX_OWN 0xffffffffu
 
 // A build input of the hardware's triangles: one mesh, as the program keeps
 // it -- three floats a vertex, tightly packed; three indices a triangle,
@@ -93,6 +105,13 @@ struct bonsai_optix_triangles {
     // (OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT, which pbrt sets for a mesh with no
     // alpha texture), so that a ray through it costs no program at all.
     bool any_hit;
+    // The element whose field holds this input's run of elements, when the
+    // input has one of its own -- a mesh primitive's triangles (apps/pbrt's
+    // `Mesh.tris : OptixTree from tris`), one input per mesh as pbrt's
+    // buildBVHForTriangles makes them -- or BONSAI_OPTIX_OWN for the
+    // instance's holder to apply (an instance's object, the scene's own
+    // shapes). What the input's records carry as `holder`.
+    uint32_t holder = BONSAI_OPTIX_OWN;
 };
 
 // A build input of shapes the hardware does not intersect itself, by their
@@ -101,7 +120,8 @@ struct bonsai_optix_boxes {
     const float *boxes;
     uint32_t count;
     uint32_t base;
-    bool any_hit; // as bonsai_optix_triangles::any_hit
+    bool any_hit;                        // as bonsai_optix_triangles::any_hit
+    uint32_t holder = BONSAI_OPTIX_OWN;  // as bonsai_optix_triangles::holder
 };
 
 // Builds a geometry acceleration structure over the inputs -- of one kind:
@@ -115,12 +135,24 @@ uint64_t bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
                                const bonsai_optix_boxes *boxes,
                                int64_t box_inputs);
 
+// The data of a hit-group record, after OptiX's header: what the hit
+// programs read of the build input they hit (`rt_sbt_record`, the IR's
+// `_RTRecord`, Lower/Trees.cpp). `base` is the input's, `holder` the
+// instance's.
+struct bonsai_optix_record {
+    uint32_t base;
+    uint32_t holder;
+};
+
 // One placement of a geometry: OptiX's 3x4 row-major transform, the
-// geometry's id, and the instance id the hit programs read.
+// geometry's id, and the holder its records carry -- the index of the
+// top-level element whose field holds this geometry's tree, or
+// BONSAI_OPTIX_OWN for the scene's own. A build input with a holder of its
+// own (bonsai_optix_triangles::holder) overrides it for its records.
 struct bonsai_optix_instance {
     float transform[12];
     uint64_t geometry;
-    uint32_t id;
+    uint32_t holder;
 };
 
 // Builds the instance acceleration structure over `instances`, and returns
@@ -281,10 +313,12 @@ inline size_t round_up(size_t n, size_t alignment) {
 
 // One build input of a geometry, as the shader binding table needs it:
 // whether its primitives are the hardware's triangles or boxes with an
-// intersection program, and where its elements start.
+// intersection program, where its elements start, and the holder of its
+// own if it has one (BONSAI_OPTIX_OWN otherwise: the instance's applies).
 struct Input {
     bool triangles;
     uint32_t base;
+    uint32_t holder;
 };
 
 struct Geometry {
@@ -296,20 +330,29 @@ struct Geometry {
 struct Scene {
     OptixTraversableHandle handle = 0;
     CUdeviceptr storage = 0;
-    // The geometries the instances name, each once, in the order their
-    // records are laid out; `record_start[g]` is where geometry g's records
-    // begin, in records per ray type.
-    std::vector<uint64_t> geometries;
+    // The instances in the order their records are laid out: each one's
+    // geometry and holder. Instance i's records begin at `record_start[i]`,
+    // in records per ray type, and run over its geometry's inputs.
+    struct Placed {
+        uint64_t geometry;
+        uint32_t holder;
+    };
+    std::vector<Placed> instances;
     std::vector<uint32_t> record_start;
     uint32_t records = 0; // per ray type
 };
 
-// A hit-group or miss record: OptiX's header, then the input's base.
+// A record of the table: OptiX's header, then the data -- for a hit
+// group, bonsai_optix_record; nothing the programs read for the raygen's
+// and the misses'.
 struct alignas(OPTIX_SBT_RECORD_ALIGNMENT) Record {
     char header[OPTIX_SBT_RECORD_HEADER_SIZE];
-    uint32_t base;
-    uint32_t pad[3];
+    bonsai_optix_record data;
+    uint32_t pad[2];
 };
+static_assert(sizeof(bonsai_optix_record) == 8,
+              "the compiler reads the record as two 32-bit words, base then "
+              "holder (ir::rt_record_type)");
 
 // A compiled module and, per raygen program of it, a pipeline.
 struct Module {
@@ -711,8 +754,9 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
 }
 
 // The shader binding table of `p` for `scene`: the raygen's record, the
-// miss records per ray type, and the hit-group records geometry by
-// geometry, input by input, ray type by ray type.
+// miss records per ray type, and the hit-group records instance by
+// instance, input by input, ray type by ray type, each carrying the
+// input's base and the instance's holder.
 inline const OptixShaderBindingTable &table_of(Api &a, State &s, Module &m,
                                                Pipeline &p, uint64_t traversable) {
     if (const auto it = p.tables.find(traversable); it != p.tables.end()) {
@@ -743,12 +787,14 @@ inline const OptixShaderBindingTable &table_of(Api &a, State &s, Module &m,
               "optixSbtRecordPackHeader(miss)");
     }
     const size_t first_hit = records.size();
-    for (const uint64_t g : scene.geometries) {
-        const Geometry &geometry = s.geometries.at(g);
+    for (const Scene::Placed &placed : scene.instances) {
+        const Geometry &geometry = s.geometries.at(placed.geometry);
         for (const Input &input : geometry.inputs) {
             for (size_t t = 0; t < types; t++) {
                 records.emplace_back();
-                records.back().base = input.base;
+                records.back().data.base = input.base;
+                records.back().data.holder =
+                    input.holder != BONSAI_OPTIX_OWN ? input.holder : placed.holder;
                 check(a,
                       a.table.optixSbtRecordPackHeader(
                           input.triangles ? p.hit_triangles[t] : p.hit_boxes[t],
@@ -858,7 +904,7 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.triangleArray.flags = &flags[i];
         input.triangleArray.numSbtRecords = 1;
         inputs.push_back(input);
-        geometry.inputs.push_back(Input{true, t.base});
+        geometry.inputs.push_back(Input{true, t.base, t.holder});
     }
     for (int64_t i = 0; i < box_inputs; i++) {
         const bonsai_optix_boxes &b = boxes[i];
@@ -873,7 +919,7 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.customPrimitiveArray.flags = &flags[triangle_inputs + i];
         input.customPrimitiveArray.numSbtRecords = 1;
         inputs.push_back(input);
-        geometry.inputs.push_back(Input{false, b.base});
+        geometry.inputs.push_back(Input{false, b.base, b.holder});
     }
     if (inputs.empty()) {
         fail("a geometry acceleration structure needs at least one input");
@@ -907,20 +953,16 @@ bonsai_optix_scene(const bonsai_optix_instance *instances, int64_t count) {
              "instance acceleration structure");
     }
     const uint32_t stride = uint32_t(std::max<size_t>(1, s.ray_types.size()));
-    // The geometries, each once, and where each one's records start, in
-    // records per ray type.
-    std::map<uint64_t, uint32_t> start_of;
+    // The instances, and where each one's records start, in records per
+    // ray type: one record per input of its geometry, since the record
+    // carries the instance's holder beside the input's base.
     for (int64_t i = 0; i < count; i++) {
         const uint64_t g = instances[i].geometry;
         if (g >= s.geometries.size()) {
             fail("instance " + std::to_string(i) + " names geometry " +
                  std::to_string(g) + ", which bonsai_optix_geometry did not build");
         }
-        if (start_of.contains(g)) {
-            continue;
-        }
-        start_of[g] = scene.records;
-        scene.geometries.push_back(g);
+        scene.instances.push_back(Scene::Placed{g, instances[i].holder});
         scene.record_start.push_back(scene.records);
         scene.records += uint32_t(s.geometries[g].inputs.size());
     }
@@ -929,13 +971,15 @@ bonsai_optix_scene(const bonsai_optix_instance *instances, int64_t count) {
         OptixInstance &out = optix_instances[i];
         out = {};
         std::memcpy(out.transform, instances[i].transform, sizeof(out.transform));
-        out.instanceId = instances[i].id;
+        // Read by no program (the holder travels in the records); the
+        // instance's number, for OptiX's own messages.
+        out.instanceId = unsigned(i);
         out.visibilityMask = 255;
         out.flags = OPTIX_INSTANCE_FLAG_NONE;
         out.traversableHandle = s.geometries[instances[i].geometry].handle;
-        // In records: the geometry's first input's, times the ray types a
-        // build input's records span (the trace's stride).
-        out.sbtOffset = start_of.at(instances[i].geometry) * stride;
+        // In records: the instance's first, times the ray types a build
+        // input's records span (the trace's stride).
+        out.sbtOffset = scene.record_start[size_t(i)] * stride;
     }
     const CUdeviceptr device =
         upload(optix_instances.data(), optix_instances.size() * sizeof(OptixInstance));

@@ -1120,7 +1120,7 @@ class BonsaiToCpp : ir::Printer {
             const auto &func = it->second;
             // A program the ray tracing hardware runs is device code the
             // OptiX module holds (CodeGen_OptiX), not something C++ prints.
-            if (func->optix_program.has_value()) {
+            if (func->optix_program.has_value() || func->is_device_only()) {
                 continue;
             }
 

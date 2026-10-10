@@ -198,19 +198,22 @@ struct Meshes {
 // pbrt does the same thing with the same handful of bits and calls it
 // TaggedPointer. The difference is that its low bits are an address and these
 // are an index, which is why nothing here has to be allocated or freed.
+// A Shape as the layout stores it (render.bonsai, `layout Shape`): a tag
+// beside a payload of two words, which hold a Triangle itself for the `Tri`
+// arm and, for every other arm, the index of the shape's record in that
+// arm's pool (Lower/ADTLayout.h: an Inline storage with the index a u32 in
+// the payload's first word).
 struct Shapes {
-    static constexpr uint64_t kTagShift = 56;
     // The tags are the Shape variant's arms in declaration order: Sph, Tri,
     // Dsk, Blp, Cyl, Crv (shapes.bonsai).
-    static constexpr uint64_t kSphere = 0;
-    static constexpr uint64_t kTriangle = 1;
-    static constexpr uint64_t kDisk = 2;
-    static constexpr uint64_t kPatch = 3;
-    static constexpr uint64_t kCylinder = 4;
-    static constexpr uint64_t kCurve = 5;
+    static constexpr uint8_t kSphere = 0;
+    static constexpr uint8_t kTriangle = 1;
+    static constexpr uint8_t kDisk = 2;
+    static constexpr uint8_t kPatch = 3;
+    static constexpr uint8_t kCylinder = 4;
+    static constexpr uint8_t kCurve = 5;
 
     const Sph *spheres = nullptr;
-    const Tri *triangles = nullptr;
     const Dsk *disks = nullptr;
     const Blp *patches = nullptr;
     const Cyl *cylinders = nullptr;
@@ -220,34 +223,42 @@ struct Shapes {
     const CurveCommon *curve_commons = nullptr;
     const CurveFrame *curve_frames = nullptr;
 
-    static uint64_t tag_of(uint64_t shape) { return shape >> kTagShift; }
-    static uint64_t index_of(uint64_t shape) {
-        return shape & ((uint64_t{1} << kTagShift) - 1);
+    static uint8_t tag_of(const Shape &shape) { return shape.tag; }
+    // A pooled arm's row.
+    static uint32_t index_of(const Shape &shape) { return shape.payload[0]; }
+    static void set_index(Shape &shape, uint32_t index) {
+        shape.payload[0] = index;
+    }
+    // The inline arm's triangle.
+    static Triangle triangle_of(const Shape &shape) {
+        Triangle t;
+        static_assert(sizeof(t) == 2 * sizeof(uint32_t));
+        std::memcpy(&t, shape.payload.data(), sizeof(t));
+        return t;
     }
 
-    static uint64_t handle(uint64_t tag, uint64_t index) {
-        return (tag << kTagShift) | index;
+    static bool is_sphere(const Shape &shape) { return tag_of(shape) == kSphere; }
+    static bool is_triangle(const Shape &shape) {
+        return tag_of(shape) == kTriangle;
     }
-
-    bool is_sphere(uint64_t shape) const { return tag_of(shape) == kSphere; }
-    bool is_disk(uint64_t shape) const { return tag_of(shape) == kDisk; }
-    bool is_patch(uint64_t shape) const { return tag_of(shape) == kPatch; }
-    bool is_cylinder(uint64_t shape) const {
+    static bool is_disk(const Shape &shape) { return tag_of(shape) == kDisk; }
+    static bool is_patch(const Shape &shape) { return tag_of(shape) == kPatch; }
+    static bool is_cylinder(const Shape &shape) {
         return tag_of(shape) == kCylinder;
     }
-    bool is_curve(uint64_t shape) const { return tag_of(shape) == kCurve; }
-    const Curve &curve(uint64_t shape) const { return curves[index_of(shape)].cv; }
-    const Sphere &sphere(uint64_t shape) const {
+    static bool is_curve(const Shape &shape) { return tag_of(shape) == kCurve; }
+    const Curve &curve(const Shape &shape) const {
+        return curves[index_of(shape)].cv;
+    }
+    const Sphere &sphere(const Shape &shape) const {
         return spheres[index_of(shape)].s;
     }
-    const Cylinder &cylinder(uint64_t shape) const {
+    const Cylinder &cylinder(const Shape &shape) const {
         return cylinders[index_of(shape)].c;
     }
-    const Triangle &triangle(uint64_t shape) const {
-        return triangles[index_of(shape)].t;
-    }
-    const Disk &disk(uint64_t shape) const { return disks[index_of(shape)].d; }
-    const BilinearPatch &patch(uint64_t shape) const {
+    Triangle triangle(const Shape &shape) const { return triangle_of(shape); }
+    const Disk &disk(const Shape &shape) const { return disks[index_of(shape)].d; }
+    const BilinearPatch &patch(const Shape &shape) const {
         return patches[index_of(shape)].b;
     }
 };
@@ -566,17 +577,14 @@ uint32_t build_bvh(Item *items, size_t count, uint32_t base,
 // tree's and, after them, every instance tree's.
 void compact_pools(std::vector<Geometric> &shapes,
                    std::vector<Geometric> &instanced, std::vector<Sph> &spheres,
-                   std::vector<Tri> &triangles, std::vector<Dsk> &disks,
-                   std::vector<Blp> &patches, std::vector<Cyl> &cylinders,
-                   std::vector<Crv> &curves) {
+                   std::vector<Dsk> &disks, std::vector<Blp> &patches,
+                   std::vector<Cyl> &cylinders, std::vector<Crv> &curves) {
     std::vector<Sph> ordered_spheres;
-    std::vector<Tri> ordered_triangles;
     std::vector<Dsk> ordered_disks;
     std::vector<Blp> ordered_patches;
     std::vector<Cyl> ordered_cylinders;
     std::vector<Crv> ordered_curves;
     ordered_spheres.reserve(spheres.size());
-    ordered_triangles.reserve(triangles.size());
     ordered_disks.reserve(disks.size());
     ordered_patches.reserve(patches.size());
     ordered_cylinders.reserve(cylinders.size());
@@ -584,32 +592,29 @@ void compact_pools(std::vector<Geometric> &shapes,
 
     for (std::vector<Geometric> *list : {&shapes, &instanced}) {
         for (Geometric &prim : *list) {
-            const uint64_t tag = Shapes::tag_of(prim.shape);
-            const uint64_t index = Shapes::index_of(prim.shape);
+            const uint8_t tag = Shapes::tag_of(prim.shape);
+            const uint32_t index = Shapes::index_of(prim.shape);
             if (tag == Shapes::kSphere) {
-                prim.shape = Shapes::handle(tag, ordered_spheres.size());
+                Shapes::set_index(prim.shape, uint32_t(ordered_spheres.size()));
                 ordered_spheres.push_back(spheres[index]);
             } else if (tag == Shapes::kDisk) {
-                prim.shape = Shapes::handle(tag, ordered_disks.size());
+                Shapes::set_index(prim.shape, uint32_t(ordered_disks.size()));
                 ordered_disks.push_back(disks[index]);
             } else if (tag == Shapes::kPatch) {
-                prim.shape = Shapes::handle(tag, ordered_patches.size());
+                Shapes::set_index(prim.shape, uint32_t(ordered_patches.size()));
                 ordered_patches.push_back(patches[index]);
             } else if (tag == Shapes::kCylinder) {
-                prim.shape = Shapes::handle(tag, ordered_cylinders.size());
+                Shapes::set_index(prim.shape, uint32_t(ordered_cylinders.size()));
                 ordered_cylinders.push_back(cylinders[index]);
             } else if (tag == Shapes::kCurve) {
-                prim.shape = Shapes::handle(tag, ordered_curves.size());
+                Shapes::set_index(prim.shape, uint32_t(ordered_curves.size()));
                 ordered_curves.push_back(curves[index]);
-            } else {
-                prim.shape = Shapes::handle(tag, ordered_triangles.size());
-                ordered_triangles.push_back(triangles[index]);
             }
+            // A triangle sits in the value and has no pool to compact.
         }
     }
 
     spheres = std::move(ordered_spheres);
-    triangles = std::move(ordered_triangles);
     disks = std::move(ordered_disks);
     patches = std::move(ordered_patches);
     cylinders = std::move(ordered_cylinders);
@@ -639,14 +644,28 @@ std::vector<Node> adopt_nodes(const std::vector<bonsai_scene::Node> &nodes) {
 }
 
 // pbrt: a Primitive of the top-level tree before it is one -- a
-// GeometricPrimitive by its index into the scene's shapes, or a
+// GeometricPrimitive by its index into the scene's shapes, a mesh by its
+// index into the mesh primitives (render.bonsai's `Mesh`: pbrt's GPU
+// primitive, one per `Shape "trianglemesh"` statement), or a
 // TransformedPrimitive by its index into the instances -- with the bounds the
 // tree is built from, which for an instance are its object's tree's root
-// bounds placed by its transform.
+// bounds placed by its transform and for a mesh the box around its
+// triangles.
 struct TopLevel {
-    bool instance = false;
+    enum Kind { Shape, Mesh, Instance };
+    Kind kind = Shape;
     uint32_t index = 0;
     Bounds3f bounds;
+};
+
+// A mesh primitive: which mesh, and its triangles' run in `tris` -- every
+// triangle of the mesh, in the mesh's order, so that the run is the mesh's
+// own index buffer from the first triangle on (the hardware's build input)
+// or the leaves' order once a tree is built over it (the software tree's).
+struct MeshPrim {
+    uint32_t mesh = 0;
+    uint32_t first = 0;
+    uint32_t count = 0;
 };
 
 // Sixteen floats in row order, as scene_dump wrote them.
@@ -670,8 +689,8 @@ Transform to_bonsai(const float *m) {
 void rt_order(std::vector<Geometric>::iterator begin,
               std::vector<Geometric>::iterator end, const Shapes &shapes) {
     const auto key = [&](const Geometric &g) {
-        if (Shapes::tag_of(g.shape) == Shapes::kTriangle) {
-            const Triangle &t = shapes.triangle(g.shape);
+        if (Shapes::is_triangle(g.shape)) {
+            const Triangle t = shapes.triangle(g.shape);
             return std::tuple<uint64_t, uint64_t, uint64_t>{0, t.mesh, t.tri};
         }
         return std::tuple<uint64_t, uint64_t, uint64_t>{
@@ -747,14 +766,14 @@ struct Acceleration {
         size_t i = 0;
         while (i < count) {
             const Geometric &g = elems[i];
-            if (Shapes::tag_of(g.shape) == Shapes::kTriangle) {
+            if (Shapes::is_triangle(g.shape)) {
                 const Triangle first = shapes.triangle(g.shape);
                 const TriangleMesh &m = meshes.meshes[first.mesh];
                 // The run: the same mesh's triangles, each the next one.
                 size_t n = 1;
                 while (i + n < count) {
                     const Geometric &next = elems[i + n];
-                    if (Shapes::tag_of(next.shape) != Shapes::kTriangle) {
+                    if (!Shapes::is_triangle(next.shape)) {
                         break;
                     }
                     const Triangle t = shapes.triangle(next.shape);
@@ -808,8 +827,7 @@ struct Acceleration {
                 i += n;
             } else {
                 size_t n = 1;
-                while (i + n < count &&
-                       Shapes::tag_of(elems[i + n].shape) != Shapes::kTriangle) {
+                while (i + n < count && !Shapes::is_triangle(elems[i + n].shape)) {
                     n++;
                 }
                 box_runs.push_back(BoxRun{box_floats.size() / 6, base + uint32_t(i),
@@ -848,11 +866,61 @@ struct Acceleration {
         return built;
     }
 
-    // The scene: the structure over the scene's own shapes -- `prims[0]` to
-    // `prims[own)`, which is where the top-level order below puts them --
-    // and one per instance definition, over its run of `instanced`
-    // (`geoms`), placed once per instance. Returns the traversable handle.
+    // The structure over the scene's own meshes: one build input per mesh
+    // primitive, as pbrt's buildBVHForTriangles makes one per mesh -- the
+    // mesh's own vertex and index buffers from its first triangle on, its
+    // elements the run of `tris` the primitive names, and the record's
+    // holder the mesh primitive itself (`holder_of[k]`, its index in
+    // `prims`), which is how a hit reaches the mesh with no instance id.
+    // Whether the any-hit programs run over a mesh is asked of the Geometric
+    // every triangle of it would be (`triangle_geometric`), built here for
+    // its first triangle: the attributes the alpha test reads are the
+    // mesh's.
+    std::optional<uint64_t> meshes_geometry(const std::vector<MeshPrim> &mesh_prims,
+                                            const std::vector<Triangle> &tris,
+                                            const std::vector<uint32_t> &holder_of) {
+        if (mesh_prims.empty()) {
+            return std::nullopt;
+        }
+        std::vector<bonsai_optix_triangles> inputs;
+        inputs.reserve(mesh_prims.size());
+        for (size_t k = 0; k < mesh_prims.size(); k++) {
+            const MeshPrim &mp = mesh_prims[k];
+            const TriangleMesh &m = meshes.meshes[mp.mesh];
+            const uint32_t *indices = meshes.indices + m.first_index;
+            uint32_t vertex_count = 0;
+            for (size_t j = 0; j < 3 * size_t(mp.count); j++) {
+                vertex_count = std::max(vertex_count, indices[j] + 1);
+            }
+            Geometric g;
+            Shape_Tri(g.shape, tris.at(mp.first));
+            g.light = m.first_light;
+            g.material = m.material;
+            g.alpha = m.alpha;
+            g.medium_inside = m.medium_inside;
+            g.medium_outside = m.medium_outside;
+            const bool any_hit = trace_anyhit_matters(g) || trace_any_anyhit_matters(g);
+            bonsai_optix_triangles input = {};
+            input.positions = reinterpret_cast<const float *>(meshes.positions + m.first_vertex);
+            input.vertex_count = vertex_count;
+            input.indices = indices;
+            input.triangle_count = mp.count;
+            input.base = mp.first;
+            input.any_hit = any_hit;
+            input.holder = holder_of.at(k);
+            inputs.push_back(input);
+        }
+        return bonsai_optix_geometry(inputs.data(), int64_t(inputs.size()), nullptr, 0);
+    }
+
+    // The scene: the structures over the scene's own shapes -- `prims[0]`
+    // to `prims[own)`, which is where the top-level order below puts them
+    // -- and over its meshes, and one per instance definition, over its run
+    // of `instanced` (`geoms`), placed once per instance. Returns the
+    // traversable handle.
     uint64_t scene(const std::vector<Geometric> &own_shapes,
+                   const std::vector<MeshPrim> &mesh_prims,
+                   const std::vector<Triangle> &tris,
                    const std::vector<Geometric> &instanced,
                    const std::vector<TopLevel> &top,
                    const std::vector<bonsai_scene::Definition> &definitions,
@@ -866,10 +934,13 @@ struct Acceleration {
             of_definition[d] = geometry(instanced.data() + def.first_shape,
                                         def.shape_count, def.first_shape);
         }
-        // Each structure of a set, placed by one transform under one id.
+        // Each structure of a set, placed by one transform under one
+        // holder: the index in `prims` of the instance primitive whose
+        // `blas` the structure is, or none for the scene's own shapes
+        // (what the hit programs' records carry, bonsai_optix_record).
         std::vector<bonsai_optix_instance> instances;
         const auto place = [&](const Built &built, const float transform[12],
-                               uint32_t id) {
+                               uint32_t holder) {
             for (const std::optional<uint64_t> &g : {built.triangles, built.boxes}) {
                 if (!g.has_value()) {
                     continue;
@@ -877,36 +948,53 @@ struct Acceleration {
                 bonsai_optix_instance inst = {};
                 std::copy(transform, transform + 12, inst.transform);
                 inst.geometry = *g;
-                inst.id = id;
+                inst.holder = holder;
                 instances.push_back(inst);
             }
         };
+        // The top level's order: the own shapes, then the meshes, then the
+        // instances -- the shapes first so that a box input's `base` is its
+        // first shape's index in `prims`.
         size_t own = 0;
-        while (own < top.size() && !top[own].instance) {
+        while (own < top.size() && top[own].kind == TopLevel::Shape) {
             own++;
         }
-        for (size_t i = own; i < top.size(); i++) {
-            if (!top[i].instance) {
-                fprintf(stderr, "the hardware's order puts a shape after an "
-                                "instance at primitive %zu\n",
+        std::vector<uint32_t> holder_of(mesh_prims.size(), BONSAI_OPTIX_OWN);
+        size_t after_meshes = own;
+        while (after_meshes < top.size() && top[after_meshes].kind == TopLevel::Mesh) {
+            holder_of.at(top[after_meshes].index) = uint32_t(after_meshes);
+            after_meshes++;
+        }
+        for (size_t i = after_meshes; i < top.size(); i++) {
+            if (top[i].kind != TopLevel::Instance) {
+                fprintf(stderr, "the hardware's order puts a shape or mesh after "
+                                "an instance at primitive %zu\n",
                         i);
                 exit(1);
             }
         }
-        if (own != own_shapes.size()) {
-            fprintf(stderr, "the top level names %zu shapes of %zu\n", own,
-                    own_shapes.size());
+        if (own != own_shapes.size() || after_meshes - own != mesh_prims.size()) {
+            fprintf(stderr, "the top level names %zu shapes of %zu and %zu meshes of %zu\n",
+                    own, own_shapes.size(), after_meshes - own, mesh_prims.size());
             exit(1);
         }
         const float identity[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f,
                                     0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
-        place(geometry(own_shapes.data(), own, 0), identity, 0);
-        for (size_t i = own; i < top.size(); i++) {
+        if (own > 0) {
+            place(geometry(own_shapes.data(), own, 0), identity, BONSAI_OPTIX_OWN);
+        }
+        if (const std::optional<uint64_t> own_meshes =
+                meshes_geometry(mesh_prims, tris, holder_of);
+            own_meshes.has_value()) {
+            place(Built{own_meshes, std::nullopt}, identity, BONSAI_OPTIX_OWN);
+        }
+        for (size_t i = after_meshes; i < top.size(); i++) {
             const bonsai_scene::Instance &inst = placed[top[i].index];
             // OptiX's transform is the top three rows of the matrix, row
             // major -- the first twelve of the sixteen scene_dump wrote.
+            // The holder is the instance primitive itself, `prims[i]`.
             place(of_definition[inst.definition], inst.render_from_instance,
-                  uint32_t(i) + 1);
+                  uint32_t(i));
         }
         if (instances.empty()) {
             return 0;
@@ -2069,7 +2157,6 @@ int main(int argc, char **argv) {
     size_t npatches = 0;
     size_t ncylinders = 0;
     size_t ncurves = 0;
-    size_t nshapes = 0;
     for (const std::vector<bonsai_scene::Shape> *list :
          {&loaded.shapes, &loaded.instance_shapes}) {
         for (const bonsai_scene::Shape &s : *list) {
@@ -2078,7 +2165,6 @@ int main(int argc, char **argv) {
             npatches += s.tag == bonsai_scene::ShapeTag::Patch;
             ncylinders += s.tag == bonsai_scene::ShapeTag::Cylinder;
             ncurves += s.tag == bonsai_scene::ShapeTag::Curve;
-            nshapes++;
         }
     }
     std::vector<Sph> sphere_pool(nspheres);
@@ -2086,8 +2172,8 @@ int main(int argc, char **argv) {
     std::vector<Blp> patch_pool(npatches);
     std::vector<Cyl> cylinder_pool(ncylinders);
     std::vector<Crv> curve_pool(ncurves);
-    std::vector<Tri> triangle_pool(nshapes - nspheres - ndisks - npatches -
-                                   ncylinders - ncurves);
+    // No triangle pool: a `Tri` sits in the Shape's own words (render.bonsai,
+    // `layout Shape`).
     // What the constructors bump. Each ends up equal to its pool's size, which
     // is the check that the two passes counted the same thing.
     uint64_t sphere_fill = 0;
@@ -2095,7 +2181,6 @@ int main(int argc, char **argv) {
     uint64_t patch_fill = 0;
     uint64_t cylinder_fill = 0;
     uint64_t curve_fill = 0;
-    uint64_t triangle_fill = 0;
 
     // pbrt: the CurveCommons the curve segments share and the frames those
     // share, as the renderer's `curve_commons` and `curve_frames` externs --
@@ -2139,7 +2224,7 @@ int main(int argc, char **argv) {
             // they put the fields in the pool and return the tag and index
             // naming them, and they are generated from the same layout the
             // renderer reads with, so the numbering cannot drift.
-            uint64_t shape;
+            Shape shape;
             if (s.tag == bonsai_scene::ShapeTag::Sphere) {
                 Sphere sphere;
                 sphere.render_from_object = to_bonsai(s.render_from_object);
@@ -2152,7 +2237,7 @@ int main(int argc, char **argv) {
                 sphere.phi_max = s.phi_max;
                 sphere.flip = s.flip != 0;
                 sphere.reverse = s.reverse != 0;
-                shape = Shape_Sph(sphere, sphere_pool.data(), &sphere_fill);
+                Shape_Sph(shape, sphere, sphere_pool.data(), &sphere_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Disk) {
                 Disk disk;
                 disk.render_from_object = to_bonsai(s.render_from_object);
@@ -2163,7 +2248,7 @@ int main(int argc, char **argv) {
                 disk.phi_max = s.phi_max;
                 disk.flip = s.flip != 0;
                 disk.reverse = s.reverse != 0;
-                shape = Shape_Dsk(disk, disk_pool.data(), &disk_fill);
+                Shape_Dsk(shape, disk, disk_pool.data(), &disk_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Cylinder) {
                 Cylinder cylinder;
                 cylinder.render_from_object = to_bonsai(s.render_from_object);
@@ -2174,16 +2259,15 @@ int main(int argc, char **argv) {
                 cylinder.phi_max = s.phi_max;
                 cylinder.flip = s.flip != 0;
                 cylinder.reverse = s.reverse != 0;
-                shape = Shape_Cyl(cylinder, cylinder_pool.data(), &cylinder_fill);
+                Shape_Cyl(shape, cylinder, cylinder_pool.data(), &cylinder_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Curve) {
-                shape = Shape_Crv(Curve{s.curve_common, s.u_min, s.u_max},
-                                  curve_pool.data(), &curve_fill);
+                Shape_Crv(shape, Curve{s.curve_common, s.u_min, s.u_max},
+                          curve_pool.data(), &curve_fill);
             } else if (s.tag == bonsai_scene::ShapeTag::Patch) {
-                shape = Shape_Blp(BilinearPatch{s.mesh, s.tri, s.patch_area},
-                                  patch_pool.data(), &patch_fill);
+                Shape_Blp(shape, BilinearPatch{s.mesh, s.tri, s.patch_area},
+                          patch_pool.data(), &patch_fill);
             } else {
-                shape = Shape_Tri(Triangle{s.mesh, s.tri}, triangle_pool.data(),
-                                  &triangle_fill);
+                Shape_Tri(shape, Triangle{s.mesh, s.tri});
             }
             // `light` carries the light *ordinal* -- the shape's slot in the
             // renderer's light list and the leaf index of pbrt's light tree --
@@ -2200,6 +2284,91 @@ int main(int argc, char **argv) {
     };
     std::vector<Geometric> shapes = convert(loaded.shapes);
     std::vector<Geometric> instanced = convert(loaded.instance_shapes);
+
+    // pbrt's GPU primitive model (gpu/optix/aggregate.cpp): a mesh is one
+    // primitive, its material, alpha texture and medium interface the
+    // statement's graphics state kept once per mesh, its area lights one per
+    // triangle in the mesh's order. The top-level triangles become their
+    // meshes' primitives (render.bonsai's `Mesh`, with `triangle_geometric`
+    // rebuilding each triangle's Geometric from the mesh and its index) and
+    // the other shapes stay Geometrics of their own. The attributes move onto
+    // the TriangleMesh records for every mesh, instanced ones too, since
+    // the records are what the renderer reads them from; the per-triangle
+    // Geometrics of an instance's object stay as they are for now
+    // (apps/pbrt/PLAN.md, 2026-10-08: the instances' level is the next
+    // stage).
+    std::vector<MeshPrim> mesh_prims;
+    std::vector<Triangle> tris;
+    {
+        const auto by_mesh_then_tri = [&](const Geometric &a, const Geometric &b) {
+            const Triangle ta = Shapes::triangle_of(a.shape);
+            const Triangle tb = Shapes::triangle_of(b.shape);
+            return std::tie(ta.mesh, ta.tri) < std::tie(tb.mesh, tb.tri);
+        };
+        // The attributes of a mesh's triangles onto the mesh, each checked
+        // to be one value over the mesh -- what one statement gives every
+        // triangle, so a disagreement is a scene the converter did not
+        // write -- and the lights consecutive from the first triangle's.
+        const auto adopt = [&](std::vector<Geometric> &list, bool make_prims) {
+            std::vector<Geometric> rest;
+            std::vector<Geometric> triangles;
+            for (const Geometric &g : list) {
+                (Shapes::is_triangle(g.shape) ? triangles : rest).push_back(g);
+            }
+            std::stable_sort(triangles.begin(), triangles.end(), by_mesh_then_tri);
+            size_t i = 0;
+            while (i < triangles.size()) {
+                const Triangle first = Shapes::triangle_of(triangles[i].shape);
+                const Geometric &g0 = triangles[i];
+                size_t n = 0;
+                while (i + n < triangles.size() &&
+                       Shapes::triangle_of(triangles[i + n].shape).mesh == first.mesh) {
+                    const Geometric &g = triangles[i + n];
+                    const Triangle t = Shapes::triangle_of(g.shape);
+                    const int32_t light =
+                        g0.light < 0 ? -1 : g0.light + int32_t(t.tri);
+                    if (t.tri != first.tri + n || g.light != light ||
+                        g.material != g0.material || g.alpha != g0.alpha ||
+                        g.medium_inside != g0.medium_inside ||
+                        g.medium_outside != g0.medium_outside) {
+                        fprintf(stderr,
+                                "mesh %u: triangle %u does not share its mesh's "
+                                "attributes or its place in the mesh's run "
+                                "(pbrt gives every triangle of a Shape "
+                                "statement one material, alpha and medium, and "
+                                "numbers their lights in order)\n",
+                                first.mesh, t.tri);
+                        exit(1);
+                    }
+                    n++;
+                }
+                if (first.tri != 0) {
+                    fprintf(stderr, "mesh %u: its first triangle is %u, not 0\n",
+                            first.mesh, first.tri);
+                    exit(1);
+                }
+                TriangleMesh &m = meshes.at(first.mesh);
+                m.material = g0.material;
+                m.alpha = g0.alpha;
+                m.medium_inside = g0.medium_inside;
+                m.medium_outside = g0.medium_outside;
+                m.first_light = g0.light;
+                if (make_prims) {
+                    mesh_prims.push_back(
+                        MeshPrim{first.mesh, uint32_t(tris.size()), uint32_t(n)});
+                    for (size_t k = 0; k < n; k++) {
+                        tris.push_back(Shapes::triangle_of(triangles[i + k].shape));
+                    }
+                }
+                i += n;
+            }
+            if (make_prims) {
+                list = std::move(rest);
+            }
+        };
+        adopt(shapes, /*make_prims=*/true);
+        adopt(instanced, /*make_prims=*/false);
+    }
 
     // Which emission each light ordinal draws its spectrum from. The ordinal is
     // scene_dump's stable per-emitter number (a shape's `light_ordinal`); the
@@ -2218,24 +2387,22 @@ int main(int argc, char **argv) {
             ordinal_to_emission[size_t(s.light_ordinal)] = s.light;
         }
     }
-    if (sphere_fill != sphere_pool.size() ||
-        triangle_fill != triangle_pool.size() || disk_fill != disk_pool.size() ||
+    if (sphere_fill != sphere_pool.size() || disk_fill != disk_pool.size() ||
         patch_fill != patch_pool.size() ||
         cylinder_fill != cylinder_pool.size() || curve_fill != curve_pool.size()) {
         fprintf(stderr, "pool fill disagrees with the count: %zu/%zu spheres, "
-                        "%zu/%zu triangles, %zu/%zu disks, %zu/%zu patches, "
+                        "%zu/%zu disks, %zu/%zu patches, "
                         "%zu/%zu cylinders, %zu/%zu curves\n",
-                size_t(sphere_fill), sphere_pool.size(),
-                size_t(triangle_fill), triangle_pool.size(), size_t(disk_fill),
+                size_t(sphere_fill), sphere_pool.size(), size_t(disk_fill),
                 disk_pool.size(), size_t(patch_fill), patch_pool.size(),
                 size_t(cylinder_fill), cylinder_pool.size(), size_t(curve_fill),
                 curve_pool.size());
         return 1;
     }
-    const Shapes shape_pools{sphere_pool.data(),   triangle_pool.data(),
-                             disk_pool.data(),     patch_pool.data(),
-                             cylinder_pool.data(), curve_pool.data(),
-                             curve_commons.data(), curve_frames.data()};
+    const Shapes shape_pools{sphere_pool.data(),   disk_pool.data(),
+                             patch_pool.data(),    cylinder_pool.data(),
+                             curve_pool.data(),    curve_commons.data(),
+                             curve_frames.data()};
 
     // A tree in the scene file is PBRT's own, and using it is what makes a
     // timing comparison about the traversal rather than about whose builder
@@ -2261,8 +2428,10 @@ int main(int argc, char **argv) {
     // primitives are assembled (Acceleration, below), and pbrt's are not
     // adopted: what its nodes say about the order of the primitives is
     // replaced by the order the hardware's build inputs want.
-    // The row each definition's tree is rooted at (the software trees').
+    // The row each definition's tree is rooted at (the software trees'), and
+    // each mesh primitive's.
     std::vector<uint32_t> roots(loaded.definitions.size(), 0);
+    std::vector<uint32_t> mesh_roots(mesh_prims.size(), 0);
 #ifdef BONSAI_HAS_OPTIX
     {
         Stage stage("order primitives for the hardware");
@@ -2304,16 +2473,19 @@ int main(int argc, char **argv) {
 
     // The top-level tree's primitives, in the order its leaves name them.
     std::vector<TopLevel> top;
-    top.reserve(shapes.size() + loaded.instances.size());
+    top.reserve(shapes.size() + mesh_prims.size() + loaded.instances.size());
 #ifdef BONSAI_HAS_OPTIX
     // The hardware's structure is built over the primitives in this order:
-    // the scene's own shapes as rt_order left them, then the instances
-    // (Acceleration::scene).
+    // the scene's own shapes as rt_order left them, its meshes, then the
+    // instances (Acceleration::scene).
     for (uint32_t i = 0; i < shapes.size(); i++) {
-        top.push_back(TopLevel{false, i, Bounds3f{}});
+        top.push_back(TopLevel{TopLevel::Shape, i, Bounds3f{}});
+    }
+    for (uint32_t i = 0; i < mesh_prims.size(); i++) {
+        top.push_back(TopLevel{TopLevel::Mesh, i, Bounds3f{}});
     }
     for (uint32_t i = 0; i < loaded.instances.size(); i++) {
-        top.push_back(TopLevel{true, i, Bounds3f{}});
+        top.push_back(TopLevel{TopLevel::Instance, i, Bounds3f{}});
     }
 #else
     const auto instance_bounds = [&](const bonsai_scene::Instance &inst) {
@@ -2325,28 +2497,50 @@ int main(int argc, char **argv) {
         return transform_bounds(to_bonsai(inst.render_from_instance),
                                 Bounds3f{low, high});
     };
-    std::vector<_tree_layout4> nodes;
+    // The meshes' trees: one per mesh primitive over its run of `tris`, rows
+    // of one node pool (`Mesh.tris : MeshBVH from MeshNodes`), the run left
+    // in its leaves' order.
+    std::vector<_tree_layout4> mesh_nodes;
     {
-        Stage stage(pbrt_trees ? "adopt pbrt's bvh" : "build bvh");
-        if (pbrt_trees) {
-            nodes = adopt_nodes<_tree_layout4>(loaded.nodes);
-            for (const bonsai_scene::Prim &p : loaded.prims) {
-                top.push_back(TopLevel{p.kind == bonsai_scene::PrimInstance,
-                                       p.index, Bounds3f{}});
-            }
-        } else {
-            for (uint32_t i = 0; i < shapes.size(); i++) {
-                top.push_back(
-                    TopLevel{false, i, bounds_of(shapes[i], pool, shape_pools)});
-            }
-            for (uint32_t i = 0; i < loaded.instances.size(); i++) {
-                top.push_back(
-                    TopLevel{true, i, instance_bounds(loaded.instances[i])});
-            }
-            build_bvh(
-                top.data(), top.size(), 0,
-                [](const TopLevel &t) { return t.bounds; }, nodes);
+        Stage stage("build mesh trees");
+        const auto triangle_bounds = [&](const Triangle &t) {
+            uint32_t c[3];
+            pool.corners(t, c);
+            return merge(Bounds3f{Meshes::widen(pool.positions[c[0]]),
+                                  Meshes::widen(pool.positions[c[1]])},
+                         Meshes::widen(pool.positions[c[2]]));
+        };
+        for (size_t k = 0; k < mesh_prims.size(); k++) {
+            const MeshPrim &mp = mesh_prims[k];
+            mesh_roots[k] = build_bvh(tris.data() + mp.first, mp.count, mp.first,
+                                      triangle_bounds, mesh_nodes);
         }
+    }
+    const auto mesh_bounds = [&](size_t k) {
+        const _tree_layout4 &root = mesh_nodes[mesh_roots[k]];
+        return Bounds3f{float3{root.low[0], root.low[1], root.low[2]},
+                        float3{root.high[0], root.high[1], root.high[2]}};
+    };
+    // The top-level tree is built here and never adopted from the scene
+    // file: pbrt's is over a primitive per triangle, and this program's
+    // primitives are the meshes (apps/pbrt/PLAN.md, 2026-10-08).
+    std::vector<_tree_layout7> nodes;
+    {
+        Stage stage("build bvh");
+        for (uint32_t i = 0; i < shapes.size(); i++) {
+            top.push_back(TopLevel{TopLevel::Shape, i,
+                                   bounds_of(shapes[i], pool, shape_pools)});
+        }
+        for (uint32_t k = 0; k < mesh_prims.size(); k++) {
+            top.push_back(TopLevel{TopLevel::Mesh, k, mesh_bounds(k)});
+        }
+        for (uint32_t i = 0; i < loaded.instances.size(); i++) {
+            top.push_back(TopLevel{TopLevel::Instance, i,
+                                   instance_bounds(loaded.instances[i])});
+        }
+        build_bvh(
+            top.data(), top.size(), 0,
+            [](const TopLevel &t) { return t.bounds; }, nodes);
     }
 #endif
 
@@ -2357,7 +2551,7 @@ int main(int argc, char **argv) {
     std::vector<Geometric> ordered_shapes;
     ordered_shapes.reserve(shapes.size());
     for (const TopLevel &t : top) {
-        if (!t.instance) {
+        if (t.kind == TopLevel::Shape) {
             ordered_shapes.push_back(shapes[t.index]);
         }
     }
@@ -2371,8 +2565,8 @@ int main(int argc, char **argv) {
     // After the trees, because it is the trees that decide the order.
     {
         Stage stage("compact pools");
-        compact_pools(shapes, instanced, sphere_pool, triangle_pool, disk_pool,
-                      patch_pool, cylinder_pool, curve_pool);
+        compact_pools(shapes, instanced, sphere_pool, disk_pool, patch_pool,
+                      cylinder_pool, curve_pool);
     }
 
     std::unique_ptr<Stage> lights_stage(new Stage("lights and film"));
@@ -2483,6 +2677,24 @@ int main(int argc, char **argv) {
             prim.shape);
         lights[size_t(prim.light)] = light;
     }
+    // A mesh's lights: one per triangle from the first's ordinal on, each
+    // over the triangle itself (pbrt's DiffuseAreaLight per Triangle, which
+    // its GPU reaches as `areaLights[prim]`).
+    for (const MeshPrim &mp : mesh_prims) {
+        const TriangleMesh &m = meshes[mp.mesh];
+        if (m.first_light < 0) {
+            continue;
+        }
+        for (uint32_t k = 0; k < mp.count; k++) {
+            const size_t ordinal = size_t(m.first_light) + k;
+            Shape shape;
+            Shape_Tri(shape, Triangle{mp.mesh, k});
+            Light light;
+            Light_DiffuseArea(light, emission[size_t(ordinal_to_emission.at(ordinal))],
+                              shape);
+            lights.at(ordinal) = light;
+        }
+    }
 
     // pbrt: the Primitives the top-level BVHAggregate is built over, made
     // last, since the light index above had to be settled first. The layout
@@ -2497,7 +2709,15 @@ int main(int argc, char **argv) {
         size_t next_shape = 0;
         for (size_t i = 0; i < top.size(); i++) {
             const TopLevel &t = top[i];
-            if (t.instance) {
+            if (t.kind == TopLevel::Mesh) {
+                // What the mesh stores of its triangles: the row of the node
+                // pool its tree is rooted at -- or, on the RT cores, where
+                // its run of `tris` starts (`Mesh.tris : OptixTree from
+                // tris`).
+                const MeshPrim &mp = mesh_prims[t.index];
+                Primitive_Mesh(prims[i], mp.mesh,
+                               kRTCore ? mp.first : mesh_roots[t.index]);
+            } else if (t.kind == TopLevel::Instance) {
                 const bonsai_scene::Instance &inst = loaded.instances[t.index];
                 // What the instance stores of its object's tree: the row of
                 // the node pool its tree is rooted at -- or, on the RT cores,
@@ -2525,31 +2745,38 @@ int main(int argc, char **argv) {
     // other array (see the buffers below), so that a GPU schedule finds them
     // resident on the device once staged.
     bonsai_buffer b_geoms = buffer_of(instanced);
+    bonsai_buffer b_tris = buffer_of(tris);
     bonsai_buffer b_prims = buffer_of(prims);
     _tree_layout0 tree;
     tree.gCount = uint32_t(instanced.size());
     tree.geoms = &b_geoms;
+    tree.tCount = uint32_t(tris.size());
+    tree.tris = &b_tris;
     tree.pCount = uint32_t(prims.size());
     tree.prims = &b_prims;
 #ifndef BONSAI_HAS_OPTIX
     // The software trees' nodes; an OptixTree's layout has none.
     bonsai_buffer b_group0_bnode = buffer_of(instance_nodes);
-    bonsai_buffer b_group1_index = buffer_of(nodes);
+    bonsai_buffer b_group1_mnode = buffer_of(mesh_nodes);
+    bonsai_buffer b_group2_index = buffer_of(nodes);
     tree.bCount = uint32_t(instance_nodes.size());
     tree.group0_bnode = &b_group0_bnode;
+    tree.mCount = uint32_t(mesh_nodes.size());
+    tree.group1_mnode = &b_group1_mnode;
     tree.nCount = uint32_t(nodes.size());
-    tree.group1_index = &b_group1_index;
+    tree.group2_index = &b_group2_index;
 #else
     {
         Stage stage("build acceleration structures");
         // The pools as compacted: compact_pools moved them, so the view made
         // before it is stale.
-        const Shapes compacted{sphere_pool.data(),   triangle_pool.data(),
-                               disk_pool.data(),     patch_pool.data(),
-                               cylinder_pool.data(), curve_pool.data(),
-                               curve_commons.data(), curve_frames.data()};
+        const Shapes compacted{sphere_pool.data(),   disk_pool.data(),
+                               patch_pool.data(),    cylinder_pool.data(),
+                               curve_pool.data(),    curve_commons.data(),
+                               curve_frames.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
-            shapes, instanced, top, loaded.definitions, loaded.instances);
+            shapes, mesh_prims, tris, instanced, top, loaded.definitions,
+            loaded.instances);
         if (tree.traversable == 0) {
             fprintf(stderr, "the scene has nothing for the hardware to trace\n");
             return 1;
@@ -3072,7 +3299,6 @@ int main(int argc, char **argv) {
     bonsai_buffer b_rho_uy = buffer_of(rho_uy);
     bonsai_buffer b_inst_pool = buffer_of(inst_pool);
     bonsai_buffer b_sphere_pool = buffer_of(sphere_pool);
-    bonsai_buffer b_triangle_pool = buffer_of(triangle_pool);
     bonsai_buffer b_disk_pool = buffer_of(disk_pool);
     bonsai_buffer b_patch_pool = buffer_of(patch_pool);
     bonsai_buffer b_cylinder_pool = buffer_of(cylinder_pool);
@@ -3156,11 +3382,12 @@ int main(int argc, char **argv) {
         &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
 #ifdef BONSAI_HAS_OPTIX
-        &b_geoms, &b_prims,
+        &b_geoms, &b_tris, &b_prims,
 #else
-        &b_geoms, &b_group0_bnode, &b_prims, &b_group1_index,
+        &b_geoms, &b_group0_bnode, &b_tris, &b_group1_mnode, &b_prims,
+        &b_group2_index,
 #endif
-        &b_inst_pool, &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
+        &b_inst_pool, &b_sphere_pool, &b_disk_pool,
         &b_patch_pool, &b_cylinder_pool, &b_curve_pool
         // The queues' storage, last, as the parameters are.
         BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER)};
@@ -3397,7 +3624,7 @@ int main(int argc, char **argv) {
                &b_materials,
                &b_material_displacement, &b_material_normal_map, &b_rho_uc,
                &b_rho_ux, &b_rho_uy,
-               tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
+               tree, &b_inst_pool, &b_sphere_pool,
                &b_disk_pool, &b_patch_pool, &b_cylinder_pool,
                &b_curve_pool
                // The splits' arm masks land before the queues' storage,
@@ -3522,7 +3749,7 @@ int main(int argc, char **argv) {
                            &b_vdc_matrices_inv, &b_pmj02bn_samples,
                            &b_blue_noise, &b_pmj_pixel_samples, tree,
                            &b_inst_pool,
-                           &b_sphere_pool, &b_triangle_pool, &b_disk_pool,
+                           &b_sphere_pool, &b_disk_pool,
                            &b_patch_pool, &b_cylinder_pool, &b_curve_pool);
                     printf("hit %d %d %u: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                            "%.9g | %.9g %.9g | %.9g %.9g | %.9g | %.9g %.9g\n",

@@ -7,7 +7,9 @@
 //
 // An OptixTree has no nodes of the schedule's. Its layout is its elements --
 // the arrays the hit programs read a hit's element out of, at the index the
-// hardware reports plus the build input's base -- and the handle of the
+// hardware reports plus the build input's base, both from the input's
+// shader binding table record (with the record's `holder`, the instance
+// primitive the hit came through, where it did) -- and the handle of the
 // structure (`traversable`), which the layout gains on its own. The
 // instances' objects are runs of `geoms`, as `from` says, and an instance
 // stores where its object's run starts. The compiler refuses a software
@@ -16,12 +18,20 @@
 schedule {
     primitives : OptixTree;
     Inst.blas : OptixTree from geoms;
+    // A mesh primitive's triangles: a run of `tris`, one build input (pbrt's
+    // buildBVHForTriangles makes one per mesh too), the mesh's own index
+    // buffer from the run's first triangle on.
+    Mesh.tris : OptixTree from tris;
 
     layout primitives {
         // Every instanced GeometricPrimitive in the scene, each definition's
         // together, in the order the driver's build inputs want them.
         gCount : u32;
         geoms : array[Geometric, gCount];
+        // Every triangle of the scene's own meshes, mesh by mesh in the
+        // mesh's order: what a mesh primitive's `tris` is a run of.
+        tCount : u32;
+        tris : array[Triangle, tCount];
         // The scene's own primitives, and then its instances.
         pCount : u32;
         prims : array[Primitive, pCount];

@@ -1,0 +1,11 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_mesh_tlas.cpp -I. -o tests/bonsai/correctness/cpp/main_mesh_tlas.o
+[test] clang++ tests/bonsai/correctness/cpp/main_mesh_tlas.o tests/bonsai/correctness/cpp/mesh-tlas.o -o tests/bonsai/correctness/cpp/mesh-tlas
+[test] ./tests/bonsai/correctness/cpp/mesh-tlas
+mesh in front : hit mesh tri=(-3.00, -1.00, -1.50) marker=7 any=yes
+inst in front : hit instance tri=(0.00, -1.00, 0.50) any=yes
+solo alone    : hit solo tri=(2.00, -1.00, 29.50) any=yes
+turned        : hit instance tri=(0.00, 0.25, 19.75) any=yes
+unturned      : miss any=no
+wrong object  : miss any=no
+empty lane    : miss any=no
+past the top  : miss any=no

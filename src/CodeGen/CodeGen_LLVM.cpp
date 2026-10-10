@@ -1034,14 +1034,15 @@ CodeGen_LLVM::compile_program(const Program &program,
     std::map<std::string, llvm::Function *> func_map;
     for (const auto &[fname, func] : program.funcs) {
         // A program the ray tracing hardware runs is the OptiX module's
-        // (CodeGen_OptiX), not this one's: the host never calls it.
-        if (func->optix_program.has_value()) {
+        // (CodeGen_OptiX), not this one's: the host never calls it. Nor a
+        // function only such a program reaches (Attribute::device_only).
+        if (func->optix_program.has_value() || func->is_device_only()) {
             continue;
         }
         func_map[fname] = this->declare_function(*func);
     }
     for (const auto &[fname, func] : program.funcs) {
-        if (func->optix_program.has_value()) {
+        if (func->optix_program.has_value() || func->is_device_only()) {
             continue;
         }
         // A function whose SSA form was kept is generated from that, rather
@@ -3925,8 +3926,8 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::rt_ray_origin:
     case Intrinsic::rt_ray_direction:
     case Intrinsic::rt_primitive_index:
-    case Intrinsic::rt_instance_id:
-    case Intrinsic::rt_sbt_base:
+    case Intrinsic::rt_sbt_record:
+    case Intrinsic::rt_launch_iteration:
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:
     case Intrinsic::rt_traversable:

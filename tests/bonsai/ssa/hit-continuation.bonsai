@@ -1,0 +1,76 @@
+//! flags: -p ssa
+
+// A raygen's continuation after its nearest-hit trace handed to the
+// closest-hit program (SSA/HitContinuations.h): the shape of pbrt's trace
+// kernel, whose `__closesthit__triangle` re-reads the ray at the launch
+// index and does the work of the hit, and whose `__raygen__findClosest`
+// keeps the miss path alone. The loop over the rays is bound to
+// OptixThread, its body calls `shade`, and `shade` makes the one call to
+// the query's trace function (held by Lower/Trees.cpp so that it is still
+// a call here) and then stores what it found. What to look for:
+//
+// - Two closest-hit programs made for this loop, `__closesthit__trace$i`
+//   and `__closesthit__trace$boxes$i`: each a copy of the loop's body,
+//   taking the body's own parameters (`i`, then the captures), reading the
+//   ray at `i`, calling `shade!hit` / `shade!hit$boxes` -- a copy of
+//   `shade` calling `_rt_trace0!hit` / `_rt_trace0!hit$boxes`, the trace
+//   function's hit-side variants Lower/Trees.cpp made beside it
+//   (`rt_set_payload` of the `hit` word first, then the element at
+//   `rt_sbt_record().base + rt_primitive_index()`, `rt_hit_t()`, the
+//   barycentrics or zeros) -- and ending in a return where the body
+//   yielded.
+// - The raygen's own body calling `shade!miss`: `shade` with the trace
+//   call's continuation under a test of the option's `set` -- on a hit it
+//   returns at once, the program having done the rest; on a miss the old
+//   continuation runs.
+// - The generic `__closesthit__trace` and the trace function `_rt_trace0`
+//   stay as they were, for any other launch and for the miss path's call.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+} with extent = aabb_of_triangle(tri);
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri), tris));
+
+func shade(r : Ray, w : f32, i : i32, out : mut array[f32]) -> void {
+    found = trace(r);
+    if found {
+        hit = *found;
+        out[i] = w * hit.tri.p0.x;
+    } else {
+        out[i] = -w;
+    }
+    return;
+}
+
+func [[export]] render(n : i32, rays : array[Ray, n],
+                       weights : array[f32, n],
+                       out : mut array[f32]) -> void {
+    parfor i in 0:n {
+        shade(rays[i], weights[i], i, out);
+    }
+    return;
+}
+
+schedule {
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    render.bind(i, OptixThread);
+}

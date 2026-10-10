@@ -161,7 +161,9 @@ int main() {
         bonsai_optix_instance inst = {};
         optix_transform(t, inst.transform);
         inst.geometry = geometry;
-        inst.id = uint32_t(elems.size()); // one more than the element's index
+        // The holder: the instance element itself, which the hit programs
+        // bind as the top-level element from the record.
+        inst.holder = uint32_t(elems.size() - 1);
         instances.push_back(inst);
     };
     // Two placements of object A, one behind the other in both lanes, and
@@ -175,12 +177,12 @@ int main() {
     assert(solo_fill == solo_pool.size());
     assert(inst_fill == inst_pool.size());
     {
-        // The scene's own triangles: an instance at the identity, with the
-        // id the programs take for the top level.
+        // The scene's own triangles: an instance at the identity, held by
+        // no element.
         bonsai_optix_instance top = {};
         optix_transform(translate(float3{0.0f, 0.0f, 0.0f}), top.transform);
         top.geometry = geometry_solo;
-        top.id = 0;
+        top.holder = BONSAI_OPTIX_OWN;
         instances.push_back(top);
     }
     const uint64_t traversable =

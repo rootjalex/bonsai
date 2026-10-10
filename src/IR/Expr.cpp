@@ -1277,8 +1277,8 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                          op == OpType::rt_ray_origin ||
                          op == OpType::rt_ray_direction ||
                          op == OpType::rt_primitive_index ||
-                         op == OpType::rt_instance_id ||
-                         op == OpType::rt_sbt_base ||
+                         op == OpType::rt_sbt_record ||
+                         op == OpType::rt_launch_iteration ||
                          op == OpType::rt_ignore_hit;
     internal_assert(nullary ||
                     (!args.empty() && std::all_of(args.cbegin(), args.cend(),
@@ -1522,12 +1522,21 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             break;
         }
         case Intrinsic::rt_primitive_index:
-        case Intrinsic::rt_instance_id:
-        case Intrinsic::rt_sbt_base:
         case Intrinsic::rt_ignore_hit: {
             internal_assert(args.empty())
                 << Intrinsic::make(op, {}) << " takes no arguments";
             node->type = UInt_t::make(32);
+            break;
+        }
+        case Intrinsic::rt_sbt_record: {
+            internal_assert(args.empty()) << "rt_sbt_record takes no arguments";
+            node->type = rt_record_type();
+            break;
+        }
+        case Intrinsic::rt_launch_iteration: {
+            internal_assert(args.empty())
+                << "rt_launch_iteration takes no arguments";
+            node->type = Int_t::make(32);
             break;
         }
         case Intrinsic::rt_hit_t: {
@@ -1757,6 +1766,13 @@ static_assert(sizeof(geometric_op_names) / sizeof(geometric_op_names[0]) ==
 
 const char *GeomOp::intrinsic_name(const OpType &op) {
     return geometric_op_names[op];
+}
+
+Type rt_record_type() {
+    static const Type record = Struct_t::make(
+        "_RTRecord", Struct_t::Map{TypedVar{"base", UInt_t::make(32)},
+                                   TypedVar{"holder", UInt_t::make(32)}});
+    return record;
 }
 
 Type hit_record_type() {
