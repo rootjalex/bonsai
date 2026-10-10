@@ -1,0 +1,227 @@
+type Big = struct Big{ v : f32 }
+type Entry_hits = struct Entry_hits{ @0 : struct Found{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; _slot : i32 }
+type Entry_q = struct Entry_q{ v : f32; _slot : u32 }
+type Float = f32
+type Found = struct Found{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type Half = f16
+type Queue_hits = struct Queue_hits{ count : u32; @0_tag : u8[]; @0_payload_x : u32[]; _slot : i32[] }
+type Queue_q = struct Queue_q{ count : u32; v : f32[]; _slot : u32[] }
+type Small = struct Small{ v : f32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func classify(x : f32) -> Found {
+  let @0 = 4f < x in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Found>(0u, @1, @3) in
+    return @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Found>(1u, @5, @7) in
+    return @8
+  }
+}
+
+func finish(v : f32, k : f32) -> f32 {
+  let @0 = v * 0.5f in
+  let @1 = @0 + k in
+  return @1
+}
+
+func run(values : f32[8], k : f32, out : mut f32[8], found_arms : u64) -> void {
+  hits_result : mut f32[8]
+  hits!Big_@0_tag : mut u8[8]
+  hits!Big_@0_payload_x : mut u32[8]
+  hits!Big__slot : mut i32[8]
+  hits!Small_@0_tag : mut u8[8]
+  hits!Small_@0_payload_x : mut u32[8]
+  hits!Small__slot : mut i32[8]
+  hits_queue : mut Queue_hits[2]
+  let @4 = build<Queue_hits>(0u, hits!Big_@0_tag, hits!Big_@0_payload_x, hits!Big__slot) in
+  hits_queue[0u] = @4
+  let @6 = build<Queue_hits>(0u, hits!Small_@0_tag, hits!Small_@0_payload_x, hits!Small__slot) in
+  hits_queue[1u] = @6
+  q_rest_@25 : mut (f32*)[8]
+  q_result : mut f32[8]
+  q_v : mut f32[8]
+  q__slot : mut u32[8]
+  q_queue : mut Queue_q
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, k, hits_queue, (&hits_result[i]), i)
+    continue
+  }
+  let @9 = hits_queue[0u] in
+  let @10 = @9.count in
+  let @51 = build<Queue_q>(0u, q_v, q__slot) in
+  q_queue = @51
+  let @65 = found_arms >> 0u in
+  let @66 = @65 & 1u in
+  let @67 = @66 != 0u in
+  if (@67) {
+    parfor hits!Big in [0u:@10:1u] {
+      let @13 = hits_queue[0u].@0_tag in
+      let @14 = @13[hits!Big] in
+      let @15 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @17 = hits_queue[0u].@0_payload_x in
+      let @18 = @17[hits!Big] in
+      let @19 = build<[[packed]] u32x1>(@18) in
+      let @20 = build<Found>(@14, @15, @19) in
+      let @23 = hits_queue[0u]._slot in
+      let @24 = @23[hits!Big] in
+      q_rest_@25[hits!Big] = (&hits_result[@24])
+      step!after!Big(@20, k, q_queue, (&q_result[hits!Big]), hits!Big)
+      continue
+    }
+  }
+  let @53 = (*q_queue) in
+  let @54 = @53.count in
+  if (@67) {
+    parfor q in [0u:@54:1u] {
+      let @55 = q_v[q] in
+      let @57 = q__slot[q] in
+      let @56 = finish(@55, k) in
+      let @58 = (&q_result[@57]) in
+      @58 = @56
+      continue
+    }
+  }
+  q_queue.count = 0u
+  let @60 = cast<i32>(@10) in
+  parfor q_rest in [0:@60:1] {
+    let @62 = q_result[q_rest] in
+    let @64 = q_rest_@25[q_rest] in
+    let @21 = @62 in
+    let @25 = @64 in
+    @25 = @21
+    continue
+  }
+  let @27 = hits_queue[1u] in
+  let @28 = @27.count in
+  let @68 = found_arms >> 1u in
+  let @69 = @68 & 1u in
+  let @70 = @69 != 0u in
+  if (@70) {
+    parfor hits!Small in [0u:@28:1u] {
+      let @31 = hits_queue[1u].@0_tag in
+      let @32 = @31[hits!Small] in
+      let @33 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @35 = hits_queue[1u].@0_payload_x in
+      let @36 = @35[hits!Small] in
+      let @37 = build<[[packed]] u32x1>(@36) in
+      let @38 = build<Found>(@32, @33, @37) in
+      let @41 = hits_queue[1u]._slot in
+      let @42 = @41[hits!Small] in
+      let @39 = step!after!Small(@38, k) in
+      let @43 = (&hits_result[@42]) in
+      @43 = @39
+      continue
+    }
+  }
+  hits_queue[0u].count = 0u
+  hits_queue[1u].count = 0u
+  parfor hits_rest in [0:8:1] {
+    let @49 = hits_result[hits_rest] in
+    let @1 = @49 in
+    let i = hits_rest in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func step(x : f32, k : f32, _queue_hits : mut Queue_hits[2], _result_hits : mut (f32*), _slot_hits : i32) -> void {
+  let @0 = classify(x) in
+  let @10 = build<Entry_hits>(@0, _slot_hits) in
+  let @11 = @0.tag in
+  switch (@11) {
+  case 0: {
+    let @17 = atomic_add((&_queue_hits[0u].count), 1u) in
+    let @24 = @0.payload in
+    let @25 = @24[0u] in
+    let @28 = _queue_hits[0u].@0_tag in
+    @28[@17] = @11
+    let @31 = _queue_hits[0u].@0_payload_x in
+    @31[@17] = @25
+    let @34 = _queue_hits[0u]._slot in
+    @34[@17] = _slot_hits
+    return
+  } break;
+  default: {
+    let @37 = atomic_add((&_queue_hits[1u].count), 1u) in
+    let @44 = @0.payload in
+    let @45 = @44[0u] in
+    let @48 = _queue_hits[1u].@0_tag in
+    @48[@37] = @11
+    let @51 = _queue_hits[1u].@0_payload_x in
+    @51[@37] = @45
+    let @54 = _queue_hits[1u]._slot in
+    @54[@37] = _slot_hits
+    return
+  }
+  }
+}
+
+func step!after(@0 : Found, k : f32) -> f32 {
+  let r = @0 in
+  let @1 = r.tag in
+  switch (@1) {
+  case 0: { // Found.Big of step
+    let @2 = r.payload in
+    let @3 = @2[0u] in
+    let v = reinterpret_cast<f32>(@3) in
+    let @5 = finish(v, k) in
+    return @5
+  } break;
+  default: { // Found.Small of step
+    let @6 = r.payload in
+    let @7 = @6[0u] in
+    let v$1 = reinterpret_cast<f32>(@7) in
+    let @9 = v$1 - k in
+    return @9
+  }
+  }
+}
+
+func step!after!Big(@0 : Found, k : f32, _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : u32) -> void {
+  let r = @0 in
+  let @10 = r._pad in
+  let @11 = r.payload in
+  let r!Big = build<Found>(0u, @10, @11) in
+  let @3 = @11[0u] in
+  let v = reinterpret_cast<f32>(@3) in
+  let @12 = build<Entry_q>(v, _slot_q) in
+  let @15 = atomic_add((&(*_queue_q).count), 1u) in
+  let @17 = (*_queue_q).v in
+  @17[@15] = v
+  let @20 = (*_queue_q)._slot in
+  @20[@15] = _slot_q
+  return
+}
+
+func step!after!Small(@0 : Found, k : f32) -> f32 {
+  let r = @0 in
+  let @10 = r._pad in
+  let @11 = r.payload in
+  let r!Small = build<Found>(1u, @10, @11) in
+  let @7 = @11[0u] in
+  let v$1 = reinterpret_cast<f32>(@7) in
+  let @9 = v$1 - k in
+  return @9
+}
+
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits)
+        .defer(finish, q)
+
+}

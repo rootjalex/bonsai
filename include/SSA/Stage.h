@@ -97,6 +97,30 @@ std::vector<Type> defer_continuation(FuncMap &funcs, const std::string &func,
 std::string call_holder(const FuncMap &funcs, const std::string &func,
                         const std::string &callee);
 
+// Every function standing for `func` that makes a call to `callee` and is
+// reached from `owner` by calls: `func` itself, the continuations split off
+// from it (`func!after`) and the copies a queue's specialize made of it
+// (`func!Diffuse`, `func!Basic!Diffuse`: SSA/Defer.cpp names a sub-queue's
+// callee by its variant path). The schedule's name for a function stands
+// for all of them -- `vol_surface.defer(vol_subsurface, bssrdfs)` written
+// after `hits.specialize(material)` has to turn the call into a push in
+// each material's copy, the original being unreached once its copies took
+// its place. Empty when none of them makes the call: the caller then names
+// `func` and refuses in its own words.
+std::vector<std::string> call_holders(const FuncMap &funcs, const std::string &func,
+                                      const std::string &callee,
+                                      const std::string &owner);
+
+// The copies of `callee` (`callee!Basic`, `callee!Universal`: the ones a
+// queue's specialize made of it because `func` hands it the key) that the
+// functions standing for `func` call where `owner` reaches them, each once,
+// in name order. What a deferral names when call_holders finds nothing: the
+// call it was written on is there, but on copies of its callee, and a
+// deferral's callee is one function.
+std::vector<std::string> copies_called(const FuncMap &funcs, const std::string &func,
+                                       const std::string &callee,
+                                       const std::string &owner);
+
 // Whether `func`'s one call to `callee` is neither in tail position nor
 // spawned, and `callee` is not a recursion back into `func`: what makes
 // `func.defer(callee, q)` a defer_continuation rather than a defer. A

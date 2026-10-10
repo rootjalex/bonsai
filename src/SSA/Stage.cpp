@@ -467,6 +467,91 @@ string call_holder(const FuncMap &funcs, const string &func_name,
     return func_name;
 }
 
+vector<string> call_holders(const FuncMap &funcs, const string &func_name,
+                            const string &callee_name, const string &owner) {
+    // The functions the owner reaches by calls, the owner among them.
+    set<string> reached;
+    vector<string> work{owner};
+    while (!work.empty()) {
+        const string name = work.back();
+        work.pop_back();
+        if (!reached.insert(name).second) {
+            continue;
+        }
+        const auto it = funcs.find(name);
+        if (it == funcs.end()) {
+            continue;
+        }
+        for (const string &g : callees_of(*it->second)) {
+            work.push_back(g);
+        }
+    }
+    const string prefix = func_name + "!";
+    vector<string> holders;
+    for (const auto &[name, F] : funcs) {
+        if (name != func_name && name.compare(0, prefix.size(), prefix) != 0) {
+            continue;
+        }
+        if (!reached.contains(name)) {
+            continue;
+        }
+        bool calls = false;
+        for (const auto &block : F->blocks) {
+            if (const auto *call =
+                    std::get_if<Terminator::Call>(&block->terminator.data);
+                call != nullptr && call->call.name == callee_name) {
+                calls = true;
+            }
+            if (const auto *multi =
+                    std::get_if<Terminator::MultiCall>(&block->terminator.data);
+                multi != nullptr && multi->call.name == callee_name) {
+                calls = true;
+            }
+        }
+        if (calls) {
+            holders.push_back(name);
+        }
+    }
+    return holders;
+}
+
+vector<string> copies_called(const FuncMap &funcs, const string &func_name,
+                             const string &callee_name, const string &owner) {
+    set<string> reached;
+    vector<string> work{owner};
+    while (!work.empty()) {
+        const string name = work.back();
+        work.pop_back();
+        if (!reached.insert(name).second) {
+            continue;
+        }
+        const auto it = funcs.find(name);
+        if (it == funcs.end()) {
+            continue;
+        }
+        for (const string &g : callees_of(*it->second)) {
+            work.push_back(g);
+        }
+    }
+    const string prefix = func_name + "!";
+    const string callee_prefix = callee_name + "!";
+    set<string> copies;
+    for (const auto &[name, F] : funcs) {
+        if (name != func_name && name.compare(0, prefix.size(), prefix) != 0) {
+            continue;
+        }
+        if (!reached.contains(name)) {
+            continue;
+        }
+        for (const string &g : callees_of(*F)) {
+            if (g.compare(0, callee_prefix.size(), callee_prefix) == 0) {
+                copies.insert(g);
+            }
+        }
+    }
+    return vector<string>(copies.begin(), copies.end());
+}
+
 bool has_nontail_call(const FuncMap &funcs, const string &func_name,
                       const string &callee_name) {
     if (!funcs.contains(func_name) || !funcs.contains(callee_name)) {

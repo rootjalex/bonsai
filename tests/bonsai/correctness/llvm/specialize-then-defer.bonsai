@@ -1,0 +1,65 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferral written on a function after a queue's specialize copied it.
+// `step.stage(classify, hits)` makes the rest of `step` the drain of `hits`,
+// `hits.specialize(r)` splits the queue by the staged value's variant and
+// copies that rest once per variant (`step!after!Big`, `step!after!Small`),
+// and `step.defer(finish, q)` then has to find its call in the copy that
+// makes it -- the `Big` arm's -- and turn it into a push there: the
+// schedule's name for a function stands for the continuations split off
+// from it and for its copies (SSA/Stage.h, call_holders). apps/pbrt's
+// `vol_surface.defer(vol_subsurface, bssrdfs)` after `hits.specialize(
+// material)` is this shape. What is checked is that every element gets the
+// unstaged program's answer.
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(v : Float, k : Float) -> Float {
+    return v * 0.5 + k;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(v, k);
+        Small(v) => return v - k;
+    }
+}
+
+// Not exported: an exported function called from `main` gets an unexported
+// copy for that call, and the chain a deferral runs may be entered from one
+// owner only (the same rule the defer tests follow).
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    // x - 1 up to four, x / 2 + 1 past it: -1, 0, 1, 2, 3, 3.5, 4, 4.5.
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+    step.defer(finish, q);
+}

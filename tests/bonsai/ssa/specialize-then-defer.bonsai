@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// A deferral written on a function after a queue's specialize copied it
+// (SSA/Stage.h, call_holders). What to look for: the `hits` drain runs
+// `step!after!Big` and `step!after!Small`, the copies of the staged rest;
+// only the `Big` copy made the call to `finish`, so only it pushes onto
+// `q`, and the `Small` copy keeps its arithmetic; `q`'s drain runs
+// `finish`; the drains follow the producer loop in the order the queues
+// were deferred, `hits` then `q`.
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(v : Float, k : Float) -> Float {
+    return v * 0.5 + k;
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(v, k);
+        Small(v) => return v - k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+    step.defer(finish, q);
+}

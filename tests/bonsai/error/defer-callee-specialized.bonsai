@@ -1,0 +1,62 @@
+//! flags: -p ssa
+
+// A deferral's callee is one function. `step` hands `finish` the value the
+// `hits` queue is specialized by, so the specialize copies `finish` along
+// with the rest of `step` it copies per variant (`finish!Big` beside
+// `step!after!Big`), and `step.defer(finish, q)` then finds its call made
+// on a copy of its callee and says so, rather than deferring nothing. This
+// is why apps/pbrt's vol_subsurface takes no texture evaluator: pbrt's
+// BSSRDF kernel takes the basic evaluator for every entry (wavefront/
+// subsurface.cpp), so the material queues' split by evaluator leaves it one
+// function and `vol_surface.defer(vol_subsurface, bssrdfs)` one callee.
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(r : Found, k : Float) -> Float {
+    match r {
+        Big(v) => return v * 0.5 + k;
+        Small(v) => return v - k;
+    }
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(r, k);
+        Small(v) => return v - k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+    step.defer(finish, q);
+}

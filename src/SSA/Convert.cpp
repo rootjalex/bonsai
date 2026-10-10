@@ -2294,10 +2294,31 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // (SSA/Specialize.h).
     std::set<std::string> scheduled;
     for (const auto &[name, index] : ordered) {
-        if (!fmap.contains(name)) {
-            continue;
-        }
         const ir::Transform &t = transforms.at(name).at(index);
+        if (!fmap.contains(name)) {
+            // The function is gone. A queue's specialize copied it once per
+            // variant and a later deferral erased the unreached original
+            // (SSA/Defer.cpp: a dead caller of the chain goes), or nothing
+            // ever reached it. A deferral written on it after the copies
+            // were made applies to them (SSA/Stage.h, call_holders:
+            // `vol_surface.defer(vol_subsurface, bssrdfs)` after
+            // `hits.specialize(material)` turns the call into a push in each
+            // material's copy); any other directive on a gone function is a
+            // schedule for code that no longer exists, and is refused rather
+            // than dropped.
+            const std::string prefix = name + "!";
+            const bool copies = std::any_of(
+                fmap.begin(), fmap.end(), [&](const auto &kv) {
+                    return kv.first.compare(0, prefix.size(), prefix) == 0;
+                });
+            if (!copies) {
+                continue;
+            }
+            internal_assert(std::holds_alternative<ir::Defer>(t))
+                << name << ": a directive on it comes after a queue's specialize "
+                << "copied it per variant and the original went; only a "
+                << "deferral applies to the copies (SSA/Stage.h, call_holders).";
+        }
         if (std::holds_alternative<ir::Specialize>(t) &&
             std::get<ir::Specialize>(t).loop.empty()) {
             // After another specialize is fine: `render.specialize(
@@ -2590,13 +2611,81 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                             spec.drain_pushes_self = pushes_self;
                         }
-                        // The other pushers: every function with a directive
-                        // on this queue and callee but the primary and the
-                        // owner.
-                        for (const std::string &f : pushers) {
-                            if (f != primary) {
-                                spec.also_from.push_back(f);
+                        // The functions that make the call: for the primary
+                        // and for every other pusher the schedule named,
+                        // the function itself, the continuations split off
+                        // from it and the copies a queue's specialize made of
+                        // it, each where it is reached from the owner
+                        // (SSA/Stage.h, call_holders) -- the medium-sample
+                        // deferral the trace's function makes after its
+                        // sample stage, the BSSRDF deferral the material
+                        // kernel makes in each material's copy. The first is
+                        // the deferral's own; the rest push alongside it
+                        // (QueueSpec::also_from). A pusher none of whose
+                        // functions is found is kept under its own name, for
+                        // the deferral to refuse in its words.
+                        std::vector<std::string> holders;
+                        {
+                            std::vector<std::string> named{primary};
+                            for (const std::string &f : pushers) {
+                                if (f != primary) {
+                                    named.push_back(f);
+                                }
                             }
+                            for (const std::string &f : named) {
+                                std::vector<std::string> of =
+                                    call_holders(fmap, f, callee, q->second.owner);
+                                if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+                                    std::cerr << "; " << d.queue << ": " << f
+                                              << " stands for";
+                                    for (const std::string &h : of) {
+                                        std::cerr << " " << h;
+                                    }
+                                    std::cerr << (of.empty() ? " nothing reached from "
+                                                                   + q->second.owner +
+                                                                   " that calls " + callee
+                                                             : "")
+                                              << "\n";
+                                }
+                                if (of.empty()) {
+                                    // The call may be there with a copy of
+                                    // the callee as its callee: a queue's
+                                    // specialize upstream copies the callee
+                                    // along when the function hands it the
+                                    // key, and a deferral's callee is one
+                                    // function (pbrt's BSSRDF kernel takes
+                                    // the basic texture evaluator for every
+                                    // entry, so vol_subsurface takes none
+                                    // and the material queues' split by
+                                    // evaluator leaves it one function).
+                                    const std::vector<std::string> copies =
+                                        copies_called(fmap, f, callee, q->second.owner);
+                                    std::string list;
+                                    for (const std::string &c : copies) {
+                                        list += (list.empty() ? "" : ", ") + c;
+                                    }
+                                    internal_assert(copies.empty())
+                                        << d.queue << ": " << f << " makes no call to "
+                                        << callee << " where " << q->second.owner
+                                        << " reaches it; its copies call " << list
+                                        << ", copies a queue's specialize made of "
+                                        << callee << " because " << f
+                                        << " hands it the key. A deferral's callee is "
+                                           "one function: the argument has to be the "
+                                           "same for every copy (as pbrt's BSSRDF kernel "
+                                           "takes the basic evaluator for every entry).";
+                                    of.push_back(call_holder(fmap, f, callee));
+                                }
+                                for (const std::string &h : of) {
+                                    if (std::find(holders.begin(), holders.end(), h) ==
+                                        holders.end()) {
+                                        holders.push_back(h);
+                                    }
+                                }
+                            }
+                        }
+                        for (size_t h = 1; h < holders.size(); h++) {
+                            spec.also_from.push_back(holders[h]);
                         }
                         internal_assert(!q->second.loop.names.empty())
                             << d.queue << " names no loop";
@@ -2617,14 +2706,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         // a spawned one is deferred as it is. The entry,
                         // queue and flag types made are the program's now,
                         // for the printer and the backends' declarations.
-                        // The function that makes the call: `name`, or the
-                        // continuation a stage (or a deferral with its
-                        // continuation) written before this one split off
-                        // from it, when the call lies after that boundary
-                        // (SSA/Stage.h, call_holder) -- the medium-sample
-                        // deferral the trace's function makes after its
-                        // sample stage.
-                        const std::string holder = call_holder(fmap, name, callee);
+                        const std::string &holder = holders.front();
                         const bool with_rest = has_nontail_call(fmap, holder, callee);
                         for (const Type &made :
                              with_rest ? defer_continuation(fmap, holder, callee, spec)

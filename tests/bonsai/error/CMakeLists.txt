@@ -31,6 +31,7 @@ add_bonsai_tests(
     defer-branching.bonsai
     defer-drained-before-pushed.bonsai
     defer-not-tail.bonsai
+    defer-callee-specialized.bonsai
     queue-storage-host-on-gpu.bonsai
     queue-storage-device-on-cpu.bonsai
     queue-storage-extern-unexported.bonsai
