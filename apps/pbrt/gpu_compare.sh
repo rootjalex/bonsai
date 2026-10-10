@@ -29,6 +29,12 @@
 # pbrt's as compare.sh checks it, converted to a PNG, and the table says
 # where each is.
 #
+# The GPU's clocks have to be locked for the run (gpu_clock.sh: `--clock N`
+# or BONSAI_GPU_CLOCK, 2400 MHz SM by default, the memory clock at its
+# maximum); the run refuses to start while they are not, printing the
+# `nvidia-smi -lgc` commands, which take root. Every number of a table is
+# at that clock, and the table's last line says which.
+#
 # The machine is checked idle before every timed run, and watched during it:
 # another process on the GPU, or someone else's process at the top of the
 # CPU, and the run is redone (three tries at most); a set of our runs more
@@ -62,10 +68,12 @@ while [[ $# -gt 0 ]]; do
     --resume) RESUME=1; shift ;;
     --schedules) SCHEDULES="$2"; shift 2 ;;
     --scenes) SCENES="$2"; shift 2 ;;
+    --clock) export BONSAI_GPU_CLOCK="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 1 ;;
   esac
 done
+source "$PREFIX/gpu_clock.sh"
 
 # Everything the run will act on, checked before any of it starts: a run is
 # minutes long and a missing scene should not be found at the end of it.
@@ -110,8 +118,11 @@ if [[ ! -f "$OPTIX_SDK/include/optix.h" || ! -f "$CUDA_DIR/include/cuda.h" ]]; t
 fi
 if ! command -v nvidia-smi > /dev/null; then
   echo "no nvidia-smi: no GPU to compare on" >&2; fail=1
+elif ! require_locked_gpu_clock; then
+  fail=1
 fi
 if [[ "$fail" != 0 ]]; then exit 1; fi
+echo "$GPU_CLOCK_NOTE"
 
 TBB_PREFIX="$(dirname "$(dirname "$(command -v "$BONSAI_CXX")")")"
 TBB_FLAGS=()
@@ -364,5 +375,5 @@ for sc in $SCENES; do
 done
 done
 echo
-echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries)"
+echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries; $GPU_CLOCK_NOTE)"
 column -t -s $'\t' "$TABLE"

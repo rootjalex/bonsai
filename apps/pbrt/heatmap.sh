@@ -7,6 +7,11 @@
 #
 #     apps/pbrt/heatmap.sh [--scenes "d/s ..."] [--spp "N ..."]
 #                          [--out DIR] [--repeats N] [--title TEXT]
+#                          [--clock MHZ]
+#
+# The GPU's clocks have to be locked for the whole run (gpu_clock.sh;
+# `--clock`, 2400 MHz SM by default): the run refuses to start while they
+# are not, and says how to lock them. The lock is written to heatmap.log.
 #
 # Defaults: every scene known to convert (the 29 of the 2026-10-04 sweep
 # and the three verification additions), sample counts 16 64 128, repeats 3
@@ -53,14 +58,18 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
+    --clock) export BONSAI_GPU_CLOCK="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+source "$PREFIX/gpu_clock.sh"
+require_locked_gpu_clock || exit 1
 
 SCENE_TIMEOUT="${HEATMAP_SCENE_TIMEOUT:-2700}"
 CUTOFF="${HEATMAP_CUTOFF:-18000}"
 START=$(date +%s)
 mkdir -p "$OUT"
+echo "=== $GPU_CLOCK_NOTE ($(date '+%Y-%m-%d %H:%M:%S'))" | tee -a "$OUT/heatmap.log"
 
 for sc in $SCENES; do
   now=$(date +%s)
