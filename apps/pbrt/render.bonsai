@@ -2850,36 +2850,40 @@ func vol_path_step(ray : Ray, medium : i32,
                    specular_bounce : bool,
                    any_non_specular : bool, eta_scale : Float,
                    prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
-                   sampler : Sampler, state : mut SamplerState,
+                   sampler : Sampler, pixel_x : i32, pixel_y : i32,
+                   sample_index : u32,
                    ls : LightSampler, set : LightSet, have_media : bool,
                    seed : i32, max_depth : i32, regularize : bool,
                    have_subsurface : bool,
                    want_visible : bool, visible : mut VisibleSurface,
                    l : reduce(+) vec4f) -> void {
-    // pbrt: GenerateRaySamples -- the sampler started again at the bounce's
-    // own dimensions, `6 + 7 * depth` (wavefront/samples.cpp:39-61), for
-    // every ray of the round, and the bounce's draws all made here, before
-    // the trace, in a fixed order (the light's `uc` and `u`, the BSDF's or
-    // the phase function's `uc` and `u`, roulette's), for whichever kernel
-    // the ray reaches to read (`rs`); so a path's draws do not run on from
-    // wherever its last bounce left them as the CPU integrator's do. A ray
-    // re-traced at the same depth after a boundary crossing draws the same
-    // values again, as pbrt's does. In a scene with a subsurface material
-    // every bounce draws three more -- the probe segment's `uc` and `u` --
-    // whether or not its surface is one (`if (haveSubsurface) dimension +=
-    // 3 * w.depth`), so every path's samples move when one material does.
-    // pbrt makes these a kernel of its own ahead of the trace, with the
-    // values stored beside the ray; here they are made in the same launch
-    // as the trace, the one place the GPU schedules differ from pbrt's
-    // kernels by the user's decision (2026-10-09): measured, the sampler's
-    // cost is close to the same wherever it runs (REPORT.md, "The sample
-    // stage"), a stage of its own copies the ray's state once more per
-    // bounce, and a pass over the same queue twice is not a form the
-    // schedule has.
-    state = start_pixel_sample_at(sampler, state,
-                                  6 + 7 * depth_in +
-                                      select(have_subsurface, 3 * depth_in, 0));
-    rs = vol_ray_samples(sampler, state, have_subsurface);
+    // pbrt: GenerateRaySamples (wavefront/samples.cpp) -- a fresh copy of the
+    // sampler started on the ray's pixel and the pass's sample index at the
+    // bounce's own dimensions, `6 + 7 * depth`, for every ray of the round,
+    // and the bounce's draws all made from it, before the trace, in a fixed
+    // order (the light's `uc` and `u`, the BSDF's or the phase function's
+    // `uc` and `u`, roulette's), for whichever kernel the ray reaches to
+    // read (`rs`). Nothing of a sampler travels with a ray: pbrt's ray
+    // carries its pixel index and reads the pixel from pixelSampleState,
+    // here the ray carries the pixel itself (`pixel_x`, `pixel_y`), and
+    // the sample index is the pass's. So a path's draws do not run on from
+    // wherever its last bounce left them as the CPU integrator's do, and a
+    // ray re-traced at the same depth after a boundary crossing draws the
+    // same values again, as pbrt's does. In a scene with a subsurface
+    // material every bounce draws three more -- the probe segment's `uc`
+    // and `u` -- whether or not its surface is one (`if (haveSubsurface)
+    // dimension += 3 * w.depth`), so every path's samples move when one
+    // material does. pbrt makes these a kernel of its own ahead of the
+    // trace, with the values stored beside the ray; here they are made in
+    // the same launch as the trace, the one place the GPU schedules differ
+    // from pbrt's kernels by the user's decision (2026-10-09). Until 10-10
+    // the sampler's state was a `mut` parameter threaded down the path and
+    // kept per ray between bounces, which pbrt's wavefront never does
+    // (PLAN.md, "The draws made pbrt's").
+    st : mut SamplerState = start_pixel_sample_at(
+        sampler, pixel_x, pixel_y, sample_index,
+        6 + 7 * depth_in + select(have_subsurface, 3 * depth_in, 0));
+    rs = vol_ray_samples(sampler, st, have_subsurface);
     isect = trace(RaySegment{ray, inf});
 
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
@@ -2896,14 +2900,16 @@ func vol_path_step(ray : Ray, medium : i32,
         vol_medium_sample(isect, ray, medium, camera, spp_scale,
                           beta_in, r_u_in, r_l_in, depth_in, wave,
                           specular_bounce, any_non_specular, eta_scale,
-                          prev_ctx, lambda, sampler, state, rs, ls, set,
+                          prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
+                          rs, ls, set,
                           have_media, seed, max_depth, regularize,
                           have_subsurface, want_visible, visible, l);
         return;
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
               r_l_in, depth_in, wave, specular_bounce, any_non_specular,
-              eta_scale, prev_ctx, lambda, sampler, state, rs, ls, set,
+              eta_scale, prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
+              rs, ls, set,
               have_media,
               seed, max_depth, regularize, have_subsurface, want_visible,
               visible, l);
@@ -2929,7 +2935,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                        any_non_specular : bool, eta_scale : Float,
                        prev_ctx : ShapeSampleContext,
                        lambda : SampledWavelengths, sampler : Sampler,
-                       state : mut SamplerState, rs : RaySamples,
+                       pixel_x : i32, pixel_y : i32, sample_index : u32,
+                       rs : RaySamples,
                        ls : LightSampler,
                        set : LightSet, have_media : bool, seed : i32,
                        max_depth : i32, regularize : bool,
@@ -2981,7 +2988,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
             return;
         }
         vol_medium_scatter(event, ray, medium, camera, spp_scale,
-                           eta_scale, wave, lambda, sampler, state, rs, ls,
+                           eta_scale, wave, lambda, sampler, pixel_x, pixel_y,
+                           sample_index, rs, ls,
                            set, have_media, seed, max_depth, regularize,
                            have_subsurface, want_visible, visible, l);
         return;
@@ -3002,7 +3010,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_out, r_u_out, r_l_out,
               depth, wave, specular_bounce, any_non_specular, eta_scale,
-              prev_ctx, lambda, sampler, state, rs, ls, set, have_media, seed,
+              prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index, rs, ls, set,
+              have_media, seed,
               max_depth, regularize, have_subsurface, want_visible, visible, l);
     return;
 }
@@ -3021,7 +3030,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         camera : PerspectiveCamera,
                         spp_scale : Float, eta_scale : Float, wave : i32,
                         lambda : SampledWavelengths, sampler : Sampler,
-                        state : mut SamplerState, rs : RaySamples,
+                        pixel_x : i32, pixel_y : i32, sample_index : u32,
+                        rs : RaySamples,
                         ls : LightSampler,
                         set : LightSet, have_media : bool, seed : i32,
                         max_depth : i32, regularize : bool,
@@ -3067,7 +3077,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
     turned : Ray = {event.p, ps.wi};
     vol_path_step(turned, medium, camera, spp_scale, survived, event.r_u,
                   event.r_u / ps.pdf, event.depth, wave + 1, false, true,
-                  eta_scale, ctx, lambda, sampler, state, ls, set, have_media,
+                  eta_scale, ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
+                  ls, set, have_media,
                   seed, max_depth, regularize, have_subsurface, want_visible,
                   visible, l);
     return;
@@ -3089,7 +3100,8 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                any_non_specular : bool,
                eta_scale : Float, prev_ctx : ShapeSampleContext,
                lambda : SampledWavelengths, sampler : Sampler,
-               state : mut SamplerState, rs : RaySamples, ls : LightSampler,
+               pixel_x : i32, pixel_y : i32, sample_index : u32,
+               rs : RaySamples, ls : LightSampler,
                set : LightSet,
                have_media : bool, seed : i32, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
@@ -3148,7 +3160,8 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
         vol_path_step(
             skip_ray, get_medium(prim, surf.n, ray.d, medium), camera,
             spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
-            any_non_specular, eta_scale, prev_ctx, lambda, sampler, state, ls,
+            any_non_specular, eta_scale, prev_ctx, lambda, sampler, pixel_x,
+            pixel_y, sample_index, ls,
             set, have_media, seed, max_depth, regularize, have_subsurface,
             want_visible, visible, l);
         return;
@@ -3180,7 +3193,8 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
     evaluator = material_evaluator(materials[mat], material_displacement[mat]);
     vol_surface(ray, medium, camera, spp_scale, via, prim, mat, evaluator, surf,
                 beta, r_u, r_l, depth, wave, specular_bounce, any_non_specular,
-                eta_scale, prev_ctx, lambda, sampler, state, rs, ls, set,
+                eta_scale, prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
+                rs, ls, set,
                 have_media, seed, max_depth, regularize, have_subsurface,
                 want_visible, visible, l);
     return;
@@ -3253,7 +3267,8 @@ func vol_surface(ray : Ray, medium : i32,
                  specular_bounce : bool,
                  any_non_specular : bool, eta_scale : Float,
                  prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
-                 sampler : Sampler, state : mut SamplerState, rs : RaySamples,
+                 sampler : Sampler, pixel_x : i32, pixel_y : i32, sample_index : u32,
+                 rs : RaySamples,
                  ls : LightSampler,
                  set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                  regularize : bool, have_subsurface : bool, want_visible : bool,
@@ -3384,7 +3399,8 @@ func vol_surface(ray : Ray, medium : i32,
             vol_subsurface(*maybe_ss, medium, camera, spp_scale, prim, mat,
                            surf,
                            hit, texture_context(hit, diffs), survived, r_u,
-                           depth, wave, next_eta_scale, lam, sampler, state, rs,
+                           depth, wave, next_eta_scale, lam, sampler, pixel_x,
+                           pixel_y, sample_index, rs,
                            direct_uc, direct_u, uc, u, u_rr, ls, set, have_media,
                            seed, max_depth, regularize, have_subsurface,
                            want_visible, visible, l);
@@ -3395,7 +3411,8 @@ func vol_surface(ray : Ray, medium : i32,
     vol_path_step(next_ray, next_medium, camera, spp_scale, survived,
                   r_u, next_r_l, next_depth, wave + 1, next_specular,
                   next_any_ns,
-                  next_eta_scale, next_ctx, lam, sampler, state, ls, set,
+                  next_eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y,
+                  sample_index, ls, set,
                   have_media, seed, max_depth, regularize, have_subsurface,
                   want_visible, visible, l);
     return;
@@ -3421,7 +3438,8 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
                     hit : SurfaceGeometry, ctx : TextureEvalContext,
                     beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
                     eta_scale : Float, lam : SampledWavelengths,
-                    sampler : Sampler, state : mut SamplerState,
+                    sampler : Sampler, pixel_x : i32, pixel_y : i32,
+                    sample_index : u32,
                     rs : RaySamples,
                     direct_uc : Float, direct_u : vec2f, uc : Float, u : vec2f,
                     u_rr : Float, ls : LightSampler, set : LightSet,
@@ -3446,7 +3464,8 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
     }
     probe = *seg;
     vol_probe(probe.p0, probe.p1, bssrdf, medium, camera, spp_scale, prim, mat,
-              surf, beta, r_u, depth, wave, eta_scale, lam, sampler, state,
+              surf, beta, r_u, depth, wave, eta_scale, lam, sampler, pixel_x,
+              pixel_y, sample_index,
               direct_uc, direct_u, uc, u, u_rr, ls, set, have_media, seed,
               max_depth, regularize, have_subsurface, want_visible, visible, l);
     return;
@@ -3478,7 +3497,8 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
                mat : i32, entry : SurfaceGeometry, beta : vec4f, r_u : vec4f,
                depth : i32, wave : i32, eta_scale : Float,
                lam : SampledWavelengths, sampler : Sampler,
-               state : mut SamplerState, direct_uc : Float, direct_u : vec2f,
+               pixel_x : i32, pixel_y : i32, sample_index : u32,
+               direct_uc : Float, direct_u : vec2f,
                uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
                set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
@@ -3492,7 +3512,8 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
     }
     vol_exit(found.kept, 1.0 / cast[[Float]](found.count), bssrdf, medium,
              camera, spp_scale, prim, beta, r_u, depth, wave, eta_scale, lam,
-             sampler, state, direct_uc, direct_u, uc, u, u_rr, ls, set,
+             sampler, pixel_x, pixel_y, sample_index, direct_uc, direct_u, uc, u,
+             u_rr, ls, set,
              have_media, seed, max_depth, regularize, have_subsurface,
              want_visible, visible, l);
     return;
@@ -3550,7 +3571,8 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
               camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
               beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
               eta_scale : Float, lam : SampledWavelengths, sampler : Sampler,
-              state : mut SamplerState, direct_uc : Float, direct_u : vec2f,
+              pixel_x : i32, pixel_y : i32, sample_index : u32,
+              direct_uc : Float, direct_u : vec2f,
               uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
               set : LightSet, have_media : bool, seed : i32, max_depth : i32,
               regularize : bool, have_subsurface : bool, want_visible : bool,
@@ -3616,7 +3638,8 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
     next_ctx : ShapeSampleContext = {kept.p, kept.p_error, kept.n, kept.ns};
     vol_path_step(next_ray, next_medium, camera, spp_scale, survived, r_u_exit,
                   r_l, depth + 1, wave + 1, is_specular(sample.flags), true,
-                  eta_scale, next_ctx, lam, sampler, state, ls, set, have_media,
+                  eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y, sample_index,
+                  ls, set, have_media,
                   seed, max_depth, regularize, have_subsurface, want_visible,
                   visible, l);
     return;
@@ -3627,7 +3650,8 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
 func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                  camera : PerspectiveCamera, spp_scale : Float,
                  lambda : SampledWavelengths, sampler : Sampler,
-                 state : mut SamplerState, ls : LightSampler, set : LightSet,
+                 pixel_x : i32, pixel_y : i32, sample_index : u32,
+                 ls : LightSampler, set : LightSet,
                  seed : i32, max_depth : i32, regularize : bool,
                  have_subsurface : bool,
                  want_visible : bool, visible : mut VisibleSurface,
@@ -3636,7 +3660,8 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     ones = vec4f{1.0, 1.0, 1.0, 1.0};
     vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0, 0,
-                  false, false, 1.0, origin, lambda, sampler, state, ls, set,
+                  false, false, 1.0, origin, lambda, sampler, pixel_x, pixel_y,
+                  sample_index, ls, set,
                   have_media, seed, max_depth, regularize, have_subsurface,
                   want_visible, visible, l);
     return;
@@ -3657,10 +3682,15 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
 // this returns: volpath's vertices add into it as they go (pbrt's wavefront
 // keeps L per pixel sample and every kernel adds to it), the others return
 // theirs and it is added here.
+// `state` is the camera's sampler, which the CPU integrators go on drawing
+// from down the path as pbrt's CPU integrators do; volpath takes the pixel
+// and the sample index instead and starts a sampler of its own at every
+// bounce, as pbrt's wavefront does (vol_path_step).
 func integrator_li(integrator : Integrator, r : Ray, medium : i32,
                    have_media : bool, camera : PerspectiveCamera,
                    spp_scale : Float, lambda : SampledWavelengths,
-                   sampler : Sampler, state : mut SamplerState, seed : i32,
+                   sampler : Sampler, state : mut SamplerState,
+                   pixel_x : i32, pixel_y : i32, sample_index : u32, seed : i32,
                    want_visible : bool, visible : mut VisibleSurface,
                    l : reduce(+) vec4f) -> void {
     match integrator {
@@ -3682,7 +3712,8 @@ func integrator_li(integrator : Integrator, r : Ray, medium : i32,
         }
         VolPath(max_depth, ls, set, regularize, have_subsurface) => {
             li_vol_path(r, medium, have_media, camera, spp_scale, lambda,
-                        sampler, state, ls, set, seed, max_depth, regularize,
+                        sampler, pixel_x, pixel_y, sample_index, ls, set, seed,
+                        max_depth, regularize,
                         have_subsurface, want_visible, visible, l);
             return;
         }
@@ -4056,7 +4087,8 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             radiance : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
             integrator_li(integrator, ray, camera_medium, have_media, camera,
                           ray_differential_scale(spp, disable_pixel_jitter),
-                          lambda, sampler, state, seed, film_visible_surface,
+                          lambda, sampler, state, cast[[i32]](i),
+                          cast[[i32]](j), s, seed, film_visible_surface,
                           visible, radiance);
             // pbrt: GBufferFilm::AddSample, which records the channels only
             // when the integrator set them.

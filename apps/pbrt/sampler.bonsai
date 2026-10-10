@@ -621,31 +621,41 @@ element SamplerState {
 func max_halton_resolution() -> i32 = 128;
 
 // What Independent and Stratified both start with: a generator seeded from the
-// pixel and jumped ahead to this sample. The two differ in what they do with
-// the stream, not in how they seed it.
-func seeded_state(x : i32, y : i32, sample : u32, seed : i32) -> SamplerState {
+// pixel and jumped ahead to this sample's dimension. The two differ in what
+// they do with the stream, not in how they seed it.
+func seeded_state(x : i32, y : i32, sample : u32, seed : i32,
+                  dimension : i32) -> SamplerState {
     seq = hash3(x, y, seed);
     r : mut RNG = set_sequence(seq, mix_bits(seq));
-    // pbrt: Advance(sampleIndex * 65536 + dimension), at dimension zero.
-    advance(r, cast[[u64]](sample) * 65536u);
+    // pbrt: `rng.Advance(sampleIndex * 65536ull + dimension)`, one jump.
+    advance(r, cast[[u64]](sample) * 65536u + cast[[u64]](dimension));
     zero : i64 = 0;
-    st : SamplerState = {r, x, y, sample, 0, zero};
+    st : SamplerState = {r, x, y, sample, dimension, zero};
     return st;
 }
 
-// pbrt: StartPixelSample, at dimension zero.
+// pbrt: StartPixelSample(pPixel, sampleIndex, dimension) -- the sampler
+// started on a pixel and sample at a dimension, from nothing but those three.
 //
-// Every sampler here starts afresh per sample rather than running one stream
-// down the image, which is what makes a sample's draws depend on nothing but
-// its own pixel and index -- so the sample loop may be run in any order and
-// still produce pbrt's numbers.
+// Every sampler here starts afresh rather than running one stream down the
+// image, which is what makes a sample's draws depend on nothing but its own
+// pixel, index and dimension -- so the sample loop may be run in any order,
+// and a bounce may start the sampler again at its own dimensions (the
+// wavefront's GenerateRaySamples, at `6 + 7 * depth`) without carrying
+// anything of the sampler from the bounce before, and still produce pbrt's
+// numbers. pbrt's wavefront does exactly that: each of its kernels makes a
+// fresh copy of the sampler and starts it; nothing of a sampler travels with
+// a ray.
 //
-// Independent and Stratified seed a generator identically. Halton has no
-// generator: it computes where in one global sequence this pixel's samples
-// begin, which is the point of it -- the sequence is shared across the whole
-// image and each pixel takes the entries that land inside it.
-func start_pixel_sample(s : Sampler, x : i32, y : i32,
-                        sample : u32) -> SamplerState {
+// Independent and Stratified seed a generator identically and jump it ahead
+// by `sampleIndex * 65536 + dimension`. Halton has no generator: it computes
+// where in one global sequence this pixel's samples begin, which is the
+// point of it -- the sequence is shared across the whole image and each
+// pixel takes the entries that land inside it -- and takes the dimension no
+// lower than two, the first two being the pixel's; so do Sobol and PMJ02BN;
+// ZSobol and PaddedSobol take it as given.
+func start_pixel_sample_at(s : Sampler, x : i32, y : i32, sample : u32,
+                           dimension : i32) -> SamplerState {
     match s {
         Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
             zero : u64 = 0u;
@@ -670,9 +680,9 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
                 index = index % cast[[i64]](stride);
             }
             index = index + cast[[i64]](sample) * cast[[i64]](stride);
-            // Dimensions zero and one are spent on the pixel, so a draw starts
-            // at two.
-            st : SamplerState = {r, x, y, sample, 2, index};
+            // pbrt: `dimension = std::max(2, dim)`. Dimensions zero and one
+            // are spent on the pixel, so a draw starts no lower than two.
+            st : SamplerState = {r, x, y, sample, max(2, dimension), index};
             return st;
         }
         ZSobol(log2_spp, seed, randomize, base4_digits) => {
@@ -683,10 +693,10 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             // image shares. No dimension is spent on the pixel: every
             // dimension, the position within the pixel included, is drawn
             // from the same two Sobol' dimensions under its own scramble, so
-            // a draw starts at zero.
+            // the dimension is taken as given.
             morton = (encode_morton2(cast[[u32]](x), cast[[u32]](y))
                       << cast[[u64]](log2_spp)) | cast[[u64]](sample);
-            st : SamplerState = {r, x, y, sample, 0, cast[[i64]](morton)};
+            st : SamplerState = {r, x, y, sample, dimension, cast[[i64]](morton)};
             return st;
         }
         Sobol(spp, seed, randomize, log2_scale) => {
@@ -695,10 +705,11 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             // pbrt: SobolIntervalToIndex(Log2Int(scale), sampleIndex, pixel)
             // -- which entry of the one sequence is this pixel's `sample`th
             // -- and dimensions zero and one are spent on the pixel, so a
-            // draw starts at two, as Halton's does.
+            // draw starts no lower than two, as Halton's does.
             index = sobol_interval_to_index(log2_scale, cast[[u64]](sample),
                                             cast[[u32]](x), cast[[u32]](y));
-            st : SamplerState = {r, x, y, sample, 2, cast[[i64]](index)};
+            st : SamplerState = {r, x, y, sample, max(2, dimension),
+                                 cast[[i64]](index)};
             return st;
         }
         PaddedSobol(spp, seed, randomize) => {
@@ -706,9 +717,9 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             r : RNG = {zero, zero};
             none : i64 = 0;
             // No index to keep: every draw permutes the sample index afresh
-            // by a hash of the pixel and the dimension. The first draw is
-            // dimension zero; the pixel sample is nothing special.
-            st : SamplerState = {r, x, y, sample, 0, none};
+            // by a hash of the pixel and the dimension. The dimension is
+            // taken as given; the pixel sample is nothing special.
+            st : SamplerState = {r, x, y, sample, dimension, none};
             return st;
         }
         PMJ02BN(spp, seed, tile) => {
@@ -717,68 +728,21 @@ func start_pixel_sample(s : Sampler, x : i32, y : i32,
             none : i64 = 0;
             // pbrt: dimension = max(2, dim). The first two dimensions are
             // the pixel's, served from the sorted table rather than drawn.
-            st : SamplerState = {r, x, y, sample, 2, none};
+            st : SamplerState = {r, x, y, sample, max(2, dimension), none};
             return st;
         }
-        Independent(spp, seed) => return seeded_state(x, y, sample, seed);
+        Independent(spp, seed) =>
+            return seeded_state(x, y, sample, seed, dimension);
         Stratified(x_samples, y_samples, seed, jitter) =>
-            return seeded_state(x, y, sample, seed);
+            return seeded_state(x, y, sample, seed, dimension);
     }
 }
 
-// pbrt: StartPixelSample(pPixel, sampleIndex, dimension) -- the same pixel
-// and sample started again at `dimension`. The wavefront's GenerateRaySamples
-// draws each bounce's values at a fixed place in the sequence, `6 + 7 *
-// depth` (wavefront/samples.cpp), rather than wherever the path's draws so
-// far have got to. Independent and Stratified re-seed and advance by
-// `sampleIndex * 65536 + dimension`, as pbrt's do; Halton keeps its index in
-// the sequence and takes the dimension, no lower than two; ZSobol keeps its
-// index and takes the dimension as given; Sobol and PMJ02BN take it no lower
-// than two, as their StartPixelSample does, PaddedSobol as given.
-func start_pixel_sample_at(s : Sampler, st : SamplerState,
-                           dimension : i32) -> SamplerState {
-    fresh = start_pixel_sample(s, st.px, st.py, st.sample);
-    match s {
-        Halton(spp, seed, randomize, bsx, bsy, bex, bey, mix, miy) => {
-            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
-                                 max(2, dimension), fresh.index};
-            return at;
-        }
-        ZSobol(log2_spp, seed, randomize, base4_digits) => {
-            at : SamplerState = {fresh.rng, st.px, st.py, st.sample, dimension,
-                                 fresh.index};
-            return at;
-        }
-        Sobol(spp, seed, randomize, log2_scale) => {
-            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
-                                 max(2, dimension), fresh.index};
-            return at;
-        }
-        PaddedSobol(spp, seed, randomize) => {
-            at : SamplerState = {fresh.rng, st.px, st.py, st.sample, dimension,
-                                 fresh.index};
-            return at;
-        }
-        PMJ02BN(spp, seed, tile) => {
-            at : SamplerState = {fresh.rng, st.px, st.py, st.sample,
-                                 max(2, dimension), fresh.index};
-            return at;
-        }
-        Independent(spp, seed) => {
-            r : mut RNG = fresh.rng;
-            advance(r, cast[[u64]](dimension));
-            at : SamplerState = {r, st.px, st.py, st.sample, dimension,
-                                 fresh.index};
-            return at;
-        }
-        Stratified(x_samples, y_samples, seed, jitter) => {
-            r : mut RNG = fresh.rng;
-            advance(r, cast[[u64]](dimension));
-            at : SamplerState = {r, st.px, st.py, st.sample, dimension,
-                                 fresh.index};
-            return at;
-        }
-    }
+// pbrt: StartPixelSample(pPixel, sampleIndex, 0) -- the camera's start, at
+// dimension zero.
+func start_pixel_sample(s : Sampler, x : i32, y : i32,
+                        sample : u32) -> SamplerState {
+    return start_pixel_sample_at(s, x, y, sample, 0);
 }
 
 // pbrt: HaltonSampler::SampleDimension, which of the three randomizations the

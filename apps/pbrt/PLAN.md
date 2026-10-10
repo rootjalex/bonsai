@@ -13114,3 +13114,202 @@ Every image matches pbrt. Tests correctness/gpu/rtcore-placed (two
 meshes as one definition structure of two inputs, placed twice with
 holder_per_input) and correctness/cpp/placed-tlas (the arm on the CPU
 trees, the mesh tree shared by two placements).
+
+### One reset launch per round (10-10, 10:30-)
+
+The user's ask after the structure work: profile, take the largest
+slowdown first, and make general codegen improvements kept only when
+they are a net gain across many scenes. While the 30-scene sweep ran
+(compare-out-heatmap4, the clock unlocked and recorded), the first item
+came from the kroken trace already in hand ("Kroken's loss traced",
+above): a round of the gpu-optix schedule had the host issue 54
+`cuMemsetD32Async` of one word each -- a queue's count zeroed -- where
+pbrt's wavefront resets every queue a depth fills in one launch, `Do(
+"Reset queues before tracing rays", lambda)` (wavefront/integrator.cpp),
+a lambda on one thread. Read off the final SSA of the schedule
+(scratch/surface/structure/final.txt, the host function `render`):
+`rays!batch` zeroed the next ray buffer's count and the 22 material
+queues' counts ahead of the trace (1 + 22); `hits!exit` zeroed the same
+22 again after the material drains; and the nine lone queues
+(medium_samples, medium_scatters, escaped, emissive, shadow, bssrdfs,
+probes, exits, exit_shadow) each zeroed theirs at their own exit: 54. The
+kroken nsys profile (two renders) had 82944 of them, 99 ms of host issue
+and 23.5 ms of device-side memset time; and since the round guard's
+synchronous read drains the stream at each round's start, the batch's 23
+are issued while the device idles. On killeroo-simple at 16 spp -- 36 ms
+a render, 96 rounds -- the 54 a round are some 5 ms of issue alone.
+
+**Why the 22 were zeroed twice.** SSA/RoundGuard.cpp hoists an inner
+queue's per-round header fill (`store hits_queue[k], make_struct(0,
+arrays..)`) to the round loop's preheader and left a zero of the count in
+its place "only when the loop does not already reset it" -- Defer resets a
+stage queue after its pass, in `<queue>!exit` ("drained, so empty"). The
+test compared roots through `root_name`, which asked `Value::get_argument()`
+first; that answers for a *named instruction* too, so for the fill's slot
+`@18 = gep(hits_queue, 0)` it returned "@18" rather than walking to
+`hits_queue`, while the exit's reset, rooted through the thread-following
+`rooted`, said "hits_queue". Unequal, so a second zero per arm per round. A
+lone queue's header is no GEP, so its names agreed and it was zeroed once.
+Reproduced in sixty lines (a three-arm specialized stage inside a GPU
+round queue, now tests/bonsai/ssa/round-hoist-split): BONSAI_DEBUG_ROUNDS
+printed "zero store in hits!exit roots at hits_queue against @18".
+
+**The design: two general changes, no schedule construct.**
+
+1. *The reset at the top of the round* (SSA/RoundGuard.cpp, RoundGuard.h).
+   `root_name` takes the Argument proper (`std::get_if<Argument>`), so a
+   slot's GEP walks to its queue. And the fill hoist now moves each inner
+   queue's reset from after its pass to the top of the round body -- the
+   in-loop target of the guard's `!go` dispatch, Defer's `pre` block,
+   where the ray queue's reset of its other buffer already sits -- erasing
+   Defer's exit reset of that slot (matched by slot: the queue root
+   through threads and the constant arm index, so a split's arms are told
+   apart) where the exit block's innermost loop is this round loop; a
+   queue drained once per inner iteration keeps its reset where it is.
+   Nothing reads a count between its pass and the next round's top -- a
+   queue is filled only after the top and read only by its drain -- so it
+   is the same word one round later, at pbrt's placement, and the resets
+   of every queue the round fills are adjacent.
+
+2. *A run of host writes into device memory as one launch*
+   (CodeGen_LLVM::pending_device_stores / flush_device_stores,
+   CodeGen_GPU_Host::flush_device_stores, CodeGen_PTX::add_store_kernel).
+   `store_to_device` holds a word back; the pending run is flushed at the
+   next point whose order against the stream matters -- a launch, a read
+   from the device, a wait, a call or intrinsic, a free, every block's
+   terminator -- as a memset each on a CPU host, and on a GPU host, from
+   three words up (store_launch_minimum: a launch's issue is two or three
+   memsets' and the kernel a memset node's, so one or two words stay
+   memsets), as one launch of `_bonsai_store_words_<n>(ptr, u32, ..)`: a
+   kernel of one thread that stores each word at its address, every
+   operand a kernel parameter (12 bytes a word; the renderer's 32 are 384
+   of the 4 KB), one kernel per word count, cached. pbrt's `GPUDo` of a
+   lambda, as a lowering of what the host writes rather than a thing the
+   program says.
+
+Read in the renderer's final SSA (scratch/surface/reset/pbrt-final.txt,
+compiled while the sweep ran): `rays!batch` holds 32 zero-word stores --
+the next ray buffer's, the 22 material queues', the nine lone queues' --
+and no block of the round holds any other; the object carries
+`_bonsai_store_words_32`. So a round's host side is the guard's read, one
+reset launch, and the kernel launches: 54 stream operations of a word
+became one. Tests: ssa/round-hoist (re-blessed: the reset moved to the
+top; its comment says so), ssa/round-hoist-split (new), correctness/gpu/
+round-reset (new: three arms, so the reset is the store kernel; its
+golden is the CPU's answer). The GPU runs -- the gpu tests, killeroo-
+simple with BONSAI_KERNEL_STATS, then the 30 scenes at 16 spp against
+heatmap4's rows, the user's net-gain rule -- wait for the sweep.
+
+A smaller item seen in the same read, for later: `rays!drain`, once per
+pass (per sample per band), still stores the 31 queue headers (a struct
+each through the staging ring: a memcpy, a cuMemcpyHtoDAsync and an event
+record), where pbrt allocates its queues once. The fills are loop-
+invariant -- every operand is defined outside the sample loop -- and
+could follow their allocations out of it (HoistAllocations hoists the
+`alloca`, not the store).
+
+### The draws made pbrt's (10-10, 12:00-)
+
+The user (12:00), on the trace launch's growth with the draws in it: "our
+draw cost must match pbrt's draw cost: the draw should be exactly the
+same" -- investigate the differences and fix the specification to match
+pbrt for draws; the placement itself (the draws in the trace launch) he
+will look at and direct separately. So: sampler.bonsai and rng.bonsai
+against pbrt's samplers.h, util/lowdiscrepancy.h, util/rng.h and
+wavefront/samples.cpp, function by function, and the renderer's threading
+of the sampler against pbrt's kernels.
+
+**What matched, line for line.** Every per-draw function: RadicalInverse
+(the loop, its `limit`, the final `min`), ScrambledRadicalInverse (the
+digit-count condition, the permutation read at `digitIndex * base +
+digit`), OwenScrambledRadicalInverse (`MixBits(hash ^ reversedDigits)`
+over the 64-bit accumulator), the three Sobol' scramblers, SobolSample's
+column loop, ZSobol's GetSampleIndex (our digit loop runs upward, pbrt's
+downward; the bits are disjoint), SobolIntervalToIndex, PaddedSobol's,
+Stratified's and PMJ02BN's `Hash(pixel, dimension, seed)` and
+PermutationElement, the blue-noise read, the dimension wraps at the prime
+and Sobol' tables' ends, and each sampler's StartPixelSample arithmetic.
+The tables live where pbrt's do: `PBRT_CONST` is `__device__ const` on
+the GPU, global memory, as our `extern` arrays are.
+
+**What differed: the sampler's life, not its arithmetic.**
+
+1. *The state travelled with the ray.* pbrt's GenerateRaySamples makes a
+   fresh copy of the sampler object per ray per bounce -- a local, so
+   registers -- reads the pixel from `pixelSampleState.pPixel[pixelIndex]`
+   and starts it with `StartPixelSample(pPixel, sampleIndex, 6 + 7 *
+   depth)`; nothing of a sampler is carried between kernels. Ours threaded
+   `state : mut SamplerState` (40 bytes: a generator the low-discrepancy
+   samplers never use, the pixel, the sample, the dimension, the index)
+   down every function of the path and through the recursion, so the
+   deferral kept it per ray in a record slot (`rays_state_slots`, 40 bytes
+   a pixel) and every bounce read the slot, restarted the sampler from the
+   pixel and sample it held, drew with the state's address as the `mut`
+   parameter -- each draw's dimension step a global-memory load and store
+   (the compiler item of 10-09 on `mut` aggregate parameters) -- and wrote
+   the slot back. The same restart as pbrt's, around forty global memory
+   operations more per ray per bounce, in the raygen's dependent chain.
+2. *Two jumps where pbrt makes one.* Independent and Stratified restarted
+   by seeding and advancing `sampleIndex * 65536` and then advancing
+   `dimension` again; pbrt's StartPixelSample advances once by the sum.
+3. *A jump of sixty-four steps.* `advance` ran a fixed sixty-four guarded
+   steps of three 64-bit multiplies each, for a uniform trip count; pbrt's
+   `while (delta > 0)` runs to the delta's top bit, some twenty for a
+   sample's jump.
+
+**The change** (sampler.bonsai, rng.bonsai, render.bonsai). `start_pixel_
+sample_at(sampler, x, y, sample, dimension)` is pbrt's StartPixelSample
+from nothing but its three arguments, each arm's dimension rule as pbrt's
+(`max(2, dim)` for Halton, Sobol and PMJ02BN; as given for ZSobol and
+PaddedSobol; one jump of `sample * 65536 + dim` for Independent and
+Stratified), and `start_pixel_sample` is it at dimension zero. The
+volumetric path's functions take the ray's pixel (`pixel_x`, `pixel_y`)
+and the pass's sample index in place of the state, and vol_path_step
+starts a local sampler per bounce and draws from it; the camera's state
+stays the pixel kernel's local for its six draws; the CPU integrators
+(Path, SimplePath, RandomWalk) keep carrying the camera's sampler down
+the path as pbrt's CPU integrators do. `advance` runs while the delta has
+bits. The draws' values are unchanged: a bounce restarts at the same
+dimension from the same pixel and sample as before.
+
+Measured (13:10, scratch/surface/reset/compare-draws, killeroo-simple at 16
+spp, the reset launch of the morning in the same build): every image
+channel byte-identical to the sweep's render of 10:20 (the values are the
+same draws); the trace launch 18.45 to 17.49 ms (it was 12.81 with the
+draws in the material kernels, and pbrt's sample kernel is 3.7 on this
+scene: the draws now cost 4.7 ms in our launch, 1.26x pbrt's, from 1.5x);
+kernel time 35.82 to 34.89; wall 42.9 to 38.7 ms, the host's gap over the
+kernels 7.1 to 3.8 ms (the reset launch). The draw code itself set beside
+pbrt's at the instruction level (scratch/surface/reset/draws_kernel.bonsai:
+the bounce's ten draws as a kernel of their own, the sampler built as a
+Halton sampler from runtime parameters so the match folds to that arm, as
+pbrt's template instance is one sampler): ours 4096 SASS instructions and
+48 registers, no spills; pbrt's GenerateRaySamples<HaltonSampler> 3576
+and 55. The same work, give or take a seventh; what is left of the draws'
+cost in the trace launch is the launch, not the draws -- the ten values
+and the ray live across optixTrace, the raygen's occupancy -- which is the
+placement the user is looking at.
+
+Measured over the 30 scenes (13:35, compare-out-reset16: the 16-spp pass
+of heatmap.sh with both changes of the day, against the morning's
+compare-out-heatmap4 cell by cell; scratch/surface/reset/compare_tables.py
+and trace-plus-draws-now.txt): wall faster on every one of the 30 cells,
+geomean 1.074x (frame542 1.29x, dambreak 1.17x, rough-glass 1.16x, the
+rest 1.02-1.13x); kernel time 1.017x; no cell slower; the same 27 images
+match pbrt and the same three (pavilion-day, the two bistros) miss the
+lit-pixel rule as before. The kernel side is the draws: our trace launch
+with the draws in it is now 0.96 of pbrt's trace kernel plus sample
+kernel summed (4036 to 3815 ms against 3975), ahead on 26 of 30 scenes;
+the draws' own addition to the launch, read as the launch's growth since
+the sweep that drew in the material kernels, is 1.17x pbrt's sample
+kernel (932 against 798 ms; it was 1.44x), with landscape (2.0x), book
+(1.9x), crown (1.7x) and villa-lights-on (1.6x) the far end and most
+scenes near or under one -- what the instancing and routing changes of the
+same interval add to those scenes' launches is folded into the figure. The
+wall side beyond that is the reset launch. The memset-against-launch
+microbenchmark (scratch/surface/reset/store_cost.cpp, a round as the
+renderer issues it): the guard alone 4.1 us; N memsets 4.85, 5.81, 6.82,
+7.90, 11.8, 19.5 and 33.6 us for N = 1, 2, 3, 4, 8, 16 and 32; one launch
+7.3 us whatever N. So the launch pays from four words up and
+store_launch_minimum is 4 (it was an estimate of 3); the renderer's 32
+words went from 33.6 to 7.3 us of host issue a round.

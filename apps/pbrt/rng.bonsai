@@ -196,10 +196,12 @@ func advance(r : mut RNG, delta : u64) -> void {
     acc_mult : mut u64 = 1u;
     acc_plus : mut u64 = 0u;
     d : mut u64 = delta;
-    // pbrt stops as soon as what is left is zero; a `for` runs its whole range,
-    // so the guard makes the remaining steps do nothing. Sixty-four is the
-    // width of the delta.
-    for step in 0u:64u {
+    // pbrt: `while (delta > 0)` -- a step per bit of the delta up to its
+    // highest set bit, some twenty for a sample's jump of `sampleIndex *
+    // 65536 + dimension`. Until 10-10 this ran the full sixty-four with a
+    // guard on each, three 64-bit multiplies a step, to keep the trip count
+    // uniform; pbrt's samplers pay for the bits they have, and so does this.
+    while d != 0u {
         if (d & 1u) != 0u {
             acc_mult = acc_mult * cur_mult;
             acc_plus = acc_plus * cur_mult + cur_plus;
