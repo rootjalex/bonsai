@@ -25,11 +25,28 @@ gpu_clock_lock_commands() {
 }
 
 # Succeeds, and sets GPU_CLOCK_NOTE, when the GPU's clocks read the lock;
-# otherwise says what they read and how to lock them, and fails.
+# otherwise says what they read and how to lock them, and fails. Every
+# reading is of an idle GPU: a locked clock reads the lock whatever runs,
+# but an unlocked one boosts under load and passes through the lock's value
+# on its way (it did, 2026-10-10 00:24, and a sweep started unlocked),
+# while idle it sits at 180 MHz; so the GPU has to be free of compute
+# processes at each reading, waited for up to a minute.
 require_locked_gpu_clock() {
-  local sm mem maxmem i
+  local sm mem maxmem i waited
   maxmem=$(nvidia-smi --query-gpu=clocks.max.mem --format=csv,noheader,nounits | head -1 | tr -d ' ')
   for i in 1 2 3; do
+    waited=0
+    while (( $(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | wc -l) > 0 )); do
+      if (( waited >= 60 )); then
+        echo "the GPU has been busy for a minute; its clock can be read only idle" >&2
+        return 1
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+    # An unlocked clock takes a second or two to fall back to idle after
+    # the last process leaves; the readings are spaced for that.
+    sleep 2
     sm=$(nvidia-smi --query-gpu=clocks.sm --format=csv,noheader,nounits | head -1 | tr -d ' ')
     mem=$(nvidia-smi --query-gpu=clocks.mem --format=csv,noheader,nounits | head -1 | tr -d ' ')
     # Within a percent: the lock snaps to the nearest clock the card
@@ -45,7 +62,6 @@ require_locked_gpu_clock() {
       gpu_clock_lock_commands >&2
       return 1
     fi
-    if (( i < 3 )); then sleep 0.5; fi
   done
   GPU_CLOCK_NOTE="GPU clocks locked: $sm MHz SM, $mem MHz memory"
   return 0

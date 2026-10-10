@@ -12969,4 +12969,43 @@ lock -- 2400 MHz by default (`--clock`, BONSAI_GPU_CLOCK), the card's
 rated boost clock, which it holds at full power on every scene where 3090,
 its maximum, is taken away by the power limit on the dense ones -- and
 the memory clock at its maximum. The table's last line and heatmap.log
-record the lock. Every number before 10-10 was taken unlocked.
+record the lock. Every number before 10-10 was taken unlocked. The first
+form of the check misfired (00:20): an unlocked clock boosting under a
+render of mine read 2400 three times and a sweep started unlocked, every
+scene after the first refusing once the clock moved; the readings are of
+an idle GPU now (no compute process, two seconds settled).
+
+### Kroken's loss traced, and the baseline that was not one (10-10, 00:20-00:45)
+
+The 0.3 s of host time per kroken render and its trace launch's growth
+(REPORT.md, "pbrt's structure, matched"): nsys on one render showed
+cuMemPrefetchAsync 1097 times a render, 267 us each (293 ms) -- the
+driver's prefetch of every queue array, managed memory, before the
+kernels -- and a memory sampler put the card at 32.2 of 32.6 GB during the
+render. The scene dump is 21.2 GB of geometry (2.6 M shapes, ten
+instances holding 285 M triangles, a primitive record per triangle; pbrt
+reports 348 MiB of vertex and index buffers), and with 22 material queues
+of 302 B an entry (7.7 GiB of queue arrays at the band's capacity) the
+managed memory oversubscribes and thrashes. With eleven it fit. The sweep
+of 10-09 morning (compare-out-heatmap3) was run from scratch/wt-fix with
+the uncommitted mesh-entity series, which removes the per-triangle
+records and moved the ray launches by a third to a half -- so every
+comparison of the matched structure against that sweep (REPORT.md's
+tables of 23:00 and 23:40) has the series on one side only, and the
+draws' share of kroken's and head's trace growth is unknown until the
+series is in. The series (34 files, 4700 lines with its goldens) sits on
+21712bee; HEAD has 42 commits since, four of its files changed (render.
+bonsai, render_hook.cpp, CPP.cpp, CodeGen_GPU_Host.cpp), so landing it is
+a port, the user's go first.
+
+Two smaller findings from the same trace, both general codegen items: each
+round's host work is 54 cuMemsetD32Async of a queue's count (0.9 us each)
+plus the round guard's synchronous read, 38 ms per kroken render, where
+pbrt zeroes every queue in one launch -- and the material queues' counts
+are zeroed twice a round, in `rays!batch` ahead of the trace and in
+`hits!exit` after their pass (one is enough; one launch for all of them is
+pbrt's form). And the per-material queue entry is 302 B against pbrt's
+MaterialEvalWorkItem's ~240: the entry carries the primitive's six fields
+(shape, light, material, alpha, media) where pbrt carries the material and
+the medium interface, and the bounce's ten sampler values (40 B) where
+pbrt keeps them per pixel -- the cost of the draws' placement in bytes.

@@ -27,12 +27,20 @@ by texture evaluator and by material under each, the BSSRDF kernel over a
 queue of its own -- with the one difference of the sampler calls made at
 the top of the trace launch rather than in a kernel of their own (the
 decision taken after "The sample stage" below). Images are byte-identical
-to the sweep's on the seven scenes checked. The cost against the morning's
-sweep is the placement of those calls: nothing on the villas and killeroo,
-3.8 ms on head, 132 ms (17%) on kroken, whose trace launch grew 193 to 299
-ms ("pbrt's structure, matched" below). The next sweep runs with the GPU
-clock locked, which every GPU number from 10-10 on does; the numbers below
-are the unlocked morning's.
+to the sweep's on the seven scenes checked. Against the morning's sweep it
+costs nothing on the villas and killeroo, 3.8 ms on head and 132 ms (17%)
+on kroken -- but that comparison is not like for like: the sweep's
+binaries carried the uncommitted mesh-entity series of 10-08
+(scratch/wt-fix), which the committed tree does not, and that series
+moved the ray launches by a third to a half and takes the per-triangle
+primitive records out of the scene. Kroken's loss is the series' absence
+before anything else: its scene carries 21 GB of geometry here (pbrt's
+vertex and index buffers are 348 MiB), and with the material queues
+doubled the card's 32 GB fill (32.2 of 32.6 GB measured) and the managed
+queue memory thrashes ("pbrt's structure, matched" below). Landing the
+series is the user's call, and the next sweep should run with it. The
+next sweep also runs with the GPU clock locked, which every GPU number
+from 10-10 on does; the numbers below are the unlocked morning's.
 
 **Every cell of the sweep is faster than pbrt --gpu.** The 30-scene, three-
 sample-count sweep run after the fix below (`heatmap.sh`, 10-09 07:00 to
@@ -418,21 +426,44 @@ unlocked, as every number before 10-10 is):**
 
 So with the gates back, pbrt's structure costs what the sweep's did on
 the villas and less on killeroo (the ungated launches were the whole of
-their first-run loss), and what it costs elsewhere is the placement of the
-draws: head +3.8 ms (its trace launch 8.2 to 11.9, where pbrt's own sample
-kernel costs it 3.2), dragon +4.7, watercolor +39 (4.6%), and kroken +132
-(17%), whose trace launch went 193 to 299 ms where pbrt's sample kernel
-costs pbrt 34.5 ms on that scene -- the draws made inside the ray-tracing
-launch, with its register budget and its latency chain per ray, cost
-about three times what pbrt's kernel pays for them, and the material
-kernels gave back less than that (diffuse 81 to 101 across its two
-evaluators' kernels, diffuse-transmission 43 to 28, conductor 36 to 23,
-dielectric 30 to 24). Kroken's wall time also carries 0.3 s per render of
-host time its kernels do not (1.20 s against 0.90 of kernels, where the
-sweep had 0.78 against 0.76) -- under investigation; the per-kernel times
-above do not include it. The decision on the draws stands as taken; the
-numbers say what it costs on the dense scenes, and the stage tables of the
-next sweep will show it per stage.
+their first-run loss), head is +3.8 ms (its trace launch 8.2 to 11.9),
+dragon +4.7, watercolor +39 (4.6%) and kroken +132 (17%), its trace launch
+193 to 299 ms. **But the sweep is not a like-for-like baseline.** Its
+binaries were built in scratch/wt-fix with the uncommitted mesh-entity
+series of 10-08 (PLAN.md, "The mesh entity built and measured"), which
+the committed tree does not have: that series made the mesh the entity
+the hit refers to, as pbrt's GPU does, moved the ray launches by a third
+to a half (head's 22.7 to 16.2 ms, dragon's 170 to 106 at the time), and
+took the per-triangle primitive records out of the scene. So the trace
+launches above compare a tree without the series against one with it,
+and the draws' share of the difference is not known from these numbers;
+it will be once the series is in.
+
+Kroken's loss was traced (00:20-00:40, nsys and a memory sampler on one
+render): its scene dump carries 21.2 GB of geometry here -- 2.6 million
+shapes plus ten instances of objects holding 285 million triangles, each
+with a primitive record of its own -- where pbrt reports 348 MiB of vertex
+and index buffers; with the material queues doubled (22 queues of 302
+bytes an entry at the band's capacity, 7.7 GiB of queue arrays in all) the
+card's memory peaks at 32.2 of its 32.6 GB, and the queue arrays, which
+are managed memory, thrash: the per-render prefetch of the 1097 queue
+arrays takes 293 ms of host time (cuMemPrefetchAsync, 267 us each on
+average) and the launches page-fault -- the 0.3 s of kroken's wall time
+that its kernels do not account for (1.20 s against 0.90), and some part of
+its trace launch's growth. With the sweep's eleven material queues the
+scene fit. Watercolor, with 5 GB of geometry, does not thrash (47 ms of
+host time per render). The mesh entity removes the per-triangle records,
+which is most of kroken's 21 GB.
+
+Two smaller findings from the same trace. Each round's host work is 54
+device writes of a queue's count (cuMemsetD32Async, 0.9 us each) plus the
+round guard's synchronous read (4 us idle); 38 ms per kroken render, where
+pbrt zeroes every queue in one "Reset queues" launch -- the material
+queues' counts are written twice a round, before the trace and again after
+their pass. And the camera-ray kernel doubled on kroken (14 to 29 ms)
+while unchanged on head, which the thrash explains as well. The decision
+on the draws stands as taken; what it costs is to be read from a sweep
+whose two sides are the same tree.
 
 What still differs from pbrt: the draws' placement (the decision above);
 the material kernels launched for the last depth, where pbrt leaves its
