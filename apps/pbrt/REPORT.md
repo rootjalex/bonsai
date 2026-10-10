@@ -469,9 +469,12 @@ some part of its trace launch's growth. With the sweep's eleven material
 queues, and the mesh-entity series in those binaries, the scene fit.
 Watercolor, with 5 GB of geometry, does not thrash (47 ms of host time per
 render). The mesh entity is the per-mesh record, as pbrt has it: it
-removes the 11.5 GB. (The dump file on disk, 21 GB, still writes the
-placement per triangle; writing it per mesh, as pbrt's TriangleMesh
-carries it, is the follow-up once the series is in.)
+removes the 11.5 GB. (The dump file on disk wrote the placement per
+triangle too, 21 GB on kroken; since 01:30 on 10-10 it is per mesh, as
+pbrt's TriangleMesh carries it, with no record per triangle and no tree
+of pbrt's: landscape's file went from 2.16 to 1.12 GB, head's to half a
+megabyte, and killeroo, head and landscape render pixel for pixel as
+before.)
 
 Two smaller findings from the same trace. Each round's host work is 54
 device writes of a queue's count (cuMemsetD32Async, 0.9 us each) plus the

@@ -28,19 +28,10 @@
 
 namespace bonsai_scene.geo;
 
-// bonsai_scene::Mesh.
-struct Mesh {
-    first_index : uint32;
-    first_vertex : uint32;
-    first_normal : uint32;
-    first_uv : uint32;
-    has_normals : uint32;
-    has_uv : uint32;
-    flip : uint32;
-}
-
 // What every shape carries besides its geometry: bonsai_scene::Shape's
 // material, light, light_ordinal, alpha, medium_inside, medium_outside.
+// For a mesh, `light_ordinal` is its first primitive's; a mesh's lights are
+// consecutive ordinals, one per triangle, in the mesh's order.
 struct Placement {
     material : uint32;
     light : int32;
@@ -50,9 +41,25 @@ struct Placement {
     medium_outside : int32;
 }
 
-struct Triangle {
-    mesh : uint32;
-    tri : uint32;
+// bonsai_scene::Mesh: one `Shape "trianglemesh"` (or "bilinearmesh")
+// statement, as pbrt keeps it -- the mesh's runs of the shared index and
+// vertex pools, and the statement's graphics state once for the whole mesh
+// (`at`: pbrt's GPU keeps a material, alpha texture, medium interface and
+// area-light list per mesh in its hit record, and nothing per triangle). A
+// triangle mesh (`kind` 0, `prim_count` triangles, three indices each) is a
+// primitive of the scene by itself and has no record per triangle; a
+// bilinear patch mesh (`kind` 1, `prim_count` patches, four indices each)
+// still has a Patch record per patch, each with the mesh's `at`.
+struct Mesh {
+    first_index : uint32;
+    first_vertex : uint32;
+    first_normal : uint32;
+    first_uv : uint32;
+    has_normals : uint32;
+    has_uv : uint32;
+    flip : uint32;
+    kind : uint32;
+    prim_count : uint32;
     at : Placement;
 }
 
@@ -134,33 +141,20 @@ struct CurveFrame {
     reverse : uint32;
 }
 
-// bonsai_scene::Node: a BVH node, `n_prims` zero for an interior node whose
-// second child is at `offset`, else a leaf of `n_prims` primitives from
-// `offset`.
-struct Node {
-    low : [float : 3];
-    high : [float : 3];
-    offset : uint32;
-    n_prims : uint16;
-    axis : uint16;
-}
-
-// bonsai_scene::Prim: `kind` is PrimShape (0) or PrimInstance (1).
-struct Prim {
-    kind : uint32;
-    index : uint32;
-}
-
 struct Instance {
     definition : uint32;
     render_from_instance : [float : 16];
     instance_from_render : [float : 16];
 }
 
+// An instance definition: its run of the instance shapes (the shapes that
+// are not triangle meshes) and its run of the meshes, both in the order
+// the definition's statements had.
 struct Definition {
     first_shape : uint32;
     shape_count : uint32;
-    root_node : uint32;
+    first_mesh : uint32;
+    mesh_count : uint32;
 }
 
 // The shape kinds, as bonsai_scene::ShapeTag numbers them: 0 sphere, 1
@@ -175,29 +169,30 @@ table Geometry {
     normals : [float] (vector64);
     uvs : [float] (vector64);
 
-    // The scene's own shapes, in order: kind and slot per shape, and the five
-    // vectors the slots index (the cylinders' after the rest, added later;
-    // a table's fields may be added at its end).
+    // The scene's own shapes other than its triangle meshes, in order: kind
+    // and slot per shape, and the vectors the slots index (the cylinders'
+    // after the rest, added later; a table's fields may be added at its
+    // end). Until version 3 a triangle was a shape with a record of its own
+    // (`triangles`, 32 bytes each: 9 GB of records on kroken's 288 million
+    // triangles where pbrt has none) and the file carried pbrt's CPU BVH
+    // over those records (`nodes`, `prims`); a triangle mesh is one
+    // primitive now, its `at` on the Mesh, and the trees are built by the
+    // driver as pbrt's GPU builds its own.
     shape_kinds : [ubyte] (vector64);
     shape_slots : [uint32] (vector64);
-    triangles : [Triangle] (vector64);
     patches : [Patch] (vector64);
     spheres : [Sphere] (vector64);
     disks : [Disk] (vector64);
-    nodes : [Node] (vector64);
 
     // The instance definitions' shapes, the same way.
     instance_shape_kinds : [ubyte] (vector64);
     instance_shape_slots : [uint32] (vector64);
-    instance_triangles : [Triangle] (vector64);
     instance_patches : [Patch] (vector64);
     instance_spheres : [Sphere] (vector64);
     instance_disks : [Disk] (vector64);
-    instance_nodes : [Node] (vector64);
 
     definitions : [Definition];
     instances : [Instance];
-    prims : [Prim] (vector64);
 
     cylinders : [Cylinder] (vector64);
     instance_cylinders : [Cylinder] (vector64);
@@ -205,6 +200,11 @@ table Geometry {
     instance_curves : [Curve] (vector64);
     curve_commons : [CurveCommon] (vector64);
     curve_frames : [CurveFrame] (vector64);
+
+    // The scene's own meshes: a run of `meshes`, the statements' order (the
+    // definitions' runs follow it, each definition's in `Definition`).
+    top_first_mesh : uint32;
+    top_mesh_count : uint32;
 }
 
 root_type Geometry;

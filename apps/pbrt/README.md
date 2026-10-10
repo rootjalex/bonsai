@@ -91,8 +91,12 @@ before it.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format: a text
   file for the small parts (camera, materials, lights, textures, spectra)
-  and binary sidecars beside it -- `.geo` for the geometry (meshes,
-  vertices, shapes, trees, instances; a FlatBuffer, `scene_geometry.fbs`),
+  and binary sidecars beside it -- `.geo` for the geometry (a FlatBuffer,
+  `scene_geometry.fbs`: the meshes, each carrying its statement's material,
+  alpha texture, media and first light as pbrt's GPU keeps them per mesh,
+  with no record per triangle; the vertex pools; the shapes that are not
+  triangle meshes; the instance definitions and instances; no trees -- the
+  driver builds them, as pbrt's GPU builds its own),
   `.tex` for texels, `.env` for environment maps, `.pl` for measured BRDFs,
   `.vol` for the grid media's voxels, `.smp` for the tables a `sobol` or
   `pmj02bn` sampler reads (pbrt's full Sobol' matrices, its blue-noise

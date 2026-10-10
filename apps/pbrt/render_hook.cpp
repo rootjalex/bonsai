@@ -621,28 +621,6 @@ void compact_pools(std::vector<Geometric> &shapes,
     curves = std::move(ordered_curves);
 }
 
-// The nodes of a tree PBRT built, packed into the layout the schedule
-// declared.
-//
-// No building happens here: the nodes arrive already flattened depth first,
-// with the primitives in the order its leaves expect, so this is only a change
-// of representation. That the two layouts line up field for field is not luck
-// -- the `layout` block in render.bonsai was written to be LinearBVHNode.
-template <typename Node>
-std::vector<Node> adopt_nodes(const std::vector<bonsai_scene::Node> &nodes) {
-    std::vector<Node> out(nodes.size());
-    for (size_t i = 0; i < nodes.size(); i++) {
-        const bonsai_scene::Node &n = nodes[i];
-        out[i].low = {n.low[0], n.low[1], n.low[2]};
-        out[i].high = {n.high[0], n.high[1], n.high[2]};
-        out[i].nPrims = n.n_prims;
-        out[i].axis = uint8_t(n.axis);
-        std::memcpy(out[i].split0on_nPrims.data(), &n.offset,
-                    sizeof(n.offset));
-    }
-    return out;
-}
-
 // pbrt: a Primitive of the top-level tree before it is one -- a
 // GeometricPrimitive by its index into the scene's shapes, a mesh by its
 // index into the mesh primitives (render.bonsai's `Mesh`: pbrt's GPU
@@ -664,6 +642,15 @@ struct TopLevel {
 // or the leaves' order once a tree is built over it (the software tree's).
 struct MeshPrim {
     uint32_t mesh = 0;
+    uint32_t first = 0;
+    uint32_t count = 0;
+};
+
+// An instance definition's run of `instanced`: its shapes, then a Geometric
+// per triangle of each of its triangle meshes (`Inst.blas : set[Geometric]`
+// keeps the object per triangle until the object level under an instance,
+// pbrt's IAS over per-mesh GAS, is in; PLAN.md 2026-10-08).
+struct DefRun {
     uint32_t first = 0;
     uint32_t count = 0;
 };
@@ -923,16 +910,16 @@ struct Acceleration {
                    const std::vector<Triangle> &tris,
                    const std::vector<Geometric> &instanced,
                    const std::vector<TopLevel> &top,
-                   const std::vector<bonsai_scene::Definition> &definitions,
+                   const std::vector<DefRun> &definitions,
                    const std::vector<bonsai_scene::Instance> &placed) {
         std::vector<Built> of_definition(definitions.size());
         for (size_t d = 0; d < definitions.size(); d++) {
-            const bonsai_scene::Definition &def = definitions[d];
-            if (def.shape_count == 0) {
+            const DefRun &def = definitions[d];
+            if (def.count == 0) {
                 continue; // pbrt: a null primitive, never instanced.
             }
-            of_definition[d] = geometry(instanced.data() + def.first_shape,
-                                        def.shape_count, def.first_shape);
+            of_definition[d] = geometry(instanced.data() + def.first, def.count,
+                                        def.first);
         }
         // Each structure of a set, placed by one transform under one
         // holder: the index in `prims` of the instance primitive whose
@@ -2123,6 +2110,15 @@ int main(int argc, char **argv) {
         out_mesh.has_normals = m.has_normals != 0;
         out_mesh.has_uv = m.has_uv != 0;
         out_mesh.flip = m.flip != 0;
+        // The statement's graphics state, which the file keeps on the mesh
+        // as pbrt's GPU keeps it in the mesh's hit record: the material by
+        // the renderer's slot, the alpha texture, the media, and the light
+        // ordinal of triangle 0 (a mesh's lights are consecutive) or -1.
+        out_mesh.material = material_slot.at(m.material);
+        out_mesh.alpha = m.alpha;
+        out_mesh.medium_inside = m.medium_inside;
+        out_mesh.medium_outside = m.medium_outside;
+        out_mesh.first_light = m.light_ordinal;
         meshes.push_back(out_mesh);
     }
     // Three floats a vertex -- the layout the schedule gives these arrays
@@ -2267,7 +2263,11 @@ int main(int argc, char **argv) {
                 Shape_Blp(shape, BilinearPatch{s.mesh, s.tri, s.patch_area},
                           patch_pool.data(), &patch_fill);
             } else {
-                Shape_Tri(shape, Triangle{s.mesh, s.tri});
+                // A triangle is its mesh's, never a shape of its own (the
+                // scene file's version 3); the reader refuses one.
+                fprintf(stderr, "a shape of kind %u is not one this driver makes\n",
+                        s.tag);
+                exit(1);
             }
             // `light` carries the light *ordinal* -- the shape's slot in the
             // renderer's light list and the leaf index of pbrt's light tree --
@@ -2283,91 +2283,62 @@ int main(int argc, char **argv) {
         return out;
     };
     std::vector<Geometric> shapes = convert(loaded.shapes);
-    std::vector<Geometric> instanced = convert(loaded.instance_shapes);
 
-    // pbrt's GPU primitive model (gpu/optix/aggregate.cpp): a mesh is one
-    // primitive, its material, alpha texture and medium interface the
-    // statement's graphics state kept once per mesh, its area lights one per
-    // triangle in the mesh's order. The top-level triangles become their
-    // meshes' primitives (render.bonsai's `Mesh`, with `triangle_geometric`
-    // rebuilding each triangle's Geometric from the mesh and its index) and
-    // the other shapes stay Geometrics of their own. The attributes move onto
-    // the TriangleMesh records for every mesh, instanced ones too, since
-    // the records are what the renderer reads them from; the per-triangle
-    // Geometrics of an instance's object stay as they are for now
-    // (apps/pbrt/PLAN.md, 2026-10-08: the instances' level is the next
-    // stage).
+    // pbrt's GPU primitive model (wavefront/aggregate.cpp): a triangle mesh is
+    // one primitive, its material, alpha texture and medium interface the
+    // statement's graphics state kept once on the mesh, its area lights one
+    // per triangle in the mesh's order -- which is how the scene file holds
+    // it (scene_io.h, version 3). Each of the scene's own triangle meshes is
+    // a mesh primitive (render.bonsai's `Mesh`, with `triangle_geometric`
+    // rebuilding a triangle's Geometric from the mesh and its index) over its
+    // run of `tris`, the triangles in mesh order; the other shapes are
+    // Geometrics of their own. A patch mesh's patches are shapes (converted
+    // above) and the mesh itself makes no primitive.
     std::vector<MeshPrim> mesh_prims;
     std::vector<Triangle> tris;
+    for (uint32_t m = loaded.top_first_mesh;
+         m < loaded.top_first_mesh + loaded.top_mesh_count; m++) {
+        const bonsai_scene::Mesh &lm = loaded.meshes[m];
+        if (lm.kind != bonsai_scene::MeshTriangles) {
+            continue;
+        }
+        mesh_prims.push_back(MeshPrim{m, uint32_t(tris.size()), lm.prim_count});
+        for (uint32_t k = 0; k < lm.prim_count; k++) {
+            tris.push_back(Triangle{m, k});
+        }
+    }
+    // An instance's object is still a Geometric per triangle on the device
+    // (`Inst.blas : set[Geometric]`; the object level under an instance,
+    // pbrt's IAS over per-mesh GAS, is the next stage): each definition's
+    // run of `instanced` is its shapes, then a Geometric per triangle of
+    // each of its triangle meshes, made from the mesh as the device's
+    // `triangle_geometric` makes it.
+    std::vector<Geometric> instanced;
+    std::vector<DefRun> def_runs(loaded.definitions.size());
     {
-        const auto by_mesh_then_tri = [&](const Geometric &a, const Geometric &b) {
-            const Triangle ta = Shapes::triangle_of(a.shape);
-            const Triangle tb = Shapes::triangle_of(b.shape);
-            return std::tie(ta.mesh, ta.tri) < std::tie(tb.mesh, tb.tri);
-        };
-        // The attributes of a mesh's triangles onto the mesh, each checked
-        // to be one value over the mesh -- what one statement gives every
-        // triangle, so a disagreement is a scene the converter did not
-        // write -- and the lights consecutive from the first triangle's.
-        const auto adopt = [&](std::vector<Geometric> &list, bool make_prims) {
-            std::vector<Geometric> rest;
-            std::vector<Geometric> triangles;
-            for (const Geometric &g : list) {
-                (Shapes::is_triangle(g.shape) ? triangles : rest).push_back(g);
-            }
-            std::stable_sort(triangles.begin(), triangles.end(), by_mesh_then_tri);
-            size_t i = 0;
-            while (i < triangles.size()) {
-                const Triangle first = Shapes::triangle_of(triangles[i].shape);
-                const Geometric &g0 = triangles[i];
-                size_t n = 0;
-                while (i + n < triangles.size() &&
-                       Shapes::triangle_of(triangles[i + n].shape).mesh == first.mesh) {
-                    const Geometric &g = triangles[i + n];
-                    const Triangle t = Shapes::triangle_of(g.shape);
-                    const int32_t light =
-                        g0.light < 0 ? -1 : g0.light + int32_t(t.tri);
-                    if (t.tri != first.tri + n || g.light != light ||
-                        g.material != g0.material || g.alpha != g0.alpha ||
-                        g.medium_inside != g0.medium_inside ||
-                        g.medium_outside != g0.medium_outside) {
-                        fprintf(stderr,
-                                "mesh %u: triangle %u does not share its mesh's "
-                                "attributes or its place in the mesh's run "
-                                "(pbrt gives every triangle of a Shape "
-                                "statement one material, alpha and medium, and "
-                                "numbers their lights in order)\n",
-                                first.mesh, t.tri);
-                        exit(1);
-                    }
-                    n++;
+        const std::vector<Geometric> instance_shapes = convert(loaded.instance_shapes);
+        for (size_t d = 0; d < loaded.definitions.size(); d++) {
+            const bonsai_scene::Definition &def = loaded.definitions[d];
+            def_runs[d].first = uint32_t(instanced.size());
+            instanced.insert(instanced.end(),
+                             instance_shapes.begin() + def.first_shape,
+                             instance_shapes.begin() + def.first_shape + def.shape_count);
+            for (uint32_t m = def.first_mesh; m < def.first_mesh + def.mesh_count; m++) {
+                const bonsai_scene::Mesh &lm = loaded.meshes[m];
+                if (lm.kind != bonsai_scene::MeshTriangles) {
+                    continue;
                 }
-                if (first.tri != 0) {
-                    fprintf(stderr, "mesh %u: its first triangle is %u, not 0\n",
-                            first.mesh, first.tri);
-                    exit(1);
+                for (uint32_t k = 0; k < lm.prim_count; k++) {
+                    Shape shape;
+                    Shape_Tri(shape, Triangle{m, k});
+                    instanced.push_back(Geometric{
+                        shape, lm.light_ordinal < 0 ? -1 : lm.light_ordinal + int32_t(k),
+                        material_slot.at(lm.material), lm.alpha, lm.medium_inside,
+                        lm.medium_outside});
                 }
-                TriangleMesh &m = meshes.at(first.mesh);
-                m.material = g0.material;
-                m.alpha = g0.alpha;
-                m.medium_inside = g0.medium_inside;
-                m.medium_outside = g0.medium_outside;
-                m.first_light = g0.light;
-                if (make_prims) {
-                    mesh_prims.push_back(
-                        MeshPrim{first.mesh, uint32_t(tris.size()), uint32_t(n)});
-                    for (size_t k = 0; k < n; k++) {
-                        tris.push_back(Shapes::triangle_of(triangles[i + k].shape));
-                    }
-                }
-                i += n;
             }
-            if (make_prims) {
-                list = std::move(rest);
-            }
-        };
-        adopt(shapes, /*make_prims=*/true);
-        adopt(instanced, /*make_prims=*/false);
+            def_runs[d].count = uint32_t(instanced.size()) - def_runs[d].first;
+        }
     }
 
     // Which emission each light ordinal draws its spectrum from. The ordinal is
@@ -2381,10 +2352,25 @@ int main(int argc, char **argv) {
             area_light_count = std::max(area_light_count, s.light_ordinal + 1);
         }
     }
+    for (const bonsai_scene::Mesh &m : loaded.meshes) {
+        if (m.light_ordinal >= 0) {
+            area_light_count = std::max(area_light_count,
+                                        m.light_ordinal + int32_t(m.prim_count));
+        }
+    }
     std::vector<int32_t> ordinal_to_emission(size_t(area_light_count), -1);
     for (const bonsai_scene::Shape &s : loaded.shapes) {
         if (s.light_ordinal >= 0) {
             ordinal_to_emission[size_t(s.light_ordinal)] = s.light;
+        }
+    }
+    // A mesh's triangles share its emission, one ordinal each from the
+    // mesh's first on (pbrt's `areaLights[prim]`).
+    for (const bonsai_scene::Mesh &m : loaded.meshes) {
+        if (m.light_ordinal >= 0) {
+            for (uint32_t k = 0; k < m.prim_count; k++) {
+                ordinal_to_emission[size_t(m.light_ordinal) + k] = m.light;
+            }
         }
     }
     if (sphere_fill != sphere_pool.size() || disk_fill != disk_pool.size() ||
@@ -2436,37 +2422,27 @@ int main(int argc, char **argv) {
     {
         Stage stage("order primitives for the hardware");
         rt_order(shapes.begin(), shapes.end(), shape_pools);
-        for (const bonsai_scene::Definition &def : loaded.definitions) {
-            rt_order(instanced.begin() + def.first_shape,
-                     instanced.begin() + def.first_shape + def.shape_count,
-                     shape_pools);
+        for (const DefRun &def : def_runs) {
+            rt_order(instanced.begin() + def.first,
+                     instanced.begin() + def.first + def.count, shape_pools);
         }
     }
 #else
-    const bool pbrt_trees = !loaded.nodes.empty();
+    // The instances' trees are built here: the scene file carries no tree
+    // (since its version 3; pbrt's CPU tree was over a primitive per
+    // triangle, which the file no longer has), as pbrt's GPU builds its own.
     std::vector<_tree_layout1> instance_nodes;
     {
-        Stage stage(pbrt_trees ? "adopt pbrt's instance trees"
-                               : "build instance trees");
-        if (pbrt_trees) {
-            instance_nodes = adopt_nodes<_tree_layout1>(loaded.instance_nodes);
-            for (size_t d = 0; d < roots.size(); d++) {
-                roots[d] = loaded.definitions[d].root_node;
+        Stage stage("build instance trees");
+        for (size_t d = 0; d < roots.size(); d++) {
+            const DefRun &def = def_runs[d];
+            if (def.count == 0) {
+                continue; // pbrt: a null primitive, never instanced.
             }
-        } else {
-            for (size_t d = 0; d < roots.size(); d++) {
-                const bonsai_scene::Definition &def = loaded.definitions[d];
-                if (def.shape_count == 0) {
-                    continue; // pbrt: a null primitive, never instanced.
-                }
-                roots[d] = build_bvh(
-                    instanced.data() + def.first_shape, def.shape_count,
-                    def.first_shape,
-                    [&](const Geometric &g) {
-                        return bounds_of(g, pool, shape_pools);
-                    },
-                    instance_nodes);
-            }
+            roots[d] = build_bvh(
+                instanced.data() + def.first, def.count, def.first,
+                [&](const Geometric &g) { return bounds_of(g, pool, shape_pools); },
+                instance_nodes);
         }
     }
 #endif
@@ -2724,8 +2700,7 @@ int main(int argc, char **argv) {
                 // where the object's run of `geoms` starts (`Inst.blas :
                 // OptixTree from geoms`).
                 const uint32_t blas =
-                    kRTCore ? loaded.definitions[inst.definition].first_shape
-                            : roots[inst.definition];
+                    kRTCore ? def_runs[inst.definition].first : roots[inst.definition];
                 Primitive_Inst(prims[i], to_bonsai(inst.render_from_instance),
                                to_bonsai(inst.instance_from_render), blas,
                                inst_pool.data(), &inst_fill);
@@ -2775,8 +2750,7 @@ int main(int argc, char **argv) {
                                curve_pool.data(),    curve_commons.data(),
                                curve_frames.data()};
         tree.traversable = Acceleration{pool, compacted}.scene(
-            shapes, mesh_prims, tris, instanced, top, loaded.definitions,
-            loaded.instances);
+            shapes, mesh_prims, tris, instanced, top, def_runs, loaded.instances);
         if (tree.traversable == 0) {
             fprintf(stderr, "the scene has nothing for the hardware to trace\n");
             return 1;

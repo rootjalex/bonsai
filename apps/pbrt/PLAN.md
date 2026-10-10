@@ -13020,3 +13020,73 @@ MaterialEvalWorkItem's ~240: the entry carries the primitive's six fields
 (shape, light, material, alpha, media) where pbrt carries the material and
 the medium interface, and the bounce's ten sampler values (40 B) where
 pbrt keeps them per pixel -- the cost of the draws' placement in bytes.
+
+### The scene file as pbrt's representation (10-10, 01:30-)
+
+The user (01:05): the mesh-entity series lands and is benchmarked ("it is
+an effort to match PBRT's behavior"), and the scene dumper is fixed "so it
+matches PBRT's representation exactly" -- benchmarking means nothing if
+the two sides are not the same scene. Landed first: the series, ported
+onto HEAD in scratch/wt-mesh (one conflict, Trees.cpp's node_bounds, where
+HEAD's refusal of a bound that reads an annotation's parameter subsumes
+the series' early return), 1534 tests, images matching pbrt on kroken,
+head and killeroo; commit 1ed2eabb. Its kroken check put the card at 32.2
+GB again: the series left an instance's object per triangle (`Inst.blas :
+set[Geometric]`), and kroken's 285 million triangles are all inside ten
+instances.
+
+**The format (scene_geometry.fbs version 3, scene_io.h).** A `Mesh` carries
+`kind` (triangles or bilinear patches), `prim_count` and its placement --
+material, emission, the first triangle's light ordinal (a mesh's lights are
+consecutive, pbrt's `areaLights[prim]`), alpha, the two media -- as pbrt's
+GPU keeps the statement's graphics state once in the mesh's hit record. The
+`Triangle` record (32 bytes a triangle: mesh, index, placement) is gone, and
+with it the `triangles` and `instance_triangles` columns; a triangle mesh is
+a primitive of the scene by itself. A `Definition` is a run of the instance
+shapes and a run of the meshes; the scene's own meshes are the run
+`top_first_mesh .. + top_mesh_count`. pbrt's CPU BVH is no longer mirrored
+into the file (`--pbrt-tree`, `nodes`, `instance_nodes`, `prims`,
+`Definition.root_node`, the LinearBVHNode mirror and the private-member
+reach into BVHAggregate): it was a tree over a primitive per triangle, which
+the file no longer has, and the driver builds its trees as pbrt's GPU
+builds its own (a tree per mesh under the top one on the CPU, the 10-08
+design; compare.sh's PBRT_TREE goes with it). A bilinear patch mesh keeps a
+Patch record per patch (pbrt's GPU has a BLP build input per mesh with one
+record too; a follow-up, rare in the scenes). The dumper's summary line
+counts meshes and triangles as pbrt's statistics do.
+
+**The driver.** The scene's own triangle meshes are the mesh primitives
+straight from the file, each over its run of `tris` in mesh order; the
+TriangleMesh records take the placement from the mesh (the material through
+the renderer's slot). An instance's object is still a Geometric per
+triangle on the device, made at load from the mesh as `triangle_geometric`
+makes it on the device, each definition's run its shapes then its meshes'
+triangles (DefRun); the light ordinals of a mesh's triangles map to the
+mesh's emission. The tree-adoption path is gone with the file's trees.
+
+**Still to do for kroken (the next stage, the 10-08 design's): the object
+level under an instance.** pbrt's GPU (gpu/optix/aggregate.cpp, 1430-1560):
+per instance definition one GAS of triangles with a build input per mesh
+(each input's SBT record the mesh's), one of bilinear patches, one of
+quadrics; then ONE flat IAS whose OptixInstances are the scene's own three
+GASes under the identity and, per instance use, one per GAS of its
+definition under its transform -- no IAS inside an IAS. Our driver's
+`of_definition` already builds a definition's GAS with an input per mesh
+run; what has to change is the record and the chain. Program: `Object = |
+Geom(g) | Mesh(mesh, tris)` and `Inst(.., blas : set[Object])` (pbrt's
+definition holds meshes and shapes, never instances), geometry(Inst) a
+flatten over the objects' geometry; layout `Inst.blas : OptixTree from
+objects; objects : array[Object, oCount]`, `Mesh.tris : OptixTree from
+tris` for the Mesh arm at both levels. Record: `holder` the Inst primitive
+as now, `base` the object's index in `objects` (today it is the run's
+start in `geoms`), and the object's Mesh arm carries its run's start in
+`tris` as the top-level Mesh does (`Primitive_Mesh(.., mp.first)`), so the
+chain is `e0 = prims[holder]` (Inst), `e1 = objects[base]` (the mesh),
+`e2 = tris[e1.first + prim]` mapped through `triangle_geometric` -- one
+level more than bind_elements (Lower/Trees.cpp) binds today (e0, e1 with
+`idx = base + prim`); the own-mesh case keeps `e1 = tris[base + prim]`.
+With it an instanced mesh is one primitive too and the 11.5 GB of
+per-triangle records leave the device. After it: the synthesized triangle
+set (the k-th element is `Triangle{mesh, k}`), a layout construct to ask
+the user for, which removes the 8-byte `tris` record per triangle (2.3 GB
+on kroken) that pbrt does not have either.

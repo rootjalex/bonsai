@@ -671,6 +671,18 @@ struct CurveFrame {
 // same arrangement with the meshes' arrays laid end to end, so a mesh is where
 // its own run of each begins. `indices` are mesh-local, as PBRT's are, which is
 // what `first_vertex` adds back.
+//
+// A mesh is one `Shape` statement, and carries the statement's graphics state
+// once, as pbrt's GPU keeps it in the mesh's hit record (material, alpha
+// texture, medium interface, area lights): a triangle mesh is a primitive of
+// the scene by itself and there is no record per triangle. `light_ordinal` is
+// the first triangle's; a mesh's lights are consecutive, one per triangle in
+// the mesh's order, as pbrt's `areaLights[prim]`.
+enum MeshKind : uint32_t {
+    MeshTriangles = 0, // three indices a primitive
+    MeshPatches = 1,   // four: a bilinear patch mesh, whose patches are shapes
+};
+
 struct Mesh {
     uint32_t first_index = 0;
     uint32_t first_vertex = 0;
@@ -681,6 +693,16 @@ struct Mesh {
     // PBRT: reverseOrientation ^ transformSwapsHandedness, which decides which
     // way the surface normal points. A mesh's, because PBRT keeps it there.
     uint32_t flip = 0;
+    uint32_t kind = MeshTriangles;
+    uint32_t prim_count = 0;
+    // The placement, as a Shape's below: the material, the emission and the
+    // first triangle's light ordinal (or -1), the alpha texture, the media.
+    uint32_t material = 0;
+    int32_t light = -1;
+    int32_t light_ordinal = -1;
+    int32_t alpha = -1;
+    int32_t medium_inside = -1;
+    int32_t medium_outside = -1;
 };
 
 // One shape, in render space.
@@ -912,36 +934,16 @@ struct LightTreeNode {
     uint32_t is_leaf = 0;
 };
 
-// One BVH node, in PBRT's LinearBVHNode shape.
-//
-// Present only when the scene was dumped with --pbrt-tree, in which case it is
-// PBRT's own tree -- the nodes its BVHAggregate built and flattened -- and the
-// shapes are in the order its leaves expect, so a leaf's `offset` indexes them
-// directly. Without a tree the driver builds its own, which is the general
-// case: PBRT can only hand over a tree of the shape PBRT builds, so a schedule
-// wanting a wider arity or a different bounding volume has to build its own.
-struct Node {
-    float low[3];
-    float high[3];
-    // Leaf: the first of n_prims shapes. Interior: the second child, relative
-    // to this node, the first being the next node along.
-    uint32_t offset;
-    uint16_t n_prims; // 0 for an interior node.
-    uint16_t axis;
-};
-
 // PBRT: an `ObjectBegin`/`ObjectEnd` block -- an instance definition, the
-// shapes an instanced object is made of. They are a run of `instance_shapes`,
-// kept apart from `shapes` because PBRT keeps them apart: an instance's
-// geometry is in no top-level list, and the top-level tree holds the instances
-// rather than what they hold.
-//
-// `root_node` is the row of `instance_nodes` the object's own tree starts at,
-// when the tree is PBRT's (--pbrt-tree). Otherwise the driver builds one.
+// shapes an instanced object is made of. They are a run of `instance_shapes`
+// and a run of `meshes`, kept apart from the scene's own because PBRT keeps
+// them apart: an instance's geometry is in no top-level list, and the
+// top-level tree holds the instances rather than what they hold.
 struct Definition {
     uint32_t first_shape = 0;
     uint32_t shape_count = 0;
-    uint32_t root_node = 0;
+    uint32_t first_mesh = 0;
+    uint32_t mesh_count = 0;
 };
 
 // PBRT: an `ObjectInstance` -- a TransformedPrimitive, naming a definition and
@@ -955,20 +957,6 @@ struct Instance {
                                       0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
     float instance_from_render[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f,
                                       0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
-};
-
-// What the top-level tree's leaves name, in the order they name it, when the
-// tree is PBRT's: PBRT's BVHAggregate is built over its shapes and its
-// instances together and reorders the mixture, so the order is a list of
-// (which kind, which one) rather than a permutation of either list.
-enum PrimKind : uint32_t {
-    PrimShape = 0,    // `index` into `shapes`
-    PrimInstance = 1, // `index` into `instances`
-};
-
-struct Prim {
-    uint32_t kind = PrimShape;
-    uint32_t index = 0;
 };
 
 enum SamplerTag : uint32_t {
@@ -1286,28 +1274,27 @@ struct Scene {
     // out. Computed here because it is a property of the whole scene and the
     // renderer sees the scene one primitive at a time.
     float scene_radius = 0.f;
+    // The scene's own shapes other than its triangle meshes, and its own
+    // meshes as a run of `meshes` (the definitions' runs follow it).
     std::vector<Shape> shapes;
-    std::vector<Node> nodes;
+    uint32_t top_first_mesh = 0;
+    uint32_t top_mesh_count = 0;
 
-    // PBRT's instancing: the definitions' shapes, the definitions as runs of
-    // them, and the instances placing them. `instance_nodes` and `prims` are
-    // filled only alongside `nodes`, when the trees are PBRT's own -- the
-    // former one pool of every definition's tree, the latter the top-level
-    // tree's leaf order over shapes and instances together.
+    // PBRT's instancing: the definitions' shapes and meshes, the definitions
+    // as runs of them, and the instances placing them. The trees are the
+    // driver's to build, as pbrt's GPU builds its own over the same meshes.
     std::vector<Shape> instance_shapes;
     std::vector<Definition> definitions;
     std::vector<Instance> instances;
-    std::vector<Node> instance_nodes;
-    std::vector<Prim> prims;
 
-    // The three vertices of a triangle, as PBRT's
+    // The three vertices of triangle `tri` of mesh `mesh`, as PBRT's
     // `&mesh->vertexIndices[3 * triIndex]` reads them, with the mesh's own
-    // offset added. Here rather than in each of the three places that wants
-    // them -- the tree build, the bounds, the PBRT-tree path.
-    void corners(const Shape &s, uint32_t out[3]) const {
-        const Mesh &m = meshes[s.mesh];
+    // offset added. Here rather than in each of the places that wants them --
+    // the tree build, the bounds.
+    void corners(uint32_t mesh, uint32_t tri, uint32_t out[3]) const {
+        const Mesh &m = meshes[mesh];
         for (uint32_t k = 0; k < 3; k++) {
-            out[k] = m.first_vertex + indices[m.first_index + 3 * s.tri + k];
+            out[k] = m.first_vertex + indices[m.first_index + 3 * tri + k];
         }
     }
     // A bilinear patch's four, in PBRT's order: p00, p10, p01, p11.
@@ -1378,14 +1365,21 @@ namespace detail {
 // Bumped whenever a record in scene_geometry.fbs changes layout; a sidecar
 // of another version is refused rather than misread, as a text file with a
 // missing tag is.
-constexpr uint32_t kGeometryVersion = 2;
+// 3: a triangle mesh is one primitive with its placement on the Mesh, no
+// record per triangle, and no tree of pbrt's in the file (2026-10-10).
+constexpr uint32_t kGeometryVersion = 3;
 
 inline geo::Placement placement_of(const Shape &s) {
     return geo::Placement(s.material, s.light, s.light_ordinal, s.alpha,
                           s.medium_inside, s.medium_outside);
 }
+inline geo::Placement placement_of(const Mesh &m) {
+    return geo::Placement(m.material, m.light, m.light_ordinal, m.alpha,
+                          m.medium_inside, m.medium_outside);
+}
 
-inline void place(const geo::Placement &at, Shape &s) {
+template <typename Placed>
+inline void place(const geo::Placement &at, Placed &s) {
     s.material = at.material();
     s.light = at.light();
     s.light_ordinal = at.light_ordinal();
@@ -1408,12 +1402,14 @@ inline flatbuffers::span<const float, 16> span16(const float *v) {
 struct ShapeColumns {
     std::vector<uint8_t> kinds;
     std::vector<uint32_t> slots;
-    std::vector<geo::Triangle> triangles;
     std::vector<geo::Patch> patches;
     std::vector<geo::Sphere> spheres;
     std::vector<geo::Disk> disks;
     std::vector<geo::Cylinder> cylinders;
     std::vector<geo::Curve> curves;
+    // False when a shape is of a kind the file has no column for: a
+    // triangle, which is its mesh's since version 3 and no shape of its own.
+    bool ok = true;
 };
 
 inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
@@ -1453,21 +1449,12 @@ inline ShapeColumns columns_of(const std::vector<Shape> &shapes) {
             c.patches.emplace_back(s.mesh, s.tri, s.patch_area, at);
             break;
         default:
-            c.slots.push_back(uint32_t(c.triangles.size()));
-            c.triangles.emplace_back(s.mesh, s.tri, at);
+            c.slots.push_back(0);
+            c.ok = false;
             break;
         }
     }
     return c;
-}
-
-inline std::vector<geo::Node> nodes_of(const std::vector<Node> &nodes) {
-    std::vector<geo::Node> out;
-    out.reserve(nodes.size());
-    for (const Node &n : nodes) {
-        out.emplace_back(span3(n.low), span3(n.high), n.offset, n.n_prims, n.axis);
-    }
-    return out;
 }
 
 // The sidecar written: every 64-bit vector first -- FlatBuffers places the
@@ -1482,19 +1469,19 @@ inline bool write_geometry(const char *path, const Scene &scene,
     const auto normals = fbb.CreateVector64(scene.normals);
     const auto uvs = fbb.CreateVector64(scene.uvs);
     const ShapeColumns top = columns_of(scene.shapes);
+    const ShapeColumns inst = columns_of(scene.instance_shapes);
+    if (!top.ok || !inst.ok) {
+        return false; // a triangle as a shape of its own, which no mesh makes
+    }
     const auto shape_kinds = fbb.CreateVector64(top.kinds);
     const auto shape_slots = fbb.CreateVector64(top.slots);
-    const auto triangles = fbb.CreateVectorOfStructs64(top.triangles);
     const auto patches = fbb.CreateVectorOfStructs64(top.patches);
     const auto spheres = fbb.CreateVectorOfStructs64(top.spheres);
     const auto disks = fbb.CreateVectorOfStructs64(top.disks);
     const auto cylinders = fbb.CreateVectorOfStructs64(top.cylinders);
     const auto curves = fbb.CreateVectorOfStructs64(top.curves);
-    const auto nodes = fbb.CreateVectorOfStructs64(nodes_of(scene.nodes));
-    const ShapeColumns inst = columns_of(scene.instance_shapes);
     const auto instance_shape_kinds = fbb.CreateVector64(inst.kinds);
     const auto instance_shape_slots = fbb.CreateVector64(inst.slots);
-    const auto instance_triangles = fbb.CreateVectorOfStructs64(inst.triangles);
     const auto instance_patches = fbb.CreateVectorOfStructs64(inst.patches);
     const auto instance_spheres = fbb.CreateVectorOfStructs64(inst.spheres);
     const auto instance_disks = fbb.CreateVectorOfStructs64(inst.disks);
@@ -1516,26 +1503,19 @@ inline bool write_geometry(const char *path, const Scene &scene,
                                    span16(f.object_from_render), f.flip, f.reverse);
     }
     const auto curve_frames = fbb.CreateVectorOfStructs64(frame_records);
-    const auto instance_nodes =
-        fbb.CreateVectorOfStructs64(nodes_of(scene.instance_nodes));
-    std::vector<geo::Prim> prim_records;
-    prim_records.reserve(scene.prims.size());
-    for (const Prim &p : scene.prims) {
-        prim_records.emplace_back(p.kind, p.index);
-    }
-    const auto prims = fbb.CreateVectorOfStructs64(prim_records);
-
     std::vector<geo::Mesh> mesh_records;
     mesh_records.reserve(scene.meshes.size());
     for (const Mesh &m : scene.meshes) {
         mesh_records.emplace_back(m.first_index, m.first_vertex, m.first_normal,
-                                  m.first_uv, m.has_normals, m.has_uv, m.flip);
+                                  m.first_uv, m.has_normals, m.has_uv, m.flip,
+                                  m.kind, m.prim_count, placement_of(m));
     }
     const auto meshes = fbb.CreateVectorOfStructs(mesh_records);
     std::vector<geo::Definition> definition_records;
     definition_records.reserve(scene.definitions.size());
     for (const Definition &d : scene.definitions) {
-        definition_records.emplace_back(d.first_shape, d.shape_count, d.root_node);
+        definition_records.emplace_back(d.first_shape, d.shape_count, d.first_mesh,
+                                        d.mesh_count);
     }
     const auto definitions = fbb.CreateVectorOfStructs(definition_records);
     std::vector<geo::Instance> instance_records;
@@ -1555,21 +1535,18 @@ inline bool write_geometry(const char *path, const Scene &scene,
     gb.add_uvs(uvs);
     gb.add_shape_kinds(shape_kinds);
     gb.add_shape_slots(shape_slots);
-    gb.add_triangles(triangles);
     gb.add_patches(patches);
     gb.add_spheres(spheres);
     gb.add_disks(disks);
-    gb.add_nodes(nodes);
     gb.add_instance_shape_kinds(instance_shape_kinds);
     gb.add_instance_shape_slots(instance_shape_slots);
-    gb.add_instance_triangles(instance_triangles);
     gb.add_instance_patches(instance_patches);
     gb.add_instance_spheres(instance_spheres);
     gb.add_instance_disks(instance_disks);
-    gb.add_instance_nodes(instance_nodes);
     gb.add_definitions(definitions);
     gb.add_instances(instances);
-    gb.add_prims(prims);
+    gb.add_top_first_mesh(scene.top_first_mesh);
+    gb.add_top_mesh_count(scene.top_mesh_count);
     gb.add_cylinders(cylinders);
     gb.add_instance_cylinders(instance_cylinders);
     gb.add_curves(curves);
@@ -1587,9 +1564,9 @@ inline bool write_geometry(const char *path, const Scene &scene,
 
 // A shape list back from its columns. False where a slot points past its
 // vector, which no writer of this file produces.
-template <typename Kinds, typename Slots, typename Tris, typename Patches,
-          typename Spheres, typename Disks, typename Cylinders, typename Curves>
-inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
+template <typename Kinds, typename Slots, typename Patches, typename Spheres,
+          typename Disks, typename Cylinders, typename Curves>
+inline bool shapes_of(const Kinds *kinds, const Slots *slots,
                       const Patches *patches, const Spheres *spheres,
                       const Disks *disks, const Cylinders *cylinders,
                       const Curves *curves, size_t n_commons,
@@ -1692,40 +1669,15 @@ inline bool shapes_of(const Kinds *kinds, const Slots *slots, const Tris *tris,
             place(r->at(), s);
             break;
         }
-        case ShapeTag::Triangle: {
-            if (tris == nullptr || slot >= tris->size()) {
-                return false;
-            }
-            const geo::Triangle *r = tris->Get(slot);
-            s.tag = ShapeTag::Triangle;
-            s.mesh = r->mesh();
-            s.tri = r->tri();
-            place(r->at(), s);
-            break;
-        }
         default:
+            // A triangle among them included: since version 3 a triangle is
+            // its mesh's and no shape of its own.
             return false;
         }
     }
     return true;
 }
 
-template <typename Nodes>
-inline void nodes_from(const Nodes *in, std::vector<Node> &out) {
-    out.clear();
-    if (in == nullptr) {
-        return;
-    }
-    out.resize(in->size());
-    for (size_t i = 0; i < out.size(); i++) {
-        const geo::Node *r = in->Get(i);
-        std::memcpy(out[i].low, r->low()->data(), sizeof(out[i].low));
-        std::memcpy(out[i].high, r->high()->data(), sizeof(out[i].high));
-        out[i].offset = r->offset();
-        out[i].n_prims = r->n_prims();
-        out[i].axis = r->axis();
-    }
-}
 
 template <typename T, typename V>
 inline void copy_from(const V *in, std::vector<T> &out) {
@@ -1778,9 +1730,14 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
             out.has_normals = m->has_normals();
             out.has_uv = m->has_uv();
             out.flip = m->flip();
+            out.kind = m->kind();
+            out.prim_count = m->prim_count();
+            place(m->at(), out);
             scene.meshes.push_back(out);
         }
     }
+    scene.top_first_mesh = g->top_first_mesh();
+    scene.top_mesh_count = g->top_mesh_count();
     copy_from(g->indices(), scene.indices);
     copy_from(g->positions(), scene.positions);
     copy_from(g->normals(), scene.normals);
@@ -1818,27 +1775,26 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
             }
         }
     }
-    if (!shapes_of(g->shape_kinds(), g->shape_slots(), g->triangles(),
-                   g->patches(), g->spheres(), g->disks(), g->cylinders(),
-                   g->curves(), scene.curve_commons.size(), scene.shapes)) {
+    if (!shapes_of(g->shape_kinds(), g->shape_slots(), g->patches(),
+                   g->spheres(), g->disks(), g->cylinders(), g->curves(),
+                   scene.curve_commons.size(), scene.shapes)) {
         return false;
     }
-    nodes_from(g->nodes(), scene.nodes);
     if (!shapes_of(g->instance_shape_kinds(), g->instance_shape_slots(),
-                   g->instance_triangles(), g->instance_patches(),
-                   g->instance_spheres(), g->instance_disks(),
-                   g->instance_cylinders(), g->instance_curves(),
-                   scene.curve_commons.size(), scene.instance_shapes)) {
+                   g->instance_patches(), g->instance_spheres(),
+                   g->instance_disks(), g->instance_cylinders(),
+                   g->instance_curves(), scene.curve_commons.size(),
+                   scene.instance_shapes)) {
         return false;
     }
-    nodes_from(g->instance_nodes(), scene.instance_nodes);
     scene.definitions.clear();
     if (g->definitions() != nullptr) {
         for (const geo::Definition *d : *g->definitions()) {
             Definition out;
             out.first_shape = d->first_shape();
             out.shape_count = d->shape_count();
-            out.root_node = d->root_node();
+            out.first_mesh = d->first_mesh();
+            out.mesh_count = d->mesh_count();
             scene.definitions.push_back(out);
         }
     }
@@ -1854,15 +1810,6 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
             scene.instances.push_back(out);
         }
     }
-    scene.prims.clear();
-    if (g->prims() != nullptr) {
-        scene.prims.resize(g->prims()->size());
-        for (size_t i = 0; i < scene.prims.size(); i++) {
-            const geo::Prim *p = g->prims()->Get(i);
-            scene.prims[i].kind = p->kind();
-            scene.prims[i].index = p->index();
-        }
-    }
     return true;
 }
 
@@ -1872,17 +1819,22 @@ inline bool read_geometry(const char *path, uint64_t bytes, Scene &scene) {
 // after the geometry, which is why this runs where the shapes' section used
 // to be read.
 inline bool validate_geometry(const Scene &scene) {
+    const auto placed_ok = [&](const auto &s) {
+        return s.material < scene.materials.size() &&
+               s.light < int32_t(scene.lights.size()) &&
+               s.alpha < int32_t(scene.textures.size()) &&
+               s.medium_inside < int32_t(scene.media.size()) &&
+               s.medium_outside < int32_t(scene.media.size());
+    };
     const auto shapes_ok = [&](const std::vector<Shape> &shapes) {
         for (const Shape &s : shapes) {
-            if ((s.tag == ShapeTag::Triangle || s.tag == ShapeTag::Patch) &&
-                s.mesh >= scene.meshes.size()) {
+            if (s.tag == ShapeTag::Triangle) {
+                return false; // a triangle is its mesh's, never a shape
+            }
+            if (s.tag == ShapeTag::Patch && s.mesh >= scene.meshes.size()) {
                 return false;
             }
-            if (s.material >= scene.materials.size() ||
-                s.light >= int32_t(scene.lights.size()) ||
-                s.alpha >= int32_t(scene.textures.size()) ||
-                s.medium_inside >= int32_t(scene.media.size()) ||
-                s.medium_outside >= int32_t(scene.media.size())) {
+            if (!placed_ok(s)) {
                 return false;
             }
         }
@@ -1891,12 +1843,26 @@ inline bool validate_geometry(const Scene &scene) {
     if (!shapes_ok(scene.shapes) || !shapes_ok(scene.instance_shapes)) {
         return false;
     }
-    for (const Definition &d : scene.definitions) {
-        if (size_t(d.first_shape) + d.shape_count > scene.instance_shapes.size()) {
+    // A mesh's primitives index within the shared pool, in threes or fours.
+    for (const Mesh &m : scene.meshes) {
+        if (m.kind != MeshTriangles && m.kind != MeshPatches) {
             return false;
         }
-        if (!scene.instance_nodes.empty() &&
-            d.root_node >= scene.instance_nodes.size()) {
+        const uint64_t per = m.kind == MeshTriangles ? 3 : 4;
+        if (uint64_t(m.first_index) + per * m.prim_count > scene.indices.size()) {
+            return false;
+        }
+        if (!placed_ok(m)) {
+            return false;
+        }
+    }
+    // The scene's run of meshes and each definition's lie within the list.
+    if (uint64_t(scene.top_first_mesh) + scene.top_mesh_count > scene.meshes.size()) {
+        return false;
+    }
+    for (const Definition &d : scene.definitions) {
+        if (size_t(d.first_shape) + d.shape_count > scene.instance_shapes.size() ||
+            uint64_t(d.first_mesh) + d.mesh_count > scene.meshes.size()) {
             return false;
         }
     }
@@ -1904,21 +1870,6 @@ inline bool validate_geometry(const Scene &scene) {
         if (i.definition >= scene.definitions.size()) {
             return false;
         }
-    }
-    for (const Prim &p : scene.prims) {
-        if (p.kind != PrimShape && p.kind != PrimInstance) {
-            return false;
-        }
-        const size_t limit = p.kind == PrimShape ? scene.shapes.size()
-                                                 : scene.instances.size();
-        if (p.index >= limit) {
-            return false;
-        }
-    }
-    // A tree of PBRT's names every shape and every instance exactly once.
-    if (!scene.nodes.empty() &&
-        scene.prims.size() != scene.shapes.size() + scene.instances.size()) {
-        return false;
     }
     return true;
 }

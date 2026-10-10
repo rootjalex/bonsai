@@ -189,18 +189,15 @@ fi
 # There is no second description of it to keep in step -- which is the point,
 # and what makes adding a scene to this comparison a matter of writing one file.
 #
-# PBRT_TREE=1 also takes the BVH PBRT built, so that what is being timed is the
-# traversal the schedule produced rather than whose builder found a better
-# tree. Off by default, because building our own is the general case: the day a
-# schedule asks for a tree PBRT has no equivalent of, PBRT has none to give.
+# (Until 2026-10-10 PBRT_TREE=1 also took the BVH PBRT's CPU built over a
+# primitive per triangle. A triangle mesh is one primitive now, as pbrt's GPU
+# has it, so that tree has nothing to be over and the driver builds its own,
+# a tree per mesh under the top one.)
 bash $PREFIX/build_scene_dump.sh "$WORK/scene_dump"
 # See render.sh: the film's D65 is reproduced from pbrt's construction rather
 # than copied out of it, so it is checked against a running pbrt.
 "$WORK/scene_dump" --check-tables
 DUMP_FLAGS=()
-if [[ -n "${PBRT_TREE:-}" ]]; then
-  DUMP_FLAGS+=(--pbrt-tree)
-fi
 # Both sides are timed as the best of several runs. Every source of noise on a
 # shared machine adds time and none removes it, so the minimum is the closest
 # estimate of how long the work actually takes; a mean would be an estimate of
