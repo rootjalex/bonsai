@@ -64,27 +64,40 @@ schedule {
     vol_route.defer(emissive_contribution, emissive);
     hits = render[VolPath].queue(p_band, ExternDevice);
     vol_route.defer(vol_surface, hits);
-    hits.specialize(material);
+    // pbrt: two material queues per material type, by texture evaluator
+    // (basicEvalMaterialQueue and universalEvalMaterialQueue, wavefront/
+    // integrator.h): the trace kernel sends a hit whose material's textures
+    // are all constants or images to the basic one, whose kernel carries
+    // only the leaf texture readers, and any other hit to the universal
+    // one (textures.bonsai, TextureEvaluator; render.bonsai, vol_route).
+    // The same split here, the evaluator first and the material under each.
+    hits.specialize(evaluator);
+    hits[Basic].specialize(material);
+    hits[Universal].specialize(material);
     shadow = render[VolPath].queue(p_band, ExternDevice);
     vol_sample_ld.defer(shadow_contribution, shadow);
     // pbrt's subsurface queues, in pbrt's order after the material kernels
-    // and their shadow rays: the material kernel pushes a path that went
-    // into a subsurface material onto the BSSRDF queue, whose kernel samples
-    // the probe segment and pushes it onto the subsurface-scatter queue;
-    // IntersectOneRandom is a raygen launch over that queue
-    // (`__raygen__randomHit`), since the probe walk traces; "Handle
-    // out-scattering after SSS" is a CUDA kernel over the same queue, which
-    // pushes the exit's shadow ray and its next ray; and SampleSubsurface
-    // ends with a second TraceShadowRays for those shadow rays, the first
-    // having run before it ("do immediately so that we have space for
-    // shadow rays for subsurface", integrator.cpp): a sample whose entry
-    // was a rough boundary sends one from the entry and one from the exit
-    // in a round, one more than a queue holds for it. Here the BSSRDF kernel
-    // is the material kernel's own tail (vol_subsurface runs in the
-    // Subsurface material's copy of `hits`), the walk is the drain of
-    // `probes` on the hardware, the exit's shading the drain of `exits`, and
-    // the exit's shadow rays the drain of `exit_shadow`, on the hardware
-    // too; the drains run in the order their queues are deferred.
+    // and their shadow rays (SampleSubsurface, wavefront/subsurface.cpp):
+    // the material kernel pushes a path that went into a subsurface
+    // material onto the BSSRDF queue (`bssrdfEvalQueue`), whose kernel,
+    // "Get BSSRDF and enqueue probe ray", samples the probe segment and
+    // pushes it onto the subsurface-scatter queue; IntersectOneRandom is a
+    // raygen launch over that queue (`__raygen__randomHit`), since the probe
+    // walk traces; "Handle out-scattering after SSS" is a CUDA kernel over
+    // the same queue, which pushes the exit's shadow ray and its next ray;
+    // and SampleSubsurface ends with a second TraceShadowRays for those
+    // shadow rays, the first having run before it ("do immediately so that
+    // we have space for shadow rays for subsurface", integrator.cpp): a
+    // sample whose entry was a rough boundary sends one from the entry and
+    // one from the exit in a round, one more than a queue holds for it. The
+    // same four here: the BSSRDF kernel is the drain of `bssrdfs`, pushed by
+    // the material kernel (until 10-09 it was the Subsurface material
+    // kernel's own tail), the walk the drain of `probes` on the hardware,
+    // the exit's shading the drain of `exits`, and the exit's shadow rays
+    // the drain of `exit_shadow`, on the hardware too; the drains run in the
+    // order their queues are deferred.
+    bssrdfs = render[VolPath].queue(p_band, ExternDevice);
+    vol_surface.defer(vol_subsurface, bssrdfs);
     probes = render[VolPath].queue(p_band, ExternDevice);
     vol_subsurface.defer(vol_probe, probes);
     exits = render[VolPath].queue(p_band, ExternDevice);
@@ -140,6 +153,9 @@ schedule {
     render.split(hits, hits_blk, hits_thr, 256, true);
     render.bind(hits_blk, GPUBlock);
     render.bind(hits_thr, GPUThread);
+    render.split(bssrdfs, bssrdfs_blk, bssrdfs_thr, 256, true);
+    render.bind(bssrdfs_blk, GPUBlock);
+    render.bind(bssrdfs_thr, GPUThread);
     render.split(exits, exits_blk, exits_thr, 256, true);
     render.bind(exits_blk, GPUBlock);
     render.bind(exits_thr, GPUThread);

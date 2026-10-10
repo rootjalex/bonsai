@@ -3180,53 +3180,149 @@ int main(int argc, char **argv) {
     const auto render_and_write =
         [&](const Sampler &sampler, const Integrator &integrator,
             const std::string &output) -> std::optional<double> {
+#if BONSAI_render_HAS_material_arms || BONSAI_render_HAS_basic_material_arms || \
+    BONSAI_render_HAS_universal_material_arms
+    // The bit of a material's arm (the generated header's
+    // `BONSAI_render_ARM_Material_*`), for the launch gates (SSA/
+    // GateDrains.h): the mask of a material queue split on the material
+    // alone, and the two masks of the material split under each texture
+    // evaluator, pbrt's haveBasicEvalMaterial[] and
+    // haveUniversalEvalMaterial[] (wavefront/integrator.cpp). A mix's
+    // components are material records of their own, so their bits set
+    // themselves; an interface makes no material (shapes under it carry
+    // -1). `_ALL` would be sound; the scene is known, so say so.
+    const auto material_arm = [](uint32_t tag) -> uint64_t {
+        switch (tag) { // a material record's tag, bonsai_scene::MaterialTag
+        case bonsai_scene::MaterialTag::Interface:
+            return 0;
+        case bonsai_scene::MaterialTag::Diffuse:
+            return BONSAI_render_ARM_Material_Diffuse;
+        case bonsai_scene::MaterialTag::CoatedDiffuse:
+            return BONSAI_render_ARM_Material_CoatedDiffuse;
+        case bonsai_scene::MaterialTag::CoatedConductor:
+            return BONSAI_render_ARM_Material_CoatedConductor;
+        case bonsai_scene::MaterialTag::Dielectric:
+            return BONSAI_render_ARM_Material_Dielectric;
+        case bonsai_scene::MaterialTag::ThinDielectric:
+            return BONSAI_render_ARM_Material_ThinDielectric;
+        case bonsai_scene::MaterialTag::Conductor:
+            return BONSAI_render_ARM_Material_Conductor;
+        case bonsai_scene::MaterialTag::DiffuseTransmission:
+            return BONSAI_render_ARM_Material_DiffuseTransmission;
+        case bonsai_scene::MaterialTag::Measured:
+            return BONSAI_render_ARM_Material_Measured;
+        case bonsai_scene::MaterialTag::Mix:
+            return BONSAI_render_ARM_Material_Mixed;
+        case bonsai_scene::MaterialTag::Subsurface:
+            return BONSAI_render_ARM_Material_Subsurface;
+        case bonsai_scene::MaterialTag::Hair:
+            return BONSAI_render_ARM_Material_Hair;
+        }
+        return 0;
+    };
+#endif
 #if BONSAI_render_HAS_material_arms
-    // pbrt's haveBasicEvalMaterial computed at load time
-    // (wavefront/integrator.cpp): which Material arms this scene's pool
-    // holds, bit by arm, for the launch gates (SSA/GateDrains.h) to skip
-    // the material kernels nothing can feed -- and, through the push graph,
-    // the BSSRDF chain when no material is subsurface (pbrt's
-    // haveSubsurface). A mix's components are material records of their
-    // own, so their bits set themselves. `_ALL` would be sound; the scene
-    // is known, so say so.
+    // A material split on its own (no texture-evaluator split above it):
+    // which Material arms this scene's pool holds, bit by arm, so the
+    // gates skip the material kernels nothing can feed -- and, through the
+    // push graph, the BSSRDF chain when no material is subsurface (pbrt's
+    // haveSubsurface).
     uint64_t material_arms = 0;
     for (const bonsai_scene::Material &m : loaded.materials) {
-        switch (m.tag) {
-        case bonsai_scene::MaterialTag::Interface:
-            break; // no material made; shapes under it carry -1
-        case bonsai_scene::MaterialTag::Diffuse:
-            material_arms |= BONSAI_render_ARM_Material_Diffuse;
-            break;
-        case bonsai_scene::MaterialTag::CoatedDiffuse:
-            material_arms |= BONSAI_render_ARM_Material_CoatedDiffuse;
-            break;
-        case bonsai_scene::MaterialTag::CoatedConductor:
-            material_arms |= BONSAI_render_ARM_Material_CoatedConductor;
-            break;
-        case bonsai_scene::MaterialTag::Dielectric:
-            material_arms |= BONSAI_render_ARM_Material_Dielectric;
-            break;
-        case bonsai_scene::MaterialTag::ThinDielectric:
-            material_arms |= BONSAI_render_ARM_Material_ThinDielectric;
-            break;
-        case bonsai_scene::MaterialTag::Conductor:
-            material_arms |= BONSAI_render_ARM_Material_Conductor;
-            break;
-        case bonsai_scene::MaterialTag::DiffuseTransmission:
-            material_arms |= BONSAI_render_ARM_Material_DiffuseTransmission;
-            break;
-        case bonsai_scene::MaterialTag::Measured:
-            material_arms |= BONSAI_render_ARM_Material_Measured;
-            break;
-        case bonsai_scene::MaterialTag::Mix:
-            material_arms |= BONSAI_render_ARM_Material_Mixed;
-            break;
-        case bonsai_scene::MaterialTag::Subsurface:
-            material_arms |= BONSAI_render_ARM_Material_Subsurface;
-            break;
-        case bonsai_scene::MaterialTag::Hair:
-            material_arms |= BONSAI_render_ARM_Material_Hair;
-            break;
+        material_arms |= material_arm(m.tag);
+    }
+#endif
+#if BONSAI_render_HAS_textureevaluator_arms
+    // pbrt's haveBasicEvalMaterial / haveUniversalEvalMaterial by evaluator
+    // (wavefront/integrator.cpp): whether any material of the scene goes to
+    // the basic material queues -- its textures, the displacement included,
+    // all constants or images (BasicTextureEvaluator::CanEvaluate) -- and
+    // whether any goes to the universal ones. The rule is the program's
+    // material_evaluator (bxdf.bonsai), which routes each hit; this asks the
+    // same question once of the pool, for the launch gates
+    // (SSA/GateDrains.h), so that a scene whose materials all read constants
+    // and images never launches the universal kernels, as pbrt never does.
+    uint64_t textureevaluator_arms = 0;
+    // And under each evaluator, which materials go there: pbrt's
+    // haveBasicEvalMaterial[tag] and haveUniversalEvalMaterial[tag], the
+    // masks of the material split under each evaluator's queue, so that
+    // the kernel of a material with the other evaluator is never launched.
+#if BONSAI_render_HAS_basic_material_arms
+    uint64_t basic_material_arms = 0;
+#endif
+#if BONSAI_render_HAS_universal_material_arms
+    uint64_t universal_material_arms = 0;
+#endif
+    {
+        const auto basic_texture = [&](int32_t t) {
+            return t < 0 ||
+                   loaded.textures[size_t(t)].kind == bonsai_scene::TextureKind::Image ||
+                   loaded.textures[size_t(t)].kind == bonsai_scene::TextureKind::Constant;
+        };
+        for (const bonsai_scene::Material &m : loaded.materials) {
+            if (m.tag == bonsai_scene::MaterialTag::Interface) {
+                continue;
+            }
+            bool basic = basic_texture(m.displacement_texture);
+            switch (m.tag) {
+            case bonsai_scene::MaterialTag::Diffuse:
+                basic = basic && basic_texture(m.reflectance_texture);
+                break;
+            case bonsai_scene::MaterialTag::CoatedDiffuse:
+                basic = basic && basic_texture(m.u_roughness_texture) &&
+                        basic_texture(m.v_roughness_texture) &&
+                        basic_texture(m.thickness_texture) && basic_texture(m.g_texture) &&
+                        basic_texture(m.reflectance_texture);
+                break;
+            case bonsai_scene::MaterialTag::CoatedConductor:
+                basic = basic && basic_texture(m.u_roughness_texture) &&
+                        basic_texture(m.v_roughness_texture) &&
+                        basic_texture(m.thickness_texture) && basic_texture(m.g_texture) &&
+                        basic_texture(m.conductor_u_roughness_texture) &&
+                        basic_texture(m.conductor_v_roughness_texture) &&
+                        (!m.conductor_from_reflectance ||
+                         basic_texture(m.reflectance_texture));
+                break;
+            case bonsai_scene::MaterialTag::Dielectric:
+            case bonsai_scene::MaterialTag::Subsurface:
+                basic = basic && basic_texture(m.u_roughness_texture) &&
+                        basic_texture(m.v_roughness_texture);
+                break;
+            case bonsai_scene::MaterialTag::Conductor:
+                basic = basic && basic_texture(m.u_roughness_texture) &&
+                        basic_texture(m.v_roughness_texture) &&
+                        (!m.conductor_from_reflectance ||
+                         basic_texture(m.reflectance_texture));
+                break;
+            case bonsai_scene::MaterialTag::DiffuseTransmission:
+                basic = basic && basic_texture(m.reflectance_texture) &&
+                        basic_texture(m.transmittance_texture);
+                break;
+            case bonsai_scene::MaterialTag::Mix:
+                basic = basic && basic_texture(m.mix_amount_texture);
+                break;
+            case bonsai_scene::MaterialTag::Hair:
+                basic = basic && basic_texture(m.eumelanin_texture) &&
+                        basic_texture(m.pheomelanin_texture) &&
+                        basic_texture(m.eta_texture) && basic_texture(m.beta_m_texture) &&
+                        basic_texture(m.beta_n_texture) && basic_texture(m.alpha_texture) &&
+                        basic_texture(m.reflectance_texture);
+                break;
+            default: // ThinDielectric, Measured: no textures
+                break;
+            }
+            textureevaluator_arms |= basic ? BONSAI_render_ARM_TextureEvaluator_Basic
+                                           : BONSAI_render_ARM_TextureEvaluator_Universal;
+#if BONSAI_render_HAS_basic_material_arms
+            if (basic) {
+                basic_material_arms |= material_arm(m.tag);
+            }
+#endif
+#if BONSAI_render_HAS_universal_material_arms
+            if (!basic) {
+                universal_material_arms |= material_arm(m.tag);
+            }
+#endif
         }
     }
 #endif
@@ -3304,13 +3400,28 @@ int main(int argc, char **argv) {
                tree, &b_inst_pool, &b_sphere_pool, &b_triangle_pool,
                &b_disk_pool, &b_patch_pool, &b_cylinder_pool,
                &b_curve_pool
-#if BONSAI_render_HAS_material_arms
-               // The split's arm mask lands before the queues' storage: the
-               // mask parameter is added when the gates are built
+               // The splits' arm masks land before the queues' storage,
+               // parents before children and otherwise in the order the
+               // schedule wrote the splits (the texture evaluator's, then
+               // the material's under Basic, then under Universal): the
+               // mask parameters are added when the gates are built
                // (SSA/GateDrains.h), the extern queue buffers later, when
                // the storage is placed.
+#if BONSAI_render_HAS_textureevaluator_arms
+               ,
+               textureevaluator_arms
+#endif
+#if BONSAI_render_HAS_material_arms
                ,
                material_arms
+#endif
+#if BONSAI_render_HAS_basic_material_arms
+               ,
+               basic_material_arms
+#endif
+#if BONSAI_render_HAS_universal_material_arms
+               ,
+               universal_material_arms
 #endif
                    BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_POINTER));
         // Every launch is asynchronous (runtime/bonsai_cuda.h), and `render`

@@ -1295,7 +1295,11 @@ func resolve_material(index : i32, p : vec3f, wo : vec3f, n : vec3f,
                 zero = vec3f{0.0, 0.0, 0.0};
                 ctx : TextureEvalContext = {p, zero, zero, n, uv, 0.0, 0.0, 0.0,
                                             0.0};
-                amt = float_param_at(mix.amount, ctx);
+                // pbrt: `mix->ChooseMaterial(BasicTextureEvaluator(), ctx)`
+                // (wavefront/intersect.h): the amount read by the basic
+                // evaluator, which answers zero for a texture it does not
+                // take.
+                amt = float_param_at(mix.amount, ctx, Basic());
                 if amt <= 0.0 {
                     m = mix.first;
                 } else if amt >= 1.0 {
@@ -1584,7 +1588,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // `bsdf.f(wo, wp) * AbsDot(wp, shading.n)`.
     diffs = approximate_differentials(surf, camera, spp_scale);
     hit = material_frame(surf, material_normal_map[mat],
-                         material_displacement[mat], diffs);
+                         material_displacement[mat], diffs, Universal());
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     // pbrt: GetBSDF takes `lambda` by reference, and a dispersive interface
     // terminates the secondary wavelengths in it (DielectricMaterial::
@@ -1596,7 +1600,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         visible.lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, false,
-                         texture_context(hit, diffs));
+                         texture_context(hit, diffs), Universal());
     u = get_2d(sampler, state);
     wp = sample_uniform_sphere(u);
     fcos = bxdf_f(bsdf, frame_to_local(shading, wo),
@@ -1727,7 +1731,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // then the displacement, then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
     hit = material_frame(surf, material_normal_map[mat],
-                         material_displacement[mat], diffs);
+                         material_displacement[mat], diffs, Universal());
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     // pbrt: GetBSDF's `SampledWavelengths &lambda` -- a dispersive interface
     // terminates the secondary wavelengths, and everything after reads `lam`,
@@ -1738,7 +1742,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         visible.lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, false,
-                         texture_context(hit, diffs));
+                         texture_context(hit, diffs), Universal());
     ctx : ShapeSampleContext = {surf.p, surf.p_error, surf.n, hit.ns};
 
     // Direct lighting: pick a light, pick a point on it, and connect.
@@ -2033,7 +2037,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // the frame is built -- and only then the material.
     diffs = approximate_differentials(surf, camera, spp_scale);
     hit = material_frame(surf, material_normal_map[mat],
-                         material_displacement[mat], diffs);
+                         material_displacement[mat], diffs, Universal());
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     // pbrt: GetBSDF's `SampledWavelengths &lambda` -- a dispersive interface
     // terminates the secondary wavelengths, and everything after reads `lam`:
@@ -2045,7 +2049,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         visible.lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, do_regularize,
-                         texture_context(hit, diffs));
+                         texture_context(hit, diffs), Universal());
     flags = bxdf_flags(bsdf);
 
     // pbrt: `if (depth == 0 && visibleSurf)`, the one place the gbuffer is
@@ -2611,6 +2615,46 @@ element MediumEvent {
     g : Float;
 }
 
+// pbrt: RaySamples (wavefront/workitems.h), the bounce's draws from the
+// sampler, made for every ray of a round before it is traced -- the
+// wavefront's GenerateRaySamples kernel (wavefront/samples.cpp) -- and read
+// by whichever kernel the ray reaches: the light's `uc` and `u` (direct),
+// the BSDF's or the phase function's `uc` and `u` and roulette's `rr`
+// (indirect), and in a scene with a subsurface material the probe
+// segment's `uc` and `u`.
+element RaySamples {
+    direct_uc : Float;
+    direct_u : vec2f;
+    indirect_uc : Float;
+    indirect_u : vec2f;
+    indirect_rr : Float;
+    subsurface_uc : Float;
+    subsurface_u : vec2f;
+}
+
+// pbrt: GenerateRaySamples' draws, in its order, from a sampler state
+// already started at the bounce's dimensions (vol_path_step). The three
+// subsurface draws are made when the scene has a subsurface material,
+// whether or not this ray's surface is one, as pbrt's `if (haveSubsurface)`
+// has it; without one they are zero and nothing reads them.
+func vol_ray_samples(sampler : Sampler, state : mut SamplerState,
+                     have_subsurface : bool) -> RaySamples {
+    direct_uc = get_1d(sampler, state);
+    direct_u = get_2d(sampler, state);
+    indirect_uc = get_1d(sampler, state);
+    indirect_u = get_2d(sampler, state);
+    indirect_rr = get_1d(sampler, state);
+    subsurface_uc : mut Float = 0.0;
+    subsurface_u : mut vec2f = vec2f{0.0, 0.0};
+    if have_subsurface {
+        subsurface_uc = get_1d(sampler, state);
+        subsurface_u = get_2d(sampler, state);
+    }
+    rs : RaySamples = {direct_uc, direct_u, indirect_uc, indirect_u,
+                       indirect_rr, subsurface_uc, subsurface_u};
+    return rs;
+}
+
 // pbrt: SampleT_maj with the medium kernel's callback (wavefront/media.cpp,
 // SampleMediumInteraction; the CPU integrator's is the same but for its
 // draws), over the medium's majorant segments (media.bonsai, majorant_next):
@@ -2763,18 +2807,28 @@ func vol_path_step(ray : Ray, medium : i32,
                    l : reduce(+) vec4f) -> void {
     // pbrt: GenerateRaySamples -- the sampler started again at the bounce's
     // own dimensions, `6 + 7 * depth` (wavefront/samples.cpp:39-61), for
-    // every ray of the round; the kernels after draw from there in a fixed
-    // order (the light's `uc` and `u`, the BSDF's or the phase function's
-    // `uc` and `u`, roulette's), so a path's draws do not run on from
+    // every ray of the round, and the bounce's draws all made here, before
+    // the trace, in a fixed order (the light's `uc` and `u`, the BSDF's or
+    // the phase function's `uc` and `u`, roulette's), for whichever kernel
+    // the ray reaches to read (`rs`); so a path's draws do not run on from
     // wherever its last bounce left them as the CPU integrator's do. A ray
     // re-traced at the same depth after a boundary crossing draws the same
     // values again, as pbrt's does. In a scene with a subsurface material
     // every bounce draws three more -- the probe segment's `uc` and `u` --
     // whether or not its surface is one (`if (haveSubsurface) dimension +=
     // 3 * w.depth`), so every path's samples move when one material does.
+    // pbrt makes these a kernel of its own ahead of the trace, with the
+    // values stored beside the ray; here they are made in the same launch
+    // as the trace, the one place the GPU schedules differ from pbrt's
+    // kernels by the user's decision (2026-10-09): measured, the sampler's
+    // cost is close to the same wherever it runs (REPORT.md, "The sample
+    // stage"), a stage of its own copies the ray's state once more per
+    // bounce, and a pass over the same queue twice is not a form the
+    // schedule has.
     state = start_pixel_sample_at(sampler, state,
                                   6 + 7 * depth_in +
                                       select(have_subsurface, 3 * depth_in, 0));
+    rs = vol_ray_samples(sampler, state, have_subsurface);
     isect = trace(RaySegment{ray, inf});
 
     // pbrt: `if (ray.medium)` -- a ray in a medium goes to the medium kernel
@@ -2791,14 +2845,15 @@ func vol_path_step(ray : Ray, medium : i32,
         vol_medium_sample(isect, ray, medium, camera, spp_scale,
                           beta_in, r_u_in, r_l_in, depth_in, wave,
                           specular_bounce, any_non_specular, eta_scale,
-                          prev_ctx, lambda, sampler, state, ls, set, have_media,
-                          seed, max_depth, regularize, have_subsurface,
-                          want_visible, visible, l);
+                          prev_ctx, lambda, sampler, state, rs, ls, set,
+                          have_media, seed, max_depth, regularize,
+                          have_subsurface, want_visible, visible, l);
         return;
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
               r_l_in, depth_in, wave, specular_bounce, any_non_specular,
-              eta_scale, prev_ctx, lambda, sampler, state, ls, set, have_media,
+              eta_scale, prev_ctx, lambda, sampler, state, rs, ls, set,
+              have_media,
               seed, max_depth, regularize, have_subsurface, want_visible,
               visible, l);
     return;
@@ -2823,7 +2878,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                        any_non_specular : bool, eta_scale : Float,
                        prev_ctx : ShapeSampleContext,
                        lambda : SampledWavelengths, sampler : Sampler,
-                       state : mut SamplerState, ls : LightSampler,
+                       state : mut SamplerState, rs : RaySamples,
+                       ls : LightSampler,
                        set : LightSet, have_media : bool, seed : i32,
                        max_depth : i32, regularize : bool,
                        have_subsurface : bool, want_visible : bool,
@@ -2874,8 +2930,8 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
             return;
         }
         vol_medium_scatter(event, ray, medium, camera, spp_scale,
-                           eta_scale, wave, lambda, sampler, state, ls, set,
-                           have_media, seed, max_depth, regularize,
+                           eta_scale, wave, lambda, sampler, state, rs, ls,
+                           set, have_media, seed, max_depth, regularize,
                            have_subsurface, want_visible, visible, l);
         return;
     }
@@ -2895,7 +2951,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_out, r_u_out, r_l_out,
               depth, wave, specular_bounce, any_non_specular, eta_scale,
-              prev_ctx, lambda, sampler, state, ls, set, have_media, seed,
+              prev_ctx, lambda, sampler, state, rs, ls, set, have_media, seed,
               max_depth, regularize, have_subsurface, want_visible, visible, l);
     return;
 }
@@ -2914,7 +2970,8 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         camera : PerspectiveCamera,
                         spp_scale : Float, eta_scale : Float, wave : i32,
                         lambda : SampledWavelengths, sampler : Sampler,
-                        state : mut SamplerState, ls : LightSampler,
+                        state : mut SamplerState, rs : RaySamples,
+                        ls : LightSampler,
                         set : LightSet, have_media : bool, seed : i32,
                         max_depth : i32, regularize : bool,
                         have_subsurface : bool, want_visible : bool,
@@ -2925,14 +2982,15 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
     pt : ScatterPoint = {event.p, zero3, zero3, zero3, medium, medium, medium};
     none : DiffuseBxDF = {vec4f{0.0, 0.0, 0.0, 0.0}};
     no_frame = frame_from_z(vec3f{0.0, 0.0, 1.0});
-    direct_uc = get_1d(sampler, state);
-    direct_u = get_2d(sampler, state);
+    // The bounce's draws, made for the ray before it was traced
+    // (vol_ray_samples, pbrt's GenerateRaySamples); `indirect.uc` is drawn
+    // for the bounce and not read here, the phase function taking `u` alone.
+    direct_uc = rs.direct_uc;
+    direct_u = rs.direct_u;
     vol_sample_ld(pt, false, false, Lambertian(none), no_frame, wo, 0, event.g,
                   event.beta, event.r_u, lambda, direct_uc, direct_u, ls,
                   have_media, seed, l);
-    // pbrt: `raySamples.indirect.uc`, drawn for the bounce and not read here.
-    unused_uc = get_1d(sampler, state);
-    u2 = get_2d(sampler, state);
+    u2 = rs.indirect_u;
     ps = sample_hg(wo, event.g, u2);
     if ps.pdf == 0.0 {
         return;
@@ -2945,7 +3003,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
     // scattering, which the event carries incremented -- with the draw
     // taken from the bounce's samples whether or not the test runs.
     rr_beta = max_component(next_beta * eta_scale / average4(event.r_u));
-    u_rr = get_1d(sampler, state);
+    u_rr = rs.indirect_rr;
     survived : mut vec4f = next_beta;
     if (rr_beta < 1.0) && (event.depth - 1 >= 1) {
         q = max(0.0, 1.0 - rr_beta);
@@ -2980,7 +3038,8 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                any_non_specular : bool,
                eta_scale : Float, prev_ctx : ShapeSampleContext,
                lambda : SampledWavelengths, sampler : Sampler,
-               state : mut SamplerState, ls : LightSampler, set : LightSet,
+               state : mut SamplerState, rs : RaySamples, ls : LightSampler,
+               set : LightSet,
                have_media : bool, seed : i32, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
                visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
@@ -3061,9 +3120,16 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
     if wave == max_depth {
         return;
     }
-    vol_surface(ray, medium, camera, spp_scale, via, prim, mat, surf, beta,
-                r_u, r_l, depth, wave, specular_bounce, any_non_specular,
-                eta_scale, prev_ctx, lambda, sampler, state, ls, set,
+    // pbrt: the trace kernel picks the hit's material queue by texture
+    // evaluator (wavefront/intersect.h: basicEvalMaterialQueue for a material
+    // whose textures, displacement included, are all constants or images,
+    // universalEvalMaterialQueue otherwise), so the common kernel carries
+    // only the leaf readers; a schedule splits `hits` on this value
+    // (`hits.specialize(evaluator)`).
+    evaluator = material_evaluator(materials[mat], material_displacement[mat]);
+    vol_surface(ray, medium, camera, spp_scale, via, prim, mat, evaluator, surf,
+                beta, r_u, r_l, depth, wave, specular_bounce, any_non_specular,
+                eta_scale, prev_ctx, lambda, sampler, state, rs, ls, set,
                 have_media, seed, max_depth, regularize, have_subsurface,
                 want_visible, visible, l);
     return;
@@ -3130,12 +3196,14 @@ func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
 // (pbrt's MaterialEvalWorkItem holds the hit and the path).
 func vol_surface(ray : Ray, medium : i32,
                  camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
-                 prim : Geometric, mat : i32, surf : SurfaceGeometry, beta : vec4f,
+                 prim : Geometric, mat : i32, evaluator : TextureEvaluator,
+                 surf : SurfaceGeometry, beta : vec4f,
                  r_u : vec4f, r_l : vec4f, depth : i32, wave : i32,
                  specular_bounce : bool,
                  any_non_specular : bool, eta_scale : Float,
                  prev_ctx : ShapeSampleContext, lambda : SampledWavelengths,
-                 sampler : Sampler, state : mut SamplerState, ls : LightSampler,
+                 sampler : Sampler, state : mut SamplerState, rs : RaySamples,
+                 ls : LightSampler,
                  set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                  regularize : bool, have_subsurface : bool, want_visible : bool,
                  visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
@@ -3155,7 +3223,7 @@ func vol_surface(ray : Ray, medium : i32,
     do_regularize = regularize && any_non_specular;
     diffs = approximate_differentials(surf, camera, spp_scale);
     hit = material_frame(surf, material_normal_map[mat],
-                         material_displacement[mat], diffs);
+                         material_displacement[mat], diffs, evaluator);
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     // pbrt: the material kernel's `SampledWavelengths lambda = w.lambda`,
     // which GetBSDF terminates at a dispersive interface and which the
@@ -3168,7 +3236,7 @@ func vol_surface(ray : Ray, medium : i32,
         visible.lambda = lam;
     }
     bsdf = material_bxdf(material, lam, do_regularize,
-                         texture_context(hit, diffs));
+                         texture_context(hit, diffs), evaluator);
     flags = bxdf_flags(bsdf);
 
     // pbrt: the visible surface at the first vertex, as in `full_path_step`.
@@ -3187,11 +3255,12 @@ func vol_surface(ray : Ray, medium : i32,
 
     // pbrt: direct lighting where the BSDF has a density to weigh it with,
     // through whatever media the shadow ray crosses. Its two samples are the
-    // bounce's first three dimensions whether or not it is taken, as the
-    // wavefront's GenerateRaySamples draws them (the CPU integrator draws
-    // them only inside the test).
-    direct_uc = get_1d(sampler, state);
-    direct_u = get_2d(sampler, state);
+    // bounce's first three dimensions, drawn for the ray before it was
+    // traced whether or not this test takes them (vol_ray_samples, pbrt's
+    // GenerateRaySamples; the CPU integrator draws them only inside the
+    // test).
+    direct_uc = rs.direct_uc;
+    direct_u = rs.direct_u;
     if is_non_specular(flags) {
         pt : ScatterPoint = {surf.p, surf.p_error, surf.n, hit.ns, medium,
                              prim.medium_inside, prim.medium_outside};
@@ -3204,8 +3273,8 @@ func vol_surface(ray : Ray, medium : i32,
     // it chose -- the real density where the BSDF's own was only
     // proportional (a layered BSDF's).
     wo_local = frame_to_local(shading, wo);
-    uc = get_1d(sampler, state);
-    u = get_2d(sampler, state);
+    uc = rs.indirect_uc;
+    u = rs.indirect_u;
     bs = bxdf_sample_f(bsdf, wo_local, uc, u, seed);
     if !bs {
         return;
@@ -3228,14 +3297,16 @@ func vol_surface(ray : Ray, medium : i32,
     next_ray = spawn_ray(surf, wi);
     next_medium = get_medium(prim, surf.n, wi, medium);
 
-    // pbrt: Russian roulette on `beta * etaScale / r_u.Average()`. The draw
-    // is taken before the test -- `Float uRR = sampler.Get1D()` -- which is
-    // the one place volpath's stream differs from path's.
+    // pbrt: Russian roulette on `beta * etaScale / r_u.Average()`, with the
+    // bounce's roulette draw (`raySamples.indirect.rr`), made for the ray
+    // before it was traced whether or not the test runs -- the CPU
+    // integrator's `Float uRR = sampler.Get1D()` ahead of its test is the
+    // one place volpath's stream differs from path's.
     if !nonzero(next_beta) {
         return;
     }
     rr_beta = max_component(next_beta * next_eta_scale / average4(r_u));
-    u_rr = get_1d(sampler, state);
+    u_rr = rs.indirect_rr;
     survived : mut vec4f = next_beta;
     if (rr_beta < 1.0) && (next_depth > 1) {
         q = max(0.0, 1.0 - rr_beta);
@@ -3259,9 +3330,10 @@ func vol_surface(ray : Ray, medium : i32,
     if have_subsurface && is_transmissive(sample.flags) {
         maybe_ss = material_subsurface(material);
         if maybe_ss {
-            vol_subsurface(*maybe_ss, medium, camera, spp_scale, prim, mat, surf,
+            vol_subsurface(*maybe_ss, medium, camera, spp_scale, prim, mat,
+                           surf,
                            hit, texture_context(hit, diffs), survived, r_u,
-                           depth, wave, next_eta_scale, lam, sampler, state,
+                           depth, wave, next_eta_scale, lam, sampler, state, rs,
                            direct_uc, direct_u, uc, u, u_rr, ls, set, have_media,
                            seed, max_depth, regularize, have_subsurface,
                            want_visible, visible, l);
@@ -3293,20 +3365,30 @@ func vol_surface(ray : Ray, medium : i32,
 // (pbrt's `ns` and `dpdus` in the work item), `surf` the shape's own.
 func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
                     camera : PerspectiveCamera, spp_scale : Float,
-                    prim : Geometric, mat : i32, surf : SurfaceGeometry,
+                    prim : Geometric, mat : i32,
+                    surf : SurfaceGeometry,
                     hit : SurfaceGeometry, ctx : TextureEvalContext,
                     beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
                     eta_scale : Float, lam : SampledWavelengths,
                     sampler : Sampler, state : mut SamplerState,
+                    rs : RaySamples,
                     direct_uc : Float, direct_u : vec2f, uc : Float, u : vec2f,
                     u_rr : Float, ls : LightSampler, set : LightSet,
                     have_media : bool, seed : i32, max_depth : i32,
                     regularize : bool, have_subsurface : bool,
                     want_visible : bool, visible : mut VisibleSurface,
                     l : reduce(+) vec4f) -> void {
-    bssrdf = material_bssrdf(ss, lam, ctx, surf.p, hit.ns);
-    sub_uc = get_1d(sampler, state);
-    sub_u = get_2d(sampler, state);
+    // pbrt: `material->GetBSSRDF(BasicTextureEvaluator(), ctx, lambda)`
+    // (wavefront/subsurface.cpp) -- the BSSRDF kernel reads the material's
+    // textures with the basic evaluator whichever material queue, basic or
+    // universal, the hit came through, so the evaluator is not carried in
+    // the queue entry (and a queue specialized by it would not copy this
+    // function along).
+    bssrdf = material_bssrdf(ss, lam, ctx, Basic(), surf.p, hit.ns);
+    // pbrt: `raySamples.subsurface.uc` and `.u`, the bounce's last three
+    // dimensions, drawn for the ray before it was traced (vol_ray_samples).
+    sub_uc = rs.subsurface_uc;
+    sub_u = rs.subsurface_u;
     seg = bssrdf_sample_sp(bssrdf, sub_uc, sub_u);
     if !seg {
         return;

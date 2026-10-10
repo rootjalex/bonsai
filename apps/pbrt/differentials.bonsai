@@ -324,7 +324,7 @@ func shading_from(g : SurfaceGeometry, dpdu : vec3f,
 // a hit with no footprint at all.
 //
 // It ends as the normal map does, in `shading_from`.
-func bump_map(displacement : i32, g : SurfaceGeometry,
+func bump_map(evaluator : TextureEvaluator, displacement : i32, g : SurfaceGeometry,
               d : Differentials) -> SurfaceGeometry {
     du_raw = 0.5 * (abs(d.dudx) + abs(d.dudy));
     du = select(du_raw == 0.0, 0.0005, du_raw);
@@ -342,9 +342,9 @@ func bump_map(displacement : i32, g : SurfaceGeometry,
     shifted_v : TextureEvalContext =
         {ctx.p + dv * g.dpdvs, ctx.dpdx, ctx.dpdy, ctx.n,
          ctx.uv + vec2f{0.0, dv}, ctx.dudx, ctx.dudy, ctx.dvdx, ctx.dvdy};
-    displace = eval_float(displacement, ctx);
-    u_displace = eval_float(displacement, shifted_u);
-    v_displace = eval_float(displacement, shifted_v);
+    displace = eval_float_by(evaluator, displacement, ctx);
+    u_displace = eval_float_by(evaluator, displacement, shifted_u);
+    v_displace = eval_float_by(evaluator, displacement, shifted_v);
 
     dpdu = g.dpdus + (u_displace - displace) / du * g.ns + displace * g.dndu;
     dpdv = g.dpdvs + (v_displace - displace) / dv * g.ns + displace * g.dndv;
@@ -382,12 +382,12 @@ func normal_map(level : TextureLevel, g : SurfaceGeometry) -> SurfaceGeometry {
 //
 // pbrt does this at the top of `GetBSDF`, before the material is asked for
 // anything, which is why it is here and not inside the material.
-func displaced(g : SurfaceGeometry, displacement : i32,
-               d : Differentials) -> SurfaceGeometry {
+func displaced(g : SurfaceGeometry, displacement : i32, d : Differentials,
+               evaluator : TextureEvaluator) -> SurfaceGeometry {
     if displacement < 0 {
         return g;
     }
-    return bump_map(displacement, g, d);
+    return bump_map(evaluator, displacement, g, d);
 }
 
 // pbrt: what a texture is asked about at a hit -- its position, its
@@ -416,9 +416,10 @@ func texture_context(g : SurfaceGeometry, d : Differentials) -> TextureEvalConte
 // (displacement)` has it. The two indices are the material's rows of
 // `material_normal_map` and `material_displacement`, negative for none.
 func material_frame(g : SurfaceGeometry, normal_map_level : i32,
-                    displacement : i32, d : Differentials) -> SurfaceGeometry {
+                    displacement : i32, d : Differentials,
+                    evaluator : TextureEvaluator) -> SurfaceGeometry {
     if normal_map_level >= 0 {
         return normal_map(texture_levels[cast[[u32]](normal_map_level)], g);
     }
-    return displaced(g, displacement, d);
+    return displaced(g, displacement, d, evaluator);
 }

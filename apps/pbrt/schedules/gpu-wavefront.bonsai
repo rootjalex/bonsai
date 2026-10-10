@@ -49,12 +49,19 @@ schedule {
     vol_route.defer(emissive_contribution, emissive);
     hits = render[VolPath].queue(p_band);
     vol_route.defer(vol_surface, hits);
-    hits.specialize(material);
+    // pbrt's two material queues per material type, by texture evaluator
+    // (see gpu-optix.bonsai): the evaluator first, the material under each.
+    hits.specialize(evaluator);
+    hits[Basic].specialize(material);
+    hits[Universal].specialize(material);
     shadow = render[VolPath].queue(p_band);
     vol_sample_ld.defer(shadow_contribution, shadow);
     // pbrt's subsurface queues, after the material kernels and their shadow
-    // rays (see gpu-optix.bonsai); the probe walk is a plain kernel here,
-    // the traversal being this program's own.
+    // rays (see gpu-optix.bonsai): the BSSRDF kernel over `bssrdfs`, pushed
+    // by the material kernel, then the probe walk, a plain kernel here, the
+    // traversal being this program's own.
+    bssrdfs = render[VolPath].queue(p_band);
+    vol_surface.defer(vol_subsurface, bssrdfs);
     probes = render[VolPath].queue(p_band);
     vol_subsurface.defer(vol_probe, probes);
     exits = render[VolPath].queue(p_band);
@@ -106,6 +113,9 @@ schedule {
     render.split(hits, hits_blk, hits_thr, 256, true);
     render.bind(hits_blk, GPUBlock);
     render.bind(hits_thr, GPUThread);
+    render.split(bssrdfs, bssrdfs_blk, bssrdfs_thr, 256, true);
+    render.bind(bssrdfs_blk, GPUBlock);
+    render.bind(bssrdfs_thr, GPUThread);
     render.split(probes, probes_blk, probes_thr, 256, true);
     render.bind(probes_blk, GPUBlock);
     render.bind(probes_thr, GPUThread);

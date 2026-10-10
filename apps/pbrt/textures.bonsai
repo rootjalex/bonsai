@@ -216,6 +216,21 @@ element Texture =
     | Marble(texture_from_render : Transform, octaves : i32, omega : Float,
              scale : Float, variation : Float);
 
+// pbrt: TextureEvaluator -- BasicTextureEvaluator and UniversalTextureEvaluator
+// (textures.h). The wavefront keeps two material queues per material type
+// (basicEvalMaterialQueue and universalEvalMaterialQueue, wavefront/
+// integrator.h): a hit whose material's textures are all constants or images
+// goes to the basic one, whose kernel carries only the leaf readers, and a hit
+// with any other texture -- a scale, a mix, a noise -- to the universal one,
+// whose kernel carries the whole graph. The trace kernel chooses
+// (wavefront/intersect.h, `material.CanEvaluateTextures(
+// BasicTextureEvaluator())` and the displacement's test; material_evaluator in
+// bxdf.bonsai), so that the common kernel stays small. A schedule splits the
+// hits on the choice (`hits.specialize(evaluator)`, schedules/gpu-optix.bonsai).
+element TextureEvaluator =
+    | Basic
+    | Universal;
+
 extern textures : array[Texture];
 extern texture_levels : array[TextureLevel];
 extern texture_texels : array[vec3f];
@@ -1165,5 +1180,89 @@ func eval_spectrum(index : i32, ctx : TextureEvalContext,
 // The filtered colour of the texture at `index` before it is read as a
 // number or fitted, for check_differentials.sh's `texrgb` rows: only the
 // root is read, since the rows are for the image filter.
+// pbrt: BasicTextureEvaluator::CanEvaluate for one texture: a constant or an
+// image (pbrt's FloatConstantTexture and FloatImageTexture, with the Ptex and
+// GPU image textures, all `Image` here); no texture is one too. The float and
+// spectrum cases are the same test, one `Texture` serving both.
+func texture_is_basic(index : i32) -> bool {
+    if index < 0 {
+        return true;
+    }
+    t = textures[cast[[u32]](index)];
+    match t {
+        Image(i) => return true;
+        Constant(value, rgb) => return true;
+        Scale(tex, scale) => return false;
+        Mix(tex1, tex2, amount) => return false;
+        DirectionMix(tex1, tex2, dir) => return false;
+        FBm(texture_from_render, octaves, omega) => return false;
+        Wrinkled(texture_from_render, octaves, omega) => return false;
+        Windy(texture_from_render) => return false;
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return false;
+    }
+}
+
+// pbrt: BasicTextureEvaluator::operator() -- a constant or an image read, and
+// zero for any other texture (textures.h, `return 0.f` and the zero
+// spectrum), which a basic material queue never holds (texture_is_basic) and
+// a mix's amount may (render.bonsai, resolve_material, as pbrt's trace kernel
+// resolves a mix with this evaluator).
+func basic_eval_float(index : i32, ctx : TextureEvalContext) -> Float {
+    t = textures[cast[[u32]](index)];
+    match t {
+        Image(i) => return texture_float(i, ctx);
+        Constant(value, rgb) => return value;
+        Scale(tex, scale) => return 0.0;
+        Mix(tex1, tex2, amount) => return 0.0;
+        DirectionMix(tex1, tex2, dir) => return 0.0;
+        FBm(texture_from_render, octaves, omega) => return 0.0;
+        Wrinkled(texture_from_render, octaves, omega) => return 0.0;
+        Windy(texture_from_render) => return 0.0;
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return 0.0;
+    }
+}
+
+func basic_eval_spectrum(index : i32, ctx : TextureEvalContext,
+                         lambda : SampledWavelengths) -> vec4f {
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    t = textures[cast[[u32]](index)];
+    match t {
+        Image(i) => return texture_albedo(i, ctx, lambda);
+        Constant(value, rgb) => return spectrum_at(rgb_to_sigmoid(rgb), lambda);
+        Scale(tex, scale) => return zero;
+        Mix(tex1, tex2, amount) => return zero;
+        DirectionMix(tex1, tex2, dir) => return zero;
+        FBm(texture_from_render, octaves, omega) => return zero;
+        Wrinkled(texture_from_render, octaves, omega) => return zero;
+        Windy(texture_from_render) => return zero;
+        Marble(texture_from_render, octaves, omega, scale, variation) =>
+            return zero;
+    }
+}
+
+// pbrt: `texEval(tex, ctx)` -- a texture read by the evaluator the hit's
+// queue was chosen under: the basic reads a leaf and nothing else, the
+// universal the whole graph. In a kernel specialized on the evaluator
+// (`hits.specialize(evaluator)`) the other arm is gone, which is what makes
+// the basic kernel the small one pbrt's is.
+func eval_float_by(evaluator : TextureEvaluator, index : i32,
+                   ctx : TextureEvalContext) -> Float {
+    match evaluator {
+        Basic => return basic_eval_float(index, ctx);
+        Universal => return eval_float(index, ctx);
+    }
+}
+
+func eval_spectrum_by(evaluator : TextureEvaluator, index : i32,
+                      ctx : TextureEvalContext,
+                      lambda : SampledWavelengths) -> vec4f {
+    match evaluator {
+        Basic => return basic_eval_spectrum(index, ctx, lambda);
+        Universal => return eval_spectrum(index, ctx, lambda);
+    }
+}
+
 func eval_rgb(index : i32, ctx : TextureEvalContext) -> vec3f =
     eval_rgb_leaf(textures[cast[[u32]](index)], ctx);

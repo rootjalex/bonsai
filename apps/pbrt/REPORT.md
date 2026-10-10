@@ -19,7 +19,20 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
-## Where it stands (2026-10-09, 09:30)
+## Where it stands (2026-10-09, 09:30; the evening's addendum first)
+
+**Evening of 10-09: pbrt's structure is matched.** The gpu-optix schedule
+now has pbrt's queues and kernels one for one -- the material queues split
+by texture evaluator and by material under each, the BSSRDF kernel over a
+queue of its own -- with the one difference of the sampler calls made at
+the top of the trace launch rather than in a kernel of their own (the
+decision taken after "The sample stage" below). Images are byte-identical
+to the sweep's on the seven scenes checked. The cost against the morning's
+sweep is the placement of those calls: nothing on the villas and killeroo,
+3.8 ms on head, 132 ms (17%) on kroken, whose trace launch grew 193 to 299
+ms ("pbrt's structure, matched" below). The next sweep runs with the GPU
+clock locked, which every GPU number from 10-10 on does; the numbers below
+are the unlocked morning's.
 
 **Every cell of the sweep is faster than pbrt --gpu.** The 30-scene, three-
 sample-count sweep run after the fix below (`heatmap.sh`, 10-09 07:00 to
@@ -66,6 +79,30 @@ kernel (the "materials with their sample draws" view adds the two), and
 pbrt's profile lists the launches it made for a material no ray reached
 (empty launches at its floor of about 0.015 ms each), which ours never
 makes.
+
+### Why the speedup moves with the sample count (Matt Pharr's question, 10-09)
+
+Both renderers scale linearly in their kernels: per sample, pbrt's kernel
+time at 128 spp over its time at 16 spp has a median of 1.002 across the
+30 scenes and ours 1.001, and the ratio of our kernel time to pbrt's is the
+same at both counts (median 0.697 and 0.696). pbrt's two exceptions are
+kroken (0.81) and watercolor (0.98), the texture-heaviest scenes, whose
+16-spp kernels carry a cold-texture cost. The GPU's clocks are not locked
+by the harness (the RTX 5090 idles at 180 MHz and boosts to about 3 GHz;
+`nvidia-smi -lgc` needs root), but these numbers show no clock effect.
+
+The variation is in the wall times' overheads. pbrt's render timer carries
+a fixed cost beyond its kernels, a median of 75 ms per render at any count;
+ours carries about 8 ms at 16 spp that grows with the count, 20 to 40 µs
+per wavefront round: the round loop reads the ray queue's count back from
+the device each round to decide whether to go on (a synchronization per
+round), where pbrt runs maxDepth rounds blind and launches every kernel,
+empty or not. So at 16 spp pbrt's fixed cost flatters our speedup and at
+128 spp our per-round readback eats into it: killeroo is 2.88x by wall at
+16 spp, 1.55x at 128, and 1.45x by kernels at both. The 64 and 128 spp
+rows of the heatmap are the ones to trust; the remedy is pbrt's own loop,
+a fixed round count from the program's `max_depth` with no readback (PLAN.md,
+deferred).
 
 ### The fix behind it
 
@@ -182,23 +219,26 @@ does the same work over the same queue at the same point of the round.
 | Handle escaped rays | `escaped_blk` | yes |
 | Handle emitters hit by indirect rays | `emissive_blk` | yes |
 | `if (wavefrontDepth == maxDepth) break` -- the loop ends here, before the material kernels | ours runs the material drains at the last depth too, on empty queues (head: 48 launches against 32, 0.016 ms each) | nearly: a gate on the depth would drop them |
-| `<Material>Material + BxDF eval`, one kernel per material **and per texture evaluator** (Basic / Universal queues) | `hits_blk$<Material>`, one per material | nearly: no texture-evaluator split (pbrt keeps the common kernel's registers down by sending materials with image or mixed textures to a second kernel) |
+| `<Material>Material + BxDF eval`, one kernel per material **and per texture evaluator** (Basic / Universal queues) | `hits_blk$Basic$<Material>` and `hits_blk$Universal$<Material>` -- **from 10-09 evening**: `hits.specialize(evaluator)` then `hits[Basic].specialize(material)` and `hits[Universal].specialize(material)`; the trace routes a hit by `material_evaluator` (bxdf.bonsai), pbrt's per-material `CanEvaluateTextures` with the displacement, and the kernels read textures through `eval_*_by(evaluator, ...)` (textures.bonsai) | yes, from 10-09 evening (until then one kernel per material) |
 | Trace shadow rays / Tracing shadow Tr rays | `__raygen__shadow$<have_media>` | yes |
-| Get BSSRDF and enqueue probe ray (a kernel over `bssrdfEvalQueue`) | folded into `hits_blk$Subsurface`: `vol_subsurface` is the material kernel's tail | **no** -- a queue and kernel of its own in pbrt |
+| Get BSSRDF and enqueue probe ray (a kernel over `bssrdfEvalQueue`; the BSSRDF's textures read with `BasicTextureEvaluator()` whichever material queue the hit came through, wavefront/subsurface.cpp) | `bssrdfs_blk`, the drain of `bssrdfs` -- **from 10-09 evening**: `vol_surface.defer(vol_subsurface, bssrdfs)`, pushed by both evaluators' subsurface kernels; `vol_subsurface` reads the material's textures with `Basic()` as pbrt's kernel does (until then it was the subsurface material kernel's own tail) | yes, from 10-09 evening |
 | Tracing subsurface scattering probe rays (`__raygen__randomHit`) | `__raygen__probes` | yes |
 | Handle out-scattering after SSS | `exits_blk` | yes |
 | Trace shadow rays, the second pass | `__raygen__exit_shadow$<have_media>` | yes |
 | Update film (once per sample) | `rays_rest_blk` | yes |
 | the image from the film, after the last sample | `q_blk` | yes |
 
-So after the sample stage two structural differences remain: the BSSRDF
-kernel folded into the subsurface material kernel (a schedule change:
-`vol_surface.defer(vol_subsurface, bssrdfs)` with the probes deferred from
-it, measured on head and dragon next), and the texture-evaluator split of
-the material queues, which needs a per-material fact the program does not
-yet carry (whether every texture of the material is one the basic
-evaluator takes). The empty material launches at the last depth are a
-third, small one.
+After the sample stage two structural differences remained, the BSSRDF
+kernel folded into the subsurface material kernel and the material queues
+not split by texture evaluator; both are matched from the evening of
+10-09 (the rows above; the measurement is in "pbrt's structure, matched"
+below). What differs from pbrt now, by the user's decision: the sample
+kernel. pbrt draws a bounce's sampler values in a kernel of its own over
+the ray queue (GenerateRaySamples) and the trace kernel then reads the ray
+queue again; ours draws them at the top of the trace launch, one pass over
+the queue instead of two -- "The sample stage" below measured the two-pass
+form and it cost more than it saved. The empty material launches at the
+last depth are the one small difference left on pbrt's side.
 
 **The sample stage (10-09, 10:30).** `vol_ray_samples` draws the seven
 (or ten) dimensions at the top of `vol_path_step`, right after the sampler
@@ -282,9 +322,125 @@ except on frame542, where pbrt's own structure costs pbrt 182 ms of sample
 kernel at its launch floor. What the stage buys is parity of structure and
 of per-stage accounting, not time: an in-place stage would cost about what
 pbrt's sample kernel costs (8 ms on sanmiguel, 3.6 on killeroo) and break
-about even with the draws left in the material kernels. The committed
-state is the latter; the program and schedule change is uncommitted in the
-shared tree and saved as `scratch/surface/sample-stage.patch`.
+about even with the draws left in the material kernels. The decision
+(14:30): no in-place stage; the draws run at the top of the trace launch,
+one pass over the ray queue, and everything else follows pbrt's structure
+-- the next section.
+
+### pbrt's structure, matched (2026-10-09, 14:30-23:30)
+
+A *draw* here is one call to the sampler for a random number (pbrt's
+`Get1D`/`Get2D`). The decision was pbrt's queues and kernels one for one,
+with the one difference that the bounce's draws are made at the top of
+the trace launch rather than in a kernel of their own, since the two-pass
+form above costs more than it saves. The two structural differences the
+audit left are in now.
+
+**The texture-evaluator split.** pbrt keeps two material queues per
+material type and a kernel for each: a hit whose material's textures are
+all constants or images goes to the basic queue, whose kernel instantiates
+the material with `BasicTextureEvaluator` and so carries only the leaf
+texture readers; any other hit goes to the universal queue
+(`basicEvalMaterialQueue`, `universalEvalMaterialQueue`, wavefront/
+integrator.h; the test is each material's `CanEvaluateTextures`, run in
+the closest-hit program). The program carries the same fact: `element
+TextureEvaluator = | Basic | Universal` (textures.bonsai), a reader for
+each, `material_evaluator` (bxdf.bonsai) transcribing pbrt's per-material
+lists with the displacement, the trace routing each hit by it, and the
+material functions taking the evaluator as a parameter -- which is what
+lets the specialize shrink the basic kernels, as pbrt's `GetBxDF<TexEval>`
+does. Schedule: `hits.specialize(evaluator); hits[Basic].specialize(
+material); hits[Universal].specialize(material);`, so the kernels are
+`hits_blk$Basic$<Material>` and `hits_blk$Universal$<Material>`. The
+driver passes `textureevaluator_arms`, `basic_material_arms` and
+`universal_material_arms`, pbrt's `haveBasicEvalMaterial[]` and
+`haveUniversalEvalMaterial[]`, so a kernel of a (material, evaluator) pair
+the scene does not have is never launched (the compiler's launch gates
+had to learn a split under a split for this: 1d7b3aa6). Check: on
+villa-daylight the nine (material, evaluator) kernels with work are
+exactly pbrt's nine, on kroken the eight are pbrt's eight.
+
+**The BSSRDF kernel.** `vol_surface.defer(vol_subsurface, bssrdfs)`
+makes pbrt's "Get BSSRDF and enqueue probe ray" the drain of a queue the
+material kernels push (`bssrdfs_blk`), ahead of the probe trace, instead
+of the subsurface material kernel's tail. It reads the material's textures
+with the basic evaluator for every entry, as pbrt's kernel does
+(`GetBSSRDF(BasicTextureEvaluator(), ..)`, wavefront/subsurface.cpp),
+whichever queue the hit came through. On head the two kernels cost 4.87
+(subsurface material) + 3.34 (BSSRDF) = 8.2 ms against the folded
+kernel's 9.1 in the sweep and pbrt's 5.37 + 2.95 = 8.3.
+
+**Images:** byte-identical to the sweep's on killeroo-simple, head,
+dragon_10, villa-lights-on, villa-daylight, kroken and watercolor at 16
+and 64 spp, each matching pbrt by the compare's rule.
+
+**Measured, first run (23:00, `scratch/surface/compare-struct`, 16 spp,
+kernel ms; before the nested launch gates, so with every material kernel
+under an evaluator the scene has launched empty every round):**
+
+| scene | the sweep (10-09 morning) | pbrt's structure, ungated | pbrt |
+|---|---|---|---|
+| killeroo-simple | 34.1 | 36.5 | 49.3 |
+| head | 34.6 | 40.7 | 45.4 |
+| dragon_10 | 164 | 178 | 210 |
+| villa-lights-on | 50.5 | 55.3 | 84.3 |
+| villa-daylight | 185 | 209 | 291 |
+| kroken | 764 | 949 | 1731 |
+| watercolor | 838 | 931 | 2073 |
+
+Where head's 6.1 ms went: the trace launch 8.17 to 11.87 ms (+3.7, the
+draws now run there; pbrt's own sample kernel on head is 3.17 ms, so this
+is the cost of pbrt's structure in our placement of it), ten empty
+basic-material launches a round (+2.4, the gating gap, fixed), the probe
+trace 5.78 to 6.68 (+0.9), the subsurface chain -0.9. On kroken and
+watercolor the empty launches were 22 kernels a round at 4 us each.
+
+**Second run, with the nested launch gates (23:40, `scratch/surface/
+compare-struct2`, kernel ms; images identical again; the GPU clock
+unlocked, as every number before 10-10 is):**
+
+| scene | spp | the sweep | pbrt's structure | pbrt | pbrt's / ours |
+|---|---|---|---|---|---|
+| killeroo-simple | 16 | 34.1 | 32.8 | 49.2 | 1.50 |
+| killeroo-simple | 64 | 137 | 131 | 197 | 1.51 |
+| head | 16 | 34.6 | 38.4 | 45.2 | 1.18 |
+| head | 64 | 138 | 154 | 181 | 1.18 |
+| dragon_10 | 16 | 164 | 168 | 210 | 1.25 |
+| dragon_10 | 64 | 656 | 674 | 843 | 1.25 |
+| villa-lights-on | 16 | 50.5 | 50.1 | 84.5 | 1.69 |
+| villa-lights-on | 64 | 202 | 201 | 337 | 1.68 |
+| villa-daylight | 16 | 185 | 186 | 290 | 1.56 |
+| villa-daylight | 64 | 740 | 743 | 1165 | 1.57 |
+| kroken | 16 | 764 | 896 | 1714 | 1.91 |
+| kroken | 64 | 3061 | 3211 | 5827 | 1.81 |
+| watercolor | 16 | 838 | 877 | 2058 | 2.35 |
+| watercolor | 64 | 3350 | 3507 | 8084 | 2.30 |
+
+So with the gates back, pbrt's structure costs what the sweep's did on
+the villas and less on killeroo (the ungated launches were the whole of
+their first-run loss), and what it costs elsewhere is the placement of the
+draws: head +3.8 ms (its trace launch 8.2 to 11.9, where pbrt's own sample
+kernel costs it 3.2), dragon +4.7, watercolor +39 (4.6%), and kroken +132
+(17%), whose trace launch went 193 to 299 ms where pbrt's sample kernel
+costs pbrt 34.5 ms on that scene -- the draws made inside the ray-tracing
+launch, with its register budget and its latency chain per ray, cost
+about three times what pbrt's kernel pays for them, and the material
+kernels gave back less than that (diffuse 81 to 101 across its two
+evaluators' kernels, diffuse-transmission 43 to 28, conductor 36 to 23,
+dielectric 30 to 24). Kroken's wall time also carries 0.3 s per render of
+host time its kernels do not (1.20 s against 0.90 of kernels, where the
+sweep had 0.78 against 0.76) -- under investigation; the per-kernel times
+above do not include it. The decision on the draws stands as taken; the
+numbers say what it costs on the dense scenes, and the stage tables of the
+next sweep will show it per stage.
+
+What still differs from pbrt: the draws' placement (the decision above);
+the material kernels launched for the last depth, where pbrt leaves its
+loop before them (ours makes one round of launches more per sample:
+dragon 192 against 160 per kernel, at the empty-launch floor); and the
+round loop's per-round readback of the ray queue's count, where pbrt runs
+a fixed number of rounds (the question above). All three are open items
+in PLAN.md.
 
 <!-- stages:begin -->
 Generated by `report_stages.py` from `compare-out-heatmap3` (30 scenes; kernel times at 16 spp).

@@ -12827,6 +12827,16 @@ of its own): our camera-ray kernel is 1.34x pbrt's `Generate camera rays`
 summed over the sweep, behind on 29 of 30 scenes (head 3.49 against 2.91
 ms) -- a small row (85 ms over 30 scenes) to look at after the stage.
 
+Deferred, from Matt Pharr's question on the heatmap (13:40; REPORT.md,
+"Why the speedup moves with the sample count"): the kernels scale linearly
+on both sides and the kernel ratio is the same at every count; the wall
+speedup moves because pbrt's timer has a fixed ~75 ms per render and ours
+has 20-40 us per wavefront round -- the round loop's readback of the ray
+queue's count (bonsai_cuda_round_guard, a sync per round) where pbrt runs
+maxDepth rounds blind. pbrt's form, a fixed round count from the
+program's `max_depth` with no readback, is the last difference of the loop
+and needs a way to say it in the schedule -- the user's call on the form.
+
 Also noted (the user, 11:10): the ssa golden of a deferral after a stage
 has five loops where three would do. The design runs the producer's rest
 (`out[i] = ...`, the renderer's film write) as a pass over the record after
@@ -12839,3 +12849,124 @@ chained slot pass-through (four loops); whether the producer's own rest
 folds into the drains when it is a plain store, giving three, is the
 user's call, since it changes the design's stated shape and every defer
 golden.
+
+### pbrt's structure, matched (10-09, 14:30-23:00): the evaluator split, the BSSRDF queue, a deferral whose callee the specialize had copied
+
+The user's decision (14:30): "the same exact schedule pbrt has. Same
+queues, same stages, everything", with one difference allowed, the sample
+kernel: the bounce's sampler values are drawn at the top of the trace
+launch, one pass over the ray queue, where pbrt's GenerateRaySamples is a
+kernel of its own and the trace reads the queue again (the in-place stage
+of the previous section is not wanted). Everything else now follows pbrt
+kernel for kernel (REPORT.md, the audit table).
+
+**The texture-evaluator split.** pbrt keeps two material queues per
+material type: a hit whose material's textures are all constants or
+images goes to the basic queue, whose kernel instantiates the material
+with `BasicTextureEvaluator` and so carries only the leaf texture readers,
+and any other hit to the universal queue (`basicEvalMaterialQueue`,
+`universalEvalMaterialQueue`, wavefront/integrator.h; the routing is the
+closest-hit program's `CanEvaluateTextures`, intersect.h). The program
+carries the same fact: `element TextureEvaluator = | Basic | Universal`
+(textures.bonsai) with `eval_float_by` / `eval_spectrum_by`, whose basic
+readers return zero for a texture that is not a leaf as pbrt's evaluator
+does; `material_textures_basic` transcribes each material's
+`CanEvaluateTextures` list from materials.h and `material_evaluator` adds
+the displacement (bxdf.bonsai); `vol_route` computes the evaluator for
+the hit and `vol_surface`, `material_frame`, `bump_map`, `material_bxdf`
+and `material_bssrdf` take it as a parameter, which is what lets the
+specialize shrink the basic kernels (pbrt's `GetBxDF<TexEval>`); the mix
+material's amount is read with the basic evaluator, as pbrt reads it in
+the closest-hit program. Schedule: `hits.specialize(evaluator);
+hits[Basic].specialize(material); hits[Universal].specialize(material);`
+-- the evaluator first, the material under each, pbrt's two queue arrays.
+Driver: `textureevaluator_arms`, pbrt's `haveBasicEvalMaterial` /
+`haveUniversalEvalMaterial`, so the launch gates skip the universal
+kernels of a scene whose materials read constants and images only. The
+user asked (15:30) whether a schedule-side predicate would do
+(`specialize(material is Image | Constant)`): not as the language stands
+-- the rule is per material (which of its textures count, the
+displacement among them) and the kernel shrink needs the evaluator to be
+a parameter of the material functions; a predicate over typed texture
+references in the schedule is a language question left open.
+
+**The BSSRDF queue.** `bssrdfs = render[VolPath].queue(p_band,
+ExternDevice); vol_surface.defer(vol_subsurface, bssrdfs);` ahead of the
+probes' deferral, split and bound as the exits are: pbrt's "Get BSSRDF
+and enqueue probe ray" is the drain of a queue the material kernels push,
+no longer the subsurface material kernel's own tail.
+
+**Three compiler findings on the way.** (a) A deferral written on a
+function a queue's specialize copied applies to the copies: `call_holders`
+(SSA/Stage.h) collects the function, the continuations split off from it
+and the copies `f!Label...` reached from the owner by calls, each that
+makes the call; the primary is the deferral's own and the others push
+alongside (QueueSpec::also_from); the conversion's dispatch no longer
+drops a directive whose function was erased as a dead caller once copies
+stand in for it. Tests ssa/specialize-then-defer and correctness/llvm/
+specialize-then-defer. (b) The chained rest pass -- the copy from a
+drain's result array into the slots of the drain upstream -- ran over the
+record's capacity, not the count of the drain that filled it: its slots
+are indexed by the producer queue's index, so it walked eight slots where
+three were written and stored through whatever the five unwritten pointer
+slots held (the test crashed when that was a code address; the direct run
+had been corrupting memory silently). It is bounded by the producing
+drain's count now (Defer.cpp; goldens stage-then-defer and
+specialize-then-defer gain `parfor q_rest in [0:cast<i32>(count)]`). (c)
+A deferral whose callee the specialize copied: the evaluator split copied
+`vol_subsurface` into `vol_subsurface!Basic` and `!Universal`, because
+`vol_surface` handed it the evaluator, and `vol_surface.defer(
+vol_subsurface, bssrdfs)` then found calls only to the copies. pbrt's
+BSSRDF kernel takes `BasicTextureEvaluator()` for every entry whichever
+queue the hit came through (subsurface.cpp), so `vol_subsurface` takes no
+evaluator and reads with `Basic()` -- the matching fix -- and the compiler
+now refuses that shape in words (`copies_called`; error test
+defer-callee-specialized) instead of "makes no call". Whether a deferral
+should split its queue along with a specialized callee (`bssrdfs!Basic`,
+`bssrdfs!Universal`) is a schedule question for the user if the shape
+ever arises; pbrt has no such split. (d) The launch gates (SSA/
+GateDrains.h) masked only an unnested split, so the material kernels
+under the evaluator split lost their scene-material gating: the first
+measurement of the matched structure (23:00, scratch/surface/compare-
+struct) had head launching ten empty basic-material kernels a round, 2.4
+of its 40.7 ms, and the universal kernels gated off only by the
+evaluator's own mask. Each node of a split now adds a mask of its own,
+`textureevaluator_arms`, `basic_material_arms`, `universal_material_arms`
+-- pbrt's haveBasicEvalMaterial[] and haveUniversalEvalMaterial[]
+(integrator.cpp) -- and a leaf's drain wears the bits of every node on
+its path; the driver computes the two material masks in the same pass
+over the pool that classifies each material's textures. Tests
+ssa/gate-drains-nested and correctness/llvm/gate-drains-nested.
+
+Also an hour lost to a "runner-only segfault" that was the test runner
+binary not relinked: building the compiler target alone leaves
+`bonsai_test_runner` with the library of the previous build. `cmake
+--build build` with no target before trusting the runner.
+
+Measured with the gates (23:40, scratch/surface/compare-struct2; REPORT.md
+"pbrt's structure, matched"): at the sweep's time or better on killeroo
+and the villas, head +3.8 ms, dragon +4.7, watercolor +39 (4.6%), kroken
++132 (17%) -- kroken's trace launch 193 to 299 ms with the draws in it,
+against pbrt's 34.5 ms sample kernel on that scene, so the draws inside
+the ray-tracing launch cost about three times what pbrt's kernel pays
+(its register budget and the per-ray latency chain of the dielectric
+profile, now in every ray's path). Kroken's wall time also carries 0.3 s
+per render of host time its kernels do not (1.20 s against 0.90) -- to
+find (BONSAI_EXPLAIN_DEVICE on the trace launch's captures first: the
+shape of the host-pointer bug of 10-08, since vol_route now reads
+`materials[]` and `material_displacement[]` in the raygen).
+
+### The GPU clock lock (2026-10-10)
+
+The user, after Matt Pharr's question on the heatmap: every GPU benchmark
+runs with the GPU clock locked from now on. A GeForce boosts by power and
+temperature, so an unlocked 5090 runs a light scene near 3.0 GHz and a
+dense one lower, and a speedup moves with the load alone. Locking takes
+root (`nvidia-smi -lgc`), which the session does not have, so
+`apps/pbrt/gpu_clock.sh` (sourced by gpu_compare.sh and heatmap.sh) reads
+the SM clock three times and refuses a run unless every reading is the
+lock -- 2400 MHz by default (`--clock`, BONSAI_GPU_CLOCK), the card's
+rated boost clock, which it holds at full power on every scene where 3090,
+its maximum, is taken away by the power limit on the dense ones -- and
+the memory clock at its maximum. The table's last line and heatmap.log
+record the lock. Every number before 10-10 was taken unlocked.

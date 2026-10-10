@@ -172,12 +172,32 @@ def split_stages(ours, pbrt, launches=None):
         a, b = take_re(ours, ours_re), take(pbrt, pbrt_names)
         if a or b:
             rows.append((stage, a, b, note, ""))
+    # The BSSRDF kernel: its own drain from the evening of 10-09
+    # (`vol_surface.defer(vol_subsurface, bssrdfs)`), paired with pbrt's;
+    # before that it was the subsurface material kernel's tail, and pbrt's
+    # kernel is added to that material's row (MATERIAL_EXTRA).
+    own_bssrdf = "_kernel_bssrdfs_blk" in ours
+    if own_bssrdf:
+        a = ours.pop("_kernel_bssrdfs_blk")
+        b = take(pbrt, ["Get BSSRDF and enqueue probe ray"])
+        rows.append(("BSSRDF sampling (the probe enqueued)", a, b,
+                     "ours: the `bssrdfs` drain; pbrt: Get BSSRDF and enqueue probe ray", ""))
+    # The material kernels: `_kernel_hits_blk$<Material>` before the
+    # texture-evaluator split of 10-09, `_kernel_hits_blk$<Evaluator>$
+    # <Material>` after it, against pbrt's `<Material>Material + BxDF eval
+    # (<Evaluator> tex)` -- both evaluators' kernels when ours is unsplit.
     materials = sorted(m[len("_kernel_hits_blk$"):] for m in ours if m.startswith("_kernel_hits_blk$"))
-    for mat in materials:
-        a = ours.pop("_kernel_hits_blk$" + mat)
+    for key in materials:
+        a = ours.pop("_kernel_hits_blk$" + key)
+        evaluator, mat = key.split("$") if "$" in key else (None, key)
         pbrt_mat = MATERIAL_PBRT_NAME.get(mat, mat)
-        b = take(pbrt, [pbrt_mat + "Material + BxDF eval*"] + MATERIAL_EXTRA.get(mat, []))
-        rows.append(("material: " + mat, a, b, MATERIAL_NOTE.get(mat, ""), ""))
+        names = [pbrt_mat + "Material + BxDF eval (" + evaluator + " tex)"] if evaluator \
+            else [pbrt_mat + "Material + BxDF eval*"]
+        extra = [] if own_bssrdf else MATERIAL_EXTRA.get(mat, [])
+        b = take(pbrt, names + extra)
+        note = "" if own_bssrdf and mat == "Subsurface" else MATERIAL_NOTE.get(mat, "")
+        label = "material: " + mat + (" (" + evaluator.lower() + " textures)" if evaluator else "")
+        rows.append((label, a, b, note, ""))
     # pbrt material kernels with no kernel of ours: kept visible, with what
     # each launch cost, rather than hidden in the rest.
     for name in sorted(pbrt):
