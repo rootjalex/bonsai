@@ -4,6 +4,7 @@
 #include "CodeGen/CodeGen_OptiX.h"
 #include "CodeGen/CodeGen_PTX.h"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -67,6 +68,22 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     void emit_bound_parfor(CodeGen_LLVM::BoundLoop &loop) override;
     // Finishes the device module and embeds its PTX where the launches look.
     void end_functions() override;
+    // The host's run of word writes into device memory
+    // (CodeGen_LLVM::pending_device_stores) as one launch of a kernel of
+    // one thread that makes them (CodeGen_PTX::add_store_kernel), every
+    // address and word a kernel parameter -- pbrt's "Reset queues before
+    // tracing rays", a lambda launched once a depth that zeroes every queue
+    // the depth fills. A run shorter than store_launch_minimum is issued as
+    // the CPU host issues it, a memset each. Measured on this machine
+    // (apps/pbrt/scratch/surface/reset/store_cost.cpp, 10-10: a round as
+    // the renderer issues it, the guard's synchronous read then the
+    // reset): the guard alone 4.1 us; N memsets 4.85, 5.81, 6.82, 7.90,
+    // 11.8, 19.5 and 33.6 us for N = 1, 2, 3, 4, 8, 16 and 32 -- a
+    // microsecond a word -- against one launch of the store kernel at
+    // 7.3 us whatever N. So the launch pays from four words up, and three
+    // or fewer stay memsets.
+    void flush_device_stores() override;
+    static constexpr size_t store_launch_minimum = 4;
 
   private:
     using CodeGen_CPU::buffer_mark_dirty;
@@ -106,6 +123,12 @@ struct CodeGen_GPU_Host : public CodeGen_CPU,
     const ir::Program *program = nullptr;
     const CompilerOptions *options = nullptr;
     std::unique_ptr<CodeGen_PTX> device;
+    // The device module opened, if it is not yet: the one kernel module
+    // every CUDA launch of the program shares, with the global its launches
+    // load the PTX's address from.
+    void open_device_module();
+    // The store kernels made so far, by word count (add_store_kernel).
+    std::map<size_t, CodeGen_PTX::Kernel> store_kernels;
     // `internal constant ptr`: the address of the PTX string, which does not
     // exist until the device module is finished, so a launch loads it from
     // here and the initializer is filled in at the end.

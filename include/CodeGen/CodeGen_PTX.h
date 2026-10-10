@@ -96,6 +96,15 @@ struct CodeGen_PTX : public CodeGen_LLVM {
                       const ir::ssa::Terminator::ParFor &loop,
                       const std::vector<bool> &by_value);
 
+    // A kernel of one thread that stores `words` 32-bit words, each at an
+    // address of its own: `(ptr p0, i32 v0, .., ptr p(n-1), i32 v(n-1))`,
+    // every operand a parameter. The host's run of writes into device
+    // memory -- the queue counts a round of the wavefront zeroes -- as one
+    // launch (CodeGen_GPU_Host::flush_device_stores): pbrt's `GPUDo("Reset
+    // queues ..", lambda)`, a lambda launched on one thread. One kernel per
+    // word count, named `_bonsai_store_words_<n>`.
+    Kernel add_store_kernel(size_t words);
+
     // Links libdevice for whatever maths the module calls, optimizes, and
     // emits the PTX. Nothing may be added after. Virtual for CodeGen_OptiX,
     // which sets the backend's options around it.

@@ -35,10 +35,20 @@ namespace ssa {
 // where Defer empties a queue before its producers; on the renderer that
 // was a dozen staged copies and their ring events a round, a third of the
 // launch gap (apps/pbrt/PLAN.md). The fill moves to the round loop's
-// preheader, and nothing of it stays in the loop: the count is already
-// reset once a round after the drain. Defer cannot place it there itself (a
-// queue is built while the graph is not yet walkable past its own
-// unterminated blocks); this pass sees the finished loop.
+// preheader, and what stays in the loop is the count's reset, one word a
+// round, moved from where Defer put it -- after the queue's pass, "drained,
+// so empty" -- to the top of the round, beside the round queue's own reset
+// of its other buffer: pbrt's "Reset queues before tracing rays", one
+// launch at the top of each depth resetting every queue the depth fills
+// (wavefront/integrator.cpp). Nothing reads a count between its pass and
+// the next round's top, so the two placements are the same word; gathered
+// at the top, the resets are adjacent stores into device memory, and the
+// host backend issues a run of those as one launch rather than a memset
+// each (CodeGen_GPU_Host::flush_device_stores) -- the renderer's round had
+// issued 54. Defer cannot place either there itself (a queue is built while
+// the graph is not yet walkable past its own unterminated blocks); this
+// pass sees the finished loop. A reset in a loop nested inside the rounds
+// -- a queue drained once per inner iteration -- stays where it is.
 //
 // The rewrite fires only where it is sound: the header's test must be
 // `count == 0` of the queue of a GPU-bound drain in the loop, and every

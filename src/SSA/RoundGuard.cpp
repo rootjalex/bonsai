@@ -70,11 +70,16 @@ bool is_one(const shared_ptr<Value> &v) {
 // The name a value's storage goes by: the allocation's, or the argument
 // threading it into this block -- threading keeps the name (Block::
 // get_value), so the name follows a queue across blocks and function copies.
+// The argument proper, not Value::get_argument, which answers for a named
+// instruction too: asked of `@18 = gep(hits_queue, 0)` that gave "@18", the
+// slot's own name in place of the queue's, and the fill hoist below took
+// the exit's reset of the count for another queue's and zeroed the count a
+// second time each round (22 words a round on the renderer, 10-10).
 std::optional<string> root_name(const shared_ptr<Value> &v) {
     if (v == nullptr) {
         return std::nullopt;
     }
-    if (const auto arg = v->get_argument()) {
+    if (const auto *arg = std::get_if<Argument>(&v->data)) {
         return arg->name;
     }
     const Instruction *d = def_of(v);
@@ -505,10 +510,18 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
         // their ring events every round, a third of the launch gap (the
         // nsys numbers, apps/pbrt/PLAN.md). The fill moves to the loop's
         // preheader -- everything it stores but the count is defined
-        // outside the loop -- and in its place only the count is zeroed,
-        // one word on the stream. Defer cannot place it there itself: when
-        // a queue is built the graph is not yet walkable past its own
-        // unterminated blocks, where this pass sees the finished loop.
+        // outside the loop -- and what stays in the loop is one word: the
+        // count's reset, at the top of the round, where pbrt's "Reset
+        // queues before tracing rays" launch resets every queue the round
+        // fills at once (wavefront/integrator.cpp). Defer resets the count
+        // after the queue's pass (`<queue>!exit`), which is the same reset
+        // one round later with the rounds' resets strewn through the round,
+        // one stream operation each; gathered at the top they are adjacent
+        // stores into device memory, which the host backend issues as one
+        // launch (CodeGen_GPU_Host::flush_device_stores). Defer cannot
+        // place either there itself: when a queue is built the graph is not
+        // yet walkable past its own unterminated blocks, where this pass
+        // sees the finished loop.
         std::map<const Instruction *, BlockId> def_block;
         std::map<string, BlockId> named_def; // an instruction's name -> block
         std::map<string, const Instruction *> named_instr;
@@ -643,6 +656,75 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
             if (preheader == nullptr || !one_way_in) {
                 continue;
             }
+            // The top of the round: the block the header's test enters when
+            // the round runs -- the in-loop target of the dispatch the guard
+            // rewrite moved into `<header>!go` -- where the round queue's
+            // own reset already sits (Defer's `pre`: the other buffer's
+            // count, ahead of the pass). Each inner queue's reset joins it.
+            shared_ptr<Block> top;
+            for (const auto &block : f->blocks) {
+                if (block->name != c.header->name + "!go") {
+                    continue;
+                }
+                const auto *go =
+                    std::get_if<Terminator::Dispatch>(&block->terminator.data);
+                if (go == nullptr) {
+                    break;
+                }
+                for (const Terminator::Jump &target : go->targets) {
+                    const BlockId t = cfg.find(target.name);
+                    if (t != NO_BLOCK && loop.blocks.contains(t)) {
+                        top = cfg.block(t);
+                    }
+                }
+            }
+            if (top == nullptr) {
+                continue;
+            }
+            // The slot an address names: the queue header allocation it is
+            // rooted in (through threads) and, for a header that is an
+            // array of queues -- a split's, one per arm -- the constant
+            // index of the slot; nothing for an address of another shape.
+            struct Slot {
+                string root;
+                std::optional<uint64_t> index;
+                bool operator==(const Slot &o) const {
+                    return root == o.root && index == o.index;
+                }
+            };
+            const auto slot_of =
+                [&](const shared_ptr<Value> &address) -> std::optional<Slot> {
+                const Instruction *gep = def_of(address);
+                if (gep == nullptr) {
+                    if (const auto *arg = std::get_if<Argument>(&address->data)) {
+                        const auto it = named_instr.find(arg->name);
+                        gep = it == named_instr.end() ? nullptr : it->second;
+                    }
+                }
+                Slot slot;
+                if (gep != nullptr && gep->op == Instruction::Op::GEP &&
+                    gep->operands.size() == 2) {
+                    const auto *c = std::get_if<Constant>(&gep->operands[1]->data);
+                    const auto *u = c == nullptr ? nullptr
+                                                 : std::get_if<uint64_t>(&c->data);
+                    if (u == nullptr) {
+                        return std::nullopt;
+                    }
+                    slot.index = *u;
+                    const auto root = rooted(gep->operands[0]);
+                    if (!root.has_value()) {
+                        return std::nullopt;
+                    }
+                    slot.root = *root;
+                    return slot;
+                }
+                const auto root = rooted(address);
+                if (!root.has_value()) {
+                    return std::nullopt;
+                }
+                slot.root = *root;
+                return slot;
+            };
             for (const auto &block : cfg.blocks()) {
                 const BlockId b = cfg.find(block->name);
                 if (b == NO_BLOCK || !loop.blocks.contains(b)) {
@@ -707,26 +789,35 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
                         std::move(parts));
                     preheader->make_side_effect(Instruction::Op::Store,
                                                 {at, filled});
-                    // The count: zeroed in the fill's place only when the
-                    // loop does not already reset it -- a queue the rounds
-                    // drain once a pass is reset after its drain (Defer),
-                    // which covers every round after the preheader's zero,
-                    // so a second word a round would be waste.
-                    const auto queue_name = root_name(fill->operands[0]);
+                    // The count's reset, once a round, at the top of the
+                    // round. Defer's is after the queue's pass (`<queue>!
+                    // exit`: "drained, so empty"), which from the round
+                    // after is the same word one round later; between the
+                    // two points nothing reads the count, the queue being
+                    // filled only after the top and read only by its drain.
+                    // So the exit's resets of this slot go, where their
+                    // block is this loop's own and not an inner loop's (a
+                    // queue drained once per inner iteration keeps its
+                    // reset where it is), and one reset is made at the top
+                    // -- whether or not Defer had one here: a slot nothing
+                    // resets in the loop was reset by the fill, which is
+                    // leaving.
+                    const std::optional<Slot> slot = slot_of(fill->operands[0]);
                     const bool debug_rounds =
                         std::getenv("BONSAI_DEBUG_ROUNDS") != nullptr;
-                    bool reset_in_loop = false;
                     for (const auto &other : cfg.blocks()) {
                         const BlockId ob = cfg.find(other->name);
-                        if (ob == NO_BLOCK || !loop.blocks.contains(ob)) {
+                        if (ob == NO_BLOCK || !loop.blocks.contains(ob) ||
+                            forest.innermost(ob) != &loop || !slot.has_value()) {
                             continue;
                         }
+                        vector<shared_ptr<Instruction>> resets;
                         for (const auto &instr : other->instrs) {
                             // A word of zero stored through the queue's
                             // header: its count, the only header word
                             // anything writes (the pointer may arrive as a
                             // threaded argument, so the test is of the
-                            // root, not the field pointer's shape).
+                            // slot, not the field pointer's shape).
                             if (instr == fill ||
                                 instr->op != Instruction::Op::Store ||
                                 instr->operands.size() != 2 ||
@@ -734,31 +825,73 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
                                 !instr->operands[1]->get_type().is<UInt_t>()) {
                                 continue;
                             }
+                            const Instruction *field = def_of(instr->operands[0]);
+                            if (field == nullptr ||
+                                field->op != Instruction::Op::FieldPtr ||
+                                field->operands.size() != 2 ||
+                                !is_zero(field->operands[1])) {
+                                continue;
+                            }
+                            const std::optional<Slot> reset = slot_of(field->operands[0]);
                             if (debug_rounds) {
-                                std::cerr << "rounds: zero store in "
-                                          << other->name << " roots at "
-                                          << rooted(instr->operands[0])
-                                                 .value_or("<none>")
-                                          << " against "
-                                          << queue_name.value_or("<none>")
+                                std::cerr << "rounds: zero store in " << other->name
+                                          << " of slot "
+                                          << (reset ? reset->root : string("<none>"))
+                                          << (reset && reset->index
+                                                  ? "[" + std::to_string(*reset->index) + "]"
+                                                  : "")
+                                          << " against " << slot->root
+                                          << (slot->index
+                                                  ? "[" + std::to_string(*slot->index) + "]"
+                                                  : "")
+                                          << (reset == slot ? ": moved to " + top->name
+                                                            : "")
                                           << "\n";
                             }
-                            reset_in_loop =
-                                reset_in_loop ||
-                                rooted(instr->operands[0]) == queue_name;
+                            if (reset == slot) {
+                                resets.push_back(instr);
+                            }
+                        }
+                        for (const auto &reset : resets) {
+                            const shared_ptr<Value> pointer = reset->operands[0];
+                            std::erase_if(other->instrs, [&](const auto &i) {
+                                return i == reset;
+                            });
+                            // The reset's field pointer, and the slot's
+                            // address under it, when nothing else reads them.
+                            shared_ptr<Value> orphan = pointer;
+                            while (orphan != nullptr) {
+                                const Instruction *d = def_of(orphan);
+                                if (d == nullptr || used_anywhere(*f, orphan) ||
+                                    (d->op != Instruction::Op::FieldPtr &&
+                                     d->op != Instruction::Op::GEP)) {
+                                    break;
+                                }
+                                const shared_ptr<Value> under =
+                                    d->operands.empty() ? nullptr : d->operands[0];
+                                std::erase_if(other->instrs, [&](const auto &i) {
+                                    return i.get() == d;
+                                });
+                                orphan = under;
+                            }
                         }
                     }
-                    if (!reset_in_loop) {
+                    {
+                        shared_ptr<Value> here = in_preheader(top, base);
+                        if (index != nullptr) {
+                            here = top->make_instruction(
+                                base->get_type(), Instruction::Op::GEP,
+                                {here, in_preheader(top, index)});
+                        }
                         auto field_zero = std::make_shared<Value>(
                             Constant{UInt_t::make(32), uint64_t(0)});
-                        auto count_ptr = block->make_instruction(
+                        auto count_ptr = top->make_instruction(
                             Ptr_t::make(UInt_t::make(32)),
-                            Instruction::Op::FieldPtr,
-                            {fill->operands[0], field_zero});
+                            Instruction::Op::FieldPtr, {here, field_zero});
                         auto zero = std::make_shared<Value>(
                             Constant{UInt_t::make(32), uint64_t(0)});
-                        block->make_side_effect(Instruction::Op::Store,
-                                                {count_ptr, zero});
+                        top->make_side_effect(Instruction::Op::Store,
+                                              {count_ptr, zero});
                     }
                     const shared_ptr<Value> stored = fill->operands[1];
                     const shared_ptr<Value> pointer = fill->operands[0];

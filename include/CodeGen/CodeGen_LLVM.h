@@ -269,11 +269,29 @@ struct CodeGen_LLVM : public ir::Visitor {
     // a temporary and loaded from there (bonsai_cuda_copy_to_host).
     llvm::Value *load_from_device(llvm::Type *type, llvm::Value *device_address,
                                   const char *name);
-    // A host write of `rhs` (of `type`) at a device address: one word as a
-    // memset on the stream, with no wait (bonsai_cuda_store_word_async);
-    // anything else copied from a temporary (bonsai_cuda_copy_to_device).
+    // A host write of `rhs` (of `type`) at a device address. One word is
+    // held back (pending_device_stores) and issued with the words beside
+    // it by flush_device_stores, at the next point whose order against the
+    // stream matters -- a launch, a read from the device, a wait, a call,
+    // the block's end. Anything larger is copied from a temporary at once
+    // (bonsai_cuda_store_async), after whatever is pending.
     void store_to_device(llvm::Value *rhs, llvm::Value *device_address,
                          const ir::Type &type);
+    // The words the host has written into device memory since the last
+    // flush, in program order. Here each becomes a memset on the stream
+    // with no wait (bonsai_cuda_store_word_async); a GPU host issues a run
+    // of them as one launch instead (CodeGen_GPU_Host::flush_device_stores),
+    // the way pbrt's wavefront resets every queue of a depth in one "Reset
+    // queues" launch rather than a write per queue: the renderer's round
+    // zeroes some thirty counts, and thirty stream operations of a word
+    // each were a tenth of a small scene's render. Empty at every block's
+    // end.
+    struct PendingDeviceStore {
+        llvm::Value *address;
+        llvm::Value *word; // i32
+    };
+    std::vector<PendingDeviceStore> pending_device_stores;
+    virtual void flush_device_stores();
     // The allocation an address is of -- through address arithmetic (GEP,
     // a field's pointer, address-of, a cast), and through the block
     // arguments that pass it along when `defs` is given (SSA/Definitions.h,

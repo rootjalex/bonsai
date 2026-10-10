@@ -49,6 +49,7 @@ add_bonsai_tests(
     rand.bonsai
     raygen.bonsai
     reorder.bonsai
+    round-reset.bonsai
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai
     rtcore-placed.bonsai

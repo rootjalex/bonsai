@@ -1,0 +1,88 @@
+//! flags: -p ssa -b llvm -e
+
+// The round-hoist-split program of tests/bonsai/ssa, run: a specialized
+// stage queue (`hits`, four arms) inside a round queue (`rays`), both on
+// the GPU. Each round zeroes the four `hits` counts at its top, as one
+// launch of the store kernel `_bonsai_store_words_4` -- four words, the
+// least a run is launched for (CodeGen_GPU_Host::flush_device_stores,
+// store_launch_minimum); fewer go as a memset each -- and `hits!exit`
+// zeroes nothing (SSA/RoundGuard.cpp). The answers are the CPU's:
+// step(x, 3, 0.0) takes three steps, each adding x and scaling it by an
+// eighth while x > 12, a quarter while x > 8, a half while x > 4, and
+// subtracting x and adding one otherwise.
+
+import stdlib/numerics;
+
+element Found =
+    | Huge(v : Float)
+    | Big(v : Float)
+    | Mid(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 12.0 {
+        return Huge(x);
+    }
+    if x > 8.0 {
+        return Big(x);
+    }
+    if x > 4.0 {
+        return Mid(x);
+    }
+    return Small(x);
+}
+
+func surface(r : Found, x : Float, depth : i32, acc : Float) -> Float {
+    match r {
+        Huge(v) => return step(x * 0.125, depth - 1, acc + v);
+        Big(v) => return step(x * 0.25, depth - 1, acc + v);
+        Mid(v) => return step(x * 0.5, depth - 1, acc + v);
+        Small(v) => return step(x + 1.0, depth - 1, acc - v);
+    }
+}
+
+func step(x : Float, depth : i32, acc : Float) -> Float {
+    if depth <= 0 {
+        return acc;
+    }
+    r = classify(x);
+    return surface(r, x, depth, acc);
+}
+
+func start(x : Float) -> Float {
+    return step(x, 3, 0.0);
+}
+
+func run(values : array[Float, 32], out : mut array[Float, 32]) -> void {
+    parfor i in 0:32 {
+        out[i] = start(values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 32] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                                     8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                                     0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5,
+                                     8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5};
+    out : mut array[Float, 32] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    start.defer(step, rays);
+    surface.defer(step, rays);
+    hits = run.queue(root);
+    step.defer(surface, hits);
+    hits.specialize(r);
+    run.bind(i, GPUThread);
+    run.bind(rays, GPUThread);
+    run.bind(hits, GPUThread);
+    run.bind(rays_rest, GPUThread);
+}

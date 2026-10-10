@@ -1,0 +1,97 @@
+//! flags: -p ssa
+
+// A specialized stage queue inside another queue's rounds, on the GPU: the
+// renderer's `hits` inside `rays` in miniature. `step` recurses through
+// `surface`, the recursion deferred into `rays` (the owner's call and the
+// callee's, so `rays` drains in rounds); `surface` itself is deferred into
+// `hits` and `hits` specialized on the classification, so `hits` is an
+// array of four queues, one per arm, filled by the `rays` drain and
+// drained once a round.
+//
+// What to read for (SSA/RoundGuard.cpp, the fill hoist). Before the rounds,
+// once, the four headers: `hits_queue[0] = build<Queue_hits>(0u, ..)` to
+// `hits_queue[3]`. At the top of the round -- `rays!batch`, ahead of the
+// trace -- the four counts zeroed, `hits_queue[k].count = 0u`, beside
+// nothing else of theirs (which the GPU host then issues as one launch,
+// four words being the least it launches for); and after the
+// `hits` drains (`hits!exit`) no store of any count: Defer's reset after
+// the pass has moved to the top of the round, pbrt's "Reset queues before
+// tracing rays". Until 10-10 both existed -- the hoist matched the fill's
+// slot `@18 = gep(hits_queue, 0)` against the exit's reset by the slot's own
+// name rather than the queue's, missed it, and zeroed each count twice a
+// round (22 of the renderer's 54 memsets a round).
+import stdlib/numerics;
+
+element Found =
+    | Huge(v : Float)
+    | Big(v : Float)
+    | Mid(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 12.0 {
+        return Huge(x);
+    }
+    if x > 8.0 {
+        return Big(x);
+    }
+    if x > 4.0 {
+        return Mid(x);
+    }
+    return Small(x);
+}
+
+func surface(r : Found, x : Float, depth : i32, acc : Float) -> Float {
+    match r {
+        Huge(v) => return step(x * 0.125, depth - 1, acc + v);
+        Big(v) => return step(x * 0.25, depth - 1, acc + v);
+        Mid(v) => return step(x * 0.5, depth - 1, acc + v);
+        Small(v) => return step(x + 1.0, depth - 1, acc - v);
+    }
+}
+
+func step(x : Float, depth : i32, acc : Float) -> Float {
+    if depth <= 0 {
+        return acc;
+    }
+    r = classify(x);
+    return surface(r, x, depth, acc);
+}
+
+func start(x : Float) -> Float {
+    return step(x, 3, 0.0);
+}
+
+func run(values : array[Float, 32], out : mut array[Float, 32]) -> void {
+    parfor i in 0:32 {
+        out[i] = start(values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 32] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                                     8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                                     0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5,
+                                     8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5};
+    out : mut array[Float, 32] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    start.defer(step, rays);
+    surface.defer(step, rays);
+    hits = run.queue(root);
+    step.defer(surface, hits);
+    hits.specialize(r);
+    run.bind(i, GPUThread);
+    run.bind(rays, GPUThread);
+    run.bind(hits, GPUThread);
+    run.bind(rays_rest, GPUThread);
+}

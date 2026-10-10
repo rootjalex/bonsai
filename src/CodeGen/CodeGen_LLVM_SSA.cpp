@@ -1876,6 +1876,8 @@ struct CodeGen_LLVM::SSALowering {
         cg.device_resident_allocas.clear();
         cg.device_alloca_slots.clear();
         cg.launched_on_device = false;
+        internal_assert(cg.pending_device_stores.empty())
+            << "a host write into device memory left pending across functions";
 
         cg.frames.push_frame();
         llvm::BasicBlock *entry_bb =
@@ -2008,6 +2010,11 @@ struct CodeGen_LLVM::SSALowering {
     }
 
     void emit_terminator(const Block &block) {
+        // The host's writes into device memory held back in this block go
+        // out before it ends (CodeGen_LLVM::pending_device_stores): the
+        // terminator may launch, call or return, and the words' addresses
+        // are this block's values.
+        cg.flush_device_stores();
         // The block a jump leaves from is wherever the builder has got to,
         // which is not the block it started in if something in between made
         // one of its own.

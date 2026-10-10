@@ -337,16 +337,12 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         raygen_module = made.get();
         optix_modules.emplace_back(std::move(made), ptx_global);
     } else {
-        if (!device) {
-            device = std::make_unique<CodeGen_PTX>();
-            device->begin(*program, *options);
-            ptx_source = new llvm::GlobalVariable(
-                *module, ptr_t, /*isConstant=*/true,
-                llvm::GlobalValue::InternalLinkage,
-                llvm::ConstantPointerNull::get(ptr_t), "_bonsai_ptx");
-        }
+        open_device_module();
         ptx_global = ptx_source;
     }
+    // The host's writes into device memory ahead of this launch are on the
+    // stream ahead of it.
+    flush_device_stores();
     const Block &body_head = loop.body_head;
     const Expr begin_e = loop.operand(p.start), end_e = loop.operand(p.end),
                stride_e = loop.operand(p.stride);
@@ -858,6 +854,90 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     }
     builder->CreateBr(after_bb);
     builder->SetInsertPoint(after_bb);
+}
+
+template <typename CodeGen_CPU>
+void CodeGen_GPU_Host<CodeGen_CPU>::open_device_module() {
+    if (device) {
+        return;
+    }
+    internal_assert(program && options) << "a device module outside compile_program";
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    device = std::make_unique<CodeGen_PTX>();
+    device->begin(*program, *options);
+    ptx_source = new llvm::GlobalVariable(
+        *module, ptr_t, /*isConstant=*/true, llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantPointerNull::get(ptr_t), "_bonsai_ptx");
+}
+
+template <typename CodeGen_CPU>
+void CodeGen_GPU_Host<CodeGen_CPU>::flush_device_stores() {
+    auto &pending = this->pending_device_stores;
+    if (pending.size() < store_launch_minimum) {
+        CodeGen_CPU::flush_device_stores(); // a memset each; nothing for none
+        return;
+    }
+    open_device_module();
+    const size_t words = pending.size();
+    auto found = store_kernels.find(words);
+    if (found == store_kernels.end()) {
+        found = store_kernels.emplace(words, device->add_store_kernel(words)).first;
+    }
+    const CodeGen_PTX::Kernel &kernel = found->second;
+
+    // The arguments as the launch hands them over (see emit_gpu_launch):
+    // each in a slot of its own, the slots' addresses in an array the
+    // runtime gives the driver. Here the slots are the words' addresses and
+    // the words, in the kernel's order.
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::Type *i32_t = llvm::Type::getInt32Ty(*context);
+    const llvm::DataLayout &dl = module->getDataLayout();
+    std::vector<llvm::Type *> slot_types;
+    slot_types.reserve(2 * words);
+    for (size_t k = 0; k < words; k++) {
+        slot_types.push_back(ptr_t);
+        slot_types.push_back(i32_t);
+    }
+    internal_assert(kernel.param_bytes.size() == slot_types.size())
+        << kernel.name << " declares " << kernel.param_bytes.size()
+        << " parameters for " << slot_types.size() << " slots";
+    for (size_t i = 0; i < slot_types.size(); i++) {
+        internal_assert(dl.getTypeAllocSize(slot_types[i]) == kernel.param_bytes[i])
+            << kernel.name << ": parameter " << i << " is " << kernel.param_bytes[i]
+            << " bytes on the device and " << dl.getTypeAllocSize(slot_types[i])
+            << " here";
+    }
+    auto *args_ty = llvm::StructType::get(*context, slot_types);
+    auto *params_ty = llvm::ArrayType::get(ptr_t, slot_types.size());
+    llvm::Value *args = create_alloca_at_entry(args_ty, "_store_args");
+    llvm::Value *params = create_alloca_at_entry(params_ty, "_store_params");
+    for (size_t k = 0; k < words; k++) {
+        llvm::Value *address_slot = builder->CreateStructGEP(args_ty, args, unsigned(2 * k));
+        llvm::Value *word_slot = builder->CreateStructGEP(args_ty, args, unsigned(2 * k + 1));
+        builder->CreateStore(pending[k].address, address_slot);
+        builder->CreateStore(pending[k].word, word_slot);
+        builder->CreateStore(address_slot, builder->CreateConstInBoundsGEP2_64(
+                                               params_ty, params, 0, 2 * k));
+        builder->CreateStore(word_slot, builder->CreateConstInBoundsGEP2_64(
+                                            params_ty, params, 0, 2 * k + 1));
+    }
+    pending.clear();
+
+    llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_source, "_ptx");
+    llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
+    llvm::FunctionCallee launch = module->getOrInsertFunction(
+        "bonsai_cuda_launch",
+        llvm::FunctionType::get(
+            void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t},
+            false));
+    llvm::Value *one = llvm::ConstantInt::get(i64_t, 1);
+    builder->CreateCall(launch, {ptx, name, one, one, params,
+                                 llvm::ConstantInt::get(i64_t, slot_types.size()),
+                                 llvm::ConstantPointerNull::get(ptr_t),
+                                 llvm::ConstantInt::get(i64_t, 0)});
+    // Asynchronous like every launch; the function waits for the device
+    // before it returns (CodeGen_LLVM::wait_for_device_if_launched).
+    this->launched_on_device = true;
 }
 
 template <typename CodeGen_CPU>

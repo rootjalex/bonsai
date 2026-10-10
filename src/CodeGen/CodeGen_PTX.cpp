@@ -549,6 +549,43 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
     return kernel;
 }
 
+CodeGen_PTX::Kernel CodeGen_PTX::add_store_kernel(size_t words) {
+    internal_assert(words > 0) << "a store kernel of no words";
+    Kernel kernel;
+    kernel.name = symbol_name("_bonsai_store_words_" + std::to_string(words));
+    llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    llvm::Type *i32_t = llvm::Type::getInt32Ty(*context);
+    std::vector<llvm::Type *> params;
+    params.reserve(2 * words);
+    for (size_t k = 0; k < words; k++) {
+        params.push_back(ptr_t);
+        params.push_back(i32_t);
+    }
+    const llvm::DataLayout &dl = module->getDataLayout();
+    for (llvm::Type *t : params) {
+        kernel.param_bytes.push_back(dl.getTypeAllocSize(t));
+    }
+    llvm::Function *fn = llvm::Function::Create(
+        llvm::FunctionType::get(void_t, params, /*isVarArg=*/false),
+        llvm::GlobalValue::ExternalLinkage, kernel.name, module.get());
+    fn->setCallingConv(llvm::CallingConv::PTX_Kernel);
+    // The body: each word to its address, in the host's order. A generic
+    // store; the addresses are device allocations' (CodeGen_LLVM::
+    // device_resident), and MarkDeviceMemory makes them global.
+    llvm::IRBuilderBase::InsertPoint here = builder->saveIP();
+    builder->SetInsertPoint(llvm::BasicBlock::Create(*context, "entry", fn));
+    for (size_t k = 0; k < words; k++) {
+        llvm::Argument *address = fn->getArg(unsigned(2 * k));
+        llvm::Argument *word = fn->getArg(unsigned(2 * k + 1));
+        address->setName("p" + std::to_string(k));
+        word->setName("v" + std::to_string(k));
+        builder->CreateStore(word, address);
+    }
+    builder->CreateRetVoid();
+    builder->restoreIP(here);
+    return kernel;
+}
+
 llvm::Value *CodeGen_PTX::thread_index() {
     return builder->CreateCall(
         llvm::Intrinsic::getOrInsertDeclaration(

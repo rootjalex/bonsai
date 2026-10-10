@@ -3526,6 +3526,9 @@ CodeGen_LLVM::scalar_math_call(const std::string &name,
 }
 
 void CodeGen_LLVM::visit(const Intrinsic *node) {
+    // An intrinsic may be a call into the runtime (a round guard's read, a
+    // texture's creation): the host's pending writes go first.
+    flush_device_stores();
     // A target with a maths library of its own answers first (see
     // codegen_math_call); a CPU host has none and goes on to LLVM's
     // intrinsics and libm below.
@@ -4112,6 +4115,9 @@ void CodeGen_LLVM::visit(const AggOp *node) {
 }
 
 void CodeGen_LLVM::visit(const Call *node) {
+    // The callee may launch, read the device or wait: the host's pending
+    // writes go first.
+    flush_device_stores();
     llvm::Function *func = codegen_func_ptr(node->func);
     const size_t n_args = node->args.size();
     std::vector<llvm::Value *> args(n_args);
@@ -4916,6 +4922,9 @@ std::optional<std::string> CodeGen_LLVM::device_root_of(const Expr &address) con
 llvm::Value *CodeGen_LLVM::load_from_device(llvm::Type *type,
                                             llvm::Value *device_address,
                                             const char *name) {
+    // What the host wrote before this read is on the stream before the
+    // copy that reads.
+    flush_device_stores();
     llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
     llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
     llvm::Value *temporary = create_alloca_at_entry(type, std::string(name) + "_host");
@@ -4937,13 +4946,13 @@ void CodeGen_LLVM::store_to_device(llvm::Value *rhs, llvm::Value *device_address
     const llvm::DataLayout &dl = module->getDataLayout();
     if (!type.is_vector() && dl.getTypeAllocSize(rhs->getType()) == 4 &&
         (rhs->getType()->isIntegerTy(32) || rhs->getType()->isFloatTy())) {
+        // Held back for the flush: a queue's count zeroed at the top of a
+        // round sits beside every other queue's (SSA/RoundGuard.cpp), and
+        // the run of them goes to the device together.
         llvm::Value *word = rhs->getType()->isFloatTy()
                                 ? builder->CreateBitCast(rhs, i32)
                                 : rhs;
-        llvm::FunctionCallee store_word = module->getOrInsertFunction(
-            "bonsai_cuda_store_word_async",
-            llvm::FunctionType::get(void_t, {ptr, i32}, /*isVarArg=*/false));
-        builder->CreateCall(store_word, {device_address, word});
+        pending_device_stores.push_back({device_address, word});
         return;
     }
     // Anything larger than a word goes through the runtime's pinned staging
@@ -4951,7 +4960,9 @@ void CodeGen_LLVM::store_to_device(llvm::Value *rhs, llvm::Value *device_address
     // synchronous copy from this stack temporary waited for the stream
     // first, and a queue's header is rewritten this way before every
     // round -- one wait per launch, in a renderer whose launches are
-    // otherwise asynchronous.
+    // otherwise asynchronous. After the words pending, keeping the
+    // program's order of writes.
+    flush_device_stores();
     llvm::Value *temporary = create_alloca_at_entry(rhs->getType(), "device_store");
     builder->CreateStore(rhs, temporary);
     llvm::FunctionCallee store = module->getOrInsertFunction(
@@ -4960,6 +4971,27 @@ void CodeGen_LLVM::store_to_device(llvm::Value *rhs, llvm::Value *device_address
     builder->CreateCall(store, {device_address, temporary,
                                 llvm::ConstantInt::get(
                                     i64, dl.getTypeAllocSize(rhs->getType()))});
+}
+
+void CodeGen_LLVM::flush_device_stores() {
+    // Nothing pending is the common case, and the one a device code
+    // generator -- which inherits this -- is always in: it must declare
+    // nothing in its module.
+    if (pending_device_stores.empty()) {
+        return;
+    }
+    // A memset of one word on the stream for each, with no wait: the form
+    // every host has. A GPU host gathers a run into one launch instead
+    // (CodeGen_GPU_Host::flush_device_stores).
+    llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+    llvm::Type *i32 = llvm::Type::getInt32Ty(*context);
+    llvm::FunctionCallee store_word = module->getOrInsertFunction(
+        "bonsai_cuda_store_word_async",
+        llvm::FunctionType::get(void_t, {ptr, i32}, /*isVarArg=*/false));
+    for (const PendingDeviceStore &pending : pending_device_stores) {
+        builder->CreateCall(store_word, {pending.address, pending.word});
+    }
+    pending_device_stores.clear();
 }
 
 void CodeGen_LLVM::visit(const IfElse *node) {
@@ -5415,6 +5447,9 @@ void CodeGen_LLVM::free_device_allocas() {
 }
 
 void CodeGen_LLVM::wait_for_device_if_launched() {
+    // Whatever the host still has to write goes before the wait, launched
+    // or not: a function that only wrote crosses its words here.
+    flush_device_stores();
     if (!launched_on_device) {
         return;
     }
@@ -5425,6 +5460,8 @@ void CodeGen_LLVM::wait_for_device_if_launched() {
 }
 
 void CodeGen_LLVM::visit(const Free *node) {
+    // A write pending into the memory about to go is issued first.
+    flush_device_stores();
     // Storage an Allocate made on the heap, given back before the function
     // returns (SSA/HeapArrays.h). An array handle names its elements'
     // storage directly (see the Allocate visitor), so the value is the

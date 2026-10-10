@@ -40,6 +40,7 @@ func run(out : mut i32[8], marks : mut i32[8]) -> void {
         break
       } else {
         let @17 = cast<u32>(4) in
+        scores_queue.count = 0u
         parfor sums in [0u:@17:1u] {
           let @19 = (&(*sums_queue).count) in
           let @20 = (*@19) in
@@ -72,7 +73,6 @@ func run(out : mut i32[8], marks : mut i32[8]) -> void {
             continue
           }
         }
-        scores_queue.count = 0u
         let @2 = (*sums!round) + 1u in
         sums!round = @2
         continue

@@ -10,9 +10,12 @@
 //
 // What to read for. Before the rounds, once: `scores_queue = build<
 // Queue_scores>(0u, scores_k, ..)` -- the header, whose arrays never change.
-// Inside the rounds there is no store of it at all: the count was already
-// reset once a round after the drain (Defer), which covers every round
-// after the preheader's zero, so the fill leaves nothing behind. The rounds
+// Inside the rounds one word of it: `scores_queue.count = 0u` at the top of
+// the round, ahead of the `sums` drain that fills it, and nothing after the
+// `scores` drain -- Defer's reset after the pass ("drained, so empty") moved
+// to the top, pbrt's "Reset queues before tracing rays", where the resets
+// of every queue the round fills sit together (see round-hoist-split for
+// three of them, which the GPU host then issues as one launch). The rounds
 // run as `do { launch } while (bonsai_cuda_round_guard(..))` -- the loop's
 // one synchronous read -- and both drains launch over their capacity with
 // the count read on the device (Bind.cpp).
