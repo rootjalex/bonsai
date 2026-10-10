@@ -117,6 +117,18 @@ shared_ptr<Function> clone_function(const Function &func) {
         }
 
         for (const auto &[name, value] : block->lookups) {
+            // The lookups are a cache of names (Block::lookups), and a name
+            // whose instruction a rewrite has since removed from the
+            // function -- dead code the simplifier dropped, a value a
+            // rewrite replaced -- is a stale entry of it that nothing
+            // resolves any more; a copy does without it. An operand that
+            // refers to such an instruction is a real reference and is
+            // still refused below.
+            const auto *instr = value ? std::get_if<shared_ptr<Instruction>>(&value->data)
+                                      : nullptr;
+            if (instr != nullptr && !instrs.contains(instr->get())) {
+                continue;
+            }
             copy->lookups[name] = clone_value(value, instrs);
         }
 

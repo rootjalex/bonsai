@@ -1,0 +1,71 @@
+//! flags: -p ssa
+
+// A specialize on a gang's state: vectorize-packet-any.bonsai's program and
+// layout -- a gang of eight rays over an `any` query of a four-wide BVH
+// whose nodes hold their children's boxes -- with `occluded.specialize(
+// count(i) > 4)` after the vectorize, and each arm put on a stack of its
+// own (SSA/Specialize.h, specialize_gang). What to read for: the gang copy
+// of the recursion, `_recloop_func0$gang8_p1_v2$masked`, is a dispatcher
+// -- `popcount(!mask)`, compared with 4, and a call of `...!True` or
+// `...!False` with its arguments -- and the two arms are copies of the
+// gang's traversal as it stood, each entered through the same test of its
+// own mask (`!switch`), handing the call to the other arm when the count is
+// on the other side, so that every node decides: the arms' recursive calls
+// are their own (`...!True` calls `...!True`), which is what lets
+// `occluded[True].loopify(64)` and `occluded[False].loopify(64)` put each
+// on a stack, and the switch is then made at every pop, where Embree's
+// hybrid kernel makes it (bvh_intersector_hybrid.cpp, switchThreshold).
+// Nothing else changes: both arms are the packet, the `_mask0 : mut
+// boolx8[4]` declared and unused as before, the leaf test the gang's copy
+// of intersectsp_ray_tri. The caller, occluded_all's gang, calls the
+// dispatcher as it called the recursion.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func [[export]] occluded_all(rs : array[Ray, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](occluded(rs[i]));
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded_all.vectorize(i);
+    occluded.specialize(count(i) > 4);
+    occluded[True].loopify(64);
+    occluded[False].loopify(64);
+}

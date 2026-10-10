@@ -5,6 +5,7 @@
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
+#include "SSA/Rewrite.h"
 #include "SSA/Simplify.h"
 #include "Utils.h"
 
@@ -986,6 +987,279 @@ key_tag_at(Block &block, const Function &func, const string &key,
     }
     return block.make_instruction(tag->type, Instruction::Op::LoadField,
                                   {here, constant_u32(*tag->field)});
+}
+
+//===--------------------------------------------------------------------===//
+// A specialize on a gang's state
+//===--------------------------------------------------------------------===//
+
+namespace {
+
+// The mask parameter of a gang's masked copy (`!mask`, the last parameter,
+// SSA/Vectorize.cpp), or null for a function that takes none.
+const Argument *mask_parameter(const Function &func) {
+    for (const Argument &a : func.blocks.front()->args) {
+        if (a.name == "!mask") {
+            return &a;
+        }
+    }
+    return nullptr;
+}
+
+// Every parfor of `func` renamed with `suffix`, and every use of its index
+// with it: a copy made for an arm carries the arm's label on its loops, as
+// the copies specialize_loops makes do (`p!VolPath`), so that a directive
+// written on the arm resolves to them (resolve_loops, SSA/Convert.cpp).
+void suffix_loops(Function &func, const string &suffix) {
+    vector<std::pair<string, string>> renamed;
+    for (const auto &block : func.blocks) {
+        if (auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            const string was = p->index;
+            p->index = was + suffix;
+            renamed.emplace_back(was, p->index);
+        }
+    }
+    // The index is declared by the loop's body and threaded on under its
+    // name; the entry declares no loop's index, so nothing is kept from
+    // the renaming.
+    for (const auto &[was, now] : renamed) {
+        rename_uses(func.blocks, *func.blocks.front(), was, now);
+    }
+}
+
+// Every call `func` makes of `was` made of `now` instead: an arm's
+// recursion is the arm's own.
+void retarget_calls(Function &func, const string &was, const string &now) {
+    for (const auto &block : func.blocks) {
+        if (Terminator::Jump *callee = block->terminator.callee();
+            callee != nullptr && callee->name == was) {
+            callee->name = now;
+        }
+    }
+}
+
+// Whether a gang copy's loop (Function::gang_loop) is the loop a directive
+// named: the name itself, lowering's `_` spelling of it, or a variant of
+// either (`i_lane!VolPath`), as resolve_loops matches a loop's name.
+bool is_gang_of(const string &gang_loop, const string &wanted) {
+    for (const string &candidate : {wanted, "_" + wanted}) {
+        if (gang_loop == candidate ||
+            (gang_loop.size() > candidate.size() &&
+             gang_loop.compare(0, candidate.size(), candidate) == 0 &&
+             gang_loop[candidate.size()] == '!')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// An instruction appended to `block`, named and looked up by its name.
+shared_ptr<Value> emit(Function &f, Block &block, const Type &type,
+                       Instruction::Op op, vector<shared_ptr<Value>> operands) {
+    auto instr = std::make_shared<Instruction>(f.get_unique_name(), type, op,
+                                               std::move(operands),
+                                               block.shared_from_this());
+    block.instrs.push_back(instr);
+    auto value = std::make_shared<Value>(instr);
+    block.lookups[instr->name] = value;
+    return value;
+}
+
+// `count <compare> threshold`, in `block`.
+shared_ptr<Value> compare_count(Function &f, Block &block,
+                                const shared_ptr<Value> &count,
+                                ir::Specialize::Compare compare,
+                                uint64_t threshold) {
+    const shared_ptr<Value> k = constant_u32(threshold);
+    const auto make = [&](Instruction::Op op, shared_ptr<Value> a,
+                          shared_ptr<Value> b) {
+        return emit(f, block, Bool_t::make(), op, {std::move(a), std::move(b)});
+    };
+    switch (compare) {
+    case ir::Specialize::Compare::LT:
+        return make(Instruction::Op::Lt, count, k);
+    case ir::Specialize::Compare::LE:
+        return make(Instruction::Op::Leq, count, k);
+    case ir::Specialize::Compare::GT:
+        return make(Instruction::Op::Lt, k, count);
+    case ir::Specialize::Compare::GE:
+        return make(Instruction::Op::Leq, k, count);
+    case ir::Specialize::Compare::EQ:
+        return make(Instruction::Op::Eq, count, k);
+    case ir::Specialize::Compare::NE:
+        return make(Instruction::Op::Ne, count, k);
+    }
+    internal_error << "compare_count: unknown comparison";
+    return nullptr;
+}
+
+// A block of `f` named `name` that takes `params`, calls `callee` with them
+// and returns what the call returns: where a dispatch on the count hands a
+// call to an arm.
+shared_ptr<Block> call_and_return(const shared_ptr<Function> &f,
+                                  const string &name,
+                                  const vector<Argument> &params,
+                                  const string &callee) {
+    const bool returns_value = !f->ret_type.is<Void_t>();
+    auto call = std::make_shared<Block>();
+    call->name = name;
+    call->owner = f;
+    vector<shared_ptr<Value>> args;
+    for (const Argument &p : params) {
+        args.push_back(call->add_argument(p));
+    }
+    auto ret = std::make_shared<Block>();
+    ret->name = name + "!ret";
+    ret->owner = f;
+    shared_ptr<Value> value;
+    if (returns_value) {
+        value = ret->add_argument(Argument{f->ret_type, "!ret"});
+    }
+    ret->terminator.data = Terminator::Return{value};
+    call->terminator.data =
+        Terminator::Call{Terminator::Jump{callee, std::move(args)},
+                         Terminator::Jump{ret->name, {}},
+                         /*drop=*/!returns_value};
+    f->blocks.push_back(call);
+    f->blocks.push_back(ret);
+    return call;
+}
+
+// The count of the lanes of `mask` that are on, compared as the directive
+// wrote it, as instructions in `block`.
+shared_ptr<Value> count_test(Function &f, Block &block,
+                             const shared_ptr<Value> &mask,
+                             ir::Specialize::Compare compare,
+                             uint64_t threshold) {
+    const shared_ptr<Value> count =
+        emit(f, block, UInt_t::make(32), Instruction::Op::Popcount, {mask});
+    return compare_count(f, block, count, compare, threshold);
+}
+
+// One arm of `of`: a copy of the gang copy `x` as it stands, its loops and
+// its recursion the arm's own, entered through a test of the count that
+// hands the call to `other` when the condition does not pick this arm.
+void make_arm(FuncMap &fmap, const string &of, const Function &x,
+              const string &label, const string &other, bool runs_when_true,
+              ir::Specialize::Compare compare, uint64_t threshold) {
+    const string name = of + "!" + label;
+    shared_ptr<Function> arm = clone_function(x);
+    arm->specialized_from = of;
+    arm->gang_loop = x.gang_loop;
+    suffix_loops(*arm, "!" + label);
+    retarget_calls(*arm, of, name);
+    fmap[name] = arm;
+
+    // A function is named by its entry block: the switch is the arm's
+    // entry under the arm's name, and the copied entry follows it.
+    const shared_ptr<Block> body = arm->blocks.front();
+    body->name = name + "!entry";
+    auto guard = std::make_shared<Block>();
+    guard->name = name;
+    guard->owner = arm;
+    vector<shared_ptr<Value>> args;
+    for (const Argument &p : body->args) {
+        args.push_back(guard->add_argument(p));
+    }
+    const shared_ptr<Value> mask = guard->lookups.at("!mask");
+    const shared_ptr<Value> cond = count_test(*arm, *guard, mask, compare, threshold);
+    arm->blocks.insert(arm->blocks.begin(), guard);
+    const shared_ptr<Block> divert =
+        call_and_return(arm, "!switch!" + (runs_when_true ? string("False")
+                                                            : string("True")),
+                        body->args, other);
+    const Terminator::Jump stay{body->name, args};
+    const Terminator::Jump go{divert->name, args};
+    guard->terminator.data = Terminator::Dispatch{
+        cond, runs_when_true ? vector<Terminator::Jump>{go, stay}
+                             : vector<Terminator::Jump>{stay, go}};
+    refresh_preds(*arm);
+}
+
+// `x`'s body replaced by the test and a call of the arm it picks.
+void make_dispatcher(const shared_ptr<Function> &x, const string &on_true,
+                     const string &on_false, ir::Specialize::Compare compare,
+                     uint64_t threshold) {
+    const vector<Argument> params = x->blocks.front()->args;
+    const string entry_name = x->blocks.front()->name;
+    x->blocks.clear();
+    auto entry = std::make_shared<Block>();
+    entry->name = entry_name;
+    entry->owner = x;
+    vector<shared_ptr<Value>> args;
+    for (const Argument &p : params) {
+        args.push_back(entry->add_argument(p));
+    }
+    x->blocks.push_back(entry);
+    const shared_ptr<Value> mask = entry->lookups.at("!mask");
+    const shared_ptr<Value> cond = count_test(*x, *entry, mask, compare, threshold);
+    const shared_ptr<Block> to_true = call_and_return(x, "!True", params, on_true);
+    const shared_ptr<Block> to_false = call_and_return(x, "!False", params, on_false);
+    entry->terminator.data = Terminator::Dispatch{
+        cond, {Terminator::Jump{to_false->name, args},
+               Terminator::Jump{to_true->name, args}}};
+    refresh_preds(*x);
+}
+
+// The gang copies a directive over the state of the gang `loop` means by
+// `fname` -- the copies of `fname` itself and of the recursions it stands
+// for (recursive_functions_from, SSA/Rewrite.h) that the vectorize of
+// `loop` made (Function::gang_loop) and that take a mask -- in name order.
+// The helpers a function calls are not among them: a condition on
+// `occluded`'s lanes is tested where occluded is called and at each call
+// of its recursion, not at every call of its box or triangle test.
+vector<string> gang_copies_of(const FuncMap &fmap, const string &fname,
+                              const string &loop) {
+    set<string> candidates = recursive_functions_from(fmap, fname);
+    for (const auto &[name, f] : fmap) {
+        if (f->specialized_from == fname) {
+            candidates.insert(name);
+        }
+    }
+    vector<string> copies;
+    for (const string &name : candidates) {
+        const Function &f = *fmap.at(name);
+        if (is_gang_of(f.gang_loop, loop) && mask_parameter(f) != nullptr) {
+            copies.push_back(name);
+        }
+    }
+    return copies;
+}
+
+} // namespace
+
+void specialize_gang(FuncMap &fmap, const string &fname, const string &gang,
+                     ir::Specialize::Compare compare, uint64_t threshold) {
+    const string where = fname + ".specialize(count(" + gang + ") ...)";
+    internal_assert(fmap.contains(fname)) << where << ": no function " << fname;
+    const vector<string> targets = gang_copies_of(fmap, fname, gang);
+    if (targets.empty()) {
+        string gangs;
+        for (const string &name : functions_standing_for(fmap, fname)) {
+            const Function &f = *fmap.at(name);
+            if (!f.gang_loop.empty()) {
+                gangs += (gangs.empty() ? "" : ", ") + name + " (" + f.gang_loop + ")";
+            }
+        }
+        internal_error
+            << where << ": no copy of " << fname
+            << " or of its recursion was made by vectorizing " << gang
+            << ". The condition counts the lanes of a gang, so `vectorize(" << gang
+            << ")` comes first, on the loop that calls " << fname << ". "
+            << (gangs.empty() ? "No gang copy of anything it stands for exists."
+                              : "The gang copies it stands for, with the loop "
+                                "that made each: " + gangs + ".");
+    }
+    for (const string &name : targets) {
+        const shared_ptr<Function> x = fmap.at(name);
+        const string on_true = name + "!True";
+        const string on_false = name + "!False";
+        make_arm(fmap, name, *x, "True", on_false, /*runs_when_true=*/true,
+                 compare, threshold);
+        make_arm(fmap, name, *x, "False", on_true, /*runs_when_true=*/false,
+                 compare, threshold);
+        make_dispatcher(x, on_true, on_false, compare, threshold);
+    }
 }
 
 } // namespace ssa

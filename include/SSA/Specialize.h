@@ -127,6 +127,25 @@ void specialize_callees(FuncMap &fmap,
                         const std::string &value, const KeyVariant &v,
                         const std::map<std::string, ir::Program::AdtStorage> &storages);
 
+// A specialize on a gang's state: `occluded.specialize(count(i_lane) > 14)`
+// (ir::Specialize, the `gang` form). The functions it copies are the gang
+// copies of `fname` and of its recursion that the vectorize of `gang` made
+// (gang_copies_of): each such `X` becomes a dispatcher that counts the lanes
+// of its mask that are on, compares the count as written, and calls
+// `X!True` or `X!False`, two copies of `X` as it stood, their loops named
+// for the arm (`children!True`) so that a directive on the arm finds them.
+// An arm tests again at its own entry and hands the call to the other arm
+// when the count has crossed the threshold, so that a recursion inside an
+// arm -- whose calls are the arm's own, and which a `loopify` on the arm
+// puts on a stack -- decides at every call: at every node of a traversal,
+// where Embree's hybrid kernel decides (bvh_intersector_hybrid.cpp,
+// switchThreshold). A caller of `X` goes through the dispatcher and needs
+// no change. Refused when no gang copy was made by vectorizing `gang`: the
+// condition is over a gang's lanes, so the vectorize comes first.
+void specialize_gang(FuncMap &fmap, const std::string &fname,
+                     const std::string &gang, ir::Specialize::Compare compare,
+                     uint64_t threshold);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

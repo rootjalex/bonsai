@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// A specialize on the count of a gang's lanes written before the loop is
+// vectorized: `count(i)` is how many lanes of i's gang are on at the call,
+// and before `vectorize(i)` there is no gang and every iteration runs
+// alone, so the condition has nothing to count. Refused rather than taken
+// as always one lane, with the gang copies that do exist named -- here
+// none (SSA/Specialize.cpp, specialize_gang).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func occluded(r : Ray) = any(|t : Triangle| intersects(r, t), tris);
+
+func [[export]] occluded_all(rs : array[Ray, 8], out : mut array[i32, 8]) {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](occluded(rs[i]));
+    }
+    return;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lo : vector[vec3f, 4];
+            hi : vector[vec3f, 4];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    occluded.specialize(count(i) > 4);
+    occluded_all.vectorize(i);
+    occluded[True].loopify(64);
+}

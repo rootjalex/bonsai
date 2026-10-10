@@ -1683,29 +1683,20 @@ std::optional<Type> type_of_value(const Function &f, const std::string &name) {
 // `process` calls. The Stmt-level pass follows the same calls, by name and
 // with a "this is hacky" note; following the call graph is the general form of
 // that.
+//
+// And in every copy a directive made of a function on the way
+// (functions_standing_for, SSA/Rewrite.h): a vectorize's gang copies, which
+// the gang's calls reach and the scalar function's never do, and a
+// specialize's arms, whose loops `occluded[False].vectorize(tris.Interior.
+// children)` names as `children!False`.
 std::map<std::string, std::set<std::string>>
 parfors_reachable_from(const FuncMap &fmap, const std::string &start) {
     std::map<std::string, std::set<std::string>> found;
-    std::set<std::string> seen;
-    std::vector<std::string> work{start};
-    while (!work.empty()) {
-        const std::string name = work.back();
-        work.pop_back();
-        if (!seen.insert(name).second) {
-            continue;
-        }
-        const auto it = fmap.find(name);
-        if (it == fmap.end()) {
-            continue; // an extern, or something not compiled here
-        }
-        for (const auto &block : it->second->blocks) {
+    for (const std::string &name : functions_standing_for(fmap, start)) {
+        for (const auto &block : fmap.at(name)->blocks) {
             if (const auto *p =
                     std::get_if<Terminator::ParFor>(&block->terminator.data)) {
                 found[name].insert(p->index);
-            }
-            if (const auto *c =
-                    std::get_if<Terminator::Call>(&block->terminator.data)) {
-                work.push_back(c->call.name);
             }
         }
     }
@@ -2102,8 +2093,29 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     check_branch_policies(fmap, policies);
     // Under every name they stand for, which is what the linearizer looks
     // them up by (see expand_branch_policies).
-    const ir::BranchPolicyMap expanded_policies =
+    ir::BranchPolicyMap expanded_policies =
         expand_branch_policies(fmap, policies);
+    // A copy a directive makes of a function after this point -- a gang
+    // specialize's arm -- stands under the function's name too, and a
+    // vectorize written after it looks its policies up under the copy's
+    // own: handed down from the function it was copied from
+    // (Function::specialized_from) once the copies exist.
+    const auto inherit_policies = [&]() {
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (const auto &[fname, f] : fmap) {
+                if (f->specialized_from.empty() ||
+                    expanded_policies.contains(fname)) {
+                    continue;
+                }
+                const auto from = expanded_policies.find(f->specialized_from);
+                if (from != expanded_policies.end()) {
+                    expanded_policies[fname] = from->second;
+                    grew = true;
+                }
+            }
+        }
+    };
 
     // Before any rewrite has touched it, so that a transform's golden can say
     // what it changed and not only what it ended at.
@@ -2131,17 +2143,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // after it make values the intervals never saw, which is fine, since an
     // unknown value is everything.
     const auto sort_reach = [&](const std::string &name) {
-        std::set<std::string> reach = reach_of(fmap, name);
-        for (bool grew = true; grew;) {
-            grew = false;
-            for (const auto &[fname, f] : fmap) {
-                if (!reach.contains(fname) &&
-                    reach.contains(f->specialized_from)) {
-                    reach.insert(fname);
-                    grew = true;
-                }
-            }
-        }
+        const std::set<std::string> reach = functions_standing_for(fmap, name);
         const ConstantIntervals intervals(fmap);
         if (std::getenv("BONSAI_INTERVALS") != nullptr) {
             for (const auto &[fname, f] : fmap) {
@@ -2320,13 +2322,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 << "deferral applies to the copies (SSA/Stage.h, call_holders).";
         }
         if (std::holds_alternative<ir::Specialize>(t) &&
-            std::get<ir::Specialize>(t).loop.empty()) {
+            std::get<ir::Specialize>(t).loop.empty() &&
+            std::get<ir::Specialize>(t).gang.empty()) {
             // After another specialize is fine: `render.specialize(
             // integrator); render[VolPath].specialize(sampler)` copies a
             // copy, and the directives after both schedule the copies. The
             // loop form, `render.specialize(shadow, have_media)`, is the
             // other way round: it copies one loop as scheduled, so it comes
-            // after the directives that made the loop (ir::Specialize).
+            // after the directives that made the loop (ir::Specialize); so
+            // is the gang form, `occluded.specialize(count(i_lane) > 14)`,
+            // which copies the gang copies as scheduled and comes after the
+            // vectorize that made them.
             internal_assert(!scheduled.contains(name))
                 << name << ".specialize(" << std::get<ir::Specialize>(t).param
                 << ") comes after another directive on " << name
@@ -2400,6 +2406,15 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         }
                     },
                     [&](const ir::Specialize &s) {
+                        if (!s.gang.empty()) {
+                            // On a gang's state: the gang copies the
+                            // vectorize of `s.gang` made, each a dispatcher
+                            // over two arms (SSA/Specialize.h).
+                            specialize_gang(fmap, name, s.gang, s.compare,
+                                            s.threshold);
+                            inherit_policies();
+                            return;
+                        }
                         specialize_loops(fmap, name, s.param, s.variant, s.loop,
                                          adt_storages);
                     },
@@ -2452,7 +2467,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 << " needs a constant, positive stack depth";
                             size = int(*n);
                         }
-                        loopify(fmap, name, size);
+                        loopify(fmap, name, size, l.variant);
                         if (divided) {
                             divide_all();
                         }
@@ -2722,8 +2737,28 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                     // (Lower/Sorts.cpp); the run is ordered by them here,
                     // where the schedule wrote the sort (see sort_reach).
                     [&](const ir::Sort &) { sort_reach(name); },
-                    // Applied earlier in lowering, by the pass named.
-                    [&](const ir::Prefetch &) {}, // Lower/Prefetches.cpp
+                    // Applied earlier in lowering, by the pass named
+                    // (Lower/Prefetches.cpp), to the function as a whole:
+                    // written on an arm of a specialize, the fetches are
+                    // taken back out of the copies that are not the arm's
+                    // (ir::Prefetch::variant).
+                    [&](const ir::Prefetch &p) {
+                        if (p.variant.empty()) {
+                            return;
+                        }
+                        for (const std::string &fname :
+                             functions_standing_for(fmap, name)) {
+                            if (carries_variant(fname, p.variant)) {
+                                continue;
+                            }
+                            for (const auto &block : fmap.at(fname)->blocks) {
+                                std::erase_if(block->instrs, [](const auto &instr) {
+                                    return instr->op == Instruction::Op::Intrinsic &&
+                                           instr->intrinsic == ir::Intrinsic::prefetch;
+                                });
+                            }
+                        }
+                    },
                     [&](const ir::Split &s) {
                         internal_assert(!s.i.names.empty() &&
                                         !s.io.names.empty() &&

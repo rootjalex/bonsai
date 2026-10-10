@@ -10,6 +10,7 @@ add_bonsai_tests(
     reducer-assign.bonsai
     reducer-mut-argument.bonsai
     specialize-late.bonsai
+    specialize-count-no-gang.bonsai
     spawn-not-call.bonsai
     spawn-not-reducer.bonsai
     defer-spawn-loop.bonsai

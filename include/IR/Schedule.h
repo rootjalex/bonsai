@@ -143,6 +143,10 @@ struct Stage {
 struct Loopify {
     // This is only used in the branching recursion case, hence the optionality.
     std::optional<Expr> queue_size;
+    // The arm of a specialize this is written on -- `!True` for
+    // `occluded[True].loopify(561)` -- whose copies of the recursion alone
+    // are put on a stack; empty for the function as a whole, every copy.
+    std::string variant;
 };
 
 // Bind a cursor to a piece of hardware.
@@ -283,9 +287,16 @@ struct Vectorize {
 // LLVM backend's emit_prefetch); a machine with 128-byte lines, or a GPU's
 // 32-byte sectors, would be told its own -- so the count is what carries
 // between machines, not a byte size.
+//
+// Written on an arm of a specialize -- `occluded[False].prefetch(tris.
+// Interior.children, 4)` -- the fetch is that arm's alone. The lowering
+// above puts it in the traversal before any arm exists, so the SSA driver
+// takes it back out of the other arms when it reaches the directive
+// (`variant`, the arm's suffix; see the Prefetch case in SSA/Convert.cpp).
 struct Prefetch {
     Location loc;
     std::optional<uint64_t> lines;
+    std::string variant;
 };
 
 // One copy of the function per variant of a parameter of algebraic type,
@@ -316,10 +327,33 @@ struct Prefetch {
 // with everything else as it was. This form comes late, after the queues
 // and binds that made the loop, since it copies the loop as scheduled;
 // `loop` names it, or is empty for the whole-function form above.
+//
+// Written on a gang's state -- `occluded.specialize(count(i_lane) > 14)`,
+// after `occluded_all.split(i, i_gang, i_lane, 16, true).vectorize(i_lane)`
+// -- the condition is over the lanes of the gang the vectorize of `i_lane`
+// made, and is tested at each call of the function's gang copies: `count(
+// i_lane)` is how many lanes of the call's mask are on. The copies are of
+// the function as scheduled so far (the gang copy and the copies of the
+// recursion lowering extracted from it, as `loopify` finds them), named
+// `occluded[True]` and `occluded[False]` as a bool's are, each a gang; a
+// recursive call inside an arm tests again, so a traversal decides at every
+// node. What the arms then do is theirs to schedule -- `occluded[True].
+// loopify(561)` the full gang on one stack, `occluded[False]` the thinned
+// gang scheduled otherwise -- which is where Embree's hybrid traversal
+// decides between its packet and its single rays (bvh_intersector_hybrid
+// .cpp, switchThreshold). Halide's `specialize(cond)` with the condition
+// tested where its operands exist -- a parameter's once, at the loop; a
+// gang's at the call -- and the arms addressed by label as this schedule
+// language addresses every copy. `gang` is the loop, empty for the
+// parameter forms above.
 struct Specialize {
     std::string param;
     std::string variant;
     std::string loop;
+    std::string gang;
+    enum class Compare { LT, LE, GT, GE, EQ, NE };
+    Compare compare = Compare::GT;
+    uint64_t threshold = 0;
 };
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Persistent,

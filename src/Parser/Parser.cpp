@@ -4145,8 +4145,9 @@ struct Parser {
                 if (peek().type != Token::Type::RPAREN) {
                     queue_size = parse_expr();
                 }
-                add(
-                    ir::Loopify{std::move(queue_size)});
+                // On an arm of a specialize (`occluded[True].loopify(561)`),
+                // that arm's copies of the recursion alone.
+                add(ir::Loopify{std::move(queue_size), variant});
             } else if (rewrite == "sort") {
                 ir::Location loc = parse_location();
                 expect(Token::Type::COMMA);
@@ -4221,8 +4222,11 @@ struct Parser {
                 // The field of an arm holding the tree's references -- the
                 // children a node tests -- whose storage each hit one has
                 // brought into cache in the loop that tests them
-                // (ir::Prefetch).
-                ir::Location loc = loop_cursor();
+                // (ir::Prefetch). Named as written, without an arm's suffix:
+                // the lowering that places the fetch runs before any arm
+                // exists and finds the field by the tree's own name; the
+                // arm goes beside it (ir::Prefetch::variant).
+                ir::Location loc = parse_location();
                 // And how many cache lines of each, when the schedule says
                 // (ir::Prefetch); a positive constant.
                 std::optional<uint64_t> lines;
@@ -4237,7 +4241,59 @@ struct Parser {
                         << count;
                     lines = *n;
                 }
-                add(ir::Prefetch{std::move(loc), lines});
+                // On an arm of a specialize (`occluded[False].prefetch(...)`),
+                // that arm's fetch alone (ir::Prefetch::variant).
+                add(ir::Prefetch{std::move(loc), lines, variant});
+            } else if (rewrite == "specialize" &&
+                       peek().type == Token::Type::IDENTIFIER &&
+                       std::get<std::string>(peek().value) == "count" &&
+                       peek(1).type == Token::Type::LPAREN) {
+                // On a gang's state: `occluded.specialize(count(i_lane) > 14)`
+                // -- how many lanes of the gang the vectorize of `i_lane`
+                // made are on at the call, against a constant
+                // (ir::Specialize, the `gang` form). The loop is the
+                // gang's, another function's, named as written.
+                get_id();
+                expect(Token::Type::LPAREN);
+                ir::Location gang = parse_location();
+                internal_assert(gang.names.size() == 1)
+                    << func << ".specialize(count(<loop>) ...) names the "
+                       "vectorized loop whose lanes are counted, not a path";
+                expect(Token::Type::RPAREN);
+                ir::Specialize::Compare compare;
+                if (consume(Token::Type::GT)) {
+                    compare = ir::Specialize::Compare::GT;
+                } else if (consume(Token::Type::GEQ)) {
+                    compare = ir::Specialize::Compare::GE;
+                } else if (consume(Token::Type::LT)) {
+                    compare = ir::Specialize::Compare::LT;
+                } else if (consume(Token::Type::LEQ)) {
+                    compare = ir::Specialize::Compare::LE;
+                } else if (consume(Token::Type::EQ)) {
+                    compare = ir::Specialize::Compare::EQ;
+                } else if (consume(Token::Type::NEQ)) {
+                    compare = ir::Specialize::Compare::NE;
+                } else {
+                    report_error()
+                        << func << ".specialize(count(" << gang.names.front()
+                        << ") ...): after the count comes a comparison -- "
+                           "one of >, >=, <, <=, ==, != -- and a constant.";
+                    compare = ir::Specialize::Compare::GT;
+                }
+                const ir::Expr threshold = parse_expr();
+                const std::optional<int64_t> n =
+                    get_constant_value<int64_t>(threshold);
+                internal_assert(n.has_value() && *n >= 0)
+                    << func << ".specialize(count(" << gang.names.front()
+                    << ") ...) compares the count with a constant that is "
+                       "not negative, received: "
+                    << threshold;
+                ir::Specialize s;
+                s.variant = variant;
+                s.gang = gang.names.front();
+                s.compare = compare;
+                s.threshold = uint64_t(*n);
+                add(std::move(s));
             } else if (rewrite == "specialize") {
                 // The parameter whose variants the function is copied for;
                 // with a loop before it, `render.specialize(shadow,

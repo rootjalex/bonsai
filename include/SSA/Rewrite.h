@@ -6,6 +6,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace bonsai {
@@ -101,7 +102,32 @@ void collapse(FuncMap &funcs, std::string func, std::string outer,
 // is a call of `func` itself. What a loop needs on hardware that allows no
 // recursion (the RT cores' programs), and what pbrt's megakernel is.
 // `size` puts a branching recursion on a stack instead (SSA/QueueRecursion.h).
-void loopify(FuncMap &funcs, std::string func, int size = 0);
+// `variant` is the arm of a specialize the directive was written on
+// (`occluded[True].loopify(561)`: the suffix `!True`), and then only the
+// recursions whose copies carry it are put on a stack; empty for every copy.
+void loopify(FuncMap &funcs, std::string func, int size = 0,
+             const std::string &variant = "");
+
+// The functions a schedule's name stands for: `start`, everything it calls,
+// directly or through what they call, and every copy of any of those that
+// a directive made (Function::specialized_from) -- a vectorize's gang copies,
+// a specialize's arms -- which the gang's own calls reach where the scalar's
+// never do. What loopify and specialize walk to find their work.
+// Implemented in SSA/Rewrite.cpp.
+std::set<std::string> functions_standing_for(const FuncMap &funcs,
+                                             const std::string &start);
+
+// Those of them that call themselves (is_recursive): the recursions a
+// `loopify` puts on a stack.
+std::set<std::string> recursive_functions_from(const FuncMap &funcs,
+                                               const std::string &start);
+
+// Whether a copy's name carries an arm's suffix -- `_recloop_func0$gang16!
+// True` carries `!True`, as does `p!True!Halton` -- which is how a directive
+// written on an arm (`occluded[True].loopify(561)`) picks the copies it
+// means out of the functions its name stands for. Every name carries the
+// empty suffix.
+bool carries_variant(const std::string &name, const std::string &variant);
 
 // Copies the callee of the call that ends `site`, a block of `caller`, into
 // `caller` in place of the call: the site jumps to a copy of the callee's

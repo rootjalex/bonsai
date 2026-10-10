@@ -431,6 +431,20 @@ void Printer::print(const Schedule &schedule) {
                                       os << ")";
                                   },
                                   [&](const Specialize &s) {
+                                      if (!s.gang.empty()) {
+                                          const char *compare = "";
+                                          switch (s.compare) {
+                                          case Specialize::Compare::LT: compare = "<"; break;
+                                          case Specialize::Compare::LE: compare = "<="; break;
+                                          case Specialize::Compare::GT: compare = ">"; break;
+                                          case Specialize::Compare::GE: compare = ">="; break;
+                                          case Specialize::Compare::EQ: compare = "=="; break;
+                                          case Specialize::Compare::NE: compare = "!="; break;
+                                          }
+                                          os << "specialize(count(" << s.gang << ") "
+                                             << compare << " " << s.threshold << ")";
+                                          return;
+                                      }
                                       os << "specialize(" << s.param << ")";
                                   },
                                   [&](const Stage &s) {

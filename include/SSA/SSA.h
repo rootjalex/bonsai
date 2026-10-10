@@ -527,6 +527,14 @@ struct Function {
     // its work in the copies as well -- `trace.loopify(64)` after
     // `render.vectorize(s)` puts the gang's traversal on a stack.
     std::string specialized_from;
+    // The loop whose vectorize made this copy -- the gang it runs in, by
+    // the index the schedule names (`i_lane`) -- so that a directive over
+    // that gang's state finds the copies it means: `occluded.specialize(
+    // count(i_lane) > 14)` tests the mask of every copy of occluded's
+    // recursion that `i_lane`'s gang calls (SSA/Specialize.h). Empty for a
+    // function that is not a gang's copy; carried to the arms that
+    // directive makes of one.
+    std::string gang_loop;
 
     // The names of values a schedule directive reads -- a split's chunk
     // (ir::Split::factor_name, `split(p, p_band, p_in, pass_pixels, true)`)

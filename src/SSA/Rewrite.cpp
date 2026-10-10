@@ -839,9 +839,7 @@ void persistent(FuncMap &funcs, string func, string idx, const Expr &count_e,
     refresh_preds(*f);
 }
 
-namespace {
-
-// The functions that call themselves, among those `start` can reach.
+// The functions a schedule's name stands for (SSA/Rewrite.h).
 //
 // The schedule names the function the programmer wrote, but the recursion is
 // not always in it. A tree query is lowered into a traversal function of its
@@ -855,15 +853,14 @@ namespace {
 // traversal, which the scalar `trace` never mentions. Every copy of a
 // function the walk reaches is as much what `trace.loopify(64)` names as the
 // function itself, so the walk takes them in as it goes.
-std::set<std::string> recursive_functions_from(const FuncMap &funcs,
-                                               const std::string &start) {
+std::set<std::string> functions_standing_for(const FuncMap &funcs,
+                                             const std::string &start) {
     std::map<std::string, std::vector<std::string>> copies_of;
     for (const auto &[name, f] : funcs) {
         if (!f->specialized_from.empty()) {
             copies_of[f->specialized_from].push_back(name);
         }
     }
-    std::set<std::string> found;
     std::set<std::string> seen;
     std::vector<std::string> work{start};
     while (!work.empty()) {
@@ -875,9 +872,6 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
         const auto it = funcs.find(name);
         if (it == funcs.end()) {
             continue; // an extern, or something not compiled here
-        }
-        if (is_recursive(*it->second)) {
-            found.insert(name);
         }
         for (const auto &block : it->second->blocks) {
             if (const auto *call = block->terminator.callee()) {
@@ -891,10 +885,28 @@ std::set<std::string> recursive_functions_from(const FuncMap &funcs,
             }
         }
     }
+    std::erase_if(seen, [&](const std::string &name) {
+        return !funcs.contains(name);
+    });
+    return seen;
+}
+
+// The functions that call themselves, among those `start` stands for.
+std::set<std::string> recursive_functions_from(const FuncMap &funcs,
+                                               const std::string &start) {
+    std::set<std::string> found;
+    for (const std::string &name : functions_standing_for(funcs, start)) {
+        if (is_recursive(*funcs.at(name))) {
+            found.insert(name);
+        }
+    }
     return found;
 }
 
-} // namespace
+bool carries_variant(const std::string &name, const std::string &variant) {
+    return variant.empty() || name.ends_with(variant) ||
+           name.find(variant + "!") != std::string::npos;
+}
 
 namespace {
 
@@ -1183,21 +1195,34 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
     }
 }
 
-void loopify(FuncMap &funcs, std::string func, int size) {
+void loopify(FuncMap &funcs, std::string func, int size,
+             const std::string &variant) {
     internal_assert(funcs.contains(func))
         << "loopify applied to unknown func:" << func;
+    // The arm's own copy of the function, when the directive is on an arm
+    // and the function itself was copied for it; else the function.
+    if (!variant.empty() && funcs.contains(func + variant)) {
+        func += variant;
+    }
     auto f = funcs[func];
 
     if (size > 0) {
         // A recursion that branches cannot become a loop by itself, since the
         // second call has to happen after the first one comes back. It is put
-        // on an explicit stack instead (see SSA/QueueRecursion.h).
-        const std::set<std::string> targets =
-            recursive_functions_from(funcs, func);
+        // on an explicit stack instead (see SSA/QueueRecursion.h). On an arm
+        // (`occluded[True].loopify(561)`), the recursions copied for that
+        // arm alone (carries_variant).
+        std::set<std::string> targets = recursive_functions_from(funcs, func);
+        std::erase_if(targets, [&](const std::string &name) {
+            return !carries_variant(name, variant);
+        });
         internal_assert(!targets.empty())
-            << "loopify(" << size << ") on " << func << ": neither it nor "
-            << "anything it calls is recursive, so there is nothing to put on "
-            << "a stack";
+            << "loopify(" << size << ") on " << func
+            << (variant.empty() ? std::string()
+                                : " for the arm `" + variant.substr(1) + "`")
+            << ": neither it nor anything it calls is recursive"
+            << (variant.empty() ? "" : " in a copy made for that arm")
+            << ", so there is nothing to put on a stack";
         for (const std::string &target : targets) {
             queue_recursion(*funcs[target], size_t(size));
 

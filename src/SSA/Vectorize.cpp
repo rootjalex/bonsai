@@ -2497,6 +2497,15 @@ void vectorize(FuncMap &funcs, std::string func, std::string idx,
     // called (see inline_pure_variants).
     inline_pure_variants(funcs, f, variants);
 
+    // Every copy made for this gang remembers the loop that made it, which
+    // is how a directive over the gang's state finds its copies
+    // (Function::gang_loop: `occluded.specialize(count(i_lane) > 14)`).
+    for (const auto &[key, name] : variants) {
+        if (const auto made = funcs.find(name); made != funcs.end()) {
+            made->second->gang_loop = idx;
+        }
+    }
+
     // Say that this function has been through here, so that code generation
     // can take its SSA form directly rather than the statements the relooper
     // rebuilds from it. A gang's control flow is what partial linearization
