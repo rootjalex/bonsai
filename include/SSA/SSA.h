@@ -583,6 +583,20 @@ struct Function {
         // drained: a round queue is refilled after its pass for the round
         // after, which is the cycle. Empty otherwise.
         std::string drained;
+        // A cut on the same queue (SSA/Stage.h, stage_same_queue) splits
+        // the drain into two passes and stores what the rest needs in
+        // arrays of the record, written by the first pass alone:
+        // `stable_arrays` are those arrays (their allocations),
+        // `second_pass` the block whose loop is the drain itself, now the
+        // second pass, and `round_header` the round loop's header, or
+        // empty for a queue drained in one pass. From the second pass to
+        // the end of the round nothing writes those arrays, so a deferral
+        // whose producer runs in that stretch may read a value from them
+        // at its entry's slot rather than store it (SSA/Defer.cpp, the
+        // recipe that reloads).
+        std::string second_pass;
+        std::string round_header;
+        std::set<const Instruction *> stable_arrays;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
     // The addresses of the record slots deferrals of this function have made

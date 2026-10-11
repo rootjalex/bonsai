@@ -103,6 +103,7 @@ add_bonsai_tests(
     split-tail.bonsai
     split-unsigned.bonsai
     semantics-defer.bonsai
+    semantics-reload-by-slot.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai
     stage.bonsai

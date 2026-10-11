@@ -3087,6 +3087,150 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             return f.in_entry && !f.slot_address && f.param.has_value() &&
                    !f.recipe.has_value();
         };
+        // Whether `block` runs in the round of the queue `oq`, from its
+        // second pass on: the second pass itself, or a block its loop goes
+        // on to before the round closes (the header) -- where the arrays
+        // the first pass wrote hold still.
+        const auto after_second_pass = [&](const Function::OwnedQueue &oq,
+                                           const shared_ptr<Block> &block) {
+            if (oq.second_pass.empty() || !block) {
+                return false;
+            }
+            if (block->name == oq.second_pass) {
+                return true;
+            }
+            const auto it = omap.find(oq.second_pass);
+            if (it == omap.end()) {
+                return false;
+            }
+            const auto *loop = std::get_if<Terminator::ParFor>(&it->second->terminator.data);
+            if (loop == nullptr) {
+                return false;
+            }
+            set<string> seen;
+            vector<string> work{loop->cont.name};
+            while (!work.empty()) {
+                const string name = work.back();
+                work.pop_back();
+                if (name == oq.round_header || !seen.insert(name).second) {
+                    continue;
+                }
+                if (name == block->name) {
+                    return true;
+                }
+                const auto bit = omap.find(name);
+                if (bit == omap.end()) {
+                    continue;
+                }
+                for (const string &s : successors(*bit->second)) {
+                    work.push_back(s);
+                }
+            }
+            return false;
+        };
+        // A value the pusher was handed that the drain it runs in loaded
+        // from an array of the record at the entry's slot -- what a cut on
+        // the same queue stored there for its second pass (SSA/Stage.h),
+        // read back and handed down the chain -- which nothing writes
+        // between that pass and the end of its round, where this drain
+        // runs too: loaded again at this drain rather than stored, as
+        // pbrt's material kernel reads pixelSampleState.samples by the
+        // work item's pixelIndex rather than carrying them. The recipe is
+        // `load(gep(array, slot))` with the array a value in scope and the
+        // slot the entry's index field, which has to be the load's index at
+        // every producer call.
+        const auto reload_recipe = [&](const string &g,
+                                       const Definition &d) -> optional<Recipe> {
+            if (!d.value || d.block.empty()) {
+                return std::nullopt;
+            }
+            Definition od = d;
+            if (const auto *arg = std::get_if<Argument>(&d.value->data)) {
+                if (g == queue.owner) {
+                    return std::nullopt;
+                }
+                const Block &gentry = *funcs.at(g)->blocks.front();
+                if (d.block != gentry.name) {
+                    return std::nullopt;
+                }
+                size_t k = gentry.args.size();
+                for (size_t i = 0; i < gentry.args.size(); i++) {
+                    if (gentry.args[i].name == arg->name) {
+                        k = i;
+                    }
+                }
+                if (k == gentry.args.size() || !invariant.at(g)[k] ||
+                    !origin.at(g)[k].value) {
+                    return std::nullopt;
+                }
+                od = origin.at(g)[k];
+            } else if (g != queue.owner) {
+                return std::nullopt;
+            }
+            const auto *held = od.value ? std::get_if<shared_ptr<Instruction>>(&od.value->data)
+                                        : nullptr;
+            if (held == nullptr || od.block.empty() ||
+                (*held)->op != Instruction::Op::Load || (*held)->operands.size() != 1) {
+                return std::nullopt;
+            }
+            const Definition pd = odefs.of(od.block, (*held)->operands[0]);
+            const auto *pheld = pd.value ? std::get_if<shared_ptr<Instruction>>(&pd.value->data)
+                                         : nullptr;
+            if (pheld == nullptr || pd.block.empty() ||
+                (*pheld)->op != Instruction::Op::GEP || (*pheld)->operands.size() != 2) {
+                return std::nullopt;
+            }
+            const Definition ad = odefs.of(pd.block, (*pheld)->operands[0]);
+            const auto *aheld = ad.value ? std::get_if<shared_ptr<Instruction>>(&ad.value->data)
+                                         : nullptr;
+            if (aheld == nullptr) {
+                return std::nullopt;
+            }
+            bool kept = false;
+            for (const auto &[qname, oq] : O->queue_sizes) {
+                if (oq.stable_arrays.contains(aheld->get()) &&
+                    after_second_pass(oq, producer_loop_block)) {
+                    kept = true;
+                }
+            }
+            if (!kept) {
+                return std::nullopt;
+            }
+            optional<size_t> index_field;
+            for (const SlotGroup &group : slot_groups) {
+                bool same = !producers.empty();
+                for (const CallSite &pc : producers) {
+                    const auto it = group.index.find(pc.block->name);
+                    same = same && it != group.index.end() &&
+                           same_definition(it->second,
+                                           odefs.of(pc.block->name, (*pheld)->operands[1]));
+                }
+                if (same) {
+                    index_field = group.field;
+                    break;
+                }
+            }
+            if (!index_field.has_value()) {
+                return std::nullopt;
+            }
+            Recipe array;
+            array.kind = Recipe::Kind::Uniform;
+            array.uniform = ad;
+            Recipe slot;
+            slot.kind = Recipe::Kind::Field;
+            slot.field = *index_field;
+            Recipe gep;
+            gep.kind = Recipe::Kind::Op;
+            gep.op = Instruction::Op::GEP;
+            gep.type = (*pheld)->type;
+            gep.operands = {array, slot};
+            Recipe load;
+            load.kind = Recipe::Kind::Op;
+            load.op = Instruction::Op::Load;
+            load.type = (*held)->type;
+            load.operands = {gep};
+            return load;
+        };
         const size_t budget = 16; // instructions a recipe may take
         for (size_t f = 0; f < fields.size() && !push_sites.empty(); f++) {
             if (!is_leaf(fields[f])) {
@@ -3126,6 +3270,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                             r.field = h;
                             return r;
                         }
+                    }
+                    // A value loaded from the record at the entry's slot,
+                    // in a round that keeps it: loaded again.
+                    if (const auto reload = reload_recipe(ps.function, d)) {
+                        return reload;
                     }
                     // A value the drain has in scope.
                     if (const auto m = materialize(ps.function, d)) {

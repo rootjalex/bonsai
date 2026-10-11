@@ -119,6 +119,7 @@ add_bonsai_tests(
     select-const-arms.bonsai
     semantics-defer.bonsai
     semantics-draw.bonsai
+    semantics-reload-by-slot.bonsai
     semantics-render.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai

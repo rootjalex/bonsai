@@ -544,6 +544,15 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
             << " already; the third argument names the first pass, a new loop.";
     }
     const BlockMap omap = make_block_map(O);
+    // The round loop's header, when the drain runs in rounds: the block
+    // that dispatches into the drain's block on the count.
+    string round_header;
+    for (const auto &weak : pre->preds) {
+        const shared_ptr<Block> p = weak.lock();
+        if (p && std::holds_alternative<Terminator::Dispatch>(p->terminator.data)) {
+            round_header = p->name;
+        }
+    }
     const shared_ptr<Block> body = omap.at(P.body.name);
     auto *bcall = std::get_if<Terminator::Call>(&body->terminator.data);
     internal_assert(bcall != nullptr && bcall->drop)
@@ -722,8 +731,15 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         // the loops around the owner, as the record's arrays are
         // (Instruction::scratch; SSA/HoistAllocations.h).
         std::get<shared_ptr<Instruction>>(s.array->data)->scratch = true;
+        // Written by the first pass alone, so from the second pass to the
+        // end of the round a deferral may read it at its entry's slot
+        // rather than store what it was handed (Function::OwnedQueue).
+        owned->second.stable_arrays.insert(
+            std::get<shared_ptr<Instruction>>(s.array->data).get());
         stored.push_back(std::move(s));
     }
+    owned->second.second_pass = pre->name;
+    owned->second.round_header = round_header;
     map<string, vector<shared_ptr<Value>>> slot_ptrs; // each chain function's
     for (const string &g : chain) {
         Function &G = *funcs.at(g);

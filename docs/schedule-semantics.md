@@ -406,9 +406,11 @@ next: here the ray and the depth. Values that are the same for every
 entry (the scene, `max_depth`, a camera) are not stored; the drain has
 them in scope. A pure function of stored or constant values is recomputed
 at the drain rather than stored. A value selected from a read-only array
-by an index is stored as the index. An argument that is a pointer must
-point at a mutable local of the producer's iteration (`rad`), and is
-stored as that local's slot in the record. The analysis that decides this
+by an index is stored as the index, and a value loaded from the record at
+the entry's slot in a round in which nothing writes it is loaded again
+(4.5). An argument that is a pointer must point at a mutable local of the
+producer's iteration (`rad`), and is stored as that local's slot in the
+record. The analysis that decides this
 is polynomial and conservative.
 
 *The record* is one slot per producer iteration (pbrt's
@@ -811,15 +813,22 @@ loop; the directive is written after the deferrals that gave `q` its
 drain and before any directive on the loop `q`, since it splits that
 loop; and `q` is not yet split by a `specialize`.
 
-What this leaves. With `step.defer(shade, hits)` added, as the renderer
-has it, the push in the `Some` arm carries `u`, because a deferral stores
-a value it is handed (4.2); pbrt's material work item carries the pixel
-index instead, and its material kernel reads the samples from the array.
-The rule of 4.2 that stores an index into read-only storage applies once
-the analysis knows that `record.u` is read-only from the second pass to
-the round's end: the `hits` entry already carries the slot, so it would
-carry nothing new, and the shade pass would read `record.u[slot]`. That
-is a second step, to be measured on its own.
+What the drains after it carry. With `step.defer(shade, hits)` added, as
+the renderer has it, the push in the `Some` arm hands `shade` the draw
+`u`, and a deferral stores a value it is handed (4.2). pbrt's material
+work item carries the pixel index instead, and its material kernel reads
+the samples from the array. The entry rule that does the same: a value
+the pusher was handed that the drain it runs in loaded from an array of
+the record at the entry's slot, where that array is one a cut's first
+pass writes and this drain runs in the same round after the second pass,
+is not stored. The entry carries the slot already, and the drain loads
+`record.u[slot]` itself, a recipe as 4.2's recomputed values are (test
+`semantics-reload-by-slot`: the hits entry is the hit, the ray, the depth
+and the slot). The array holds still from the second pass to the round's
+end because only the first pass writes it, and a drain placed in that
+stretch is the only kind a deferral made there can have (4.2, where the
+drain sits); a push onto the queue of the cut itself is for the next
+round, whose first pass writes the array again, and reads nothing from it.
 
 ## 5. Other
 
