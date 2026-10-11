@@ -117,6 +117,9 @@ add_bonsai_tests(
     round.bonsai
     sampler.bonsai
     select-const-arms.bonsai
+    semantics-defer.bonsai
+    semantics-render.bonsai
+    semantics-stage.bonsai
     shadowed-let.bonsai
     simplify-facts.bonsai
     sink.bonsai

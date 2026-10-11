@@ -1,0 +1,838 @@
+# Scheduling Language Semantics
+
+A Bonsai program says what to compute. A schedule says how: in what order
+the loops run, on what hardware, and when the work behind each call is
+done and where its state lives. A schedule never changes the result of a
+program. This document defines each directive by the loop nest it
+produces, in the manner of the Halide paper (Ragan-Kelley et al., PLDI
+2013): a small renderer is the running example, and every directive is
+shown as the change it makes to that renderer's loops.
+
+The directives fall into three groups. *Loop transformations* change the
+order in which iterations run (Section 2). *Hardware bindings* say which
+unit of the machine runs a loop or a function (Section 3). *Continuation
+styles* say when the work behind a call is done and where the state it
+needs is kept while it waits (Section 4). Section 5 covers what fits none
+of the three. The grammar is in `grammar_schedule.tex`; the headers under
+`include/SSA/` document each implementation.
+
+## 1. Programs and their loop nests
+
+A program is a set of functions. A body has bindings of pure values, loads
+and stores, atomic accumulates (`atomic x += e`), calls, `if` and `match`,
+`for` loops, `parfor` loops, and `return`. A `for` loop runs its iterations
+in order; an iteration may depend on the one before. A `parfor` loop says
+its iterations are independent: distinct iterations write distinct
+locations, or write through atomic accumulates. The compiler may run the
+iterations of a `parfor` in any order, in parallel, or interleaved at any
+granularity, and may reassociate its accumulates (Halide's guarantee for
+reductions). That freedom is what every directive uses, and the condition
+under which each is valid is stated as a condition on the loops involved.
+
+The running example renders an image of `W x H` pixels, one path per
+pixel:
+
+    func shade(h : Hit, ray : Ray, depth : i32, max_depth : i32,
+               rad : reduce(+) Float) -> void {
+        rad += emitted(h);
+        if depth + 1 >= max_depth {
+            return;
+        }
+        step(bounce(h, ray), depth + 1, max_depth, rad);
+        return;
+    }
+    func step(ray : Ray, depth : i32, max_depth : i32,
+              rad : reduce(+) Float) -> void {
+        hit = trace(ray);                  // the nearest intersection, an option
+        if hit {
+            h = *hit;
+            shade(h, ray, depth, max_depth, rad);
+            return;
+        }
+        rad += sky(ray);
+        return;
+    }
+    func render(max_depth : i32, film : mut array[Float, W*H]) -> void {
+        parfor p in 0:W*H {
+            ray = camera(p);
+            rad : reduce(+) Float = 0.0;
+            step(ray, 0, max_depth, rad);
+            film[p] = rad;
+        }
+        return;
+    }
+
+The radiance is one number, to keep the listings short. This program, with
+eight pixels and a scene of one wall on a line, is
+`tests/bonsai/correctness/llvm/semantics-render.bonsai`. Every schedule
+below is a test beside it that prints the same film, and an SSA golden of
+the same name under `tests/bonsai/ssa` shows the rewrite.
+
+With no schedule the program runs as written: one loop, and a recursion
+of depth at most `max_depth` inside each iteration.
+
+    par for each p in 0..W*H:
+        ray = camera(p); rad = 0
+        step(ray, 0, max_depth, rad)       // recursion: trace, shade, trace, ...
+        film[p] = rad
+
+Loop nests are written as in the Halide paper: `for each` is a sequential
+loop, `par for each` a parallel one, `vec for each` a loop whose
+iterations are the lanes of one SIMD gang.
+
+Inside the compiler a program is in SSA form, and every directive is a
+rewrite of it. A function is a list of blocks. A block takes arguments in
+place of phi nodes, holds instructions, and ends in one terminator: a
+jump to a block with arguments; a dispatch on a condition to one of
+several jumps; a return; a call, which names the callee and the block to
+continue at, the call's value arriving as that block's first argument; or
+a parallel loop, which names its index and bounds, a body block ending in
+a yield, and the block after the loop. Loops are not lowered to branches,
+so a directive that names a loop finds it. A call is in tail position
+when its continuation block returns the call's value and does nothing
+else. Where a directive's rewrite is given below, it is in the form the
+compiler prints: `let @n = e in` binds a value, `f(a) -> R` is a call
+continuing at block `R`, a call on a line of its own drops its value, and
+`parfor i in [lo:hi:1] { .. }` is a parallel loop.
+
+## 2. Loop transformations
+
+A loop transformation changes the order in which the iterations of one
+or more `parfor` loops run. The body of each iteration is unchanged.
+Every transformation here is valid because the loops it touches are
+`parfor` loops, whose iterations may run in any order (Allen and Kennedy;
+Wolf and Lam).
+
+**split(l, lo, li, n, guard).** Loop `l` becomes an outer loop `lo` that
+strides through the range by `n` and an inner loop `li` over `[0, n)`; the
+body sees `lo + li` where it saw `l`. With `guard` true the body is
+guarded by `lo + li < end`, so a range that is not a multiple of `n` runs
+exactly its own iterations; with `guard` false the range is asserted to
+divide by `n`. `n` is a constant, or the name of a value that is the same
+for the whole loop. `render.split(p, pb, pi, 256, true)`:
+
+    par for each pb in 0..W*H step 256:
+        par for each pi in 0..256:
+            p = pb + pi
+            if p < W*H:
+                ray = camera(p); ...
+
+**collapse(lo, li, l).** The inverse of split: two nested loops become
+one loop over the rectangle they cover, each index recovered from the step
+number. `lo` must run `li` and nothing else.
+
+**reorder(li, lo).** Interchange of two nested `parfor` loops, named from
+the innermost out as in Halide: afterwards `li` is inside `lo`. The nest
+need not be perfect. What the outer body does before its inner loop (the
+prologue) runs in a loop of its own before the nest; what it does after
+(the epilogue) runs in a loop of its own after it; pure arithmetic on the
+outer index is recomputed where it is used; any other value the inner loop
+reads from the prologue is kept in an array with one entry per outer
+iteration. Loop distribution followed by loop interchange. With a sample
+loop added to the example,
+
+    par for each p in 0..W*H:
+        film[p] = 0                        // prologue
+        par for each s in 0..spp:
+            body(p, s)
+        weight[p] = spp                    // epilogue
+
+`render.reorder(p, s)` produces
+
+    par for each p in 0..W*H: film[p] = 0            // p!prologue
+    par for each s in 0..spp:
+        par for each p in 0..W*H: body(p, s)
+    par for each p in 0..W*H: weight[p] = spp        // p!epilogue
+
+The prologue and epilogue loops are variants of `p`, so a later
+`bind(p, ..)` covers them.
+
+**persistent(l, lw, n).** `n` workers `lw` claim the iterations of `l`
+from a shared counter until the range is used up; the persistent threads
+of Aila and Laine (2009). The chunk is the stride, so to hand out several
+iterations at a time, split first and make the outer loop persistent. `l`
+must not be bound to hardware and must not be a queue's drain (Section
+4); a later bind of `lw` says what runs the workers.
+
+    counter = 0
+    par for each w in 0..n:
+        p = atomicAdd(counter, 1)
+        while p < W*H:
+            body(p)
+            p = atomicAdd(counter, 1)
+
+**vectorize(l).** The extent of `l` must be a constant; it is the gang
+width. The iterations of `l` become the lanes of one SIMD gang and the
+loop disappears. Each lane computes what its iteration would have. A
+branch is run under a mask of the lanes that take it (partial
+linearization, Moll and Hack 2018); a call under a mask is made if any
+lane is on; a loop nested inside is run by each lane for itself; an
+accumulate from several lanes is reduced across them first. To vectorize
+a wide loop, split it to the gang width and vectorize the inner loop; the
+split's guard becomes the gang's mask, so the last gang runs partly full.
+`render.split(p, pb, pi, 8, true).vectorize(pi)`:
+
+    par for each pb in 0..W*H step 8:
+        vec for each pi in 0..8:               // one gang of eight lanes
+            p = pb + pi
+            mask = p < W*H
+            ray = camera(p)                    // eight rays, one per lane
+            ...
+
+Whether `vectorize` is a loop transformation or a hardware binding is a
+fair question: it reorders nothing, it maps iterations onto the lanes of
+a SIMD unit. It sits here because its effect on the program is the
+Halide one, a loop of constant extent replaced by one gang-wide
+statement; Section 3 says how it combines with the bindings.
+
+**loopify(), loopify(n).** Recursion becomes iteration. A tail recursion
+becomes a loop: every call of the function by itself in tail position is a
+jump back to its entry. A recursion that goes through other functions
+first (`step` calls `shade`, which calls `step`) is made direct by
+inlining the calls on the way back, unless the schedule holds a function
+as a function of its own (`[[noinline]]`, or a `defer` or `stage` written
+on it). `step.loopify()`:
+
+    par for each p in 0..W*H:
+        ray = camera(p); rad = 0; depth = 0
+        loop:
+            hit = trace(ray)
+            if not hit: rad += sky(ray); break
+            rad += emitted(*hit)
+            if depth + 1 >= max_depth: break
+            ray = bounce(*hit, ray); depth += 1
+        film[p] = rad
+
+A recursion that calls itself more than once per step (a tree traversal:
+`from (left, right)`) cannot become a loop that way, because the second
+call has to happen after the first returns. `loopify(n)` puts the pending
+calls on an explicit stack of `n` entries instead: the first call is made
+at once and the rest are pushed, last in first out, so the visit order is
+the program's. The recursion must be tail-modulo-recursion: after a
+recursive call returns, nothing remains but more recursive calls and the
+return. `n` is the schedule's promise about the depth.
+
+**sort(c, lambda).** On a recursion's children, `trace.sort(tris.Interior,
+|child| key)`: the calls of a `from (a, b)` are made in ascending order of
+the key the lambda gives each child. The sort must come before `loopify`,
+which replaces the run of calls by stack pushes and leaves nothing to
+permute. In a gang the comparisons vote by the lanes' majority, so the
+gang descends into one child order. On a call, `vol_route.sort(
+vol_surface, |prim| key)`, the threads are reordered by the key just
+before the call (OptiX's `optixReorder`); nothing an iteration computes
+changes.
+
+**specialize(x).** Halide's `specialize`, from a boolean condition to a
+variant. `x` is a parameter of the function of variant type (an algebraic
+type, or a bool). The function's outermost loops are copied once per
+variant, the parameter's tag is a constant in each copy so that every
+`match` on it folds to one arm, and the loops are entered through a
+dispatch on the tag. `render.specialize(integrator)` for an integrator
+with two variants:
+
+    switch integrator.tag:
+        Path:    par for each p in 0..W*H: body with integrator = Path(..)
+        VolPath: par for each p in 0..W*H: body with integrator = VolPath(..)
+
+Each copy computes what the original computes under its tag, so the
+dispatch is exhaustive and no general copy is kept. Written on one copy,
+`render[VolPath].specialize(sampler)`, it copies that variant's loops
+alone. Written with a loop, `render.specialize(shadow, have_media)`, it
+copies one loop wherever it sits and dispatches where the loop was.
+Written on a gang's state, `occluded.specialize(count(lane) > 14)`, the
+condition is the number of live lanes at each call of the gang's copies,
+and the two copies `occluded[True]` and `occluded[False]` may be scheduled
+differently from there (Embree's hybrid traversal). Because later
+directives that name a loop find every copy of it, `specialize` goes
+first among a function's directives, after other specializes only; the
+loop form goes after the directives that made its loop.
+
+## 3. Hardware binding
+
+A binding names the unit of the machine that runs each iteration of a
+loop. It changes no computation; code generation turns a bound loop into a
+launch, a thread, a kernel, or a program for a fixed-function unit.
+
+**bind(l, R)** with `R` one of `CPUThread`, `GPUBlock`, `GPUThread`,
+`OptixThread`. An iteration of `l` is one unit of `R`. The bindings nest as
+the hardware does: a `GPUThread` loop sits directly inside a `GPUBlock`
+loop and the two form one kernel launch; a gang (Section 2, `vectorize`)
+sits inside a `CPUThread` loop, and under a GPU bind the warp is the gang;
+a `CPUThread` loop and a GPU loop do not nest. These rules are checked
+when the bind is applied.
+
+    render.split(p, pb, pi, 256, true);
+    render.bind(pb, GPUBlock);
+    render.bind(pi, GPUThread);
+
+    launch kernel over W*H/256 blocks of 256 threads:   // one launch
+        p = block * 256 + thread
+        if p < W*H:
+            ray = camera(p); ...
+
+A loop over a queue (Section 4) bound to the GPU is launched over the
+queue's capacity, each thread testing its index against the count on the
+device, so that the host neither reads the count back nor waits between
+launches. That is how the launch is lowered, not a change of meaning.
+
+**bind(l, OptixThread)** and **q.bind(RTCore)** together put ray tracing
+on the RT cores: a query `q` declared over an `OptixTree` runs on the
+hardware, and a loop bound to `OptixThread` whose body reaches the query
+is that launch's ray-generation program. The part of the body after the
+nearest-hit query becomes the launch's closest-hit program, run as each
+ray's traversal completes (the continuation after the trace, cut as a
+`stage` cuts a function; Section 4). This is pbrt's shape: the ray
+generation program traces and handles the miss, the closest-hit program
+handles the hit.
+
+**bind(TextureUnit, lambda).** The one bind of a function rather than a
+loop. `texture_filter.bind(TextureUnit, |t, st, dstdx, dstdy| ...)`: on
+this hardware the function is computed by the texture unit as the lambda
+says, the lambda taking the function's parameters and giving its value
+through the unit's intrinsic. The program keeps the function as the exact
+algorithm; the schedule asserts that the unit's answer is acceptable in
+its place.
+
+**prefetch(c, n).** In the loop that tests a node's children, bring the
+storage each hit child refers to into cache, `n` lines of it:
+`trace.prefetch(tris.Interior.children, 4)`. A hint; no change of
+meaning. It is a hardware directive because what it moves is a cache
+line, whose size is the machine's.
+
+## 4. Continuation styles
+
+Halide's call schedule decides, for each function a stage calls, where in
+the caller's loops the callee is computed and how long its values are
+stored. The analogue here is the call. By default a call is made where it
+is written and its state lives on the stack. The directives of this
+section change that: the work behind a call is done later, in a loop of
+its own over all the calls that are waiting, and the state each waiting
+call needs is kept in a queue. Each waiting call is a *continuation*: the
+rest of the computation from that point, as data.
+
+Write a function with a call in it as
+
+    f(..) { P; r = g(a); K(r, L) }
+
+`P` is what `f` does before the call, `a` the arguments, `K` the rest of
+`f` from the call's return, and `L` the values of `f` defined before the
+call and used in `K`. A directive that defers the call stores `a` and `L`
+and runs `g` and `K` later; one that stages it runs `g` now and stores `r`
+and `L` for `K` later. In the literature `K` as a function of `r` and `L`
+is the CPS conversion of the one call site (Nielsen 2001; Kelsey 1995, for
+why this is natural in SSA), and the stored data is the defunctionalized
+continuation (Reynolds 1972). A wavefront path tracer is a program run
+this way (Laine, Karras and Aila 2013), and the generated loops are meant
+to read as pbrt's wavefront integrator does.
+
+### 4.1 queue(l, n, M)
+
+`q = f.queue(l)` declares a queue owned by function `f`, one instance per
+iteration of `f`'s loop `l` (`root`: one per call of `f`). What an entry
+is and which calls push one is said by the `defer` and `stage` directives
+that name `q`. The storage is made at the start of the iteration and is
+dead at its end; the compiler makes it once and shares it across
+iterations that never overlap in time. A queue declared at a loop bound
+to `CPUThread` is that thread's queue.
+
+The capacity is the number of entries an iteration of `l` can push. For a
+linear deferral each entry's run pushes at most one successor, so the
+capacity is the trip count of the loop that pushes the first entries; a
+queue pushed by another queue's drain takes that drain's capacity. A
+capacity `n` written in the schedule is checked against the inferred one
+where both are constants and refused where the inferred one is not, since
+an overflow would be silent. `M` is the memory the queue lives in
+(`Heap`, `Stack`, `DeviceGlobal`, `DeviceShared`, `Managed`), or the
+caller's memory handed in as buffer parameters (`ExternHost`,
+`ExternDevice`, `ExternManaged`; the capacity must then be a constant and
+`f` exported). Every reader and writer of the queue must run at a level of
+the hardware that can reach `M`: host memory is never touched inside a
+GPU-bound loop, device memory is never read entry by entry by host code,
+shared memory belongs to one block.
+
+A queue is stored as a struct of arrays: a count, and one array per scalar
+of the entry, an entry's structs and short vectors taken apart so that a
+gang reads each scalar as one vector load. Bools are packed eight to a
+byte. A push claims a slot by advancing the count (atomically; a gang
+advances it once by the number of lanes that push) and writes the entry's
+scalars.
+
+### 4.2 defer(g, q)
+
+`f.defer(g, q)` is written on `f` about its call to `g`. The call is
+replaced by a push of the continuation's data onto `q`, and `q`'s owner
+runs a loop, the *drain*, that makes the waiting calls. The drain is a
+`parfor` named after the queue, so later directives can split, vectorize
+or bind it. It runs immediately after the loop that pushed the entries
+and before anything the program ordered after that loop; where several
+queues are pushed from one loop, their drains run in the order the queues'
+directives were written.
+
+The call `step(ray, 0, max_depth, rad)` in `render` and the recursive
+call in `shade` are the same chain, and deferring both puts every path
+step on the queue (`render.defer(step, rays)` says the first call is a
+push too; test `semantics-defer`):
+
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+
+    alloc rays[2]: W*H entries of (ray, depth, slot)
+    alloc record.rad[W*H]
+    par for each p in 0..W*H:                            // the producer loop
+        ray = camera(p); record.rad[p] = 0
+        push rays[0] <- (ray, 0, p)
+    round = 0
+    while rays[round & 1].count > 0:                     // a round per bounce
+        cur = round & 1; nxt = cur ^ 1
+        rays[nxt].count = 0
+        par for each e in 0..rays[cur].count:            // the drain, `rays`
+            (ray, depth, slot) = rays[cur][e]
+            hit = trace(ray)
+            if hit:
+                record.rad[slot] += emitted(*hit)
+                if depth + 1 < max_depth:
+                    push rays[nxt] <- (bounce(*hit, ray), depth + 1, slot)
+            else:
+                record.rad[slot] += sky(ray)
+        round += 1
+    par for each p in 0..W*H:                            // the rest pass, `rays_rest`
+        film[p] = record.rad[p]
+
+Three things to read off this nest.
+
+*The entry* holds the call's arguments that vary from one call to the
+next: here the ray and the depth. Values that are the same for every
+entry (the scene, `max_depth`, a camera) are not stored; the drain has
+them in scope. A pure function of stored or constant values is recomputed
+at the drain rather than stored. A value selected from a read-only array
+by an index is stored as the index. An argument that is a pointer must
+point at a mutable local of the producer's iteration (`rad`), and is
+stored as that local's slot in the record. The analysis that decides this
+is polynomial and conservative.
+
+*The record* is one slot per producer iteration (pbrt's
+`pixelSampleState`): the iteration's reducers and mutable locals that the
+chain touches, the values the rest of the iteration needs after its call,
+and the call's value when the rest uses it. An entry carries the slot
+index and nothing else of the frame. The rest of the producer's iteration
+after the call, `film[p] = rad`, runs in the *rest pass* once every
+drain of the queue's family has run. So no drain runs a continuation of
+the owner, and nothing returns up the chain.
+
+*Rounds.* When running an entry can push onto the queue it came from, the
+drain runs in rounds, each draining the entries the round before pushed,
+until a round pushes nothing. There are two buffers when the drain itself
+pushes the successors, as here (pbrt's `rayQueues[depth & 1]`), and one
+when another queue's drain pushes them after this pass is over (4.3).
+When no entry's run can push onto the queue, there is one pass.
+
+A deferred call may sit in tail position, as `shade`'s does: `shade` does
+nothing after the call but return. A call that is not in tail position,
+`f = P; r = g(a); K(r, L)`, is deferred together with its continuation:
+the entry holds `a` and `L`, and the drain runs `g` and then `K`. This is
+pbrt's medium-sample queue, work whose routing is known before the call.
+A spawned call, `spawn x += g(..)` in the program, says its value only
+feeds the reducer `x`; the entry carries `x`'s record slot, the drain
+accumulates into it, and the caller does not wait.
+
+Conditions, each refused with an error: the loop that pushes is a
+`parfor` (deferring across a `for` would reorder what the `for` promised);
+every caller between `f` and the queue's owner does nothing after its
+call into the chain but return (the complete continuation is captured; the
+owner's own rest goes to the record); one call to `g` in `f`; each step
+makes at most one deferred call (a branching recursion is not bounded by
+the producer's count); the chain is not recursive apart from the deferred
+call and its functions are not called from outside it.
+
+*The rewrite* (SSA/Defer.cpp). Let `n` be the producer's trip count and
+`A` the stored part of the call's arguments, by the rules above.
+
+1. Two types: `Entry_q { A }`, and `Queue_q { count : u32; .. }` with one
+   array per scalar of `A`. A queue is a struct of arrays, as pbrt's are.
+2. Every function on the chain from the owner to `f` gains a parameter
+   `_queue_q : mut Queue_q*`, handed down each call, and returns nothing:
+   a return that ended the path stores the path's value through a second
+   parameter `_result_q` when the owner's rest used it.
+3. The deferred call, a terminator `g(a) -> R` with `R` returning, becomes
+   `push _queue_q <- build<Entry_q>(A)` and `return`.
+4. In the owner, before the producer loop: `q_queue : mut Queue_q[2]`
+   built over arrays `q_<leaf>_0`, `q_<leaf>_1 : mut T[n]`, and a record
+   array `q_<local>_slots : mut T[n]` per record value. In the producer's
+   body the record values are stored at `[i]`, the call is handed
+   `&q_queue[0]`, `&q_result[i]` and `i` (or is itself the push, when the
+   owner's directive made it one), and the blocks after the call are cut
+   out.
+5. After the producer loop, the nest above: `q!round = 0`, a `while` on
+   `q_queue[q!round & 1].count`, the reset of the other buffer, `parfor q
+   in [0:count:1]` whose body loads each leaf at `q` and calls `f` with
+   them, the uniform arguments and `&q_queue[nxt]`, and `parfor q_rest in
+   [0:n:1]` holding the cut-out blocks with `q_result[q_rest]` and the
+   record in place of the locals. A queue its drain cannot push onto gets
+   one buffer, no round loop, and `q_queue.count = 0` after its pass.
+6. When the whole schedule has run, each `push` is lowered to `let s =
+   atomic_add(&count, 1u)` and a store of each leaf at `s`.
+
+For `shade.defer(step, rays)` the call site goes from
+
+    step(next, @d, rad) -> R                 // R: return
+
+to
+
+    push _queue_rays <- build<Entry_rays>(next, @d, slot)
+    return
+
+and the drain's body is `step(ray, depth, max_depth, &rays_rad_slots[slot],
+&rays_queue[nxt])` with `ray`, `depth`, `slot` loaded from the leaves at
+index `rays`.
+
+### 4.3 stage(g, q)
+
+`f.stage(g, q)` cuts `f` immediately after the call rather than before
+it. `g` runs where it is; the push follows the call at once, for every
+entry, carrying the call's value whatever it is and the rest's live
+values; the drain runs the rest, which is the whole of `f` from the
+call's return. Nothing of `f` after the call stays in the first loop.
+With the recursion deferred as above, `step.stage(trace, hits)` makes
+the rays drain trace and push, and the hits drain test the hit and run
+either arm (test `semantics-stage`, which also splits the queue as 4.4
+does):
+
+    alloc rays: W*H entries of (ray, depth, slot)         // one buffer: see below
+    alloc hits: W*H entries of (hit, ray, depth, slot)
+    ...
+    while rays.count > 0:
+        par for each e in 0..rays.count:                 // `rays`: trace
+            (ray, depth, slot) = rays[e]
+            hit = trace(ray)
+            push hits <- (hit, ray, depth, slot)         // the cut: a miss is pushed too
+        rays.count = 0                                   // read for the pass, then emptied
+        par for each e in 0..hits.count:                 // `hits`: the rest of step
+            (hit, ray, depth, slot) = hits[e]
+            if hit:
+                record.rad[slot] += emitted(*hit)
+                if depth + 1 < max_depth:
+                    push rays <- (bounce(*hit, ray), depth + 1, slot)
+            else:
+                record.rad[slot] += sky(ray)
+        hits.count = 0
+
+The ray queue has one buffer now: nothing pushes onto it while its pass
+runs, since the pushes come from the hits drain afterwards. The hits
+queue's capacity is the rays drain's, since each entry pushes exactly
+once. The conditions are those of a deferral with a continuation (4.2);
+`stage` is applied after the deferral of `f`'s own recursion, so the
+chain through the rest has no other recursion. A deferral written after
+the stage whose call lies in the rest finds it there: the schedule's name
+for `f` stands for `f` and for the parts cut off from it.
+
+pbrt's trace kernel routes by the result: a miss onto the escaped-ray
+queue, a hit onto a material queue. That is this stage with the queue
+split on the call's value, `hits.specialize(hit)` (4.4): the push after
+the trace computes the tag and goes to `hits[None]` or `hits[Some]`, and
+`hits[None]`'s drain is the miss arm alone, its entries holding only what
+that arm reads (the ray's direction and the slot, in the golden). A push
+that sits inside an arm comes from a different directive. Deferring the tail call of an
+arm (4.2) puts the push where that call was; the renderer's schedule
+routes that way today, the routing function's tail calls deferred onto
+the escaped, emissive and hit queues, with no stage in it.
+
+*The rewrite* (SSA/Stage.cpp).
+
+1. Split `f` at the call `g(a) -> R`. The blocks from `R` on are copied
+   into a new function `f!after`, whose parameters are `R`'s arguments
+   (the call's value first) and then the values of `f` defined before the
+   call and used in those blocks.
+2. In `f`, the call continues at a new block `R!stage(r)` holding one tail
+   call, `f!after(r, live..)`, whose continuation returns.
+3. `f.defer(f!after, q)` as in 4.2: the entry is the stored part of `(r,
+   live..)`, the push takes the tail call's place in `R!stage`, and the
+   drain calls `f!after`.
+
+For `step.stage(trace, hits)`:
+
+    func step(ray, depth, max_depth, rad, _queue_rays, _slot_rays, _queue_hits, _slot_hits) -> void {
+      trace(ray) -> R!stage
+      R!stage(hit): push _queue_hits <- build<Entry_hits>(hit, ray, depth, _slot_hits); return
+    }
+    func step!after(hit, ray, depth, max_depth, rad, _queue_rays, _slot_rays) -> void {
+      if hit .. }                            // R and what followed it, as they were
+
+The deferral of a call that is not in tail position (4.2) is the same
+split with a different step 2: the call and the rest become one function,
+`f!g!k(a, live..) { g(a) -> R'; R'(r): f!after(r, live..) }`, the site
+tail-calls it, and `defer` queues that call.
+
+### 4.4 Q.specialize(x)
+
+`q.specialize(x)` splits a queue by a value of variant type that the
+drained function computes from an entry: one queue, one drain and one copy
+of the drained function per variant, the tag a constant in the copy so
+every `match` on it folds, the push computing the tag and going to the
+variant's queue, the drains running in variant order. Each variant's
+queue has the parent's capacity. `hits.specialize(h.material)` with two
+materials:
+
+    alloc hits[Diffuse], hits[Glass]: W*H entries each
+    ...
+            switch material(h).tag:
+                Diffuse: push hits[Diffuse] <- (h, ray, depth, slot)
+                Glass:   push hits[Glass]   <- (h, ray, depth, slot)
+        par for each e in 0..hits[Diffuse].count: shade with material = Diffuse
+        par for each e in 0..hits[Glass].count:   shade with material = Glass
+
+A variant's queue may be split again (`hits[Basic].specialize(material)`).
+A drain that no entry of the scene can reach is not launched, by facts the
+driver supplies (`SSA/GateDrains.h`); that is a lowering.
+
+### 4.5 stage(g, q, l) and defer(g, q, l): a cut inside a drain, on the same queue
+
+Both forms above put the continuation on a queue of its own. pbrt's sample
+kernel is a cut that keeps the queue: it reads the ray queue, draws the
+bounce's random numbers and stores them in an array of its own, indexed
+by the pixel; the trace kernel reads the same ray queue again, and the
+material kernel reads the array. Nothing of the ray is copied. A `stage`
+onto a new queue copies the ray's state into that queue; measured on
+10-09, that copy made the staged sample kernel 2.2x slower than pbrt's.
+
+The three-argument form is for this. Its arguments are
+
+- `g`, the call in `f` at which `f` is cut, as in 4.2 and 4.3;
+- `q`, a queue that exists already, made by `queue` and given a drain by
+  deferrals, from whose drain `f` is reached by calls each in tail
+  position. In 4.2 and 4.3 the second argument is a new queue that the
+  continuation is pushed onto. Here it is the queue whose drain is
+  already running `f`, and nothing is pushed;
+- `l`, a fresh name for the new loop the cut makes.
+
+Write the drain of `q` as `par for each e in 0..q.count: C(q[e])`, where
+`C` is the chain of calls from the drain's body down to `f`, and `f = P;
+r = g(a); K(r, L)` as before. `f.stage(g, q, l)` replaces the drain with
+two loops over the same buffer and the same count, one after the other,
+in the place the drain had:
+
+    par for each e in 0..q.count:          // `l`: the first pass
+        C down to f, then P, then r = g(a)
+        q.S[e] = S                         // the new fields of the entry
+    par for each e in 0..q.count:          // `q`: the second pass
+        r and L from q[e] and q.S[e]
+        K(r, L)                            // f!after
+
+`S` is what the second pass needs and cannot get otherwise: `r`, and each
+value of `L` that is not a field of the entry, not the same for every
+entry, and not a pure function of those (which the second pass recomputes,
+the rule of 4.2). The queue gains one array per value of `S`, of the
+queue's capacity: slots the first pass fills, beside the slots the pushes
+fill. The first pass writes them at the entry's index and the second reads
+them at the same index; the pushes that fill `q` do not write them. The
+first pass takes the name `l`. The second keeps the queue's name `q`, so a
+directive on `q` written after this one addresses the pass that runs `K`.
+
+In the running example, let `step` draw the bounce's random numbers
+before it traces, as pbrt does, and let `shade` use them:
+
+    func shade(h : Hit, ray : Ray, u : Float, depth : i32, p : i32,
+               max_depth : i32, rad : reduce(+) Float) -> void {
+        rad += emitted(h);
+        if depth + 1 >= max_depth {
+            return;
+        }
+        step(bounce(h, ray, u), depth + 1, p, max_depth, rad);
+        return;
+    }
+    func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+              rad : reduce(+) Float) -> void {
+        u = draw(p, depth);                // the bounce's random number
+        hit = trace(ray);
+        if hit {
+            h = *hit;
+            shade(h, ray, u, depth, p, max_depth, rad);
+            return;
+        }
+        rad += sky(ray);
+        return;
+    }
+    func render(max_depth : i32, film : mut array[Float, W*H]) -> void {
+        parfor p in 0:W*H {
+            ray = camera(p);
+            rad : reduce(+) Float = 0.0;
+            step(ray, 0, p, max_depth, rad);
+            film[p] = rad;
+        }
+        return;
+    }
+
+With the recursion deferred as in 4.2, `rays` is the queue made by
+`render.queue(root)`. Its entries are `(ray, depth, p)`, `p` being the
+pixel and also the record's slot. Its drain is the loop named `rays`,
+whose body is the deferred call `step(ray, depth, p, max_depth, &rad[p])`,
+so `C` is that one call. The schedule
+
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    step.stage(draw, rays, samples);
+
+cuts `step` after `draw`. `K` is the trace and the test of the hit with
+both arms; `L` is `ray`, `depth` and `p`, all fields of the entry; `S` is
+`u` alone. The nest of 4.2 becomes
+
+    alloc rays[2]: W*H entries of (ray, depth, p)        // written by the pushes
+    alloc rays.u: W*H entries                            // written by `samples`
+    alloc record.rad[W*H]
+    par for each p in 0..W*H:                            // the producer loop
+        ray = camera(p); record.rad[p] = 0
+        push rays[0] <- (ray, 0, p)
+    round = 0
+    while rays[round & 1].count > 0:
+        cur = round & 1; nxt = cur ^ 1
+        rays[nxt].count = 0
+        par for each e in 0..rays[cur].count:            // `samples`: the first pass
+            (_, depth, p) = rays[cur][e]
+            rays.u[e] = draw(p, depth)
+        par for each e in 0..rays[cur].count:            // `rays`: the second pass
+            (ray, depth, p) = rays[cur][e]; u = rays.u[e]
+            hit = trace(ray)
+            if hit:
+                record.rad[p] += emitted(*hit)
+                if depth + 1 < max_depth:
+                    push rays[nxt] <- (bounce(*hit, ray, u), depth + 1, p)
+            else:
+                record.rad[p] += sky(ray)
+        round += 1
+    par for each p in 0..W*H:                            // `rays_rest`
+        film[p] = record.rad[p]
+
+`rays.u` is one array, not one per buffer: it is written and read within
+a round, at indices of that round's buffer, and the next round overwrites
+it. The count, the capacity, the two buffers, the rounds and the rest
+pass are those of 4.2. pbrt's sample kernel is the `samples` loop and its
+trace kernel the `rays` loop, and the schedule binds them as pbrt builds
+them, a CUDA kernel and a ray-generation program:
+
+    render.split(samples, samples_blk, samples_thr, 256, true);
+    render.bind(samples_blk, GPUBlock);
+    render.bind(samples_thr, GPUThread);
+    render.bind(rays, OptixThread);
+
+This is why the first pass needs a name of its own: a bind has to say
+which of the two loops it means, and a generated name cannot be written
+in a schedule. The optional third argument is the one addition to the
+grammar; with it present, the second argument is read as the queue above
+rather than as a queue to push onto.
+
+`f.defer(g, q, l)` is the same construction with the cut before the call:
+the first pass runs `P` and stores `g`'s varying arguments and `K`'s live
+values, the second runs `g` and then `K`. The two name one cut from either
+side. Where `g1` is followed at once by `g2`, `f.stage(g1, q, l)` and
+`f.defer(g2, q, l)` produce the same loops: `step.defer(trace, rays,
+samples)` gives the nest above, since `trace`'s argument `ray` is a field
+of the entry and `u` is live after the call.
+
+*The rewrite.* Steps 1 and 2 of 4.3 split `f` at the call and leave
+`R!stage(r)` holding the tail call `f!after(r, live..)`. Then, in place of
+a deferral onto a new queue:
+
+3. The entry analysis of 4.2 is run on that tail call with the leaves of
+   `q`'s entry counted as stored already; what it would store besides
+   them is `S`. `Queue_q` gains one array per scalar of `S`. The owner
+   makes each, `q_<leaf> : mut T[n]`, once, and hands it to both buffers'
+   `build`. `Entry_q` is unchanged, so every push onto `q` is.
+4. Every function on the chain from the drain to `f` gains a parameter
+   `_entry_q : u32`, handed down as `_queue_q` is; the drain passes its
+   index. In `R!stage` the tail call becomes a store of each leaf of `S`
+   to `(*_queue_q).<leaf>[_entry_q]`, then `return`.
+5. The drain loop is duplicated. The copy, its body as it stands, is
+   renamed `l` and placed where the drain was. The original follows it,
+   keeping the name `q`, the bounds, and the capacity and count a GPU
+   launch is built from (Section 3), with a new body: load each leaf of
+   the entry at `q` as before, load each leaf of `S` from `q_<leaf>[q]`,
+   and call `f!after(r, live..)` with them, the uniforms in scope and
+   `&q_queue[nxt]`. That is the call the drain of a new queue would have
+   made, with loads from `q`'s own arrays in place of the new queue's.
+6. When some path from the chain's entry returns before the cut, `Queue_q`
+   gains a byte array `_reached`. The first pass's body stores 0 at its
+   index before its call, `R!stage` stores 1, and the second pass's body
+   runs under `if q__reached[q] != 0`.
+
+For `f.defer(g, q, l)`, step 2 makes `f!g!k` as in 4.3's last paragraph
+and the stored tail call is `f!g!k(a, live..)`. For `step.stage(draw,
+rays, samples)`:
+
+    func step(ray, depth, p, max_depth, rad, _queue_rays, _slot_rays, _entry_rays : u32) -> void {
+      draw(p, depth) -> R!stage
+      R!stage(u): (*_queue_rays).u[_entry_rays] = u; return
+    }
+    func step!after(u, ray, depth, p, max_depth, rad, _queue_rays, _slot_rays) -> void {
+      trace(ray) -> R; R(hit): if hit .. }     // as it was
+
+        parfor samples in [0u:@count:1u] {   // the copy: the drain as it was
+          let ray, depth, p = <the leaves at samples> in
+          step(ray, depth, p, max_depth, &rays_rad_slots[p], &rays_queue[nxt], p, samples)
+        }
+        parfor rays in [0u:@count:1u] {      // the drain, its body replaced
+          let ray, depth, p = <the leaves at rays> in
+          let u = rays_u[rays] in
+          step!after(u, ray, depth, p, max_depth, &rays_rad_slots[p], &rays_queue[nxt], p)
+        }
+
+Why the result is the same. For each entry, `P`, `g` and `K` run once
+each, in that order, as before. Across entries the only new ordering is
+that every entry's first half runs before any entry's second half, which
+a `parfor` admits: its iterations may be interleaved at any granularity.
+`K` reads `r` and `L` as it did, from `q.S` at this entry's index, which
+nothing writes between the two passes, and from the entry's own fields. A
+push made in `P` is unchanged: a push onto `q` goes to the other buffer
+in either pass, and any other queue pushed is drained after the second
+pass, as it was drained after the drain.
+
+If some path through `C` and `P` returns before reaching the call, the
+first pass runs that entry to its return, and one bit per entry, set by
+the first pass, tells the second pass to skip it. The bit is omitted when
+every path reaches the call, as in the example.
+
+Conditions, each refused with an error: `f` is reached from `q`'s drain
+by calls each in tail position; one call to `g` in `f`, not inside a loop
+of `f`; `l` names no existing loop; the directive is written after the
+deferrals that gave `q` its drain and before any directive on the loop
+`q`, since it splits that loop; and `q` is not yet split by a
+`specialize`.
+
+What this leaves. With `step.defer(shade, hits)` added, as the renderer
+has it, the push in the `Some` arm carries `u`, because a deferral stores
+a value it is handed (4.2); pbrt's material work item carries the pixel
+index instead, and its material kernel reads the samples from the array.
+The rule of 4.2 that stores an index into read-only storage applies once
+the analysis knows that `rays[cur]` and `rays.u` are read-only from the
+second pass to the round's end: the `hits` entry would carry `e` and the
+shade pass would read `rays.u[e]`. That is a second step, to be measured
+on its own. Indexing the array by `p`, the record's slot, as pbrt indexes
+by the pixel, would spare that step, since the `hits` entry carries `p`
+already; it would make `u` a field of the record rather than of the
+queue. The queue form is the one described here.
+
+## 5. Other
+
+**skip(c*).** Not a transform: a policy for a gang's branches. A
+vectorized branch is linearized, every arm computed under a mask; an arm
+no lane takes is still paid for unless an any-lane test precedes it. The
+linearizer puts such a test before an arm that touches memory or makes a
+call; `skip` names the arms of pure arithmetic that get one too.
+
+**layout.** `layout Shape = tagged_index;` and the tree layouts a
+schedule block may carry belong to the layout language: they choose how a
+value is represented and change nothing a program observes.
+
+**Order.** Directives apply in the order they are written, across
+functions as within one, and the order is part of the meaning: the drains
+of queues pushed from one loop run in the order the queues were deferred;
+`loopify` then `vectorize` is a loop each lane walks at its own pace,
+`vectorize` then `loopify` is a traversal the gang makes together on one
+stack of nodes and one of masks; `stage` comes after the deferral of the
+function's own recursion; the whole-function `specialize` comes first
+among a function's directives and the loop form after the directives that
+made its loop. A function's name in a schedule stands for the function,
+the parts a `stage` or `defer` cut off from it, and the copies a
+`specialize` made of it; a loop's name stands for every copy of the loop.
+A queue's declaration is not ordered: a `defer` may name it wherever the
+block declared it.

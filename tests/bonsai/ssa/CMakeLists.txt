@@ -102,6 +102,8 @@ add_bonsai_tests(
     split-program-chunk.bonsai
     split-tail.bonsai
     split-unsigned.bonsai
+    semantics-defer.bonsai
+    semantics-stage.bonsai
     stage.bonsai
     stage-mut-param.bonsai
     stage-then-defer.bonsai

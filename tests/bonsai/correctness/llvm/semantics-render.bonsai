@@ -1,0 +1,76 @@
+//! flags: -p ssa -b llvm -e
+
+// The running example of docs/schedule-semantics.md, unscheduled: one path
+// per pixel, a recursion of at most `max_depth` steps inside each pixel's
+// iteration. The scene is one wall at 16 on a line: a ray below it hits
+// one step ahead, its bounce starts again at twice the hit point plus
+// one, and a ray at or past the wall sees the sky. Every schedule of this
+// program in the tests beside it (semantics-defer, semantics-stage, ...)
+// prints these eight numbers.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func bounce(h : Hit, ray : Ray) -> Ray = Ray{h.p * 2.0 + 1.0, ray.d};
+
+func shade(h : Hit, ray : Ray, depth : i32, max_depth : i32,
+           rad : reduce(+) Float) -> void {
+    rad += emitted(h);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray), depth + 1, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, depth, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    // Pixel p: hits at p + 1, then 2p + 4 while 2p + 3 < 16, then 4p + 10
+    // while 4p + 9 < 16, each adding a quarter of the hit point; the path
+    // ends in the sky, a half.
+    print(film);
+    return 0;
+}

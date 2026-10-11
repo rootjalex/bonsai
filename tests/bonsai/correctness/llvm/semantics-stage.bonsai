@@ -1,0 +1,84 @@
+//! flags: -p ssa -b llvm -e
+
+// docs/schedule-semantics.md, 4.3 and 4.4: the running example with the
+// recursion on `rays` and `step` cut right after its trace. The push onto
+// `hits` follows the trace for every ray, a miss too, and the rest of
+// `step` -- the test of the hit, the sky, the shading -- runs in the hits
+// drain; `rays` then has one buffer, since nothing pushes onto it during
+// its pass. `hits.specialize(hit)` splits the queue on the trace's value,
+// so hits[None]'s drain is the sky arm alone and hits[Some]'s the shading,
+// pbrt's escaped-ray and material queues. Prints what semantics-render
+// prints.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func bounce(h : Hit, ray : Ray) -> Ray = Ray{h.p * 2.0 + 1.0, ray.d};
+
+func shade(h : Hit, ray : Ray, depth : i32, max_depth : i32,
+           rad : reduce(+) Float) -> void {
+    rad += emitted(h);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray), depth + 1, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, depth, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    hits = render.queue(root);
+    step.stage(trace, hits);
+    hits.specialize(hit);
+}
