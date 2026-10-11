@@ -351,7 +351,11 @@ void Printer::print(const Schedule &schedule) {
             std::visit(Overloaded{[&](const Defer &def) {
                                       os << "defer(";
                                       print(def.callee);
-                                      os << ", " << def.queue << ")";
+                                      os << ", " << def.queue;
+                                      if (!def.loop.empty()) {
+                                          os << ", " << def.loop;
+                                      }
+                                      os << ")";
                                   },
                                   [&](const Loopify &l) {
                                       os << "loopify(";
@@ -450,7 +454,11 @@ void Printer::print(const Schedule &schedule) {
                                   [&](const Stage &s) {
                                       os << "stage(";
                                       print(s.callee);
-                                      os << ", " << s.queue << ")";
+                                      os << ", " << s.queue;
+                                      if (!s.loop.empty()) {
+                                          os << ", " << s.loop;
+                                      }
+                                      os << ")";
                                   }},
                        ts[i]);
         }

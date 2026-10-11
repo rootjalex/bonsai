@@ -1,0 +1,77 @@
+//! flags: -p ssa -b llvm -e
+
+// The running example of docs/schedule-semantics.md with the bounce's
+// random number drawn at the top of `step`, before the trace, as pbrt's
+// sample kernel draws before its trace kernel runs (section 4.5),
+// unscheduled. `draw` is a hash of the pixel and the depth, and the
+// bounce lands at twice the hit point plus the draw. The schedules of
+// this program beside it (semantics-stage-same-queue, ...) print these
+// eight numbers.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func draw(p : i32, depth : i32) -> Float =
+    cast[[Float]]((p * 31 + depth * 17) % 7) / 7.0;
+
+func bounce(h : Hit, ray : Ray, u : Float) -> Ray = Ray{h.p * 2.0 + u, ray.d};
+
+func shade(h : Hit, ray : Ray, u : Float, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += emitted(h);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray, u), depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    u = draw(p, depth);
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, u, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}

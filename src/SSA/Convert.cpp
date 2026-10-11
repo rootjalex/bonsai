@@ -2448,6 +2448,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 << ") needs a constant, positive capacity";
                             spec.capacity = uint64_t(*n);
                         }
+                        if (!s.loop.empty()) {
+                            // The cut on the same queue (SSA/Stage.h,
+                            // stage_same_queue): no new queue, no new type.
+                            stage_same_queue(fmap, name, s.callee.names.back(),
+                                             spec, s.loop);
+                            return;
+                        }
                         for (const Type &made :
                              stage(fmap, name, s.callee.names.back(), spec)) {
                             const auto *st = made.as<Struct_t>();
@@ -2483,6 +2490,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             << "schedule block declares. Declare it: `"
                             << d.queue << " = <func>.queue(<loop>);`";
                         const std::string &callee = d.callee.names.back();
+                        if (!d.loop.empty()) {
+                            // The cut on the same queue, before the call
+                            // (SSA/Stage.h, defer_same_queue): a directive
+                            // of its own, not a pusher of the queue.
+                            QueueSpec spec;
+                            spec.name = d.queue;
+                            spec.owner = q->second.owner;
+                            spec.layouts = &layouts;
+                            defer_same_queue(fmap, name, callee, spec, d.loop);
+                            return;
+                        }
                         // Every `f.defer(callee, q)` on one queue and one
                         // callee is one deferral: a queue's entries are calls
                         // of one function, and the functions that push them
@@ -2506,6 +2524,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             for (const ir::Transform &t : ts->second) {
                                 const auto *other = std::get_if<ir::Defer>(&t);
                                 if (other != nullptr && other->queue == d.queue &&
+                                    other->loop.empty() &&
                                     !other->callee.names.empty() &&
                                     other->callee.names.back() == callee) {
                                     return true;
@@ -2525,6 +2544,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             const auto *other =
                                 std::get_if<ir::Defer>(&transforms.at(f).at(i));
                             if (other != nullptr && other->queue == d.queue &&
+                                other->loop.empty() &&
                                 !other->callee.names.empty() &&
                                 other->callee.names.back() == callee) {
                                 pushers.push_back(f);
@@ -2589,12 +2609,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 if (const auto ts = transforms.find(g);
                                     ts != transforms.end()) {
                                     for (const ir::Transform &t : ts->second) {
+                                        // A cut on the same queue moves no
+                                        // call to another drain: its rest
+                                        // runs in this drain's second pass.
                                         if (const auto *st = std::get_if<ir::Stage>(&t);
-                                            st != nullptr && !st->callee.names.empty()) {
+                                            st != nullptr && !st->callee.names.empty() &&
+                                            st->loop.empty()) {
                                             boundaries.push_back(st->callee.names.back());
                                         } else if (const auto *other =
                                                        std::get_if<ir::Defer>(&t);
                                                    other != nullptr &&
+                                                   other->loop.empty() &&
                                                    !other->callee.names.empty()) {
                                             const std::string &h = other->callee.names.back();
                                             deferred_edges.insert(h);

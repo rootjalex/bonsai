@@ -118,8 +118,10 @@ add_bonsai_tests(
     sampler.bonsai
     select-const-arms.bonsai
     semantics-defer.bonsai
+    semantics-draw.bonsai
     semantics-render.bonsai
     semantics-stage.bonsai
+    semantics-stage-same-queue.bonsai
     shadowed-let.bonsai
     simplify-facts.bonsai
     sink.bonsai

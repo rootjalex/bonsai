@@ -67,6 +67,56 @@ namespace ssa {
 std::vector<Type> stage(FuncMap &funcs, const std::string &func,
                         const std::string &callee, const QueueSpec &queue);
 
+// The cut on the same queue (docs/schedule-semantics.md, 4.5):
+// `f.stage(g, q, l)` and `f.defer(g, q, l)`, where `q` is a queue whose
+// drain already reaches `f` by calls each in tail position, and `l` a
+// fresh name. pbrt's sample kernel: a pass over the ray queue that draws
+// and stores, ahead of the trace kernel's pass over the same queue, with
+// nothing of the ray copied anywhere.
+//
+// `f` is cut at its call to `g` as stage() or defer_continuation() cuts it
+// -- after the call, so that the first half ends with `g`'s value in hand,
+// or before it, so that the second half begins with the call -- and then,
+// in place of a deferral of the tail call onto a new queue:
+//
+// - The drain of `q` is copied, and the copy, named `l`, runs before it in
+//   the same round over the same count: the first pass. Its body is the
+//   drain's as it was, so it runs the chain down to `f` and `f` up to the
+//   cut, where the tail call has become stores: each value the rest takes
+//   that the drain does not already hold -- the call's value, and a live
+//   value computed in `f` before the cut -- is stored in an array of the
+//   record, one slot per producer iteration like a reducer's
+//   (`<q>_<name>_slots`), at the entry's slot, which every function of the
+//   chain already carries (`_slot_<q>`, SSA/Defer.cpp). The chain carries
+//   a pointer to each such slot down to `f` as it carries the queue
+//   (`_<name>_<q>`). pbrt indexes its samples array by the pixel, which is
+//   the same index.
+// - The drain itself keeps its name, bounds and launch facts, and becomes
+//   the second pass: its body calls the rest (`f!after`, or `f!g!k`) with
+//   the values it handed the chain -- the entry's fields, the uniforms, the
+//   slot addresses, traced through the chain's tail calls back to the
+//   drain's own call -- and with each stored value loaded back from its
+//   array at the slot.
+//
+// What is stored is decided as 4.2 decides an entry's fields, less the
+// recomputation of pure functions, which is not done here yet. Refused with
+// an error: a queue with no drain yet (the directive comes after the
+// deferrals that made it), one split by a specialize or whose drain is
+// already bound or split (it comes before the directives on the loop), a
+// chain whose calls are not in tail position or whose functions are called
+// from outside it (the owner's own call of the chain has to be a push, or
+// it would run the first half alone), entries that carry no record slot, a
+// cut that not every path through the chain reaches (the skip bit of 4.5 is
+// not built), and an address of `f`'s own frame live after the cut.
+std::vector<Type> stage_same_queue(FuncMap &funcs, const std::string &func,
+                                   const std::string &callee,
+                                   const QueueSpec &queue,
+                                   const std::string &loop);
+std::vector<Type> defer_same_queue(FuncMap &funcs, const std::string &func,
+                                   const std::string &callee,
+                                   const QueueSpec &queue,
+                                   const std::string &loop);
+
 // `f.defer(g, q)` at a call that is not in tail position and not spawned:
 // the call *and its continuation* are deferred. Where stage() runs the call
 // where it is and queues its value with the rest, this queues the call's

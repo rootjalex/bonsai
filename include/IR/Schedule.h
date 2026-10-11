@@ -117,6 +117,14 @@ struct QueueSpecialize {
 struct Defer {
     Location callee;
     std::string queue;
+    // `f.defer(callee, q, l)`: the cut on the same queue (docs/
+    // schedule-semantics.md, 4.5). `q` is then a queue whose drain already
+    // reaches `f`, not one to push onto, and the drain is split into two
+    // passes over the same entries: a new loop `l` that runs `f` up to the
+    // call and stores what the rest needs in the record at the entry's
+    // slot, and the drain as it was, which runs the call and the rest from
+    // there. Empty for the two-argument form.
+    std::string loop;
 };
 
 // A stage boundary after a call: `f.stage(g, q)`. The call to `g` in `f`
@@ -133,6 +141,13 @@ struct Defer {
 struct Stage {
     Location callee;
     std::string queue;
+    // `f.stage(g, q, l)`: the cut on the same queue, after the call (docs/
+    // schedule-semantics.md, 4.5): a first pass `l` over `q`'s entries runs
+    // `f` through the call to `g` and stores its value and the rest's live
+    // values in the record at the entry's slot; the drain, keeping its
+    // name, runs the rest from there. pbrt's sample kernel ahead of its
+    // trace kernel, over the one ray queue. Empty for the two-argument form.
+    std::string loop;
 };
 
 // Turn recursion into iteration.

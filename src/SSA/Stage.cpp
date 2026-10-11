@@ -1,12 +1,18 @@
 #include "SSA/Stage.h"
 
 #include "Error.h"
+#include "IR/Printer.h"
 #include "IR/Type.h"
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
+#include "SSA/Reach.h"
+#include "SSA/Storage.h"
 
+#include <cstdlib>
+#include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -18,6 +24,7 @@ namespace ssa {
 namespace {
 
 using std::map;
+using std::optional;
 using std::set;
 using std::shared_ptr;
 using std::string;
@@ -404,19 +411,25 @@ shared_ptr<Block> returning_block(const shared_ptr<Function> &F, const string &n
     return returned;
 }
 
-} // namespace
+// `func` cut at its call to `callee`, with the rest a tail call: the block
+// of `func` that makes it, and the function it calls -- `func!after` for a
+// cut after the call (stage_tail), `func!callee!k` for one before it
+// (continuation_tail). What defer() queues, and what the cut on the same
+// queue stores instead.
+struct Tail {
+    shared_ptr<Function> F;
+    shared_ptr<Block> block;
+    string callee;
+};
 
-vector<Type> stage(FuncMap &funcs, const string &func_name,
-                   const string &callee_name, const QueueSpec &queue) {
-    const string what =
-        func_name + ".stage(" + callee_name + ", " + queue.name + ")";
+// The cut after the call. In `func`: the call's continuation is a block of
+// the call's own that tail-calls the rest with what it was handed and the
+// live values, and returns what comes back.
+Tail stage_tail(FuncMap &funcs, const string &func_name,
+                const string &callee_name, const string &what) {
     Split split = split_at_call(funcs, func_name, callee_name, what);
     const shared_ptr<Function> F = split.F;
     Terminator::Call &call = std::get<Terminator::Call>(split.site->terminator.data);
-
-    // In `func`: the call's continuation is a block of the call's own that
-    // tail-calls the rest with what it was handed and the live values, and
-    // returns what comes back.
     auto staged = std::make_shared<Block>();
     staged->name = split.cont->name + "!stage";
     staged->owner = F;
@@ -440,10 +453,462 @@ vector<Type> stage(FuncMap &funcs, const string &func_name,
     F->blocks.push_back(returned);
     refresh_preds(*F);
     remove_unreachable_blocks(*F);
+    return Tail{F, staged, split.after_name};
+}
 
+// Whether every path from `F`'s entry reaches `site`: no return of `F` lies
+// on a path that avoids it. What the cut on the same queue requires of the
+// call it cuts at, and of each call of the chain down to it, since its
+// second pass runs the rest for every entry.
+void every_path_reaches(const Function &F, const Block &site, const string &what,
+                        const string &callee_name) {
+    const BlockMap bmap = make_block_map(F);
+    set<string> seen;
+    vector<string> work{F.blocks.front()->name};
+    while (!work.empty()) {
+        const string name = work.back();
+        work.pop_back();
+        if (name == site.name || !seen.insert(name).second) {
+            continue;
+        }
+        const Block &block = *bmap.at(name);
+        internal_assert(!std::holds_alternative<Terminator::Return>(block.terminator.data))
+            << what << ": " << block.name << " of " << F.blocks.front()->name
+            << " returns without reaching the call to " << callee_name
+            << ", so not every entry of the first pass would reach the cut. "
+            << "[unimplemented] the first pass marking the entries that did, "
+            << "and the second pass skipping the rest (docs/schedule-semantics.md, 4.5).";
+        for (const string &s : successors(block)) {
+            work.push_back(s);
+        }
+    }
+}
+
+// The index of `name` among `F`'s parameters, if it is one.
+optional<size_t> parameter_index(const Function &F, const string &name) {
+    const Block &entry = *F.blocks.front();
+    for (size_t i = 0; i < entry.args.size(); i++) {
+        if (entry.args[i].name == name) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+Tail continuation_tail(FuncMap &funcs, const string &func_name,
+                       const string &callee_name, const string &what);
+
+// The cut on the same queue: see SSA/Stage.h. `after_call` picks the side
+// of the call the cut is on.
+vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
+                            const string &callee_name, const QueueSpec &queue,
+                            const string &loop, bool after_call) {
+    const string what = func_name + (after_call ? ".stage(" : ".defer(") +
+                        callee_name + ", " + queue.name + ", " + loop + ")";
+    internal_assert(funcs.contains(queue.owner))
+        << what << ": " << queue.owner << " is not a function of the program";
+    internal_assert(funcs.contains(func_name))
+        << what << ": " << func_name << " is not a function of the program";
+    const shared_ptr<Function> O = funcs.at(queue.owner);
+    const auto owned = O->queue_sizes.find(queue.name);
+    internal_assert(owned != O->queue_sizes.end())
+        << what << ": " << queue.name << " has no drain yet. The cut on the "
+        << "same queue splits that drain, so it is written after the "
+        << "deferrals that make it (`<f>.defer(<g>, " << queue.name << ")`).";
+
+    // The drain: the one loop named after the queue, not yet bound.
+    shared_ptr<Block> pre;
+    for (const auto &block : O->blocks) {
+        const auto *pf = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (pf == nullptr || pf->index != queue.name) {
+            continue;
+        }
+        internal_assert(!pre) << what << ": " << queue.owner
+                              << " has several loops named " << queue.name;
+        pre = block;
+    }
+    internal_assert(pre)
+        << what << ": " << queue.owner << " has no loop named " << queue.name
+        << ". The drain is split by a `specialize` into loops of its "
+        << "variants' names, or a `split` renamed it; the cut on the same "
+        << "queue comes before the directives on the loop.";
+    Terminator::ParFor &P = std::get<Terminator::ParFor>(pre->terminator.data);
+    internal_assert(!P.binding.has_value())
+        << what << ": " << queue.name << " is bound already; the cut on the "
+        << "same queue comes before the directives on the loop, since it "
+        << "splits that loop in two and names the first.";
+    for (const auto &block : O->blocks) {
+        const auto *pf = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        internal_assert(pf == nullptr || pf->index != loop)
+            << what << ": " << queue.owner << " has a loop named " << loop
+            << " already; the third argument names the first pass, a new loop.";
+    }
+    const BlockMap omap = make_block_map(O);
+    const shared_ptr<Block> body = omap.at(P.body.name);
+    auto *bcall = std::get_if<Terminator::Call>(&body->terminator.data);
+    internal_assert(bcall != nullptr && bcall->drop)
+        << what << ": [unimplemented] the body of the drain of " << queue.name
+        << " does not end in the deferred call";
+    const shared_ptr<Block> ran = omap.at(bcall->cont.name);
+    internal_assert(std::holds_alternative<Terminator::Yield>(ran->terminator.data) &&
+                    ran->instrs.empty())
+        << what << ": [unimplemented] the drain of " << queue.name
+        << " does more after the deferred call than end its iteration";
+    const string c0 = bcall->call.name;
+
+    // The chain from the drain's callee down to `func`: one call per
+    // function, each in tail position, and no call into it from elsewhere
+    // -- the first pass ends at the cut, so a caller that ran a chain
+    // function whole would stop there.
+    vector<string> chain;
+    {
+        map<string, string> parent{{c0, ""}};
+        vector<string> work{c0};
+        while (!work.empty() && !parent.contains(func_name)) {
+            const string g = work.back();
+            work.pop_back();
+            if (!funcs.contains(g)) {
+                continue;
+            }
+            for (const string &h : callees_of(*funcs.at(g))) {
+                if (!parent.contains(h)) {
+                    parent[h] = g;
+                    work.push_back(h);
+                }
+            }
+        }
+        internal_assert(parent.contains(func_name))
+            << what << ": " << func_name << " is not reached from the drain of "
+            << queue.name << " (its callee is " << c0 << ")";
+        for (string g = func_name; !g.empty(); g = parent.at(g)) {
+            chain.insert(chain.begin(), g);
+        }
+    }
+    struct Link {
+        string caller;
+        shared_ptr<Block> site;
+    };
+    vector<Link> links;
+    for (size_t i = 0; i + 1 < chain.size(); i++) {
+        const shared_ptr<Function> G = funcs.at(chain[i]);
+        const shared_ptr<Block> site =
+            one_call_site(*G, chain[i + 1], what, /*refuse_many=*/false);
+        internal_assert(site) << what << ": " << chain[i] << " calls "
+                              << chain[i + 1] << " more than once";
+        const auto &call = std::get<Terminator::Call>(site->terminator.data);
+        internal_assert(in_tail_position(call, make_block_map(*G)))
+            << what << ": the call to " << chain[i + 1] << " in " << chain[i]
+            << " is not in tail position, so the chain from the drain of "
+            << queue.name << " to " << func_name << " does work after it "
+            << "that the second pass would not run";
+        links.push_back({chain[i], site});
+    }
+    for (size_t i = 0; i < chain.size(); i++) {
+        for (const auto &[name, G] : funcs) {
+            for (const auto &block : G->blocks) {
+                const Terminator::Jump *j = block->terminator.callee();
+                if (j == nullptr || j->name != chain[i]) {
+                    continue;
+                }
+                const bool from_chain = (i == 0 && block == body) ||
+                                        (i > 0 && name == chain[i - 1]);
+                internal_assert(from_chain)
+                    << what << ": " << chain[i] << " is called from " << name
+                    << " (" << block->name << "), outside the drain of "
+                    << queue.name << ". The first pass ends at the cut, so a "
+                    << "call that ran " << chain[i] << " whole would stop there. "
+                    << "Defer that call onto " << queue.name << " too"
+                    << (name == queue.owner
+                            ? " (`" + name + ".defer(" + chain[i] + ", " +
+                                  queue.name + ")`: the owner's call is a push)"
+                            : "")
+                    << ".";
+            }
+        }
+    }
+    const shared_ptr<Function> F = funcs.at(func_name);
+    const string slot_param = "_slot_" + queue.name;
+    internal_assert(parameter_index(*F, slot_param).has_value())
+        << what << ": " << func_name << " carries no slot of " << queue.name
+        << "'s record. The entries hold none -- nothing of the producer's "
+        << "iteration (a reducer, a mutable local, a value its rest uses) is "
+        << "handed down the chain -- and the first pass stores what the rest "
+        << "needs by that slot. [unimplemented] storing by the entry's index "
+        << "instead.";
+    for (size_t i = 0; i + 1 < chain.size(); i++) {
+        every_path_reaches(*funcs.at(chain[i]), *links[i].site, what, chain[i + 1]);
+    }
+    every_path_reaches(*F, *one_call_site(*F, callee_name, what), what, callee_name);
+    internal_assert(F->ret_type.is<Void_t>())
+        << what << ": " << func_name << " returns " << F->ret_type
+        << "; a function on a drained chain returns nothing";
+
+    // The cut, with the rest a tail call; its arguments threaded into the
+    // block that makes it, so that each can be followed to its definition.
+    Tail tail = after_call ? stage_tail(funcs, func_name, callee_name, what)
+                           : continuation_tail(funcs, func_name, callee_name, what);
+    Terminator::Call &tcall = std::get<Terminator::Call>(tail.block->terminator.data);
+    for (auto &v : tcall.call.args) {
+        v = reach(tail.block, v);
+    }
+    const vector<shared_ptr<Value>> passed = tcall.call.args;
+    const shared_ptr<Function> R = funcs.at(tail.callee);
+    const Block &rentry = *R->blocks.front();
+    internal_assert(rentry.args.size() == passed.size())
+        << what << ": " << tail.callee << " takes " << rentry.args.size()
+        << " arguments and the cut passes " << passed.size();
+
+    // Which of them the drain's own call hands the chain: a parameter of
+    // `func` that is, at each call of the chain, a parameter of the caller,
+    // back to the drain's call -- the entry's fields, the uniforms, the slot
+    // addresses, the queue. The second pass passes the same values. The
+    // others -- the call's value, a value computed before the cut -- are
+    // stored by the first pass.
+    vector<shared_ptr<Value>> handed(passed.size());
+    {
+        Definitions fdefs(*F);
+        for (size_t i = 0; i < passed.size(); i++) {
+            const Argument *param = fdefs.parameter(tail.block->name, passed[i]);
+            if (param == nullptr) {
+                continue;
+            }
+            optional<size_t> j = parameter_index(*F, param->name);
+            for (size_t k = links.size(); j.has_value() && k-- > 0;) {
+                const shared_ptr<Function> G = funcs.at(links[k].caller);
+                const auto &call = std::get<Terminator::Call>(links[k].site->terminator.data);
+                if (*j >= call.call.args.size()) {
+                    j.reset();
+                    break;
+                }
+                Definitions gdefs(*G);
+                const Argument *gp = gdefs.parameter(links[k].site->name, call.call.args[*j]);
+                j = gp == nullptr ? std::nullopt : parameter_index(*G, gp->name);
+            }
+            if (j.has_value() && *j < bcall->call.args.size()) {
+                handed[i] = bcall->call.args[*j];
+            }
+        }
+    }
+
+    // Storage for the rest: an array of the record per stored value, one
+    // slot per producer iteration, made where the record's arrays are and
+    // sized as they are; and a pointer to this entry's slot of each, handed
+    // down the chain as the queue is.
+    struct Stored {
+        size_t index;
+        string name;
+        Type type;
+        shared_ptr<Value> array;
+    };
+    vector<Stored> stored;
+    const shared_ptr<Block> point = omap.at(owned->second.point);
+    for (size_t i = 0; i < passed.size(); i++) {
+        if (handed[i]) {
+            continue;
+        }
+        const Type type = passed[i]->get_type();
+        internal_assert(!type.is<Ptr_t>() && !type.is_reference())
+            << what << ": " << rentry.args[i].name << ", an address (" << type
+            << ") live after the cut, is not one the drain hands the chain -- "
+            << "it points into " << func_name << "'s own frame, which is gone "
+            << "when the second pass runs";
+        Stored s;
+        s.index = i;
+        s.name = after_call && i == 0 ? callee_name : rentry.args[i].name;
+        s.type = type;
+        s.array = make_alloca(*O, point, Array_t::make(type, as_expr(owned->second.size)),
+                              queue.name + "_" + s.name + "_slots");
+        // Written before it is read in every round, so made once outside
+        // the loops around the owner, as the record's arrays are
+        // (Instruction::scratch; SSA/HoistAllocations.h).
+        std::get<shared_ptr<Instruction>>(s.array->data)->scratch = true;
+        stored.push_back(std::move(s));
+    }
+    map<string, vector<shared_ptr<Value>>> slot_ptrs; // each chain function's
+    for (const string &g : chain) {
+        Function &G = *funcs.at(g);
+        Block &entry = *G.blocks.front();
+        for (const Stored &s : stored) {
+            const string pname = "_" + s.name + "_" + queue.name;
+            internal_assert(!parameter_index(G, pname).has_value())
+                << what << ": " << g << " already has a parameter named " << pname;
+            slot_ptrs[g].push_back(
+                entry.add_argument(Argument{Ptr_t::make(s.type), pname, /*mutating=*/true}));
+            G.reserve_name(pname);
+        }
+    }
+    for (const Link &l : links) {
+        auto &call = std::get<Terminator::Call>(l.site->terminator.data);
+        for (const auto &v : slot_ptrs.at(l.caller)) {
+            call.call.args.push_back(reach(l.site, v));
+        }
+    }
+    // At the cut: each stored value into its slot, and the first half ends.
+    for (size_t k = 0; k < stored.size(); k++) {
+        tail.block->make_side_effect(
+            Instruction::Op::Store,
+            {reach(tail.block, slot_ptrs.at(func_name)[k]),
+             reach(tail.block, passed[stored[k].index])});
+    }
+    tail.block->terminator.data = Terminator::Return{};
+    refresh_preds(*F);
+    remove_unreachable_blocks(*F);
+
+    // The first pass: a copy of the drain's block and body, named `loop`,
+    // that the round enters first and that goes on to the drain. The
+    // block's side effects -- the reset of the other buffer's count, at
+    // the top of the round -- go with the copy, so that they come before
+    // both passes and a push made before the cut is kept; the drain's
+    // block keeps the values its loop needs.
+    vector<shared_ptr<Block>> region{pre};
+    const Cfg body_cfg(*O, body->name);
+    for (const auto &block : body_cfg.blocks()) {
+        region.push_back(block);
+    }
+    const auto copies = clone_region(*O, region, "!" + loop);
+    const shared_ptr<Block> first = copies.at(pre->name);
+    std::erase_if(pre->instrs, [](const auto &instr) { return instr->name.empty(); });
+    Terminator::ParFor &P1 = std::get<Terminator::ParFor>(first->terminator.data);
+    P1.index = loop;
+    P1.capacity = P.capacity;
+    P1.queue_base = P.queue_base;
+    P1.queue_slot = P.queue_slot;
+    P1.count_address = P.count_address;
+    {
+        vector<shared_ptr<Value>> onward;
+        for (const Argument &a : first->args) {
+            onward.push_back(first->lookups.at(a.name));
+        }
+        P1.cont = Terminator::Jump{pre->name, std::move(onward)};
+    }
+    const shared_ptr<Block> body1 = copies.at(body->name);
+    // The body's index under the loop's name.
+    {
+        const string was = body1->args.front().name;
+        for (const auto &block : region) {
+            if (block == pre) {
+                continue;
+            }
+            const shared_ptr<Block> copy = copies.at(block->name);
+            for (Argument &a : copy->args) {
+                if (a.name == was) {
+                    a.name = loop;
+                }
+            }
+            if (auto node = copy->lookups.extract(was); !node.empty()) {
+                node.key() = loop;
+                copy->lookups.insert(std::move(node));
+            }
+            for_each_value(*copy, [&](shared_ptr<Value> &v) {
+                if (auto *a = v ? std::get_if<Argument>(&v->data) : nullptr;
+                    a != nullptr && a->name == was) {
+                    a->name = loop;
+                }
+            });
+        }
+    }
+    for (const auto &block : region) {
+        const shared_ptr<Block> copy = copies.at(block->name);
+        copy->owner = O;
+        for (const auto &instr : copy->instrs) {
+            instr->owner = copy;
+        }
+        O->blocks.push_back(copy);
+    }
+    for (const auto &block : O->blocks) {
+        if (block == first) {
+            continue;
+        }
+        for (Terminator::Jump *j : jumps_of(*block)) {
+            if (j->name == pre->name) {
+                j->name = first->name;
+            }
+        }
+    }
+    refresh_preds(*O);
+    // Its call hands the chain this entry's slot of each array.
+    const optional<size_t> slot_at = parameter_index(*funcs.at(c0), slot_param);
+    internal_assert(slot_at.has_value()) << what << ": " << c0 << " has no " << slot_param;
+    {
+        auto &call1 = std::get<Terminator::Call>(body1->terminator.data);
+        internal_assert(call1.call.name == c0);
+        const shared_ptr<Value> slot = call1.call.args.at(*slot_at);
+        for (const Stored &s : stored) {
+            call1.call.args.push_back(body1->make_instruction(
+                Ptr_t::make(s.type), Instruction::Op::GEP, {reach(body1, s.array), slot}));
+        }
+    }
+
+    // The second pass: the drain as it was, its body calling the rest with
+    // what it handed the chain and what the first pass stored.
+    {
+        const shared_ptr<Value> slot = bcall->call.args.at(*slot_at);
+        vector<shared_ptr<Value>> args;
+        for (size_t i = 0; i < passed.size(); i++) {
+            if (handed[i]) {
+                args.push_back(handed[i]);
+                continue;
+            }
+            const Stored *s = nullptr;
+            for (const Stored &c : stored) {
+                if (c.index == i) {
+                    s = &c;
+                }
+            }
+            internal_assert(s != nullptr);
+            auto ptr = body->make_instruction(Ptr_t::make(s->type), Instruction::Op::GEP,
+                                              {reach(body, s->array), slot});
+            args.push_back(body->make_instruction(s->type, Instruction::Op::Load, {ptr}));
+        }
+        bcall->call = Terminator::Jump{tail.callee, std::move(args)};
+        bcall->drop = true;
+    }
+    // The rest is the second pass's body now, folded in as a drained callee
+    // is (SSA/Defer.cpp); its hold, which kept it a function for this
+    // directive, comes off.
+    std::erase(R->attributes, ir::Function::Attribute::held);
+    const auto has = [&](ir::Function::Attribute a) {
+        return std::find(R->attributes.begin(), R->attributes.end(), a) != R->attributes.end();
+    };
+    if (!is_recursive(*R) && !has(ir::Function::Attribute::noinline) &&
+        !has(ir::Function::Attribute::always_inlined)) {
+        R->attributes.push_back(ir::Function::Attribute::always_inlined);
+    }
+    if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
+        std::cerr << "; " << what << ": the first pass " << loop << " stores";
+        for (const Stored &s : stored) {
+            std::cerr << " " << s.name << " : " << s.type;
+        }
+        std::cerr << (stored.empty() ? " nothing" : "") << "; the second pass "
+                  << queue.name << " calls " << tail.callee << "\n";
+    }
+    return {};
+}
+
+} // namespace
+
+vector<Type> stage(FuncMap &funcs, const string &func_name,
+                   const string &callee_name, const QueueSpec &queue) {
+    const string what =
+        func_name + ".stage(" + callee_name + ", " + queue.name + ")";
     // What follows the call is a tail call now, and a queue of those is what
     // defer() builds.
-    return defer(funcs, func_name, split.after_name, queue);
+    const Tail tail = stage_tail(funcs, func_name, callee_name, what);
+    return defer(funcs, func_name, tail.callee, queue);
+}
+
+vector<Type> stage_same_queue(FuncMap &funcs, const string &func_name,
+                              const string &callee_name, const QueueSpec &queue,
+                              const string &loop) {
+    return cut_same_queue(funcs, func_name, callee_name, queue, loop,
+                          /*after_call=*/true);
+}
+
+vector<Type> defer_same_queue(FuncMap &funcs, const string &func_name,
+                              const string &callee_name, const QueueSpec &queue,
+                              const string &loop) {
+    return cut_same_queue(funcs, func_name, callee_name, queue, loop,
+                          /*after_call=*/false);
 }
 
 string call_holder(const FuncMap &funcs, const string &func_name,
@@ -571,10 +1036,12 @@ bool has_nontail_call(const FuncMap &funcs, const string &func_name,
     return !call.spawned && !in_tail_position(call, make_block_map(func));
 }
 
-vector<Type> defer_continuation(FuncMap &funcs, const string &func_name,
-                                const string &callee_name, const QueueSpec &queue) {
-    const string what =
-        func_name + ".defer(" + callee_name + ", " + queue.name + ")";
+namespace {
+
+// The cut before the call: the call and the rest become one function,
+// `func!callee!k`, and the site tail-calls it (see defer_continuation).
+Tail continuation_tail(FuncMap &funcs, const string &func_name,
+                       const string &callee_name, const string &what) {
     Split split = split_at_call(funcs, func_name, callee_name, what);
     const shared_ptr<Function> F = split.F;
     const shared_ptr<Function> G = funcs.at(callee_name);
@@ -679,10 +1146,19 @@ vector<Type> defer_continuation(FuncMap &funcs, const string &func_name,
     F->blocks.push_back(returned);
     refresh_preds(*F);
     remove_unreachable_blocks(*F);
+    return Tail{F, split.site, k_name};
+}
 
+} // namespace
+
+vector<Type> defer_continuation(FuncMap &funcs, const string &func_name,
+                                const string &callee_name, const QueueSpec &queue) {
+    const string what =
+        func_name + ".defer(" + callee_name + ", " + queue.name + ")";
     // A tail call now: the queue holds the call's arguments and the rest's
     // live values, and the drain runs the call and then the rest.
-    return defer(funcs, func_name, k_name, queue);
+    const Tail tail = continuation_tail(funcs, func_name, callee_name, what);
+    return defer(funcs, func_name, tail.callee, queue);
 }
 
 bool calls_after(const Function &func, const string &staged,

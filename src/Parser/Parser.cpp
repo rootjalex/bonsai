@@ -4109,6 +4109,13 @@ struct Parser {
                 ir::Location callee = parse_location();
                 expect(Token::Type::COMMA);
                 std::string queue = get_id();
+                // A third argument names the first pass of the cut on the
+                // same queue, `f.defer(callee, q, l)` (ir::Defer::loop).
+                std::string loop;
+                if (peek().type == Token::Type::COMMA) {
+                    expect(Token::Type::COMMA);
+                    loop = get_id();
+                }
                 // The directive is about a call, so the function making it
                 // and the function it calls both have to survive as
                 // functions until it runs: inlined away, there would be no
@@ -4124,13 +4131,20 @@ struct Parser {
                             ir::Function::Attribute::held);
                     }
                 }
-                add(ir::Defer{std::move(callee), std::move(queue)});
+                add(ir::Defer{std::move(callee), std::move(queue), std::move(loop)});
             } else if (rewrite == "stage") {
                 // `f.stage(callee, queue)`: as defer, about a call, so the
-                // two functions survive as functions.
+                // two functions survive as functions. A third argument is
+                // the cut on the same queue, `f.stage(callee, q, l)`
+                // (ir::Stage::loop).
                 ir::Location callee = parse_location();
                 expect(Token::Type::COMMA);
                 std::string queue = get_id();
+                std::string loop;
+                if (peek().type == Token::Type::COMMA) {
+                    expect(Token::Type::COMMA);
+                    loop = get_id();
+                }
                 for (const std::string &kept : {func, callee.names.back()}) {
                     if (const auto f = program.funcs.find(kept);
                         f != program.funcs.end() && !f->second->is_noinline() &&
@@ -4139,7 +4153,7 @@ struct Parser {
                             ir::Function::Attribute::held);
                     }
                 }
-                add(ir::Stage{std::move(callee), std::move(queue)});
+                add(ir::Stage{std::move(callee), std::move(queue), std::move(loop)});
             } else if (rewrite == "loopify") {
                 std::optional<ir::Expr> queue_size;
                 if (peek().type != Token::Type::RPAREN) {

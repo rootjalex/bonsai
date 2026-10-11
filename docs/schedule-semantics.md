@@ -613,20 +613,21 @@ in the place the drain had:
 
     par for each e in 0..q.count:          // `l`: the first pass
         C down to f, then P, then r = g(a)
-        q.S[e] = S                         // the new fields of the entry
+        record.S[slot] = S                 // new arrays of the record
     par for each e in 0..q.count:          // `q`: the second pass
-        r and L from q[e] and q.S[e]
+        r and L from q[e] and record.S[slot]
         K(r, L)                            // f!after
 
 `S` is what the second pass needs and cannot get otherwise: `r`, and each
 value of `L` that is not a field of the entry, not the same for every
 entry, and not a pure function of those (which the second pass recomputes,
-the rule of 4.2). The queue gains one array per value of `S`, of the
-queue's capacity: slots the first pass fills, beside the slots the pushes
-fill. The first pass writes them at the entry's index and the second reads
-them at the same index; the pushes that fill `q` do not write them. The
-first pass takes the name `l`. The second keeps the queue's name `q`, so a
-directive on `q` written after this one addresses the pass that runs `K`.
+the rule of 4.2). The record gains one array per value of `S`, one slot
+per producer iteration as a reducer's is (4.2). The first pass writes it at
+the entry's slot, which the entry carries already (pbrt's `pixelIndex`),
+and the second pass reads it there. No entry grows and no push changes.
+The first pass takes the name `l`. The second keeps the queue's name `q`,
+so a directive on `q` written after this one addresses the pass that runs
+`K`.
 
 In the running example, let `step` draw the bounce's random numbers
 before it traces, as pbrt does, and let `shade` use them:
@@ -678,8 +679,8 @@ both arms; `L` is `ray`, `depth` and `p`, all fields of the entry; `S` is
 `u` alone. The nest of 4.2 becomes
 
     alloc rays[2]: W*H entries of (ray, depth, p)        // written by the pushes
-    alloc rays.u: W*H entries                            // written by `samples`
     alloc record.rad[W*H]
+    alloc record.u[W*H]                                  // written by `samples`
     par for each p in 0..W*H:                            // the producer loop
         ray = camera(p); record.rad[p] = 0
         push rays[0] <- (ray, 0, p)
@@ -689,9 +690,9 @@ both arms; `L` is `ray`, `depth` and `p`, all fields of the entry; `S` is
         rays[nxt].count = 0
         par for each e in 0..rays[cur].count:            // `samples`: the first pass
             (_, depth, p) = rays[cur][e]
-            rays.u[e] = draw(p, depth)
+            record.u[p] = draw(p, depth)
         par for each e in 0..rays[cur].count:            // `rays`: the second pass
-            (ray, depth, p) = rays[cur][e]; u = rays.u[e]
+            (ray, depth, p) = rays[cur][e]; u = record.u[p]
             hit = trace(ray)
             if hit:
                 record.rad[p] += emitted(*hit)
@@ -703,10 +704,10 @@ both arms; `L` is `ray`, `depth` and `p`, all fields of the entry; `S` is
     par for each p in 0..W*H:                            // `rays_rest`
         film[p] = record.rad[p]
 
-`rays.u` is one array, not one per buffer: it is written and read within
-a round, at indices of that round's buffer, and the next round overwrites
-it. The count, the capacity, the two buffers, the rounds and the rest
-pass are those of 4.2. pbrt's sample kernel is the `samples` loop and its
+`record.u` is one array: a pixel has one path in flight, whose draw the
+first pass writes and the second reads within the round, and the next
+round overwrites it. The count, the capacity, the two buffers, the rounds
+and the rest pass are those of 4.2. pbrt's sample kernel is the `samples` loop and its
 trace kernel the `rays` loop, and the schedule binds them as pbrt builds
 them, a CUDA kernel and a ray-generation program:
 
@@ -733,83 +734,92 @@ of the entry and `u` is live after the call.
 `R!stage(r)` holding the tail call `f!after(r, live..)`. Then, in place of
 a deferral onto a new queue:
 
-3. The entry analysis of 4.2 is run on that tail call with the leaves of
-   `q`'s entry counted as stored already; what it would store besides
-   them is `S`. `Queue_q` gains one array per scalar of `S`. The owner
-   makes each, `q_<leaf> : mut T[n]`, once, and hands it to both buffers'
-   `build`. `Entry_q` is unchanged, so every push onto `q` is.
+3. Each argument of that tail call is followed back: one that is a
+   parameter of `f`, and at every call of the chain a parameter of the
+   caller, back to the drain's own call, is a value the drain hands the
+   chain (an entry field, a uniform, a slot address, the queue), and the
+   second pass hands it again. The others are `S`. For each, an array of
+   the record, `q_<name>_slots : mut T[n]`, is made where the record's
+   arrays are and sized as they are. `Entry_q` and `Queue_q` are
+   unchanged, so every push onto `q` is.
 4. Every function on the chain from the drain to `f` gains a parameter
-   `_entry_q : u32`, handed down as `_queue_q` is; the drain passes its
-   index. In `R!stage` the tail call becomes a store of each leaf of `S`
-   to `(*_queue_q).<leaf>[_entry_q]`, then `return`.
-5. The drain loop is duplicated. The copy, its body as it stands, is
-   renamed `l` and placed where the drain was. The original follows it,
+   `_<name>_q : mut T*` per value of `S`, a pointer to this entry's slot
+   of its array, handed down as `_queue_q` is. In `R!stage` the tail call
+   becomes a store of each value through its pointer, then `return`.
+5. The drain's block and body are copied. The copy, its body as it was,
+   is named `l` and placed where the drain was, the round entering it
+   first; it takes the block's side effects with it, the reset of the
+   other buffer's count, so that they come before both passes. Its call
+   hands the chain `&q_<name>_slots[slot]` for each value of `S`, `slot`
+   the one the entry carries (`_slot_q`). The drain follows the copy,
    keeping the name `q`, the bounds, and the capacity and count a GPU
-   launch is built from (Section 3), with a new body: load each leaf of
-   the entry at `q` as before, load each leaf of `S` from `q_<leaf>[q]`,
-   and call `f!after(r, live..)` with them, the uniforms in scope and
-   `&q_queue[nxt]`. That is the call the drain of a new queue would have
-   made, with loads from `q`'s own arrays in place of the new queue's.
-6. When some path from the chain's entry returns before the cut, `Queue_q`
-   gains a byte array `_reached`. The first pass's body stores 0 at its
-   index before its call, `R!stage` stores 1, and the second pass's body
-   runs under `if q__reached[q] != 0`.
+   launch is built from (Section 3), with a new body: the entry's leaves
+   loaded at `q` as before, each value of `S` loaded from
+   `q_<name>_slots[slot]`, and the call `f!after(r, live..)` with them
+   and the values handed again. That is the call the drain of a new queue
+   would have made, with loads from the record in place of the new
+   queue's.
+6. The rest, `f!after`, is folded into the second pass as a drained
+   callee is folded into its drain (4.2).
 
 For `f.defer(g, q, l)`, step 2 makes `f!g!k` as in 4.3's last paragraph
 and the stored tail call is `f!g!k(a, live..)`. For `step.stage(draw,
-rays, samples)`:
+rays, samples)` (golden `tests/bonsai/ssa/semantics-stage-same-queue`):
 
-    func step(ray, depth, p, max_depth, rad, _queue_rays, _slot_rays, _entry_rays : u32) -> void {
+    func step(ray, depth, p, max_depth, rad, _queue_rays, _slot_rays, _draw_rays : mut f32*) -> void {
       draw(p, depth) -> R!stage
-      R!stage(u): (*_queue_rays).u[_entry_rays] = u; return
+      R!stage(u): *_draw_rays = u; return
     }
     func step!after(u, ray, depth, p, max_depth, rad, _queue_rays, _slot_rays) -> void {
       trace(ray) -> R; R(hit): if hit .. }     // as it was
 
+        rays_queue[nxt].count = 0
         parfor samples in [0u:@count:1u] {   // the copy: the drain as it was
-          let ray, depth, p = <the leaves at samples> in
-          step(ray, depth, p, max_depth, &rays_rad_slots[p], &rays_queue[nxt], p, samples)
+          let ray, depth, slot = <the leaves at samples> in
+          step(ray, depth, slot, max_depth, &rays_rad_slots[slot], &rays_queue[nxt], slot,
+               &rays_draw_slots[slot])
         }
         parfor rays in [0u:@count:1u] {      // the drain, its body replaced
-          let ray, depth, p = <the leaves at rays> in
-          let u = rays_u[rays] in
-          step!after(u, ray, depth, p, max_depth, &rays_rad_slots[p], &rays_queue[nxt], p)
+          let ray, depth, slot = <the leaves at rays> in
+          let u = rays_draw_slots[slot] in
+          step!after(u, ray, depth, slot, max_depth, &rays_rad_slots[slot], &rays_queue[nxt], slot)
         }
 
 Why the result is the same. For each entry, `P`, `g` and `K` run once
 each, in that order, as before. Across entries the only new ordering is
 that every entry's first half runs before any entry's second half, which
 a `parfor` admits: its iterations may be interleaved at any granularity.
-`K` reads `r` and `L` as it did, from `q.S` at this entry's index, which
-nothing writes between the two passes, and from the entry's own fields. A
-push made in `P` is unchanged: a push onto `q` goes to the other buffer
-in either pass, and any other queue pushed is drained after the second
-pass, as it was drained after the drain.
+`K` reads `r` and `L` as it did, from the record at this entry's slot,
+which nothing writes between the two passes, and from the entry's own
+fields. A push made in `P` is unchanged: the other buffer is reset before
+the first pass, a push onto `q` goes to it in either pass, and any other
+queue pushed is drained after the second pass, as it was drained after
+the drain.
 
-If some path through `C` and `P` returns before reaching the call, the
-first pass runs that entry to its return, and one bit per entry, set by
-the first pass, tells the second pass to skip it. The bit is omitted when
-every path reaches the call, as in the example.
+If some path through `C` and `P` returned before reaching the call, the
+first pass would run that entry to its return, and one bit per slot, set
+by the first pass, would tell the second pass to skip it. That bit is not
+built: the compiler refuses such a cut today. The example's draw is
+reached by every path.
 
 Conditions, each refused with an error: `f` is reached from `q`'s drain
-by calls each in tail position; one call to `g` in `f`, not inside a loop
-of `f`; `l` names no existing loop; the directive is written after the
-deferrals that gave `q` its drain and before any directive on the loop
-`q`, since it splits that loop; and `q` is not yet split by a
-`specialize`.
+by calls each in tail position, and every function of the chain is called
+from the chain alone, the owner's own call being a push (a call that ran
+one of them whole would stop at the cut); one call to `g` in `f`, reached
+by every path; the entries carry the record's slot; `l` names no existing
+loop; the directive is written after the deferrals that gave `q` its
+drain and before any directive on the loop `q`, since it splits that
+loop; and `q` is not yet split by a `specialize`.
 
 What this leaves. With `step.defer(shade, hits)` added, as the renderer
 has it, the push in the `Some` arm carries `u`, because a deferral stores
 a value it is handed (4.2); pbrt's material work item carries the pixel
 index instead, and its material kernel reads the samples from the array.
 The rule of 4.2 that stores an index into read-only storage applies once
-the analysis knows that `rays[cur]` and `rays.u` are read-only from the
-second pass to the round's end: the `hits` entry would carry `e` and the
-shade pass would read `rays.u[e]`. That is a second step, to be measured
-on its own. Indexing the array by `p`, the record's slot, as pbrt indexes
-by the pixel, would spare that step, since the `hits` entry carries `p`
-already; it would make `u` a field of the record rather than of the
-queue. The queue form is the one described here.
+the analysis knows that `record.u` is read-only from the second pass to
+the round's end: the `hits` entry already carries the slot, so it would
+carry nothing new, and the shade pass would read `record.u[slot]`. That
+is a second step, to be measured on its own.
 
 ## 5. Other
 

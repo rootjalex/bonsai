@@ -53,6 +53,7 @@ add_bonsai_tests(
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai
     rtcore-placed.bonsai
+    semantics-stage-same-queue.bonsai
     struct-capture.bonsai
     texture-cpp.bonsai
     threads.bonsai

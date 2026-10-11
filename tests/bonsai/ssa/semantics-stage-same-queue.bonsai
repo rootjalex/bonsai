@@ -1,0 +1,94 @@
+//! flags: -p ssa
+
+// docs/schedule-semantics.md, 4.5, in the SSA: the cut on the same queue.
+// What to read for, against the nest the section draws. `step` ends at the
+// draw: its value is stored through `_draw_rays`, a pointer to this
+// entry's slot of `rays_draw_slots`, an array of the record (one slot per
+// pixel, made beside `rays_rad_slots`), and the function returns.
+// `step!after` is the rest of `step` from the draw's value on, the trace
+// and both arms, with the draw as its first parameter. In `render` the
+// round has two loops over the same count of the same buffer: `samples`,
+// a copy of the drain, whose body reads the entry and calls `step`, handing
+// it `&rays_draw_slots[slot]`; then `rays`, the drain as it was, whose
+// body reads the entry, loads `rays_draw_slots[slot]`, and calls
+// `step!after` with the values it already handed the chain -- the ray, the
+// depth, the pixel, `max_depth`, the reducer's slot, the queue, the slot --
+// and the draw. The reset of the other buffer's count comes before both.
+// No entry grew: `Entry_rays` is the 4.2 entry. The run-level test is
+// correctness/llvm/semantics-stage-same-queue; the same on the GPU is
+// correctness/gpu/semantics-stage-same-queue.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func draw(p : i32, depth : i32) -> Float =
+    cast[[Float]]((p * 31 + depth * 17) % 7) / 7.0;
+
+func bounce(h : Hit, ray : Ray, u : Float) -> Ray = Ray{h.p * 2.0 + u, ray.d};
+
+func shade(h : Hit, ray : Ray, u : Float, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += emitted(h);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray, u), depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    u = draw(p, depth);
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, u, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    step.stage(draw, rays, samples);
+}

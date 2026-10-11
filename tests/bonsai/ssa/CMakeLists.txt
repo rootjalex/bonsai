@@ -104,6 +104,7 @@ add_bonsai_tests(
     split-unsigned.bonsai
     semantics-defer.bonsai
     semantics-stage.bonsai
+    semantics-stage-same-queue.bonsai
     stage.bonsai
     stage-mut-param.bonsai
     stage-then-defer.bonsai
