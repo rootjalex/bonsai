@@ -19,7 +19,96 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
-## Where it stands (2026-10-10, 13:40)
+## Where it stands (2026-10-10, 21:50)
+
+**pbrt's sample kernel, as a schedule directive, and the structure now
+matched kernel for kernel but one.** The user's direction this afternoon:
+the GPU schedule should match pbrt's wavefront kernel for kernel, with the
+bounce's sample draws a kernel of their own over the ray queue ahead of
+the trace kernel and the queue reused by both -- not a copy of the ray's
+state onto a second queue, which is what a `stage` onto a new queue does
+and what cost 2.2x on 10-09 -- and before building it, a rigorous
+semantics of every directive. docs/schedule-semantics.md is that, written
+the way the Halide paper writes its model: a running example (one path per
+pixel), the loop nest each directive produces, the conditions as lists,
+and for defer, stage and the new cut the rewrite in the compiler's
+printed SSA; the example and each of its schedules are tests
+(tests/bonsai/correctness/llvm/semantics-*, with SSA goldens of the same
+names). The directive is `f.stage(g, q, l)` -- and `f.defer(g, q, l)`,
+the same cut before the call -- where `q` is the queue whose drain already
+runs `f` and `l` names the first pass: the drain becomes two passes over
+the same entries in the same round, the first running `f` up to the call
+and storing what the rest needs in arrays of the record at the entry's
+slot (pbrt's pixelSampleState, indexed by pixelIndex), the second the
+drain as it was, reading them back; no entry grows. The downstream
+queues do not carry the draws either: a deferral whose pusher was handed a
+value the drain loaded from such an array reloads it at its own drain
+(pbrt's material kernel reads pixelSampleState.samples[pixelIndex]), so
+the material entry went from 311 to 271 bytes against pbrt's 252. And
+the camera and sample kernels are one per sampler, as pbrt's templates
+are. In gpu-optix.bonsai: `vol_path_step.stage(vol_ray_samples, rays,
+samples)`, the split and binds of `samples`, `render.specialize(p_blk,
+sampler)` and `render.specialize(samples_blk, sampler)`. Commits f61df4ee
+(doc, tests), 4fb63990 (the cut), 4fc8ef18 (the reload), f803bc35 (three
+compiler fixes the renderer found: the loop form of specialize seeing a
+parameter through a hoisted load and reading the tag before copying the
+loop; the reload following every route to the owner's call;
+Definitions::parameter seeing through a `let`).
+
+**The 30 scenes at 16 spp** (`compare-out-samples16`, 21:15 to 21:47,
+GPU clock unlocked and recorded, against `compare-out-reset16` of this
+afternoon cell by cell): wall time 1.057x faster, geometric mean, kernel
+time 1.072x; faster on 28 of 30 cells (book 1.18x kernel, killeroo-gold
+1.17x, frame542 1.16x, killeroo-simple 1.13x, coated-gold 1.13x, crown,
+plume and head 1.11x), the two lte-orb cells slower (silver 0.966x
+kernel, rough-glass 0.996x). Against pbrt --gpu the geometric mean over
+the 30 cells is 1.87x (from 1.80x), every cell faster, from 1.25x
+(landscape) to 2.91x (killeroo-simple); kernel time 0.43 (kroken) to 0.88
+(landscape) of pbrt's. Images: the same 27 of 30 match pbrt and the same
+three (pavilion-day, bistro_cafe, bistro_vespa) miss the lit-pixel rule
+as before; killeroo-simple is byte-identical to the morning's render
+after each of the three changes. The two zero-day frames are absent from
+both sweeps because pbrt --gpu itself segfaults on them. The 64 and 128
+spp rows below are this morning's (`compare-out-heatmap4`); they were not
+rerun tonight.
+
+Kernel by kernel on killeroo-simple (pbrt's in brackets): the trace
+launch 17.5 to 9.8 ms (16.6) once the draws left it and the hit program
+stopped loading and pushing them; the sample kernel 3.6 (3.7); the camera
+kernel 2.8 (2.6, from 1.35x pbrt's on 29 scenes to 1.07x here); the
+material kernels unchanged. On lte-orb-silver the raygen fell 35.0 to
+27.1 and the PMJ02BN sample kernel added 6.6 (6.1), but the CoatedDiffuse
+material kernel rose 25.7 to 29.6: it gathers the bounce's samples from
+the record by slot, a 44-byte struct per entry over two or three cache
+lines, where it had read them from its own compacted arrays, and where
+pbrt's SOA<RaySamples> is three Float4 arrays and two floats. Storing a
+cut's values in the record as the queue stores an entry, a struct of
+arrays, is the next step for those cells.
+
+**The entries against pbrt's work items**, bytes an entry stores: rays 181
+(pbrt's RayWorkItem 184), escaped 161 (164), emissive 165 (192), shadow
+112 (124), medium_samples 295 (372), exits 252 (330), hits 271 (252),
+probes 369 (about 330), bssrdfs 382 (168: the SubsurfaceMaterial by value
+where pbrt carries a pointer). What hits still carries over pbrt: the
+pixel coordinates (8 bytes, recomputable from the slot), the round counter
+`wave` (4, uniform per round), a duplicated material index (4), the
+primitive's tag and index for the outgoing direction (5), the alpha and
+light indices (8).
+
+**The hit chain.** The closest-hit program reads the record, then
+`tris[base + prim]` for the triangle's mesh, then the mesh's record, its
+indices and its positions: four dependent loads to pbrt's three, whose
+record holds the mesh pointer. The fix is the Mesh arm's `tris`
+synthesized from the mesh and an index range, so the triangle is
+arithmetic, and the record carrying the mesh index; both are language and
+record changes for the user to approve (PLAN.md, "The sample pass on the
+same queue").
+
+**The one structural difference left**, by the user's ruling: pbrt runs
+`maxDepth` rounds blind, launching over empty queues, where our round
+loop reads the ray queue's count on the host each round.
+
+## Where it stood (2026-10-10, 13:40)
 
 **The fresh sweep: every cell faster than pbrt --gpu, by 1.04x to 2.56x.**
 The 30-scene, three-sample-count sweep the user asked for ran this
@@ -649,42 +738,42 @@ a fixed number of rounds (the question above). All three are open items
 in PLAN.md.
 
 <!-- stages:begin -->
-Generated by `report_stages.py` from `compare-out-heatmap4` (30 scenes; kernel times at 16 spp).
+Generated by `report_stages.py` from `compare-out-samples16` (30 scenes; kernel times at 16 spp).
 
 #### Every scene
 
-| scene | image | kernel ours | kernel pbrt | ratio | wall 16 spp | wall 64 spp | wall 128 spp |
-|---|---|---|---|---|---|---|---|
-| killeroos/killeroo-simple | ok | 35.8 | 49.2 | 0.73 | 2.56x | 1.58x | 1.28x |
-| killeroos/killeroo-gold | ok | 92.0 | 148.4 | 0.62 | 1.62x | 1.51x | 1.50x |
-| killeroos/killeroo-coated-gold | ok | 105.4 | 163.3 | 0.65 | 1.87x | 1.55x | 1.54x |
-| pbrt-book/book | ok | 116.3 | 153.9 | 0.76 | 1.77x | 1.44x | 1.32x |
-| ganesha/ganesha | ok | 119.8 | 177.7 | 0.67 | 1.72x | 1.59x | 1.47x |
-| barcelona-pavilion/pavilion-day | **FAILED** | 139.2 | 179.1 | 0.78 | 1.66x | 1.43x | 1.32x |
-| lte-orb/lte-orb-simple-ball | ok | 176.9 | 212.7 | 0.83 | 1.46x | 1.24x | 1.22x |
-| lte-orb/lte-orb-silver | ok | 95.8 | 161.3 | 0.59 | 1.99x | 1.70x | 1.57x |
-| lte-orb/lte-orb-rough-glass | ok | 218.1 | 336.7 | 0.65 | 1.43x | 1.39x | 1.39x |
-| head/head | ok | 39.4 | 45.2 | 0.87 | 1.75x | 1.33x | 1.25x |
-| sssdragon/dragon_10 | ok | 173.1 | 210.4 | 0.82 | 1.54x | 1.28x | 1.18x |
-| villa/villa-lights-on | ok | 53.9 | 84.8 | 0.64 | 2.17x | 1.62x | 1.58x |
-| smoke-plume/plume | ok | 230.5 | 301.3 | 0.76 | 1.60x | 1.39x | 1.32x |
-| bunny-cloud/bunny-cloud | ok | 2157 | 3069 | 0.70 | 1.41x | 1.39x | 1.39x |
-| explosion/explosion | ok | 538.0 | 686.5 | 0.78 | 1.33x | 1.29x | 1.28x |
-| disney-cloud/disney-cloud | ok | 5280 | 7029 | 0.75 | 1.34x | 1.33x | 1.32x |
-| landscape/view-0 | ok | 1016 | 1064 | 0.95 | 1.13x | 1.06x | 1.04x |
-| crown/crown | ok | 834.5 | 1225 | 0.68 | 1.45x | 1.37x | 1.37x |
-| kroken/camera-1 | ok | 778.0 | 1742 | 0.45 | 2.11x | 1.82x | 1.78x |
-| sportscar/sportscar-sky | ok | 187.5 | 222.4 | 0.84 | 1.49x | 1.21x | 1.18x |
-| bmw-m6/bmw-m6 | ok | 131.6 | 213.7 | 0.62 | 2.00x | 1.64x | 1.61x |
-| dambreak/dambreak0 | ok | 467.0 | 690.5 | 0.68 | 1.54x | 1.36x | 1.33x |
-| transparent-machines/frame542 | ok | 826.3 | 1207 | 0.68 | 1.17x | 1.13x | 1.12x |
-| villa/villa-daylight | ok | 191.5 | 291.6 | 0.66 | 1.70x | 1.54x | 1.52x |
-| clouds/clouds | ok | 677.0 | 903.8 | 0.75 | 1.38x | 1.25x | 1.26x |
-| sanmiguel/sanmiguel-courtyard | ok | 125.5 | 149.6 | 0.84 | 1.74x | 1.37x | 1.24x |
-| bistro/bistro_cafe | **FAILED** | 217.3 | 316.1 | 0.69 | 1.91x | 1.53x | 1.48x |
-| bistro/bistro_vespa | **FAILED** | 227.2 | 325.3 | 0.70 | 1.82x | 1.57x | 1.47x |
-| watercolor/camera-1 | ok | 888.0 | 2048 | 0.43 | 2.48x | 2.28x | 2.27x |
-| sanmiguel/sanmiguel-courtyard-second | ok | 166.1 | 193.9 | 0.86 | 1.40x | 1.21x | 1.18x |
+| scene | image | kernel ours | kernel pbrt | ratio | wall 16 spp |
+|---|---|---|---|---|---|
+| killeroos/killeroo-simple | ok | 31.2 | 49.6 | 0.63 | 2.91x |
+| killeroos/killeroo-gold | ok | 77.8 | 149.4 | 0.52 | 1.97x |
+| killeroos/killeroo-coated-gold | ok | 92.0 | 164.2 | 0.56 | 2.18x |
+| pbrt-book/book | ok | 95.8 | 154.2 | 0.62 | 2.20x |
+| ganesha/ganesha | ok | 107.6 | 176.9 | 0.61 | 1.97x |
+| barcelona-pavilion/pavilion-day | **FAILED** | 129.0 | 178.3 | 0.72 | 1.77x |
+| lte-orb/lte-orb-simple-ball | ok | 167.1 | 211.4 | 0.79 | 1.58x |
+| lte-orb/lte-orb-silver | ok | 93.0 | 160.8 | 0.58 | 2.19x |
+| lte-orb/lte-orb-rough-glass | ok | 213.5 | 335.2 | 0.64 | 1.63x |
+| head/head | ok | 34.8 | 45.3 | 0.77 | 2.00x |
+| sssdragon/dragon_10 | ok | 157.0 | 210.4 | 0.75 | 1.76x |
+| villa/villa-lights-on | ok | 48.1 | 84.6 | 0.57 | 2.54x |
+| smoke-plume/plume | ok | 201.8 | 299.5 | 0.67 | 1.87x |
+| bunny-cloud/bunny-cloud | ok | 2114 | 3065 | 0.69 | 1.47x |
+| explosion/explosion | ok | 515.9 | 683.9 | 0.75 | 1.41x |
+| disney-cloud/disney-cloud | ok | 5158 | 7044 | 0.73 | 1.38x |
+| landscape/view-0 | ok | 932.2 | 1064 | 0.88 | 1.25x |
+| crown/crown | ok | 742.8 | 1213 | 0.61 | 1.82x |
+| kroken/camera-1 | ok | 745.8 | 1738 | 0.43 | 2.25x |
+| sportscar/sportscar-sky | ok | 172.6 | 220.1 | 0.78 | 1.67x |
+| bmw-m6/bmw-m6 | ok | 121.5 | 212.9 | 0.57 | 2.26x |
+| dambreak/dambreak0 | ok | 418.4 | 689.7 | 0.61 | 1.91x |
+| transparent-machines/frame542 | ok | 716.4 | 1206 | 0.59 | 1.64x |
+| villa/villa-daylight | ok | 178.1 | 291.6 | 0.61 | 1.92x |
+| clouds/clouds | ok | 634.8 | 894.6 | 0.71 | 1.58x |
+| sanmiguel/sanmiguel-courtyard | ok | 114.5 | 148.7 | 0.77 | 1.94x |
+| bistro/bistro_cafe | **FAILED** | 207.7 | 316.9 | 0.66 | 2.03x |
+| bistro/bistro_vespa | **FAILED** | 215.8 | 326.4 | 0.66 | 1.97x |
+| watercolor/camera-1 | ok | 867.8 | 2055 | 0.42 | 2.60x |
+| sanmiguel/sanmiguel-courtyard-second | ok | 150.4 | 193.1 | 0.78 | 1.58x |
 
 The wall speedup is pbrt's process over ours, both warm, from table.tsv. Images: 27 of 30 scenes match pbrt at 16 spp; a FAILED row's times are reported but do not count as beaten.
 
@@ -692,33 +781,33 @@ The wall speedup is pbrt's process over ours, both warm, from table.tsv. Images:
 
 | stage | scenes | behind on | worst | sum ours | sum pbrt | ratio of sums |
 |---|---|---|---|---|---|---|
-| closest-hit trace + routing | 30 | 26 | 1.73 (transparent-machines/frame542) | 4036 | 3176 | 1.27 |
-| shadow traces (every pass) | 30 | 2 | 1.23 (bistro/bistro_cafe) | 4415 | 5297 | 0.83 |
-| sample draws (the bounce's dimensions, per ray) | 30 | 0 | - | 0 | 798.2 | pbrt only |
-| camera rays | 30 | 29 | 1.79 (lte-orb/lte-orb-silver) | 331.1 | 245.4 | 1.35 |
-| escaped rays | 30 | 0 | 0.65 (villa/villa-lights-on) | 205.1 | 407.5 | 0.50 |
-| emitters hit | 30 | 0 | 0.61 (kroken/camera-1) | 146.2 | 385.7 | 0.38 |
-| material: CoatedDiffuse (basic textures) | 21 | 0 | 0.70 (landscape/view-0) | 913.2 | 1647 | 0.55 |
-| material: Diffuse (basic textures) | 22 | 0 | 0.70 (sanmiguel/sanmiguel-courtyard) | 399.0 | 947.4 | 0.42 |
-| film + the rest | 30 | 0 | 0.53 (pbrt-book/book) | 83.6 | 817.7 | 0.10 |
-| materials with their sample draws (a view, not a stage) | 30 | 0 | 0.81 (lte-orb/lte-orb-simple-ball) | 2709 | 6566 | 0.41 |
-| material: Conductor (basic textures) | 11 | 0 | 0.30 (villa/villa-daylight) | 141.2 | 550.6 | 0.26 |
-| material: CoatedConductor (basic textures) | 6 | 0 | 0.56 (bistro/bistro_cafe) | 224.5 | 472.8 | 0.47 |
-| material: Dielectric (basic textures) | 16 | 0 | 0.75 (barcelona-pavilion/pavilion-day) | 223.5 | 423.5 | 0.53 |
-| material: DiffuseTransmission (basic textures) | 8 | 0 | 0.69 (landscape/view-0) | 158.1 | 320.9 | 0.49 |
-| material: Measured (basic textures) | 3 | 2 | 1.07 (sportscar/sportscar-sky) | 180.8 | 175.5 | 1.03 |
-| subsurface probe trace | 2 | 0 | 0.85 (sssdragon/dragon_10) | 46.9 | 55.3 | 0.85 |
-| subsurface exit | 2 | 0 | 0.53 (head/head) | 11.7 | 22.9 | 0.51 |
-| BSSRDF sampling (the probe enqueued) | 2 | 2 | 1.16 (head/head) | 9.31 | 8.63 | 1.08 |
-| material: Subsurface (basic textures) | 2 | 1 | 1.15 (sssdragon/dragon_10) | 12.0 | 11.4 | 1.05 |
-| material: Diffuse (pbrt only) | 8 | 0 | - | 0 | 177.2 | pbrt only |
-| material: ThinDielectric (basic textures) | 2 | 0 | 0.68 (villa/villa-lights-on) | 6.84 | 10.5 | 0.65 |
-| material: CoatedDiffuse (universal textures) | 4 | 0 | 0.61 (kroken/camera-1) | 234.9 | 544.9 | 0.43 |
-| material: Dielectric (universal textures) | 2 | 0 | 0.68 (villa/villa-lights-on) | 8.29 | 12.4 | 0.67 |
-| material: Diffuse (universal textures) | 4 | 0 | 0.70 (villa/villa-daylight) | 186.3 | 473.6 | 0.39 |
-| medium sampling | 9 | 0 | 0.70 (clouds/clouds) | 4093 | 6153 | 0.67 |
-| medium scattering | 9 | 0 | 0.69 (smoke-plume/plume) | 216.7 | 467.4 | 0.46 |
-| material: Mixed (basic textures) | 4 | 0 | - | 20.4 | 0 | ours only |
+| closest-hit trace + routing | 30 | 1 | 1.00 (landscape/view-0) | 2396 | 3181 | 0.75 |
+| shadow traces (every pass) | 30 | 2 | 1.22 (bistro/bistro_cafe) | 4407 | 5302 | 0.83 |
+| sample draws (the bounce's dimensions, per ray) | 30 | 0 | - | 0 | 797.1 | pbrt only |
+| camera rays | 29 | 0 | - | 0 | 245.3 | pbrt only |
+| escaped rays | 30 | 0 | 0.62 (villa/villa-lights-on) | 204.7 | 408.0 | 0.50 |
+| emitters hit | 30 | 0 | 0.62 (bistro/bistro_cafe) | 145.8 | 381.7 | 0.38 |
+| material: CoatedDiffuse (basic textures) | 21 | 0 | 0.71 (landscape/view-0) | 932.8 | 1647 | 0.57 |
+| material: Diffuse (basic textures) | 22 | 0 | 0.72 (sanmiguel/sanmiguel-courtyard) | 406.0 | 947.5 | 0.43 |
+| film + the rest | 30 | 28 | 5.02 (explosion/explosion) | 1186 | 818.6 | 1.45 |
+| materials with their sample draws (a view, not a stage) | 30 | 0 | 0.82 (lte-orb/lte-orb-simple-ball) | 2762 | 6549 | 0.42 |
+| material: Conductor (basic textures) | 11 | 0 | 0.31 (kroken/camera-1) | 144.0 | 537.9 | 0.27 |
+| material: CoatedConductor (basic textures) | 6 | 0 | 0.56 (bistro/bistro_cafe) | 224.4 | 472.2 | 0.48 |
+| material: Dielectric (basic textures) | 16 | 0 | 0.78 (barcelona-pavilion/pavilion-day) | 232.7 | 422.2 | 0.55 |
+| material: DiffuseTransmission (basic textures) | 8 | 0 | 0.71 (landscape/view-0) | 162.5 | 321.8 | 0.50 |
+| material: Measured (basic textures) | 3 | 2 | 1.10 (sportscar/sportscar-sky) | 181.8 | 174.1 | 1.04 |
+| subsurface probe trace | 2 | 0 | 0.85 (sssdragon/dragon_10) | 47.2 | 55.5 | 0.85 |
+| subsurface exit | 2 | 0 | 0.51 (head/head) | 11.7 | 23.2 | 0.51 |
+| BSSRDF sampling (the probe enqueued) | 2 | 2 | 1.18 (head/head) | 9.49 | 8.62 | 1.10 |
+| material: Subsurface (basic textures) | 2 | 1 | 1.12 (sssdragon/dragon_10) | 11.6 | 11.3 | 1.03 |
+| material: Diffuse (pbrt only) | 8 | 0 | - | 0 | 176.6 | pbrt only |
+| material: ThinDielectric (basic textures) | 2 | 0 | 0.69 (villa/villa-lights-on) | 7.03 | 10.6 | 0.67 |
+| material: CoatedDiffuse (universal textures) | 4 | 0 | 0.63 (kroken/camera-1) | 239.2 | 544.5 | 0.44 |
+| material: Dielectric (universal textures) | 2 | 0 | 0.67 (villa/villa-lights-on) | 8.07 | 12.7 | 0.64 |
+| material: Diffuse (universal textures) | 4 | 0 | 0.71 (villa/villa-daylight) | 191.3 | 474.3 | 0.40 |
+| medium sampling | 9 | 0 | 0.71 (clouds/clouds) | 4047 | 6144 | 0.66 |
+| medium scattering | 9 | 0 | 0.74 (smoke-plume/plume) | 239.7 | 466.7 | 0.51 |
+| material: Mixed (basic textures) | 4 | 0 | - | 20.2 | 0 | ours only |
 
 A stage is beaten when ours is below pbrt's on every scene that has it. "behind on" counts the scenes where it is not; the sums are over all the scenes that have the stage on either side.
 
@@ -726,36 +815,36 @@ A stage is beaten when ours is below pbrt's on every scene that has it. "behind 
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| transparent-machines/frame542 | 540.5 | 312.7 | **1.73** |
-| disney-cloud/disney-cloud | 360.9 | 244.1 | **1.48** |
-| crown/crown | 342.4 | 235.4 | **1.45** |
-| head/head | 13.5 | 10.0 | **1.35** |
-| clouds/clouds | 192.7 | 146.1 | **1.32** |
-| bunny-cloud/bunny-cloud | 200.4 | 152.5 | **1.31** |
-| sssdragon/dragon_10 | 54.7 | 41.8 | **1.31** |
-| landscape/view-0 | 544.5 | 419.9 | **1.30** |
-| smoke-plume/plume | 87.3 | 67.4 | **1.30** |
-| kroken/camera-1 | 236.3 | 196.1 | **1.21** |
-| pbrt-book/book | 63.2 | 52.6 | **1.20** |
-| explosion/explosion | 92.5 | 77.8 | **1.19** |
-| watercolor/camera-1 | 174.5 | 148.6 | **1.17** |
-| ganesha/ganesha | 56.9 | 49.0 | **1.16** |
-| villa/villa-lights-on | 21.6 | 18.7 | **1.15** |
-| sanmiguel/sanmiguel-courtyard-second | 84.4 | 73.7 | **1.14** |
-| dambreak/dambreak0 | 235.8 | 208.2 | **1.13** |
-| sanmiguel/sanmiguel-courtyard | 62.6 | 55.4 | **1.13** |
-| killeroos/killeroo-simple | 18.4 | 16.6 | **1.11** |
-| killeroos/killeroo-gold | 52.1 | 47.2 | **1.10** |
-| killeroos/killeroo-coated-gold | 50.1 | 45.9 | **1.09** |
-| lte-orb/lte-orb-simple-ball | 46.1 | 42.6 | **1.08** |
-| barcelona-pavilion/pavilion-day (image FAILED) | 57.0 | 52.7 | **1.08** |
-| villa/villa-daylight | 66.3 | 62.8 | **1.06** |
-| bistro/bistro_vespa (image FAILED) | 79.6 | 76.4 | **1.04** |
-| bmw-m6/bmw-m6 | 47.1 | 46.7 | **1.01** |
-| sportscar/sportscar-sky | 64.9 | 66.0 | 0.98 |
-| bistro/bistro_cafe (image FAILED) | 68.8 | 73.9 | 0.93 |
-| lte-orb/lte-orb-rough-glass | 81.9 | 90.2 | 0.91 |
-| lte-orb/lte-orb-silver | 39.2 | 45.5 | 0.86 |
+| landscape/view-0 | 420.5 | 419.4 | **1.00** |
+| kroken/camera-1 | 164.5 | 196.8 | 0.84 |
+| sanmiguel/sanmiguel-courtyard-second | 59.2 | 73.1 | 0.81 |
+| sanmiguel/sanmiguel-courtyard | 43.9 | 54.9 | 0.80 |
+| transparent-machines/frame542 | 248.8 | 311.8 | 0.80 |
+| disney-cloud/disney-cloud | 186.9 | 243.4 | 0.77 |
+| watercolor/camera-1 | 118.8 | 155.7 | 0.76 |
+| crown/crown | 177.6 | 235.3 | 0.75 |
+| bistro/bistro_vespa (image FAILED) | 56.6 | 77.0 | 0.74 |
+| ganesha/ganesha | 35.1 | 48.8 | 0.72 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 37.6 | 52.4 | 0.72 |
+| bunny-cloud/bunny-cloud | 108.8 | 152.1 | 0.72 |
+| explosion/explosion | 53.3 | 76.3 | 0.70 |
+| smoke-plume/plume | 46.0 | 67.0 | 0.69 |
+| lte-orb/lte-orb-simple-ball | 27.9 | 41.5 | 0.67 |
+| clouds/clouds | 100.6 | 150.2 | 0.67 |
+| sssdragon/dragon_10 | 27.9 | 41.7 | 0.67 |
+| lte-orb/lte-orb-rough-glass | 59.1 | 90.0 | 0.66 |
+| villa/villa-lights-on | 12.2 | 18.7 | 0.65 |
+| villa/villa-daylight | 39.7 | 62.5 | 0.64 |
+| head/head | 6.31 | 9.97 | 0.63 |
+| bistro/bistro_cafe (image FAILED) | 46.9 | 74.1 | 0.63 |
+| pbrt-book/book | 32.1 | 52.5 | 0.61 |
+| killeroos/killeroo-gold | 28.9 | 47.5 | 0.61 |
+| killeroos/killeroo-coated-gold | 27.9 | 46.1 | 0.60 |
+| sportscar/sportscar-sky | 39.4 | 65.4 | 0.60 |
+| dambreak/dambreak0 | 125.1 | 207.8 | 0.60 |
+| lte-orb/lte-orb-silver | 27.1 | 45.4 | 0.60 |
+| killeroos/killeroo-simple | 9.92 | 16.7 | 0.60 |
+| bmw-m6/bmw-m6 | 27.1 | 46.5 | 0.58 |
 
 ##### shadow traces (every pass)
 
@@ -763,36 +852,36 @@ ours: `__raygen__shadow$<alpha>` and `__raygen__exit_shadow$<alpha>`; pbrt: the 
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| bistro/bistro_cafe (image FAILED) | 27.3 | 22.2 | **1.23** |
-| bistro/bistro_vespa (image FAILED) | 30.6 | 27.6 | **1.11** |
+| bistro/bistro_cafe (image FAILED) | 27.2 | 22.2 | **1.22** |
+| bistro/bistro_vespa (image FAILED) | 30.5 | 27.7 | **1.10** |
+| head/head | 2.11 | 2.16 | 0.98 |
 | transparent-machines/frame542 | 136.6 | 140.8 | 0.97 |
-| head/head | 2.13 | 2.23 | 0.96 |
-| explosion/explosion | 139.9 | 148.2 | 0.94 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 15.6 | 17.0 | 0.91 |
-| clouds/clouds | 194.0 | 214.6 | 0.90 |
+| explosion/explosion | 139.3 | 146.5 | 0.95 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 15.6 | 16.9 | 0.92 |
+| smoke-plume/plume | 40.5 | 44.8 | 0.90 |
+| clouds/clouds | 193.0 | 214.4 | 0.90 |
 | sssdragon/dragon_10 | 14.0 | 15.6 | 0.90 |
-| smoke-plume/plume | 40.5 | 45.2 | 0.90 |
-| sanmiguel/sanmiguel-courtyard | 18.4 | 20.8 | 0.88 |
-| landscape/view-0 | 206.0 | 236.3 | 0.87 |
-| disney-cloud/disney-cloud | 2118 | 2453 | 0.86 |
+| sanmiguel/sanmiguel-courtyard | 18.4 | 21.0 | 0.88 |
+| landscape/view-0 | 205.7 | 236.3 | 0.87 |
 | sanmiguel/sanmiguel-courtyard-second | 24.9 | 28.9 | 0.86 |
-| watercolor/camera-1 | 63.2 | 73.4 | 0.86 |
-| lte-orb/lte-orb-simple-ball | 8.73 | 10.2 | 0.86 |
-| ganesha/ganesha | 7.36 | 8.90 | 0.83 |
-| villa/villa-daylight | 9.67 | 11.8 | 0.82 |
-| villa/villa-lights-on | 2.75 | 3.38 | 0.81 |
-| lte-orb/lte-orb-rough-glass | 22.7 | 28.7 | 0.79 |
-| kroken/camera-1 | 93.0 | 117.7 | 0.79 |
-| bunny-cloud/bunny-cloud | 1057 | 1416 | 0.75 |
-| sportscar/sportscar-sky | 9.65 | 12.9 | 0.75 |
-| dambreak/dambreak0 | 42.5 | 57.7 | 0.74 |
-| crown/crown | 93.1 | 127.6 | 0.73 |
-| bmw-m6/bmw-m6 | 7.13 | 9.91 | 0.72 |
-| lte-orb/lte-orb-silver | 6.34 | 9.11 | 0.70 |
-| killeroos/killeroo-coated-gold | 6.81 | 9.84 | 0.69 |
-| killeroos/killeroo-gold | 6.95 | 10.1 | 0.69 |
-| killeroos/killeroo-simple | 3.15 | 4.65 | 0.68 |
-| pbrt-book/book | 7.43 | 12.7 | 0.59 |
+| disney-cloud/disney-cloud | 2115 | 2460 | 0.86 |
+| watercolor/camera-1 | 63.3 | 73.8 | 0.86 |
+| lte-orb/lte-orb-simple-ball | 8.67 | 10.1 | 0.86 |
+| ganesha/ganesha | 7.40 | 8.91 | 0.83 |
+| villa/villa-daylight | 9.69 | 11.7 | 0.83 |
+| villa/villa-lights-on | 2.74 | 3.37 | 0.81 |
+| lte-orb/lte-orb-rough-glass | 22.8 | 28.5 | 0.80 |
+| kroken/camera-1 | 92.9 | 117.3 | 0.79 |
+| sportscar/sportscar-sky | 9.65 | 12.8 | 0.75 |
+| bunny-cloud/bunny-cloud | 1053 | 1416 | 0.74 |
+| dambreak/dambreak0 | 42.6 | 57.7 | 0.74 |
+| bmw-m6/bmw-m6 | 7.28 | 9.87 | 0.74 |
+| crown/crown | 92.6 | 127.8 | 0.72 |
+| lte-orb/lte-orb-silver | 6.37 | 9.10 | 0.70 |
+| killeroos/killeroo-gold | 7.00 | 10.0 | 0.70 |
+| killeroos/killeroo-coated-gold | 6.81 | 9.80 | 0.69 |
+| killeroos/killeroo-simple | 3.18 | 4.69 | 0.68 |
+| pbrt-book/book | 7.43 | 12.5 | 0.59 |
 
 ##### sample draws (the bounce's dimensions, per ray)
 
@@ -800,36 +889,36 @@ ours: the `rays` drain of the sample stage (10-09); a run before it has no kerne
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| killeroos/killeroo-simple | 0 | 3.68 | pbrt only |
-| killeroos/killeroo-gold | 0 | 9.16 | pbrt only |
-| killeroos/killeroo-coated-gold | 0 | 8.91 | pbrt only |
-| pbrt-book/book | 0 | 10.4 | pbrt only |
+| killeroos/killeroo-simple | 0 | 3.66 | pbrt only |
+| killeroos/killeroo-gold | 0 | 9.15 | pbrt only |
+| killeroos/killeroo-coated-gold | 0 | 9.04 | pbrt only |
+| pbrt-book/book | 0 | 10.5 | pbrt only |
 | ganesha/ganesha | 0 | 9.74 | pbrt only |
-| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 8.07 | pbrt only |
-| lte-orb/lte-orb-simple-ball | 0 | 8.80 | pbrt only |
-| lte-orb/lte-orb-silver | 0 | 6.13 | pbrt only |
-| lte-orb/lte-orb-rough-glass | 0 | 18.1 | pbrt only |
-| head/head | 0 | 3.20 | pbrt only |
+| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 8.10 | pbrt only |
+| lte-orb/lte-orb-simple-ball | 0 | 8.83 | pbrt only |
+| lte-orb/lte-orb-silver | 0 | 6.09 | pbrt only |
+| lte-orb/lte-orb-rough-glass | 0 | 18.0 | pbrt only |
+| head/head | 0 | 3.17 | pbrt only |
 | sssdragon/dragon_10 | 0 | 11.9 | pbrt only |
-| villa/villa-lights-on | 0 | 3.34 | pbrt only |
-| smoke-plume/plume | 0 | 13.4 | pbrt only |
-| bunny-cloud/bunny-cloud | 0 | 49.7 | pbrt only |
-| explosion/explosion | 0 | 21.7 | pbrt only |
-| disney-cloud/disney-cloud | 0 | 56.9 | pbrt only |
-| landscape/view-0 | 0 | 38.8 | pbrt only |
-| crown/crown | 0 | 78.5 | pbrt only |
-| kroken/camera-1 | 0 | 34.6 | pbrt only |
-| sportscar/sportscar-sky | 0 | 11.3 | pbrt only |
-| bmw-m6/bmw-m6 | 0 | 10.7 | pbrt only |
-| dambreak/dambreak0 | 0 | 60.6 | pbrt only |
-| transparent-machines/frame542 | 0 | 181.8 | pbrt only |
-| villa/villa-daylight | 0 | 12.7 | pbrt only |
-| clouds/clouds | 0 | 58.8 | pbrt only |
-| sanmiguel/sanmiguel-courtyard | 0 | 7.75 | pbrt only |
+| villa/villa-lights-on | 0 | 3.57 | pbrt only |
+| smoke-plume/plume | 0 | 13.1 | pbrt only |
+| bunny-cloud/bunny-cloud | 0 | 48.7 | pbrt only |
+| explosion/explosion | 0 | 21.8 | pbrt only |
+| disney-cloud/disney-cloud | 0 | 57.4 | pbrt only |
+| landscape/view-0 | 0 | 38.4 | pbrt only |
+| crown/crown | 0 | 79.5 | pbrt only |
+| kroken/camera-1 | 0 | 34.5 | pbrt only |
+| sportscar/sportscar-sky | 0 | 11.0 | pbrt only |
+| bmw-m6/bmw-m6 | 0 | 10.5 | pbrt only |
+| dambreak/dambreak0 | 0 | 60.0 | pbrt only |
+| transparent-machines/frame542 | 0 | 181.7 | pbrt only |
+| villa/villa-daylight | 0 | 12.8 | pbrt only |
+| clouds/clouds | 0 | 58.7 | pbrt only |
+| sanmiguel/sanmiguel-courtyard | 0 | 7.78 | pbrt only |
 | bistro/bistro_cafe (image FAILED) | 0 | 11.6 | pbrt only |
-| bistro/bistro_vespa (image FAILED) | 0 | 11.9 | pbrt only |
+| bistro/bistro_vespa (image FAILED) | 0 | 11.8 | pbrt only |
 | watercolor/camera-1 | 0 | 26.7 | pbrt only |
-| sanmiguel/sanmiguel-courtyard-second | 0 | 9.20 | pbrt only |
+| sanmiguel/sanmiguel-courtyard-second | 0 | 9.30 | pbrt only |
 
 ##### camera rays
 
@@ -837,159 +926,158 @@ both sides draw the camera's own dimensions here.
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| lte-orb/lte-orb-silver | 8.52 | 4.77 | **1.79** |
-| lte-orb/lte-orb-rough-glass | 8.44 | 4.73 | **1.78** |
-| ganesha/ganesha | 12.7 | 9.16 | **1.38** |
-| bunny-cloud/bunny-cloud | 12.5 | 9.08 | **1.38** |
-| sportscar/sportscar-sky | 12.6 | 9.16 | **1.37** |
-| dambreak/dambreak0 | 12.4 | 9.08 | **1.37** |
-| pbrt-book/book | 12.4 | 9.14 | **1.35** |
-| landscape/view-0 | 49.7 | 36.8 | **1.35** |
-| villa/villa-daylight | 9.55 | 7.13 | **1.34** |
-| bistro/bistro_cafe (image FAILED) | 12.7 | 9.46 | **1.34** |
-| clouds/clouds | 12.7 | 9.52 | **1.34** |
-| transparent-machines/frame542 | 9.77 | 7.34 | **1.33** |
-| bistro/bistro_vespa (image FAILED) | 12.7 | 9.63 | **1.31** |
-| killeroos/killeroo-coated-gold | 8.59 | 6.58 | **1.31** |
-| sanmiguel/sanmiguel-courtyard-second | 9.33 | 7.20 | **1.30** |
-| killeroos/killeroo-gold | 8.64 | 6.67 | **1.30** |
-| crown/crown | 8.52 | 6.59 | **1.29** |
-| explosion/explosion | 14.3 | 11.1 | **1.29** |
-| smoke-plume/plume | 8.73 | 6.78 | **1.29** |
-| sssdragon/dragon_10 | 8.33 | 6.53 | **1.28** |
-| watercolor/camera-1 | 17.2 | 13.5 | **1.27** |
-| bmw-m6/bmw-m6 | 8.37 | 6.60 | **1.27** |
-| barcelona-pavilion/pavilion-day (image FAILED) | 8.13 | 6.58 | **1.24** |
-| lte-orb/lte-orb-simple-ball | 8.84 | 7.17 | **1.23** |
-| sanmiguel/sanmiguel-courtyard | 6.75 | 5.50 | **1.23** |
-| head/head | 3.52 | 2.89 | **1.22** |
-| kroken/camera-1 | 14.0 | 11.7 | **1.20** |
-| killeroos/killeroo-simple | 3.02 | 2.53 | **1.19** |
-| villa/villa-lights-on | 2.69 | 2.43 | **1.11** |
-| disney-cloud/disney-cloud | 5.50 | 0 | ours only |
+| killeroos/killeroo-simple | 0 | 2.54 | pbrt only |
+| killeroos/killeroo-gold | 0 | 6.60 | pbrt only |
+| killeroos/killeroo-coated-gold | 0 | 6.63 | pbrt only |
+| pbrt-book/book | 0 | 9.02 | pbrt only |
+| ganesha/ganesha | 0 | 9.03 | pbrt only |
+| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 6.53 | pbrt only |
+| lte-orb/lte-orb-simple-ball | 0 | 7.29 | pbrt only |
+| lte-orb/lte-orb-silver | 0 | 4.80 | pbrt only |
+| lte-orb/lte-orb-rough-glass | 0 | 4.73 | pbrt only |
+| head/head | 0 | 2.95 | pbrt only |
+| sssdragon/dragon_10 | 0 | 6.52 | pbrt only |
+| villa/villa-lights-on | 0 | 2.43 | pbrt only |
+| smoke-plume/plume | 0 | 6.77 | pbrt only |
+| bunny-cloud/bunny-cloud | 0 | 9.03 | pbrt only |
+| explosion/explosion | 0 | 11.2 | pbrt only |
+| landscape/view-0 | 0 | 36.7 | pbrt only |
+| crown/crown | 0 | 6.66 | pbrt only |
+| kroken/camera-1 | 0 | 11.9 | pbrt only |
+| sportscar/sportscar-sky | 0 | 9.09 | pbrt only |
+| bmw-m6/bmw-m6 | 0 | 6.61 | pbrt only |
+| dambreak/dambreak0 | 0 | 8.96 | pbrt only |
+| transparent-machines/frame542 | 0 | 7.35 | pbrt only |
+| villa/villa-daylight | 0 | 7.10 | pbrt only |
+| clouds/clouds | 0 | 9.60 | pbrt only |
+| sanmiguel/sanmiguel-courtyard | 0 | 5.51 | pbrt only |
+| bistro/bistro_cafe (image FAILED) | 0 | 9.51 | pbrt only |
+| bistro/bistro_vespa (image FAILED) | 0 | 9.63 | pbrt only |
+| watercolor/camera-1 | 0 | 13.3 | pbrt only |
+| sanmiguel/sanmiguel-courtyard-second | 0 | 7.23 | pbrt only |
 
 ##### escaped rays
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| villa/villa-lights-on | 0.70 | 1.08 | 0.65 |
-| head/head | 1.77 | 2.88 | 0.61 |
-| sssdragon/dragon_10 | 3.90 | 6.60 | 0.59 |
-| explosion/explosion | 5.74 | 9.87 | 0.58 |
-| landscape/view-0 | 14.0 | 24.5 | 0.57 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 2.49 | 4.36 | 0.57 |
-| bmw-m6/bmw-m6 | 4.16 | 7.52 | 0.55 |
-| smoke-plume/plume | 4.19 | 7.95 | 0.53 |
-| lte-orb/lte-orb-simple-ball | 3.76 | 7.40 | 0.51 |
-| ganesha/ganesha | 4.48 | 8.93 | 0.50 |
-| villa/villa-daylight | 2.72 | 5.49 | 0.50 |
-| clouds/clouds | 17.2 | 34.9 | 0.49 |
-| sanmiguel/sanmiguel-courtyard | 1.49 | 3.04 | 0.49 |
-| sportscar/sportscar-sky | 5.63 | 11.6 | 0.48 |
-| disney-cloud/disney-cloud | 12.4 | 26.8 | 0.46 |
-| sanmiguel/sanmiguel-courtyard-second | 1.47 | 3.23 | 0.46 |
-| watercolor/camera-1 | 11.2 | 25.0 | 0.45 |
-| bistro/bistro_cafe (image FAILED) | 1.90 | 4.26 | 0.45 |
-| bunny-cloud/bunny-cloud | 15.1 | 34.2 | 0.44 |
-| bistro/bistro_vespa (image FAILED) | 1.89 | 4.34 | 0.44 |
-| dambreak/dambreak0 | 16.7 | 40.1 | 0.42 |
-| kroken/camera-1 | 6.82 | 17.0 | 0.40 |
-| transparent-machines/frame542 | 41.0 | 116.4 | 0.35 |
-| killeroos/killeroo-simple | 0.39 | 0 | ours only |
+| villa/villa-lights-on | 0.66 | 1.06 | 0.62 |
+| head/head | 1.71 | 2.82 | 0.61 |
+| explosion/explosion | 5.74 | 9.81 | 0.59 |
+| sssdragon/dragon_10 | 3.81 | 6.60 | 0.58 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 2.41 | 4.29 | 0.56 |
+| landscape/view-0 | 13.2 | 24.7 | 0.53 |
+| bmw-m6/bmw-m6 | 3.95 | 7.48 | 0.53 |
+| smoke-plume/plume | 4.16 | 7.99 | 0.52 |
+| ganesha/ganesha | 4.48 | 8.84 | 0.51 |
+| clouds/clouds | 17.5 | 35.2 | 0.50 |
+| lte-orb/lte-orb-simple-ball | 3.68 | 7.44 | 0.49 |
+| sportscar/sportscar-sky | 5.50 | 11.5 | 0.48 |
+| villa/villa-daylight | 2.57 | 5.55 | 0.46 |
+| disney-cloud/disney-cloud | 11.9 | 26.8 | 0.44 |
+| sanmiguel/sanmiguel-courtyard | 1.34 | 3.05 | 0.44 |
+| watercolor/camera-1 | 10.7 | 25.0 | 0.43 |
+| dambreak/dambreak0 | 17.0 | 39.9 | 0.43 |
+| bistro/bistro_cafe (image FAILED) | 1.81 | 4.24 | 0.43 |
+| bunny-cloud/bunny-cloud | 15.0 | 35.2 | 0.43 |
+| sanmiguel/sanmiguel-courtyard-second | 1.33 | 3.23 | 0.41 |
+| bistro/bistro_vespa (image FAILED) | 1.80 | 4.39 | 0.41 |
+| kroken/camera-1 | 6.70 | 16.5 | 0.41 |
+| transparent-machines/frame542 | 42.4 | 116.4 | 0.36 |
+| killeroos/killeroo-simple | 0.38 | 0 | ours only |
 | killeroos/killeroo-gold | 2.42 | 0 | ours only |
-| killeroos/killeroo-coated-gold | 2.39 | 0 | ours only |
-| pbrt-book/book | 0.98 | 0 | ours only |
-| lte-orb/lte-orb-silver | 0.85 | 0 | ours only |
-| lte-orb/lte-orb-rough-glass | 4.30 | 0 | ours only |
-| crown/crown | 13.1 | 0 | ours only |
+| killeroos/killeroo-coated-gold | 2.36 | 0 | ours only |
+| pbrt-book/book | 0.96 | 0 | ours only |
+| lte-orb/lte-orb-silver | 0.87 | 0 | ours only |
+| lte-orb/lte-orb-rough-glass | 4.33 | 0 | ours only |
+| crown/crown | 14.0 | 0 | ours only |
 
 ##### emitters hit
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| kroken/camera-1 | 9.90 | 16.1 | 0.61 |
-| bistro/bistro_vespa (image FAILED) | 3.10 | 5.06 | 0.61 |
-| bistro/bistro_cafe (image FAILED) | 2.98 | 4.90 | 0.61 |
-| crown/crown | 26.4 | 46.6 | 0.57 |
-| lte-orb/lte-orb-rough-glass | 7.46 | 13.3 | 0.56 |
-| ganesha/ganesha | 2.15 | 3.89 | 0.55 |
-| lte-orb/lte-orb-silver | 1.79 | 3.35 | 0.53 |
-| killeroos/killeroo-simple | 0.52 | 0.98 | 0.53 |
+| bistro/bistro_cafe (image FAILED) | 3.01 | 4.88 | 0.62 |
+| kroken/camera-1 | 9.93 | 16.3 | 0.61 |
+| bistro/bistro_vespa (image FAILED) | 3.13 | 5.15 | 0.61 |
+| lte-orb/lte-orb-rough-glass | 7.45 | 13.3 | 0.56 |
+| ganesha/ganesha | 2.18 | 3.93 | 0.55 |
+| lte-orb/lte-orb-silver | 1.82 | 3.31 | 0.55 |
+| crown/crown | 22.2 | 43.0 | 0.52 |
 | villa/villa-lights-on | 0.48 | 0.94 | 0.51 |
-| head/head | 0.25 | 0.51 | 0.49 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 1.08 | 2.29 | 0.47 |
-| sssdragon/dragon_10 | 1.08 | 2.30 | 0.47 |
-| bmw-m6/bmw-m6 | 1.55 | 3.46 | 0.45 |
-| smoke-plume/plume | 1.03 | 2.42 | 0.43 |
-| sanmiguel/sanmiguel-courtyard | 0.81 | 1.92 | 0.42 |
-| sanmiguel/sanmiguel-courtyard-second | 1.00 | 2.58 | 0.39 |
-| villa/villa-daylight | 1.85 | 4.84 | 0.38 |
-| killeroos/killeroo-coated-gold | 1.31 | 3.46 | 0.38 |
-| killeroos/killeroo-gold | 1.32 | 3.50 | 0.38 |
-| pbrt-book/book | 1.18 | 3.19 | 0.37 |
-| sportscar/sportscar-sky | 1.20 | 3.26 | 0.37 |
-| watercolor/camera-1 | 4.25 | 11.6 | 0.37 |
-| lte-orb/lte-orb-simple-ball | 0.86 | 2.36 | 0.36 |
-| disney-cloud/disney-cloud | 8.89 | 25.2 | 0.35 |
-| explosion/explosion | 1.38 | 3.96 | 0.35 |
-| dambreak/dambreak0 | 11.5 | 33.7 | 0.34 |
-| clouds/clouds | 8.99 | 26.6 | 0.34 |
-| bunny-cloud/bunny-cloud | 8.98 | 26.9 | 0.33 |
-| landscape/view-0 | 4.00 | 12.8 | 0.31 |
-| transparent-machines/frame542 | 28.9 | 113.7 | 0.25 |
+| killeroos/killeroo-simple | 0.47 | 0.99 | 0.47 |
+| head/head | 0.24 | 0.51 | 0.47 |
+| smoke-plume/plume | 1.09 | 2.43 | 0.45 |
+| sssdragon/dragon_10 | 1.01 | 2.29 | 0.44 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 0.96 | 2.29 | 0.42 |
+| villa/villa-daylight | 1.86 | 4.81 | 0.39 |
+| killeroos/killeroo-coated-gold | 1.30 | 3.38 | 0.38 |
+| sanmiguel/sanmiguel-courtyard | 0.72 | 1.90 | 0.38 |
+| watercolor/camera-1 | 4.39 | 11.6 | 0.38 |
+| bmw-m6/bmw-m6 | 1.30 | 3.46 | 0.38 |
+| pbrt-book/book | 1.18 | 3.18 | 0.37 |
+| disney-cloud/disney-cloud | 9.35 | 25.2 | 0.37 |
+| killeroos/killeroo-gold | 1.29 | 3.50 | 0.37 |
+| explosion/explosion | 1.44 | 3.92 | 0.37 |
+| lte-orb/lte-orb-simple-ball | 0.86 | 2.35 | 0.37 |
+| clouds/clouds | 9.45 | 26.4 | 0.36 |
+| dambreak/dambreak0 | 12.0 | 33.6 | 0.36 |
+| bunny-cloud/bunny-cloud | 9.45 | 26.7 | 0.35 |
+| sanmiguel/sanmiguel-courtyard-second | 0.90 | 2.57 | 0.35 |
+| landscape/view-0 | 4.44 | 12.8 | 0.35 |
+| sportscar/sportscar-sky | 1.04 | 3.23 | 0.32 |
+| transparent-machines/frame542 | 30.8 | 113.7 | 0.27 |
 
 ##### material: CoatedDiffuse (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| landscape/view-0 | 72.3 | 103.0 | 0.70 |
-| crown/crown | 134.0 | 204.7 | 0.65 |
-| explosion/explosion | 19.7 | 30.1 | 0.65 |
-| sanmiguel/sanmiguel-courtyard-second | 14.2 | 21.9 | 0.65 |
-| killeroos/killeroo-simple | 4.83 | 7.52 | 0.64 |
-| sssdragon/dragon_10 | 26.5 | 41.5 | 0.64 |
-| sanmiguel/sanmiguel-courtyard | 11.4 | 17.8 | 0.64 |
-| sportscar/sportscar-sky | 8.72 | 14.2 | 0.61 |
-| pbrt-book/book | 13.4 | 22.6 | 0.59 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 23.8 | 40.5 | 0.59 |
-| lte-orb/lte-orb-rough-glass | 57.7 | 99.7 | 0.58 |
-| bunny-cloud/bunny-cloud | 67.5 | 118.4 | 0.57 |
-| villa/villa-daylight | 37.9 | 68.5 | 0.55 |
-| bistro/bistro_cafe (image FAILED) | 82.3 | 148.9 | 0.55 |
-| lte-orb/lte-orb-silver | 27.4 | 50.5 | 0.54 |
-| bistro/bistro_vespa (image FAILED) | 75.8 | 143.9 | 0.53 |
-| kroken/camera-1 | 85.9 | 166.1 | 0.52 |
-| bmw-m6/bmw-m6 | 29.6 | 58.9 | 0.50 |
-| ganesha/ganesha | 23.0 | 48.3 | 0.48 |
-| villa/villa-lights-on | 9.57 | 22.2 | 0.43 |
-| watercolor/camera-1 | 87.8 | 218.0 | 0.40 |
+| landscape/view-0 | 73.5 | 103.0 | 0.71 |
+| sssdragon/dragon_10 | 27.4 | 41.5 | 0.66 |
+| crown/crown | 135.2 | 204.6 | 0.66 |
+| sanmiguel/sanmiguel-courtyard-second | 14.3 | 21.7 | 0.66 |
+| sanmiguel/sanmiguel-courtyard | 11.5 | 17.7 | 0.65 |
+| explosion/explosion | 19.4 | 30.2 | 0.64 |
+| killeroos/killeroo-simple | 4.81 | 7.52 | 0.64 |
+| pbrt-book/book | 14.0 | 22.6 | 0.62 |
+| sportscar/sportscar-sky | 8.77 | 14.3 | 0.61 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 24.9 | 40.5 | 0.61 |
+| lte-orb/lte-orb-rough-glass | 60.2 | 99.5 | 0.61 |
+| bunny-cloud/bunny-cloud | 69.7 | 118.8 | 0.59 |
+| lte-orb/lte-orb-silver | 29.6 | 50.7 | 0.58 |
+| bistro/bistro_cafe (image FAILED) | 85.0 | 148.9 | 0.57 |
+| villa/villa-daylight | 38.2 | 68.5 | 0.56 |
+| bistro/bistro_vespa (image FAILED) | 78.0 | 144.3 | 0.54 |
+| kroken/camera-1 | 87.2 | 165.9 | 0.53 |
+| bmw-m6/bmw-m6 | 30.3 | 59.5 | 0.51 |
+| ganesha/ganesha | 23.3 | 48.4 | 0.48 |
+| villa/villa-lights-on | 9.76 | 22.1 | 0.44 |
+| watercolor/camera-1 | 88.0 | 216.4 | 0.41 |
 
 ##### material: Diffuse (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| sanmiguel/sanmiguel-courtyard | 17.0 | 24.3 | 0.70 |
-| landscape/view-0 | 16.7 | 24.2 | 0.69 |
-| sanmiguel/sanmiguel-courtyard-second | 23.0 | 33.6 | 0.68 |
-| villa/villa-daylight | 6.54 | 10.3 | 0.64 |
-| bmw-m6/bmw-m6 | 4.36 | 6.97 | 0.63 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 3.85 | 6.18 | 0.62 |
-| sportscar/sportscar-sky | 2.63 | 4.27 | 0.62 |
-| smoke-plume/plume | 9.02 | 14.7 | 0.61 |
-| lte-orb/lte-orb-silver | 2.45 | 4.56 | 0.54 |
-| dambreak/dambreak0 | 39.0 | 74.4 | 0.52 |
-| lte-orb/lte-orb-rough-glass | 9.78 | 19.3 | 0.51 |
-| villa/villa-lights-on | 1.40 | 2.85 | 0.49 |
-| crown/crown | 55.6 | 114.6 | 0.49 |
-| disney-cloud/disney-cloud | 21.5 | 46.1 | 0.47 |
-| killeroos/killeroo-simple | 4.80 | 11.4 | 0.42 |
-| lte-orb/lte-orb-simple-ball | 12.4 | 29.6 | 0.42 |
-| pbrt-book/book | 14.5 | 37.3 | 0.39 |
-| watercolor/camera-1 | 66.9 | 204.0 | 0.33 |
-| killeroos/killeroo-gold | 12.7 | 39.7 | 0.32 |
-| killeroos/killeroo-coated-gold | 12.5 | 39.2 | 0.32 |
-| kroken/camera-1 | 52.2 | 166.1 | 0.31 |
-| ganesha/ganesha | 10.2 | 33.9 | 0.30 |
+| sanmiguel/sanmiguel-courtyard | 17.6 | 24.3 | 0.72 |
+| sanmiguel/sanmiguel-courtyard-second | 24.1 | 33.5 | 0.72 |
+| landscape/view-0 | 17.1 | 24.2 | 0.71 |
+| smoke-plume/plume | 9.59 | 14.7 | 0.65 |
+| villa/villa-daylight | 6.66 | 10.3 | 0.65 |
+| sportscar/sportscar-sky | 2.67 | 4.16 | 0.64 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 3.73 | 6.13 | 0.61 |
+| bmw-m6/bmw-m6 | 4.10 | 6.94 | 0.59 |
+| lte-orb/lte-orb-silver | 2.45 | 4.53 | 0.54 |
+| dambreak/dambreak0 | 39.3 | 73.4 | 0.54 |
+| lte-orb/lte-orb-rough-glass | 9.81 | 19.2 | 0.51 |
+| villa/villa-lights-on | 1.36 | 2.73 | 0.50 |
+| crown/crown | 54.2 | 114.1 | 0.48 |
+| disney-cloud/disney-cloud | 20.9 | 46.6 | 0.45 |
+| killeroos/killeroo-simple | 5.08 | 11.6 | 0.44 |
+| lte-orb/lte-orb-simple-ball | 12.7 | 29.3 | 0.43 |
+| pbrt-book/book | 15.4 | 38.0 | 0.41 |
+| watercolor/camera-1 | 69.0 | 204.7 | 0.34 |
+| killeroos/killeroo-gold | 13.3 | 40.2 | 0.33 |
+| killeroos/killeroo-coated-gold | 13.0 | 39.6 | 0.33 |
+| kroken/camera-1 | 53.5 | 166.0 | 0.32 |
+| ganesha/ganesha | 10.7 | 33.2 | 0.32 |
 
 ##### film + the rest
 
@@ -997,36 +1085,36 @@ ours: `rays_rest_blk` and `q_blk`; pbrt: Update film, the queue resets, the stat
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| pbrt-book/book | 3.22 | 6.08 | 0.53 |
-| ganesha/ganesha | 3.15 | 6.00 | 0.53 |
-| sportscar/sportscar-sky | 3.06 | 5.89 | 0.52 |
-| bistro/bistro_vespa (image FAILED) | 3.06 | 5.95 | 0.51 |
-| bistro/bistro_cafe (image FAILED) | 2.98 | 5.97 | 0.50 |
-| landscape/view-0 | 10.8 | 22.4 | 0.49 |
-| sanmiguel/sanmiguel-courtyard-second | 2.34 | 5.03 | 0.47 |
-| explosion/explosion | 3.38 | 7.42 | 0.46 |
-| lte-orb/lte-orb-silver | 2.10 | 4.68 | 0.45 |
-| head/head | 0.75 | 1.71 | 0.44 |
-| smoke-plume/plume | 2.09 | 4.94 | 0.42 |
-| killeroos/killeroo-coated-gold | 2.05 | 4.86 | 0.42 |
-| killeroos/killeroo-gold | 2.05 | 4.87 | 0.42 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 1.94 | 4.67 | 0.42 |
-| sanmiguel/sanmiguel-courtyard | 1.59 | 4.13 | 0.38 |
-| sssdragon/dragon_10 | 2.05 | 5.34 | 0.38 |
-| villa/villa-daylight | 2.32 | 6.45 | 0.36 |
-| bmw-m6/bmw-m6 | 1.96 | 5.45 | 0.36 |
-| killeroos/killeroo-simple | 0.66 | 1.93 | 0.34 |
-| villa/villa-lights-on | 0.63 | 1.85 | 0.34 |
-| lte-orb/lte-orb-simple-ball | 3.53 | 13.3 | 0.26 |
-| lte-orb/lte-orb-rough-glass | 2.07 | 12.2 | 0.17 |
-| clouds/clouds | 2.95 | 19.9 | 0.15 |
-| bunny-cloud/bunny-cloud | 2.83 | 20.6 | 0.14 |
-| dambreak/dambreak0 | 2.99 | 23.9 | 0.13 |
-| watercolor/camera-1 | 5.99 | 68.4 | 0.09 |
-| crown/crown | 1.99 | 33.1 | 0.06 |
-| disney-cloud/disney-cloud | 1.30 | 25.0 | 0.05 |
-| transparent-machines/frame542 | 2.29 | 76.0 | 0.03 |
-| kroken/camera-1 | 5.40 | 409.7 | 0.01 |
+| explosion/explosion | 37.4 | 7.45 | **5.02** |
+| smoke-plume/plume | 23.8 | 4.92 | **4.85** |
+| sportscar/sportscar-sky | 25.8 | 5.86 | **4.40** |
+| landscape/view-0 | 97.1 | 22.4 | **4.33** |
+| bistro/bistro_cafe (image FAILED) | 25.4 | 5.91 | **4.29** |
+| bistro/bistro_vespa (image FAILED) | 25.3 | 5.94 | **4.26** |
+| head/head | 7.05 | 1.70 | **4.15** |
+| ganesha/ganesha | 24.5 | 5.94 | **4.13** |
+| pbrt-book/book | 24.8 | 6.03 | **4.11** |
+| sanmiguel/sanmiguel-courtyard-second | 20.1 | 5.02 | **4.01** |
+| killeroos/killeroo-gold | 18.8 | 4.80 | **3.91** |
+| barcelona-pavilion/pavilion-day (image FAILED) | 18.1 | 4.66 | **3.88** |
+| killeroos/killeroo-coated-gold | 18.6 | 4.82 | **3.87** |
+| sanmiguel/sanmiguel-courtyard | 15.7 | 4.09 | **3.83** |
+| villa/villa-daylight | 24.3 | 6.40 | **3.79** |
+| sssdragon/dragon_10 | 20.2 | 5.33 | **3.79** |
+| killeroos/killeroo-simple | 7.39 | 1.97 | **3.75** |
+| villa/villa-lights-on | 6.85 | 1.83 | **3.74** |
+| bmw-m6/bmw-m6 | 20.2 | 5.45 | **3.71** |
+| lte-orb/lte-orb-silver | 17.2 | 4.74 | **3.62** |
+| clouds/clouds | 69.3 | 19.8 | **3.50** |
+| bunny-cloud/bunny-cloud | 64.9 | 20.2 | **3.21** |
+| dambreak/dambreak0 | 75.1 | 23.9 | **3.15** |
+| disney-cloud/disney-cloud | 76.3 | 25.7 | **2.98** |
+| crown/crown | 84.6 | 33.0 | **2.56** |
+| transparent-machines/frame542 | 187.4 | 75.6 | **2.48** |
+| lte-orb/lte-orb-rough-glass | 25.2 | 12.2 | **2.08** |
+| lte-orb/lte-orb-simple-ball | 20.3 | 13.4 | **1.52** |
+| watercolor/camera-1 | 50.2 | 71.1 | 0.71 |
+| kroken/camera-1 | 53.7 | 408.4 | 0.13 |
 
 ##### materials with their sample draws (a view, not a stage)
 
@@ -1034,119 +1122,119 @@ the material kernels above summed with the sample draws on each side -- pbrt's `
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| lte-orb/lte-orb-simple-ball | 105.1 | 129.6 | 0.81 |
-| sportscar/sportscar-sky | 90.4 | 113.5 | 0.80 |
-| landscape/view-0 | 186.6 | 311.7 | 0.60 |
-| sanmiguel/sanmiguel-courtyard-second | 42.6 | 73.2 | 0.58 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 52.9 | 91.4 | 0.58 |
-| sanmiguel/sanmiguel-courtyard | 33.9 | 58.7 | 0.58 |
-| head/head | 4.98 | 8.89 | 0.56 |
-| sssdragon/dragon_10 | 33.5 | 61.5 | 0.55 |
-| bistro/bistro_cafe (image FAILED) | 100.7 | 195.5 | 0.51 |
-| villa/villa-daylight | 99.1 | 193.1 | 0.51 |
-| bistro/bistro_vespa (image FAILED) | 96.3 | 196.3 | 0.49 |
-| lte-orb/lte-orb-rough-glass | 91.4 | 187.6 | 0.49 |
-| bmw-m6/bmw-m6 | 61.3 | 134.1 | 0.46 |
-| villa/villa-lights-on | 25.1 | 56.5 | 0.44 |
-| crown/crown | 281.7 | 649.0 | 0.43 |
-| dambreak/dambreak0 | 91.1 | 212.9 | 0.43 |
-| killeroos/killeroo-simple | 9.63 | 22.6 | 0.43 |
-| kroken/camera-1 | 382.9 | 906.0 | 0.42 |
-| pbrt-book/book | 27.9 | 70.2 | 0.40 |
-| lte-orb/lte-orb-silver | 37.0 | 93.9 | 0.39 |
-| killeroos/killeroo-coated-gold | 34.1 | 92.8 | 0.37 |
-| ganesha/ganesha | 33.1 | 91.9 | 0.36 |
-| watercolor/camera-1 | 582.2 | 1623 | 0.36 |
-| explosion/explosion | 19.7 | 55.2 | 0.36 |
-| bunny-cloud/bunny-cloud | 67.5 | 194.9 | 0.35 |
-| smoke-plume/plume | 10.9 | 37.2 | 0.29 |
-| killeroos/killeroo-gold | 18.6 | 76.2 | 0.24 |
-| disney-cloud/disney-cloud | 21.5 | 103.0 | 0.21 |
-| transparent-machines/frame542 | 67.2 | 440.5 | 0.15 |
-| clouds/clouds | 0 | 85.4 | pbrt only |
+| lte-orb/lte-orb-simple-ball | 105.7 | 129.4 | 0.82 |
+| sportscar/sportscar-sky | 91.2 | 112.2 | 0.81 |
+| landscape/view-0 | 191.3 | 312.1 | 0.61 |
+| sanmiguel/sanmiguel-courtyard-second | 43.9 | 73.1 | 0.60 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 54.4 | 91.2 | 0.60 |
+| sanmiguel/sanmiguel-courtyard | 34.6 | 58.2 | 0.59 |
+| sssdragon/dragon_10 | 34.2 | 61.5 | 0.56 |
+| head/head | 4.84 | 8.80 | 0.55 |
+| bistro/bistro_cafe (image FAILED) | 103.4 | 196.0 | 0.53 |
+| villa/villa-daylight | 99.9 | 193.5 | 0.52 |
+| lte-orb/lte-orb-rough-glass | 94.6 | 186.4 | 0.51 |
+| bistro/bistro_vespa (image FAILED) | 98.4 | 196.6 | 0.50 |
+| bmw-m6/bmw-m6 | 61.6 | 133.5 | 0.46 |
+| dambreak/dambreak0 | 95.5 | 210.5 | 0.45 |
+| villa/villa-lights-on | 25.2 | 56.3 | 0.45 |
+| crown/crown | 283.6 | 641.5 | 0.44 |
+| killeroos/killeroo-simple | 9.89 | 22.7 | 0.43 |
+| kroken/camera-1 | 388.9 | 904.3 | 0.43 |
+| lte-orb/lte-orb-silver | 39.6 | 93.5 | 0.42 |
+| pbrt-book/book | 29.4 | 71.0 | 0.41 |
+| killeroos/killeroo-coated-gold | 35.0 | 93.5 | 0.37 |
+| ganesha/ganesha | 33.9 | 91.4 | 0.37 |
+| watercolor/camera-1 | 591.1 | 1620 | 0.36 |
+| bunny-cloud/bunny-cloud | 69.7 | 194.2 | 0.36 |
+| explosion/explosion | 19.4 | 55.3 | 0.35 |
+| smoke-plume/plume | 11.6 | 36.6 | 0.32 |
+| killeroos/killeroo-gold | 19.5 | 77.0 | 0.25 |
+| disney-cloud/disney-cloud | 20.9 | 104.0 | 0.20 |
+| transparent-machines/frame542 | 70.4 | 440.4 | 0.16 |
+| clouds/clouds | 0 | 84.7 | pbrt only |
 
 ##### material: Conductor (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| villa/villa-daylight | 6.12 | 20.7 | 0.30 |
-| kroken/camera-1 | 22.2 | 76.2 | 0.29 |
-| sportscar/sportscar-sky | 2.96 | 10.8 | 0.27 |
-| villa/villa-lights-on | 1.60 | 5.94 | 0.27 |
-| bmw-m6/bmw-m6 | 4.71 | 17.6 | 0.27 |
-| crown/crown | 53.3 | 200.6 | 0.27 |
-| watercolor/camera-1 | 33.4 | 140.9 | 0.24 |
-| lte-orb/lte-orb-silver | 7.22 | 32.7 | 0.22 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 1.91 | 8.73 | 0.22 |
-| killeroos/killeroo-gold | 5.90 | 27.3 | 0.22 |
-| smoke-plume/plume | 1.92 | 9.12 | 0.21 |
+| kroken/camera-1 | 22.9 | 73.6 | 0.31 |
+| villa/villa-daylight | 6.23 | 20.6 | 0.30 |
+| crown/crown | 54.6 | 192.6 | 0.28 |
+| villa/villa-lights-on | 1.63 | 5.76 | 0.28 |
+| bmw-m6/bmw-m6 | 4.67 | 16.8 | 0.28 |
+| sportscar/sportscar-sky | 3.03 | 11.2 | 0.27 |
+| watercolor/camera-1 | 33.2 | 140.0 | 0.24 |
+| lte-orb/lte-orb-silver | 7.59 | 32.2 | 0.24 |
+| smoke-plume/plume | 2.03 | 8.81 | 0.23 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 1.94 | 8.58 | 0.23 |
+| killeroos/killeroo-gold | 6.22 | 27.7 | 0.22 |
 
 ##### material: CoatedConductor (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| bistro/bistro_cafe (image FAILED) | 16.0 | 28.4 | 0.56 |
-| bmw-m6/bmw-m6 | 17.0 | 31.7 | 0.54 |
-| bistro/bistro_vespa (image FAILED) | 17.1 | 32.1 | 0.53 |
-| kroken/camera-1 | 76.3 | 149.2 | 0.51 |
-| killeroos/killeroo-coated-gold | 21.7 | 44.7 | 0.49 |
-| watercolor/camera-1 | 76.3 | 186.7 | 0.41 |
+| bistro/bistro_cafe (image FAILED) | 16.0 | 28.8 | 0.56 |
+| bmw-m6/bmw-m6 | 17.0 | 31.5 | 0.54 |
+| bistro/bistro_vespa (image FAILED) | 17.0 | 32.2 | 0.53 |
+| kroken/camera-1 | 76.3 | 150.6 | 0.51 |
+| killeroos/killeroo-coated-gold | 22.0 | 44.9 | 0.49 |
+| watercolor/camera-1 | 76.1 | 184.3 | 0.41 |
 
 ##### material: Dielectric (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| barcelona-pavilion/pavilion-day (image FAILED) | 4.75 | 6.33 | 0.75 |
-| dambreak/dambreak0 | 52.1 | 77.8 | 0.67 |
-| sanmiguel/sanmiguel-courtyard-second | 1.90 | 2.96 | 0.64 |
-| villa/villa-lights-on | 0.89 | 1.40 | 0.64 |
-| sanmiguel/sanmiguel-courtyard | 1.88 | 2.99 | 0.63 |
-| bistro/bistro_cafe (image FAILED) | 2.47 | 3.96 | 0.62 |
-| sportscar/sportscar-sky | 2.16 | 3.55 | 0.61 |
-| bistro/bistro_vespa (image FAILED) | 3.43 | 5.65 | 0.61 |
-| villa/villa-daylight | 2.75 | 4.90 | 0.56 |
-| bmw-m6/bmw-m6 | 4.52 | 8.24 | 0.55 |
-| watercolor/camera-1 | 6.43 | 12.2 | 0.53 |
-| crown/crown | 26.6 | 50.6 | 0.52 |
-| kroken/camera-1 | 17.3 | 35.1 | 0.49 |
-| lte-orb/lte-orb-rough-glass | 23.8 | 50.4 | 0.47 |
-| transparent-machines/frame542 | 67.2 | 145.7 | 0.46 |
-| landscape/view-0 | 5.31 | 11.6 | 0.46 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 5.05 | 6.48 | 0.78 |
+| dambreak/dambreak0 | 56.2 | 77.1 | 0.73 |
+| sanmiguel/sanmiguel-courtyard | 1.92 | 2.84 | 0.68 |
+| sanmiguel/sanmiguel-courtyard-second | 1.96 | 2.95 | 0.66 |
+| villa/villa-lights-on | 0.90 | 1.40 | 0.64 |
+| sportscar/sportscar-sky | 2.21 | 3.51 | 0.63 |
+| bistro/bistro_cafe (image FAILED) | 2.44 | 3.99 | 0.61 |
+| bistro/bistro_vespa (image FAILED) | 3.41 | 5.62 | 0.61 |
+| villa/villa-daylight | 2.84 | 4.93 | 0.58 |
+| bmw-m6/bmw-m6 | 4.53 | 8.23 | 0.55 |
+| crown/crown | 27.4 | 50.7 | 0.54 |
+| watercolor/camera-1 | 6.12 | 12.2 | 0.50 |
+| lte-orb/lte-orb-rough-glass | 24.5 | 49.6 | 0.49 |
+| kroken/camera-1 | 17.5 | 35.5 | 0.49 |
+| transparent-machines/frame542 | 70.4 | 145.8 | 0.48 |
+| landscape/view-0 | 5.32 | 11.4 | 0.47 |
 
 ##### material: DiffuseTransmission (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| landscape/view-0 | 92.2 | 134.0 | 0.69 |
-| barcelona-pavilion/pavilion-day (image FAILED) | 4.45 | 6.73 | 0.66 |
-| sanmiguel/sanmiguel-courtyard-second | 3.51 | 5.61 | 0.63 |
-| sanmiguel/sanmiguel-courtyard | 3.59 | 5.82 | 0.62 |
-| villa/villa-daylight | 4.38 | 8.35 | 0.52 |
-| villa/villa-lights-on | 1.33 | 2.54 | 0.52 |
-| watercolor/camera-1 | 21.2 | 69.0 | 0.31 |
-| kroken/camera-1 | 27.4 | 88.9 | 0.31 |
+| landscape/view-0 | 95.4 | 135.2 | 0.71 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 4.59 | 6.68 | 0.69 |
+| sanmiguel/sanmiguel-courtyard | 3.63 | 5.58 | 0.65 |
+| sanmiguel/sanmiguel-courtyard-second | 3.59 | 5.67 | 0.63 |
+| villa/villa-daylight | 4.51 | 8.37 | 0.54 |
+| villa/villa-lights-on | 1.34 | 2.57 | 0.52 |
+| kroken/camera-1 | 28.2 | 88.6 | 0.32 |
+| watercolor/camera-1 | 21.2 | 69.2 | 0.31 |
 
 ##### material: Measured (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| sportscar/sportscar-sky | 74.0 | 69.4 | **1.07** |
-| lte-orb/lte-orb-simple-ball | 92.7 | 91.2 | **1.02** |
-| barcelona-pavilion/pavilion-day (image FAILED) | 14.2 | 14.9 | 0.95 |
+| sportscar/sportscar-sky | 74.5 | 68.0 | **1.10** |
+| lte-orb/lte-orb-simple-ball | 93.0 | 91.3 | **1.02** |
+| barcelona-pavilion/pavilion-day (image FAILED) | 14.2 | 14.8 | 0.97 |
 
 ##### subsurface probe trace
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| sssdragon/dragon_10 | 41.2 | 48.5 | 0.85 |
-| head/head | 5.72 | 6.87 | 0.83 |
+| sssdragon/dragon_10 | 41.4 | 48.5 | 0.85 |
+| head/head | 5.75 | 6.98 | 0.82 |
 
 ##### subsurface exit
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| head/head | 3.27 | 6.22 | 0.53 |
-| sssdragon/dragon_10 | 8.43 | 16.7 | 0.51 |
+| head/head | 3.29 | 6.48 | 0.51 |
+| sssdragon/dragon_10 | 8.44 | 16.7 | 0.51 |
 
 ##### BSSRDF sampling (the probe enqueued)
 
@@ -1154,15 +1242,15 @@ ours: the `bssrdfs` drain; pbrt: Get BSSRDF and enqueue probe ray.
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| head/head | 3.41 | 2.95 | **1.16** |
-| sssdragon/dragon_10 | 5.90 | 5.68 | **1.04** |
+| head/head | 3.47 | 2.93 | **1.18** |
+| sssdragon/dragon_10 | 6.02 | 5.69 | **1.06** |
 
 ##### material: Subsurface (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| sssdragon/dragon_10 | 7.02 | 6.10 | **1.15** |
-| head/head | 4.98 | 5.32 | 0.94 |
+| sssdragon/dragon_10 | 6.78 | 6.07 | **1.12** |
+| head/head | 4.84 | 5.26 | 0.92 |
 
 ##### material: Diffuse (pbrt only)
 
@@ -1171,73 +1259,73 @@ pbrt launches a kernel for every material of the scene at every depth, reached b
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
 | head/head (32 launches, 0.012 ms each) | 0 | 0.37 | pbrt only |
-| sssdragon/dragon_10 (160 launches, 0.012 ms each) | 0 | 1.92 | pbrt only |
-| bunny-cloud/bunny-cloud (1600 launches, 0.017 ms each) | 0 | 26.8 | pbrt only |
+| sssdragon/dragon_10 (160 launches, 0.012 ms each) | 0 | 1.91 | pbrt only |
+| bunny-cloud/bunny-cloud (1600 launches, 0.017 ms each) | 0 | 26.7 | pbrt only |
 | explosion/explosion (240 launches, 0.014 ms each) | 0 | 3.31 | pbrt only |
 | transparent-machines/frame542 (8192 launches, 0.014 ms each) | 0 | 112.9 | pbrt only |
-| clouds/clouds (1600 launches, 0.017 ms each) | 0 | 26.5 | pbrt only |
-| bistro/bistro_cafe (image FAILED) (160 launches, 0.017 ms each) | 0 | 2.67 | pbrt only |
-| bistro/bistro_vespa (image FAILED) (160 launches, 0.017 ms each) | 0 | 2.70 | pbrt only |
+| clouds/clouds (1600 launches, 0.016 ms each) | 0 | 26.0 | pbrt only |
+| bistro/bistro_cafe (image FAILED) (160 launches, 0.017 ms each) | 0 | 2.69 | pbrt only |
+| bistro/bistro_vespa (image FAILED) (160 launches, 0.017 ms each) | 0 | 2.67 | pbrt only |
 
 ##### material: ThinDielectric (basic textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| villa/villa-lights-on | 1.33 | 1.95 | 0.68 |
-| villa/villa-daylight | 5.51 | 8.56 | 0.64 |
+| villa/villa-lights-on | 1.33 | 1.93 | 0.69 |
+| villa/villa-daylight | 5.70 | 8.64 | 0.66 |
 
 ##### material: CoatedDiffuse (universal textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| kroken/camera-1 | 67.8 | 111.0 | 0.61 |
-| villa/villa-daylight | 22.4 | 39.5 | 0.57 |
-| villa/villa-lights-on | 6.18 | 12.2 | 0.51 |
-| watercolor/camera-1 | 138.5 | 382.2 | 0.36 |
+| kroken/camera-1 | 69.5 | 110.6 | 0.63 |
+| villa/villa-daylight | 22.4 | 39.3 | 0.57 |
+| villa/villa-lights-on | 6.12 | 12.2 | 0.50 |
+| watercolor/camera-1 | 141.2 | 382.4 | 0.37 |
 
 ##### material: Dielectric (universal textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| villa/villa-lights-on | 1.56 | 2.29 | 0.68 |
-| villa/villa-daylight | 6.73 | 10.1 | 0.67 |
+| villa/villa-lights-on | 1.56 | 2.34 | 0.67 |
+| villa/villa-daylight | 6.51 | 10.3 | 0.63 |
 
 ##### material: Diffuse (universal textures)
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| villa/villa-daylight | 6.76 | 9.59 | 0.70 |
-| villa/villa-lights-on | 1.19 | 1.73 | 0.69 |
-| watercolor/camera-1 | 148.1 | 383.5 | 0.39 |
-| kroken/camera-1 | 30.2 | 78.8 | 0.38 |
+| villa/villa-daylight | 6.88 | 9.74 | 0.71 |
+| villa/villa-lights-on | 1.20 | 1.70 | 0.71 |
+| watercolor/camera-1 | 152.8 | 383.8 | 0.40 |
+| kroken/camera-1 | 30.5 | 79.0 | 0.39 |
 
 ##### medium sampling
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| clouds/clouds | 210.1 | 298.7 | 0.70 |
-| explosion/explosion | 255.9 | 364.7 | 0.70 |
-| disney-cloud/disney-cloud | 2682 | 4010 | 0.67 |
-| bunny-cloud/bunny-cloud | 759.3 | 1156 | 0.66 |
-| crown/crown | 52.2 | 88.2 | 0.59 |
-| watercolor/camera-1 | 11.9 | 20.2 | 0.59 |
-| kroken/camera-1 | 15.8 | 27.1 | 0.58 |
-| smoke-plume/plume | 69.2 | 120.0 | 0.58 |
-| dambreak/dambreak0 | 37.7 | 67.3 | 0.56 |
+| clouds/clouds | 204.5 | 287.5 | 0.71 |
+| explosion/explosion | 253.7 | 365.0 | 0.69 |
+| disney-cloud/disney-cloud | 2651 | 4014 | 0.66 |
+| bunny-cloud/bunny-cloud | 758.3 | 1154 | 0.66 |
+| crown/crown | 50.4 | 87.7 | 0.58 |
+| watercolor/camera-1 | 11.6 | 20.4 | 0.57 |
+| smoke-plume/plume | 67.7 | 119.5 | 0.57 |
+| kroken/camera-1 | 15.2 | 27.3 | 0.56 |
+| dambreak/dambreak0 | 34.6 | 68.7 | 0.50 |
 
 ##### medium scattering
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| smoke-plume/plume | 6.45 | 9.32 | 0.69 |
-| explosion/explosion | 5.26 | 8.25 | 0.64 |
-| bunny-cloud/bunny-cloud | 33.5 | 58.1 | 0.58 |
-| clouds/clouds | 38.5 | 68.1 | 0.57 |
-| disney-cloud/disney-cloud | 70.1 | 142.0 | 0.49 |
-| dambreak/dambreak0 | 16.2 | 37.6 | 0.43 |
-| crown/crown | 15.2 | 38.4 | 0.40 |
-| kroken/camera-1 | 13.9 | 41.1 | 0.34 |
-| watercolor/camera-1 | 17.5 | 64.5 | 0.27 |
+| smoke-plume/plume | 6.99 | 9.49 | 0.74 |
+| explosion/explosion | 5.59 | 8.32 | 0.67 |
+| bunny-cloud/bunny-cloud | 34.8 | 57.2 | 0.61 |
+| clouds/clouds | 40.5 | 66.7 | 0.61 |
+| disney-cloud/disney-cloud | 86.0 | 144.4 | 0.60 |
+| crown/crown | 17.6 | 38.3 | 0.46 |
+| dambreak/dambreak0 | 16.4 | 38.6 | 0.42 |
+| kroken/camera-1 | 14.0 | 39.0 | 0.36 |
+| watercolor/camera-1 | 17.7 | 64.6 | 0.27 |
 
 ##### material: Mixed (basic textures)
 
@@ -1246,9 +1334,9 @@ pbrt resolves a mix material inside its closest-hit program and has no kernel fo
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
 | crown/crown | 12.2 | 0 | ours only |
-| kroken/camera-1 | 3.57 | 0 | ours only |
-| bmw-m6/bmw-m6 | 1.13 | 0 | ours only |
-| watercolor/camera-1 | 3.56 | 0 | ours only |
+| kroken/camera-1 | 3.35 | 0 | ours only |
+| bmw-m6/bmw-m6 | 1.11 | 0 | ours only |
+| watercolor/camera-1 | 3.59 | 0 | ours only |
 
 <!-- stages:end -->
 

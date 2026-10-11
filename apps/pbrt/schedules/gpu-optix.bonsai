@@ -52,6 +52,18 @@ schedule {
     vol_surface.defer(vol_path_step, rays);
     vol_route.defer(vol_path_step, rays);
     vol_exit.defer(vol_path_step, rays);
+    // pbrt: GenerateRaySamples (wavefront/samples.cpp), a kernel over the
+    // ray queue ahead of IntersectClosest that draws the bounce's random
+    // numbers and stores them by pixel (pixelSampleState.samples), for the
+    // kernels after the trace to read. The cut on the same queue (docs/
+    // schedule-semantics.md, 4.5): the ray drain is two passes over the
+    // same entries in each round, `samples`, which runs vol_path_step up
+    // to its draws and stores them in the record at the ray's slot, and
+    // `rays`, the trace, which reads them back; nothing of the ray is
+    // copied. Until 10-10 the draws ran inside the raygen ahead of
+    // optixTrace, their values live across the trace (PLAN.md, "The draws
+    // made pbrt's").
+    vol_path_step.stage(vol_ray_samples, rays, samples);
 
     medium_samples = render[VolPath].queue(p_band, ExternDevice);
     vol_path_step.defer(vol_medium_sample, medium_samples);
@@ -138,6 +150,23 @@ schedule {
     render.split(p_in, p_blk, p_thr, 256, true);
     render.bind(p_blk, GPUBlock);
     render.bind(p_thr, GPUThread);
+    // pbrt's sample kernel: a CUDA launch over the ray queue, ahead of the
+    // raygen that traces it.
+    render.split(samples, samples_blk, samples_thr, 256, true);
+    render.bind(samples_blk, GPUBlock);
+    render.bind(samples_thr, GPUThread);
+    // pbrt: GenerateCameraRays and GenerateRaySamples are templates
+    // instantiated per sampler type and dispatched on the host by the
+    // sampler the scene names (wavefront/camera.cpp:25, samples.cpp:24),
+    // so each is one kernel per sampler in which only that sampler's draws
+    // are compiled; the kernels after the trace never touch the sampler.
+    // The loop form of specialize (SSA/Specialize.h) copies the camera
+    // kernel and the sample kernel per variant of `sampler` and enters one
+    // by its tag. Until 10-10 one camera kernel held every sampler's arm
+    // behind a switch (8068 SASS instructions against pbrt's Halton
+    // instance's 3800) and ran 1.35x pbrt's on 29 of 30 scenes.
+    render.specialize(p_blk, sampler);
+    render.specialize(samples_blk, sampler);
     render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
     render.bind(medium_samples_blk, GPUBlock);
     render.bind(medium_samples_thr, GPUThread);

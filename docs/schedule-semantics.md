@@ -247,6 +247,74 @@ directives that name a loop find every copy of it, `specialize` goes
 first among a function's directives, after other specializes only; the
 loop form goes after the directives that made its loop.
 
+### 2.1 The rewrites
+
+Each directive above, as the rewrite of the SSA it is (Section 1 for the
+notation). A loop is a `parfor` terminator naming its index, bounds, a
+body block and a continuation block; a rewrite that makes a loop makes
+that, and one that changes a loop's body edits the body block's region.
+
+- **split(l, lo, li, n, guard).** The terminator of `l`'s block becomes a
+  `parfor lo` over `start:end:n*stride` whose body is a new block holding
+  `parfor li` over `0:n:stride`; the old body becomes `li`'s body, and
+  where it read `l` it reads `lo + li`. With `guard`, the old body is
+  entered through `if lo + li < end`, else it is entered directly. A
+  run-time chunk is an expression over the function's values emitted in
+  the loop's block (SSA/Rewrite.cpp, split).
+- **collapse(lo, li, l).** The two terminators become one `parfor l` over
+  `0:(trip(lo) * trip(li))`, and the old body's reads of `lo` and `li`
+  become `start_o + (l / trip(li)) * stride_o` and `start_i + (l mod
+  trip(li)) * stride_i`, under `if` tests where the ranges do not divide
+  by their strides. `li`'s bounds must be the same on every step of `lo`
+  (SSA/CollapseLoops.cpp).
+- **reorder(li, lo).** The outer loop is distributed at the inner one:
+  the instructions before `li` go to a prologue loop `lo!prologue` when
+  they have effects, are recomputed in the new inner body when they are
+  pure, and are stored into an array `<name>!expanded` of one entry per
+  iteration of `lo` when they are reads; the instructions after `li` go to
+  an epilogue loop `lo!epilogue`. Then the perfect nest left is
+  interchanged: `li`'s terminator moves to the outer position with `lo`'s
+  inside it (SSA/ReorderLoops.h).
+- **persistent(l, lw, n).** A counter is allocated and set to `start`
+  before the loop; `parfor lw in 0:n` is the new terminator, its body a
+  `while` whose header claims `i = atomic_add(counter, stride)` and tests
+  `i < end`, and whose body is the old body with `i` for `l`
+  (SSA/Rewrite.cpp, persistent).
+- **vectorize(l).** Every `parfor` nested in `l`'s body is made the
+  sequential loop it also is (header, body, latch). Then each value of the
+  region is widened to `lanes` of its type, the loop's index becoming the
+  ramp `start + stride * <0..lanes-1>`; the divergent branches are
+  linearized in Moll and Hack's manner, each block gaining a lane mask,
+  each block argument becoming selects over the masks of the paths that
+  defined it; a call from the gang goes to a copy of the callee widened
+  the same way (SSA/Vectorize.cpp, SSA/Linearize.h). The loop's terminator
+  is replaced by a jump: the body runs once.
+- **loopify().** Each call of the function to itself in tail position
+  becomes a jump to the function's entry block with the call's arguments,
+  after the callees on a path back to the function are copied into it at
+  their calls (inline_call) so that every call back is of the function
+  itself. **loopify(n):** a run of calls (a `multicall`) becomes a loop
+  over a stack of `n` entries: the first call's arguments become the next
+  iteration's, the others are pushed, and an iteration with no call pops
+  one or ends (SSA/QueueRecursion.h).
+- **sort(c, lambda).** The run's calls are kept as one `multicall`
+  terminator until here; its per-call argument lists are permuted into
+  ascending order of their keys by a network of compare-and-select
+  instructions, each comparison wrapped in a `vote` so that a gang orders
+  them by its lanes' majority; a run whose calls are the lanes of a vector
+  is sorted over the lanes that are hit, one peel at a time
+  (SSA/SortRecursion.h). Before `loopify`, which replaces the run.
+- **specialize(x).** For each of the function's outermost `parfor`s whose
+  body refers to `x`, the body's region is copied once per variant; a
+  selector block per copy holds the loop as it was over the copy; the
+  loop's block reads `x`'s tag and ends in a dispatch on it to the
+  selectors. In each copy the uses of `x` (and of a load of `x` hoisted
+  before the loop) are renamed to a value defined at the body's head: `x`
+  with its tag field a constant, so every match on it folds. **specialize(l,
+  x)** does the same for the one loop named. **specialize(count(l) > k)**
+  copies a gang's region under a test of the count of live lanes (SSA/
+  Specialize.cpp).
+
 ## 3. Hardware binding
 
 A binding names the unit of the machine that runs each iteration of a
@@ -298,6 +366,31 @@ storage each hit child refers to into cache, `n` lines of it:
 `trace.prefetch(tris.Interior.children, 4)`. A hint; no change of
 meaning. It is a hardware directive because what it moves is a cache
 line, whose size is the machine's.
+
+### 3.1 The rewrites
+
+- **bind(l, R).** No change to the graph: the `parfor` terminator records
+  `R` in its `binding`, after a check that `R` may nest inside the binding
+  of every loop around it. Code generation makes the launch. For a loop
+  over a queue bound to the GPU, the bind adds to the loop's block the
+  launch's extent (the queue's capacity), the guard `index < count` read
+  on the device, and the count's address, from the facts the deferral left
+  on the terminator (SSA/Bind.cpp).
+- **bind(l, OptixThread)**, with **q.bind(RTCore)** on the query. The
+  query's traversal is lowered to a call of a trace function wrapping
+  `optixTrace`; for the bound loop, the chain of tail calls from its body
+  to that call is copied, the copy's call redirected to the trace
+  function's hit-side variant, and the continuation after the trace runs
+  in the copy as the launch's closest-hit program, while in the loop's own
+  chain the continuation becomes `if hit { return } else { continuation }`
+  (SSA/HitContinuations.h). The region before the trace must have no
+  effect but loads and writes to its own locals.
+- **bind(TextureUnit, lambda).** The function's body is replaced by the
+  lambda's, whose intrinsic the GPU backend lowers to the unit's fetch.
+- **prefetch(c, n).** In the loop that tests the arm's children, the body
+  gains `if mask[i] { prefetch(children[i]) }`, the intrinsic lowered by
+  the layout to the address and size of the row the reference names
+  (Lower/Prefetches.h).
 
 ## 4. Continuation styles
 
@@ -356,6 +449,15 @@ gang reads each scalar as one vector load. Bools are packed eight to a
 byte. A push claims a slot by advancing the count (atomically; a gang
 advances it once by the number of lanes that push) and writes the entry's
 scalars.
+
+*The rewrite.* A `queue` declaration alone changes nothing; it is read by
+the first deferral onto the queue, which makes the storage: the types
+`Entry_q` and `Queue_q` (4.2), the count and one array per scalar of the
+entry, allocated where the owner's loop `l` begins an iteration (or once
+per call for `root`), sized by the capacity given or by the producer's
+trip count, and marked for the memory `M` names, which the storage pass
+and the backends honour (SSA/QueueStorage.h); `ExternDevice` makes them
+parameters of the function that the caller fills.
 
 ### 4.2 defer(g, q)
 
@@ -586,6 +688,17 @@ materials:
 A variant's queue may be split again (`hits[Basic].specialize(material)`).
 A drain that no entry of the scene can reach is not launched, by facts the
 driver supplies (`SSA/GateDrains.h`); that is a lowering.
+
+*The rewrite* (inside defer(), SSA/Defer.cpp with SSA/Specialize.cpp). The
+split is a tree of keys under the queue. For each leaf, a sub-queue: its
+own count and arrays under the path's name (`hits!Some!Diffuse`), the
+arrays of the leaves its drained copy never reads left out; a copy of the
+drained function with each key on the path replaced by the value with
+that variant's tag (specialize_function), so its matches fold; and a
+drain loop named by the path, the loops run in variant order. The push
+computes each key's tag from the values it is about to store, dispatching
+on it block by block down the tree, and the leaf block pushes onto its
+sub-queue. The entry type is one for the whole split.
 
 ### 4.5 stage(g, q, l) and defer(g, q, l): a cut inside a drain, on the same queue
 

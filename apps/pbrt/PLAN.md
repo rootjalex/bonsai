@@ -13313,3 +13313,199 @@ renderer issues it): the guard alone 4.1 us; N memsets 4.85, 5.81, 6.82,
 7.3 us whatever N. So the launch pays from four words up and
 store_launch_minimum is 4 (it was an estimate of 3); the renderer's 32
 words went from 33.6 to 7.3 us of host issue a round.
+
+### The sample pass on the same queue (10-10, 14:30-)
+
+The user's direction, after the draws were made pbrt's: the schedule
+should truly match pbrt's, which means a sample kernel of its own over the
+ray queue ahead of the trace kernel, with the queue reused by both passes
+(his option 2 of 13:20: "defer or stage with the same queue should result
+in the queue being reused for the two stages"), and before building it a
+rigorous semantics of every scheduling directive, written as the Halide
+paper writes its model, in three groups -- loop transformations, hardware
+binding, continuation styles -- with the leftovers under "other". Then
+(20:00): finish the draws' placement with the step that keeps them out of
+the downstream entries, specialize the camera and sample kernels on the
+sampler as pbrt's templates are, leave the round loop's count read as the
+one allowed structural difference, explain the hit chain's extra hop, do
+the audits, and work in small verifiable chunks with the doc's examples as
+real tests.
+
+**The semantics.** docs/schedule-semantics.md: the parfor contract; the
+SSA the directives rewrite (blocks with arguments, the call with its
+continuation block, the parallel loop kept as a loop, tail position); a
+running example -- one path per pixel, a wall on a line -- whose
+unscheduled nest and whose nest under each directive are drawn in the
+paper's `par for each` notation; each directive's conditions as a list;
+and, for defer, stage and the new cut, the rewrite in the compiler's
+printed SSA. Two things the review caught and the doc now says: a stage's
+push follows the call at once, for every entry, a miss too (the whole of
+`f` after the call is the drain's, and a push inside an arm is a deferral
+of that arm's tail call, which is how gpu-optix routes with no stage in
+it); and in `f.stage(g, q, l)` the second argument is the queue whose
+drain already runs `f`, not one to push onto, and the third a fresh name
+for the first pass, the second pass keeping the queue's name so the binds
+written after it address the trace. The example is
+tests/bonsai/correctness/llvm/semantics-render, and every schedule of it
+in the doc is a test beside it printing the same film, with an SSA golden
+of the same name: semantics-defer (4.2), semantics-stage (4.3 with 4.4's
+split on the hit), semantics-draw and semantics-stage-same-queue (4.5),
+semantics-reload-by-slot and semantics-reload-two-routes (the step 4.5
+leaves), the last two also on the GPU. The example's `shade` ends with
+pbrt's early return at max depth rather than a call inside an `if`, since
+the deferral's tail test does not see through the merge block after such a
+call -- a limitation worth lifting.
+
+**The construct** (commit 4fb63990; SSA/Stage.h, cut_same_queue).
+`f.stage(g, q, l)` and `f.defer(g, q, l)` cut `f` at its call to `g` as
+the two-argument forms do (stage_tail, continuation_tail, now shared) and
+then, in place of a deferral onto a new queue, split `q`'s drain into two
+passes over the same entries in the same round: a copy of the drain's
+block and body, named `l`, that the round enters first and that runs the
+chain down to `f` and `f` up to the cut, and the drain as it was, keeping
+its name, bounds and launch facts, whose body calls the rest with what it
+handed the chain and with what the first pass stored. What is stored is
+decided as an entry's fields are: each argument of the rest is followed
+back through the chain's tail calls to the drain's own call, and one that
+is a parameter all the way (an entry field, a uniform, a slot address, the
+queue) is handed again; the others go into arrays of the record,
+`<q>_<name>_slots`, one slot per producer iteration as a reducer's, at
+the slot every chain function already carries (`_slot_<q>`), through a
+pointer parameter per value (`_<name>_<q>`). The decision to store by the
+record's slot rather than by the entry's index: pbrt's
+pixelSampleState.samples is indexed by pixelIndex, which is that slot;
+no entry grows, no push changes, and the downstream entries, which carry
+the slot already, need nothing added to read the value back. The reset of
+the other buffer goes with the copy, ahead of both passes, so a push made
+before the cut is kept. Refused, each in its own words: a queue with no
+drain yet, one split or whose drain is bound, a chain not in tail
+position or with a caller outside it (the owner's own call has to be a
+push, or it would run the first half alone), entries with no record slot,
+a cut not every path reaches (the skip bit of 4.5 is not built), an
+address of `f`'s frame live after the cut.
+
+**The step it leaves** (4fc8ef18, f803bc35). pbrt's material, medium and
+subsurface kernels read the samples from pixelSampleState.samples by the
+work item's pixelIndex (surfscatter.cpp:184, media.cpp:57 and 271,
+subsurface.cpp:33 and 67); ours stored them in every downstream entry,
+since a deferral stores a value it is handed. The cut now records on its
+queue the record arrays its first pass alone writes and where its second
+pass sits (Function::OwnedQueue), and the entry analysis of defer() gains
+a recipe beside the recomputed pure functions: an argument of the pushed
+call whose owner-level definition at every producer call is
+`load(gep(array, index))`, the array one of those, this deferral's every
+producer in that round after the second pass, and the index the entry's
+slot at that call, becomes `load(gep(array, slot))` built at the drain.
+Three things the renderer taught on the way: the value has to be followed
+route by route to the owner's calls (routes_to), not to one origin, since
+`vol_route` is reached from the trace's drain and the medium kernel's and
+is handed a different load at each; Definitions::parameter has to see
+through a `let` (`vol_path_step!after` hands `rs`, the program's name for
+its split parameter); and the loop form of specialize has to see a
+parameter through the load of it a deferral hoisted before the loop
+(`@2335 = load(sampler)` is how the sample kernel knows the sampler) and
+read the tag before copying the loop, since in a round loop the threading
+goes round the back edge through the drain's block, which gains an
+argument the pre-copied selectors would not pass. With all three, no
+queue of the renderer carries the draws, and the sample and camera
+kernels are one per sampler, as pbrt's GenerateRaySamples and
+GenerateCameraRays are (camera.cpp:25, samples.cpp:24).
+
+**The schedule** (apps/pbrt/schedules/gpu-optix.bonsai):
+`vol_path_step.stage(vol_ray_samples, rays, samples)` after the five
+deferrals onto `rays`; `render.split(samples, samples_blk, samples_thr,
+256, true)` and its binds beside the camera's; `render.specialize(p_blk,
+sampler)` and `render.specialize(samples_blk, sampler)` after the binds
+(the loop form comes late). The images: killeroo-simple at 16 spp is
+byte-identical to the morning's render on radiance, albedo and normals
+after each step.
+
+**Measured, killeroo-simple 16 spp** (scratch/surface/samples/compare1-3,
+against pbrt --gpu in the same run; pbrt's kernel total 49.4 ms, its
+sample kernel 3.71, its trace 16.59, its camera 2.56): the cut alone took
+our kernel time from 35.38 to 32.97 ms (2.76x to 2.88x pbrt), the raygen
+from 17.49 to 11.46 ms, with the sample kernel at 3.87 -- parity with
+pbrt's 3.71 where the draws' addition to the raygen had been 1.17x; the
+reload rule changed nothing measurable here (33.01; this scene's material
+kernels are not bound by their entries' bytes). Over the seven scenes the
+30-scene sweep finished before I stopped it (compare-out-samples16-stage-
+only against compare-out-reset16, cut alone): wall 1.037x geometric mean,
+kernel 1.056x, no cell slower, book the far end at 1.13x kernel. The
+sweep had to be stopped because it rebuilds build/compiler from source per
+scene, and I had edited compiler sources while it ran -- never again
+during a sweep. With everything -- the cut, the reload, the kernels per
+sampler -- killeroo-simple is 31.17 ms (3.07x), the raygen 9.83 ms once
+the hit program no longer loads and pushes the draws, the Halton sample
+kernel 3.64 against pbrt's 3.71, the Halton camera kernel 2.75 against
+2.56.
+
+**The 30 scenes at 16 spp** (21:15-21:47, compare-out-samples16 against
+compare-out-reset16, compare_tables.py): wall 1.057x geometric mean,
+kernel 1.072x; faster on 28 of 30 cells, book 1.18x kernel, killeroo-gold
+1.17x, frame542 1.16x, killeroo-simple 1.13x, coated-gold 1.13x, crown
+and plume 1.11x, head 1.11x; the two lte-orb cells slower, silver 0.966x
+kernel (89.8 to 93.0 ms) and rough-glass 0.996x. Against pbrt --gpu the
+30-cell geometric mean went from 1.80x to 1.87x (the cells run from 1.25x,
+landscape, to 2.91x, killeroo-simple); the same 27 images match
+and the same three (pavilion-day, the two bistros) miss the lit-pixel
+rule as before; the two zero-day frames are missing from both sweeps
+because pbrt --gpu itself segfaults on them. lte-orb-silver, read off its
+kernel tables: the raygen fell 34.95 to 27.09 ms and the PMJ02BN sample
+kernel added 6.61 (pbrt's 6.09), but the CoatedDiffuse material kernel
+rose 25.72 to 29.60 -- it now gathers the bounce's samples from the record
+by slot, a 44-byte RaySamples struct per entry across two or three cache
+lines, where it had read them from its own compacted arrays, and where
+pbrt gathers its SOA<RaySamples>'s three Float4s and two floats. The next
+step for those cells is to store a cut's values in the record as the
+queue stores an entry, a struct of arrays by scalar (the leaves machinery
+of SSA/Defer.cpp), which the reload would rebuild from.
+
+**The entries, audited against pbrt's work items** (bytes an entry
+stores, from the arrays the SSA declares; pbrt's from
+wavefront/workitems.h): rays 181 against RayWorkItem's 184; escaped 161
+against 164; emissive 165 against 192; shadow 112 against 124;
+medium_samples 295 against 372; exits 252 against 330; hits 271 (311
+before the reload) against MaterialEvalWorkItem's 252; probes 369 against
+about 330; bssrdfs 382 (422 before) against 168. What is left in hits
+over pbrt: pixel_x and pixel_y (8 bytes, recomputable from the slot and
+the band -- the recipe analysis does not see the normalized-index
+relation), `wave` (4, pbrt's wavefrontDepth, which is the round counter
+and uniform per round: an induction on queue entries the analysis does
+not know), `mat` beside prim.material (4), the primitive's tag and index
+for hit_wo (5), prim.alpha and prim.light (8). bssrdfs carries the
+SubsurfaceMaterial by value where pbrt carries a material pointer: a
+program change (pass the index, re-read `materials[mat]` in the drain) or
+the index-into-read-only-storage rule applied to an ADT payload. The
+unread-leaf elision already drops prev_ctx, r_l, ray.o and the primitive's
+other payload words from the material queues.
+
+**The hit chain, and its extra hop.** Our closest-hit program (the SSA of
+`_rt_trace0!hit`) reads the record (`base`, `holder`), takes the
+primitive index from the hardware, and then: `prims[top]` for the
+primitive's tag (parallel to the rest; its payload goes unread for a
+mesh), `tris[base + prim]` for the Triangle, which is (mesh, tri),
+`meshes[t.mesh]` for the mesh's record, then the mesh's indices and its
+positions. pbrt's (optix.cu `__closesthit__triangle`,
+Triangle::InteractionFromIntersection) reads its record, whose first word
+is the mesh pointer (TriangleMeshRecord::mesh), then the indices, then the
+positions: three dependent loads to our four. The hop is `tris`: our
+Triangle record exists to say which mesh a triangle belongs to, and the
+record already knows (one build input is one mesh). The fix is two
+halves. The Mesh arm's `tris` becomes a set synthesized from the mesh and
+an index range -- `Triangle{mesh, i}` for `i` in the mesh's count -- so
+that `tris[base + prim]` is arithmetic, not a load; and the hit-group
+record carries the mesh index beside `base` and `holder` (pbrt's
+`rec.mesh`), so that `meshes[mesh]` is one hop from the record and the
+`prims[top]` read serves only the instance arms. The first half is a
+language and layout change -- a set defined by a range and a function,
+which the tree binding must still enumerate for the build -- and the
+second a change to `_RTRecord` and the driver's record fill; both are the
+user's to approve.
+
+**Open from this.** The skip bit for a cut not every path reaches;
+recomputing pure functions of the entry in the first pass's stored set;
+storing by entry index when the entries carry no slot; the loop form of
+specialize copies the camera's prologue loop too (seven copies of a kernel
+that zeroes the film, one launched); the round loop's count read stays by
+the user's ruling (pbrt runs maxDepth rounds blind, launching over empty
+queues).
