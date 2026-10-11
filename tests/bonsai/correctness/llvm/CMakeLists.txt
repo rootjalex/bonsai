@@ -120,6 +120,7 @@ add_bonsai_tests(
     semantics-defer.bonsai
     semantics-draw.bonsai
     semantics-reload-by-slot.bonsai
+    semantics-reload-two-routes.bonsai
     semantics-render.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai
@@ -130,6 +131,7 @@ add_bonsai_tests(
     specialize-bool.bonsai
     specialize-callee.bonsai
     specialize-loop.bonsai
+    specialize-loop-hoisted.bonsai
     specialize-nested.bonsai
     sret.bonsai
     ssa-intrinsics.bonsai

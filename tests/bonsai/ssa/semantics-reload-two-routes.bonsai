@@ -1,0 +1,108 @@
+//! flags: -p ssa
+
+// The reload of a record value by slot (semantics-reload-by-slot) when the
+// pushing function is reached from two drains: `shade` is pushed onto
+// `hits` straight from the second pass of `rays` and from the drain of
+// `mids`, the detour a far hit takes. At each of the two producer calls
+// the draw `u` the pusher hands on is a different load -- the rays pass's
+// own, and the mids drain's reload -- and each is a load of the one
+// record array at that call's slot, so the hits entry carries no `u`
+// (SSA/Defer.cpp, reload_recipe follows each route to the owner's call,
+// as the slot analysis does). The renderer's `vol_route` is this shape,
+// reached from the trace's drain and the medium kernel's. What to read
+// for: `Entry_mids` and `Entry_hits` without `u`; both drains loading
+// `rays_draw_slots[slot]`. The run-level test is correctness/llvm/
+// semantics-reload-two-routes.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func draw(p : i32, depth : i32) -> Float =
+    cast[[Float]]((p * 31 + depth * 17) % 7) / 7.0;
+
+func bounce(h : Hit, ray : Ray, u : Float) -> Ray = Ray{h.p * 2.0 + u, ray.d};
+
+func shade(h : Hit, ray : Ray, u : Float, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += emitted(h);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray, u), depth + 1, p, max_depth, rad);
+    return;
+}
+
+// A far hit's detour: a little emission of its own, then the shading of
+// a hit one step on.
+func route(h : Hit, ray : Ray, u : Float, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += 0.125;
+    shade(Hit{h.p + 1.0}, ray, u, depth, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    u = draw(p, depth);
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        if h.p >= 10.0 {
+            route(h, ray, u, depth, p, max_depth, rad);
+            return;
+        }
+        shade(h, ray, u, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    step.stage(draw, rays, samples);
+    mids = render.queue(root);
+    step.defer(route, mids);
+    hits = render.queue(root);
+    step.defer(shade, hits);
+    route.defer(shade, hits);
+}

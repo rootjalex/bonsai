@@ -38,7 +38,19 @@ Definition Definitions::of(const string &block, const shared_ptr<Value> &v) {
 
 const Argument *Definitions::parameter(const string &block,
                                        const shared_ptr<Value> &v) {
-    const Definition d = of(block, v);
+    Definition d = of(block, v);
+    // A `let` is a name for a value, not a computation (`let rs = @278`,
+    // the program's name for a split function's parameter): the parameter
+    // is the one it names.
+    for (;;) {
+        const auto *i = d.value ? std::get_if<std::shared_ptr<Instruction>>(&d.value->data)
+                                : nullptr;
+        if (i == nullptr || d.block.empty() || (*i)->op != Instruction::Op::Set ||
+            (*i)->operands.empty()) {
+            break;
+        }
+        d = of(d.block, (*i)->operands[0]);
+    }
     const auto *a = std::get_if<Argument>(&d.value->data);
     if (a == nullptr || d.block != func.blocks.front()->name) {
         return nullptr;

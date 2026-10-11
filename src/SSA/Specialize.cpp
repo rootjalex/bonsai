@@ -271,13 +271,63 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                             "` names a copy an earlier specialize made");
 
     for (const shared_ptr<Block> &at : outermost) {
-        const Terminator::ParFor loop =
-            std::get<Terminator::ParFor>(at->terminator.data);
-        const Cfg region_cfg(f, loop.body.name);
+        const string body_name =
+            std::get<Terminator::ParFor>(at->terminator.data).body.name;
+        const Cfg region_cfg(f, body_name);
         const vector<shared_ptr<Block>> region = region_cfg.blocks();
-        if (!mentions(region, param)) {
+        // The parameter as the region refers to it: by its name, or -- for
+        // one that arrives by pointer -- by the name of a whole read of it
+        // that a deferral hoisted before the loop (`@2335 = load(sampler)`,
+        // SSA/Defer.cpp), which is how a drain's body knows the sampler. A
+        // body that refers to it no way has nothing to specialize.
+        vector<string> aliases;
+        if (mentions(region, param)) {
+            aliases.push_back(param);
+        }
+        if (pointer != nullptr) {
+            Definitions defs(f, /*lenient=*/true);
+            set<string> seen;
+            for (const auto &block : region) {
+                for_each_value(*block, [&](shared_ptr<Value> &v) {
+                    string name;
+                    if (const auto *a = v ? std::get_if<Argument>(&v->data) : nullptr) {
+                        name = a->name;
+                    } else if (const auto *i = v ? std::get_if<shared_ptr<Instruction>>(&v->data)
+                                                 : nullptr) {
+                        name = (*i)->name;
+                    }
+                    if (name.empty() || name == param || !seen.insert(name).second) {
+                        return;
+                    }
+                    const Definition d = defs.of(block->name, v);
+                    const auto *i = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data)
+                                            : nullptr;
+                    // A read made before the loop: one inside the body is a
+                    // read of the pointer the copy's own slot answers.
+                    if (i == nullptr || d.block.empty() || region_cfg.contains(d.block) ||
+                        (*i)->op != Instruction::Op::Load ||
+                        (*i)->operands.size() != 1) {
+                        return;
+                    }
+                    const Argument *p = defs.parameter(d.block, (*i)->operands[0]);
+                    if (p != nullptr && p->name == param) {
+                        aliases.push_back(name);
+                    }
+                });
+            }
+        }
+        if (aliases.empty()) {
             continue;
         }
+
+        // The tag's source, read where the loop was, before the loop is
+        // copied: threading the parameter into the loop's block may give
+        // the block an argument and pass it on along the loop's own
+        // continuation -- a round loop carries it back around through the
+        // drain's block -- and the copies below have to carry it too.
+        shared_ptr<Value> given_here = at->get_value(param, parameter->type);
+        const Terminator::ParFor loop =
+            std::get<Terminator::ParFor>(at->terminator.data);
 
         // One copy of the body per variant, each entered by a selector block
         // that is the loop as it was, over the copy; the loop's block then
@@ -310,8 +360,8 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             made.push_back(std::move(copy));
         }
 
-        // The tag, read where the loop was, and the dispatch on it.
-        shared_ptr<Value> given_here = at->get_value(param, parameter->type);
+        // The tag, read from the value above where the loop was, and the
+        // dispatch on it.
         const auto at_instr = [&](const string &name, const Type &type,
                                   Instruction::Op op,
                                   vector<shared_ptr<Value>> operands) {
@@ -355,18 +405,21 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             }
 
             // Inside the copy, `param` is the specialized value: every use
-            // of the name renamed to one of this copy's own, defined in the
-            // head as the given value with the tag set to this variant's.
-            // The given value keeps the parameter's name, threaded into the
-            // head as before.
+            // of each of its names renamed to one of this copy's own,
+            // defined in the head as the given value with the tag set to
+            // this variant's. The given value keeps its name, threaded into
+            // the head as before. An alias that is a whole read of the
+            // pointer is the struct itself, and is specialized by value.
             vector<shared_ptr<Block>> copied;
             for (const auto &block : region) {
                 copied.push_back(copy.blocks.at(block->name));
             }
-            const string fresh = param + "!" + copy.variant;
-            rename_uses(copied, head, param, fresh);
-            shared_ptr<Value> given = head.get_value(param, parameter->type);
-
+            struct Specialized {
+                string fresh;
+                shared_ptr<Value> spec;
+                bool by_pointer = false;
+            };
+            vector<Specialized> specialized;
             vector<shared_ptr<Instruction>> prologue;
             const auto make = [&](const string &name, const Type &type,
                                   Instruction::Op op,
@@ -378,45 +431,52 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                 head.lookups[name] = value;
                 return value;
             };
-            // The given value as a whole -- read through the pointer, when
-            // that is how it arrived -- and its fields, the tag replaced.
-            // For a bool, the constant.
-            shared_ptr<Value> whole =
-                pointer != nullptr
-                    ? make(f.get_unique_name(), struct_type, Instruction::Op::Load,
-                           {given})
-                    : given;
-            vector<shared_ptr<Value>> fields;
-            for (size_t i = 0; !boolean && i < storage_t->fields.size(); i++) {
-                if (i == tag_at) {
-                    fields.push_back(std::make_shared<Value>(
-                        storage->tag_type.is_uint()
-                            ? Constant{storage->tag_type, uint64_t(copy.tag)}
-                            : Constant{storage->tag_type, int64_t(copy.tag)}));
-                    continue;
+            for (const string &alias : aliases) {
+                const bool by_pointer = alias == param && pointer != nullptr;
+                const Type alias_type = alias == param ? parameter->type : struct_type;
+                const string fresh = alias + "!" + copy.variant;
+                rename_uses(copied, head, alias, fresh);
+                shared_ptr<Value> given = head.get_value(alias, alias_type);
+                // The given value as a whole -- read through the pointer,
+                // when that is how it arrived -- and its fields, the tag
+                // replaced. For a bool, the constant.
+                shared_ptr<Value> whole =
+                    by_pointer ? make(f.get_unique_name(), struct_type,
+                                      Instruction::Op::Load, {given})
+                               : given;
+                vector<shared_ptr<Value>> fields;
+                for (size_t i = 0; !boolean && i < storage_t->fields.size(); i++) {
+                    if (i == tag_at) {
+                        fields.push_back(std::make_shared<Value>(
+                            storage->tag_type.is_uint()
+                                ? Constant{storage->tag_type, uint64_t(copy.tag)}
+                                : Constant{storage->tag_type, int64_t(copy.tag)}));
+                        continue;
+                    }
+                    fields.push_back(make(f.get_unique_name(),
+                                          storage_t->fields[i].type,
+                                          Instruction::Op::LoadField,
+                                          {whole, constant_u32(i)}));
                 }
-                fields.push_back(make(f.get_unique_name(),
-                                      storage_t->fields[i].type,
-                                      Instruction::Op::LoadField,
-                                      {whole, constant_u32(i)}));
-            }
-            shared_ptr<Value> spec;
-            if (boolean) {
-                spec = std::make_shared<Value>(
-                    Constant{parameter->type, copy.tag != 0});
-            } else if (pointer != nullptr) {
-                // Stored where the body can point at it: a slot under the
-                // copy's name, holding the specialized value.
-                spec = make(f.get_unique_name(), struct_type,
-                            Instruction::Op::MakeStruct, std::move(fields));
-                shared_ptr<Value> slot =
-                    make(fresh, parameter->type, Instruction::Op::Alloca, {});
-                prologue.push_back(std::make_shared<Instruction>(
-                    Instruction::Op::Store, vector<shared_ptr<Value>>{slot, spec},
-                    head.shared_from_this()));
-            } else {
-                spec = make(fresh, parameter->type, Instruction::Op::MakeStruct,
-                            std::move(fields));
+                shared_ptr<Value> spec;
+                if (boolean) {
+                    spec = std::make_shared<Value>(
+                        Constant{parameter->type, copy.tag != 0});
+                } else if (by_pointer) {
+                    // Stored where the body can point at it: a slot under
+                    // the copy's name, holding the specialized value.
+                    spec = make(f.get_unique_name(), struct_type,
+                                Instruction::Op::MakeStruct, std::move(fields));
+                    shared_ptr<Value> slot =
+                        make(fresh, parameter->type, Instruction::Op::Alloca, {});
+                    prologue.push_back(std::make_shared<Instruction>(
+                        Instruction::Op::Store, vector<shared_ptr<Value>>{slot, spec},
+                        head.shared_from_this()));
+                } else {
+                    spec = make(fresh, alias_type, Instruction::Op::MakeStruct,
+                                std::move(fields));
+                }
+                specialized.push_back({fresh, spec, by_pointer});
             }
             head.instrs.insert(head.instrs.begin(), prologue.begin(),
                                prologue.end());
@@ -445,8 +505,10 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             // parameter's tag fixed, and the copy called instead, so that
             // its match folds too -- `integrator_li!VolPath` has the volpath
             // arm alone. Recursively, as far as the value is passed on.
-            specialize_callees(fmap, copied, fresh, KeyVariant{copy.variant, copy.tag},
-                               storages);
+            for (const Specialized &s : specialized) {
+                specialize_callees(fmap, copied, s.fresh,
+                                   KeyVariant{copy.variant, copy.tag}, storages);
+            }
 
             // The uses then read the struct itself. By value, in place of
             // its name, which the simplifier's field rule cannot see through
@@ -458,30 +520,33 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             // after the last simplify. Either way the match's read of the
             // tag sees the struct, and folds. After the callees, which found
             // the value by its name.
-            const auto is_fresh = [&](const shared_ptr<Value> &u) {
-                const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
-                return a != nullptr && a->name == fresh;
-            };
-            if (pointer != nullptr) {
-                vector<shared_ptr<Instruction>> reads;
-                for (const auto &block : copied) {
-                    for (const auto &instr : block->instrs) {
-                        if (instr->op == Instruction::Op::Load &&
-                            instr->operands.size() == 1 && is_fresh(instr->operands[0])) {
-                            reads.push_back(instr);
+            for (const Specialized &s : specialized) {
+                const auto is_fresh = [&](const shared_ptr<Value> &u) {
+                    const auto *a = u ? std::get_if<Argument>(&u->data) : nullptr;
+                    return a != nullptr && a->name == s.fresh;
+                };
+                if (s.by_pointer) {
+                    vector<shared_ptr<Instruction>> reads;
+                    for (const auto &block : copied) {
+                        for (const auto &instr : block->instrs) {
+                            if (instr->op == Instruction::Op::Load &&
+                                instr->operands.size() == 1 &&
+                                is_fresh(instr->operands[0])) {
+                                reads.push_back(instr);
+                            }
                         }
                     }
-                }
-                for (const auto &read : reads) {
-                    replace_uses(f, read.get(), spec);
-                }
-            } else {
-                for (const auto &block : copied) {
-                    for_each_value(*block, [&](shared_ptr<Value> &u) {
-                        if (is_fresh(u)) {
-                            u = spec;
-                        }
-                    });
+                    for (const auto &read : reads) {
+                        replace_uses(f, read.get(), s.spec);
+                    }
+                } else {
+                    for (const auto &block : copied) {
+                        for_each_value(*block, [&](shared_ptr<Value> &u) {
+                            if (is_fresh(u)) {
+                                u = s.spec;
+                            }
+                        });
+                    }
                 }
             }
         }

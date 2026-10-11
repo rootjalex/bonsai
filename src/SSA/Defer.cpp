@@ -3139,12 +3139,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // `load(gep(array, slot))` with the array a value in scope and the
         // slot the entry's index field, which has to be the load's index at
         // every producer call.
+        // The value is followed route by route to the owner's calls into
+        // the chain (routes_to), not to one origin: a function reached from
+        // two drains -- the routing of a hit, from the trace's drain and the
+        // medium kernel's -- is handed a different load at each, and each
+        // has to be a load of the one array at that call's slot.
         const auto reload_recipe = [&](const string &g,
                                        const Definition &d) -> optional<Recipe> {
             if (!d.value || d.block.empty()) {
                 return std::nullopt;
             }
-            Definition od = d;
+            OwnerArgs at_sites;
             if (const auto *arg = std::get_if<Argument>(&d.value->data)) {
                 if (g == queue.owner) {
                     return std::nullopt;
@@ -3159,75 +3164,104 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         k = i;
                     }
                 }
-                if (k == gentry.args.size() || !invariant.at(g)[k] ||
-                    !origin.at(g)[k].value) {
+                if (k == gentry.args.size()) {
                     return std::nullopt;
                 }
-                od = origin.at(g)[k];
-            } else if (g != queue.owner) {
+                string why;
+                const optional<OwnerArgs> routes = routes_to(g, k, odefs, why);
+                if (!routes.has_value()) {
+                    return std::nullopt;
+                }
+                at_sites = *routes;
+            } else if (g == queue.owner) {
+                at_sites[d.block] = {d};
+            } else {
                 return std::nullopt;
             }
-            const auto *held = od.value ? std::get_if<shared_ptr<Instruction>>(&od.value->data)
-                                        : nullptr;
-            if (held == nullptr || od.block.empty() ||
-                (*held)->op != Instruction::Op::Load || (*held)->operands.size() != 1) {
+            if (at_sites.empty()) {
                 return std::nullopt;
             }
-            const Definition pd = odefs.of(od.block, (*held)->operands[0]);
-            const auto *pheld = pd.value ? std::get_if<shared_ptr<Instruction>>(&pd.value->data)
-                                         : nullptr;
-            if (pheld == nullptr || pd.block.empty() ||
-                (*pheld)->op != Instruction::Op::GEP || (*pheld)->operands.size() != 2) {
+            const Instruction *array = nullptr;
+            Definition array_def;
+            optional<size_t> index_field;
+            Type gep_type, load_type;
+            for (const auto &[site, ds] : at_sites) {
+                for (const Definition &od : ds) {
+                    const auto *held =
+                        od.value ? std::get_if<shared_ptr<Instruction>>(&od.value->data) : nullptr;
+                    if (held == nullptr || od.block.empty() ||
+                        (*held)->op != Instruction::Op::Load || (*held)->operands.size() != 1) {
+                        return std::nullopt;
+                    }
+                    const Definition pd = odefs.of(od.block, (*held)->operands[0]);
+                    const auto *pheld =
+                        pd.value ? std::get_if<shared_ptr<Instruction>>(&pd.value->data) : nullptr;
+                    if (pheld == nullptr || pd.block.empty() ||
+                        (*pheld)->op != Instruction::Op::GEP || (*pheld)->operands.size() != 2) {
+                        return std::nullopt;
+                    }
+                    const Definition ad = odefs.of(pd.block, (*pheld)->operands[0]);
+                    const auto *aheld =
+                        ad.value ? std::get_if<shared_ptr<Instruction>>(&ad.value->data) : nullptr;
+                    if (aheld == nullptr || (array != nullptr && array != aheld->get())) {
+                        return std::nullopt;
+                    }
+                    array = aheld->get();
+                    array_def = ad;
+                    gep_type = (*pheld)->type;
+                    load_type = (*held)->type;
+                    // The index at this call is the entry's slot.
+                    const Definition id = odefs.of(pd.block, (*pheld)->operands[1]);
+                    optional<size_t> here;
+                    for (const SlotGroup &group : slot_groups) {
+                        const auto it = group.index.find(site);
+                        if (it != group.index.end() && same_definition(it->second, id)) {
+                            here = group.field;
+                            break;
+                        }
+                    }
+                    if (!here.has_value() ||
+                        (index_field.has_value() && *index_field != *here)) {
+                        return std::nullopt;
+                    }
+                    index_field = here;
+                }
+            }
+            if (array == nullptr || !index_field.has_value()) {
                 return std::nullopt;
             }
-            const Definition ad = odefs.of(pd.block, (*pheld)->operands[0]);
-            const auto *aheld = ad.value ? std::get_if<shared_ptr<Instruction>>(&ad.value->data)
-                                         : nullptr;
-            if (aheld == nullptr) {
-                return std::nullopt;
-            }
+            // An array a cut's first pass alone writes, with every producer
+            // of this queue running in that cut's round after its second
+            // pass.
             bool kept = false;
             for (const auto &[qname, oq] : O->queue_sizes) {
-                if (oq.stable_arrays.contains(aheld->get()) &&
-                    after_second_pass(oq, producer_loop_block)) {
-                    kept = true;
+                if (!oq.stable_arrays.contains(array)) {
+                    continue;
                 }
+                bool every = !producer_loops.empty();
+                for (const auto &loop : producer_loops) {
+                    every = every && after_second_pass(oq, loop);
+                }
+                kept = kept || every;
             }
             if (!kept) {
                 return std::nullopt;
             }
-            optional<size_t> index_field;
-            for (const SlotGroup &group : slot_groups) {
-                bool same = !producers.empty();
-                for (const CallSite &pc : producers) {
-                    const auto it = group.index.find(pc.block->name);
-                    same = same && it != group.index.end() &&
-                           same_definition(it->second,
-                                           odefs.of(pc.block->name, (*pheld)->operands[1]));
-                }
-                if (same) {
-                    index_field = group.field;
-                    break;
-                }
-            }
-            if (!index_field.has_value()) {
-                return std::nullopt;
-            }
-            Recipe array;
-            array.kind = Recipe::Kind::Uniform;
-            array.uniform = ad;
+            Recipe arr;
+            arr.kind = Recipe::Kind::Uniform;
+            arr.uniform = array_def;
             Recipe slot;
             slot.kind = Recipe::Kind::Field;
             slot.field = *index_field;
             Recipe gep;
             gep.kind = Recipe::Kind::Op;
             gep.op = Instruction::Op::GEP;
-            gep.type = (*pheld)->type;
-            gep.operands = {array, slot};
+            gep.type = gep_type;
+            gep.operands = {arr, slot};
             Recipe load;
             load.kind = Recipe::Kind::Op;
             load.op = Instruction::Op::Load;
-            load.type = (*held)->type;
+            load.type = load_type;
             load.operands = {gep};
             return load;
         };

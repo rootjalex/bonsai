@@ -97,6 +97,7 @@ add_bonsai_tests(
     specialize-bool.bonsai
     specialize-first.bonsai
     specialize-loop.bonsai
+    specialize-loop-hoisted.bonsai
     specialize-nested.bonsai
     split.bonsai
     split-program-chunk.bonsai
@@ -104,6 +105,7 @@ add_bonsai_tests(
     split-unsigned.bonsai
     semantics-defer.bonsai
     semantics-reload-by-slot.bonsai
+    semantics-reload-two-routes.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai
     stage.bonsai
