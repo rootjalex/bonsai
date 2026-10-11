@@ -13842,9 +13842,9 @@ measured after; and a one-byte texel format for grey images.
 **The full sweep**, 30 scenes at 16, 64 and 128 spp against heatmap4 (the
 sweep before the sample pass): REPORT.md "Where it stands (2026-10-11)".
 
-### The cut's stored set as a struct of arrays (10-11, 15:00-)
+### The cut's stored set as a struct of arrays (10-11, 13:45-)
 
-The user's ruling (15:30): "the memory layout of the bounces must be SoA,
+The user's ruling (13:50): "the memory layout of the bounces must be SoA,
 that should always be our default until we add in the extra memory layout
 control for queues" -- step 6 of the morning's plan, first. And on a cap I
 had written into the reload recipe (`most_reloads = 64`): "the compiler
@@ -13903,7 +13903,7 @@ the stores through four pointers, the second pass loading all four since
 three loads with `w` undefined: `build<Draw>(u, uv, undef, flip)`), both
 printing the unscheduled program's film. The ssa and llvm suites pass
 (624). The GPU twins and the renderer's check wait for the card
-(loom-f2's claim, 15:00).
+(loom-f2's claim, 13:55).
 
 **Heuristics on the books.** `cook`'s `budget = 16` instructions per
 recipe (SSA/Defer.cpp) is a stand-in for a cost model -- what is cheaper
@@ -13912,15 +13912,25 @@ the renderer's entries as they are, but it is a number, not a rule, and
 should become an explicit cost comparison (the recomputation's
 instructions against a store at the push and a load at the drain) or go.
 
-**Open from this.** The GPU check (killeroo-simple byte-identical to
-heatmap5's images; lte-orb-silver and rough-glass timed against heatmap5,
-three repeats each side); the dead parameter of the hit continuation;
-step 1 of the plan with push-aware reads, which empties the material
-kernels' and the hit program's loads of the draws they hand on.
+**Measured (15:30, `compare-out-soa`, a compiler kept at 28bd4aac in
+scratch/wt-28bd4aac/build through BONSAI_BUILD_DIR, against heatmap5):**
+kernel 1.018x as a geometric mean at 16 and at 64 spp over killeroo-simple,
+killeroo-gold, book, lte-orb-silver and lte-orb-rough-glass, every cell
+faster; silver 1.043x at both counts (93.0 -> 89.2 ms at 16, 371.6 ->
+356.3 at 64), rough-glass 1.013x and 1.011x, killeroo-simple 1.024x and
+1.023x, gold 1.008x, book 1.004x. The two cells the sample pass had slowed
+(0.966x and 0.996x on 10-10) are ahead. killeroo-simple's radiance, albedo
+and normals are byte-identical to heatmap5's at both counts; the GPU
+twins of the two tests pass. REPORT.md "Where it stands (2026-10-11,
+15:55)" has the table.
 
-### Step 1: a call's argument is read as the callee reads it (10-11, 16:30-)
+**Open from this.** The dead parameter of the hit continuation (the seven
+draw loads in the closest-hit program); step 1 with push-aware reads --
+built next, below.
 
-The user (16:20): "Yes, start step 1 now."
+### Step 1: a call's argument is read as the callee reads it (10-11, 14:40-)
+
+The user (14:40): "Yes, start step 1 now."
 
 **Built.** `read_paths` (SSA/Analysis.h) takes the program's functions
 and follows calls: the paths a callee reads of parameter k are the paths
@@ -13992,3 +14002,14 @@ queue stores `ray_d` alone (`build<Ray>(undef, d)` at the drain). Two
 goldens changed and were read before blessing: semantics-stage and
 semantics-reload-two-routes lose the array for `ray.o`, which every callee
 reads only the direction of. The ssa and llvm suites pass (628).
+
+**Measured (15:45, `compare-out-step1`, HEAD's compiler, against
+`compare-out-soa`):** kernel 1.029x as a geometric mean at 16 and at 64
+spp, every cell faster -- killeroo-gold 1.031x and 1.029x, book 1.030x and
+1.029x, lte-orb-silver 1.044x and 1.042x, rough-glass 1.022x and 1.027x,
+killeroo-simple 1.017x and 1.016x. Against heatmap5 the two steps
+together are 1.047x kernel at both counts (wall 1.050x and 1.044x). All
+ten radiance images are byte-identical to heatmap5's. pbrt's wall time
+moved between the two runs (killeroo-simple at 64 spp 0.21 s then 0.26 s)
+while its kernel time held, so the kernel column is the one to read; the
+compare's log now records which compiler a run used (gpu_compare.sh).

@@ -19,7 +19,52 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
-## Where it stands (2026-10-11, 14:00)
+## Where it stands (2026-10-11, 15:55)
+
+**Two steps of the work-item plan, each measured on its own.** The user's
+rulings this afternoon: a cut's stored set is a struct of arrays by
+default (step 6 of PLAN.md's plan, commit 28bd4aac), and step 1, a call's
+argument read as the callee reads it (e07e53b4). Each was timed against
+heatmap5 on killeroo-simple, killeroo-gold, book and the two lte-orb
+scenes at 16 and 64 spp, the protocol's set with the two scenes step 6 was
+for, pbrt --gpu rerun beside ours each time (least of three on each
+side), the first with a compiler kept at 28bd4aac, the second with HEAD.
+Kernel time in milliseconds, since pbrt's wall time moved between the
+runs (killeroo-simple at 64 spp: 0.21 s in one, 0.26 s in the next) while
+the kernel times held:
+
+| scene | spp | pbrt | heatmap5 | +SoA (28bd4aac) | +reads (e07e53b4) |
+|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.2 | 31.2 | 30.5 | 30.0 |
+| killeroo-gold | 16 | 149.3 | 77.9 | 77.3 | 75.0 |
+| book | 16 | 153.9 | 96.0 | 95.7 | 92.8 |
+| lte-orb-silver | 16 | 161.5 | 93.0 | 89.2 | 85.4 |
+| lte-orb-rough-glass | 16 | 334.1 | 213.7 | 211.0 | 206.5 |
+| killeroo-simple | 64 | 198.2 | 124.8 | 122.0 | 120.1 |
+| killeroo-gold | 64 | 599.0 | 310.9 | 308.3 | 299.5 |
+| book | 64 | 615.9 | 382.6 | 381.2 | 370.6 |
+| lte-orb-silver | 64 | 646.3 | 371.6 | 356.3 | 342.0 |
+| lte-orb-rough-glass | 64 | 1341.4 | 854.5 | 845.3 | 822.9 |
+
+The struct of arrays alone: kernel 1.018x faster than heatmap5 as a
+geometric mean at both counts, every cell faster, lte-orb-silver 1.043x
+-- the two cells that had slowed after the sample pass (0.966x and
+0.996x on 10-10) are ahead now, the 44-byte struct gathered per entry
+being seven arrays of which the exit and scatter kernels read four. The
+reads on top: another 1.029x at both counts, every cell faster
+(killeroo-gold 1.031x, book 1.030x, silver 1.044x), from entries that
+shrank -- hits 271 -> 255 bytes against pbrt's 252, bssrdfs 382 -> 345,
+probes 341 -> 316, medium_samples 255 -> 223, the two shadow queues 112
+-> 80, emissive 165 -> 149, escaped 161 -> 145. Together 1.047x kernel
+over heatmap5 at both counts, 1.050x and 1.044x wall. All ten images are
+byte-identical to heatmap5's radiance, and the four GPU tests of the cut
+and the reload (the scalar pair and the struct pair) pass. Open from the
+two: the material kernels and the closest-hit program still load all
+seven draw scalars for a parameter dead once pushes are lowered (PLAN.md,
+dead-argument elimination); `cook`'s instruction budget is a heuristic to
+replace.
+
+## Where it stands (2026-10-11, 13:30)
 
 **The sample pass over the full sweep: 30 scenes at 16, 64 and 128 spp**
 (`compare-out-heatmap5`, 10:24 to 12:48 with a stop of twenty-seven

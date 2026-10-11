@@ -156,6 +156,9 @@ OUT="$(cd "$OUT" && pwd)"
 if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
   cmake --build "$BONSAI_BUILD_DIR" -j > /dev/null
 fi
+# Which compiler this run's numbers are of: the path, and the commit its
+# tree is at (a kept copy's is the commit it was built from), for the log.
+echo "compiler: $BONSAI_BUILD_DIR/compiler ($(git -C "$(dirname "$BONSAI_BUILD_DIR")" rev-parse --short HEAD 2>/dev/null || echo 'no git tree'))"
 # The converter is one of the binaries --resume reuses, as the schedules'
 # are below: a sweep that calls this once per scene would otherwise rebuild
 # it every time.

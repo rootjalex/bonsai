@@ -54,7 +54,9 @@ add_bonsai_tests(
     rtcore-tlas.bonsai
     rtcore-placed.bonsai
     semantics-reload-by-slot.bonsai
+    semantics-reload-by-slot-soa.bonsai
     semantics-stage-same-queue.bonsai
+    semantics-stage-same-queue-soa.bonsai
     struct-capture.bonsai
     texture-cpp.bonsai
     threads.bonsai
