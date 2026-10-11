@@ -86,6 +86,12 @@ apps/pbrt/bench-out/
 eval/out/
 eval/plots/
 
+# The scenes converted for this renderer (apps/pbrt/convert_scene.sh): one
+# conversion per scene, shared by every sweep and every sample count -- data
+# regenerated from pbrt-v4-scenes, gigabytes for the large ones. The .pbrt
+# test scenes beside it in apps/pbrt/scenes are source and stay tracked.
+apps/pbrt/scenes/converted/
+
 # What apps/pbrt/render.sh leaves beside the source, and what Python leaves
 # beside its scripts. scene_dump is built on demand from PBRT's own build tree
 # rather than checked in, and scene.txt is what it writes.

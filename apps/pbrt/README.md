@@ -88,6 +88,18 @@ before it.
   stages (trace, shadow, each material, media, camera, film), per scene and
   per stage, worst ratio first; with `--report` it replaces the section
   between the `stages:begin` and `stages:end` markers of that file.
+- `convert_scene.sh <scene_dump> <dir/name> [options]`: the scene converted
+  once, into `scenes/converted/<dir>/<name>.txt` with its sidecars, shared
+  by every sweep and every sample count; prints the path. The conversion is
+  redone only when what it is a function of changed -- the converter's
+  sources, the pbrt it links, the options, the scene file -- which a stamp
+  beside it records. The sample count and path depth are not a
+  conversion's: the renderer's `--spp` and `--maxdepth` set them at render
+  time (pbrt's override, transcribed in `render_hook.cpp`), as pbrt's own
+  `--spp` does on the other side. `gpu_compare.sh` converts through it. The
+  folder is data, not source (.gitignore). Until 2026-10-11 every cell of a
+  sweep converted its scene again, and the copies of thirty sweeps filled
+  the disk.
 - `build_scene_dump.sh <out>`: builds `scene_dump`, which reads a `.pbrt`
   scene with pbrt's own parser and writes it in the driver's format: a text
   file for the small parts (camera, materials, lights, textures, spectra)

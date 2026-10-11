@@ -48,7 +48,14 @@
 # Scenes are named as `<dir>/<name>` under $SCENES_DIR (~/projects/
 # pbrt-v4-scenes): killeroos/killeroo-simple, pbrt-book/book. Only scenes
 # scene_dump converts can be given; the survey of the scene set is in
-# PLAN.md.
+# PLAN.md. Each scene is converted once, into apps/pbrt/scenes/converted/
+# <dir>/<name>.txt (convert_scene.sh), and that conversion serves every
+# count of this run and every later run until the converter's sources or
+# the scene change; the sample count is the renderer's own `--spp`
+# (pbrt's override transcribed, render_hook.cpp), as `--spp` is pbrt's on
+# the other side. A run is refused with less than 50 GB free under --out:
+# a cell writes a few hundred megabytes of renders, and the sweep of
+# 2026-10-11 filled the disk and lost its last twelve scenes.
 set -euo pipefail
 if [[ "$(pwd)" == */apps/pbrt ]]; then
   cd ../..
@@ -104,6 +111,14 @@ for SPP in $SPPS; do
 done
 if ! [[ "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -ge 1 ]]; then
   echo "--repeats takes a positive integer" >&2; fail=1
+fi
+# Room for the run: the nearest existing parent of --out, since --out may
+# not exist yet.
+room_dir="$(realpath -m "$OUT")"
+while [[ ! -d "$room_dir" ]]; do room_dir="$(dirname "$room_dir")"; done
+room_gb=$(df --output=avail -B1G "$room_dir" | tail -1 | tr -d ' ')
+if (( room_gb < 50 )); then
+  echo "only ${room_gb} GB free under $OUT; a run needs 50 GB of room" >&2; fail=1
 fi
 if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
            float pick(f3 v) { return v.y; }' |
@@ -298,11 +313,16 @@ for sc in $SCENES; do
     mv "$TABLE.tmp" "$TABLE"
   fi
   echo "== $name at $SPP spp"
-  # This renderer's scene, converted once.
-  # `--gpu`: the scene as `pbrt --gpu` builds it (a PLY's quads as
-  # triangles, which the hardware traces), since that is the reference.
-  (cd "$dir" && "$OUT/scene_dump" --gpu --spp "$SPP" "$name.pbrt" "$cell.txt" > "$cell.dump.log" 2>&1) ||
-    { echo "scene_dump refused $sc: $(tail -1 "$cell.dump.log")" >&2; continue; }
+  # This renderer's scene, converted once for every count and every run
+  # (convert_scene.sh: apps/pbrt/scenes/converted/<dir>/<name>.txt, redone
+  # only when the converter or the scene changed). `--gpu`: the scene as
+  # `pbrt --gpu` builds it (a PLY's quads as triangles, which the hardware
+  # traces), since that is the reference. The count is not the
+  # conversion's: it is the renderer's own `--spp` below, as it is pbrt's
+  # own `--spp` on the other side.
+  if ! conv=$(SCENES_DIR="$SCENES_DIR" PBRT="$PBRT" bash $PREFIX/convert_scene.sh "$OUT/scene_dump" "$sc" --gpu); then
+    continue
+  fi
   # pbrt: REPEATS timed renders (the least), one to a full-float image for the
   # comparison, and one under --stats for its kernel profile.
   REDONE=0; KEPT_DISTURBED=0
@@ -352,13 +372,13 @@ for sc in $SCENES; do
   for s in $SCHEDULES; do
     REDONE=0; KEPT_DISTURBED=0
     wall=""
-    if timed_run "BONSAI_REPEATS=$REPEATS '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.log' 2>&1"; then
+    if timed_run "BONSAI_REPEATS=$REPEATS '$OUT/$s/render.out' --spp '$SPP' --no-implicit-copies '$conv' '$cell.$s.pfm' > '$cell.$s.log' 2>&1"; then
       wall=$(sed -n 's/^render seconds: //p' "$cell.$s.log" | head -1)
     else
       echo "$s failed on $name: see $cell.$s.log" >&2
     fi
     profile_run "$cell.$s.stats" \
-      "BONSAI_REPEATS=$REPEATS BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --no-implicit-copies '$cell.txt' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
+      "BONSAI_REPEATS=$REPEATS BONSAI_KERNEL_STATS=1 '$OUT/$s/render.out' --spp '$SPP' --no-implicit-copies '$conv' '$cell.$s.pfm' > '$cell.$s.stats.try' 2>&1" \
       "sed -n 's/.*total kernel time *\([0-9.]*\) ms.*/\1/p' | head -1"
     kernel="$PROFILE"
     # (`|| true`: a FAILED verdict is an exit status, and a row of the table

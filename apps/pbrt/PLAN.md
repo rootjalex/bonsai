@@ -13753,3 +13753,91 @@ explained; (6) the cut's values as leaves with the reload per leaf (the
 lte-orb cells); (7) the handle `draws = ...stage(...)` and its storage
 word; (8) the hit chain's partial evaluation and, if approved, the index
 set.
+
+### The disk, the duplicate conversions, and the full sweep (10-11, 11:30-)
+
+**What happened.** The morning's heatmap sweep (`compare-out-heatmap5`,
+launched 10:24 on loom-f2's "done") lost its last twelve scenes at 11:30:
+the root filesystem, 3.6 TB, was full. The sweep's own output was 32 GB.
+What filled the disk was converted scenes: 1.1 TB of them under 55
+compare-out directories in apps/pbrt, 180 GB more under scratch, 180 GB
+under 25 compare-out directories at the repository root (the experiments
+of 10-04 to 10-06), 117 GB under eval. Every cell of every sweep had
+converted its scene again (`scene_dump --gpu --spp N` per cell), so a
+scene had three identical copies of its geometry and texture sidecars per
+sweep -- a scene's .geo and .tex are byte-identical across counts, only
+the `sampler` line of the .txt differs -- and no sweep ever deleted them.
+kroken's conversion is 10.6 GB (its 288 million displaced triangles, as
+`pbrt --gpu` builds them), landscape's 4.5 GB.
+
+**The cleanup** (the user: "do a big clean up of the unnecessary logs in
+this repo, but obviously, do not delete anything important"; then "Can
+the compare-out folders be deleted? what about stuff in eval?"). Deleted:
+every converted-scene copy outside the shared folder below (1.6 TB in a
+first pass that let the sweep resume, 117 GB in a second once the folder
+held the thirty scenes); the 25 root-level compare-out directories whole
+(their numbers are in this file's sections of 10-04 to 10-06); eval/out's
+float renders (46 GB; its results.json and results.tsv and eval/plots
+stay). Kept: every compare-out directory under apps/pbrt with its tables,
+stats, logs, PNGs and float renders -- the sweeps REPORT.md cites and
+compares (heatmap to heatmap5, gpu-sweep, gpu-fix, reset16, samples16)
+and the variant sweeps of 10-06 to 10-08 -- bench-out's renders, scratch's
+scripts and pinned worktrees. The disk went from 100% to 47% used, 1.9 TB
+free. The sweep resumed at 11:57 and finished at 12:48.
+
+**One conversion per scene** (the user: "We should never have duplicate
+scenes converted. Please make a (not checked in, but gitignored)
+apps/pbrt/scenes folder with each scene converted only once, and all other
+copies deleted."). `apps/pbrt/convert_scene.sh <scene_dump> <dir/name>
+[options]` prints `apps/pbrt/scenes/converted/<dir>/<name>.txt`,
+converting when the conversion is missing or stale: a stamp beside it
+hashes what the conversion is a function of -- the converter's sources
+(scene_dump.cpp, scene_io.h, measured_io.h, the FlatBuffer schema, the
+spectral and Sobol' tables), the pbrt binary's size and mtime, the options,
+the scene file's size and mtime. The folder is a `converted/` subfolder of
+apps/pbrt/scenes, beside the tracked test scenes, so that one .gitignore
+line covers it and the .pbrt files stay tracked. The sample count is not a
+conversion's: gpu_compare.sh converts with `--gpu` alone and renders with
+the renderer's own `--spp N` (render_hook.cpp's sampler_at, pbrt's
+override transcribed per sampler, which the eval tool's cells already
+use), as `--spp` is pbrt's own on the other side. Verified with the
+sweep's own render.out from the shared conversions: killeroo-simple at 64
+(halton), lte-orb-silver at 64 (pmj02bn, whose sorting into pixels depends
+on the count) and clouds at 16 (zsobol), each byte-identical to the
+sweep's radiance, albedo and normals. gpu_compare.sh now also refuses to
+start with under 50 GB free under --out. Open: compare.sh and render.sh
+still convert into their work directory per run -- one scene at a time,
+and their `--disable-pixel-jitter` and CPU form are other conversions --
+and could take the shared folder keyed by option.
+
+**Why the texture sidecars are three times pbrt's** (the user: "the scene
+dumps should not be so huge! I thought we were making them memory
+efficient"). landscape's .tex is 3.04 GB: 585 texture records, 6538
+levels, 1013 million texels at three bytes each. The scene's image files
+hold 186 million texels (191 files: 88 RGB, 52 grey, 47 RGBA, 4 palette),
+250 million with their pyramids, 0.75 GB at three bytes a texel -- the file
+holds each pyramid four times over. The cause is convert_image_texture
+(scene_dump.cpp): it builds the pyramid and appends its levels per imagemap
+*declaration* (its cache is by texture name and folded scale), and
+landscape declares 861 imagemaps over those 191 files (Abies_concolor_tr_01_co.png
+24 times, meadow_oldgrass01.png 22). pbrt shares them:
+ImageTextureBase::GetTexture caches the MIPMap by TexInfo -- filename,
+filter options, wrap mode, encoding (textures.h:505-549) -- one pyramid per
+distinct file, and its stats for landscape count 990 MiB of ImageTextures
+(793 MiB of image maps) against our 3.04 GB. The widening of a one-channel
+image to three bytes a texel (the comment at the texel copy) costs another
+0.11 GB here (52 grey images, 40 million texels, one byte in pbrt) and
+matters less. Geometry is not bloated: landscape's .geo is 1.12 GB for
+27.9 million triangles (40 bytes a triangle with normals and uvs),
+kroken's 10.6 GB for 288 million, which is what `pbrt --gpu` holds too
+(its stats: 5.36 GiB of acceleration structures for kroken). The older
+dumps' .txt files were large (121 GB over 674 files, where today's are
+kilobytes), a format since replaced; they went with the rest. **Deferred,
+the user's to call:** key the pyramid in convert_image_texture by file,
+wrap mode and encoding as pbrt does, so declarations share levels -- a
+converter change, every conversion redone, the renderer unchanged, a
+third of the texture memory and cache footprint on landscape, the sweep
+measured after; and a one-byte texel format for grey images.
+
+**The full sweep**, 30 scenes at 16, 64 and 128 spp against heatmap4 (the
+sweep before the sample pass): REPORT.md "Where it stands (2026-10-11)".
