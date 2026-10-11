@@ -1,0 +1,93 @@
+//! flags: -p ssa -b llvm -e
+
+// docs/schedule-semantics.md, 4.5, run: the cut on the same queue with a
+// struct for the draw -- a float, a two-vector, a float the rest never
+// reads, a bool -- stored as a struct of arrays of the record and put back
+// together by the second pass (the shape is tests/bonsai/ssa/
+// semantics-stage-same-queue-soa). Prints what the unscheduled program
+// prints.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+element Draw {
+    u : Float;
+    uv : vec2f;
+    w : Float;
+    flip : bool;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func draw(p : i32, depth : i32) -> Draw {
+    u = cast[[Float]]((p * 31 + depth * 17) % 7) / 7.0;
+    return Draw{u, vec2f{u * 0.5, 1.0 - u}, u * 3.0, (p + depth) % 2 == 0};
+}
+
+func bounce(h : Hit, ray : Ray, s : Draw) -> Ray =
+    Ray{h.p * 2.0 + s.u + s.uv[1], select(s.flip, -ray.d, ray.d)};
+
+func shade(h : Hit, ray : Ray, s : Draw, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += emitted(h) + s.uv[0];
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray, s), depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    s = draw(p, depth);
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, s, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    step.stage(draw, rays, samples);
+}

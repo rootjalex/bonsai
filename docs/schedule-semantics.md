@@ -736,10 +736,13 @@ in the place the drain had:
 `S` is what the second pass needs and cannot get otherwise: `r`, and each
 value of `L` that is not a field of the entry, not the same for every
 entry, and not a pure function of those (which the second pass recomputes,
-the rule of 4.2). The record gains one array per value of `S`, one slot
-per producer iteration as a reducer's is (4.2). The first pass writes it at
-the entry's slot, which the entry carries already (pbrt's `pixelIndex`),
-and the second pass reads it there. No entry grows and no push changes.
+the rule of 4.2). The record gains, for each value of `S`, one array per
+scalar of it -- the entry's rule of 4.2, a struct of arrays: a short vector
+one packed array, bools eight to a byte, an ADT's padding nowhere -- one
+slot per producer iteration as a reducer's is (4.2). The first pass writes
+them at the entry's slot, which the entry carries already (pbrt's
+`pixelIndex`), and the second pass reads back the scalars it uses. No
+entry grows and no push changes.
 The first pass takes the name `l`. The second keeps the queue's name `q`,
 so a directive on `q` written after this one addresses the pass that runs
 `K`.
@@ -854,26 +857,29 @@ a deferral onto a new queue:
    caller, back to the drain's own call, is a value the drain hands the
    chain (an entry field, a uniform, a slot address, the queue), and the
    second pass hands it again. The others are `S`. For each, an array of
-   the record, `q_<name>_slots : mut T[n]`, is made where the record's
-   arrays are and sized as they are. `Entry_q` and `Queue_q` are
-   unchanged, so every push onto `q` is.
+   the record per scalar of its type, `q_<name>_<scalar>_slots : mut
+   T[n]` (`q_<name>_slots` for a scalar value), is made where the record's
+   arrays are and sized as they are, the scalars those of 4.2's struct of
+   arrays. `Entry_q` and `Queue_q` are unchanged, so every push onto `q`
+   is.
 4. Every function on the chain from the drain to `f` gains a parameter
-   `_<name>_q : mut T*` per value of `S`, a pointer to this entry's slot
-   of its array, handed down as `_queue_q` is. In `R!stage` the tail call
-   becomes a store of each value through its pointer, then `return`.
+   `_<name>_<scalar>_q : mut T*` per array, a pointer to this entry's slot
+   of it, handed down as `_queue_q` is. In `R!stage` the tail call becomes
+   a store of each scalar through its pointer, then `return`.
 5. The drain's block and body are copied. The copy, its body as it was,
    is named `l` and placed where the drain was, the round entering it
    first; it takes the block's side effects with it, the reset of the
    other buffer's count, so that they come before both passes. Its call
-   hands the chain `&q_<name>_slots[slot]` for each value of `S`, `slot`
+   hands the chain `&q_<name>_<scalar>_slots[slot]` for each array, `slot`
    the one the entry carries (`_slot_q`). The drain follows the copy,
    keeping the name `q`, the bounds, and the capacity and count a GPU
    launch is built from (Section 3), with a new body: the entry's leaves
-   loaded at `q` as before, each value of `S` loaded from
-   `q_<name>_slots[slot]`, and the call `f!after(r, live..)` with them
+   loaded at `q` as before, each value of `S` put back together from its
+   scalars loaded at `slot`, and the call `f!after(r, live..)` with them
    and the values handed again. That is the call the drain of a new queue
    would have made, with loads from the record in place of the new
-   queue's.
+   queue's; a scalar the rest never reads is a dead load once the rest is
+   folded in, so each pass reads what it uses.
 6. The rest, `f!after`, is folded into the second pass as a drained
    callee is folded into its drain (4.2).
 

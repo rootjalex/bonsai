@@ -5,6 +5,7 @@
 #include "SSA/SSA.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -88,6 +89,61 @@ struct QueueLayout {
 };
 // The layouts of a program's queues, by the queue type's name.
 using QueueLayouts = std::map<std::string, QueueLayout>;
+
+// The scalars of a value stored as a struct of arrays -- a queue's entry
+// (SSA/Defer.cpp), or the set a cut on the same queue stores in the record
+// for its second pass (SSA/Stage.cpp) -- by one rule for both.
+using Leaf = QueueLayout::Leaf;
+// The name of component `k` of a short vector: xyzw, or the index.
+std::string component_name(uint32_t k, uint32_t lanes);
+// Whether a short vector is kept whole as one packed leaf where the layout
+// keeps vectors: two to four numbers, not bools.
+bool whole_vector(const Vector_t &v);
+// The leaves of a value of `type` named `name`, appended to `out` in the
+// order take_apart() reads them and rebuild() puts them back; an ADT's
+// padding (`adts`, by struct name) is marked Pad; with `vector_leaves` a
+// short vector is one packed leaf.
+void leaves_of(const std::string &name, const Type &type,
+               const std::map<std::string, ir::Program::AdtStorage> *adts,
+               bool in_pad, bool vector_leaves, const std::vector<unsigned> &path,
+               std::vector<Leaf> &out);
+// The bools among `leaves` packed eight to a byte: each becomes bit `bit` of
+// a byte leaf `_bits<k>` appended after the leaves given. Hands back how many
+// leaves the values own; the bytes follow from there.
+size_t pack_bools(std::vector<Leaf> &leaves);
+// Whether a read of `read` -- a path into a value, the empty path the whole
+// of it -- touches the leaf at `leaf`.
+bool covers(const std::vector<unsigned> &read, const std::vector<unsigned> &leaf);
+// Makes an instruction where the caller wants it, and hands back its value.
+using Emit = std::function<std::shared_ptr<Value>(const Type &, Instruction::Op,
+                                                  std::vector<std::shared_ptr<Value>>)>;
+// The leaves of `value` appended to `out` in leaf order from `leaves[l]`,
+// `l` left after the last; a gang of `lanes` entries, or one. An undefined
+// value gives a null part, which nothing stores.
+void take_apart(const std::shared_ptr<Value> &value, const std::vector<Leaf> &leaves,
+                size_t &l, uint32_t lanes, const Emit &emit,
+                std::vector<std::shared_ptr<Value>> &out);
+// The bytes the bools pack into, from the parts take_apart() gave: for each
+// byte leaf from `value_leaves` on, the or of its bits cast to the byte and
+// shifted into place -- the bits that have a part and that `keep(b)` -- or
+// null when none has. `byte_t` is the byte, or a gang-wide vector of it when
+// `lanes` > 1.
+void pack_bits(std::vector<std::shared_ptr<Value>> &parts, const std::vector<Leaf> &leaves,
+               size_t value_leaves, const Type &byte_t, uint32_t lanes,
+               const std::function<bool(size_t)> &keep, const Emit &emit);
+// A bool of `type` back out of its byte: bit `leaf.bit` of `word`, tested.
+std::shared_ptr<Value> unpack_bit(const std::shared_ptr<Value> &word, const Leaf &leaf,
+                                  const Type &type, const Emit &emit);
+// A value of `type` put back together from its leaves, `next_leaf` giving
+// each in leaf order (take_apart() inverted, for one entry); `stored_whole`
+// says whether the next leaf is a vector of `type` kept whole.
+std::shared_ptr<Value> rebuild(
+    const Type &type, const Emit &emit,
+    const std::function<std::shared_ptr<Value>(const Type &)> &next_leaf,
+    const std::function<bool(const Type &)> &stored_whole);
+// Whether `leaf` is a vector stored whole and packed whose value in the
+// program is `type`, the same vector unpacked.
+bool packs(const Leaf &leaf, const Type &type);
 
 // A queue as the schedule declared it (ir::Queue), with its owner resolved:
 // `paths = render.queue(p)` is owner `render`, loop `p`; `.queue(root)` is

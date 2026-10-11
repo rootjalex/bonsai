@@ -655,8 +655,11 @@ struct Field {
     optional<Recipe> recipe;
 };
 
-// One scalar of an entry (see QueueLayout in SSA/Defer.h).
-using Leaf = QueueLayout::Leaf;
+} // namespace
+
+// The scalars of an entry -- and of the set a cut on the same queue stores
+// (SSA/Stage.cpp) -- declared beside QueueLayout in SSA/Defer.h, so that
+// both are stored as a struct of arrays by one rule.
 
 // The name of component `k` of a short vector: the geometric letters for a
 // vector short enough to have them, the index otherwise.
@@ -849,7 +852,72 @@ bool packs(const Leaf &leaf, const Type &type) {
            stored->lanes == held->lanes && equals(stored->etype, held->etype);
 }
 
-} // namespace
+// The bools, eight to a byte: each bool leaf becomes a bit of a byte leaf
+// `_bits<k>` appended after the leaves given, and the byte is what is stored
+// (QueueLayout) -- one array for eight bools, where a bool of its own takes a
+// byte in memory anyway.
+size_t pack_bools(vector<Leaf> &leaves) {
+    const size_t value_leaves = leaves.size();
+    vector<size_t> bools;
+    for (size_t l = 0; l < value_leaves; l++) {
+        if (leaves[l].kind == Leaf::Kind::Stored && leaves[l].type.is_bool()) {
+            bools.push_back(l);
+        }
+    }
+    for (size_t k = 0; k * 8 < bools.size(); k++) {
+        Leaf word;
+        word.name = "_bits" + std::to_string(k);
+        word.type = u8();
+        const size_t w = leaves.size();
+        leaves.push_back(std::move(word));
+        for (unsigned b = 0; b < 8 && k * 8 + b < bools.size(); b++) {
+            Leaf &bit = leaves[bools[k * 8 + b]];
+            bit.kind = Leaf::Kind::Bit;
+            bit.word = w;
+            bit.bit = b;
+        }
+    }
+    return value_leaves;
+}
+
+// The byte of each word leaf: the or of its bools cast to the byte and
+// shifted to their bits, lane-wise for a gang. A bit that is undefined or
+// that `keep` declines is left zero; a byte with none stays null, and is not
+// stored.
+void pack_bits(vector<shared_ptr<Value>> &parts, const vector<Leaf> &leaves,
+               size_t value_leaves, const Type &byte_t, uint32_t lanes,
+               const std::function<bool(size_t)> &keep, const Emit &emit) {
+    parts.resize(leaves.size());
+    for (size_t w = value_leaves; w < leaves.size(); w++) {
+        shared_ptr<Value> byte;
+        for (size_t b = 0; b < value_leaves; b++) {
+            if (leaves[b].kind != Leaf::Kind::Bit || leaves[b].word != w ||
+                parts[b] == nullptr || !keep(b)) {
+                continue;
+            }
+            auto bit = emit(byte_t, Instruction::Op::Cast, {parts[b]});
+            if (leaves[b].bit != 0) {
+                shared_ptr<Value> by =
+                    std::make_shared<Value>(Constant{u8(), uint64_t(leaves[b].bit)});
+                if (lanes > 1) {
+                    by = emit(byte_t, Instruction::Op::Bc, {by, constant_u32(lanes)});
+                }
+                bit = emit(byte_t, Instruction::Op::Shl, {bit, by});
+            }
+            byte = byte == nullptr ? bit : emit(byte_t, Instruction::Op::BwOr, {byte, bit});
+        }
+        parts[w] = byte;
+    }
+}
+
+// A bool back out of its byte: its bit masked and tested against zero.
+shared_ptr<Value> unpack_bit(const shared_ptr<Value> &word, const Leaf &leaf,
+                             const Type &type, const Emit &emit) {
+    auto masked = emit(u8(), Instruction::Op::BwAnd,
+                       {word, std::make_shared<Value>(Constant{u8(), uint64_t(1) << leaf.bit})});
+    return emit(type, Instruction::Op::Ne,
+                {masked, std::make_shared<Value>(Constant{u8(), uint64_t(0)})});
+}
 
 //===--------------------------------------------------------------------===//
 // defer()
@@ -3181,89 +3249,194 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (at_sites.empty()) {
                 return std::nullopt;
             }
-            const Instruction *array = nullptr;
-            Definition array_def;
-            optional<size_t> index_field;
-            Type gep_type, load_type;
-            for (const auto &[site, ds] : at_sites) {
-                for (const Definition &od : ds) {
-                    const auto *held =
-                        od.value ? std::get_if<shared_ptr<Instruction>>(&od.value->data) : nullptr;
-                    if (held == nullptr || od.block.empty() ||
-                        (*held)->op != Instruction::Op::Load || (*held)->operands.size() != 1) {
-                        return std::nullopt;
-                    }
-                    const Definition pd = odefs.of(od.block, (*held)->operands[0]);
-                    const auto *pheld =
-                        pd.value ? std::get_if<shared_ptr<Instruction>>(&pd.value->data) : nullptr;
-                    if (pheld == nullptr || pd.block.empty() ||
-                        (*pheld)->op != Instruction::Op::GEP || (*pheld)->operands.size() != 2) {
-                        return std::nullopt;
-                    }
-                    const Definition ad = odefs.of(pd.block, (*pheld)->operands[0]);
-                    const auto *aheld =
-                        ad.value ? std::get_if<shared_ptr<Instruction>>(&ad.value->data) : nullptr;
-                    if (aheld == nullptr || (array != nullptr && array != aheld->get())) {
-                        return std::nullopt;
-                    }
-                    array = aheld->get();
-                    array_def = ad;
-                    gep_type = (*pheld)->type;
-                    load_type = (*held)->type;
-                    // The index at this call is the entry's slot.
-                    const Definition id = odefs.of(pd.block, (*pheld)->operands[1]);
-                    optional<size_t> here;
-                    for (const SlotGroup &group : slot_groups) {
-                        const auto it = group.index.find(site);
-                        if (it != group.index.end() && same_definition(it->second, id)) {
-                            here = group.field;
-                            break;
+            // What the value is at the owner's calls, followed through the
+            // pure register operations that built it down to the loads. A
+            // cut's second pass puts a stored value back together from one
+            // array per scalar (SSA/Stage.cpp): a struct built from its
+            // leaves, a packed vector cast back, a bool tested out of its
+            // byte, an ADT's padding a constant. The recipe is that tree
+            // over loads at this entry's slot, so that the drain reads the
+            // scalars it uses -- the loads of the others are dead once the
+            // callee is folded in -- as pbrt's kernels read the members of
+            // pixelSampleState.samples they need. Every site has to agree
+            // on the shape at each node; a leaf is a load of one array at
+            // the slot, or a constant the same everywhere. The walk is over
+            // the owner's definitions -- a finite graph, a value's operands
+            // defined before it -- so it ends on its own; a definition two
+            // operands share is followed once (`seen`), and the recipe is
+            // as large as the expression that built the value and no
+            // larger.
+            size_t reloads = 0;
+            map<const Instruction *, optional<Recipe>> seen;
+            std::function<optional<Recipe>(const OwnerArgs &)> rebuilt =
+                [&](const OwnerArgs &sites) -> optional<Recipe> {
+                const Definition *lead = nullptr;
+                for (const auto &[site, ds] : sites) {
+                    for (const Definition &od : ds) {
+                        if (!od.value) {
+                            return std::nullopt;
+                        }
+                        if (lead == nullptr) {
+                            lead = &od;
                         }
                     }
-                    if (!here.has_value() ||
-                        (index_field.has_value() && *index_field != *here)) {
+                }
+                if (lead == nullptr) {
+                    return std::nullopt;
+                }
+                if (lead->block.empty()) {
+                    // A constant, the same at every site.
+                    for (const auto &[site, ds] : sites) {
+                        for (const Definition &od : ds) {
+                            if (!od.block.empty() || !same_value(*od.value, *lead->value)) {
+                                return std::nullopt;
+                            }
+                        }
+                    }
+                    Recipe c;
+                    c.kind = Recipe::Kind::Constant;
+                    c.constant = lead->value;
+                    return c;
+                }
+                const auto *lheld = std::get_if<shared_ptr<Instruction>>(&lead->value->data);
+                if (lheld == nullptr) {
+                    return std::nullopt;
+                }
+                const Instruction &li = **lheld;
+                if (const auto it = seen.find(&li); it != seen.end()) {
+                    return it->second;
+                }
+                optional<Recipe> &memo = seen[&li];
+                if (li.op == Instruction::Op::Load) {
+                    reloads++;
+                    const Instruction *array = nullptr;
+                    Definition array_def;
+                    optional<size_t> index_field;
+                    Type gep_type, load_type;
+                    for (const auto &[site, ds] : sites) {
+                        for (const Definition &od : ds) {
+                            const auto *held =
+                                std::get_if<shared_ptr<Instruction>>(&od.value->data);
+                            if (held == nullptr || od.block.empty() ||
+                                (*held)->op != Instruction::Op::Load ||
+                                (*held)->operands.size() != 1) {
+                                return std::nullopt;
+                            }
+                            const Definition pd = odefs.of(od.block, (*held)->operands[0]);
+                            const auto *pheld =
+                                pd.value ? std::get_if<shared_ptr<Instruction>>(&pd.value->data)
+                                         : nullptr;
+                            if (pheld == nullptr || pd.block.empty() ||
+                                (*pheld)->op != Instruction::Op::GEP ||
+                                (*pheld)->operands.size() != 2) {
+                                return std::nullopt;
+                            }
+                            const Definition ad = odefs.of(pd.block, (*pheld)->operands[0]);
+                            const auto *aheld =
+                                ad.value ? std::get_if<shared_ptr<Instruction>>(&ad.value->data)
+                                         : nullptr;
+                            if (aheld == nullptr || (array != nullptr && array != aheld->get())) {
+                                return std::nullopt;
+                            }
+                            array = aheld->get();
+                            array_def = ad;
+                            gep_type = (*pheld)->type;
+                            load_type = (*held)->type;
+                            // The index at this call is the entry's slot.
+                            const Definition id = odefs.of(pd.block, (*pheld)->operands[1]);
+                            optional<size_t> here;
+                            for (const SlotGroup &group : slot_groups) {
+                                const auto it = group.index.find(site);
+                                if (it != group.index.end() &&
+                                    same_definition(it->second, id)) {
+                                    here = group.field;
+                                    break;
+                                }
+                            }
+                            if (!here.has_value() ||
+                                (index_field.has_value() && *index_field != *here)) {
+                                return std::nullopt;
+                            }
+                            index_field = here;
+                        }
+                    }
+                    if (array == nullptr || !index_field.has_value()) {
                         return std::nullopt;
                     }
-                    index_field = here;
+                    // An array a cut's first pass alone writes, with every
+                    // producer of this queue running in that cut's round
+                    // after its second pass.
+                    bool kept = false;
+                    for (const auto &[qname, oq] : O->queue_sizes) {
+                        if (!oq.stable_arrays.contains(array)) {
+                            continue;
+                        }
+                        bool every = !producer_loops.empty();
+                        for (const auto &loop : producer_loops) {
+                            every = every && after_second_pass(oq, loop);
+                        }
+                        kept = kept || every;
+                    }
+                    if (!kept) {
+                        return std::nullopt;
+                    }
+                    Recipe arr;
+                    arr.kind = Recipe::Kind::Uniform;
+                    arr.uniform = array_def;
+                    Recipe slot;
+                    slot.kind = Recipe::Kind::Field;
+                    slot.field = *index_field;
+                    Recipe gep;
+                    gep.kind = Recipe::Kind::Op;
+                    gep.op = Instruction::Op::GEP;
+                    gep.type = gep_type;
+                    gep.operands = {arr, slot};
+                    Recipe load;
+                    load.kind = Recipe::Kind::Op;
+                    load.op = Instruction::Op::Load;
+                    load.type = load_type;
+                    load.operands = {gep};
+                    return memo = load;
                 }
-            }
-            if (array == nullptr || !index_field.has_value()) {
-                return std::nullopt;
-            }
-            // An array a cut's first pass alone writes, with every producer
-            // of this queue running in that cut's round after its second
-            // pass.
-            bool kept = false;
-            for (const auto &[qname, oq] : O->queue_sizes) {
-                if (!oq.stable_arrays.contains(array)) {
-                    continue;
+                // A pure register operation over reloads: the same operation
+                // of the same type and arity at every site, each operand
+                // followed in turn.
+                if (!recomputable(li) || reads_memory(li) ||
+                    li.op == Instruction::Op::Intrinsic || li.op == Instruction::Op::Reduce ||
+                    li.op == Instruction::Op::Shuffle || li.operands.empty()) {
+                    return std::nullopt;
                 }
-                bool every = !producer_loops.empty();
-                for (const auto &loop : producer_loops) {
-                    every = every && after_second_pass(oq, loop);
+                Recipe r;
+                r.kind = Recipe::Kind::Op;
+                r.op = li.op;
+                r.type = li.type;
+                for (size_t k = 0; k < li.operands.size(); k++) {
+                    OwnerArgs below;
+                    for (const auto &[site, ds] : sites) {
+                        for (const Definition &od : ds) {
+                            const auto *held =
+                                std::get_if<shared_ptr<Instruction>>(&od.value->data);
+                            if (held == nullptr || od.block.empty() || (*held)->op != li.op ||
+                                (*held)->operands.size() != li.operands.size() ||
+                                !equals((*held)->type, li.type)) {
+                                return std::nullopt;
+                            }
+                            below[site].push_back(odefs.of(od.block, (*held)->operands[k]));
+                        }
+                    }
+                    const optional<Recipe> o = rebuilt(below);
+                    if (!o.has_value()) {
+                        return std::nullopt;
+                    }
+                    r.operands.push_back(*o);
                 }
-                kept = kept || every;
+                return memo = r;
+            };
+            const optional<Recipe> recipe = rebuilt(at_sites);
+            if (!recipe.has_value() || reloads == 0) {
+                return std::nullopt; // nothing of it reloaded: cook's business
             }
-            if (!kept) {
-                return std::nullopt;
-            }
-            Recipe arr;
-            arr.kind = Recipe::Kind::Uniform;
-            arr.uniform = array_def;
-            Recipe slot;
-            slot.kind = Recipe::Kind::Field;
-            slot.field = *index_field;
-            Recipe gep;
-            gep.kind = Recipe::Kind::Op;
-            gep.op = Instruction::Op::GEP;
-            gep.type = gep_type;
-            gep.operands = {arr, slot};
-            Recipe load;
-            load.kind = Recipe::Kind::Op;
-            load.op = Instruction::Op::Load;
-            load.type = load_type;
-            load.operands = {gep};
-            return load;
+            return recipe;
         };
         const size_t budget = 16; // instructions a recipe may take
         for (size_t f = 0; f < fields.size() && !push_sites.empty(); f++) {
@@ -3498,29 +3671,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
     // The bools, eight to a byte: each becomes a bit of a byte leaf
     // `_bits<k>` appended after the fields' leaves, and the byte is what is
-    // stored (QueueLayout).
-    const size_t entry_leaves = leaves.size();
-    {
-        vector<size_t> bools;
-        for (size_t l = 0; l < leaves.size(); l++) {
-            if (leaves[l].kind == Leaf::Kind::Stored && leaves[l].type.is_bool()) {
-                bools.push_back(l);
-            }
-        }
-        for (size_t k = 0; k * 8 < bools.size(); k++) {
-            Leaf word;
-            word.name = "_bits" + std::to_string(k);
-            word.type = u8();
-            const size_t w = leaves.size();
-            leaves.push_back(std::move(word));
-            for (unsigned b = 0; b < 8 && k * 8 + b < bools.size(); b++) {
-                Leaf &bit = leaves[bools[k * 8 + b]];
-                bit.kind = Leaf::Kind::Bit;
-                bit.word = w;
-                bit.bit = b;
-            }
-        }
-    }
+    // stored (QueueLayout, pack_bools).
+    const size_t entry_leaves = pack_bools(leaves);
     // The queue's arrays: one per stored leaf, in leaf order.
     Struct_t::Map queue_fields = {TypedVar("count", u32())};
     size_t narrays = 0;
@@ -3671,6 +3823,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     vector<vector<bool>> dead_field(subqueues.size(), vector<bool>(fields.size(), false));
     vector<vector<bool>> unread_leaves(subqueues.size(),
                                        vector<bool>(leaves.size(), false));
+    // field_reads[q][f]: the paths queue q's callee reads of field f's
+    // parameter, for the parts of a recomputed field it never reads (the
+    // drain below); absent when it reads nothing of it.
+    vector<map<size_t, set<vector<unsigned>>>> field_reads(subqueues.size());
     {
         bool any = false;
         for (size_t q = 0; q < subqueues.size(); q++) {
@@ -3697,6 +3853,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                              });
                 }
                 dead_field[q][f] = it == reads.end();
+                if (it != reads.end()) {
+                    field_reads[q][f] = it->second;
+                }
             }
             // What a field is recomputed from is read when the field is.
             for (size_t f = 0; f < fields.size(); f++) {
@@ -4535,9 +4694,28 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
             auto it = field_values.find(f);
             if (it == field_values.end() && fields[f].recipe.has_value()) {
-                // Computed again from what the entry holds.
-                std::function<shared_ptr<Value>(const Recipe &)> cook =
-                    [&](const Recipe &r) -> shared_ptr<Value> {
+                // Computed again from what the entry holds. A part of it
+                // the callee never reads is not computed: down a struct the
+                // recipe builds, operand k is field or lane k, and a part at
+                // a path no read of the callee's parameter covers is left
+                // undefined -- so a value put back together from the
+                // record's arrays (the reload) loads the scalars the callee
+                // uses and no others. Below a read of a part (a field or
+                // lane taken) the path is another value's, and nothing is
+                // left out.
+                const auto rit = field_reads[q].find(f);
+                const set<vector<unsigned>> *reads =
+                    rit == field_reads[q].end() ? nullptr : &rit->second;
+                std::function<shared_ptr<Value>(const Recipe &, const vector<unsigned> &, bool)>
+                    cook = [&](const Recipe &r, const vector<unsigned> &path,
+                               bool known) -> shared_ptr<Value> {
+                    if (known && reads != nullptr &&
+                        std::none_of(reads->begin(), reads->end(),
+                                     [&](const vector<unsigned> &read) {
+                                         return covers(read, path);
+                                     })) {
+                        return undef_value(r.type);
+                    }
                     switch (r.kind) {
                     case Recipe::Kind::Constant:
                         return r.constant;
@@ -4549,12 +4727,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         break;
                     }
                     vector<shared_ptr<Value>> operands;
-                    for (const Recipe &o : r.operands) {
-                        operands.push_back(cook(o));
+                    for (size_t k = 0; k < r.operands.size(); k++) {
+                        vector<unsigned> below = path;
+                        bool below_known = known;
+                        if (r.op == Instruction::Op::MakeStruct) {
+                            below.push_back(unsigned(k));
+                        } else if (r.op == Instruction::Op::LoadField ||
+                                   r.op == Instruction::Op::ExtractIdx) {
+                            below_known = false;
+                        }
+                        operands.push_back(cook(r.operands[k], below, below_known));
                     }
                     return body->make_instruction(r.type, r.op, std::move(operands));
                 };
-                it = field_values.emplace(f, cook(*fields[f].recipe)).first;
+                it = field_values.emplace(f, cook(*fields[f].recipe, {}, true)).first;
             }
             if (it == field_values.end() && fields[f].index_field.has_value()) {
                 if (fields[f].slot_array == nullptr) {
@@ -4604,13 +4790,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                                   {run_storage(leaf.word), index}))
                                      .first;
                         }
-                        auto masked = body->make_instruction(
-                            u8(), Instruction::Op::BwAnd,
-                            {wv->second,
-                             std::make_shared<Value>(Constant{u8(), uint64_t(1) << leaf.bit})});
-                        return body->make_instruction(
-                            t, Instruction::Op::Ne,
-                            {masked, std::make_shared<Value>(Constant{u8(), uint64_t(0)})});
+                        return unpack_bit(wv->second, leaf, t, emit);
                     }
                     case Leaf::Kind::Stored:
                         break;
@@ -5210,36 +5390,10 @@ void lower_pushes(Function &func, const QueueLayouts &layouts) {
                 // The bools, each a bit of its byte: the byte is the or of
                 // the bools cast to it and shifted to their bits, lane-wise
                 // for a gang. A bit that is undefined or unread is left
-                // zero; a byte with none is not stored.
-                parts.resize(leaves.size());
+                // zero; a byte with none is not stored (pack_bits).
                 const Type byte_t = gang != nullptr ? Vector_t::make(u8(), lanes) : u8();
-                for (size_t w = entry_leaves; w < leaves.size(); w++) {
-                    shared_ptr<Value> byte;
-                    for (size_t b = 0; b < entry_leaves; b++) {
-                        if (leaves[b].kind != Leaf::Kind::Bit || leaves[b].word != w ||
-                            parts[b] == nullptr || unread(b)) {
-                            continue;
-                        }
-                        auto bit = insert_instruction(func, block, at++, byte_t,
-                                                      Instruction::Op::Cast, {parts[b]});
-                        if (leaves[b].bit != 0) {
-                            shared_ptr<Value> by = std::make_shared<Value>(
-                                Constant{u8(), uint64_t(leaves[b].bit)});
-                            if (gang != nullptr) {
-                                by = insert_instruction(func, block, at++, byte_t,
-                                                        Instruction::Op::Bc,
-                                                        {by, constant_u32(lanes)});
-                            }
-                            bit = insert_instruction(func, block, at++, byte_t,
-                                                     Instruction::Op::Shl, {bit, by});
-                        }
-                        byte = byte == nullptr
-                                   ? bit
-                                   : insert_instruction(func, block, at++, byte_t,
-                                                        Instruction::Op::BwOr, {byte, bit});
-                    }
-                    parts[w] = byte;
-                }
+                pack_bits(parts, leaves, entry_leaves, byte_t, gang != nullptr ? lanes : 1,
+                          [&](size_t b) { return !unread(b); }, emit);
             }
             // Each stored scalar goes to its array, whose handle is read
             // through the queue's address -- the handles the entry needs, not

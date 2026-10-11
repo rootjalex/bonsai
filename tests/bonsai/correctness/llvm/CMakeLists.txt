@@ -120,10 +120,12 @@ add_bonsai_tests(
     semantics-defer.bonsai
     semantics-draw.bonsai
     semantics-reload-by-slot.bonsai
+    semantics-reload-by-slot-soa.bonsai
     semantics-reload-two-routes.bonsai
     semantics-render.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai
+    semantics-stage-same-queue-soa.bonsai
     shadowed-let.bonsai
     simplify-facts.bonsai
     sink.bonsai

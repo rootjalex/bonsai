@@ -1,0 +1,106 @@
+//! flags: -p ssa
+
+// docs/schedule-semantics.md, 4.5: what the cut on the same queue stores is
+// a struct of arrays, by the rule a queue's entry is stored by (4.2). The
+// draw here is a struct -- a float, a two-vector, a float the rest never
+// reads, a bool -- and the record gets one array per scalar of it:
+// `rays_draw_u_slots`, `rays_draw_uv_slots` (the vector whole and packed,
+// since no gang touches the queue), `rays_draw_w_slots`, and
+// `rays__bits0_slots`, the byte the bool is a bit of. `step` ends by taking
+// the draw apart and storing each scalar through a pointer per array
+// (`_draw_u_rays`, `_draw_uv_rays`, `_draw_w_rays`, `__bits0_rays`), and the
+// second pass `rays` loads the scalars at the slot, tests the bit out of
+// its byte, and puts the draw back together for `step!after`. It loads
+// every scalar here, `w` included: `step!after` hands the whole draw to
+// `shade`, a call, which read_paths counts as a read of all of it (an
+// interprocedural read_paths would narrow it to what `shade` reads);
+// semantics-reload-by-slot-soa shows the per-scalar reads at a drain
+// whose callee reads only parts. semantics-stage-same-queue is the same
+// with a scalar draw, where the one array keeps its name
+// `rays_draw_slots`. The run-level test is
+// correctness/llvm/semantics-stage-same-queue-soa.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+element Draw {
+    u : Float;
+    uv : vec2f;
+    w : Float;
+    flip : bool;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+func draw(p : i32, depth : i32) -> Draw {
+    u = cast[[Float]]((p * 31 + depth * 17) % 7) / 7.0;
+    return Draw{u, vec2f{u * 0.5, 1.0 - u}, u * 3.0, (p + depth) % 2 == 0};
+}
+
+func bounce(h : Hit, ray : Ray, s : Draw) -> Ray =
+    Ray{h.p * 2.0 + s.u + s.uv[1], select(s.flip, -ray.d, ray.d)};
+
+func shade(h : Hit, ray : Ray, s : Draw, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += emitted(h) + s.uv[0];
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(bounce(h, ray, s), depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    s = draw(p, depth);
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, s, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    step.stage(draw, rays, samples);
+}

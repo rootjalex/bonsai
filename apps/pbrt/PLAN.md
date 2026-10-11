@@ -13841,3 +13841,79 @@ measured after; and a one-byte texel format for grey images.
 
 **The full sweep**, 30 scenes at 16, 64 and 128 spp against heatmap4 (the
 sweep before the sample pass): REPORT.md "Where it stands (2026-10-11)".
+
+### The cut's stored set as a struct of arrays (10-11, 15:00-)
+
+The user's ruling (15:30): "the memory layout of the bounces must be SoA,
+that should always be our default until we add in the extra memory layout
+control for queues" -- step 6 of the morning's plan, first. And on a cap I
+had written into the reload recipe (`most_reloads = 64`): "the compiler
+cannot be built on shitty heuristics! Either justify it or we need a
+replacement algorithm." It had no justification and is gone; the walk it
+bounded is over the owner's SSA definitions, a finite graph, and ends on
+its own, with a definition two operands share followed once.
+
+**Built.** A cut on the same queue stores its set as a queue's entry is
+stored (SSA/Stage.cpp, cut_same_queue; docs/schedule-semantics.md 4.5):
+each value flattened to its scalars by `leaves_of` -- one array per
+scalar, a short vector one packed array where no gang touches the queue,
+bools eight to a byte, an ADT's padding nowhere -- `<q>_<leaf>_slots` per
+array, a pointer parameter per array down the chain, the cut taking the
+value apart (`take_apart`, `pack_bits`) into stores, and the second pass
+putting it back together (`rebuild`, `unpack_bit`) from the scalars the
+rest reads (read_paths; a scalar it never reads is undefined). The leaf
+helpers moved out of Defer.cpp's anonymous namespace and are declared
+beside QueueLayout in SSA/Defer.h, so both stores are one rule; the
+entry's own bool packing and the push's bit packing now call the shared
+`pack_bools` and `pack_bits`. The reload recipe (SSA/Defer.cpp) follows
+the pure register operations that built a value at the owner's calls down
+to the loads -- the struct put back together, a packed vector cast back, a
+bit tested out of its byte, a constant pad -- and the recipe emitter at the
+drain leaves a part of a rebuilt struct undefined when no read of the
+callee's parameter covers its path (`covers`), so the drain loads the
+scalars the callee uses. A scalar value's storage and names are what they
+were (`rays_draw_slots`); the goldens of the scalar tests did not change.
+
+**In the renderer.** `RaySamples` is seven arrays
+(`rays_vol_ray_samples_{direct_uc,direct_u,indirect_uc,indirect_u,
+indirect_rr,subsurface_uc,subsurface_u}_slots`). Every entry type is as it
+was except two that shrank: `exits` lost its five draw fields (252 -> 224
+bytes) and `probes` the same (369 -> 341) -- they were `LoadField`s of the
+reloaded struct, which the old recipe, matching a load of the whole value
+only, did not see; the new one follows the field read to the load. What
+each drain loads of the seven: the exit kernel four (direct_uc, direct_u,
+indirect_uc, indirect_u), the medium scatter four, the probe kernel five,
+the material kernels all seven -- `vol_surface` hands `rs` whole to the
+subsurface push, a call when read_paths runs, so the whole is a read (the
+interprocedural read of step 1, made aware that a pushed argument the
+entry reloads is not a read of the pusher's, narrows it; pbrt's material
+kernel reads the whole SOA struct too) -- and the closest-hit program all
+seven, to build an argument its continuation never reads: `rs` goes to
+`vol_route`, whose pushes reload, so the parameter is dead and the loads
+with it. The old shape loaded the 44-byte struct there for the same
+reason. Removing a dead parameter from a function and the argument from
+its callers, to a fixed point, is the standard pass (LLVM's
+DeadArgumentElimination) the SSA does not have; the GPU backend's own
+optimizer may do it on the device module, which the PTX would show.
+
+**Tests.** ssa and llvm `semantics-stage-same-queue-soa` (the four arrays,
+the stores through four pointers, the second pass loading all four since
+`step!after` hands the draw whole to `shade`) and
+`semantics-reload-by-slot-soa` (the hits drain rebuilding the draw from
+three loads with `w` undefined: `build<Draw>(u, uv, undef, flip)`), both
+printing the unscheduled program's film. The ssa and llvm suites pass
+(624). The GPU twins and the renderer's check wait for the card
+(loom-f2's claim, 15:00).
+
+**Heuristics on the books.** `cook`'s `budget = 16` instructions per
+recipe (SSA/Defer.cpp) is a stand-in for a cost model -- what is cheaper
+to recompute than to store -- and predates today; it decides nothing in
+the renderer's entries as they are, but it is a number, not a rule, and
+should become an explicit cost comparison (the recomputation's
+instructions against a store at the push and a load at the drain) or go.
+
+**Open from this.** The GPU check (killeroo-simple byte-identical to
+heatmap5's images; lte-orb-silver and rough-glass timed against heatmap5,
+three repeats each side); the dead parameter of the hit continuation;
+step 1 of the plan with push-aware reads, which empties the material
+kernels' and the hit program's loads of the draws they hand on.

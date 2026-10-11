@@ -1,0 +1,282 @@
+type Draw = struct Draw{ u : f32; uv : f32x2; w : f32; flip : bool }
+type Entry_rays = struct Entry_rays{ ray : struct Ray{ o : f32; d : f32 }; depth : i32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Hit = struct Hit{ p : f32 }
+type Queue_rays = struct Queue_rays{ count : u32; ray_o : f32[]; ray_d : f32[]; depth : i32[]; _slot : i32[] }
+type Ray = struct Ray{ o : f32; d : f32 }
+type _option0 = struct _option0{ value : struct Hit{ p : f32 }; set : bool = false }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func bounce(h : Hit, ray : Ray, s : Draw) -> Ray {
+  let _t0 = ray.d in
+  let @1 = h.p in
+  let @2 = @1 * 2f in
+  let @3 = s.u in
+  let @4 = @2 + @3 in
+  let @5 = s.uv in
+  let @6 = @5[1] in
+  let @7 = @4 + @6 in
+  let @8 = s.flip in
+  let @9 = -0f - _t0 in
+  let @10 = select(@8, @9, _t0) in
+  let @11 = build<Ray>(@7, @10) in
+  return @11
+}
+
+func camera(p : i32) -> Ray {
+  let @0 = cast<f32>(p) in
+  let @1 = build<Ray>(@0, 1f) in
+  return @1
+}
+
+func draw(p : i32, depth : i32) -> Draw {
+  let @0 = p * 31 in
+  let @1 = depth * 17 in
+  let @2 = @0 + @1 in
+  let @14 = mulhi(@2, -1840700269) in
+  let @15 = @14 + @2 in
+  let @16 = @15 >> 2 in
+  let @17 = @16 >> 31 in
+  let @18 = reinterpret_cast<u32>(@17) in
+  let @19 = @18 >> 31u in
+  let @20 = reinterpret_cast<i32>(@19) in
+  let @21 = @16 + @20 in
+  let @22 = @21 * 7 in
+  let @3 = @2 - @22 in
+  let @4 = cast<f32>(@3) in
+  let u = @4 / 7f in
+  let @6 = u * 0.5f in
+  let @7 = 1f - u in
+  let @8 = build<f32x2>(@6, @7) in
+  let @9 = u * 3f in
+  let @10 = p + depth in
+  let @23 = @10 >> 31 in
+  let @24 = reinterpret_cast<u32>(@23) in
+  let @25 = @24 >> 31u in
+  let @26 = reinterpret_cast<i32>(@25) in
+  let @27 = @10 + @26 in
+  let @28 = @27 >> 1 in
+  let @29 = @28 * 2 in
+  let @11 = @10 - @29 in
+  let @12 = @11 == 0 in
+  let @13 = build<Draw>(u, @8, @9, @12) in
+  return @13
+}
+
+func emitted(h : Hit) -> f32 {
+  let @0 = h.p in
+  let @1 = @0 * 0.25f in
+  return @1
+}
+
+func main() -> i32 {
+  alloc film : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  film = @0
+  render(4, film)
+  print(film)
+  return 0
+}
+
+func render(max_depth : i32, film : mut f32[8]) -> void {
+  rays!round : mut u32
+  rays_rad_slots : mut f32[8]
+  rays_ray_o_0 : mut f32[8]
+  rays_ray_d_0 : mut f32[8]
+  rays_depth_0 : mut i32[8]
+  rays__slot_0 : mut i32[8]
+  rays_ray_o_1 : mut f32[8]
+  rays_ray_d_1 : mut f32[8]
+  rays_depth_1 : mut i32[8]
+  rays__slot_1 : mut i32[8]
+  rays_queue : mut Queue_rays[2]
+  let @5 = build<Queue_rays>(0u, rays_ray_o_0, rays_ray_d_0, rays_depth_0, rays__slot_0) in
+  rays_queue[0u] = @5
+  let @7 = build<Queue_rays>(0u, rays_ray_o_1, rays_ray_d_1, rays_depth_1, rays__slot_1) in
+  rays_queue[1u] = @7
+  rays_draw_u_slots : mut f32[8]
+  rays_draw_uv_slots : mut [[packed]] f32x2[8]
+  rays_draw_w_slots : mut f32[8]
+  rays__bits0_slots : mut u8[8]
+  parfor p in [0:8:1] {
+    rays_rad_slots[p] = 0f
+    let @0 = cast<f32>(p) in
+    let ray = build<Ray>(@0, 1f) in
+    let @10 = build<Entry_rays>(ray, 0, p) in
+    let @72 = atomic_add((&rays_queue[0u].count), 1u) in
+    let @74 = rays_queue[0u].ray_o in
+    @74[@72] = @0
+    let @77 = rays_queue[0u].ray_d in
+    @77[@72] = 1f
+    let @80 = rays_queue[0u].depth in
+    @80[@72] = 0
+    let @83 = rays_queue[0u]._slot in
+    @83[@72] = p
+    continue
+  }
+  rays!round = 0u
+  while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
+    let @14 = (*rays!round) & 1u in
+    let @16 = rays_queue[(*rays!round) & 1u].count in
+    let @37 = @14 ^ 1u in
+    rays_queue[@37].count = 0u
+    parfor samples in [0u:@16:1u] {
+      let @38 = (&rays_queue[@37]) in
+      let @42 = rays_queue[@14].ray_o in
+      let @43 = @42[samples] in
+      let @45 = rays_queue[@14].ray_d in
+      let @46 = @45[samples] in
+      let @47 = build<Ray>(@43, @46) in
+      let @49 = rays_queue[@14].depth in
+      let @50 = @49[samples] in
+      let @52 = rays_queue[@14]._slot in
+      let @53 = @52[samples] in
+      step(@47, @50, @53, max_depth, (&rays_rad_slots[@53]), @38, @53, (&rays_draw_u_slots[@53]), (&rays_draw_uv_slots[@53]), (&rays_draw_w_slots[@53]), (&rays__bits0_slots[@53]))
+      continue
+    }
+    let @18 = @14 ^ 1u in
+    parfor rays in [0u:@16:1u] {
+      let @19 = (&rays_queue[@18]) in
+      let @23 = rays_queue[@14].ray_o in
+      let @24 = @23[rays] in
+      let @26 = rays_queue[@14].ray_d in
+      let @27 = @26[rays] in
+      let @28 = build<Ray>(@24, @27) in
+      let @30 = rays_queue[@14].depth in
+      let @31 = @30[rays] in
+      let @33 = rays_queue[@14]._slot in
+      let @34 = @33[rays] in
+      let @60 = rays_draw_u_slots[@34] in
+      let @62 = rays_draw_uv_slots[@34] in
+      let @63 = cast<f32x2>(@62) in
+      let @65 = rays_draw_w_slots[@34] in
+      let @67 = rays__bits0_slots[@34] in
+      let @68 = @67 & 1u in
+      let @69 = @68 != 0u in
+      let @70 = build<Draw>(@60, @63, @65, @69) in
+      step!after(@70, @28, @31, @34, max_depth, (&rays_rad_slots[@34]), @19, @34)
+      continue
+    }
+    let @13 = (*rays!round) + 1u in
+    rays!round = @13
+  }
+  parfor rays_rest in [0:8:1] {
+    let rad = (&rays_rad_slots[rays_rest]) in
+    let p = rays_rest in
+    let @2 = (*rad) in
+    film[p] = @2
+    continue
+  }
+  return
+}
+
+func shade(h : Hit, ray : Ray, s : Draw, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32) -> void {
+  let _t44 = h.p in
+  let _t45 = s.uv in
+  let @2 = _t44 * 0.25f in
+  let @3 = _t45[0] in
+  let @4 = @2 + @3 in
+  rad += @4
+  let _t29 = depth + 1 in
+  let @6 = max_depth <= _t29 in
+  if (@6) {
+    return
+  } else {
+    let _t0$i6 = ray.d in
+    let @8 = _t44 * 2f in
+    let @9 = s.u in
+    let @10 = @8 + @9 in
+    let @11 = _t45[1] in
+    let @12 = @10 + @11 in
+    let @13 = s.flip in
+    let @14 = -0f - _t0$i6 in
+    let @15 = select(@13, @14, _t0$i6) in
+    let @21 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @25 = (*_queue_rays).ray_o in
+    @25[@21] = @12
+    let @28 = (*_queue_rays).ray_d in
+    @28[@21] = @15
+    let @31 = (*_queue_rays).depth in
+    @31[@21] = _t29
+    let @34 = (*_queue_rays)._slot in
+    @34[@21] = _slot_rays
+    return
+  }
+}
+
+func sky(ray : Ray) -> f32 {
+  let @0 = ray.d in
+  let @1 = @0 * 0.5f in
+  return @1
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32, _draw_u_rays : mut (f32*), _draw_uv_rays : mut ([[packed]] f32x2*), _draw_w_rays : mut (f32*), __bits0_rays : mut (u8*)) -> void {
+  let @0 = draw(p, depth) in
+  let @14 = @0.u in
+  let @15 = @0.uv in
+  let @16 = cast<[[packed]] f32x2>(@15) in
+  let @17 = @0.w in
+  let @18 = @0.flip in
+  let @19 = cast<u8>(@18) in
+  _draw_u_rays = @14
+  _draw_uv_rays = @16
+  _draw_w_rays = @17
+  __bits0_rays = @19
+  return
+}
+
+func step!after(@0 : Draw, ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32) -> void {
+  trace$r7 : mut _option0
+  let s = @0 in
+  let _t32$i7 = ray.o in
+  let @2 = _t32$i7 < 16f in
+  if (@2) {
+    let @3 = ray.d in
+    let @4 = _t32$i7 + @3 in
+    let @5 = build<Hit>(@4) in
+    let @6 = build<_option0>(@5, true) in
+    trace$r7 = @6
+  } else {
+    let @7 = build<_option0>() in
+    trace$r7 = @7
+  }
+  let @9 = (*trace$r7).set in
+  if (@9) {
+    let h = (*trace$r7).value in
+    shade(h, ray, s, depth, p, max_depth, rad, _queue_rays, _slot_rays)
+    return
+  } else {
+    let @12 = ray.d in
+    let @13 = @12 * 0.5f in
+    rad += @13
+    return
+  }
+}
+
+func trace(ray : Ray) -> _option0 {
+  let _t32 = ray.o in
+  let @1 = _t32 < 16f in
+  if (@1) {
+    let @2 = ray.d in
+    let @3 = _t32 + @2 in
+    let @4 = build<Hit>(@3) in
+    let @5 = build<_option0>(@4, true) in
+    return @5
+  } else {
+    let @6 = build<_option0>() in
+    return @6
+  }
+}
+
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays)
+    shade.defer(step, rays)
+    step.stage(draw, rays, samples)
+
+}

@@ -105,9 +105,11 @@ add_bonsai_tests(
     split-unsigned.bonsai
     semantics-defer.bonsai
     semantics-reload-by-slot.bonsai
+    semantics-reload-by-slot-soa.bonsai
     semantics-reload-two-routes.bonsai
     semantics-stage.bonsai
     semantics-stage-same-queue.bonsai
+    semantics-stage-same-queue-soa.bonsai
     stage.bonsai
     stage-mut-param.bonsai
     stage-then-defer.bonsai

@@ -5,6 +5,7 @@
 #include "IR/Type.h"
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
+#include "SSA/Defer.h"
 #include "SSA/Definitions.h"
 #include "SSA/Reach.h"
 #include "SSA/Storage.h"
@@ -699,18 +700,25 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         }
     }
 
-    // Storage for the rest: an array of the record per stored value, one
-    // slot per producer iteration, made where the record's arrays are and
-    // sized as they are; and a pointer to this entry's slot of each, handed
-    // down the chain as the queue is.
+    // Storage for the rest: a struct of arrays of the record, each stored
+    // value flattened to its scalars by the rule a queue's entry is stored
+    // by (QueueLayout, SSA/Defer.h) -- one array per scalar, a short vector
+    // one packed array where no gang touches the queue, bools eight to a
+    // byte, an ADT's padding nowhere -- one slot per producer iteration,
+    // made where the record's arrays are and sized as they are; and a
+    // pointer to this entry's slot of each array, handed down the chain as
+    // the queue is. pbrt's pixelSampleState has the shape: an SOA, an array
+    // per member indexed by the pixel. The second pass, and a drain that
+    // reloads a value from here (SSA/Defer.cpp), then read the scalars they
+    // use and not the whole.
     struct Stored {
         size_t index;
         string name;
         Type type;
-        shared_ptr<Value> array;
+        size_t first_leaf = 0, last_leaf = 0; // its run of `leaves`
     };
     vector<Stored> stored;
-    const shared_ptr<Block> point = omap.at(owned->second.point);
+    vector<Leaf> leaves;
     for (size_t i = 0; i < passed.size(); i++) {
         if (handed[i]) {
             continue;
@@ -725,46 +733,87 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         s.index = i;
         s.name = after_call && i == 0 ? callee_name : rentry.args[i].name;
         s.type = type;
-        s.array = make_alloca(*O, point, Array_t::make(type, as_expr(owned->second.size)),
-                              queue.name + "_" + s.name + "_slots");
+        s.first_leaf = leaves.size();
+        leaves_of(s.name, type, queue.adt_storages, /*in_pad=*/false,
+                  queue.vector_leaves, {}, leaves);
+        s.last_leaf = leaves.size();
+        stored.push_back(std::move(s));
+    }
+    const size_t value_leaves = pack_bools(leaves);
+    const shared_ptr<Block> point = omap.at(owned->second.point);
+    vector<shared_ptr<Value>> arrays(leaves.size()); // by leaf; none for a pad or a bit
+    for (size_t l = 0; l < leaves.size(); l++) {
+        if (leaves[l].kind != Leaf::Kind::Stored) {
+            continue;
+        }
+        arrays[l] = make_alloca(*O, point,
+                                Array_t::make(leaves[l].type, as_expr(owned->second.size)),
+                                queue.name + "_" + leaves[l].name + "_slots");
         // Written before it is read in every round, so made once outside
         // the loops around the owner, as the record's arrays are
         // (Instruction::scratch; SSA/HoistAllocations.h).
-        std::get<shared_ptr<Instruction>>(s.array->data)->scratch = true;
+        std::get<shared_ptr<Instruction>>(arrays[l]->data)->scratch = true;
         // Written by the first pass alone, so from the second pass to the
         // end of the round a deferral may read it at its entry's slot
         // rather than store what it was handed (Function::OwnedQueue).
         owned->second.stable_arrays.insert(
-            std::get<shared_ptr<Instruction>>(s.array->data).get());
-        stored.push_back(std::move(s));
+            std::get<shared_ptr<Instruction>>(arrays[l]->data).get());
     }
     owned->second.second_pass = pre->name;
     owned->second.round_header = round_header;
-    map<string, vector<shared_ptr<Value>>> slot_ptrs; // each chain function's
+    // Each chain function's pointer parameters, by leaf; none for a leaf
+    // without an array.
+    map<string, vector<shared_ptr<Value>>> slot_ptrs;
     for (const string &g : chain) {
         Function &G = *funcs.at(g);
         Block &entry = *G.blocks.front();
-        for (const Stored &s : stored) {
-            const string pname = "_" + s.name + "_" + queue.name;
+        slot_ptrs[g].resize(leaves.size());
+        for (size_t l = 0; l < leaves.size(); l++) {
+            if (!arrays[l]) {
+                continue;
+            }
+            const string pname = "_" + leaves[l].name + "_" + queue.name;
             internal_assert(!parameter_index(G, pname).has_value())
                 << what << ": " << g << " already has a parameter named " << pname;
-            slot_ptrs[g].push_back(
-                entry.add_argument(Argument{Ptr_t::make(s.type), pname, /*mutating=*/true}));
+            slot_ptrs[g][l] = entry.add_argument(
+                Argument{Ptr_t::make(leaves[l].type), pname, /*mutating=*/true});
             G.reserve_name(pname);
         }
     }
     for (const Link &l : links) {
         auto &call = std::get<Terminator::Call>(l.site->terminator.data);
         for (const auto &v : slot_ptrs.at(l.caller)) {
-            call.call.args.push_back(reach(l.site, v));
+            if (v) {
+                call.call.args.push_back(reach(l.site, v));
+            }
         }
     }
-    // At the cut: each stored value into its slot, and the first half ends.
-    for (size_t k = 0; k < stored.size(); k++) {
-        tail.block->make_side_effect(
-            Instruction::Op::Store,
-            {reach(tail.block, slot_ptrs.at(func_name)[k]),
-             reach(tail.block, passed[stored[k].index])});
+    // At the cut: each stored value taken apart into its scalars, each into
+    // its slot, the bools packed into their bytes; and the first half ends.
+    {
+        const Emit emit = [&](const Type &t, Instruction::Op op,
+                              vector<shared_ptr<Value>> ops) {
+            return tail.block->make_instruction(t, op, std::move(ops));
+        };
+        vector<shared_ptr<Value>> parts;
+        size_t l = 0;
+        for (const Stored &s : stored) {
+            internal_assert(l == s.first_leaf);
+            take_apart(reach(tail.block, passed[s.index]), leaves, l, /*lanes=*/1, emit, parts);
+            internal_assert(l == s.last_leaf)
+                << what << ": " << s.name << " came apart into " << (l - s.first_leaf)
+                << " scalars where its type has " << (s.last_leaf - s.first_leaf);
+        }
+        pack_bits(parts, leaves, value_leaves, UInt_t::make(8), /*lanes=*/1,
+                  [](size_t) { return true; }, emit);
+        for (size_t k = 0; k < leaves.size(); k++) {
+            if (!arrays[k] || parts[k] == nullptr) {
+                continue;
+            }
+            tail.block->make_side_effect(
+                Instruction::Op::Store,
+                {reach(tail.block, slot_ptrs.at(func_name)[k]), parts[k]});
+        }
     }
     tail.block->terminator.data = Terminator::Return{};
     refresh_preds(*F);
@@ -849,16 +898,35 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         auto &call1 = std::get<Terminator::Call>(body1->terminator.data);
         internal_assert(call1.call.name == c0);
         const shared_ptr<Value> slot = call1.call.args.at(*slot_at);
-        for (const Stored &s : stored) {
-            call1.call.args.push_back(body1->make_instruction(
-                Ptr_t::make(s.type), Instruction::Op::GEP, {reach(body1, s.array), slot}));
+        for (size_t l = 0; l < leaves.size(); l++) {
+            if (arrays[l]) {
+                call1.call.args.push_back(body1->make_instruction(
+                    Ptr_t::make(leaves[l].type), Instruction::Op::GEP,
+                    {reach(body1, arrays[l]), slot}));
+            }
         }
     }
 
     // The second pass: the drain as it was, its body calling the rest with
-    // what it handed the chain and what the first pass stored.
+    // what it handed the chain and what the first pass stored -- each value
+    // put back together from its scalars loaded at the slot, a byte of
+    // bools read once, and only the scalars the rest reads of it
+    // (read_paths, SSA/Analysis.h): a scalar it never reads is left
+    // undefined, and its array is written for the deferrals downstream that
+    // reload from it (SSA/Defer.cpp).
     {
         const shared_ptr<Value> slot = bcall->call.args.at(*slot_at);
+        const auto rest_reads = read_paths(*R);
+        const Emit emit = [&](const Type &t, Instruction::Op op,
+                              vector<shared_ptr<Value>> ops) {
+            return body->make_instruction(t, op, std::move(ops));
+        };
+        const auto load_leaf = [&](size_t l) {
+            auto ptr = body->make_instruction(Ptr_t::make(leaves[l].type), Instruction::Op::GEP,
+                                              {reach(body, arrays[l]), slot});
+            return body->make_instruction(leaves[l].type, Instruction::Op::Load, {ptr});
+        };
+        map<size_t, shared_ptr<Value>> words;
         vector<shared_ptr<Value>> args;
         for (size_t i = 0; i < passed.size(); i++) {
             if (handed[i]) {
@@ -872,9 +940,51 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
                 }
             }
             internal_assert(s != nullptr);
-            auto ptr = body->make_instruction(Ptr_t::make(s->type), Instruction::Op::GEP,
-                                              {reach(body, s->array), slot});
-            args.push_back(body->make_instruction(s->type, Instruction::Op::Load, {ptr}));
+            const auto rit = rest_reads.find(rentry.args[i].name);
+            const auto wanted = [&](const Leaf &leaf) {
+                return rit != rest_reads.end() &&
+                       std::any_of(rit->second.begin(), rit->second.end(),
+                                   [&](const vector<unsigned> &read) {
+                                       return covers(read, leaf.path);
+                                   });
+            };
+            size_t l = s->first_leaf;
+            const auto stored_whole = [&](const Type &t) {
+                return l < s->last_leaf && packs(leaves[l], t);
+            };
+            auto value = rebuild(
+                s->type, emit,
+                [&](const Type &t) -> shared_ptr<Value> {
+                    internal_assert(l < s->last_leaf)
+                        << what << ": " << s->name
+                        << " has more scalars than the record stores for it";
+                    const Leaf &leaf = leaves[l++];
+                    if (!wanted(leaf)) {
+                        return undef_value(t); // the rest never reads it
+                    }
+                    switch (leaf.kind) {
+                    case Leaf::Kind::Pad:
+                        return zero_value(t, *O, body);
+                    case Leaf::Kind::Bit: {
+                        auto w = words.find(leaf.word);
+                        if (w == words.end()) {
+                            w = words.emplace(leaf.word, load_leaf(leaf.word)).first;
+                        }
+                        return unpack_bit(w->second, leaf, t, emit);
+                    }
+                    case Leaf::Kind::Stored:
+                        break;
+                    }
+                    auto loaded = load_leaf(l - 1);
+                    return packs(leaf, t)
+                               ? body->make_instruction(t, Instruction::Op::Cast, {loaded})
+                               : loaded;
+                },
+                stored_whole);
+            internal_assert(l == s->last_leaf)
+                << what << ": " << s->name
+                << " has fewer scalars than the record stores for it";
+            args.push_back(std::move(value));
         }
         bcall->call = Terminator::Jump{tail.callee, std::move(args)};
         bcall->drop = true;
@@ -895,8 +1005,13 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         for (const Stored &s : stored) {
             std::cerr << " " << s.name << " : " << s.type;
         }
-        std::cerr << (stored.empty() ? " nothing" : "") << "; the second pass "
-                  << queue.name << " calls " << tail.callee << "\n";
+        std::cerr << (stored.empty() ? " nothing" : " as");
+        for (size_t l = 0; l < leaves.size(); l++) {
+            if (arrays[l]) {
+                std::cerr << " " << queue.name << "_" << leaves[l].name << "_slots";
+            }
+        }
+        std::cerr << "; the second pass " << queue.name << " calls " << tail.callee << "\n";
     }
     return {};
 }
