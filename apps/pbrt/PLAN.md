@@ -13509,3 +13509,247 @@ specialize copies the camera's prologue loop too (seven copies of a kernel
 that zeroes the film, one launched); the round loop's count read stays by
 the user's ruling (pbrt runs maxDepth rounds blind, launching over empty
 queues).
+
+### The work items matched, and the hit chain: the plan (10-11, 09:30-)
+
+The user's directions this morning: a cut's stored values are a struct of
+arrays by default, with layout specifications later, so the schedule needs
+a handle to them as it has to a queue; a fresh three-count heatmap (queued
+behind loom-f2's claim of the card, see below); the hit chain's extra hop
+shown as the code we generate against pbrt's, with the compiler algorithm
+that turns one into the other; and a plan that brings the hits and
+bssrdfs entries to pbrt's bytes or under, with the code of each cause.
+Everything here is a proposal; nothing of it is built.
+
+**A cut's values today, and the handle.** `cut_same_queue` (SSA/Stage.cpp,
+the `stored` loop) makes one array per stored value, typed as the value:
+
+    s.array = make_alloca(*O, point, Array_t::make(type, as_expr(owned->second.size)),
+                          queue.name + "_" + s.name + "_slots");   // rays_rs_slots : RaySamples[n]
+
+so the draws are an array of 44-byte structs, read back whole by
+`load(gep(array, slot))` (the reload recipe), where pbrt's
+`pixelSampleState.samples` is an SOA (`soa RaySamples`: one array per
+scalar). A queue's entry, by contrast, goes through `QueueLayout`
+(SSA/Defer.h): the entry type flattened to leaves, one array per scalar,
+bools packed, and `unread[q][l]` dropping the leaves a drain never reads.
+Nothing in the schedule names a cut's storage: the queue is named by its
+declaration (`rays = render.queue(p_band, ExternDevice)`, the name standing
+for the storage and the drain loop), the first pass by `l`, the stored set
+`S` by nothing. The proposal, in two steps:
+
+1. The default. Give `S` a `QueueLayout` of its own -- the struct of the
+   stored values as the "entry", flattened to leaves exactly as an entry
+   is, one record array per leaf (`rays_rs_direct_uc_slots`, ...), and the
+   reload recipe a load per leaf the drain reads, rebuilt into the value.
+   The unread-leaf elision then applies to the reads: the Diffuse material
+   kernel reads five of the seven draws (no subsurface pair), and loads 28
+   bytes where it gathers 44 now and pbrt's SOA read of the whole
+   `RaySamples` moves 40. This is the lte-orb fix and needs no new syntax.
+2. The handle. The three-argument forms return it, in the one expression
+   form the schedule already has for `queue`:
+
+       draws = vol_path_step.stage(vol_ray_samples, rays, samples);
+
+   `draws` names the arrays of `S` as `rays` names a queue's, for a storage
+   word (`draws` in ExternDevice, as the queues are) and, later, a layout
+   specification of the record's arrays, which the layout language has for
+   neither a queue nor a record yet (the semantics, 4.1: "a layout for the
+   queue that a schedule asks for may replace this; nothing here is the
+   layout language's promise"). The alternative -- `l` naming both the loop
+   and what it writes, as `q` names a drain and its storage -- is rejected
+   because a loop name is what `split` and `bind` take, and a split of
+   `samples` would then have to say which of the two it means.
+
+**The hit chain: ours and pbrt's.** What the closest-hit program does for
+a mesh hit, read off the SSA (`_rt_trace0!hit`, then `vol_route`'s
+`hit_geometry` in the continuation `vol_path_step!after!hit`):
+
+    // ours
+    rec = rt_sbt_record()                 // load 1: {base, holder}, the input's record
+    idx = rec.base + rt_primitive_index()
+    top = rec.holder == OWN ? idx : rec.holder
+    e0  = prims[top]                      // load 2: the Primitive -- its tag decides the arm
+    switch e0.tag {
+      Mesh:  t = tris[idx]                // load 3: Triangle {mesh, tri}
+             m = meshes[t.mesh]           // load 4: TriangleMesh {first_index, first_vertex, material, ...}
+             g = Geometric{Tri{t.mesh, t.tri}, light(m, t.tri), m.material, m.alpha, m.medium_inside, m.medium_outside}
+      ...                                 // Geom, Placed, Inst arms
+    }
+    // the continuation: hit_geometry -> triangle_geometry
+    m  = meshes[t.mesh]                   // load 4 again (the same row)
+    v  = mesh_indices[m.first_index + 3*t.tri + k]   // load 5
+    p  = mesh_positions[m.first_vertex + v]          // load 6
+
+    // pbrt (optix.cu __closesthit__triangle, shapes.h Triangle::InteractionFromIntersection)
+    rec  = *(TriangleMeshRecord *) optixGetSbtDataPointer()   // load 1: {mesh*, material, alpha, lights, medium}
+    v    = rec.mesh->vertexIndices[3 * prim + k]               // load 2 (the mesh row), load 3 (the index)
+    p    = rec.mesh->p[v]                                      // load 4
+
+Six dependent loads to four. The two extra are `prims[top]`, read for
+its tag alone (its payload goes unread on this path) and gating the rest
+by a branch, and `tris[idx]`, a row that exists to name the triangle's
+mesh when the record already knows it: one build input is one mesh
+(trees/optix.bonsai, `Mesh.tris : OptixTree from tris`), so `top` is the
+same for every hit on the input and `t.mesh` is too.
+
+The algorithm that maps the one to the other is partial evaluation of the
+hit program with the record as the static input and the primitive index
+as the dynamic one (binding-time analysis; Jones, Gomard and Sestoft,
+*Partial Evaluation and Automatic Program Generation*, 1993): 
+
+1. Binding times. In `bind_elements` (Lower/Trees.cpp) `rec` is static,
+   `rt_primitive_index()` dynamic, and every expression takes the join of
+   its operands'. `own` and `holder` are static; `top` is static for a held
+   input (`!own`), dynamic for an own one, so the split is per kind of
+   input, which the driver knows when it fills the record (bonsai_optix.h,
+   the records loop: `input.holder != BONSAI_OPTIX_OWN`). A load from a
+   `const` extern array at a static index is static (`prims[top]`, then
+   `meshes[mesh]` once `mesh` is).
+2. Residualize. The static part becomes a host function per tree and kind,
+   emitted beside the program (`bonsai_rt_record_<tree>(input, prims,
+   meshes, ...) -> _RTRecord_<tree>`), which the driver calls where it
+   writes `base` and `holder` today; the record type gains the static
+   values the dynamic part reads -- the arm's tag (so the switch folds),
+   the mesh's `first_index`, `first_vertex`, `material`, `alpha`, the
+   media and `first_light` -- which is pbrt's TriangleMeshRecord, derived
+   rather than written. Sound because the arrays are `const` for the frame
+   and the record is read-only: the static part is a pure function of the
+   input.
+3. The `tris` row. `tris[idx]` is a load at a dynamic index and stays one
+   unless the set has no rows: the Mesh arm's `tris` represented by an
+   index function -- element `i` is `Triangle{mesh, first + i}` -- so that
+   `stored(tris, idx)` is `Triangle{static mesh, first + (idx - base)}`,
+   arithmetic. That is a representation of a set, so a layout-language
+   form (`Mesh.tris : OptixTree by |i| Triangle{mesh, first + i}`, the
+   driver's build input enumerating the mesh's own index buffer as it does
+   now), with `first` and a count in the arm or the mesh row.
+
+With 1 and 2 alone: record, `tris`, `meshes`, indices, positions -- five
+loads and no branch. With 3 as well: record (the mesh's fields inline),
+indices, positions -- three, one under pbrt, whose record holds a pointer
+and pays the mesh row. Both are the user's to approve; 3 is the language
+change.
+
+**The hits entry, cause by cause.** What `hits!Basic!Diffuse` stores (the
+SSA's `Entry_hits` less the leaves `BONSAI_EXPLAIN_DEFER` reports unread),
+271 bytes, against pbrt's `MaterialEvalWorkItem`, 252:
+
+    ray.d 12 | medium 4 | via {tag, payload_0} 5 | prim {shape 9, light 4, material 4, alpha 4, media 8} 29
+    mat 4 | surf 128 | beta 16 | r_u 16 | depth 4 | wave 4 | _bits0 1 | eta_scale 4 | lambda 32
+    pixel_x 4 | pixel_y 4 | _slot 4                                                      = 271
+
+    material* 8 | lambda 32 | beta 16 | r_u 16 | pi 24 | n ns dpdu dpdv dpdus dpdvs dndus dndvs 96
+    wo 12 | uv 8 | depth 4 | faceIndex 4 | time 4 | anyNonSpecularBounces 4 | etaScale 4
+    mediumInterface 16 | pixelIndex 4                                                    = 252
+
+The geometry is the same bytes on both sides (surf 128 + ray.d 12 =
+pbrt's pi, eight vectors, wo and uv, 140); the spectra and depth are the
+same; pbrt carries 19 bytes we do not (time, faceIndex, three bytes of a
+bool, a wider medium interface, a pointer for a material). Our 38 over
+pbrt, each with its cause:
+
+- *`ray.d`, `via`, `prim.shape` (26 bytes) for `wo`.* render.bonsai,
+  vol_surface: `wo = hit_wo(via, prim.shape, ray);` recomputes the
+  direction the trace kernel already computed (`iwo = hit_wo(via,
+  prim.shape, ray)` in vol_route, handed to emissive_contribution). pbrt's
+  item carries `wo` and nothing it was made from; the comment above the
+  line says as much. Fix, in the program: vol_route hands `iwo` to
+  vol_surface and `ray` and `via` leave its signature; `ray.d` becomes
+  `wo` (the same 12 bytes) and `via` and `prim.shape`, read by nothing
+  else in the kernel, go unread (14 bytes saved).
+- *`prim.light`, `prim.alpha`, `prim.material` (12 bytes).* vol_surface
+  reads only the two media of `prim`
+  (`get_medium`, the `ScatterPoint`), but hands `prim` whole to
+  vol_subsurface, and `read_paths` (SSA/Analysis.cpp) counts a call's
+  argument as read whole: `read(b, arg); // handed to the callee: a read`.
+  Fix, in the compiler: a call's argument is read as the callee reads the
+  parameter -- `read_paths` made interprocedural, memoized per function,
+  the whole value for an extern, a recursion or a depth past a bound. The
+  same fix takes `prim` to its two media in bssrdfs and probes.
+- *`pixel_x`, `pixel_y` beside `_slot` (8 bytes).* pbrt stores
+  `pixelIndex` and keeps `pPixel` in `pixelSampleState` by it. Ours are
+  "stored: one value down the chain, but computed inside the producer's
+  iteration (p_in!VolPath is a value of the iteration)": `cook`
+  (SSA/Defer.cpp) sees a parameter at the push and stops, since
+  `materialize` resolves a chain parameter only to a value in scope at the
+  drain. Fix, in the compiler: `cook` follows a chain parameter to the
+  owner's definition and cooks it there, with the producer's index -- the
+  `SlotGroup`'s `index` at the producer -- standing for `Field(_slot)`;
+  `pixel_x` is then the band's origin plus arithmetic on the slot,
+  recomputed at every drain (eight bytes out of every entry of the family,
+  seven queues).
+- *`wave` (4 bytes).* The round counter: pushed as `wave + 1` by every
+  pusher onto `rays` (vol_route's boundary crossing, vol_surface's next
+  ray, vol_exit's), compared with `max_depth` in vol_route. pbrt's
+  `wavefrontDepth` is a kernel argument. Every entry of a buffer holds the
+  same value, by induction: the producer pushes a constant (li_vol_path's
+  `0`), and every push inside the rounds pushes a function of the
+  entry's own `wave` and nothing else. Fix, in the compiler: a field whose
+  pushes all cook to `f(that field, uniforms)` with a uniform value at the
+  producer is round-uniform, stored once per buffer beside the count
+  (`Queue_rays.wave`), and handed to the drain as a uniform -- a new kind
+  beside `Recipe::Kind::Uniform`. Four bytes out of every entry of the
+  family.
+- *`mat` beside `prim.material` (4).* Gone with the interprocedural reads;
+  `mat` stays (pbrt's `material`).
+
+After the four: 271 - 14 - 12 - 8 - 4 = 233 bytes against pbrt's 252.
+
+**The bssrdfs entry, cause by cause.** What `bssrdfs` stores, 382 bytes,
+against pbrt's `GetBSSRDFAndProbeRayWorkItem`, 168:
+
+    ss {eta, scale, sigma_a, sigma_s, reflectance 20, mfp, table} 44 | medium 4 | prim 29 | mat 4
+    surf 128 | hit.ns 12 | ctx {p, dpdx, dpdy, n 48, uv 8, dudx..dvdy 16} 72 | beta 16 | r_u 16
+    depth 4 | wave 4 | eta_scale 4 | lam 32 | pixel_x 4 | pixel_y 4 | _slot 4 | _bits0 1    = 382
+
+    material 8 | lambda 32 | beta 16 | r_u 16 | p 12 | wo 12 | n 12 | ns 12 | dpdus 12 | uv 8
+    depth 4 | mediumInterface 16 | etaScale 4 | pixelIndex 4                              = 168
+
+- *`ss` by value (44 bytes).* vol_surface pushes `*maybe_ss`, the
+  Subsurface arm's payload of `materials[mat]` (bxdf.bonsai,
+  material_subsurface). The semantics (4.2) say "a value selected from a
+  read-only array by an index is stored as the index", but `cook` refuses
+  every load (`!recomputable(in) || reads_memory(in) || ...`), so the rule
+  is written and not built. Fix, in the compiler: a `Load` whose address is
+  a `GEP` of an array that is `const` storage in scope at the drain
+  (`materials`, every extern of the scene) with a cookable index is a
+  recipe; the arm's extraction above it is pure and cooks already. The
+  drain then reads the 128-byte Material row at `mat` as pbrt reads
+  through `w.material`. Honest cost: a row per entry in the BSSRDF kernel
+  in place of 44 bytes pushed and popped.
+- *`surf` (128 bytes) and probes' `entry` (128).* vol_subsurface reads
+  `surf.p` and hands `surf` to vol_probe as `entry`, whose only use is the
+  initial `kept` of `vol_probe_step` -- the value `ProbeResult` returns
+  when the walk found nothing, on which vol_probe returns at once. pbrt's
+  `WeightedReservoirSampler` starts empty. Fix, in the program:
+  `vol_probe_step` starts from a zero `SurfaceGeometry` and `entry` leaves
+  vol_probe; vol_subsurface takes `surf.p`. 116 bytes out of bssrdfs, 128
+  out of probes.
+- *`ctx` (72 bytes).* `texture_context(hit, diffs)`, the material kernel's
+  context with its differentials. pbrt's kernel builds its context from
+  the item (workitems.h, `GetMaterialEvalContext`: `wo, n, ns, dpdus, p,
+  uv`), no differentials, so its subsurface textures are read at level
+  zero. Fix, in the program, pbrt's way: vol_subsurface builds the context
+  from `p`, `n` and `uv` with zero differentials; the entry carries `uv`
+  and `n` (20 bytes with `p` shared). 52 bytes, and textured subsurface
+  scenes move toward pbrt's pixels.
+- *`prim` to its media (21), `pixel_x`/`pixel_y` (8), `wave` (4):* the
+  compiler fixes above.
+
+After these: 382 - 44 - 116 - 52 - 21 - 12 = 137 bytes against pbrt's 168;
+probes 369 - 128 - 21 - 12 = 208 against pbrt's SubsurfaceScatterWorkItem,
+332.
+
+**Order of work**, each a commit with its test: (1) interprocedural
+`read_paths` (hits, bssrdfs, probes shrink; a test with a parameter handed
+through two calls to a callee that reads one field); (2) the read-only
+load in `cook` (ssa test: an entry stores an index, the drain reloads the
+row); (3) the slot-function recipe (ssa test: `pixel = x0 + slot % W`
+recomputed); (4) the round-uniform field (ssa+llvm test: a depth counter
+stored once per buffer); (5) the program's three changes (`wo` handed, the
+probe's empty start, the subsurface context), each byte-identical or
+explained; (6) the cut's values as leaves with the reload per leaf (the
+lte-orb cells); (7) the handle `draws = ...stage(...)` and its storage
+word; (8) the hit chain's partial evaluation and, if approved, the index
+set.
