@@ -1,0 +1,216 @@
+type Entry_hits = struct Entry_hits{ h : struct Hit{ p : f32 }; ray : struct Ray{ o : f32; d : f32 }; depth : i32; _slot : i32 }
+type Entry_rays = struct Entry_rays{ ray : struct Ray{ o : f32; d : f32 }; depth : i32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Hit = struct Hit{ p : f32 }
+type Queue_hits = struct Queue_hits{ count : u32; h_p : f32[]; ray_o : f32[]; ray_d : f32[]; depth : i32[]; _slot : i32[] }
+type Queue_rays = struct Queue_rays{ count : u32; ray_o : f32[]; ray_d : f32[]; depth : i32[]; _slot : i32[] }
+type Ray = struct Ray{ o : f32; d : f32 }
+type _option0 = struct _option0{ value : struct Hit{ p : f32 }; set : bool = false }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] attenuation(ray : Ray) -> f32 {
+  let @0 = ray.d in
+  let @1 = @0 * 0.75f in
+  return @1
+}
+
+func camera(p : i32) -> Ray {
+  let @0 = cast<f32>(p) in
+  let @1 = build<Ray>(@0, 1f) in
+  return @1
+}
+
+func emitted(h : Hit) -> f32 {
+  let @0 = h.p in
+  let @1 = @0 * 0.25f in
+  return @1
+}
+
+func main() -> i32 {
+  alloc film : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  film = @0
+  render(4, film)
+  print(film)
+  return 0
+}
+
+func render(max_depth : i32, film : mut f32[8]) -> void {
+  rays!round : mut u32
+  rays_rad_slots : mut f32[8]
+  rays_ray_o : mut f32[8]
+  rays_ray_d : mut f32[8]
+  rays_depth : mut i32[8]
+  rays__slot : mut i32[8]
+  rays_queue : mut Queue_rays
+  let @5 = build<Queue_rays>(0u, rays_ray_o, rays_ray_d, rays_depth, rays__slot) in
+  rays_queue = @5
+  hits_h_p : mut f32[8]
+  hits_ray_d : mut f32[8]
+  hits_depth : mut i32[8]
+  hits__slot : mut i32[8]
+  hits_queue : mut Queue_hits
+  parfor p in [0:8:1] {
+    rays_rad_slots[p] = 0f
+    let @0 = cast<f32>(p) in
+    let ray = build<Ray>(@0, 1f) in
+    let @6 = build<Entry_rays>(ray, 0, p) in
+    let @32 = atomic_add((&(*rays_queue).count), 1u) in
+    let @34 = (*rays_queue).ray_o in
+    @34[@32] = @0
+    let @37 = (*rays_queue).ray_d in
+    @37[@32] = 1f
+    let @40 = (*rays_queue).depth in
+    @40[@32] = 0
+    let @43 = (*rays_queue)._slot in
+    @43[@32] = p
+    continue
+  }
+  rays!round = 0u
+  while (!((*rays_queue).count == 0u)) {
+    let @10 = (*rays_queue).count in
+    let @20 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
+    hits_queue = @20
+    parfor rays in [0u:@10:1u] {
+      let @13 = rays_ray_o[rays] in
+      let @14 = rays_ray_d[rays] in
+      let @15 = build<Ray>(@13, @14) in
+      let @16 = rays_depth[rays] in
+      let @17 = rays__slot[rays] in
+      step(@15, @16, @17, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
+      continue
+    }
+    rays_queue.count = 0u
+    let @21 = (*hits_queue) in
+    let @22 = @21.count in
+    parfor hits in [0u:@22:1u] {
+      let @23 = hits_h_p[hits] in
+      let @24 = build<Hit>(@23) in
+      let @25 = hits_ray_d[hits] in
+      let @26 = build<Ray>(undef, @25) in
+      let @27 = hits_depth[hits] in
+      let @28 = hits__slot[hits] in
+      shade(@24, @26, @27, undef, max_depth, (&rays_rad_slots[@28]), rays_queue, @28)
+      continue
+    }
+    hits_queue.count = 0u
+    let @8 = (*rays!round) + 1u in
+    rays!round = @8
+  }
+  parfor rays_rest in [0:8:1] {
+    let rad = (&rays_rad_slots[rays_rest]) in
+    let p = rays_rest in
+    let @2 = (*rad) in
+    film[p] = @2
+    continue
+  }
+  return
+}
+
+func shade(h : Hit, ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32) -> void {
+  let @0 = h.p in
+  let @1 = @0 * 0.25f in
+  let @2 = attenuation(ray) in
+  let @3 = @1 * @2 in
+  rad += @3
+  let _t22 = depth + 1 in
+  let @5 = max_depth <= _t22 in
+  if (@5) {
+    return
+  } else {
+    let @6 = turned(h, ray) in
+    let @7 = build<Entry_rays>(@6, _t22, _slot_rays) in
+    let @10 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @11 = @6.o in
+    let @12 = @6.d in
+    let @14 = (*_queue_rays).ray_o in
+    @14[@10] = @11
+    let @17 = (*_queue_rays).ray_d in
+    @17[@10] = @12
+    let @20 = (*_queue_rays).depth in
+    @20[@10] = _t22
+    let @23 = (*_queue_rays)._slot in
+    @23[@10] = _slot_rays
+    return
+  }
+}
+
+func sky(ray : Ray) -> f32 {
+  let @0 = ray.d in
+  let @1 = @0 * 0.5f in
+  return @1
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32, _queue_hits : mut (Queue_hits*), _slot_hits : i32) -> void {
+  trace$r6 : mut _option0
+  let _t25$i6 = ray.o in
+  let @1 = _t25$i6 < 16f in
+  if (@1) {
+    let @2 = ray.d in
+    let @3 = _t25$i6 + @2 in
+    let @4 = build<Hit>(@3) in
+    let @5 = build<_option0>(@4, true) in
+    trace$r6 = @5
+  } else {
+    let @6 = build<_option0>() in
+    trace$r6 = @6
+  }
+  let @8 = (*trace$r6).set in
+  if (@8) {
+    let h = (*trace$r6).value in
+    let @16 = atomic_add((&(*_queue_hits).count), 1u) in
+    let @17 = h.p in
+    let @19 = ray.d in
+    let @21 = (*_queue_hits).h_p in
+    @21[@16] = @17
+    let @24 = (*_queue_hits).ray_d in
+    @24[@16] = @19
+    let @27 = (*_queue_hits).depth in
+    @27[@16] = depth
+    let @30 = (*_queue_hits)._slot in
+    @30[@16] = _slot_hits
+    return
+  } else {
+    let @11 = ray.d in
+    let @12 = @11 * 0.5f in
+    rad += @12
+    return
+  }
+}
+
+func trace(ray : Ray) -> _option0 {
+  let _t25 = ray.o in
+  let @1 = _t25 < 16f in
+  if (@1) {
+    let @2 = ray.d in
+    let @3 = _t25 + @2 in
+    let @4 = build<Hit>(@3) in
+    let @5 = build<_option0>(@4, true) in
+    return @5
+  } else {
+    let @6 = build<_option0>() in
+    return @6
+  }
+}
+
+func [[noinline]] turned(h : Hit, ray : Ray) -> Ray {
+  let @0 = h.p in
+  let @1 = @0 * 2f in
+  let @2 = ray.d in
+  let @3 = build<Ray>(@1, @2) in
+  return @3
+}
+
+
+schedule {
+    hits = render.queue(root);
+    rays = render.queue(root);
+    render.defer(step, rays)
+    shade.defer(step, rays)
+    step.defer(shade, hits)
+
+}

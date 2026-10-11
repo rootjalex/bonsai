@@ -3115,6 +3115,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 bool same = true;
                 for (const auto &[site, ds] : at_sites) {
                     for (const Definition &d : ds) {
+                        if (d.value && is_undef(d.value)) {
+                            continue; // handed where nothing reads it: any value
+                        }
                         same = same && same_definition(group.index.at(site), d);
                     }
                 }
@@ -3516,7 +3519,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     }
                     return r;
                 };
-                const auto r = cook(pdefs.of(ps.block->name, (*ps.args)[*fields[f].param]));
+                const Definition ad = pdefs.of(ps.block->name, (*ps.args)[*fields[f].param]);
+                if (ad.value && is_undef(ad.value)) {
+                    // Undefined at this push: handed down where nothing
+                    // reads it, so whatever the recipe computes there is
+                    // read by nothing. It agrees with the other pushes'.
+                    continue;
+                }
+                const auto r = cook(ad);
                 if (!r.has_value()) {
                     ok = false;
                     break;
@@ -3837,7 +3847,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const shared_ptr<Function> as_run = clone_function(*funcs.at(subqueues[q].callee));
             promote_allocas(*as_run, as_run->blocks.front()->name);
             simplify(*as_run);
-            const auto reads = read_paths(*as_run);
+            const auto reads = read_paths(*as_run, &funcs);
             vector<bool> &unread = unread_leaves[q];
             for (size_t f = 0; f < fields.size(); f++) {
                 const Field &field = fields[f];

@@ -1,0 +1,90 @@
+//! flags: -p ssa
+
+// SSA/Analysis.h, read_paths across calls: a call's argument is read as the
+// callee reads its parameter, so an entry stores of a value what the
+// functions it is handed to read of it. `shade` never takes the ray apart
+// itself: it hands it whole to `attenuation` and to `turned`, two calls
+// that are not inlined, and each reads the direction and nothing else. So
+// the hits queue stores `hits_ray_d` and no `hits_ray_o` -- `Entry_hits`
+// keeps the field, the drain hands `shade` the ray as `build<Ray>(undef,
+// d)` -- where a read that stopped at the call would have stored both.
+// The run-level test is correctness/llvm/entry-reads-through-calls.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+func emitted(h : Hit) -> Float = h.p * 0.25;
+
+// Each reads the ray's direction and nothing else of it.
+func [[noinline]] attenuation(ray : Ray) -> Float {
+    return ray.d * 0.75;
+}
+
+func [[noinline]] turned(h : Hit, ray : Ray) -> Ray {
+    return Ray{h.p * 2.0, ray.d};
+}
+
+func shade(h : Hit, ray : Ray, depth : i32, p : i32, max_depth : i32,
+           rad : reduce(+) Float) -> void {
+    rad += emitted(h) * attenuation(ray);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(turned(h, ray), depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        rad : reduce(+) Float = 0.0;
+        step(ray, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    hits = render.queue(root);
+    step.defer(shade, hits);
+}

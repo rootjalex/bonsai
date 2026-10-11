@@ -119,6 +119,7 @@ add_bonsai_tests(
     select-const-arms.bonsai
     semantics-defer.bonsai
     semantics-draw.bonsai
+    entry-reads-through-calls.bonsai
     semantics-reload-by-slot.bonsai
     semantics-reload-by-slot-soa.bonsai
     semantics-reload-two-routes.bonsai

@@ -916,7 +916,7 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
     // reload from it (SSA/Defer.cpp).
     {
         const shared_ptr<Value> slot = bcall->call.args.at(*slot_at);
-        const auto rest_reads = read_paths(*R);
+        const auto rest_reads = read_paths(*R, &funcs);
         const Emit emit = [&](const Type &t, Instruction::Op op,
                               vector<shared_ptr<Value>> ops) {
             return body->make_instruction(t, op, std::move(ops));

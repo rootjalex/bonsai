@@ -55,7 +55,6 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   hits!None_ray_d : mut f32[8]
   hits!None__slot : mut i32[8]
   hits!Some_@0_value_p : mut f32[8]
-  hits!Some_ray_o : mut f32[8]
   hits!Some_ray_d : mut f32[8]
   hits!Some_depth : mut i32[8]
   hits!Some__slot : mut i32[8]
@@ -66,15 +65,15 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
     let @0 = cast<f32>(p) in
     let ray = build<Ray>(@0, 1f) in
     let @6 = build<Entry_rays>(ray, 0, p) in
-    let @69 = atomic_add((&(*rays_queue).count), 1u) in
-    let @71 = (*rays_queue).ray_o in
-    @71[@69] = @0
-    let @74 = (*rays_queue).ray_d in
-    @74[@69] = 1f
-    let @77 = (*rays_queue).depth in
-    @77[@69] = 0
-    let @80 = (*rays_queue)._slot in
-    @80[@69] = p
+    let @66 = atomic_add((&(*rays_queue).count), 1u) in
+    let @68 = (*rays_queue).ray_o in
+    @68[@66] = @0
+    let @71 = (*rays_queue).ray_d in
+    @71[@66] = 1f
+    let @74 = (*rays_queue).depth in
+    @74[@66] = 0
+    let @77 = (*rays_queue)._slot in
+    @77[@66] = p
     continue
   }
   rays!round = 0u
@@ -82,7 +81,7 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
     let @10 = (*rays_queue).count in
     let @20 = build<Queue_hits>(0u, undef, undef, hits!None_ray_d, undef, hits!None__slot, undef) in
     hits_queue[0u] = @20
-    let @22 = build<Queue_hits>(0u, hits!Some_@0_value_p, hits!Some_ray_o, hits!Some_ray_d, hits!Some_depth, hits!Some__slot, hits!Some__bits0) in
+    let @22 = build<Queue_hits>(0u, hits!Some_@0_value_p, undef, hits!Some_ray_d, hits!Some_depth, hits!Some__slot, hits!Some__bits0) in
     hits_queue[1u] = @22
     parfor rays in [0u:@10:1u] {
       let @13 = rays_ray_o[rays] in
@@ -116,16 +115,14 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
       let @47 = @46 & 1u in
       let @48 = @47 != 0u in
       let @49 = build<_option0>(@43, @48) in
-      let @51 = hits_queue[1u].ray_o in
+      let @51 = hits_queue[1u].ray_d in
       let @52 = @51[hits!Some] in
-      let @54 = hits_queue[1u].ray_d in
-      let @55 = @54[hits!Some] in
-      let @56 = build<Ray>(@52, @55) in
-      let @58 = hits_queue[1u].depth in
+      let @53 = build<Ray>(undef, @52) in
+      let @55 = hits_queue[1u].depth in
+      let @56 = @55[hits!Some] in
+      let @58 = hits_queue[1u]._slot in
       let @59 = @58[hits!Some] in
-      let @61 = hits_queue[1u]._slot in
-      let @62 = @61[hits!Some] in
-      step!after!Some(@49, @56, @59, max_depth, (&rays_rad_slots[@62]), rays_queue, @62)
+      step!after!Some(@49, @53, @56, max_depth, (&rays_rad_slots[@59]), rays_queue, @59)
       continue
     }
     hits_queue[0u].count = 0u
@@ -184,21 +181,18 @@ func step(ray : Ray, depth : i32, max_depth : i32, rad : mut (f32*), _queue_rays
     let @29 = atomic_add((&_queue_hits[1u].count), 1u) in
     let @31 = @0.value in
     let @32 = @31.p in
-    let @35 = ray.o in
     let @36 = ray.d in
     let @39 = cast<u8>(@6) in
     let @41 = _queue_hits[1u].@0_value_p in
     @41[@29] = @32
-    let @44 = _queue_hits[1u].ray_o in
-    @44[@29] = @35
-    let @47 = _queue_hits[1u].ray_d in
-    @47[@29] = @36
-    let @50 = _queue_hits[1u].depth in
-    @50[@29] = depth
-    let @53 = _queue_hits[1u]._slot in
-    @53[@29] = _slot_hits
-    let @56 = _queue_hits[1u]._bits0 in
-    @56[@29] = @39
+    let @44 = _queue_hits[1u].ray_d in
+    @44[@29] = @36
+    let @47 = _queue_hits[1u].depth in
+    @47[@29] = depth
+    let @50 = _queue_hits[1u]._slot in
+    @50[@29] = _slot_hits
+    let @53 = _queue_hits[1u]._bits0 in
+    @53[@29] = @39
     return
   } else {
     let @12 = atomic_add((&_queue_hits[0u].count), 1u) in

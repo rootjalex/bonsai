@@ -91,14 +91,28 @@ bool has_uses(const Function &func, const Instruction *of);
 // lanes taken on the way down (`load_field(p, 2)` then lane 0 is {2, 0}),
 // and the empty path the whole value. A parameter is read whole where an
 // instruction other than a field or lane read takes it, where a terminator
-// reads it (a dispatch's condition, a return's value, a loop's bounds, a
-// call's arguments) and where it is passed along an edge to a block
-// argument that is read whole; a field or lane read narrows the path, so
-// that a struct of which only `.d` is ever taken has {1} read and nothing
-// else. Followed along the edges that pass values on, to a fixed point: a
-// thread through blocks that ends nowhere is not a read. A parameter
-// absent from the map is never read, and a caller may hand it anything.
-std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function &func);
+// reads it (a dispatch's condition, a return's value, a loop's bounds) and
+// where it is passed along an edge to a block argument that is read whole;
+// a field or lane read narrows the path, so that a struct of which only
+// `.d` is ever taken has {1} read and nothing else. Followed along the
+// edges that pass values on, to a fixed point: a thread through blocks that
+// ends nowhere is not a read. A parameter absent from the map is never
+// read, and a caller may hand it anything.
+//
+// A call's argument is read as the callee reads its parameter, when
+// `funcs` names the program's functions to find the callee in: the paths
+// the callee reads of parameter k are the paths read of argument k, each
+// callee's reads computed once (memoized) and the whole program followed
+// through. An argument is read whole where the callee cannot be followed:
+// not among `funcs`, or `funcs` not given; a function with no body (an
+// extern); a callee on the cycle of calls being followed (a recursion,
+// whose reads would need a fixed point across functions and are taken as
+// everything); a run of calls (MultiCall). A deferred call that is not
+// yet a push is a call, so what its callee reads is what its queue will
+// store (SSA/Defer.cpp decides the entry from these reads).
+std::map<std::string, std::set<std::vector<unsigned>>> read_paths(
+    const Function &func,
+    const std::map<std::string, std::shared_ptr<Function>> *funcs = nullptr);
 
 // Every place `func` holds a value: the operands of its instructions, what
 // its terminators read or pass (a dispatch's condition, a return's value, a

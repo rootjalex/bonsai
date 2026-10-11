@@ -520,10 +520,39 @@ bool has_uses(const Function &func, const Instruction *of) {
     return false;
 }
 
-std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function &func) {
+namespace {
+
+using ReadPaths = std::map<std::string, std::set<std::vector<unsigned>>>;
+using Functions = std::map<std::string, std::shared_ptr<Function>>;
+
+// How deep a path into a value of `type` can go: a struct one more than its
+// deepest field, a vector one more than its element, a scalar nowhere. No
+// type contains itself, so a path longer than this names nothing of the
+// value.
+unsigned path_depth(const Type &type) {
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        unsigned deepest = 0;
+        for (const TypedVar &f : s->fields) {
+            deepest = std::max(deepest, path_depth(f.type));
+        }
+        return 1 + deepest;
+    }
+    if (const Vector_t *v = type.as<Vector_t>()) {
+        return 1 + path_depth(v->etype);
+    }
+    return 0;
+}
+
+// read_paths() for one function, with the callees' reads found or computed
+// through `memo`; `following` holds the functions whose reads are being
+// computed up the recursion, which a call back into one of them cannot
+// use.
+ReadPaths read_paths_through(const Function &func, const Functions *funcs,
+                             std::map<std::string, ReadPaths> &memo,
+                             std::set<std::string> &following) {
     using Path = std::vector<unsigned>;
     using Paths = std::set<Path>;
-    std::map<std::string, Paths> result;
+    ReadPaths result;
     if (func.blocks.empty()) {
         return result;
     }
@@ -533,6 +562,7 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
     // read of a struct's field or a vector's lane at a constant index reads
     // of the value what is read of the result, one step down; a value
     // passed along an edge to a block argument is read as that argument is;
+    // a value handed to a call is read as the callee reads the parameter;
     // anything else reads the value whole. Liveness over the values, to a
     // fixed point: what is passed along edges and read nowhere is a thread
     // the simplifier has not pruned, not a read.
@@ -542,15 +572,19 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
         optional<unsigned> below; // a field or lane: prefix the path with it
     };
     map<Key, Paths> paths;
+    map<Key, unsigned> depths;       // each value's path_depth
     map<Key, vector<Edge>> edges_to; // a value, and what is read through it
     vector<Key> work;
-    constexpr size_t deepest = 8; // a path longer than this is the whole
+    // A path longer than the value's type is deep names nothing of it; it
+    // arises only round a cycle of edges (a loop carrying the value and
+    // taking a field of it each time round), where it stands for every
+    // field at every depth -- the whole. This is what ends the fixed point.
     const auto add = [&](const Key &key, Path path) {
         Paths &have = paths[key];
         if (have.contains(Path{})) {
             return;
         }
-        if (path.size() > deepest) {
+        if (const auto d = depths.find(key); d != depths.end() && path.size() > d->second) {
             path.clear();
         }
         if (path.empty()) {
@@ -568,16 +602,66 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
             return std::nullopt;
         }
         if (const auto *a = std::get_if<Argument>(&v->data)) {
-            return Key{block, a->name};
+            Key key{block, a->name};
+            depths.emplace(key, path_depth(a->type));
+            return key;
         }
         if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data)) {
-            return Key{"", (*i)->name};
+            Key key{"", (*i)->name};
+            depths.emplace(key, path_depth((*i)->type));
+            return key;
         }
         return std::nullopt;
     };
     const auto read = [&](const string &block, const shared_ptr<Value> &v) {
         if (const auto key = key_of(block, v)) {
             add(*key, Path{});
+        }
+    };
+    // The callee's reads of its parameters, by parameter index, where the
+    // callee can be followed; nothing where it cannot, and the arguments
+    // are read whole.
+    const auto callee_reads =
+        [&](const string &name) -> optional<vector<const Paths *>> {
+        if (funcs == nullptr || following.contains(name)) {
+            return std::nullopt;
+        }
+        const auto f = funcs->find(name);
+        if (f == funcs->end() || f->second->blocks.empty()) {
+            return std::nullopt;
+        }
+        auto m = memo.find(name);
+        if (m == memo.end()) {
+            following.insert(name);
+            ReadPaths reads = read_paths_through(*f->second, funcs, memo, following);
+            following.erase(name);
+            m = memo.emplace(name, std::move(reads)).first;
+        }
+        vector<const Paths *> by_index;
+        for (const Argument &param : f->second->blocks.front()->args) {
+            const auto it = m->second.find(param.name);
+            by_index.push_back(it == m->second.end() ? nullptr : &it->second);
+        }
+        return by_index;
+    };
+    // The arguments of a call to `name`: each read as the callee reads its
+    // parameter, or whole.
+    const auto hand = [&](const string &block, const string &name,
+                          const vector<shared_ptr<Value>> &args) {
+        const auto callee = callee_reads(name);
+        for (size_t k = 0; k < args.size(); k++) {
+            if (!callee.has_value() || k >= callee->size()) {
+                read(block, args[k]);
+                continue;
+            }
+            if ((*callee)[k] == nullptr) {
+                continue; // the callee never reads it
+            }
+            if (const auto key = key_of(block, args[k])) {
+                for (const Path &path : *(*callee)[k]) {
+                    add(*key, path);
+                }
+            }
         }
     };
     const BlockMap bmap = make_block_map(func);
@@ -654,14 +738,12 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
                 },
                 [](const Terminator::Yield &) {},
                 [&](const Terminator::Call &c) {
-                    for (const auto &arg : c.call.args) {
-                        read(b, arg); // handed to the callee: a read
-                    }
+                    hand(b, c.call.name, c.call.args); // as the callee reads
                     thread(b, c.cont, c.drop ? 0 : 1);
                 },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &arg : c.call.args) {
-                        read(b, arg);
+                        read(b, arg); // a run of calls: whole
                     }
                     for (const auto &vs : c.varying) {
                         for (const auto &v : vs) {
@@ -708,6 +790,21 @@ std::map<std::string, std::set<std::vector<unsigned>>> read_paths(const Function
         }
     }
     return result;
+}
+
+} // namespace
+
+std::map<std::string, std::set<std::vector<unsigned>>> read_paths(
+    const Function &func, const std::map<std::string, std::shared_ptr<Function>> *funcs) {
+    std::map<std::string, ReadPaths> memo;
+    // The function itself is being followed: a call back to it -- a
+    // recursion, or a copy of it under its name, which its entry block
+    // carries -- reads whole.
+    std::set<std::string> following;
+    if (!func.blocks.empty()) {
+        following.insert(func.blocks.front()->name);
+    }
+    return read_paths_through(func, funcs, memo, following);
 }
 
 bool read_outside_loop(const Cfg &cfg, const BlockSet &inside,

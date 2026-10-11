@@ -13917,3 +13917,78 @@ heatmap5's images; lte-orb-silver and rough-glass timed against heatmap5,
 three repeats each side); the dead parameter of the hit continuation;
 step 1 of the plan with push-aware reads, which empties the material
 kernels' and the hit program's loads of the draws they hand on.
+
+### Step 1: a call's argument is read as the callee reads it (10-11, 16:30-)
+
+The user (16:20): "Yes, start step 1 now."
+
+**Built.** `read_paths` (SSA/Analysis.h) takes the program's functions
+and follows calls: the paths a callee reads of parameter k are the paths
+read of argument k, each callee's reads computed once (memoized) and the
+program followed through; an argument is read whole where the callee
+cannot be followed -- not among the functions or no functions given, a
+body-less extern, a callee on the cycle of calls being followed (a
+recursion, whose reads across functions would need a fixed point and are
+taken as everything), a run of calls (MultiCall). A deferred call that is
+not yet a push is a call, so what its callee reads is what its queue will
+store: this is the push-aware rule, and it needs no knowledge of the later
+queue's layout. The entry analysis (SSA/Defer.cpp) and the cut's second
+pass (SSA/Stage.cpp) pass the functions. Also in that function: the cap
+`deepest = 8` -- a path longer than eight steps was taken as the whole --
+is replaced by the type's own depth (a struct one more than its deepest
+field, a vector one more than its element, a scalar nothing): no type
+contains itself, so a longer path names nothing of the value and arises
+only round a cycle of edges, where it means every field at every depth,
+the whole. That is what ends the fixed point, and it is a fact of the
+type, not a number.
+
+**What the narrower reads uncovered.** A drain whose callee never reads a
+field hands it `undef`; where that callee pushes the value on, the next
+queue's analysis sees `undef` at that push and a real value at another,
+and the slot and recipe rules asked every push to agree. In
+semantics-reload-two-routes the pixel came through the detour queue as
+`undef` (route hands it only to shade, which never reads it), and the hits
+entry listed `p` as a stored field where it had been the slot. An
+undefined argument is handed where nothing reads it, so whatever a recipe
+computes there is read by nothing: the per-route slot match and the recipe
+agreement skip an undefined push. The origin agreement of chain parameters
+stays strict -- making `undef` agree there named one call's per-iteration
+load the origin of every call, which the uniform rule then rightly
+refused -- and the per-route rule, which matches each call against its
+own slot, is the one that applies.
+
+**In the renderer** (bytes an entry stores, the queue type's arrays less
+the leaves the explain reports unread; the material kernels' is Diffuse's,
+the same for every material):
+
+    queue             before  after   pbrt
+    hits                 271    255    252   prim.light/material/alpha, shape.payload_y
+    bssrdfs              382    345    168   prim 21, mat 4, ctx.n 12
+    probes               341    316    332   prim 21, mat 4
+    medium_samples       255    223    372   the hit's payload words
+    shadow               112     80    124   lambda: shadow_contribution adds into L, no conversion
+    exit_shadow          112     80          lambda
+    emissive             165    149    192   lambda.pdf
+    escaped              161    145    164   lambda.pdf
+    exits                228    228    330
+    rays                 181    181    184
+
+The hits entry's three bytes over pbrt are `prim.shape` (tag, payload_x)
+and `via`, read by `hit_wo(via, prim.shape, ray)` -- step 5's program
+change, 14 bytes with `ray.d` becoming `wo`. The draws: the material
+kernels still load all seven, since `vol_surface` hands `rs` to
+`vol_subsurface` (a call, read whole: vol_subsurface hands it on to
+vol_probe and so on; each is a real read until the push's entry reloads
+it, which the analysis at this point cannot know), and the closest-hit
+program all seven for its dead parameter. Both are the dead-argument
+question, not a read question: once the pushes are lowered the parameters
+are unused, and removing a dead parameter from a function and the
+argument from its callers to a fixed point (the standard pass; LLVM's
+DeadArgumentElimination) would drop the loads. Next.
+
+**Tests.** ssa and llvm `entry-reads-through-calls`: shade hands the ray
+whole to two `[[noinline]]` callees that read its direction, and the hits
+queue stores `ray_d` alone (`build<Ray>(undef, d)` at the drain). Two
+goldens changed and were read before blessing: semantics-stage and
+semantics-reload-two-routes lose the array for `ray.o`, which every callee
+reads only the direction of. The ssa and llvm suites pass (628).
