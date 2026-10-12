@@ -1,0 +1,48 @@
+//! flags: -p ssa
+
+// A mutable local of struct type handed down a deferred recursion, in the
+// SSA: `rec`, a `mut Record` of the producer's iteration, is given a slot
+// per iteration in the record (as defer-reducer's `total` is), and the
+// record is a struct of arrays (SSA/InducedStorage.h): one array per leaf
+// of `Record` that something reads -- `q_rec_p_slots` for the 3-vector,
+// kept whole and packed where no gang touches the queue, `q_rec_hits_slots`,
+// `q_rec_seen_slots` (a bool, a byte) -- and none for `w`, which nothing
+// reads, so the producer's store of it is gone too. What to read for:
+// `step`'s `rec : mut Record` parameter is three pointer parameters, the
+// field store `rec.hits = rec.hits + 1` is a load and a store on
+// `q_rec_hits_slots`, the whole store of the initializer is one store per
+// leaf kept, the entry still carries the slot's index and the drain hands
+// `step` the three slot addresses rebuilt from it, and the producer's
+// continuation reads `seen`, `hits` and `p.x` each out of its own array.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    w : Float;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 2.0, 0, false};
+        step(values[i], i % 4, rec);
+        out[i] = select(rec.seen, cast[[Float]](rec.hits) + rec.p.x, 0.0);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(step, q);
+}

@@ -524,6 +524,24 @@ after the call, `film[p] = rad`, runs in the *rest pass* once every
 drain of the queue's family has run. So no drain runs a continuation of
 the owner, and nothing returns up the chain.
 
+*The record is stored as the entry is*, and so is every other array a
+directive induces (a cut's set, 4.5; a loop interchange's expansion of a
+value per iteration): a struct of arrays, one array per leaf of the stored
+type -- a scalar, a short vector kept whole where no gang touches it (the
+vector itself for two or four components of sixteen bytes or fewer; packed
+for a 3-vector), a bool a byte of its own in a slot the chain writes field
+by field, an ADT's padding nowhere -- and a leaf nothing reads has no
+array and is stored nowhere, as pbrt's `SOA<PixelSampleState>` is an
+array per member and its `visibleSurface` is untouched for an RGB film. A
+`mut Record` local of the producer's iteration is therefore
+`q_rec_<leaf>_slots` per leaf, the chain function that is handed it takes
+a pointer per leaf in the parameter's place (`rec_p`, `rec_hits`, ...),
+and a field store through the parameter is a store into that leaf's array.
+Each such storage has a handle named for the stored thing -- `q.rec`,
+`q.result`, `q.rest.<value>`, `s!expanded` -- which is what a later
+directive takes to lay it out otherwise; nothing here is the layout
+language's promise (SSA/InducedStorage.h).
+
 *Rounds.* When running an entry can push onto the queue it came from, the
 drain runs in rounds, each draining the entries the round before pushed,
 until a round pushes nothing. There are two buffers when the drain itself
@@ -562,7 +580,8 @@ call and its functions are not called from outside it.
    `push _queue_q <- build<Entry_q>(A)` and `return`.
 4. In the owner, before the producer loop: `q_queue : mut Queue_q[2]`
    built over arrays `q_<leaf>_0`, `q_<leaf>_1 : mut T[n]`, and a record
-   array `q_<local>_slots : mut T[n]` per record value. In the producer's
+   array `q_<local>_<leaf>_slots : mut T[n]` per leaf of each record value
+   (one array, `q_<local>_slots`, for a scalar). In the producer's
    body the record values are stored at `[i]`, the call is handed
    `&q_queue[0]`, `&q_result[i]` and `i` (or is itself the push, when the
    owner's directive made it one), and the blocks after the call are cut

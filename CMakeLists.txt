@@ -271,6 +271,7 @@ target_sources(
     src/SSA/DumpAnalysis.cpp
     src/SSA/HeapArrays.cpp
     src/SSA/HoistAllocations.cpp
+    src/SSA/InducedStorage.cpp
     src/SSA/InsertPreheader.cpp
     src/SSA/InvariantDivision.cpp
     src/SSA/Linearize.cpp

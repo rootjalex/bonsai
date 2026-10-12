@@ -180,9 +180,15 @@ namespace ssa {
 //     Pipelines", PLDI 2013. Section 3.2, the domain order and the call
 //     schedule; `Stage::reorder` in src/Func.cpp.
 //
+// `vector_leaves` says how the arrays that expand a value per outer
+// iteration store a short vector -- whole, in one array, where no gang
+// touches the function; a scalar per array otherwise -- as a queue's entry
+// decides it (QueueSpec::vector_leaves). The arrays are registered as
+// induced storage, `<name>!expanded`, and laid out as a struct of arrays
+// once every directive has run (SSA/InducedStorage.h).
 // Implemented in SSA/ReorderLoops.cpp.
 void reorder(FuncMap &funcs, std::string func, std::string inner,
-             std::string outer);
+             std::string outer, bool vector_leaves);
 
 } // namespace ssa
 } // namespace ir

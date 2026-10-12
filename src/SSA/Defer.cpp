@@ -3,6 +3,7 @@
 #include "SSA/Analysis.h"
 #include "SSA/CloneFunction.h"
 #include "SSA/Definitions.h"
+#include "SSA/InducedStorage.h"
 #include "SSA/LoopArithmetic.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Reach.h"
@@ -2891,6 +2892,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         auto slots = scratch(make_alloca(*O, alloc_point,
                                          Array_t::make(etype, as_expr(size)),
                                          queue.name + "_" + named + "_slots"));
+        // One array of the local's type here; a struct of arrays once every
+        // directive has run (SSA/InducedStorage.h), under `<queue>.<local>`.
+        register_induced(*O, Function::InducedStorage{
+                                 queue.name + "." + named, named, queue.name + "_", "_slots",
+                                 etype, queue.vector_leaves, queue.adt_storages, {slots}, {},
+                                 /*split=*/false});
         size_t at = home->instrs.size();
         for (size_t i = 0; i < home->instrs.size(); i++) {
             if (home->instrs[i].get() == local) {
@@ -2929,6 +2936,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         rv.array = scratch(make_alloca(*O, alloc_point,
                                        Array_t::make(rv.type, as_expr(size)),
                                        queue.name + "_rest_" + rv.name));
+        register_induced(*O, Function::InducedStorage{
+                                 queue.name + ".rest." + rv.name, rv.name,
+                                 queue.name + "_rest_", "", rv.type, queue.vector_leaves,
+                                 queue.adt_storages, {rv.array}, {}, /*split=*/false});
     }
     // Whether each slot's iteration reached the call (see
     // call_on_every_iteration): a byte per slot, cleared where the innermost
@@ -2939,6 +2950,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         ran_array = scratch(make_alloca(*O, alloc_point,
                                         Array_t::make(u8(), as_expr(size)),
                                         queue.name + "_ran"));
+        register_induced(*O, Function::InducedStorage{
+                                 queue.name + ".ran", "ran", queue.name + "_", "", u8(),
+                                 queue.vector_leaves, queue.adt_storages, {ran_array}, {},
+                                 /*split=*/false});
         const auto &innermost = std::get<Terminator::ParFor>(nest.back()->terminator.data);
         const shared_ptr<Block> body = omap.at(innermost.body.name);
         size_t at = body->instrs.size();
@@ -2962,6 +2977,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         result_array = scratch(make_alloca(*O, alloc_point,
                                            Array_t::make(ret_type, as_expr(size)),
                                            queue.name + "_result"));
+        register_induced(*O, Function::InducedStorage{
+                                 queue.name + ".result", "result", queue.name + "_", "",
+                                 ret_type, queue.vector_leaves, queue.adt_storages,
+                                 {result_array}, {}, /*split=*/false});
         result_slot = producer.block->make_instruction(
             Ptr_t::make(ret_type), Instruction::Op::GEP,
             {reach(producer.block, result_array), producer_index});

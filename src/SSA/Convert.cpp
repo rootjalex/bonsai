@@ -5,6 +5,7 @@
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
 #include "SSA/Defer.h"
+#include "SSA/InducedStorage.h"
 #include "SSA/BlockAccumulates.h"
 #include "SSA/GateDrains.h"
 #include "SSA/HitContinuations.h"
@@ -1817,6 +1818,7 @@ void dump_ssa(std::ostream &os, const std::string &when, const FuncMap &fmap,
             continue;
         }
         os << "; --- " << fname << " ---\n";
+        dump_induced(os, *f);
         f->dump(os);
     }
 }
@@ -2892,7 +2894,8 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 << ": those loops are in different "
                                 << "functions (" << at.func << " and "
                                 << other.func << "), so they are not nested";
-                            reorder(fmap, at.func, at.index, other.index);
+                            reorder(fmap, at.func, at.index, other.index,
+                                    /*vector_leaves=*/!vectorizes({at.func}));
                         }
                     },
                     [&](const ir::Bind &b) {
@@ -2945,6 +2948,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     }
 
     phase("atomics after the binds");
+    // Every array a transform induced -- a deferral's record, an interchange's
+    // expansion of a value per iteration -- as a struct of arrays, now that
+    // every directive has made its storage and every use of it, and before
+    // the hit continuations copy a drain's body into a program whose
+    // parameters mirror the values it reads (SSA/InducedStorage.h).
+    split_induced_storage(fmap);
+    phase("induced storage");
 
     // The launch gates, while every drain still carries its queue
     // (Terminator::ParFor::queue_base, cleared for host drains just below),

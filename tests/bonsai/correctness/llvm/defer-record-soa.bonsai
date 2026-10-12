@@ -1,0 +1,48 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/defer-record-soa's program, run: a `mut Record` of the
+// producer's iteration handed down a deferred recursion, its record stored
+// as a struct of arrays with the unread field dropped (SSA/InducedStorage.h).
+// Iteration i takes i % 4 + 1 steps, each adding one to `hits`, and the
+// last marks `seen`; `p.x` is `values[i]`, so `out[i]` is `i % 4 + 1 + i`:
+// 1, 3, 5, 7, 5, 7, 9, 11.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    w : Float;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 2.0, 0, false};
+        step(values[i], i % 4, rec);
+        out[i] = select(rec.seen, cast[[Float]](rec.hits) + rec.p.x, 0.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(step, q);
+}

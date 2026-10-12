@@ -45,6 +45,7 @@ add_bonsai_tests(
     defer-lone-call.bonsai
     ffp-contract.bonsai
     defer-loop-owned.bonsai
+    defer-record-soa.bonsai
     defer-reducer.bonsai
     defer-remat.bonsai
     defer-spawn.bonsai

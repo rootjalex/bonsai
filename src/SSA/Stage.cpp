@@ -7,6 +7,7 @@
 #include "SSA/CloneFunction.h"
 #include "SSA/Defer.h"
 #include "SSA/Definitions.h"
+#include "SSA/InducedStorage.h"
 #include "SSA/Reach.h"
 #include "SSA/Storage.h"
 
@@ -759,6 +760,27 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
         // rather than store what it was handed (Function::OwnedQueue).
         owned->second.stable_arrays.insert(
             std::get<shared_ptr<Instruction>>(arrays[l]->data).get());
+    }
+    // Registered as the struct of arrays it already is, under
+    // `<queue>.<value>` (SSA/InducedStorage.h): the handle a later directive
+    // takes. The bytes the bools pack into belong to the set as a whole.
+    for (const Stored &s : stored) {
+        Function::InducedStorage is;
+        is.handle = queue.name + "." + s.name;
+        is.local = s.name;
+        is.prefix = queue.name + "_";
+        is.suffix = "_slots";
+        is.element = s.type;
+        is.vector_leaves = queue.vector_leaves;
+        is.adts = queue.adt_storages;
+        is.split = true;
+        for (size_t l = s.first_leaf; l < s.last_leaf; l++) {
+            if (arrays[l]) {
+                is.arrays.push_back(arrays[l]);
+                is.leaf_names.push_back(leaves[l].name);
+            }
+        }
+        register_induced(*O, std::move(is));
     }
     owned->second.second_pass = pre->name;
     owned->second.round_header = round_header;

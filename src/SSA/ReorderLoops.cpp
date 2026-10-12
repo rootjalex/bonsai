@@ -2,6 +2,7 @@
 
 #include "SSA/Analysis.h"
 #include "SSA/Definitions.h"
+#include "SSA/InducedStorage.h"
 #include "SSA/LoopArithmetic.h"
 #include "SSA/Reach.h"
 #include "SSA/Rewrite.h"
@@ -115,7 +116,7 @@ shared_ptr<Block> fresh_block(const shared_ptr<Function> &f, const string &name)
 
 } // namespace
 
-void reorder(FuncMap &funcs, string func, string inner, string outer) {
+void reorder(FuncMap &funcs, string func, string inner, string outer, bool vector_leaves) {
     internal_assert(funcs.contains(func))
         << "reorder applied to unknown func: " << func;
     auto f = funcs[func];
@@ -268,6 +269,11 @@ void reorder(FuncMap &funcs, string func, string inner, string outer) {
         auto array = make_alloca(*f, hp, Array_t::make(etype, as_expr(trip_of_p())),
                                  name + "!expanded");
         std::get<shared_ptr<Instruction>>(array->data)->scratch = scratch;
+        // One array of the value's type here; a struct of arrays once every
+        // directive has run (SSA/InducedStorage.h), under `<name>!expanded`.
+        register_induced(*f, Function::InducedStorage{name + "!expanded", name, "", "!expanded",
+                                                      etype, vector_leaves, nullptr, {array},
+                                                      {}, /*split=*/false});
         return array;
     };
 

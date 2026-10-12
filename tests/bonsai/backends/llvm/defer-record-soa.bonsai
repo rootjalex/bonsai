@@ -1,0 +1,44 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/defer-record-soa's program, all the way to LLVM: the
+// record of a `mut Record` handed down a deferred recursion is a struct of
+// arrays (SSA/InducedStorage.h) -- `q_rec_p_slots` of `[3 x float]`,
+// `q_rec_hits_slots` of `i32`, `q_rec_seen_slots` of `i8`, and no array for
+// `w`, which nothing reads. What to read for: `step` takes three pointers
+// in the parameter's place and its `rec.hits = rec.hits + 1` is a load and
+// a store of one `i32`; the producer's loop stores one field per array and
+// the rest pass loads `seen`, `hits` and the first lane of `p` each out of
+// its own array, where an array of 24-byte structs was written and read
+// whole.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    w : Float;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func [[export]] run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 2.0, 0, false};
+        step(values[i], i % 4, rec);
+        out[i] = select(rec.seen, cast[[Float]](rec.hits) + rec.p.x, 0.0);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(step, q);
+}

@@ -51,6 +51,7 @@ add_bonsai_tests(
     defer-mut-local.bonsai
     defer-off-chain.bonsai
     defer-parfor.bonsai
+    defer-record-soa.bonsai
     defer-reducer.bonsai
     defer-remat.bonsai
     defer-spawn.bonsai

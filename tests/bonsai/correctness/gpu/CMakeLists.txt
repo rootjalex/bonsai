@@ -36,6 +36,7 @@ add_bonsai_tests(
     buffers-cpp.bonsai
     defer-capacity.bonsai
     defer-device.bonsai
+    defer-record-soa.bonsai
     queue-managed.bonsai
     queue-extern-cpp.bonsai
     device-function.bonsai

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "IR/Function.h"
+#include "IR/Program.h"
 #include "IR/Provenance.h"
 #include "IR/Storage.h"
 #include "IR/Type.h"
@@ -599,6 +600,33 @@ struct Function {
         std::set<const Instruction *> stable_arrays;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
+    // Every array a scheduling transform made in this function that the
+    // program did not declare -- a deferral's record (the slot of a mutable
+    // local the chain is handed, a reducer's, a continuation's record value,
+    // the path's result), a cut's stored set, an interchange's expansion of
+    // a value per iteration -- under a handle named for the stored thing:
+    // `rays.visible`, `rays.result`, `s!expanded`. Registered by the
+    // transform that made it, as the one array of the stored type its
+    // rewrite is simplest with; laid out as a struct of arrays, one per
+    // leaf, by split_induced_storage() once every directive has run
+    // (SSA/InducedStorage.h), by the rule a queue's entry is stored by. The
+    // handle is what a later directive takes to lay the storage out
+    // otherwise.
+    struct InducedStorage {
+        std::string handle;
+        // The stored thing's name, which every leaf's name begins with
+        // (leaves_of), and what the arrays are called: prefix + leaf + suffix.
+        std::string local, prefix, suffix;
+        Type element;
+        bool vector_leaves = false;
+        const std::map<std::string, ir::Program::AdtStorage> *adts = nullptr;
+        // One array of `element` before the split; after it one per leaf
+        // something reads, named in `leaf_names`.
+        std::vector<std::shared_ptr<Value>> arrays;
+        std::vector<std::string> leaf_names;
+        bool split = false;
+    };
+    std::vector<InducedStorage> induced;
     // The addresses of the record slots deferrals of this function have made
     // (SSA/Defer.cpp): a per-iteration slot in place of a local of the
     // producer's iteration -- a reducer's, or a mutable local the deferred
