@@ -19,6 +19,69 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-12, 11:50)
+
+**The camera-ray kernel read against pbrt's GenerateCameraRays, and the
+first of its causes fixed.** The two kernels do the same work in the same
+order -- the pixel from the launch index, the sampler's start of the
+pixel sample, the wavelength draw, the filter sampled by two binary
+searches, the time and lens draws, the ray through the same transforms
+-- and the times said so before the code did: ours costs a flat 0.33 to
+0.35 ns a ray on all thirty scenes whatever the sampler, where pbrt's
+moves with the sampler (0.20 on the two PMJ02BN scenes, 0.27 to 0.34 on
+Halton). A kernel that cannot tell a table lookup from a dozen 64-bit
+divisions is not spending its time on arithmetic. What differs is the
+stores: pbrt writes 212 bytes a pixel sample in 25 instructions, nine of
+them 128-bit; ours wrote 276 in 58, forty-eight of them scalar. Twenty of
+the scalar stores were the five spectra of the entry -- beta, the two
+path densities, the two halves of the wavelengths -- each stored as four
+scalars because a 4-vector leaf of a queue was the *packed* vector,
+sixteen bytes aligned to four, which no backend can write in one
+instruction; pbrt's `SOA<SampledSpectrum>` keeps a `Float4` per entry. A
+2- or 4-vector leaf of sixteen bytes or fewer is now stored as the vector
+type itself, aligned as it is, so the push's store and every drain's load
+are one 128-bit instruction (stored_vector_type, SSA/Defer.cpp; a 3-vector
+stays packed). In the assembly the camera kernel's stores went to 28
+scalar and nine 128-bit on every sampler, and the Diffuse material kernel's
+from 67 scalar to 35. A codegen rule reading alignment off an array's
+stride was tried first and withdrawn: fourteen test drivers hand interior
+pointers C++ does not align to sixteen, so that promise was unsound.
+
+Measured on the protocol's five scenes against the step-1 run (kernel
+milliseconds, least of three on each side, pbrt rerun beside ours):
+
+| scene | spp | pbrt | step 1 (e07e53b4) | vector leaves | kernel speedup over pbrt | wall |
+|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 29.97 | 29.62 | 1.67x | 3.39x |
+| killeroo-gold | 16 | 149.5 | 75.02 | 73.94 | 2.02x | 2.67x |
+| book | 16 | 153.0 | 92.82 | 92.06 | 1.66x | 2.28x |
+| lte-orb-silver | 16 | 161.6 | 85.41 | 84.34 | 1.92x | 2.37x |
+| lte-orb-rough-glass | 16 | 335.5 | 206.50 | 203.88 | 1.65x | 1.69x |
+| killeroo-simple | 64 | 197.7 | 120.09 | 118.39 | 1.67x | 1.99x |
+| killeroo-gold | 64 | 598.3 | 299.50 | 295.00 | 2.03x | 2.25x |
+| book | 64 | 617.2 | 370.62 | 367.47 | 1.68x | 1.87x |
+| lte-orb-silver | 64 | 644.9 | 341.96 | 338.17 | 1.91x | 2.00x |
+| lte-orb-rough-glass | 64 | 1336.7 | 822.93 | 815.00 | 1.64x | 1.65x |
+
+Every cell faster, 1.012x kernel as a geometric mean at both counts
+(1.060x over heatmap5 with the two steps of 10-11), all ten radiance
+images byte-identical to heatmap5's. The stage itself: the camera rays
+over the five scenes 37.6 -> 36.8 ms against pbrt's 27.8 at 16 spp
+(1.36x -> 1.32x), 149.5 -> 146.1 against 112.0 at 64 (1.34x -> 1.31x);
+lte-orb-rough-glass, the worst, 1.64x -> 1.60x. A fifth of the camera
+kernel's deficit, then; the rest is in what PLAN.md's section lists and
+the user ruled on at 11:50: the visible-surface record slot, a 96-byte
+struct per pixel sample where pbrt's pixel state is an array per member
+(the ruling: every storage the compiler induces is a struct of arrays,
+with a handle named after the stored thing); the wavelengths kept inside
+the surface so that the surface is initialized for every film (the
+ruling: follow pbrt -- the wavelengths their own per-sample value, the
+surface's initialization under `specialize()` on the film's flag); and,
+outside this renderer, a layout group's rows read on the GPU at alignment
+one (the ruling: a group's base is aligned to its largest member and the
+loads emitted aligned). The 48 bytes of constant previous-vertex context
+at the camera push and the 3-vectors' 12-byte stride stay listed.
+
 ## Where it stands (2026-10-11, 20:30)
 
 **The stage tables were misfiling two of our kernels; regenerated.**
@@ -1537,20 +1600,32 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order (2026-10-11, 20:30)
+## To do, in order (2026-10-12, 11:50)
 
-1. The camera-ray kernel against pbrt's GenerateCameraRays: behind on 29
-   of 30 scenes (1.23x over the sweep, 1.65x on the two pmj02bn scenes).
-   Read the two side by side first -- the sampler's start of a pixel
-   sample, the camera's draws, the ray, the push -- and only then change
-   anything; one compare per fix.
+1. The camera-ray kernel's remaining causes, by the user's rulings of
+   11:50 (PLAN.md, "The camera-ray kernel against pbrt's
+   GenerateCameraRays"): (a) every storage the compiler induces is a
+   struct of arrays -- the record's slots (`rays_visible_slots`, the
+   sampler state, the rest) as the cut's set already is, one array per
+   leaf and a pointer per leaf down the chain, each storage with a handle
+   named after the stored thing so a schedule can re-lay it out later;
+   (b) pbrt's design for the wavelengths: their own per-sample value
+   beside the surface, the surface's initialization and the gbuffer's
+   accumulation under `film_visible_surface`, and the pixel loop
+   specialized on that flag so an RGB film's copy stores none of it;
+   (c) a layout group's base aligned to its largest member, with the
+   loads emitted aligned (the primer's twenty byte loads). One compare
+   per fix.
 2. The work-item plan (PLAN.md, "The work items matched, and the hit
    chain"): step 5's program changes (hits 255 -> 241 bytes against pbrt's
    252; the probe's empty start; the subsurface context), then the hit
    chain (step 8: six dependent loads from the record to a vertex against
    pbrt's four -- the closest-hit program's remaining difference, and
    landscape the one scene the trace is behind on), then the recipes of
-   steps 2-4 for bssrdfs (345 against 168) and probes (316 against 332).
+   steps 2-4 for bssrdfs (345 against 168) and probes (316 against 332);
+   the 48 bytes of constant context at the camera push (a per-push-site
+   read analysis, deferred) and the 3-vectors as component arrays on the
+   GPU (to decide with the camera kernel's number after 1).
 3. The sample draws on disney-cloud (1.09x) and lte-orb-silver (1.06x),
    after 1, since the two kernels share the sampler code.
 4. The standing debts: `cook`'s `budget = 16` replaced by a cost rule; the

@@ -14037,3 +14037,176 @@ ten radiance images are byte-identical to heatmap5's. pbrt's wall time
 moved between the two runs (killeroo-simple at 64 spp 0.21 s then 0.26 s)
 while its kernel time held, so the kernel column is the one to read; the
 compare's log now records which compiler a run used (gpu_compare.sh).
+
+### The camera-ray kernel against pbrt's GenerateCameraRays (10-11, 21:00-)
+
+The one stage behind on 29 of 30 scenes (REPORT, 20:30). The two read
+side by side before anything was changed: pbrt's
+`GenerateCameraRays<ConcreteSampler>` (wavefront/camera.cpp, one kernel
+per sampler type) and our `_kernel_p_blk$VolPath$<Sampler>` (the camera
+loop specialized per sampler since 482c0de1).
+
+**The same work in the same order.** The pixel from the launch index
+(`pMin + index % xResolution`, `y0 + index / xResolution`; ours
+`pixel_x0 + p % width`, `pixel_y0 + p / width`); StartPixelSample (the
+Halton index from the two inverse radical inverses and the Chinese
+remainder, as ours); the wavelength's draw and `SampleVisible`; the
+camera sample -- the pixel pair, the filter table sampled by two binary
+searches over its CDFs, the time, the lens pair -- with the same draws in
+the same dimensions; `GenerateRay`: cameraFromRaster, the normalize, the
+lens, RenderFromCamera through the interval transform. The radical
+inverses, the digit permutations, the blue-noise and PMJ tables, the
+filter's `PiecewiseConstant1D::Sample` and `FindInterval` are the same
+loops over the same tables. Nothing of the draws or the ray differs, and
+the measured times say so too: ours is **0.33 to 0.35 ns a ray on every
+one of the 30 scenes** whatever the sampler (heatmap5 at 16 spp, the
+kernel's milliseconds over pixels times spp), where pbrt's moves with the
+sampler -- 0.27 to 0.34 on the Halton scenes, 0.29 to 0.33 on ZSobol,
+0.20 on the two PMJ02BN scenes. A kernel whose time does not see the
+difference between a table lookup and a dozen 64-bit divisions is not
+spending it on arithmetic. The ratios: Halton 1.08x to 1.26x, ZSobol
+1.04x to 1.18x, PMJ02BN 1.65x -- widest where pbrt's compute is least.
+
+**What each stores per pixel sample** (pbrt's Halton instance's SASS, our
+Halton kernel's PTX assembled with ptxas for sm_120; both read, not
+guessed). pbrt: `pPixel` (two ST.E), `L = 0`, `lambda` (three ST.E.128),
+`filterWeight`, and `PushCameraRay` -- ray o and d as six scalars (its
+`SOA<Point3f>` is x, y, z arrays), time, medium (ST.E.64), depth,
+pixelIndex, lambda, beta, etaScale, anyNonSpecularBounces, r_u, r_l,
+specularBounce -- then `cameraRayWeight`: **212 bytes in 25 store
+instructions**, nine of them 128-bit (its `SOA<SampledSpectrum>` is a
+`Float4` per entry, sixteen-byte aligned). Its `VisibleSurface()`
+initialization (18 `ST.E RZ` and a `.128`) is under
+`initializeVisibleSurface`, false for an RGB film. Ours: the
+`VisibleSurface` record slot -- `{n, ns, albedo, lambda, set}` as one
+96-byte struct per slot (`rays_visible_slots : VisibleSurface[n]`),
+written as eight stores of 81 bytes into a 96-byte stride; the `l` slot
+(16); the filter weight (4); the `ran` byte, stored twice (a zero at the
+iteration's start, a one after the push, with the push's atomic between
+them so LLVM keeps both); and the rays entry -- o and d as packed 3-vectors
+(three scalar stores each at a 12-byte stride), medium, beta, r_u, r_l,
+depth, wave, eta_scale, `prev_ctx` (48 bytes: the constant origin context
+li_vol_path passes, which vol_route reads only under `depth > 0`, so
+pbrt's PushCameraRay never writes `prevIntrCtx`), lambda, pixel_x,
+pixel_y, the slot, the bools' byte: **276 bytes in 58 store instructions**
+-- STG.E x48, STG.E.128 x4, STG.E.64 x2, STG.E.U8 x4. The 48 scalar
+stores are the point: every one of beta, r_u, r_l, lambda.lambda and
+lambda.pdf is stored as **four scalars**, because the entry's leaf for a
+4-vector was the *packed* vector, `[[packed]] f32x4`, whose LLVM storage
+is `[4 x float]` -- sixteen bytes aligned to four -- and a sixteen-byte
+store aligned to four is four `st.global.b32` in PTX and four STG.E in
+SASS. The drains load the same way: the Diffuse material kernel's
+optimized IR holds 418 scalar `load float` and two vector loads. Per warp
+the four scalar stores of one spectrum touch sixteen sectors each (32
+threads at a 16-byte stride) where pbrt's one ST.E.128 touches sixteen
+once: four times the request traffic for the same bytes; the 96-byte
+record slot the same, every one of its eight stores touching 32
+half-filled sectors; the packed 3-vectors three times pbrt's for `o` and
+`d`. Our 1.3x of pbrt's bytes is roughly 3x its L1-to-L2 requests, which
+is what a PMJ02BN kernel of 1288 SASS instructions and 46 registers
+(pbrt's: 2208 and 126) needs to be 1.65x slower than pbrt's.
+
+**Built: the 4-vector leaf is the vector itself (`stored_vector_type`,
+SSA/Defer.cpp).** A short vector whose natural storage is its components
+back to back -- two or four of them, sixteen bytes or fewer -- is stored
+in an array of the vector type, aligned as the vector is (eight or
+sixteen bytes; what every allocation an array lives in gives: malloc's,
+cuMemAlloc's, a std::vector's), so the push's store and the drain's load
+are one `st.global.v4.f32` and one `ld.global.v4.f32`: pbrt's `Float4`.
+A 3-vector stays packed (sixteen bytes of natural storage for twelve of
+value), and so does anything wider than sixteen bytes (its natural
+alignment is more than an allocation promises). `keeps_whole` beside
+`packs` tells the rebuild that a whole-vector leaf may be the vector
+itself; the push's `cast<[[packed]] f32x4>` and the drain's `cast<f32x4>`
+are gone for the 4-vectors (and the `f32x2` draw slots of the cut). Tried
+first and withdrawn: a codegen rule reading an element's alignment off
+its stride (`[4 x float]` at a 16-byte stride in a 16-byte-aligned array
+is 16-aligned). It is sound for the compiler's own arrays and the
+driver's queue buffers but not for arrays in general: a runtime check at
+`bonsai_buffer_wrap` found fourteen test drivers handing interior
+pointers of structs and stack objects (8 mod 16) -- memory C++ does not
+align to sixteen -- so the promise would have been one callers do not
+keep, and a `movaps` or a `ld.v4` on it faults. The leaf's *type* carries
+the alignment honestly; the compiler allocates those arrays (or the
+driver does, by the queue-storage protocol, with cudaMalloc). The same
+experiment showed one more thing, recorded for the user: a layout group
+of `[[packed]]` rows is read on the GPU at alignment one -- ptx/rtiow-
+primer's node fields were twenty `ld.global.u8` (byte loads of floats!)
+that became word loads under the stride rule -- a layout-language
+question (a group's alignment promise), not this renderer's, whose device
+traversal is the RT cores'. Tests: ssa/defer-vector-leaves, semantics-
+stage-same-queue-soa and semantics-reload-by-slot-soa re-blessed after
+reading (the `s : f32x4[]` and `uv : f32x2[]` arrays, the casts gone,
+numbering shifted); a new llvm golden defer-vector-leaves (the `<4 x
+float>` store and load at `align 16`, the `[3 x float]` as before); the
+non-GPU suites pass (1528) and the 64 GPU tests pass (10-12, 11:10,
+once loom-f2 released the card). The assembly, read before the timing
+(the device module recompiled with `-b ptx`, ptxas for sm_120,
+cuobjdump): the camera kernel's stores went from STG.E x48, STG.E.128 x4
+to **STG.E x28, STG.E.128 x9** on each of the Halton, PMJ02BN and ZSobol
+instances -- the five spectra's twenty scalar stores are five 128-bit
+ones; 58 store instructions to 43 -- the Halton instance's registers 62
+to 56, the other two unchanged (46, 72). The drains the same way: the
+Diffuse material kernel's stores STG.E x67, STG.E.128 x3 to STG.E x35,
+STG.E.128 x11 (its pushes to the shadow and ray queues), its scalar
+global loads 678 to 656 with the 128-bit loads 55 to 59.
+
+**Measured (10-12, 11:20-11:45, `compare-out-vec4`):** the protocol's five
+scenes at 16 and 64 spp against heatmap5 and the step-1 run, pbrt --gpu
+rerun beside ours, the least of three on each side, GPU clock unlocked
+and recorded, the card idle (loom-f2's evaluation done, the peers told
+'timing' and 'clear'). Kernel milliseconds, step 1 -> this:
+killeroo-simple 29.97 -> 29.62 (pbrt 49.5), killeroo-gold 75.02 -> 73.94
+(149.5), book 92.82 -> 92.06 (153.0), lte-orb-silver 85.41 -> 84.34
+(161.6), lte-orb-rough-glass 206.50 -> 203.88 (335.5) at 16; 120.09 ->
+118.39 (197.7), 299.50 -> 295.00 (598.3), 370.62 -> 367.47 (617.2), 341.96
+-> 338.17 (644.9), 822.93 -> 815.00 (1336.7) at 64. Every cell faster,
+**1.012x kernel as a geometric mean at both counts** (1.060x over
+heatmap5 with the two earlier steps); wall over pbrt 3.39x, 2.67x, 2.28x,
+2.37x, 1.69x at 16 and 1.99x, 2.25x, 1.87x, 2.00x, 1.65x at 64. All ten
+radiance images byte-identical to heatmap5's. The stage itself
+(report_stages.py on the run): the camera rays over the five scenes 37.6
+-> 36.8 ms against pbrt's 27.8 at 16 spp (1.36x -> 1.32x), 149.5 ->
+146.1 against 112.0 at 64 (1.34x -> 1.31x), the worst cell
+lte-orb-rough-glass 1.64x -> 1.60x. So the five spectra's stores were a
+fifth of the camera kernel's deficit, and the rest of it is the record
+slot, the 48 bytes of context, and the 3-vectors' stride -- the items
+below, which the user ruled on at 11:50 (see the next section).
+
+**The rest of the 64 bytes over pbrt, each a decision for the user:**
+
+- *The record's slots as a struct of arrays* (VisibleSurface 96 bytes
+  of AoS stride, 81 written; pbrt's `pixelSampleState` is an SOA). Step
+  6's rule extended from the cut's set to the record: `q_<local>_slots :
+  T[n]` becomes one array per leaf by `leaves_of`, and the `mut T*` the
+  chain is handed becomes a pointer per leaf, as 4.5's step 4 already
+  does for the cut's values; every `ptr(visible, k)` and whole-value
+  store through it rewritten to the leaf's. The sampler state (`st`) the
+  same. The bytes do not change; the sectors per store do, and the
+  padding (15 bytes) goes.
+- *`lambda` beside the visible surface, as pbrt keeps it* (`pixelSample-
+  State.lambda` is its own array; `visibleSurface` is initialized only
+  `if (initializeVisibleSurface)`). Ours puts the wavelengths inside
+  VisibleSurface (render.bonsai, the comment above the element) and so
+  initializes n, ns, albedo and set for every pixel sample of every
+  film: 41 bytes pbrt does not write for an RGB film. The program change
+  needs a `mut` whose initializing store is under `film_visible_surface`
+  -- a declaration without an initializer, or an equivalent -- which is
+  a language question.
+- *`prev_ctx` at the camera push* (48 bytes of a constant pbrt leaves
+  unwritten). The drain reads it only under `depth > 0`, and the camera
+  push stores `depth = 0`; a push whose constants make a field's every
+  read dead need not store it. That is a per-push-site read analysis --
+  the callee's `read_paths` under the push's constant arguments, with
+  the branches those constants decide folded -- a compiler mechanism of
+  the kind step 1 was, exact and not a heuristic, but new.
+- *`wave`* (4 bytes): step 4, the round-uniform field.
+- *The 3-vectors as three arrays on the GPU.* The 10-11 ruling keeps a
+  short vector one packed array ("one store to one cache line"), true
+  per thread; across a warp a 12-byte stride is three stores touching
+  twelve sectors each against three touching four for pbrt's x, y, z
+  arrays. Same bytes, three times the requests, for `o` and `d` of every
+  ray and the three vectors of every context. The user's rule to revisit
+  with this measurement in hand.
+- *The `ran` byte stored twice*: one byte and one instruction; the
+  atomic between the two stores is what stops LLVM's dead-store pass.
