@@ -1490,24 +1490,27 @@ func trace_any(q : RaySegment) =
 // `set` is pbrt's: a VisibleSurface starts out empty and the integrator that
 // fills one marks it, so the film can tell a camera ray that found a surface
 // from one that escaped, and an integrator that fills none from one that does.
-// pbrt: VisibleSurface, and with it the one other thing pbrt keeps per pixel
-// sample for the film to read when the path is done: the wavelengths. The
-// wavefront's PixelSampleState holds `lambda` beside the visible surface,
-// the camera kernel writes it, and the material kernel writes it again when
-// a dispersive interface terminates the secondary wavelengths
-// (surfscatter.cpp, `if (lambda.SecondaryTerminated())
-// pixelSampleState.lambda[pixelIndex] = lambda`); the film then converts
-// the sample's radiance and its albedo with *those* wavelengths
-// (wavefront/film.cpp), as the CPU's AddSample does with the `lambda` that
-// `Li` took by reference. So a later bounce through glass recolours what
-// the first hit recorded, which is why the albedo is kept here as the
-// spectrum and not as an RGB: it is converted at the film, with
-// `lambda` as the path left it.
+// The one other thing pbrt keeps per pixel sample for the film to read when
+// the path is done, the wavelengths, is *beside* the visible surface and
+// not in it, as pbrt has it: the wavefront's PixelSampleState holds
+// `lambda` as an array of its own, the camera kernel writes it, and the
+// material kernel writes it again when a dispersive interface terminates
+// the secondary wavelengths (surfscatter.cpp, `if
+// (lambda.SecondaryTerminated()) pixelSampleState.lambda[pixelIndex] =
+// lambda`); the film then converts the sample's radiance and its albedo
+// with *those* wavelengths (wavefront/film.cpp), as the CPU's AddSample
+// does with the `lambda` that `Li` took by reference. Here that is
+// `path_lambda`, a `mut SampledWavelengths` of the pixel sample handed down
+// the chain next to `visible`, so that a later bounce through glass
+// recolours what the first hit recorded -- which is why the albedo is kept
+// as the spectrum and not as an RGB: it is converted at the film, with
+// `path_lambda` as the path left it. Kept apart from the surface so that
+// the surface is pbrt's: what only a gbuffer film records, and what an RGB
+// film never writes.
 element VisibleSurface {
     n : vec3f;
     ns : vec3f;
     albedo : vec4f;
-    lambda : SampledWavelengths;
     set : bool;
 }
 
@@ -1579,7 +1582,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSet, seed : i32,
                depth : i32, max_depth : i32,
-               visible : mut VisibleSurface) -> vec4f {
+               visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f {
     isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt sums `light.Le(ray)` over the infinite lights. A random walk
@@ -1644,11 +1647,11 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: GetBSDF takes `lambda` by reference, and a dispersive interface
     // terminates the secondary wavelengths in it (DielectricMaterial::
     // GetBxDF); `lam` is the path's wavelengths from here on, and the film's
-    // (VisibleSurface.lambda).
+    // (path_lambda).
     lam : mut SampledWavelengths = lambda;
     if terminates_secondary(materials[mat]) {
         lam = terminate_secondary(lambda);
-        visible.lambda = lam;
+        path_lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, false,
                          texture_context(hit, diffs), Universal());
@@ -1668,7 +1671,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     return walk_step(next_ray, camera, spp_scale,
                      beta * fcos / uniform_sphere_pdf(),
                      found, lam, sampler, state, ls, seed, depth + 1,
-                     max_depth, visible);
+                     max_depth, visible, path_lambda);
 }
 
 // The entry point, which is where the walk's initial state is named rather than
@@ -1681,10 +1684,10 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
 func li_random_walk(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSet, seed : i32,
-                    max_depth : i32, visible : mut VisibleSurface) -> vec4f =
+                    max_depth : i32, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f =
     walk_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
               vec4f{0.0, 0.0, 0.0, 0.0}, lambda, sampler, state, ls, seed, 0,
-              max_depth, visible);
+              max_depth, visible, path_lambda);
 
 // pbrt: Unoccluded -- is there anything between these two surfaces?
 //
@@ -1719,7 +1722,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
                seed : i32, depth : i32, max_depth : i32,
-               visible : mut VisibleSurface) -> vec4f {
+               visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f {
     isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt: `if (!sampleLights || specularBounce)` around the sum over the
@@ -1775,7 +1778,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         // could not have been sampled and counts in full.
         return path_step(spawn_ray(surf, ray.d), camera, spp_scale, beta,
                          found, true, lambda, sampler, state, ls, set, seed,
-                         depth, max_depth, visible);
+                         depth, max_depth, visible, path_lambda);
     }
 
     // pbrt: GetBSDF, once, before anything is asked of it -- differentials,
@@ -1786,11 +1789,11 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     shading = frame_from_xz(unit_vector_(hit.dpdus), hit.ns);
     // pbrt: GetBSDF's `SampledWavelengths &lambda` -- a dispersive interface
     // terminates the secondary wavelengths, and everything after reads `lam`,
-    // the film included (VisibleSurface.lambda).
+    // the film included (path_lambda).
     lam : mut SampledWavelengths = lambda;
     if terminates_secondary(materials[mat]) {
         lam = terminate_secondary(lambda);
-        visible.lambda = lam;
+        path_lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, false,
                          texture_context(hit, diffs), Universal());
@@ -1838,7 +1841,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     next_ray = spawn_ray(surf, wi);
     return path_step(next_ray, camera, spp_scale, next_beta, found,
                      is_specular(sample.flags), lam, sampler, state, ls, set,
-                     seed, depth + 1, max_depth, visible);
+                     seed, depth + 1, max_depth, visible, path_lambda);
 }
 
 // The entry point, which names the state a path starts with. `specular_bounce`
@@ -1848,10 +1851,10 @@ func li_simple_path(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32,
-                    visible : mut VisibleSurface) -> vec4f =
+                    visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f =
     path_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
               vec4f{0.0, 0.0, 0.0, 0.0}, true, lambda, sampler, state, ls, set,
-              seed, 0, max_depth, visible);
+              seed, 0, max_depth, visible, path_lambda);
 
 // pbrt: PathIntegrator::SampleLd, the direct-lighting estimate at one vertex.
 //
@@ -1981,7 +1984,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32, regularize : bool,
                     want_visible : bool,
-                    visible : mut VisibleSurface) -> vec4f {
+                    visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f {
     isect = trace(RaySegment{ray, inf});
     if !isect {
         // pbrt weighs each infinite light's emission exactly the way the
@@ -2080,7 +2083,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         return full_path_step(
             spawn_ray(surf, ray.d), camera, spp_scale, beta, found, depth, true,
             any_non_specular, eta_scale, p_b, prev_ctx, lambda, sampler, state,
-            ls, set, seed, max_depth, regularize, want_visible, visible);
+            ls, set, seed, max_depth, regularize, want_visible, visible, path_lambda);
     }
 
     // pbrt's `GetBSDF`, in its order: the differentials first, then the
@@ -2093,11 +2096,11 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: GetBSDF's `SampledWavelengths &lambda` -- a dispersive interface
     // terminates the secondary wavelengths, and everything after reads `lam`:
     // the gbuffer's albedo, the direct lighting, the next vertex -- and the
-    // film, through the pixel sample's record (VisibleSurface.lambda).
+    // film, through the pixel sample's record (path_lambda).
     lam : mut SampledWavelengths = lambda;
     if terminates_secondary(materials[mat]) {
         lam = terminate_secondary(lambda);
-        visible.lambda = lam;
+        path_lambda = lam;
     }
     bsdf = material_bxdf(materials[mat], lam, do_regularize,
                          texture_context(hit, diffs), Universal());
@@ -2123,7 +2126,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
         lit = rho * spectrum_at_dense(illuminant_d65, lam);
         facing = select(dot(surf.n, wo_unit) < 0.0, -surf.n, surf.n);
         facing_ns = select(dot(hit.ns, wo_unit) < 0.0, -hit.ns, hit.ns);
-        seen : VisibleSurface = {facing, facing_ns, lit, lam, true};
+        seen : VisibleSurface = {facing, facing_ns, lit, true};
         visible = seen;
     }
 
@@ -2205,7 +2208,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
                           found, next_depth, next_specular, next_any_ns,
                           next_eta_scale, next_p_b, next_ctx, lam, sampler,
                           state, ls, set, seed, max_depth, regularize,
-                          want_visible, visible);
+                          want_visible, visible, path_lambda);
 }
 
 // The entry point, which names the state a path starts with: full throughput,
@@ -2216,13 +2219,13 @@ func li_path(r0 : Ray, camera : PerspectiveCamera,
              spp_scale : Float, lambda : SampledWavelengths, sampler : Sampler,
              state : mut SamplerState, ls : LightSampler, set : LightSet,
              seed : i32, max_depth : i32, regularize : bool,
-             want_visible : bool, visible : mut VisibleSurface) -> vec4f {
+             want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
     return full_path_step(r0, camera, spp_scale, vec4f{1.0, 1.0, 1.0, 1.0},
                           vec4f{0.0, 0.0, 0.0, 0.0}, 0, false, false, 1.0, 0.0,
                           origin, lambda, sampler, state, ls, set, seed,
-                          max_depth, regularize, want_visible, visible);
+                          max_depth, regularize, want_visible, visible, path_lambda);
 }
 
 // pbrt: VolPathIntegrator, in the pieces below. It is `full_path_step` with
@@ -2855,7 +2858,7 @@ func vol_path_step(ray : Ray, medium : i32,
                    ls : LightSampler, set : LightSet, have_media : bool,
                    seed : i32, max_depth : i32, regularize : bool,
                    have_subsurface : bool,
-                   want_visible : bool, visible : mut VisibleSurface,
+                   want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                    l : reduce(+) vec4f) -> void {
     // pbrt: GenerateRaySamples (wavefront/samples.cpp) -- a fresh copy of the
     // sampler started on the ray's pixel and the pass's sample index at the
@@ -2903,7 +2906,7 @@ func vol_path_step(ray : Ray, medium : i32,
                           prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                           rs, ls, set,
                           have_media, seed, max_depth, regularize,
-                          have_subsurface, want_visible, visible, l);
+                          have_subsurface, want_visible, visible, path_lambda, l);
         return;
     }
     vol_route(isect, ray, medium, camera, spp_scale, beta_in, r_u_in,
@@ -2912,7 +2915,7 @@ func vol_path_step(ray : Ray, medium : i32,
               rs, ls, set,
               have_media,
               seed, max_depth, regularize, have_subsurface, want_visible,
-              visible, l);
+              visible, path_lambda, l);
     return;
 }
 
@@ -2941,7 +2944,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                        set : LightSet, have_media : bool, seed : i32,
                        max_depth : i32, regularize : bool,
                        have_subsurface : bool, want_visible : bool,
-                       visible : mut VisibleSurface,
+                       visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                        l : reduce(+) vec4f) -> void {
     t_hit : mut Float = inf;
     if isect {
@@ -2991,7 +2994,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                            eta_scale, wave, lambda, sampler, pixel_x, pixel_y,
                            sample_index, rs, ls,
                            set, have_media, seed, max_depth, regularize,
-                           have_subsurface, want_visible, visible, l);
+                           have_subsurface, want_visible, visible, path_lambda, l);
         return;
     }
     // pbrt: `if (!scattered && beta) { beta *= T_maj / T_maj[0]; ... }`, the
@@ -3012,7 +3015,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
               depth, wave, specular_bounce, any_non_specular, eta_scale,
               prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index, rs, ls, set,
               have_media, seed,
-              max_depth, regularize, have_subsurface, want_visible, visible, l);
+              max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3036,7 +3039,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         set : LightSet, have_media : bool, seed : i32,
                         max_depth : i32, regularize : bool,
                         have_subsurface : bool, want_visible : bool,
-                        visible : mut VisibleSurface,
+                        visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                         l : reduce(+) vec4f) -> void {
     zero3 = vec3f{0.0, 0.0, 0.0};
     wo = -ray.d;
@@ -3080,7 +3083,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                   eta_scale, ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                   ls, set, have_media,
                   seed, max_depth, regularize, have_subsurface, want_visible,
-                  visible, l);
+                  visible, path_lambda, l);
     return;
 }
 
@@ -3105,7 +3108,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                set : LightSet,
                have_media : bool, seed : i32, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
-               visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+               visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     if !isect {
         // pbrt: the `escapedRayQueue` exists only `if (infiniteLights->size())`
         // and a miss goes onto it only `if (escapedRayQueue)` (wavefront/
@@ -3163,7 +3166,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
             any_non_specular, eta_scale, prev_ctx, lambda, sampler, pixel_x,
             pixel_y, sample_index, ls,
             set, have_media, seed, max_depth, regularize, have_subsurface,
-            want_visible, visible, l);
+            want_visible, visible, path_lambda, l);
         return;
     }
     // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
@@ -3196,7 +3199,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                 eta_scale, prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                 rs, ls, set,
                 have_media, seed, max_depth, regularize, have_subsurface,
-                want_visible, visible, l);
+                want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3272,7 +3275,7 @@ func vol_surface(ray : Ray, medium : i32,
                  ls : LightSampler,
                  set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                  regularize : bool, have_subsurface : bool, want_visible : bool,
-                 visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+                 visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     // pbrt's wavefront: the material kernel's `wo` is the work item's, which
     // the trace kernel filled from `intr.wo` (interaction_wo) -- there is no
     // `-ray.d` in these kernels, where the CPU integrator uses both.
@@ -3299,7 +3302,7 @@ func vol_surface(ray : Ray, medium : i32,
         lam = terminate_secondary(lambda);
         // pbrt: `if (lambda.SecondaryTerminated())
         // pixelSampleState.lambda[w.pixelIndex] = lambda`.
-        visible.lambda = lam;
+        path_lambda = lam;
     }
     bsdf = material_bxdf(material, lam, do_regularize,
                          texture_context(hit, diffs), evaluator);
@@ -3314,7 +3317,7 @@ func vol_surface(ray : Ray, medium : i32,
         lit = rho * spectrum_at_dense(illuminant_d65, lam);
         facing = select(dot(surf.n, wo_unit) < 0.0, -surf.n, surf.n);
         facing_ns = select(dot(hit.ns, wo_unit) < 0.0, -hit.ns, hit.ns);
-        seen : VisibleSurface = {facing, facing_ns, lit, lam, true};
+        seen : VisibleSurface = {facing, facing_ns, lit, true};
         visible = seen;
     }
     next_depth = depth + 1;
@@ -3403,7 +3406,7 @@ func vol_surface(ray : Ray, medium : i32,
                            pixel_y, sample_index, rs,
                            direct_uc, direct_u, uc, u, u_rr, ls, set, have_media,
                            seed, max_depth, regularize, have_subsurface,
-                           want_visible, visible, l);
+                           want_visible, visible, path_lambda, l);
             return;
         }
     }
@@ -3414,7 +3417,7 @@ func vol_surface(ray : Ray, medium : i32,
                   next_eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y,
                   sample_index, ls, set,
                   have_media, seed, max_depth, regularize, have_subsurface,
-                  want_visible, visible, l);
+                  want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3445,7 +3448,7 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
                     u_rr : Float, ls : LightSampler, set : LightSet,
                     have_media : bool, seed : i32, max_depth : i32,
                     regularize : bool, have_subsurface : bool,
-                    want_visible : bool, visible : mut VisibleSurface,
+                    want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                     l : reduce(+) vec4f) -> void {
     // pbrt: `material->GetBSSRDF(BasicTextureEvaluator(), ctx, lambda)`
     // (wavefront/subsurface.cpp) -- the BSSRDF kernel reads the material's
@@ -3467,7 +3470,7 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
               surf, beta, r_u, depth, wave, eta_scale, lam, sampler, pixel_x,
               pixel_y, sample_index,
               direct_uc, direct_u, uc, u, u_rr, ls, set, have_media, seed,
-              max_depth, regularize, have_subsurface, want_visible, visible, l);
+              max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3502,7 +3505,7 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
                uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
                set : LightSet, have_media : bool, seed : i32, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
-               visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+               visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     key = hash_vec3_vec3(p0, p1);
     rng : mut RNG = set_sequence(key, mix_bits(key));
     zero3 = vec3f{0.0, 0.0, 0.0};
@@ -3515,7 +3518,7 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
              sampler, pixel_x, pixel_y, sample_index, direct_uc, direct_u, uc, u,
              u_rr, ls, set,
              have_media, seed, max_depth, regularize, have_subsurface,
-             want_visible, visible, l);
+             want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3576,7 +3579,7 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
               uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
               set : LightSet, have_media : bool, seed : i32, max_depth : i32,
               regularize : bool, have_subsurface : bool, want_visible : bool,
-              visible : mut VisibleSurface, l : reduce(+) vec4f) -> void {
+              visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     sp = bssrdf_sp(bssrdf, kept.p);
     pdf = bssrdf_pdf_sp(bssrdf, kept.p, kept.n);
@@ -3641,7 +3644,7 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
                   eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y, sample_index,
                   ls, set, have_media,
                   seed, max_depth, regularize, have_subsurface, want_visible,
-                  visible, l);
+                  visible, path_lambda, l);
     return;
 }
 
@@ -3654,7 +3657,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                  ls : LightSampler, set : LightSet,
                  seed : i32, max_depth : i32, regularize : bool,
                  have_subsurface : bool,
-                 want_visible : bool, visible : mut VisibleSurface,
+                 want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                  l : reduce(+) vec4f) -> void {
     origin : ShapeSampleContext = {vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0},
                                    vec3f{0.0, 0.0, 1.0}, vec3f{0.0, 0.0, 1.0}};
@@ -3663,7 +3666,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                   false, false, 1.0, origin, lambda, sampler, pixel_x, pixel_y,
                   sample_index, ls, set,
                   have_media, seed, max_depth, regularize, have_subsurface,
-                  want_visible, visible, l);
+                  want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3691,30 +3694,30 @@ func integrator_li(integrator : Integrator, r : Ray, medium : i32,
                    spp_scale : Float, lambda : SampledWavelengths,
                    sampler : Sampler, state : mut SamplerState,
                    pixel_x : i32, pixel_y : i32, sample_index : u32, seed : i32,
-                   want_visible : bool, visible : mut VisibleSurface,
+                   want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                    l : reduce(+) vec4f) -> void {
     match integrator {
         RandomWalk(max_depth, set) => {
             l += li_random_walk(r, camera, spp_scale, lambda, sampler,
-                                state, set, seed, max_depth, visible);
+                                state, set, seed, max_depth, visible, path_lambda);
             return;
         }
         SimplePath(max_depth, ls, set) => {
             l += li_simple_path(r, camera, spp_scale, lambda, sampler,
-                                state, ls, set, seed, max_depth, visible);
+                                state, ls, set, seed, max_depth, visible, path_lambda);
             return;
         }
         Path(max_depth, ls, set, regularize) => {
             l += li_path(r, camera, spp_scale, lambda, sampler, state, ls,
                          set, seed, max_depth, regularize, want_visible,
-                         visible);
+                         visible, path_lambda);
             return;
         }
         VolPath(max_depth, ls, set, regularize, have_subsurface) => {
             li_vol_path(r, medium, have_media, camera, spp_scale, lambda,
                         sampler, pixel_x, pixel_y, sample_index, ls, set, seed,
                         max_depth, regularize,
-                        have_subsurface, want_visible, visible, l);
+                        have_subsurface, want_visible, visible, path_lambda, l);
             return;
         }
     }
@@ -4075,10 +4078,17 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // gbuffer channels, and estimate the albedo whatever the film.
             zero3 = vec3f{0.0, 0.0, 0.0};
             // pbrt: the camera kernel's `pixelSampleState.lambda[pixelIndex]
-            // = lambda` -- the wavelengths the film converts with, which the
-            // path may terminate on the way (VisibleSurface).
+            // = lambda`, the wavelengths the film converts with, an array of
+            // its own beside the visible surface, which the material kernel
+            // rewrites when a dispersive interface terminates the secondary
+            // ones (VisibleSurface, above).
+            path_lambda : mut SampledWavelengths = lambda;
+            // pbrt: `pixelSampleState.visibleSurface[pixelIndex] =
+            // VisibleSurface()`, which pbrt writes only `if
+            // (initializeVisibleSurface)`; this initializer is not yet
+            // conditional (PLAN.md, the camera-ray kernel).
             visible : mut VisibleSurface = {zero3, zero3, vec4f{0.0, 0.0, 0.0, 0.0},
-                                            lambda, false};
+                                            false};
             // pbrt: the sample's `L`, a reduction variable every vertex of
             // the path adds into and the film reads once the path is done
             // (pbrt's wavefront keeps it per pixel sample, and its kernels
@@ -4089,23 +4099,25 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
                           ray_differential_scale(spp, disable_pixel_jitter),
                           lambda, sampler, state, cast[[i32]](i),
                           cast[[i32]](j), s, seed, film_visible_surface,
-                          visible, radiance);
+                          visible, path_lambda, radiance);
             // pbrt: GBufferFilm::AddSample, which records the channels only
-            // when the integrator set them.
-            if visible.set {
+            // when the integrator set them -- and only a gbuffer film has
+            // them (`film_visible_surface`, Film::UsesVisibleSurface); an RGB
+            // film reads nothing of the surface.
+            if film_visible_surface && visible.set {
                 atomic normal_out[p] += weight * visible.n;
                 atomic shading_out[p] += weight * visible.ns;
                 // pbrt: GBufferFilm::AddSample's `sensor->ToSensorRGB(albedo,
                 // lambda)`, with the wavelengths as the path left them.
                 atomic albedo_out[p] +=
-                    weight * spectrum_to_rgb(visible.albedo, visible.lambda);
+                    weight * spectrum_to_rgb(visible.albedo, path_lambda);
             }
             // pbrt: RGBFilm::AddSample, which clamps the sensor RGB of *each
             // sample* before accumulating it -- not the pixel afterwards. The
             // difference is the whole point: it is there to stop one lucky path
             // through a caustic from dominating a pixel, so it has to act on
             // the sample that found it.
-            // With the wavelengths as the path left them (visible.lambda), not
+            // With the wavelengths as the path left them (path_lambda), not
             // as the sample drew them: a dispersive glass on the way terminated
             // the secondary ones, and pbrt's film converts every term of `L`
             // -- the ones added before that vertex included -- with the
@@ -4113,7 +4125,7 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // pixelSampleState.lambda; the CPU's `Li` took `lambda` by
             // reference). That is what makes the floor beside a glass sphere
             // speckle in pbrt, and the per-pixel match depends on it.
-            rgb = radiance_to_rgb(radiance, visible.lambda, imaging_ratio);
+            rgb = radiance_to_rgb(radiance, path_lambda, imaging_ratio);
             m = max(max(rgb.x, rgb.y), rgb.z);
             clamped = select(m > max_component_value,
                              rgb * (max_component_value / m), rgb);
