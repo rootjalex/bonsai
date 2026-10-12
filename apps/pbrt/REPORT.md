@@ -19,6 +19,57 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-12, 14:40)
+
+**Every array the compiler induces is a struct of arrays, and the
+camera-ray deficit is closed.** The user's ruling of 11:50 -- the 10-11
+rule for a cut's stored set was for every storage a directive makes, with
+a handle named for the stored thing -- is built (SSA/InducedStorage.h,
+a6edb516): the record a deferral keeps per pixel sample, until now one
+array of `VisibleSurface` structs at a 96-byte stride, is six arrays (the
+two normals, the albedo, the two halves of the wavelengths, the set
+byte), every chain function's `visible : mut VisibleSurface` is a pointer
+per leaf at every call, and a leaf nothing reads has no array and no
+store. The transforms register their storage under `rays.visible`,
+`rays.l`, `rays.result`, `rays.rest.<value>`, `rays.vol_ray_samples`,
+`<name>!expanded`, which the post-schedule dump lists and a later
+directive can take. The camera kernel writes the record in nine stores
+into arrays at 12- and 16-byte strides, three of them 128-bit, where it
+wrote eight into the struct -- about half the sectors per warp -- and the
+rest pass reads one load per leaf. Measured on the protocol's five scenes
+against the morning's vector-leaf run (kernel milliseconds, least of
+three on each side, pbrt rerun beside ours):
+
+| scene | spp | pbrt | step 1 | vector leaves | struct-of-arrays record | kernel speedup over pbrt | wall |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.4 | 29.97 | 29.62 | 28.29 | 1.75x | 3.33x |
+| killeroo-gold | 16 | 149.4 | 75.02 | 73.94 | 69.43 | 2.15x | 2.81x |
+| book | 16 | 154.0 | 92.82 | 92.06 | 85.68 | 1.80x | 2.43x |
+| lte-orb-silver | 16 | 161.2 | 85.41 | 84.34 | 81.24 | 1.98x | 2.45x |
+| lte-orb-rough-glass | 16 | 336.1 | 206.50 | 203.88 | 201.02 | 1.67x | 1.73x |
+| killeroo-simple | 64 | 198.3 | 120.09 | 118.39 | 113.18 | 1.75x | 2.07x |
+| killeroo-gold | 64 | 598.2 | 299.50 | 295.00 | 277.29 | 2.16x | 2.39x |
+| book | 64 | 618.0 | 370.62 | 367.47 | 341.77 | 1.81x | 1.99x |
+| lte-orb-silver | 64 | 646.1 | 341.96 | 338.17 | 324.93 | 1.99x | 2.08x |
+| lte-orb-rough-glass | 64 | 1344.0 | 822.93 | 815.00 | 801.77 | 1.68x | 1.68x |
+
+Every cell faster: 1.047x kernel as a geometric mean at 16 spp and
+1.048x at 64 over the vector-leaf run (book 1.074x, killeroo-gold
+1.065x), 1.110x over heatmap5 with the three fixes since 10-11; all ten
+radiance images byte-identical to heatmap5's. **The camera-ray stage is
+ahead of pbrt on all five scenes**: 21.8 ms against pbrt's 27.7 at 16
+spp (0.79x), 86.2 against 111.9 at 64 (0.77x), lte-orb-silver the worst
+at 0.92x, where the 20:30 tables had it behind on 29 of 30 scenes and
+this morning's run at 1.32x; film and the rest moved from 0.52x to 0.40x
+of pbrt's with it. The deficit was the record's layout, not the draws.
+The two remaining rulings of 11:50 are built and in test: the
+wavelengths as their own per-sample value beside the surface, as pbrt
+keeps them (`path_lambda`, render.bonsai), with the gbuffer's
+accumulation under the film's flag; and a layout group's base aligned to
+its largest member with the row loads and stores emitted at that
+alignment (CodeGen_LLVM.cpp, `bonsai_buffer_require_aligned`). Their
+measurement follows in this file.
+
 ## Where it stands (2026-10-12, 11:50)
 
 **The camera-ray kernel read against pbrt's GenerateCameraRays, and the
@@ -1600,21 +1651,19 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order (2026-10-12, 11:50)
+## To do, in order (2026-10-12, 14:40)
 
-1. The camera-ray kernel's remaining causes, by the user's rulings of
-   11:50 (PLAN.md, "The camera-ray kernel against pbrt's
-   GenerateCameraRays"): (a) every storage the compiler induces is a
-   struct of arrays -- the record's slots (`rays_visible_slots`, the
-   sampler state, the rest) as the cut's set already is, one array per
-   leaf and a pointer per leaf down the chain, each storage with a handle
-   named after the stored thing so a schedule can re-lay it out later;
-   (b) pbrt's design for the wavelengths: their own per-sample value
-   beside the surface, the surface's initialization and the gbuffer's
-   accumulation under `film_visible_surface`, and the pixel loop
-   specialized on that flag so an RGB film's copy stores none of it;
-   (c) a layout group's base aligned to its largest member, with the
-   loads emitted aligned (the primer's twenty byte loads). One compare
+1. The user's rulings of 11:50 (PLAN.md, "Every induced storage a struct
+   of arrays"): (a) done and measured (a6edb516, 1.047x kernel, the
+   camera rays ahead of pbrt everywhere); (b) pbrt's design for the
+   wavelengths -- their own per-sample value beside the surface and the
+   gbuffer's accumulation under `film_visible_surface` -- built in
+   render.bonsai, in test; the surface's initialization under
+   `specialize()` is the open question put back to the user (PLAN.md:
+   the record is one for every copy of the loop and the rest pass reads
+   it under a runtime flag, so a specialized copy alone drops no store);
+   (c) a layout group's base aligned to its largest member with aligned
+   row loads and stores, built in CodeGen_LLVM.cpp, in test. One compare
    per fix.
 2. The work-item plan (PLAN.md, "The work items matched, and the hit
    chain"): step 5's program changes (hits 255 -> 241 bytes against pbrt's

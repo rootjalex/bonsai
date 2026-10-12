@@ -14210,3 +14210,116 @@ below, which the user ruled on at 11:50 (see the next section).
   with this measurement in hand.
 - *The `ran` byte stored twice*: one byte and one instruction; the
   atomic between the two stores is what stops LLVM's dead-store pass.
+
+### Every induced storage a struct of arrays (10-12, 12:00-)
+
+**The ruling (10-12, 11:50).** Put to the user as a decision, the record's
+slots as a struct of arrays got a correction: "I already told you to
+default to a SoA for all induced storage!" -- the 10-11 ruling for the
+cut's stored set was for every array the compiler makes -- and a design
+point: "it is ideal if there is some convenient 'handle' or 'cursor' to
+this storage object, so we can later manipulate the layout. Probably
+using the name of the stored thing." And the question "Are there any
+other induced arrays?"
+
+**The inventory** (every `make_alloca` of a generated name in src/SSA):
+the queue's entry arrays (SoA since the first deferral) and its header
+struct `<q>_queue`; the cut's set (SoA since 28bd4aac); the record of a
+deferral -- a mutable local's slot `<q>_<local>_slots : T[n]`, a reducer's
+slot, a continuation's record value `<q>_rest_<v>`, the path's result
+`<q>_result`, the `ran` byte -- each one array of the stored type, *an
+array of structs where T is one*; a loop interchange's expansion of a
+value per outer iteration, `<name>!expanded : T[n]` (SSA/ReorderLoops.cpp),
+the same; a loopify's stack `!stack : T[size]` (SSA/QueueRecursion.cpp),
+one struct per entry, which is a thread's own stack indexed by depth and
+not storage indexed by a parallel iteration -- a struct of arrays across
+the depth would gain nothing and cost address arithmetic, so it is left
+as it is and said so here. In the renderer the record was the one array
+of structs: `rays_visible_slots : VisibleSurface[n]`, 96 bytes of stride
+per pixel sample, every one of its eight stores from a warp touching 32
+half-filled sectors where a store into an array of the field touches
+four, and read back whole by the rest pass.
+
+**Built: SSA/InducedStorage.h.** The transforms register what they make
+in `Function::induced` under a handle named for the stored thing --
+`rays.visible`, `rays.l`, `rays.rest.<value>`, `rays.result`, `rays.ran`
+(SSA/Defer.cpp), `rays.vol_ray_samples` for the cut's set, already split
+(SSA/Stage.cpp), `<name>!expanded` (SSA/ReorderLoops.cpp, whose
+`reorder()` is now told, as a deferral is, whether a gang touches the
+function) -- as the one array of the stored type each rewrite is simplest
+with, and `split_induced_storage()` runs once every directive has run,
+after the block accumulates and before the hit continuations (the
+closest-hit program's parameters mirror the owner's values by name, so
+the owner is split first). It replaces each array by one per leaf of the
+stored type -- `leaves_of`'s rule: a scalar, a short vector kept whole
+where no gang touches the queue (stored_vector_type), a bool a byte of
+its own since a slot is written field by field, an ADT's padding nowhere
+-- and rewrites every use of its elements' addresses by name, wherever
+the threading carries it: the owner's whole store of an initializer into
+a store per leaf (take_apart), the slot address a drain rebuilds from the
+entry's index into an address per leaf, every chain function's `rec : mut
+Record` parameter into a pointer per leaf in the parameter's place at
+every call (so arguments and parameters stay in step whatever order the
+splits run in -- `visible : mut VisibleSurface` through 17 functions of
+the renderer), a field's address (`field.ptr(visible, 3)`) into the
+leaf's, a whole load into the leaves rebuilt or, when the program only
+picks fields of what it loaded (`rec.hits`: a load of the whole and a
+LoadField), into each field's leaves alone, an accumulate into the one
+leaf it adds into. A leaf nothing reads is then stored nowhere and has no
+array: its stores, its arrays and the parameters made for it go (pbrt's
+`visibleSurface` untouched for an RGB film is the case this is for, once
+the initializer is conditional -- the next section). An address the
+rewrite cannot follow -- compared, returned, stored as a value, a varying
+argument of a run of calls -- is an error naming the function, block and
+instruction, never a silent array of structs. The post-schedule dump
+lists each function's storage by handle (`; storage rays.visible :
+VisibleSurface as rays_visible_n_slots, ...`), which is what a later
+directive takes to lay one out otherwise; nothing here is the layout
+language's promise. The entry still carries the slot's index and nothing
+else of the frame. Tests: ssa/defer-record-soa (a `mut Record` of a
+3-vector, a float nothing reads, an int and a bool handed down a deferred
+recursion: three arrays, `step` taking three pointers, the drain
+rebuilding three addresses from the index, the rest pass reading each
+leaf from its own array, no array and no store for `w`), its llvm golden,
+and correctness/llvm and correctness/gpu twins run (1, 3, 5, 7, 5, 7, 9,
+11 on the host and on the device). No existing golden moved -- none had a
+record slot of struct type, which is how the array of structs went
+unnoticed. The non-GPU suites pass (1534), the GPU suite (66).
+
+**In the renderer:** `rays.visible` is six arrays -- the two normals as
+packed 3-vectors, the albedo and the two halves of the wavelengths as
+16-byte vectors, the set byte -- all six read (the film reads every one).
+The camera kernel (SASS, sm_120) writes the record in nine stores into
+arrays at 12- and 16-byte strides, three of them 128-bit, where it wrote
+eight into the 96-byte struct: STG.E x28, STG.E.128 x9, STG.E.64 x2 ->
+STG.E x32, STG.E.128 x9, STG.E.64 x0 per pixel sample; per warp roughly
+half the sectors for the record's part of the traffic (the two 3-vectors
+at a 12-byte stride are twelve sectors a store, the one thing left of the
+old shape -- the 3-vectors as component arrays, the item above). The
+material kernels' `visible = seen` under `want_visible` is seven stores
+into the six arrays, the rest pass's reads one load per leaf.
+
+**Measured (10-12, 14:05-14:30, `compare-out-soa`):** the five scenes at
+16 and 64 spp against the vector-leaf run of the morning, pbrt --gpu
+rerun beside ours, the least of three on each side, clock unlocked, the
+card idle. Kernel milliseconds, vector leaves -> this: killeroo-simple
+29.62 -> 28.29 (pbrt 49.4), killeroo-gold 73.94 -> 69.43 (149.4), book
+92.06 -> 85.68 (154.0), lte-orb-silver 84.34 -> 81.24 (161.2),
+lte-orb-rough-glass 203.88 -> 201.02 (336.1) at 16; 118.39 -> 113.18
+(198.3), 295.00 -> 277.29 (598.2), 367.47 -> 341.77 (618.0), 338.17 ->
+324.93 (646.1), 815.00 -> 801.77 (1344.0) at 64. **Every cell faster,
+1.047x kernel as a geometric mean at 16 spp and 1.048x at 64** (book
+1.074x, killeroo-gold 1.065x; the rough glass, whose camera rays are the
+smallest share, 1.014x); 1.110x over heatmap5 with the three fixes of
+10-11 and this morning. Wall over pbrt 3.33x, 2.81x, 2.43x, 2.45x, 1.73x
+at 16 and 2.07x, 2.39x, 1.99x, 2.08x, 1.68x at 64. All ten radiance
+images byte-identical to heatmap5's. **The stage: the camera rays are
+ahead of pbrt on all five scenes** -- 21.8 ms against pbrt's 27.7 at 16
+spp (0.79x; the morning's 36.8 was 1.32x, the step-1 run's 37.6 1.36x),
+86.2 against 111.9 at 64 (0.77x), the worst cell lte-orb-silver 0.92x
+-- and the rest pass with them: film and the rest 15.4 -> 11.8 ms (0.52x
+-> 0.40x of pbrt's), its reads of the record one load per leaf. The
+camera-ray deficit of the 20:30 tables is closed; the record's layout,
+not the draws, was all of it. What is left of the camera kernel's shape
+against pbrt's: the 48 bytes of constant context, the round field, the
+ran byte, and the 3-vectors' stride, listed above.
