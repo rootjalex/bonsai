@@ -13994,7 +13994,31 @@ program all seven for its dead parameter. Both are the dead-argument
 question, not a read question: once the pushes are lowered the parameters
 are unused, and removing a dead parameter from a function and the
 argument from its callers to a fixed point (the standard pass; LLVM's
-DeadArgumentElimination) would drop the loads. Next.
+DeadArgumentElimination) would drop the loads.
+
+**Checked (19:50): LLVM already does it.** The claim above describes the
+SSA, not the machine code. The renderer's GPU schedule compiled once with
+`-b ptx` (the optimized LLVM IR of every device module beside its PTX,
+scratchpad `dae/`): in the SSA, `__closesthit__trace$rays` does build the
+draws with seven loads from the slot arrays and hand the struct to
+`vol_path_step!after!hit`, whose parameter nothing reads once the pushes
+are lowered. In the optimized IR of the OptiX module the closest-hit
+program loads none of the seven arrays -- its launch-parameter loads are
+the rays queue, the textures, the meshes, the materials, the shape pools
+and the three target queues -- and in each of the 22 material kernels the
+two subsurface slot arrays arrive as kernel parameters and are never
+dereferenced (two address-space casts, both dead), while the five a
+material reads are. Our device modules give LLVM everything the pass
+needs: every function internalized (CodeGen_PTX), everything not
+`[[noinline]]` inlined -- an inlined callee's dead parameter is a dead
+value, plain dead-code elimination's -- and
+`buildPerModuleDefaultPipeline(O3)`, which runs `deadargelim` after the
+inliner for what stayed a call (`opt -O3 -print-pipeline-passes`, LLVM
+23.1.1). So a dead-argument pass in the SSA would change no instruction
+of the kernels; what it would tidy is the SSA itself and the dead pointer
+parameters the kernels still carry (two to seven of 83, never loaded).
+Not next: step 5's program changes (hits 255 -> 241) and the hit chain
+(step 8) are what the closest-hit program still pays for.
 
 **Tests.** ssa and llvm `entry-reads-through-calls`: shade hands the ray
 whole to two `[[noinline]]` callees that read its direction, and the hits
