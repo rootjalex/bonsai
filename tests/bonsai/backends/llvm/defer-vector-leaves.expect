@@ -1,0 +1,239 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Queue_sums = type { i32, ptr, ptr, ptr, ptr }
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %out_buffer) local_unnamed_addr #0 {
+walk.exit82.7:
+  %sums_queue1956 = alloca [2 x %struct.Queue_sums], align 16
+  %sums__slot_157 = alloca [8 x i32], align 4
+  %sums_s_158 = alloca [8 x <4 x float>], align 16
+  %sums_p_159 = alloca [8 x [3 x float]], align 16
+  %sums_n_160 = alloca [8 x i32], align 4
+  %sums__slot_061 = alloca [8 x i32], align 4
+  %sums_s_062 = alloca [8 x <4 x float>], align 16
+  %sums_p_063 = alloca [8 x [3 x float]], align 16
+  %sums_n_064 = alloca [8 x i32], align 4
+  %sums_result1865 = alloca [8 x float], align 16
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  store i32 0, ptr %sums_queue1956, align 16
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 8
+  store ptr %sums_n_064, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 16
+  store ptr %sums_p_063, ptr %.fca.2.gep, align 16
+  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 24
+  store ptr %sums_s_062, ptr %.fca.3.gep, align 8
+  %.fca.4.gep = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 32
+  store ptr %sums__slot_061, ptr %.fca.4.gep, align 16
+  %sums_queue21 = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 40
+  store i32 0, ptr %sums_queue21, align 8
+  %.fca.1.gep86 = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 48
+  store ptr %sums_n_160, ptr %.fca.1.gep86, align 16
+  %.fca.2.gep88 = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 56
+  store ptr %sums_p_159, ptr %.fca.2.gep88, align 8
+  %.fca.3.gep90 = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 64
+  store ptr %sums_s_158, ptr %.fca.3.gep90, align 16
+  %.fca.4.gep92 = getelementptr inbounds nuw i8, ptr %sums_queue1956, i64 72
+  store ptr %sums__slot_157, ptr %.fca.4.gep92, align 8
+  store float 4.000000e+00, ptr %sums_result1865, align 16, !tbaa !0
+  %0 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.1 = zext i32 %0 to i64
+  %"@26.i74.1" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.1
+  store i32 0, ptr %"@26.i74.1", align 4, !tbaa !3
+  %"@29.i76.1" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.1
+  store <3 x float> <float 2.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.1", align 4, !tbaa !0
+  %"@32.i78.1" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.1
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.1", align 16, !tbaa !0
+  %"@35.i80.1" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.1
+  store i32 1, ptr %"@35.i80.1", align 4, !tbaa !3
+  %1 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.2 = zext i32 %1 to i64
+  %"@26.i74.2" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.2
+  store i32 1, ptr %"@26.i74.2", align 4, !tbaa !3
+  %"@29.i76.2" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.2
+  store <3 x float> <float 3.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.2", align 4, !tbaa !0
+  %"@32.i78.2" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.2
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.2", align 16, !tbaa !0
+  %"@35.i80.2" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.2
+  store i32 2, ptr %"@35.i80.2", align 4, !tbaa !3
+  %2 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.3 = zext i32 %2 to i64
+  %"@26.i74.3" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.3
+  store i32 2, ptr %"@26.i74.3", align 4, !tbaa !3
+  %"@29.i76.3" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.3
+  store <3 x float> <float 4.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.3", align 4, !tbaa !0
+  %"@32.i78.3" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.3
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.3", align 16, !tbaa !0
+  %"@35.i80.3" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.3
+  store i32 3, ptr %"@35.i80.3", align 4, !tbaa !3
+  %3 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.4 = zext i32 %3 to i64
+  %"@26.i74.4" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.4
+  store i32 3, ptr %"@26.i74.4", align 4, !tbaa !3
+  %"@29.i76.4" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.4
+  store <3 x float> <float 5.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.4", align 4, !tbaa !0
+  %"@32.i78.4" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.4
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.4", align 16, !tbaa !0
+  %"@35.i80.4" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.4
+  store i32 4, ptr %"@35.i80.4", align 4, !tbaa !3
+  %4 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.5 = zext i32 %4 to i64
+  %"@26.i74.5" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.5
+  store i32 4, ptr %"@26.i74.5", align 4, !tbaa !3
+  %"@29.i76.5" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.5
+  store <3 x float> <float 6.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.5", align 4, !tbaa !0
+  %"@32.i78.5" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.5
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.5", align 16, !tbaa !0
+  %"@35.i80.5" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.5
+  store i32 5, ptr %"@35.i80.5", align 4, !tbaa !3
+  %5 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.6 = zext i32 %5 to i64
+  %"@26.i74.6" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.6
+  store i32 5, ptr %"@26.i74.6", align 4, !tbaa !3
+  %"@29.i76.6" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.6
+  store <3 x float> <float 7.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.6", align 4, !tbaa !0
+  %"@32.i78.6" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.6
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.6", align 16, !tbaa !0
+  %"@35.i80.6" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.6
+  store i32 6, ptr %"@35.i80.6", align 4, !tbaa !3
+  %6 = atomicrmw add ptr %sums_queue1956, i32 1 monotonic, align 4
+  %_wide.i73.7 = zext i32 %6 to i64
+  %"@26.i74.7" = getelementptr inbounds nuw [4 x i8], ptr %sums_n_064, i64 %_wide.i73.7
+  store i32 6, ptr %"@26.i74.7", align 4, !tbaa !3
+  %"@29.i76.7" = getelementptr inbounds nuw [12 x i8], ptr %sums_p_063, i64 %_wide.i73.7
+  store <3 x float> <float 8.000000e+00, float 2.000000e+00, float 3.000000e+00>, ptr %"@29.i76.7", align 4, !tbaa !0
+  %"@32.i78.7" = getelementptr inbounds nuw [16 x i8], ptr %sums_s_062, i64 %_wide.i73.7
+  store <4 x float> splat (float 2.000000e+00), ptr %"@32.i78.7", align 16, !tbaa !0
+  %"@35.i80.7" = getelementptr inbounds nuw [4 x i8], ptr %sums__slot_061, i64 %_wide.i73.7
+  store i32 7, ptr %"@35.i80.7", align 4, !tbaa !3
+  %"@15.count95" = load i32, ptr %sums_queue1956, align 16
+  %7 = icmp eq i32 %"@15.count95", 0
+  br i1 %7, label %sums_rest, label %"sums!batch"
+
+sums_rest.loopexit:                               ; preds = %sums1_pf_exit
+  %8 = load <4 x float>, ptr %sums_result1865, align 16
+  %extract_ptr53.4.phi.trans.insert = getelementptr inbounds nuw i8, ptr %sums_result1865, i64 16
+  %9 = load <4 x float>, ptr %extract_ptr53.4.phi.trans.insert, align 16
+  %10 = fptosi <4 x float> %8 to <4 x i32>
+  %11 = fptosi <4 x float> %9 to <4 x i32>
+  br label %sums_rest
+
+sums_rest:                                        ; preds = %sums_rest.loopexit, %walk.exit82.7
+  %12 = phi <4 x i32> [ %10, %sums_rest.loopexit ], [ <i32 4, i32 undef, i32 undef, i32 undef>, %walk.exit82.7 ]
+  %13 = phi <4 x i32> [ %11, %sums_rest.loopexit ], [ undef, %walk.exit82.7 ]
+  call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store <4 x i32> %12, ptr %out, align 4, !tbaa !3
+  %out55.4 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  store <4 x i32> %13, ptr %out55.4, align 4, !tbaa !3
+  ret void
+
+"sums!batch":                                     ; preds = %walk.exit82.7, %sums1_pf_exit
+  %"@15.count98" = phi i32 [ %"@15.count", %sums1_pf_exit ], [ %"@15.count95", %walk.exit82.7 ]
+  %extract_ptr97 = phi ptr [ %extract_ptr, %sums1_pf_exit ], [ %sums_queue1956, %walk.exit82.7 ]
+  %14 = phi i32 [ %42, %sums1_pf_exit ], [ 0, %walk.exit82.7 ]
+  %"sums!round296" = phi i32 [ %41, %sums1_pf_exit ], [ 0, %walk.exit82.7 ]
+  %15 = xor i32 %14, 1
+  %_wide23 = zext nneg i32 %15 to i64
+  %sums_queue24 = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1956, i64 %_wide23
+  store i32 0, ptr %sums_queue24, align 8, !tbaa !5
+  %extract28.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr97, i64 8
+  %extract28.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr97, i64 16
+  %extract28.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr97, i64 24
+  %extract28.fca.4.gep = getelementptr inbounds nuw i8, ptr %extract_ptr97, i64 32
+  %16 = getelementptr inbounds nuw i8, ptr %sums_queue24, i64 8
+  %17 = getelementptr inbounds nuw i8, ptr %sums_queue24, i64 16
+  %18 = getelementptr inbounds nuw i8, ptr %sums_queue24, i64 24
+  %19 = getelementptr inbounds nuw i8, ptr %sums_queue24, i64 32
+  %wide.trip.count = zext i32 %"@15.count98" to i64
+  br label %"sums!run"
+
+"sums!run":                                       ; preds = %"sums!batch", %walk.exit
+  %indvars.iv = phi i64 [ 0, %"sums!batch" ], [ %indvars.iv.next, %walk.exit ]
+  %extract28.fca.1.load = load ptr, ptr %extract28.fca.1.gep, align 8
+  %extract28.fca.2.load = load ptr, ptr %extract28.fca.2.gep, align 8
+  %extract28.fca.3.load = load ptr, ptr %extract28.fca.3.gep, align 8
+  %extract28.fca.4.load = load ptr, ptr %extract28.fca.4.gep, align 8
+  %extract_ptr29 = getelementptr inbounds nuw [4 x i8], ptr %extract28.fca.1.load, i64 %indvars.iv
+  %extract30 = load i32, ptr %extract_ptr29, align 4
+  %extract_ptr35 = getelementptr inbounds nuw [12 x i8], ptr %extract28.fca.2.load, i64 %indvars.iv
+  %extract36.unpack = load float, ptr %extract_ptr35, align 4
+  %extract36.elt66 = getelementptr inbounds nuw i8, ptr %extract_ptr35, i64 4
+  %20 = load <2 x float>, ptr %extract36.elt66, align 4
+  %extract_ptr41 = getelementptr inbounds nuw [16 x i8], ptr %extract28.fca.3.load, i64 %indvars.iv
+  %extract42 = load <4 x float>, ptr %extract_ptr41, align 16
+  %extract_ptr47 = getelementptr inbounds nuw [4 x i8], ptr %extract28.fca.4.load, i64 %indvars.iv
+  %extract48 = load i32, ptr %extract_ptr47, align 4
+  %21 = icmp slt i32 %extract30, 1
+  br i1 %21, label %"!then_0.i", label %"!merge_1.i"
+
+"!then_0.i":                                      ; preds = %"sums!run"
+  %extract48_wide = sext i32 %extract48 to i64
+  %ptr_array_deref49 = getelementptr inbounds [4 x i8], ptr %sums_result1865, i64 %extract48_wide
+  %22 = extractelement <2 x float> %20, i64 0
+  %23 = fadd float %extract36.unpack, %22
+  %24 = extractelement <2 x float> %20, i64 1
+  %25 = fadd float %23, %24
+  %26 = extractelement <4 x float> %extract42, i64 0
+  %27 = fadd float %25, %26
+  %28 = extractelement <4 x float> %extract42, i64 1
+  %29 = fadd float %28, %27
+  %30 = extractelement <4 x float> %extract42, i64 2
+  %31 = fadd float %30, %29
+  %32 = extractelement <4 x float> %extract42, i64 3
+  %33 = fadd float %32, %31
+  store float %33, ptr %ptr_array_deref49, align 4, !tbaa !0
+  br label %walk.exit
+
+"!merge_1.i":                                     ; preds = %"sums!run"
+  %34 = insertelement <3 x float> poison, float %extract36.unpack, i64 0
+  %35 = shufflevector <2 x float> %20, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
+  %36 = shufflevector <3 x float> %34, <3 x float> %35, <3 x i32> <i32 0, i32 3, i32 4>
+  %37 = add nsw i32 %extract30, -1
+  %38 = fadd <3 x float> %36, <float 1.000000e+00, float 2.000000e+00, float 3.000000e+00>
+  %39 = fmul <4 x float> %extract42, splat (float 2.000000e+00)
+  %40 = atomicrmw add ptr %sums_queue24, i32 1 monotonic, align 4
+  %n9.i = load ptr, ptr %16, align 8
+  %_wide.i = zext i32 %40 to i64
+  %"@26.i" = getelementptr inbounds nuw [4 x i8], ptr %n9.i, i64 %_wide.i
+  store i32 %37, ptr %"@26.i", align 4, !tbaa !3
+  %p11.i = load ptr, ptr %17, align 8
+  %"@29.i" = getelementptr inbounds nuw [12 x i8], ptr %p11.i, i64 %_wide.i
+  store <3 x float> %38, ptr %"@29.i", align 4, !tbaa !0
+  %s14.i = load ptr, ptr %18, align 8
+  %"@32.i" = getelementptr inbounds nuw [16 x i8], ptr %s14.i, i64 %_wide.i
+  store <4 x float> %39, ptr %"@32.i", align 16, !tbaa !0
+  %_slot.i = load ptr, ptr %19, align 8
+  %"@35.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
+  store i32 %extract48, ptr %"@35.i", align 4, !tbaa !3
+  br label %walk.exit
+
+walk.exit:                                        ; preds = %"!then_0.i", %"!merge_1.i"
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %sums1_pf_exit, label %"sums!run", !prof !7
+
+sums1_pf_exit:                                    ; preds = %walk.exit
+  %41 = add i32 %"sums!round296", 1
+  %42 = and i32 %41, 1
+  %_wide = zext nneg i32 %42 to i64
+  %extract_ptr = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1956, i64 %_wide
+  %"@15.count" = load i32, ptr %extract_ptr, align 8
+  %43 = icmp eq i32 %"@15.count", 0
+  br i1 %43, label %sums_rest.loopexit, label %"sums!batch"
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}
+!3 = !{!4, !4, i64 0}
+!4 = !{!"i32", !2, i64 0}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"u32", !2, i64 0}
+!7 = !{!"branch_weights", i32 0, i32 1073741824}

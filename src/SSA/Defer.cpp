@@ -676,14 +676,36 @@ bool whole_vector(const Vector_t &v) {
            (v.etype.is_float() || v.etype.is_int() || v.etype.is_uint());
 }
 
+// The type a whole vector's array stores. A vector whose natural storage is
+// its components back to back -- two or four of them, sixteen bytes or
+// fewer -- is stored as the vector itself, so that the array's element is
+// aligned as the vector is (eight or sixteen bytes, which every allocation
+// an array lives in gives: malloc's, cuMemAlloc's, a std::vector's) and a
+// push writes it with one aligned vector store, a drain reads it with one
+// load: pbrt's `SOA<SampledSpectrum>`, a `Float4` per entry. Stored packed,
+// the same sixteen bytes were an array of four floats aligned to four, and
+// the backends wrote and read them as four scalars -- the camera kernel of
+// the GPU renderer made forty-eight scalar stores an entry where pbrt's
+// makes twenty-five, and every drain's load of a spectrum was four loads
+// (apps/pbrt/PLAN.md, the camera-ray kernel). A 3-vector is packed, since
+// its natural storage is sixteen bytes for twelve of value, and so is a
+// vector wider than sixteen bytes, whose natural alignment is more than an
+// allocation promises.
+Type stored_vector_type(const Vector_t &v) {
+    const uint64_t bytes = uint64_t(v.lanes) * v.etype.bytes();
+    const bool natural = (v.lanes & (v.lanes - 1)) == 0 && bytes <= 16;
+    return Vector_t::make(v.etype, v.lanes, /*packed=*/!natural);
+}
+
 // The leaves of a value of `type` named `name`, appended to `out` in the
 // order take_apart() reads them and rebuild() puts them back. A struct that
 // is an ADT's inline storage (Program::AdtStorage, by the struct's name) has
 // its padding field's leaves marked Pad, and so does everything under a
 // padding field (`in_pad`): zero at every construction, read by nothing.
-// With `vector_leaves`, a short vector is one leaf whose type is the packed
-// vector -- its components back to back, as an array of them stores them --
-// rather than a leaf per component.
+// With `vector_leaves`, a short vector is one leaf stored whole in one array
+// (stored_vector_type: the vector itself where its storage is natural, the
+// packed vector -- its components back to back -- for a 3-vector) rather
+// than a leaf per component.
 void leaves_of(const string &name, const Type &type,
                const std::map<string, ir::Program::AdtStorage> *adts,
                bool in_pad, bool vector_leaves, const vector<unsigned> &path,
@@ -710,7 +732,7 @@ void leaves_of(const string &name, const Type &type,
         if (vector_leaves && whole_vector(*v)) {
             Leaf leaf;
             leaf.name = name;
-            leaf.type = Vector_t::make(v->etype, v->lanes, /*packed=*/true);
+            leaf.type = stored_vector_type(*v);
             leaf.kind = in_pad ? Leaf::Kind::Pad : Leaf::Kind::Stored;
             leaf.path = path;
             out.push_back(std::move(leaf));
@@ -850,6 +872,14 @@ bool packs(const Leaf &leaf, const Type &type) {
     const auto *held = type.as<Vector_t>();
     return stored != nullptr && held != nullptr && stored->packed && !held->packed &&
            stored->lanes == held->lanes && equals(stored->etype, held->etype);
+}
+
+// Whether `leaf` is a vector of `type` kept whole (QueueSpec::vector_leaves):
+// stored as the vector itself, or packed (stored_vector_type).
+bool keeps_whole(const Leaf &leaf, const Type &type) {
+    const auto *held = type.as<Vector_t>();
+    return held != nullptr && whole_vector(*held) &&
+           (equals(leaf.type, type) || packs(leaf, type));
 }
 
 // The bools, eight to a byte: each bool leaf becomes a bit of a byte leaf
@@ -4776,7 +4806,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     return body->make_instruction(t, op, std::move(ops));
                 };
                 const auto stored_whole = [&](const Type &t) {
-                    return l < field_leaves[f].second && packs(leaves[l], t);
+                    return l < field_leaves[f].second && keeps_whole(leaves[l], t);
                 };
                 auto value = rebuild(fields[f].type, emit, [&](const Type &t) {
                     internal_assert(l < field_leaves[f].second)

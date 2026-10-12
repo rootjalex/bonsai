@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/defer-vector-leaves.bonsai's program, all the way to
+// LLVM: the queue stores the recursion's point as one array of packed
+// `f32x3` -- `[3 x float]` elements, twelve bytes aligned to four -- and
+// its spectrum as one array of `f32x4` itself, `<4 x float>` elements,
+// sixteen bytes aligned to sixteen (stored_vector_type, SSA/Defer.h).
+// What to read for: the push's store into the spectrum's array and the
+// drain's load out of it are one `<4 x float>` access each with `align
+// 16`, which every backend makes one 128-bit instruction, where a packed
+// `[4 x float]` at `align 4` was written and read as four scalars. The
+// point's array keeps `align 4`: LLVM merges its three scalar stores into
+// a `<3 x float>` store at that alignment and its loads into a float and
+// a `<2 x float>`, which a backend splits back into scalars wherever a
+// vector access needs its natural alignment (NVPTX), and the x86 backend
+// emits as unaligned moves.
+
+element f32x3 = vector[f32, 3];
+element f32x4 = vector[f32, 4];
+
+func walk(n : i32, p : f32x3, s : f32x4) -> f32 {
+    if (n <= 0) {
+        return p[0] + p[1] + p[2] + s[0] + s[1] + s[2] + s[3];
+    }
+    return walk(n - 1, p + f32x3{1.0, 2.0, 3.0}, s * 2.0);
+}
+
+func [[export]] run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = cast[[i32]](walk(i, f32x3{cast[[f32]](i), 0.0, 0.0},
+                                  f32x4{1.0, 1.0, 1.0, 1.0}));
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root);
+    walk.defer(walk, sums);
+}

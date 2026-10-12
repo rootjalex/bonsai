@@ -32,12 +32,15 @@ namespace ssa {
 // A short vector is taken apart only where a gang will read or write the
 // queue (QueueSpec::vector_leaves). Where every push and every drain of
 // the queue is one entry at a time, a `vec3f` or `vec4f` of the entry is
-// one leaf, stored in one array of packed vectors -- the twelve or sixteen
-// bytes the value is, back to back (Vector_t::packed) -- so that a push
-// writes it with one store to one cache line and a drain reads it back
-// with one load. Taken apart, a spectrum is four arrays and a push of it
-// four lines; pbrt's `SOA<SampledSpectrum>` keeps a `Float4` per entry
-// for the same reason. That is the difference between a push of a ray
+// one leaf, stored in one array -- of the vector itself for a `vec4f`,
+// sixteen bytes aligned to sixteen, so that the push's one store and the
+// drain's one load are one vector instruction each; of packed vectors for
+// a `vec3f`, the twelve bytes the value is, back to back (Vector_t::packed,
+// stored_vector_type) -- so that a push writes it with one store to one
+// cache line and a drain reads it back with one load. Taken apart, a
+// spectrum is four arrays and a push of it four lines; pbrt's
+// `SOA<SampledSpectrum>` keeps a `Float4` per entry for the same reason.
+// That is the difference between a push of a ray
 // touching forty-five cache lines and seventeen, and on a machine whose
 // cores each claim the lines their pushes write, it was measured as most
 // of what the whole-frame wavefront lost to pbrt's (apps/pbrt/PLAN.md, the
@@ -96,13 +99,18 @@ using QueueLayouts = std::map<std::string, QueueLayout>;
 using Leaf = QueueLayout::Leaf;
 // The name of component `k` of a short vector: xyzw, or the index.
 std::string component_name(uint32_t k, uint32_t lanes);
-// Whether a short vector is kept whole as one packed leaf where the layout
-// keeps vectors: two to four numbers, not bools.
+// Whether a short vector is kept whole as one leaf where the layout keeps
+// vectors: two to four numbers, not bools.
 bool whole_vector(const Vector_t &v);
+// The type a whole vector's array stores: the vector itself for two or
+// four components of sixteen bytes or fewer, whose element is then aligned
+// as the vector is and accessed in one instruction; the packed vector, its
+// components back to back, for a 3-vector.
+Type stored_vector_type(const Vector_t &v);
 // The leaves of a value of `type` named `name`, appended to `out` in the
 // order take_apart() reads them and rebuild() puts them back; an ADT's
 // padding (`adts`, by struct name) is marked Pad; with `vector_leaves` a
-// short vector is one packed leaf.
+// short vector is one leaf (stored_vector_type).
 void leaves_of(const std::string &name, const Type &type,
                const std::map<std::string, ir::Program::AdtStorage> *adts,
                bool in_pad, bool vector_leaves, const std::vector<unsigned> &path,
@@ -144,6 +152,9 @@ std::shared_ptr<Value> rebuild(
 // Whether `leaf` is a vector stored whole and packed whose value in the
 // program is `type`, the same vector unpacked.
 bool packs(const Leaf &leaf, const Type &type);
+// Whether `leaf` is a vector of `type` kept whole: stored as the vector
+// itself, or packed.
+bool keeps_whole(const Leaf &leaf, const Type &type);
 
 // A queue as the schedule declared it (ir::Queue), with its owner resolved:
 // `paths = render.queue(p)` is owner `render`, loop `p`; `.queue(root)` is

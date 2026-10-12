@@ -95,7 +95,7 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   let @5 = build<Queue_rays>(0u, rays_ray_o, rays_ray_d, rays_depth, rays__slot) in
   rays_queue = @5
   rays_draw_u_slots : mut f32[8]
-  rays_draw_uv_slots : mut [[packed]] f32x2[8]
+  rays_draw_uv_slots : mut f32x2[8]
   rays_draw_w_slots : mut f32[8]
   rays__bits0_slots : mut u8[8]
   hits_h_p : mut f32[8]
@@ -108,15 +108,15 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
     let @0 = cast<f32>(p) in
     let ray = build<Ray>(@0, 1f) in
     let @6 = build<Entry_rays>(ray, 0, p) in
-    let @64 = atomic_add((&(*rays_queue).count), 1u) in
-    let @66 = (*rays_queue).ray_o in
-    @66[@64] = @0
-    let @69 = (*rays_queue).ray_d in
-    @69[@64] = 1f
-    let @72 = (*rays_queue).depth in
-    @72[@64] = 0
-    let @75 = (*rays_queue)._slot in
-    @75[@64] = p
+    let @62 = atomic_add((&(*rays_queue).count), 1u) in
+    let @64 = (*rays_queue).ray_o in
+    @64[@62] = @0
+    let @67 = (*rays_queue).ray_d in
+    @67[@62] = 1f
+    let @70 = (*rays_queue).depth in
+    @70[@62] = 0
+    let @73 = (*rays_queue)._slot in
+    @73[@62] = p
     continue
   }
   rays!round = 0u
@@ -131,8 +131,8 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
       step(@22, @23, @24, max_depth, (&rays_rad_slots[@24]), rays_queue, @24, (&rays_draw_u_slots[@24]), (&rays_draw_uv_slots[@24]), (&rays_draw_w_slots[@24]), (&rays__bits0_slots[@24]))
       continue
     }
-    let @42 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
-    hits_queue = @42
+    let @41 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
+    hits_queue = @41
     parfor rays in [0u:@10:1u] {
       let @13 = rays_ray_o[rays] in
       let @14 = rays_ray_d[rays] in
@@ -141,33 +141,31 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
       let @17 = rays__slot[rays] in
       let @31 = rays_draw_u_slots[@17] in
       let @33 = rays_draw_uv_slots[@17] in
-      let @34 = cast<f32x2>(@33) in
-      let @36 = rays_draw_w_slots[@17] in
-      let @38 = rays__bits0_slots[@17] in
-      let @39 = @38 & 1u in
-      let @40 = @39 != 0u in
-      let @41 = build<Draw>(@31, @34, @36, @40) in
-      step!after(@41, @15, @16, @17, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
+      let @35 = rays_draw_w_slots[@17] in
+      let @37 = rays__bits0_slots[@17] in
+      let @38 = @37 & 1u in
+      let @39 = @38 != 0u in
+      let @40 = build<Draw>(@31, @33, @35, @39) in
+      step!after(@40, @15, @16, @17, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
       continue
     }
     rays_queue.count = 0u
-    let @43 = (*hits_queue) in
-    let @44 = @43.count in
-    parfor hits in [0u:@44:1u] {
-      let @45 = hits_h_p[hits] in
-      let @46 = build<Hit>(@45) in
-      let @47 = hits_ray_d[hits] in
-      let @48 = build<Ray>(undef, @47) in
-      let @49 = hits__slot[hits] in
-      let @51 = rays_draw_u_slots[@49] in
-      let @53 = rays_draw_uv_slots[@49] in
-      let @54 = cast<f32x2>(@53) in
-      let @56 = rays__bits0_slots[@49] in
-      let @57 = @56 & 1u in
-      let @58 = @57 != 0u in
-      let @59 = build<Draw>(@51, @54, undef, @58) in
-      let @60 = hits_depth[hits] in
-      shade(@46, @48, @59, @60, undef, max_depth, (&rays_rad_slots[@49]), rays_queue, @49)
+    let @42 = (*hits_queue) in
+    let @43 = @42.count in
+    parfor hits in [0u:@43:1u] {
+      let @44 = hits_h_p[hits] in
+      let @45 = build<Hit>(@44) in
+      let @46 = hits_ray_d[hits] in
+      let @47 = build<Ray>(undef, @46) in
+      let @48 = hits__slot[hits] in
+      let @50 = rays_draw_u_slots[@48] in
+      let @52 = rays_draw_uv_slots[@48] in
+      let @54 = rays__bits0_slots[@48] in
+      let @55 = @54 & 1u in
+      let @56 = @55 != 0u in
+      let @57 = build<Draw>(@50, @52, undef, @56) in
+      let @58 = hits_depth[hits] in
+      shade(@45, @47, @57, @58, undef, max_depth, (&rays_rad_slots[@48]), rays_queue, @48)
       continue
     }
     hits_queue.count = 0u
@@ -224,18 +222,17 @@ func sky(ray : Ray) -> f32 {
   return @1
 }
 
-func step(ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32, _draw_u_rays : mut (f32*), _draw_uv_rays : mut ([[packed]] f32x2*), _draw_w_rays : mut (f32*), __bits0_rays : mut (u8*)) -> void {
+func step(ray : Ray, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32, _draw_u_rays : mut (f32*), _draw_uv_rays : mut (f32x2*), _draw_w_rays : mut (f32*), __bits0_rays : mut (u8*)) -> void {
   let @0 = draw(p, depth) in
   let @14 = @0.u in
   let @15 = @0.uv in
-  let @16 = cast<[[packed]] f32x2>(@15) in
-  let @17 = @0.w in
-  let @18 = @0.flip in
-  let @19 = cast<u8>(@18) in
+  let @16 = @0.w in
+  let @17 = @0.flip in
+  let @18 = cast<u8>(@17) in
   _draw_u_rays = @14
-  _draw_uv_rays = @16
-  _draw_w_rays = @17
-  __bits0_rays = @19
+  _draw_uv_rays = @15
+  _draw_w_rays = @16
+  __bits0_rays = @18
   return
 }
 

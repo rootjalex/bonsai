@@ -703,8 +703,9 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
     // Storage for the rest: a struct of arrays of the record, each stored
     // value flattened to its scalars by the rule a queue's entry is stored
     // by (QueueLayout, SSA/Defer.h) -- one array per scalar, a short vector
-    // one packed array where no gang touches the queue, bools eight to a
-    // byte, an ADT's padding nowhere -- one slot per producer iteration,
+    // one array where no gang touches the queue (stored_vector_type), bools
+    // eight to a byte, an ADT's padding nowhere -- one slot per producer
+    // iteration,
     // made where the record's arrays are and sized as they are; and a
     // pointer to this entry's slot of each array, handed down the chain as
     // the queue is. pbrt's pixelSampleState has the shape: an SOA, an array
@@ -950,7 +951,7 @@ vector<Type> cut_same_queue(FuncMap &funcs, const string &func_name,
             };
             size_t l = s->first_leaf;
             const auto stored_whole = [&](const Type &t) {
-                return l < s->last_leaf && packs(leaves[l], t);
+                return l < s->last_leaf && keeps_whole(leaves[l], t);
             };
             auto value = rebuild(
                 s->type, emit,

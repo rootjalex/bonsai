@@ -738,7 +738,9 @@ value of `L` that is not a field of the entry, not the same for every
 entry, and not a pure function of those (which the second pass recomputes,
 the rule of 4.2). The record gains, for each value of `S`, one array per
 scalar of it -- the entry's rule of 4.2, a struct of arrays: a short vector
-one packed array, bools eight to a byte, an ADT's padding nowhere -- one
+one array (the vector itself for two or four components of sixteen bytes or
+fewer, aligned as the vector is; packed, its components back to back, for a
+3-vector), bools eight to a byte, an ADT's padding nowhere -- one
 slot per producer iteration as a reducer's is (4.2). The first pass writes
 them at the entry's slot, which the entry carries already (pbrt's
 `pixelIndex`), and the second pass reads back the scalars it uses. No
