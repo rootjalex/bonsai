@@ -19,6 +19,42 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-11, 20:30)
+
+**The stage tables were misfiling two of our kernels; regenerated.**
+`report_stages.py` matched our camera-ray kernel as `_kernel_p_blk$VolPath`
+and the sample pass as `_kernel_rays_blk`. Since the kernels per sampler
+of 10-10 (482c0de1) they are `_kernel_p_blk$VolPath$<Sampler>` and
+`_kernel_samples_blk$<Sampler>`, which neither pattern matched, so both
+fell into "film + the rest". The 13:30 tables therefore read "camera rays:
+pbrt only", "sample draws: pbrt only" and "film + the rest: behind on 28
+scenes, 1.47x" -- an artifact of the names, not a measurement. With the
+patterns fixed, the tables below regenerated from heatmap5 at 16 spp: the
+camera rays are behind on 29 of 30 scenes, 303.6 ms against pbrt's 246.7
+over the sweep (1.23x), lte-orb-rough-glass 1.66x (7.81 against 4.70 ms)
+and lte-orb-silver 1.64x, the halton scenes 1.23x to 1.28x (book 11.4
+against 9.09); the sample draws behind on 5 (disney-cloud 1.09x,
+lte-orb-silver 1.06x; 0.90x over the sweep); film and the rest ahead on
+every scene (0.20x). No other row moved. The stage ours loses on almost
+every scene is therefore the kernel that starts a pixel sample: pbrt's
+GenerateCameraRays draws the camera's dimensions and makes the ray, ours
+does the same work in a kernel specialized per sampler, and the gap is
+widest on the two pmj02bn scenes. Not yet looked into; it is the next
+kernel to read against pbrt's. The rows behind elsewhere: the shadow
+traces on bistro_cafe (1.23x, image FAILED), the closest-hit trace on
+landscape (1.01x), the measured material on sportscar (1.08x), BSSRDF
+sampling on head (1.18x of 8.5 ms) and the subsurface material on
+dragon_10 (1.12x of 11 ms).
+
+**Dead-argument elimination is not a step**, though the 15:55 section
+below names it next: the seven draw loads for the hit continuation's dead
+parameter exist in the SSA alone. The optimized device IR, read tonight
+(`compiler ... -b ptx -o file` writes it beside the PTX), has the
+closest-hit program loading none of the slot arrays and the material
+kernels never dereferencing the subsurface ones; LLVM's own pass does the
+job on our internalized, inlined modules. PLAN.md, step 1's section
+(16acbb62).
+
 ## Where it stands (2026-10-11, 15:55)
 
 **Two steps of the work-item plan, each measured on its own.** The user's
@@ -881,13 +917,13 @@ The wall speedup is pbrt's process over ours, both warm, from table.tsv. Images:
 |---|---|---|---|---|---|---|
 | closest-hit trace + routing | 30 | 1 | 1.01 (landscape/view-0) | 2398 | 3173 | 0.76 |
 | shadow traces (every pass) | 30 | 2 | 1.23 (bistro/bistro_cafe) | 4417 | 5314 | 0.83 |
-| sample draws (the bounce's dimensions, per ray) | 30 | 0 | - | 0 | 803.5 | pbrt only |
-| camera rays | 29 | 0 | - | 0 | 246.7 | pbrt only |
+| sample draws (the bounce's dimensions, per ray) | 30 | 5 | 1.09 (disney-cloud/disney-cloud) | 721.9 | 803.5 | 0.90 |
+| camera rays | 30 | 29 | 1.66 (lte-orb/lte-orb-rough-glass) | 303.6 | 246.7 | 1.23 |
 | escaped rays | 30 | 0 | 0.63 (villa/villa-lights-on) | 204.9 | 407.5 | 0.50 |
 | emitters hit | 30 | 0 | 0.61 (bistro/bistro_cafe) | 145.9 | 384.8 | 0.38 |
 | material: CoatedDiffuse (basic textures) | 21 | 0 | 0.72 (landscape/view-0) | 935.6 | 1648 | 0.57 |
 | material: Diffuse (basic textures) | 22 | 0 | 0.73 (sanmiguel/sanmiguel-courtyard) | 406.9 | 950.4 | 0.43 |
-| film + the rest | 30 | 28 | 5.06 (explosion/explosion) | 1186 | 805.5 | 1.47 |
+| film + the rest | 30 | 0 | 0.63 (ganesha/ganesha) | 160.8 | 805.5 | 0.20 |
 | materials with their sample draws (a view, not a stage) | 30 | 0 | 0.81 (lte-orb/lte-orb-simple-ball) | 2765 | 6575 | 0.42 |
 | material: Conductor (basic textures) | 11 | 0 | 0.31 (villa/villa-daylight) | 144.2 | 541.1 | 0.27 |
 | material: CoatedConductor (basic textures) | 6 | 0 | 0.56 (bistro/bistro_cafe) | 224.3 | 470.7 | 0.48 |
@@ -983,76 +1019,77 @@ ours: `__raygen__shadow$<alpha>` and `__raygen__exit_shadow$<alpha>`; pbrt: the 
 
 ##### sample draws (the bounce's dimensions, per ray)
 
-ours: the `rays` drain of the sample stage (10-09); a run before it has no kernel here, its draws having run inside the material and medium kernels, so pbrt's stands alone there.
+ours: the first pass of the `rays` cut, `samples_blk$<Sampler>` since the kernels per sampler of 10-10 (`rays_blk` in the runs before); a run before the sample stage (10-09) has no kernel here, its draws having run inside the material and medium kernels, so pbrt's stands alone there.
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| killeroos/killeroo-simple | 0 | 3.64 | pbrt only |
-| killeroos/killeroo-gold | 0 | 9.14 | pbrt only |
-| killeroos/killeroo-coated-gold | 0 | 9.01 | pbrt only |
-| pbrt-book/book | 0 | 10.5 | pbrt only |
-| ganesha/ganesha | 0 | 9.74 | pbrt only |
-| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 8.06 | pbrt only |
-| lte-orb/lte-orb-simple-ball | 0 | 8.85 | pbrt only |
-| lte-orb/lte-orb-silver | 0 | 6.22 | pbrt only |
-| lte-orb/lte-orb-rough-glass | 0 | 18.1 | pbrt only |
-| head/head | 0 | 3.19 | pbrt only |
-| sssdragon/dragon_10 | 0 | 12.2 | pbrt only |
-| villa/villa-lights-on | 0 | 3.35 | pbrt only |
-| smoke-plume/plume | 0 | 13.1 | pbrt only |
-| bunny-cloud/bunny-cloud | 0 | 53.0 | pbrt only |
-| explosion/explosion | 0 | 21.8 | pbrt only |
-| disney-cloud/disney-cloud | 0 | 58.3 | pbrt only |
-| landscape/view-0 | 0 | 38.3 | pbrt only |
-| crown/crown | 0 | 77.2 | pbrt only |
-| kroken/camera-1 | 0 | 34.5 | pbrt only |
-| sportscar/sportscar-sky | 0 | 10.9 | pbrt only |
-| bmw-m6/bmw-m6 | 0 | 10.7 | pbrt only |
-| dambreak/dambreak0 | 0 | 60.4 | pbrt only |
-| transparent-machines/frame542 | 0 | 182.4 | pbrt only |
-| villa/villa-daylight | 0 | 12.8 | pbrt only |
-| clouds/clouds | 0 | 60.6 | pbrt only |
-| sanmiguel/sanmiguel-courtyard | 0 | 7.75 | pbrt only |
-| bistro/bistro_cafe (image FAILED) | 0 | 11.7 | pbrt only |
-| bistro/bistro_vespa (image FAILED) | 0 | 12.2 | pbrt only |
-| watercolor/camera-1 | 0 | 26.6 | pbrt only |
-| sanmiguel/sanmiguel-courtyard-second | 0 | 9.45 | pbrt only |
+| disney-cloud/disney-cloud | 63.9 | 58.3 | **1.09** |
+| lte-orb/lte-orb-silver | 6.62 | 6.22 | **1.06** |
+| villa/villa-lights-on | 3.44 | 3.35 | **1.03** |
+| smoke-plume/plume | 13.1 | 13.1 | **1.00** |
+| barcelona-pavilion/pavilion-day (image FAILED) | 8.07 | 8.06 | **1.00** |
+| killeroos/killeroo-simple | 3.64 | 3.64 | 1.00 |
+| landscape/view-0 | 37.6 | 38.3 | 0.98 |
+| sportscar/sportscar-sky | 10.5 | 10.9 | 0.97 |
+| watercolor/camera-1 | 25.7 | 26.6 | 0.97 |
+| villa/villa-daylight | 12.2 | 12.8 | 0.96 |
+| sanmiguel/sanmiguel-courtyard | 7.40 | 7.75 | 0.95 |
+| kroken/camera-1 | 33.0 | 34.5 | 0.95 |
+| explosion/explosion | 20.4 | 21.8 | 0.94 |
+| ganesha/ganesha | 9.09 | 9.74 | 0.93 |
+| head/head | 2.93 | 3.19 | 0.92 |
+| pbrt-book/book | 9.59 | 10.5 | 0.92 |
+| lte-orb/lte-orb-simple-ball | 8.09 | 8.85 | 0.91 |
+| bmw-m6/bmw-m6 | 9.72 | 10.7 | 0.91 |
+| dambreak/dambreak0 | 54.8 | 60.4 | 0.91 |
+| sanmiguel/sanmiguel-courtyard-second | 8.56 | 9.45 | 0.91 |
+| killeroos/killeroo-coated-gold | 8.12 | 9.01 | 0.90 |
+| killeroos/killeroo-gold | 8.17 | 9.14 | 0.89 |
+| bistro/bistro_cafe (image FAILED) | 10.3 | 11.7 | 0.89 |
+| bunny-cloud/bunny-cloud | 45.2 | 53.0 | 0.85 |
+| crown/crown | 65.8 | 77.2 | 0.85 |
+| bistro/bistro_vespa (image FAILED) | 10.3 | 12.2 | 0.85 |
+| transparent-machines/frame542 | 153.4 | 182.4 | 0.84 |
+| clouds/clouds | 50.1 | 60.6 | 0.83 |
+| sssdragon/dragon_10 | 9.90 | 12.2 | 0.81 |
+| lte-orb/lte-orb-rough-glass | 12.2 | 18.1 | 0.68 |
 
 ##### camera rays
 
-both sides draw the camera's own dimensions here.
+both sides draw the camera's own dimensions here; ours one kernel per sampler since 10-10.
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| killeroos/killeroo-simple | 0 | 2.55 | pbrt only |
-| killeroos/killeroo-gold | 0 | 6.58 | pbrt only |
-| killeroos/killeroo-coated-gold | 0 | 6.65 | pbrt only |
-| pbrt-book/book | 0 | 9.09 | pbrt only |
-| ganesha/ganesha | 0 | 9.12 | pbrt only |
-| barcelona-pavilion/pavilion-day (image FAILED) | 0 | 6.65 | pbrt only |
-| lte-orb/lte-orb-simple-ball | 0 | 7.28 | pbrt only |
-| lte-orb/lte-orb-silver | 0 | 4.80 | pbrt only |
-| lte-orb/lte-orb-rough-glass | 0 | 4.70 | pbrt only |
-| head/head | 0 | 2.88 | pbrt only |
-| sssdragon/dragon_10 | 0 | 6.64 | pbrt only |
-| villa/villa-lights-on | 0 | 2.39 | pbrt only |
-| smoke-plume/plume | 0 | 6.72 | pbrt only |
-| bunny-cloud/bunny-cloud | 0 | 9.30 | pbrt only |
-| explosion/explosion | 0 | 11.3 | pbrt only |
-| landscape/view-0 | 0 | 37.1 | pbrt only |
-| crown/crown | 0 | 6.68 | pbrt only |
-| kroken/camera-1 | 0 | 11.9 | pbrt only |
-| sportscar/sportscar-sky | 0 | 9.16 | pbrt only |
-| bmw-m6/bmw-m6 | 0 | 6.64 | pbrt only |
-| dambreak/dambreak0 | 0 | 9.20 | pbrt only |
-| transparent-machines/frame542 | 0 | 7.41 | pbrt only |
-| villa/villa-daylight | 0 | 7.18 | pbrt only |
-| clouds/clouds | 0 | 9.68 | pbrt only |
-| sanmiguel/sanmiguel-courtyard | 0 | 5.43 | pbrt only |
-| bistro/bistro_cafe (image FAILED) | 0 | 9.55 | pbrt only |
-| bistro/bistro_vespa (image FAILED) | 0 | 9.67 | pbrt only |
-| watercolor/camera-1 | 0 | 13.2 | pbrt only |
-| sanmiguel/sanmiguel-courtyard-second | 0 | 7.19 | pbrt only |
+| lte-orb/lte-orb-rough-glass | 7.81 | 4.70 | **1.66** |
+| lte-orb/lte-orb-silver | 7.88 | 4.80 | **1.64** |
+| ganesha/ganesha | 11.7 | 9.12 | **1.28** |
+| sportscar/sportscar-sky | 11.6 | 9.16 | **1.26** |
+| landscape/view-0 | 46.7 | 37.1 | **1.26** |
+| pbrt-book/book | 11.4 | 9.09 | **1.25** |
+| dambreak/dambreak0 | 11.4 | 9.20 | **1.24** |
+| bunny-cloud/bunny-cloud | 11.4 | 9.30 | **1.23** |
+| villa/villa-daylight | 8.70 | 7.18 | **1.21** |
+| watercolor/camera-1 | 15.9 | 13.2 | **1.21** |
+| sanmiguel/sanmiguel-courtyard-second | 8.68 | 7.19 | **1.21** |
+| clouds/clouds | 11.6 | 9.68 | **1.20** |
+| killeroos/killeroo-gold | 7.87 | 6.58 | **1.20** |
+| transparent-machines/frame542 | 8.85 | 7.41 | **1.19** |
+| smoke-plume/plume | 7.98 | 6.72 | **1.19** |
+| killeroos/killeroo-coated-gold | 7.85 | 6.65 | **1.18** |
+| bistro/bistro_cafe (image FAILED) | 11.2 | 9.55 | **1.17** |
+| crown/crown | 7.83 | 6.68 | **1.17** |
+| bistro/bistro_vespa (image FAILED) | 11.3 | 9.67 | **1.16** |
+| bmw-m6/bmw-m6 | 7.67 | 6.64 | **1.16** |
+| sssdragon/dragon_10 | 7.58 | 6.64 | **1.14** |
+| sanmiguel/sanmiguel-courtyard | 6.17 | 5.43 | **1.14** |
+| explosion/explosion | 12.9 | 11.3 | **1.14** |
+| barcelona-pavilion/pavilion-day (image FAILED) | 7.42 | 6.65 | **1.12** |
+| head/head | 3.20 | 2.88 | **1.11** |
+| lte-orb/lte-orb-simple-ball | 8.02 | 7.28 | **1.10** |
+| killeroos/killeroo-simple | 2.78 | 2.55 | **1.09** |
+| kroken/camera-1 | 12.6 | 11.9 | **1.06** |
+| villa/villa-lights-on | 2.45 | 2.39 | **1.03** |
+| disney-cloud/disney-cloud | 5.10 | 0 | ours only |
 
 ##### escaped rays
 
@@ -1183,36 +1220,36 @@ ours: `rays_rest_blk` and `q_blk`; pbrt: Update film, the queue resets, the stat
 
 | scene | ours | pbrt | ratio |
 |---|---|---|---|
-| explosion/explosion | 37.6 | 7.44 | **5.06** |
-| smoke-plume/plume | 23.9 | 4.91 | **4.86** |
-| sportscar/sportscar-sky | 25.8 | 5.85 | **4.41** |
-| landscape/view-0 | 97.3 | 22.4 | **4.35** |
-| bistro/bistro_vespa (image FAILED) | 25.2 | 5.92 | **4.26** |
-| bistro/bistro_cafe (image FAILED) | 25.1 | 5.93 | **4.24** |
-| ganesha/ganesha | 24.6 | 5.95 | **4.13** |
-| head/head | 7.07 | 1.72 | **4.11** |
-| pbrt-book/book | 24.8 | 6.11 | **4.06** |
-| sanmiguel/sanmiguel-courtyard-second | 20.2 | 5.03 | **4.01** |
-| killeroos/killeroo-coated-gold | 18.7 | 4.78 | **3.91** |
-| killeroos/killeroo-simple | 7.40 | 1.90 | **3.89** |
-| barcelona-pavilion/pavilion-day (image FAILED) | 18.1 | 4.66 | **3.89** |
-| killeroos/killeroo-gold | 18.8 | 4.87 | **3.85** |
-| sanmiguel/sanmiguel-courtyard | 15.7 | 4.10 | **3.84** |
-| sssdragon/dragon_10 | 20.2 | 5.30 | **3.81** |
-| villa/villa-daylight | 24.3 | 6.47 | **3.75** |
-| bmw-m6/bmw-m6 | 20.2 | 5.46 | **3.71** |
-| villa/villa-lights-on | 6.86 | 1.87 | **3.67** |
-| lte-orb/lte-orb-silver | 17.3 | 4.72 | **3.66** |
-| clouds/clouds | 69.5 | 19.6 | **3.55** |
-| dambreak/dambreak0 | 75.3 | 23.8 | **3.16** |
-| bunny-cloud/bunny-cloud | 64.9 | 20.7 | **3.13** |
-| disney-cloud/disney-cloud | 76.0 | 25.5 | **2.97** |
-| crown/crown | 84.7 | 33.5 | **2.53** |
-| transparent-machines/frame542 | 187.7 | 75.8 | **2.48** |
-| lte-orb/lte-orb-rough-glass | 25.2 | 12.1 | **2.08** |
-| lte-orb/lte-orb-simple-ball | 20.2 | 13.3 | **1.52** |
-| watercolor/camera-1 | 50.2 | 70.7 | 0.71 |
-| kroken/camera-1 | 53.6 | 395.0 | 0.14 |
+| ganesha/ganesha | 3.77 | 5.95 | 0.63 |
+| sportscar/sportscar-sky | 3.69 | 5.85 | 0.63 |
+| pbrt-book/book | 3.81 | 6.11 | 0.62 |
+| bistro/bistro_vespa (image FAILED) | 3.62 | 5.92 | 0.61 |
+| bistro/bistro_cafe (image FAILED) | 3.56 | 5.93 | 0.60 |
+| lte-orb/lte-orb-silver | 2.77 | 4.72 | 0.59 |
+| explosion/explosion | 4.35 | 7.44 | 0.58 |
+| landscape/view-0 | 13.0 | 22.4 | 0.58 |
+| sanmiguel/sanmiguel-courtyard-second | 2.91 | 5.03 | 0.58 |
+| killeroos/killeroo-coated-gold | 2.73 | 4.78 | 0.57 |
+| smoke-plume/plume | 2.78 | 4.91 | 0.57 |
+| barcelona-pavilion/pavilion-day (image FAILED) | 2.62 | 4.66 | 0.56 |
+| killeroos/killeroo-gold | 2.72 | 4.87 | 0.56 |
+| head/head | 0.94 | 1.72 | 0.55 |
+| sanmiguel/sanmiguel-courtyard | 2.16 | 4.10 | 0.53 |
+| villa/villa-daylight | 3.38 | 6.47 | 0.52 |
+| bmw-m6/bmw-m6 | 2.84 | 5.46 | 0.52 |
+| villa/villa-lights-on | 0.97 | 1.87 | 0.52 |
+| killeroos/killeroo-simple | 0.98 | 1.90 | 0.52 |
+| sssdragon/dragon_10 | 2.70 | 5.30 | 0.51 |
+| lte-orb/lte-orb-rough-glass | 5.14 | 12.1 | 0.42 |
+| clouds/clouds | 7.79 | 19.6 | 0.40 |
+| bunny-cloud/bunny-cloud | 8.20 | 20.7 | 0.40 |
+| dambreak/dambreak0 | 9.03 | 23.8 | 0.38 |
+| transparent-machines/frame542 | 25.4 | 75.8 | 0.34 |
+| crown/crown | 11.1 | 33.5 | 0.33 |
+| lte-orb/lte-orb-simple-ball | 4.14 | 13.3 | 0.31 |
+| disney-cloud/disney-cloud | 7.00 | 25.5 | 0.27 |
+| watercolor/camera-1 | 8.58 | 70.7 | 0.12 |
+| kroken/camera-1 | 8.06 | 395.0 | 0.02 |
 
 ##### materials with their sample draws (a view, not a stage)
 
@@ -1500,20 +1537,29 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order
+## To do, in order (2026-10-11, 20:30)
 
-1. The stages behind, by the time behind: the dielectric material kernel
-   (frame542 +48 ms, crown +13 ms, behind on 11 of 16 scenes; profiled
-   above -- the sampler draws inside a kernel with few items, pending the
-   user's decision on a sample stage, plus three compiler patterns), the
-   closest-hit trace on landscape (+33 ms) and disney-cloud (+4 ms), the
-   measured material (sportscar, 3 of 3), the diffuse material on its 7
-   scenes, then subsurface, thin-dielectric, diffuse-transmission, medium
-   scattering on plume, explosion and bunny-cloud, and the shadow traces
-   on the bistros (which first need their image verdict settled).
-2. The pbrt-GPU behavior audit (PLAN.md, "Design: the mesh is the entity",
-   last paragraph): every place pbrt's wavefront deviates from its CPU
-   path; the bistro lit-pixel bias sits there.
-3. After each fix, the three-scene check (`gpu_compare.sh`) on the scene
-   the fix was for plus head and killeroo-simple; a full sweep only in a
-   window agreed with the other sessions on the machine.
+1. The camera-ray kernel against pbrt's GenerateCameraRays: behind on 29
+   of 30 scenes (1.23x over the sweep, 1.65x on the two pmj02bn scenes).
+   Read the two side by side first -- the sampler's start of a pixel
+   sample, the camera's draws, the ray, the push -- and only then change
+   anything; one compare per fix.
+2. The work-item plan (PLAN.md, "The work items matched, and the hit
+   chain"): step 5's program changes (hits 255 -> 241 bytes against pbrt's
+   252; the probe's empty start; the subsurface context), then the hit
+   chain (step 8: six dependent loads from the record to a vertex against
+   pbrt's four -- the closest-hit program's remaining difference, and
+   landscape the one scene the trace is behind on), then the recipes of
+   steps 2-4 for bssrdfs (345 against 168) and probes (316 against 332).
+3. The sample draws on disney-cloud (1.09x) and lte-orb-silver (1.06x),
+   after 1, since the two kernels share the sampler code.
+4. The standing debts: `cook`'s `budget = 16` replaced by a cost rule; the
+   texture pyramid per declaration in scene_dump (landscape's .tex three
+   times pbrt's); compare.sh and render.sh onto the shared conversion
+   folder; the bistro and pavilion image verdicts (the lit-pixel rule,
+   with the pbrt-GPU behavior audit of PLAN.md, "Design: the mesh is the
+   entity", last paragraph).
+5. After each fix, the compare on the fix's scenes plus head and
+   killeroo-simple at 16 and 64 spp, the least of three on each side, one
+   table per fix in this file; a full sweep only in a window agreed with
+   the other sessions on the machine.

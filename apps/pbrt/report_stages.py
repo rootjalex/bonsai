@@ -51,14 +51,18 @@ STAGES = [
      ["Sample medium interaction"], ""),
     ("medium scattering", r"^_kernel_medium_scatters_blk$",
      ["Sample direct/indirect - Henyey-Greenstein"], ""),
-    ("sample draws (the bounce's dimensions, per ray)", r"^_kernel_rays_blk$",
+    ("sample draws (the bounce's dimensions, per ray)",
+     r"^_kernel_(rays|samples)_blk(\$\w+)?$",
      ["Generate ray samples - *"],
-     "ours: the `rays` drain of the sample stage (10-09); a run before it has "
-     "no kernel here, its draws having run inside the material and medium "
-     "kernels, so pbrt's stands alone there"),
-    ("camera rays", r"^_kernel_p_blk\$VolPath(\$prologue)?$",
+     "ours: the first pass of the `rays` cut, `samples_blk$<Sampler>` since "
+     "the kernels per sampler of 10-10 (`rays_blk` in the runs before); a run "
+     "before the sample stage (10-09) has no kernel here, its draws having "
+     "run inside the material and medium kernels, so pbrt's stands alone "
+     "there"),
+    ("camera rays", r"^_kernel_p_blk\$VolPath(\$prologue)?(\$\w+)?$",
      ["Generate camera rays"],
-     "both sides draw the camera's own dimensions here"),
+     "both sides draw the camera's own dimensions here; ours one kernel per "
+     "sampler since 10-10"),
     ("escaped rays", r"^_kernel_escaped_blk$", ["Handle escaped rays"], ""),
     ("emitters hit", r"^_kernel_emissive_blk$",
      ["Handle emitters hit by indirect rays"], ""),
