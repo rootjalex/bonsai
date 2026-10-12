@@ -14323,3 +14323,133 @@ camera-ray deficit of the 20:30 tables is closed; the record's layout,
 not the draws, was all of it. What is left of the camera kernel's shape
 against pbrt's: the 48 bytes of constant context, the round field, the
 ran byte, and the 3-vectors' stride, listed above.
+
+### The wavelengths beside the surface, and the surface's initialization (10-12, 14:00-)
+
+**The ruling (11:50):** "Regarding the wavelengths beside the surface: we
+should follow PBRT's design! This is supposed to be a faithful
+translation of their implementation into Bonsai. The surface
+initialization only for a gbuffer film smells like we aren't using
+specialize() where we need to yet, am I right?"
+
+**Built, the program's part.** pbrt's `PixelSampleState` keeps `lambda`
+as an array of its own beside `visibleSurface`; the camera kernel writes
+it, the material kernel rewrites it when a dispersive interface
+terminates the secondary wavelengths, the film converts with it. Ours
+kept the wavelengths inside `VisibleSurface` (the comment above the
+element argued for it) and so wrote the whole surface for every film.
+Now `path_lambda : mut SampledWavelengths = lambda` is a local of the
+pixel sample in `render`, handed down the chain beside `visible` through
+the 17 functions that carry the surface (every `visible : mut
+VisibleSurface` parameter gained `path_lambda : mut SampledWavelengths`,
+every call hands both), the four `visible.lambda = lam` writes are
+`path_lambda = lam`, the film reads `path_lambda`, and `VisibleSurface`
+is pbrt's: `{n, ns, albedo, set}`. The gbuffer's accumulation is under
+`film_visible_surface && visible.set`, as only a GBufferFilm has
+`AddSample` read the surface. With the record a struct of arrays
+(above), `rays.visible` is four arrays and `rays.path_lambda` two 16-byte
+vectors, the same bytes in the same number of arrays; the change is
+faithfulness, and what it sets up. In the assembly (sm_120) the camera
+kernel's stores are what they were (STG.E x32, STG.E.128 x9, STG.E.U8
+x4), the rest pass gains the one branch on the film's flag, and the
+material kernels store two 128-bit vectors fewer under `want_visible`
+(Diffuse: STG.E.128 x11 -> x9), since the surface they fill no longer
+carries the wavelengths -- pbrt's material kernel writes the two apart as
+well.
+
+**Measured (10-12, 15:15-15:45, `compare-out-lambda`, with the layout
+alignment below, which changes nothing of this renderer's kernels):**
+the five scenes at 16 and 64 spp against `compare-out-soa`, pbrt --gpu
+rerun beside ours, the least of three on each side. Kernel milliseconds,
+record -> this: killeroo-simple 28.29 -> 28.41, killeroo-gold 69.43 ->
+69.94, book 85.68 -> 85.59, lte-orb-silver 81.24 -> 79.80,
+lte-orb-rough-glass 201.02 -> 199.81 at 16; 113.18 -> 113.06, 277.29 ->
+278.86, 341.77 -> 341.60, 324.93 -> 319.15, 801.77 -> 799.08 at 64:
+**1.003x kernel as a geometric mean at both counts, within the run-to-run
+noise**, lte-orb-silver 1.018x at both (the material kernels' two stores
+fewer), the others within a percent either way; all ten radiance images
+byte-identical to heatmap5's. Faithfulness bought for nothing, as it
+should be; the bytes the initializer still writes for an RGB film are the
+decision above.
+
+**The initialization, and the specialize question -- the honest answer
+is "partly".** pbrt writes `pixelSampleState.visibleSurface[pixelIndex]
+= VisibleSurface()` under `if (initializeVisibleSurface)`, a runtime flag
+of the integrator; our `visible : mut VisibleSurface = {zero3, zero3,
+zero4, false}` is unconditional, since a `mut` local has to be
+initialized where it is declared: 41 bytes of stores a pixel sample that
+an RGB film never reads. `specialize()` on `film_visible_surface` makes
+the flag a constant in each copy of the pixel loop, but the record is one
+storage shared by every copy of the loop (the seven sampler copies share
+`rays_visible_slots` today, and the 14 copies would), and the rest pass
+reads the surface under the flag at run time; so the unread rule, which
+drops a leaf only when *nothing* reads it, sees the gbuffer copy's reads
+and keeps the arrays, and the RGB copy's initializer keeps its stores.
+Three honest ways to pbrt's effect, none built, each a decision:
+
+- *Specialize before the deferral* (`render[VolPath].specialize(
+  film_visible_surface)` ahead of `queue`/`defer`), so that each copy of
+  the loop gets a queue, a record and drains of its own: the RGB copy's
+  record is read by no film and the unread rule drops its surface
+  entirely (the arrays, the parameters, the material kernels' stores
+  through them). Exact, no new mechanism -- and twice the device code:
+  every drain and material kernel once per film kind, pbrt's one set
+  made two. pbrt does not specialize on the film; it branches.
+- *A declaration without an initializer*, `visible : mut VisibleSurface;
+  if film_visible_surface { visible = {...} }`, with a read of an
+  unassigned field undefined, as pbrt's C++ is. The literal translation
+  of pbrt's line; a language addition (the unassigned read's semantics,
+  and a definite-assignment check cannot prove these reads safe, since
+  the film reads under the same runtime flag that guards the write).
+- *pbrt's `set` flag as the tag of an ADT*, `VisibleSurface = Empty |
+  Seen{n, ns, albedo}`: the initializer stores the tag alone (an ADT's
+  payload for a variant without fields is padding, stored nowhere), the
+  material kernel stores `Seen` under `want_visible` as it does now, the
+  film matches. One byte a pixel sample for every film, no language or
+  schedule change, and `set` *is* a tag -- a VisibleSurface starts out
+  empty and the integrator that fills one marks it.
+
+The recommendation is the third; the user's call. The specialize is
+right for the sampler, whose dimensions the draws depend on; for the
+film it reaches the stores only by splitting the queues.
+
+### A layout group's base aligned to its largest member (10-12, 14:30-)
+
+**The finding (10-11), the ruling (10-12, 11:50).** A layout's struct is
+packed -- its rows are exactly their bytes, the layout language's
+promise -- and LLVM's alignment for a packed struct is one, so a whole
+row loaded as a value was `load ..., align 1`, which NVPTX, where an
+unaligned access is split, made byte loads: ptx/rtiow-primer's 20-byte
+node of three floats, a float and two shorts was twenty `ld.global.nc.b8`
+and the shifts and ors to put the words back. The user: "a group's base
+should be aligned to its largest member, and we should emit aligned
+loads as a result."
+
+**Built (CodeGen_LLVM.cpp, runtime/bonsai_buffer.h).**
+`ir::layout_member_align(type)` is the most demanding member's alignment
+through packed structs and vectors to the scalars (`layout_align` answers
+one for a packed struct, which is what each field promises on its own);
+`rows_alignment` gives it for an array whose element is a layout struct;
+`element_alignment` gives an element of such an array what the base's
+promise and the row stride agree on -- their gcd: a 20-byte row on a
+four-aligned base is four-aligned at every index, a 48-byte node sixteen
+-- and a row's load (the scalar load and the gang's gather, each field's
+alignment bounded by the row's) and a row's or a field's store
+(`write_alignment`: the promise, the stride, the field offsets along the
+write location) carry it; an array that is not a group's rows keeps its
+element's ABI alignment. The promise is kept at the boundary:
+`unwrap_layout` calls `bonsai_buffer_require_aligned(descriptor, side,
+align)` for a group's rows, which checks the buffer starts on the
+alignment and refuses it with a message naming the pointer and the
+alignment rather than letting a kernel fault -- the runtime's own
+allocations are aligned (malloc's sixteen, cudaMalloc's 256), a wrapped
+pointer has to be; this is the check the stride-off-the-array rule of
+10-11 lacked for plain arrays, where no promise exists. In the primer the
+row is five `ld.global.nc.b32` and one `.b16` (fifteen word loads and a
+half-word in the program, forty fewer PTX lines, three fewer registers);
+26 llvm goldens of the tree and layout tests gained the aligned require
+and `align 1 -> 4` (8, 2 where the row says so) on row loads and stores,
+nothing else, each read before blessing. The renderer's device
+traversal is the RT cores', and its scene arrays are plain arrays, so
+nothing of apps/pbrt's kernels changes; apps/rtq's and apps/wosx's GPU
+traversals are where this lands, to be measured there.

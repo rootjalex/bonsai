@@ -19,6 +19,56 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-12, 15:50)
+
+**The two remaining rulings of 11:50 are built, tested and measured.**
+The wavelengths are their own per-sample value beside the visible
+surface, as pbrt's `pixelSampleState.lambda` is (render.bonsai:
+`path_lambda`, handed down the chain next to `visible` through the
+seventeen functions that carry the surface; `VisibleSurface` is pbrt's
+`{n, ns, albedo, set}`; the gbuffer's accumulation is under the film's
+flag). A layout group's base is aligned to its largest member and its
+rows are read and written at that alignment (09e3b202): the primer's
+20-byte node went from twenty byte loads to five word loads and a
+half-word, 26 tree and layout goldens gained the aligned loads and the
+boundary check `bonsai_buffer_require_aligned`, which refuses a buffer
+that does not start where the group's rows need it rather than letting a
+kernel fault; this renderer's kernels are untouched by it (the RT cores
+traverse, the scene arrays are plain arrays), so apps/rtq's and
+apps/wosx's GPU traversals are where it lands. Measured together on the
+five scenes against the record run (kernel milliseconds, least of three
+on each side):
+
+| scene | spp | pbrt | struct-of-arrays record | wavelengths beside the surface |
+|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 28.29 | 28.41 |
+| killeroo-gold | 16 | 148.7 | 69.43 | 69.94 |
+| book | 16 | 153.5 | 85.68 | 85.59 |
+| lte-orb-silver | 16 | 161.4 | 81.24 | 79.80 |
+| lte-orb-rough-glass | 16 | 336.2 | 201.02 | 199.81 |
+| killeroo-simple | 64 | 197.0 | 113.18 | 113.06 |
+| killeroo-gold | 64 | 596.2 | 277.29 | 278.86 |
+| book | 64 | 611.5 | 341.77 | 341.60 |
+| lte-orb-silver | 64 | 645.2 | 324.93 | 319.15 |
+| lte-orb-rough-glass | 64 | 1342.7 | 801.77 | 799.08 |
+
+1.003x kernel as a geometric mean at both counts, within the noise, as a
+change of faithfulness should be (lte-orb-silver 1.018x, the material
+kernels storing two 16-byte vectors fewer); all ten radiance images
+byte-identical to heatmap5's. What the ruling's other half asked --
+the surface's initializer written only for a gbuffer film, pbrt's `if
+(initializeVisibleSurface)` -- is not done, and `specialize()` on the
+film's flag alone would not do it: the record is one storage for every
+copy of the loop and the rest pass reads it under the flag at run time,
+so the unread rule keeps the arrays and the RGB copy keeps its 41 bytes
+of stores a pixel sample. PLAN.md ("The wavelengths beside the surface,
+and the surface's initialization") lays out the three honest ways --
+specialize before the deferral (a queue, a record and a set of kernels
+per film kind), a declaration without an initializer (a language
+addition), or pbrt's `set` flag as the tag of an ADT `Empty | Seen` whose
+empty variant stores one byte -- and recommends the third; the user's
+call.
+
 ## Where it stands (2026-10-12, 14:40)
 
 **Every array the compiler induces is a struct of arrays, and the
@@ -1651,20 +1701,16 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order (2026-10-12, 14:40)
+## To do, in order (2026-10-12, 15:50)
 
-1. The user's rulings of 11:50 (PLAN.md, "Every induced storage a struct
-   of arrays"): (a) done and measured (a6edb516, 1.047x kernel, the
-   camera rays ahead of pbrt everywhere); (b) pbrt's design for the
-   wavelengths -- their own per-sample value beside the surface and the
-   gbuffer's accumulation under `film_visible_surface` -- built in
-   render.bonsai, in test; the surface's initialization under
-   `specialize()` is the open question put back to the user (PLAN.md:
-   the record is one for every copy of the loop and the rest pass reads
-   it under a runtime flag, so a specialized copy alone drops no store);
-   (c) a layout group's base aligned to its largest member with aligned
-   row loads and stores, built in CodeGen_LLVM.cpp, in test. One compare
-   per fix.
+1. The user's rulings of 11:50 are done and measured (PLAN.md, the three
+   sections of 10-12): the record and every other induced storage a
+   struct of arrays (a6edb516, 1.047x kernel, the camera rays ahead of
+   pbrt everywhere), the wavelengths beside the surface as pbrt keeps
+   them (1.003x, within noise), a layout group's base aligned to its
+   largest member (09e3b202, the renderer untouched). Open, the user's
+   call: the surface's initializer written only for a gbuffer film --
+   pbrt's `set` flag as an ADT's tag is the recommendation (PLAN.md).
 2. The work-item plan (PLAN.md, "The work items matched, and the hit
    chain"): step 5's program changes (hits 255 -> 241 bytes against pbrt's
    252; the probe's empty start; the subsurface context), then the hit
