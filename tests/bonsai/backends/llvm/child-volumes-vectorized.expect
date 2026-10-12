@@ -20,7 +20,7 @@ trace:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   %deref_temp = load %struct.Ray, ptr %r, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_keys0164314.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %_carry0163315.i)
@@ -712,6 +712,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
 declare float @llvm.fabs.f32(float) #1
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i32 @llvm.smin.i32(i32, i32) #4

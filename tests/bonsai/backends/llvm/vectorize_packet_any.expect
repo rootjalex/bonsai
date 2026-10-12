@@ -18,7 +18,7 @@ occluded_all:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   %extract_o_0_ptrs = getelementptr inbounds nuw i8, ptr %rs, <8 x i64> <i64 0, i64 48, i64 96, i64 144, i64 192, i64 240, i64 288, i64 336>
   %extract_o_0 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_o_0_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %extract_o_1_base = getelementptr inbounds nuw i8, ptr %rs, i64 4
@@ -562,6 +562,8 @@ declare <8 x float> @llvm.fabs.v8f32(<8 x float>) #1
 declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>) #1
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
 declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #3

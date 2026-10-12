@@ -469,12 +469,12 @@ closest:
   %pCount = load i32, ptr %tris_buffer, align 1
   %0 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 4
   %group0_prims = load ptr, ptr %0, align 1
-  %group0_prims1 = tail call ptr @bonsai_buffer_require(ptr %group0_prims, i32 1)
+  %group0_prims1 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_prims, i32 1, i32 4)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 12
   %nCount = load i32, ptr %1, align 1
   %2 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group1_row = load ptr, ptr %2, align 1
-  %group1_row2 = tail call ptr @bonsai_buffer_require(ptr %group1_row, i32 1)
+  %group1_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_row, i32 1, i32 4)
   store float +inf, ptr %"_best1$i26", align 16
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best1$i26", i64 4
   store i32 0, ptr %.fca.1.0.gep, align 4
@@ -548,7 +548,7 @@ declare i32 @llvm.vector.reduce.smin.v4i32(<4 x i32>) #2
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x float> @llvm.fabs.v4f32(<4 x float>) #2
 
-declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress }

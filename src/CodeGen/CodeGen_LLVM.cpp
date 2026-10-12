@@ -796,15 +796,50 @@ void CodeGen_LLVM::compile_function(const Function &func,
 }
 
 llvm::Value *CodeGen_LLVM::buffer_require(llvm::Value *descriptor,
-                                          bool device) {
-    // void *bonsai_buffer_require(bonsai_buffer *b, int side);
+                                          bool device, uint64_t align) {
     llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+    if (align > 1) {
+        // void *bonsai_buffer_require_aligned(bonsai_buffer *b, int side,
+        //                                     int align);
+        llvm::FunctionCallee require = module->getOrInsertFunction(
+            "bonsai_buffer_require_aligned",
+            llvm::FunctionType::get(ptr_t, {ptr_t, i32_t, i32_t}, /*isVarArg=*/false));
+        return builder->CreateCall(require,
+                                   {descriptor, llvm::ConstantInt::get(i32_t, device ? 2 : 1),
+                                    llvm::ConstantInt::get(i32_t, align)},
+                                   device ? "device" : "host");
+    }
+    // void *bonsai_buffer_require(bonsai_buffer *b, int side);
     llvm::FunctionCallee require = module->getOrInsertFunction(
         "bonsai_buffer_require",
         llvm::FunctionType::get(ptr_t, {ptr_t, i32_t}, /*isVarArg=*/false));
     return builder->CreateCall(
         require, {descriptor, llvm::ConstantInt::get(i32_t, device ? 2 : 1)},
         device ? "device" : "host");
+}
+
+uint64_t CodeGen_LLVM::rows_alignment(const Type &array) {
+    const Array_t *a = array.as<Array_t>();
+    const Struct_t *row = a != nullptr ? a->etype.as<Struct_t>() : nullptr;
+    if (row == nullptr || !row->is_layout()) {
+        return 1;
+    }
+    return layout_member_align(a->etype);
+}
+
+uint64_t CodeGen_LLVM::element_alignment(const Array_t *array) {
+    const llvm::DataLayout &dl = module->getDataLayout();
+    llvm::Type *etype = codegen_type(array->etype);
+    const uint64_t abi = dl.getABITypeAlign(etype).value();
+    const uint64_t promise = rows_alignment(Type(array));
+    if (promise <= 1) {
+        return abi;
+    }
+    // A layout group's rows: the base is aligned to the largest member
+    // (bonsai_buffer_require_aligned checks it), so row i starts on what
+    // that and the stride agree on.
+    const uint64_t stride = dl.getTypeAllocSize(etype).getFixedValue();
+    return std::max(abi, std::gcd(promise, stride));
 }
 
 void CodeGen_LLVM::buffer_mark_dirty(llvm::Value *descriptor, bool device) {
@@ -903,7 +938,7 @@ llvm::Value *CodeGen_LLVM::unwrap_layout(llvm::Value *boundary,
             builder->CreateAlignedLoad(field_ll, from, align, field.name);
         if (field.type.is<Array_t>()) {
             llvm::Value *descriptor = value;
-            value = buffer_require(descriptor, device);
+            value = buffer_require(descriptor, device, rows_alignment(field.type));
             value->setName(field.name);
             if (mark_dirty) {
                 buffer_mark_dirty(descriptor, device);
@@ -3077,7 +3112,7 @@ void CodeGen_LLVM::visit(const Extract *node) {
             llvm::Type *elem_llvm = codegen_type(element);
             const GatheredElement whole{
                 dl.getTypeAllocSize(elem_llvm).getFixedValue(),
-                dl.getABITypeAlign(elem_llvm).value()};
+                element_alignment(vec_expr.type().as<Array_t>())};
             llvm::Value *offsets = builder->CreateMul(
                 idx, llvm::ConstantInt::get(offsets_t, whole.bytes),
                 "extract_off");
@@ -3150,7 +3185,9 @@ void CodeGen_LLVM::visit(const Extract *node) {
             value = load_from_device(etype, ptr, "extract_device");
             return;
         }
-        llvm::LoadInst *load = create_aligned_load(etype, ptr, "extract");
+        llvm::LoadInst *load = create_aligned_load(
+            etype, ptr, llvm::Align(element_alignment(vec_expr.type().as<Array_t>())),
+            "extract");
         mark_invariant(load, vec_expr.type());
         value = load;
     } else {
@@ -5646,7 +5683,65 @@ void CodeGen_LLVM::visit(const Store *node) {
         return;
     }
     llvm::StoreInst *store = builder->CreateStore(rhs, dest);
+    // A row of a layout group, or a field of one, starts on what the base's
+    // promise, the stride and the field's offset agree on (element_alignment);
+    // elsewhere the value's own alignment, which is what CreateStore gave.
+    if (const std::optional<uint64_t> align = write_alignment(loc);
+        align.has_value() && *align > store->getAlign().value()) {
+        store->setAlignment(llvm::Align(*align));
+    }
     add_tbaa(store, node->value.type());
+}
+
+std::optional<uint64_t> CodeGen_LLVM::write_alignment(const WriteLoc &loc) {
+    Type current = loc.base_type;
+    std::optional<uint64_t> rows;
+    uint64_t offset = 0;
+    for (const auto &access : loc.accesses) {
+        if (const auto *field = std::get_if<std::string>(&access)) {
+            const Struct_t *s = current.as<Struct_t>();
+            if (s == nullptr) {
+                return std::nullopt;
+            }
+            size_t k = s->fields.size();
+            for (size_t i = 0; i < s->fields.size(); i++) {
+                if (s->fields[i].name == *field) {
+                    k = i;
+                }
+            }
+            if (k == s->fields.size() || s->fields[k].type.is<Ref_t>()) {
+                return std::nullopt;
+            }
+            if (rows.has_value()) {
+                offset += layout_offset(*s, k);
+            }
+            current = s->fields[k].type;
+            continue;
+        }
+        if (const Array_t *a = current.as<Array_t>()) {
+            if (rows_alignment(current) > 1) {
+                rows = element_alignment(a);
+                offset = 0;
+            } else {
+                rows.reset();
+            }
+            current = a->etype;
+            continue;
+        }
+        if (const Vector_t *v = current.as<Vector_t>()) {
+            // A lane at a run-time index: aligned as the lane is.
+            if (rows.has_value()) {
+                rows = std::gcd(*rows, layout_align(v->etype));
+            }
+            current = v->etype;
+            continue;
+        }
+        return std::nullopt;
+    }
+    if (!rows.has_value()) {
+        return std::nullopt;
+    }
+    return std::gcd(*rows, offset == 0 ? *rows : offset);
 }
 
 llvm::Value *CodeGen_LLVM::codegen_libm_call(const std::string &name,
@@ -6136,6 +6231,16 @@ llvm::LoadInst *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
     const llvm::DataLayout &dl = module->getDataLayout();
     unsigned align = dl.getABITypeAlign(etype).value();
     load->setAlignment(llvm::Align(align));
+    return load;
+}
+
+llvm::LoadInst *CodeGen_LLVM::create_aligned_load(llvm::Type *etype,
+                                                  llvm::Value *ptr,
+                                                  llvm::Align align,
+                                                  const std::string &name) {
+    llvm::LoadInst *load = builder->CreateLoad(etype, ptr, name);
+    const llvm::DataLayout &dl = module->getDataLayout();
+    load->setAlignment(std::max(align, dl.getABITypeAlign(etype)));
     return load;
 }
 

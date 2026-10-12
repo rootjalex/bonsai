@@ -26,17 +26,17 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %instances_index.tr = phi i32 [ %instances_index, %_recloop_func0 ], [ %36, %"!then_21" ]
   %instances_index_wide = zext i32 %instances_index.tr to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %instances.group1_index, i64 %instances_index_wide
-  %extract.unpack.unpack = load float, ptr %extract_ptr, align 1
+  %extract.unpack.unpack = load float, ptr %extract_ptr, align 4
   %extract.unpack.elt448 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 4
-  %3 = load <2 x float>, ptr %extract.unpack.elt448, align 1
+  %3 = load <2 x float>, ptr %extract.unpack.elt448, align 4
   %extract.elt437 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 12
-  %extract.unpack438.unpack = load float, ptr %extract.elt437, align 1
+  %extract.unpack438.unpack = load float, ptr %extract.elt437, align 4
   %extract.unpack438.elt453 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %4 = load <2 x float>, ptr %extract.unpack438.elt453, align 1
+  %4 = load <2 x float>, ptr %extract.unpack438.elt453, align 4
   %extract.elt439 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 24
-  %extract.unpack440 = load i16, ptr %extract.elt439, align 1, !invariant.load !0
+  %extract.unpack440 = load i16, ptr %extract.elt439, align 4, !invariant.load !0
   %extract.elt445 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 28
-  %5 = load i32, ptr %extract.elt445, align 1
+  %5 = load i32, ptr %extract.elt445, align 4
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -158,17 +158,17 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
   %_subtree0_bnode.tr = phi i32 [ %_subtree0_bnode, %_recloop_func1 ], [ %37, %"!then_21" ]
   %_subtree0_bnode_wide = zext i32 %_subtree0_bnode.tr to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %instances.group0_bnode, i64 %_subtree0_bnode_wide
-  %extract.unpack.unpack = load float, ptr %extract_ptr, align 1
+  %extract.unpack.unpack = load float, ptr %extract_ptr, align 4
   %extract.unpack.elt558 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 4
-  %3 = load <2 x float>, ptr %extract.unpack.elt558, align 1
+  %3 = load <2 x float>, ptr %extract.unpack.elt558, align 4
   %extract.elt547 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 12
-  %extract.unpack548.unpack = load float, ptr %extract.elt547, align 1
+  %extract.unpack548.unpack = load float, ptr %extract.elt547, align 4
   %extract.unpack548.elt563 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %4 = load <2 x float>, ptr %extract.unpack548.elt563, align 1
+  %4 = load <2 x float>, ptr %extract.unpack548.elt563, align 4
   %extract.elt549 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 24
-  %extract.unpack550 = load i16, ptr %extract.elt549, align 1, !invariant.load !0
+  %extract.unpack550 = load i16, ptr %extract.elt549, align 4, !invariant.load !0
   %extract.elt555 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 28
-  %5 = load <4 x i8>, ptr %extract.elt555, align 1
+  %5 = load <4 x i8>, ptr %extract.elt555, align 4
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -518,7 +518,7 @@ tailrecurse:                                      ; preds = %"!then_21", %_reclo
 "!then_33":                                       ; preds = %"!then_29"
   %deref_temp536.unpack589.unpack = load i32, ptr %deref_temp536.elt588, align 4
   %deref_temp536.unpack589.unpack592 = load i32, ptr %deref_temp536.unpack589.elt591, align 4
-  %266 = load i32, ptr %extract538.elt602, align 1
+  %266 = load i32, ptr %extract538.elt602, align 4
   %267 = add i32 %data, %266
   %268 = fcmp olt float %deref_temp536.unpack, %207
   %.elt = select i1 %268, float %deref_temp536.unpack, float %207
@@ -551,7 +551,7 @@ trace:
   %bCount = load i32, ptr %1, align 1
   %2 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 16
   %group0_bnode = load ptr, ptr %2, align 1
-  %group0_bnode2 = tail call ptr @bonsai_buffer_require(ptr %group0_bnode, i32 1)
+  %group0_bnode2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_bnode, i32 1, i32 4)
   %3 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 24
   %iCount = load i32, ptr %3, align 1
   %4 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 28
@@ -561,7 +561,7 @@ trace:
   %nCount = load i32, ptr %5, align 1
   %6 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 40
   %group1_index = load ptr, ptr %6, align 1
-  %group1_index4 = tail call ptr @bonsai_buffer_require(ptr %group1_index, i32 1)
+  %group1_index4 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_index, i32 1, i32 4)
   store float +inf, ptr %"_best0$i3011", align 16
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i3011", i64 4
   store i32 0, ptr %.fca.1.0.gep, align 4
@@ -648,6 +648,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 declare float @llvm.fabs.f32(float) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress }

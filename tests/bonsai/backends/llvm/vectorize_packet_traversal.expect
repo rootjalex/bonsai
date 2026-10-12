@@ -86,7 +86,7 @@ hit_z_all:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %shapes_buffer, i64 16
   %group0_index = load ptr, ptr %1, align 1
-  %group0_index2 = tail call ptr @bonsai_buffer_require(ptr %group0_index, i32 1)
+  %group0_index2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_index, i32 1, i32 4)
   store <8 x float> splat (float +inf), ptr %"_best0$i33$i44", align 32
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i33$i44", i64 32
   store <8 x i16> zeroinitializer, ptr %.fca.1.0.gep, align 32
@@ -145,19 +145,19 @@ hit_z_all:
   %"!count.i" = phi i32 [ 0, %hit_z_all ], [ %"!count.i.be", %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge" ]
   %"shapes_index!top_wide.i" = zext i16 %"shapes_index!top.i" to i64
   %extract_ptr.i = getelementptr inbounds nuw [20 x i8], ptr %group0_index2, i64 %"shapes_index!top_wide.i"
-  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
+  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 4
   %extract.unpack.elt150.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
-  %extract.unpack.unpack151.i = load float, ptr %extract.unpack.elt150.i, align 1
+  %extract.unpack.unpack151.i = load float, ptr %extract.unpack.elt150.i, align 4
   %extract.unpack.elt152.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 8
-  %extract.unpack.unpack153.i = load float, ptr %extract.unpack.elt152.i, align 1
+  %extract.unpack.unpack153.i = load float, ptr %extract.unpack.elt152.i, align 4
   %extract.elt141.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.unpack142.i = load float, ptr %extract.elt141.i, align 1, !invariant.load !0
+  %extract.unpack142.i = load float, ptr %extract.elt141.i, align 4, !invariant.load !0
   %extract.elt143.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
-  %extract.unpack144.i = load i8, ptr %extract.elt143.i, align 1, !invariant.load !0
+  %extract.unpack144.i = load i8, ptr %extract.elt143.i, align 4, !invariant.load !0
   %extract.elt145.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 17
   %extract.unpack146.i = load i8, ptr %extract.elt145.i, align 1, !invariant.load !0
   %extract.elt147.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 18
-  %22 = load <2 x i8>, ptr %extract.elt147.i, align 1
+  %22 = load <2 x i8>, ptr %extract.elt147.i, align 2
   %.splatinsert.i = insertelement <8 x float> poison, float %extract.unpack.unpack.i, i64 0
   %.splat.i = shufflevector <8 x float> %.splatinsert.i, <8 x float> poison, <8 x i32> zeroinitializer
   %23 = fsub <8 x float> %.splat.i, %extract_o_0
@@ -814,6 +814,8 @@ declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i
 declare void @llvm.masked.store.v8i16.p0(<8 x i16>, ptr captures(none), <8 x i1>) #4
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
 declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #5

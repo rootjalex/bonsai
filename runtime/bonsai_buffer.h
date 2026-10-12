@@ -209,6 +209,27 @@ __attribute__((used)) inline void *bonsai_buffer_require(bonsai_buffer *b,
     return bonsai_buffer_require_impl(b, side, /*explicit_stage=*/0);
 }
 
+// The same for a layout group's rows, which the compiled code reads and
+// writes at the alignment of the group's largest member -- a 20-byte row of
+// floats and shorts as word loads, not byte loads -- on the promise that the
+// buffer starts there. The runtime's own allocations do (malloc's sixteen,
+// cudaMalloc's 256); a pointer the driver wrapped has to, and is refused
+// here if it does not, rather than faulting in a kernel.
+__attribute__((used)) inline void *
+bonsai_buffer_require_aligned(bonsai_buffer *b, int side, int align) {
+    void *p = bonsai_buffer_require_impl(b, side, /*explicit_stage=*/0);
+    if (align > 1 && p != NULL && ((uintptr_t)p & (uintptr_t)(align - 1)) != 0) {
+        char what[200];
+        snprintf(what, sizeof what,
+                 "a layout group's rows start at %p, which is not aligned to %d "
+                 "bytes, the alignment of the group's largest member that its "
+                 "compiled loads and stores were given",
+                 p, align);
+        bonsai_buffer_fail(b, what);
+    }
+    return p;
+}
+
 // What a compiled function calls after it may have written a buffer on a
 // side: the other side's copy, if there is one, is stale from here on.
 __attribute__((used)) inline void bonsai_buffer_mark_dirty(bonsai_buffer *b,

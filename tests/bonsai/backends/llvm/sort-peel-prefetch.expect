@@ -151,7 +151,7 @@ trace:
   br i1 %.not509.i, label %"!visit_pop.i", label %"!par_cont_6!peel1.i"
 
 "!par_cont_6!peel1.i":                            ; preds = %"!then_2.i"
-  %55 = load <8 x i64>, ptr %28, align 4
+  %55 = load <8 x i64>, ptr %28, align 8
   %56 = zext i8 %54 to i32
   %57 = tail call range(i32 0, 33) i32 @llvm.cttz.i32(i32 %56, i1 true)
   %_wide277.i = zext nneg i32 %57 to i64

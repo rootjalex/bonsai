@@ -304,7 +304,25 @@ struct CodeGen_LLVM : public ir::Visitor {
                   ir::ssa::Definitions *defs = nullptr,
                   const std::string &block = "");
     // `bonsai_buffer_require(descriptor, side)`: the pointer for that side.
-    llvm::Value *buffer_require(llvm::Value *descriptor, bool device);
+    // With `align` above one, `bonsai_buffer_require_aligned`, which also
+    // checks the buffer starts on that alignment: a layout group's rows,
+    // whose base is promised the alignment of the group's largest member
+    // (rows_alignment, element_alignment).
+    llvm::Value *buffer_require(llvm::Value *descriptor, bool device,
+                                uint64_t align = 1);
+    // The alignment a layout group's buffer is promised: its row's largest
+    // member's (ir::layout_member_align); one for an array that is not a
+    // group's rows.
+    static uint64_t rows_alignment(const ir::Type &array);
+    // What an element of `array` is known to be aligned to: its type's ABI
+    // alignment, or for a layout group's rows what the base's promise and
+    // the row stride agree on -- which is what makes a 20-byte row of floats
+    // and shorts four word loads and a half rather than twenty byte loads
+    // on a target that splits an unaligned access.
+    uint64_t element_alignment(const ir::Array_t *array);
+    // What a store to `loc` is known to be aligned to when the location is
+    // a row of a layout group or a field of one; nothing otherwise.
+    std::optional<uint64_t> write_alignment(const ir::WriteLoc &loc);
     // `bonsai_buffer_mark_dirty(descriptor, side)`.
     void buffer_mark_dirty(llvm::Value *descriptor, bool device);
     // A layout struct as the driver handed it over, read into a struct of the
@@ -946,6 +964,10 @@ struct CodeGen_LLVM : public ir::Visitor {
 
     llvm::LoadInst *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
                                         const std::string &name);
+    // The same at an alignment the caller knows: no less than the type's ABI
+    // alignment, more where the address is known to have it.
+    llvm::LoadInst *create_aligned_load(llvm::Type *etype, llvm::Value *ptr,
+                                        llvm::Align align, const std::string &name);
     // A per-lane memory operation: `base` addresses the container, `index`
     // holds one index per lane. A Ramp of stride one is contiguous and
     // becomes an ordinary vector load/store; anything else is a

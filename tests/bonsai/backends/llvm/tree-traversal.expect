@@ -321,7 +321,7 @@ trace:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %triangles_buffer, i64 16
   %group0_index = load ptr, ptr %1, align 1
-  %group0_index2 = tail call ptr @bonsai_buffer_require(ptr %group0_index, i32 1)
+  %group0_index2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_index, i32 1, i32 4)
   %deref_temp10 = load %struct.Ray, ptr %ray, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_ret.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack340.i")
@@ -346,17 +346,17 @@ trace:
   %"!count.i" = phi i32 [ %40, %"!then_16.i" ], [ %"!count.i.ph", %"_recloop_func0!loop.i.outer" ]
   %"triangles_index!top_wide.i" = zext i32 %"triangles_index!top.i" to i64
   %extract_ptr.i = getelementptr inbounds nuw [32 x i8], ptr %group0_index2, i64 %"triangles_index!top_wide.i"
-  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
+  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 4
   %extract.unpack.elt352.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
-  %5 = load <2 x float>, ptr %extract.unpack.elt352.i, align 1
+  %5 = load <2 x float>, ptr %extract.unpack.elt352.i, align 4
   %extract.elt341.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.unpack342.i = load i16, ptr %extract.elt341.i, align 1, !invariant.load !0
+  %extract.unpack342.i = load i16, ptr %extract.elt341.i, align 4, !invariant.load !0
   %extract.elt347.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
-  %extract.unpack348.unpack.i = load float, ptr %extract.elt347.i, align 1
+  %extract.unpack348.unpack.i = load float, ptr %extract.elt347.i, align 4
   %extract.unpack348.elt357.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 20
-  %6 = load <2 x float>, ptr %extract.unpack348.elt357.i, align 1
+  %6 = load <2 x float>, ptr %extract.unpack348.elt357.i, align 4
   %extract.elt349.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 28
-  %7 = load <4 x i8>, ptr %extract.elt349.i, align 1
+  %7 = load <4 x i8>, ptr %extract.elt349.i, align 4
   %8 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %9 = shufflevector <2 x float> %5, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %10 = shufflevector <3 x float> %8, <3 x float> %9, <3 x i32> <i32 0, i32 3, i32 4>
@@ -514,7 +514,7 @@ trace_all:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %triangles_buffer, i64 16
   %group0_index = load ptr, ptr %1, align 1
-  %group0_index2 = tail call ptr @bonsai_buffer_require(ptr %group0_index, i32 1)
+  %group0_index2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_index, i32 1, i32 4)
   %size64.i = zext i32 %n to i64
   %mallocsize.i = shl nuw nsw i64 %size64.i, 6
   %_alloc0_untyped.i = tail call ptr @malloc(i64 %mallocsize.i)
@@ -551,17 +551,17 @@ trace_all:
   %"!count.i.i" = phi i32 [ %40, %"!then_16.i.i" ], [ %"!count.i.ph.i", %"_recloop_func0!loop.i.outer.i" ]
   %"triangles_index!top_wide.i.i" = zext i32 %"triangles_index!top.i.i" to i64
   %extract_ptr.i.i = getelementptr inbounds nuw [32 x i8], ptr %group0_index2, i64 %"triangles_index!top_wide.i.i"
-  %extract.unpack.unpack.i.i = load float, ptr %extract_ptr.i.i, align 1
+  %extract.unpack.unpack.i.i = load float, ptr %extract_ptr.i.i, align 4
   %extract.unpack.elt352.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 4
-  %5 = load <2 x float>, ptr %extract.unpack.elt352.i.i, align 1
+  %5 = load <2 x float>, ptr %extract.unpack.elt352.i.i, align 4
   %extract.elt341.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 12
-  %extract.unpack342.i.i = load i16, ptr %extract.elt341.i.i, align 1, !invariant.load !0
+  %extract.unpack342.i.i = load i16, ptr %extract.elt341.i.i, align 4, !invariant.load !0
   %extract.elt347.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 16
-  %extract.unpack348.unpack.i.i = load float, ptr %extract.elt347.i.i, align 1
+  %extract.unpack348.unpack.i.i = load float, ptr %extract.elt347.i.i, align 4
   %extract.unpack348.elt357.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 20
-  %6 = load <2 x float>, ptr %extract.unpack348.elt357.i.i, align 1
+  %6 = load <2 x float>, ptr %extract.unpack348.elt357.i.i, align 4
   %extract.elt349.i.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i.i, i64 28
-  %7 = load <4 x i8>, ptr %extract.elt349.i.i, align 1
+  %7 = load <4 x i8>, ptr %extract.elt349.i.i, align 4
   %8 = insertelement <3 x float> poison, float %extract.unpack.unpack.i.i, i64 0
   %9 = shufflevector <2 x float> %5, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %10 = shufflevector <3 x float> %8, <3 x float> %9, <3 x i32> <i32 0, i32 3, i32 4>
@@ -730,6 +730,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 declare float @llvm.fabs.f32(float) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
 declare void @llvm.lifetime.start.p0(ptr captures(none)) #4

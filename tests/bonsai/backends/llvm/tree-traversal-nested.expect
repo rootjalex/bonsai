@@ -17,13 +17,13 @@ trace:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 16
   %group0_bnode = load ptr, ptr %1, align 1
-  %group0_bnode2 = tail call ptr @bonsai_buffer_require(ptr %group0_bnode, i32 1)
+  %group0_bnode2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_bnode, i32 1, i32 4)
   %2 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 28
   %insts = load ptr, ptr %2, align 1
   %insts3 = tail call ptr @bonsai_buffer_require(ptr %insts, i32 1)
   %3 = getelementptr inbounds nuw i8, ptr %instances_buffer, i64 40
   %group1_index = load ptr, ptr %3, align 1
-  %group1_index4 = tail call ptr @bonsai_buffer_require(ptr %group1_index, i32 1)
+  %group1_index4 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_index, i32 1, i32 4)
   %deref_temp12 = load %struct.Ray, ptr %ray, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack357.i")
   %ray.d.i = extractvalue %struct.Ray %deref_temp12, 1
@@ -79,17 +79,17 @@ trace:
   %"!count.i" = phi i32 [ %72, %"!then_16.i" ], [ %"!count.i.ph", %"_recloop_func0!loop.i.outer" ]
   %"instances_index!top_wide.i" = zext i32 %"instances_index!top.i" to i64
   %extract_ptr.i = getelementptr inbounds nuw [32 x i8], ptr %group1_index4, i64 %"instances_index!top_wide.i"
-  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 1
+  %extract.unpack.unpack.i = load float, ptr %extract_ptr.i, align 4
   %extract.unpack.elt367.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 4
-  %37 = load <2 x float>, ptr %extract.unpack.elt367.i, align 1
+  %37 = load <2 x float>, ptr %extract.unpack.elt367.i, align 4
   %extract.elt358.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 12
-  %extract.unpack359.unpack.i = load float, ptr %extract.elt358.i, align 1
+  %extract.unpack359.unpack.i = load float, ptr %extract.elt358.i, align 4
   %extract.unpack359.elt372.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 16
-  %38 = load <2 x float>, ptr %extract.unpack359.elt372.i, align 1
+  %38 = load <2 x float>, ptr %extract.unpack359.elt372.i, align 4
   %extract.elt360.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 24
-  %extract.unpack361.i = load i16, ptr %extract.elt360.i, align 1, !invariant.load !0
+  %extract.unpack361.i = load i16, ptr %extract.elt360.i, align 4, !invariant.load !0
   %extract.elt364.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i, i64 28
-  %39 = load <4 x i8>, ptr %extract.elt364.i, align 1
+  %39 = load <4 x i8>, ptr %extract.elt364.i, align 4
   %40 = insertelement <3 x float> poison, float %extract.unpack.unpack.i, i64 0
   %41 = shufflevector <2 x float> %37, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %42 = shufflevector <3 x float> %40, <3 x float> %41, <3 x i32> <i32 0, i32 3, i32 4>
@@ -181,17 +181,17 @@ trace:
   %"!count.i32" = phi i32 [ %111, %"!then_16.i54" ], [ %"!count.i32.ph", %"_recloop_func1!loop.i.outer" ]
   %"_subtree0_bnode!top_wide.i" = zext i32 %"_subtree0_bnode!top.i" to i64
   %extract_ptr.i34 = getelementptr inbounds nuw [32 x i8], ptr %group0_bnode2, i64 %"_subtree0_bnode!top_wide.i"
-  %extract.unpack.unpack.i35 = load float, ptr %extract_ptr.i34, align 1
+  %extract.unpack.unpack.i35 = load float, ptr %extract_ptr.i34, align 4
   %extract.unpack.elt486.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i34, i64 4
-  %76 = load <2 x float>, ptr %extract.unpack.elt486.i, align 1
+  %76 = load <2 x float>, ptr %extract.unpack.elt486.i, align 4
   %extract.elt477.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i34, i64 12
-  %extract.unpack478.unpack.i = load float, ptr %extract.elt477.i, align 1
+  %extract.unpack478.unpack.i = load float, ptr %extract.elt477.i, align 4
   %extract.unpack478.elt491.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i34, i64 16
-  %77 = load <2 x float>, ptr %extract.unpack478.elt491.i, align 1
+  %77 = load <2 x float>, ptr %extract.unpack478.elt491.i, align 4
   %extract.elt479.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i34, i64 24
-  %extract.unpack480.i = load i16, ptr %extract.elt479.i, align 1, !invariant.load !0
+  %extract.unpack480.i = load i16, ptr %extract.elt479.i, align 4, !invariant.load !0
   %extract.elt483.i = getelementptr inbounds nuw i8, ptr %extract_ptr.i34, i64 28
-  %78 = load <4 x i8>, ptr %extract.elt483.i, align 1
+  %78 = load <4 x i8>, ptr %extract.elt483.i, align 4
   %79 = insertelement <3 x float> poison, float %extract.unpack.unpack.i35, i64 0
   %80 = shufflevector <2 x float> %76, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %81 = shufflevector <3 x float> %79, <3 x float> %80, <3 x i32> <i32 0, i32 3, i32 4>
@@ -592,6 +592,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
 declare float @llvm.fabs.f32(float) #1
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
 declare void @llvm.lifetime.start.p0(ptr captures(none)) #2

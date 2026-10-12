@@ -21,10 +21,10 @@ trace:
   %"!stack261.i" = alloca [64 x i32], align 4
   %0 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 4
   %group0_prims = load ptr, ptr %0, align 1
-  %group0_prims1 = tail call ptr @bonsai_buffer_require(ptr %group0_prims, i32 1)
+  %group0_prims1 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_prims, i32 1, i32 4)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group1_row = load ptr, ptr %1, align 1
-  %group1_row2 = tail call ptr @bonsai_buffer_require(ptr %group1_row, i32 1)
+  %group1_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_row, i32 1, i32 4)
   %deref_temp = load %struct.Ray, ptr %r, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_keys0124255.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %_carry0123256.i)
@@ -861,7 +861,7 @@ declare <4 x float> @llvm.fma.v4f32(<4 x float>, <4 x float>, <4 x float>) #1
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x float> @llvm.fabs.v4f32(<4 x float>) #1
 
-declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i32 @llvm.smin.i32(i32, i32) #4

@@ -51,7 +51,7 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   store <8 x float> splat (float +inf), ptr %"_best0$i27$i34", align 32
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i27$i34", i64 32
   store <8 x i32> zeroinitializer, ptr %.fca.1.0.gep, align 32
@@ -391,9 +391,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address31 = getelementptr i8, ptr %_keys047133.i, i64 %picked_offset30
   %picked32 = load <8 x float>, ptr %picked_address31, align 32
   %picked_address34 = getelementptr i8, ptr %group0_row2, i64 %picked_offset33
-  %picked35 = load i32, ptr %picked_address34, align 1
+  %picked35 = load i32, ptr %picked_address34, align 4
   %picked_address37 = getelementptr i8, ptr %group0_row2, i64 %picked_offset36
-  %picked38 = load i32, ptr %picked_address37, align 1
+  %picked38 = load i32, ptr %picked_address37, align 4
   %picked_address40 = getelementptr i8, ptr %_carry046134.i, i64 %picked_offset39
   %picked41 = load <8 x float>, ptr %picked_address40, align 32
   %picked_address43 = getelementptr i8, ptr %_carry046134.i, i64 %picked_offset42
@@ -421,9 +421,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address55 = getelementptr i8, ptr %_keys047133.i, i64 %picked_offset54
   %picked56 = load <8 x float>, ptr %picked_address55, align 32
   %picked_address58 = getelementptr i8, ptr %group0_row2, i64 %picked_offset57
-  %picked59 = load i32, ptr %picked_address58, align 1
+  %picked59 = load i32, ptr %picked_address58, align 4
   %picked_address61 = getelementptr i8, ptr %group0_row2, i64 %picked_offset60
-  %picked62 = load i32, ptr %picked_address61, align 1
+  %picked62 = load i32, ptr %picked_address61, align 4
   %picked_address64 = getelementptr i8, ptr %_carry046134.i, i64 %picked_offset63
   %picked65 = load <8 x float>, ptr %picked_address64, align 32
   %picked_address67 = getelementptr i8, ptr %_carry046134.i, i64 %picked_offset66
@@ -828,9 +828,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address79 = getelementptr i8, ptr %_keys049151.i575.i, i64 %picked_offset78
   %picked80 = load <8 x float>, ptr %picked_address79, align 32
   %picked_address82 = getelementptr i8, ptr %ptr_array_deref.i688.i, i64 %picked_offset81
-  %picked83 = load i32, ptr %picked_address82, align 1
+  %picked83 = load i32, ptr %picked_address82, align 4
   %picked_address85 = getelementptr i8, ptr %ptr_array_deref.i688.i, i64 %picked_offset84
-  %picked86 = load i32, ptr %picked_address85, align 1
+  %picked86 = load i32, ptr %picked_address85, align 4
   %picked_address88 = getelementptr i8, ptr %_carry048152.i576.i, i64 %picked_offset87
   %picked89 = load <8 x float>, ptr %picked_address88, align 32
   %picked_address91 = getelementptr i8, ptr %_carry048152.i576.i, i64 %picked_offset90
@@ -856,9 +856,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address97 = getelementptr i8, ptr %_keys049151.i575.i, i64 %picked_offset96
   %picked98 = load <8 x float>, ptr %picked_address97, align 32
   %picked_address100 = getelementptr i8, ptr %ptr_array_deref.i688.i, i64 %picked_offset99
-  %picked101 = load i32, ptr %picked_address100, align 1
+  %picked101 = load i32, ptr %picked_address100, align 4
   %picked_address103 = getelementptr i8, ptr %ptr_array_deref.i688.i, i64 %picked_offset102
-  %picked104 = load i32, ptr %picked_address103, align 1
+  %picked104 = load i32, ptr %picked_address103, align 4
   %picked_address106 = getelementptr i8, ptr %_carry048152.i576.i, i64 %picked_offset105
   %picked107 = load <8 x float>, ptr %picked_address106, align 32
   %picked_address109 = getelementptr i8, ptr %_carry048152.i576.i, i64 %picked_offset108
@@ -1410,9 +1410,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address115 = getelementptr i8, ptr %_keys049151.i396.i, i64 %picked_offset114
   %picked116 = load <8 x float>, ptr %picked_address115, align 32
   %picked_address118 = getelementptr i8, ptr %ptr_array_deref.i509.i, i64 %picked_offset117
-  %picked119 = load i32, ptr %picked_address118, align 1
+  %picked119 = load i32, ptr %picked_address118, align 4
   %picked_address121 = getelementptr i8, ptr %ptr_array_deref.i509.i, i64 %picked_offset120
-  %picked122 = load i32, ptr %picked_address121, align 1
+  %picked122 = load i32, ptr %picked_address121, align 4
   %picked_address124 = getelementptr i8, ptr %_carry048152.i397.i, i64 %picked_offset123
   %picked125 = load <8 x float>, ptr %picked_address124, align 32
   %picked_address127 = getelementptr i8, ptr %_carry048152.i397.i, i64 %picked_offset126
@@ -1438,9 +1438,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address133 = getelementptr i8, ptr %_keys049151.i396.i, i64 %picked_offset132
   %picked134 = load <8 x float>, ptr %picked_address133, align 32
   %picked_address136 = getelementptr i8, ptr %ptr_array_deref.i509.i, i64 %picked_offset135
-  %picked137 = load i32, ptr %picked_address136, align 1
+  %picked137 = load i32, ptr %picked_address136, align 4
   %picked_address139 = getelementptr i8, ptr %ptr_array_deref.i509.i, i64 %picked_offset138
-  %picked140 = load i32, ptr %picked_address139, align 1
+  %picked140 = load i32, ptr %picked_address139, align 4
   %picked_address142 = getelementptr i8, ptr %_carry048152.i397.i, i64 %picked_offset141
   %picked143 = load <8 x float>, ptr %picked_address142, align 32
   %picked_address145 = getelementptr i8, ptr %_carry048152.i397.i, i64 %picked_offset144
@@ -1992,9 +1992,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address151 = getelementptr i8, ptr %_keys049151.i217.i, i64 %picked_offset150
   %picked152 = load <8 x float>, ptr %picked_address151, align 32
   %picked_address154 = getelementptr i8, ptr %ptr_array_deref.i330.i, i64 %picked_offset153
-  %picked155 = load i32, ptr %picked_address154, align 1
+  %picked155 = load i32, ptr %picked_address154, align 4
   %picked_address157 = getelementptr i8, ptr %ptr_array_deref.i330.i, i64 %picked_offset156
-  %picked158 = load i32, ptr %picked_address157, align 1
+  %picked158 = load i32, ptr %picked_address157, align 4
   %picked_address160 = getelementptr i8, ptr %_carry048152.i218.i, i64 %picked_offset159
   %picked161 = load <8 x float>, ptr %picked_address160, align 32
   %picked_address163 = getelementptr i8, ptr %_carry048152.i218.i, i64 %picked_offset162
@@ -2020,9 +2020,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address169 = getelementptr i8, ptr %_keys049151.i217.i, i64 %picked_offset168
   %picked170 = load <8 x float>, ptr %picked_address169, align 32
   %picked_address172 = getelementptr i8, ptr %ptr_array_deref.i330.i, i64 %picked_offset171
-  %picked173 = load i32, ptr %picked_address172, align 1
+  %picked173 = load i32, ptr %picked_address172, align 4
   %picked_address175 = getelementptr i8, ptr %ptr_array_deref.i330.i, i64 %picked_offset174
-  %picked176 = load i32, ptr %picked_address175, align 1
+  %picked176 = load i32, ptr %picked_address175, align 4
   %picked_address178 = getelementptr i8, ptr %_carry048152.i218.i, i64 %picked_offset177
   %picked179 = load <8 x float>, ptr %picked_address178, align 32
   %picked_address181 = getelementptr i8, ptr %_carry048152.i218.i, i64 %picked_offset180
@@ -2574,9 +2574,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address187 = getelementptr i8, ptr %_keys049151.i.i, i64 %picked_offset186
   %picked188 = load <8 x float>, ptr %picked_address187, align 32
   %picked_address190 = getelementptr i8, ptr %ptr_array_deref.i.i, i64 %picked_offset189
-  %picked191 = load i32, ptr %picked_address190, align 1
+  %picked191 = load i32, ptr %picked_address190, align 4
   %picked_address193 = getelementptr i8, ptr %ptr_array_deref.i.i, i64 %picked_offset192
-  %picked194 = load i32, ptr %picked_address193, align 1
+  %picked194 = load i32, ptr %picked_address193, align 4
   %picked_address196 = getelementptr i8, ptr %_carry048152.i.i, i64 %picked_offset195
   %picked197 = load <8 x float>, ptr %picked_address196, align 32
   %picked_address199 = getelementptr i8, ptr %_carry048152.i.i, i64 %picked_offset198
@@ -2602,9 +2602,9 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %picked_address205 = getelementptr i8, ptr %_keys049151.i.i, i64 %picked_offset204
   %picked206 = load <8 x float>, ptr %picked_address205, align 32
   %picked_address208 = getelementptr i8, ptr %ptr_array_deref.i.i, i64 %picked_offset207
-  %picked209 = load i32, ptr %picked_address208, align 1
+  %picked209 = load i32, ptr %picked_address208, align 4
   %picked_address211 = getelementptr i8, ptr %ptr_array_deref.i.i, i64 %picked_offset210
-  %picked212 = load i32, ptr %picked_address211, align 1
+  %picked212 = load i32, ptr %picked_address211, align 4
   %picked_address214 = getelementptr i8, ptr %_carry048152.i.i, i64 %picked_offset213
   %picked215 = load <8 x float>, ptr %picked_address214, align 32
   %picked_address217 = getelementptr i8, ptr %_carry048152.i.i, i64 %picked_offset216
@@ -3195,6 +3195,8 @@ declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i
 declare void @llvm.masked.store.v8i32.p0(<8 x i32>, ptr captures(none), <8 x i1>) #3
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
 declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #4

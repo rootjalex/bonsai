@@ -23,17 +23,17 @@ tailrecurse:                                      ; preds = %"!then_16", %_reclo
   %triangles_index.tr = phi i32 [ %triangles_index, %_recloop_func0 ], [ %36, %"!then_16" ]
   %triangles_index_wide = zext i32 %triangles_index.tr to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %triangles.group0_index, i64 %triangles_index_wide
-  %extract.unpack.unpack = load float, ptr %extract_ptr, align 1
+  %extract.unpack.unpack = load float, ptr %extract_ptr, align 4
   %extract.unpack.elt301 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 4
-  %3 = load <2 x float>, ptr %extract.unpack.elt301, align 1
+  %3 = load <2 x float>, ptr %extract.unpack.elt301, align 4
   %extract.elt290 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 12
-  %extract.unpack291 = load i16, ptr %extract.elt290, align 1, !invariant.load !0
+  %extract.unpack291 = load i16, ptr %extract.elt290, align 4, !invariant.load !0
   %extract.elt296 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 16
-  %extract.unpack297.unpack = load float, ptr %extract.elt296, align 1
+  %extract.unpack297.unpack = load float, ptr %extract.elt296, align 4
   %extract.unpack297.elt306 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 20
-  %4 = load <2 x float>, ptr %extract.unpack297.elt306, align 1
+  %4 = load <2 x float>, ptr %extract.unpack297.elt306, align 4
   %extract.elt298 = getelementptr inbounds nuw i8, ptr %extract_ptr, i64 28
-  %5 = load i32, ptr %extract.elt298, align 1
+  %5 = load i32, ptr %extract.elt298, align 4
   %6 = insertelement <3 x float> poison, float %extract.unpack.unpack, i64 0
   %7 = shufflevector <2 x float> %3, <2 x float> poison, <3 x i32> <i32 0, i32 1, i32 poison>
   %8 = shufflevector <3 x float> %6, <3 x float> %7, <3 x i32> <i32 0, i32 3, i32 4>
@@ -402,7 +402,7 @@ trace:
   %nCount = load i32, ptr %1, align 1
   %2 = getelementptr inbounds nuw i8, ptr %triangles_buffer, i64 16
   %group0_index = load ptr, ptr %2, align 1
-  %group0_index2 = tail call ptr @bonsai_buffer_require(ptr %group0_index, i32 1)
+  %group0_index2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_index, i32 1, i32 4)
   store float +inf, ptr %"_best0$i259", align 16
   %.fca.1.0.gep = getelementptr inbounds nuw i8, ptr %"_best0$i259", i64 4
   store i32 0, ptr %.fca.1.0.gep, align 4
@@ -452,6 +452,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 declare float @llvm.fabs.f32(float) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress }

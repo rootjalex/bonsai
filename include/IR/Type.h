@@ -458,6 +458,12 @@ Type narrow(const Type &type, uint32_t lanes);
 // union.
 uint64_t layout_bytes(const Type &type);
 uint64_t layout_align(const Type &type);
+// The alignment of the most demanding member of `type`, through packed
+// structs and vectors to the scalars: what a layout group's rows are
+// promised to start on (the group's base is aligned to its largest member,
+// the ruling of 2026-10-12), where layout_align answers one for a packed
+// struct, which is what its fields promise individually.
+uint64_t layout_member_align(const Type &type);
 // Where field `index` of `s` starts, by the same rule.
 uint64_t layout_offset(const Struct_t &s, size_t index);
 

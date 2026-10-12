@@ -466,7 +466,7 @@ occluded:
   %nCount = load i32, ptr %1, align 1
   %2 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %2, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   store i1 false, ptr %"_holds0$i613", align 1, !tbaa !0
   %deref_temp = load %struct.Ray, ptr %r, align 16
   %deref_temp4.fca.0.insert = insertvalue %struct._tree_layout0 poison, i32 %pCount, 0
@@ -491,6 +491,8 @@ declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #2
 declare float @llvm.fabs.f32(float) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 attributes #0 = { mustprogress nofree nosync nounwind memory(read, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
 attributes #1 = { mustprogress }

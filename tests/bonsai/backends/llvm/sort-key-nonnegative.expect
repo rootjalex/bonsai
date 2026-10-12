@@ -15,7 +15,7 @@ occluded:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   %deref_temp = load %struct.Ray, ptr %r0, align 16
   %"@0.tnear" = extractvalue %struct.Ray %deref_temp, 1
   %"@0.tfar" = extractvalue %struct.Ray %deref_temp, 3
@@ -472,7 +472,7 @@ trace:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   %deref_temp = load %struct.Ray, ptr %r0, align 16
   %"@0.tnear" = extractvalue %struct.Ray %deref_temp, 1
   %"@0.tfar" = extractvalue %struct.Ray %deref_temp, 3
@@ -1030,7 +1030,7 @@ trace_raw:
   %prims1 = tail call ptr @bonsai_buffer_require(ptr %prims, i32 1)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group0_row = load ptr, ptr %1, align 1
-  %group0_row2 = tail call ptr @bonsai_buffer_require(ptr %group0_row, i32 1)
+  %group0_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_row, i32 1, i32 4)
   %deref_temp = load %struct.Ray, ptr %r, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_mask2330570.i.sroa.0)
   call void @llvm.lifetime.start.p0(ptr nonnull %"@319571.i")
@@ -1583,6 +1583,8 @@ declare i32 @llvm.cttz.i32(i32, i1 immarg) #2
 declare i32 @llvm.ctlz.i32(i32, i1 immarg) #2
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i32 @llvm.smin.i32(i32, i32) #3

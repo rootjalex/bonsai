@@ -21,10 +21,10 @@ trace:
   %"!stack342.i" = alloca [64 x i32], align 4
   %0 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 4
   %group0_packets = load ptr, ptr %0, align 1
-  %group0_packets1 = tail call ptr @bonsai_buffer_require(ptr %group0_packets, i32 1)
+  %group0_packets1 = tail call ptr @bonsai_buffer_require_aligned(ptr %group0_packets, i32 1, i32 4)
   %1 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 16
   %group1_index = load ptr, ptr %1, align 1
-  %group1_index2 = tail call ptr @bonsai_buffer_require(ptr %group1_index, i32 1)
+  %group1_index2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_index, i32 1, i32 4)
   %deref_temp10 = load %struct.Ray, ptr %r, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_keys0190336.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %_carry0189337.i)
@@ -165,7 +165,7 @@ trace:
   %"tris_index!top1_wide.i" = zext i32 %"tris_index!top1.i" to i64
   %extract_ptr155.i = getelementptr inbounds nuw [112 x i8], ptr %group1_index2, i64 %"tris_index!top1_wide.i"
   %extract156.elt357.i = getelementptr inbounds nuw i8, ptr %extract_ptr155.i, i64 96
-  %46 = load <4 x i32>, ptr %extract156.elt357.i, align 1, !invariant.load !0
+  %46 = load <4 x i32>, ptr %extract156.elt357.i, align 4, !invariant.load !0
   %47 = extractelement <4 x i32> %46, i64 0
   %48 = icmp sgt i32 %47, -1
   br i1 %48, label %"!then_2.i", label %"!else_3.i"
@@ -177,11 +177,11 @@ trace:
   %extract156.elt349.i = getelementptr inbounds nuw i8, ptr %extract_ptr155.i, i64 32
   %extract156.elt347.i = getelementptr inbounds nuw i8, ptr %extract_ptr155.i, i64 16
   %picked_address = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset
-  %picked = load <4 x float>, ptr %picked_address, align 1
+  %picked = load <4 x float>, ptr %picked_address, align 4
   %picked_address138 = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset137
-  %picked139 = load <4 x float>, ptr %picked_address138, align 1
+  %picked139 = load <4 x float>, ptr %picked_address138, align 4
   %picked_address142 = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset141
-  %picked143 = load <4 x float>, ptr %picked_address142, align 1
+  %picked143 = load <4 x float>, ptr %picked_address142, align 4
   %49 = fsub <4 x float> %picked, %.splat198.i
   %50 = fsub <4 x float> %picked139, %.splat200.i
   %51 = fsub <4 x float> %picked143, %.splat202.i
@@ -189,11 +189,11 @@ trace:
   %53 = fmul <4 x float> %.splat206.i, %50
   %54 = fmul <4 x float> %.splat208.i, %51
   %picked_address146 = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset145
-  %picked147 = load <4 x float>, ptr %picked_address146, align 1
+  %picked147 = load <4 x float>, ptr %picked_address146, align 4
   %picked_address150 = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset149
-  %picked151 = load <4 x float>, ptr %picked_address150, align 1
+  %picked151 = load <4 x float>, ptr %picked_address150, align 4
   %picked_address154 = getelementptr i8, ptr %extract_ptr155.i, i64 %picked_offset153
-  %picked155 = load <4 x float>, ptr %picked_address154, align 1
+  %picked155 = load <4 x float>, ptr %picked_address154, align 4
   %55 = fsub <4 x float> %picked147, %.splat198.i
   %56 = fsub <4 x float> %picked151, %.splat200.i
   %57 = fsub <4 x float> %picked155, %.splat202.i
@@ -979,7 +979,7 @@ declare <4 x float> @llvm.fma.v4f32(<4 x float>, <4 x float>, <4 x float>) #1
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare <4 x float> @llvm.fabs.v4f32(<4 x float>) #1
 
-declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+declare ptr @bonsai_buffer_require_aligned(ptr, i32, i32) local_unnamed_addr
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i32 @llvm.smin.i32(i32, i32) #6

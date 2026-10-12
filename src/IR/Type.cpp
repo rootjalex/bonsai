@@ -736,6 +736,22 @@ uint64_t layout_align(const Type &type) {
     internal_error << "[unimplemented] layout_align of " << type;
 }
 
+uint64_t layout_member_align(const Type &type) {
+    if (const Struct_t *s = type.as<Struct_t>()) {
+        uint64_t align = 1;
+        for (const TypedVar &f : s->fields) {
+            if (!f.type.is<Ref_t>()) {
+                align = std::max(align, layout_member_align(f.type));
+            }
+        }
+        return align;
+    }
+    if (const Array_t *a = type.as<Array_t>()) {
+        return layout_member_align(a->etype);
+    }
+    return layout_align(type);
+}
+
 uint64_t layout_bytes(const Type &type) {
     if (type.is<Bool_t>()) {
         return 1;
