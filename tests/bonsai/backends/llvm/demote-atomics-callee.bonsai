@@ -1,0 +1,70 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/demote-atomics-callee's program, through the LLVM
+// backend. What to read for: every `atomicrmw fadd` is add_shared's --
+// `total` is `run`'s reducer, handed down the calls from a loop bound to
+// CPU threads, one word every thread's call adds to -- one in the loop's
+// kernel (`_pfkernel`, hand_down and add_shared inlined into it) and
+// eight in `main`, where tally's unbound loop is unrolled; the adds of
+// add_own (the call's own `acc`, under an unbound loop: the three plain
+// `fadd`s after the kernel's atomic) and add_serial (called from the
+// unbound loop alone: the plain `fadd` beside each of main's atomics) have
+// their `atomic` taken off (SSA/DemoteAtomics.h).
+import stdlib/numerics;
+
+func add_shared(x : Float, total : reduce(+) Float) -> void {
+    atomic total += x;
+    return;
+}
+
+func hand_down(x : Float, total : reduce(+) Float) -> void {
+    add_shared(x, total);
+    return;
+}
+
+func add_own(x : Float, n : u32) -> Float {
+    acc : mut Float = 0.0;
+    parfor j in 0u:n {
+        atomic acc += x;
+    }
+    return acc;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        hand_down(values[i], total);
+        out[i] = add_own(values[i], 3u);
+    }
+    return;
+}
+
+func add_serial(x : Float, total : reduce(+) Float) -> void {
+    atomic total += x;
+    return;
+}
+
+func tally(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        add_serial(values[i], total);
+        add_shared(values[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, out);
+    print(total);
+    print(out);
+    serial : reduce(+) Float = 0.0;
+    tally(values, serial);
+    print(serial);
+    return 0;
+}
+
+schedule {
+    run.bind(i, CPUThread);
+}

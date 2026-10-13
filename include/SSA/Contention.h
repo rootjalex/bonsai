@@ -110,6 +110,32 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
                          Origins *origins = nullptr,
                          const std::string &block = "");
 
+// The functions that run inside a loop the schedule made parallel without a
+// loop of their own to say so: whatever a bound loop's body calls, and
+// whatever those call in turn. Each call of such a function is one
+// iteration's, and two iterations running at once are two calls running at
+// once -- so an accumulate inside it is under its callers' loops as surely as
+// one written in the loop's body, though parallel_loops_by_block, which reads
+// one function, lists none for it. A function reached from a bound loop only
+// through another is here, and so is one called from a bound loop and from a
+// sequential one too: one parallel caller is enough. Whole-program, since the
+// answer is about the callers; computed once, before the per-function pass.
+std::set<std::string> functions_called_in_parallel(
+    const std::map<std::string, std::shared_ptr<Function>> &funcs);
+
+// Whether `ptr`, the address an accumulate in `block` writes, is storage the
+// function itself made: its base, followed back through the parameters that
+// pass it along (origins), is an allocation of the function. Each call makes
+// its own, so two calls running at once -- the iterations of a caller's bound
+// loop -- write different ones whatever the subscripts, and only the
+// function's own loops can make two writes to it collide, which
+// parallel_loops_by_block sees. For a function called in parallel this is the
+// one way an atomic can be shown unneeded from inside: an address that
+// arrives as a parameter is some caller's storage, and whether two iterations
+// hand down the same one -- the run's reducer, say -- is not visible here.
+bool allocated_by_function(const std::shared_ptr<Value> &ptr, Origins &origins,
+                           const std::string &block);
+
 // The common case as a predicate, for callers that only want to know whether
 // they may drop the atomic. Unknown counts as unsafe.
 inline bool is_parallel_safe(const std::shared_ptr<Value> &ptr,

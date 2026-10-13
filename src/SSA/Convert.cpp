@@ -8,6 +8,7 @@
 #include "SSA/Defer.h"
 #include "SSA/InducedStorage.h"
 #include "SSA/BlockAccumulates.h"
+#include "SSA/Contention.h"
 #include "SSA/GateDrains.h"
 #include "SSA/HitContinuations.h"
 #include "SSA/RoundGuard.h"
@@ -3380,9 +3381,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // iterations at the same time -- and so which atomics were asked for
     // against a parallelism the schedule did not take up. Those cost nothing
     // to remove and everything to keep, so they go here, after the schedule
-    // and before the graph is turned back into statements.
+    // and before the graph is turned back into statements. Which functions
+    // the bound loops call is a fact of the whole program (a drained
+    // function runs once per thread of its drain, with no loop of its own
+    // to say so), settled before the functions are taken one at a time.
+    const std::set<std::string> called_in_parallel =
+        functions_called_in_parallel(fmap);
     for (const auto &[name, f] : fmap) {
-        DemoteAtomics::run(*f);
+        DemoteAtomics::run(*f, called_in_parallel.contains(name));
         // The atomics every thread of a GPU block makes to one word, once
         // per block instead (SSA/BlockAccumulates.h); before the allocas
         // are promoted, so the slots it makes become values.

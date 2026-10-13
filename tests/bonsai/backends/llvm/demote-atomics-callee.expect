@@ -1,0 +1,190 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct._pfctx1 = type { ptr, ptr, ptr }
+
+@0 = private unnamed_addr constant [34 x i8] c"{%f, %f, %f, %f, %f, %f, %f, %f}\0A\00", align 1
+@1 = private unnamed_addr constant [4 x i8] c"%f\0A\00", align 1
+
+; Function Attrs: mustprogress
+define noundef i32 @main() local_unnamed_addr #0 {
+main:
+  %_pfctx.i = alloca %struct._pfctx1, align 16
+  %serial32 = alloca float, align 4
+  %total1 = alloca float, align 4
+  store float 0.000000e+00, ptr %total1, align 4, !tbaa !0
+  %calloc43 = tail call dereferenceable_or_null(32) ptr @calloc(i64 1, i64 32)
+  %_untyped9 = tail call dereferenceable_or_null(32) ptr @malloc(i64 32)
+  store <4 x float> <float 1.000000e+00, float 4.000000e+00, float 9.000000e+00, float 1.100000e+01>, ptr %_untyped9, align 4
+  %build_ptr14 = getelementptr inbounds nuw i8, ptr %_untyped9, i64 16
+  store <4 x float> <float 2.000000e+00, float 1.500000e+01, float 3.000000e+00, float 2.000000e+01>, ptr %build_ptr14, align 4
+  call void @llvm.lifetime.start.p0(ptr nonnull %_pfctx.i)
+  store ptr %_untyped9, ptr %_pfctx.i, align 16
+  %0 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 8
+  store ptr %total1, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 16
+  store ptr %calloc43, ptr %1, align 16
+  call void @bonsai_parallel_for(i64 8, ptr nonnull %_pfctx.i, ptr nonnull @_pfkernel2)
+  call void @llvm.lifetime.end.p0(ptr nonnull %_pfctx.i)
+  %deref_temp = load float, ptr %total1, align 4, !tbaa !0
+  %2 = fpext float %deref_temp to double
+  %3 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, double %2)
+  %extract = load float, ptr %calloc43, align 4
+  %4 = fpext float %extract to double
+  %extract_ptr18 = getelementptr inbounds nuw i8, ptr %calloc43, i64 4
+  %extract19 = load float, ptr %extract_ptr18, align 4
+  %5 = fpext float %extract19 to double
+  %extract_ptr20 = getelementptr inbounds nuw i8, ptr %calloc43, i64 8
+  %extract21 = load float, ptr %extract_ptr20, align 4
+  %6 = fpext float %extract21 to double
+  %extract_ptr22 = getelementptr inbounds nuw i8, ptr %calloc43, i64 12
+  %extract23 = load float, ptr %extract_ptr22, align 4
+  %7 = fpext float %extract23 to double
+  %extract_ptr24 = getelementptr inbounds nuw i8, ptr %calloc43, i64 16
+  %extract25 = load float, ptr %extract_ptr24, align 4
+  %8 = fpext float %extract25 to double
+  %extract_ptr26 = getelementptr inbounds nuw i8, ptr %calloc43, i64 20
+  %extract27 = load float, ptr %extract_ptr26, align 4
+  %9 = fpext float %extract27 to double
+  %extract_ptr28 = getelementptr inbounds nuw i8, ptr %calloc43, i64 24
+  %extract29 = load float, ptr %extract_ptr28, align 4
+  %10 = fpext float %extract29 to double
+  %extract_ptr30 = getelementptr inbounds nuw i8, ptr %calloc43, i64 28
+  %extract31 = load float, ptr %extract_ptr30, align 4
+  %11 = fpext float %extract31 to double
+  %12 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %4, double %5, double %6, double %7, double %8, double %9, double %10, double %11)
+  store float 1.000000e+00, ptr %serial32, align 4
+  %13 = atomicrmw fadd ptr %serial32, float 1.000000e+00 monotonic, align 4
+  %acc_base.i.1.i = load float, ptr %serial32, align 4
+  %14 = fadd float %acc_base.i.1.i, 4.000000e+00
+  store float %14, ptr %serial32, align 4
+  %15 = atomicrmw fadd ptr %serial32, float 4.000000e+00 monotonic, align 4
+  %acc_base.i.2.i = load float, ptr %serial32, align 4
+  %16 = fadd float %acc_base.i.2.i, 9.000000e+00
+  store float %16, ptr %serial32, align 4
+  %17 = atomicrmw fadd ptr %serial32, float 9.000000e+00 monotonic, align 4
+  %acc_base.i.3.i = load float, ptr %serial32, align 4
+  %18 = fadd float %acc_base.i.3.i, 1.100000e+01
+  store float %18, ptr %serial32, align 4
+  %19 = atomicrmw fadd ptr %serial32, float 1.100000e+01 monotonic, align 4
+  %acc_base.i.4.i = load float, ptr %serial32, align 4
+  %20 = fadd float %acc_base.i.4.i, 2.000000e+00
+  store float %20, ptr %serial32, align 4
+  %21 = atomicrmw fadd ptr %serial32, float 2.000000e+00 monotonic, align 4
+  %acc_base.i.5.i = load float, ptr %serial32, align 4
+  %22 = fadd float %acc_base.i.5.i, 1.500000e+01
+  store float %22, ptr %serial32, align 4
+  %23 = atomicrmw fadd ptr %serial32, float 1.500000e+01 monotonic, align 4
+  %acc_base.i.6.i = load float, ptr %serial32, align 4
+  %24 = fadd float %acc_base.i.6.i, 3.000000e+00
+  store float %24, ptr %serial32, align 4
+  %25 = atomicrmw fadd ptr %serial32, float 3.000000e+00 monotonic, align 4
+  %acc_base.i.7.i = load float, ptr %serial32, align 4
+  %26 = fadd float %acc_base.i.7.i, 2.000000e+01
+  store float %26, ptr %serial32, align 4
+  %27 = atomicrmw fadd ptr %serial32, float 2.000000e+01 monotonic, align 4
+  %deref_temp42 = load float, ptr %serial32, align 4, !tbaa !0
+  %28 = fpext float %deref_temp42 to double
+  %29 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, double %28)
+  ret i32 0
+}
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
+
+; Function Attrs: nofree nounwind
+declare noundef i32 @printf(ptr noundef readonly captures(none), ...) local_unnamed_addr #2
+
+; Function Attrs: mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none)
+define internal void @_pfkernel2(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #3 {
+entry:
+  %3 = load ptr, ptr %0, align 8
+  %4 = getelementptr inbounds nuw i8, ptr %0, i64 8
+  %5 = load ptr, ptr %4, align 8
+  %6 = getelementptr inbounds nuw i8, ptr %0, i64 16
+  %7 = load ptr, ptr %6, align 8
+  %8 = icmp slt i64 %1, %2
+  br i1 %8, label %"!par_body_0.preheader", label %done, !prof !3
+
+"!par_body_0.preheader":                          ; preds = %entry
+  %9 = sub i64 %2, %1
+  %.neg = add i64 %1, 1
+  %xtraiter = and i64 %9, 1
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !4
+
+"!par_body_0.prol":                               ; preds = %"!par_body_0.preheader"
+  %sext.prol = shl i64 %1, 32
+  %i_wide.prol = ashr exact i64 %sext.prol, 32
+  %extract_ptr.prol = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide.prol
+  %extract.prol = load float, ptr %extract_ptr.prol, align 4
+  %10 = atomicrmw fadd ptr %5, float %extract.prol monotonic, align 4
+  %11 = fadd float %extract.prol, 0.000000e+00
+  %12 = fadd float %extract.prol, %11
+  %13 = fadd float %extract.prol, %12
+  %out4.prol = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide.prol
+  store float %13, ptr %out4.prol, align 4, !tbaa !0
+  %14 = add nsw i64 %1, 1
+  br label %"!par_body_0.prol.loopexit"
+
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.preheader"
+  %n5.unr = phi i64 [ %1, %"!par_body_0.preheader" ], [ %14, %"!par_body_0.prol" ]
+  %15 = icmp eq i64 %2, %.neg
+  br i1 %15, label %done, label %"!par_body_0", !prof !5
+
+"!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
+  %n5 = phi i64 [ %25, %"!par_body_0" ], [ %n5.unr, %"!par_body_0.prol.loopexit" ]
+  %sext = shl i64 %n5, 32
+  %i_wide = ashr exact i64 %sext, 32
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide
+  %extract = load float, ptr %extract_ptr, align 4
+  %16 = atomicrmw fadd ptr %5, float %extract monotonic, align 4
+  %17 = fadd float %extract, 0.000000e+00
+  %18 = fadd float %extract, %17
+  %19 = fadd float %extract, %18
+  %out4 = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide
+  store float %19, ptr %out4, align 4, !tbaa !0
+  %20 = shl i64 %n5, 32
+  %sext.1 = add i64 %20, 4294967296
+  %i_wide.1 = ashr exact i64 %sext.1, 32
+  %extract_ptr.1 = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide.1
+  %extract.1 = load float, ptr %extract_ptr.1, align 4
+  %21 = atomicrmw fadd ptr %5, float %extract.1 monotonic, align 4
+  %22 = fadd float %extract.1, 0.000000e+00
+  %23 = fadd float %extract.1, %22
+  %24 = fadd float %extract.1, %23
+  %out4.1 = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide.1
+  store float %24, ptr %out4.1, align 4, !tbaa !0
+  %25 = add nsw i64 %n5, 2
+  %exitcond.not.1 = icmp eq i64 %25, %2
+  br i1 %exitcond.not.1, label %done, label %"!par_body_0", !prof !6
+
+done:                                             ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0", %entry
+  ret void
+}
+
+declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #4
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #4
+
+; Function Attrs: nofree nounwind willreturn allockind("alloc,zeroed") allocsize(0,1) memory(inaccessiblemem: readwrite, errnomem: write)
+declare noalias noundef ptr @calloc(i64 noundef, i64 noundef) local_unnamed_addr #5
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+attributes #2 = { nofree nounwind }
+attributes #3 = { mustprogress norecurse nounwind memory(readwrite, inaccessiblemem: none, target_mem: none) "frame-pointer"="all" }
+attributes #4 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #5 = { nofree nounwind willreturn allockind("alloc,zeroed") allocsize(0,1) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}
+!3 = !{!"branch_weights", i32 1, i32 0}
+!4 = !{!"branch_weights", i32 127, i32 1}
+!5 = !{!"branch_weights", i32 1, i32 127}
+!6 = !{!"branch_weights", i32 0, i32 1073741824}

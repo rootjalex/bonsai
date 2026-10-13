@@ -37,6 +37,7 @@ add_bonsai_tests(
     gate-drains.bonsai
     round-guard.bonsai
     demote-atomics.bonsai
+    demote-atomics-callee.bonsai
     divide_by_constant.bonsai
     dynamic-array.bonsai
     exported-function.bonsai

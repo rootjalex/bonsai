@@ -25,7 +25,7 @@ bool is_accumulate(Instruction::Op op) {
 
 } // namespace
 
-void DemoteAtomics::run(Function &f) {
+void DemoteAtomics::run(Function &f, bool called_in_parallel) {
     const std::map<std::string, std::vector<ParallelLoop>> enclosing =
         parallel_loops_by_block(f);
     // For following a subscript that arrives as a block parameter back to
@@ -42,6 +42,18 @@ void DemoteAtomics::run(Function &f) {
         for (const auto &instr : block->instrs) {
             if (!instr->atomic || !is_accumulate(instr->op) ||
                 instr->operands.size() != 2) {
+                continue;
+            }
+            // A function some bound loop calls runs once per concurrent
+            // iteration, under loops no block of it shows. The one address
+            // two of those calls cannot share is storage this call made for
+            // itself; any other arrived from a caller, and whether two
+            // iterations hand down the same one -- the run's reducer -- is
+            // not visible from inside. So that is Unknown, and the atomic
+            // stays: a device atomic where the loop's own body would get the
+            // block reduction (SSA/BlockAccumulates.h).
+            if (called_in_parallel &&
+                !allocated_by_function(instr->operands[0], origins, block->name)) {
                 continue;
             }
             // Only Disjoint permits dropping it. Unknown means the address

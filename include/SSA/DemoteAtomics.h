@@ -17,6 +17,15 @@
 // Runs after the schedule has been applied, because that is what decides which
 // loops carry a binding. See SSA/Contention.h for what "can contend" means and
 // how far it can be shown.
+//
+// The loops that run an accumulate at the same time are not all in its
+// function. A function a bound loop's body calls runs once per concurrent
+// iteration -- the drained function of a GPU queue, the `step` of a `parfor`
+// over threads -- and an accumulate in it into a reducer the loop's owner
+// handed down is the same word written by every thread, with no loop of the
+// callee's to show it. So which functions are called in parallel is settled
+// over the whole program first (functions_called_in_parallel), and in one of
+// those an atomic comes off only for storage the call made for itself.
 
 #include "Lower/Pass.h"
 
@@ -29,8 +38,11 @@ class DemoteAtomics {
     const std::string name() const { return "demote-atomics"; }
 
     // Rewrites in place: only the `atomic` flag on accumulate instructions
-    // changes, never the graph.
-    static void run(Function &f);
+    // changes, never the graph. `called_in_parallel` says whether some bound
+    // loop of the program calls `f`, directly or through other calls: then
+    // its callers' loops enclose every block of it, and an accumulate to an
+    // address that is not the call's own allocation keeps its atomic.
+    static void run(Function &f, bool called_in_parallel);
 };
 
 } // namespace ssa

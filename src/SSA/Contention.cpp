@@ -500,6 +500,53 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
     return Contention::Unknown;
 }
 
+std::set<std::string> functions_called_in_parallel(
+    const std::map<std::string, std::shared_ptr<Function>> &funcs) {
+    std::set<std::string> called;
+    std::vector<std::string> worklist;
+    const auto add = [&](const Terminator &t) {
+        // Call or MultiCall: the edge, however many times it is taken.
+        const Terminator::Jump *callee = t.callee();
+        if (callee != nullptr && called.insert(callee->name).second) {
+            worklist.push_back(callee->name);
+        }
+    };
+    // The callees of the blocks some bound loop encloses.
+    for (const auto &[name, f] : funcs) {
+        const std::map<std::string, std::vector<ParallelLoop>> enclosing =
+            parallel_loops_by_block(*f);
+        for (const auto &block : f->blocks) {
+            const auto loops = enclosing.find(block->name);
+            if (loops != enclosing.end() && !loops->second.empty()) {
+                add(block->terminator);
+            }
+        }
+    }
+    // And whatever those call, in turn: a call made from inside a call made
+    // from inside the loop is made once per iteration too.
+    while (!worklist.empty()) {
+        const std::string name = std::move(worklist.back());
+        worklist.pop_back();
+        const auto f = funcs.find(name);
+        if (f == funcs.end()) {
+            continue; // an extern: nothing of it to walk
+        }
+        for (const auto &block : f->second->blocks) {
+            add(block->terminator);
+        }
+    }
+    return called;
+}
+
+bool allocated_by_function(const std::shared_ptr<Value> &ptr, Origins &origins,
+                           const std::string &block) {
+    const Address address = address_of(ptr);
+    const Resolved r = resolve(address.base, block, &origins);
+    const Instruction *instr = as_instruction(r.value);
+    return instr != nullptr && (instr->op == Instruction::Op::Alloca ||
+                                instr->op == Instruction::Op::Alloc);
+}
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

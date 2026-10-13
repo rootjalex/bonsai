@@ -1,0 +1,79 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func add_own(x : f32, n : u32) -> f32 {
+  acc : mut f32
+  acc = 0f
+  parfor j in [0u:n:1u] {
+    acc += x
+    continue
+  }
+  let @0 = (*acc) in
+  return @0
+}
+
+func add_serial(x : f32, total : mut (f32*)) -> void {
+  total += x
+  return
+}
+
+func add_shared(x : f32, total : mut (f32*)) -> void {
+  atomic total += x
+  return
+}
+
+func hand_down(x : f32, total : mut (f32*)) -> void {
+  add_shared(x, total)
+  return
+}
+
+func main() -> i32 {
+  total : mut f32
+  total = 0f
+  alloc out : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  out = @0
+  let @1 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@1, total, out)
+  let @2 = (*total) in
+  print(@2)
+  print(out)
+  serial : mut f32
+  serial = 0f
+  let @3 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  tally(@3, serial)
+  let @4 = (*serial) in
+  print(@4)
+  return 0
+}
+
+func run(values : f32[8], total : mut (f32*), out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    let _t22 = values[i] in
+    hand_down(_t22, total)
+    let @1 = add_own(_t22, 3u) in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func tally(values : f32[8], total : mut (f32*)) -> void {
+  parfor i in [0:8:1] {
+    let _t24 = values[i] in
+    add_serial(_t24, total)
+    add_shared(_t24, total)
+    continue
+  }
+  return
+}
+
+
+schedule {
+    run.bind(i, CPUThread)
+
+}

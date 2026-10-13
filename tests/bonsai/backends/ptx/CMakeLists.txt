@@ -38,6 +38,7 @@ add_bonsai_tests(
     rtcore-foreign.bonsai
     block-effects.bonsai
     block-reduce.bonsai
+    reduce-param.bonsai
     blocks.bonsai
     blocks-threads.bonsai
     defer-device.bonsai

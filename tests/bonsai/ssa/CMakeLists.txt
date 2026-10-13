@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS ssa
     FILES
     accumulate-affine.bonsai
+    demote-atomics-callee.bonsai
     address-across-call.bonsai
     alias-edges.bonsai
     and-of-compares.bonsai
