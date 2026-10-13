@@ -1,0 +1,252 @@
+; ---- device module: LLVM IR ----
+; ModuleID = 'bonsai_ptx'
+source_filename = "bonsai_module"
+target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
+target triple = "nvptx64-nvidia-cuda"
+
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none)
+define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, ptr nofree captures(none) %total, ptr nofree readnone captures(none) %counts, ptr nofree writeonly captures(none) %q_n_slots, ptr nofree captures(none) %q_queue) local_unnamed_addr #0 {
+"!par_body_0":
+  %q_queue.global = addrspacecast ptr %q_queue to ptr addrspace(1)
+  %q_queue.generic = addrspacecast ptr addrspace(1) %q_queue.global to ptr
+  %q_n_slots.global = addrspacecast ptr %q_n_slots to ptr addrspace(1)
+  %q_n_slots.generic = addrspacecast ptr addrspace(1) %q_n_slots.global to ptr
+  %counts.global = addrspacecast ptr %counts to ptr addrspace(1)
+  %counts.generic = addrspacecast ptr addrspace(1) %counts.global to ptr
+  %total.global = addrspacecast ptr %total to ptr addrspace(1)
+  %total.generic = addrspacecast ptr addrspace(1) %total.global to ptr
+  %values.global = addrspacecast ptr %values to ptr addrspace(1)
+  %values.generic = addrspacecast ptr addrspace(1) %values.global to ptr
+  %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+  %0 = mul i32 %_stride, %tid
+  %i = add i32 %0, %_begin
+  %i_wide = sext i32 %i to i64
+  %q_n_slots1 = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %i_wide
+  store float 0.000000e+00, ptr %q_n_slots1, align 4, !tbaa !1
+  %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %i_wide
+  %extract = load float, ptr %extract_ptr, align 4, !invariant.load !4
+  %1 = atomicrmw add ptr %q_queue.generic, i32 1 syncscope("device") monotonic, align 4
+  %2 = getelementptr inbounds nuw i8, ptr %q_queue.generic, i64 8
+  %x4.i = load ptr, ptr %2, align 8
+  %x4.i.global = addrspacecast ptr %x4.i to ptr addrspace(1)
+  %x4.i.generic = addrspacecast ptr addrspace(1) %x4.i.global to ptr
+  %_wide.i = zext i32 %1 to i64
+  %"@6.i" = getelementptr inbounds nuw [4 x i8], ptr %x4.i.generic, i64 %_wide.i
+  store float %extract, ptr %"@6.i", align 4, !tbaa !1
+  %3 = getelementptr inbounds nuw i8, ptr %q_queue.generic, i64 16
+  %_slot.i = load ptr, ptr %3, align 8
+  %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
+  %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
+  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.generic, i64 %_wide.i
+  store i32 %i, ptr %"@9.i", align 4, !tbaa !5
+  %4 = atomicrmw fadd ptr %total.generic, float %extract syncscope("device") monotonic, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
+
+; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
+define ptx_kernel void @_kernel_q_1(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %q_x, ptr nofree captures(none) %total, ptr nofree captures(none) %q_n_slots, ptr nofree readonly captures(none) %q__slot, ptr nofree readonly captures(none) %"@15") local_unnamed_addr #2 {
+"q!run!inqueue":
+  %"@15.global" = addrspacecast ptr %"@15" to ptr addrspace(1)
+  %"@15.generic" = addrspacecast ptr addrspace(1) %"@15.global" to ptr
+  %q__slot.global = addrspacecast ptr %q__slot to ptr addrspace(1)
+  %q__slot.generic = addrspacecast ptr addrspace(1) %q__slot.global to ptr
+  %q_n_slots.global = addrspacecast ptr %q_n_slots to ptr addrspace(1)
+  %q_n_slots.generic = addrspacecast ptr addrspace(1) %q_n_slots.global to ptr
+  %total.global = addrspacecast ptr %total to ptr addrspace(1)
+  %total.generic = addrspacecast ptr addrspace(1) %total.global to ptr
+  %q_x.global = addrspacecast ptr %q_x to ptr addrspace(1)
+  %q_x.generic = addrspacecast ptr addrspace(1) %q_x.global to ptr
+  %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+  %0 = mul i32 %_stride, %tid
+  %q = add i32 %0, %_begin
+  %deref_temp = load i32, ptr %"@15.generic", align 4, !tbaa !7, !invariant.load !4
+  %1 = icmp ult i32 %q, %deref_temp
+  br i1 %1, label %"q!run", label %common.ret
+
+"q!run":                                          ; preds = %"q!run!inqueue"
+  %q1_wide = zext i32 %q to i64
+  %extract_ptr = getelementptr inbounds nuw [4 x i8], ptr %q_x.generic, i64 %q1_wide
+  %extract = load float, ptr %extract_ptr, align 4, !invariant.load !4
+  %extract_ptr7 = getelementptr inbounds nuw [4 x i8], ptr %q__slot.generic, i64 %q1_wide
+  %extract8 = load i32, ptr %extract_ptr7, align 4, !invariant.load !4
+  %2 = fmul float %extract, 5.000000e-01
+  %3 = atomicrmw fadd ptr %total.generic, float %2 syncscope("device") monotonic, align 4
+  %extract8_wide = sext i32 %extract8 to i64
+  %ptr_array_deref = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %extract8_wide
+  %acc_base = load float, ptr %ptr_array_deref, align 4
+  %4 = fadd float %acc_base, 1.000000e+00
+  store float %4, ptr %ptr_array_deref, align 4
+  br label %common.ret
+
+common.ret:                                       ; preds = %"q!run!inqueue", %"q!run"
+  ret void
+}
+
+; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define ptx_kernel void @_kernel_q_rest_2(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %q_n_slots, ptr nofree writeonly captures(none) %counts) local_unnamed_addr #3 {
+"q_rest!run":
+  %counts.global = addrspacecast ptr %counts to ptr addrspace(1)
+  %counts.generic = addrspacecast ptr addrspace(1) %counts.global to ptr
+  %q_n_slots.global = addrspacecast ptr %q_n_slots to ptr addrspace(1)
+  %q_n_slots.generic = addrspacecast ptr addrspace(1) %q_n_slots.global to ptr
+  %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+  %0 = mul i32 %_stride, %tid
+  %q_rest = add i32 %0, %_begin
+  %q_rest_wide = sext i32 %q_rest to i64
+  %ptr_array_deref = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %q_rest_wide
+  %deref_temp = load float, ptr %ptr_array_deref, align 4, !tbaa !1, !invariant.load !4
+  %counts2 = getelementptr inbounds [4 x i8], ptr %counts.generic, i64 %q_rest_wide
+  store float %deref_temp, ptr %counts2, align 4, !tbaa !1
+  ret void
+}
+
+attributes #0 = { mustprogress norecurse nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none, target_mem: none) }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress norecurse nounwind willreturn memory(argmem: readwrite) }
+attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+
+!llvm.module.flags = !{!0}
+
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"f32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"i32", !3, i64 0}
+!7 = !{!8, !8, i64 0}
+!8 = !{!"u32", !3, i64 0}
+
+; ---- device module: PTX ----
+//
+// Generated by LLVM NVPTX Back-End
+//
+
+.version 7.8
+.target sm_90
+.address_size 64
+
+	// .globl	_kernel_i_0
+
+.visible .entry _kernel_i_0(
+	.param .u32 _kernel_i_0_param_0,
+	.param .u32 _kernel_i_0_param_1,
+	.param .u64 .ptr .align 1 _kernel_i_0_param_2,
+	.param .u64 .ptr .align 1 _kernel_i_0_param_3,
+	.param .u64 .ptr .align 1 _kernel_i_0_param_4,
+	.param .u64 .ptr .align 1 _kernel_i_0_param_5,
+	.param .u64 .ptr .align 1 _kernel_i_0_param_6
+)
+{
+	.reg .b32 	%r<8>;
+	.reg .b64 	%rd<19>;
+
+	ld.param.b32 	%r1, [_kernel_i_0_param_0];
+	ld.param.b64 	%rd1, [_kernel_i_0_param_6];
+	cvta.to.global.u64 	%rd2, %rd1;
+	ld.param.b32 	%r2, [_kernel_i_0_param_1];
+	ld.param.b64 	%rd3, [_kernel_i_0_param_5];
+	cvta.to.global.u64 	%rd4, %rd3;
+	ld.param.b64 	%rd5, [_kernel_i_0_param_2];
+	ld.param.b64 	%rd6, [_kernel_i_0_param_3];
+	cvta.to.global.u64 	%rd7, %rd6;
+	cvta.to.global.u64 	%rd8, %rd5;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.s32 	%r4, %r2, %r3, %r1;
+	mul.wide.s32 	%rd9, %r4, 4;
+	add.s64 	%rd10, %rd4, %rd9;
+	st.global.b32 	[%rd10], 0;
+	add.s64 	%rd11, %rd8, %rd9;
+	ld.global.nc.b32 	%r5, [%rd11];
+	atom.relaxed.gpu.global.add.u32 	%r6, [%rd2], 1;
+	ld.global.b64 	%rd12, [%rd2+8];
+	cvta.to.global.u64 	%rd13, %rd12;
+	mul.wide.u32 	%rd14, %r6, 4;
+	add.s64 	%rd15, %rd13, %rd14;
+	st.global.b32 	[%rd15], %r5;
+	ld.global.b64 	%rd16, [%rd2+16];
+	cvta.to.global.u64 	%rd17, %rd16;
+	add.s64 	%rd18, %rd17, %rd14;
+	st.global.b32 	[%rd18], %r4;
+	atom.relaxed.gpu.global.add.f32 	%r7, [%rd7], %r5;
+	ret;
+
+}
+	// .globl	_kernel_q_1
+.visible .entry _kernel_q_1(
+	.param .u32 _kernel_q_1_param_0,
+	.param .u32 _kernel_q_1_param_1,
+	.param .u64 .ptr .align 1 _kernel_q_1_param_2,
+	.param .u64 .ptr .align 1 _kernel_q_1_param_3,
+	.param .u64 .ptr .align 1 _kernel_q_1_param_4,
+	.param .u64 .ptr .align 1 _kernel_q_1_param_5,
+	.param .u64 .ptr .align 1 _kernel_q_1_param_6
+)
+{
+	.reg .pred 	%p<2>;
+	.reg .b32 	%r<12>;
+	.reg .b64 	%rd<16>;
+
+	ld.param.b32 	%r2, [_kernel_q_1_param_0];
+	ld.param.b64 	%rd5, [_kernel_q_1_param_6];
+	cvta.to.global.u64 	%rd6, %rd5;
+	ld.param.b32 	%r3, [_kernel_q_1_param_1];
+	ld.param.b64 	%rd7, [_kernel_q_1_param_5];
+	cvta.to.global.u64 	%rd1, %rd7;
+	ld.param.b64 	%rd8, [_kernel_q_1_param_2];
+	ld.param.b64 	%rd9, [_kernel_q_1_param_4];
+	cvta.to.global.u64 	%rd2, %rd9;
+	ld.param.b64 	%rd10, [_kernel_q_1_param_3];
+	cvta.to.global.u64 	%rd3, %rd10;
+	cvta.to.global.u64 	%rd4, %rd8;
+	mov.u32 	%r4, %tid.x;
+	mad.lo.s32 	%r1, %r3, %r4, %r2;
+	ld.global.nc.b32 	%r5, [%rd6];
+	setp.ge.u32 	%p1, %r1, %r5;
+	@%p1 bra 	$L__BB1_2;
+	mul.wide.u32 	%rd11, %r1, 4;
+	add.s64 	%rd12, %rd4, %rd11;
+	ld.global.nc.b32 	%r6, [%rd12];
+	add.s64 	%rd13, %rd1, %rd11;
+	ld.global.nc.b32 	%r7, [%rd13];
+	mul.rn.f32 	%r8, %r6, 0f3F000000;
+	atom.relaxed.gpu.global.add.f32 	%r9, [%rd3], %r8;
+	mul.wide.s32 	%rd14, %r7, 4;
+	add.s64 	%rd15, %rd2, %rd14;
+	ld.global.b32 	%r10, [%rd15];
+	add.rn.f32 	%r11, %r10, 0f3F800000;
+	st.global.b32 	[%rd15], %r11;
+$L__BB1_2:
+	ret;
+
+}
+	// .globl	_kernel_q_rest_2
+.visible .entry _kernel_q_rest_2(
+	.param .u32 _kernel_q_rest_2_param_0,
+	.param .u32 _kernel_q_rest_2_param_1,
+	.param .u64 .ptr .align 1 _kernel_q_rest_2_param_2,
+	.param .u64 .ptr .align 1 _kernel_q_rest_2_param_3
+)
+{
+	.reg .b32 	%r<6>;
+	.reg .b64 	%rd<8>;
+
+	ld.param.b32 	%r1, [_kernel_q_rest_2_param_0];
+	ld.param.b64 	%rd1, [_kernel_q_rest_2_param_3];
+	cvta.to.global.u64 	%rd2, %rd1;
+	ld.param.b32 	%r2, [_kernel_q_rest_2_param_1];
+	ld.param.b64 	%rd3, [_kernel_q_rest_2_param_2];
+	cvta.to.global.u64 	%rd4, %rd3;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.s32 	%r4, %r2, %r3, %r1;
+	mul.wide.s32 	%rd5, %r4, 4;
+	add.s64 	%rd6, %rd4, %rd5;
+	ld.global.nc.b32 	%r5, [%rd6];
+	add.s64 	%rd7, %rd2, %rd5;
+	st.global.b32 	[%rd7], %r5;
+	ret;
+
+}

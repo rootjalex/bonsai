@@ -59,6 +59,8 @@ add_bonsai_tests(
     defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    demote-atomics-spawn-inline.bonsai
+    demote-atomics-spawn-drain.bonsai
     loopify-mutual.bonsai
     vectorize-loop-mutual.bonsai
     vectorize-skip-address.bonsai

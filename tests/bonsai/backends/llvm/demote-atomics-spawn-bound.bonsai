@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/demote-atomics-spawn-bound's program through the LLVM
+// backend: the producer loop bound to CPU threads, the drain of the
+// spawned calls left sequential. What to read for: every `atomicrmw fadd`
+// is `step`'s `atomic total += x`, in the loop's kernel (`_pfkernel1`,
+// `step` inlined into it), since the threads' calls write the one word;
+// `wet`'s `atomic total += x * 0.5`, run by the drain after the loop one
+// call at a time, is a plain `fadd` in `main` (SSA/DemoteAtomics.h). The
+// `atomicrmw add .. i32 1` beside each are the queue's count, the
+// deferral's own.
+import stdlib/numerics;
+
+// The spawned function. `total` is `run`'s reducer, one word that every
+// spawned call writes.
+func wet(x : Float, total : reduce(+) Float) -> Float {
+    atomic total += x * 0.5;
+    return 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    spawn n += wet(x, total);
+    atomic total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        step(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    counts : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, counts);
+    // 65 and half of it again: 97.5
+    print(total);
+    // one spawned call per iteration
+    print(counts);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(wet, q);
+    run.bind(i, CPUThread);
+}

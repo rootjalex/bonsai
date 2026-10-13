@@ -1,0 +1,59 @@
+//! flags: -p ssa
+
+// A spawned function's atomic, when nothing runs the spawn in parallel:
+// no schedule at all, so the spawn is run as written, a call and an
+// accumulate, inside a `parfor` nothing bound.
+//
+// `spawn` says the call may run later and elsewhere, together with the
+// other spawned calls, which is why a reducer it writes needs `atomic`
+// (docs/parallel-semantics.md). Whether anything does run it in parallel
+// is the schedule's, and here nothing does: the loop runs one iteration
+// at a time and each spawned call runs where it was spawned. So both
+// atomics come off (SSA/DemoteAtomics.h). What to read for:
+//
+//   wet    `total += x * 0.5` plain: the spawned function's write to the
+//          run's reducer, no other call running beside it.
+//   step   `total += x` plain: the iteration's own write, no other
+//          iteration running beside it.
+//   step   `n += wet(..)`, the spawn itself, is the accumulate it looks
+//          like, into the iteration's own reducer.
+//
+// The same program under a sequential drain is demote-atomics-spawn-drain,
+// under a bound loop demote-atomics-spawn-bound; correctness/llvm/
+// demote-atomics-spawn-inline runs it (97.5 and eight ones).
+import stdlib/numerics;
+
+// The spawned function. `total` is `run`'s reducer, one word that every
+// spawned call writes.
+func wet(x : Float, total : reduce(+) Float) -> Float {
+    atomic total += x * 0.5;
+    return 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    spawn n += wet(x, total);
+    atomic total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        step(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    counts : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, counts);
+    // 65 and half of it again: 97.5
+    print(total);
+    // one spawned call per iteration
+    print(counts);
+    return 0;
+}

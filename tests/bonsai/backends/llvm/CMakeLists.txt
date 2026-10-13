@@ -38,6 +38,8 @@ add_bonsai_tests(
     round-guard.bonsai
     demote-atomics.bonsai
     demote-atomics-callee.bonsai
+    demote-atomics-spawn-drain.bonsai
+    demote-atomics-spawn-bound.bonsai
     divide_by_constant.bonsai
     dynamic-array.bonsai
     exported-function.bonsai

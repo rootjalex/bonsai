@@ -3,6 +3,9 @@ add_bonsai_tests(
     FILES
     accumulate-affine.bonsai
     demote-atomics-callee.bonsai
+    demote-atomics-spawn-inline.bonsai
+    demote-atomics-spawn-drain.bonsai
+    demote-atomics-spawn-bound.bonsai
     address-across-call.bonsai
     alias-edges.bonsai
     and-of-compares.bonsai

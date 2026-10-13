@@ -1,0 +1,80 @@
+type Entry_q = struct Entry_q{ x : f32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func main() -> i32 {
+  total : mut f32
+  total = 0f
+  alloc counts : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  counts = @0
+  let @1 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@1, total, counts)
+  let @2 = (*total) in
+  print(@2)
+  print(counts)
+  return 0
+}
+
+func run(values : f32[8], total : mut (f32*), counts : mut f32[8]) -> void {
+  q_n_slots : mut f32[8]
+  q_x : mut f32[8]
+  q__slot : mut i32[8]
+  q_queue : mut Queue_q
+  let @4 = build<Queue_q>(0u, q_x, q__slot) in
+  q_queue = @4
+  parfor i in [0:8:1] {
+    q_n_slots[i] = 0f
+    let @0 = values[i] in
+    step(@0, total, (&q_n_slots[i]), q_queue, i)
+    continue
+  }
+  let @5 = (*q_queue) in
+  let @6 = @5.count in
+  parfor q in [0u:@6:1u] {
+    let @7 = q_x[q] in
+    let @9 = q__slot[q] in
+    let @8 = wet(@7, total) in
+    let @10 = (&q_n_slots[@9]) in
+    @10 += @8
+    continue
+  }
+  q_queue.count = 0u
+  parfor q_rest in [0:8:1] {
+    let n = (&q_n_slots[q_rest]) in
+    let i = q_rest in
+    let @1 = (*n) in
+    counts[i] = @1
+    continue
+  }
+  return
+}
+
+func step(x : f32, total : mut (f32*), n : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  let @1 = build<Entry_q>(x, _slot_q) in
+  let @4 = atomic_add((&(*_queue_q).count), 1u) in
+  let @6 = (*_queue_q).x in
+  @6[@4] = x
+  let @9 = (*_queue_q)._slot in
+  @9[@4] = _slot_q
+  total += x
+  return
+}
+
+func wet(x : f32, total : mut (f32*)) -> f32 {
+  let @0 = x * 0.5f in
+  total += @0
+  return 1f
+}
+
+
+schedule {
+    q = run.queue(root);
+    step.defer(wet, q)
+
+}

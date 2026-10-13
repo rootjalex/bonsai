@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/demote-atomics-spawn-inline's program, run: no
+// schedule, so the spawn is the call and the accumulate it looks like and
+// the loop runs one iteration at a time. Both atomics come off and the
+// result is the same as with them on, which is what demoting them has to
+// keep: 65 + 32.5, and one spawned call counted per iteration.
+import stdlib/numerics;
+
+// The spawned function. `total` is `run`'s reducer, one word that every
+// spawned call writes.
+func wet(x : Float, total : reduce(+) Float) -> Float {
+    atomic total += x * 0.5;
+    return 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    spawn n += wet(x, total);
+    atomic total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        step(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    counts : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, counts);
+    // 65 and half of it again: 97.5
+    print(total);
+    // one spawned call per iteration
+    print(counts);
+    return 0;
+}

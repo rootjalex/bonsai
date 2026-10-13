@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// backends/ptx/demote-atomics-spawn's program, run on the GPU: the spawned
+// calls to `wet` deferred onto a queue, the producer loop, the drain and
+// the pass over the record bound to GPU threads. Every thread of the loop
+// adds its value into `total` and every spawned call adds half of it, both
+// with `atomic` kept (SSA/DemoteAtomics.h): 65 + 32.5. Each iteration's
+// `n` counts its one spawned call, through the record slot its entry
+// carries. The same program prints the same under no schedule and under a
+// sequential drain (correctness/llvm/demote-atomics-spawn-inline, -drain),
+// where both atomics come off.
+import stdlib/numerics;
+
+// The spawned function. `total` is `run`'s reducer, one word that every
+// spawned call writes.
+func wet(x : Float, total : reduce(+) Float) -> Float {
+    atomic total += x * 0.5;
+    return 1.0;
+}
+
+func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    spawn n += wet(x, total);
+    atomic total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        step(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    counts : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, counts);
+    // 65 and half of it again: 97.5
+    print(total);
+    // one spawned call per iteration
+    print(counts);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(wet, q);
+    run.bind(i, GPUThread);
+    run.bind(q, GPUThread);
+    run.bind(q_rest, GPUThread);
+}
