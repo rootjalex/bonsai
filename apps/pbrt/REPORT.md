@@ -1798,6 +1798,16 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    spawn into the run's reducer from a bound drain is a race the program
    cannot say, and a spawned call's entry holds the reducer's address,
    which on the JIT runtime's GPU path is a per-launch device copy's.
+   The semantics behind both -- spawn as possible parallelism like
+   parfor, a spawned function's reducer writes atomic, a check to build
+   and the demotion that takes the atomic off where the spawn is not
+   parallelised -- are docs/parallel-semantics.md, with the demotion's
+   side in test (demote-atomics-spawn-* at every level) and the check's
+   side as four pending programs with proposed diagnostics
+   (tests/bonsai/pending/race-*); the spelling of an atomic spawn, and
+   its cost to the renderer's four spawns into `radiance` unless the
+   demotion learns a drain's slots are distinct within a pass, are the
+   rulings asked there.
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with

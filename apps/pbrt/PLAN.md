@@ -14588,6 +14588,31 @@ GPU path is the address of that launch's device copy of `total`
 copied back and freed per launch), dead by the soaks kernel -- the guard
 at CodeGen_GPU_Host.cpp:304 refuses a queue struct holding such
 pointers but not a record array of them. Both for the user to rule on.
+(10-13, 13:00) The user: spawn expresses possible parallelism, like
+parfor; a spawned function writing a reducer must write it atomic; a
+safety pass should check atomics are used right under spawn and parfor;
+the demotion should take an atomic off when a spawn is not parallelised.
+docs/parallel-semantics.md states it formally -- activities (parfor
+fork-join, spawn a deferred task that never interleaves its spawner,
+joined where the reducer is read), happens-before, races as undefined,
+the rule, what a schedule may do, the check (to build: every parfor and
+spawn taken as parallel, a plain accumulate into a Shared reducer
+refused) and the demotion (built: the schedule's forks only) as one
+analysis asked two questions -- and tests pin the demotion's side today:
+one program under five schedules (`wet` spawned per iteration writes
+the run's reducer; `step` writes it too), ssa demote-atomics-spawn-inline/
+-drain/-bound, backends/llvm -drain/-bound, backends/ptx + correctness/gpu
+demote-atomics-spawn (97.5, eight ones; both `atom.*.add.f32` kept),
+correctness/llvm -inline/-drain: both atomics off under no schedule and
+under a sequential drain, `step`'s on and `wet`'s off with the loop bound
+and the drain not, both on with everything bound. The check's side is
+four pending programs with proposed diagnostics (tests/bonsai/pending/
+race-parfor-reducer, race-spawned-function, race-spawn-accumulate -- the
+spawn's own accumulate, 65 for 97.5 on the GPU -- and race-reducer-read).
+Rulings there: the spelling (`spawn atomic x += g(..)` proposed), and
+that the renderer's four spawns into the sample's `radiance` would carry
+it, so the demotion needs the deferral's fact that a drain's slots are
+distinct within a pass to take them off, or they become device atomics.
 And a spawned call's drained function spawning onward onto a second queue
 (`spawn l += dampen(x, l)` onto `dries`, dampen spawning `soak` onto
 `soaks`, both into the iteration's reducer `l`): alone, `[internal]
