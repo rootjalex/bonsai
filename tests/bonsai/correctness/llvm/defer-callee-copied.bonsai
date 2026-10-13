@@ -1,0 +1,56 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/defer-callee-copied's program, run: the Big entries
+// (5, 6, 7) come back through `q`'s drain and rest pass as v * 0.5 + 1,
+// the Small ones straight from the `hits` drain as v - 1.
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(r : Found, k : Float) -> Float {
+    match r {
+        Big(v) => return v * 0.5 + k;
+        Small(v) => return v - k;
+    }
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(r, k);
+        Small(v) => return v - k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+    step.defer(finish, q);
+}

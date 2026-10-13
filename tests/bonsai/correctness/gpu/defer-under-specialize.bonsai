@@ -1,0 +1,57 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/correctness/llvm/defer-under-specialize on the GPU: each
+// arm's loop, drain and rest pass are kernels of their own (`i!True`,
+// `q!True`, `q_rest!True`, and the `False` arm's), bound by the names the
+// schedule wrote, which stand for every arm's loop; the host dispatches on
+// the flag and launches one arm's. Prints what the llvm twin prints.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8], gbuffer : bool) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 0, false};
+        step(values[i], i % 4, rec);
+        if gbuffer && rec.seen {
+            out[i] = cast[[Float]](rec.hits) + rec.p.x;
+        } else {
+            out[i] = cast[[Float]](rec.hits);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    with_surface : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    without : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, with_surface, true);
+    run(values, without, false);
+    print(with_surface);
+    print(without);
+    return 0;
+}
+
+schedule {
+    run.specialize(gbuffer);
+    q = run.queue(root);
+    step.defer(step, q);
+    run.bind(i, GPUThread);
+    run.bind(q, GPUThread);
+    run.bind(q_rest, GPUThread);
+}

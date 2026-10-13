@@ -179,6 +179,13 @@ class Splitter {
     map<string, map<string, Split>> param_splits; // by function, by parameter
     vector<shared_ptr<Tracking>> tracks;
     vector<string> work; // functions with pending names
+    // Two storages whose leaves [first, last) flow into one parameter: a read
+    // through it is a read of either (split_parameter, finish).
+    struct Shared {
+        shared_ptr<Tracking> a, b;
+        size_t first, last;
+    };
+    vector<Shared> shared;
 
     Function &function(const string &name) {
         const auto it = funcs.find(name);
@@ -946,6 +953,17 @@ class Splitter {
         const Argument old = entry.args[j];
         if (const auto ps = param_splits.find(callee); ps != param_splits.end()) {
             if (const auto it = ps->second.find(old.name); it != ps->second.end()) {
+                // Another storage hands the same parameter (two records of
+                // one type, two arms' records): what the callee reads through
+                // it, it reads of both, so the two share their reads (finish).
+                if (it->second.track != like.track) {
+                    internal_assert(it->second.first == like.first &&
+                                    it->second.last == like.last)
+                        << like.track->handle << " and " << it->second.track->handle
+                        << " hand " << callee << " different parts of a storage as "
+                        << old.name;
+                    shared.push_back({it->second.track, like.track, like.first, like.last});
+                }
                 return it->second;
             }
         }
@@ -1131,6 +1149,18 @@ class Splitter {
     }
 
     void finish() {
+        // A leaf read through a parameter two storages hand is read of both.
+        for (bool again = true; again;) {
+            again = false;
+            for (const Shared &s : shared) {
+                for (size_t k = s.first; k < s.last; k++) {
+                    const bool read = s.a->read[k] || s.b->read[k];
+                    again = again || read != s.a->read[k] || read != s.b->read[k];
+                    s.a->read[k] = read;
+                    s.b->read[k] = read;
+                }
+            }
+        }
         // The unread rule: a leaf nothing loads is not stored and has no
         // array; the parameters made for it go too.
         for (const shared_ptr<Tracking> &track : tracks) {

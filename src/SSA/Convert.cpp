@@ -4,6 +4,7 @@
 #include "SSA/CloseBodies.h"
 #include "SSA/CodeGen_Stmt.h"
 #include "SSA/Contract.h"
+#include "SSA/CloneFunction.h"
 #include "SSA/Defer.h"
 #include "SSA/InducedStorage.h"
 #include "SSA/BlockAccumulates.h"
@@ -1794,6 +1795,331 @@ LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
     return sites.front();
 }
 
+// The name a schedule knows a function by: `vol_route` of `vol_route!True`
+// and of `vol_route!after!hit`, the copies and continuations a directive made.
+std::string base_of(const std::string &name) {
+    return name.substr(0, name.find('!'));
+}
+
+// A queue declared on a loop that an earlier specialize copied is one queue
+// per copy -- one per arm -- each owned by its arm's loop and named with
+// the arm's variant (`rays!True`): the dispatch on the flag sits above the
+// loop, and under each arm the loop, its queues, their drains and the rest
+// pass are the arm's own, so that one arm's kernels alone ever launch, and
+// what one arm never reads of its record is stored nowhere
+// (SSA/InducedStorage.h). A queue on a loop with one copy is one queue, as
+// before, and so is a queue on `root`. Every directive on the queue -- the
+// deferrals, the cut, the splits -- is applied once per arm.
+struct QueueArm {
+    std::string variant;   // `!True`; empty for the one instance of an unspecialized loop
+    std::string loop;      // what the queue is on: the arm's loop, or `root`
+    std::string name;      // the queue's name for this arm
+    std::string walk_loop; // the arm's loop, whose body the chain is reached from
+    std::string entry;     // for `root`: the arm's first block (QueueSpec::region_entry)
+};
+
+// The labels the owner's specialize directives give the copies they make:
+// `False` and `True` for a bool or a gang's count, a variant type's variant
+// names. What tells a specialize's copy of a loop (`p!VolPath!True`) from
+// another directive's product that carries a suffix too -- a queue split's
+// drain (`hits!Big`), an interchange's prologue (`p!VolPath!prologue`).
+std::set<std::string> specialize_labels(
+    const FuncMap &fmap, const ir::TransformMap &transforms,
+    const std::map<std::string, ir::Program::AdtStorage> &adt_storages,
+    const std::string &owner) {
+    std::set<std::string> labels;
+    const auto ts = transforms.find(owner);
+    const auto f = fmap.find(owner);
+    if (ts == transforms.end() || f == fmap.end()) {
+        return labels;
+    }
+    for (const ir::Transform &t : ts->second) {
+        const auto *s = std::get_if<ir::Specialize>(&t);
+        if (s == nullptr) {
+            continue;
+        }
+        if (!s->gang.empty()) {
+            labels.insert("False");
+            labels.insert("True");
+            continue;
+        }
+        for (const Argument &a : f->second->blocks.front()->args) {
+            if (a.name != s->param) {
+                continue;
+            }
+            Type type = a.type;
+            if (const Ptr_t *p = type.as<Ptr_t>()) {
+                type = p->etype;
+            }
+            if (type.is<Bool_t>()) {
+                labels.insert("False");
+                labels.insert("True");
+            } else if (const Struct_t *st = type.as<Struct_t>()) {
+                if (const auto it = adt_storages.find(st->name); it != adt_storages.end()) {
+                    for (const auto &[vname, tag] : it->second.variants) {
+                        labels.insert(vname);
+                    }
+                }
+            }
+        }
+    }
+    return labels;
+}
+
+// Whether `suffix` (`!VolPath!True`) is made of specialize labels alone.
+bool arm_suffix(const std::string &suffix, const std::set<std::string> &labels) {
+    if (suffix.size() < 2 || suffix[0] != '!') {
+        return false;
+    }
+    for (size_t at = 1; at <= suffix.size();) {
+        const size_t next = suffix.find('!', at);
+        const std::string segment =
+            suffix.substr(at, next == std::string::npos ? std::string::npos : next - at);
+        if (!labels.contains(segment)) {
+            return false;
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        at = next + 1;
+    }
+    return true;
+}
+
+std::vector<QueueArm> queue_arms(const FuncMap &fmap, const std::string &qname,
+                                 const ir::Queue &q, const std::set<std::string> &labels) {
+    internal_assert(!q.loop.names.empty()) << qname << " names no loop";
+    const std::string &loop = q.loop.names.back();
+    std::vector<QueueArm> arms;
+    if (loop == "root") {
+        // The owner's outermost loops that a specialize made: one arm per
+        // variant they carry, the arm's region beginning at the selector
+        // the dispatch enters (its block's loop is the arm's copy;
+        // SSA/Specialize.cpp). A drain of a queue made earlier -- an arm
+        // queue's `rays!True`, its rest pass -- carries the variant too and
+        // is not the arm's loop. An owner nobody specialized has one arm.
+        const Function &O = *fmap.at(q.owner);
+        std::vector<std::shared_ptr<Block>> loops;
+        for (const auto &block : O.blocks) {
+            if (std::holds_alternative<Terminator::ParFor>(block->terminator.data)) {
+                loops.push_back(block);
+            }
+        }
+        const auto is_drain = [&](const std::string &index) {
+            for (const auto &[name, owned] : O.queue_sizes) {
+                const size_t v = name.find('!');
+                const std::string base = v == std::string::npos ? name : name.substr(0, v);
+                const std::string variant = v == std::string::npos ? "" : name.substr(v);
+                if (index == name || index.rfind(name + "!", 0) == 0 ||
+                    index == base + "_rest" + variant) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        std::map<std::string, std::vector<std::shared_ptr<Block>>> by_variant;
+        for (const auto &block : loops) {
+            bool inside = false;
+            for (const auto &other : loops) {
+                const auto &p = std::get<Terminator::ParFor>(other->terminator.data);
+                if (other != block && Cfg(O, p.body.name).contains(*block)) {
+                    inside = true;
+                }
+            }
+            if (inside) {
+                continue;
+            }
+            const std::string &index = std::get<Terminator::ParFor>(block->terminator.data).index;
+            const size_t bang = index.find('!');
+            if (bang != std::string::npos && arm_suffix(index.substr(bang), labels) &&
+                !is_drain(index)) {
+                by_variant[index.substr(bang)].push_back(block);
+            }
+        }
+        if (by_variant.empty()) {
+            return {QueueArm{"", loop, qname, "", ""}};
+        }
+        for (const auto &[variant, blocks] : by_variant) {
+            internal_assert(blocks.size() == 1)
+                << "[unimplemented] " << qname << " = " << q.owner << ".queue(root): "
+                << q.owner << " has " << blocks.size() << " outermost loops of the arm "
+                << variant << "; a queue on root takes one loop per arm";
+            const auto &p = std::get<Terminator::ParFor>(blocks.front()->terminator.data);
+            arms.push_back(QueueArm{variant, loop, qname + variant, p.index,
+                                    blocks.front()->name});
+        }
+        return arms;
+    }
+    // The loop as declared, when it is still one loop; else its copies a
+    // specialize made, by their labels. A copy of another kind -- an
+    // interchange's prologue -- is neither.
+    for (const LoopSite &site : resolve_loops(fmap, q.owner, loop, "queue")) {
+        if (site.func != q.owner) {
+            continue;
+        }
+        const std::string suffix = variant_suffix(loop, site.index);
+        if (suffix.empty()) {
+            return {QueueArm{"", site.index, qname, site.index, ""}};
+        }
+        if (arm_suffix(suffix, labels)) {
+            arms.push_back(QueueArm{suffix, site.index, qname + suffix, site.index, ""});
+        }
+    }
+    internal_assert(!arms.empty())
+        << qname << " = " << q.owner << ".queue(" << loop << "): " << q.owner
+        << " has no loop named " << loop << ", nor a specialize's copies of one";
+    if (arms.size() == 1) {
+        arms.front().variant.clear();
+        arms.front().name = qname;
+        return arms;
+    }
+    return arms;
+}
+
+// The functions of a queue's chain, by the names the schedule knows them by:
+// the callee, the pushers, and everything that reaches one of them by calls
+// -- the functions a deferral rewrites or hands the queue down through. The
+// call graph is read over the base names, so copies and continuations count
+// as the function they were made from.
+std::set<std::string> chain_functions(const FuncMap &fmap, const std::string &callee,
+                                      const std::vector<std::string> &pushers) {
+    std::map<std::string, std::set<std::string>> callers;
+    for (const auto &[f, F] : fmap) {
+        for (const std::string &g : callees_of(*F)) {
+            callers[base_of(g)].insert(base_of(f));
+        }
+    }
+    std::set<std::string> on{callee};
+    on.insert(pushers.begin(), pushers.end());
+    std::vector<std::string> work(on.begin(), on.end());
+    while (!work.empty()) {
+        const std::string n = work.back();
+        work.pop_back();
+        for (const std::string &c : callers[n]) {
+            if (on.insert(c).second) {
+                work.push_back(c);
+            }
+        }
+    }
+    return on;
+}
+
+// The arm's copies of a queue's chain. Two arms' drains hand the chain two
+// queues of two types, so no function that takes the queue, or hands it
+// down, can serve both arms. Walking the calls from the arm's loop down, a
+// chain function is the arm's own already when its name carries the arm's
+// variant -- the specialize copied it, handed the arm's key, as it copies
+// `integrator_li` and everything the key is passed on to -- and is cloned
+// under the arm's variant, the call retargeted, when it does not (a pusher
+// the key never reaches). A function off the chain stays one function.
+// Hands back, by base name, every function of the chain the arm calls: one
+// name as a rule, and more where a stage split a continuation off it
+// (`step!after` beside `step`) or where an earlier specialize copied it per
+// variant of a key the chain hands it (`finish!Big` and `finish!Small`) --
+// which one_copy tells apart.
+std::map<std::string, std::set<std::string>>
+arm_chain_copies(FuncMap &fmap, const std::string &owner, const QueueArm &arm,
+                 const std::set<std::string> &on_chain) {
+    std::map<std::string, std::set<std::string>> copies;
+    const std::shared_ptr<Function> O = fmap.at(owner);
+    std::vector<std::shared_ptr<Block>> start;
+    if (arm.walk_loop.empty()) {
+        start = O->blocks; // the whole function: one arm, on root
+    }
+    for (const auto &block : O->blocks) {
+        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+        if (p != nullptr && p->index == arm.walk_loop) {
+            const Cfg body(*O, p->body.name);
+            for (BlockId b : body.rpo) {
+                start.push_back(body.block(b));
+            }
+        }
+    }
+    std::set<std::string> visited;
+    const std::function<void(const std::vector<std::shared_ptr<Block>> &)> walk =
+        [&](const std::vector<std::shared_ptr<Block>> &blocks) {
+            for (const auto &block : blocks) {
+                Terminator::Jump *call = block->terminator.callee();
+                if (call == nullptr) {
+                    continue;
+                }
+                const std::string base = base_of(call->name);
+                if (!on_chain.contains(base) || !fmap.contains(call->name)) {
+                    continue;
+                }
+                std::string target = call->name;
+                if (!carries_variant(target, arm.variant)) {
+                    target = call->name + arm.variant;
+                    if (!fmap.contains(target)) {
+                        // A function's entry block carries its name, and a
+                        // call of itself names it too (specialize_function
+                        // does the same for its copies).
+                        std::shared_ptr<Function> copy = clone_function(*fmap.at(call->name));
+                        const std::string was = copy->blocks.front()->name;
+                        copy->blocks.front()->name = target;
+                        for (const auto &b : copy->blocks) {
+                            for (Terminator::Jump *jump : jumps_of(*b)) {
+                                if (jump->name == was) {
+                                    jump->name = target;
+                                }
+                            }
+                        }
+                        fmap[target] = std::move(copy);
+                    }
+                    call->name = target;
+                }
+                copies[base].insert(target);
+                if (visited.insert(target).second) {
+                    walk(fmap.at(target)->blocks);
+                }
+            }
+        };
+    walk(start);
+    return copies;
+}
+
+// The one function a chain function's copies stand for: the shortest, when
+// every other is a continuation split off it (`step!after` of `step`,
+// `vol_path_step!True!after!hit` of `vol_path_step!True`); none, when two
+// are copies of it in their own right (`finish!Big` and `finish!Small`,
+// which a queue's specialize made because the chain hands `finish` the key
+// it specialized by), since a deferral's callee is one function.
+std::string one_copy(const std::set<std::string> &copies) {
+    std::string shortest;
+    for (const std::string &c : copies) {
+        if (shortest.empty() || c.size() < shortest.size()) {
+            shortest = c;
+        }
+    }
+    for (const std::string &c : copies) {
+        if (c != shortest && c.rfind(shortest + "!", 0) != 0) {
+            return "";
+        }
+    }
+    return shortest;
+}
+
+// The arm's copy of the function a directive names: the function itself for
+// the one arm of an unspecialized loop; else the shortest of its copies that
+// carries the arm's variant (`vol_path_step!True`, not its continuation
+// `vol_path_step!True!after!hit`).
+std::string arm_copy_of(const FuncMap &fmap, const std::string &name, const QueueArm &arm) {
+    if (arm.variant.empty()) {
+        return name;
+    }
+    std::string best;
+    for (const auto &[f, _] : fmap) {
+        if ((f == name || f.rfind(name + "!", 0) == 0) && carries_variant(f, arm.variant) &&
+            (best.empty() || f.size() < best.size())) {
+            best = f;
+        }
+    }
+    internal_assert(!best.empty())
+        << name << " has no copy for the arm " << arm.variant << " of " << arm.loop
+        << ": the arm's deferral has to come first, which copies the chain for it";
+    return best;
+}
+
 // The block graph itself, which nothing downstream can be asked about: the
 // relooper's reading of it is what `-p ssa` prints, and two different graphs
 // can reloop to the same statements. See
@@ -2009,10 +2335,14 @@ void check_branch_policies(const FuncMap &fmap,
 void attach_splits(QueueSpec &spec,
                    const std::vector<ir::QueueSpecialize> &splits,
                    const std::map<std::string, ir::Program::AdtStorage>
-                       &adt_storages) {
+                       &adt_storages,
+                   const std::string &declared) {
+    // `declared` is the queue as the schedule names it (`hits`); `spec.name`
+    // is the instance being made, which carries an arm's variant when the
+    // queue's loop was specialized (`hits!True`, QueueSpec::variant).
     spec.adt_storages = &adt_storages;
     for (const ir::QueueSpecialize &qs : splits) {
-        if (qs.queue != spec.name) {
+        if (qs.queue != declared) {
             continue;
         }
         if (!spec.split.has_value()) {
@@ -2430,16 +2760,23 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             << ", " << s.queue << ") names a queue no "
                             << "schedule block declares. Declare it: `"
                             << s.queue << " = <func>.queue(<loop>);`";
+                        // Once per arm of the queue's loop (queue_arms), on
+                        // the arm's copy of the staged function.
+                        for (const QueueArm &arm : queue_arms(
+                                 fmap, s.queue, q->second,
+                                 specialize_labels(fmap, transforms, adt_storages,
+                                                   q->second.owner))) {
+                        const std::string fname = arm_copy_of(fmap, name, arm);
                         QueueSpec spec;
-                        spec.name = s.queue;
+                        spec.name = arm.name;
+                        spec.variant = arm.variant;
+                        spec.region_entry = arm.entry;
                         spec.owner = q->second.owner;
                         spec.layouts = &layouts;
-                        attach_splits(spec, queue_splits, adt_storages);
+                        attach_splits(spec, queue_splits, adt_storages, s.queue);
                         spec.vector_leaves =
                             !vectorizes({spec.owner, name, s.callee.names.back()});
-                        internal_assert(!q->second.loop.names.empty())
-                            << s.queue << " names no loop";
-                        spec.loop = q->second.loop.names.back();
+                        spec.loop = arm.loop;
                         spec.storage = q->second.storage;
                         if (q->second.capacity.has_value()) {
                             const auto n = get_constant_value<int64_t>(
@@ -2453,18 +2790,21 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         if (!s.loop.empty()) {
                             // The cut on the same queue (SSA/Stage.h,
                             // stage_same_queue): no new queue, no new type.
-                            stage_same_queue(fmap, name, s.callee.names.back(),
-                                             spec, s.loop);
-                            return;
+                            // The first pass takes the arm's variant last,
+                            // as the rest pass does (QueueSpec::variant).
+                            stage_same_queue(fmap, fname, s.callee.names.back(),
+                                             spec, s.loop + arm.variant);
+                            continue;
                         }
                         for (const Type &made :
-                             stage(fmap, name, s.callee.names.back(), spec)) {
+                             stage(fmap, fname, s.callee.names.back(), spec)) {
                             const auto *st = made.as<Struct_t>();
                             internal_assert(st) << made;
                             if (keep_ssa != nullptr) {
                                 keep_ssa->types[st->name] = made;
                             }
                         }
+                        } // per arm
                     },
                     [&](const ir::Loopify &l) {
                         int size = 0;
@@ -2496,11 +2836,20 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             // The cut on the same queue, before the call
                             // (SSA/Stage.h, defer_same_queue): a directive
                             // of its own, not a pusher of the queue.
-                            QueueSpec spec;
-                            spec.name = d.queue;
-                            spec.owner = q->second.owner;
-                            spec.layouts = &layouts;
-                            defer_same_queue(fmap, name, callee, spec, d.loop);
+                            for (const QueueArm &arm : queue_arms(
+                                     fmap, d.queue, q->second,
+                                     specialize_labels(fmap, transforms, adt_storages,
+                                                       q->second.owner))) {
+                                QueueSpec spec;
+                                spec.name = arm.name;
+                                spec.variant = arm.variant;
+                                spec.region_entry = arm.entry;
+                                spec.owner = q->second.owner;
+                                spec.loop = arm.loop;
+                                spec.layouts = &layouts;
+                                defer_same_queue(fmap, arm_copy_of(fmap, name, arm), callee,
+                                                 spec, d.loop + arm.variant);
+                            }
                             return;
                         }
                         // Every `f.defer(callee, q)` on one queue and one
@@ -2561,11 +2910,58 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         if (name != primary) {
                             return; // part of the primary's deferral
                         }
+                        // Once per arm of the queue's loop (queue_arms): the
+                        // arm's own copies of the chain, its own queue.
+                        const std::set<std::string> chain_set =
+                            chain_functions(fmap, callee, pushers);
+                        for (const QueueArm &arm : queue_arms(
+                                 fmap, d.queue, q->second,
+                                 specialize_labels(fmap, transforms, adt_storages,
+                                                   q->second.owner))) {
+                        const std::map<std::string, std::set<std::string>> arm_copies =
+                            arm_chain_copies(fmap, q->second.owner, arm, chain_set);
+                        const auto callee_copies = arm_copies.find(callee);
+                        if (!arm.variant.empty() && callee_copies == arm_copies.end()) {
+                            // An arm that never calls into the chain -- the
+                            // integrator that is not this one's -- has no
+                            // queue of it.
+                            continue;
+                        }
+                        // The callee as the arm calls it: itself, or the one
+                        // copy a specialize made of it that the arm calls
+                        // (`finish!Big`, when a queue's specialize upstream
+                        // copied `finish` for the one drain that calls it).
+                        // Two copies called side by side -- the chain hands
+                        // the callee the key that specialize went by, so it
+                        // was copied per variant -- are refused: a queue's
+                        // drain calls one function (pbrt's BSSRDF kernel
+                        // takes the basic texture evaluator for every entry,
+                        // so vol_subsurface takes none and the material
+                        // queues' split by evaluator leaves it one function).
+                        std::string callee_arm = callee;
+                        if (callee_copies != arm_copies.end()) {
+                            callee_arm = one_copy(callee_copies->second);
+                            std::string list;
+                            for (const std::string &c : callee_copies->second) {
+                                list += (list.empty() ? "" : ", ") + c;
+                            }
+                            internal_assert(!callee_arm.empty())
+                                << d.queue << ": " << callee << " is called as " << list
+                                << " where " << q->second.owner << " reaches it"
+                                << (arm.variant.empty() ? "" : " in the arm " + arm.variant)
+                                << ", copies a queue's specialize made of " << callee
+                                << " because the chain hands it the key. A deferral's "
+                                   "callee is one function: the argument has to be the "
+                                   "same for every copy (as pbrt's BSSRDF kernel takes "
+                                   "the basic evaluator for every entry).";
+                        }
                         QueueSpec spec;
-                        spec.name = d.queue;
+                        spec.name = arm.name;
+                        spec.variant = arm.variant;
+                        spec.region_entry = arm.entry;
                         spec.owner = q->second.owner;
                         spec.layouts = &layouts;
-                        attach_splits(spec, queue_splits, adt_storages);
+                        attach_splits(spec, queue_splits, adt_storages, d.queue);
                         spec.initial_push = directive_on(q->second.owner);
                         {
                             std::vector<std::string> chain = {spec.owner, name, callee};
@@ -2677,7 +3073,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             }
                             for (const std::string &f : named) {
                                 std::vector<std::string> of =
-                                    call_holders(fmap, f, callee, q->second.owner);
+                                    call_holders(fmap, f, callee_arm, q->second.owner);
+                                std::erase_if(of, [&](const std::string &h) {
+                                    return !carries_variant(h, arm.variant);
+                                });
                                 if (std::getenv("BONSAI_EXPLAIN_DEFER") != nullptr) {
                                     std::cerr << "; " << d.queue << ": " << f
                                               << " stands for";
@@ -2702,7 +3101,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                     // and the material queues' split by
                                     // evaluator leaves it one function).
                                     const std::vector<std::string> copies =
-                                        copies_called(fmap, f, callee, q->second.owner);
+                                        copies_called(fmap, f, callee_arm, q->second.owner);
                                     std::string list;
                                     for (const std::string &c : copies) {
                                         list += (list.empty() ? "" : ", ") + c;
@@ -2717,7 +3116,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                            "one function: the argument has to be the "
                                            "same for every copy (as pbrt's BSSRDF kernel "
                                            "takes the basic evaluator for every entry).";
-                                    of.push_back(call_holder(fmap, f, callee));
+                                    of.push_back(call_holder(fmap, f, callee_arm));
                                 }
                                 for (const std::string &h : of) {
                                     if (std::find(holders.begin(), holders.end(), h) ==
@@ -2730,9 +3129,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         for (size_t h = 1; h < holders.size(); h++) {
                             spec.also_from.push_back(holders[h]);
                         }
-                        internal_assert(!q->second.loop.names.empty())
-                            << d.queue << " names no loop";
-                        spec.loop = q->second.loop.names.back();
+                        spec.loop = arm.loop;
                         spec.storage = q->second.storage;
                         if (q->second.capacity.has_value()) {
                             const auto n = get_constant_value<int64_t>(
@@ -2750,16 +3147,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         // queue and flag types made are the program's now,
                         // for the printer and the backends' declarations.
                         const std::string &holder = holders.front();
-                        const bool with_rest = has_nontail_call(fmap, holder, callee);
+                        const bool with_rest = has_nontail_call(fmap, holder, callee_arm);
                         for (const Type &made :
-                             with_rest ? defer_continuation(fmap, holder, callee, spec)
-                                       : defer(fmap, holder, callee, spec)) {
+                             with_rest ? defer_continuation(fmap, holder, callee_arm, spec)
+                                       : defer(fmap, holder, callee_arm, spec)) {
                             const auto *s = made.as<Struct_t>();
                             internal_assert(s) << made;
                             if (keep_ssa != nullptr) {
                                 keep_ssa->types[s->name] = made;
                             }
                         }
+                        } // per arm
                     },
                     // The keys were put on the recursion in lowering
                     // (Lower/Sorts.cpp); the run is ordered by them here,

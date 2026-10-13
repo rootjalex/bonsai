@@ -970,6 +970,74 @@ stretch is the only kind a deferral made there can have (4.2, where the
 drain sits); a push onto the queue of the cut itself is for the next
 round, whose first pass writes the array again, and reads nothing from it.
 
+### 4.6 A queue on a specialized loop: one queue per arm
+
+A `specialize(x)` written before a loop's queue copies the loop once per
+variant of `x` and dispatches on `x`'s tag above the copies (section 2).
+A queue declared on that loop is then one queue *per copy*, each owned by
+its arm's loop and named with the arm's variant, and every directive on
+the queue -- the deferrals, the cut, the splits -- is applied once per
+arm:
+
+    render[VolPath].specialize(film_visible_surface);
+    rays = render[VolPath].queue(p_band, ExternDevice);
+    li_vol_path.defer(vol_path_step, rays);
+
+    switch film_visible_surface:
+        False: par for each p in p_band!VolPath!False: ...; push rays!False
+               drains of rays!False, rest pass of rays!False
+        True:  par for each p in p_band!VolPath!True:  ...; push rays!True
+               drains of rays!True, rest pass of rays!True
+
+The dispatch is taken once, before anything runs, and only the arm taken
+runs its loops, its drains and its rest pass: a specialized flag never
+launches a kernel of the arm it did not choose. Each arm's queue, record
+and rest are its own, so what one arm never reads of its record is stored
+nowhere (4.2's storage rule): with an RGB film, the `False` arm's record
+has no array for the visible surface and its camera kernel writes none,
+which is pbrt's `if (initializeVisibleSurface)` -- a runtime branch in
+pbrt -- resolved per arm. The price is code: the chain's functions exist
+once per arm.
+
+The chain is the arm's own. A function the specialize copied for the arm,
+because the arm's key is handed to it (`integrator_li!True`, and whatever
+it hands the key on to), is the arm's already. A function of the chain
+the key never reaches -- a pusher such as `vol_exit`, which pushes onto
+the queue and so takes the queue, whose type is the arm's -- is copied
+for the arm by the deferral and the arm's calls retargeted
+(`vol_exit!True`). A function off the chain, one that neither reaches the
+callee by calls nor pushes onto the queue, stays one function. The copies
+carry the arm's variant in their names as every copy does, so a later
+directive naming the function finds each arm's (`vol_path_step.stage(...)`
+cuts `vol_path_step!True` and `vol_path_step!False`), and the loops made
+beside the drain take the variant last (`rays_rest!True`), so that
+`render.bind(rays_rest, GPUThread)` binds every arm's and `bind(rays,
+...)` does not bind the rest passes. A queue on `root` of a specialized
+owner has an arm per variant of the owner's outermost loops, each arm's
+region beginning at the loop copy the dispatch enters. A queue on a loop
+with one copy, or on an owner nobody specialized, is one queue as before.
+
+An arm that never calls into the chain has no queue of it: with
+`render.specialize(integrator)`, a queue of `vol_path_step` exists in the
+VolPath arm alone, which is why such a queue is declared on the arm,
+`render[VolPath].queue(p_band)`.
+
+A deferral's callee is one function per arm. The schedule's name for it
+stands for the function as the arm calls it: the function, the one copy
+a queue's specialize upstream made of it for the drain that calls it
+(`finish!Big`, when `step` hands `finish` the key `hits` was specialized
+by and only the Big drain calls it), and the continuations a stage split
+off that copy. Two copies of the callee called side by side in one arm
+(`finish!Big` and `finish!Small`, when both drains call it) are refused,
+since a queue's drain calls one function: the argument has to be the same
+for every copy, which is why pbrt's BSSRDF kernel takes the basic texture
+evaluator for every entry and `vol_subsurface` takes none.
+
+Reading a slot of a record nothing wrote is undefined, as reading
+unwritten storage is in C++. The rule above never produces such a read:
+a leaf is dropped only when no load of it exists anywhere in the program,
+and a leaf that is loaded is stored wherever the program stores it.
+
 ## 5. Other
 
 **skip(c*).** Not a transform: a policy for a gang's branches. A

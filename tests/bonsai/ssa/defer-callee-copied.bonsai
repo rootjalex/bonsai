@@ -1,0 +1,65 @@
+//! flags: -p ssa
+
+// A deferral whose callee a queue's specialize copied, with one copy
+// called. `step` hands `finish` the value the `hits` queue is specialized
+// by, so the specialize copies `finish` along with the rest of `step` it
+// copies per variant: `finish!Big` beside `step!after!Big`, and no
+// `finish!Small`, since the Small arm never calls finish. The schedule's
+// name for a function stands for the copies a queue's specialize made of
+// it, so `step.defer(finish, q)` is a deferral of that one copy:
+// `step!after!Big` pushes `r` onto `q`, whose drain calls `finish!Big` and
+// whose rest pass writes the result into `hits`' result for the Big
+// entries, before the `hits` rest pass writes `out`. Two copies called
+// side by side are refused instead (tests/bonsai/error/
+// defer-callee-specialized).
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(r : Found, k : Float) -> Float {
+    match r {
+        Big(v) => return v * 0.5 + k;
+        Small(v) => return v - k;
+    }
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(r, k);
+        Small(v) => return v - k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    q = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+    step.defer(finish, q);
+}

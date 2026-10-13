@@ -236,6 +236,20 @@ struct QueueSpec {
     const std::map<std::string, ir::Program::AdtStorage> *adt_storages = nullptr;
     // Where the queue's layout is recorded once made, for lower_pushes().
     QueueLayouts *layouts = nullptr;
+    // The arm this queue is one instance of, when its loop was specialized
+    // before the deferral: `!True` of `rays!True`, the queue the schedule
+    // declared as `rays` on the loop's `True` copy (SSA/Convert.cpp,
+    // queue_arms). `name` carries it already; what needs the two apart is
+    // a loop made beside the drain, which takes the variant last so that a
+    // directive naming it finds every arm's and one naming the drain does
+    // not (`rays_rest!True`). Empty for a queue on an unspecialized loop.
+    std::string variant;
+    // For a queue on `root` whose owner was specialized: the block the
+    // arm's region begins at -- the selector the dispatch enters, whose
+    // loop is the arm's copy of the owner's loop -- so that the arm's
+    // producers alone are this queue's and its drain sits under the arm.
+    // Empty for the whole function.
+    std::string region_entry;
 };
 
 // Turns the calls of `callee` inside `func` into entries on a queue, and gives

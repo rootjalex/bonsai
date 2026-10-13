@@ -1509,7 +1509,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // named loop.
     const bool root = queue.loop == "root";
     shared_ptr<Block> owner_loop_block; // the block whose ParFor is the loop
-    string region_entry = O->blocks.front()->name;
+    // The whole function for `root`, or one arm of it when the owner was
+    // specialized and this queue is the arm's (QueueSpec::region_entry).
+    string region_entry = root && !queue.region_entry.empty() ? queue.region_entry
+                                                              : O->blocks.front()->name;
     if (!root) {
         for (const auto &block : O->blocks) {
             const auto *p =
@@ -5092,8 +5095,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         if (!trivial) {
             // Named with an underscore: a name with `!` reads as a variant
             // of the drain loop, and a later directive on the drain would
-            // find this loop too.
-            const string rest_name = queue.name + "_rest";
+            // find this loop too. The arm's variant comes last, so that
+            // `rays_rest` names every arm's pass (QueueSpec::variant).
+            const string rest_name =
+                queue.name.substr(0, queue.name.size() - queue.variant.size()) +
+                "_rest" + queue.variant;
             auto pass = fresh_block(rest_name);
             auto run = fresh_block(rest_name + "!run");
             auto pass_exit = fresh_block(rest_name + "!exit");

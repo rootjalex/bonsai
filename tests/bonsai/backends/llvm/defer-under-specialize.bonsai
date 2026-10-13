@@ -1,0 +1,45 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/defer-under-specialize's program, all the way to LLVM:
+// the dispatch on `gbuffer` above two arms, each with its own queue
+// (`Queue_q!True`, `Queue_q!False`), its own record arrays and its own copy
+// of `step`. What to read for: the `False` arm allocates and stores one
+// record array, `q!False_rec_hits_slots`, where the `True` arm has three;
+// `step!False` takes one pointer in the record's place and `step!True`
+// three; and nothing of one arm is reached from the other's branch.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func [[export]] run(values : array[Float, 8], out : mut array[Float, 8], gbuffer : bool) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 0, false};
+        step(values[i], i % 4, rec);
+        if gbuffer && rec.seen {
+            out[i] = cast[[Float]](rec.hits) + rec.p.x;
+        } else {
+            out[i] = cast[[Float]](rec.hits);
+        }
+    }
+    return;
+}
+
+schedule {
+    run.specialize(gbuffer);
+    q = run.queue(root);
+    step.defer(step, q);
+}

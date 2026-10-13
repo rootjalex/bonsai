@@ -1,0 +1,52 @@
+//! flags: -p ssa
+
+// A queue on a loop that a specialize copied before the deferral, in the
+// SSA: `run.specialize(gbuffer)` copies the pixel loop for `False` and
+// `True` and dispatches on the flag above them, and `q = run.queue(root);
+// step.defer(step, q)` then makes one queue per arm -- `q!False` and
+// `q!True`, each owned by its arm's loop, each with its own record, drain
+// and rest pass under the arm (SSA/Convert.cpp, queue_arms) -- so that the
+// dispatch picks one arm's loops and nothing of the other's ever runs.
+// `step` is not handed the flag, so the specialize left it one function;
+// the deferral clones it per arm (`step!False`, `step!True`), since each
+// arm's drain hands the chain a queue of its own type. What to read for:
+// two records, and the `False` arm's smaller -- its rest reads `hits` alone,
+// so `q!False` keeps `q!False_rec_hits_slots` and nothing of `p` or `seen`
+// (the unread rule of SSA/InducedStorage.h), where the `True` arm's rest
+// reads all three; the `False` arm's initializer stores the one leaf.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8], gbuffer : bool) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 0, false};
+        step(values[i], i % 4, rec);
+        if gbuffer && rec.seen {
+            out[i] = cast[[Float]](rec.hits) + rec.p.x;
+        } else {
+            out[i] = cast[[Float]](rec.hits);
+        }
+    }
+    return;
+}
+
+schedule {
+    run.specialize(gbuffer);
+    q = run.queue(root);
+    step.defer(step, q);
+}

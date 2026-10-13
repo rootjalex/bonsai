@@ -47,6 +47,8 @@ add_bonsai_tests(
     defer-loop-owned.bonsai
     defer-record-soa.bonsai
     defer-reducer.bonsai
+    defer-under-specialize.bonsai
+    defer-callee-copied.bonsai
     defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai

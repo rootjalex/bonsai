@@ -1,7 +1,7 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Convert.cpp:2667
+[internal] Error: src/SSA/Convert.cpp:2948
 
---> copies.empty()
-q: step makes no call to finish where run reaches it; its copies call finish!Big, copies a queue's specialize made of finish because step hands it the key. A deferral's callee is one function: the argument has to be the same for every copy (as pbrt's BSSRDF kernel takes the basic evaluator for every entry).
+--> !callee_arm.empty()
+q: finish is called as finish!Big, finish!Small where run reaches it, copies a queue's specialize made of finish because the chain hands it the key. A deferral's callee is one function: the argument has to be the same for every copy (as pbrt's BSSRDF kernel takes the basic evaluator for every entry).

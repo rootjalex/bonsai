@@ -3,9 +3,12 @@
 // A deferral's callee is one function. `step` hands `finish` the value the
 // `hits` queue is specialized by, so the specialize copies `finish` along
 // with the rest of `step` it copies per variant (`finish!Big` beside
-// `step!after!Big`), and `step.defer(finish, q)` then finds its call made
-// on a copy of its callee and says so, rather than deferring nothing. This
-// is why apps/pbrt's vol_subsurface takes no texture evaluator: pbrt's
+// `step!after!Big`, `finish!Small` beside `step!after!Small`), and
+// `step.defer(finish, q)` then finds two copies of its callee called side
+// by side, where a queue's drain calls one function, and says so rather
+// than deferring one copy's call and leaving the other's as it is (one
+// copy called is deferred: tests/bonsai/ssa/defer-callee-copied). This is
+// why apps/pbrt's vol_subsurface takes no texture evaluator: pbrt's
 // BSSRDF kernel takes the basic evaluator for every entry (wavefront/
 // subsurface.cpp), so the material queues' split by evaluator leaves it one
 // function and `vol_surface.defer(vol_subsurface, bssrdfs)` one callee.
@@ -33,7 +36,7 @@ func step(x : Float, k : Float) -> Float {
     r = classify(x);
     match r {
         Big(v) => return finish(r, k);
-        Small(v) => return v - k;
+        Small(v) => return finish(r, k);
     }
 }
 
