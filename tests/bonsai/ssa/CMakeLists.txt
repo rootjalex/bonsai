@@ -49,6 +49,7 @@ add_bonsai_tests(
     defer-reducer.bonsai
     defer-under-specialize.bonsai
     defer-callee-copied.bonsai
+    gate-drains-under-specialize.bonsai
     defer-remat.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai

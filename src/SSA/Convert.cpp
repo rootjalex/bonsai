@@ -1816,6 +1816,12 @@ struct QueueArm {
     std::string name;      // the queue's name for this arm
     std::string walk_loop; // the arm's loop, whose body the chain is reached from
     std::string entry;     // for `root`: the arm's first block (QueueSpec::region_entry)
+    // For `root`: the blocks only this arm's selector reaches -- its loop,
+    // and the drains and rest passes of the arm's earlier queues, which a
+    // queue on `root` puts beside the loop rather than inside it -- and
+    // so where the chain is reached from (arm_chain_copies). Empty for a
+    // queue on a loop, whose drains lie in the loop's body.
+    std::set<std::string> region;
 };
 
 // The labels the owner's specialize directives give the copies they make:
@@ -1948,6 +1954,31 @@ std::vector<QueueArm> queue_arms(const FuncMap &fmap, const std::string &qname,
             arms.push_back(QueueArm{variant, loop, qname + variant, p.index,
                                     blocks.front()->name});
         }
+        // Each arm's region: what its selector reaches and no other arm's
+        // does. The merge below the arms and everything after it is every
+        // arm's and belongs to none; a drain of an arm's earlier queue,
+        // made beside the arm's loop, is reached from that arm's selector
+        // alone and is where the chain is reached through -- the calls of
+        // a chain function from a split's drains (`shade!False!Matte`
+        // calling `wetten`) are the arm's to retarget as much as the
+        // loop's own.
+        for (QueueArm &arm : arms) {
+            const Cfg own(O, arm.entry);
+            for (BlockId b : own.rpo) {
+                arm.region.insert(own.block(b)->name);
+            }
+        }
+        for (QueueArm &arm : arms) {
+            for (const QueueArm &other : arms) {
+                if (&other == &arm) {
+                    continue;
+                }
+                const Cfg theirs(O, other.entry);
+                for (BlockId b : theirs.rpo) {
+                    arm.region.erase(theirs.block(b)->name);
+                }
+            }
+        }
         return arms;
     }
     // The loop as declared, when it is still one loop; else its copies a
@@ -2006,8 +2037,10 @@ std::set<std::string> chain_functions(const FuncMap &fmap, const std::string &ca
 
 // The arm's copies of a queue's chain. Two arms' drains hand the chain two
 // queues of two types, so no function that takes the queue, or hands it
-// down, can serve both arms. Walking the calls from the arm's loop down, a
-// chain function is the arm's own already when its name carries the arm's
+// down, can serve both arms. Walking the calls down from the arm's region
+// -- its loop's body for a queue on the loop, the loop and the drains
+// beside it for a queue on `root` (QueueArm::region) -- a chain function
+// is the arm's own already when its name carries the arm's
 // variant -- the specialize copied it, handed the arm's key, as it copies
 // `integrator_li` and everything the key is passed on to -- and is cloned
 // under the arm's variant, the call retargeted, when it does not (a pusher
@@ -2023,15 +2056,26 @@ arm_chain_copies(FuncMap &fmap, const std::string &owner, const QueueArm &arm,
     std::map<std::string, std::set<std::string>> copies;
     const std::shared_ptr<Function> O = fmap.at(owner);
     std::vector<std::shared_ptr<Block>> start;
-    if (arm.walk_loop.empty()) {
+    if (!arm.region.empty()) {
+        // An arm of a queue on `root`: its region (QueueArm::region), the
+        // loop and the drains of its earlier queues beside it.
+        for (const auto &block : O->blocks) {
+            if (arm.region.contains(block->name)) {
+                start.push_back(block);
+            }
+        }
+    } else if (arm.walk_loop.empty()) {
         start = O->blocks; // the whole function: one arm, on root
-    }
-    for (const auto &block : O->blocks) {
-        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
-        if (p != nullptr && p->index == arm.walk_loop) {
-            const Cfg body(*O, p->body.name);
-            for (BlockId b : body.rpo) {
-                start.push_back(body.block(b));
+    } else {
+        // An arm of a queue on a loop: the loop's body, where a queue on
+        // the loop drains too.
+        for (const auto &block : O->blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p != nullptr && p->index == arm.walk_loop) {
+                const Cfg body(*O, p->body.name);
+                for (BlockId b : body.rpo) {
+                    start.push_back(body.block(b));
+                }
             }
         }
     }

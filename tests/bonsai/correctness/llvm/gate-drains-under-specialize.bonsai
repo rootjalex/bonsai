@@ -1,0 +1,96 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/gate-drains-under-specialize's program, run in its four
+// scenes. Matte squares 1, 4, 9, 2, 3 (111) and Fuzz values 11, 15, 20
+// (46), plus half of every value from the leaves' soaks (32.5): 189.5 dry,
+// 222 wet with `dries`' soaks too, and 1000 more per sample in the gbuffer
+// arm. A `soaks` drain gated on `wet` alone would print 157 and 8157 for
+// the dry scenes.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn total += soak(x);
+    return;
+}
+
+func dampen(x : Float, total : reduce(+) Float) -> Float {
+    wetten(x, total);
+    return 0.0;
+}
+
+func shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            total += a;
+        }
+    }
+    wetten(x, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, gbuffer : bool,
+          total : reduce(+) Float) -> void {
+    if gbuffer {
+        total += 1000.0;
+    }
+    if wet {
+        spawn total += dampen(x, total);
+    }
+    s = classify(x);
+    shade(s, x, total);
+    return;
+}
+
+func run(values : array[Float, 8], wet : bool, gbuffer : bool,
+         total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], wet, gbuffer, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    dry : reduce(+) Float = 0.0;
+    run(values, false, false, dry);
+    print(dry);
+    wet : reduce(+) Float = 0.0;
+    run(values, true, false, wet);
+    print(wet);
+    dry_g : reduce(+) Float = 0.0;
+    run(values, false, true, dry_g);
+    print(dry_g);
+    wet_g : reduce(+) Float = 0.0;
+    run(values, true, true, wet_g);
+    print(wet_g);
+    return 0;
+}
+
+schedule {
+    run.specialize(gbuffer);
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    dries = run.queue(root);
+    step.defer(dampen, dries);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+}

@@ -70,8 +70,11 @@ namespace ssa {
 // under a scene fact: the split masks (added as owner parameters, returned
 // for the generated header -- ir::Program::ArmMask), the owner-readable
 // push conditions, and the closure of both over the push graph.
-// `queue_splits` is the schedule's, as written; `storages` resolves the
-// split keys' variants and tags.
+// `queue_splits` is the schedule's, as written -- a split of `hits` is a
+// split of every family named `hits` or `hits!<arm>`, the arms a queue has
+// when its loop was specialized before the deferral (docs/
+// schedule-semantics.md 4.6); `storages` resolves the split keys'
+// variants and tags.
 std::vector<ir::Program::ArmMask>
 gate_drains(FuncMap &fmap, const std::vector<ir::QueueSpecialize> &queue_splits,
             const std::map<std::string, ir::Program::AdtStorage> &storages);

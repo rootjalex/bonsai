@@ -1,0 +1,111 @@
+//! flags: -p ssa
+
+// Launch gates under a specialized loop (SSA/GateDrains.h; docs/
+// schedule-semantics.md 4.6). `run.specialize(gbuffer)` before the queues
+// copies the loop per value of the flag, and every queue is one per arm:
+// `hits!False` and `hits!True`, each with the split's leaves under it,
+// `dries!*` and `soaks!*`. What to read for in `run`: the split
+// `hits.specialize(s)` is a split of each arm's queue, so `hits!False!Matte`
+// and `hits!False!Fuzz` sit behind their bits of the one mask
+// `surface_arms`, as `hits!True`'s leaves do; `dries!False`, pushed by the
+// producer under `wet` alone, is gated on `wet`; and `soaks!False` --
+// pushed through `wetten` by both leaves' drains and by `dries`' drain --
+// is gated on the leaves' bits OR `wet`, so that a dry scene still
+// launches it for the leaves' pushes. The drains' calls of `wetten` are
+// the arm's copy's (`wetten!False`, handed `soaks!False`): a queue on
+// `root` drains beside the arm's loop, and the arm's chain is reached
+// through those drains as through the loop (SSA/Convert.cpp,
+// QueueArm::region). Matched to the split by exact name, the arms' queues
+// were unsplit families whose indexed pushes resolved to no leaf:
+// `hits!False` was unfeedable and launched unconditionally, `soaks!False`
+// was gated on `wet` alone, and a dry scene lost every soak the leaves
+// pushed -- the renderer's shadow rays, gated on `have_media`, in a scene
+// without media.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn total += soak(x);
+    return;
+}
+
+func dampen(x : Float, total : reduce(+) Float) -> Float {
+    wetten(x, total);
+    return 0.0;
+}
+
+func shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            total += a;
+        }
+    }
+    wetten(x, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, gbuffer : bool,
+          total : reduce(+) Float) -> void {
+    if gbuffer {
+        total += 1000.0;
+    }
+    if wet {
+        spawn total += dampen(x, total);
+    }
+    s = classify(x);
+    shade(s, x, total);
+    return;
+}
+
+func run(values : array[Float, 8], wet : bool, gbuffer : bool,
+         total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], wet, gbuffer, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    dry : reduce(+) Float = 0.0;
+    run(values, false, false, dry);
+    print(dry);
+    wet : reduce(+) Float = 0.0;
+    run(values, true, false, wet);
+    print(wet);
+    dry_g : reduce(+) Float = 0.0;
+    run(values, false, true, dry_g);
+    print(dry_g);
+    wet_g : reduce(+) Float = 0.0;
+    run(values, true, true, wet_g);
+    print(wet_g);
+    return 0;
+}
+
+schedule {
+    run.specialize(gbuffer);
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    dries = run.queue(root);
+    step.defer(dampen, dries);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+}

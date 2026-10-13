@@ -432,9 +432,39 @@ gate_drains(FuncMap &fmap,
                      [](const ir::QueueSpecialize *a, const ir::QueueSpecialize *b) {
                          return a->under.size() < b->under.size();
                      });
+    // A split is of the queue as the schedule declared it and, when the
+    // queue's loop was specialized before the deferral, of each arm's queue
+    // (SSA/Convert.cpp, queue_arms): `hits.specialize(material)` splits
+    // `hits!False` and `hits!True`, each a family of its own with the
+    // split's leaves under it -- a drain's family is read off its queue's
+    // name, which carries the arm -- and the two arms share the mask (the
+    // parameter is per key, `fresh` below), since which materials the scene
+    // has is one fact. Matched by exact name, the arms' families would be
+    // unsplit queues whose indexed pushes resolve to no leaf: unfeedable,
+    // launched unconditionally, and feeding nothing downstream -- the
+    // shadow drain gated on `have_media` alone, the medium kernels being
+    // the only pushers left.
+    struct SplitOf {
+        const ir::QueueSpecialize *split;
+        string family;
+    };
+    vector<SplitOf> split_families;
     for (const ir::QueueSpecialize *qsp : ordered_splits) {
-        const ir::QueueSpecialize &qs = *qsp;
-        string node = qs.queue;
+        set<string> families;
+        for (const Drain &d : drains) {
+            if (d.family == qsp->queue ||
+                d.family.rfind(qsp->queue + "!", 0) == 0) {
+                families.insert(d.family);
+            }
+        }
+        for (const string &family : families) {
+            split_families.push_back({qsp, family});
+        }
+    }
+    for (const SplitOf &sf : split_families) {
+        const ir::QueueSpecialize &qs = *sf.split;
+        const string &family = sf.family;
+        string node = family;
         for (const string &label : qs.under) {
             node += "!" + label;
         }
@@ -448,7 +478,7 @@ gate_drains(FuncMap &fmap,
         string drained;
         Function *owner = nullptr;
         for (const Drain &d : drains) {
-            if (d.family != qs.queue) {
+            if (d.family != family) {
                 continue;
             }
             for (const auto &block : d.owner->blocks) {
@@ -471,7 +501,7 @@ gate_drains(FuncMap &fmap,
         if (std::getenv("BONSAI_DEBUG_GATES") != nullptr) {
             std::fprintf(stderr,
                          "gate_drains: split %s drained '%s' (in fmap: %d)\n",
-                         qs.queue.c_str(), drained.c_str(),
+                         family.c_str(), drained.c_str(),
                          drained.empty() ? 0 : int(fmap.contains(drained)));
         }
         if (drained.empty() || !fmap.contains(drained)) {
@@ -480,7 +510,7 @@ gate_drains(FuncMap &fmap,
         const shared_ptr<Value> key = key_value(*fmap.at(drained), qs.key);
         if (std::getenv("BONSAI_DEBUG_GATES") != nullptr) {
             std::fprintf(stderr, "gate_drains: split %s key value %s\n",
-                         qs.queue.c_str(), key == nullptr ? "NULL" : "found");
+                         family.c_str(), key == nullptr ? "NULL" : "found");
         }
         if (key == nullptr) {
             continue;
@@ -571,6 +601,15 @@ gate_drains(FuncMap &fmap,
             std::get_if<Terminator::ParFor>(&d.block->terminator.data);
         string node = d.family;
         size_t from = 0;
+        // Past the arm's label in the loop's name (`hits_blk!False!Basic!
+        // Diffuse` drains `hits!False`), so that a variant named as an arm
+        // is -- a bool key's `False` -- is looked for after it, not at it.
+        if (const size_t bang = d.family.find('!'); bang != string::npos) {
+            const size_t at = loop->index.find(d.family.substr(bang));
+            if (at != string::npos) {
+                from = at + d.family.size() - bang;
+            }
+        }
         while (true) {
             const auto vs = variants_at.find(node);
             if (vs == variants_at.end()) {

@@ -1022,6 +1022,15 @@ An arm that never calls into the chain has no queue of it: with
 VolPath arm alone, which is why such a queue is declared on the arm,
 `render[VolPath].queue(p_band)`.
 
+A split of the queue (`hits.specialize(material)`, section 4.4) is a
+split of each arm's queue, `hits!False` and `hits!True` each with the
+split's leaves under it and the two sharing the mask of which variants
+the scene has; the launch gates (SSA/GateDrains.h) are read per arm's
+queue, so a queue fed by an arm's leaf drains is gated on their bits as
+before. For a queue on `root`, an arm's drains sit beside the arm's loop,
+under the arm's selector, and the arm's chain is reached through them as
+through the loop.
+
 A deferral's callee is one function per arm. The schedule's name for it
 stands for the function as the arm calls it: the function, the one copy
 a queue's specialize upstream made of it for the drain that calls it
