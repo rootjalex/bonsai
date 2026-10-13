@@ -14551,12 +14551,16 @@ present. Two debts the GPU twin of that test found, besides the
 specialize_callees one above -- all three reproduced with the compiler of
 29e15282, before the arms (a build of that commit, 21:45), so none is the
 arms' (not fixed tonight; each is a program with its expected output in
-tests/bonsai/pending, with a README): a `reduce(+)` parameter of the
-whole run accumulated from a loop bound to the GPU sums wrong in the
-plainest form, no queues at all -- `total += x` from a GPU-bound loop
-prints 1.0, the first value, for 65 (the suite's GPU reduction is an
-`atomic total[0] += ..` into a `mut array` word, block-reduce; a reducer
-parameter has no test); and a spawned call's drained function spawning
+tests/bonsai/pending, with a README): an `atomic total += x` into a
+`reduce(+)` parameter, inside a function a GPU-bound loop calls, prints
+1.0 for 65 -- SSA/DemoteAtomics.cpp runs per function and asks which
+bound loops of that function enclose the accumulate; in the callee there
+are none, contention_of answers Disjoint, the `atomic` comes off, and
+the kernel's threads race on one word (the statement written inline in
+the loop keeps its atomic and the block reduction, and prints 65; a
+plain `+=` is the program's own race, which is what my first version of
+this test wrote, in the called form and in the gate test run on the
+GPU, and the user caught); and a spawned call's drained function spawning
 onward onto a second queue (`spawn l += dampen(x, l)` onto `dries`,
 dampen spawning `soak` onto `soaks`, both into the iteration's reducer
 `l`): alone, `[internal] Error: SSA.cpp:748, soaks!end lists predecessor

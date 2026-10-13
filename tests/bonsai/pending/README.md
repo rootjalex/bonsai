@@ -15,7 +15,7 @@ Each file's header says what it does, what comes out today and why.
 | test | the construct | today | expected |
 |---|---|---|---|
 | `specialize-recursive-callee` | a queue's specialize (`hits.specialize(r)`) copies a function handed the key that hands it to itself | the compiler never finishes: `finish!Big`, `finish!Big!Big`, `finish!Big!Big!Big`, ... until the stack is gone (`ulimit -s 2048` makes it die in seconds; the loop form `run.specialize(flag)` over such a function is fine) | `-1 0 1 2 3 3.5 4 4.5` |
-| `reduce-param-gpu` | a `reduce(+)` parameter of the run accumulated from a loop bound to the GPU, no queues | `1.0`, the first value alone (a drain bound to the GPU adding into it: `1.0` too; a spawned call's accumulate: `0.0`) | `65` |
+| `reduce-param-gpu` | `atomic total += x` into a `reduce(+)` parameter, inside a function the GPU-bound loop calls | `1.0`, the first value alone: SSA/DemoteAtomics.cpp takes the `atomic` off, since no parallel loop *of that function* encloses it, and the kernel does a plain load, add, store per thread; the same statement written inline in the loop's body keeps it and prints 65 | `65` |
 | `spawn-then-spawn` | a spawned call (`spawn l += dampen(x, l)`, deferred onto `dries`) whose drained function spawns onto a second queue (`spawn l += soak(x)`, onto `soaks`) | `[internal] Error: src/SSA/SSA.cpp:748 -- soaks!end lists predecessor ^ that does not point to it` | half of each value |
 | `spawn-then-spawn-after-defer` | the same beside an ordinary deferral with a rest (`step.defer(shade, hits)`, the rest `out[i] = l`) | compiles and runs: the wet scenes lose every soak the `dries` drain spawned and the first sample's soak from the `hits` drain; with `hits.specialize(s)` added, SIGBUS after printing the sums without any soak | the four lines of the `.expect` |
 
@@ -34,13 +34,20 @@ Where to look:
   that follows the key into callees reads that call as handing the
   specialized value to a callee and copies again. A copy's call of itself
   is the one call to leave alone.
-- `reduce-param-gpu`: CodeGen/CodeGen_GPU_Host.cpp, a reducer parameter
-  reaching a loop placed on the device. The GPU reduction the suite covers
-  is `atomic total[0] += ..` into a `mut array` word
-  (correctness/gpu/block-reduce); a reducer parameter has no test and does
-  not work. With the loop on the GPU and the drain on the host, the
-  compiler refuses the program instead (`[unimplemented] the loop bound to
-  the GPU reads hits_queue ... whose elements hold pointers of their own`).
+- `reduce-param-gpu`: SSA/DemoteAtomics.cpp, `DemoteAtomics::run(Function
+  &f)`, called once per function from SSA/Convert.cpp's phase "atomics
+  after the binds". It asks `parallel_loops_by_block(f)` which bound loops
+  of `f` enclose each block, and `contention_of` (SSA/Contention.cpp)
+  answers `Disjoint` for an empty list -- "nothing runs concurrently" --
+  which is true inside `step` and false of `step`, which the bound loop in
+  `run` calls once per concurrent iteration. The analysis is intra-
+  procedural; a function reached by calls from a bound loop's body has to
+  be read as enclosed by its callers' loops, and with no way to relate
+  the address to those loops' indices the answer is `Unknown`, which keeps
+  the atomic (a device atomic, where the inline form gets
+  SSA/BlockAccumulates.h's block reduction). A plain `total += x` from a
+  bound loop is the program's own race, inline or called, and prints 1.0
+  by right.
 - `spawn-then-spawn`: SSA/Defer.cpp, the blocks a spawned deferral makes
   around the call (`<queue>!end`) when the drained function pushes onto
   another queue; the predecessor list of the second queue's end block

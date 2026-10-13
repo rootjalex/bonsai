@@ -1,20 +1,26 @@
 //! flags: -p ssa -b llvm -e
 
-// FAILS (2026-10-12): prints 1.000000. A `reduce(+)` parameter of the run,
-// accumulated from a loop bound to the GPU: the plainest form, no queues.
-// Expected 65, the sum of the values; what comes back is the first value
-// alone. With the accumulate inside a queue's drain bound to the GPU
-// (`step.defer(shade, hits)`, `shade` adding) it is 1.0 too, and a
-// spawned call's accumulate (`spawn total += soak(x)`, the drain bound) is
-// 0.0. The GPU reduction the suite covers is an `atomic total[0] += ..`
-// into a `mut array` word (correctness/gpu/block-reduce); a reducer
-// parameter from a GPU loop has no test and does not work. The renderer
-// is not exposed: its radiance is a per-sample slot of the ray queue's
-// record, never a reducer of the run.
+// FAILS (2026-10-12): prints 1.000000 for 65. An `atomic` accumulate into
+// a `reduce(+)` parameter, made inside a function the GPU-bound loop
+// calls. The program is right: eight threads add into one word, and
+// `atomic` says so. The `atomic` survives the parser, the lowering and the
+// conversion to SSA, and is taken off by SSA/DemoteAtomics.cpp, which runs
+// per function and asks which parallel loops of *that function* enclose
+// the accumulate's block (parallel_loops_by_block): in `step` there are
+// none -- the bound parfor is in `run`, the caller -- so contention_of
+// answers Disjoint and the flag goes; the kernel then does a plain load,
+// add and store per thread (`ld.global.b32; add.rn.f32; st.global.b32` in
+// the PTX), the stores race, and the last one wins. The same statement
+// written inline in the parfor's body keeps its atomic, gets the block
+// reduction of SSA/BlockAccumulates.h and prints 65. The analysis has to
+// know that a function called from inside a bound loop runs once per
+// concurrent iteration -- its callers' loops enclose it -- and keep the
+// atomics of such a function (Unknown, not Disjoint) when it cannot see
+// the address is the iteration's own.
 import stdlib/numerics;
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    total += x;
+    atomic total += x;
     return;
 }
 

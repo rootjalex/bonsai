@@ -1783,9 +1783,10 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    entity", last paragraph); and the three compiler debts the arms found
    (PLAN.md, the arms section; each a program with its expected output in
    tests/bonsai/pending, all three present at 29e15282): a queue's
-   specialize clones a recursive callee handed the key without end, a
-   `reduce(+)` parameter of the run accumulated from a GPU-bound loop sums
-   wrong, and a spawned call's drained function spawning onward onto a
+   specialize clones a recursive callee handed the key without end, the
+   atomics demotion reads a function a GPU-bound loop calls as enclosed
+   by no parallel loop and takes an `atomic` off that the threads need
+   (SSA/DemoteAtomics.cpp), and a spawned call's drained function spawning onward onto a
    second queue is an internal error alone and lost sums beside a
    deferral with a rest.
 5. After each fix, the compare on the fix's scenes plus head and
