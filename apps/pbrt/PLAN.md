@@ -14413,6 +14413,168 @@ The recommendation is the third; the user's call. The specialize is
 right for the sampler, whose dimensions the draws depend on; for the
 film it reaches the stores only by splitting the queues.
 
+**The user's decision (10-12, 16:40): the first way, built cleanly.** "I
+think we need some sort of intelligent mechanism for tracking
+specializations and queues with specializations. There can (and should?)
+be two different queues based on this specialization. Queues should work
+with a continuation afterwards. ... Reading unwritten data is undefined
+behavior and should be documented as such, but I think if we specialize
+before the deferral then we don't even need to implement that, right?"
+Right: with the loop specialized before the deferral, the RGB arm's record
+is read by no film and the unread rule drops its surface, initializer
+included. The third way is withdrawn besides: a variant's value is lowered
+to a tag and a vector of zero-filled 32-bit words with the member written
+over them (Lower/ADTs.cpp), so an `Empty` would store every word.
+
+**Built: a queue on a specialized loop is one queue per arm**
+(docs/schedule-semantics.md 4.6; SSA/Convert.cpp `queue_arms`,
+`chain_functions`, `arm_chain_copies`, `arm_copy_of`; QueueSpec::variant
+and ::region_entry). The queue directive's loop is resolved with every
+copy an earlier specialize made (`p_band!VolPath` -> `p_band!VolPath!True`,
+`!False`), and the deferral, the cut and the splits are applied once per
+copy: a queue `rays!True` owned by the arm's loop, its record, its drains
+and its rest pass under the arm, the rest loop named `rays_rest!True` so
+that `bind(rays_rest, ...)` finds every arm's and `bind(rays, ...)` does
+not bind it. The chain is made the arm's: a function the specialize
+already copied for the arm (handed the key: `integrator_li!True` and
+everything `want_visible` reaches) is used; a chain function the key never
+reaches -- one that reaches the callee by calls or pushes onto the queue,
+`vol_exit` -- is cloned under the arm's variant and the arm's calls
+retargeted, since two arms' drains hand the chain two queues of two types;
+a function off the chain stays one. A queue on `root` of a specialized
+owner has an arm per variant of the owner's outermost loops, the arm's
+region beginning at the loop copy the dispatch enters (QueueSpec::
+region_entry). An arm that never calls into the chain gets no queue (the
+integrator arms). The storage pass learned that two records handing one
+function the same parameter share its reads (SSA/InducedStorage.cpp,
+`shared`), so a leaf read through a shared pointer is kept for both.
+report_stages.py's kernel patterns take the arm's suffix. Tests:
+ssa/defer-under-specialize (two queues under `if (gbuffer)`, the False
+arm's record one array, `step!True` with three pointers and `step!False`
+with one), its llvm golden, correctness/llvm and correctness/gpu twins
+running both arms (1 3 5 7 5 7 9 11 and 1 2 3 4 1 2 3 4). Two things
+the renderer taught on the way: a loop copy's suffix is an arm's only
+when it is made of the owner's specialize labels (`!False`), not another
+directive's product (`!False!prologue`, the interchange's prologue; a
+split's `hits!Big` drain), which is what `specialize_labels` and
+`arm_suffix` decide; and `clone_function` dropped a call's `spawned`
+flag, so an arm copy's `spawn l += escaped_contribution(...)` read as a
+call with a rest to stage -- fixed in SSA/CloneFunction.cpp. The
+renderer's schedule gains `render[VolPath].specialize(film_visible_surface)`
+ahead of the queues. Compiled: `rays!False.visible : VisibleSurface as
+nothing (unread)` -- the RGB arm's record has no surface storage at all --
+and `rays!True.visible` the four arrays; 102 device kernels against 52
+and twelve OptiX modules against six (each drain, material kernel and
+program once per film kind), and the RGB arm's camera kernel writes
+STG.E x26, STG.E.128 x8, STG.E.U8 x3 where the morning's wrote x32, x9,
+x4: the two normals, the albedo and the set byte gone, 41 bytes a pixel
+sample, pbrt's `if (initializeVisibleSurface)` as code that is not there.
+One cosmetic thing left as it is: the original of a function the
+deferral clones per arm (`vol_exit` beside `vol_exit!True` and `!False`;
+`step` in the test) stays in the printed program with nothing calling
+it, as the original of a function `specialize()` copies does already
+(`integrator_li` beside `integrator_li!VolPath`); none of them reaches
+the device code (the 102 PTX entries are all arms' kernels), so it costs
+nothing at run time or in ptxas. A pass dropping every function no
+export reaches would tidy the post-schedule dump for both.
+
+The suites found one thing (19:20). tests/bonsai/error/
+defer-callee-specialized expected `step.defer(finish, q)` refused when a
+queue's specialize upstream had copied `finish` to `finish!Big` (`step`
+hands it the key `hits` goes by); with the arms it compiled, because the
+walk from the queue's owner resolves the callee to the copy the chain
+calls, and in that program only the Big drain calls finish. The program
+it built is right: `step!after!Big` pushes onto `q`, `q`'s drain calls
+`finish!Big`, its rest pass writes `hits`' result for the Big entries, the
+Small drain computes its own -- which is what e9ed71c1 says the schedule's
+name for a function means (the function, its continuations and the copies
+a queue's specialize made of it). But the walk kept the first copy it
+found, so a program whose Small drain also calls finish deferred
+`finish!Big`'s call and left `finish!Small`'s as it was, silently, where
+the old check refused. Now `arm_chain_copies` hands back every copy of a
+chain function the arm calls, `one_copy` says whether a set is one
+function with the continuations split off it (`step` with `step!after`,
+`vol_path_step!True` with `vol_path_step!True!after!hit`) or two copies in
+their own right, and the deferral refuses two with the old message. The
+error test is now the two-copies program; ssa, backends/llvm and
+correctness/llvm defer-callee-copied are the one-copy program (out: -1 0
+1 2 3 3.5 4 4.5). A debt found on the way, not fixed here: my first
+scratch version of the two-copies program made `finish` call itself on
+Small, and `specialize_callees` (SSA/Specialize.cpp) followed the
+self-call -- `finish!Small`, `finish!Small!Small`, ... -- until the stack
+ran out, which means a terminating recursive function handed the key it
+recurses with (a tree walk passing a variant down) would be cloned
+without end too; the fix is to skip a copy's call of itself there, since
+specialize_function has already retargeted it, with a test of such a
+function under a queue's specialize.
+
+**The first compare of the arms build failed (20:05), and found two
+bugs.** Every image was dark but for the light itself and a sprinkle of
+noise (killeroo-simple at 16 spp: 1,464 pixels lit against pbrt's
+488,450), and the kernels were a third slower. Emission reached the film
+at every depth, so paths ran; the direct lighting did not, so the shadow
+rays were the suspect, and the dump showed why: the two have_media
+copies of the False arm's shadow drain (`shadow!False!drain!False`,
+`!True`) each held a launch gate `dispatch have_media [exit, launch]` --
+GateDrains' gate, which skips a drain whose queue cannot have been fed
+-- and in a scene without media the specialize picks the have_media=False
+copy and the gate then skips it. The gate was `have_media` because the
+pass had found only the medium kernels' pushes onto `shadow!False`: the
+split records (`hits.specialize(material)`) carry the declared name
+`hits`, the pass matched a drain's family to a split by exact name, and
+the arm queues `hits!False` and `hits!True` matched nothing -- their 22
+leaf drains collapsed into one unsplit family, their indexed pushes
+resolved to no leaf, the queues came out unfeedable (launched anyway, by
+the pass's rule for that), and the material kernels' pushes onto the
+shadow queue fed nothing downstream (BONSAI_DEBUG_GATES confirmed it:
+`split hits drained ''`, 22 pushes to `hits!False[k]` unresolved). Fix
+(SSA/GateDrains.cpp): a split is of every family named `hits` or
+`hits!<arm>`, each with the split's leaves under it, the arms sharing the
+one mask; the leaf labels are looked for in a loop's name after the arm's
+own label. The second bug the test for the first found: for a queue on
+`root`, the arm's chain was walked from the arm's loop body alone, and
+the drains of the arm's earlier queues -- which a root queue puts beside
+the loop, under the arm's selector -- were not walked, so a chain
+function called from a split's drains kept its original (`shade!False!
+Matte` calling `wetten`, not `wetten!False`) and that call was never
+deferred: the right answer, computed inline, through no queue. The
+renderer's queues are on `p_band`, whose drains lie inside the band loop,
+so the walk reached them there; the root form has QueueArm::region now
+-- the blocks only this arm's selector reaches -- and walks it.
+Tests: ssa and correctness/llvm gate-drains-under-specialize (a split
+queue under arms, `soaks` fed by its leaves' drains and by a drain the
+producer feeds under `wet`: the leaves gated on their bits of the shared
+mask, `soaks` on `wet` OR the bits; 189.5, 222, 8189.5, 8222, where the
+bug printed 157 for the dry scenes). On the renderer: the hits leaves
+gated per arm again, the shadow drains ungated, their trace loops
+present. Two debts the GPU twin of that test found, both reproduced
+without the specialize and so neither the arms' (not fixed tonight): a
+`reduce(+)` parameter of the whole run, accumulated from the drains on
+the device, sums wrong -- tests/bonsai/ssa/gate-drains with `run.bind(i,
+GPUThread)` and its three queues bound likewise prints 1.0 where the CPU
+prints 192.5, and the new test so bound prints 12, 12, 1012, 1012 -- and
+a `reduce(+)` local of the iteration (the renderer's `l`), accumulated by
+spawned calls a later root queue's drain runs and read by `out[i] = l`
+after the step, is read by the first queue's rest pass before that drain
+has run, then written through an address of the finished iteration: the
+CPU prints the sums short of the soaks and dies with SIGBUS. The
+renderer is not exposed to either: its radiance is a slot of the `rays`
+record, every queue is on `p_band`, and the film's pass runs after the
+round's whole chain.
+
+Measured (21:15; compare-out-arms against compare-out-lambda, the five
+scenes at 16 and 64 spp, the least of three on each side; the failed
+first run kept as compare-out-arms-failed): every cell faster, 1.011x
+kernel as a geometric mean at both counts (1.007x to 1.015x; lte-orb-
+silver 1.015x at 64 spp), 1.88x over pbrt at 16 spp and 1.89x at 64, all
+ten radiance images byte-identical to heatmap5's. The camera-ray stage,
+where the 41 bytes a sample were: 19.3 ms against pbrt's 27.8 summed over
+the five scenes at 16 spp (0.69 of pbrt's; 22.0 and 0.80 in the
+wavelengths run), 76.0 against 111.6 at 64 (0.68; was 0.77), the worst
+scene lte-orb-silver 0.79 (was 0.94). Nothing else moved outside noise,
+as nothing else changed for an RGB film. The table is REPORT.md's "Where
+it stands (2026-10-12, 21:25)".
+
 ### A layout group's base aligned to its largest member (10-12, 14:30-)
 
 **The finding (10-11), the ruling (10-12, 11:50).** A layout's struct is

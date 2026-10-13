@@ -37,34 +37,34 @@ import sys
 # Material kernels are added per material (MATERIAL_*) and whatever is
 # left on either side goes into "film + the rest".
 STAGES = [
-    ("closest-hit trace + routing", r"^__raygen__rays$",
+    ("closest-hit trace + routing", r"^__raygen__rays(\$\w+)*$",
      ["Trace closest hit rays"], ""),
     ("shadow traces (every pass)", r"^__raygen__(exit_)?shadow\$",
      ["Trace shadow rays", "Tracing shadow Tr rays"],
      "ours: `__raygen__shadow$<alpha>` and `__raygen__exit_shadow$<alpha>`; "
      "pbrt: the shadow and shadow-Tr trace kernels"),
-    ("subsurface probe trace", r"^__raygen__probes$",
+    ("subsurface probe trace", r"^__raygen__probes(\$\w+)*$",
      ["Tracing subsurface scattering probe rays"], ""),
-    ("subsurface exit", r"^_kernel_exits_blk$",
+    ("subsurface exit", r"^_kernel_exits_blk(\$\w+)*$",
      ["Handle out-scattering after SSS"], ""),
-    ("medium sampling", r"^_kernel_medium_samples_blk$",
+    ("medium sampling", r"^_kernel_medium_samples_blk(\$\w+)*$",
      ["Sample medium interaction"], ""),
-    ("medium scattering", r"^_kernel_medium_scatters_blk$",
+    ("medium scattering", r"^_kernel_medium_scatters_blk(\$\w+)*$",
      ["Sample direct/indirect - Henyey-Greenstein"], ""),
     ("sample draws (the bounce's dimensions, per ray)",
-     r"^_kernel_(rays|samples)_blk(\$\w+)?$",
+     r"^_kernel_(rays|samples)_blk(\$\w+)*$",
      ["Generate ray samples - *"],
      "ours: the first pass of the `rays` cut, `samples_blk$<Sampler>` since "
      "the kernels per sampler of 10-10 (`rays_blk` in the runs before); a run "
      "before the sample stage (10-09) has no kernel here, its draws having "
      "run inside the material and medium kernels, so pbrt's stands alone "
      "there"),
-    ("camera rays", r"^_kernel_p_blk\$VolPath(\$prologue)?(\$\w+)?$",
+    ("camera rays", r"^_kernel_p_blk\$VolPath(\$prologue)?(\$\w+)*$",
      ["Generate camera rays"],
      "both sides draw the camera's own dimensions here; ours one kernel per "
      "sampler since 10-10"),
-    ("escaped rays", r"^_kernel_escaped_blk$", ["Handle escaped rays"], ""),
-    ("emitters hit", r"^_kernel_emissive_blk$",
+    ("escaped rays", r"^_kernel_escaped_blk(\$\w+)*$", ["Handle escaped rays"], ""),
+    ("emitters hit", r"^_kernel_emissive_blk(\$\w+)*$",
      ["Handle emitters hit by indirect rays"], ""),
 ]
 # `_kernel_hits_blk$<Material>` against pbrt's `<Material>Material + BxDF
@@ -190,10 +190,15 @@ def split_stages(ours, pbrt, launches=None):
     # texture-evaluator split of 10-09, `_kernel_hits_blk$<Evaluator>$
     # <Material>` after it, against pbrt's `<Material>Material + BxDF eval
     # (<Evaluator> tex)` -- both evaluators' kernels when ours is unsplit.
+    # A loop specialize's arm label stands ahead of both (`$False$Basic$
+    # Diffuse`: the film's flag, specialized since 10-12) and is not a
+    # material; only one arm's kernels run in a scene, so dropping it
+    # leaves one row per material.
     materials = sorted(m[len("_kernel_hits_blk$"):] for m in ours if m.startswith("_kernel_hits_blk$"))
     for key in materials:
         a = ours.pop("_kernel_hits_blk$" + key)
-        evaluator, mat = key.split("$") if "$" in key else (None, key)
+        parts = [p for p in key.split("$") if p not in ("False", "True")]
+        evaluator, mat = (parts[-2], parts[-1]) if len(parts) >= 2 else (None, parts[-1])
         pbrt_mat = MATERIAL_PBRT_NAME.get(mat, mat)
         names = [pbrt_mat + "Material + BxDF eval (" + evaluator + " tex)"] if evaluator \
             else [pbrt_mat + "Material + BxDF eval*"]

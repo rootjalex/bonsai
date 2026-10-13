@@ -19,6 +19,57 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-12, 21:25)
+
+**The surface's initializer is written only for a gbuffer film, by
+specializing the pixel loop on the film's flag, and a queue on a
+specialized loop is one queue per arm.** The ruling of 16:40 is built
+(da37462e, 2356177e; docs/schedule-semantics.md 4.6): `render[VolPath]
+.specialize(film_visible_surface)` ahead of the queues copies the pixel
+loop per value of the flag, every queue below is one per arm with its
+own record, drains and rest pass under the arm's dispatch, and the host
+tests the flag once and launches one arm's kernels -- 102 device kernels
+and twelve OptiX modules in the program, one set per film kind, of which
+a scene runs one. The RGB arm's record has no array of the visible
+surface at all (`rays!False.visible : VisibleSurface as nothing
+(unread)`), so its camera kernel writes 41 bytes a pixel sample fewer
+than before (26 stores, 8 of them 128-bit and 3 bytes, against 32, 9
+and 4): pbrt's `if (initializeVisibleSurface)` as code that is not
+there. The first compare of the build drew every scene dark and found
+two bugs in how the passes after the deferral read an arm's queue, both
+fixed and tested (PLAN.md, "The first compare of the arms build
+failed"): the launch gates matched a split to its queue by exact name and
+lost the arm queues' splits, so the shadow drain was gated on
+`have_media` and skipped in every scene without media; and a root queue's
+arm chain was walked from the loop alone, missing the drains beside it.
+Measured on the protocol's five scenes against the wavelengths run
+(kernel milliseconds, least of three on each side):
+
+| scene | spp | pbrt | wavelengths beside the surface | queue per arm |
+|---|---|---|---|---|
+| killeroo-simple | 16 | 49.3 | 28.41 | 28.02 |
+| killeroo-gold | 16 | 149.6 | 69.94 | 69.03 |
+| book | 16 | 152.9 | 85.59 | 84.76 |
+| lte-orb-silver | 16 | 161.4 | 79.80 | 78.90 |
+| lte-orb-rough-glass | 16 | 335.5 | 199.81 | 198.36 |
+| killeroo-simple | 64 | 198.3 | 113.06 | 111.70 |
+| killeroo-gold | 64 | 598.2 | 278.86 | 275.65 |
+| book | 64 | 612.2 | 341.60 | 338.35 |
+| lte-orb-silver | 64 | 645.2 | 319.15 | 314.51 |
+| lte-orb-rough-glass | 64 | 1344.3 | 799.08 | 792.77 |
+
+1.011x kernel as a geometric mean at both counts, every cell faster
+(1.007x to 1.015x), 1.88x over pbrt at 16 spp and 1.89x at 64; all ten
+radiance images byte-identical to heatmap5's. The camera-ray stage, where
+the bytes were: 19.3 ms against pbrt's 27.8 summed over the five scenes
+at 16 spp (0.69 of pbrt's; 22.0 and 0.80 in the wavelengths run), 76.0
+against 111.6 at 64 (0.68; was 0.77), the worst scene lte-orb-silver 0.79
+(was 0.94). With this the rulings of 11:50 and 16:40 are all built,
+measured and committed; the day's kernel speedups: 1.012x (vector
+leaves), 1.047x (the record a struct of arrays), 1.003x (the
+wavelengths), 1.011x (the arm), which with the 1.110x over heatmap5 the
+record's section reports makes 1.13x over heatmap5 for the day.
+
 ## Where it stands (2026-10-12, 15:50)
 
 **The two remaining rulings of 11:50 are built, tested and measured.**
@@ -1701,16 +1752,17 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order (2026-10-12, 15:50)
+## To do, in order (2026-10-12, 21:25)
 
-1. The user's rulings of 11:50 are done and measured (PLAN.md, the three
-   sections of 10-12): the record and every other induced storage a
-   struct of arrays (a6edb516, 1.047x kernel, the camera rays ahead of
-   pbrt everywhere), the wavelengths beside the surface as pbrt keeps
-   them (1.003x, within noise), a layout group's base aligned to its
-   largest member (09e3b202, the renderer untouched). Open, the user's
-   call: the surface's initializer written only for a gbuffer film --
-   pbrt's `set` flag as an ADT's tag is the recommendation (PLAN.md).
+1. The user's rulings of 11:50 and 16:40 are done and measured (PLAN.md,
+   the four sections of 10-12): the record and every other induced
+   storage a struct of arrays (a6edb516, 1.047x kernel, the camera rays
+   ahead of pbrt everywhere), the wavelengths beside the surface as pbrt
+   keeps them (1.003x, within noise), a layout group's base aligned to
+   its largest member (09e3b202, the renderer untouched), and the
+   surface's initializer written only for a gbuffer film by one queue
+   per arm of the specialized pixel loop (da37462e, 2356177e, 1.011x,
+   the camera-ray stage 0.69 of pbrt's).
 2. The work-item plan (PLAN.md, "The work items matched, and the hit
    chain"): step 5's program changes (hits 255 -> 241 bytes against pbrt's
    252; the probe's empty start; the subsurface context), then the hit
@@ -1728,7 +1780,12 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    times pbrt's); compare.sh and render.sh onto the shared conversion
    folder; the bistro and pavilion image verdicts (the lit-pixel rule,
    with the pbrt-GPU behavior audit of PLAN.md, "Design: the mesh is the
-   entity", last paragraph).
+   entity", last paragraph); and the three compiler debts the arms found
+   (PLAN.md, the arms section): specialize_callees clones a recursive
+   callee handed the key without end, a `reduce(+)` parameter of the run
+   accumulated from the drains on the device sums wrong, and a `reduce(+)`
+   local of the iteration is read by a root queue's rest pass before a
+   later drain's spawns into it have run.
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with

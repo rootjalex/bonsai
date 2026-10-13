@@ -38,6 +38,15 @@ schedule {
     vol_probe_step.loopify();
 
     render.specialize(integrator);
+    // pbrt: `initializeVisibleSurface`, the integrator's flag for a film
+    // that records the visible surface, tested at run time around the
+    // surface's initialization and its fill. Here the pixel loop is copied
+    // per value of the flag, and every queue below is one per copy (docs/
+    // schedule-semantics.md, 4.6): the host dispatches on the flag once, an
+    // RGB film's arm reads nothing of the surface, so its record keeps no
+    // array of it and its camera kernel writes none -- pbrt's kernels for an
+    // RGB film, by specialization rather than by pbrt's branch.
+    render[VolPath].specialize(film_visible_surface);
     render[VolPath].reorder(p, s);
     render[VolPath].split(p, p_band, p_in, pass_pixels, true);
 
