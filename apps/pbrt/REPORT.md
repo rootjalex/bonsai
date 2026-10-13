@@ -1781,11 +1781,13 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    folder; the bistro and pavilion image verdicts (the lit-pixel rule,
    with the pbrt-GPU behavior audit of PLAN.md, "Design: the mesh is the
    entity", last paragraph); and the three compiler debts the arms found
-   (PLAN.md, the arms section): specialize_callees clones a recursive
-   callee handed the key without end, a `reduce(+)` parameter of the run
-   accumulated from the drains on the device sums wrong, and a `reduce(+)`
-   local of the iteration is read by a root queue's rest pass before a
-   later drain's spawns into it have run.
+   (PLAN.md, the arms section; each a program with its expected output in
+   tests/bonsai/pending, all three present at 29e15282): a queue's
+   specialize clones a recursive callee handed the key without end, a
+   `reduce(+)` parameter of the run accumulated from a GPU-bound loop sums
+   wrong, and a spawned call's drained function spawning onward onto a
+   second queue is an internal error alone and lost sums beside a
+   deferral with a rest.
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with

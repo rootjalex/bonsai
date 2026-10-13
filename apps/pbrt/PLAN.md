@@ -14547,20 +14547,26 @@ producer feeds under `wet`: the leaves gated on their bits of the shared
 mask, `soaks` on `wet` OR the bits; 189.5, 222, 8189.5, 8222, where the
 bug printed 157 for the dry scenes). On the renderer: the hits leaves
 gated per arm again, the shadow drains ungated, their trace loops
-present. Two debts the GPU twin of that test found, both reproduced
-without the specialize and so neither the arms' (not fixed tonight): a
-`reduce(+)` parameter of the whole run, accumulated from the drains on
-the device, sums wrong -- tests/bonsai/ssa/gate-drains with `run.bind(i,
-GPUThread)` and its three queues bound likewise prints 1.0 where the CPU
-prints 192.5, and the new test so bound prints 12, 12, 1012, 1012 -- and
-a `reduce(+)` local of the iteration (the renderer's `l`), accumulated by
-spawned calls a later root queue's drain runs and read by `out[i] = l`
-after the step, is read by the first queue's rest pass before that drain
-has run, then written through an address of the finished iteration: the
-CPU prints the sums short of the soaks and dies with SIGBUS. The
-renderer is not exposed to either: its radiance is a slot of the `rays`
-record, every queue is on `p_band`, and the film's pass runs after the
-round's whole chain.
+present. Two debts the GPU twin of that test found, besides the
+specialize_callees one above -- all three reproduced with the compiler of
+29e15282, before the arms (a build of that commit, 21:45), so none is the
+arms' (not fixed tonight; each is a program with its expected output in
+tests/bonsai/pending, with a README): a `reduce(+)` parameter of the
+whole run accumulated from a loop bound to the GPU sums wrong in the
+plainest form, no queues at all -- `total += x` from a GPU-bound loop
+prints 1.0, the first value, for 65 (the suite's GPU reduction is an
+`atomic total[0] += ..` into a `mut array` word, block-reduce; a reducer
+parameter has no test); and a spawned call's drained function spawning
+onward onto a second queue (`spawn l += dampen(x, l)` onto `dries`,
+dampen spawning `soak` onto `soaks`, both into the iteration's reducer
+`l`): alone, `[internal] Error: SSA.cpp:748, soaks!end lists predecessor
+^ that does not point to it`; beside a deferral with a rest it compiles
+and the inner spawns' sums are lost (and the first sample's), silently;
+with the hits split as well it dies with SIGBUS. Not the drain order,
+which is right -- hits, dries, soaks, then the rest pass -- as my first
+reading of it had it. The renderer is exposed to neither: its radiance is
+a slot of the `rays` record, not a reducer of the run, and no spawned
+call of its chain spawns onward.
 
 Measured (21:15; compare-out-arms against compare-out-lambda, the five
 scenes at 16 and 64 spp, the least of three on each side; the failed
