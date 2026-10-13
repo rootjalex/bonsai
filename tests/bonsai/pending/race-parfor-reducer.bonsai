@@ -1,0 +1,35 @@
+//! flags: -p ssa -b llvm -e
+
+// A race the compiler should refuse: a plain accumulate into a reducer
+// the iterations of a `parfor` share.
+//
+// `total` is declared outside the loop -- here, main's, handed to `run` --
+// and every iteration adds into the one word with `total += values[i]`.
+// A `parfor` says its iterations may run at once, and two plain
+// accumulates to one location at once are a race, which the language
+// leaves undefined (docs/parallel-semantics.md, section 2); the program
+// has to say `atomic total += values[i]`. That the schedule here binds
+// nothing, so the loop runs one iteration at a time and prints 65, does
+// not make the program right: the promise is the program's, the loop's
+// parallelism is the schedule's to take up, and a schedule that binds
+// the loop turns the same program into a wrong answer with no change to
+// it (correctness/gpu/reduce-param is this program with the `atomic`,
+// bound). Today: compiles and prints 65. Expected: refused, with a
+// diagnostic like the `.expect`'s (its wording is a proposal; the check
+// is docs/parallel-semantics.md section 5's, not built yet).
+import stdlib/numerics;
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        total += values[i];
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    run(values, total);
+    print(total);
+    return 0;
+}

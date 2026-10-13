@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+tests/bonsai/pending/race-reducer-read.bonsai:26:18: [race] `total` is read inside `parfor i`, whose iterations accumulate into it, and another iteration may be adding at the same time: a reducer is read after the loop that contributes to it.
+
+        out[i] = total;
+                 ^^^^^

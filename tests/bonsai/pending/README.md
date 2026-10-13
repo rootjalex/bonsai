@@ -32,6 +32,25 @@ to none of the three: its radiance is a per-sample slot of the ray queue's
 record, not a reducer of the run, and no spawned call of its chain spawns
 onward.
 
+## Programs the compiler should refuse
+
+The `race-*` programs are of the other kind: each compiles and runs today
+and should not, since it has a race under the parallelism its `parfor` or
+`spawn` says is possible (docs/parallel-semantics.md, sections 2 and 3:
+an accumulate into a reducer another activity may write at the same time
+is `atomic` or the program has no meaning). Each `.expect` is a proposed
+diagnostic in the format of `tests/bonsai/error`; the check that would
+emit it is that document's section 5 and is not built. Closing one is
+moving the pair into `tests/bonsai/error` with the wording the check
+settles on.
+
+| test | the race | today | expected |
+|---|---|---|---|
+| `race-parfor-reducer` | `total += values[i]` in a `parfor`, `total` declared outside it | prints 65, the loop run one iteration at a time | refused: write `atomic total += values[i]` |
+| `race-spawned-function` | a spawned function writing `total += x * 0.5` into a reducer every spawned call shares | prints 97.5 and eight ones, the drain run one call at a time | refused: write `atomic total += x * 0.5` (which is `ssa/demote-atomics-spawn-*`) |
+| `race-spawn-accumulate` | the spawn's own accumulate, `spawn total += half(x)`, into a reducer every spawned call shares | prints 97.5 unbound and 65 with the GPU binds -- every spawned half lost, the entry holding the reducer's per-launch device address | refused, once the language has a spelling for an atomic spawn (`spawn atomic total += half(x)` proposed; a ruling) |
+| `race-reducer-read` | `out[i] = total` inside the `parfor` whose iterations accumulate into `total` | prints the running sums in loop order | refused: a reducer is read after the loop that contributes to it |
+
 Where to look, each read off the compiler's own output (the dumps and the
 runs are reproduced by the commands in each file's header):
 

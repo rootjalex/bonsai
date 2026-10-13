@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm -e
+
+// A race the compiler should refuse: a reducer read inside the `parfor`
+// that accumulates into it.
+//
+// A reducer is read where it was declared, once every contribution is in
+// (tests/bonsai/error/reducer-read refuses a read inside a function the
+// reducer was handed to). This program reads it in the declaring function,
+// which the parser allows, but inside the loop whose other iterations
+// are adding into it at the same time: `out[i] = total` loads a word that
+// another iteration's `atomic total += values[i]` may be writing, which is
+// a race whatever the write is (docs/parallel-semantics.md, section 2),
+// and the value it would read -- the sum so far, in the order the
+// iterations happened to run -- is what declaring `total` a reducer
+// promised nothing depends on. The read belongs after the loop. Today:
+// compiles and prints the running sums in loop order, since nothing is
+// bound. Expected: refused, with a diagnostic like the `.expect`'s (its
+// wording is a proposal; the check is docs/parallel-semantics.md section
+// 5's, not built yet).
+import stdlib/numerics;
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    total : reduce(+) Float = 0.0;
+    parfor i in 0:8 {
+        atomic total += values[i];
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
