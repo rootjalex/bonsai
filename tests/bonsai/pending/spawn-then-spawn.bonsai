@@ -1,15 +1,21 @@
 //! flags: -p ssa -b llvm -e
 
 // FAILS (2026-10-12): `[internal] Error: src/SSA/SSA.cpp:748 -- soaks!end
-// lists predecessor ^ that does not point to it`. A spawned call whose
-// drained function itself makes a spawned call onto a second queue:
-// `step` spawns `dampen` onto `dries`, and `dampen`, run by the dries
-// drain, spawns `soak` onto `soaks`, both accumulating into the
-// iteration's reducer `l`. The same with `dampen` calling a `wetten` that
-// holds the spawn (`wetten.defer(soak, soaks)`) fails the same way. In a
-// larger program the construct compiles and runs wrong instead
-// (spawn-then-spawn-after-defer, beside this file). Expected: out[i] is
-// half of each value.
+// lists predecessor ^ that does not point to it`, the block dumped being
+// `dries!run`. A spawned call whose drained function itself makes a
+// spawned call onto a second queue: `step` spawns `dampen` onto `dries`,
+// and `dampen`, run by the dries drain, spawns `soak` onto `soaks`, both
+// accumulating into the iteration's reducer `l`. The second deferral's
+// one producer -- the owner's one call into its chain -- is the dries
+// drain's `callc dampen(...) dries!ran(l)`, whose continuation is the
+// accumulate that drain owes, and SSA/Defer.cpp's single-producer path
+// reads it as the producer's rest: it makes `soaks!end` with `dries!run`
+// as its predecessor and threads the call's value into a record slot from
+// there, before the call is repointed to it (README.md, where to look).
+// The same with `dampen` calling a `wetten` that holds the spawn
+// (`wetten.defer(soak, soaks)`) fails the same way. In a larger program
+// the construct compiles and runs wrong instead (spawn-then-spawn-after-
+// defer, beside this file). Expected: out[i] is half of each value.
 import stdlib/numerics;
 
 func soak(x : Float) -> Float {

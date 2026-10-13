@@ -14550,27 +14550,64 @@ gated per arm again, the shadow drains ungated, their trace loops
 present. Two debts the GPU twin of that test found, besides the
 specialize_callees one above -- all three reproduced with the compiler of
 29e15282, before the arms (a build of that commit, 21:45), so none is the
-arms' (not fixed tonight; each is a program with its expected output in
-tests/bonsai/pending, with a README): an `atomic total += x` into a
-`reduce(+)` parameter, inside a function a GPU-bound loop calls, prints
-1.0 for 65 -- SSA/DemoteAtomics.cpp runs per function and asks which
-bound loops of that function enclose the accumulate; in the callee there
-are none, contention_of answers Disjoint, the `atomic` comes off, and
-the kernel's threads race on one word (the statement written inline in
-the loop keeps its atomic and the block reduction, and prints 65; a
-plain `+=` is the program's own race, which is what my first version of
-this test wrote, in the called form and in the gate test run on the
-GPU, and the user caught); and a spawned call's drained function spawning
-onward onto a second queue (`spawn l += dampen(x, l)` onto `dries`,
-dampen spawning `soak` onto `soaks`, both into the iteration's reducer
-`l`): alone, `[internal] Error: SSA.cpp:748, soaks!end lists predecessor
-^ that does not point to it`; beside a deferral with a rest it compiles
-and the inner spawns' sums are lost (and the first sample's), silently;
-with the hits split as well it dies with SIGBUS. Not the drain order,
-which is right -- hits, dries, soaks, then the rest pass -- as my first
-reading of it had it. The renderer is exposed to neither: its radiance is
-a slot of the `rays` record, not a reducer of the run, and no spawned
-call of its chain spawns onward.
+arms' (each is a program with its expected output in tests/bonsai/pending,
+with a README that says where each lives in the compiler): an `atomic
+total += x` into a `reduce(+)` parameter, inside a function a GPU-bound
+loop calls, printed 1.0 for 65 -- SSA/DemoteAtomics.cpp ran per function
+and asked which bound loops of that function enclose the accumulate; in
+the callee there are none, contention_of answered Disjoint, the `atomic`
+came off, and the kernel's threads raced on one word (the statement
+written inline in the loop keeps its atomic and the block reduction, and
+prints 65; a plain `+=` is the program's own race, which is what my first
+version of this test wrote, in the called form and in the gate test run
+on the GPU, and the user caught). FIXED (23:55): which functions the
+bound loops call is settled over the whole program first
+(functions_called_in_parallel, SSA/Contention.h: the callees of blocks a
+bound loop encloses, and theirs in turn), and in such a function an
+atomic comes off only for storage the call made for itself (an
+allocation of the function); a parameter's address is some caller's, and
+whether two iterations hand down the same one is not visible from
+inside, so the atomic stays -- a device atomic, `atom.relaxed.gpu.global.
+add.f32`, where the loop's own body gets the block reduction. The
+renderer's film atomics and wosx's walk sums sit in the bound loop's own
+function, so nothing of theirs changes: the suites pass with no golden
+touched (1550 non-GPU, 68 GPU). Tests: correctness/gpu/reduce-param (65)
+with backends/ptx/reduce-param, and demote-atomics-callee in ssa,
+backends/llvm and correctness/llvm (the reducer handed down two calls
+kept, the call's own local and a callee of an unbound loop demoted, one
+parallel caller enough). The gate test's GPU twin now prints 157, 157,
+8157, 8157 -- its written atomics right (the squares and values; the
+first run printed 12) and every spawned soak lost, for two reasons that
+are not this pass's: the drain adds a spawned call's value with the
+program's flag, and `spawn` has no `atomic` spelling (the parser's
+`spawn` form passes atomic=false), so a spawn into the owner's reducer
+from a bound drain is a race the program cannot say; and the entry of a
+spawned call holds the reducer's *address*, which on the JIT runtime's
+GPU path is the address of that launch's device copy of `total`
+(runtime/bonsai_cuda.h, "Memory": a buffer is allocated, copied in,
+copied back and freed per launch), dead by the soaks kernel -- the guard
+at CodeGen_GPU_Host.cpp:304 refuses a queue struct holding such
+pointers but not a record array of them. Both for the user to rule on.
+And a spawned call's drained function spawning onward onto a second queue
+(`spawn l += dampen(x, l)` onto `dries`, dampen spawning `soak` onto
+`soaks`, both into the iteration's reducer `l`): alone, `[internal]
+Error: SSA.cpp:748, soaks!end lists predecessor ^ that does not point to
+it` -- the second deferral's one producer is the dries drain's `callc
+dampen(...) dries!ran(l)`, whose continuation is the accumulate that
+drain owes, and Defer.cpp's single-producer path reads it as the
+producer's rest, makes `soaks!end` with `dries!run` as predecessor and
+threads the call's value into a record slot from there before the call is
+repointed; beside a deferral with a rest it compiles and the inner
+spawns' sums are lost (and the first sample's), silently -- `soaks` then
+has two producers, the hits drain and the dries drain, and a queue fed by
+drains is sized as one drain's capacity (8, the rule for one split
+family's leaves, checked as the capacities being equal) for 8 + 8
+pushes: 7 and 8 pushes come out right, 11 segfault; with the hits split
+as well it dies with SIGBUS, the same overflow on another layout. Not the
+drain order, which is right -- hits, dries, soaks, then the rest pass --
+as my first reading of it had it. The renderer is exposed to neither: its
+radiance is a slot of the `rays` record, not a reducer of the run, and no
+spawned call of its chain spawns onward.
 
 Measured (21:15; compare-out-arms against compare-out-lambda, the five
 scenes at 16 and 64 spp, the least of three on each side; the failed

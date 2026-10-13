@@ -3,16 +3,21 @@
 // FAILS (2026-10-12): compiles, runs, and the wet scenes come out wrong --
 // {1, 18, 85.5, 16.5, 5, 22.5, 10.5, 30} where {2, 20, 90, 22, 6, 30, 12,
 // 40} is right: every soak the `dries` drain spawned is lost, and the
-// first sample's soak from the `hits` drain with it. The construct of
-// spawn-then-spawn (a spawned call's drained function spawning onward, here
-// through `wetten`) beside an ordinary deferral with a rest
-// (`step.defer(shade, hits)`, the rest being `out[i] = l`): the queues
-// drain in the order hits, dries, soaks, then the rest pass, so the order
-// is not what loses them. Add `hits.specialize(s)` to the schedule and the
-// program dies with SIGBUS after printing the sums without any soak at
-// all. Expected per value: the square (Matte, below 10) or the value
-// (Fuzz), plus half the value from the hits drain's soak, plus half again
-// when wet from the dries drain's, plus 1000 in the gbuffer runs.
+// first sample's soak from the `hits` drain with it. The `soaks` queue
+// has two producers, both drains -- `hits`' (through shade and wetten)
+// and `dries`' (through dampen and wetten) -- and SSA/Defer.cpp sizes a
+// queue fed by drains as one drain's capacity, 8, checking only that the
+// others' capacities are the same value (the rule for the leaves of one
+// split family): `soaks_x = alloca<f32[8]>` in --dump-ssa-postschedule,
+// for 8 + 8 pushes when wet. Cut the pushes to 7 or 8 and the sums are
+// right; 11 and the program segfaults (README.md, where to look). The
+// queues drain in the order hits, dries, soaks, then the rest pass, so the
+// order is not what loses them. Add `hits.specialize(s)` to the schedule
+// and the program dies with SIGBUS after printing the sums without any
+// soak at all: the same overflow on another layout. Expected per value:
+// the square (Matte, below 10) or the value (Fuzz), plus half the value
+// from the hits drain's soak, plus half again when wet from the dries
+// drain's, plus 1000 in the gbuffer runs.
 import stdlib/numerics;
 
 element Surface =

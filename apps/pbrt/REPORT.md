@@ -1780,15 +1780,24 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    times pbrt's); compare.sh and render.sh onto the shared conversion
    folder; the bistro and pavilion image verdicts (the lit-pixel rule,
    with the pbrt-GPU behavior audit of PLAN.md, "Design: the mesh is the
-   entity", last paragraph); and the three compiler debts the arms found
+   entity", last paragraph); and the compiler debts the arms found
    (PLAN.md, the arms section; each a program with its expected output in
-   tests/bonsai/pending, all three present at 29e15282): a queue's
-   specialize clones a recursive callee handed the key without end, the
-   atomics demotion reads a function a GPU-bound loop calls as enclosed
-   by no parallel loop and takes an `atomic` off that the threads need
-   (SSA/DemoteAtomics.cpp), and a spawned call's drained function spawning onward onto a
-   second queue is an internal error alone and lost sums beside a
-   deferral with a rest.
+   tests/bonsai/pending, whose README says where each lives, all present
+   at 29e15282): a queue's specialize clones a recursive callee handed
+   the key without end (specialize_callees copying a copy's retargeted
+   call of itself), and a spawned call's drained function spawning onward
+   onto a second queue -- an internal error alone (the single-producer
+   path of the deferral reading a drain's accumulate as the producer's
+   rest) and lost sums beside a deferral with a rest (a queue fed by two
+   drains of different queues sized as one drain's capacity). The third,
+   the atomics demotion taking an `atomic` off inside a function a
+   GPU-bound loop calls, is fixed (the pass asks the whole program which
+   functions bound loops call; correctness/gpu/reduce-param). Two more
+   for a ruling, found when the gate test's GPU twin was run with its
+   accumulates written `atomic`: `spawn` has no `atomic` spelling, so a
+   spawn into the run's reducer from a bound drain is a race the program
+   cannot say, and a spawned call's entry holds the reducer's address,
+   which on the JIT runtime's GPU path is a per-launch device copy's.
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with
