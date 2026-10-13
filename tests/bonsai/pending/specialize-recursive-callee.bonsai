@@ -1,0 +1,67 @@
+//! flags: -p ssa -b llvm -e
+
+// FAILS (2026-10-12): the compiler never finishes. A recursive function
+// handed the key a queue's specialize goes by: `step` hands `finish` the
+// `r` that `hits` is specialized on, and `finish` hands it to itself. The
+// split copies `finish` as `finish!Big` with its self-call retargeted to
+// `finish!Big` (SSA/Specialize.cpp, specialize_function), and
+// specialize_callees then reads that self-call as a call handing the
+// specialized value to a callee and copies again: `finish!Big!Big`,
+// `finish!Big!Big!Big`, ... until the stack is gone (the names coined,
+// under gdb with a breakpoint on specialize_function). The loop form of
+// specialize (`run.specialize(flag)` over a function that recurses with
+// the flag) does not do this. Expected: `finish!Big` calls itself, and
+// the program prints -1 0 1 2 3 3.5 4 4.5 -- Small values less one, Big
+// values halved plus one, each after two steps of recursion.
+import stdlib/numerics;
+
+element Found =
+    | Big(v : Float)
+    | Small(v : Float);
+
+func classify(x : Float) -> Found {
+    if x > 4.0 {
+        return Big(x);
+    }
+    return Small(x);
+}
+
+func finish(r : Found, k : Float, n : i32) -> Float {
+    if n == 0 {
+        match r {
+            Big(v) => return v * 0.5 + k;
+            Small(v) => return v - k;
+        }
+    }
+    return finish(r, k, n - 1);
+}
+
+func step(x : Float, k : Float) -> Float {
+    r = classify(x);
+    match r {
+        Big(v) => return finish(r, k, 2);
+        Small(v) => return v - k;
+    }
+}
+
+func run(values : array[Float, 8], k : Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, 1.0, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.stage(classify, hits);
+    hits.specialize(r);
+}

@@ -1,0 +1,38 @@
+//! flags: -p ssa -b llvm -e
+
+// FAILS (2026-10-12): prints 1.000000. A `reduce(+)` parameter of the run,
+// accumulated from a loop bound to the GPU: the plainest form, no queues.
+// Expected 65, the sum of the values; what comes back is the first value
+// alone. With the accumulate inside a queue's drain bound to the GPU
+// (`step.defer(shade, hits)`, `shade` adding) it is 1.0 too, and a
+// spawned call's accumulate (`spawn total += soak(x)`, the drain bound) is
+// 0.0. The GPU reduction the suite covers is an `atomic total[0] += ..`
+// into a `mut array` word (correctness/gpu/block-reduce); a reducer
+// parameter from a GPU loop has no test and does not work. The renderer
+// is not exposed: its radiance is a per-sample slot of the ray queue's
+// record, never a reducer of the run.
+import stdlib/numerics;
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        step(values[i], total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    run(values, total);
+    print(total);
+    return 0;
+}
+
+schedule {
+    run.bind(i, GPUThread);
+}

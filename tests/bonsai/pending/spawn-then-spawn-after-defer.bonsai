@@ -1,0 +1,103 @@
+//! flags: -p ssa -b llvm -e
+
+// FAILS (2026-10-12): compiles, runs, and the wet scenes come out wrong --
+// {1, 18, 85.5, 16.5, 5, 22.5, 10.5, 30} where {2, 20, 90, 22, 6, 30, 12,
+// 40} is right: every soak the `dries` drain spawned is lost, and the
+// first sample's soak from the `hits` drain with it. The construct of
+// spawn-then-spawn (a spawned call's drained function spawning onward, here
+// through `wetten`) beside an ordinary deferral with a rest
+// (`step.defer(shade, hits)`, the rest being `out[i] = l`): the queues
+// drain in the order hits, dries, soaks, then the rest pass, so the order
+// is not what loses them. Add `hits.specialize(s)` to the schedule and the
+// program dies with SIGBUS after printing the sums without any soak at
+// all. Expected per value: the square (Matte, below 10) or the value
+// (Fuzz), plus half the value from the hits drain's soak, plus half again
+// when wet from the dries drain's, plus 1000 in the gbuffer runs.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func wetten(x : Float, l : reduce(+) Float) -> void {
+    spawn l += soak(x);
+    return;
+}
+
+func dampen(x : Float, l : reduce(+) Float) -> Float {
+    wetten(x, l);
+    return 0.0;
+}
+
+func shade(s : Surface, x : Float, l : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            l += a * x;
+        }
+        Fuzz(a) => {
+            l += a;
+        }
+    }
+    wetten(x, l);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, gbuffer : bool,
+          l : reduce(+) Float) -> void {
+    if gbuffer {
+        l += 1000.0;
+    }
+    if wet {
+        spawn l += dampen(x, l);
+    }
+    s = classify(x);
+    shade(s, x, l);
+    return;
+}
+
+func run(values : array[Float, 8], wet : bool, gbuffer : bool,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        l : reduce(+) Float = 0.0;
+        step(values[i], wet, gbuffer, l);
+        out[i] = l;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    dry : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, false, false, dry);
+    print(dry);
+    wet : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, true, false, wet);
+    print(wet);
+    dry_g : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, false, true, dry_g);
+    print(dry_g);
+    wet_g : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, true, true, wet_g);
+    print(wet_g);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    dries = run.queue(root);
+    step.defer(dampen, dries);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+}

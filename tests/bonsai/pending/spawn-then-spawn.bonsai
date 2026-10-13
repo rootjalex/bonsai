@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm -e
+
+// FAILS (2026-10-12): `[internal] Error: src/SSA/SSA.cpp:748 -- soaks!end
+// lists predecessor ^ that does not point to it`. A spawned call whose
+// drained function itself makes a spawned call onto a second queue:
+// `step` spawns `dampen` onto `dries`, and `dampen`, run by the dries
+// drain, spawns `soak` onto `soaks`, both accumulating into the
+// iteration's reducer `l`. The same with `dampen` calling a `wetten` that
+// holds the spawn (`wetten.defer(soak, soaks)`) fails the same way. In a
+// larger program the construct compiles and runs wrong instead
+// (spawn-then-spawn-after-defer, beside this file). Expected: out[i] is
+// half of each value.
+import stdlib/numerics;
+
+func soak(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func dampen(x : Float, l : reduce(+) Float) -> Float {
+    spawn l += soak(x);
+    return 0.0;
+}
+
+func step(x : Float, l : reduce(+) Float) -> void {
+    spawn l += dampen(x, l);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        l : reduce(+) Float = 0.0;
+        step(values[i], l);
+        out[i] = l;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    dries = run.queue(root);
+    step.defer(dampen, dries);
+    soaks = run.queue(root);
+    dampen.defer(soak, soaks);
+}
