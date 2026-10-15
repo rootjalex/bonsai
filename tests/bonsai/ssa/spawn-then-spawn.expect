@@ -1,0 +1,101 @@
+type Entry_dries = struct Entry_dries{ x : f32; _slot : i32 }
+type Entry_soaks = struct Entry_soaks{ x : f32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_dries = struct Queue_dries{ count : u32; x : f32[]; _slot : i32[] }
+type Queue_soaks = struct Queue_soaks{ count : u32; x : f32[]; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func dampen(x : f32, l : mut (f32*), _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32) -> void {
+  let @0 = build<Entry_soaks>(x, _slot_soaks) in
+  let @3 = atomic_add((&(*_queue_soaks).count), 1u) in
+  let @5 = (*_queue_soaks).x in
+  @5[@3] = x
+  let @8 = (*_queue_soaks)._slot in
+  @8[@3] = _slot_soaks
+  return
+}
+
+func main() -> i32 {
+  alloc out : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  out = @0
+  let @1 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@1, out)
+  print(out)
+  return 0
+}
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  dries_l_slots : mut f32[8]
+  dries_x : mut f32[8]
+  dries__slot : mut i32[8]
+  dries_queue : mut Queue_dries
+  let @4 = build<Queue_dries>(0u, dries_x, dries__slot) in
+  dries_queue = @4
+  soaks_x : mut f32[8]
+  soaks__slot : mut i32[8]
+  soaks_queue : mut Queue_soaks
+  parfor i in [0:8:1] {
+    dries_l_slots[i] = 0f
+    let @0 = values[i] in
+    step(@0, (&dries_l_slots[i]), dries_queue, i)
+    continue
+  }
+  let @5 = (*dries_queue) in
+  let @6 = @5.count in
+  let @12 = build<Queue_soaks>(0u, soaks_x, soaks__slot) in
+  soaks_queue = @12
+  parfor dries in [0u:@6:1u] {
+    let @7 = dries_x[dries] in
+    let @8 = dries__slot[dries] in
+    dampen(@7, (&dries_l_slots[@8]), soaks_queue, @8)
+    continue
+  }
+  let @13 = (*soaks_queue) in
+  let @14 = @13.count in
+  parfor soaks in [0u:@14:1u] {
+    let @15 = soaks_x[soaks] in
+    let @16 = soaks__slot[soaks] in
+    soak(@15, (&dries_l_slots[@16]))
+    continue
+  }
+  soaks_queue.count = 0u
+  dries_queue.count = 0u
+  parfor dries_rest in [0:8:1] {
+    let l = (&dries_l_slots[dries_rest]) in
+    let i = dries_rest in
+    let @1 = (*l) in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func soak(x : f32, l : mut (f32*)) -> void {
+  let @0 = x * 0.5f in
+  l += @0
+  return
+}
+
+func step(x : f32, l : mut (f32*), _queue_dries : mut (Queue_dries*), _slot_dries : i32) -> void {
+  let @0 = build<Entry_dries>(x, _slot_dries) in
+  let @3 = atomic_add((&(*_queue_dries).count), 1u) in
+  let @5 = (*_queue_dries).x in
+  @5[@3] = x
+  let @8 = (*_queue_dries)._slot in
+  @8[@3] = _slot_dries
+  return
+}
+
+
+schedule {
+    dries = run.queue(root);
+    soaks = run.queue(root);
+    dampen.defer(soak, soaks)
+    step.defer(dampen, dries)
+
+}

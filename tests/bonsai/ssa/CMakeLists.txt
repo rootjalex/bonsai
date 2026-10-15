@@ -93,6 +93,7 @@ add_bonsai_tests(
     simple.bonsai
     loopify-mutual.bonsai
     loopify-spawn-mutual.bonsai
+    spawn-then-spawn.bonsai
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
     reorder.bonsai

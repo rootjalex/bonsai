@@ -1,0 +1,59 @@
+//! flags: -p ssa
+
+// A spawned call whose drained function itself spawns onto a second
+// queue: `step` spawns `dampen` onto `dries`, and `dampen`, run by the
+// dries drain, spawns `soak` onto `soaks`, both adding into the
+// iteration's reducer `l`. What to look for: two drains in `run`, the
+// dries drain calling `dampen` with the entry's slot of `l`, whose body
+// is now a push onto `soaks` of the same slot, and the soaks drain
+// calling `soak`, which adds into the slot; the iteration's rest,
+// `out[i] = l`, after both. The accumulate in `soak` is plain: each
+// entry of a pass is a different iteration's slot (SSA/DistinctSlots.h),
+// and the drains are not bound to anything here in any case.
+//
+// Was tests/bonsai/pending/spawn-then-spawn: under the `spawn x op= g()`
+// form the second deferral's one producer, the dries drain's call, had the
+// accumulate for its continuation, which SSA/Defer.cpp's single-producer
+// path read as the producer's rest, and the conversion stopped with an
+// internal error. correctness/llvm/spawn-then-spawn runs it: half of each
+// value.
+import stdlib/numerics;
+
+func soak(x : Float, l : reduce(+) Float) -> void {
+    l += x * 0.5;
+    return;
+}
+
+func dampen(x : Float, l : reduce(+) Float) -> void {
+    spawn soak(x, l);
+    return;
+}
+
+func step(x : Float, l : reduce(+) Float) -> void {
+    spawn dampen(x, l);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        l : reduce(+) Float = 0.0;
+        step(values[i], l);
+        out[i] = l;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    dries = run.queue(root);
+    step.defer(dampen, dries);
+    soaks = run.queue(root);
+    dampen.defer(soak, soaks);
+}
