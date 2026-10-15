@@ -19,6 +19,38 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-15, 16:15)
+
+**The megakernel schedules render book again; the crash was the
+compiler's mirror pass.** SSA/MirrorLoads.cpp computes a pure value a
+loop derives from a cell in memory where the cell is written instead,
+and with more than one such value per cell it placed the second's entry
+update before the cell's first store, so the light tree's descent
+indexed the tree with an undefined value; book's tree is the protocol's
+one with an interior node. The narrowing of element reads (10-13,
+2b29f205) is what left three such chains in `bvh_descend`. Fixed at the
+root (each update placed where its write stands when it is placed),
+tests at every level (mirror-derived-loads-twice), the suite green;
+PLAN.md, "Found and fixed". Measured on the protocol's three scenes
+(apps/pbrt/scratch/gpu-compare-1015-mega; kernel milliseconds, the
+least of three; gpu-optix's column is 08:45's run):
+
+| scene | spp | pbrt | gpu-optix | gpu-optix-mega | gpu-optix-mega-ser | mega over pbrt | mega-ser over pbrt |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 28.0 | 116.2 | 73.4 | 0.43x | 0.67x |
+| killeroo-gold | 16 | 148.8 | 68.9 | 317.4 | 266.4 | 0.47x | 0.56x |
+| book | 16 | 153.2 | 84.7 | 338.8 | 277.7 | 0.45x | 0.55x |
+| killeroo-simple | 64 | 197.5 | 111.7 | 459.5 | 298.2 | 0.43x | 0.66x |
+| killeroo-gold | 64 | 596.0 | 275.4 | 1259.2 | 1073.4 | 0.47x | 0.56x |
+| book | 64 | 613.3 | 338.2 | 1365.1 | 1126.9 | 0.45x | 0.54x |
+
+Every image matches pbrt's; the megakernel images are byte-identical to
+each other's, and book's to gpu-optix's of 08:45. The megakernels are
+1.5x to 1.8x slower than on 10-02, when they last ran on book, while
+pbrt and gpu-optix are faster than then; the cause is open, the
+driver's closest-hit cost of 10-07 the first place to look (to-do item
+4).
+
 ## Where it stands (2026-10-15, 08:45)
 
 **The renderer's four spawned contributions are void functions adding
@@ -59,7 +91,8 @@ again, the same kernels. What the compare found on the way: the
 megakernel schedules (gpu-optix-mega, gpu-optix-mega-ser) abort on book
 with CUDA_ERROR_ILLEGAL_ADDRESS at the first synchronize, under the
 last committed compiler as well, so it predates this work (they were
-last measured on book on 10-02); to-do item 4.
+last measured on book on 10-02); to-do item 4 -- fixed at 16:15, the
+section above.
 
 ## Where it stands (2026-10-12, 21:25)
 
@@ -1860,7 +1893,15 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    CUDA_ERROR_ILLEGAL_ADDRESS, under the last committed compiler too --
    last measured there on 10-02; book is the protocol's one
    coateddiffuse scene, and walk_step.loopify() is in those schedules
-   alone (PLAN.md, "Found, not this work's").
+   alone (PLAN.md, "Found, not this work's"). (10-15, 16:15) Fixed:
+   SSA/MirrorLoads.cpp placed a second mirror's entry update before the
+   cell's first store, and the light tree's descent indexed the tree
+   with an undefined value (PLAN.md, "Found and fixed"); both megakernel
+   schedules render every protocol scene with images matching pbrt's
+   and each other's. Open from the same compare: the megakernels run
+   1.5x to 1.8x slower than on 10-02 while pbrt and gpu-optix got
+   faster. Not measured; the driver's closest-hit cost of 10-07 is the
+   first place to look.
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with

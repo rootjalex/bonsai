@@ -14795,6 +14795,72 @@ megakernel schedules and nowhere else), which is where to look. The
 protocol's standing schedule is gpu-optix; this is a debt for the
 to-do list, not a blocker.
 
+**Found and fixed (10-15, 16:15): the megakernel crash was the mirror
+pass's bookkeeping, not the schedules'.** Bisected to 2b29f205 (the
+load narrowing of element reads) and then, one piece of the narrowing at
+a time, to the narrowing of `bvh_descend`'s reads of the light tree
+alone; the CPU renders identically with and without it, and a
+stand-alone descent in a CUDA kernel did not fault, so the fault was
+read out of the megakernel's PTX and LLVM IR -- `node_index + 1`
+computed before `node_index = 0`, a loop-carried index with `undef`
+from the preheader -- and traced into its SSA. The narrowing writes
+`cast<u32>(node_index + 1)` once per narrowed field; after the CSE three
+of those chains survived in three blocks, and SSA/MirrorLoads.cpp (a
+pure value a loop computes from a cell in memory, computed where the
+cell is written instead) took each for a chain worth a mirror. The pass
+had taken the positions of the cell's writes once per cell and then
+processed the candidates one after another, each inserting an
+allocation into the entry block and an update after every write, so
+from the second candidate on the positions were stale and that mirror's
+entry update went in before the cell's own first store: the second and
+third mirrors held `cast<u32>(garbage + 1)`, `!else_4` indexed the light
+tree with it, and the first tree with an interior node -- book's, with
+its several lights; the killeroos' is one leaf, whose descent never
+reaches that block -- faulted. The writes are held as the instructions
+now and each update is placed at the position the write holds when it
+is placed (`position_of`); the sort "from the last position backwards"
+is gone. Tests at every level, mirror-derived-loads-twice (ssa,
+backends/llvm, correctness/llvm, correctness/gpu): a walk reading a
+cell through two chains in two branches, two mirrors of one cell
+written at the entry and in the loop; the unfixed compiler shows
+`(*i) + 2` before `i = start` in the ssa output, the fixed one both
+mirrors from `start`, and the walk's sums are what they should be on
+the CPU and the GPU. The whole suite passes (1672 tests); one golden
+moved, ssa/alias-edges, a renumbering of the mirror's update
+temporaries now that the writes are visited in block order.
+walk_step.loopify() was not it. This morning's gpu-optix images, built
+by the unfixed compiler, are byte-identical to the fixed megakernels'
+(below), so the wavefront's descent was right as compiled then; why its
+mirrors came out right where the megakernel's did not is not asked.
+
+**Measured (10-15, 16:10; apps/pbrt/scratch/gpu-compare-1015-mega: the
+two megakernel schedules on the protocol's three scenes at 16 and 64
+spp, the least of three on each side, kernel milliseconds; gpu-optix's
+column is 08:45's run, gpu-compare-1015b).**
+
+| scene | spp | pbrt | gpu-optix (08:45) | gpu-optix-mega | gpu-optix-mega-ser | mega over pbrt | mega-ser over pbrt |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 28.0 | 116.2 | 73.4 | 0.43x | 0.67x |
+| killeroo-gold | 16 | 148.8 | 68.9 | 317.4 | 266.4 | 0.47x | 0.56x |
+| book | 16 | 153.2 | 84.7 | 338.8 | 277.7 | 0.45x | 0.55x |
+| killeroo-simple | 64 | 197.5 | 111.7 | 459.5 | 298.2 | 0.43x | 0.66x |
+| killeroo-gold | 64 | 596.0 | 275.4 | 1259.2 | 1073.4 | 0.47x | 0.56x |
+| book | 64 | 613.3 | 338.2 | 1365.1 | 1126.9 | 0.45x | 0.54x |
+
+Every cell renders and every image matches pbrt's; the six radiance
+images of gpu-optix-mega are byte-identical to gpu-optix-mega-ser's, and
+book's two to gpu-optix's of 08:45, so the three schedules compute one
+picture again. The megakernels are slower than on 10-02, the last time
+they ran on book (compare-out-gpu64-storage, 64 spp: mega 306 / 711 /
+839 ms on killeroo-simple / killeroo-gold / book, mega-ser 202 / 713 /
+744), by 1.5x to 1.8x, while pbrt and gpu-optix are faster than then.
+The cause is open: the compiler changed in many ways between the two
+runs and was measured on gpu-optix alone, and the driver's closest-hit
+cost found on 10-07 (REPORT.md, "The 10-07 matrix") sits on every ray
+of a megakernel where the wavefront's trace kernels were rebuilt around
+it. A debt for the to-do list; the protocol's standing schedule is
+gpu-optix.
+
 **Measured (10-15, 08:45; compare-out-arms of 10-12 against this run,
 gpu-optix on the protocol's three scenes at 16 and 64 spp, the least of
 three on each side; apps/pbrt/scratch/gpu-compare-1015b).**
