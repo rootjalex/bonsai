@@ -1,0 +1,33 @@
+//! flags: -p ssa
+
+// Two values a loop computes from one cell in memory, each mirrored
+// (SSA/MirrorLoads.h). `gather` walks `next` from `start`, adding at
+// each position the element of `xs` one past it or two past it as
+// `turns` says; `cast<u32>(i + 1)` and `cast<u32>(i + 2)` are each two
+// instructions on the value of `i`, read in a branch of their own, so
+// each gets a mirror, and the cell `i` is written at the entry and once
+// in the loop. What to read for: both mirrors assigned after `i = start`
+// at the entry, from `start`, and both refreshed right after `i = next[..]`
+// in the loop, the branches reading the mirrors. The second mirror's entry
+// update once went in before the cell's own first store -- the pass held
+// the writes by position, and the first mirror's allocation and update
+// had moved them -- so the mirror held a value computed from whatever the
+// cell's memory had before the function wrote it, which is how the light
+// tree's descent in apps/pbrt, three mirrors of `node_index + 1` once the
+// element reads were narrowed, read the tree at an index from nowhere
+// under the megakernel schedule.
+
+func [[export]] gather(xs : array[u32, 10], next : array[i32, 10],
+                       turns : array[bool, 10], start : i32) -> u32 {
+    i : mut i32 = start;
+    acc : mut u32 = 0u;
+    while i >= 0 {
+        if turns[cast[[u32]](i)] {
+            acc = acc + xs[cast[[u32]](i + 1)];
+        } else {
+            acc = acc + xs[cast[[u32]](i + 2)];
+        }
+        i = next[cast[[u32]](i)];
+    }
+    return acc;
+}

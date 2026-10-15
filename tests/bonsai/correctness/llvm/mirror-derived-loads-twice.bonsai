@@ -1,0 +1,38 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/mirror-derived-loads-twice's `gather`, run from every
+// start: a walk over `next` adding the element of `xs` one or two past
+// each position as `turns` says, the two indices mirrored from the cell
+// `i`. The powers of two in `xs` make every sum say which elements were
+// read: 56, 36, 200, 52, 32, 184, 128, 512. Both mirrors have to start
+// from `start`, and a mirror started from what the cell's memory held
+// before the function wrote it reads another element, or none.
+import stdlib/numerics;
+
+func gather(xs : array[u32, 10], next : array[i32, 10],
+            turns : array[bool, 10], start : i32) -> u32 {
+    i : mut i32 = start;
+    acc : mut u32 = 0u;
+    while i >= 0 {
+        if turns[cast[[u32]](i)] {
+            acc = acc + xs[cast[[u32]](i + 1)];
+        } else {
+            acc = acc + xs[cast[[u32]](i + 2)];
+        }
+        i = next[cast[[u32]](i)];
+    }
+    return acc;
+}
+
+func main() -> i32 {
+    xs : array[u32, 10] = {1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u, 256u, 512u};
+    next : array[i32, 10] = {3, 4, 5, 1, -1, 0, -1, -1, -1, -1};
+    turns : array[bool, 10] = {false, true, false, true, true,
+                               false, true, false, true, false};
+    out : mut array[u32, 8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    for t in 0:8 {
+        out[t] = gather(xs, next, turns, cast[[i32]](t));
+    }
+    print(out);
+    return 0;
+}

@@ -63,6 +63,7 @@ add_bonsai_tests(
     demote-atomics-spawn-drain.bonsai
     loopify-mutual.bonsai
     loopify-spawn-mutual.bonsai
+    mirror-derived-loads-twice.bonsai
     spawn-then-spawn.bonsai
     vectorize-loop-mutual.bonsai
     vectorize-skip-address.bonsai

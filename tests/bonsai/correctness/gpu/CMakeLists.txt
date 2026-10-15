@@ -34,6 +34,7 @@ add_bonsai_tests(
     reduce-param.bonsai
     demote-atomics-spawn.bonsai
     demote-atomics-loopify.bonsai
+    mirror-derived-loads-twice.bonsai
     blocks.bonsai
     blocks-threads.bonsai
     buffers-cpp.bonsai

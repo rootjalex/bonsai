@@ -12,6 +12,7 @@ add_bonsai_tests(
     any-hit-prefetch.bonsai
     compare-on-bits.bonsai
     mirror-derived-loads.bonsai
+    mirror-derived-loads-twice.bonsai
     foreign.bonsai
     foreign-linked.bonsai
     child-bounds-at-lane.bonsai

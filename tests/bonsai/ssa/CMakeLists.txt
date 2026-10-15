@@ -21,6 +21,7 @@ add_bonsai_tests(
     intervals-from-conditions.bonsai
     intervals-reciprocal-step.bonsai
     mirror-derived-loads.bonsai
+    mirror-derived-loads-twice.bonsai
     child-bounds-at-lane.bonsai
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai

@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm
+
+// tests/bonsai/ssa/mirror-derived-loads-twice through the LLVM backend.
+// What to read for in `gather`: LLVM folds the two mirrors, each carried
+// round the loop beside `i`, back into one index computed in the body --
+// `select i1 %extract, i32 1, i32 2` added to the loop's `i` -- and the
+// loop's `i` is a `phi i32` from `%start` and the element of `next`. With
+// the second mirror's entry value computed before the cell was written,
+// that mirror came in as its own phi with `undef` from the entry, and
+// the else branch's index was nothing on the first trip; there is no
+// `undef` here.
+
+func [[export]] gather(xs : array[u32, 10], next : array[i32, 10],
+                       turns : array[bool, 10], start : i32) -> u32 {
+    i : mut i32 = start;
+    acc : mut u32 = 0u;
+    while i >= 0 {
+        if turns[cast[[u32]](i)] {
+            acc = acc + xs[cast[[u32]](i + 1)];
+        } else {
+            acc = acc + xs[cast[[u32]](i + 2)];
+        }
+        i = next[cast[[u32]](i)];
+    }
+    return acc;
+}

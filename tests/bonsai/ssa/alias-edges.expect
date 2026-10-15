@@ -94,10 +94,10 @@ func through_storage(x : f32, n : i32) -> f32 {
   acc : mut f32
   @29!mirror : mut f32
   depth : mut i32
-  let @34 = cast<f32>(0) in
-  let @35 = x + @34 in
+  let @31 = cast<f32>(0) in
+  let @32 = x + @31 in
   acc = 0f
-  @29!mirror = @35
+  @29!mirror = @32
   depth = 0
   while ((*depth) < n) {
     let @5 = sample((*@29!mirror)) in
@@ -125,10 +125,10 @@ func through_storage(x : f32, n : i32) -> f32 {
     let @24 = @23.pdf in
     let @25 = @21 + @24 in
     let @27 = (*depth) + 1 in
-    let @31 = cast<f32>(@27) in
-    let @32 = x + @31 in
+    let @34 = cast<f32>(@27) in
+    let @35 = x + @34 in
     acc = @25
-    @29!mirror = @32
+    @29!mirror = @35
     depth = @27
   }
   return (*acc)

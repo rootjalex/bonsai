@@ -1,0 +1,49 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/correctness/llvm/mirror-derived-loads-twice's program with
+// the eight walks run as GPU threads: `gather` walks `next` from the
+// thread's start, adding the element of `xs` one or two past each
+// position as `turns` says, the two indices mirrored from the cell `i`.
+// 56, 36, 200, 52, 32, 184, 128, 512, as on the CPU. A mirror started
+// from what the cell's memory held before the function wrote it is how
+// the light tree's descent in apps/pbrt read the tree at an index from
+// nowhere under the megakernel schedule and faulted.
+import stdlib/numerics;
+
+func gather(xs : array[u32, 10], next : array[i32, 10],
+            turns : array[bool, 10], start : i32) -> u32 {
+    i : mut i32 = start;
+    acc : mut u32 = 0u;
+    while i >= 0 {
+        if turns[cast[[u32]](i)] {
+            acc = acc + xs[cast[[u32]](i + 1)];
+        } else {
+            acc = acc + xs[cast[[u32]](i + 2)];
+        }
+        i = next[cast[[u32]](i)];
+    }
+    return acc;
+}
+
+func run(xs : array[u32, 10], next : array[i32, 10], turns : array[bool, 10],
+         out : mut array[u32, 8]) -> void {
+    parfor t in 0:8 {
+        out[t] = gather(xs, next, turns, cast[[i32]](t));
+    }
+    return;
+}
+
+func main() -> i32 {
+    xs : array[u32, 10] = {1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u, 256u, 512u};
+    next : array[i32, 10] = {3, 4, 5, 1, -1, 0, -1, -1, -1, -1};
+    turns : array[bool, 10] = {false, true, false, true, true,
+                               false, true, false, true, false};
+    out : mut array[u32, 8] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    run(xs, next, turns, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(t, GPUThread);
+}

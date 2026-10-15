@@ -6,7 +6,6 @@
 #include "SSA/Simplify.h"
 #include "Utils.h"
 
-#include <algorithm>
 #include <map>
 #include <set>
 #include <string>
@@ -268,6 +267,18 @@ struct Mirroring {
         return found;
     }
 
+    // Where an instruction stands in its block now.
+    static size_t position_of(const shared_ptr<Block> &block,
+                              const shared_ptr<Instruction> &instr) {
+        for (size_t i = 0; i < block->instrs.size(); i++) {
+            if (block->instrs[i].get() == instr.get()) {
+                return i;
+            }
+        }
+        internal_error << "MirrorLoads: a write of the cell is not in its block any more";
+        return 0;
+    }
+
     // What the chain costs at every iteration: the instructions a backend
     // emits for it. A field read, a reinterpretation and a negation are
     // nothing (a field of a value in registers is a register, bits are bits,
@@ -334,13 +345,25 @@ struct Mirroring {
         const shared_ptr<Block> &entry = func.blocks.front();
         for (const Cell &cell : cells()) {
             // The writes of the cell, each followed by the mirror's update.
-            vector<std::pair<shared_ptr<Block>, size_t>> writes;
+            // Held as the instructions themselves, not their positions:
+            // every candidate's mirror puts an allocation into the entry
+            // block and an update after each write, and a position taken
+            // before those insertions points at the wrong instruction
+            // afterwards -- the second mirror's entry update went in
+            // before the cell's own first store, so the mirror held a
+            // value computed from whatever the cell's memory had at the
+            // start (the light tree's descent under the megakernel
+            // schedule read the tree at that index and faulted).
+            struct Write {
+                shared_ptr<Block> block;
+                shared_ptr<Instruction> instr;
+            };
+            vector<Write> writes;
             for (const shared_ptr<Block> &block : func.blocks) {
-                for (size_t i = 0; i < block->instrs.size(); i++) {
-                    const shared_ptr<Instruction> &in = block->instrs[i];
+                for (const shared_ptr<Instruction> &in : block->instrs) {
                     if (writes_cell(in->op) && !in->operands.empty() &&
                         names(in->operands[0], cell.name)) {
-                        writes.emplace_back(block, i);
+                        writes.push_back({block, in});
                     }
                 }
             }
@@ -405,19 +428,11 @@ struct Mirroring {
                     at->instrs.insert(at->instrs.begin() + pos, store);
                     return pos + 1;
                 };
-                // After every write, from the last position in a block
-                // backwards so that the earlier positions stay right; a
-                // write in the entry block sits one further on now, past the
-                // mirror's allocation.
-                vector<std::pair<shared_ptr<Block>, size_t>> ordered = writes;
-                std::sort(ordered.begin(), ordered.end(),
-                          [](const auto &a, const auto &b) { return a.second > b.second; });
+                // After every write, at the position the write holds now.
                 bool written_in_entry = false;
-                for (const auto &[block, index] : ordered) {
-                    const bool in_entry = block.get() == entry.get();
-                    written_in_entry = written_in_entry || in_entry;
-                    const size_t at = in_entry && index >= first_instr ? index + 1 : index;
-                    update(block, at + 1);
+                for (const Write &w : writes) {
+                    written_in_entry = written_in_entry || w.block.get() == entry.get();
+                    update(w.block, position_of(w.block, w.instr) + 1);
                 }
                 // And at the entry, for what the cell holds before any write
                 // of this function's -- a pointer parameter's contents as the

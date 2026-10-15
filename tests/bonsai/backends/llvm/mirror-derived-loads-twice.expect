@@ -1,0 +1,37 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define i32 @gather(ptr noundef %xs_buffer, ptr noundef %next_buffer, ptr noundef %turns_buffer, i32 noundef %start) local_unnamed_addr #0 {
+gather:
+  %xs = tail call ptr @bonsai_buffer_require(ptr %xs_buffer, i32 1)
+  %next = tail call ptr @bonsai_buffer_require(ptr %next_buffer, i32 1)
+  %turns = tail call ptr @bonsai_buffer_require(ptr %turns_buffer, i32 1)
+  %0 = icmp sgt i32 %start, -1
+  br i1 %0, label %"!while_body_1", label %"!while_end_2"
+
+"!while_body_1":                                  ; preds = %gather, %"!while_body_1"
+  %acc25 = phi i32 [ %acc16, %"!while_body_1" ], [ 0, %gather ]
+  %i24 = phi i32 [ %extract21, %"!while_body_1" ], [ %start, %gather ]
+  %i_wide = zext nneg i32 %i24 to i64
+  %extract_ptr = getelementptr inbounds nuw i8, ptr %turns, i64 %i_wide
+  %extract = load i1, ptr %extract_ptr, align 1
+  %"@21!mirror.@29!mirror.v" = select i1 %extract, i32 1, i32 2
+  %"@21!mirror.@29!mirror" = add nuw i32 %"@21!mirror.@29!mirror.v", %i24
+  %"@29!mirror_wide.pn" = zext i32 %"@21!mirror.@29!mirror" to i64
+  %extract18.pn.in = getelementptr inbounds nuw [4 x i8], ptr %xs, i64 %"@29!mirror_wide.pn"
+  %extract18.pn = load i32, ptr %extract18.pn.in, align 4
+  %acc16 = add i32 %extract18.pn, %acc25
+  %extract_ptr20 = getelementptr inbounds nuw [4 x i8], ptr %next, i64 %i_wide
+  %extract21 = load i32, ptr %extract_ptr20, align 4
+  %1 = icmp sgt i32 %extract21, -1
+  br i1 %1, label %"!while_body_1", label %"!while_end_2"
+
+"!while_end_2":                                   ; preds = %"!while_body_1", %gather
+  %acc.lcssa = phi i32 [ 0, %gather ], [ %acc16, %"!while_body_1" ]
+  ret i32 %acc.lcssa
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }

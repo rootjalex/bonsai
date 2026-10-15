@@ -1,0 +1,38 @@
+func [[export]] gather(xs : u32[10], next : i32[10], turns : bool[10], start : i32) -> u32 {
+  i : mut i32
+  @21!mirror : mut u32
+  @29!mirror : mut u32
+  acc : mut u32
+  let @31 = start + 2 in
+  let @32 = cast<u32>(@31) in
+  let @23 = start + 1 in
+  let @24 = cast<u32>(@23) in
+  i = start
+  @21!mirror = @24
+  @29!mirror = @32
+  acc = 0u
+  while (0 <= (*i)) {
+    let @3 = cast<u32>((*i)) in
+    let @4 = turns[@3] in
+    if (@4) {
+      let @9 = xs[(*@21!mirror)] in
+      let @10 = (*acc) + @9 in
+      acc = @10
+    } else {
+      let @15 = xs[(*@29!mirror)] in
+      let @16 = (*acc) + @15 in
+      acc = @16
+    }
+    let @19 = next[@3] in
+    let @34 = @19 + 2 in
+    let @35 = cast<u32>(@34) in
+    let @26 = @19 + 1 in
+    let @27 = cast<u32>(@26) in
+    i = @19
+    @21!mirror = @27
+    @29!mirror = @35
+  }
+  return (*acc)
+}
+
+
