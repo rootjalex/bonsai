@@ -1,32 +1,35 @@
 //! flags: -p ssa -b ptx
 
-// A spawned function's atomic when the spawn is run in parallel: the
+// A spawned function's accumulates when the spawn is run in parallel: the
 // spawned calls deferred onto a queue, and the producer loop, the drain
 // and the pass over the record all bound to GPU threads. What to read
 // for: two `atom.relaxed.gpu.global.add.f32`, one in the loop's kernel
-// (`_kernel_i_0`: `step`'s `atomic total += x`, once per thread) and one
-// in the drain's (`_kernel_q_1`: `wet`'s `atomic total += x * 0.5`, once
-// per spawned call) -- both kept, since in each kernel the threads write
-// `total`, the run's one word (SSA/DemoteAtomics.h); device atomics,
-// since from inside `step` and `wet` the address is not known to be the
-// block's. The `.u32` atom is the queue's count. The drain's own
-// accumulate of `wet`'s value into the iteration's `n` is a plain store
-// through the record: one entry per iteration, one slot each.
-// correctness/gpu/demote-atomics-spawn runs it: 97.5 and eight ones. With
-// the drain left unbound `wet`'s atomic comes off (tests/bonsai/ssa/
+// (`_kernel_i_0`: `step`'s `total += x`, once per thread) and one in the
+// drain's (`_kernel_q_1`: `wet`'s `total += x * 0.5`, once per spawned
+// call) -- both kept, since in each kernel the threads write `total`, the
+// run's one word (SSA/DemoteAtomics.h); device atomics, since from inside
+// `step` and `wet` the address is not known to be the block's. The `.u32`
+// atom is the queue's count. `wet`'s `n += 1f`, into the iteration's
+// reducer through the record slot its entry carries, is a plain add: the
+// deferral records that a drain's entries hold distinct slots within a
+// pass, and the demotion reads it (SSA/Contention.h). correctness/gpu/
+// demote-atomics-spawn runs it: 97.5 and eight ones. With the drain left
+// unbound `wet`'s atomic comes off (tests/bonsai/ssa/
 // demote-atomics-spawn-bound).
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

@@ -2,25 +2,28 @@
 
 // tests/bonsai/ssa/demote-atomics-spawn-drain's program through the LLVM
 // backend: the spawned calls deferred onto a queue, nothing bound. What to
-// read for: no `atomicrmw fadd` anywhere. `wet`'s `atomic total += x *
-// 0.5` and `step`'s `atomic total += x` are plain `fadd`s, since nothing
-// runs two iterations of the loop or two spawned calls at once
-// (SSA/DemoteAtomics.h). The `atomicrmw add .. i32 1` that remain are the
-// queue's count, claimed by each push -- the deferral's own, not the
-// program's. demote-atomics-spawn-bound is the same program with the
-// producer loop bound, where `step`'s atomic stays.
+// read for: no `atomicrmw fadd` anywhere. `wet`'s `total += x * 0.5` and
+// `n += 1f` and `step`'s `total += x` -- every one atomic by declaration,
+// into a reducer -- are plain `fadd`s, since nothing runs two iterations
+// of the loop or two spawned calls at once (SSA/DemoteAtomics.h). The
+// `atomicrmw add .. i32 1` that remain are the queue's count, claimed by
+// each push -- the deferral's own, not the program's.
+// demote-atomics-spawn-bound is the same program with the producer loop
+// bound, where `step`'s atomic stays.
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

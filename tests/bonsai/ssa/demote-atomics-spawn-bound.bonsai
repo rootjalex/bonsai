@@ -1,19 +1,19 @@
 //! flags: -p ssa
 
 // The producer loop bound to CPU threads, the drain of the spawned calls
-// left sequential: one atomic stays and the other goes.
+// left sequential: one atomic stays and the others go.
 //
 // `step` runs once per iteration of `run`'s `parfor i`, now in parallel,
-// so its `atomic total += x` writes a word the other threads' calls write
-// too and keeps its atomic (SSA/Contention.h, functions_called_in_parallel).
-// The spawned calls to `wet` are pushed from those iterations but run by
-// the drain `q` after the loop, and nothing bound the drain: the calls run
-// one at a time, so `wet`'s `atomic total += x * 0.5` comes off. The
+// so its `total += x` writes a word the other threads' calls write too and
+// keeps its atomic (SSA/Contention.h, functions_called_in_parallel). The
+// spawned calls to `wet` are pushed from those iterations but run by the
+// drain `q` after the loop, and nothing bound the drain: the calls run one
+// at a time, so `wet`'s `total += x * 0.5` and `n += 1f` come off. The
 // spawn's parallelism is decided by what runs the spawned call, not by
 // what spawned it. What to read for:
 //
 //   step   `atomic total += x` kept.
-//   wet    `total += x * 0.5` plain.
+//   wet    `total += x * 0.5` and `n += 1f` plain.
 //
 // backends/llvm/demote-atomics-spawn-bound shows the same in the LLVM
 // module; the GPU form with both loops bound is backends/ptx/
@@ -21,15 +21,18 @@
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call. Both accumulates are atomic by declaration, and the demotion takes
+// each off where nothing runs beside it.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

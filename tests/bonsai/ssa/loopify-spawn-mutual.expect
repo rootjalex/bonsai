@@ -1,0 +1,53 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func main() -> i32 {
+  seen : mut f32
+  seen = 0f
+  let @0 = step(4, 0f, seen) in
+  let r = @0 in
+  print(r)
+  let @1 = (*seen) in
+  print(@1)
+  return 0
+}
+
+func route(n : i32, acc : f32, seen : mut (f32*)) -> f32 {
+  spawn tally(acc, seen)
+  let @0 = n - 1 in
+  let @1 = acc * 2f in
+  let @2 = step(@0, @1, seen) in
+  return @2
+}
+
+func step(n : i32, acc : f32, seen : mut (f32*)) -> f32 {
+  n!loop : mut i32
+  acc!loop : mut f32
+  n!loop = n
+  acc!loop = acc
+  while (!((*n!loop) == 0)) {
+    let @1 = (*acc!loop) + 1f in
+    let acc!inl0 = @1 in
+    spawn tally(acc!inl0, seen)
+    let @3 = (*n!loop) - 1 in
+    let @4 = acc!inl0 * 2f in
+    n!loop = @3
+    acc!loop = @4
+  }
+  return (*acc!loop)
+}
+
+func tally(x : f32, seen : mut (f32*)) -> void {
+  seen += x
+  return
+}
+
+
+schedule {
+    step.loopify()
+
+}

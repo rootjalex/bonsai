@@ -33,16 +33,16 @@ func run(values : f32[8], total : mut (f32*), counts : mut f32[8]) -> void {
 }
 
 func step(x : f32, total : mut (f32*), n : mut (f32*)) -> void {
-  let @0 = wet(x, total) in
-  n += @0
+  spawn wet(x, total, n)
   total += x
   return
 }
 
-func wet(x : f32, total : mut (f32*)) -> f32 {
+func wet(x : f32, total : mut (f32*), n : mut (f32*)) -> void {
   let @0 = x * 0.5f in
   total += @0
-  return 1f
+  n += 1f
+  return
 }
 
 

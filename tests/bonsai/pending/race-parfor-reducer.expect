@@ -1,7 +1,0 @@
----CODE---
-1
----STDERR---
-tests/bonsai/pending/race-parfor-reducer.bonsai:24:9: [race] `total += values[i]` accumulates into `total`, a reducer the iterations of `parfor i` share, and two iterations may run at once: write `atomic total += values[i]`. The schedule decides whether the loop runs in parallel; the program says what is safe if it does.
-
-        total += values[i];
-        ^^^^^

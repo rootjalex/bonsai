@@ -62,6 +62,7 @@ add_bonsai_tests(
     demote-atomics-spawn-inline.bonsai
     demote-atomics-spawn-drain.bonsai
     loopify-mutual.bonsai
+    loopify-spawn-mutual.bonsai
     vectorize-loop-mutual.bonsai
     vectorize-skip-address.bonsai
     vectorize-split-local.bonsai

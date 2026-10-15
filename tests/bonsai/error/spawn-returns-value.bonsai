@@ -1,0 +1,16 @@
+// Nothing waits for a spawned call, so a value it returned would reach no
+// one: a spawned function returns nothing and adds what it computes into a
+// reducer it is handed (`spawn shade(x, total);`, with `total : reduce(+)
+// Float` a parameter of shade).
+
+import stdlib/numerics;
+
+func shade(x : Float) -> Float {
+    return x * 2.0;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn shade(x);
+    total += x;
+    return;
+}

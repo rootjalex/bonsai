@@ -40,6 +40,7 @@ add_bonsai_tests(
     block-reduce.bonsai
     reduce-param.bonsai
     demote-atomics-spawn.bonsai
+    demote-atomics-loopify.bonsai
     blocks.bonsai
     blocks-threads.bonsai
     defer-device.bonsai

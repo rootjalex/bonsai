@@ -7,21 +7,24 @@
 // function. `run`'s `parfor i` is bound, and every function it calls --
 // `hand_down`, and `add_shared` through it -- runs once per concurrent
 // iteration, with no loop of its own to say so (SSA/Contention.h,
-// functions_called_in_parallel). What to read for, accumulate by
-// accumulate:
+// functions_called_in_parallel). An accumulate into a reducer is atomic by
+// its declaration (docs/parallel-semantics.md, section 3); `acc`, a `mut`
+// local, says `atomic` itself. What to read for, accumulate by accumulate:
 //
-//   add_shared   `atomic total += x` keeps its atomic: `total` is `run`'s
-//                reducer handed down, one word that every iteration's call
-//                writes. Reached from the loop only through `hand_down`,
-//                so the chain of calls is walked, not the body's calls
-//                alone; and called from `tally`'s unbound loop as well,
-//                which changes nothing -- one parallel caller is enough.
+//   add_shared   `total += x` keeps its atomic: `total` is `run`'s reducer
+//                handed down, one word that every iteration's call writes
+//                (SSA/Contention.h, parameter_contention finds the
+//                parameter Shared: every call hands it `run`'s). Reached
+//                from the loop only through `hand_down`, so the chain of
+//                calls is walked, not the body's calls alone; and called
+//                from `tally`'s unbound loop as well, which changes
+//                nothing -- one parallel caller is enough.
 //   add_own      `atomic acc += x` loses its atomic: `acc` is storage the
 //                call made for itself, which no other call can reach, and
 //                nothing binds the inner `parfor j`.
-//   add_serial   `atomic total += x` loses its atomic: only `tally` calls
-//                it, from a loop bound to nothing, so no two calls of it
-//                run at once.
+//   add_serial   `total += x` loses its atomic: only `tally` calls it,
+//                from a loop bound to nothing, so no two calls of it run
+//                at once.
 //
 // Before the pass asked the callers, add_shared's came off too -- a function
 // with no parallel loop of its own read as "nothing runs concurrently" --
@@ -30,7 +33,7 @@
 import stdlib/numerics;
 
 func add_shared(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 
@@ -57,7 +60,7 @@ func run(values : array[Float, 8], total : reduce(+) Float,
 }
 
 func add_serial(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 

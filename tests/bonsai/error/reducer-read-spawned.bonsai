@@ -1,0 +1,26 @@
+// A reducer handed to a spawned call is read only after the join: the
+// spawned call may still be running, adding into it, until the `join;`
+// that waits for it or the function's return. `counts[i] = n` here reads
+// `n` with `wet(x, total, n)` outstanding, and would see a value that
+// depends on whether the spawned call has run yet (docs/parallel-
+// semantics.md, section 3). Write `join;` before the read, or read after
+// the spawning function has returned (tests/bonsai/ssa/
+// demote-atomics-spawn-inline reads it in the caller).
+
+import stdlib/numerics;
+
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        spawn wet(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}

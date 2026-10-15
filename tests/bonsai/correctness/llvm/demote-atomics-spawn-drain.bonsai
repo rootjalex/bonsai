@@ -3,22 +3,24 @@
 // tests/bonsai/ssa/demote-atomics-spawn-drain's program, run: the spawned
 // calls to `wet` deferred onto a queue nothing bound, so they run after
 // the loop, one at a time, each adding half its value into `total` and
-// one into the record slot of its iteration's `n`. Both atomics come off
+// one into the record slot of its iteration's `n`. Every atomic comes off
 // and the result is the same as with them on: 65 + 32.5, and one spawned
 // call counted per iteration -- what correctness/gpu/demote-atomics-spawn
-// prints with every loop bound and both atomics kept.
+// prints with every loop bound and `total`'s atomics kept.
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

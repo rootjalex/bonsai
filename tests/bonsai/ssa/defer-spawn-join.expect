@@ -24,10 +24,8 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   let @6 = @5.count in
   parfor q in [0u:@6:1u] {
     let @7 = q_x[q] in
-    let @9 = q__slot[q] in
-    let @8 = shade(@7) in
-    let @10 = (&q_total_slots[@9]) in
-    @10 += @8
+    let @8 = q__slot[q] in
+    shade(@7, (&q_total_slots[@8]))
     continue
   }
   q_queue.count = 0u
@@ -41,18 +39,19 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   return
 }
 
-func shade(x : f32) -> f32 {
+func shade(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 2f in
-  return @0
+  total += @0
+  return
 }
 
 func step(x : f32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
-  let @1 = build<Entry_q>(x, _slot_q) in
-  let @4 = atomic_add((&(*_queue_q).count), 1u) in
-  let @6 = (*_queue_q).x in
-  @6[@4] = x
-  let @9 = (*_queue_q)._slot in
-  @9[@4] = _slot_q
+  let @0 = build<Entry_q>(x, _slot_q) in
+  let @3 = atomic_add((&(*_queue_q).count), 1u) in
+  let @5 = (*_queue_q).x in
+  @5[@3] = x
+  let @8 = (*_queue_q)._slot in
+  @8[@3] = _slot_q
   total += x
   return
 }

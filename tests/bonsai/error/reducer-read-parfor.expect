@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-read-parfor.bonsai:18:18: [parse error] total is a reducer (`reduce(+)`) declared outside this `parfor`, whose iterations may be adding into it as it is read; it is read after the loop.
+
+        out[i] = total;
+                 ^^^^^

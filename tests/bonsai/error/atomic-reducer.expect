@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/atomic-reducer.bonsai:13:16: [parse error] `atomic` is implied for total, a reducer (`reduce(+)`): every accumulate into a reducer is atomic, and the compiler takes the atomic off where nothing runs beside it. Write `total += ...`.
+
+        atomic total += values[i];
+               ^^^^^

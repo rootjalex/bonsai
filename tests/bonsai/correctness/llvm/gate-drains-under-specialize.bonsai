@@ -12,18 +12,19 @@ element Surface =
     | Matte(a : Float)
     | Fuzz(a : Float);
 
-func soak(x : Float) -> Float {
-    return x * 0.5;
-}
-
-func wetten(x : Float, total : reduce(+) Float) -> void {
-    spawn total += soak(x);
+func soak(x : Float, total : reduce(+) Float) -> void {
+    total += x * 0.5;
     return;
 }
 
-func dampen(x : Float, total : reduce(+) Float) -> Float {
+func wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn soak(x, total);
+    return;
+}
+
+func dampen(x : Float, total : reduce(+) Float) -> void {
     wetten(x, total);
-    return 0.0;
+    return;
 }
 
 func shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
@@ -52,7 +53,7 @@ func step(x : Float, wet : bool, gbuffer : bool,
         total += 1000.0;
     }
     if wet {
-        spawn total += dampen(x, total);
+        spawn dampen(x, total);
     }
     s = classify(x);
     shade(s, x, total);

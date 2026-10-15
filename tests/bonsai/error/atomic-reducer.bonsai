@@ -1,0 +1,16 @@
+// `atomic` is implied for a reducer: every accumulate into a `reduce(+)`
+// variable is atomic by that declaration -- a reducer is what several
+// iterations or spawned calls add into at once -- and the compiler takes
+// the atomic off wherever nothing runs beside it (SSA/DemoteAtomics.h).
+// Writing `atomic` on one would be a second spelling of the same thing,
+// and is refused; `atomic` is for a `mut` location the program knows two
+// iterations may share.
+
+import stdlib/numerics;
+
+func run(values : array[Float, 8], total : reduce(+) Float) -> void {
+    parfor i in 0:8 {
+        atomic total += values[i];
+    }
+    return;
+}

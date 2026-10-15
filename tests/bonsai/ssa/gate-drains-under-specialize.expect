@@ -1,19 +1,19 @@
-type Entry_dries!False = struct Entry_dries!False{ x : f32; total : (f32*) }
-type Entry_dries!True = struct Entry_dries!True{ x : f32; total : (f32*) }
+type Entry_dries!False = struct Entry_dries!False{ x : f32 }
+type Entry_dries!True = struct Entry_dries!True{ x : f32 }
 type Entry_hits!False = struct Entry_hits!False{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; x : f32 }
 type Entry_hits!True = struct Entry_hits!True{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; x : f32 }
-type Entry_soaks!False = struct Entry_soaks!False{ x : f32; total : (f32*) }
-type Entry_soaks!True = struct Entry_soaks!True{ x : f32; total : (f32*) }
+type Entry_soaks!False = struct Entry_soaks!False{ x : f32 }
+type Entry_soaks!True = struct Entry_soaks!True{ x : f32 }
 type Float = f32
 type Fuzz = struct Fuzz{ a : f32 }
 type Half = f16
 type Matte = struct Matte{ a : f32 }
-type Queue_dries!False = struct Queue_dries!False{ count : u32; x : f32[]; total : (f32*)[] }
-type Queue_dries!True = struct Queue_dries!True{ count : u32; x : f32[]; total : (f32*)[] }
+type Queue_dries!False = struct Queue_dries!False{ count : u32; x : f32[] }
+type Queue_dries!True = struct Queue_dries!True{ count : u32; x : f32[] }
 type Queue_hits!False = struct Queue_hits!False{ count : u32; s_tag : u8[]; s_payload_x : u32[]; x : f32[] }
 type Queue_hits!True = struct Queue_hits!True{ count : u32; s_tag : u8[]; s_payload_x : u32[]; x : f32[] }
-type Queue_soaks!False = struct Queue_soaks!False{ count : u32; x : f32[]; total : (f32*)[] }
-type Queue_soaks!True = struct Queue_soaks!True{ count : u32; x : f32[]; total : (f32*)[] }
+type Queue_soaks!False = struct Queue_soaks!False{ count : u32; x : f32[] }
+type Queue_soaks!True = struct Queue_soaks!True{ count : u32; x : f32[] }
 type Surface = struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type vec2f = f32x2
 type vec3f = f32x3
@@ -37,19 +37,19 @@ func classify(x : f32) -> Surface {
   }
 }
 
-func dampen(x : f32, total : mut (f32*)) -> f32 {
+func dampen(x : f32, total : mut (f32*)) -> void {
   wetten(x, total)
-  return 0f
+  return
 }
 
-func dampen!False(x : f32, total : mut (f32*), _queue_soaks!False : mut (Queue_soaks!False*)) -> f32 {
+func dampen!False(x : f32, total : mut (f32*), _queue_soaks!False : mut (Queue_soaks!False*)) -> void {
   wetten!False(x, total, _queue_soaks!False)
-  return 0f
+  return
 }
 
-func dampen!True(x : f32, total : mut (f32*), _queue_soaks!True : mut (Queue_soaks!True*)) -> f32 {
+func dampen!True(x : f32, total : mut (f32*), _queue_soaks!True : mut (Queue_soaks!True*)) -> void {
   wetten!True(x, total, _queue_soaks!True)
-  return 0f
+  return
 }
 
 func main() -> i32 {
@@ -92,12 +92,10 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     let @39 = build<Queue_hits!True>(0u, undef, hits!True!Fuzz_s_payload_x, hits!True!Fuzz_x) in
     hits!True_queue[1u] = @39
     dries!True_x : mut f32[8]
-    dries!True_total : mut (f32*)[8]
     dries!True_queue : mut Queue_dries!True
-    let @78 = build<Queue_dries!True>(0u, dries!True_x, dries!True_total) in
-    dries!True_queue = @78
+    let @76 = build<Queue_dries!True>(0u, dries!True_x) in
+    dries!True_queue = @76
     soaks!True_x : mut f32[8]
-    soaks!True_total : mut (f32*)[8]
     soaks!True_queue : mut Queue_soaks!True
     parfor i!True in [0:8:1] {
       let @2 = values[i!True] in
@@ -106,13 +104,13 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     }
     let @42 = hits!True_queue[0u] in
     let @43 = @42.count in
-    let @96 = build<Queue_soaks!True>(0u, soaks!True_x, soaks!True_total) in
-    soaks!True_queue = @96
-    let @109 = surface_arms >> 0u in
-    let @110 = @109 & 1u in
-    let @111 = @110 != 0u in
-    let @112 = @111 && gbuffer in
-    if (@112) {
+    let @90 = build<Queue_soaks!True>(0u, soaks!True_x) in
+    soaks!True_queue = @90
+    let @101 = surface_arms >> 0u in
+    let @102 = @101 & 1u in
+    let @103 = @102 != 0u in
+    let @104 = @103 && gbuffer in
+    if (@104) {
       parfor hits!True!Matte in [0u:@43:1u] {
         let @45 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @47 = hits!True_queue[0u].s_payload_x in
@@ -127,11 +125,11 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     }
     let @55 = hits!True_queue[1u] in
     let @56 = @55.count in
-    let @113 = surface_arms >> 1u in
-    let @114 = @113 & 1u in
-    let @115 = @114 != 0u in
-    let @116 = @115 && gbuffer in
-    if (@116) {
+    let @105 = surface_arms >> 1u in
+    let @106 = @105 & 1u in
+    let @107 = @106 != 0u in
+    let @108 = @107 && gbuffer in
+    if (@108) {
       parfor hits!True!Fuzz in [0u:@56:1u] {
         let @58 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @60 = hits!True_queue[1u].s_payload_x in
@@ -146,28 +144,24 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     }
     hits!True_queue[0u].count = 0u
     hits!True_queue[1u].count = 0u
-    let @79 = (*dries!True_queue) in
-    let @80 = @79.count in
-    let @117 = gbuffer && wet in
-    if (@117) {
-      parfor dries!True in [0u:@80:1u] {
-        let @81 = dries!True_x[dries!True] in
-        let @83 = dries!True_total[dries!True] in
-        let @82 = dampen!True(@81, total, soaks!True_queue) in
-        @83 += @82
+    let @77 = (*dries!True_queue) in
+    let @78 = @77.count in
+    let @109 = gbuffer && wet in
+    if (@109) {
+      parfor dries!True in [0u:@78:1u] {
+        let @79 = dries!True_x[dries!True] in
+        dampen!True(@79, total, soaks!True_queue)
         continue
       }
     }
-    let @97 = (*soaks!True_queue) in
-    let @98 = @97.count in
-    let @131 = @117 || @116 in
-    let @136 = @131 || @112 in
-    if (@136) {
-      parfor soaks!True in [0u:@98:1u] {
-        let @99 = soaks!True_x[soaks!True] in
-        let @101 = soaks!True_total[soaks!True] in
-        let @100 = soak!True(@99) in
-        @101 += @100
+    let @91 = (*soaks!True_queue) in
+    let @92 = @91.count in
+    let @123 = @109 || @108 in
+    let @128 = @123 || @104 in
+    if (@128) {
+      parfor soaks!True in [0u:@92:1u] {
+        let @93 = soaks!True_x[soaks!True] in
+        soak!True(@93, total)
         continue
       }
     }
@@ -184,12 +178,10 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     let @5 = build<Queue_hits!False>(0u, undef, hits!False!Fuzz_s_payload_x, hits!False!Fuzz_x) in
     hits!False_queue[1u] = @5
     dries!False_x : mut f32[8]
-    dries!False_total : mut (f32*)[8]
     dries!False_queue : mut Queue_dries!False
-    let @71 = build<Queue_dries!False>(0u, dries!False_x, dries!False_total) in
+    let @71 = build<Queue_dries!False>(0u, dries!False_x) in
     dries!False_queue = @71
     soaks!False_x : mut f32[8]
-    soaks!False_total : mut (f32*)[8]
     soaks!False_queue : mut Queue_soaks!False
     parfor i!False in [0:8:1] {
       let @1 = values[i!False] in
@@ -198,12 +190,12 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     }
     let @8 = hits!False_queue[0u] in
     let @9 = @8.count in
-    let @87 = build<Queue_soaks!False>(0u, soaks!False_x, soaks!False_total) in
-    soaks!False_queue = @87
-    let @103 = surface_arms >> 0u in
-    let @104 = @103 & 1u in
-    let @105 = @104 != 0u in
-    if (@105) {
+    let @83 = build<Queue_soaks!False>(0u, soaks!False_x) in
+    soaks!False_queue = @83
+    let @95 = surface_arms >> 0u in
+    let @96 = @95 & 1u in
+    let @97 = @96 != 0u in
+    if (@97) {
       parfor hits!False!Matte in [0u:@9:1u] {
         let @11 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @13 = hits!False_queue[0u].s_payload_x in
@@ -218,10 +210,10 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     }
     let @21 = hits!False_queue[1u] in
     let @22 = @21.count in
-    let @106 = surface_arms >> 1u in
-    let @107 = @106 & 1u in
-    let @108 = @107 != 0u in
-    if (@108) {
+    let @98 = surface_arms >> 1u in
+    let @99 = @98 & 1u in
+    let @100 = @99 != 0u in
+    if (@100) {
       parfor hits!False!Fuzz in [0u:@22:1u] {
         let @24 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @26 = hits!False_queue[1u].s_payload_x in
@@ -241,22 +233,18 @@ func run(values : f32[8], wet : bool, gbuffer : bool, total : mut (f32*), surfac
     if (wet) {
       parfor dries!False in [0u:@73:1u] {
         let @74 = dries!False_x[dries!False] in
-        let @76 = dries!False_total[dries!False] in
-        let @75 = dampen!False(@74, total, soaks!False_queue) in
-        @76 += @75
+        dampen!False(@74, total, soaks!False_queue)
         continue
       }
     }
-    let @88 = (*soaks!False_queue) in
-    let @89 = @88.count in
-    let @121 = wet || @108 in
-    let @125 = @121 || @105 in
-    if (@125) {
-      parfor soaks!False in [0u:@89:1u] {
-        let @90 = soaks!False_x[soaks!False] in
-        let @92 = soaks!False_total[soaks!False] in
-        let @91 = soak!False(@90) in
-        @92 += @91
+    let @84 = (*soaks!False_queue) in
+    let @85 = @84.count in
+    let @113 = wet || @100 in
+    let @117 = @113 || @97 in
+    if (@117) {
+      parfor soaks!False in [0u:@85:1u] {
+        let @86 = soaks!False_x[soaks!False] in
+        soak!False(@86, total)
         continue
       }
     }
@@ -375,19 +363,22 @@ func shade!True!Matte(s : Surface, x : f32, total : mut (f32*), _queue_soaks!Tru
   return
 }
 
-func soak(x : f32) -> f32 {
+func soak(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 0.5f in
-  return @0
+  total += @0
+  return
 }
 
-func soak!False(x : f32) -> f32 {
+func soak!False(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 0.5f in
-  return @0
+  total += @0
+  return
 }
 
-func soak!True(x : f32) -> f32 {
+func soak!True(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 0.5f in
-  return @0
+  total += @0
+  return
 }
 
 func step(x : f32, wet : bool, gbuffer : bool, total : mut (f32*)) -> void {
@@ -396,22 +387,21 @@ func step(x : f32, wet : bool, gbuffer : bool, total : mut (f32*)) -> void {
     total += 1000f
   }
   if (wet) {
-    let @0 = dampen(x, total) in
-    total += @0
+    spawn dampen(x, total)
   }
-  let @1 = x < 10f in
-  if (@1) {
-    let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @3 = reinterpret_cast<u32>(x) in
-    let @4 = build<[[packed]] u32x1>(@3) in
-    let @5 = build<Surface>(0u, @2, @4) in
-    classify$r6 = @5
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    classify$r6 = @4
   } else {
-    let @6 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @7 = reinterpret_cast<u32>(x) in
-    let @8 = build<[[packed]] u32x1>(@7) in
-    let @9 = build<Surface>(1u, @6, @8) in
-    classify$r6 = @9
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    classify$r6 = @8
   }
   shade((*classify$r6), x, total)
   return
@@ -420,47 +410,45 @@ func step(x : f32, wet : bool, gbuffer : bool, total : mut (f32*)) -> void {
 func step!False(x : f32, wet : bool, gbuffer : bool, total : mut (f32*), _queue_hits!False : mut Queue_hits!False[2], _queue_dries!False : mut (Queue_dries!False*)) -> void {
   classify$r6 : mut Surface
   if (wet) {
-    let @20 = atomic_add((&(*_queue_dries!False).count), 1u) in
-    let @22 = (*_queue_dries!False).x in
-    @22[@20] = x
-    let @25 = (*_queue_dries!False).total in
-    @25[@20] = total
+    let @19 = atomic_add((&(*_queue_dries!False).count), 1u) in
+    let @21 = (*_queue_dries!False).x in
+    @21[@19] = x
   }
-  let @1 = x < 10f in
-  if (@1) {
-    let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @3 = reinterpret_cast<u32>(x) in
-    let @4 = build<[[packed]] u32x1>(@3) in
-    let @5 = build<Surface>(0u, @2, @4) in
-    classify$r6 = @5
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    classify$r6 = @4
   } else {
-    let @6 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @7 = reinterpret_cast<u32>(x) in
-    let @8 = build<[[packed]] u32x1>(@7) in
-    let @9 = build<Surface>(1u, @6, @8) in
-    classify$r6 = @9
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    classify$r6 = @8
   }
-  let @11 = build<Entry_hits!False>((*classify$r6), x) in
-  let @12 = (*classify$r6).tag in
-  switch (@12) {
+  let @10 = build<Entry_hits!False>((*classify$r6), x) in
+  let @11 = (*classify$r6).tag in
+  switch (@11) {
   case 0: {
-    let @28 = atomic_add((&_queue_hits!False[0u].count), 1u) in
-    let @35 = (*classify$r6).payload in
-    let @36 = @35[0u] in
-    let @39 = _queue_hits!False[0u].s_payload_x in
-    @39[@28] = @36
-    let @42 = _queue_hits!False[0u].x in
-    @42[@28] = x
+    let @24 = atomic_add((&_queue_hits!False[0u].count), 1u) in
+    let @31 = (*classify$r6).payload in
+    let @32 = @31[0u] in
+    let @35 = _queue_hits!False[0u].s_payload_x in
+    @35[@24] = @32
+    let @38 = _queue_hits!False[0u].x in
+    @38[@24] = x
     return
   } break;
   default: {
-    let @45 = atomic_add((&_queue_hits!False[1u].count), 1u) in
-    let @52 = (*classify$r6).payload in
-    let @53 = @52[0u] in
-    let @56 = _queue_hits!False[1u].s_payload_x in
-    @56[@45] = @53
-    let @59 = _queue_hits!False[1u].x in
-    @59[@45] = x
+    let @41 = atomic_add((&_queue_hits!False[1u].count), 1u) in
+    let @48 = (*classify$r6).payload in
+    let @49 = @48[0u] in
+    let @52 = _queue_hits!False[1u].s_payload_x in
+    @52[@41] = @49
+    let @55 = _queue_hits!False[1u].x in
+    @55[@41] = x
     return
   }
   }
@@ -470,75 +458,68 @@ func step!True(x : f32, wet : bool, gbuffer : bool, total : mut (f32*), _queue_h
   classify$r6 : mut Surface
   total += 1000f
   if (wet) {
-    let @20 = atomic_add((&(*_queue_dries!True).count), 1u) in
-    let @22 = (*_queue_dries!True).x in
-    @22[@20] = x
-    let @25 = (*_queue_dries!True).total in
-    @25[@20] = total
+    let @19 = atomic_add((&(*_queue_dries!True).count), 1u) in
+    let @21 = (*_queue_dries!True).x in
+    @21[@19] = x
   }
-  let @1 = x < 10f in
-  if (@1) {
-    let @2 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @3 = reinterpret_cast<u32>(x) in
-    let @4 = build<[[packed]] u32x1>(@3) in
-    let @5 = build<Surface>(0u, @2, @4) in
-    classify$r6 = @5
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    classify$r6 = @4
   } else {
-    let @6 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-    let @7 = reinterpret_cast<u32>(x) in
-    let @8 = build<[[packed]] u32x1>(@7) in
-    let @9 = build<Surface>(1u, @6, @8) in
-    classify$r6 = @9
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    classify$r6 = @8
   }
-  let @11 = build<Entry_hits!True>((*classify$r6), x) in
-  let @12 = (*classify$r6).tag in
-  switch (@12) {
+  let @10 = build<Entry_hits!True>((*classify$r6), x) in
+  let @11 = (*classify$r6).tag in
+  switch (@11) {
   case 0: {
-    let @28 = atomic_add((&_queue_hits!True[0u].count), 1u) in
-    let @35 = (*classify$r6).payload in
-    let @36 = @35[0u] in
-    let @39 = _queue_hits!True[0u].s_payload_x in
-    @39[@28] = @36
-    let @42 = _queue_hits!True[0u].x in
-    @42[@28] = x
+    let @24 = atomic_add((&_queue_hits!True[0u].count), 1u) in
+    let @31 = (*classify$r6).payload in
+    let @32 = @31[0u] in
+    let @35 = _queue_hits!True[0u].s_payload_x in
+    @35[@24] = @32
+    let @38 = _queue_hits!True[0u].x in
+    @38[@24] = x
     return
   } break;
   default: {
-    let @45 = atomic_add((&_queue_hits!True[1u].count), 1u) in
-    let @52 = (*classify$r6).payload in
-    let @53 = @52[0u] in
-    let @56 = _queue_hits!True[1u].s_payload_x in
-    @56[@45] = @53
-    let @59 = _queue_hits!True[1u].x in
-    @59[@45] = x
+    let @41 = atomic_add((&_queue_hits!True[1u].count), 1u) in
+    let @48 = (*classify$r6).payload in
+    let @49 = @48[0u] in
+    let @52 = _queue_hits!True[1u].s_payload_x in
+    @52[@41] = @49
+    let @55 = _queue_hits!True[1u].x in
+    @55[@41] = x
     return
   }
   }
 }
 
 func wetten(x : f32, total : mut (f32*)) -> void {
-  let @0 = soak(x) in
-  total += @0
+  spawn soak(x, total)
   return
 }
 
 func wetten!False(x : f32, total : mut (f32*), _queue_soaks!False : mut (Queue_soaks!False*)) -> void {
-  let @0 = build<Entry_soaks!False>(x, total) in
+  let @0 = build<Entry_soaks!False>(x) in
   let @3 = atomic_add((&(*_queue_soaks!False).count), 1u) in
   let @5 = (*_queue_soaks!False).x in
   @5[@3] = x
-  let @8 = (*_queue_soaks!False).total in
-  @8[@3] = total
   return
 }
 
 func wetten!True(x : f32, total : mut (f32*), _queue_soaks!True : mut (Queue_soaks!True*)) -> void {
-  let @0 = build<Entry_soaks!True>(x, total) in
+  let @0 = build<Entry_soaks!True>(x) in
   let @3 = atomic_add((&(*_queue_soaks!True).count), 1u) in
   let @5 = (*_queue_soaks!True).x in
   @5[@3] = x
-  let @8 = (*_queue_soaks!True).total in
-  @8[@3] = total
   return
 }
 

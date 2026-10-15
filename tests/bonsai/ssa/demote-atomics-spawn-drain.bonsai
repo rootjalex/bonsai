@@ -1,36 +1,41 @@
 //! flags: -p ssa
 
-// A spawned function's atomic, when the spawn is deferred onto a queue
+// A spawned function's accumulates, when the spawn is deferred onto a queue
 // whose drain nothing bound: the spawned calls run later, after the loop,
 // one at a time.
 //
 // The spawn's possible parallelism is real here -- the calls to `wet` are
 // pushed by the loop and run by the drain `q`, a `parfor` of their own --
 // but the schedule bound neither loop, so nothing runs two of them at once
-// and both atomics come off (SSA/DemoteAtomics.h), as under no schedule
+// and every atomic comes off (SSA/DemoteAtomics.h), as under no schedule
 // (demote-atomics-spawn-inline). What to read for:
 //
 //   wet    `total += x * 0.5` plain, in the function the drain calls.
+//   wet    `n += 1f` plain: the iteration's `n` reaches the drain as the
+//          address of its record slot (`q_n_slots`), one per entry.
 //   step   `total += x` plain, in the function the producer loop calls.
-//   the drain's body adds `wet`'s value into the record slot of the
-//          iteration's `n`, plain: one entry per iteration, one slot each.
+//   step   the spawn is a push onto `q`; `step` goes on to its own
+//          accumulate.
 //
-// Bind the producer loop and `step`'s atomic stays while `wet`'s still
-// goes (demote-atomics-spawn-bound); bind the drain too and both stay
+// Bind the producer loop and `step`'s atomic stays while `wet`'s still go
+// (demote-atomics-spawn-bound); bind the drain too and `total`'s both stay
 // (backends/ptx/demote-atomics-spawn). correctness/llvm/
 // demote-atomics-spawn-drain runs this one (97.5 and eight ones).
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call. Both accumulates are atomic by declaration, and the demotion takes
+// each off where nothing runs beside it.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

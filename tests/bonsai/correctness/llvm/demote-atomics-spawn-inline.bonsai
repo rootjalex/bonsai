@@ -1,22 +1,24 @@
 //! flags: -p ssa -b llvm -e
 
 // tests/bonsai/ssa/demote-atomics-spawn-inline's program, run: no
-// schedule, so the spawn is the call and the accumulate it looks like and
-// the loop runs one iteration at a time. Both atomics come off and the
-// result is the same as with them on, which is what demoting them has to
-// keep: 65 + 32.5, and one spawned call counted per iteration.
+// schedule, so the spawn is the call it looks like, followed by the rest of
+// `step`, and the loop runs one iteration at a time. Every atomic comes off
+// and the result is the same as with them on, which is what demoting them
+// has to keep: 65 + 32.5, and one spawned call counted per iteration.
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

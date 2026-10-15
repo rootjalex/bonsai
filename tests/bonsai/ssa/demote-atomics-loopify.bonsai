@@ -1,0 +1,86 @@
+//! flags: -p ssa
+
+// Taking the lock off an atomic in a recursion that loopify() made a loop
+// of, when every call hands the reducer it writes storage of its own.
+//
+// `series` adds a geometric series into `total`, one term per step and the
+// rest by recursion, and `series.loopify()` makes the recursion a loop
+// (SSA/Rewrite.cpp). The loop's header carries what changes from step to
+// step, `x` and `n`, and names what does not -- `total` among it -- without
+// taking it as an argument, so inside the loop `total` is a name reached
+// from the block above, which the definitions analysis leaves at "unknown
+// here" on purpose (SSA/Simplify.cpp says why defer() needs that). `run`'s
+// `parfor i` is bound, so `series` runs once per concurrent iteration, and
+// whether its accumulate may lose its atomic is what every caller hands
+// `total` (SSA/Contention.h, parameter_contention) -- which can only be
+// applied once the loop's `total` is known to be the parameter: the
+// contention analysis follows the name up the dominator tree to the block
+// that binds it, here the entry (Origins::binding_block). What to read for:
+//
+//   series   `total += x` loses its atomic: `step`, its one caller, hands
+//            `acc`, storage the call made for itself, which no other call
+//            can reach.
+//   drip     the same loop and the same accumulate keep it: `run` hands it
+//            the run's reducer, one word every iteration's call writes.
+//
+// Before the name was followed, series's stayed too: the accumulate's
+// address resolved to the header's name of it rather than to the
+// parameter, and an address not shown to be the parameter's is Unknown.
+// The renderer's medium kernel kept four device atomics on the sample's
+// radiance that way (apps/pbrt, vol_medium_step under
+// vol_medium_step.loopify()). backends/ptx/demote-atomics-loopify shows the
+// kernel; correctness/gpu/demote-atomics-loopify runs it.
+import stdlib/numerics;
+
+// A geometric series into `total`: one term per step, the rest by
+// recursion. Three terms of x are 1.75x.
+func series(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    series(x * 0.5, n - 1, total);
+    return;
+}
+
+// The same series into a reducer every iteration shares.
+func drip(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    drip(x * 0.5, n - 1, total);
+    return;
+}
+
+// An iteration's own sum: storage the call makes for itself, handed down.
+func step(x : Float) -> Float {
+    acc : reduce(+) Float = 0.0;
+    series(x, 3, acc);
+    return acc;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i]);
+        drip(values[i], 3, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, out);
+    print(out);
+    print(total);
+    return 0;
+}
+
+schedule {
+    series.loopify();
+    drip.loopify();
+    run.bind(i, CPUThread);
+}

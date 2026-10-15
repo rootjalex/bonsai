@@ -1,16 +1,18 @@
 //! flags: -p ssa -b ptx
 
-// An `atomic` accumulate into a `reduce(+)` parameter, inside a function
-// the GPU-bound loop calls. What to read for: `atom.relaxed.gpu.global.add
+// An accumulate into a `reduce(+)` parameter -- atomic by its declaration
+// (docs/parallel-semantics.md, section 3) -- inside a function the
+// GPU-bound loop calls. What to read for: `atom.relaxed.gpu.global.add
 // .f32` in the kernel -- the atomic kept, since `step` runs once per thread
-// and `total` is the caller's one word (SSA/DemoteAtomics.h), and a device
-// atomic rather than block-reduce's shuffles, since from inside `step` the
-// address is not known to be the block's. correctness/gpu/reduce-param runs
-// it: 65.
+// and `total` is the caller's one word (SSA/DemoteAtomics.h; every call
+// hands `step` the run's `total`, so parameter_contention finds it
+// Shared), and a device atomic rather than block-reduce's shuffles, since
+// from inside `step` the address is not known to be the block's.
+// correctness/gpu/reduce-param runs it: 65.
 import stdlib/numerics;
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 

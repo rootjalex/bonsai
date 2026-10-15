@@ -27,18 +27,18 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !4
   %1 = atomicrmw add ptr %q_queue.generic, i32 1 syncscope("device") monotonic, align 4
   %2 = getelementptr inbounds nuw i8, ptr %q_queue.generic, i64 8
-  %x4.i = load ptr, ptr %2, align 8
-  %x4.i.global = addrspacecast ptr %x4.i to ptr addrspace(1)
-  %x4.i.generic = addrspacecast ptr addrspace(1) %x4.i.global to ptr
+  %x3.i = load ptr, ptr %2, align 8
+  %x3.i.global = addrspacecast ptr %x3.i to ptr addrspace(1)
+  %x3.i.generic = addrspacecast ptr addrspace(1) %x3.i.global to ptr
   %_wide.i = zext i32 %1 to i64
-  %"@6.i" = getelementptr inbounds nuw [4 x i8], ptr %x4.i.generic, i64 %_wide.i
-  store float %extract, ptr %"@6.i", align 4, !tbaa !1
+  %"@5.i" = getelementptr inbounds nuw [4 x i8], ptr %x3.i.generic, i64 %_wide.i
+  store float %extract, ptr %"@5.i", align 4, !tbaa !1
   %3 = getelementptr inbounds nuw i8, ptr %q_queue.generic, i64 16
   %_slot.i = load ptr, ptr %3, align 8
   %_slot.i.global = addrspacecast ptr %_slot.i to ptr addrspace(1)
   %_slot.i.generic = addrspacecast ptr addrspace(1) %_slot.i.global to ptr
-  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.generic, i64 %_wide.i
-  store i32 %i, ptr %"@9.i", align 4, !tbaa !5
+  %"@8.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.generic, i64 %_wide.i
+  store i32 %i, ptr %"@8.i", align 4, !tbaa !5
   %4 = atomicrmw fadd ptr %total.generic, float %extract syncscope("device") monotonic, align 4
   ret void
 }
@@ -47,10 +47,10 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
 ; Function Attrs: mustprogress norecurse nounwind willreturn memory(argmem: readwrite)
-define ptx_kernel void @_kernel_q_1(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %q_x, ptr nofree captures(none) %total, ptr nofree captures(none) %q_n_slots, ptr nofree readonly captures(none) %q__slot, ptr nofree readonly captures(none) %"@15") local_unnamed_addr #2 {
+define ptx_kernel void @_kernel_q_1(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %q_x, ptr nofree captures(none) %total, ptr nofree captures(none) %q_n_slots, ptr nofree readonly captures(none) %q__slot, ptr nofree readonly captures(none) %"@14") local_unnamed_addr #2 {
 "q!run!inqueue":
-  %"@15.global" = addrspacecast ptr %"@15" to ptr addrspace(1)
-  %"@15.generic" = addrspacecast ptr addrspace(1) %"@15.global" to ptr
+  %"@14.global" = addrspacecast ptr %"@14" to ptr addrspace(1)
+  %"@14.generic" = addrspacecast ptr addrspace(1) %"@14.global" to ptr
   %q__slot.global = addrspacecast ptr %q__slot to ptr addrspace(1)
   %q__slot.generic = addrspacecast ptr addrspace(1) %q__slot.global to ptr
   %q_n_slots.global = addrspacecast ptr %q_n_slots to ptr addrspace(1)
@@ -62,7 +62,7 @@ define ptx_kernel void @_kernel_q_1(i32 %_begin, i32 %_stride, ptr nofree readon
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %0 = mul i32 %_stride, %tid
   %q = add i32 %0, %_begin
-  %deref_temp = load i32, ptr %"@15.generic", align 4, !tbaa !7, !invariant.load !4
+  %deref_temp = load i32, ptr %"@14.generic", align 4, !tbaa !7, !invariant.load !4
   %1 = icmp ult i32 %q, %deref_temp
   br i1 %1, label %"q!run", label %common.ret
 
@@ -72,12 +72,12 @@ define ptx_kernel void @_kernel_q_1(i32 %_begin, i32 %_stride, ptr nofree readon
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !4
   %extract_ptr7 = getelementptr inbounds nuw [4 x i8], ptr %q__slot.generic, i64 %q1_wide
   %extract8 = load i32, ptr %extract_ptr7, align 4, !invariant.load !4
-  %2 = fmul float %extract, 5.000000e-01
-  %3 = atomicrmw fadd ptr %total.generic, float %2 syncscope("device") monotonic, align 4
   %extract8_wide = sext i32 %extract8 to i64
   %ptr_array_deref = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %extract8_wide
-  %acc_base = load float, ptr %ptr_array_deref, align 4
-  %4 = fadd float %acc_base, 1.000000e+00
+  %2 = fmul float %extract, 5.000000e-01
+  %3 = atomicrmw fadd ptr %total.generic, float %2 syncscope("device") monotonic, align 4
+  %acc_base.i = load float, ptr %ptr_array_deref, align 4
+  %4 = fadd float %acc_base.i, 1.000000e+00
   store float %4, ptr %ptr_array_deref, align 4
   br label %common.ret
 
@@ -212,10 +212,10 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	ld.global.nc.b32 	%r6, [%rd12];
 	add.s64 	%rd13, %rd1, %rd11;
 	ld.global.nc.b32 	%r7, [%rd13];
-	mul.rn.f32 	%r8, %r6, 0f3F000000;
-	atom.relaxed.gpu.global.add.f32 	%r9, [%rd3], %r8;
 	mul.wide.s32 	%rd14, %r7, 4;
 	add.s64 	%rd15, %rd2, %rd14;
+	mul.rn.f32 	%r8, %r6, 0f3F000000;
+	atom.relaxed.gpu.global.add.f32 	%r9, [%rd3], %r8;
 	ld.global.b32 	%r10, [%rd15];
 	add.rn.f32 	%r11, %r10, 0f3F800000;
 	st.global.b32 	[%rd15], %r11;

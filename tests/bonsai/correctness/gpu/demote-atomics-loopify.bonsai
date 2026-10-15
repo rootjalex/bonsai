@@ -1,0 +1,59 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/backends/ptx/demote-atomics-loopify's program, run on the
+// GPU: each thread adds three terms of a geometric series into its own
+// `acc` through a loop loopify() made of `series` -- a plain add once the
+// analysis has followed the loop header's name of `total` to the
+// parameter, and storage no other thread reaches -- and the same three
+// terms into the run's `total` through `drip`, a device atomic. 1.75 of
+// each value, and 1.75 of their sum, 65: 113.75.
+import stdlib/numerics;
+
+func series(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    series(x * 0.5, n - 1, total);
+    return;
+}
+
+func drip(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    drip(x * 0.5, n - 1, total);
+    return;
+}
+
+func step(x : Float) -> Float {
+    acc : reduce(+) Float = 0.0;
+    series(x, 3, acc);
+    return acc;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i]);
+        drip(values[i], 3, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, out);
+    print(out);
+    print(total);
+    return 0;
+}
+
+schedule {
+    series.loopify();
+    drip.loopify();
+    run.bind(i, GPUThread);
+}

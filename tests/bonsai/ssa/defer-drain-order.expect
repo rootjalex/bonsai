@@ -1,17 +1,18 @@
-type Entry_firsts = struct Entry_firsts{ x : f32; total : (f32*) }
-type Entry_seconds = struct Entry_seconds{ x : f32; total : (f32*) }
+type Entry_firsts = struct Entry_firsts{ x : f32 }
+type Entry_seconds = struct Entry_seconds{ x : f32 }
 type Float = f32
 type Half = f16
-type Queue_firsts = struct Queue_firsts{ count : u32; x : f32[]; total : (f32*)[] }
-type Queue_seconds = struct Queue_seconds{ count : u32; x : f32[]; total : (f32*)[] }
+type Queue_firsts = struct Queue_firsts{ count : u32; x : f32[] }
+type Queue_seconds = struct Queue_seconds{ count : u32; x : f32[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
 type vec4f = f32x4
 
-func first(x : f32) -> f32 {
+func first(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 2f in
-  return @0
+  total += @0
+  return
 }
 
 func main() -> i32 {
@@ -26,15 +27,13 @@ func main() -> i32 {
 
 func run(a : f32[4], total : mut (f32*)) -> void {
   firsts_x : mut f32[4]
-  firsts_total : mut (f32*)[4]
   firsts_queue : mut Queue_firsts
-  let @1 = build<Queue_firsts>(0u, firsts_x, firsts_total) in
+  let @1 = build<Queue_firsts>(0u, firsts_x) in
   firsts_queue = @1
   seconds_x : mut f32[4]
-  seconds_total : mut (f32*)[4]
   seconds_queue : mut Queue_seconds
-  let @8 = build<Queue_seconds>(0u, seconds_x, seconds_total) in
-  seconds_queue = @8
+  let @6 = build<Queue_seconds>(0u, seconds_x) in
+  seconds_queue = @6
   parfor i in [0:4:1] {
     let @0 = a[i] in
     step(@0, total, firsts_queue, seconds_queue)
@@ -44,43 +43,36 @@ func run(a : f32[4], total : mut (f32*)) -> void {
   let @3 = @2.count in
   parfor firsts in [0u:@3:1u] {
     let @4 = firsts_x[firsts] in
-    let @6 = firsts_total[firsts] in
-    let @5 = first(@4) in
-    @6 += @5
+    first(@4, total)
     continue
   }
   firsts_queue.count = 0u
-  let @9 = (*seconds_queue) in
-  let @10 = @9.count in
-  parfor seconds in [0u:@10:1u] {
-    let @11 = seconds_x[seconds] in
-    let @13 = seconds_total[seconds] in
-    let @12 = second(@11) in
-    @13 += @12
+  let @7 = (*seconds_queue) in
+  let @8 = @7.count in
+  parfor seconds in [0u:@8:1u] {
+    let @9 = seconds_x[seconds] in
+    second(@9, total)
     continue
   }
   seconds_queue.count = 0u
   return
 }
 
-func second(x : f32) -> f32 {
+func second(x : f32, total : mut (f32*)) -> void {
   let @0 = x + 1f in
-  return @0
+  total += @0
+  return
 }
 
 func step(x : f32, total : mut (f32*), _queue_firsts : mut (Queue_firsts*), _queue_seconds : mut (Queue_seconds*)) -> void {
-  let @2 = build<Entry_firsts>(x, total) in
-  let @7 = atomic_add((&(*_queue_firsts).count), 1u) in
-  let @9 = (*_queue_firsts).x in
-  @9[@7] = x
-  let @12 = (*_queue_firsts).total in
-  @12[@7] = total
-  let @4 = build<Entry_seconds>(x, total) in
-  let @15 = atomic_add((&(*_queue_seconds).count), 1u) in
-  let @17 = (*_queue_seconds).x in
-  @17[@15] = x
-  let @20 = (*_queue_seconds).total in
-  @20[@15] = total
+  let @0 = build<Entry_firsts>(x) in
+  let @5 = atomic_add((&(*_queue_firsts).count), 1u) in
+  let @7 = (*_queue_firsts).x in
+  @7[@5] = x
+  let @2 = build<Entry_seconds>(x) in
+  let @10 = atomic_add((&(*_queue_seconds).count), 1u) in
+  let @12 = (*_queue_seconds).x in
+  @12[@10] = x
   return
 }
 

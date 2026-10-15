@@ -1,0 +1,80 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func drip(x : f32, n : i32, total : mut (f32*)) -> void {
+  x!loop : mut f32
+  n!loop : mut i32
+  x!loop = x
+  n!loop = n
+  while (!((*n!loop) <= 0)) {
+    atomic total += (*x!loop)
+    let @1 = (*x!loop) * 0.5f in
+    let @2 = (*n!loop) - 1 in
+    x!loop = @1
+    n!loop = @2
+  }
+  return
+}
+
+func main() -> i32 {
+  total : mut f32
+  total = 0f
+  alloc out : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  out = @0
+  let @1 = build<f32[8]>(1f, 4f, 9f, 11f, 2f, 15f, 3f, 20f) in
+  run(@1, total, out)
+  print(out)
+  let @2 = (*total) in
+  print(@2)
+  return 0
+}
+
+func run(values : f32[8], total : mut (f32*), out : mut f32[8]) -> void {
+  parfor i in [0:8:1] {
+    acc$i6 : mut f32
+    acc$i6 = 0f
+    let _t22 = values[i] in
+    series(_t22, 3, acc$i6)
+    let @1 = (*acc$i6) in
+    out[i] = @1
+    drip(_t22, 3, total)
+    continue
+  }
+  return
+}
+
+func series(x : f32, n : i32, total : mut (f32*)) -> void {
+  x!loop : mut f32
+  n!loop : mut i32
+  x!loop = x
+  n!loop = n
+  while (!((*n!loop) <= 0)) {
+    total += (*x!loop)
+    let @1 = (*x!loop) * 0.5f in
+    let @2 = (*n!loop) - 1 in
+    x!loop = @1
+    n!loop = @2
+  }
+  return
+}
+
+func step(x : f32) -> f32 {
+  acc : mut f32
+  acc = 0f
+  series(x, 3, acc)
+  let @0 = (*acc) in
+  return @0
+}
+
+
+schedule {
+    drip.loopify()
+    run.bind(i, CPUThread)
+    series.loopify()
+
+}

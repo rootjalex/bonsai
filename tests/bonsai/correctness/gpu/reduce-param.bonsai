@@ -1,20 +1,22 @@
 //! flags: -p ssa -b llvm -e
 
-// An `atomic` accumulate into a `reduce(+)` parameter, made inside a
-// function the GPU-bound loop calls: eight threads add into one word, and
-// `atomic` says so. The pass that takes unneeded atomics off
-// (SSA/DemoteAtomics.h) reads `step` as a function some bound loop calls --
-// its callers' loops enclose it, though it has none of its own -- and the
-// address is the caller's, not the call's own storage, so the atomic stays
-// and the kernel does a device atomic (backends/ptx/reduce-param shows the
-// `atom.global.add.f32`). The same statement inline in the loop's body gets
-// the block reduction instead (block-reduce); here the address is not known
-// to be the block's one word. Printed 1.0, the last store's value, while
-// the pass asked only the function's own loops.
+// An accumulate into a `reduce(+)` parameter, made inside a function the
+// GPU-bound loop calls: eight threads add into one word, and the reducer's
+// declaration makes the add atomic (docs/parallel-semantics.md, section
+// 3). The pass that takes unneeded atomics off (SSA/DemoteAtomics.h) reads
+// `step` as a function some bound loop calls -- its callers' loops enclose
+// it, though it has none of its own -- and the address is the caller's one
+// word, handed to every call (SSA/Contention.h, parameter_contention), not
+// the call's own storage, so the atomic stays and the kernel does a device
+// atomic (backends/ptx/reduce-param shows the `atom.global.add.f32`). The
+// same statement inline in the loop's body gets the block reduction
+// instead (block-reduce); here the address is not known to be the block's
+// one word. Printed 1.0, the last store's value, while the pass asked only
+// the function's own loops.
 import stdlib/numerics;
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 

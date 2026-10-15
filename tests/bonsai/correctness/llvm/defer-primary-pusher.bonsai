@@ -18,12 +18,13 @@
 // prints.
 import stdlib/numerics;
 
-func shadow(x : i32) -> i32 {
-    return 2 * x;
+func shadow(x : i32, total : reduce(+) i32) -> void {
+    total += 2 * x;
+    return;
 }
 
 func shade_step(x : i32, depth : i32, total : reduce(+) i32) -> void {
-    spawn total += shadow(x);
+    spawn shadow(x, total);
     if x % 2 == 0 {
         trace_step(x * 2, depth - 1, total);
         return;

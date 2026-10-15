@@ -1,21 +1,24 @@
 //! flags: -p ssa
 
-// The join a spawned call leaves implicit. The producer's continuation,
-// `out[i] = total`, reads the reducer the spawned calls add into, and the
-// drain that runs them comes after the producer loop -- so the continuation
-// cannot run where it was. As for any deferral, it runs in the pass over
-// the record after the drain (`q_rest`), once per iteration, with the
-// reducer's slot (`q_total_slots`) and the iteration's `i` the producer
-// wrote into the record before its call (`out` is in scope): pbrt's
-// per-sample state and its film pass after the last bounce.
+// The join a spawned call's function makes by returning. `step` spawns
+// `shade(x, total)` and returns, and its return waits for the spawn; the
+// producer's continuation, `out[i] = total`, reads the reducer after that,
+// whole. Deferred, the drain that runs the spawned calls comes after the
+// producer loop -- so the continuation cannot run where it was. As for any
+// deferral, it runs in the pass over the record after the drain
+// (`q_rest`), once per iteration, with the reducer's slot
+// (`q_total_slots`) and the iteration's `i` the producer wrote into the
+// record before its call (`out` is in scope): pbrt's per-sample state and
+// its film pass after the last bounce.
 import stdlib/numerics;
 
-func shade(x : Float) -> Float {
-    return x * 2.0;
+func shade(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    spawn total += shade(x);
+    spawn shade(x, total);
     total += x;
     return;
 }

@@ -9,12 +9,13 @@
 // rays it pushes.
 import stdlib/numerics;
 
-func shade(x : Float) -> Float {
-    return x * 2.0;
+func shade(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
 }
 
 func light(x : Float, total : reduce(+) Float) -> void {
-    spawn total += shade(x);
+    spawn shade(x, total);
     total += x;
     return;
 }

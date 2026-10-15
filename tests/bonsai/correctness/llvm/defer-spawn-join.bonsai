@@ -1,18 +1,20 @@
 //! flags: -p ssa -b llvm -e
 
-// The join a spawned call leaves implicit, run: `out[i] = total` reads the
-// reducer after the spawned shade calls have added into it, though those
-// run in a drain after the loop -- the continuation runs in the pass over
-// the record after the drain, as any deferral's does. Each out[i] is x +
-// 2x.
+// The join a spawned call's function makes by returning, run: `step`'s
+// return waits for the `shade(x, total)` it spawned, so `out[i] = total`
+// reads the reducer after the spawned shade calls have added into it,
+// though those run in a drain after the loop -- the continuation runs in
+// the pass over the record after the drain, as any deferral's does. Each
+// out[i] is x + 2x.
 import stdlib/numerics;
 
-func shade(x : Float) -> Float {
-    return x * 2.0;
+func shade(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    spawn total += shade(x);
+    spawn shade(x, total);
     total += x;
     return;
 }

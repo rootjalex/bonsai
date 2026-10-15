@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <atomic>
 #include "runtime/bonsai_cpp.h"
 
 

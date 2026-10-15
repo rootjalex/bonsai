@@ -4,23 +4,25 @@
 // calls to `wet` deferred onto a queue, the producer loop, the drain and
 // the pass over the record bound to GPU threads. Every thread of the loop
 // adds its value into `total` and every spawned call adds half of it, both
-// with `atomic` kept (SSA/DemoteAtomics.h): 65 + 32.5. Each iteration's
-// `n` counts its one spawned call, through the record slot its entry
-// carries. The same program prints the same under no schedule and under a
-// sequential drain (correctness/llvm/demote-atomics-spawn-inline, -drain),
-// where both atomics come off.
+// atomic by declaration and both kept (SSA/DemoteAtomics.h): 65 + 32.5.
+// Each iteration's `n` counts its one spawned call, through the record
+// slot its entry carries. The same program prints the same under no
+// schedule and under a sequential drain (correctness/llvm/
+// demote-atomics-spawn-inline, -drain), where every atomic comes off.
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

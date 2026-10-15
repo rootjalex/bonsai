@@ -18,17 +18,18 @@
 // defer, beside this file). Expected: out[i] is half of each value.
 import stdlib/numerics;
 
-func soak(x : Float) -> Float {
-    return x * 0.5;
+func soak(x : Float, l : reduce(+) Float) -> void {
+    l += x * 0.5;
+    return;
 }
 
-func dampen(x : Float, l : reduce(+) Float) -> Float {
-    spawn l += soak(x);
-    return 0.0;
+func dampen(x : Float, l : reduce(+) Float) -> void {
+    spawn soak(x, l);
+    return;
 }
 
 func step(x : Float, l : reduce(+) Float) -> void {
-    spawn l += dampen(x, l);
+    spawn dampen(x, l);
     return;
 }
 

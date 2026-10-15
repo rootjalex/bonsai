@@ -1,7 +1,0 @@
----CODE---
-1
----STDERR---
-tests/bonsai/pending/race-spawned-function.bonsai:24:5: [race] `total += x * 0.5` in wet accumulates into `total`, a reducer shared by the calls `step` spawns (`spawn n += wet(x, total)`), and spawned calls may run at once: write `atomic total += x * 0.5`. The schedule decides whether the spawned calls run in parallel; the program says what is safe if they do.
-
-    total += x * 0.5;
-    ^^^^^

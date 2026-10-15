@@ -1,0 +1,37 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/loopify-spawn-mutual's program, run: the recursion
+// through `route`, which spawns `tally` into the reducer before handing
+// the round back, made a loop of `step`. Four rounds: acc goes 1, 3, 7,
+// 15 into `tally` and comes out 30; the spawned adds, run as the calls
+// they look like under no further schedule, sum to 26.
+import stdlib/numerics;
+
+func tally(x : Float, seen : reduce(+) Float) -> void {
+    seen += x;
+    return;
+}
+
+func step(n : i32, acc : Float, seen : reduce(+) Float) -> Float {
+    if n == 0 {
+        return acc;
+    }
+    return route(n, acc + 1.0, seen);
+}
+
+func route(n : i32, acc : Float, seen : reduce(+) Float) -> Float {
+    spawn tally(acc, seen);
+    return step(n - 1, acc * 2.0, seen);
+}
+
+func main() -> i32 {
+    seen : reduce(+) Float = 0.0;
+    r = step(4, 0.0, seen);
+    print(r);
+    print(seen);
+    return 0;
+}
+
+schedule {
+    step.loopify();
+}

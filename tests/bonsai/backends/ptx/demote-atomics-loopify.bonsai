@@ -1,0 +1,72 @@
+//! flags: -p ssa -b ptx
+
+// tests/bonsai/ssa/demote-atomics-loopify's program with its loop bound to
+// GPU threads: two recursions loopify() made loops of, each adding a
+// series into a `reduce(+)` parameter -- atomic by its declaration
+// (docs/parallel-semantics.md, section 3) -- from inside a function the
+// bound loop calls. What to read for: the kernel's only atomics are
+// `drip`'s -- three `atom.relaxed.gpu.global.add.f32` onto one address,
+// its three steps unrolled -- whose `total` is the run's one word
+// (SSA/Contention.h: every call hands it the same reducer, so
+// parameter_contention finds the parameter Shared). `series`'s are plain
+// adds into `step`'s own `acc`, which no other thread's call can reach:
+// three `add.rn.f32` in registers and one store to `out[i]`, `acc` never
+// touching memory once its adds are plain. The
+// loop's header names `total` without carrying it, so the analysis follows
+// the name up the dominator tree to the parameter (Origins::binding_block);
+// before it did, series's were device atomics as well.
+// correctness/gpu/demote-atomics-loopify runs it.
+import stdlib/numerics;
+
+// A geometric series into `total`: one term per step, the rest by
+// recursion. Three terms of x are 1.75x.
+func series(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    series(x * 0.5, n - 1, total);
+    return;
+}
+
+// The same series into a reducer every iteration shares.
+func drip(x : Float, n : i32, total : reduce(+) Float) -> void {
+    if n <= 0 {
+        return;
+    }
+    total += x;
+    drip(x * 0.5, n - 1, total);
+    return;
+}
+
+// An iteration's own sum: storage the call makes for itself, handed down.
+func step(x : Float) -> Float {
+    acc : reduce(+) Float = 0.0;
+    series(x, 3, acc);
+    return acc;
+}
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(values[i]);
+        drip(values[i], 3, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 4.0, 9.0, 11.0, 2.0, 15.0, 3.0, 20.0};
+    total : reduce(+) Float = 0.0;
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, total, out);
+    print(out);
+    print(total);
+    return 0;
+}
+
+schedule {
+    series.loopify();
+    drip.loopify();
+    run.bind(i, GPUThread);
+}

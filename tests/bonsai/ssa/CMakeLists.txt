@@ -6,6 +6,7 @@ add_bonsai_tests(
     demote-atomics-spawn-inline.bonsai
     demote-atomics-spawn-drain.bonsai
     demote-atomics-spawn-bound.bonsai
+    demote-atomics-loopify.bonsai
     address-across-call.bonsai
     alias-edges.bonsai
     and-of-compares.bonsai
@@ -91,6 +92,7 @@ add_bonsai_tests(
     shadowed-let.bonsai
     simple.bonsai
     loopify-mutual.bonsai
+    loopify-spawn-mutual.bonsai
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
     reorder.bonsai

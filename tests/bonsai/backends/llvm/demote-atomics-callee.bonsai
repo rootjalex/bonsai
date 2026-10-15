@@ -3,17 +3,18 @@
 // tests/bonsai/ssa/demote-atomics-callee's program, through the LLVM
 // backend. What to read for: every `atomicrmw fadd` is add_shared's --
 // `total` is `run`'s reducer, handed down the calls from a loop bound to
-// CPU threads, one word every thread's call adds to -- one in the loop's
-// kernel (`_pfkernel`, hand_down and add_shared inlined into it) and
-// eight in `main`, where tally's unbound loop is unrolled; the adds of
-// add_own (the call's own `acc`, under an unbound loop: the three plain
-// `fadd`s after the kernel's atomic) and add_serial (called from the
-// unbound loop alone: the plain `fadd` beside each of main's atomics) have
-// their `atomic` taken off (SSA/DemoteAtomics.h).
+// CPU threads, one word every thread's call adds to, atomic by its
+// declaration -- one in the loop's kernel (`_pfkernel`, hand_down and
+// add_shared inlined into it) and eight in `main`, where tally's unbound
+// loop is unrolled; the adds of add_own (the call's own `acc`, under an
+// unbound loop: the three plain `fadd`s after the kernel's atomic) and
+// add_serial (called from the unbound loop alone: the plain `fadd` beside
+// each of main's atomics) have their atomic taken off
+// (SSA/DemoteAtomics.h).
 import stdlib/numerics;
 
 func add_shared(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 
@@ -40,7 +41,7 @@ func run(values : array[Float, 8], total : reduce(+) Float,
 }
 
 func add_serial(x : Float, total : reduce(+) Float) -> void {
-    atomic total += x;
+    total += x;
     return;
 }
 

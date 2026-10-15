@@ -2,7 +2,7 @@
 1
 ---STDERR---
 [internal] Error: src/Parser/Parser.cpp:60
-tests/bonsai/error/spawn-not-call.bonsai:8:24: [parse error] spawn takes a call: `spawn total += f(...)`. What is spawned is the call, whose value is added into total by whoever runs it; (x * 2f) is not one.
+tests/bonsai/error/spawn-not-call.bonsai:8:5: [parse error] spawn takes a call: `spawn f(args);`. What is spawned is the call, which runs beside the rest of this function until the join; a spawned call reports through the reducers it is handed.
 
     spawn total += x * 2.0;
-                       ^^^^^^^^
+    ^^^^^

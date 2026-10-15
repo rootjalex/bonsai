@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/spawn-returns-value.bonsai:13:18: [parse error] the value of the spawned call shade(x) has nowhere to go: shade returns f32, and nothing waits for a spawned call. A spawned function returns nothing and adds what it computes into a reducer (`reduce(+)`) it is handed.
+
+    spawn shade(x);
+                 ^

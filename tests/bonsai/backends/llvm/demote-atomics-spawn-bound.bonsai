@@ -3,24 +3,26 @@
 // tests/bonsai/ssa/demote-atomics-spawn-bound's program through the LLVM
 // backend: the producer loop bound to CPU threads, the drain of the
 // spawned calls left sequential. What to read for: every `atomicrmw fadd`
-// is `step`'s `atomic total += x`, in the loop's kernel (`_pfkernel1`,
-// `step` inlined into it), since the threads' calls write the one word;
-// `wet`'s `atomic total += x * 0.5`, run by the drain after the loop one
-// call at a time, is a plain `fadd` in `main` (SSA/DemoteAtomics.h). The
-// `atomicrmw add .. i32 1` beside each are the queue's count, the
+// is `step`'s `total += x`, in the loop's kernel (`_pfkernel1`, `step`
+// inlined into it), since the threads' calls write the one word; `wet`'s
+// `total += x * 0.5` and `n += 1f`, run by the drain after the loop one
+// call at a time, are plain `fadd`s in `main` (SSA/DemoteAtomics.h). The
+// `atomicrmw add .. i32 1` beside each push are the queue's count, the
 // deferral's own.
 import stdlib/numerics;
 
 // The spawned function. `total` is `run`'s reducer, one word that every
-// spawned call writes.
-func wet(x : Float, total : reduce(+) Float) -> Float {
-    atomic total += x * 0.5;
-    return 1.0;
+// spawned call adds into; `n` is the iteration's, counting its one spawned
+// call.
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
-    spawn n += wet(x, total);
-    atomic total += x;
+    spawn wet(x, total, n);
+    total += x;
     return;
 }
 

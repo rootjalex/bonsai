@@ -65,24 +65,24 @@ main:
   %extract.i = load float, ptr %extract_ptr.i, align 4
   %extract_ptr13.i = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i
   %extract14.i = load i32, ptr %extract_ptr13.i, align 4
-  %6 = fmul float %extract.i, 5.000000e-01
-  %7 = fadd float %5, %6
   %extract14_wide.i = sext i32 %extract14.i to i64
   %ptr_array_deref.i = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i
-  %acc_base.i = load float, ptr %ptr_array_deref.i, align 4
-  %8 = fadd float %acc_base.i, 1.000000e+00
+  %6 = fmul float %extract.i, 5.000000e-01
+  %7 = fadd float %5, %6
+  %acc_base1.i.i = load float, ptr %ptr_array_deref.i, align 4
+  %8 = fadd float %acc_base1.i.i, 1.000000e+00
   store float %8, ptr %ptr_array_deref.i, align 4
   %indvars.iv.next.i = or disjoint i64 %indvars.iv.i, 1
   %extract_ptr.i.1 = getelementptr inbounds nuw [4 x i8], ptr %q_x921.i, i64 %indvars.iv.next.i
   %extract.i.1 = load float, ptr %extract_ptr.i.1, align 4
   %extract_ptr13.i.1 = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.next.i
   %extract14.i.1 = load i32, ptr %extract_ptr13.i.1, align 4
-  %9 = fmul float %extract.i.1, 5.000000e-01
-  %10 = fadd float %7, %9
   %extract14_wide.i.1 = sext i32 %extract14.i.1 to i64
   %ptr_array_deref.i.1 = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i.1
-  %acc_base.i.1 = load float, ptr %ptr_array_deref.i.1, align 4
-  %11 = fadd float %acc_base.i.1, 1.000000e+00
+  %9 = fmul float %extract.i.1, 5.000000e-01
+  %10 = fadd float %7, %9
+  %acc_base1.i.i.1 = load float, ptr %ptr_array_deref.i.1, align 4
+  %11 = fadd float %acc_base1.i.i.1, 1.000000e+00
   store float %11, ptr %ptr_array_deref.i.1, align 4
   %indvars.iv.next.i.1 = add nuw nsw i64 %indvars.iv.i, 2
   %niter.next.1 = add i64 %niter, 2
@@ -102,12 +102,12 @@ q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa:      ; preds = %"q!run.i"
   %extract.i.epil = load float, ptr %extract_ptr.i.epil, align 4
   %extract_ptr13.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i.epil.init
   %extract14.i.epil = load i32, ptr %extract_ptr13.i.epil, align 4
-  %12 = fmul float %extract.i.epil, 5.000000e-01
-  %13 = fadd float %.epil.init, %12
   %extract14_wide.i.epil = sext i32 %extract14.i.epil to i64
   %ptr_array_deref.i.epil = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i.epil
-  %acc_base.i.epil = load float, ptr %ptr_array_deref.i.epil, align 4
-  %14 = fadd float %acc_base.i.epil, 1.000000e+00
+  %12 = fmul float %extract.i.epil, 5.000000e-01
+  %13 = fadd float %.epil.init, %12
+  %acc_base1.i.i.epil = load float, ptr %ptr_array_deref.i.epil, align 4
+  %14 = fadd float %acc_base1.i.i.epil, 1.000000e+00
   store float %14, ptr %ptr_array_deref.i.epil, align 4
   br label %q2_pf_head.q2_pf_exit_crit_edge.i
 
@@ -190,13 +190,13 @@ entry:
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide
   %extract = load float, ptr %extract_ptr, align 4
   %14 = atomicrmw add ptr %9, i32 1 monotonic, align 4
-  %x4.i = load ptr, ptr %11, align 8
+  %x3.i = load ptr, ptr %11, align 8
   %_wide.i = zext i32 %14 to i64
-  %"@6.i" = getelementptr inbounds nuw [4 x i8], ptr %x4.i, i64 %_wide.i
-  store float %extract, ptr %"@6.i", align 4, !tbaa !0
+  %"@5.i" = getelementptr inbounds nuw [4 x i8], ptr %x3.i, i64 %_wide.i
+  store float %extract, ptr %"@5.i", align 4, !tbaa !0
   %_slot.i = load ptr, ptr %12, align 8
-  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
-  store i32 %13, ptr %"@9.i", align 4, !tbaa !6
+  %"@8.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
+  store i32 %13, ptr %"@8.i", align 4, !tbaa !6
   %15 = atomicrmw fadd ptr %5, float %extract monotonic, align 4
   %16 = add nsw i64 %n3, 1
   %exitcond.not = icmp eq i64 %16, %2

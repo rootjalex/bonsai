@@ -1,7 +1,0 @@
----CODE---
-1
----STDERR---
-tests/bonsai/pending/race-spawn-accumulate.bonsai:37:11: [race] `spawn total += half(x)` adds the call's value into `total`, a reducer shared by the calls `step` spawns, and spawned calls may run at once: write `spawn atomic total += half(x)`. The schedule decides whether the spawned calls run in parallel; the program says what is safe if they do.
-
-    spawn total += half(x);
-          ^^^^^

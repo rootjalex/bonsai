@@ -1,13 +1,13 @@
 type Entry_hits = struct Entry_hits{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; x : f32 }
-type Entry_probes = struct Entry_probes{ x : f32; total : (f32*) }
-type Entry_soaks = struct Entry_soaks{ x : f32; total : (f32*) }
+type Entry_probes = struct Entry_probes{ x : f32 }
+type Entry_soaks = struct Entry_soaks{ x : f32 }
 type Float = f32
 type Fuzz = struct Fuzz{ a : f32 }
 type Half = f16
 type Matte = struct Matte{ a : f32 }
 type Queue_hits = struct Queue_hits{ count : u32; s_tag : u8[]; s_payload_x : u32[]; x : f32[] }
-type Queue_probes = struct Queue_probes{ count : u32; x : f32[]; total : (f32*)[] }
-type Queue_soaks = struct Queue_soaks{ count : u32; x : f32[]; total : (f32*)[] }
+type Queue_probes = struct Queue_probes{ count : u32; x : f32[] }
+type Queue_soaks = struct Queue_soaks{ count : u32; x : f32[] }
 type Surface = struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
 type vec2f = f32x2
 type vec3f = f32x3
@@ -32,12 +32,10 @@ func classify(x : f32) -> Surface {
 }
 
 func fuzzy(a : f32, total : mut (f32*), _queue_probes : mut (Queue_probes*)) -> void {
-  let @1 = build<Entry_probes>(a, total) in
-  let @4 = atomic_add((&(*_queue_probes).count), 1u) in
-  let @6 = (*_queue_probes).x in
-  @6[@4] = a
-  let @9 = (*_queue_probes).total in
-  @9[@4] = total
+  let @0 = build<Entry_probes>(a) in
+  let @3 = atomic_add((&(*_queue_probes).count), 1u) in
+  let @5 = (*_queue_probes).x in
+  @5[@3] = a
   return
 }
 
@@ -51,9 +49,10 @@ func main() -> i32 {
   return 0
 }
 
-func probe(x : f32) -> f32 {
+func probe(x : f32, total : mut (f32*)) -> void {
   let @0 = x + 1f in
-  return @0
+  total += @0
+  return
 }
 
 func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) -> void {
@@ -67,10 +66,8 @@ func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) ->
   let @3 = build<Queue_hits>(0u, undef, hits!Fuzz_s_payload_x, hits!Fuzz_x) in
   hits_queue[1u] = @3
   probes_x : mut f32[8]
-  probes_total : mut (f32*)[8]
   probes_queue : mut Queue_probes
   soaks_x : mut f32[8]
-  soaks_total : mut (f32*)[8]
   soaks_queue : mut Queue_soaks
   parfor i in [0:8:1] {
     let @0 = values[i] in
@@ -79,12 +76,12 @@ func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) ->
   }
   let @6 = hits_queue[0u] in
   let @7 = @6.count in
-  let @45 = build<Queue_soaks>(0u, soaks_x, soaks_total) in
-  soaks_queue = @45
-  let @52 = surface_arms >> 0u in
-  let @53 = @52 & 1u in
-  let @54 = @53 != 0u in
-  if (@54) {
+  let @43 = build<Queue_soaks>(0u, soaks_x) in
+  soaks_queue = @43
+  let @48 = surface_arms >> 0u in
+  let @49 = @48 & 1u in
+  let @50 = @49 != 0u in
+  if (@50) {
     parfor hits!Matte in [0u:@7:1u] {
       let @9 = build<[[packed]] u8x3>(0u, 0u, 0u) in
       let @11 = hits_queue[0u].s_payload_x in
@@ -99,12 +96,12 @@ func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) ->
   }
   let @19 = hits_queue[1u] in
   let @20 = @19.count in
-  let @36 = build<Queue_probes>(0u, probes_x, probes_total) in
+  let @36 = build<Queue_probes>(0u, probes_x) in
   probes_queue = @36
-  let @55 = surface_arms >> 1u in
-  let @56 = @55 & 1u in
-  let @57 = @56 != 0u in
-  if (@57) {
+  let @51 = surface_arms >> 1u in
+  let @52 = @51 & 1u in
+  let @53 = @52 != 0u in
+  if (@53) {
     parfor hits!Fuzz in [0u:@20:1u] {
       let @22 = build<[[packed]] u8x3>(0u, 0u, 0u) in
       let @24 = hits_queue[1u].s_payload_x in
@@ -119,27 +116,23 @@ func run(values : f32[8], wet : bool, total : mut (f32*), surface_arms : u64) ->
   }
   let @37 = (*probes_queue) in
   let @38 = @37.count in
-  if (@57) {
+  if (@53) {
     parfor probes in [0u:@38:1u] {
       let @39 = probes_x[probes] in
-      let @41 = probes_total[probes] in
-      let @40 = probe(@39) in
-      @41 += @40
+      probe(@39, total)
       continue
     }
   }
   probes_queue.count = 0u
-  let @46 = (*soaks_queue) in
-  let @47 = @46.count in
-  let @64 = @57 && wet in
-  let @68 = @54 && wet in
-  let @69 = @64 || @68 in
-  if (@69) {
-    parfor soaks in [0u:@47:1u] {
-      let @48 = soaks_x[soaks] in
-      let @50 = soaks_total[soaks] in
-      let @49 = soak(@48) in
-      @50 += @49
+  let @44 = (*soaks_queue) in
+  let @45 = @44.count in
+  let @60 = @53 && wet in
+  let @64 = @50 && wet in
+  let @65 = @60 || @64 in
+  if (@65) {
+    parfor soaks in [0u:@45:1u] {
+      let @46 = soaks_x[soaks] in
+      soak(@46, total)
       continue
     }
   }
@@ -172,9 +165,10 @@ func shade!Matte(s : Surface, wet : bool, x : f32, total : mut (f32*), _queue_so
   return
 }
 
-func soak(x : f32) -> f32 {
+func soak(x : f32, total : mut (f32*)) -> void {
   let @0 = x * 0.5f in
-  return @0
+  total += @0
+  return
 }
 
 func step(x : f32, wet : bool, total : mut (f32*), _queue_hits : mut Queue_hits[2]) -> void {
@@ -223,12 +217,10 @@ func wetten(wet : bool, x : f32, total : mut (f32*), _queue_soaks : mut (Queue_s
   if (wet) {
     let @0 = 0f < x in
     if (@0) {
-      let @2 = build<Entry_soaks>(x, total) in
-      let @5 = atomic_add((&(*_queue_soaks).count), 1u) in
-      let @7 = (*_queue_soaks).x in
-      @7[@5] = x
-      let @10 = (*_queue_soaks).total in
-      @10[@5] = total
+      let @1 = build<Entry_soaks>(x) in
+      let @4 = atomic_add((&(*_queue_soaks).count), 1u) in
+      let @6 = (*_queue_soaks).x in
+      @6[@4] = x
     }
   }
   return

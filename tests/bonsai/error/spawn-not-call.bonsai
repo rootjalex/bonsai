@@ -1,6 +1,6 @@
-// What `spawn` spawns is a call: the statement's promise is about the call's
-// value, which someone else may compute later. An expression that is not a
-// call has nothing to run later.
+// What `spawn` spawns is a call: `spawn f(args);`, a function that runs
+// beside the rest of this one and reports through the reducers it is
+// handed. An accumulate is not a call, and has nothing to run later.
 
 import stdlib/numerics;
 

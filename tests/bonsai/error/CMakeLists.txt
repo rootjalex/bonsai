@@ -12,9 +12,12 @@ add_bonsai_tests(
     specialize-late.bonsai
     specialize-count-no-gang.bonsai
     spawn-not-call.bonsai
-    spawn-not-reducer.bonsai
+    spawn-returns-value.bonsai
     defer-spawn-loop.bonsai
     reducer-read.bonsai
+    reducer-read-parfor.bonsai
+    reducer-read-spawned.bonsai
+    atomic-reducer.bonsai
     adt-layout-arm-missing.bonsai
     adt-layout-arm-unknown.bonsai
     adt-layout-tagged-ptr-no-heap.bonsai

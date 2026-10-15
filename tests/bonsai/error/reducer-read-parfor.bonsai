@@ -1,0 +1,21 @@
+// A reducer is read in the scope that declared it, once every contribution
+// is in: after the `parfor` whose iterations add into it. This program
+// reads it in the declaring function but inside that loop, where the other
+// iterations may be adding at the same time: `out[i] = total` would load a
+// word another iteration's `total += values[i]` is writing -- a race
+// whatever the write is (docs/parallel-semantics.md, section 2) -- and the
+// value it would see, the sum so far in whatever order the iterations ran,
+// is what declaring `total` a reducer promised nothing depends on. The read
+// belongs after the loop. (error/reducer-read refuses the same read inside
+// a function the reducer was handed to.)
+
+import stdlib/numerics;
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    total : reduce(+) Float = 0.0;
+    parfor i in 0:8 {
+        total += values[i];
+        out[i] = total;
+    }
+    return;
+}

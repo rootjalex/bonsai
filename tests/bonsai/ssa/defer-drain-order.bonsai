@@ -15,17 +15,19 @@
 // drain, then the `seconds` drain, then the return.
 import stdlib/numerics;
 
-func first(x : Float) -> Float {
-    return x * 2.0;
+func first(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
 }
 
-func second(x : Float) -> Float {
-    return x + 1.0;
+func second(x : Float, total : reduce(+) Float) -> void {
+    total += x + 1.0;
+    return;
 }
 
 func step(x : Float, total : reduce(+) Float) -> void {
-    spawn total += first(x);
-    spawn total += second(x);
+    spawn first(x, total);
+    spawn second(x, total);
     return;
 }
 
