@@ -19,6 +19,48 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-15, 08:45)
+
+**The renderer's four spawned contributions are void functions adding
+into the sample's radiance, every accumulate into a reducer is atomic
+by declaration, and the demotion takes all of them off.** The rulings of
+10-13 (PLAN.md, "`spawn f(args);` and `join;`"): spawn is `spawn
+f(args);`, a call of a void function reporting through its `reduce(op)`
+arguments, `join;` a statement, the join implicit at a function's
+return as Cilk's sync is; the SSA keeps Spawn and Join as terminators,
+never lowered to the parfor they mean. The demotion asks the whole
+program which storage each reducer parameter is handed
+(parameter_contention) and reads a drain's slots as distinct within a
+pass when no sample's work can push onto the queue twice before the
+pass (SSA/DistinctSlots.h: a count over paths through the calls and the
+queues drained earlier in the round, where a recursion counts many only
+if a push lies on its cycle -- the BVH traversal pushes nothing), and
+follows a loopified loop header's name of a parameter to the parameter
+(the medium kernel's `l`). The gpu-wavefront PTX, which had sixteen
+`atom.relaxed.gpu.global.add.f32` under the first slot rule, has none;
+the 98 device atomics left are the queues' counts. Measured on the
+protocol's three scenes against 10-12's queue-per-arm run (kernel
+milliseconds, least of three on each side):
+
+| scene | spp | pbrt | queue per arm (10-12) | spawn form | kernel speedup over pbrt |
+|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.3 | 28.02 | 27.97 | 1.76x |
+| killeroo-gold | 16 | 149.5 | 69.03 | 68.89 | 2.17x |
+| book | 16 | 152.9 | 84.76 | 84.73 | 1.80x |
+| killeroo-simple | 64 | 198.4 | 111.70 | 111.73 | 1.78x |
+| killeroo-gold | 64 | 597.2 | 275.65 | 275.39 | 2.17x |
+| book | 64 | 612.2 | 338.35 | 338.19 | 1.81x |
+
+Nothing moved -- 1.001x kernel as a geometric mean at 16 spp, 1.000x at
+64, every cell within 0.2%, 1.90x over pbrt at 16 spp and 1.91x at 64 --
+and all six radiance images are byte-identical to 10-12's: under
+gpu-optix the contributions' accumulates were plain before and are plain
+again, the same kernels. What the compare found on the way: the
+megakernel schedules (gpu-optix-mega, gpu-optix-mega-ser) abort on book
+with CUDA_ERROR_ILLEGAL_ADDRESS at the first synchronize, under the
+last committed compiler as well, so it predates this work (they were
+last measured on book on 10-02); to-do item 4.
+
 ## Where it stands (2026-10-12, 21:25)
 
 **The surface's initializer is written only for a gbuffer film, by
@@ -1807,7 +1849,18 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    (tests/bonsai/pending/race-*); the spelling of an atomic spawn, and
    its cost to the renderer's four spawns into `radiance` unless the
    demotion learns a drain's slots are distinct within a pass, are the
-   rulings asked there.
+   rulings asked there. (10-15) Both ruled and built: the spelling is
+   `spawn f(args);` with `join;`, every accumulate into a reducer is
+   atomic by declaration and the parser refuses the races the pending
+   programs wrote (they are gone), and the demotion has the slot fact
+   (PLAN.md, "`spawn f(args);` and `join;`"; "Where it stands
+   (2026-10-15)"). The spawned entry's reducer address on the JIT
+   runtime's GPU path stays open (docs/parallel-semantics.md, section
+   6). New: the megakernel schedules abort on book with
+   CUDA_ERROR_ILLEGAL_ADDRESS, under the last committed compiler too --
+   last measured there on 10-02; book is the protocol's one
+   coateddiffuse scene, and walk_step.loopify() is in those schedules
+   alone (PLAN.md, "Found, not this work's").
 5. After each fix, the compare on the fix's scenes plus head and
    killeroo-simple at 16 and 64 spp, the least of three on each side, one
    table per fix in this file; a full sweep only in a window agreed with

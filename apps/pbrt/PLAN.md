@@ -14687,3 +14687,133 @@ nothing else, each read before blessing. The renderer's device
 traversal is the RT cores', and its scene arrays are plain arrays, so
 nothing of apps/pbrt's kernels changes; apps/rtq's and apps/wosx's GPU
 traversals are where this lands, to be measured there.
+
+### `spawn f(args);` and `join;`: the Cilk form built, and the demotion given the drain's slots (10-13, 15:30 - 10-15, 08:45)
+
+**The rulings (10-13, 15:30).** The user, on the two questions the
+parallel-semantics document asked: a spawn is `spawn f(args);`, a call
+of a void function that reports through its `reduce(op)` arguments --
+no `spawn x op= g()`, no `atomic` spelling to invent for it -- and
+`join;` is a statement, with the implicit join at a function's return
+(and a parfor body's end) that Cilk's sync has at a procedure's return;
+cite Cilk. A spawn is a parfor of two iterations in meaning (the call,
+the continuation) but the SSA keeps it as its own terminator pair,
+Spawn and Join, never lowered to the parfor form, so the deferral and
+the analyses see the structure. Every accumulate into a reducer is
+atomic by declaration; the compiler takes the atomic off after all
+scheduling where the schedule induces no parallelism on it; `atomic`
+stays for `mut` locations. A reducer is read only in the scope that
+declared it, after the loop or the join. The C++ emitter lowers an
+atomic accumulate to std::atomic_ref (nothing is benchmarked through it;
+it is the header generator). Do not run heavy suites until the other
+session's ablation work is done.
+
+**Built (10-13 evening, 10-15 morning; the machine held by loom-f2's
+pinned Souffle timings from 10-13 23:20 to 10-15 00:46).** The language
+and IR: Token/Lexer/Parser (`spawn` takes a call; `join`; `atomic` on a
+reducer refused; a reducer read refused as a parameter, inside a parfor
+declared outside it, and between a spawn it was handed to and the
+join), CallStmt::spawned and ir::Join, Accumulate::spawned gone, the SSA
+Spawn{call, cont} and Join{next} terminators through every pass and
+backend (32 exhaustive visitors, found by building), Defer.cpp's spawn
+path on the Spawn terminator (no accumulate continuation, no
+acc_field; the reducer stored and handed down like any argument), the
+C++ emitter's atomic_ref. The analysis: parameter_contention
+(SSA/Contention.cpp), a fixed point over every call site of the program
+answering per address parameter of a function called in parallel
+whether every concurrent call hands it storage of its own -- the
+caller's allocation, the caller's parameter with that answer, or a
+record slot the deferral marked distinct -- and DemoteAtomics taking
+the atomic off a parameter's address only for Disjoint. The slot fact
+(Function::injective_slots, written by the deferral's note_slot, read by
+distinct_slot, re-keyed across a split of the drain loop) is recorded
+when pushes_at_most_once holds (SSA/DistinctSlots.cpp): the greatest
+number of pushes one activity -- an iteration of the owner's innermost
+parallel loops: a sample, a drain's entry -- can make onto the queue
+before its pass, a longest path over each function's graph with back
+edges dropped, through the calls made and the queues drained earlier in
+the round, a loop around a push counting many, a push onto a rounds
+queue nothing, a recursion many only when a push lies on its cycle.
+
+**What the renderer showed, in order.** The first build of the form kept
+sixteen `atom.relaxed.gpu.global.add.f32` in the gpu-wavefront PTX --
+four (the vec4 `l`) in each of the shadow, medium_samples, escaped and
+emissive kernels -- under the first slot rule, one producer and no other
+pusher: the shadow queue has 23 producers (every material kernel pushes
+shadow rays), escaped and emissive two each (the routing after the
+closest hit, and the medium kernel), hits two. The count over paths
+(above) was written for that: two drains feeding one queue are fine
+when no path through one sample's work reaches both. Built, it refused
+every queue -- "a recursion through _recloop_func0, which pushes" -- the
+BVH traversal, recursive and pushing nothing, because a re-entry while
+counting answered many outright; now a re-entry answers nothing for
+the moment, the function's count becomes many only if it is above zero
+and the recursion was hit, and a count taken under an open cycle is
+not kept. With that every one of the eleven queues is "distinct within a
+pass", and twenty atomics were left (exit_shadow had joined the four
+kernels under the stricter rule): medium_samples' four, whose queue had
+been distinct from the start. Its accumulate is `l += beta * sigma_a *
+...` in vol_medium_step, which the schedule loopify()s and which is
+handed `l` by vol_medium_sample; the loop header loopify makes carries
+`x`, `n`, `t_maj_in` and names the parameters it does not carry --
+`l` among them -- without taking them as arguments, and the definitions
+analysis leaves such a name at "unknown here" on purpose (Simplify.cpp's
+CSE comment: defer() captures such a value for the continuation that
+way), so parameter_of_address answered nothing and the atomic stayed. A
+fix in Definitions -- follow the name up the dominator tree -- broke the
+renderer's full path integrator instead: the CSE's key for `lam` and
+`lambda!loop` became one, it reused `load_field(lambda!loop, 0)` from a
+block that does not dominate the use, and codegen reported "@3383 is
+not bound in full_path_step"; reverted. The fix is the contention
+analysis's alone: Origins::binding_block (a lazily built graph and
+dominator tree; the nearest dominating block that takes the name) and
+`resolve` looping up to it. Zero `atom.*.add.f32` in the PTX; the 98
+`atom.add.u32` left are the queues' counts. Tests at every level for
+each: demote-atomics-loopify (ssa, backends/ptx, correctness/gpu:
+`series` into an iteration's own `acc` plain, `drip` into the run's
+reducer three device atomics with its steps unrolled; 1.75 of each
+value, 113.75), and -- found by the compare -- loopify-spawn-mutual
+(ssa, correctness/llvm): the megakernel schedules loopify
+vol_path_step, which inlines vol_route, which spawns, and the inlined
+return had become `join; return` before the caller's return, which
+loopify's tail-position walk refused ("its continuation does more than
+return"); a join on the way to a return is the return's own, and the
+walk sees through it. Suites: 1586 non-GPU and 74 GPU tests pass; every
+regenerated golden read.
+
+**Found, not this work's: the megakernel schedules crash on book.**
+gpu-optix-mega and gpu-optix-mega-ser abort on pbrt-book/book at every
+sample count with CUDA_ERROR_ILLEGAL_ADDRESS at the first synchronize,
+while they render killeroo-simple and killeroo-gold (images matching
+pbrt's) and gpu-optix renders book. The last committed compiler
+(3e479342, before this form, built in a worktree) does the same, so the
+crash predates the rework; the last compare that ran the megakernel on
+book was 2026-10-02's (compare-out-gpu64-storage, 839 ms at 64 spp),
+and the schedules were not measured in the twelve days between. Book is
+the protocol's one coateddiffuse scene (walk_step.loopify() is in the
+megakernel schedules and nowhere else), which is where to look. The
+protocol's standing schedule is gpu-optix; this is a debt for the
+to-do list, not a blocker.
+
+**Measured (10-15, 08:45; compare-out-arms of 10-12 against this run,
+gpu-optix on the protocol's three scenes at 16 and 64 spp, the least of
+three on each side; apps/pbrt/scratch/gpu-compare-1015b).**
+
+| scene | spp | pbrt | queue per arm (10-12) | spawn form | kernel speedup over pbrt | over 10-12 |
+|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.3 | 28.02 | 27.97 | 1.76x | 1.002x |
+| killeroo-gold | 16 | 149.5 | 69.03 | 68.89 | 2.17x | 1.002x |
+| book | 16 | 152.9 | 84.76 | 84.73 | 1.80x | 1.000x |
+| killeroo-simple | 64 | 198.4 | 111.70 | 111.73 | 1.78x | 1.000x |
+| killeroo-gold | 64 | 597.2 | 275.65 | 275.39 | 2.17x | 1.001x |
+| book | 64 | 612.2 | 338.35 | 338.19 | 1.81x | 1.000x |
+
+Nothing moved: 1.001x kernel as a geometric mean at 16 spp and 1.000x at
+64, every cell within 0.2% of 10-12's, 1.90x over pbrt at 16 spp and
+1.91x at 64; all six radiance images byte-identical to compare-out-arms'
+(and pbrt's to pbrt's). Which is the result to expect: under gpu-optix
+the four contributions' accumulates were plain before -- written plainly
+into a reducer four spawned calls may share, which the semantics call a
+race -- and are plain again now that they are atomic by declaration and
+the demotion can show every drain's slots distinct, so the kernels are
+the same code. The table is REPORT.md's "Where it stands (2026-10-15)".
