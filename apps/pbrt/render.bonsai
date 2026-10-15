@@ -2462,9 +2462,9 @@ func vol_shadow_step(light_ray : Ray, tmax : Float, medium : i32,
 // ShadowRayWorkItem holds is what this takes: the ray and its tMax, the
 // wavelengths, Ld, r_u, r_l -- and the medium the ray is in, which pbrt's
 // Ray carries.
-func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
-                         have_media : bool, ld : vec4f, r_u : vec4f,
-                         r_l : vec4f, lambda : SampledWavelengths) -> vec4f {
+func shadow_radiance(light_ray : Ray, tmax : Float, medium : i32,
+                     have_media : bool, ld : vec4f, r_u : vec4f,
+                     r_l : vec4f, lambda : SampledWavelengths) -> vec4f {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     // pbrt: `if (haveMedia) aggregate->IntersectShadowTr(...) else
     // aggregate->IntersectShadow(...)` (wavefront/integrator.cpp,
@@ -2494,6 +2494,20 @@ func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
     return ld * tr.t_ray / average4(r_l * tr.r_l + r_u * tr.r_u);
 }
 
+// The spawned form: the trace above, its radiance added into the sample's
+// `l`. What `vol_sample_ld` spawns (`spawn shadow_contribution(..., l)`),
+// so that a schedule may queue the shadow rays of every caller and trace
+// them together; the add is atomic by `l`'s declaration and plain again
+// wherever the drain's entries are each a sample's own.
+func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
+                         have_media : bool, ld : vec4f, r_u : vec4f,
+                         r_l : vec4f, lambda : SampledWavelengths,
+                         l : reduce(+) vec4f) -> void {
+    l += shadow_radiance(light_ray, tmax, medium, have_media, ld, r_u, r_l,
+                         lambda);
+    return;
+}
+
 // The same trace under another name, for the shadow rays a subsurface
 // path's exit sends (vol_exit). pbrt traces its shadow rays twice a round,
 // after the material kernels and again after the subsurface kernel -- a
@@ -2503,9 +2517,12 @@ func shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
 // queue of their own (`vol_exit.defer(exit_shadow_contribution, ...)`).
 func exit_shadow_contribution(light_ray : Ray, tmax : Float, medium : i32,
                               have_media : bool, ld : vec4f, r_u : vec4f,
-                              r_l : vec4f, lambda : SampledWavelengths) -> vec4f =
-    shadow_contribution(light_ray, tmax, medium, have_media, ld, r_u, r_l,
-                        lambda);
+                              r_l : vec4f, lambda : SampledWavelengths,
+                              l : reduce(+) vec4f) -> void {
+    l += shadow_radiance(light_ray, tmax, medium, have_media, ld, r_u, r_l,
+                         lambda);
+    return;
+}
 
 // pbrt: ShadowRayWorkItem -- a shadow ray with what it carries: the
 // tentative contribution `ld` and the two rescaled probabilities, the ray's
@@ -2525,9 +2542,9 @@ element ShadowRay {
 // sampled, with the sampler in hand, and the shadow ray made with its
 // tentative contribution `beta * f_hat * L` and the probabilities the
 // walk's multiply into. None where there is nothing to trace. The caller
-// spawns `shadow_contribution` on what comes back -- its value goes into
-// `l` and nowhere else, so a schedule may queue the shadow rays of each
-// caller and trace them together, as pbrt's wavefront integrator does (its
+// spawns `shadow_contribution` on what comes back, handing it `l` to add
+// into, so a schedule may queue the shadow rays of each caller and trace
+// them together, as pbrt's wavefront integrator does (its
 // shadowRayQueue, traced after the material kernels, and traced again after
 // the subsurface kernel for the exits' rays: a sample may send one from its
 // entry and one from its exit in a round, which is one more than a queue
@@ -2644,8 +2661,8 @@ func vol_sample_ld(pt : ScatterPoint, is_surface : bool, nudge : bool,
         return;
     }
     sr = *shadow_ray;
-    spawn l += shadow_contribution(sr.ray, shadow_tmax(), sr.medium, have_media,
-                                   sr.ld, sr.r_u, sr.r_l, lambda);
+    spawn shadow_contribution(sr.ray, shadow_tmax(), sr.medium, have_media,
+                              sr.ld, sr.r_u, sr.r_l, lambda, l);
     return;
 }
 
@@ -3092,9 +3109,10 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
 // of SampleMediumInteraction for a ray that came through a medium): an
 // escaped ray to the escaped queue, an emissive hit to the area-light queue
 // -- and, the same hit, to its material's queue. The two radiance terms are
-// spawned calls: their values go into `l` and nowhere else, so a schedule
-// may queue them (HandleEscapedRays, HandleEmissiveIntersection), and the
-// surface goes on to `vol_surface`, the material kernel.
+// spawned calls, each handed `l` to add into and nothing else of the path's,
+// so a schedule may queue them (HandleEscapedRays,
+// HandleEmissiveIntersection), and the surface goes on to `vol_surface`,
+// the material kernel.
 func vol_route(isect : option[(Primitive, Geometric, Hit)],
                ray : Ray, medium : i32,
                camera : PerspectiveCamera,
@@ -3116,9 +3134,9 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
         // miss ends its path with nothing to add, and no entry is made for
         // it. The infinite lights are the set's last.
         if set.first_infinite < set.count {
-            spawn l += escaped_contribution(ray.o, ray.d, beta, r_u, r_l, depth,
-                                            specular_bounce, prev_ctx, ls, set,
-                                            lambda);
+            spawn escaped_contribution(ray.o, ray.d, beta, r_u, r_l, depth,
+                                       specular_bounce, prev_ctx, ls, set,
+                                       lambda, l);
         }
         return;
     }
@@ -3171,9 +3189,9 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
     }
     // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
     if prim.light >= 0 {
-        spawn l += emissive_contribution(prim.light, surf.n, iwo, -iwo, beta,
-                                         r_u, r_l, depth, specular_bounce,
-                                         prev_ctx, ls, lambda);
+        spawn emissive_contribution(prim.light, surf.n, iwo, -iwo, beta,
+                                    r_u, r_l, depth, specular_bounce,
+                                    prev_ctx, ls, lambda, l);
     }
     // pbrt's wavefront: `if (wavefrontDepth == maxDepth) break` before
     // EvaluateMaterialsAndBSDFs -- by the round, not the ray's depth, which a
@@ -3208,11 +3226,11 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
 // it. The wavefront's form: each light's `r_l` is the path's `r_l` times that
 // light's probability (the CPU integrator's `r_l *= p_l` accumulates across
 // the lights instead; the two agree for one infinite light).
-func escaped_contribution(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
-                          r_u : vec4f, r_l : vec4f, depth : i32,
-                          specular_bounce : bool, prev_ctx : ShapeSampleContext,
-                          ls : LightSampler, set : LightSet,
-                          lambda : SampledWavelengths) -> vec4f {
+func escaped_radiance(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
+                      r_u : vec4f, r_l : vec4f, depth : i32,
+                      specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                      ls : LightSampler, set : LightSet,
+                      lambda : SampledWavelengths) -> vec4f {
     found : mut vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
     for i in set.first_infinite:set.count {
         // pbrt: `light.Le(Ray(w.rayo, w.rayd), w.lambda)` -- the escaped ray
@@ -3231,15 +3249,29 @@ func escaped_contribution(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
     return found;
 }
 
+// The spawned form: the radiance above added into the sample's `l`. What
+// `vol_route` spawns for an escaped ray, so that a schedule may queue the
+// escaped rays of a round (HandleEscapedRays).
+func escaped_contribution(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
+                          r_u : vec4f, r_l : vec4f, depth : i32,
+                          specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                          ls : LightSampler, set : LightSet,
+                          lambda : SampledWavelengths,
+                          l : reduce(+) vec4f) -> void {
+    l += escaped_radiance(ray_o, ray_d, beta, r_u, r_l, depth, specular_bounce,
+                          prev_ctx, ls, set, lambda);
+    return;
+}
+
 // pbrt: HandleEmissiveIntersection -- the emission of the surface an indirect
 // ray hit, weighed the same way (`wi = -wo` is the ray's direction). The
 // wavefront's form: the material kernel is handed the path's `r_l` as it
 // was, where the CPU integrator's `r_l *= lightPDF` persists into an
 // interface skip; the two differ only for an emissive interface.
-func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
-                           beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
-                           specular_bounce : bool, prev_ctx : ShapeSampleContext,
-                           ls : LightSampler, lambda : SampledWavelengths) -> vec4f {
+func emissive_radiance(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
+                       beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
+                       specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                       ls : LightSampler, lambda : SampledWavelengths) -> vec4f {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
     emitted = light_l(lights[max(light, 0)], n, wo, lambda);
     if !nonzero(emitted) {
@@ -3251,6 +3283,19 @@ func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
     p_l = light_sampler_pmf(ls, prev_ctx, light) *
           light_pdf_li(lights[max(light, 0)], prev_ctx, ray_d, true);
     return beta * emitted / average4(r_u + r_l * p_l);
+}
+
+// The spawned form: the emission above added into the sample's `l`. What
+// `vol_route` spawns for an emissive hit, so that a schedule may queue the
+// emissive hits of a round (HandleEmissiveIntersection).
+func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
+                           beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
+                           specular_bounce : bool, prev_ctx : ShapeSampleContext,
+                           ls : LightSampler, lambda : SampledWavelengths,
+                           l : reduce(+) vec4f) -> void {
+    l += emissive_radiance(light, n, wo, ray_d, beta, r_u, r_l, depth,
+                           specular_bounce, prev_ctx, ls, lambda);
+    return;
 }
 
 // pbrt: EvaluateMaterialsAndBSDFs, one hit of it -- the material kernel of
@@ -3607,9 +3652,9 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
                                   seed);
     if shadow_ray {
         sr = *shadow_ray;
-        spawn l += exit_shadow_contribution(sr.ray, shadow_tmax(), sr.medium,
-                                            have_media, sr.ld, sr.r_u, sr.r_l,
-                                            lam);
+        spawn exit_shadow_contribution(sr.ray, shadow_tmax(), sr.medium,
+                                       have_media, sr.ld, sr.r_u, sr.r_l,
+                                       lam, l);
     }
 
     // The indirect ray.

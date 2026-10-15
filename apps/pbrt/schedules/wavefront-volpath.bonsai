@@ -83,7 +83,7 @@ schedule {
     vol_route.defer(vol_surface, hits);
     hits.specialize(material);
     // pbrt's shadow ray queue. The shadow ray is spawned once the light is
-    // sampled -- `spawn l += shadow_contribution(...)`, on what
+    // sampled -- `spawn shadow_contribution(..., l)`, on what
     // vol_light_sample made -- by the material drains and by the medium
     // scattering in the rays drain, and traced after the last of them each
     // round, as pbrt's TraceShadowRays follows its material kernels. The
