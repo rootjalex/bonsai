@@ -480,6 +480,9 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
             };
             if (const auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
                 handed(c->call);
+            } else if (const auto *s = std::get_if<Terminator::Spawn>(
+                           &block->terminator.data)) {
+                handed(s->call);
             } else if (const auto *m = std::get_if<Terminator::MultiCall>(
                            &block->terminator.data)) {
                 handed(m->call);

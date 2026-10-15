@@ -188,6 +188,8 @@ OriginMap make_origin_map(const ssa::Function &func) {
                 [&](const Terminator::Call &call) {
                     handle_jump(call.cont, !call.drop);
                 },
+                [&](const Terminator::Spawn &s) { handle_jump(s.cont, false); },
+                [&](const Terminator::Join &j) { handle_jump(j.next, false); },
                 [&](const Terminator::MultiCall &call) {
                     handle_jump(call.cont, !call.drop);
                 },
@@ -289,6 +291,18 @@ shared_ptr<Value> passed_to(const Block &pred, const Block &block, size_t k) {
                     result = c.cont.args[k - offset];
                 }
             },
+            [&](const Terminator::Spawn &s) {
+                // A spawned call has no result: the continuation's
+                // arguments are all passed.
+                if (s.cont.name == block.name && k < s.cont.args.size()) {
+                    result = s.cont.args[k];
+                }
+            },
+            [&](const Terminator::Join &j) {
+                if (j.next.name == block.name && k < j.next.args.size()) {
+                    result = j.next.args[k];
+                }
+            },
             [&](const Terminator::MultiCall &c) {
                 if (c.cont.name == block.name && k < c.cont.args.size()) {
                     result = c.cont.args[k];
@@ -324,6 +338,14 @@ vector<string> successors(const Block &block) {
             [](const Terminator::Yield &) -> vector<string> { return {}; },
             [](const Terminator::Call &c) -> vector<string> {
                 return {c.cont.name};
+            },
+            [](const Terminator::Spawn &s) -> vector<string> {
+                // Like Call: the spawned call is to another function, so
+                // within this CFG the only successor is the continuation.
+                return {s.cont.name};
+            },
+            [](const Terminator::Join &j) -> vector<string> {
+                return {j.next.name};
             },
             [](const Terminator::MultiCall &c) -> vector<string> {
                 // Like Call: the callee is a separate function, so within this
@@ -405,6 +427,11 @@ void for_each_value(Terminator &terminator,
                        each_jump(c.call);
                        each_jump(c.cont);
                    },
+                   [&](Terminator::Spawn &s) {
+                       each_jump(s.call);
+                       each_jump(s.cont);
+                   },
+                   [&](Terminator::Join &j) { each_jump(j.next); },
                    [&](Terminator::MultiCall &c) {
                        each_jump(c.call);
                        each_jump(c.cont);
@@ -500,6 +527,10 @@ bool has_uses(const Function &func, const Instruction *of) {
                 [&](const Terminator::Call &c) {
                     return in_jump(c.call) || in_jump(c.cont);
                 },
+                [&](const Terminator::Spawn &s) {
+                    return in_jump(s.call) || in_jump(s.cont);
+                },
+                [&](const Terminator::Join &j) { return in_jump(j.next); },
                 [&](const Terminator::MultiCall &c) {
                     if (in_jump(c.call) || in_jump(c.cont) ||
                         std::any_of(c.keys.begin(), c.keys.end(), is_of) ||
@@ -741,6 +772,11 @@ ReadPaths read_paths_through(const Function &func, const Functions *funcs,
                     hand(b, c.call.name, c.call.args); // as the callee reads
                     thread(b, c.cont, c.drop ? 0 : 1);
                 },
+                [&](const Terminator::Spawn &s) {
+                    hand(b, s.call.name, s.call.args);
+                    thread(b, s.cont, 0);
+                },
+                [&](const Terminator::Join &j) { thread(b, j.next, 0); },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &arg : c.call.args) {
                         read(b, arg); // a run of calls: whole
@@ -873,6 +909,8 @@ vector<Terminator::Jump *> jumps_of(Block &block) {
                    },
                    [&](Terminator::Yield &) {},
                    [&](Terminator::Call &c) { jumps.push_back(&c.cont); },
+                   [&](Terminator::Spawn &s) { jumps.push_back(&s.cont); },
+                   [&](Terminator::Join &j) { jumps.push_back(&j.next); },
                    [&](Terminator::MultiCall &c) { jumps.push_back(&c.cont); },
                },
                block.terminator.data);

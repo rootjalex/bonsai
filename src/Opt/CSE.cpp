@@ -489,7 +489,7 @@ struct Rename : public ir::Mutator {
         }
         return make(ir::Accumulate::make(node->loc, node->op,
                                          mutate(node->value), node->atomic,
-                                         node->spawned, std::move(alongside)));
+                                         std::move(alongside)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {
@@ -509,7 +509,8 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        return make(ir::CallStmt::make(node->func, std::move(args)));
+        return make(ir::CallStmt::make(node->func, std::move(args),
+                                       node->spawned));
     }
     ir::Stmt visit(const ir::MultiRecurse *node) override {
         std::vector<ir::Expr> args;
@@ -867,8 +868,7 @@ class LVN : public ir::Mutator {
             alongside.emplace_back(place, mutate(written));
         }
         return ir::Accumulate::make(node->loc, node->op, mutate(node->value),
-                                    node->atomic, node->spawned,
-                                    std::move(alongside));
+                                    node->atomic, std::move(alongside));
     }
 
     ir::Stmt visit(const ir::IfElse *node) override {
@@ -977,7 +977,7 @@ class LVN : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(cse(arg));
         }
-        return ir::CallStmt::make(node->func, std::move(args));
+        return ir::CallStmt::make(node->func, std::move(args), node->spawned);
     }
 
     ir::Stmt visit(const ir::MultiRecurse *node) override {

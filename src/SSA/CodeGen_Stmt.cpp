@@ -435,8 +435,7 @@ Stmt codegen_instruction(const Instruction &instr) {
                     return IfElse::make(
                         std::move(mask),
                         Accumulate::make(std::move(loc), op, std::move(val),
-                                         instr.atomic, false,
-                                         std::move(alongside)));
+                                         instr.atomic, std::move(alongside)));
                 }
                 internal_assert(alongside.empty() ||
                                 op == Accumulate::OpType::Argmin ||
@@ -515,10 +514,10 @@ Stmt codegen_instruction(const Instruction &instr) {
                 return IfElse::make(
                     VectorReduce::make(VectorReduce::Or, std::move(mask)),
                     Accumulate::make(std::move(loc), op, std::move(val),
-                                     instr.atomic, false, std::move(alongside)));
+                                     instr.atomic, std::move(alongside)));
             }
             return Accumulate::make(std::move(loc), op, std::move(val),
-                                    instr.atomic, false, std::move(alongside));
+                                    instr.atomic, std::move(alongside));
         }
         case Instruction::Op::Print:
             return Print::make(codegen_values(instr.operands));
@@ -1009,6 +1008,12 @@ std::set<std::string> reachable(const std::string &name,
                 [&](const Terminator::Call &c) {
                     succs.push_back(c.cont.name);
                 },
+                [&](const Terminator::Spawn &s) {
+                    succs.push_back(s.cont.name);
+                },
+                [&](const Terminator::Join &j) {
+                    succs.push_back(j.next.name);
+                },
                 [&](const Terminator::MultiCall &c) {
                     succs.push_back(c.cont.name);
                 },
@@ -1071,6 +1076,12 @@ find_merge_block(const std::vector<std::string> &branches,
                 [&](const Terminator::Yield &) {},
                 [&](const Terminator::Call &c) {
                     succs.push_back(c.cont.name);
+                },
+                [&](const Terminator::Spawn &s) {
+                    succs.push_back(s.cont.name);
+                },
+                [&](const Terminator::Join &j) {
+                    succs.push_back(j.next.name);
                 },
                 [&](const Terminator::MultiCall &c) {
                     succs.push_back(c.cont.name);
@@ -1344,6 +1355,12 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
                        },
                        [&](const Terminator::Call &c) {
                            succs.push_back(c.cont.name);
+                       },
+                       [&](const Terminator::Spawn &s) {
+                           succs.push_back(s.cont.name);
+                       },
+                       [&](const Terminator::Join &j) {
+                           succs.push_back(j.next.name);
                        },
                        [&](const Terminator::MultiCall &c) {
                            succs.push_back(c.cont.name);
@@ -1774,6 +1791,16 @@ Stmt structurize(const std::string &start, const std::string &exit,
                 [&](const Terminator::Call &c) -> Found {
                     if (c.cont.name == target)
                         return {{&c.cont.args, c.drop ? 0u : 1u}};
+                    return std::nullopt;
+                },
+                [&](const Terminator::Spawn &s) -> Found {
+                    if (s.cont.name == target)
+                        return {{&s.cont.args, 0}};
+                    return std::nullopt;
+                },
+                [&](const Terminator::Join &j) -> Found {
+                    if (j.next.name == target)
+                        return {{&j.next.args, 0}};
                     return std::nullopt;
                 },
                 [&](const Terminator::MultiCall &c) -> Found {
@@ -2409,6 +2436,41 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     }
 
                     name = c.cont.name;
+                },
+
+                [&](const Terminator::Spawn &s) {
+                    // `spawn f(args);` as written: the call, then its
+                    // continuation (ir::CallStmt::spawned). What lives
+                    // across it is carried over as for a Call; there is no
+                    // value to bind.
+                    auto &cont_block = block_map.at(s.cont.name);
+                    check_continuation(s.cont.name);
+                    internal_assert(cont_block->args.size() == s.cont.args.size())
+                        << "Spawn continuation " << s.cont.name << " takes "
+                        << cont_block->args.size() << " arguments and is passed "
+                        << s.cont.args.size();
+                    emit_jump_args(s.cont.name, s.cont.args);
+
+                    std::vector<Expr> call_args;
+                    for (auto &arg : s.call.args) {
+                        call_args.push_back(codegen_value(arg));
+                    }
+                    internal_assert(func_type_map.contains(s.call.name))
+                        << s.call.name;
+                    Type func_t = func_type_map.at(s.call.name);
+                    append(CallStmt::make(Var::make(func_t, s.call.name),
+                                          std::move(call_args),
+                                          /*spawned=*/true));
+                    name = s.cont.name;
+                },
+
+                [&](const Terminator::Join &j) {
+                    // `join;` as written: the spawned calls have run where
+                    // they stood, so this is the jump it looks like, with
+                    // the statement kept so the program reads as it was.
+                    emit_jump_args(j.next.name, j.next.args);
+                    append(Join::make());
+                    name = j.next.name;
                 },
 
                 [&](const Terminator::MultiCall &c) {

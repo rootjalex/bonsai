@@ -6969,6 +6969,13 @@ void CodeGen_LLVM::codegen_counted_loop(const std::string &index,
     frames.pop_frame();
 }
 
+void CodeGen_LLVM::visit(const Join *node) {
+    // In the statement form a spawned call has run where it was written
+    // (CodeGen_LLVM::visit(const CallStmt *) makes the call), so there is
+    // nothing left to wait for. The join's meaning is the SSA's and the
+    // schedule's (Terminator::Join, SSA/Defer.cpp).
+}
+
 void CodeGen_LLVM::visit(const Continue *node) {
     internal_assert(!latch_blocks.empty())
         << "CodeGen of Continue outside of loop.";

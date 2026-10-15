@@ -57,6 +57,11 @@ void for_each_value(Block &block, const F &fn) {
                        all(p.cont.args);
                    },
                    [](Terminator::Yield &) {},
+                   [&](Terminator::Spawn &s) {
+                       all(s.call.args);
+                       all(s.cont.args);
+                   },
+                   [&](Terminator::Join &j) { all(j.next.args); },
                    [&](Terminator::Call &c) {
                        all(c.call.args);
                        all(c.cont.args);
@@ -590,27 +595,34 @@ void specialize_callees(FuncMap &fmap, const vector<shared_ptr<Block>> &blocks,
         return false;
     };
     for (const auto &block : blocks) {
-        auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
+        // A call, or a spawned one (Terminator::Spawn): the same edge to a
+        // callee handed the value.
+        Terminator::Jump *call = nullptr;
+        if (auto *c = std::get_if<Terminator::Call>(&block->terminator.data)) {
+            call = &c->call;
+        } else if (auto *s = std::get_if<Terminator::Spawn>(&block->terminator.data)) {
+            call = &s->call;
+        }
         if (call == nullptr) {
             continue;
         }
-        const auto callee = fmap.find(call->call.name);
+        const auto callee = fmap.find(call->name);
         if (callee == fmap.end()) {
             continue;
         }
         const vector<Argument> &params = callee->second->blocks.front()->args;
-        for (size_t j = 0; j < call->call.args.size() && j < params.size(); j++) {
-            if (!names(call->call.args[j]) ||
+        for (size_t j = 0; j < call->args.size() && j < params.size(); j++) {
+            if (!names(call->args[j]) ||
                 key_variants(params[j].type, storages).empty()) {
                 continue;
             }
-            const string clone_name = call->call.name + "!" + v.label;
+            const string clone_name = call->name + "!" + v.label;
             const bool fresh_clone = !fmap.contains(clone_name);
             if (fresh_clone) {
                 fmap[clone_name] = specialize_function(
                     *callee->second, clone_name, params[j].name, v, storages);
             }
-            call->call.name = clone_name;
+            call->name = clone_name;
             if (fresh_clone) {
                 // Inside the copy the parameter is the specialized value,
                 // under the name specialize_function gave it.
@@ -783,13 +795,11 @@ specialize_function(const Function &func, const string &name,
                 jump->name = name;
             }
         }
-        if (auto *call = std::get_if<Terminator::Call>(&block->terminator.data);
-            call != nullptr && call->call.name == was) {
-            call->call.name = name;
-        }
-        if (auto *call = std::get_if<Terminator::MultiCall>(&block->terminator.data);
-            call != nullptr && call->call.name == was) {
-            call->call.name = name;
+        // A call of itself, by whichever terminator makes it: Call,
+        // MultiCall or Spawn.
+        if (Terminator::Jump *callee = block->terminator.callee();
+            callee != nullptr && callee->name == was) {
+            callee->name = name;
         }
     }
 

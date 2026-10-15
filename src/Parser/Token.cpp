@@ -109,6 +109,7 @@ uint64_t Token::size() const {
     case Token::Type::TREE:
     case Token::Type::WITH:
     case Token::Type::FROM:
+    case Token::Type::JOIN:
         return 4;
     case Token::Type::GROUP:
     case Token::Type::PRINT:
@@ -217,6 +218,8 @@ std::string Token::token_type_string(Token::Type type) {
         return "atomic";
     case Token::Type::SPAWN:
         return "spawn";
+    case Token::Type::JOIN:
+        return "join";
     case Token::Type::DO:
         return "do";
     case Token::Type::WHILE:

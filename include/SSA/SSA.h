@@ -397,12 +397,36 @@ struct Terminator {
         Jump cont; // continuation to return to. if call returns a value, it is
                    // appended as the first argument to cont
         bool drop = true;
-        // A spawned call (ir::Accumulate::spawned): its value goes into a
-        // reducer by the accumulate that is the continuation's first
-        // instruction, and nothing else of the continuation depends on it.
-        // A deferral may push the call and go on without waiting; the drain
-        // makes the call and the accumulate (SSA/Defer.cpp).
-        bool spawned = false;
+    };
+    // `spawn f(args);` (ir::CallStmt::spawned): the call, and the
+    // continuation that may run beside it. The call returns nothing; what it
+    // does reaches this function only through the reducers among its
+    // arguments. The continuation runs on to a Join, or to a Return, which
+    // joins too: everything from `cont` to there may run at the same time as
+    // the call, as two iterations of a parfor may -- a spawn is a parfor of
+    // two iterations, the call and the continuation, whose end is the join
+    // (docs/parallel-semantics.md, section 1; Cilk's spawn and sync, Frigo,
+    // Leiserson and Randall, PLDI 1998). Kept as a terminator of its own
+    // rather than lowered to that parfor so that the structure stays
+    // visible: a deferral rewrites it into a push and a jump to the
+    // continuation, the drain making the call later (SSA/Defer.cpp); run as
+    // written it is a call followed by its continuation. Nothing of the
+    // function's own may be reached from the call: `call` names a function
+    // and `cont` a block, so a block's successors are `cont` alone, and the
+    // call graph sees `call` (Terminator::callee).
+    struct Spawn {
+        Jump call;
+        Jump cont;
+    };
+    // `join;` (ir::Join): wait for every call spawned since the last join
+    // or the function's start, then go on to `next`. A Return joins as well,
+    // so a Join is written only where the function goes on after waiting.
+    // The deferral, which has moved the spawned calls into a drain that
+    // runs after the loop they were spawned from, moves what follows the
+    // join after the drain too (the pass over the record, SSA/Defer.cpp);
+    // run as written the calls have run already and a Join is a Jump.
+    struct Join {
+        Jump next;
     };
     struct MultiCall {
         // A run of calls to one callee, differing only in some arguments, and
@@ -438,16 +462,16 @@ struct Terminator {
     };
 
     std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call,
-                 MultiCall>
+                 MultiCall, Spawn, Join>
         data;
 
     bool defined() const {
         return !std::holds_alternative<std::monostate>(data);
     }
 
-    // The callee, for a terminator that calls -- Call or MultiCall -- and null
-    // for one that does not. A MultiCall's calls all go to the same place, so
-    // there is one answer either way.
+    // The callee, for a terminator that calls -- Call, MultiCall or Spawn --
+    // and null for one that does not. A MultiCall's calls all go to the same
+    // place, so there is one answer either way.
     //
     // Worth preferring over `get_if<Call>` at any site that is asking "does
     // this go somewhere else?": those sites are looking for the edge, not for
@@ -456,8 +480,8 @@ struct Terminator {
     const Jump *callee() const;
     Jump *callee();
 
-    // The continuation of a terminator that has one -- Call, MultiCall or
-    // ParFor -- and null otherwise.
+    // The continuation of a terminator that has one -- Call, MultiCall,
+    // Spawn or ParFor -- and null otherwise.
     const Jump *continuation() const;
 
     void dump(std::ostream &os) const;
@@ -562,6 +586,14 @@ struct Function {
     struct OwnedQueue {
         std::shared_ptr<Value> size;
         std::string point;
+        // The functions the drain calls, one per entry: the deferred
+        // function, or its copy per arm of a split. What an entry pushed
+        // onto this queue goes on to do, for the count of pushes one
+        // activity makes (SSA/DistinctSlots.h).
+        std::set<std::string> callees;
+        // Whether the queue is drained in rounds, fed by its own drain: an
+        // entry pushed onto it runs in the next round, not this one.
+        bool rounds = false;
         // The drain's first and last blocks, `<queue>!drain` and
         // `<queue>!exit`. A later deferral whose producer loop is the same
         // as this one's -- another kernel of the same round -- puts its
@@ -634,6 +666,19 @@ struct Function {
     // record is pbrt's pixelSampleState: it outlives every frame, so its
     // addresses may be stored in a queue entry as the addresses they are.
     std::set<const Instruction *> record_slots;
+    // The values a drain reads out of its entry that are distinct in every
+    // entry of one pass -- a record slot's address, a slot group's index --
+    // each under the indices of the loops that run the drain: the drain
+    // loop's own (the name of its index, which its body takes as its first
+    // argument), and the outer and inner loops a split makes of it
+    // (Rewrite.cpp), in each of which the value is one-to-one as well. A
+    // queue whose entries are one per run of one producer's iteration holds
+    // a distinct slot in each (SSA/Defer.cpp, slots_distinct); the deferral
+    // knows it and records it here, and the contention analysis reads it
+    // (SSA/Contention.h), so that the drained function's accumulate into a
+    // sample's slot of the record is each entry's own and not a word the
+    // threads of the drain share. Nothing else about the value is implied.
+    std::map<const Instruction *, std::set<std::string>> injective_slots;
 
     void dump(std::ostream &os) const;
 

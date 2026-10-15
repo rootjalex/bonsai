@@ -602,7 +602,7 @@ Stmt Mutator::visit(const CallStmt *node) {
     if (func.same_as(node->func) && not_changed) {
         return node;
     }
-    return CallStmt::make(std::move(func), std::move(args));
+    return CallStmt::make(std::move(func), std::move(args), node->spawned);
 }
 
 Stmt Mutator::visit(const MultiRecurse *node) {
@@ -758,7 +758,7 @@ Stmt Mutator::visit(const Accumulate *node) {
         return node;
     }
     return Accumulate::make(std::move(loc), node->op, std::move(value),
-                            node->atomic, node->spawned, std::move(alongside));
+                            node->atomic, std::move(alongside));
 }
 
 Stmt Mutator::visit(const Label *node) {
@@ -915,6 +915,7 @@ Stmt Mutator::visit(const ParFor *node) {
 
 Stmt Mutator::visit(const Continue *node) { return node; }
 Stmt Mutator::visit(const Break *node) { return node; }
+Stmt Mutator::visit(const Join *node) { return node; }
 
 Stmt Mutator::visit(const Launch *node) {
     Expr n = mutate(node->n);

@@ -95,7 +95,8 @@ class LowerDynamicSetCall : public ir::Mutator {
         const Function_t *ftype = func->type.as<Function_t>();
         internal_assert(ftype) << func->type;
         Type t = Function_t::make(dynamic_array_t, ftype->arg_types);
-        return CallStmt::make(Var::make(std::move(t), func->name), node->args);
+        return CallStmt::make(Var::make(std::move(t), func->name), node->args,
+                              node->spawned);
     }
 
   private:

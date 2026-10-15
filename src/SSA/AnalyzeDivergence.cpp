@@ -125,6 +125,8 @@ void collect_argument_flows(const Cfg &cfg, BlockId from,
                        // arguments, so the explicitly passed ones start at 1.
                        add(c.cont, c.drop ? 0 : 1);
                    },
+                   [&](const Terminator::Spawn &s) { add(s.cont, 0); },
+                   [&](const Terminator::Join &j) { add(j.next, 0); },
                    [&](const Terminator::MultiCall &c) {
                        add(c.cont, c.drop ? 0 : 1);
                    },
@@ -861,6 +863,10 @@ analyze_divergence(const Function &func, const string &entry,
             if (const auto *c =
                     std::get_if<Terminator::Call>(&block.terminator.data)) {
                 call_effects(c->call.args, c->cont, c->drop);
+            }
+            if (const auto *s =
+                    std::get_if<Terminator::Spawn>(&block.terminator.data)) {
+                call_effects(s->call.args, s->cont, /*drop=*/true);
             }
             if (const auto *c =
                     std::get_if<Terminator::MultiCall>(&block.terminator.data)) {

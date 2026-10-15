@@ -258,6 +258,7 @@ target_sources(
     src/SSA/ConstantIntervals.cpp
     src/SSA/MirrorLoads.cpp
     src/SSA/Contention.cpp
+    src/SSA/DistinctSlots.cpp
     src/SSA/Contract.cpp
     src/SSA/GateDrains.cpp
     src/SSA/HitContinuations.cpp

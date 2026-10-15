@@ -398,6 +398,7 @@ void Visitor::visit(const ParFor *node) {
 
 void Visitor::visit(const Continue *node) {}
 void Visitor::visit(const Break *node) {}
+void Visitor::visit(const Join *node) {}
 
 void Visitor::visit(const Launch *node) {
     node->n.accept(this);

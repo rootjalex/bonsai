@@ -762,6 +762,19 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                fix_whole(a);
                            }
                        },
+                       [&](Terminator::Spawn &t) {
+                           vector<uint32_t> shape;
+                           flatten(t.call.args, shape);
+                           result.call_shapes[name] = std::move(shape);
+                           for (auto &a : t.cont.args) {
+                               fix_whole(a);
+                           }
+                       },
+                       [&](Terminator::Join &t) {
+                           for (auto &a : t.next.args) {
+                               fix_whole(a);
+                           }
+                       },
                        [&](Terminator::MultiCall &t) {
                            // As for Call, plus one thing to keep straight:
                            // splitting an argument into components moves every

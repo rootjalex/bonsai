@@ -465,6 +465,16 @@ void Terminator::dump(std::ostream &os) const {
                        os << " ";
                        dump_target(os, c.cont);
                    },
+                   [&](const Spawn &s) {
+                       os << "spawn ";
+                       dump_target(os, s.call);
+                       os << " ";
+                       dump_target(os, s.cont);
+                   },
+                   [&](const Join &j) {
+                       os << "join ";
+                       dump_target(os, j.next);
+                   },
                    [&](const MultiCall &c) {
                        os << "multicall";
                        if (!c.drop) {
@@ -521,6 +531,9 @@ const Terminator::Jump *Terminator::callee() const {
     if (const auto *c = std::get_if<MultiCall>(&data)) {
         return &c->call;
     }
+    if (const auto *s = std::get_if<Spawn>(&data)) {
+        return &s->call;
+    }
     return nullptr;
 }
 
@@ -531,6 +544,9 @@ Terminator::Jump *Terminator::callee() {
     if (auto *c = std::get_if<MultiCall>(&data)) {
         return &c->call;
     }
+    if (auto *s = std::get_if<Spawn>(&data)) {
+        return &s->call;
+    }
     return nullptr;
 }
 
@@ -540,6 +556,9 @@ const Terminator::Jump *Terminator::continuation() const {
     }
     if (const auto *c = std::get_if<MultiCall>(&data)) {
         return &c->cont;
+    }
+    if (const auto *s = std::get_if<Spawn>(&data)) {
+        return &s->cont;
     }
     if (const auto *p = std::get_if<ParFor>(&data)) {
         return &p->cont;
@@ -749,6 +768,24 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
                                              << " lists predecessor ^ that "
                                                 "does not point to it.";
                           }
+                      },
+                      [&](Terminator::Spawn &s) {
+                          if (s.call.name == this->name) {
+                              s.call.args.push_back(p->get_value(name, type));
+                          } else if (s.cont.name == this->name) {
+                              s.cont.args.push_back(p->get_value(name, type));
+                          } else {
+                              p->dump(std::cerr);
+                              internal_error << this->name
+                                             << " lists predecessor ^ that "
+                                                "does not point to it.";
+                          }
+                      },
+                      [&](Terminator::Join &j) {
+                          internal_assert(j.next.name == this->name)
+                              << this->name << " lists a predecessor whose join "
+                              << "does not point to it (" << j.next.name << ")";
+                          j.next.args.push_back(p->get_value(name, type));
                       },
                       [&](Terminator::MultiCall &c) {
                           // Appending is safe for the varying positions, which

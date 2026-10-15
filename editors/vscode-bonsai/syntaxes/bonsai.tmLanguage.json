@@ -98,7 +98,7 @@
       "patterns": [
         {
           "name": "keyword.control.bonsai",
-          "match": "\\b(if|elif|else|for|parfor|while|do|return|match|switch|spawn|atomic)\\b"
+          "match": "\\b(if|elif|else|for|parfor|while|do|return|match|switch|spawn|join|atomic)\\b"
         },
         {
           "name": "storage.type.bonsai",

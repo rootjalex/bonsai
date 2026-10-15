@@ -319,9 +319,14 @@ CallSites index_calls(const FuncMap &fmap) {
     CallSites out;
     for (const auto &[name, f] : fmap) {
         for (const auto &block : f->blocks) {
-            if (const auto *c =
-                    std::get_if<Terminator::Call>(&block->terminator.data)) {
-                out.of[c->call.name].push_back({f.get(), block.get()});
+            // A call or a spawned call (Terminator::Spawn); not a run of
+            // calls, which is a tree's recursion and pushes no queue.
+            if (std::holds_alternative<Terminator::MultiCall>(
+                    block->terminator.data)) {
+                continue;
+            }
+            if (const Terminator::Jump *c = block->terminator.callee()) {
+                out.of[c->name].push_back({f.get(), block.get()});
             }
         }
     }
@@ -331,12 +336,12 @@ CallSites index_calls(const FuncMap &fmap) {
 // The argument a call passes for the callee's parameter named `param`.
 shared_ptr<Value> call_argument(const Block &site, const Function &callee,
                                 const string &param) {
-    const auto *c = std::get_if<Terminator::Call>(&site.terminator.data);
+    const Terminator::Jump *c = site.terminator.callee();
     internal_assert(c != nullptr) << site.name;
     const auto &params = callee.blocks.front()->args;
-    for (size_t i = 0; i < params.size() && i < c->call.args.size(); i++) {
+    for (size_t i = 0; i < params.size() && i < c->args.size(); i++) {
         if (params[i].name == param) {
-            return c->call.args[i];
+            return c->args[i];
         }
     }
     return nullptr;
@@ -485,11 +490,10 @@ gate_drains(FuncMap &fmap,
                 if (!d.region.contains(block->name)) {
                     continue;
                 }
-                const auto *c =
-                    std::get_if<Terminator::Call>(&block->terminator.data);
-                if (c != nullptr && fmap.contains(c->call.name) &&
-                    key_value(*fmap.at(c->call.name), qs.key) != nullptr) {
-                    drained = c->call.name;
+                const Terminator::Jump *c = block->terminator.callee();
+                if (c != nullptr && fmap.contains(c->name) &&
+                    key_value(*fmap.at(c->name), qs.key) != nullptr) {
+                    drained = c->name;
                     owner = d.owner;
                     break;
                 }
@@ -572,12 +576,17 @@ gate_drains(FuncMap &fmap,
             // caller, through the generated header's constants.
             for (const auto &[gname, g] : fmap) {
                 for (const auto &block : g->blocks) {
-                    if (auto *c = std::get_if<Terminator::Call>(
-                            &block->terminator.data)) {
-                        if (c->call.name == m.func) {
-                            c->call.args.push_back(std::make_shared<Value>(
-                                Constant{UInt_t::make(64), m.all_on}));
-                        }
+                    // Every call of the function, spawned or not (a run of
+                    // calls is a tree's recursion, never the exported
+                    // owner's).
+                    if (std::holds_alternative<Terminator::MultiCall>(
+                            block->terminator.data)) {
+                        continue;
+                    }
+                    if (Terminator::Jump *c = block->terminator.callee();
+                        c != nullptr && c->name == m.func) {
+                        c->args.push_back(std::make_shared<Value>(
+                            Constant{UInt_t::make(64), m.all_on}));
                     }
                 }
             }

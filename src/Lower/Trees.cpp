@@ -2020,7 +2020,7 @@ ir::Stmt build_arg_extremum(Extremum dir, ir::Expr metric, ir::Expr inner,
                                         dir == Extremum::Min
                                             ? ir::Accumulate::Argmin
                                             : ir::Accumulate::Argmax,
-                                        std::move(update), false, false,
+                                        std::move(update), false,
                                         std::move(written));
         }
 

@@ -3,6 +3,8 @@
 
 #include "Error.h"
 
+#include <algorithm>
+#include <memory>
 #include <set>
 
 namespace bonsai {
@@ -69,8 +71,28 @@ Resolved resolve(const std::shared_ptr<Value> &v, const std::string &block,
         !std::holds_alternative<Argument>(v->data)) {
         return {v, block};
     }
-    const Definition d = origins->defs.of(block, v);
-    return {d.value ? d.value : v, d.value ? d.block : block};
+    Resolved r{v, block};
+    for (;;) {
+        const Definition d = origins->defs.of(r.block, r.value);
+        if (d.value) {
+            r = {d.value, d.block};
+        }
+        // Settled: an instruction, a constant, a parameter, or an argument
+        // of the block itself -- a merge, a loop's carried value. What is
+        // left is a name the block reaches from above without taking it,
+        // which the definitions analysis leaves here (Origins::binding_block
+        // says why): it is bound at the nearest block above that takes it,
+        // and the question goes on from there, up the dominator tree.
+        const auto *a = std::get_if<Argument>(&r.value->data);
+        if (a == nullptr || r.block.empty()) {
+            return r;
+        }
+        const std::string bound = origins->binding_block(r.block, a->name);
+        if (bound.empty() || bound == r.block) {
+            return r;
+        }
+        r.block = bound;
+    }
 }
 
 std::string block_of(const Instruction *instr, const std::string &fallback) {
@@ -193,10 +215,38 @@ bool nonzero_constant(const std::shared_ptr<Value> &v) {
 // wide. Distinct iterations of the loop then give distinct values, which is
 // what makes the elements they subscript distinct. Wrapping is not
 // considered: an index that overflows its type addresses nothing sensible.
+// Whether `v` is a value a drain read out of its entry that is distinct in
+// every entry of a pass -- a record slot's address or index -- and `target`
+// is that drain's index (Function::injective_slots; the deferral records
+// them, SSA/Defer.cpp). What a subscript or a base derived from the loop's
+// index by a load cannot show on its own.
+bool distinct_slot(const std::shared_ptr<Value> &v,
+                   const std::shared_ptr<Value> &target, const std::string &block,
+                   Origins *origins) {
+    if (origins == nullptr || !target) {
+        return false;
+    }
+    const auto *index = std::get_if<Argument>(&target->data);
+    if (index == nullptr) {
+        return false;
+    }
+    const Resolved r = resolve(v, block, origins);
+    const Instruction *instr = as_instruction(r.value);
+    if (instr == nullptr) {
+        return false;
+    }
+    const auto slot = origins->func.injective_slots.find(instr);
+    return slot != origins->func.injective_slots.end() &&
+           slot->second.contains(index->name);
+}
+
 bool injective_in(const std::shared_ptr<Value> &v,
                   const std::shared_ptr<Value> &target, const std::string &block,
                   Origins *origins) {
     if (same_value(v, target)) {
+        return true;
+    }
+    if (distinct_slot(v, target, block, origins)) {
         return true;
     }
     const Instruction *instr = as_instruction(v);
@@ -374,6 +424,18 @@ parallel_loops_by_block(const Function &f) {
                 [&](const Terminator::Call &call) {
                     worklist.emplace_back(call.cont.name, stack);
                 },
+                [&](const Terminator::Spawn &spawn) {
+                    // A spawn still standing when this runs is run as
+                    // written -- the call, then its continuation, in the
+                    // one activity -- since a schedule that took up its
+                    // parallelism rewrote it into a push (SSA/Defer.cpp).
+                    // So it adds no loop to the nest, as an unbound parfor
+                    // adds none.
+                    worklist.emplace_back(spawn.cont.name, stack);
+                },
+                [&](const Terminator::Join &join) {
+                    worklist.emplace_back(join.next.name, stack);
+                },
                 [&](const Terminator::MultiCall &call) {
                     worklist.emplace_back(call.cont.name, stack);
                 },
@@ -399,6 +461,33 @@ Origins::Origins(const Function &f) : func(f), defs(f, /*lenient=*/true) {
             loop_indices.insert(body->second->args.front().name);
         }
     }
+}
+
+std::string Origins::binding_block(const std::string &block, const std::string &name) {
+    if (!cfg.has_value()) {
+        cfg.emplace(func);
+        dom = compute_dominator_tree(*cfg);
+    }
+    const auto takes = [&](BlockId b) {
+        const auto &args = cfg->block(b)->args;
+        return std::any_of(args.begin(), args.end(),
+                           [&](const Argument &arg) { return arg.name == name; });
+    };
+    BlockId b = cfg->find(block);
+    if (b == NO_BLOCK || !dom.contains(b)) {
+        return "";
+    }
+    if (takes(b)) {
+        return block;
+    }
+    // The root is its own immediate dominator, and is looked at last.
+    while (b != dom.root) {
+        b = dom.idom[b];
+        if (takes(b)) {
+            return cfg->name(b);
+        }
+    }
+    return "";
 }
 
 Contention contention_of(const std::shared_ptr<Value> &ptr,
@@ -430,6 +519,15 @@ Contention contention_of(const std::shared_ptr<Value> &ptr,
         // any other, which keeps the atomic.
         if (origins != nullptr &&
             allocated_inside(address.base, loop, block, origins)) {
+            continue;
+        }
+        // Or a record slot's address the drain computed from its entry --
+        // the address itself, or the base an element of it is taken from
+        // -- which the deferral knows to be a different slot in every entry
+        // of the pass (Function::injective_slots): each entry's own,
+        // whatever the subscripts below it.
+        if (distinct_slot(ptr, loop.index_value, block, origins) ||
+            distinct_slot(address.base, loop.index_value, block, origins)) {
             continue;
         }
 
@@ -545,6 +643,185 @@ bool allocated_by_function(const std::shared_ptr<Value> &ptr, Origins &origins,
     const Instruction *instr = as_instruction(r.value);
     return instr != nullptr && (instr->op == Instruction::Op::Alloca ||
                                 instr->op == Instruction::Op::Alloc);
+}
+
+std::optional<size_t> parameter_of_address(const std::shared_ptr<Value> &ptr,
+                                           Origins &origins,
+                                           const std::string &block) {
+    const Address address = address_of(ptr);
+    const Resolved r = resolve(address.base, block, &origins);
+    const auto *a = std::get_if<Argument>(&r.value->data);
+    if (a == nullptr || origins.func.blocks.empty()) {
+        return std::nullopt;
+    }
+    const Block &entry = *origins.func.blocks.front();
+    if (!r.block.empty() && r.block != entry.name) {
+        return std::nullopt;
+    }
+    for (size_t k = 0; k < entry.args.size(); k++) {
+        if (entry.args[k].name == a->name) {
+            return k;
+        }
+    }
+    return std::nullopt;
+}
+
+namespace {
+
+// The worse of two answers: Shared below Unknown below Disjoint. A
+// parameter is as shared as the worst call hands it.
+Contention worse(Contention a, Contention b) {
+    const auto rank = [](Contention c) {
+        switch (c) {
+        case Contention::Shared:
+            return 0;
+        case Contention::Unknown:
+            return 1;
+        case Contention::Disjoint:
+            return 2;
+        }
+        return 1;
+    };
+    return rank(a) <= rank(b) ? a : b;
+}
+
+bool is_address(const Type &type) {
+    return type.is<Ptr_t>() || type.is_reference();
+}
+
+} // namespace
+
+std::map<std::string, std::vector<Contention>> parameter_contention(
+    const std::map<std::string, std::shared_ptr<Function>> &funcs,
+    const std::set<std::string> &called_in_parallel) {
+    // Every call site of the program -- a call, a spawn, a run of calls --
+    // by callee, with what the analysis needs of the caller: the bound
+    // loops around each of its blocks, and the means to follow a value back
+    // through the caller's block parameters.
+    struct Site {
+        const Function *caller = nullptr;
+        std::string caller_name;
+        std::string block;
+        const Terminator::Jump *call = nullptr;
+        // For a run of calls: the parameters whose arguments vary per call,
+        // which the run's shared argument list does not hold.
+        const std::vector<size_t> *varying_at = nullptr;
+    };
+    std::map<std::string, std::vector<Site>> sites_of;
+    std::map<std::string, std::map<std::string, std::vector<ParallelLoop>>> loops_of;
+    std::map<std::string, std::unique_ptr<Origins>> origins_of;
+    for (const auto &[name, f] : funcs) {
+        loops_of[name] = parallel_loops_by_block(*f);
+        origins_of[name] = std::make_unique<Origins>(*f);
+        for (const auto &block : f->blocks) {
+            const Terminator::Jump *callee = block->terminator.callee();
+            if (callee == nullptr) {
+                continue;
+            }
+            const auto *multi =
+                std::get_if<Terminator::MultiCall>(&block->terminator.data);
+            sites_of[callee->name].push_back(
+                {f.get(), name, block->name, callee,
+                 multi != nullptr ? &multi->varying_at : nullptr});
+        }
+    }
+
+    std::map<std::string, std::vector<Contention>> result;
+    for (const std::string &g : called_in_parallel) {
+        const auto f = funcs.find(g);
+        if (f == funcs.end() || f->second->blocks.empty()) {
+            continue; // an extern: no body to ask about
+        }
+        result[g].assign(f->second->blocks.front()->args.size(),
+                         Contention::Disjoint);
+    }
+
+    // What a call made from a function that is itself called in parallel,
+    // with no loop of its own around the call, hands for an address
+    // argument: storage of its own (an allocation of the function), which
+    // every concurrent call of it makes afresh; or something it was handed,
+    // which is as shared as its own parameter is -- the fixed point's
+    // current answer -- when it is handed on whole, and unknown when an
+    // element of it is; anything else, a pointer loaded from memory, say,
+    // is unknown.
+    const auto handed = [&](const Site &s, const std::shared_ptr<Value> &arg)
+        -> Contention {
+        Origins &origins = *origins_of.at(s.caller_name);
+        const Address address = address_of(arg);
+        const Resolved r = resolve(address.base, s.block, &origins);
+        if (const Instruction *i = as_instruction(r.value);
+            i != nullptr && (i->op == Instruction::Op::Alloca ||
+                             i->op == Instruction::Op::Alloc)) {
+            return Contention::Disjoint;
+        }
+        const std::optional<size_t> k = parameter_of_address(arg, origins, s.block);
+        if (!k.has_value()) {
+            return Contention::Unknown;
+        }
+        const auto own = result.find(s.caller_name);
+        if (own == result.end() || *k >= own->second.size()) {
+            return Contention::Unknown;
+        }
+        const Contention c = own->second[*k];
+        if (c == Contention::Disjoint || address.indices.empty()) {
+            return c;
+        }
+        return Contention::Unknown;
+    };
+
+    // Lowered from Disjoint until nothing changes: each answer is the worst
+    // over the function's sites, and a site's depends on the caller's
+    // answers, which only ever get worse, so this ends.
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (auto &[g, answers] : result) {
+            const Function &gf = *funcs.at(g);
+            const std::vector<Argument> &params = gf.blocks.front()->args;
+            const auto sites = sites_of.find(g);
+            for (size_t k = 0; k < params.size(); k++) {
+                if (!is_address(params[k].type)) {
+                    continue; // a value: nothing to share
+                }
+                Contention v = Contention::Disjoint;
+                if (sites != sites_of.end()) {
+                    for (const Site &s : sites->second) {
+                        if (s.varying_at != nullptr &&
+                            std::find(s.varying_at->begin(), s.varying_at->end(), k) !=
+                                s.varying_at->end()) {
+                            v = worse(v, Contention::Unknown);
+                            continue;
+                        }
+                        if (k >= s.call->args.size()) {
+                            continue;
+                        }
+                        const std::shared_ptr<Value> &arg = s.call->args[k];
+                        const auto &by_block = loops_of.at(s.caller_name);
+                        const auto loops = by_block.find(s.block);
+                        if (loops == by_block.end()) {
+                            continue; // unreachable: nothing runs it
+                        }
+                        if (!loops->second.empty()) {
+                            // Inside a bound loop of the caller: two
+                            // iterations are two calls at once.
+                            v = worse(v, contention_of(arg, loops->second,
+                                                       origins_of.at(s.caller_name).get(),
+                                                       s.block));
+                        } else if (called_in_parallel.contains(s.caller_name)) {
+                            // Two calls of the caller are two calls of this.
+                            v = worse(v, handed(s, arg));
+                        }
+                        // Else a call made where nothing runs at once, which
+                        // shares nothing with anyone.
+                    }
+                }
+                if (v != answers[k]) {
+                    answers[k] = v;
+                    changed = true;
+                }
+            }
+        }
+    }
+    return result;
 }
 
 } // namespace ssa

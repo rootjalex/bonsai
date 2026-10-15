@@ -92,6 +92,11 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps(Block &block) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
                    },
+                   [&](Terminator::Spawn &s) {
+                       result.push_back({&s.call, 0});
+                       result.push_back({&s.cont, 0});
+                   },
+                   [&](Terminator::Join &j) { result.push_back({&j.next, 0}); },
                    [&](Terminator::MultiCall &c) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
@@ -761,6 +766,19 @@ class Splitter {
                                found = found || refers(v, name);
                            }
                        },
+                       [&](const Terminator::Spawn &s) {
+                           for (const auto &v : s.call.args) {
+                               found = found || refers(v, name);
+                           }
+                           for (const auto &v : s.cont.args) {
+                               found = found || refers(v, name);
+                           }
+                       },
+                       [&](const Terminator::Join &j) {
+                           for (const auto &v : j.next.args) {
+                               found = found || refers(v, name);
+                           }
+                       },
                        [&](const Terminator::MultiCall &c) {
                            for (const auto &v : c.call.args) {
                                found = found || refers(v, name);
@@ -1134,6 +1152,12 @@ class Splitter {
                                    found = found || refers(v, name);
                                }
                            },
+                           [&](const Terminator::Spawn &s) {
+                               for (const auto &v : s.call.args) {
+                                   found = found || refers(v, name);
+                               }
+                           },
+                           [&](const Terminator::Join &) {},
                            [&](const Terminator::MultiCall &c) {
                                for (const auto &v : c.call.args) {
                                    found = found || refers(v, name);

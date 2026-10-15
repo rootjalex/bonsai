@@ -48,6 +48,7 @@ enum class IRStmtEnum {
     Break,
     Launch,
     Append,
+    Join,
 };
 
 using IRStmtNode = IRNode<Stmt, IRStmtEnum>;
@@ -90,9 +91,37 @@ struct CallStmt : StmtNode<CallStmt> {
     Expr func;
     std::vector<Expr> args;
 
-    static Stmt make(Expr func, std::vector<Expr> args);
+    // `spawn f(args);` -- the call may run beside the rest of the function
+    // that made it, up to the `join` that waits for it (ir::Join) or the
+    // function's return, which waits too: Cilk's spawn and sync (Frigo,
+    // Leiserson and Randall, PLDI 1998). The callee returns nothing; what it
+    // computes it adds into the reducers it is handed, whose accumulates are
+    // atomic by declaration. What the program states so that a schedule may
+    // queue the call and go on -- pbrt's shadow ray, traced by its own
+    // kernel, its contribution added to the sample's radiance when it is --
+    // and be right by construction (SSA/Defer.cpp). Run as written, it is
+    // the call it looks like. In the SSA the statement is a terminator of
+    // its own, Terminator::Spawn, which the schedule rewrites and every
+    // analysis sees the structure of; see docs/parallel-semantics.md.
+    bool spawned = false;
+
+    static Stmt make(Expr func, std::vector<Expr> args, bool spawned = false);
 
     static const IRStmtEnum node_type = IRStmtEnum::CallStmt;
+};
+
+// `join;` -- wait for every call the function spawned since the last join
+// (CallStmt::spawned): Cilk's sync. After it the reducers those calls were
+// handed are whole and may be read; the parser refuses a read before it. A
+// return and the end of a parfor body join too, so a function or an
+// iteration that reads nothing of its spawns writes none. Run as written a
+// spawned call has already run, and the join does nothing; its meaning is
+// for the schedule, which may have moved the call, and for the SSA, where
+// it is Terminator::Join.
+struct Join : StmtNode<Join> {
+    static Stmt make();
+
+    static const IRStmtEnum node_type = IRStmtEnum::Join;
 };
 
 // A run of recursive calls that differ only in some of their arguments.
@@ -352,17 +381,6 @@ struct Accumulate : StmtNode<Accumulate> {
     // is the compiler's job rather than the program's.
     bool atomic = false;
 
-    // `spawn l += f(args);` -- the value is a call, its result goes into the
-    // reducer `l` and nowhere else, and nothing after this statement depends
-    // on it: the call may run later, elsewhere, in any order with the other
-    // contributions. What the program states so that a schedule may defer
-    // the call at a site that is not in tail position -- pbrt's shadow ray,
-    // traced by its own kernel and added to the pixel's L when it is -- and
-    // the deferral is right by construction. Run as written, it is the
-    // accumulate it looks like. Only a reducer takes a spawn (the parser
-    // checks), so the join is where the reducer is read.
-    bool spawned = false;
-
     // What an argmin or argmax writes beside its pair when the key improves:
     // places of its own, each taking the value given, under the same
     // comparison and -- in a vectorized leaf -- from the same winning lane
@@ -375,7 +393,6 @@ struct Accumulate : StmtNode<Accumulate> {
     std::vector<std::pair<WriteLoc, Expr>> alongside;
 
     static Stmt make(WriteLoc loc, OpType op, Expr value, bool atomic = false,
-                     bool spawned = false,
                      std::vector<std::pair<WriteLoc, Expr>> alongside = {});
 
     static const IRStmtEnum node_type = IRStmtEnum::Accumulate;

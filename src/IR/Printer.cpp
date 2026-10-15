@@ -1506,6 +1506,9 @@ void Printer::visit(const AtomicAdd *node) {
 
 void Printer::visit(const CallStmt *node) {
     os << get_indent();
+    if (node->spawned) {
+        os << "spawn ";
+    }
     print_no_parens(node->func);
     os << '(';
     print_expr_list(node->args);
@@ -1738,9 +1741,6 @@ void Printer::visit(const Accumulate *node) {
     if (node->atomic) {
         os << "atomic ";
     }
-    if (node->spawned) {
-        os << "spawn ";
-    }
     print(node->loc);
     switch (node->op) {
     case Accumulate::OpType::Add: {
@@ -1962,6 +1962,12 @@ void Printer::visit(const ParFor *node) {
 void Printer::visit(const Continue *node) {
     os << get_indent();
     os << "continue";
+    end_stmt();
+}
+
+void Printer::visit(const Join *node) {
+    os << get_indent();
+    os << "join";
     end_stmt();
 }
 

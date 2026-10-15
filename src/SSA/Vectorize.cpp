@@ -435,6 +435,19 @@ void substitute(Block &block, const string &name,
                            replace(a);
                        }
                    },
+                   [&](Terminator::Spawn &s) {
+                       for (auto &a : s.call.args) {
+                           replace(a);
+                       }
+                       for (auto &a : s.cont.args) {
+                           replace(a);
+                       }
+                   },
+                   [&](Terminator::Join &j) {
+                       for (auto &a : j.next.args) {
+                           replace(a);
+                       }
+                   },
                    [&](Terminator::MultiCall &c) {
                        for (auto &a : c.call.args) {
                            replace(a);
@@ -539,6 +552,19 @@ void widen_argument(const Cfg &region, BlockId owner, const string &name,
                                retype(a);
                            }
                            for (auto &a : t.cont.args) {
+                               retype(a);
+                           }
+                       },
+                       [&](Terminator::Spawn &t) {
+                           for (auto &a : t.call.args) {
+                               retype(a);
+                           }
+                           for (auto &a : t.cont.args) {
+                               retype(a);
+                           }
+                       },
+                       [&](Terminator::Join &t) {
+                           for (auto &a : t.next.args) {
                                retype(a);
                            }
                        },
@@ -1906,6 +1932,16 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                        [&](Terminator::Call &c) {
                            if (c.cont.name == old_entry) {
                                c.cont.name = name;
+                           }
+                       },
+                       [&](Terminator::Spawn &s) {
+                           if (s.cont.name == old_entry) {
+                               s.cont.name = name;
+                           }
+                       },
+                       [&](Terminator::Join &j) {
+                           if (j.next.name == old_entry) {
+                               j.next.name = name;
                            }
                        },
                        [&](Terminator::MultiCall &c) {

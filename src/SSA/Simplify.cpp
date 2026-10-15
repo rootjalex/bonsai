@@ -508,6 +508,8 @@ struct Simplifier {
             const Terminator &t = cfg->block(above)->terminator;
             if (std::holds_alternative<Terminator::Call>(t.data) ||
                 std::holds_alternative<Terminator::MultiCall>(t.data) ||
+                std::holds_alternative<Terminator::Spawn>(t.data) ||
+                std::holds_alternative<Terminator::Join>(t.data) ||
                 std::holds_alternative<Terminator::ParFor>(t.data)) {
                 break;
             }
@@ -2220,6 +2222,11 @@ void resolve_uses(Function &func, const Simplifier &s) {
                            resolve_jump(c.call, s);
                            resolve_jump(c.cont, s);
                        },
+                       [&](Terminator::Spawn &sp) {
+                           resolve_jump(sp.call, s);
+                           resolve_jump(sp.cont, s);
+                       },
+                       [&](Terminator::Join &j) { resolve_jump(j.next, s); },
                        [&](Terminator::MultiCall &c) {
                            resolve_jump(c.call, s);
                            resolve_jump(c.cont, s);
@@ -2306,6 +2313,11 @@ UseCounts use_counts(const Function &func) {
                            count(c.call, uses);
                            count(c.cont, uses);
                        },
+                       [&](const Terminator::Spawn &s) {
+                           count(s.call, uses);
+                           count(s.cont, uses);
+                       },
+                       [&](const Terminator::Join &j) { count(j.next, uses); },
                        [&](const Terminator::MultiCall &c) {
                            count(c.call, uses);
                            count(c.cont, uses);

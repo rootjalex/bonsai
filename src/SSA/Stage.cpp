@@ -62,6 +62,11 @@ void for_each_value(Block &block, const F &fn) {
                        all(p.cont.args);
                    },
                    [](Terminator::Yield &) {},
+                   [&](Terminator::Spawn &s) {
+                       all(s.call.args);
+                       all(s.cont.args);
+                   },
+                   [&](Terminator::Join &j) { all(j.next.args); },
                    [&](Terminator::Call &c) {
                        all(c.call.args);
                        all(c.cont.args);
@@ -1070,14 +1075,9 @@ string call_holder(const FuncMap &funcs, const string &func_name,
     string holder = func_name;
     while (funcs.contains(holder)) {
         for (const auto &block : funcs.at(holder)->blocks) {
-            if (const auto *call =
-                    std::get_if<Terminator::Call>(&block->terminator.data);
-                call != nullptr && call->call.name == callee_name) {
-                return holder;
-            }
-            if (const auto *multi =
-                    std::get_if<Terminator::MultiCall>(&block->terminator.data);
-                multi != nullptr && multi->call.name == callee_name) {
+            // A call, a run of calls or a spawned call of the callee.
+            if (const Terminator::Jump *callee = block->terminator.callee();
+                callee != nullptr && callee->name == callee_name) {
                 return holder;
             }
         }
@@ -1116,14 +1116,9 @@ vector<string> call_holders(const FuncMap &funcs, const string &func_name,
         }
         bool calls = false;
         for (const auto &block : F->blocks) {
-            if (const auto *call =
-                    std::get_if<Terminator::Call>(&block->terminator.data);
-                call != nullptr && call->call.name == callee_name) {
-                calls = true;
-            }
-            if (const auto *multi =
-                    std::get_if<Terminator::MultiCall>(&block->terminator.data);
-                multi != nullptr && multi->call.name == callee_name) {
+            // A call, a run of calls or a spawned call of the callee.
+            if (const Terminator::Jump *callee = block->terminator.callee();
+                callee != nullptr && callee->name == callee_name) {
                 calls = true;
             }
         }
@@ -1186,8 +1181,10 @@ bool has_nontail_call(const FuncMap &funcs, const string &func_name,
     if (!site || callee_name == func_name || reaches(funcs, callee_name, func_name)) {
         return false;
     }
+    // A spawned call is not found by one_call_site, which looks for Call
+    // terminators: a spawn is deferred as it is, never with a rest.
     const auto &call = std::get<Terminator::Call>(site->terminator.data);
-    return !call.spawned && !in_tail_position(call, make_block_map(func));
+    return !in_tail_position(call, make_block_map(func));
 }
 
 namespace {

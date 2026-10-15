@@ -25,13 +25,26 @@ bool is_accumulate(Instruction::Op op) {
 
 } // namespace
 
-void DemoteAtomics::run(Function &f, bool called_in_parallel) {
+void DemoteAtomics::run(Function &f, bool called_in_parallel,
+                        const std::vector<Contention> *params) {
     const std::map<std::string, std::vector<ParallelLoop>> enclosing =
         parallel_loops_by_block(f);
     // For following a subscript that arrives as a block parameter back to
     // what computed it (the pixel of a pass's rest, threaded through the
     // blocks between the call and the film's add).
     Origins origins(f);
+
+    // Whether a parameter of the function is handed storage of its own by
+    // every call that runs at once (SSA/Contention.h, parameter_contention).
+    const auto private_parameter = [&](const std::shared_ptr<Value> &ptr,
+                                       const std::string &block) {
+        if (params == nullptr) {
+            return false;
+        }
+        const std::optional<size_t> k = parameter_of_address(ptr, origins, block);
+        return k.has_value() && *k < params->size() &&
+               (*params)[*k] == Contention::Disjoint;
+    };
 
     for (const auto &block : f.blocks) {
         const auto loops = enclosing.find(block->name);
@@ -45,15 +58,19 @@ void DemoteAtomics::run(Function &f, bool called_in_parallel) {
                 continue;
             }
             // A function some bound loop calls runs once per concurrent
-            // iteration, under loops no block of it shows. The one address
-            // two of those calls cannot share is storage this call made for
-            // itself; any other arrived from a caller, and whether two
-            // iterations hand down the same one -- the run's reducer -- is
-            // not visible from inside. So that is Unknown, and the atomic
-            // stays: a device atomic where the loop's own body would get the
-            // block reduction (SSA/BlockAccumulates.h).
+            // iteration, under loops no block of it shows. The addresses
+            // two of those calls cannot share are storage this call made
+            // for itself, and a parameter the whole program shows every
+            // concurrent call is handed its own storage through -- the
+            // sample's reducer, allocated in the loop's body and handed
+            // down the path's calls; the record slot a drain's entry holds.
+            // Any other arrived from a caller as a word two calls may well
+            // share -- the run's reducer -- so that is Unknown, and the
+            // atomic stays: a device atomic where the loop's own body would
+            // get the block reduction (SSA/BlockAccumulates.h).
             if (called_in_parallel &&
-                !allocated_by_function(instr->operands[0], origins, block->name)) {
+                !allocated_by_function(instr->operands[0], origins, block->name) &&
+                !private_parameter(instr->operands[0], block->name)) {
                 continue;
             }
             // Only Disjoint permits dropping it. Unknown means the address

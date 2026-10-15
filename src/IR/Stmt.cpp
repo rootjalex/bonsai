@@ -9,7 +9,7 @@
 namespace bonsai {
 namespace ir {
 
-Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
+Stmt CallStmt::make(Expr func, std::vector<Expr> args, bool spawned) {
     internal_assert(func.defined()) << "CallStmt::make received undefined func";
     internal_assert(std::all_of(args.cbegin(), args.cend(),
                                 [](const Expr &e) { return e.defined(); }))
@@ -19,10 +19,21 @@ Stmt CallStmt::make(Expr func, std::vector<Expr> args) {
     const Function_t *f = func.type().as<Function_t>();
     internal_assert(f) << "CallStmt::make received bad function type: "
                        << func.type();
+    // Nothing waits for a spawned call, so a value it returned would reach
+    // no one (the parser refuses the program; checked here rather than
+    // trusted).
+    internal_assert(!spawned || f->ret_type.is<Void_t>())
+        << "a spawned call returns " << f->ret_type << ": " << func;
 
     node->func = std::move(func);
     node->args = std::move(args);
+    node->spawned = spawned;
     return node;
+}
+
+Stmt Join::make() {
+    static Stmt global_join = new Join;
+    return global_join;
 }
 
 Stmt MultiRecurse::make(Expr func, std::vector<Expr> args,
@@ -325,7 +336,6 @@ Stmt Store::make(WriteLoc loc, Expr value, Expr mask, bool compact,
 }
 
 Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic,
-                      bool spawned,
                       std::vector<std::pair<WriteLoc, Expr>> alongside) {
     internal_assert(loc.defined())
         << "Undefined write location in Accumulate::make";
@@ -341,7 +351,6 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic,
     node->op = op;
     node->value = std::move(value);
     node->atomic = atomic;
-    node->spawned = spawned;
     node->alongside = std::move(alongside);
     return node;
 }

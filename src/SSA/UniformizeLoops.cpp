@@ -541,6 +541,19 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                                        thread(a);
                                    }
                                },
+                               [&](Terminator::Spawn &t) {
+                                   for (auto &a : t.call.args) {
+                                       thread(a);
+                                   }
+                                   for (auto &a : t.cont.args) {
+                                       thread(a);
+                                   }
+                               },
+                               [&](Terminator::Join &t) {
+                                   for (auto &a : t.next.args) {
+                                       thread(a);
+                                   }
+                               },
                                [&](Terminator::MultiCall &t) {
                                    for (auto &a : t.call.args) {
                                        thread(a);

@@ -57,6 +57,7 @@ class Token {
         PARFOR,
         ATOMIC, // atomic
         SPAWN,  // spawn
+        JOIN,   // join
         DO,     // do
         WHILE,  // while
         FOR,   // for

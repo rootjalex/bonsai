@@ -77,6 +77,11 @@ UseCounts use_counts(const Function &f) {
                     count(c.call, uses);
                     count(c.cont, uses);
                 },
+                [&](const Terminator::Spawn &s) {
+                    count(s.call, uses);
+                    count(s.cont, uses);
+                },
+                [&](const Terminator::Join &j) { count(j.next, uses); },
                 [&](const Terminator::MultiCall &c) {
                     count(c.call, uses);
                     count(c.cont, uses);

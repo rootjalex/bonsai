@@ -423,6 +423,18 @@ void split_impl(FuncMap &funcs, string func, string idx,
     // The new blocks' predecessors, and the body's, which now has the step
     // rather than the loop before it.
     refresh_preds(*f);
+    // What a drain's entries held distinct in every iteration of the loop
+    // (Function::injective_slots, keyed by the loop's index) is distinct in
+    // every iteration of the two loops that now make it up: two iterations
+    // of the outer loop at one inner index are two entries, and so are two
+    // of the inner at one outer, so the slot is one-to-one in each index
+    // taken on its own, which is how the contention analysis asks.
+    for (auto &[instr, indices] : f->injective_slots) {
+        if (indices.contains(idx)) {
+            indices.insert(outer);
+            indices.insert(inner);
+        }
+    }
 }
 
 } // namespace
@@ -1077,6 +1089,11 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
                         rename_jump(c.call);
                         rename_jump(c.cont);
                     },
+                    [&](Terminator::Spawn &s) {
+                        rename_jump(s.call);
+                        rename_jump(s.cont);
+                    },
+                    [&](Terminator::Join &j) { rename_jump(j.next); },
                     [&](Terminator::MultiCall &c) {
                         rename_jump(c.call);
                         rename_jump(c.cont);
@@ -1173,6 +1190,14 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
         const auto ptr = p.lock();
         return ptr && ptr.get() == site.get();
     });
+    // A callee that spawns is joined by its return (Terminator::Spawn): the
+    // caller's continuation ran after everything the callee spawned, and
+    // must still, so each return becomes a join rather than a jump.
+    bool spawns = false;
+    for (const auto &block : callee.blocks) {
+        spawns = spawns ||
+                 std::holds_alternative<Terminator::Spawn>(block->terminator.data);
+    }
     for (const auto &block : callee.blocks) {
         auto copy = copies.at(block->name);
         const auto *ret = std::get_if<Terminator::Return>(&copy->terminator.data);
@@ -1190,7 +1215,12 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
             args.push_back(fresh.empty() ? v
                                          : copy->get_value(fresh, v->get_type()));
         }
-        copy->terminator.data = Terminator::Jump{call.cont.name, std::move(args)};
+        Terminator::Jump onward{call.cont.name, std::move(args)};
+        if (spawns) {
+            copy->terminator.data = Terminator::Join{std::move(onward)};
+        } else {
+            copy->terminator.data = std::move(onward);
+        }
         cont->second->preds.push_back(copy);
     }
 }
@@ -1315,7 +1345,13 @@ void loopify(FuncMap &funcs, std::string func, int size,
         // `return f(...)` and is just as much a tail call -- reached either
         // at once or through blocks that only forward it (what a copied-in
         // callee's return became: a jump to its caller's continuation,
-        // carrying the value and nothing else the way).
+        // carrying the value and nothing else the way). A join on the way
+        // forwards too: the return it leads to joins every outstanding
+        // spawn by itself (docs/parallel-semantics.md, the implicit join),
+        // so `join; return` is `return`, and once the call is the loop's
+        // back edge the function's own return does that joining -- which
+        // is what a copied-in callee that spawns leaves before its
+        // caller's return (inline_call).
         shared_ptr<Block> tail = bmap.at(call.cont.name);
         std::optional<string> value_name;
         if (!call.drop) {
@@ -1329,6 +1365,9 @@ void loopify(FuncMap &funcs, std::string func, int size,
         }
         for (int hops = 0; hops < 64 && tail->instrs.empty(); hops++) {
             const auto *jump = std::get_if<Terminator::Jump>(&tail->terminator.data);
+            if (const auto *join = std::get_if<Terminator::Join>(&tail->terminator.data)) {
+                jump = &join->next;
+            }
             if (jump == nullptr) {
                 break;
             }

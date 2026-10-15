@@ -154,6 +154,18 @@ struct RewriteMutables : public ir::Mutator {
         return ir::Function_t::make(func_t->ret_type, std::move(arg_types));
     }
 
+    // The node remade with its callee and arguments rewritten: a call
+    // expression, or a call statement, which keeps whether it was spawned.
+    static ir::Expr remake(const ir::Call *, ir::Expr func,
+                           std::vector<ir::Expr> args) {
+        return ir::Call::make(std::move(func), std::move(args));
+    }
+    static ir::Stmt remake(const ir::CallStmt *node, ir::Expr func,
+                           std::vector<ir::Expr> args) {
+        return ir::CallStmt::make(std::move(func), std::move(args),
+                                  node->spawned);
+    }
+
     template <typename I, typename T>
     I handle(const T *node) {
         // TODO(ajr): do we ever mutate node->func?
@@ -165,7 +177,7 @@ struct RewriteMutables : public ir::Mutator {
             return node;
         }
         if (!check.rewrote_mut) {
-            return T::make(node->func, std::move(check.args));
+            return remake(node, node->func, std::move(check.args));
         }
         // Need to change function signature of node->func
         const ir::Var *var = node->func.template as<ir::Var>();
@@ -174,7 +186,7 @@ struct RewriteMutables : public ir::Mutator {
         ir::Type new_type =
             mutate_type(func_t, callee_takes_structs_by_ptr(node->func));
         ir::Expr func = ir::Var::make(std::move(new_type), var->name);
-        return T::make(std::move(func), std::move(check.args));
+        return remake(node, std::move(func), std::move(check.args));
     }
 
     ir::Expr visit(const ir::Call *node) override {

@@ -5,6 +5,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -34,6 +35,7 @@
 #include "SSA/SSA.h"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -97,6 +99,22 @@ struct Origins {
     Definitions defs;
     // The first parameter of every parfor's body: the loops' indices.
     std::set<std::string> loop_indices;
+
+    // The block where the name `name`, as `block` refers to it, is bound:
+    // `block` itself when it takes the name as an argument, else the
+    // nearest block dominating it that does, else empty. A block may name
+    // a value from above without taking it -- a loop header made by
+    // loopify() names the function's parameters it does not carry
+    // (SSA/Rewrite.cpp) -- and the definitions analysis leaves such a name
+    // at "unknown here" on purpose (defer() captures it for a continuation
+    // that way; SSA/Simplify.cpp says so); this analysis wants the
+    // parameter it is, so `resolve` goes on from the block that binds it.
+    // The graph and its dominator tree are built on first use.
+    std::string binding_block(const std::string &block, const std::string &name);
+
+  private:
+    std::optional<Cfg> cfg;
+    DomTree dom;
 };
 
 // Whether the address `ptr` is written by at most one concurrent iteration.
@@ -135,6 +153,43 @@ std::set<std::string> functions_called_in_parallel(
 // hand down the same one -- the run's reducer, say -- is not visible here.
 bool allocated_by_function(const std::shared_ptr<Value> &ptr, Origins &origins,
                            const std::string &block);
+
+// The parameter of the function that `ptr`, the address an accumulate in
+// `block` writes, is an address into: its base, followed back through the
+// parameters that pass it along (origins), is the k-th parameter of the
+// function's entry block. Nothing when the base is anything else.
+std::optional<size_t> parameter_of_address(const std::shared_ptr<Value> &ptr,
+                                           Origins &origins,
+                                           const std::string &block);
+
+// For each function some bound loop calls (functions_called_in_parallel) and
+// each of its parameters that is an address: whether the calls that run at
+// once hand it storage of their own. Two calls of such a function run at
+// once when they are two iterations of a bound loop, directly or through
+// the calls between, so the question is asked at every call site of the
+// function over the whole program: an argument that is storage the
+// iteration made for itself (an allocation inside the loop's body), an
+// element at a subscript one-to-one in the iteration's index, or a record
+// slot a drain's entry holds (Function::injective_slots), is Disjoint
+// there; one word reaching every iteration from outside the loop -- the
+// run's reducer handed down -- is Shared; a call made from a function that
+// is itself called in parallel, with no loop of its own around the call,
+// hands what its own call made (Disjoint) or what it was handed (that
+// parameter's answer, which is why this is a fixed point over the call
+// graph, started from Disjoint and lowered until it holds); and a call made
+// where nothing runs at once constrains nothing. The worst answer over the
+// sites is the parameter's, Shared below Unknown below Disjoint. Only a
+// parameter found Disjoint lets an atomic accumulate into it come off
+// inside the function (SSA/DemoteAtomics.h), and only when the function's
+// own loops agree.
+//
+// This is what lets a reducer declared per iteration of the renderer's
+// sample loop, handed down the calls of a path, keep plain accumulates at
+// every level: each call's `l` is its sample's, and the analysis follows it
+// back up the call graph to the allocation that says so.
+std::map<std::string, std::vector<Contention>> parameter_contention(
+    const std::map<std::string, std::shared_ptr<Function>> &funcs,
+    const std::set<std::string> &called_in_parallel);
 
 // The common case as a predicate, for callers that only want to know whether
 // they may drop the atomic. Unknown counts as unsafe.

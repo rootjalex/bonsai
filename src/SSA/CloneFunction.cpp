@@ -174,7 +174,14 @@ shared_ptr<Function> clone_function(const Function &func) {
                 },
                 [&](const Terminator::Call &c) -> decltype(Terminator::data) {
                     return Terminator::Call{clone_jump(c.call, instrs),
-                                            clone_jump(c.cont, instrs), c.drop, c.spawned};
+                                            clone_jump(c.cont, instrs), c.drop};
+                },
+                [&](const Terminator::Spawn &s) -> decltype(Terminator::data) {
+                    return Terminator::Spawn{clone_jump(s.call, instrs),
+                                             clone_jump(s.cont, instrs)};
+                },
+                [&](const Terminator::Join &j) -> decltype(Terminator::data) {
+                    return Terminator::Join{clone_jump(j.next, instrs)};
                 },
                 [&](const Terminator::MultiCall &c)
                     -> decltype(Terminator::data) {

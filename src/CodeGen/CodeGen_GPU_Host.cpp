@@ -116,6 +116,9 @@ bool capture_written(const Program &program, const ir::ssa::Function &host,
                        [&](const Terminator::Call &c) {
                            written = call_writes(c.call.name, c.call.args);
                        },
+                       [&](const Terminator::Spawn &s) {
+                           written = call_writes(s.call.name, s.call.args);
+                       },
                        [&](const Terminator::MultiCall &c) {
                            written = call_writes(c.call.name, c.call.args);
                            for (const auto &one : c.varying) {

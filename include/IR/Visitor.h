@@ -102,6 +102,7 @@ struct Visitor {
     virtual void visit(const ParFor *);
     virtual void visit(const Continue *);
     virtual void visit(const Break *);
+    virtual void visit(const Join *);
     virtual void visit(const Launch *);
     virtual void visit(const Append *);
     // Layouts

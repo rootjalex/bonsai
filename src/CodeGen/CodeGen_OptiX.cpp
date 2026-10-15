@@ -126,6 +126,10 @@ void CodeGen_OptiX::find_read_slots(const ir::ssa::Function &host,
                                sites[c.call.name].push_back(
                                    {in, block->name, c.call.args, {}});
                            },
+                           [&](const Terminator::Spawn &s) {
+                               sites[s.call.name].push_back(
+                                   {in, block->name, s.call.args, {}});
+                           },
                            [&](const Terminator::MultiCall &c) {
                                sites[c.call.name].push_back(
                                    {in, block->name, c.call.args, c.varying_at});

@@ -474,22 +474,46 @@ struct FunctionBuilder : Visitor {
         auto call_name = get_call_name(func);
 
         // Create continuation block.
-        auto cont_block = make_block(call_name + "_call_cont");
+        auto cont_block = make_block(call_name + (node->spawned ? "_spawn_cont"
+                                                                : "_call_cont"));
         cont_block->preds.push_back(block);
 
-        // End the current block with a Call
+        // End the current block with a Call -- or a Spawn, for `spawn
+        // f(args);`: the same two edges, the call's and the continuation's,
+        // under a terminator that says the two may run at once
+        // (Terminator::Spawn). A spawned call has no value to receive.
         internal_assert(!block->terminator.defined());
         auto call_block = std::move(block);
 
-        call_block->terminator.data = Terminator::Call{
-            .call =
-                Terminator::Jump{.name = call_name, .args = std::move(args)},
-            // 'args' is empty for now (implicit capture via CFG lookup)
-            // Does not receive output of call, because value is dropped.
-            .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
-            .drop = true};
+        if (node->spawned) {
+            call_block->terminator.data = Terminator::Spawn{
+                .call = Terminator::Jump{.name = call_name,
+                                         .args = std::move(args)},
+                .cont = Terminator::Jump{.name = cont_block->name, .args = {}}};
+        } else {
+            call_block->terminator.data = Terminator::Call{
+                .call = Terminator::Jump{.name = call_name,
+                                         .args = std::move(args)},
+                // 'args' is empty for now (implicit capture via CFG lookup)
+                // Does not receive output of call, because value is dropped.
+                .cont = Terminator::Jump{.name = cont_block->name, .args = {}},
+                .drop = true};
+        }
 
         block = cont_block;
+    }
+
+    // `join;` ends the block: everything spawned so far is waited for
+    // before what follows runs (Terminator::Join). Its own block, so that
+    // the point is visible to the deferral, which moves what follows a join
+    // after the drain that runs the spawned calls.
+    void visit(const Join *node) override {
+        auto next_block = make_block("join");
+        next_block->preds.push_back(block);
+        internal_assert(!block->terminator.defined());
+        block->terminator.data =
+            Terminator::Join{.next = Terminator::Jump{.name = next_block->name}};
+        block = next_block;
     }
 
     void visit(const MultiRecurse *node) override {
@@ -740,19 +764,6 @@ struct FunctionBuilder : Visitor {
     // TODO: dedup with Store visitor
     void visit(const Accumulate *node) override {
         auto v = get_value(node->value);
-        if (node->spawned) {
-            // The value is a call, which ended the block before this one;
-            // the accumulate about to be made is the first instruction of
-            // its continuation (see Terminator::Call::spawned).
-            internal_assert(block->instrs.empty() && block->preds.size() == 1)
-                << "spawn: the call's continuation is not fresh: " << Stmt(node);
-            const auto pred = block->preds.front().lock();
-            auto *call = pred ? std::get_if<Terminator::Call>(&pred->terminator.data)
-                              : nullptr;
-            internal_assert(call != nullptr && !call->drop)
-                << "spawn: the value is not a call with a result: " << Stmt(node);
-            call->spawned = true;
-        }
         auto op = get_acc_op(node->op);
 
         std::shared_ptr<Value> ptr = nullptr;
@@ -3387,8 +3398,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // to say so), settled before the functions are taken one at a time.
     const std::set<std::string> called_in_parallel =
         functions_called_in_parallel(fmap);
+    // And of those functions' address parameters, which ones every call
+    // running at once is handed storage of its own through -- the
+    // sample's reducer handed down a path's calls, a drain's record slot --
+    // which is a fact of every call site in the program, settled the same
+    // way (SSA/Contention.h, parameter_contention).
+    const std::map<std::string, std::vector<Contention>> params =
+        parameter_contention(fmap, called_in_parallel);
     for (const auto &[name, f] : fmap) {
-        DemoteAtomics::run(*f, called_in_parallel.contains(name));
+        const auto answers = params.find(name);
+        DemoteAtomics::run(*f, called_in_parallel.contains(name),
+                           answers == params.end() ? nullptr : &answers->second);
         // The atomics every thread of a GPU block makes to one word, once
         // per block instead (SSA/BlockAccumulates.h); before the allocas
         // are promoted, so the slots it makes become values.

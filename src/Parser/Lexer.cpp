@@ -137,6 +137,8 @@ Token::Type Lexer::get_token_type(const std::string_view token) {
         return Token::Type::ATOMIC;
     if (token == "spawn")
         return Token::Type::SPAWN;
+    if (token == "join")
+        return Token::Type::JOIN;
     if (token == "do")
         return Token::Type::DO;
     if (token == "while")

@@ -1048,6 +1048,8 @@ class BonsaiToCpp : ir::Printer {
 
         // Headers for C++ types.
         ss << "#include <cstdint>" << '\n'; // integer
+        ss << "#include <atomic>" << '\n';  // std::atomic_ref, for an
+                                            // atomic accumulate
         ss << "#include \"runtime/bonsai_cpp.h\"\n\n";
 
         // Disable C++ name mangling.
@@ -1607,7 +1609,22 @@ class BonsaiToCpp : ir::Printer {
     }
     // void visit(const AtomicAdd *) override;
     // Stmts
-    // void visit(const CallStmt *) override;
+
+    // A call statement is a call here, spawned or not: in generated source
+    // the spawned call runs where it was written and the join (below) has
+    // nothing to wait for. Overridden because the base printer writes the
+    // `spawn` qualifier, which is the IR's notation and not C++.
+    void visit(const CallStmt *node) override {
+        ss << get_indent();
+        print_no_parens(node->func);
+        ss << '(';
+        print_expr_list(node->args);
+        ss << ')';
+        end_stmt();
+    }
+    void visit(const Join *node) override {
+        ss << get_indent() << "// join\n";
+    }
     // void visit(const Print *) override;
 
     // A run of recursive calls becomes the calls themselves here, in the order
@@ -1701,17 +1718,41 @@ class BonsaiToCpp : ir::Printer {
         // This is the C++ *source* emitter, which `-b cppx` uses. It is not
         // what `-b cpp` does: that name emits a C++ header and compiles the
         // program itself through LLVM, so it gets atomics from the backend
-        // like `-b llvm` does. Only source generation lacks them, and giving
-        // it them means std::atomic_ref or a compare-and-swap in the runtime.
+        // like `-b llvm` does.
         //
-        // Refused rather than ignored: emitting the ordinary read-modify-write
-        // for something the program asked to be indivisible would be a race
-        // the source went out of its way to rule out, and it would look like
-        // it worked.
-        internal_assert(!node->atomic)
-            << "generated C++ source cannot express an atomic accumulate yet "
-               "(-b cppx); -b cpp and -b llvm can: "
-            << Stmt(node);
+        // An atomic accumulate -- a reducer's, by its declaration, or
+        // `atomic x += v` on a mutable location -- is the read, the add and
+        // the write as one step, through std::atomic_ref on the location
+        // itself: the storage stays the plain T every other statement reads
+        // and the join reads as a value, as the LLVM backend's atomic
+        // read-modify-write on a plain pointer leaves it. Adds and
+        // subtracts of a scalar are what std::atomic_ref offers; anything
+        // else is refused rather than emitted as the ordinary
+        // read-modify-write, which would be the race the program ruled out,
+        // and would look like it worked.
+        if (node->atomic) {
+            internal_assert(node->op == Accumulate::OpType::Add ||
+                            node->op == Accumulate::OpType::Sub)
+                << "[unimplemented] generated C++ source (-b cppx) expresses "
+                   "an atomic accumulate as std::atomic_ref's fetch_add or "
+                   "fetch_sub only: "
+                << Stmt(node);
+            internal_assert(current.type.is_scalar())
+                << "[unimplemented] generated C++ source (-b cppx) has no "
+                   "atomic accumulate of a vector; -b cpp and -b llvm do: "
+                << Stmt(node);
+            internal_assert(node->alongside.empty())
+                << "an atomic argmin cannot reach here";
+            ss << get_indent() << "std::atomic_ref<";
+            emit_type(ss, current.type);
+            ss << ">(";
+            current.to_expr().accept(this);
+            ss << ").fetch_"
+               << (node->op == Accumulate::OpType::Add ? "add" : "sub") << '(';
+            update.accept(this);
+            ss << ", std::memory_order_relaxed);\n";
+            return;
+        }
         internal_assert(node->alongside.empty())
             << "[unimplemented] generated C++ source cannot write places "
                "alongside an argmin (-b cppx); -b cpp and -b llvm can: "

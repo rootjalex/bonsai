@@ -416,6 +416,9 @@ std::optional<Monotone> find_monotone_accumulator(const Function &func) {
         if (const auto *call = std::get_if<Terminator::Call>(&block->terminator.data)) {
             note_escapes(call->call.args);
         }
+        if (const auto *spawn = std::get_if<Terminator::Spawn>(&block->terminator.data)) {
+            note_escapes(spawn->call.args);
+        }
     }
 
     for (const auto &[name, candidate] : candidates) {

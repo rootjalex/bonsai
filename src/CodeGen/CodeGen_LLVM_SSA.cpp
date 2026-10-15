@@ -719,7 +719,7 @@ struct CodeGen_LLVM::SSALowering {
                     cg.emit_if(cg.codegen_expr(mask), [&] {
                         cg.codegen_stmt(Accumulate::make(
                             std::move(loc), op, std::move(val), instr->atomic,
-                            false, std::move(alongside)));
+                            std::move(alongside)));
                     });
                     return;
                 }
@@ -812,13 +812,13 @@ struct CodeGen_LLVM::SSALowering {
                 cg.emit_if_any_lane(cg.codegen_expr(mask), [&] {
                     cg.codegen_stmt(Accumulate::make(std::move(loc), op,
                                                      std::move(val),
-                                                     instr->atomic, false,
+                                                     instr->atomic,
                                                      std::move(alongside)));
                 });
                 return;
             }
             cg.codegen_stmt(Accumulate::make(std::move(loc), op, std::move(val),
-                                             instr->atomic, false,
+                                             instr->atomic,
                                              std::move(alongside)));
             return;
         }
@@ -954,6 +954,12 @@ struct CodeGen_LLVM::SSALowering {
                        [&](const Terminator::Yield &) {},
                        [&](const Terminator::Call &c) {
                            out.push_back(c.cont.name);
+                       },
+                       [&](const Terminator::Spawn &s) {
+                           out.push_back(s.cont.name);
+                       },
+                       [&](const Terminator::Join &j) {
+                           out.push_back(j.next.name);
                        },
                        [&](const Terminator::MultiCall &c) {
                            out.push_back(c.cont.name);
@@ -1471,6 +1477,13 @@ struct CodeGen_LLVM::SSALowering {
                     }
                     note_jump(c.cont, c.drop ? 0 : 1);
                 },
+                [&](const Terminator::Spawn &s) {
+                    for (const auto &a : s.call.args) {
+                        escapes(a);
+                    }
+                    note_jump(s.cont, 0);
+                },
+                [&](const Terminator::Join &j) { note_jump(j.next, 0); },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &a : c.call.args) {
                         escapes(a);
@@ -1734,6 +1747,11 @@ struct CodeGen_LLVM::SSALowering {
                 ir::ssa::overloads{
                     [&](const Terminator::Call &c) {
                         for (const auto &a : c.call.args) {
+                            note(a, device);
+                        }
+                    },
+                    [&](const Terminator::Spawn &s) {
+                        for (const auto &a : s.call.args) {
                             note(a, device);
                         }
                     },
@@ -2027,6 +2045,30 @@ struct CodeGen_LLVM::SSALowering {
                 [&](const Terminator::Jump &j) {
                     supply(j, from, 0);
                     cg.builder->CreateBr(blocks.at(j.name));
+                },
+                [&](const Terminator::Join &j) {
+                    // As written, the spawned calls have run where they
+                    // stood (below), so the join is the jump it looks like.
+                    supply(j.next, from, 0);
+                    cg.builder->CreateBr(blocks.at(j.next.name));
+                },
+                [&](const Terminator::Spawn &s) {
+                    // A spawn no schedule took up: the call is made here,
+                    // in this activity, and the continuation follows it. A
+                    // spawned call returns nothing.
+                    llvm::Function *callee =
+                        cg.module->getFunction(cg.symbol_name(s.call.name));
+                    internal_assert(callee)
+                        << "Spawn of undeclared function " << s.call.name;
+                    cg.check_block_level_call(s.call.name);
+                    std::vector<llvm::Value *> args;
+                    for (const auto &a : s.call.args) {
+                        args.push_back(cg.codegen_expr(operand(a)));
+                    }
+                    cg.emit_call(callee, std::move(args));
+                    llvm::BasicBlock *after = cg.builder->GetInsertBlock();
+                    supply(s.cont, after, 0, nullptr);
+                    cg.builder->CreateBr(blocks.at(s.cont.name));
                 },
                 [&](const Terminator::Dispatch &d) {
                     llvm::Value *cond = cg.codegen_expr(operand(d.cond));

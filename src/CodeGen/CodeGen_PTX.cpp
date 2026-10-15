@@ -359,6 +359,9 @@ CodeGen_PTX::callees(const std::vector<std::shared_ptr<Block>> &region) {
                        [&](const Terminator::Call &c) {
                            names.push_back(c.call.name);
                        },
+                       [&](const Terminator::Spawn &s) {
+                           names.push_back(s.call.name);
+                       },
                        [&](const Terminator::MultiCall &c) {
                            names.push_back(c.call.name);
                        },
@@ -394,6 +397,9 @@ bool CodeGen_PTX::has_effects(const std::string &function) {
         std::visit(ir::ssa::overloads{
                        [&](const Terminator::Call &c) {
                            result = result || has_effects(c.call.name);
+                       },
+                       [&](const Terminator::Spawn &s) {
+                           result = result || has_effects(s.call.name);
                        },
                        [&](const Terminator::MultiCall &c) {
                            result = result || has_effects(c.call.name);

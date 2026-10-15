@@ -74,6 +74,12 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
                                rename(a);
                            }
                        },
+                       [&](Terminator::Spawn &s) {
+                           for (const auto &a : s.call.args) {
+                               rename(a);
+                           }
+                       },
+                       [&](Terminator::Join &) {},
                        [&](Terminator::MultiCall &c) {
                            for (const auto &a : c.call.args) {
                                rename(a);

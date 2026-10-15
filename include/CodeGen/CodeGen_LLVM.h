@@ -562,6 +562,7 @@ struct CodeGen_LLVM : public ir::Visitor {
     virtual void visit(const ir::ParFor *) override;
     virtual void visit(const ir::Continue *) override;
     virtual void visit(const ir::Break *) override;
+    virtual void visit(const ir::Join *) override;
     virtual void visit(const ir::Launch *) override;
 
     // Protected rather than private: a target's subclass (CodeGen_X86) emits

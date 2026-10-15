@@ -92,6 +92,11 @@ void for_each_value(Block &block, const F &fn) {
                        all(p.cont.args);
                    },
                    [](Terminator::Yield &) {},
+                   [&](Terminator::Spawn &s) {
+                       all(s.call.args);
+                       all(s.cont.args);
+                   },
+                   [&](Terminator::Join &j) { all(j.next.args); },
                    [&](Terminator::Call &c) {
                        all(c.call.args);
                        all(c.cont.args);

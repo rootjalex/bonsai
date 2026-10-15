@@ -86,7 +86,19 @@ struct BodyShape : ir::Visitor {
     }
     void visit(const ir::CallStmt *node) override {
         statements++;
+        // A function that spawns is not copied into its caller: its return
+        // is the join of what it spawned (ir::Join), and a copy would have
+        // no return, so the caller's statements after the call -- which
+        // may read a reducer the spawned call adds into -- would run beside
+        // it. The same for a `join` of its own.
+        if (node->spawned) {
+            plain = false;
+        }
         Visitor::visit(node);
+    }
+    void visit(const ir::Join *node) override {
+        statements++;
+        plain = false;
     }
     void visit(const ir::Print *node) override {
         statements++;
@@ -385,7 +397,11 @@ class Inliner : public ir::Mutator {
         return ir::Call::make(node->func, std::move(args));
     }
 
-    // A call as a statement: the same, with no result to bind.
+    // A call as a statement: the same, with no result to bind. A spawned
+    // call (CallStmt::spawned) is a statement about the call -- that it may
+    // run beside the rest of the function, which a schedule may take up by
+    // queueing it (SSA/Defer.cpp) -- and copied into place there would be
+    // no call to queue, so it stays; its arguments are inlined as any are.
     ir::Stmt visit(const ir::CallStmt *node) override {
         std::vector<ir::Stmt> pre;
         std::vector<ir::Expr> args;
@@ -393,7 +409,7 @@ class Inliner : public ir::Mutator {
             args.push_back(mutate_hoisting(arg, pre));
         }
         const ir::Var *v = node->func.as<ir::Var>();
-        if (v != nullptr) {
+        if (v != nullptr && !node->spawned) {
             if (auto it = statement_functions.find(v->name);
                 it != statement_functions.end()) {
                 std::vector<ir::Stmt> *saved = prelude;
@@ -404,7 +420,8 @@ class Inliner : public ir::Mutator {
             }
         }
         return with(std::move(pre),
-                    ir::CallStmt::make(node->func, std::move(args)));
+                    ir::CallStmt::make(node->func, std::move(args),
+                                       node->spawned));
     }
 
     // The statements whose expressions a call can be hoisted out of: the
@@ -439,31 +456,14 @@ class Inliner : public ir::Mutator {
     ir::Stmt visit(const ir::Accumulate *node) override {
         std::vector<ir::Stmt> pre;
         auto [loc, _] = mutate_writeloc(node->loc);
-        ir::Expr value;
-        if (node->spawned) {
-            // `spawn acc += f(...)` is a statement about the call: that its
-            // value goes into the reducer and nothing waits for it, which a
-            // schedule may take up by queueing the call (SSA/Defer.cpp).
-            // Copied into place, there would be no call to queue, so the
-            // call stays; its arguments are inlined as any are.
-            const ir::Call *call = node->value.as<ir::Call>();
-            internal_assert(call != nullptr) << "spawn of " << node->value;
-            std::vector<ir::Expr> args;
-            for (const ir::Expr &arg : call->args) {
-                args.push_back(mutate_hoisting(arg, pre));
-            }
-            value = ir::Call::make(call->func, std::move(args));
-        } else {
-            value = mutate_hoisting(node->value, pre);
-        }
+        ir::Expr value = mutate_hoisting(node->value, pre);
         std::vector<std::pair<ir::WriteLoc, ir::Expr>> alongside;
         for (const auto &[place, written] : node->alongside) {
             alongside.emplace_back(place, mutate_hoisting(written, pre));
         }
         return with(std::move(pre),
                     ir::Accumulate::make(std::move(loc), node->op, value,
-                                         node->atomic, node->spawned,
-                                         std::move(alongside)));
+                                         node->atomic, std::move(alongside)));
     }
     ir::Stmt visit(const ir::Return *node) override {
         if (!node->value.defined()) {

@@ -179,11 +179,12 @@ Stmt insert_rand_state(const Stmt &stmt,
         Stmt visit(const CallStmt *node) override {
             auto [func, args, not_changed] = handle(node->func, node->args);
             if (func.defined()) {
-                return CallStmt::make(std::move(func), std::move(args));
+                return CallStmt::make(std::move(func), std::move(args),
+                                      node->spawned);
             } else if (not_changed) {
                 return node;
             }
-            return CallStmt::make(node->func, std::move(args));
+            return CallStmt::make(node->func, std::move(args), node->spawned);
         }
 
         Stmt visit(const MultiRecurse *node) override {

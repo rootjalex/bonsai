@@ -251,8 +251,22 @@ struct Parser {
         ir::Accumulate::OpType reducer_op = ir::Accumulate::OpType::Add;
         // Whether it is a parameter of the function being parsed.
         bool parameter = false;
+        // How many `parfor` bodies enclosed the declaration. A reducer is
+        // read only in the scope that declared it, after the loop whose
+        // iterations add into it: a read at a greater depth is a read
+        // inside such a loop (see refuse_reducer_read).
+        int parfor_depth = 0;
     };
     ir::MapStack<std::string, FunctionVariable> frames;
+    // How many `parfor` bodies enclose the statement being parsed.
+    int parfor_depth = 0;
+    // The reducers (by IR name) handed to a spawned call that no `join` has
+    // closed yet, in the activity being parsed: a `spawn f(.., x)` adds
+    // `x`, a `join;` empties the set, and so does the end of a `parfor`
+    // body or of the function, each of which joins the spawns made in it
+    // (docs/parallel-semantics.md, section 1). A read of a reducer in the
+    // set would see a value a running task may still be adding to.
+    std::set<std::string> spawned_reducers;
     // Every name already spent in the function being parsed.
     //
     // Scopes nest in the source but names do not in the IR: `LetStmt` and
@@ -396,6 +410,7 @@ struct Parser {
                                       .reducer = reducer,
                                       .reducer_op = reducer_op,
                                       .parameter = parameter,
+                                      .parfor_depth = parfor_depth,
                                   });
     }
 
@@ -423,15 +438,35 @@ struct Parser {
         return op;
     }
 
-    // A reducer parameter is only accumulated into here; its value is read
-    // where it was declared, after the calls that were handed it returned.
+    // A reducer is read in the scope that declared it, once everything that
+    // adds into it has finished: not in the function it was handed to, not
+    // inside a `parfor` whose iterations add into it, and not while a
+    // spawned call that was handed it may still be running
+    // (docs/parallel-semantics.md, section 3). Each is a read beside writes
+    // -- a value that depends on which contributions are in -- which is the
+    // one thing declaring it a reducer promises nothing does.
     void refuse_reducer_read(const std::string &name) const {
         const std::optional<FunctionVariable> v = frames.from_frames(name);
-        if (v.has_value() && v->reducer && v->parameter) {
+        if (!v.has_value() || !v->reducer) {
+            return;
+        }
+        if (v->parameter) {
             report_error() << name << " is a reducer parameter (`reduce(+)`), "
                            << "which this function may only accumulate into "
                            << "(`" << name << " += ...`); it is read where it "
                            << "was declared.";
+        }
+        if (v->parfor_depth < parfor_depth) {
+            report_error() << name << " is a reducer (`reduce(+)`) declared "
+                           << "outside this `parfor`, whose iterations may "
+                           << "be adding into it as it is read; it is read "
+                           << "after the loop.";
+        }
+        if (spawned_reducers.contains(v->ir_name)) {
+            report_error() << name << " is a reducer (`reduce(+)`) handed to "
+                           << "a spawned call that may still be running and "
+                           << "adding into it; write `join;` before reading "
+                           << "it.";
         }
     }
 
@@ -469,6 +504,7 @@ struct Parser {
                                       .ir_name = ir_name,
                                       .reducer = reducer,
                                       .reducer_op = reducer_op,
+                                      .parfor_depth = parfor_depth,
                                   });
         return ir_name;
     }
@@ -496,6 +532,7 @@ struct Parser {
                                  .reducer = variable_type->reducer,
                                  .reducer_op = variable_type->reducer_op,
                                  .parameter = variable_type->parameter,
+                                 .parfor_depth = variable_type->parfor_depth,
                              });
     }
 
@@ -1406,6 +1443,11 @@ struct Parser {
         push_frame();
         used_names.clear();
         renaming_declarations = true;
+        // A function's return joins what it spawned, so nothing is
+        // outstanding when the next one begins; and a function body is
+        // inside no parfor of another.
+        spawned_reducers.clear();
+        parfor_depth = 0;
         std::vector<ir::Function::Argument> args = parse_func_args();
 
         // Optional RARROW with return_type: otherwise, requires type inference!
@@ -1695,50 +1737,89 @@ struct Parser {
             return ir::Return::make(std::move(ret));
         } else if (consume(Token::Type::ATOMIC)) {
             // `atomic x += v;` -- the read, the combine and the write happen
-            // as one step. What it is for is an accumulate whose location two
-            // iterations of a parfor may share, which is otherwise a race the
-            // program has no way to describe. Whether the cost is paid is the
-            // schedule's business: an atomic under a loop nothing parallelised
-            // is demoted back to a plain accumulate.
+            // as one step. What it is for is an accumulate into a `mut`
+            // location two iterations of a parfor may share, which is
+            // otherwise a race the program has no way to describe. Whether
+            // the cost is paid is the schedule's business: an atomic under a
+            // loop nothing parallelised is demoted back to a plain
+            // accumulate (SSA/DemoteAtomics.h). A reducer needs no `atomic`:
+            // every accumulate into one is atomic by its declaration (see
+            // parse_accumulate), so writing it would be a second spelling
+            // of one thing, and is refused.
             ir::WriteLoc loc = parse_write_loc(get_id());
             if (loc.accesses.empty() && !name_in_scope(loc.base)) {
                 report_error() << "atomic on an undeclared name: " << loc.base;
             }
             const std::optional<FunctionVariable> variable =
                 frames.from_frames(loc.base);
+            if (variable.has_value() && variable->reducer) {
+                report_error()
+                    << "`atomic` is implied for " << loc.base
+                    << ", a reducer (`reduce(+)`): every accumulate into a "
+                    << "reducer is atomic, and the compiler takes the atomic "
+                    << "off where nothing runs beside it. Write `" << loc.base
+                    << " += ...`.";
+            }
             loc.base = ir_name_of(loc.base);
             return parse_accumulate(std::move(loc), /*atomic=*/true,
-                                    variable.has_value() && variable->reducer
-                                        ? std::optional(variable->reducer_op)
-                                        : std::nullopt);
+                                    std::nullopt);
         } else if (consume(Token::Type::SPAWN)) {
-            // `spawn x += f(args);` -- the call's value goes into `x`, a
-            // reducer, and nothing after the statement depends on it, so a
-            // schedule may defer the call and go on without waiting for it:
-            // whoever runs the call adds its value in (SSA/Defer.cpp,
-            // ir::Accumulate::spawned). The program states the independence;
-            // no pass has to find it out. Only a reducer takes the value,
-            // since only a reducer's order of addition is free.
-            ir::WriteLoc loc = parse_write_loc(get_id());
-            if (loc.accesses.empty() && !name_in_scope(loc.base)) {
-                report_error() << "spawn on an undeclared name: " << loc.base;
+            // `spawn f(args);` -- the call may run beside the rest of this
+            // function, up to the `join;` that waits for it or the return
+            // that does (Cilk's spawn and sync: Frigo, Leiserson and
+            // Randall, PLDI 1998; docs/parallel-semantics.md, section 1).
+            // What the call does reaches the spawner only through the
+            // reducers it is handed, each of which adds up what its tasks
+            // contribute in whatever order they run, so the call returns
+            // nothing. The program states the independence; a schedule may
+            // take it up by queueing the call (SSA/Defer.cpp), and no pass
+            // has to find it out. The reducers handed over are read only
+            // after the join (refuse_reducer_read).
+            if (peek().type != Token::Type::IDENTIFIER ||
+                peek(1).type != Token::Type::LPAREN) {
+                report_error() << "spawn takes a call: `spawn f(args);`. What "
+                               << "is spawned is the call, which runs beside "
+                               << "the rest of this function until the join; "
+                               << "a spawned call reports through the "
+                               << "reducers it is handed.";
             }
-            const std::optional<FunctionVariable> variable =
-                frames.from_frames(loc.base);
-            if (!loc.accesses.empty() || !variable.has_value() ||
-                !variable->reducer) {
+            const std::string callee = get_id();
+            if (!ensure_declared(callee) && !program.funcs.contains(callee)) {
+                report_error() << "spawn of " << callee << ", which is not a "
+                               << "function of the program; what is spawned "
+                               << "is a call to one.";
+            }
+            ir::Expr call = parse_function_call(callee);
+            const ir::Call *as_call = call.as<ir::Call>();
+            if (as_call == nullptr) {
+                report_error() << "spawn takes a call to a function; " << call
+                               << " is not one.";
+            }
+            if (!call.type().is<ir::Void_t>()) {
                 report_error()
-                    << "spawn accumulates into a reducer: `" << loc.base
-                    << "` is not declared `reduce(+)`. The spawned call's value "
-                    << "is added in by whoever runs the call, in an order the "
-                    << "schedule chooses, which only a reducer allows.";
+                    << "the value of the spawned call " << call << " has "
+                    << "nowhere to go: " << callee << " returns " << call.type()
+                    << ", and nothing waits for a spawned call. A spawned "
+                    << "function returns nothing and adds what it computes "
+                    << "into a reducer (`reduce(+)`) it is handed.";
             }
-            loc.base = ir_name_of(loc.base);
-            return parse_accumulate(std::move(loc), /*atomic=*/false,
-                                    variable.has_value() && variable->reducer
-                                        ? std::optional(variable->reducer_op)
-                                        : std::nullopt,
-                                    /*spawned=*/true);
+            expect(Token::Type::SEMICOL);
+            for (const ir::Expr &arg : as_call->args) {
+                if (const ir::Var *v = arg.as<ir::Var>();
+                    v != nullptr && is_reducer_ir_name(v->name)) {
+                    spawned_reducers.insert(v->name);
+                }
+            }
+            return ir::CallStmt::make(as_call->func, as_call->args,
+                                      /*spawned=*/true);
+        } else if (consume(Token::Type::JOIN)) {
+            // `join;` -- wait for every call this function spawned since
+            // the last join: Cilk's sync. After it the reducers they were
+            // handed are whole and may be read. A return joins too, so a
+            // function that reads nothing of its spawns needs no `join`.
+            expect(Token::Type::SEMICOL);
+            spawned_reducers.clear();
+            return ir::Join::make();
         } else if (consume(Token::Type::DO)) {
             // `do body while (cond);` -- a loop whose trip count is not known
             // before it runs. `for` and `parfor` both say their range up front,
@@ -1760,7 +1841,7 @@ struct Parser {
             ir::Stmt body = parse_statement();
             return ir::While::make(std::move(cond), std::move(body));
         } else if (consume(Token::Type::PARFOR)) {
-            Loop loop = parse_loop("parfor");
+            Loop loop = parse_loop("parfor", /*parallel=*/true);
             return ir::ParFor::make(
                 std::move(loop.index),
                 ir::ParFor::Slice{.begin = std::move(loop.begin),
@@ -1866,7 +1947,11 @@ struct Parser {
         ir::Stmt body;
     };
 
-    Loop parse_loop(const char *what) {
+    // `parallel` for a `parfor`: its body is one activity per iteration, so
+    // a reducer declared outside it is not readable inside it, and the
+    // body's end joins the calls spawned in it (docs/parallel-semantics.md,
+    // section 1) -- tracked through parfor_depth and spawned_reducers.
+    Loop parse_loop(const char *what, bool parallel = false) {
         std::string idx = get_id();
         if (name_in_scope(idx)) {
             report_error() << idx << " already in scope.";
@@ -1905,7 +1990,20 @@ struct Parser {
 
         push_frame();
         idx = declare(idx, low.type(), /*mutating=*/false);
+        // A parfor body is an activity of its own: what it spawns, it joins
+        // at its end, and what the enclosing activity has outstanding is
+        // not its concern -- so the set is the body's alone while the body
+        // is parsed, and the enclosing one's after.
+        std::set<std::string> outstanding;
+        if (parallel) {
+            parfor_depth++;
+            outstanding.swap(spawned_reducers);
+        }
         ir::Stmt body = parse_statement();
+        if (parallel) {
+            parfor_depth--;
+            spawned_reducers.swap(outstanding);
+        }
         pop_frame();
 
         return Loop{std::move(idx), std::move(low), std::move(high),
@@ -2063,12 +2161,16 @@ struct Parser {
     }
 
     // `reducer_op` is the operation of the reduction variable being
-    // accumulated into, when it is one: the only operation it takes.
-    // `spawned` is the `spawn` form, whose value has to be a call.
+    // accumulated into, when it is one: the only operation it takes. An
+    // accumulate into a reducer is atomic by that declaration -- a reducer
+    // is what several iterations or spawned calls add into at once, and the
+    // program never says so twice -- and the compiler takes the atomic off
+    // again wherever the schedule leaves nothing running beside it
+    // (SSA/DemoteAtomics.h, after every directive has been applied).
     ir::Stmt parse_accumulate(
         ir::WriteLoc loc, bool atomic = false,
-        std::optional<ir::Accumulate::OpType> reducer_op = std::nullopt,
-        bool spawned = false) {
+        std::optional<ir::Accumulate::OpType> reducer_op = std::nullopt) {
+        atomic = atomic || reducer_op.has_value();
         ir::Accumulate::OpType op = ir::Accumulate::OpType::Add;
         // Try to parse an accumulate
         if (consume(Token::Type::PLUS)) {
@@ -2084,15 +2186,9 @@ struct Parser {
         }
         expect(Token::Type::ASSIGN);
         ir::Expr value = parse_expr();
-        if (spawned && value.as<ir::Call>() == nullptr) {
-            report_error() << "spawn takes a call: `spawn " << loc.base
-                           << " += f(...)`. What is spawned is the call, whose "
-                           << "value is added into " << loc.base
-                           << " by whoever runs it; " << value << " is not one.";
-        }
         expect(Token::Type::SEMICOL);
         return ir::Accumulate::make(std::move(loc), op, std::move(value),
-                                    atomic, spawned);
+                                    atomic);
     }
 
     ir::Expr parse_unary() {

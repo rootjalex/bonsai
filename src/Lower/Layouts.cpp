@@ -1330,14 +1330,16 @@ struct LowerUnwrapAccesses : public ir::Mutator {
             }
             new_args.insert(new_args.begin() + partition, tree_storage);
             ir::Expr new_func = make_new_call(new_args, partition, node->func);
-            return ir::CallStmt::make(std::move(new_func), std::move(new_args));
+            return ir::CallStmt::make(std::move(new_func), std::move(new_args),
+                                      node->spawned);
         }
 
         if (not_changed) {
             return node;
         }
         // Assume the func can't be mutated.
-        return ir::CallStmt::make(node->func, std::move(new_args));
+        return ir::CallStmt::make(node->func, std::move(new_args),
+                                  node->spawned);
     }
 };
 
@@ -2409,6 +2411,18 @@ struct LowerMatches : public ir::Mutator {
         }
     }
 
+    // The node remade with its callee and arguments rewritten: a call
+    // expression, or a call statement, which keeps whether it was spawned.
+    static ir::Expr remake(const ir::Call *, ir::Expr func,
+                           std::vector<ir::Expr> args) {
+        return ir::Call::make(std::move(func), std::move(args));
+    }
+    static ir::Stmt remake(const ir::CallStmt *node, ir::Expr func,
+                           std::vector<ir::Expr> args) {
+        return ir::CallStmt::make(std::move(func), std::move(args),
+                                  node->spawned);
+    }
+
     template <typename I, typename T>
     I handle(const T *node) {
         // TODO(ajr): do we ever mutate node->func?
@@ -2425,7 +2439,7 @@ struct LowerMatches : public ir::Mutator {
 
         ir::Type new_type = std::move(check.new_type);
         ir::Expr func = ir::Var::make(std::move(new_type), var->name);
-        return T::make(std::move(func), std::move(check.args));
+        return remake(node, std::move(func), std::move(check.args));
     }
 
     ir::Expr visit(const ir::Call *node) override {
@@ -2565,7 +2579,8 @@ struct TightenExternArray : public ir::Mutator {
         if (!changed) {
             return node;
         }
-        return ir::CallStmt::make(std::move(func), std::move(args));
+        return ir::CallStmt::make(std::move(func), std::move(args),
+                                  node->spawned);
     }
 
     ir::Stmt visit(const ir::MultiRecurse *node) override {

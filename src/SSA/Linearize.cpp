@@ -238,6 +238,8 @@ vector<vector<Incoming>> snapshot_arguments(const Cfg &cfg) {
                            // arguments.
                            record(c.cont);
                        },
+                       [&](const Terminator::Spawn &s) { record(s.cont); },
+                       [&](const Terminator::Join &j) { record(j.next); },
                        [&](const Terminator::MultiCall &c) {
                            // Like Call: the run's calls all leave the region,
                            // and the only edge inside it is the one after
@@ -2143,6 +2145,19 @@ BlockMasks linearize(Function &func, const string &entry_name,
                                 replace(a);
                             }
                         },
+                        [&](Terminator::Spawn &t) {
+                            for (auto &a : t.call.args) {
+                                replace(a);
+                            }
+                            for (auto &a : t.cont.args) {
+                                replace(a);
+                            }
+                        },
+                        [&](Terminator::Join &t) {
+                            for (auto &a : t.next.args) {
+                                replace(a);
+                            }
+                        },
                         [&](Terminator::MultiCall &t) {
                             for (auto &a : t.call.args) {
                                 replace(a);
@@ -2270,6 +2285,15 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // which function is called, not of this region's control flow.
             internal_assert(edges.size() == 1);
             rewire(b, c->cont, edges[0]);
+        }
+        if (auto *s = std::get_if<Terminator::Spawn>(&block->terminator.data)) {
+            // The same for a spawned call.
+            internal_assert(edges.size() == 1);
+            rewire(b, s->cont, edges[0]);
+        }
+        if (auto *j = std::get_if<Terminator::Join>(&block->terminator.data)) {
+            internal_assert(edges.size() == 1);
+            rewire(b, j->next, edges[0]);
         }
         if (auto *c =
                 std::get_if<Terminator::MultiCall>(&block->terminator.data)) {

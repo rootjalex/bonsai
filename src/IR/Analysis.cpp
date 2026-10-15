@@ -279,6 +279,8 @@ struct AlwaysReturns : public Visitor {
     bool break_leaves = false;
     void visit(const Continue *node) override { returns = false; }
     void visit(const Break *node) override { returns = break_leaves; }
+    // Waiting for spawned calls is not returning.
+    void visit(const Join *node) override { returns = false; }
 };
 
 struct ReturnType : public Visitor {

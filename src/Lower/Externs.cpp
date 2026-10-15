@@ -107,7 +107,7 @@ struct InsertExternsIntoCalls : public ir::Mutator {
             return node;
         }
         return ir::CallStmt::make(std::move(whole->first),
-                                  std::move(whole->second));
+                                  std::move(whole->second), node->spawned);
     }
 
     ir::Stmt visit(const ir::MultiRecurse *node) override {
