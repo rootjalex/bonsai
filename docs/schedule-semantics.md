@@ -554,9 +554,12 @@ nothing after the call but return. A call that is not in tail position,
 `f = P; r = g(a); K(r, L)`, is deferred together with its continuation:
 the entry holds `a` and `L`, and the drain runs `g` and then `K`. This is
 pbrt's medium-sample queue, work whose routing is known before the call.
-A spawned call, `spawn x += g(..)` in the program, says its value only
-feeds the reducer `x`; the entry carries `x`'s record slot, the drain
-accumulates into it, and the caller does not wait.
+A spawned call, `spawn g(.., x);` in the program, says the call may run
+beside the rest of its function and reports through the reducers it is
+handed, `x` among them (`docs/parallel-semantics.md`, section 1); the
+entry carries `x` -- the address of the reducer, or of its record slot --
+the drain makes the call, which adds into it, and the caller does not
+wait.
 
 Conditions, each refused with an error: the loop that pushes is a
 `parfor` (deferring across a `for` would reorder what the `for` promised);
