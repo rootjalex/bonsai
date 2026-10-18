@@ -15014,3 +15014,136 @@ debt). `check_differentials.sh` aborts in our `--print-differentials`
 (a host buffer whose size was never given) -- rot since the GPU work, a
 debt. scene_dump refuses the orthographic camera, so probes use
 perspective ones.
+
+### The megakernel's 1.5x since 10-02: not the driver, not the calls (10-15 to 10-18)
+
+The compare of 10-15 found gpu-optix-mega 1.5x to 1.8x slower than on
+10-02 (killeroo-simple at 64 spp: 306 ms then, 459 ms now) while pbrt and
+gpu-optix got faster, and left the driver's closest-hit cost of 10-07 as
+the first suspect. It is not the driver: the compiler of 85247b46 (10-02,
+10:35, the last commit before that compare's build) rebuilt in a worktree
+and run with its own renderer under today's driver renders the cell in
+298 ms (apps/pbrt/scratch/mega-old-1015). So the slowdown is in the tree,
+compiler or program, between 85247b46 and 6a36ceb1.
+
+The PTX of the two binaries (`strings` on the compare's render.out; the
+device module is embedded as text) names one structural difference. The
+10-02 module has no `.func` at all -- every device function folded into
+the programs, as CodeGen_PTX::finish means it -- and its VolPath raygen
+is 170k lines; the current module has 24 `.func` definitions, the texture
+graph's `[[noinline]]` levels eval_float_1/2 and eval_spectrum_1/2 (one
+per integrator variant), and the VolPath raygen, 606k lines, holds 378
+`call eval_float_2` and 70 `call eval_spectrum_2` -- the root evaluator
+inlined at every texture read of every material arm, each composite arm a
+real call. The texture graph (41e07971) landed at 23:57 on 10-02, after
+the last megakernel measurement at 11:01, and its `[[noinline]]` levels
+exist so the GPU build does not explode (above, "The GPU build ran out of
+memory"); the wavefront never pays them on its Basic kernels since the
+evaluator split of 10-09, but a megakernel inlines every arm into one
+raygen. OptiX's continuation stack for that raygen is 768 bytes a thread
+(BONSAI_OPTIX_STATS). A plausible cause, and wrong: two variants of the
+renderer, built in the wt-bisect worktree with HEAD's compiler
+(scratch/compile_schedule.sh compiles a schedule without rendering, so
+the CPU work could run while another session held the card) and run on
+the same cell, say so.
+
+| renderer | `.func` | calls in the VolPath raygen | raygen PTX lines | kernel ms |
+|---|---|---|---|---|
+| HEAD (6a36ceb1) | 24 | 448 | 606k | 459 |
+| A: the root's composite arms return zero (no calls, no inlined leaves) | 0 | 0 | 592k | 468 |
+| B: the calls kept, the callees made trivial | 8 | 1120 | 603k | 460 |
+| 10-02 (85247b46) | 0 | 0 | 170k | 298 |
+
+The call sites cost nothing measurable; nor does their stack. (A first
+variant that inlined the leaves at every site instead was killed after
+41 minutes at 5 GB in the backend -- the explosion the levels were made
+to prevent, confirmed.) What the comparison does show is that the
+raygen is 3.6x the PTX it was, with the calls accounting for little of
+it, and that the any-hit and intersection programs beside it grew from
+2.6k and 2.1k lines to 6.7k and 5.9k -- the shapes of 10-03 (cylinder,
+patch, curve) and the alpha path -- while the closest-hit shrank from
+111 to 47 lines (the 10-08 slimming). OptiX compiles a pipeline's
+programs together, so a fat intersection program is not free to a raygen
+even on a scene that runs it on one sphere.
+
+A `git bisect run` over the 210 commits between (scratch/mega_bisect_run.sh:
+a step builds the commit's compiler in the wt-bisect worktree, renders the
+cell with that commit's own renderer and driver through its own
+gpu_compare.sh, and answers good under 380 ms, bad over, skip when the
+build or the render fails) is the honest instrument, run between the
+other sessions' holds on the card. Its first run was not honest: after a
+checkout that changed 44 compiler sources, make compiled nothing, and
+the step measured 10-03's renderer under 10-07's compiler (the build log
+shows no "Building CXX" line). Every step now builds from clean and
+refuses one that compiled fewer than ten objects. The clean run, eight
+steps, killeroo-simple at 64 spp, two renders a step, the least:
+
+| commit | date | what landed | kernel ms | verdict |
+|---|---|---|---|---|
+| 85247b46 | 10-02 10:35 | (the 10-02 compare's compiler) | 298 | good |
+| cbee9449 | 10-03 08:37 | the bilinear patch | 302 | good |
+| cc0095cf | 10-03 15:05 | coating textures, edge threading, spectral eta, FlatBuffer scenes, direct-descent skip, OptiX tmin, grid media, sphere quadric, read-only externs, three samplers (10-03 09:16-15:05) | 338 | good |
+| 556acfc4 | 10-03 18:15 | foreign types, the nanovdb medium, spectrum reflectance | 360 | good |
+| f9fb6edd | 10-03 18:37 | point and spot lights | 358 | good |
+| **3206864a** | 10-03 20:27 | **subsurface scattering** | **428** | **bad** |
+| c886960e | 10-03 20:36 | the film's crop window | 425 | bad |
+| fc3d3f52 | 10-03 23:14 | the cylinder, sinh, the hair material | 455 | bad |
+| 180b1319 | 10-07 | (the 10-07 matrix) | 458 | bad |
+| 6a36ceb1 | 10-15 | HEAD | 459 | bad |
+
+The first bad commit is the subsurface material (3206864a): seventy of
+the hundred and sixty milliseconds, on a scene with no subsurface
+material in it, from the probe walk, the BSSRDF table and the exit
+shading compiled into the one raygen. The rest is the same thing in
+smaller steps -- the morning's shapes, media and samplers +36, the
+foreign types and the nanovdb medium +21, the cylinder and the hair
+material +30 -- and nothing since 10-07 (+1). This is what a megakernel
+is: every arm of the program in one kernel, paid in registers, stack and
+instruction cache by every ray whether or not the scene reaches the arm
+(Laine, Karras and Aila, "Megakernels Considered Harmful", HPG 2013,
+which is pbrt's reason for the wavefront). The wavefront schedules never
+paid it, their kernels being per stage and per arm and the unreached ones
+never launched, which is why gpu-optix got faster over the same commits.
+
+**The fix is the schedule's, and what it would recover (10-18).** The
+answer a schedule has is the one gpu-optix already uses for its own pixel
+loop and its shadow drain: copy the loop per value of a scene flag --
+`render[VolPath].specialize(film_visible_surface)`,
+`render.specialize(shadow, have_media)` -- so that the host dispatches
+once and the scene without the feature runs a raygen with none of its
+code. Written for the megakernel as `render[VolPath].specialize(
+have_subsurface)` it does not compile: "render has no parameter
+have_subsurface". `have_media` and `film_visible_surface` are parameters
+of `render`; `have_subsurface` is a field of the VolPath variant of the
+`integrator` parameter, bound by the arm that calls `li_vol_path`, and
+the loop form of specialize names parameters. What the specialization
+would buy was measured instead with the flags wired off in the arm
+(scratch variants in the wt-bisect worktree, HEAD's compiler,
+killeroo-simple at 64 spp, the least of three; the images match pbrt's):
+
+| renderer | VolPath raygen PTX lines | kernel ms |
+|---|---|---|
+| HEAD | 606k | 459 |
+| the subsurface flag false (what `specialize(have_subsurface)` makes for this scene) | 509k | 378 |
+| the subsurface and media flags false (`specialize(have_media)` too) | 218k | 346 |
+| 10-02 (85247b46) | 170k | 298 |
+
+Subsurface is 81 ms of the 161 lost and the media code another 31; the
+two flags together would give the megakernel back 113 of them, with its
+raygen at a third of its text, and the 48 that remain are the shapes
+and materials of 10-03 (the cylinder, the quadric sphere, the patch, the
+hair, the spectral eta) that every scene's megakernel carries whether or
+not it holds one -- the growth the wavefront's `specialize(material)` and
+`specialize(evaluator)` keep out of its kernels, and which a megakernel
+has no way to shed short of a copy per material set. Two ways to make the
+first two flags schedulable, for the user to choose between: make
+`have_subsurface` a parameter of `render` beside `have_media` (pbrt holds
+all three as members of its WavefrontPathIntegrator, read off the scene at
+construction, so the program is no less pbrt's for it; the Integrator
+variant loses the field and the driver passes it as it passes
+`have_media`), or teach the loop form of specialize to name a value the
+integrator's arm binds from the parameter's payload (a uniform of the
+launch like any parameter, one indirection away). Neither was done
+tonight: the one is a program restructuring and the other a compiler
+extension, each the user's to approve. The wavefront schedules are
+untouched by either.

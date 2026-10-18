@@ -61,8 +61,25 @@ The megakernel schedules' 1.5x slowdown since 10-02 is not the driver:
 texture graph's non-inlined evaluator calls, the raygen's one structural
 difference from then (448 real call sites): a renderer with the calls
 removed takes 468 ms and one with the calls kept and the callees made
-trivial 460 ms. A bisect over the 210 commits between is running; its
-first step puts the 10-07 commit already at 457 ms.
+trivial 460 ms. A bisect over the 210 commits between, each step built
+from clean, found the first bad commit to be the subsurface material
+(3206864a, 10-03 20:27: 358 ms before it, 428 after, on a scene with no
+subsurface material), and the rest of the climb to be the same thing in
+smaller steps -- the shapes, media and samplers of 10-03's morning +36,
+the foreign types and the nanovdb medium +21, the cylinder and the hair
+material +30, nothing since 10-07 (PLAN.md, "The megakernel's 1.5x since
+10-02"). A megakernel pays for every arm compiled into its raygen whether
+or not a scene reaches it; the wavefront's kernels are per stage and per
+arm, and it got faster over the same commits. The schedule's answer is to
+copy the megakernel's pixel loop per scene flag as gpu-optix copies its
+own per `film_visible_surface` -- but `have_subsurface` is a field of the
+VolPath variant rather than a parameter of `render`, which `specialize`
+cannot name yet. Measured with the flags wired off in the arm,
+killeroo-simple at 64 spp: 459 ms now, 378 without the subsurface code,
+346 without the media code too, against 10-02's 298 -- the two flags
+would give back 113 of the 161 ms, and the 48 left are the shapes and
+materials of 10-03 that every megakernel carries. The two ways to make
+the flags schedulable are to-do item 0's.
 
 ## Where it stands (2026-10-15, 16:15)
 
@@ -1882,8 +1899,16 @@ whose any-hit program binds elements: pavilion, sanmiguel, landscape).
    allowance for a glass scene under an environment map at 16 spp, or keep
    printing FAILED against the calibration note -- the user's call. Open
    from the fix: the synthetic masked-light probe (probes/masked_light_d1)
-   sits 1.0% under pbrt's lit count and mean; the megakernel bisect (the
-   slowdown is neither the driver nor the non-inlined calls). Tooling
+   sits 1.0% under pbrt's lit count and mean. The megakernel: the bisect
+   put the slowdown on the program's growth into its one raygen, the
+   subsurface material first (PLAN.md, "The megakernel's 1.5x since
+   10-02"); the schedule fix is to copy its pixel loop per scene flag, and
+   two ways would let `specialize` name `have_subsurface` -- make it a
+   parameter of `render` as `have_media` and `film_visible_surface` are
+   (pbrt keeps all three as WavefrontPathIntegrator members, so the
+   program would be no less pbrt's), or teach the loop form of specialize
+   to name a field the integrator's arm binds -- the user's call, with the
+   recoverable milliseconds measured in PLAN.md. Tooling
    debts found on the way: convert_scene.sh's stamp does not see an
    `Include`d file change; check_differentials.sh aborts in our
    `--print-differentials` (a host buffer without a size); scene_dump
