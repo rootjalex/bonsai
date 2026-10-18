@@ -449,7 +449,13 @@ void Printer::print(const Schedule &schedule) {
                                              << compare << " " << s.threshold << ")";
                                           return;
                                       }
-                                      os << "specialize(" << s.param << ")";
+                                      os << "specialize(";
+                                      if (!s.field.empty()) {
+                                          os << s.arm << "::" << s.field;
+                                      } else {
+                                          os << s.param;
+                                      }
+                                      os << ")";
                                   },
                                   [&](const Stage &s) {
                                       os << "stage(";

@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// The field form reads one arm's payload, which is only the arm's once a
+// specialize on the parameter has made that arm's loop: written before
+// one, there is no loop of the arm to copy, and the directive says what
+// has to come first.
+
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(Sum::doubled);
+}

@@ -118,9 +118,7 @@ func signed_seven(n : i32) -> i32 {
 }
 
 func small(k : u32) -> u32 {
-  let @0 = k & 3u in
-  let @1 = @0 & 0u in
-  return @1
+  return 0u
 }
 
 func small_rem(k : u32) -> u32 {

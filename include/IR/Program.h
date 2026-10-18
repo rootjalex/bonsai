@@ -100,6 +100,20 @@ struct Program {
         std::string pad_field; // empty when the storage has no padding
         std::string payload_field;
         Type tag_type;
+        // The fields of each arm stored inline, by the arm's name: each
+        // field's name, its type as stored, and the byte at which it sits in
+        // the payload's words (Lower/WordStorage.h: C's offsets, a bool one
+        // byte). For a directive that fixes one field of one arm --
+        // `render[VolPath].specialize(VolPath::have_subsurface)` -- which
+        // has to find the field's bits in the words (SSA/Specialize.h,
+        // FixedField). An arm stored by index keeps its fields in a pool
+        // and has no entry.
+        struct Field {
+            std::string name;
+            Type type;
+            uint64_t offset = 0;
+        };
+        std::map<std::string, std::vector<Field>> fields_of;
     };
     std::map<std::string, AdtStorage> adt_storages;
 

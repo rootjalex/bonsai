@@ -343,6 +343,20 @@ struct Prefetch {
 // and binds that made the loop, since it copies the loop as scheduled;
 // `loop` names it, or is empty for the whole-function form above.
 //
+// Written with a field of one arm -- `render[VolPath].specialize(VolPath::
+// have_subsurface)` -- the condition is a bool the arm carries rather than
+// a parameter of the function: pbrt's `haveSubsurface`, which the program
+// keeps in the VolPath variant of its integrator as pbrt's integrator keeps
+// it, and which decides what every bounce draws and whether a path can go
+// into a subsurface material. The parameter is the one whose variant type
+// has an arm of that name, the loops copied are the arm's (the copies an
+// earlier `specialize` on the parameter made, `p!VolPath`), and in each
+// copy the field's bits in the given value's payload are set to the copy's
+// value, so that every read of the field -- the arm's binding, wherever
+// inlining put it -- is the constant and what it guards folds. The copies
+// are `False` and `True` as a bool parameter's are. `arm` and `field` name
+// them; `param` is empty then.
+//
 // Written on a gang's state -- `occluded.specialize(count(i_lane) > 14)`,
 // after `occluded_all.split(i, i_gang, i_lane, 16, true).vectorize(i_lane)`
 // -- the condition is over the lanes of the gang the vectorize of `i_lane`
@@ -369,6 +383,10 @@ struct Specialize {
     enum class Compare { LT, LE, GT, GE, EQ, NE };
     Compare compare = Compare::GT;
     uint64_t threshold = 0;
+    // The field form: the arm and its field, `VolPath` and `have_subsurface`
+    // of `VolPath::have_subsurface`; empty for the forms above.
+    std::string arm;
+    std::string field;
 };
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Persistent,

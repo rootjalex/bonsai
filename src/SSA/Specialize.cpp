@@ -149,14 +149,145 @@ shared_ptr<Value> constant_u32(uint64_t v) {
     return std::make_shared<Value>(Constant{UInt_t::make(32), v});
 }
 
+// An instruction emitted where the caller is building: its type, operation
+// and operands; the caller names and places it.
+using Emit = std::function<shared_ptr<Value>(const Type &, Instruction::Op,
+                                             vector<shared_ptr<Value>>)>;
+
+// The bool field `f` read out of `payload`, the arm's words, as the match
+// lowering reads it (Lower/WordStorage.cpp, read_words): the byte of its
+// word, `((payload[word] >> shift) & 0xff) != 0`.
+shared_ptr<Value> read_fixed_field(const FixedField &f,
+                                   const shared_ptr<Value> &payload,
+                                   const Emit &emit) {
+    const Type u32 = UInt_t::make(32);
+    shared_ptr<Value> word =
+        emit(u32, Instruction::Op::ExtractIdx, {payload, constant_u32(f.word)});
+    if (f.shift != 0) {
+        word = emit(u32, Instruction::Op::Shr, {word, constant_u32(f.shift)});
+    }
+    shared_ptr<Value> byte =
+        emit(u32, Instruction::Op::BwAnd, {word, constant_u32(0xff)});
+    return emit(Bool_t::make(), Instruction::Op::Ne, {byte, constant_u32(0)});
+}
+
+// `payload` with the field's byte set to `value`: its word with the byte
+// cleared and the value put in, `(payload[word] & ~(0xff << shift)) |
+// (value << shift)`, and the words rebuilt lane by lane around it (a vector
+// is a MakeStruct of its lanes, SSA/SSA.cpp). Every read of the field out
+// of this payload then reads the value, which the simplifier's known-bits
+// rule folds to the constant (SSA/Simplify.cpp).
+shared_ptr<Value> force_fixed_field(const FixedField &f, uint64_t value,
+                                    const shared_ptr<Value> &payload,
+                                    const Emit &emit) {
+    const Type payload_t = payload->get_type();
+    const Vector_t *words = payload_t.as<Vector_t>();
+    internal_assert(words != nullptr && words->etype.is_uint() &&
+                    words->etype.bits() == 32 && f.word < words->lanes)
+        << "a variant's payload that is not 32-bit words: " << payload_t;
+    const Type u32 = UInt_t::make(32);
+    vector<shared_ptr<Value>> lanes;
+    for (uint32_t k = 0; k < words->lanes; k++) {
+        shared_ptr<Value> word =
+            emit(u32, Instruction::Op::ExtractIdx, {payload, constant_u32(k)});
+        if (k == f.word) {
+            const uint64_t mask = (uint64_t(0xff) << f.shift) & 0xffffffffu;
+            word = emit(u32, Instruction::Op::BwAnd,
+                        {word, constant_u32(~mask & 0xffffffffu)});
+            if (value != 0) {
+                word = emit(u32, Instruction::Op::BwOr,
+                            {word, constant_u32((value & 0xff) << f.shift)});
+            }
+        }
+        lanes.push_back(word);
+    }
+    return emit(payload_t, Instruction::Op::MakeStruct, std::move(lanes));
+}
+
+// The reads of the payload words a copy rewrote (force_fixed_field) at a
+// constant word read the word built there: `extract_idx(words, k)` is the
+// k-th operand of the make_struct, the forced word where k is the field's.
+// This is what the arm's binding of the field has become once the copy's
+// struct has folded into the reads of it (the LoadField rule, SSA/Simplify.
+// h); the byte the binding then takes out of the forced word folds to the
+// constant by the known-bits rule there. Done here rather than as a rule of
+// the simplifier because a run of calls whose arguments are the lanes of one
+// vector is the shape the sort lowering recognizes a gang's run by (SSA/
+// SortRecursion.cpp, lane_of), and a general fold of a lane out of a built
+// vector would take that shape apart. A read names the words by the
+// instruction or by the argument a block was handed them as.
+void fold_forced_words(Function &f,
+                       const vector<shared_ptr<Instruction>> &words) {
+    map<string, shared_ptr<Instruction>> by_name;
+    for (const auto &w : words) {
+        by_name[w->name] = w;
+    }
+    vector<std::pair<shared_ptr<Instruction>, shared_ptr<Value>>> replace;
+    for (const auto &block : f.blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op != Instruction::Op::ExtractIdx ||
+                instr->operands.size() != 2) {
+                continue;
+            }
+            string name;
+            if (const auto *a = std::get_if<Argument>(&instr->operands[0]->data)) {
+                name = a->name;
+            } else if (const auto *i = std::get_if<shared_ptr<Instruction>>(
+                           &instr->operands[0]->data)) {
+                name = (*i)->name;
+            }
+            const auto it = by_name.find(name);
+            const Constant *c = std::get_if<Constant>(&instr->operands[1]->data);
+            if (it == by_name.end() || c == nullptr) {
+                continue;
+            }
+            const std::optional<uint64_t> lane = std::visit(
+                overloads{
+                    [](uint64_t u) -> std::optional<uint64_t> { return u; },
+                    [](int64_t i) -> std::optional<uint64_t> {
+                        return i < 0 ? std::nullopt
+                                     : std::optional<uint64_t>(uint64_t(i));
+                    },
+                    [](const auto &) -> std::optional<uint64_t> {
+                        return std::nullopt;
+                    },
+                },
+                c->data);
+            if (lane.has_value() && *lane < it->second->operands.size()) {
+                replace.emplace_back(instr, it->second->operands[*lane]);
+            }
+        }
+    }
+    for (const auto &[read, word] : replace) {
+        replace_uses(f, read.get(), word);
+    }
+}
+
+// The instruction a value is, for the words force_fixed_field built.
+shared_ptr<Instruction> instruction_of(const shared_ptr<Value> &v) {
+    const auto *i = std::get_if<shared_ptr<Instruction>>(&v->data);
+    internal_assert(i != nullptr) << "a forced payload that is not an instruction";
+    return *i;
+}
+
+// Whether `name` carries `!label` as one of its segments: a loop's block or
+// index named by the copies that made it (`!par_body_0!VolPath!True`).
+bool carries(const string &name, const string &label) {
+    const string segment = "!" + label;
+    return name.ends_with(segment) || name.find(segment + "!") != string::npos;
+}
+
 } // namespace
 
-void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
+void specialize_loops(FuncMap &fmap, const string &fname, const string &param_name,
                       const string &variant, const string &loop_name,
+                      const string &arm, const string &field_name,
                       const map<string, ir::Program::AdtStorage> &storages) {
+    const bool field_form = !field_name.empty();
+    const string key = field_form ? arm + "::" + field_name : param_name;
     const auto fit = fmap.find(fname);
     internal_assert(fit != fmap.end())
-        << fname << ".specialize(" << param << "): no function " << fname;
+        << fname << ".specialize(" << key << "): no function " << fname;
     Function &f = *fit->second;
     string spelled = fname;
     for (size_t at = 0; at < variant.size();) {
@@ -165,7 +296,36 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
         at = next == string::npos ? variant.size() : next;
     }
     const string where = spelled + ".specialize(" +
-                         (loop_name.empty() ? "" : loop_name + ", ") + param + ")";
+                         (loop_name.empty() ? "" : loop_name + ", ") + key + ")";
+
+    // The field form names no parameter: it is the one whose variant type
+    // has an arm of that name, and there has to be one such.
+    string param = param_name;
+    if (field_form) {
+        for (const Argument &a : f.blocks.front()->args) {
+            const Ptr_t *p = a.type.as<Ptr_t>();
+            const Struct_t *s = (p != nullptr ? p->etype : a.type).as<Struct_t>();
+            const auto it = s != nullptr ? storages.find(s->name) : storages.end();
+            if (it == storages.end()) {
+                continue;
+            }
+            for (const auto &[vname, tag] : it->second.variants) {
+                if (vname != arm) {
+                    continue;
+                }
+                internal_assert(param.empty())
+                    << where << ": both " << param << " and " << a.name
+                    << " are of a variant type with an arm named " << arm
+                    << "; the field form takes one parameter's arm";
+                param = a.name;
+            }
+        }
+        internal_assert(!param.empty())
+            << where << ": no parameter of " << fname
+            << " is of a variant type with an arm named " << arm
+            << "; the field form names an arm of a parameter's variant type "
+            << "and a bool field of it, `<Arm>::<field>`";
+    }
 
     // The parameter, and what its variant type is stored as. A variant
     // parameter arrives as its storage struct, or as a pointer to one
@@ -199,9 +359,10 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
     const ir::Program::AdtStorage *storage = boolean ? nullptr : &storage_it->second;
     // The copies, in the order the dispatch below takes them: its k-th
     // target on k, so a variant's tag has to be its position, and a bool's
-    // false comes first.
+    // false comes first -- as does a field's, whose copies are a bool's.
     vector<std::pair<string, uint64_t>> variants;
     size_t tag_at = 0;
+    size_t payload_at = 0;
     if (boolean) {
         variants = {{"False", 0}, {"True", 1}};
     } else {
@@ -210,13 +371,55 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             << " is stored as a tagged index, whose tag is the top bits of one "
             << "word; specialize() handles a tag beside the payload";
         tag_at = find_struct_index(storage->tag_field, storage_t->fields);
+        payload_at = find_struct_index(storage->payload_field, storage_t->fields);
         for (size_t k = 0; k < storage->variants.size(); k++) {
             internal_assert(storage->variants[k].second == k)
                 << "[unimplemented] " << where << ": variant "
                 << storage->variants[k].first << " has tag "
                 << storage->variants[k].second << ", not its position " << k;
-            variants.push_back(storage->variants[k]);
+            if (!field_form) {
+                variants.push_back(storage->variants[k]);
+            }
         }
+    }
+    // The field form: the arm's field, a bool, found in the arm's fields as
+    // stored (ir::Program::AdtStorage::fields_of) -- its byte of the
+    // payload's words -- and the arm's tag, which every copy keeps.
+    std::optional<FixedField> fixed;
+    if (field_form) {
+        variants = {{"False", 0}, {"True", 1}};
+        const auto fields_it = storage->fields_of.find(arm);
+        internal_assert(fields_it != storage->fields_of.end())
+            << "[unimplemented] " << where << ": the arm " << arm
+            << " is stored by index, its fields in a pool rather than in the "
+            << "value; the field form reads a field out of the payload";
+        const ir::Program::AdtStorage::Field *found = nullptr;
+        string known;
+        for (const auto &fld : fields_it->second) {
+            if (fld.name == field_name) {
+                found = &fld;
+            }
+            known += (known.empty() ? "" : ", ") + fld.name;
+        }
+        internal_assert(found != nullptr)
+            << where << ": " << arm << " has no field " << field_name
+            << " (its fields: " << (known.empty() ? "none" : known) << ")";
+        internal_assert(found->type.is<Bool_t>())
+            << "[unimplemented] " << where << ": " << arm << "::" << field_name
+            << " is a " << found->type << "; the field form of specialize "
+            << "takes a bool field -- Halide's specialize(cond) -- and copies "
+            << "the loop for false and true";
+        FixedField ff;
+        ff.arm = arm;
+        ff.name = field_name;
+        for (const auto &[vname, tag] : storage->variants) {
+            if (vname == arm) {
+                ff.arm_tag = tag;
+            }
+        }
+        ff.word = found->offset / 4;
+        ff.shift = unsigned(found->offset % 4) * 8;
+        fixed = ff;
     }
 
     // The loops to specialize: the function's parallel loops that are not
@@ -238,7 +441,8 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
         if (!loop_name.empty()) {
             const string &index =
                 std::get<Terminator::ParFor>(block->terminator.data).index;
-            if (index == loop_name || index.rfind(loop_name + "!", 0) == 0) {
+            if ((index == loop_name || index.rfind(loop_name + "!", 0) == 0) &&
+                (!field_form || carries(index, arm))) {
                 outermost.push_back(block);
             }
             continue;
@@ -258,16 +462,26 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
         // specialize left them as the selectors it made, `p!VolPath`, whose
         // names end in the variant's suffix (or carry it, once specialized
         // again: `p!VolPath!Halton`).
+        // The field form reads the arm's payload, so its loops are the
+        // arm's copies alone, whatever the directive was written on.
         const bool of_variant =
-            variant.empty() || block->name.ends_with(variant) ||
-            block->name.find(variant + "!") != string::npos;
+            (variant.empty() || block->name.ends_with(variant) ||
+             block->name.find(variant + "!") != string::npos) &&
+            (!field_form || carries(block->name, arm));
         if (!inside && of_variant) {
             outermost.push_back(block);
         }
     }
     internal_assert(!outermost.empty())
         << where << ": " << fname
-        << (!loop_name.empty()
+        << (field_form
+                ? " has no loop of the " + arm + " arm" +
+                      (loop_name.empty() ? "" : " named " + loop_name) +
+                      ": `" + fname + ".specialize(" + param +
+                      ")` makes one per arm first, and the field form is "
+                      "written on the arm's, `" + fname + "[" + arm +
+                      "].specialize(" + key + ")`"
+            : !loop_name.empty()
                 ? " has no loop named " + loop_name
                 : variant.empty()
                       ? string(" has no parallel loop; specialize() copies a "
@@ -275,6 +489,9 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                       : " has no loop of that variant; `" + spelled +
                             "` names a copy an earlier specialize made");
 
+    // The payload words the copies rewrite (force_fixed_field), whose reads
+    // are folded once the copies' structs have folded into them.
+    vector<shared_ptr<Instruction>> forced_words;
     for (const shared_ptr<Block> &at : outermost) {
         const string body_name =
             std::get<Terminator::ParFor>(at->terminator.data).body.name;
@@ -377,19 +594,36 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             at->lookups[name] = value;
             return value;
         };
+        // Or, for the field form, the field's byte of the payload's words.
         shared_ptr<Value> tag_value;
         if (boolean) {
             tag_value = given_here; // its own tag
-        } else if (pointer != nullptr) {
-            shared_ptr<Value> tag_ptr =
-                at_instr(f.get_unique_name(), Ptr_t::make(storage->tag_type),
-                         Instruction::Op::FieldPtr, {given_here, constant_u32(tag_at)});
-            tag_value = at_instr(f.get_unique_name(), storage->tag_type,
-                                 Instruction::Op::Load, {tag_ptr});
         } else {
-            tag_value = at_instr(f.get_unique_name(), storage->tag_type,
-                                 Instruction::Op::LoadField,
-                                 {given_here, constant_u32(tag_at)});
+            const size_t read_at = fixed.has_value() ? payload_at : tag_at;
+            const Type &read_t = storage_t->fields[read_at].type;
+            shared_ptr<Value> read;
+            if (pointer != nullptr) {
+                shared_ptr<Value> ptr =
+                    at_instr(f.get_unique_name(), Ptr_t::make(read_t),
+                             Instruction::Op::FieldPtr,
+                             {given_here, constant_u32(read_at)});
+                read = at_instr(f.get_unique_name(), read_t,
+                                Instruction::Op::Load, {ptr});
+            } else {
+                read = at_instr(f.get_unique_name(), read_t,
+                                Instruction::Op::LoadField,
+                                {given_here, constant_u32(read_at)});
+            }
+            if (fixed.has_value()) {
+                const Emit emit = [&](const Type &t, Instruction::Op op,
+                                      vector<shared_ptr<Value>> operands) {
+                    return at_instr(f.get_unique_name(), t, op,
+                                    std::move(operands));
+                };
+                tag_value = read_fixed_field(*fixed, read, emit);
+            } else {
+                tag_value = read;
+            }
         }
         dispatch.cond = tag_value;
         at->terminator.data = std::move(dispatch);
@@ -449,19 +683,33 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
                     by_pointer ? make(f.get_unique_name(), struct_type,
                                       Instruction::Op::Load, {given})
                                : given;
+                // For the field form the tag is the arm's, and the payload
+                // is the given one with the field's byte set to the copy's
+                // value.
+                const uint64_t tag = fixed.has_value() ? fixed->arm_tag : copy.tag;
                 vector<shared_ptr<Value>> fields;
                 for (size_t i = 0; !boolean && i < storage_t->fields.size(); i++) {
                     if (i == tag_at) {
                         fields.push_back(std::make_shared<Value>(
                             storage->tag_type.is_uint()
-                                ? Constant{storage->tag_type, uint64_t(copy.tag)}
-                                : Constant{storage->tag_type, int64_t(copy.tag)}));
+                                ? Constant{storage->tag_type, uint64_t(tag)}
+                                : Constant{storage->tag_type, int64_t(tag)}));
                         continue;
                     }
-                    fields.push_back(make(f.get_unique_name(),
-                                          storage_t->fields[i].type,
-                                          Instruction::Op::LoadField,
-                                          {whole, constant_u32(i)}));
+                    shared_ptr<Value> read = make(f.get_unique_name(),
+                                                  storage_t->fields[i].type,
+                                                  Instruction::Op::LoadField,
+                                                  {whole, constant_u32(i)});
+                    if (fixed.has_value() && i == payload_at) {
+                        const Emit emit = [&](const Type &t, Instruction::Op op,
+                                              vector<shared_ptr<Value>> operands) {
+                            return make(f.get_unique_name(), t, op,
+                                        std::move(operands));
+                        };
+                        read = force_fixed_field(*fixed, copy.tag, read, emit);
+                        forced_words.push_back(instruction_of(read));
+                    }
+                    fields.push_back(read);
                 }
                 shared_ptr<Value> spec;
                 if (boolean) {
@@ -510,9 +758,13 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
             // parameter's tag fixed, and the copy called instead, so that
             // its match folds too -- `integrator_li!VolPath` has the volpath
             // arm alone. Recursively, as far as the value is passed on.
+            KeyVariant kv{copy.variant, fixed.has_value() ? fixed->arm_tag : copy.tag, {}};
+            if (fixed.has_value()) {
+                kv.field = *fixed;
+                kv.field->value = copy.tag;
+            }
             for (const Specialized &s : specialized) {
-                specialize_callees(fmap, copied, s.fresh,
-                                   KeyVariant{copy.variant, copy.tag}, storages);
+                specialize_callees(fmap, copied, s.fresh, kv, storages);
             }
 
             // The uses then read the struct itself. By value, in place of
@@ -562,8 +814,14 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param,
     remove_unreachable_blocks(f);
     // The tag is a constant in every copy: the matches on it fold to their
     // arms now, so that what the directives after this one schedule is the
-    // variant's code alone (SSA/Simplify.h).
+    // variant's code alone (SSA/Simplify.h). The field form's reads of its
+    // forced words fold once the structs have folded into them, and the
+    // field's byte is then a constant too.
     simplify(f);
+    if (!forced_words.empty()) {
+        fold_forced_words(f, forced_words);
+        simplify(f);
+    }
 }
 
 void specialize_callees(FuncMap &fmap, const vector<shared_ptr<Block>> &blocks,
@@ -856,13 +1114,35 @@ specialize_function(const Function &func, const string &name,
     const shared_ptr<Value> whole =
         by_pointer ? make(copy->get_unique_name(), held, Instruction::Op::Load, {given})
                    : given;
+    // A field fixed with the tag (the field form of a loop's specialize,
+    // followed here from the loop): the payload's words with its byte set.
+    std::optional<size_t> payload_at;
+    if (v.field.has_value()) {
+        const auto st = s != nullptr ? storages.find(s->name) : storages.end();
+        internal_assert(st != storages.end())
+            << what << ": " << v.field->arm << "::" << v.field->name
+            << " fixed on a value that is not a variant type's";
+        payload_at = find_struct_index(st->second.payload_field, s->fields);
+    }
     vector<shared_ptr<Value>> fields;
+    vector<shared_ptr<Instruction>> forced_words;
     for (size_t i = 0; tag->field.has_value() && i < s->fields.size(); i++) {
-        fields.push_back(i == *tag->field
-                             ? tag_constant(*tag, v.tag)
-                             : make(copy->get_unique_name(), s->fields[i].type,
-                                    Instruction::Op::LoadField,
-                                    {whole, constant_u32(i)}));
+        if (i == *tag->field) {
+            fields.push_back(tag_constant(*tag, v.tag));
+            continue;
+        }
+        shared_ptr<Value> read = make(copy->get_unique_name(), s->fields[i].type,
+                                      Instruction::Op::LoadField,
+                                      {whole, constant_u32(i)});
+        if (payload_at.has_value() && i == *payload_at) {
+            const Emit emit = [&](const Type &t, Instruction::Op op,
+                                  vector<shared_ptr<Value>> operands) {
+                return make(copy->get_unique_name(), t, op, std::move(operands));
+            };
+            read = force_fixed_field(*v.field, v.field->value, read, emit);
+            forced_words.push_back(instruction_of(read));
+        }
+        fields.push_back(read);
     }
     shared_ptr<Value> spec;
     if (!tag->field.has_value()) {
@@ -938,8 +1218,13 @@ specialize_function(const Function &func, const string &name,
     }
     at->instrs.insert(at->instrs.begin() + position, prologue.begin(),
                       prologue.end());
-    // The tag is a constant now: every match on the key folds to its arm.
+    // The tag is a constant now: every match on the key folds to its arm;
+    // and a fixed field's reads fold once the struct has (fold_forced_words).
     simplify(*copy);
+    if (!forced_words.empty()) {
+        fold_forced_words(*copy, forced_words);
+        simplify(*copy);
+    }
     return copy;
 }
 

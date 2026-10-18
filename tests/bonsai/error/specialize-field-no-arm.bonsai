@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// The field form names the parameter by its arm: `Sum::doubled` is the
+// field of whichever parameter's variant type has an arm `Sum`. An arm no
+// parameter has names nothing, and is refused with what was looked for.
+
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Product::doubled);
+}

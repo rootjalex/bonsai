@@ -239,6 +239,13 @@ dispatch is exhaustive and no general copy is kept. Written on one copy,
 `render[VolPath].specialize(sampler)`, it copies that variant's loops
 alone. Written with a loop, `render.specialize(shadow, have_media)`, it
 copies one loop wherever it sits and dispatches where the loop was.
+Written with a field of one arm, `render[VolPath].specialize(VolPath::
+have_subsurface)`, the condition is a bool the arm of a variant parameter
+carries -- pbrt's `haveSubsurface`, kept in the VolPath integrator as pbrt
+keeps it in its integrator -- and the loops copied are that arm's, the
+copies an earlier `specialize` on the parameter made; the copies are
+`False` and `True` as a bool's are, and in each the arm's value has the
+field set to the copy's, so the arm's binding of it reads a constant.
 Written on a gang's state, `occluded.specialize(count(lane) > 14)`, the
 condition is the number of live lanes at each call of the gang's copies,
 and the two copies `occluded[True]` and `occluded[False]` may be scheduled
@@ -311,9 +318,14 @@ that, and one that changes a loop's body edits the body block's region.
   selectors. In each copy the uses of `x` (and of a load of `x` hoisted
   before the loop) are renamed to a value defined at the body's head: `x`
   with its tag field a constant, so every match on it folds. **specialize(l,
-  x)** does the same for the one loop named. **specialize(count(l) > k)**
-  copies a gang's region under a test of the count of live lanes (SSA/
-  Specialize.cpp).
+  x)** does the same for the one loop named. **specialize(A::f)**, `f` a
+  bool field of the arm `A` of a variant parameter, copies the arm's loops
+  for `false` and `true`: the loop's block reads the field's byte out of
+  the payload's words (Lower/WordStorage.h) and dispatches on it, and each
+  copy's value is the given one with the arm's tag and that byte set to
+  the copy's value, so every read of the field folds (the known-bits rule
+  of SSA/Simplify.cpp). **specialize(count(l) > k)** copies a gang's
+  region under a test of the count of live lanes (SSA/Specialize.cpp).
 
 ## 3. Hardware binding
 

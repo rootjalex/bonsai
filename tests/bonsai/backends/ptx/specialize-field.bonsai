@@ -1,0 +1,42 @@
+//! flags: -p ssa -b ptx
+
+// `run[Sum].specialize(Sum::doubled)` under a GPU bind: the Sum arm's
+// kernel becomes two, one per value of the arm's bool field, each entered
+// by the host's dispatch on the field's byte read out of the payload; the
+// Clamp kernel stays one. In each Sum kernel the field is a constant, so
+// `scaled`'s branch on it folds: the `True` kernel multiplies by the scale
+// and doubles, the `False` kernel multiplies alone, and neither reads the
+// field's byte (SSA/Specialize.h).
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 64],
+                    out : mut array[Float, 64]) -> void {
+    parfor i in 0:64 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+    run.bind(i, GPUThread);
+}

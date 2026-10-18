@@ -4408,22 +4408,47 @@ struct Parser {
                 // The parameter whose variants the function is copied for;
                 // with a loop before it, `render.specialize(shadow,
                 // have_media)`, that loop's body alone (ir::Specialize).
+                // Or a field of one arm of a parameter's variant type,
+                // `render[VolPath].specialize(VolPath::have_subsurface)`:
+                // the arm's name, `::`, the field's (ir::Specialize::arm,
+                // ::field); the parameter is found by the arm.
+                std::string arm, field;
+                const auto arm_field = [&](const ir::Location &loc) {
+                    if (!consume(Token::Type::COL)) {
+                        return false;
+                    }
+                    expect(Token::Type::COL);
+                    internal_assert(loc.names.size() == 1 && arm.empty())
+                        << func << ".specialize(<Arm>::<field>) names one arm "
+                           "of a variant type and one of its fields";
+                    arm = loc.names.front();
+                    field = get_id();
+                    return true;
+                };
                 ir::Location first = parse_location();
+                bool scoped = arm_field(first);
                 std::string loop;
                 ir::Location param = first;
                 if (consume(Token::Type::COMMA)) {
-                    internal_assert(first.names.size() == 1)
+                    internal_assert(first.names.size() == 1 && !scoped)
                         << "specialize(<loop>, <parameter>) names one loop of "
                            "the function, not a path";
                     loop = first.names.front();
                     param = parse_location();
+                    scoped = arm_field(param);
                 }
                 internal_assert(param.names.size() == 1)
                     << "specialize() names one parameter of the function, "
                        "not a path";
                 // `render[VolPath].specialize(sampler)`: that variant's
                 // loops alone are copied per variant of `sampler`.
-                add(ir::Specialize{param.names.front(), variant, loop});
+                ir::Specialize s;
+                s.param = scoped ? std::string() : param.names.front();
+                s.variant = variant;
+                s.loop = loop;
+                s.arm = arm;
+                s.field = field;
+                add(std::move(s));
             } else if (rewrite == "skip") {
                 // Not a transform: which arms of the function's branches get
                 // a test of whether any lane is in them, when the function

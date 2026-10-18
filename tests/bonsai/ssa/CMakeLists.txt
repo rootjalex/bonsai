@@ -107,6 +107,7 @@ add_bonsai_tests(
     stored-lane.bonsai
     specialize.bonsai
     specialize-bool.bonsai
+    specialize-field.bonsai
     specialize-first.bonsai
     specialize-loop.bonsai
     specialize-loop-hoisted.bonsai

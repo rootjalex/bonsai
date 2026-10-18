@@ -65,6 +65,24 @@ ValuePtr make_bool(bool b) {
     return std::make_shared<Value>(Constant{Bool_t::make(), b});
 }
 
+// The non-negative integer a constant holds -- an index, a lane -- or
+// nothing for any other value.
+std::optional<uint64_t> constant_index(const ValuePtr &v) {
+    const Constant *c = constant_of(v);
+    if (c == nullptr) {
+        return std::nullopt;
+    }
+    return std::visit(
+        overloads{
+            [](int64_t i) -> std::optional<uint64_t> {
+                return i < 0 ? std::nullopt : std::optional<uint64_t>(uint64_t(i));
+            },
+            [](uint64_t u) -> std::optional<uint64_t> { return u; },
+            [](const auto &) -> std::optional<uint64_t> { return std::nullopt; },
+        },
+        c->data);
+}
+
 // Are `a` and `b` one value: the same instruction, the same argument, or
 // equal constants?
 bool same_value(const ValuePtr &a, const ValuePtr &b) {
@@ -976,6 +994,84 @@ struct Simplifier {
     // rule under a rule under a rule is what makes a rewrite exponential.
     size_t assuming = 0;
 
+    // What is known of the bits of an unsigned scalar through the bit
+    // operations that made it: the bits known to be zero and the bits known
+    // to be one. A constant's are all known; `a & b` is zero where either
+    // is and one where both are, `a | b` the other way about; a shift by a
+    // constant moves what is known and brings in zeros; anything else is
+    // unknown. What a bool field forced into a variant's payload word reads
+    // back as (SSA/Specialize.cpp, force_fixed_field): the byte is cleared
+    // and set, `(w & ~0xff00) | 0x100`, and the arm's read of it, `(that >>
+    // 8) & 0xff`, is 1 whatever `w` holds. Bounded by `budget`, counted
+    // down per instruction walked.
+    struct KnownBits {
+        uint64_t zeros = 0;
+        uint64_t ones = 0;
+    };
+    static uint64_t all_bits(unsigned width) {
+        return width >= 64 ? ~uint64_t(0) : (uint64_t(1) << width) - 1;
+    }
+    KnownBits known_bits(const ValuePtr &v, size_t &budget) {
+        const Type &t = v->get_type();
+        if (!t.is_uint() || t.is_vector()) {
+            return {};
+        }
+        const uint64_t all = all_bits(t.bits());
+        if (const Constant *c = constant_of(v)) {
+            if (const auto *u = std::get_if<uint64_t>(&c->data)) {
+                return {~*u & all, *u & all};
+            }
+            if (const auto *i = std::get_if<int64_t>(&c->data)) {
+                const uint64_t u = uint64_t(*i) & all;
+                return {~u & all, u};
+            }
+            return {};
+        }
+        const Instruction *d = defined_by(v);
+        if (d == nullptr || budget == 0) {
+            return {};
+        }
+        budget--;
+        return known_bits_of(d->op, d->type, d->operands, budget);
+    }
+    KnownBits known_bits_of(Instruction::Op op, const Type &type,
+                            const vector<ValuePtr> &ops, size_t &budget) {
+        if (ops.size() != 2 || !type.is_uint() || type.is_vector()) {
+            return {};
+        }
+        const uint64_t all = all_bits(type.bits());
+        switch (op) {
+        case Instruction::Op::BwAnd: {
+            const KnownBits a = known_bits(ops[0], budget);
+            const KnownBits b = known_bits(ops[1], budget);
+            return {(a.zeros | b.zeros) & all, a.ones & b.ones & all};
+        }
+        case Instruction::Op::BwOr: {
+            const KnownBits a = known_bits(ops[0], budget);
+            const KnownBits b = known_bits(ops[1], budget);
+            return {a.zeros & b.zeros & all, (a.ones | b.ones) & all};
+        }
+        case Instruction::Op::Shl:
+        case Instruction::Op::Shr: {
+            const std::optional<uint64_t> n = constant_index(ops[1]);
+            if (!n.has_value() || *n >= type.bits()) {
+                return {};
+            }
+            const KnownBits a = known_bits(ops[0], budget);
+            if (op == Instruction::Op::Shr) {
+                // The top `n` bits come in as zeros.
+                return {((a.zeros >> *n) | (all & ~(all >> *n))) & all,
+                        (a.ones >> *n) & all};
+            }
+            // The low `n` bits are zeros.
+            return {((a.zeros << *n) | all_bits(unsigned(*n))) & all,
+                    (a.ones << *n) & all};
+        }
+        default:
+            return {};
+        }
+    }
+
     // The name an array handle goes by: the allocation's, which the block
     // arguments threading it share (see SSA/PromoteAllocas.cpp).
     static std::string handle_name(const Value &v) {
@@ -1713,6 +1809,23 @@ struct Simplifier {
             }
             break;
         }
+        case Instruction::Op::BwAnd:
+        case Instruction::Op::BwOr:
+        case Instruction::Op::Shl:
+        case Instruction::Op::Shr: {
+            // Every bit of the result known through the operands' bit
+            // operations is the constant they spell (known_bits_of): a
+            // byte read back out of a payload word it was written into.
+            if (ops.size() != 2 || !type.is_uint() || type.is_vector()) {
+                break;
+            }
+            size_t budget = 64;
+            const KnownBits known = known_bits_of(op, type, ops, budget);
+            if ((known.zeros | known.ones) == all_bits(type.bits())) {
+                return std::make_shared<Value>(Constant{type, uint64_t(known.ones)});
+            }
+            break;
+        }
         case Instruction::Op::MakeStruct: {
             // A struct built from every field of one value of its own type,
             // in order, is that value -- `make_struct<T>(load_field(v, 0),
@@ -2030,6 +2143,14 @@ struct Simplifier {
                 !ops[1]->get_type().is_scalar()) {
                 break;
             }
+            // (A lane of a vector built from its lanes, `extract_idx(
+            // make_struct<u32x2>(a, b), 1)`, is deliberately not folded to
+            // `b` here: a run of calls whose arguments are the lanes of one
+            // vector is the shape the sort lowering recognizes a gang's run
+            // by (SSA/SortRecursion.cpp, lane_of), and the fold would take
+            // it apart. The one pass that builds such a vector and wants its
+            // lanes read back folds them itself, SSA/Specialize.cpp's
+            // fold_forced_words.)
             // A lane of a vector that lives in read-only storage, at a lane
             // only known when it runs, is read from the storage: a layout
             // row's `children[i]`, with `i` the low bits of a sorted key,

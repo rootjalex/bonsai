@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Specialize.cpp:257
+
+--> !param.empty()
+run[Sum].specialize(Product::doubled): no parameter of run is of a variant type with an arm named Product; the field form names an arm of a parameter's variant type and a bool field of it, `<Arm>::<field>`

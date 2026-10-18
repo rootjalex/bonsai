@@ -792,8 +792,24 @@ ir::Program LowerADTs::run(ir::Program program,
     // `tagged_index` Shape actually is rather than the `Shape` it was.
     for (const auto &[name, layout] : layouts) {
         for (const Type &variant : layout.variants) {
-            program.types[variant.as<Struct_t>()->name] =
-                rewriter.mutate(variant);
+            const std::string &vname = variant.as<Struct_t>()->name;
+            const Type stored = rewriter.mutate(variant);
+            program.types[vname] = stored;
+            // The arm's fields as stored and where each sits in the payload
+            // (ir::Program::AdtStorage::fields_of): the offsets the match
+            // lowering below reads them at (layout_offset), recorded for a
+            // pass that fixes one field after the fact (SSA/Specialize.h).
+            if (layout.kind == ir::AdtLayout::Inline && !layout.boxed(vname)) {
+                const Struct_t *s = stored.as<Struct_t>();
+                internal_assert(s) << name << "::" << vname << " is stored as "
+                                   << stored << ", not a struct";
+                std::vector<ir::Program::AdtStorage::Field> fields;
+                for (size_t i = 0; i < s->fields.size(); i++) {
+                    fields.push_back({s->fields[i].name, s->fields[i].type,
+                                      layout_offset(*s, i)});
+                }
+                program.adt_storages[name].fields_of[vname] = std::move(fields);
+            }
         }
         program.types[name] = rewriter.storage_of(name, layout);
     }

@@ -61,6 +61,7 @@ add_bonsai_tests(
     rtcore-witness.bonsai
     rtiow-primer.bonsai
     specialize.bonsai
+    specialize-field.bonsai
     struct-capture.bonsai
     texture-sample.bonsai
     threads.bonsai

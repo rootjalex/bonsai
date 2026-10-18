@@ -11,6 +11,9 @@ add_bonsai_tests(
     reducer-mut-argument.bonsai
     specialize-late.bonsai
     specialize-count-no-gang.bonsai
+    specialize-field-not-bool.bonsai
+    specialize-field-no-arm.bonsai
+    specialize-field-before-arm.bonsai
     spawn-not-call.bonsai
     spawn-returns-value.bonsai
     defer-spawn-loop.bonsai

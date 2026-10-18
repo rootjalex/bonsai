@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// The field form of specialize takes a bool field of the arm: Halide's
+// `specialize(cond)`, copied for false and true. A field of another type
+// has no two values to copy for, and is refused by name.
+
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return x * scale;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::scale);
+}

@@ -13,6 +13,7 @@
     { "include": "#keywords" },
     { "include": "#constants" },
     { "include": "#numbers" },
+    { "include": "#arm-field" },
     { "include": "#type-annotation" },
     { "include": "#generic-arguments" },
     { "include": "#types" },
@@ -200,6 +201,15 @@
           "match": "\\b(vector|option|set|array|dyn_array)(?=\\s*\\[)"
         }
       ]
+    },
+    "arm-field": {
+      "comment": "A field of one arm of a variant type, as a schedule's specialize names it: `VolPath::have_subsurface`. Before the type annotation, whose `:` would otherwise take the field for a type.",
+      "match": "\\b([A-Z][A-Za-z0-9_]*)(::)([A-Za-z_][A-Za-z0-9_]*)\\b",
+      "captures": {
+        "1": { "name": "entity.name.type.bonsai" },
+        "2": { "name": "punctuation.accessor.bonsai" },
+        "3": { "name": "variable.other.member.bonsai" }
+      }
     },
     "schedule-directives": {
       "comment": "What a schedule block says about a loop, a call or a set.",

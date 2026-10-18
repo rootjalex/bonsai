@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Specialize.cpp:409
+
+--> !outermost.empty()
+run.specialize(Sum::doubled): run has no loop of the Sum arm: `run.specialize(mode)` makes one per arm first, and the field form is written on the arm's, `run[Sum].specialize(Sum::doubled)`

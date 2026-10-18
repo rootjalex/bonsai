@@ -1,0 +1,59 @@
+//! flags: -p ssa -b llvm -e
+
+// `run[Sum].specialize(Sum::doubled)`, the field form, run: the Sum arm's
+// loop copied for the two values of the arm's bool field, each copy
+// entered through a dispatch on the field read out of the given value's
+// payload, and in each the field a constant (SSA/Specialize.h). Run with
+// each value of the field, and with the other arm: the three answers
+// differ, so a copy entered for the wrong value, a payload word rewritten
+// at the wrong byte, or a Clamp disturbed by the copies would show. The
+// `scale` beside the field in the same payload has to come through
+// untouched. Unbound, since the JIT has no thread pool; ssa/specialize-
+// field shows the same under a bind.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(Sum(3.0, true), values, out);
+    // Six times.
+    print(out);
+    run(Sum(3.0, false), values, out);
+    // Three times.
+    print(out);
+    run(Clamp(3.5), values, out);
+    // The floor where the input is below it.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+}

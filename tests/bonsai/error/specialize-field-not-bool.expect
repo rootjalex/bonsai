@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Specialize.cpp:341
+
+--> found->type.is<Bool_t>()
+[unimplemented] run[Sum].specialize(Sum::scale): Sum::scale is a f32; the field form of specialize takes a bool field -- Halide's specialize(cond) -- and copies the loop for false and true

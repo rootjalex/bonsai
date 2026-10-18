@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// `run[Sum].specialize(Sum::doubled)`: the field form. `doubled` is a bool
+// of the `Sum` arm, not a parameter of `run`, so once `run.specialize(mode)`
+// has made the arm's loop (`i!Sum`) that loop is copied for `false` and
+// `true`: its block reads the field's byte out of the payload's words and
+// dispatches on it, and each copy's `mode` is the given one with the arm's
+// tag and that byte set to the copy's value, so that `scaled`'s `if` on
+// the field -- inlined into the arm -- folds in each (SSA/Specialize.h;
+// the known-bits rule of SSA/Simplify.h). The Clamp arm has no such field
+// and its loop is left as the first specialize made it. The bind after both
+// names `i` and binds every copy.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+    run.bind(i, CPUThread);
+}

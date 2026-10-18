@@ -1856,7 +1856,9 @@ std::set<std::string> specialize_labels(
         if (s == nullptr) {
             continue;
         }
-        if (!s->gang.empty()) {
+        // A gang's count and an arm's bool field make `False` and `True`,
+        // as a bool parameter does.
+        if (!s->gang.empty() || !s->field.empty()) {
             labels.insert("False");
             labels.insert("True");
             continue;
@@ -2722,8 +2724,10 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
             // is the gang form, `occluded.specialize(count(i_lane) > 14)`,
             // which copies the gang copies as scheduled and comes after the
             // vectorize that made them.
+            const ir::Specialize &sp = std::get<ir::Specialize>(t);
             internal_assert(!scheduled.contains(name))
-                << name << ".specialize(" << std::get<ir::Specialize>(t).param
+                << name << ".specialize("
+                << (sp.field.empty() ? sp.param : sp.arm + "::" + sp.field)
                 << ") comes after another directive on " << name
                 << ". specialize goes first: the copies it makes, one per "
                 << "variant, are what the directives after it schedule -- "
@@ -2805,7 +2809,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                             return;
                         }
                         specialize_loops(fmap, name, s.param, s.variant, s.loop,
-                                         adt_storages);
+                                         s.arm, s.field, adt_storages);
                     },
                     [&](const ir::Stage &s) {
                         internal_assert(!s.callee.names.empty())

@@ -36,6 +36,20 @@
 // after it that names one of the function's loops finds several of that
 // name, so `specialize()` goes last among a function's directives.
 //
+// The condition may also be a bool one arm of a variant parameter carries
+// -- `render[VolPath].specialize(VolPath::have_subsurface)`, pbrt's
+// `haveSubsurface`, which the program keeps in the VolPath integrator as
+// pbrt keeps it in the integrator -- once an earlier specialize on the
+// parameter has made that arm's loops (`p!VolPath`). The arm's fields are
+// stored in the payload's words at their byte offsets (Lower/WordStorage.h),
+// so the field is a byte of one word: the loop's block reads it there and
+// dispatches on it, and each copy's value of the parameter is the given one
+// with the arm's tag and with that byte set to the copy's value, so that
+// the arm's binding of the field -- however inlining spread it -- reads a
+// constant, as the match on the tag reads one. The copies are `False` and
+// `True`, as a bool parameter's are, and callees handed the value are copied
+// with the field fixed as they are copied with a tag fixed (FixedField).
+//
 // Only `Inline` storage is specialized (a tag beside the payload), which is
 // how a parameter's variant type is stored; a `tagged_index` handle carries
 // its tag in the top bits of one word and is not handled yet.
@@ -45,6 +59,7 @@
 #include "SSA/SSA.h"
 
 #include <map>
+#include <optional>
 #include <string>
 
 namespace bonsai {
@@ -58,12 +73,32 @@ namespace ssa {
 // instead, wherever it sits in the function and however it is scheduled
 // (`render.specialize(shadow, have_media)`: the shadow drain alone, after
 // the defer that made it and the bind that put it on the hardware), with
-// every copy an earlier specialize made of that loop; or is empty.
+// every copy an earlier specialize made of that loop; or is empty. `arm`
+// and `field` are the field form's, `VolPath` and `have_subsurface` of
+// `render[VolPath].specialize(VolPath::have_subsurface)`: `param` is empty
+// then, and the parameter is the one whose variant type has the arm.
 void specialize_loops(FuncMap &fmap, const std::string &fname,
                       const std::string &param, const std::string &variant,
-                      const std::string &loop,
+                      const std::string &loop, const std::string &arm,
+                      const std::string &field,
                       const std::map<std::string, ir::Program::AdtStorage>
                           &storages);
+
+// A bool field of one arm of a variant type, fixed to a value: what the
+// field form of specialize copies a loop for. The arm's fields sit in the
+// payload's 32-bit words at their byte offsets (Lower/WordStorage.h), a
+// bool as one byte, so the field is the byte of word `word` at bit `shift`;
+// a copy made for `value` has that byte of the given value's payload set to
+// it (force_fixed_field) and the arm's tag set to `arm_tag`, and the loop's
+// block reads the byte to dispatch (read_fixed_field).
+struct FixedField {
+    std::string arm;
+    uint64_t arm_tag = 0;
+    std::string name;
+    size_t word = 0;
+    unsigned shift = 0;
+    uint64_t value = 0;
+};
 
 // A queue's specialize (ir::QueueSpecialize, QueueSpec::split): the drained
 // function copied per variant of a value it computes, and the value's tag
@@ -72,10 +107,13 @@ void specialize_loops(FuncMap &fmap, const std::string &fname,
 // each have their own variant.
 
 // One variant of the value a queue is split on: its label, which names the
-// sub-queue (`hits[Some]`, `hits[Diffuse]`), and its tag.
+// sub-queue (`hits[Some]`, `hits[Diffuse]`), and its tag. For the field
+// form of a loop's specialize, followed into callees (specialize_callees),
+// the tag is the arm's and `field` is the field fixed, with its value.
 struct KeyVariant {
     std::string label;
     uint64_t tag;
+    std::optional<FixedField> field;
 };
 
 // The variants a value of `type` has, for a split on it: an ADT's, by name
