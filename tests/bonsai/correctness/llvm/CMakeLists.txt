@@ -129,6 +129,7 @@ add_bonsai_tests(
     semantics-defer.bonsai
     semantics-draw.bonsai
     entry-reads-through-calls.bonsai
+    entry-reads-loop-named.bonsai
     semantics-reload-by-slot.bonsai
     semantics-reload-by-slot-soa.bonsai
     semantics-reload-two-routes.bonsai

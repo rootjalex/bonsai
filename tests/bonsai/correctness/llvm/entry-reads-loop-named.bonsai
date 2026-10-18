@@ -1,0 +1,91 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/entry-reads-loop-named's program, run: `fade` is a recursion made a
+// loop whose header does not carry `k`, and `shade` reads `k` only by
+// handing it to `fade`, so whether the hits queue stores `k` is decided by
+// a read inside a loop that names the parameter without taking it (SSA/
+// Analysis.h, read_paths). Each pixel decays its hit by its own k three
+// times per bounce, so an undefined k would show in every number.
+import stdlib/numerics;
+
+element Ray {
+    o : Float;
+    d : Float;
+}
+
+element Hit {
+    p : Float;
+}
+
+func camera(p : i32) -> Ray = Ray{cast[[Float]](p), 1.0};
+
+func trace(ray : Ray) -> option[Hit] {
+    if ray.o < 16.0 {
+        return Hit{ray.o + ray.d};
+    }
+    return {};
+}
+
+func sky(ray : Ray) -> Float = ray.d * 0.5;
+
+// Three steps of decay by `k`, the same `k` every step.
+func fade(x : Float, k : Float, n : i32) -> Float {
+    if n >= 3 {
+        return x;
+    }
+    return fade(x * k, k, n + 1);
+}
+
+func [[noinline]] turned(h : Hit, ray : Ray) -> Ray {
+    return Ray{h.p * 2.0, ray.d};
+}
+
+func shade(h : Hit, ray : Ray, k : Float, depth : i32, p : i32,
+           max_depth : i32, rad : reduce(+) Float) -> void {
+    rad += fade(h.p, k, 0);
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(turned(h, ray), k, depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(ray : Ray, k : Float, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    hit = trace(ray);
+    if hit {
+        h = *hit;
+        shade(h, ray, k, depth, p, max_depth, rad);
+        return;
+    }
+    rad += sky(ray);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        ray = camera(p);
+        // A decay of the pixel's own, so that the entry has to carry it.
+        k = 0.5 + cast[[Float]](p) * 0.0625;
+        rad : reduce(+) Float = 0.0;
+        step(ray, k, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(3, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    fade.loopify();
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    hits = render.queue(root);
+    step.defer(shade, hits);
+}

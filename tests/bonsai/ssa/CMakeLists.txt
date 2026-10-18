@@ -118,6 +118,7 @@ add_bonsai_tests(
     split-unsigned.bonsai
     semantics-defer.bonsai
     entry-reads-through-calls.bonsai
+    entry-reads-loop-named.bonsai
     semantics-reload-by-slot.bonsai
     semantics-reload-by-slot-soa.bonsai
     semantics-reload-two-routes.bonsai

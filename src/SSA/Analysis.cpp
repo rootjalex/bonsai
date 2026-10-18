@@ -627,13 +627,58 @@ ReadPaths read_paths_through(const Function &func, const Functions *funcs,
             work.push_back(key);
         }
     };
+    // A name a block refers to without taking it as an argument is bound at
+    // the nearest block above that takes it, up the dominator tree -- the
+    // entry's parameter, in the end. A loop header made by loopify() names
+    // the function's parameters the loop does not carry (`p1`, `mat` of the
+    // probe walk), and the blocks of the loop pass them on under the name;
+    // keyed by the block that refers to them, their reads stopped at the
+    // loop and the parameter was reported unread, so the drain handed it
+    // undefined (apps/pbrt's probe walk compared every hit's material
+    // against undef, 2026-10-18). The same resolution the contention
+    // analysis makes (Origins::binding_block, SSA/Contention.cpp).
+    const BlockMap bmap = make_block_map(func);
+    optional<Cfg> cfg;
+    DomTree dom;
+    map<Key, string> bound;
+    const auto takes = [&](const Block &b, const string &name) {
+        return std::any_of(b.args.begin(), b.args.end(),
+                           [&](const Argument &arg) { return arg.name == name; });
+    };
+    const auto binding_block = [&](const string &block, const string &name) -> string {
+        const auto here = bmap.find(block);
+        if (here == bmap.end() || takes(*here->second, name)) {
+            return block;
+        }
+        const Key key{block, name};
+        if (const auto it = bound.find(key); it != bound.end()) {
+            return it->second;
+        }
+        if (!cfg.has_value()) {
+            cfg.emplace(func);
+            dom = compute_dominator_tree(*cfg);
+        }
+        string found = block;
+        BlockId b = cfg->find(block);
+        if (b != NO_BLOCK && dom.contains(b)) {
+            while (b != dom.root) {
+                b = dom.idom[b];
+                if (takes(*cfg->block(b), name)) {
+                    found = cfg->name(b);
+                    break;
+                }
+            }
+        }
+        bound.emplace(key, found);
+        return found;
+    };
     const auto key_of = [&](const string &block,
                             const shared_ptr<Value> &v) -> optional<Key> {
         if (v == nullptr) {
             return std::nullopt;
         }
         if (const auto *a = std::get_if<Argument>(&v->data)) {
-            Key key{block, a->name};
+            Key key{binding_block(block, a->name), a->name};
             depths.emplace(key, path_depth(a->type));
             return key;
         }
@@ -695,7 +740,6 @@ ReadPaths read_paths_through(const Function &func, const Functions *funcs,
             }
         }
     };
-    const BlockMap bmap = make_block_map(func);
     // `jump` passes its arguments to `target`'s arguments from `offset` on
     // (a loop's index, a call's value come first, defined by the edge).
     const auto thread = [&](const string &block, const Terminator::Jump &jump,
