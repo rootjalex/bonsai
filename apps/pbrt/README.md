@@ -57,7 +57,13 @@ before it.
   from the idle clocks every process starts at), each beside its kernel
   time (pbrt's `--stats` profile; our `BONSAI_KERNEL_STATS` profile of the
   fastest of the three renders), every image checked against pbrt's and
-  written as a PNG whose path the table gives.
+  written as a PNG whose path the table gives. A cell whose image fails
+  the check is held against pbrt's own spread: the scene rendered by
+  pbrt's CPU integrator, once per cell and untimed (`<cell>.pbrt-cpu-
+  radiance.pfm`), and the cell passes -- `ok: within pbrt's own
+  disagreement` -- when pbrt's two renderers disagree with each other more
+  than ours disagrees with the GPU one, on each check that failed (the
+  user's rule of 2026-10-18; `compare_gbuffer.py --pbrt-spread`).
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
   watched while it runs (anything else on the GPU, or another user's

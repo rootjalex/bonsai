@@ -27,7 +27,12 @@
 # its prefetch and first launches, some sixty milliseconds on this machine;
 # ours includes the host's launch gaps). Every image is checked against
 # pbrt's as compare.sh checks it, converted to a PNG, and the table says
-# where each is.
+# where each is. A cell whose image fails the check is held against pbrt's
+# own spread -- the scene rendered by pbrt's CPU integrator, once per cell,
+# untimed -- and passes when pbrt's two renderers disagree with each other
+# more than ours disagrees with the GPU one (the user's rule of 2026-10-18;
+# compare_gbuffer.py --pbrt-spread): the verdict then reads `ok: within
+# pbrt's own disagreement`.
 #
 # The GPU's clock is read before the run (gpu_clock.sh) and the table's
 # last line says whether it was locked (`--clock N` asks for a lock at N
@@ -392,6 +397,43 @@ for sc in $SCENES; do
     # The verdict line, `ok: ...` or `FAILED: ...` (`|| true`: a grep that
     # matches nothing is an exit status, and must not end the run).
     verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-200 || true)
+    # The user's rule of 2026-10-18: a scene whose two pbrt renderers -- the
+    # CPU integrator and the GPU wavefront the reference is -- disagree with
+    # each other more than ours disagrees with the reference is rendered
+    # correctly, whatever the lit-pixel and mean tolerances say of it
+    # (pavilion-day at 16 spp: a glass scene under an environment map,
+    # where pbrt's two renders part six times further than ours parts from
+    # either). A cell that fails is held against that spread: pbrt renders
+    # the scene on the CPU once per cell, untimed, at the same count, by
+    # `volpath` with the scene's integrator parameters -- what the wavefront
+    # runs whatever the scene names (wavefront/integrator.cpp) -- and the
+    # comparison is redone with it (compare_gbuffer.py --pbrt-spread).
+    if [[ "$verdict" == FAILED* ]]; then
+      spread="$cell.pbrt-cpu-radiance.pfm"
+      if [[ ! -f "$spread" ]]; then
+        echo "  $s differs from pbrt --gpu on $name at $SPP spp; rendering pbrt's CPU integrator for the spread" >&2
+        as_volpath() {
+          sed 's/^\([[:space:]]*Integrator[[:space:]]*\)"[a-z]*"/\1"volpath"/'
+        }
+        if [[ "$film" == "gbuffer" ]]; then
+          (cd "$dir" && full_floats "$name.pbrt" | as_volpath | "$PBRT" --spp "$SPP" --outfile "$cell.pbrt-cpu-radiance.exr" > "$cell.pbrt-cpu.log" 2>&1) || true
+          if [[ -f "$cell.pbrt-cpu-radiance.exr" ]]; then
+            "$IMGTOOL" convert --channels R,G,B --outfile "$spread" "$cell.pbrt-cpu-radiance.exr" > /dev/null || true
+          fi
+        else
+          (cd "$dir" && full_floats "$name.pbrt" | as_volpath | "$PBRT" --spp "$SPP" --outfile "$spread" > "$cell.pbrt-cpu.log" 2>&1) || true
+        fi
+      fi
+      if [[ -f "$spread" ]]; then
+        cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
+              --pbrt-spread "$spread" \
+              --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
+        agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
+        verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-200 || true)
+      else
+        echo "  pbrt's CPU render failed (see $cell.pbrt-cpu.log); the verdict stands" >&2
+      fi
+    fi
     python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" "$sc" | tee -a "$TABLE"

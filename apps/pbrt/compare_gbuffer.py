@@ -246,6 +246,17 @@ def take_pair(args, name):
     return pair
 
 
+def take_path(args, name):
+    if name not in args:
+        return None
+    i = args.index(name)
+    if i + 1 >= len(args):
+        raise SystemExit(f"{name} needs a filename")
+    value = args[i + 1]
+    del args[i:i + 2]
+    return value
+
+
 def compare_albedo(pbrt_path, bonsai_path, width, height):
     """The spectral round trip, reported as a mean and a count of outliers.
 
@@ -388,7 +399,8 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     return lit_pbrt, lit_bonsai, lit_both, ratio
 
 
-def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
+def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
+                         spread_path=None):
     """The image and nothing else, for a scene whose film is `rgb`.
 
     Which is every scene nobody wrote for this comparison. pbrt's `rgb` film
@@ -400,23 +412,49 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
     What is left is the thing the scene was written to produce, checked the way
     a stochastic estimate can be checked: the set of pixels that received light,
     the mean over the image, and how many pixels agree closely anyway.
+
+    `spread_path` is the same scene rendered by pbrt's *other* renderer -- its
+    CPU integrator, where the reference is its GPU wavefront -- and carries
+    the rule the user set on 2026-10-18: a scene whose two pbrt renderers
+    disagree with each other more than ours disagrees with the reference is
+    rendered correctly by us, whatever the tolerances say. The tolerances were
+    calibrated on simple scenes (RADIANCE_LIT_TOLERANCE); pavilion-day at 16
+    spp, a glass scene under an environment map, lights 0.17% fewer pixels in
+    ours than in pbrt's GPU render, and pbrt's CPU render six times further
+    off than that. So each check that failed is held against pbrt's own figure
+    for it -- the lit-pixel gap, the mean's distance from one -- and the
+    verdict is `ok` when none of ours is the larger disagreement. Only a
+    failing comparison asks for the spread, so the harness renders it for
+    failing cells alone (gpu_compare.sh).
     """
     pw, ph, _ = read_pfm(radiance_pair[0])
     lit_pbrt, lit_bonsai, lit_both, ratio = compare_radiance(
         radiance_pair[0], radiance_pair[1], pw, ph)
-    failed = False
+    failures = []
     lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
                                                      lit_both)
     if lit_failed:
-        failed = True
-        print(f"FAILED: {lit_bonsai} pixels received light here against "
-              f"pbrt's {lit_pbrt}, a gap of {lit_gap} where {lit_allowed:.0f} "
-              f"was allowed")
+        failures.append(("lit", f"{lit_bonsai} pixels received light here "
+                         f"against pbrt's {lit_pbrt}, a gap of {lit_gap} where "
+                         f"{lit_allowed:.0f} was allowed"))
     if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
-        failed = True
-        print(f"FAILED: the image is {ratio:.5f}x pbrt's on average, over the "
-              f"{RADIANCE_MEAN_TOLERANCE:.0%} two estimates of one integral "
-              f"should agree to")
+        failures.append(("mean", f"the image is {ratio:.5f}x pbrt's on average, "
+                         f"over the {RADIANCE_MEAN_TOLERANCE:.0%} two estimates "
+                         f"of one integral should agree to"))
+    covered, uncovered = [], []
+    if failures and spread_path is not None:
+        print("pbrt's own other renderer against the reference, the spread:")
+        s_lit_pbrt, s_lit_other, _, s_ratio = compare_radiance(
+            radiance_pair[0], spread_path, pw, ph)
+        s_gap = abs(s_lit_pbrt - s_lit_other)
+        for which, _ in failures:
+            if which == "lit":
+                ok = s_gap >= lit_gap
+                note = f"lit-pixel gap {lit_gap} where pbrt's own is {s_gap}"
+            else:
+                ok = abs(s_ratio - 1.0) >= abs(ratio - 1.0)
+                note = f"mean {ratio:.5f}x where pbrt's own is {s_ratio:.5f}x"
+            (covered if ok else uncovered).append(note)
     if pbrt_seconds is not None and bonsai_seconds is not None:
         print(f"render time: pbrt {pbrt_seconds * 1e3:.1f} ms, "
               f"bonsai {bonsai_seconds * 1e3:.1f} ms", end="")
@@ -431,9 +469,18 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats):
             print(f"  (best of {int(repeats)} runs on each side)")
         print("  (pbrt's own render timer, from the image it wrote; ours wraps "
               "the render call)")
-    if not failed:
+    if not failures:
         print("ok: the image matches pbrt")
-    return 1 if failed else 0
+        return 0
+    if spread_path is not None and not uncovered:
+        print("ok: within pbrt's own disagreement -- " + "; ".join(covered))
+        return 0
+    for _, text in failures:
+        print(f"FAILED: {text}")
+    if spread_path is not None:
+        print("  pbrt's own disagreement does not cover: " + "; ".join(uncovered)
+              + ("; it covers " + "; ".join(covered) if covered else ""))
+    return 1
 
 
 def main(argv):
@@ -452,17 +499,22 @@ def main(argv):
     radiance_only = "--radiance-only" in args
     if radiance_only:
         args.remove("--radiance-only")
+    # pbrt's other renderer's image of the same scene, for the rule that a
+    # scene pbrt disagrees with itself on more than we disagree with it is
+    # rendered correctly (report_radiance_only).
+    spread_path = take_path(args, "--pbrt-spread")
     if radiance_only:
         if radiance_pair is None:
             raise SystemExit("--radiance-only needs --radiance")
         return report_radiance_only(radiance_pair, pbrt_seconds,
-                                    bonsai_seconds, repeats)
+                                    bonsai_seconds, repeats, spread_path)
     if len(args) != 2:
         raise SystemExit(
             f"usage: {argv[0]} <pbrt.pfm> <bonsai.pfm> "
             f"[--shading <a.pfm> <b.pfm>] [--albedo <a.pfm> <b.pfm>] "
             f"[--pbrt-seconds <s>] [--bonsai-seconds <s>] [--repeats <n>]\n"
-            f"       {argv[0]} --radiance-only --radiance <a.pfm> <b.pfm>")
+            f"       {argv[0]} --radiance-only --radiance <a.pfm> <b.pfm> "
+            f"[--pbrt-spread <pbrt-cpu.pfm>]")
 
     ref_w, ref_h, ref = read_pfm(args[0])
     got_w, got_h, got = read_pfm(args[1])
