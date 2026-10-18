@@ -19,6 +19,51 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-17, 23:40)
+
+**Every one of the 30 scenes matches pbrt's image now except pavilion-day
+at 16 spp, the calibrated tolerance artifact, and every one is faster.**
+The two bistro scenes had lit far more pixels than pbrt at every sample
+count since the first sweep (10-04). The cause was not the sampler, the
+light tree, the sky or the cutout test, each of which a probe scene
+cleared (PLAN.md, "The bistro lit-pixel bias"): pbrt masks an *area light*
+by the alpha texture its shape carries -- a point of the light the texture
+cuts out emits nothing when a ray lands on it and is no sample at all when
+a shadow ray is aimed at it (DiffuseAreaLight::L, ::SampleLi) -- and
+render.bonsai's AreaLight had been written without that mask. Bistro's
+emissive streetlight glass has an alpha of zero everywhere, so in pbrt
+those lamps light nothing, and in ours they lit the whole street dimly.
+The mask is in (render.bonsai: `AreaLight.alpha`, `area_light_masked`;
+the emissive hit carries the point and uv as pbrt's HitAreaLightWorkItem
+does; render_hook.cpp sets each light's alpha from its shape). Measured
+(apps/pbrt/scratch/alphafix-1016; kernel milliseconds, the least of
+three; the 10-11 columns are heatmap5's, under which the images failed):
+
+| scene | spp | pbrt | ours (10-11) | ours now | kernel speedup | image |
+|---|---|---|---|---|---|---|
+| bistro_cafe | 16 | 315.3 | 207.7 | 181.7 | 1.73x | matches |
+| bistro_vespa | 16 | 327.4 | 216.9 | 188.9 | 1.73x | matches |
+| bistro_cafe | 64 | 1269.2 | 830.6 | 727.3 | 1.75x | matches |
+| bistro_vespa | 64 | 1309.7 | 863.1 | 751.5 | 1.74x | matches |
+
+The wall speedups the harness printed are 2.27x and 2.16x at 16 spp,
+1.85x and 1.92x at 64. The kernels are faster than on 10-11 as well
+(the spawn/join and queue work since), and the masked lamps' samples,
+declined now as pbrt declines them, cost nothing. A probe built for the
+rule itself -- a quad whose alpha is a gradient, as the light -- lands
+1.0% under pbrt's lit count and mean, uniformly over the image, with 78%
+of the shared pixels exact and the rest at ratios near 2 and 1/2; an
+open detail, noted below, not a transport defect of the scenes.
+
+The megakernel schedules' 1.5x slowdown since 10-02 is not the driver:
+10-02's compiler rebuilt under today's driver renders killeroo-simple at
+64 spp in 298 ms against 459 ms for the current one. Nor is it the
+texture graph's non-inlined evaluator calls, the raygen's one structural
+difference from then (448 real call sites): a renderer with the calls
+removed takes 468 ms and one with the calls kept and the callees made
+trivial 460 ms. A bisect over the 210 commits between is running; its
+first step puts the 10-07 commit already at 457 ms.
+
 ## Where it stands (2026-10-15, 16:15)
 
 **The megakernel schedules render book again; the crash was the
@@ -1827,7 +1872,24 @@ Each cell is ours / pbrt's. The three trace rows are the ones the fix
 touched (the shadow row only where the scene has alpha-tested geometry,
 whose any-hit program binds elements: pavilion, sanmiguel, landscape).
 
-## To do, in order (2026-10-12, 21:25)
+## To do, in order (2026-10-17, 23:40)
+
+0. The 30-scene gate is met but for pavilion-day's 16-spp cell, whose
+   lit-pixel verdict is the 09-29 calibration artifact (pbrt's own two
+   renderers disagree there six times more than we do with either): the
+   tolerance is right for the simple scenes it was set on, so the
+   question is whether the table should carry a per-scene or spp-aware
+   allowance for a glass scene under an environment map at 16 spp, or keep
+   printing FAILED against the calibration note -- the user's call. Open
+   from the fix: the synthetic masked-light probe (probes/masked_light_d1)
+   sits 1.0% under pbrt's lit count and mean; the megakernel bisect (the
+   slowdown is neither the driver nor the non-inlined calls). Tooling
+   debts found on the way: convert_scene.sh's stamp does not see an
+   `Include`d file change; check_differentials.sh aborts in our
+   `--print-differentials` (a host buffer without a size); scene_dump
+   refuses the orthographic camera.
+
+## To do, in order (2026-10-12, 21:25; items 1-5 as they stood)
 
 1. The user's rulings of 11:50 and 16:40 are done and measured (PLAN.md,
    the four sections of 10-12): the record and every other induced

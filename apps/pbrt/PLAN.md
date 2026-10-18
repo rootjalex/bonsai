@@ -14883,3 +14883,134 @@ into a reducer four spawned calls may share, which the semantics call a
 race -- and are plain again now that they are atomic by declaration and
 the demotion can show every drain's slots distinct, so the kernels are
 the same code. The table is REPORT.md's "Where it stands (2026-10-15)".
+
+### The bistro lit-pixel bias: pbrt masks an area light by its alpha texture (10-15 night to 10-17)
+
+The 30-scene gate had three image verdicts standing against it after
+heatmap5 (10-11): pavilion-day at 16 spp, the calibrated tolerance artifact
+of 09-29 (pbrt's own CPU and GPU renders disagree there six times more
+than we do with either), and bistro_cafe and bistro_vespa at every count,
+where we light far more pixels than pbrt -- 2,044,954 against 1,880,575 at
+16 spp on cafe, dim ones (median luminance 1.7e-4) in the restaurant behind
+its windows and under the arch -- with the means agreeing to 0.04%. The
+bias had been investigated on 10-05 and 10-07 and left at "the light tree's
+choice, two thirds of it, and `uc` differing in its bits". It is neither.
+The chain of probes that found it, each a scene under
+~/projects/pbrt-v4-scenes (bistro/ and a new probes/ directory, untracked
+there as the 10-07 probes are) rendered by `gpu_compare.sh` against
+`pbrt --gpu` at 1 spp with maxdepth 1 -- emission and one light sample per
+pixel, so a pixel's value names what the light sampler did -- and read
+with scratchpad lit_diff.py (lit sets both ways, agreement, luminance of
+the one-sided pixels, chromaticity):
+
+- *The sampler is cleared.* killeroo-simple with `Sampler "zsobol"` in
+  place of halton agrees with pbrt on 88.6% of pixels at 1 spp and 65.0% at
+  16 (halton's figure is 65.6%): our zsobol draws are pbrt's at the bounce
+  dimensions too, which the zsobol test covers only at the camera's. A
+  halton bistro (bistro_vespa_d1h) diverges exactly as the zsobol one:
+  +152,547 lit against +152,835, 1.2% agreement both.
+- *The light tree, the sky and the triangle sampling are cleared in
+  isolation.* One quad light over a floor: 100% agreement; the quad with
+  vertex normals opposing its winding (pbrt orients the emitting side by
+  FaceForward to the interpolated normal): 99.8%; bistro's sky alone over a
+  plane: 95.2%; thirty-six quad lights (a 143-node tree) with and without
+  the sky: the lit-pixel verdicts pass, 49.7% and 99.2% agreement.
+- *Normal maps are cleared.* Bistro with every `normalmap` dropped from
+  materials.pbrt keeps the bias (+161,164).
+- *Alpha is where it arises.* Bistro with every `"texture alpha"` dropped
+  from geometry.pbrt lights 591,463 pixels against pbrt's 591,292. Not
+  because opaque trees block the sky on both sides -- the counts rise
+  without alpha, since the cut-out quads become lit surfaces -- but
+  because the counts agree to 0.03%.
+- *The cutout test itself is right.* A quad whose alpha is a horizontal
+  gradient 0..1 (probes/alpha_gradient.png, RGBA) over a floor, lit from
+  above with the camera below the quad so only shadow rays cross it, and
+  the same quad over an emissive floor seen from above so only camera rays
+  do (alpha_shadow_d1, alpha_camera_d1): the pass fraction per column is
+  the sRGB-decoded alpha on both sides, 92,626 against 92,713 lit pixels
+  and 91,748 against 91,857 (scratchpad alpha_columns.py). A CUDA test
+  (scratchpad srgb_test.cu) settled on the way that the texture unit does
+  decode a one-channel 8-bit texture under the sRGB flag, which is how
+  pbrt's GPU reads its alpha textures, so both renderers decode.
+- *The first hits are the same.* Bistro rendered with `Film "gbuffer"` on
+  both sides: every pixel hits on both, 99.3% of shading normals within
+  one degree (scratch/gbuffer_compare_1016.sh). So the excess is in the
+  direct lighting at the same points, and pbrt agrees with itself there:
+  pbrt's CPU render of bistro_vespa_d1 lights 484,220 pixels to its GPU's
+  483,217, with ours at 636,052.
+
+What alpha changes besides the cutout is the *light*. pbrt hands a shape's
+alpha texture to the area light it carries (scene.cpp, `Light::CreateArea(
+..., alphaTex, ...)`), and DiffuseAreaLight is masked by it as the shape is
+cut out by it: `L(p, n, uv, w, lambda)` returns zero after the one-sided
+test where `AlphaMasked(Interaction(p, uv))` (lights.h), and `SampleLi`
+returns no sample at all for a masked point (lights.cpp, "Check sampled
+point on shape against alpha texture, if present"). `AlphaMasked` reads the
+texture through the basic evaluator at the point and its uv alone, takes
+one or more as never masked and zero or less as always, and in between
+draws `HashFloat(intr.p()) > a` -- the hash of the point's twelve bytes,
+not the ray's. The light tree is untouched (`Bounds()`'s phi has no alpha
+in it, which is why pbrt's own dumped tree matched ours), and the uniform
+sampler too, which is why the bias was smaller under it. render.bonsai's
+AreaLight said "with no image and no alpha mask", on purpose, since
+2026-09. Bistro's emissive streetlight glass declares
+`"texture alpha" "alpha:textures/Emissive_StreetLight_BaseColor.png"`, a
+16x16 one-channel image that is zero everywhere: in pbrt those lamps emit
+nothing -- every sample of them is declined, every ray that lands on them
+sees black -- and in ours they lit the street, dimly and from everywhere,
+which is the signature the masks showed. The lantern and the curtains carry
+partial masks of the same kind.
+
+**The fix (render.bonsai, rng.bonsai, render_hook.cpp).** `AreaLight`
+carries `alpha`, the emitting shape's texture index or -1, set per light
+where the driver makes them (a shape's `prim.alpha`, a mesh light's
+`m.alpha`; the emission table stays per declaration). `area_light_masked(
+alpha, p, uv)` is pbrt's `AlphaMasked`, over `eval_float_basic` at a
+context of the point and uv with no footprint, and `hash_float3(p)` is
+pbrt's `HashFloat(Point3f)` (rng.bonsai: `hash3`, the twelve-byte Murmur
+the layered BSDF already used). `area_light_l` takes the point and uv and
+masks after the side test, as pbrt orders them; `light_l` and the emissive
+hit's `emissive_radiance`/`emissive_contribution` carry `p` and `uv` (pbrt's
+HitAreaLightWorkItem carries `p` and `uv` for exactly this), so the
+emissive queue's entry grows by twenty bytes; the three CPU integrators
+pass the hit's. `light_sample_li`'s DiffuseArea arm declines a masked
+sample before asking the light what it emits. A probe for the rule:
+probes/masked_light_d1 -- the gradient-alpha quad is the light, over a
+floor, camera below.
+
+**Measured (10-17, 23:30; apps/pbrt/scratch/alphafix-1016, gpu-optix
+against `pbrt --gpu`, the least of three on each side, kernel
+milliseconds; the 10-11 column is heatmap5's, whose images failed).**
+
+| scene | spp | pbrt | ours (10-11) | ours now | kernel speedup | wall speedup | image |
+|---|---|---|---|---|---|---|---|
+| bistro_cafe | 16 | 315.3 | 207.7 | 181.7 | 1.73x | 2.27x | matches |
+| bistro_vespa | 16 | 327.4 | 216.9 | 188.9 | 1.73x | 2.16x | matches |
+| bistro_cafe | 64 | 1269.2 | 830.6 | 727.3 | 1.75x | 1.85x | matches |
+| bistro_vespa | 64 | 1309.7 | 863.1 | 751.5 | 1.74x | 1.92x | matches |
+
+bistro_vespa_d1 at 1 spp matches too (it lit 636,052 pixels to pbrt's
+483,217 before). Every image verdict of the 30-scene gate is "matches"
+now but pavilion-day's 16-spp cell, the calibrated tolerance artifact.
+The probe for the rule itself, probes/masked_light_d1 (the gradient-alpha
+quad as the light, over a floor), lands 1.0% under pbrt in lit count
+(177,461 against 179,282) and in mean (0.9903x), uniformly over the image
+-- the lit fraction by column eighth runs 0.114..0.635 against pbrt's
+0.115..0.639 -- with 77.8% of the shared pixels exact to 1e-3 and the
+rest at ratios near 2 and 1/2 in equal numbers. Not understood yet; one
+candidate is pbrt's `intr.p()` being the midpoint of the sampled point's
+error interval rather than the point, so that its `SampleLi` and `L`
+hash two different points when the midpoint rounds away and decline a
+sample both would otherwise have taken, but that would make pbrt the
+darker side. Left as the open detail it is: the scenes pass.
+
+**Tooling found on the way.** `convert_scene.sh`'s stamp keys on the
+scene file, not on what it includes: editing an `Include`d file leaves the
+cached conversion in place, and one probe rendered a stale scene on our
+side against a fresh one on pbrt's (a many-light probe whose quads faced
+up in the cached copy). Delete `apps/pbrt/scenes/converted/<dir>/<scene>.txt*`
+by hand after editing an include, or hash the includes into the stamp (a
+debt). `check_differentials.sh` aborts in our `--print-differentials`
+(a host buffer whose size was never given) -- rot since the GPU work, a
+debt. scene_dump refuses the orthographic camera, so probes use
+perspective ones.
