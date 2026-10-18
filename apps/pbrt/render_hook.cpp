@@ -2718,6 +2718,9 @@ int main(int argc, char **argv) {
                         l.blackbody_normalization, l.scale,
                         &out_light.emission);
         out_light.two_sided = l.two_sided != 0;
+        // The alpha mask is the emitting shape's, not the emission's: set
+        // where each light is made below.
+        out_light.alpha = -1;
         emission.push_back(out_light);
     }
 
@@ -2748,10 +2751,12 @@ int main(int argc, char **argv) {
         if (prim.light < 0) {
             continue;
         }
+        // pbrt: Light::CreateArea(..., alphaTex, ...) -- the shape's alpha
+        // texture masks the light it carries (DiffuseAreaLight::AlphaMasked).
+        AreaLight area = emission[size_t(ordinal_to_emission[size_t(prim.light)])];
+        area.alpha = prim.alpha;
         Light light;
-        Light_DiffuseArea(
-            light, emission[size_t(ordinal_to_emission[size_t(prim.light)])],
-            prim.shape);
+        Light_DiffuseArea(light, area, prim.shape);
         lights[size_t(prim.light)] = light;
     }
     // A mesh's lights: one per triangle from the first's ordinal on, each
@@ -2766,9 +2771,12 @@ int main(int argc, char **argv) {
             const size_t ordinal = size_t(m.first_light) + k;
             Shape shape;
             Shape_Tri(shape, Triangle{mp.mesh, k});
+            // The mesh's alpha texture masks every triangle's light, as the
+            // shape's does above.
+            AreaLight area = emission[size_t(ordinal_to_emission.at(ordinal))];
+            area.alpha = m.alpha;
             Light light;
-            Light_DiffuseArea(light, emission[size_t(ordinal_to_emission.at(ordinal))],
-                              shape);
+            Light_DiffuseArea(light, area, shape);
             lights.at(ordinal) = light;
         }
     }

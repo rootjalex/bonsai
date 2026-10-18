@@ -117,6 +117,15 @@ func hash_float6(a : i32, b : i32, c : i32, d : i32, e : i32,
                  f : i32) -> Float =
     cast[[Float]](cast[[u32]](hash6(a, b, c, d, e, f))) * 2.3283064365386963e-10;
 
+// pbrt: `HashFloat(intr.p())`, the draw an area light's alpha mask is tested
+// against (DiffuseAreaLight::AlphaMasked) -- the twelve bytes of the point
+// alone, so every ray that lands on or samples the same point of a light gets
+// the same answer.
+func hash_float3(p : vec3f) -> Float =
+    cast[[Float]](cast[[u32]](hash3(reinterpret[[i32]](p.x), reinterpret[[i32]](p.y),
+                                    reinterpret[[i32]](p.z)))) *
+    2.3283064365386963e-10;
+
 // pbrt: `HashFloat(ctx.p, ctx.wo, materials[0], materials[1])`, the draw
 // that resolves a mix material (MixMaterial::ChooseMaterial) -- MurmurHash64A
 // over the forty bytes of the point, the direction and the two Material

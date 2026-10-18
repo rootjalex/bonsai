@@ -84,31 +84,66 @@ func emission_at(e : Emission, lambda : SampledWavelengths) -> vec4f {
     }
 }
 
-// pbrt: DiffuseAreaLight, with no image and no alpha mask -- a shape that
-// emits the same radiance in every direction it faces.
+// pbrt: DiffuseAreaLight, with no image -- a shape that emits the same
+// radiance in every direction it faces.
 //
 // The only kind of light here so far, and the one a random walk can use without
 // any machinery at all: `RandomWalkIntegrator` never samples a light, it finds
 // one by hitting it, so this needs no `SampleLi`, no PDF and no shadow ray.
 //
 // `emission` is the scene's `L` (see Emission above); `scale` is pbrt's own
-// scale after the division that makes a radiance of one mean one nit.
+// scale after the division that makes a radiance of one mean one nit. `alpha`
+// is the emitting shape's alpha texture, or -1: pbrt hands a shape's `alpha`
+// to the area light it carries (scene.cpp, Light::CreateArea), and the light
+// is masked by it exactly as the shape is cut out by it -- a point of the
+// light where the texture says there is no surface emits nothing, whether a
+// ray lands there (`L`) or a shadow ray is aimed at it (`SampleLi`). Bistro's
+// streetlight glass is such a light: its alpha is zero everywhere, so in
+// pbrt it never lights anything.
 element AreaLight {
     emission : Emission;
     scale : Float;
     two_sided : bool;
+    alpha : i32;
+}
+
+// pbrt: DiffuseAreaLight::AlphaMasked -- is this point of the light cut out?
+// The texture is read through the basic evaluator, as pbrt's GPU reads it
+// (`BasicTextureEvaluator()(alpha, intr)`), at a context of the point and its
+// uv alone (pbrt's `Interaction(p, uv)`: no normal, no footprint); one or more
+// is never masked, zero or less always, and between the two the draw is
+// pbrt's hash of the point, `HashFloat(intr.p()) > a`.
+func area_light_masked(alpha : i32, p : vec3f, uv : vec2f) -> bool {
+    if alpha < 0 {
+        return false;
+    }
+    zero = vec3f{0.0, 0.0, 0.0};
+    ctx : TextureEvalContext = {p, zero, zero, zero, uv, 0.0, 0.0, 0.0, 0.0};
+    a = eval_float_basic(alpha, ctx);
+    if a >= 1.0 {
+        return false;
+    }
+    if a <= 0.0 {
+        return true;
+    }
+    return hash_float3(p) > a;
 }
 
 // pbrt: DiffuseAreaLight::L, which is what SurfaceInteraction::Le calls.
 //
-// `n` is the geometric normal as the shape gives it and `w` points back the way
-// the ray came. A one-sided light emits only where its normal points, so a ray
-// that reaches the back of one sees nothing -- which is not a detail: the
-// sphere in killeroo-simple is one-sided, and a two-sided reading of it would
-// light the scene from inside the sphere as well.
-func area_light_l(light : AreaLight, n : vec3f, w : vec3f,
-                  lambda : SampledWavelengths) -> vec4f {
+// `p` and `uv` are the point of the light the ray landed on, for the alpha
+// mask; `n` is the geometric normal as the shape gives it and `w` points back
+// the way the ray came. A one-sided light emits only where its normal points,
+// so a ray that reaches the back of one sees nothing -- which is not a detail:
+// the sphere in killeroo-simple is one-sided, and a two-sided reading of it
+// would light the scene from inside the sphere as well. pbrt tests the side
+// first and the mask second, and so does this.
+func area_light_l(light : AreaLight, p : vec3f, uv : vec2f, n : vec3f,
+                  w : vec3f, lambda : SampledWavelengths) -> vec4f {
     if !light.two_sided && (dot(n, w) < 0.0) {
+        return vec4f{0.0, 0.0, 0.0, 0.0};
+    }
+    if area_light_masked(light.alpha, p, uv) {
         return vec4f{0.0, 0.0, 0.0, 0.0};
     }
     return light.scale * emission_at(light.emission, lambda);
@@ -339,10 +374,11 @@ extern lights : array[Light];
 // than through the area light directly. An arm per kind, and only the ones that
 // are surfaces have an `L` at all -- an infinite light answers `Le(ray)` and
 // never this.
-func light_l(light : Light, n : vec3f, w : vec3f,
+func light_l(light : Light, p : vec3f, uv : vec2f, n : vec3f, w : vec3f,
              lambda : SampledWavelengths) -> vec4f {
     match light {
-        DiffuseArea(area, shape) => return area_light_l(area, n, w, lambda);
+        DiffuseArea(area, shape) =>
+            return area_light_l(area, p, uv, n, w, lambda);
         // An infinite light is not a surface, so nothing ever lands on one and
         // this is unreachable for it. pbrt says the same by not declaring `L`
         // on the class at all. Nor is a distant, a point or a spot light.
@@ -684,10 +720,16 @@ func light_sample_li(light : Light, ctx : ShapeSampleContext, u : vec2f,
             if (ss.pdf == 0.0) || (sqlen[[Float]](ss.p - ctx.p) == 0.0) {
                 return {};
             }
+            // pbrt: "Check sampled point on shape against alpha texture, if
+            // present" -- a sample that lands where the light is cut out is
+            // no sample at all, not a sample of zero radiance.
+            if area_light_masked(area.alpha, ss.p, ss.uv) {
+                return {};
+            }
             wi = unit_vector_(ss.p - ctx.p);
             // The light is asked what it emits *towards the viewer*, which is
             // -wi: `wi` points from the surface to the light.
-            emitted = area_light_l(area, ss.n, -wi, lambda);
+            emitted = area_light_l(area, ss.p, ss.uv, ss.n, -wi, lambda);
             if !nonzero(emitted) {
                 return {};
             }
@@ -1619,8 +1661,8 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // pbrt: SurfaceInteraction::Le. The emission of the surface the ray landed
     // on, which for a random walk is the only way light is ever found.
     emitted = select(prim.light >= 0,
-                     beta * light_l(lights[max(prim.light, 0)], surf.n, wo,
-                                    lambda),
+                     beta * light_l(lights[max(prim.light, 0)], surf.p, surf.uv,
+                                    surf.n, wo, lambda),
                      vec4f{0.0, 0.0, 0.0, 0.0});
     found = l + emitted;
 
@@ -1757,8 +1799,8 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // The emission of the surface itself, counted only when the previous bounce
     // could not have sampled it.
     emitted = select(specular_bounce && (prim.light >= 0),
-                     beta * light_l(lights[max(prim.light, 0)], surf.n, wo,
-                                    lambda),
+                     beta * light_l(lights[max(prim.light, 0)], surf.p, surf.uv,
+                                    surf.n, wo, lambda),
                      vec4f{0.0, 0.0, 0.0, 0.0});
     found : mut vec4f = l + emitted;
 
@@ -2043,7 +2085,8 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
     // share the credit.
     found : mut vec4f = l;
     if prim.light >= 0 {
-        emitted = light_l(lights[max(prim.light, 0)], surf.n, wo, lambda);
+        emitted = light_l(lights[max(prim.light, 0)], surf.p, surf.uv, surf.n,
+                          wo, lambda);
         if nonzero(emitted) {
             if (depth == 0) || specular_bounce {
                 found = l + beta * emitted;
@@ -3189,9 +3232,9 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
     }
     // pbrt: `if (intr.areaLight) hitAreaLightQueue->Push(...)`.
     if prim.light >= 0 {
-        spawn emissive_contribution(prim.light, surf.n, iwo, -iwo, beta,
-                                    r_u, r_l, depth, specular_bounce,
-                                    prev_ctx, ls, lambda, l);
+        spawn emissive_contribution(prim.light, surf.p, surf.uv, surf.n, iwo,
+                                    -iwo, beta, r_u, r_l, depth,
+                                    specular_bounce, prev_ctx, ls, lambda, l);
     }
     // pbrt's wavefront: `if (wavefrontDepth == maxDepth) break` before
     // EvaluateMaterialsAndBSDFs -- by the round, not the ray's depth, which a
@@ -3268,12 +3311,15 @@ func escaped_contribution(ray_o : vec3f, ray_d : vec3f, beta : vec4f,
 // wavefront's form: the material kernel is handed the path's `r_l` as it
 // was, where the CPU integrator's `r_l *= lightPDF` persists into an
 // interface skip; the two differ only for an emissive interface.
-func emissive_radiance(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
+func emissive_radiance(light : i32, p : vec3f, uv : vec2f, n : vec3f,
+                       wo : vec3f, ray_d : vec3f,
                        beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
                        specular_bounce : bool, prev_ctx : ShapeSampleContext,
                        ls : LightSampler, lambda : SampledWavelengths) -> vec4f {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
-    emitted = light_l(lights[max(light, 0)], n, wo, lambda);
+    // pbrt: `w.areaLight.L(w.p, w.n, w.uv, w.wo, w.lambda)` -- the hit's
+    // point and uv travel with the item for the light's alpha mask.
+    emitted = light_l(lights[max(light, 0)], p, uv, n, wo, lambda);
     if !nonzero(emitted) {
         return zero;
     }
@@ -3288,12 +3334,13 @@ func emissive_radiance(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
 // The spawned form: the emission above added into the sample's `l`. What
 // `vol_route` spawns for an emissive hit, so that a schedule may queue the
 // emissive hits of a round (HandleEmissiveIntersection).
-func emissive_contribution(light : i32, n : vec3f, wo : vec3f, ray_d : vec3f,
+func emissive_contribution(light : i32, p : vec3f, uv : vec2f, n : vec3f,
+                           wo : vec3f, ray_d : vec3f,
                            beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
                            specular_bounce : bool, prev_ctx : ShapeSampleContext,
                            ls : LightSampler, lambda : SampledWavelengths,
                            l : reduce(+) vec4f) -> void {
-    l += emissive_radiance(light, n, wo, ray_d, beta, r_u, r_l, depth,
+    l += emissive_radiance(light, p, uv, n, wo, ray_d, beta, r_u, r_l, depth,
                            specular_bounce, prev_ctx, ls, lambda);
     return;
 }
