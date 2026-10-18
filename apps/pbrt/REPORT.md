@@ -19,6 +19,51 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-18, 12:00)
+
+**The megakernels are 1.24x to 1.71x faster than on 10-15, by schedule.**
+The slowdown since 10-02 was the program's growth into one raygen (below,
+10-17); the schedule's answer needed a form of `specialize` that could
+name pbrt's `haveSubsurface`, which the program keeps in the VolPath
+variant of the integrator as pbrt keeps it in its integrator. The user
+chose the syntax `render[VolPath].specialize(VolPath::have_subsurface)`,
+the compiler has it (9c823901: the field form, PLAN.md "The field form of
+specialize"), and both megakernel schedules copy the volpath pixel loop
+per scene flag, `have_media` and `VolPath::have_subsurface`, so a scene
+launches a raygen holding neither media nor subsurface code when it has
+neither -- 219,744 PTX lines against the 606,298 of the one raygen before.
+Measured on the protocol's three scenes (apps/pbrt/scratch/
+mega-field-1018; kernel milliseconds, the least of three):
+
+| scene | spp | pbrt | gpu-optix-mega (10-15) | gpu-optix-mega | mega over pbrt | gpu-optix-mega-ser (10-15) | gpu-optix-mega-ser | mega-ser over pbrt |
+|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 116.2 | 88.3 | 0.56x | 73.4 | 49.3 | 1.00x |
+| killeroo-gold | 16 | 149.4 | 317.4 | 183.2 | 0.82x | 266.4 | 159.6 | 0.94x |
+| book | 16 | 152.8 | 338.8 | 240.9 | 0.63x | 277.7 | 210.1 | 0.73x |
+| killeroo-simple | 64 | 198.0 | 459.5 | 349.8 | 0.57x | 298.2 | 197.8 | 1.00x |
+| killeroo-gold | 64 | 597.6 | 1259.2 | 736.1 | 0.81x | 1073.4 | 652.2 | 0.92x |
+| book | 64 | 617.0 | 1365.1 | 1001.1 | 0.62x | 1126.9 | 837.2 | 0.74x |
+
+Every image matches pbrt's. The sorted megakernel is at pbrt's kernel
+time on killeroo-simple and within 8% on killeroo-gold; book is a quarter
+behind. killeroo-simple at 64 spp is 349.8 ms where the wired variant of
+10-18 predicted 346 and 10-02's compiler renders 298, so what is left of
+the climb is the 52 ms of shapes and materials every megakernel carries
+and no scene flag names. The wavefront needs no such flag: its subsurface
+stages are kernels of their own, launched when a scene has the material,
+and its material kernels are one per material arm (PLAN.md, "The
+wavefront does not need it"). The standing schedule stays gpu-optix.
+
+**The pavilion rule.** The user's ruling of 10-18: a scene pbrt's own two
+renderers disagree on more than we disagree with pbrt is rendered
+correctly by us. The harness applies it (9bef802f): a cell whose image
+fails the check is held against pbrt's CPU render of the same scene, and
+passes when pbrt's disagreement with itself is the larger -- pavilion-day
+at 16 spp, 2,058 lit pixels from pbrt --gpu where pbrt's CPU render is
+5,529 from it, reads `ok: within pbrt's own disagreement`. The 30-scene
+heatmap is being redone under it (compare-out-heatmap6; the paragraph
+below is filled in when it ends).
+
 ## Where it stands (2026-10-17, 23:40)
 
 **Every one of the 30 scenes matches pbrt's image now except pavilion-day

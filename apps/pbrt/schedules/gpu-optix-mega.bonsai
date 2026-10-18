@@ -26,6 +26,17 @@ schedule {
     vol_shadow_track.loopify();
 
     render.specialize(integrator);
+    // pbrt's `haveMedia` and `haveSubsurface`, fixed per scene as the
+    // integrator is (WavefrontPathIntegrator's members): the volpath pixel
+    // loop copied per flag, so that the raygen a scene launches carries no
+    // code for media or subsurface scattering it has none of. A megakernel
+    // pays for every arm compiled into its one program whether or not a
+    // scene reaches it (Laine, Karras and Aila 2013), and the two flags
+    // gate the largest of them (PLAN.md, "The megakernel's 1.5x since
+    // 10-02"). `have_media` is a parameter of `render`; `have_subsurface`
+    // is a field of the VolPath integrator, named through its arm.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
 
     // The ray tracing hardware answers both queries.
     trace.bind(RTCore);

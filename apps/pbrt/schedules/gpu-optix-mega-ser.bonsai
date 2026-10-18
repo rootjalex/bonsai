@@ -26,6 +26,10 @@ schedule {
     vol_shadow_track.loopify();
 
     render.specialize(integrator);
+    // The volpath pixel loop per scene flag, as gpu-optix-mega.bonsai has
+    // it: pbrt's `haveMedia` and `haveSubsurface`.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
 
     trace.bind(RTCore);
     trace_any.bind(RTCore);

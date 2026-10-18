@@ -15147,3 +15147,126 @@ launch like any parameter, one indirection away). Neither was done
 tonight: the one is a program restructuring and the other a compiler
 extension, each the user's to approve. The wavefront schedules are
 untouched by either.
+
+## The field form of specialize, and the megakernel per scene flag (10-18)
+
+The user's rulings of 10-18 on the report above: a scene pbrt's own two
+renderers disagree on more than we disagree with pbrt is rendered
+correctly by us, so pavilion-day is fine and the heatmap is to be redone;
+the megakernel needs more specialization, and the syntax for the flag the
+integrator's arm carries is `render[VolPath].specialize(VolPath::
+have_subsurface)` -- "to tell the compiler where to look for that
+boolean" -- rather than `li_vol_path.specialize(have_subsurface)`, which
+would be the same condition but could not unswitch the loop all the way
+out of the renderer; and does the wavefront need the same?
+
+**The compiler (9c823901).** The whole-function specialize names a
+parameter of the function and copies its loops per variant of the
+parameter's type or per value of a bool; `have_subsurface` is neither, it
+is a field of the VolPath arm of `integrator`, bound by the match in
+`integrator_li`, which the inliner has long since put inside the pixel
+loop. The field form names it through its arm. What it does, in the terms
+of SSA/Specialize.cpp: the parameter is found as the one whose variant
+type has an arm `VolPath`; the loops copied are that arm's -- the copies
+`render.specialize(integrator)` made, `p!VolPath`, which is why the field
+form is written after it and on it (an error otherwise, saying what to
+write first) -- and the copies are `False` and `True` as a bool
+parameter's are. An arm's fields are stored in the payload's 32-bit words
+at their byte offsets (Lower/WordStorage.h: C's rule), a bool as one
+byte, and Lower/ADTs.cpp now records each inline arm's fields and offsets
+beside the storage it already recorded (ir::Program::AdtStorage::
+fields_of). The loop's block reads the byte -- `((words[k] >> shift) &
+0xff) != 0`, the read the match lowering makes of the binding -- and
+dispatches on it to the two selectors; each copy's value of the parameter
+is the given one with the arm's tag and that byte of its payload set to
+the copy's value (force_fixed_field: the word masked and or-ed, the words
+rebuilt lane by lane), so that every read of the field, wherever inlining
+put it, reads the constant as the match reads the tag; and a callee handed
+the value is copied with the field fixed as it is copied with a tag fixed.
+The fold is then two rules and one step: the copy's struct folds into its
+reads (the LoadField rule, as for the tag); the pass folds the reads of the
+words it built at a constant word (fold_forced_words); and the byte taken
+out of the forced word folds to the constant by a known-bits rule new to
+the simplifier -- what is known of an unsigned scalar's bits through and,
+or and constant shifts, a result every bit of which is known being the
+constant -- which also folds two goldens' constants (`(k & 3) & 0`, `1 <<
+56`). Tests at the ssa, ptx and execution levels (specialize-field: under
+a GPU bind the arm's kernel becomes two, neither reading the byte, one
+doubling), and three errors by name: a field that is not a bool, an arm no
+parameter has, the directive before the arm's loop exists.
+
+**A rule tried and taken out.** The natural general rule, "a lane of a
+vector built from its lanes is the lane", `extract_idx(make_struct(a, b),
+1) = b`, folded the field too -- and 20 goldens with it, one from 622
+lines to 4,198: SSA/SortRecursion.cpp recognizes a gang's run of calls by
+its arguments being the lanes of one vector (`lane_of`: `extract_idx(v,
+k)` for the k-th call), and with the lanes folded to the scalars they were
+built from, the run of a vectorized traversal was no longer a gang's and
+took Embree's scalar peel-and-insert chain in place of the lane sort. So
+the fold is the specialize pass's own, on the words it built, and the
+simplifier's ExtractIdx case says why. The rtq schedules are untouched;
+the suite's 1684 tests pass.
+
+**The schedules, and what they give back.** gpu-optix-mega and
+gpu-optix-mega-ser gain, after `render.specialize(integrator)`:
+
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+
+so the volpath pixel loop is four raygens, one per pair of flags, and the
+host launches the scene's. Their PTX (`strings -n 6 render.out`), against
+the one raygen of 606,298 lines before: `p$VolPath$False$False` 219,744
+lines (no media, no subsurface: the wired variant of 10-18 had 218k),
+`$False$True` 248,659, `$True$False` 512,855 (the wired "no subsurface"
+had 509k), `$True$True` 612,423. Measured on the protocol's three scenes
+(apps/pbrt/scratch/mega-field-1018, `gpu_compare.sh`, kernel ms, the
+least of three; the 10-15 columns are REPORT's table of that day):
+
+| scene | spp | pbrt | mega 10-15 | mega now | mega over pbrt | mega-ser 10-15 | mega-ser now | mega-ser over pbrt |
+|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 116.2 | 88.3 | 0.56x | 73.4 | 49.3 | 1.00x |
+| killeroo-gold | 16 | 149.4 | 317.4 | 183.2 | 0.82x | 266.4 | 159.6 | 0.94x |
+| book | 16 | 152.8 | 338.8 | 240.9 | 0.63x | 277.7 | 210.1 | 0.73x |
+| killeroo-simple | 64 | 198.0 | 459.5 | 349.8 | 0.57x | 298.2 | 197.8 | 1.00x |
+| killeroo-gold | 64 | 597.6 | 1259.2 | 736.1 | 0.81x | 1073.4 | 652.2 | 0.92x |
+| book | 64 | 617.0 | 1365.1 | 1001.1 | 0.62x | 1126.9 | 837.2 | 0.74x |
+
+Every image matches pbrt's. The plain megakernel is 1.24x to 1.71x faster
+than on 10-15 and the sorted one 1.27x to 1.66x; killeroo-simple at 64 spp
+is 349.8 ms where the wired variant predicted 346 and 10-02's compiler
+renders 298, so the 52 ms left are the shapes and materials of 10-03 that
+every megakernel carries and no scene flag names. The sorted megakernel is
+at pbrt's kernel time on killeroo-simple (1.00x at both counts; 2.23x and
+1.31x on wall, where pbrt's process pays its fixed costs) and within 8% on
+killeroo-gold; book, the scene with an interior node in its light tree and
+the widest mix of materials, is the one still a quarter behind.
+
+**The wavefront does not need it.** pbrt's wavefront keeps `haveSubsurface`
+a run-time member: GenerateRaySamples branches on it per ray for the
+dimension and the three extra draws (wavefront/samples.cpp:40, :58), the
+subsurface kernels -- the BSSRDF evaluation, the random-hit raygen, the
+out-scattering, the second shadow pass -- are their own launches, made
+only when it is true (integrator.cpp:245, subsurface.cpp:19), and every
+material kernel tests `w.material->HasSubsurfaceScattering()` per hit, a
+tag dispatch over per-material constants, before pushing onto the BSSRDF
+queue (surfscatter.cpp:227). gpu-optix has the same shape, and tighter:
+the draws' branch is pbrt's; the four subsurface drains are the
+`bssrdfs`, `probes`, `exits` and `exit_shadow` queues' kernels, gated off
+by the owner's flag (SSA/GateDrains.h); and the material kernels are one
+per material arm, in which `material_subsurface(material)` folds to
+nothing for a material that is not subsurface, so the push is compiled
+into the subsurface material's kernel alone where pbrt's dispatch sits in
+each. Nothing of the wavefront's hot kernels carries subsurface code a
+scene does not use, which is why it got faster over the commits that
+slowed the megakernel.
+
+**pavilion-day, and the rule as tooling (9bef802f).** gpu_compare.sh
+renders pbrt on the CPU once per failing cell, untimed, at the cell's
+count, by `volpath` with the scene's integrator parameters -- what the
+wavefront runs whatever the scene names -- and compare_gbuffer.py holds
+each failed check against pbrt's own figure for it (`--pbrt-spread`): the
+lit-pixel gap against the gap between pbrt's two renders, the mean's
+distance from one against theirs. On heatmap5's pavilion-day at 16 spp
+ours is 2,058 lit pixels from pbrt --gpu where pbrt's CPU render is 5,529
+from it, and the cell reads `ok: within pbrt's own disagreement`. Seven
+seconds of wall per failing cell, three minutes of CPU.
