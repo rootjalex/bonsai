@@ -1,0 +1,26 @@
+func [[export]] descend(n : i32, stop : i32) -> i32 {
+  i : mut i32
+  chosen : mut i32
+  done : mut bool
+  i = 0
+  chosen = -1
+  done = false
+  while (!(*done)) {
+    let @3 = n <= (*i) in
+    if (@3) {
+      chosen = (*i)
+      done = true
+    } else {
+      let @6 = (*i) == stop in
+      if (@6) {
+        done = true
+      } else {
+        let @8 = (*i) + 1 in
+        i = @8
+      }
+    }
+  }
+  return (*chosen)
+}
+
+

@@ -1,0 +1,45 @@
+//! flags: -b llvm -e
+
+// The light-tree descent's shape run: a loop whose flag is set to `true`
+// in two arms, one nested, and carried round otherwise (the ssa test of the
+// same name says what the analysis has to answer). descend(n, stop) walks
+// i up from 0 and stops at the first of i == n, choosing i, or i == stop,
+// choosing nothing.
+//
+//   descend(5, 10)   5    five steps, then the leaf
+//   descend(5, 3)   -1    stopped by the zero-importance arm at 3
+//   descend(0, 0)    0    the leaf at once
+//   descend(7, 7)    7    the leaf arm is tested first
+//
+// With the latch handing the header `true` (2026-10-19) every walk took
+// one step: {-1, -1, 0, -1}.
+import stdlib/numerics;
+
+func descend(n : i32, stop : i32) -> i32 {
+    i : mut i32 = 0;
+    chosen : mut i32 = -1;
+    done : mut bool = false;
+    while !done {
+        if i >= n {
+            chosen = i;
+            done = true;
+        } else {
+            if i == stop {
+                done = true;
+            } else {
+                i = i + 1;
+            }
+        }
+    }
+    return chosen;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {0, 0, 0, 0};
+    out[0] = descend(5, 10);
+    out[1] = descend(5, 3);
+    out[2] = descend(0, 0);
+    out[3] = descend(7, 7);
+    print(out);
+    return 0;
+}

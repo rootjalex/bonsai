@@ -1,0 +1,33 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/constant_argument_provisional
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_constant_argument_provisional.cpp -I. -o tests/bonsai/correctness/cpp/main_constant_argument_provisional.o, clang++ tests/bonsai/correctness/cpp/main_constant_argument_provisional.o tests/bonsai/correctness/cpp/constant_argument_provisional.o -o tests/bonsai/correctness/cpp/constant_argument_provisional, ./tests/bonsai/correctness/cpp/constant_argument_provisional, rm tests/bonsai/correctness/cpp/constant_argument_provisional, rm tests/bonsai/correctness/cpp/main_constant_argument_provisional.o, rm tests/bonsai/correctness/cpp/constant_argument_provisional.h, rm tests/bonsai/correctness/cpp/constant_argument_provisional.o
+
+// The light-tree descent's shape (tests/bonsai/ssa/constant-argument-
+// provisional says what the analysis has to answer), compiled by the C++
+// backend and run from main_constant_argument_provisional.cpp.
+//
+// The backend matters. The regression of 2026-10-19 -- the simplifier's
+// constant rule handing a loop header `true` for a flag the loop carries,
+// on an answer the definitions analysis had memoized from a provisional one
+// -- showed in apps/pbrt, compiled by this backend, and in the ssa print,
+// and not in the LLVM backend's direct lowering, which asks the analysis in
+// another order and never met it: the coated-diffuse walk rendered black on
+// the GPU and on the CPU while tests/bonsai/correctness/llvm/coated-diffuse
+// passed. So the shape is run here, on the path the renderer takes.
+func [[export]] descend(n : i32, stop : i32) -> i32 {
+    i : mut i32 = 0;
+    chosen : mut i32 = -1;
+    done : mut bool = false;
+    while !done {
+        if i >= n {
+            chosen = i;
+            done = true;
+        } else {
+            if i == stop {
+                done = true;
+            } else {
+                i = i + 1;
+            }
+        }
+    }
+    return chosen;
+}

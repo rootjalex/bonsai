@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// A loop's flag set to the same constant in two arms, one of them nested,
+// is not that constant on the way round: the latch hands the header what
+// the header already carries, and the definitions analysis has to say so.
+//
+// `descend` is apps/pbrt's light-tree descent (render.bonsai, bvh_descend)
+// in miniature: `done` is set in the leaf arm and, inside the interior
+// arm, in the arm of zero importance; the third path leaves it as the
+// header had it. After promotion the merge before the latch takes `done`
+// from the leaf arm's edge, `true`, and from the interior arm's own merge
+// of `true` with the header's `done`. What to read for: the latch's jump
+// to the header hands `done`, the merge's argument, and not `(bool)1`.
+//
+// Until 2026-10-19 it handed the constant. The simplifier's constant rule
+// (SSA/Simplify.cpp, substitute_threaded_arguments) asks the definitions
+// analysis (SSA/Definitions.cpp) what every edge hands; asked about a
+// block inside the interior arm first, the analysis followed the name to
+// the header, round the latch to the merge, and into the interior arm's
+// merge, whose edge back to the header's own `done` it skipped as carried
+// round unchanged -- answering `true`, provisionally. The merge before the
+// latch then saw `true` from both edges; the skip was a level below it, so
+// nothing marked its answer provisional, and `true` was memoized for the
+// question that came after about the latch itself. The descent stopped
+// at the root: any scene with more than one light sampled only the
+// first. tests/bonsai/correctness/llvm/constant-argument-provisional runs
+// it: descend(5, 10) is 5, and was -1.
+func [[export]] descend(n : i32, stop : i32) -> i32 {
+    i : mut i32 = 0;
+    chosen : mut i32 = -1;
+    done : mut bool = false;
+    while !done {
+        if i >= n {
+            chosen = i;
+            done = true;
+        } else {
+            if i == stop {
+                done = true;
+            } else {
+                i = i + 1;
+            }
+        }
+    }
+    return chosen;
+}

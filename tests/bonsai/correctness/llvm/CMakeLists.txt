@@ -13,6 +13,7 @@ add_bonsai_tests(
     coated-diffuse.bonsai
     collapse.bonsai
     compare-fold.bonsai
+    constant-argument-provisional.bonsai
     cse-constant-precision.bonsai
     cse-parfor-bound.bonsai
     cse-rebound-argument.bonsai

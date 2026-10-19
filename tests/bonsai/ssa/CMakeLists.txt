@@ -15,6 +15,7 @@ add_bonsai_tests(
     calls.bonsai
     common-subexpressions.bonsai
     compare-on-bits.bonsai
+    constant-argument-provisional.bonsai
     cse-constant-precision.bonsai
     cse-rebound-argument.bonsai
     destination-passing.bonsai

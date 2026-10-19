@@ -168,6 +168,26 @@ Definition Definitions::of_argument(const string &block_name,
             break;
         }
         const Definition d = of(pred->name, passed);
+        // An answer built on a provisional one is as provisional as it is.
+        // The skip below marks only the edge skipped at THIS level; an edge
+        // whose own resolution, further down, skipped one -- `passed` an
+        // argument whose answer is in `provisional` -- hands back what holds
+        // only under the outermost question, and an answer made of such
+        // edges must not be memoized either. (Found 2026-10-19 in
+        // apps/pbrt's light-tree descent, bvh_descend: `done` is set in a
+        // leaf arm and in a nested arm of the interior branch, so the merge
+        // before the latch takes `true` from one edge and the interior
+        // arm's merge of `true` with the header's carried `done` from the
+        // other. Asked about a block inside the interior arm first, the
+        // analysis answered the inner merge `true` -- provisional, the edge
+        // back to the header skipped -- then saw `true` from both edges of
+        // the outer merge, memoized it, and substitute_threaded_arguments
+        // handed the header the constant: the descent stopped at the root.
+        // tests/bonsai/ssa/constant-argument-provisional.)
+        if (const auto *pa = std::get_if<Argument>(&passed->data);
+            pa != nullptr && provisional.contains({pred->name, pa->name})) {
+            via_other = true;
+        }
         if (const auto *back = std::get_if<Argument>(&d.value->data);
             back != nullptr && visiting.contains({d.block, back->name})) {
             // Carried round a loop unchanged: the edge leads back to an

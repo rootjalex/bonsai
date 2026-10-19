@@ -6,6 +6,7 @@ add_bonsai_tests(
     any_hit_arms.bonsai
     any_hit_prefetch.bonsai
     compare_on_bits.bonsai
+    constant_argument_provisional.bonsai
     mirror_derived_loads.bonsai
     foreign.bonsai
     adt-bvh.bonsai
