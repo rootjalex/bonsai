@@ -153,17 +153,18 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
             let @517 = @1046 && @101 in
             let @526 = reduce<any>(@517) in
             if (@526) {
-              let @304 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMin_x)) in
+              let @103 = tris.group1_index in
+              let @304 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMin_x)) in
               let @306 = @304[ramp(0u, 1u, 4)] in
-              let @308 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMin_y)) in
+              let @308 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMin_y)) in
               let @310 = @308[ramp(0u, 1u, 4)] in
-              let @312 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMin_z)) in
+              let @312 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMin_z)) in
               let @314 = @312[ramp(0u, 1u, 4)] in
-              let @317 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMax_x)) in
+              let @317 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMax_x)) in
               let @319 = @317[ramp(0u, 1u, 4)] in
-              let @321 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMax_y)) in
+              let @321 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMax_y)) in
               let @323 = @321[ramp(0u, 1u, 4)] in
-              let @325 = reinterpret_cast<const f32[4]>((&@3[(*tris_index!top)].boxMax_z)) in
+              let @325 = reinterpret_cast<const f32[4]>((&@103[(*tris_index!top)].boxMax_z)) in
               let @327 = @325[ramp(0u, 1u, 4)] in
               let @643 = select(@570, @319, @306) in
               let @648 = select(@571, @323, @310) in
@@ -224,15 +225,18 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
             let @520 = @1046 && (*!and_0!skip) in
             let @527 = reduce<any>(@520) in
             if (@527) {
-              let @149 = cast<u32>(_t258) in
-              let @152 = _t257.child1 in
+              let @145 = tris.group1_index in
+              let @147 = @145[(*tris_index!top)] in
+              let @148 = @147.child0 in
+              let @149 = cast<u32>(@148) in
+              let @152 = @147.child1 in
               let @153 = cast<u32>(@152) in
-              let @156 = _t257.child2 in
+              let @156 = @147.child2 in
               let @157 = cast<u32>(@156) in
-              let @160 = _t257.child3 in
+              let @160 = @147.child3 in
               let @161 = cast<u32>(@160) in
               let @162 = build<u32x4>(@149, @153, @157, @161) in
-              let _effect0 = prefetch((&@3[@162]), 112u, @520) in
+              let _effect0 = prefetch((&@145[@162]), 112u, @520) in
             }
             intersects_Ray_AABB$r0!skip = @101
           } else {

@@ -1,0 +1,51 @@
+//! flags: -p ssa
+
+// A field that is a pure function of the entry's slot -- here the pixel's
+// column and row from the sample's index -- is recomputed at the drain from
+// the index field, not stored (SSA/Defer.cpp, slot_at: the slot is a leaf a
+// recipe may stand on, as the stored fields are). `tally` is handed `x` and
+// `y` computed from `i`, which is also the record's slot, since `out[i]` is
+// the call's result slot; its recursion hands them on. pbrt's kernels take
+// the pixel from the work item's pixelIndex the same way. What to read for:
+// `Entry_q` with `n`, `acc` and `_slot` alone, and the drain computing
+// `_slot % 4` and `_slot / 4` before the call. `drift` is the same
+// recursion handing `x + 1` where `tally` hands `x` on: at a drain the
+// value is the owner's `i % 4` plus the bounces so far, which no expression
+// over the slot gives -- the route from `drift`'s parameter back to the
+// owner's call passes a caller handing something other than its own
+// parameter (routes_to) -- so `Entry_q2` stores `x`.
+
+func tally(n : i32, acc : i32, x : i32, y : i32) -> i32 {
+    if (n <= 0) {
+        return acc + x * 10 + y;
+    }
+    return tally(n - 1, acc + n, x, y);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = tally(i, 0, i % 4, i / 4);
+    }
+    return;
+}
+
+func drift(n : i32, acc : i32, x : i32) -> i32 {
+    if (n <= 0) {
+        return acc + x;
+    }
+    return drift(n - 1, acc + x, x + 1);
+}
+
+func run2(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = drift(i, 0, i % 4);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    tally.defer(tally, q);
+    q2 = run2.queue(root);
+    drift.defer(drift, q2);
+}

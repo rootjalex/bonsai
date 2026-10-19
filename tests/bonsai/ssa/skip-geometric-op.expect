@@ -117,8 +117,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
             }
           }
           _keys0[ramp(0u, 1u, 4)] = @58
-          let @86 = tris.group1_row in
-          let @87 = (*tris_ref!top) >> 4u in
           let @197 = _mask0[ramp(0u, 1u, 4)] in
           let @201 = _carry0[ramp(0u, 1u, 4)] in
           let @202 = reinterpret_cast<i32x4>(@58) in
@@ -127,7 +125,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
             let @211 = reinterpret_cast<u4>(@197) in
             let @212 = cast<u32>(@211) in
             let @213 = ctz(@212) in
-            let @321 = reinterpret_cast<const u32[4]>((&@86[@87].children)) in
+            let @321 = reinterpret_cast<const u32[4]>((&@5[@6].children)) in
             let @323 = @321[@213] in
             let @215 = @201[@213] in
             let @216 = @212 - 1u in

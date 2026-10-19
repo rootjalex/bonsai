@@ -21,26 +21,15 @@ func pick(x : f32, flip : bool) -> f32 {
     m$payload1 = @1
   }
   let m$tag0 = 0u in
-  switch (m$tag0) {
-  case 0: { // Mode.Sum of pick
-    let @7 = (*m$payload1)[0u] in
-    let scale = reinterpret_cast<f32>(@7) in
-    let @9 = scale * 2f in
-    return @9
-  } break;
-  default: { // Mode.Clamp of pick
-    let @11 = (*m$payload1)[0u] in
-    let floor = reinterpret_cast<f32>(@11) in
-    let @13 = max(x, floor) in
-    return @13
-  }
-  }
+  let @7 = (*m$payload1)[0u] in
+  let scale = reinterpret_cast<f32>(@7) in
+  let @9 = scale * 2f in
+  return @9
 }
 
 func [[export]] run(values : f32[8], flips : bool[8], out : mut f32[8]) -> void {
   parfor i in [0:8:1] {
     m$i6$payload1 : mut [[packed]] u32x1
-    pick$r6 : mut f32
     let x$i6 = values[i] in
     let @1 = reinterpret_cast<u32>(x$i6) in
     let @2 = build<[[packed]] u32x1>(@1) in
@@ -54,21 +43,11 @@ func [[export]] run(values : f32[8], flips : bool[8], out : mut f32[8]) -> void 
       m$i6$payload1 = @2
     }
     let m$i6$tag0 = 0u in
-    switch (m$i6$tag0) {
-    case 0: { // Mode.Sum of pick
-      let @9 = (*m$i6$payload1)[0u] in
-      let scale$i6 = reinterpret_cast<f32>(@9) in
-      let @11 = scale$i6 * 2f in
-      pick$r6 = @11
-    } break;
-    default: { // Mode.Clamp of pick
-      let @13 = (*m$i6$payload1)[0u] in
-      let floor$i6 = reinterpret_cast<f32>(@13) in
-      let @15 = max(x$i6, floor$i6) in
-      pick$r6 = @15
-    }
-    }
-    out[i] = (*pick$r6)
+    let @9 = (*m$i6$payload1)[0u] in
+    let scale$i6 = reinterpret_cast<f32>(@9) in
+    let @11 = scale$i6 * 2f in
+    let pick$r6 = @11 in
+    out[i] = pick$r6
     continue
   }
   return

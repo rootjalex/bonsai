@@ -413,41 +413,11 @@ struct Simplifier {
         }
         if (const auto *a = std::get_if<Argument>(&v->data); a != nullptr && block) {
             if (!definitions.has_value()) {
-                definitions.emplace(func, /*lenient=*/true);
+                definitions.emplace(func, /*lenient=*/true, /*bound=*/true);
             }
-            // The block the name is an argument of: this one, or -- for a
-            // name reached from above without being passed, which the
-            // analysis leaves at "unknown here" -- the block it is reached
-            // from, found the way the form itself finds a name
-            // (Block::get_value): back through the predecessors to the
-            // first block that takes it, or the entry. A name in scope is
-            // bound once, so any way back reaches the same binding, and the
-            // first predecessor serves. Done here rather than in the
-            // analysis: defer() relies on "unknown here" to capture such a
-            // value for the continuation it hands it to.
-            shared_ptr<Block> from = block;
-            {
-                std::set<const Block *> seen;
-                const auto takes = [&](const shared_ptr<Block> &b) {
-                    return b.get() == func.blocks.front().get() ||
-                           std::any_of(b->args.begin(), b->args.end(),
-                                       [&](const Argument &x) { return x.name == a->name; });
-                };
-                while (from && !takes(from) && seen.insert(from.get()).second) {
-                    shared_ptr<Block> next;
-                    for (const auto &weak : from->preds) {
-                        if (const auto p = weak.lock()) {
-                            next = p;
-                            break;
-                        }
-                    }
-                    from = next;
-                }
-                if (!from) {
-                    from = block;
-                }
-            }
-            const Definition d = definitions->of(from->name, v);
+            // A name reached from above without being passed resolves at
+            // the block that binds it (Definitions::of_argument, lenient).
+            const Definition d = definitions->of(block->name, v);
             if (d.value != nullptr) {
                 if (const Instruction *i = def_of(d.value)) {
                     os << i->name;
@@ -590,7 +560,7 @@ struct Simplifier {
             return nullptr;
         }
         if (!definitions.has_value()) {
-            definitions.emplace(func, /*lenient=*/true);
+            definitions.emplace(func, /*lenient=*/true, /*bound=*/true);
         }
         return def_of(definitions->of(block->name, v).value);
     }
@@ -2559,6 +2529,109 @@ ValuePtr substitute_argument(const ValuePtr &v,
     return it == with.end() ? v : it->second;
 }
 
+// An argument that is one constant is that constant. This form carries a
+// value from where it is computed to where it is used as an argument of
+// every block on the way, and a read of the argument sees the argument, not
+// the value: a dispatch on a tag that a folded dispatch handed its arm as
+// the constant it chose (fold_constant_dispatches, in a specialized copy)
+// reads an argument and does not fold, and nor does anything else that
+// would have folded on the constant -- apps/pbrt's material kernels each
+// kept the subsurface push, dispatching on a tag that was the constant of
+// the copy, handed through a hundred blocks. The definitions analysis (SSA/
+// Definitions.h) follows the arguments back; where every predecessor hands,
+// through however many blocks, one constant, every use of the argument is
+// pointed at the constant. The trivial phi of Braun et al., "Simple and
+// Efficient Construction of SSA Form" (CC 2013), section 3.1 -- phi(v, ...,
+// v) is v -- which the minimal SSA of Cytron et al. (TOPLAS 1991) never
+// builds and this form's threading makes freely; for a constant, which is
+// in scope anywhere. An argument that is one instruction or one parameter
+// is left as it is: the rules and the deferral's recipe builder resolve an
+// argument through the same analysis where they need the value behind it,
+// and the vectorizer's passes key on the threaded form (a loaded value
+// carried by argument is one read of memory: SSA/MirrorLoads.cpp). Pointing
+// every such use at the value was tried on 10-19 and moved 88 goldens, the
+// any-hit traversal's arm prefetches among them. A merge the predecessors
+// disagree about, or a loop's carried value, stays an argument. Returns
+// whether any use moved.
+bool substitute_threaded_arguments(Function &func) {
+    Definitions defs(func, /*lenient=*/true, /*bound=*/true);
+    bool any = false;
+    for (const auto &block : func.blocks) {
+        const auto sub = [&](ValuePtr &v) {
+            const auto *arg = v ? std::get_if<Argument>(&v->data) : nullptr;
+            if (arg == nullptr) {
+                return;
+            }
+            const Definition d = defs.of(block->name, v);
+            if (d.value == nullptr || !d.block.empty() ||
+                !std::holds_alternative<Constant>(d.value->data)) {
+                return; // an instruction, a parameter, a merge, a loop's carried value
+            }
+            v = d.value;
+            any = true;
+        };
+        const auto sub_jump = [&](Terminator::Jump &jump) {
+            for (auto &a : jump.args) {
+                sub(a);
+            }
+        };
+        for (const auto &instr : block->instrs) {
+            for (auto &operand : instr->operands) {
+                sub(operand);
+            }
+        }
+        std::visit(overloads{
+                       [](std::monostate &) {},
+                       [&](Terminator::Jump &j) { sub_jump(j); },
+                       [&](Terminator::Dispatch &d) {
+                           sub(d.cond);
+                           for (auto &target : d.targets) {
+                               sub_jump(target);
+                           }
+                       },
+                       [&](Terminator::Return &r) {
+                           if (r.value != nullptr) {
+                               sub(r.value);
+                           }
+                       },
+                       [&](Terminator::ParFor &p) {
+                           sub(p.start);
+                           sub(p.end);
+                           sub(p.stride);
+                           sub_jump(p.body);
+                           sub_jump(p.cont);
+                       },
+                       [](Terminator::Yield &) {},
+                       [&](Terminator::Call &c) {
+                           sub_jump(c.call);
+                           sub_jump(c.cont);
+                       },
+                       [&](Terminator::Spawn &sp) {
+                           sub_jump(sp.call);
+                           sub_jump(sp.cont);
+                       },
+                       [&](Terminator::Join &j) { sub_jump(j.next); },
+                       [&](Terminator::MultiCall &c) {
+                           sub_jump(c.call);
+                           sub_jump(c.cont);
+                           for (auto &vs : c.varying) {
+                               for (auto &v : vs) {
+                                   sub(v);
+                               }
+                           }
+                           for (auto &k : c.keys) {
+                               sub(k);
+                           }
+                           for (auto &k : c.conds) {
+                               sub(k);
+                           }
+                       },
+                   },
+                   block->terminator.data);
+    }
+    return any;
+}
+
 // An edge that decides a dispatch is threaded past it: a jump into a block
 // that has no instructions and dispatches on one of its own arguments,
 // passing a constant there, goes straight to the target the constant picks,
@@ -2942,14 +3015,30 @@ void simplify(Function &func, const ConstantIntervals *intervals) {
     // double negation -- is not looked at again within the pass, and what
     // the next pass finds in it may carry further (the prune's compare
     // reaches the slab test's through three such steps).
-    for (int round = 0; round < 8 && simplify_once(func, intervals); round++) {
-    }
-    if (fold_constant_dispatches(func)) {
-        remove_unreachable_blocks(func);
-        remove_dead(func);
-    }
-    if (thread_argument_dispatches(func)) {
-        remove_dead(func);
+    //
+    // Then the control flow: an argument that is one value is that value
+    // (substitute_threaded_arguments), a dispatch on a constant is a jump,
+    // and an edge that decides a dispatch is threaded past it. Each can
+    // hand the others more -- a folded dispatch leaves its arm one
+    // predecessor, whose arguments are then one value each, on which the
+    // rules fold, on which a dispatch below folds -- so the whole is
+    // repeated while any of them moved, within a bound.
+    for (int outer = 0; outer < 8; outer++) {
+        for (int round = 0; round < 8 && simplify_once(func, intervals); round++) {
+        }
+        bool moved = substitute_threaded_arguments(func);
+        if (fold_constant_dispatches(func)) {
+            remove_unreachable_blocks(func);
+            remove_dead(func);
+            moved = true;
+        }
+        if (thread_argument_dispatches(func)) {
+            remove_dead(func);
+            moved = true;
+        }
+        if (!moved) {
+            break;
+        }
     }
 }
 

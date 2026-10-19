@@ -149,7 +149,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               intersects_Ray_AABB$r0 = @93
             } else {
               let !and_1 = false in
-              _mask0[children] = !and_1
+              _mask0[children] = false
               let @139 = (f32)inf in
               let @140 = -0f - @139 in
               _carry0[children] = @140
@@ -558,7 +558,6 @@ func _recloop_func0$gang8_p2_v3$masked(tris_ref : u32, _bound0 : f32, _best0 : m
       let @291 = reduce<any>(@242) in
       let @292 = reduce<any>(@243) in
       let @293 = reduce<any>(@244) in
-      let @358 = f32x8(_bound0) in
       let @359 = @158 < @159 in
       let @425 = @359 && @210 in
       let @426 = reduce<+>(cast<u32x8>(@210)) in

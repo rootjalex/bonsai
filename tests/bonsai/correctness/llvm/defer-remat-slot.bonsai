@@ -1,0 +1,52 @@
+//! flags: -p ssa -b llvm -e
+
+// The slot-function recipe (ssa/defer-remat-slot), run: `x` and `y` are
+// recomputed from the entry's index at the drain, and each sum is
+// 1 + ... + i plus 10 x + y with x = i % 4 and y = i / 4. `drift` hands
+// `x + 1` each step, so its entry stores `x`; each of its sums is
+// i x + i (i - 1) / 2 + x + i with x = i % 4.
+
+func tally(n : i32, acc : i32, x : i32, y : i32) -> i32 {
+    if (n <= 0) {
+        return acc + x * 10 + y;
+    }
+    return tally(n - 1, acc + n, x, y);
+}
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = tally(i, 0, i % 4, i / 4);
+    }
+    return;
+}
+
+func drift(n : i32, acc : i32, x : i32) -> i32 {
+    if (n <= 0) {
+        return acc + x;
+    }
+    return drift(n - 1, acc + x, x + 1);
+}
+
+func run2(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = drift(i, 0, i % 4);
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(out);
+    print(out);
+    out2 : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run2(out2);
+    print(out2);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    tally.defer(tally, q);
+    q2 = run2.queue(root);
+    drift.defer(drift, q2);
+}

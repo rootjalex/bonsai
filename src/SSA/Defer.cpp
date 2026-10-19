@@ -1769,7 +1769,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // deferral, its locals promoted, and a promoted value is reached by
         // name from the blocks below the one that defines it. Such a value
         // is never a parameter, which is all that is asked of it here.
-        defs.emplace(g, Definitions(*funcs.at(g), /*lenient=*/true));
+        defs.emplace(g, Definitions(*funcs.at(g), /*lenient=*/true, /*bound=*/true));
     }
     if (!callee_in_chain) {
         invariant[callee_name].assign(C->blocks.front()->args.size(), true);
@@ -3153,6 +3153,52 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             return f.in_entry && !f.slot_address && f.param.has_value() &&
                    !f.recipe.has_value();
         };
+        // The entry's slot, as the owner's call in `site` hands it: the
+        // index field. A field that is a pure function of the slot -- the
+        // pixel's column and row from the sample's index -- is a recipe over
+        // the index field, as pbrt's kernels take the pixel from pixelIndex
+        // rather than carry it.
+        const auto slot_at = [&](const string &site, const Definition &d) -> optional<size_t> {
+            if (!d.value) {
+                return std::nullopt;
+            }
+            for (const SlotGroup &group : slot_groups) {
+                const auto it = group.index.find(site);
+                if (it != group.index.end() && same_definition(it->second, d)) {
+                    return group.field;
+                }
+            }
+            return std::nullopt;
+        };
+        // Address arithmetic, which recomputable() leaves out because a
+        // pointer is nothing to move on its own: in a recipe it is the way
+        // to the memory a read-only leaf reads.
+        const auto address_op = [](const Instruction &in) {
+            return in.op == Instruction::Op::GEP || in.op == Instruction::Op::FieldPtr;
+        };
+        // Whether a recipe's memory read is of memory nothing can write
+        // between the push and the drain: rooted, through address
+        // arithmetic alone, at a parameter the owner cannot write through
+        // (read_only_parameter) -- the scene's arrays. Such a read is what
+        // Chaitin et al. (1981) called never-killed and Briggs, Cooper and
+        // Torczon (1992) rematerialize rather than spill: the material a
+        // path entered is `materials[mat]` again at the drain, four bytes of
+        // index stored where the material's forty-four were, which is the
+        // Material pointer pbrt's work items carry.
+        const std::function<bool(const Recipe &)> read_only_rooted = [&](const Recipe &r) -> bool {
+            switch (r.kind) {
+            case Recipe::Kind::Uniform:
+                return read_only_parameter(r.uniform);
+            case Recipe::Kind::Op:
+                return (r.op == Instruction::Op::GEP || r.op == Instruction::Op::FieldPtr ||
+                        r.op == Instruction::Op::Cast || r.op == Instruction::Op::Set) &&
+                       !r.operands.empty() && read_only_rooted(r.operands[0]);
+            case Recipe::Kind::Constant:
+            case Recipe::Kind::Field:
+                return false;
+            }
+            return false;
+        };
         // Whether `block` runs in the round of the queue `oq`, from its
         // second pass on: the second pass itself, or a block its loop goes
         // on to before the round closes (the header) -- where the arrays
@@ -3264,7 +3310,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // operands share is followed once (`seen`), and the recipe is
             // as large as the expression that built the value and no
             // larger.
-            size_t reloads = 0;
             map<const Instruction *, optional<Recipe>> seen;
             std::function<optional<Recipe>(const OwnerArgs &)> rebuilt =
                 [&](const OwnerArgs &sites) -> optional<Recipe> {
@@ -3296,6 +3341,60 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     c.constant = lead->value;
                     return c;
                 }
+                // The slot at every site: the index field. Each drain's call
+                // hands its own load of its queue's slot, a different value
+                // at each site and the entry's index at all of them.
+                {
+                    optional<size_t> field;
+                    bool all = true;
+                    for (const auto &[site, ds] : sites) {
+                        for (const Definition &od : ds) {
+                            const optional<size_t> here = slot_at(site, od);
+                            if (!here.has_value() ||
+                                (field.has_value() && *field != *here)) {
+                                all = false;
+                                break;
+                            }
+                            field = here;
+                        }
+                        if (!all) {
+                            break;
+                        }
+                    }
+                    if (all && field.has_value()) {
+                        Recipe r;
+                        r.kind = Recipe::Kind::Field;
+                        r.field = *field;
+                        return r;
+                    }
+                }
+                // One value of the owner's that the drain has in scope, at
+                // every site: a parameter of the owner, a value before the
+                // producer loop, the round's own counter.
+                {
+                    optional<Definition> uniform;
+                    bool all = true;
+                    for (const auto &[site, ds] : sites) {
+                        for (const Definition &od : ds) {
+                            const optional<Definition> m = materialize(queue.owner, od);
+                            if (!m.has_value() ||
+                                (uniform.has_value() && !same_definition(*uniform, *m))) {
+                                all = false;
+                                break;
+                            }
+                            uniform = m;
+                        }
+                        if (!all) {
+                            break;
+                        }
+                    }
+                    if (all && uniform.has_value()) {
+                        Recipe r;
+                        r.kind = Recipe::Kind::Uniform;
+                        r.uniform = *uniform;
+                        return r;
+                    }
+                }
                 const auto *lheld = std::get_if<shared_ptr<Instruction>>(&lead->value->data);
                 if (lheld == nullptr) {
                     return std::nullopt;
@@ -3305,8 +3404,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     return it->second;
                 }
                 optional<Recipe> &memo = seen[&li];
-                if (li.op == Instruction::Op::Load) {
-                    reloads++;
+                // A load of a cut's stable array at the entry's slot, the
+                // reload recipe; a load that is not one falls through to the
+                // rule below, which takes a read of read-only memory.
+                const auto stable_reload = [&]() -> optional<Recipe> {
                     const Instruction *array = nullptr;
                     Definition array_def;
                     optional<size_t> index_field;
@@ -3394,12 +3495,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     load.op = Instruction::Op::Load;
                     load.type = load_type;
                     load.operands = {gep};
-                    return memo = load;
+                    return load;
+                };
+                if (li.op == Instruction::Op::Load) {
+                    if (const optional<Recipe> s = stable_reload()) {
+                        return memo = *s;
+                    }
                 }
-                // A pure register operation over reloads: the same operation
-                // of the same type and arity at every site, each operand
-                // followed in turn.
-                if (!recomputable(li) || reads_memory(li) ||
+                // A pure register operation over the leaves above -- and a
+                // read of read-only memory, checked below once its address
+                // is built: the same operation of the same type and arity at
+                // every site, each operand followed in turn.
+                if (!(recomputable(li) || address_op(li)) ||
                     li.op == Instruction::Op::Intrinsic || li.op == Instruction::Op::Reduce ||
                     li.op == Instruction::Op::Shuffle || li.operands.empty()) {
                     return std::nullopt;
@@ -3428,15 +3535,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     }
                     r.operands.push_back(*o);
                 }
+                if (reads_memory(li) && !read_only_rooted(r.operands[0])) {
+                    return std::nullopt; // memory something may write meanwhile
+                }
                 return memo = r;
             };
-            const optional<Recipe> recipe = rebuilt(at_sites);
-            if (!recipe.has_value() || reloads == 0) {
-                return std::nullopt; // nothing of it reloaded: cook's business
-            }
-            return recipe;
+            return rebuilt(at_sites);
         };
-        const size_t budget = 16; // instructions a recipe may take
+        // What a recipe may cost. Its leaves are free -- a field the entry
+        // stores anyway, the index field, a value in scope at the drain, a
+        // constant, a read of memory nothing writes -- so a recipe always
+        // stores less than the field it replaces, and what it costs is the
+        // drain's register operations, which are cheaper than the store at
+        // the push and the load at the drain they stand in for. The cap is
+        // against a runaway expression, not a cost.
+        const size_t most_nodes = 1024;
         for (size_t f = 0; f < fields.size() && !push_sites.empty(); f++) {
             if (!is_leaf(fields[f])) {
                 continue;
@@ -3450,7 +3563,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     break;
                 }
                 Definitions &pdefs = dit->second;
-                size_t left = budget;
+                size_t left = most_nodes;
                 std::function<optional<Recipe>(const Definition &)> cook =
                     [&](const Definition &d) -> optional<Recipe> {
                     if (!d.value) {
@@ -3461,6 +3574,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         r.kind = Recipe::Kind::Constant;
                         r.constant = d.value;
                         return r;
+                    }
+                    // The slot itself, at the owner's own push.
+                    if (ps.function == queue.owner) {
+                        if (const optional<size_t> s = slot_at(ps.block->name, d)) {
+                            r.kind = Recipe::Kind::Field;
+                            r.field = *s;
+                            return r;
+                        }
                     }
                     // Another field's value at this push: that field.
                     for (size_t h = 0; h < fields.size(); h++) {
@@ -3495,10 +3616,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     if (in.op == Instruction::Op::Set) {
                         return cook(pdefs.of(d.block, in.operands[0]));
                     }
-                    if (!recomputable(in) || reads_memory(in) ||
+                    if (!(recomputable(in) || address_op(in)) ||
                         in.op == Instruction::Op::Intrinsic ||
                         in.op == Instruction::Op::Reduce ||
-                        in.op == Instruction::Op::Shuffle || left == 0) {
+                        in.op == Instruction::Op::Shuffle || in.operands.empty() ||
+                        left == 0) {
                         return std::nullopt;
                     }
                     left--;
@@ -3511,6 +3633,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                             return std::nullopt;
                         }
                         r.operands.push_back(*o);
+                    }
+                    if (reads_memory(in) && !read_only_rooted(r.operands[0])) {
+                        return std::nullopt; // memory something may write meanwhile
                     }
                     return r;
                 };
@@ -3897,6 +4022,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 for (size_t f = 0; f < fields.size(); f++) {
                     needed = needed || (fields[f].index_field == group.field &&
                                         !dead_field[q][f]);
+                    // A field recomputed from the index is a read of it.
+                    if (fields[f].recipe.has_value() && !dead_field[q][f]) {
+                        vector<size_t> from;
+                        recipe_fields(*fields[f].recipe, from);
+                        needed = needed || std::find(from.begin(), from.end(),
+                                                     group.field) != from.end();
+                    }
                 }
                 dead_field[q][group.field] = !needed;
                 for (size_t l = field_leaves[group.field].first;

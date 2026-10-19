@@ -930,21 +930,29 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
 // Recursively inline a pure SSA value as an expression, following def-use
 // chains instead of emitting let-bindings.
 //
-// `unbound`, if given, is a block whose instructions are not emitted as
+// `unbound`, if given, says which blocks' instructions are not emitted as
 // statements, so that referring to one of them by name would name something
 // that does not exist -- it has to be inlined or reported. A while header is
 // such a block: its instructions compute the condition, which has to be redone
 // on every iteration and so becomes part of the condition expression. Values
-// from anywhere else are already bound and can simply be named.
-Expr inline_expr(const std::shared_ptr<Value> &v,
-                 const Block *unbound = nullptr) {
+// from anywhere else are already bound and are simply named -- a bound the
+// block before the loop computed stays the one computation it was, named in
+// the condition, not written out again there (since 10-19 an instruction
+// reaches a condition directly where an argument carried it before:
+// SSA/Simplify.cpp, substitute_threaded_arguments). With no `unbound`, every
+// pure value is inlined.
+using Unbound = std::function<bool(const Block &)>;
+Expr inline_expr(const std::shared_ptr<Value> &v, const Unbound &unbound = nullptr) {
     auto *ip = std::get_if<std::shared_ptr<Instruction>>(&v->data);
     if (!ip)
         return codegen_value(v); // Constant or Argument — use as-is
 
     const Instruction &instr = **ip;
-    const bool must_inline =
-        unbound != nullptr && instr.owner.lock().get() == unbound;
+    const auto owner = instr.owner.lock();
+    const bool must_inline = unbound != nullptr && owner && unbound(*owner);
+    if (unbound != nullptr && !must_inline) {
+        return codegen_value(v); // bound where it was computed: named
+    }
 
     if (is_side_effecty(instr)) {
         internal_assert(!must_inline)
@@ -1981,7 +1989,11 @@ Stmt structurize(const std::string &start, const std::string &exit,
                 auto owner = (*in)->owner.lock();
                 if (owner && info.at(owner->name).role ==
                                  BlockInfo::Role::WhileHeader) {
-                    value = inline_expr(root, owner.get());
+                    value = inline_expr(root, [&](const Block &b) {
+                        const auto it = info.find(b.name);
+                        return it != info.end() &&
+                               it->second.role == BlockInfo::Role::WhileHeader;
+                    });
                 }
             }
             append(LetStmt::make(WriteLoc(param.name, param.type),
@@ -2186,7 +2198,11 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         const size_t into = bi.loop_body == t1 ? 1 : 0;
                         Stmt body = branch_region(d.targets[into], name, name);
 
-                        Expr loop_cond = inline_expr(d.cond, block.get());
+                        Expr loop_cond = inline_expr(d.cond, [&](const Block &b) {
+                            const auto it = info.find(b.name);
+                            return it != info.end() &&
+                                   it->second.role == BlockInfo::Role::WhileHeader;
+                        });
                         if (bi.loop_body != t1) {
                             loop_cond = UnOp::make(UnOp::OpType::Not,
                                                    std::move(loop_cond));

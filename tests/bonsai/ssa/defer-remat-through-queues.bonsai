@@ -1,0 +1,52 @@
+//! flags: -p ssa
+
+// A value that is a function of the slot in the first queue is one in the
+// second as well. `render` computes `x` from the pixel and hands it to
+// `step`, deferred onto `rays`; `step` hands it to `shade`, deferred onto
+// `hits`; `shade` reads it and hands it back to `step` for the next bounce.
+// At the `hits` push `x` is a parameter of `step`, which the `rays` drain
+// hands the value it recomputed from its own slot, and the `hits` entry's
+// slot is that slot handed on -- so the recipe follows the parameter to
+// the owner's call (routes_to) and finds the slot there (SSA/Defer.cpp,
+// the slot leaf of `rebuilt`). Neither entry stores `x`. `p` is the slot
+// itself and is the index field by the older rule. What to read for:
+// `Entry_rays` and `Entry_hits` each with `depth` and `_slot` alone, and
+// both drains computing `_slot % 4 + 1`.
+import stdlib/numerics;
+
+func shade(x : i32, depth : i32, p : i32, max_depth : i32,
+           rad : reduce(+) Float) -> void {
+    rad += cast[[Float]](x * (depth + 1));
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(x, depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(x : i32, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    if (p + depth) % 3 == 0 {
+        rad += 0.5;
+        return;
+    }
+    shade(x, depth, p, max_depth, rad);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        rad : reduce(+) Float = 0.0;
+        step(p % 4 + 1, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    hits = render.queue(root);
+    step.defer(shade, hits);
+}

@@ -128,9 +128,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @92 = @89 & @91 in
           let @157 = select(@328, @212, @92) in
           _mask0[ramp(0u, 1u, 8)] = @157
-          let @95 = tris.group0_row in
-          let @96 = (*tris_ref!top) >> 4u in
-          let @97 = @95[@96] in
+          let @97 = @9[@10] in
           let @98 = @97.children in
           let _t40 = cast<u32x8>(@98) in
           let @249 = reduce<+>(cast<u32x8>(@157)) in
@@ -145,7 +143,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
               let @250 = reinterpret_cast<u8>(@157) in
               let @251 = cast<u32>(@250) in
               let @252 = ctz(@251) in
-              let @340 = reinterpret_cast<const u32[8]>((&@95[@96].children)) in
+              let @340 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
               let @342 = @340[@252] in
               tris_ref!top = @342
               continue
@@ -158,7 +156,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @256 = ctz(@255) in
                 let @257 = clz(@255) in
                 let @258 = 31u - @257 in
-                let @345 = reinterpret_cast<const u32[8]>((&@95[@96].children)) in
+                let @345 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @347 = @345[@256] in
                 !stack[(*!count)] = @347
                 let @262 = (*!count) + 1u in
@@ -176,7 +174,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @269 = ctz(@268) in
                 let @270 = clz(@265) in
                 let @271 = 31u - @270 in
-                let @352 = reinterpret_cast<const u32[8]>((&@95[@96].children)) in
+                let @352 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @354 = @352[@266] in
                 !stack[(*!count)] = @354
                 let @275 = (*!count) + 1u in
@@ -200,7 +198,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @288 = ctz(@287) in
                 let @289 = clz(@281) in
                 let @290 = 31u - @289 in
-                let @361 = reinterpret_cast<const u32[8]>((&@95[@96].children)) in
+                let @361 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @363 = @361[@282] in
                 !stack[(*!count)] = @363
                 let @294 = (*!count) + 1u in
@@ -226,7 +224,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @318 = @249 - 1u in
                 compress_store_whole(!stack[(*!count)], _t40, @317)
                 let @320 = (*!count) + @318 in
-                let @372 = reinterpret_cast<const u32[8]>((&@95[@96].children)) in
+                let @372 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @374 = @372[@313] in
                 tris_ref!top = @374
                 !count = @320

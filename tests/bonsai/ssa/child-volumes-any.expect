@@ -128,9 +128,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @92 = @89 & @91 in
           let @149 = select(@296, @204, @92) in
           _mask0[ramp(0u, 1u, 4)] = @149
-          let @95 = tris.group0_row in
-          let @96 = (*tris_ref!top) >> 4u in
-          let @97 = @95[@96] in
+          let @97 = @9[@10] in
           let @98 = @97.children in
           let _t40 = cast<u32x4>(@98) in
           let @241 = reduce<+>(cast<u32x4>(@149)) in
@@ -145,7 +143,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
               let @242 = reinterpret_cast<u4>(@149) in
               let @243 = cast<u32>(@242) in
               let @244 = ctz(@243) in
-              let @308 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
+              let @308 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
               let @310 = @308[@244] in
               tris_ref!top = @310
               continue
@@ -158,7 +156,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @248 = ctz(@247) in
                 let @249 = clz(@247) in
                 let @250 = 31u - @249 in
-                let @313 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
+                let @313 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
                 let @315 = @313[@248] in
                 !stack[(*!count)] = @315
                 let @254 = (*!count) + 1u in
@@ -176,7 +174,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 let @261 = ctz(@260) in
                 let @262 = clz(@257) in
                 let @263 = 31u - @262 in
-                let @320 = reinterpret_cast<const u32[4]>((&@95[@96].children)) in
+                let @320 = reinterpret_cast<const u32[4]>((&@9[@10].children)) in
                 let @322 = @320[@258] in
                 !stack[(*!count)] = @322
                 let @267 = (*!count) + 1u in

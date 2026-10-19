@@ -12,7 +12,11 @@
 // `false` on the arms' masks would be a varying value standing for a uniform
 // one, and the branch on it would be left divergent after linearization was
 // over (see same_definition in SSA/Linearize.cpp). This is the shape a light
-// sampler's `match` left in apps/pbrt.
+// sampler's `match` left in apps/pbrt. Since 10-19 the simplifier makes
+// such an argument the constant (substitute_threaded_arguments) and the
+// branch on it folds before the gang is linearized: `weigh` returns `k *
+// 2` with no branch. The linearizer's agreement stands for the merges the
+// simplifier cannot resolve.
 import stdlib/numerics;
 
 element Blob =

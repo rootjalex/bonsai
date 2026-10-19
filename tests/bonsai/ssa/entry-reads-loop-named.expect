@@ -1,10 +1,10 @@
-type Entry_hits = struct Entry_hits{ h : struct Hit{ p : f32 }; ray : struct Ray{ o : f32; d : f32 }; k : f32; depth : i32; _slot : i32 }
-type Entry_rays = struct Entry_rays{ ray : struct Ray{ o : f32; d : f32 }; k : f32; depth : i32; _slot : i32 }
+type Entry_hits = struct Entry_hits{ h : struct Hit{ p : f32 }; ray : struct Ray{ o : f32; d : f32 }; depth : i32; _slot : i32 }
+type Entry_rays = struct Entry_rays{ ray : struct Ray{ o : f32; d : f32 }; depth : i32; _slot : i32 }
 type Float = f32
 type Half = f16
 type Hit = struct Hit{ p : f32 }
-type Queue_hits = struct Queue_hits{ count : u32; h_p : f32[]; ray_o : f32[]; ray_d : f32[]; k : f32[]; depth : i32[]; _slot : i32[] }
-type Queue_rays = struct Queue_rays{ count : u32; ray_o : f32[]; ray_d : f32[]; k : f32[]; depth : i32[]; _slot : i32[] }
+type Queue_hits = struct Queue_hits{ count : u32; h_p : f32[]; ray_o : f32[]; ray_d : f32[]; depth : i32[]; _slot : i32[] }
+type Queue_rays = struct Queue_rays{ count : u32; ray_o : f32[]; ray_d : f32[]; depth : i32[]; _slot : i32[] }
 type Ray = struct Ray{ o : f32; d : f32 }
 type _option0 = struct _option0{ value : struct Hit{ p : f32 }; set : bool = false }
 type vec2f = f32x2
@@ -46,15 +46,13 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   rays_rad_slots : mut f32[8]
   rays_ray_o : mut f32[8]
   rays_ray_d : mut f32[8]
-  rays_k : mut f32[8]
   rays_depth : mut i32[8]
   rays__slot : mut i32[8]
   rays_queue : mut Queue_rays
-  let @7 = build<Queue_rays>(0u, rays_ray_o, rays_ray_d, rays_k, rays_depth, rays__slot) in
+  let @7 = build<Queue_rays>(0u, rays_ray_o, rays_ray_d, rays_depth, rays__slot) in
   rays_queue = @7
   hits_h_p : mut f32[8]
   hits_ray_d : mut f32[8]
-  hits_k : mut f32[8]
   hits_depth : mut i32[8]
   hits__slot : mut i32[8]
   hits_queue : mut Queue_hits
@@ -64,47 +62,49 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
     let ray = build<Ray>(_t32, 1f) in
     let @2 = _t32 * 0.0625f in
     let k = 0.5f + @2 in
-    let @8 = build<Entry_rays>(ray, k, 0, p) in
-    let @36 = atomic_add((&(*rays_queue).count), 1u) in
-    let @38 = (*rays_queue).ray_o in
-    @38[@36] = _t32
-    let @41 = (*rays_queue).ray_d in
-    @41[@36] = 1f
-    let @44 = (*rays_queue).k in
-    @44[@36] = k
-    let @47 = (*rays_queue).depth in
-    @47[@36] = 0
-    let @50 = (*rays_queue)._slot in
-    @50[@36] = p
+    let @8 = build<Entry_rays>(ray, 0, p) in
+    let @40 = atomic_add((&(*rays_queue).count), 1u) in
+    let @42 = (*rays_queue).ray_o in
+    @42[@40] = _t32
+    let @45 = (*rays_queue).ray_d in
+    @45[@40] = 1f
+    let @48 = (*rays_queue).depth in
+    @48[@40] = 0
+    let @51 = (*rays_queue)._slot in
+    @51[@40] = p
     continue
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
     let @12 = (*rays_queue).count in
-    let @23 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_k, hits_depth, hits__slot) in
-    hits_queue = @23
+    let @25 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
+    hits_queue = @25
     parfor rays in [0u:@12:1u] {
       let @15 = rays_ray_o[rays] in
       let @16 = rays_ray_d[rays] in
       let @17 = build<Ray>(@15, @16) in
-      let @18 = rays_k[rays] in
-      let @19 = rays_depth[rays] in
-      let @20 = rays__slot[rays] in
-      step(@17, @18, @19, @20, max_depth, (&rays_rad_slots[@20]), rays_queue, @20, hits_queue, @20)
+      let @18 = rays__slot[rays] in
+      let @19 = cast<f32>(@18) in
+      let @20 = @19 * 0.0625f in
+      let @21 = 0.5f + @20 in
+      let @22 = rays_depth[rays] in
+      step(@17, @21, @22, @18, max_depth, (&rays_rad_slots[@18]), rays_queue, @18, hits_queue, @18)
       continue
     }
     rays_queue.count = 0u
-    let @24 = (*hits_queue) in
-    let @25 = @24.count in
-    parfor hits in [0u:@25:1u] {
-      let @26 = hits_h_p[hits] in
-      let @27 = build<Hit>(@26) in
-      let @28 = hits_ray_d[hits] in
-      let @29 = build<Ray>(undef, @28) in
-      let @30 = hits_k[hits] in
-      let @31 = hits_depth[hits] in
+    let @26 = (*hits_queue) in
+    let @27 = @26.count in
+    parfor hits in [0u:@27:1u] {
+      let @28 = hits_h_p[hits] in
+      let @29 = build<Hit>(@28) in
+      let @30 = hits_ray_d[hits] in
+      let @31 = build<Ray>(undef, @30) in
       let @32 = hits__slot[hits] in
-      shade(@27, @29, @30, @31, undef, max_depth, (&rays_rad_slots[@32]), rays_queue, @32)
+      let @33 = cast<f32>(@32) in
+      let @34 = @33 * 0.0625f in
+      let @35 = 0.5f + @34 in
+      let @36 = hits_depth[hits] in
+      shade(@29, @31, @35, @36, undef, max_depth, (&rays_rad_slots[@32]), rays_queue, @32)
       continue
     }
     hits_queue.count = 0u
@@ -131,7 +131,7 @@ func shade(h : Hit, ray : Ray, k : f32, depth : i32, p : i32, max_depth : i32, r
     return
   } else {
     let @4 = turned(h, ray) in
-    let @5 = build<Entry_rays>(@4, k, _t22, _slot_rays) in
+    let @5 = build<Entry_rays>(@4, _t22, _slot_rays) in
     let @8 = atomic_add((&(*_queue_rays).count), 1u) in
     let @9 = @4.o in
     let @10 = @4.d in
@@ -139,12 +139,10 @@ func shade(h : Hit, ray : Ray, k : f32, depth : i32, p : i32, max_depth : i32, r
     @12[@8] = @9
     let @15 = (*_queue_rays).ray_d in
     @15[@8] = @10
-    let @18 = (*_queue_rays).k in
-    @18[@8] = k
-    let @21 = (*_queue_rays).depth in
-    @21[@8] = _t22
-    let @24 = (*_queue_rays)._slot in
-    @24[@8] = _slot_rays
+    let @18 = (*_queue_rays).depth in
+    @18[@8] = _t22
+    let @21 = (*_queue_rays)._slot in
+    @21[@8] = _slot_rays
     return
   }
 }
@@ -179,12 +177,10 @@ func step(ray : Ray, k : f32, depth : i32, p : i32, max_depth : i32, rad : mut (
     @21[@16] = @17
     let @24 = (*_queue_hits).ray_d in
     @24[@16] = @19
-    let @27 = (*_queue_hits).k in
-    @27[@16] = k
-    let @30 = (*_queue_hits).depth in
-    @30[@16] = depth
-    let @33 = (*_queue_hits)._slot in
-    @33[@16] = _slot_hits
+    let @27 = (*_queue_hits).depth in
+    @27[@16] = depth
+    let @30 = (*_queue_hits)._slot in
+    @30[@16] = _slot_hits
     return
   } else {
     let @11 = ray.d in

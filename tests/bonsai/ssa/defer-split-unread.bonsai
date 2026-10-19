@@ -32,11 +32,15 @@ func step(x : Float, k : Float, extra : Float) -> Float {
     }
 }
 
-func run(values : array[Float, 8], k : Float,
+func run(values : array[Float, 8], k : Float, extras : mut array[Float, 8],
          out : mut array[Float, 8]) -> void {
     parfor i in 0:8 {
-        // `extra` differs per iteration, so it is the entry's to carry.
-        out[i] = step(values[i], k, values[7 - i]);
+        // `extra` is read from a `mut` array -- memory the type says may be
+        // written before the drain -- so no drain can read it again: it is
+        // the entry's to carry. (Read from `values`, which nothing writes,
+        // it would be a recipe over the slot and stored nowhere:
+        // defer-remat-readonly.)
+        out[i] = step(values[i], k, extras[i]);
     }
     return;
 }

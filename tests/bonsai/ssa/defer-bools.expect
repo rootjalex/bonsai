@@ -1,7 +1,7 @@
 type Entry_sums = struct Entry_sums{ n : i32; acc : i32; odd : bool; big : bool; neg : bool; _slot : i32 }
 type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _slot : i32[]; _bits0 : u8[] }
 
-func run(out : mut i32[8]) -> void {
+func run(flags : mut i32[8], out : mut i32[8]) -> void {
   sums!round : mut u32
   sums_result : mut i32[8]
   sums_n_0 : mut i32[8]
@@ -13,58 +13,59 @@ func run(out : mut i32[8]) -> void {
   sums__slot_1 : mut i32[8]
   sums__bits0_1 : mut u8[8]
   sums_queue : mut Queue_sums[2]
-  let @7 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0, sums__bits0_0) in
-  sums_queue[0u] = @7
-  let @9 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1, sums__bits0_1) in
-  sums_queue[1u] = @9
+  let @8 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0, sums__bits0_0) in
+  sums_queue[0u] = @8
+  let @10 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1, sums__bits0_1) in
+  sums_queue[1u] = @10
   parfor i in [0:8:1] {
-    let @42 = i >> 31 in
-    let @43 = reinterpret_cast<u32>(@42) in
-    let @44 = @43 >> 31u in
-    let @45 = reinterpret_cast<i32>(@44) in
-    let @46 = i + @45 in
-    let @47 = @46 >> 1 in
-    let @48 = @47 * 2 in
-    let @0 = i - @48 in
-    let @1 = @0 == 1 in
-    let @2 = 4 < i in
-    let @3 = i == 3 in
-    walk(i, 0, @1, @2, @3, (&sums_queue[0u]), (&sums_result[i]), i)
+    let f = flags[i] in
+    let @43 = f >> 31 in
+    let @44 = reinterpret_cast<u32>(@43) in
+    let @45 = @44 >> 31u in
+    let @46 = reinterpret_cast<i32>(@45) in
+    let @47 = f + @46 in
+    let @48 = @47 >> 1 in
+    let @49 = @48 * 2 in
+    let @1 = f - @49 in
+    let @2 = @1 == 1 in
+    let @3 = 4 < f in
+    let @4 = f == 3 in
+    walk(i, 0, @2, @3, @4, (&sums_queue[0u]), (&sums_result[i]), i)
     continue
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @13 = (*sums!round) & 1u in
-    let @15 = sums_queue[(*sums!round) & 1u].count in
-    let @17 = @13 ^ 1u in
-    sums_queue[@17].count = 0u
-    parfor sums in [0u:@15:1u] {
-      let @18 = (&sums_queue[@17]) in
-      let @22 = sums_queue[@13].n in
-      let @23 = @22[sums] in
-      let @25 = sums_queue[@13].acc in
-      let @26 = @25[sums] in
-      let @28 = sums_queue[@13]._bits0 in
-      let @29 = @28[sums] in
-      let @30 = @29 & 1u in
-      let @31 = @30 != 0u in
-      let @32 = @29 & 2u in
-      let @33 = @32 != 0u in
-      let @34 = @29 & 4u in
-      let @35 = @34 != 0u in
-      let @37 = sums_queue[@13]._slot in
-      let @38 = @37[sums] in
-      walk(@23, @26, @31, @33, @35, @18, (&sums_result[@38]), @38)
+    let @14 = (*sums!round) & 1u in
+    let @16 = sums_queue[(*sums!round) & 1u].count in
+    let @18 = @14 ^ 1u in
+    sums_queue[@18].count = 0u
+    parfor sums in [0u:@16:1u] {
+      let @19 = (&sums_queue[@18]) in
+      let @23 = sums_queue[@14].n in
+      let @24 = @23[sums] in
+      let @26 = sums_queue[@14].acc in
+      let @27 = @26[sums] in
+      let @29 = sums_queue[@14]._bits0 in
+      let @30 = @29[sums] in
+      let @31 = @30 & 1u in
+      let @32 = @31 != 0u in
+      let @33 = @30 & 2u in
+      let @34 = @33 != 0u in
+      let @35 = @30 & 4u in
+      let @36 = @35 != 0u in
+      let @38 = sums_queue[@14]._slot in
+      let @39 = @38[sums] in
+      walk(@24, @27, @32, @34, @36, @19, (&sums_result[@39]), @39)
       continue
     }
-    let @12 = (*sums!round) + 1u in
-    sums!round = @12
+    let @13 = (*sums!round) + 1u in
+    sums!round = @13
   }
   parfor sums_rest in [0:8:1] {
-    let @41 = sums_result[sums_rest] in
-    let @4 = @41 in
+    let @42 = sums_result[sums_rest] in
+    let @5 = @42 in
     let i = sums_rest in
-    out[i] = @4
+    out[i] = @5
     continue
   }
   return

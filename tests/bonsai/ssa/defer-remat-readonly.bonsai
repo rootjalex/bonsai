@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// A field that is a read of memory the owner cannot write -- an element of
+// an array parameter without `mut`, at an index the entry holds -- is read
+// again at the drain, not stored: the entry keeps the index. `tally` is
+// handed the row `table[k]` and `k`; it reads the row's two fields and
+// never `k`, and its recursion hands both on unchanged. Before this rule the
+// entry stored the row (two numbers) and dropped `k` as unread; now it
+// stores neither: `k` is `i % 4` of the slot (the slot rule, defer-remat-
+// slot) and the row is `table[k]` over that -- a recipe reading memory
+// nothing writes between the push and the drain (SSA/Defer.cpp,
+// read_only_rooted: a never-killed value in Chaitin et al.'s sense,
+// rematerialized as Briggs, Cooper and Torczon do rather than stored). It
+// is what pbrt's work items do with a Material: carry the pointer, read the
+// material at the kernel. What to read for: `Entry_q` with `n`, `acc` and
+// `_slot` alone, and the drain computing `_slot % 4` and reading `table`
+// at it before the call.
+
+element Row {
+    a : i32;
+    b : i32;
+}
+
+func tally(n : i32, acc : i32, row : Row, k : i32) -> i32 {
+    if (n <= 0) {
+        return acc + row.a;
+    }
+    return tally(n - 1, acc + row.b, row, k);
+}
+
+func run(table : array[Row, 4], out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        k = i % 4;
+        out[i] = tally(i, 0, table[k], k);
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    tally.defer(tally, q);
+}

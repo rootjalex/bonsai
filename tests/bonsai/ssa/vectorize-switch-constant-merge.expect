@@ -69,12 +69,8 @@ func never(b : Blob) -> bool {
 func weigh(b : Blob, k : f32) -> f32 {
   let @0 = b.tag in
   let never$r6 = false in
-  if (never$r6) {
-    return 0f
-  } else {
-    let @2 = k * 2f in
-    return @2
-  }
+  let @2 = k * 2f in
+  return @2
 }
 
 func [[export]] weigh_all(a : f32[8], out : mut f32[8]) -> void {

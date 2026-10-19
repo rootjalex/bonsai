@@ -41,8 +41,15 @@ class Definitions {
     // taking it as an argument -- a value reached by name from a block above
     // -- where the strict form, which the rewrites use to check their own
     // threading, refuses. For a reader that only wants to know whether a
-    // value is a particular instruction (SSA/Simplify.cpp).
-    explicit Definitions(const Function &func, bool lenient = false);
+    // value is a particular instruction, and for the rewrites that rely on
+    // such a name staying unknown (SSA/DestinationPassing.cpp: what a loop
+    // names without taking it is captured for the continuation it hands it
+    // to). `bound`, with `lenient`, resolves such a name instead at the
+    // nearest block above that binds it, for a reader that wants the value
+    // behind a name wherever it is read: the simplifier's key for a common
+    // subexpression and its constant arguments (SSA/Simplify.cpp), the
+    // deferral's recipe builder (SSA/Defer.cpp).
+    explicit Definitions(const Function &func, bool lenient = false, bool bound = false);
 
     // The definition of `v`, as the block named `block` refers to it.
     Definition of(const std::string &block, const std::shared_ptr<Value> &v);
@@ -58,6 +65,7 @@ class Definitions {
 
     const Function &func;
     const bool lenient;
+    const bool bound;
     BlockMap bmap;
     std::map<std::pair<std::string, std::string>, Definition> memo;
     // Answers that name an argument still being resolved -- a block inside

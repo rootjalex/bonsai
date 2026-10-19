@@ -18,8 +18,8 @@ bool same_definition(const Definition &a, const Definition &b) {
            a.block == b.block;
 }
 
-Definitions::Definitions(const Function &func, bool lenient)
-    : func(func), lenient(lenient), bmap(make_block_map(func)) {}
+Definitions::Definitions(const Function &func, bool lenient, bool bound)
+    : func(func), lenient(lenient), bound(bound), bmap(make_block_map(func)) {}
 
 Definition Definitions::of(const string &block, const shared_ptr<Value> &v) {
     return std::visit(
@@ -90,12 +90,52 @@ Definition Definitions::of_argument(const string &block_name,
             break;
         }
     }
-    if (k == block->args.size() && lenient) {
-        return memo[key] = here; // reached by name from above: unknown here
+    if (k == block->args.size()) {
+        internal_assert(lenient)
+            << a.name << " is referred to in " << block_name
+            << " but is neither one of its arguments nor a parameter";
+        if (!bound) {
+            return memo[key] = here; // reached by name from above: unknown here
+        }
+        // Reached by name from above without being passed, and the reader
+        // wants the value behind it: the name is bound by the nearest block
+        // above that takes it, or by the entry, found back through the
+        // predecessors the way the form itself finds a name
+        // (Block::get_value). A name in scope is bound once, so any way back
+        // reaches the same binding, and the first predecessor serves; the
+        // definition is that block's. (Until 10-19 every reader got "unknown
+        // here", which the deferral's recipe builder took for a value only
+        // the pusher has: the subsurface material, read off an option in a
+        // block that never took it, was stored by value for it. The read
+        // analysis and the contention analysis had each met the same blind
+        // spot: SSA/Analysis.cpp read_paths, Contention.cpp
+        // Origins::binding_block.)
+        shared_ptr<Block> from = block;
+        std::set<const Block *> seen;
+        const auto takes = [&](const shared_ptr<Block> &b) {
+            return b.get() == func.blocks.front().get() ||
+                   std::any_of(b->args.begin(), b->args.end(),
+                               [&](const Argument &x) { return x.name == a.name; });
+        };
+        while (from && !takes(from) && seen.insert(from.get()).second) {
+            shared_ptr<Block> next;
+            for (const auto &weak : from->preds) {
+                if (const auto p = weak.lock()) {
+                    next = p;
+                    break;
+                }
+            }
+            from = next;
+        }
+        if (!from || from.get() == block.get()) {
+            return memo[key] = here; // bound nowhere above: unknown here
+        }
+        const Definition bound = of_argument(from->name, a);
+        if (provisional.contains({from->name, a.name})) {
+            return provisional[key] = bound; // as provisional as the binding's own
+        }
+        return memo[key] = bound;
     }
-    internal_assert(k < block->args.size())
-        << a.name << " is referred to in " << block_name
-        << " but is neither one of its arguments nor a parameter";
 
     // While this argument is being resolved it is on the stack, so a
     // predecessor that leads back here is a loop: the argument is
@@ -107,6 +147,17 @@ Definition Definitions::of_argument(const string &block_name,
     optional<Definition> found;
     optional<Definition> around; // a back edge's answer, if that is all there is
     bool merge = false;
+    // Whether an edge was skipped for leading to an argument still being
+    // resolved that is not this one: then what the other edges say holds
+    // only if that argument comes out the same, which is not known until
+    // the question that started it is answered -- so the answer is
+    // provisional, never memoized. (Found 10-19 once names reached from
+    // above were resolved at their binding: resolving a loop header's
+    // `dead`, the analysis reached the body's merge of `dead` with `true`,
+    // skipped the edge back to the header as carried round unchanged,
+    // answered `true` for the merge and kept it; the simplifier then
+    // folded the body's test on it. tests/bonsai/ssa/cse-rebound-argument.)
+    bool via_other = false;
     for (const auto &weak : block->preds) {
         const auto pred = weak.lock();
         internal_assert(pred) << "predecessor of " << block_name << " died";
@@ -127,6 +178,7 @@ Definition Definitions::of_argument(const string &block_name,
             if (!around.has_value()) {
                 around = d;
             }
+            via_other = via_other || d.block != block_name || back->name != a.name;
             continue;
         }
         if (found.has_value() && !same_definition(*found, d)) {
@@ -153,6 +205,10 @@ Definition Definitions::of_argument(const string &block_name,
         } else {
             answer = memo[key] = here;
         }
+    } else if (via_other) {
+        // What the edges not skipped say, if the argument the skipped edge
+        // leads to comes out the same: an answer for this question alone.
+        answer = provisional[key] = *found;
     } else {
         answer = memo[key] = *found;
     }

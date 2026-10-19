@@ -149,7 +149,7 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
               intersects_Ray_AABB$r0 = @93
             } else {
               let !and_1 = false in
-              _mask0[children] = !and_1
+              _mask0[children] = false
               let @139 = (f32)inf in
               let @140 = -0f - @139 in
               _carry0[children] = @140

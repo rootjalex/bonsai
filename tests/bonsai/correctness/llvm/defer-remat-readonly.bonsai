@@ -1,0 +1,39 @@
+//! flags: -p ssa -b llvm -e
+
+// The read-only reload recipe (ssa/defer-remat-readonly), run: the entry
+// stores neither the row nor its index; the drain recomputes k = i % 4
+// from the slot and reads `table[k]` again, so each sum is i times the
+// row's b plus the row's a.
+
+element Row {
+    a : i32;
+    b : i32;
+}
+
+func tally(n : i32, acc : i32, row : Row, k : i32) -> i32 {
+    if (n <= 0) {
+        return acc + row.a;
+    }
+    return tally(n - 1, acc + row.b, row, k);
+}
+
+func run(table : array[Row, 4], out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        k = i % 4;
+        out[i] = tally(i, 0, table[k], k);
+    }
+    return;
+}
+
+func main() -> i32 {
+    table : array[Row, 4] = {Row{1, 10}, Row{2, 20}, Row{3, 30}, Row{4, 40}};
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(table, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    tally.defer(tally, q);
+}

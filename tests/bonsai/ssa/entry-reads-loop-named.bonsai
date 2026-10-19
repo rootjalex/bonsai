@@ -7,7 +7,9 @@
 // A read of such a name is a read of the argument of the nearest block
 // above that takes it, up the dominator tree (the entry's parameter here),
 // so `shade`, which hands `k` to `fade` and nowhere else, reads `k`, and
-// the hits queue stores `hits_k` and hands it to the drain. Until
+// the drains hand it -- recomputed from the entry's slot, `k` being a
+// function of the pixel (defer-remat-slot), where a `k` reported unread
+// is dropped from the entry and `undef` handed in its place. Until
 // 2026-10-18 the reads of the name stopped at the loop's blocks, `k` was
 // reported unread, the queue kept no array for it and the drain handed
 // `shade` an undefined `k` -- which in apps/pbrt was the probe walk's
@@ -74,7 +76,8 @@ func step(ray : Ray, k : Float, depth : i32, p : i32, max_depth : i32,
 func render(max_depth : i32, film : mut array[Float, 8]) -> void {
     parfor p in 0:8 {
         ray = camera(p);
-        // A decay of the pixel's own, so that the entry has to carry it.
+        // A decay of the pixel's own, so that each drain has to hand it
+        // (recomputed from the slot, as a function of the pixel).
         k = 0.5 + cast[[Float]](p) * 0.0625;
         rad : reduce(+) Float = 0.0;
         step(ray, k, 0, p, max_depth, rad);

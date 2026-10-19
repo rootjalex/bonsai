@@ -518,9 +518,14 @@ Three things to read off this nest.
 *The entry* holds the call's arguments that vary from one call to the
 next: here the ray and the depth. Values that are the same for every
 entry (the scene, `max_depth`, a camera) are not stored; the drain has
-them in scope. A pure function of stored or constant values is recomputed
-at the drain rather than stored. A value selected from a read-only array
-by an index is stored as the index, and a value loaded from the record at
+them in scope. A pure function of stored or constant values, of the
+entry's slot, or of values the drain has in scope is recomputed at the
+drain rather than stored -- and so is one that reaches the push as a
+parameter of the pushing function, when every call the owner makes into
+that function hands the same such function (the pixel from the sample's
+slot, through every queue of a path). A value selected from a read-only
+array by an index is stored as the index -- an array parameter without
+`mut`, read again at the drain -- and a value loaded from the record at
 the entry's slot in a round in which nothing writes it is loaded again
 (4.5). An argument that is a pointer must point at a mutable local of the
 producer's iteration (`rad`), and is stored as that local's slot in the

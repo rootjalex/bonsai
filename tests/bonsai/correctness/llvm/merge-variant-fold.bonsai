@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// ssa/merge-variant-fold's program, run: `m` is `Sum(x)` or `Sum(-x)`, the
+// match on it folds to the Sum arm (the tag is the constant both arms hand
+// the merge), and each result is twice the value, negated where the flip
+// is set.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float)
+    | Clamp(floor : Float);
+
+func pick(x : Float, flip : bool) -> Float {
+    m : mut Mode = Sum(x);
+    if flip {
+        m = Sum(-x);
+    }
+    match m {
+        Sum(scale) => return scale * 2.0;
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func run(values : array[Float, 8], flips : array[bool, 8],
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = pick(values[i], flips[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    flips : array[bool, 8] = {false, true, false, true, true, false, false, true};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, flips, out);
+    // {2, -4, 6, -8, -10, 12, 14, -16}
+    print(out);
+    return 0;
+}

@@ -147,15 +147,13 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @135 = @125 << @612 in
           let @136 = @135 >> @612 in
           let _effect1 = prefetch((&@127[@136]), 160u, @525) in
-          let @138 = tris.group1_row in
-          let @139 = (*tris_ref!top) >> 4u in
           let @391 = reinterpret_cast<i32x4>(@838) in
           let @399 = reduce<any>(@528) in
           if (@399) {
             let @400 = reinterpret_cast<u4>(@528) in
             let @401 = cast<u32>(@400) in
             let @402 = ctz(@401) in
-            let @510 = reinterpret_cast<const u32[4]>((&@138[@139].children)) in
+            let @510 = reinterpret_cast<const u32[4]>((&@10[@11].children)) in
             let @512 = @510[@402] in
             let @404 = @838[@402] in
             let @405 = @401 - 1u in

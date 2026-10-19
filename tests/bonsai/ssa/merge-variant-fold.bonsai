@@ -4,8 +4,12 @@
 // BSDF or its regularized copy -- has a known tag though no one instruction
 // defines it: the field of a merge whose every incoming struct was built
 // with the same constant there is that constant (SSA/Simplify.cpp,
-// constant_field_of_merge), so the match on it folds to the one arm the
-// program can take, and the other arms go.
+// constant_field_of_merge), and where the tag is carried as an argument of
+// its own, every edge handing the constant, the argument is the constant
+// (substitute_threaded_arguments, 10-19), so the match on it folds to the
+// one arm the program can take, and the other arms go. What to read for:
+// no `switch` in `pick` or in `run`. The run-level test is
+// correctness/llvm/merge-variant-fold.
 import stdlib/numerics;
 
 element Mode =

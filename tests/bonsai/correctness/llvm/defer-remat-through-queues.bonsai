@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm -e
+
+// The slot function carried through two queues (ssa/defer-remat-through-
+// queues), run: `x = p % 4 + 1` is recomputed at both drains, and each
+// pixel's film is the sum over its bounces of x times the depth plus one,
+// with a half where a bounce stops early.
+import stdlib/numerics;
+
+func shade(x : i32, depth : i32, p : i32, max_depth : i32,
+           rad : reduce(+) Float) -> void {
+    rad += cast[[Float]](x * (depth + 1));
+    if depth + 1 >= max_depth {
+        return;
+    }
+    step(x, depth + 1, p, max_depth, rad);
+    return;
+}
+
+func step(x : i32, depth : i32, p : i32, max_depth : i32,
+          rad : reduce(+) Float) -> void {
+    if (p + depth) % 3 == 0 {
+        rad += 0.5;
+        return;
+    }
+    shade(x, depth, p, max_depth, rad);
+    return;
+}
+
+func render(max_depth : i32, film : mut array[Float, 8]) -> void {
+    parfor p in 0:8 {
+        rad : reduce(+) Float = 0.0;
+        step(p % 4 + 1, 0, p, max_depth, rad);
+        film[p] = rad;
+    }
+    return;
+}
+
+func main() -> i32 {
+    film : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    render(4, film);
+    print(film);
+    return 0;
+}
+
+schedule {
+    rays = render.queue(root);
+    render.defer(step, rays);
+    shade.defer(step, rays);
+    hits = render.queue(root);
+    step.defer(shade, hits);
+}

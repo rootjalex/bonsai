@@ -57,6 +57,10 @@ add_bonsai_tests(
     defer-callee-copied.bonsai
     gate-drains-under-specialize.bonsai
     defer-remat.bonsai
+    defer-remat-readonly.bonsai
+    defer-remat-slot.bonsai
+    defer-remat-through-queues.bonsai
+    merge-variant-fold.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
     demote-atomics-spawn-inline.bonsai

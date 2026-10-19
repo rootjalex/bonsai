@@ -2,7 +2,8 @@
 
 // ssa/entry-reads-loop-named's program, run: `fade` is a recursion made a
 // loop whose header does not carry `k`, and `shade` reads `k` only by
-// handing it to `fade`, so whether the hits queue stores `k` is decided by
+// handing it to `fade`, so whether the drains hand `k` (recomputed from
+// the slot, as a function of the pixel) or `undef` for it is decided by
 // a read inside a loop that names the parameter without taking it (SSA/
 // Analysis.h, read_paths). Each pixel decays its hit by its own k three
 // times per bounce, so an undefined k would show in every number.
@@ -65,7 +66,8 @@ func step(ray : Ray, k : Float, depth : i32, p : i32, max_depth : i32,
 func render(max_depth : i32, film : mut array[Float, 8]) -> void {
     parfor p in 0:8 {
         ray = camera(p);
-        // A decay of the pixel's own, so that the entry has to carry it.
+        // A decay of the pixel's own, so that each drain has to hand it
+        // (recomputed from the slot, as a function of the pixel).
         k = 0.5 + cast[[Float]](p) * 0.0625;
         rad : reduce(+) Float = 0.0;
         step(ray, k, 0, p, max_depth, rad);

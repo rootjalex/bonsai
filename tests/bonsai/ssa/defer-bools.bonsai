@@ -1,8 +1,12 @@
 //! flags: -p ssa
 
 // The entry's bools are packed eight to a byte. `walk` carries three flags
-// down its recursion, each a value of the producer's iteration; the queue
-// stores one byte `_bits0` for the three, not three arrays of a byte each:
+// down its recursion, each read off the iteration's `flags` -- a `mut`
+// array, memory the type says may be written before the drain, so no drain
+// can read the flags again and the entry carries them (a flag computed from
+// the index alone would be recomputed at the drain instead and stored
+// nowhere: defer-remat-slot); the queue stores one byte `_bits0` for the
+// three, not three arrays of a byte each:
 // the push casts each flag, shifts it to its bit and ors them, and the
 // drain reads the byte once per entry and takes each bit back with an and
 // and a compare (QueueLayout, SSA/Defer.h). What to read for:
@@ -25,9 +29,10 @@ func walk(n : i32, acc : i32, odd : bool, big : bool, neg : bool) -> i32 {
     return walk(n - 1, acc + n, odd, big, neg);
 }
 
-func run(out : mut array[i32, 8]) -> void {
+func run(flags : mut array[i32, 8], out : mut array[i32, 8]) -> void {
     parfor i in 0:8 {
-        out[i] = walk(i, 0, i % 2 == 1, i > 4, i == 3);
+        f = flags[i];
+        out[i] = walk(i, 0, f % 2 == 1, f > 4, f == 3);
     }
     return;
 }

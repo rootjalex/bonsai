@@ -2,7 +2,7 @@
 source_filename = "bonsai_module"
 
 %struct._pfctx0 = type { ptr, ptr, ptr, ptr, ptr }
-%struct.Queue_q = type { i32, ptr, ptr }
+%struct.Queue_q = type { i32, ptr }
 
 @0 = private unnamed_addr constant [4 x i8] c"%f\0A\00", align 1
 @1 = private unnamed_addr constant [34 x i8] c"{%f, %f, %f, %f, %f, %f, %f, %f}\0A\00", align 1
@@ -13,8 +13,7 @@ main:
   %_pfctx.i = alloca %struct._pfctx0, align 16
   %q_queue11.i = alloca %struct.Queue_q, align 16
   %q__slot1020.i = alloca [8 x i32], align 4
-  %q_x921.i = alloca [8 x float], align 4
-  %q_n_slots822.i = alloca [8 x float], align 4
+  %q_n_slots921.i = alloca [8 x float], align 4
   %total1 = alloca float, align 4
   store float 0.000000e+00, ptr %total1, align 4, !tbaa !0
   %calloc33 = tail call dereferenceable_or_null(32) ptr @calloc(i64 1, i64 32)
@@ -25,20 +24,17 @@ main:
   call void @llvm.lifetime.start.p0(ptr nonnull %_pfctx.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %q_queue11.i)
   call void @llvm.lifetime.start.p0(ptr nonnull %q__slot1020.i)
-  call void @llvm.lifetime.start.p0(ptr nonnull %q_x921.i)
-  call void @llvm.lifetime.start.p0(ptr nonnull %q_n_slots822.i)
+  call void @llvm.lifetime.start.p0(ptr nonnull %q_n_slots921.i)
   store i32 0, ptr %q_queue11.i, align 16
   %.fca.1.gep.i = getelementptr inbounds nuw i8, ptr %q_queue11.i, i64 8
-  store ptr %q_x921.i, ptr %.fca.1.gep.i, align 8
-  %.fca.2.gep.i = getelementptr inbounds nuw i8, ptr %q_queue11.i, i64 16
-  store ptr %q__slot1020.i, ptr %.fca.2.gep.i, align 16
+  store ptr %q__slot1020.i, ptr %.fca.1.gep.i, align 8
   store ptr %_untyped9, ptr %_pfctx.i, align 16
   %0 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 8
   store ptr %total1, ptr %0, align 8
   %1 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 16
   store ptr %calloc33, ptr %1, align 16
   %2 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 24
-  store ptr %q_n_slots822.i, ptr %2, align 8
+  store ptr %q_n_slots921.i, ptr %2, align 8
   %3 = getelementptr inbounds nuw i8, ptr %_pfctx.i, i64 32
   store ptr %q_queue11.i, ptr %3, align 16
   call void @bonsai_parallel_for(i64 8, ptr nonnull %_pfctx.i, ptr nonnull @_pfkernel1)
@@ -59,97 +55,96 @@ main:
 
 "q!run.i":                                        ; preds = %"q!run.i", %"q!run.lr.ph.i.new"
   %indvars.iv.i = phi i64 [ 0, %"q!run.lr.ph.i.new" ], [ %indvars.iv.next.i.1, %"q!run.i" ]
-  %5 = phi float [ %deref_temp.pre, %"q!run.lr.ph.i.new" ], [ %10, %"q!run.i" ]
+  %5 = phi float [ %deref_temp.pre, %"q!run.lr.ph.i.new" ], [ %11, %"q!run.i" ]
   %niter = phi i64 [ 0, %"q!run.lr.ph.i.new" ], [ %niter.next.1, %"q!run.i" ]
-  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %q_x921.i, i64 %indvars.iv.i
-  %extract.i = load float, ptr %extract_ptr.i, align 4
-  %extract_ptr13.i = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i
-  %extract14.i = load i32, ptr %extract_ptr13.i, align 4
-  %extract14_wide.i = sext i32 %extract14.i to i64
-  %ptr_array_deref.i = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i
-  %6 = fmul float %extract.i, 5.000000e-01
+  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i
+  %extract.i = load i32, ptr %extract_ptr.i, align 4
+  %extract_wide.i = sext i32 %extract.i to i64
+  %extract_ptr12.i = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract_wide.i
+  %extract13.i = load float, ptr %extract_ptr12.i, align 4
+  %ptr_array_deref.i = getelementptr inbounds [4 x i8], ptr %q_n_slots921.i, i64 %extract_wide.i
+  %6 = fmul float %extract13.i, 5.000000e-01
   %7 = fadd float %5, %6
   %acc_base1.i.i = load float, ptr %ptr_array_deref.i, align 4
   %8 = fadd float %acc_base1.i.i, 1.000000e+00
   store float %8, ptr %ptr_array_deref.i, align 4
-  %indvars.iv.next.i = or disjoint i64 %indvars.iv.i, 1
-  %extract_ptr.i.1 = getelementptr inbounds nuw [4 x i8], ptr %q_x921.i, i64 %indvars.iv.next.i
-  %extract.i.1 = load float, ptr %extract_ptr.i.1, align 4
-  %extract_ptr13.i.1 = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.next.i
-  %extract14.i.1 = load i32, ptr %extract_ptr13.i.1, align 4
-  %extract14_wide.i.1 = sext i32 %extract14.i.1 to i64
-  %ptr_array_deref.i.1 = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i.1
-  %9 = fmul float %extract.i.1, 5.000000e-01
-  %10 = fadd float %7, %9
+  %9 = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i
+  %extract_ptr.i.1 = getelementptr inbounds nuw i8, ptr %9, i64 4
+  %extract.i.1 = load i32, ptr %extract_ptr.i.1, align 4
+  %extract_wide.i.1 = sext i32 %extract.i.1 to i64
+  %extract_ptr12.i.1 = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract_wide.i.1
+  %extract13.i.1 = load float, ptr %extract_ptr12.i.1, align 4
+  %ptr_array_deref.i.1 = getelementptr inbounds [4 x i8], ptr %q_n_slots921.i, i64 %extract_wide.i.1
+  %10 = fmul float %extract13.i.1, 5.000000e-01
+  %11 = fadd float %7, %10
   %acc_base1.i.i.1 = load float, ptr %ptr_array_deref.i.1, align 4
-  %11 = fadd float %acc_base1.i.i.1, 1.000000e+00
-  store float %11, ptr %ptr_array_deref.i.1, align 4
+  %12 = fadd float %acc_base1.i.i.1, 1.000000e+00
+  store float %12, ptr %ptr_array_deref.i.1, align 4
   %indvars.iv.next.i.1 = add nuw nsw i64 %indvars.iv.i, 2
   %niter.next.1 = add i64 %niter, 2
   %niter.ncmp.1 = icmp eq i64 %niter.next.1, %unroll_iter
-  br i1 %niter.ncmp.1, label %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa, label %"q!run.i", !prof !4
+  br i1 %niter.ncmp.1, label %run.exit.loopexit.unr-lcssa, label %"q!run.i", !prof !4
 
-q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa:      ; preds = %"q!run.i"
+run.exit.loopexit.unr-lcssa:                      ; preds = %"q!run.i"
   %lcmp.mod.not = icmp eq i64 %xtraiter, 0
-  br i1 %lcmp.mod.not, label %q2_pf_head.q2_pf_exit_crit_edge.i, label %"q!run.i.epil.preheader", !prof !4
+  br i1 %lcmp.mod.not, label %run.exit.loopexit, label %"q!run.i.epil.preheader", !prof !4
 
-"q!run.i.epil.preheader":                         ; preds = %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa, %"q!run.lr.ph.i"
-  %indvars.iv.i.epil.init = phi i64 [ 0, %"q!run.lr.ph.i" ], [ %indvars.iv.next.i.1, %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa ]
-  %.epil.init = phi float [ %deref_temp.pre, %"q!run.lr.ph.i" ], [ %10, %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa ]
+"q!run.i.epil.preheader":                         ; preds = %run.exit.loopexit.unr-lcssa, %"q!run.lr.ph.i"
+  %indvars.iv.i.epil.init = phi i64 [ 0, %"q!run.lr.ph.i" ], [ %indvars.iv.next.i.1, %run.exit.loopexit.unr-lcssa ]
+  %.epil.init = phi float [ %deref_temp.pre, %"q!run.lr.ph.i" ], [ %11, %run.exit.loopexit.unr-lcssa ]
   %lcmp.mod35 = trunc i32 %deref_temp.fca.0.load.i to i1
   call void @llvm.assume(i1 %lcmp.mod35)
-  %extract_ptr.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q_x921.i, i64 %indvars.iv.i.epil.init
-  %extract.i.epil = load float, ptr %extract_ptr.i.epil, align 4
-  %extract_ptr13.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i.epil.init
-  %extract14.i.epil = load i32, ptr %extract_ptr13.i.epil, align 4
-  %extract14_wide.i.epil = sext i32 %extract14.i.epil to i64
-  %ptr_array_deref.i.epil = getelementptr inbounds [4 x i8], ptr %q_n_slots822.i, i64 %extract14_wide.i.epil
-  %12 = fmul float %extract.i.epil, 5.000000e-01
-  %13 = fadd float %.epil.init, %12
+  %extract_ptr.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q__slot1020.i, i64 %indvars.iv.i.epil.init
+  %extract.i.epil = load i32, ptr %extract_ptr.i.epil, align 4
+  %extract_wide.i.epil = sext i32 %extract.i.epil to i64
+  %extract_ptr12.i.epil = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract_wide.i.epil
+  %extract13.i.epil = load float, ptr %extract_ptr12.i.epil, align 4
+  %ptr_array_deref.i.epil = getelementptr inbounds [4 x i8], ptr %q_n_slots921.i, i64 %extract_wide.i.epil
+  %13 = fmul float %extract13.i.epil, 5.000000e-01
+  %14 = fadd float %.epil.init, %13
   %acc_base1.i.i.epil = load float, ptr %ptr_array_deref.i.epil, align 4
-  %14 = fadd float %acc_base1.i.i.epil, 1.000000e+00
-  store float %14, ptr %ptr_array_deref.i.epil, align 4
-  br label %q2_pf_head.q2_pf_exit_crit_edge.i
+  %15 = fadd float %acc_base1.i.i.epil, 1.000000e+00
+  store float %15, ptr %ptr_array_deref.i.epil, align 4
+  br label %run.exit.loopexit
 
-q2_pf_head.q2_pf_exit_crit_edge.i:                ; preds = %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa, %"q!run.i.epil.preheader"
-  %.lcssa = phi float [ %10, %q2_pf_head.q2_pf_exit_crit_edge.i.unr-lcssa ], [ %13, %"q!run.i.epil.preheader" ]
+run.exit.loopexit:                                ; preds = %run.exit.loopexit.unr-lcssa, %"q!run.i.epil.preheader"
+  %.lcssa = phi float [ %11, %run.exit.loopexit.unr-lcssa ], [ %14, %"q!run.i.epil.preheader" ]
   store float %.lcssa, ptr %total1, align 4
   br label %run.exit
 
-run.exit:                                         ; preds = %main, %q2_pf_head.q2_pf_exit_crit_edge.i
-  %deref_temp = phi float [ %deref_temp.pre, %main ], [ %.lcssa, %q2_pf_head.q2_pf_exit_crit_edge.i ]
-  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %calloc33, ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots822.i, i64 32, i1 false), !tbaa !0
+run.exit:                                         ; preds = %run.exit.loopexit, %main
+  %deref_temp = phi float [ %.lcssa, %run.exit.loopexit ], [ %deref_temp.pre, %main ]
+  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %calloc33, ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots921.i, i64 32, i1 false), !tbaa !0
   call void @llvm.lifetime.end.p0(ptr nonnull %_pfctx.i)
   call void @llvm.lifetime.end.p0(ptr nonnull %q_queue11.i)
   call void @llvm.lifetime.end.p0(ptr nonnull %q__slot1020.i)
-  call void @llvm.lifetime.end.p0(ptr nonnull %q_x921.i)
-  call void @llvm.lifetime.end.p0(ptr nonnull %q_n_slots822.i)
-  %15 = fpext float %deref_temp to double
-  %16 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %15)
+  call void @llvm.lifetime.end.p0(ptr nonnull %q_n_slots921.i)
+  %16 = fpext float %deref_temp to double
+  %17 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %16)
   %extract = load float, ptr %calloc33, align 4
-  %17 = fpext float %extract to double
+  %18 = fpext float %extract to double
   %extract_ptr18 = getelementptr inbounds nuw i8, ptr %calloc33, i64 4
   %extract19 = load float, ptr %extract_ptr18, align 4
-  %18 = fpext float %extract19 to double
+  %19 = fpext float %extract19 to double
   %extract_ptr20 = getelementptr inbounds nuw i8, ptr %calloc33, i64 8
   %extract21 = load float, ptr %extract_ptr20, align 4
-  %19 = fpext float %extract21 to double
+  %20 = fpext float %extract21 to double
   %extract_ptr22 = getelementptr inbounds nuw i8, ptr %calloc33, i64 12
   %extract23 = load float, ptr %extract_ptr22, align 4
-  %20 = fpext float %extract23 to double
+  %21 = fpext float %extract23 to double
   %extract_ptr24 = getelementptr inbounds nuw i8, ptr %calloc33, i64 16
   %extract25 = load float, ptr %extract_ptr24, align 4
-  %21 = fpext float %extract25 to double
+  %22 = fpext float %extract25 to double
   %extract_ptr26 = getelementptr inbounds nuw i8, ptr %calloc33, i64 20
   %extract27 = load float, ptr %extract_ptr26, align 4
-  %22 = fpext float %extract27 to double
+  %23 = fpext float %extract27 to double
   %extract_ptr28 = getelementptr inbounds nuw i8, ptr %calloc33, i64 24
   %extract29 = load float, ptr %extract_ptr28, align 4
-  %23 = fpext float %extract29 to double
+  %24 = fpext float %extract29 to double
   %extract_ptr30 = getelementptr inbounds nuw i8, ptr %calloc33, i64 28
   %extract31 = load float, ptr %extract_ptr30, align 4
-  %24 = fpext float %extract31 to double
-  %25 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, double %17, double %18, double %19, double %20, double %21, double %22, double %23, double %24)
+  %25 = fpext float %extract31 to double
+  %26 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @1, double %18, double %19, double %20, double %21, double %22, double %23, double %24, double %25)
   ret i32 0
 }
 
@@ -177,32 +172,68 @@ entry:
 
 "!par_body_0.lr.ph":                              ; preds = %entry
   %11 = getelementptr inbounds nuw i8, ptr %9, i64 8
-  %12 = getelementptr inbounds nuw i8, ptr %9, i64 16
-  br label %"!par_body_0"
+  %12 = sub i64 %2, %1
+  %.neg = add i64 %1, 1
+  %xtraiter = and i64 %12, 1
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_0.prol.loopexit", label %"!par_body_0.prol", !prof !6
 
-"!par_body_0":                                    ; preds = %"!par_body_0.lr.ph", %"!par_body_0"
-  %n3 = phi i64 [ %1, %"!par_body_0.lr.ph" ], [ %16, %"!par_body_0" ]
-  %13 = trunc i64 %n3 to i32
+"!par_body_0.prol":                               ; preds = %"!par_body_0.lr.ph"
+  %13 = trunc i64 %1 to i32
+  %sext.prol = shl i64 %1, 32
+  %i_wide.prol = ashr exact i64 %sext.prol, 32
+  %q_n_slots.prol = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide.prol
+  store float 0.000000e+00, ptr %q_n_slots.prol, align 4, !tbaa !0
+  %extract_ptr.prol = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide.prol
+  %extract.prol = load float, ptr %extract_ptr.prol, align 4
+  %14 = atomicrmw add ptr %9, i32 1 monotonic, align 4
+  %_slot.i.prol = load ptr, ptr %11, align 8
+  %_wide.i.prol = zext i32 %14 to i64
+  %"@5.i.prol" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.prol, i64 %_wide.i.prol
+  store i32 %13, ptr %"@5.i.prol", align 4, !tbaa !7
+  %15 = atomicrmw fadd ptr %5, float %extract.prol monotonic, align 4
+  %16 = add nsw i64 %1, 1
+  br label %"!par_body_0.prol.loopexit"
+
+"!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.lr.ph"
+  %n3.unr = phi i64 [ %1, %"!par_body_0.lr.ph" ], [ %16, %"!par_body_0.prol" ]
+  %17 = icmp eq i64 %2, %.neg
+  br i1 %17, label %done, label %"!par_body_0", !prof !9
+
+"!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
+  %n3 = phi i64 [ %25, %"!par_body_0" ], [ %n3.unr, %"!par_body_0.prol.loopexit" ]
+  %18 = trunc i64 %n3 to i32
   %sext = shl i64 %n3, 32
   %i_wide = ashr exact i64 %sext, 32
   %q_n_slots = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide
   store float 0.000000e+00, ptr %q_n_slots, align 4, !tbaa !0
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide
   %extract = load float, ptr %extract_ptr, align 4
-  %14 = atomicrmw add ptr %9, i32 1 monotonic, align 4
-  %x3.i = load ptr, ptr %11, align 8
-  %_wide.i = zext i32 %14 to i64
-  %"@5.i" = getelementptr inbounds nuw [4 x i8], ptr %x3.i, i64 %_wide.i
-  store float %extract, ptr %"@5.i", align 4, !tbaa !0
-  %_slot.i = load ptr, ptr %12, align 8
-  %"@8.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
-  store i32 %13, ptr %"@8.i", align 4, !tbaa !6
-  %15 = atomicrmw fadd ptr %5, float %extract monotonic, align 4
-  %16 = add nsw i64 %n3, 1
-  %exitcond.not = icmp eq i64 %16, %2
-  br i1 %exitcond.not, label %done, label %"!par_body_0", !prof !8
+  %19 = atomicrmw add ptr %9, i32 1 monotonic, align 4
+  %_slot.i = load ptr, ptr %11, align 8
+  %_wide.i = zext i32 %19 to i64
+  %"@5.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
+  store i32 %18, ptr %"@5.i", align 4, !tbaa !7
+  %20 = atomicrmw fadd ptr %5, float %extract monotonic, align 4
+  %21 = add nsw i64 %n3, 1
+  %22 = trunc i64 %21 to i32
+  %sext.1 = shl i64 %21, 32
+  %i_wide.1 = ashr exact i64 %sext.1, 32
+  %q_n_slots.1 = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide.1
+  store float 0.000000e+00, ptr %q_n_slots.1, align 4, !tbaa !0
+  %extract_ptr.1 = getelementptr inbounds [4 x i8], ptr %3, i64 %i_wide.1
+  %extract.1 = load float, ptr %extract_ptr.1, align 4
+  %23 = atomicrmw add ptr %9, i32 1 monotonic, align 4
+  %_slot.i.1 = load ptr, ptr %11, align 8
+  %_wide.i.1 = zext i32 %23 to i64
+  %"@5.i.1" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.1, i64 %_wide.i.1
+  store i32 %22, ptr %"@5.i.1", align 4, !tbaa !7
+  %24 = atomicrmw fadd ptr %5, float %extract.1 monotonic, align 4
+  %25 = add nsw i64 %n3, 2
+  %exitcond.not.1 = icmp eq i64 %25, %2
+  br i1 %exitcond.not.1, label %done, label %"!par_body_0", !prof !10
 
-done:                                             ; preds = %"!par_body_0", %entry
+done:                                             ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0", %entry
   ret void
 }
 
@@ -235,6 +266,8 @@ attributes #7 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 !3 = !{!"branch_weights", i32 0, i32 1}
 !4 = !{!"branch_weights", i32 0, i32 -2147483648}
 !5 = !{!"branch_weights", i32 1, i32 0}
-!6 = !{!7, !7, i64 0}
-!7 = !{!"i32", !2, i64 0}
-!8 = !{!"branch_weights", i32 0, i32 1073741824}
+!6 = !{!"branch_weights", i32 127, i32 1}
+!7 = !{!8, !8, i64 0}
+!8 = !{!"i32", !2, i64 0}
+!9 = !{!"branch_weights", i32 1, i32 127}
+!10 = !{!"branch_weights", i32 0, i32 1073741824}

@@ -9,7 +9,10 @@
 // step, `x` and `n`, and names what does not -- `total` among it -- without
 // taking it as an argument, so inside the loop `total` is a name reached
 // from the block above, which the definitions analysis leaves at "unknown
-// here" on purpose (SSA/Simplify.cpp says why defer() needs that). `run`'s
+// here" on purpose for the rewrites (SSA/Definitions.h, `lenient` without
+// `bound`: destination passing captures such a name for the continuation it
+// hands it to; a reader that wants the value behind the name asks with
+// `bound`). `run`'s
 // `parfor i` is bound, so `series` runs once per concurrent iteration, and
 // whether its accumulate may lose its atomic is what every caller hands
 // `total` (SSA/Contention.h, parameter_contention) -- which can only be

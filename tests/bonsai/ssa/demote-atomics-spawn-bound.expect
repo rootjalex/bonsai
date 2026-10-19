@@ -1,7 +1,7 @@
-type Entry_q = struct Entry_q{ x : f32; _slot : i32 }
+type Entry_q = struct Entry_q{ _slot : i32 }
 type Float = f32
 type Half = f16
-type Queue_q = struct Queue_q{ count : u32; x : f32[]; _slot : i32[] }
+type Queue_q = struct Queue_q{ count : u32; _slot : i32[] }
 type vec2f = f32x2
 type vec3f = f32x3
 type vec3h = f16x3
@@ -23,10 +23,9 @@ func main() -> i32 {
 
 func run(values : f32[8], total : mut (f32*), counts : mut f32[8]) -> void {
   q_n_slots : mut f32[8]
-  q_x : mut f32[8]
   q__slot : mut i32[8]
   q_queue : mut Queue_q
-  let @4 = build<Queue_q>(0u, q_x, q__slot) in
+  let @4 = build<Queue_q>(0u, q__slot) in
   q_queue = @4
   parfor i in [0:8:1] {
     q_n_slots[i] = 0f
@@ -37,9 +36,9 @@ func run(values : f32[8], total : mut (f32*), counts : mut f32[8]) -> void {
   let @5 = (*q_queue) in
   let @6 = @5.count in
   parfor q in [0u:@6:1u] {
-    let @7 = q_x[q] in
-    let @8 = q__slot[q] in
-    wet(@7, total, (&q_n_slots[@8]))
+    let @7 = q__slot[q] in
+    let @8 = values[@7] in
+    wet(@8, total, (&q_n_slots[@7]))
     continue
   }
   q_queue.count = 0u
@@ -54,12 +53,10 @@ func run(values : f32[8], total : mut (f32*), counts : mut f32[8]) -> void {
 }
 
 func step(x : f32, total : mut (f32*), n : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
-  let @0 = build<Entry_q>(x, _slot_q) in
+  let @0 = build<Entry_q>(_slot_q) in
   let @3 = atomic_add((&(*_queue_q).count), 1u) in
-  let @5 = (*_queue_q).x in
-  @5[@3] = x
-  let @8 = (*_queue_q)._slot in
-  @8[@3] = _slot_q
+  let @5 = (*_queue_q)._slot in
+  @5[@3] = _slot_q
   atomic total += x
   return
 }

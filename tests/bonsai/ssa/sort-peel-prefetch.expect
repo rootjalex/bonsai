@@ -159,10 +159,7 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
           _keys0[ramp(0u, 1u, 8)] = @928
           let @173 = _t618.children in
           let @174 = cast<u64x8>(@173) in
-          let @176 = reinterpret_cast<(const u8*)>((*tris_ref!top)) in
-          let @177 = reinterpret_cast<const _tree_layout3[]>(@176) in
-          let @178 = @177[0u] in
-          let @179 = @178.children in
+          let @179 = _t618.children in
           let _t81 = cast<u64x8>(@179) in
           let @434 = reduce<any>(@925) in
           if (@434) {
@@ -172,8 +169,6 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
             let @936 = reinterpret_cast<const u64[8]>((&@22[0u].children)) in
             let @938 = @936[@437] in
             let _effect0 = prefetch(@938, 256u) in
-            let @602 = reinterpret_cast<const u64[8]>((&@177[0u].children)) in
-            let @604 = @602[@437] in
             let @439 = @928[@437] in
             let @440 = @436 - 1u in
             let @441 = @436 & @440 in
@@ -189,13 +184,12 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
               let @454 = @432[@437] in
               let @456 = @433[@437] in
               let @458 = @432[@443] in
-              let @606 = @602[@443] in
               let @461 = @433[@443] in
               let @462 = @454 < @458 in
               let @463 = select(@462, @454, @458) in
               let @464 = select(@462, @458, @454) in
-              let @465 = select(@462, @604, @606) in
-              let @466 = select(@462, @606, @604) in
+              let @465 = select(@462, @938, @940) in
+              let @466 = select(@462, @940, @938) in
               let @467 = select(@462, @456, @461) in
               let @468 = select(@462, @461, @456) in
               let @471 = @441 - 1u in
@@ -206,13 +200,12 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
                 let @943 = @936[@474] in
                 let _effect2 = prefetch(@943, 256u) in
                 let @476 = @432[@474] in
-                let @608 = @602[@474] in
                 let @479 = @433[@474] in
                 let @480 = @463 < @476 in
                 let @481 = select(@480, @463, @476) in
                 let @482 = select(@480, @476, @463) in
-                let @483 = select(@480, @465, @608) in
-                let @484 = select(@480, @608, @465) in
+                let @483 = select(@480, @465, @943) in
+                let @484 = select(@480, @943, @465) in
                 let @485 = select(@480, @467, @479) in
                 let @486 = select(@480, @479, @467) in
                 let @487 = @464 < @482 in
@@ -230,12 +223,11 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
                   let @945 = @936[@500] in
                   let _effect3 = prefetch(@945, 256u) in
                   let @502 = @432[@500] in
-                  let @610 = @602[@500] in
                   let @505 = @433[@500] in
                   let @506 = @481 < @502 in
                   let @508 = select(@506, @502, @481) in
-                  let @509 = select(@506, @483, @610) in
-                  let @510 = select(@506, @610, @483) in
+                  let @509 = select(@506, @483, @945) in
+                  let @510 = select(@506, @945, @483) in
                   let @511 = select(@506, @485, @505) in
                   let @512 = select(@506, @505, @485) in
                   let @513 = @488 < @508 in
@@ -358,7 +350,7 @@ func _recloop_func0(tris_ref : u64, _bound0 : f32, _best0 : mut (__tuple_2*), r 
                 continue
               }
             } else {
-              tris_ref!top = @604
+              tris_ref!top = @938
               _bound0!top = @439
               continue
             }
