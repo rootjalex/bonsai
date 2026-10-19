@@ -44,6 +44,7 @@ Exits non-zero if either check fails. Render times, if given, are reported but
 never failed on: they are a measurement, not a claim about correctness.
 """
 
+import math
 import os
 import sys
 
@@ -357,9 +358,27 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     lit_pbrt = lit_bonsai = lit_both = 0
     close = 0
     pbrt_total = bonsai_total = 0.0
+    # A pixel that is not a number -- NaN or infinite, on either side -- is
+    # counted apart and left out of everything below. Summed in, one such
+    # pixel made the mean NaN, and NaN is within every tolerance because it
+    # compares false against all of them: kroken and watercolor at 128 spp
+    # each carried one through five heatmaps with the verdict `ok` (PLAN.md,
+    # "A pixel that is not a number passed"). pbrt's film CHECKs that no
+    # NaN reaches it, so a NaN here is ours alone, and it fails the image.
+    nonfinite = 0
+    nonfinite_pbrt = 0
+    first_nonfinite = None
     for i in range(0, len(pbrt), 3):
         a = pbrt[i:i + 3]
         b = bonsai[i:i + 3]
+        a_finite = all(math.isfinite(v) for v in a)
+        b_finite = all(math.isfinite(v) for v in b)
+        if not (a_finite and b_finite):
+            nonfinite += not b_finite
+            nonfinite_pbrt += not a_finite
+            if first_nonfinite is None and not b_finite:
+                first_nonfinite = ((i // 3) % width, (i // 3) // width)
+            continue
         pbrt_total += sum(a)
         bonsai_total += sum(b)
         a_lit = any(v > 0 for v in a)
@@ -374,9 +393,9 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
                 RADIANCE_TOLERANCE * scale:
             close += 1
 
-    n = width * height * 3
-    pbrt_mean = pbrt_total / n
-    bonsai_mean = bonsai_total / n
+    n = (width * height - nonfinite - nonfinite_pbrt) * 3
+    pbrt_mean = pbrt_total / n if n else 0.0
+    bonsai_mean = bonsai_total / n if n else 0.0
     # Six of the nine scenes here have no emitter at all -- they were written
     # when the comparison was a gbuffer -- so both sides render an image that is
     # exactly black. Two black images agree perfectly, and the ratio of their
@@ -390,13 +409,17 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     agree = close / lit_both if lit_both else 1.0
     print(f"radiance: {lit_pbrt} lit pixels in pbrt, {lit_bonsai} here; "
           f"mean {pbrt_mean:.6g} vs {bonsai_mean:.6g} ({ratio:.5f}x)")
+    if nonfinite or nonfinite_pbrt:
+        print(f"  {nonfinite} pixels here are not finite (NaN or infinite)"
+              + (f", the first at {first_nonfinite}" if nonfinite else "")
+              + f"; {nonfinite_pbrt} in pbrt's; none of them is counted above")
     if lit_both:
         print(f"  {close} of {lit_both} touched pixels agree to "
               f"{RADIANCE_TOLERANCE:.0e} relative ({100 * agree:.1f}%)")
     else:
         print("  no pixel received light on either side, which is what a scene "
               "with no emitter renders")
-    return lit_pbrt, lit_bonsai, lit_both, ratio
+    return lit_pbrt, lit_bonsai, lit_both, ratio, (nonfinite, first_nonfinite)
 
 
 def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
@@ -428,9 +451,13 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
     failing cells alone (gpu_compare.sh).
     """
     pw, ph, _ = read_pfm(radiance_pair[0])
-    lit_pbrt, lit_bonsai, lit_both, ratio = compare_radiance(
-        radiance_pair[0], radiance_pair[1], pw, ph)
+    lit_pbrt, lit_bonsai, lit_both, ratio, (nonfinite, nonfinite_at) = \
+        compare_radiance(radiance_pair[0], radiance_pair[1], pw, ph)
     failures = []
+    if nonfinite:
+        failures.append(("finite", f"{nonfinite} pixels here are not finite "
+                         f"(NaN or infinite), the first at {nonfinite_at}; "
+                         f"pbrt's film admits none"))
     lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
                                                      lit_both)
     if lit_failed:
@@ -444,11 +471,16 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
     covered, uncovered = [], []
     if failures and spread_path is not None:
         print("pbrt's own other renderer against the reference, the spread:")
-        s_lit_pbrt, s_lit_other, _, s_ratio = compare_radiance(
+        s_lit_pbrt, s_lit_other, _, s_ratio, _ = compare_radiance(
             radiance_pair[0], spread_path, pw, ph)
         s_gap = abs(s_lit_pbrt - s_lit_other)
         for which, _ in failures:
-            if which == "lit":
+            if which == "finite":
+                # No disagreement of pbrt's with itself covers a pixel that
+                # is not a number: pbrt writes none.
+                ok = False
+                note = f"{nonfinite} pixels not finite, the first at {nonfinite_at}"
+            elif which == "lit":
                 ok = s_gap >= lit_gap
                 note = f"lit-pixel gap {lit_gap} where pbrt's own is {s_gap}"
             else:
@@ -622,8 +654,13 @@ def main(argv):
 
     radiance_failed = False
     if radiance_pair is not None:
-        lit_pbrt, lit_bonsai, lit_both, ratio = compare_radiance(
-            radiance_pair[0], radiance_pair[1], ref_w, ref_h)
+        lit_pbrt, lit_bonsai, lit_both, ratio, (nonfinite, nonfinite_at) = \
+            compare_radiance(radiance_pair[0], radiance_pair[1], ref_w, ref_h)
+        if nonfinite:
+            radiance_failed = True
+            print(f"FAILED: {nonfinite} pixels here are not finite (NaN or "
+                  f"infinite), the first at {nonfinite_at}; pbrt's film "
+                  f"admits none")
         lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
                                                          lit_both)
         if lit_failed:

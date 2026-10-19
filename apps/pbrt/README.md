@@ -63,7 +63,10 @@ before it.
   radiance.pfm`), and the cell passes -- `ok: within pbrt's own
   disagreement` -- when pbrt's two renderers disagree with each other more
   than ours disagrees with the GPU one, on each check that failed (the
-  user's rule of 2026-10-18; `compare_gbuffer.py --pbrt-spread`).
+  user's rule of 2026-10-18; `compare_gbuffer.py --pbrt-spread`). A pixel
+  of ours that is not a number (NaN or infinite) fails the cell whatever
+  the spread says: pbrt's film admits none, and such a pixel is left out
+  of the mean rather than making it NaN, which passed every tolerance.
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
   watched while it runs (anything else on the GPU, or another user's
