@@ -100,11 +100,26 @@ func emission_at(e : Emission, lambda : SampledWavelengths) -> vec4f {
 // ray lands there (`L`) or a shadow ray is aimed at it (`SampleLi`). Bistro's
 // streetlight glass is such a light: its alpha is zero everywhere, so in
 // pbrt it never lights anything.
+//
+// With one exception, pbrt's own (DiffuseAreaLight's constructor, lights.cpp:
+// "Special case handling for area lights with constant zero-valued alpha
+// textures to allow invisible area lights"): a shape whose alpha is the
+// *constant* zero is never intersected -- the alpha test rejects every hit on
+// it -- but the light it carries keeps nothing of the mask, is fully emissive,
+// and is typed DeltaPosition, so that direct lighting weighs its sample
+// against no BSDF density (`delta`, read by light_is_delta): light sampling
+// is the one strategy that reaches it. kroken's sun is such a light, a sphere
+// of radius 90 with `"float alpha" 0` under an AreaLightSource (lights.pbrt),
+// and masking it as the texture said darkened the scene by 13% (PLAN.md,
+// "kroken's invisible sun"). The host decides which a light is
+// (render_hook.cpp, mask_light): `alpha` is -1 and `delta` true for the
+// invisible light, `alpha` the texture and `delta` false otherwise.
 element AreaLight {
     emission : Emission;
     scale : Float;
     two_sided : bool;
     alpha : i32;
+    delta : bool;
 }
 
 // pbrt: DiffuseAreaLight::AlphaMasked -- is this point of the light cut out?
@@ -814,13 +829,15 @@ element SampledLight {
 // because a BSDF will never sample that direction, so multiple importance
 // sampling has nothing to combine and the light's estimator stands alone.
 //
-// An area light is not one, which is why its arm answers false. Written out
-// arm by arm rather than left implicit because this is the line a new kind
-// of light has to get right: a `path` integrator that took a point light for
-// an area light would quietly halve the light's contribution.
+// An area light is not one -- except the invisible light, whose shape no ray
+// ever intersects and which pbrt types DeltaPosition for that reason (see
+// AreaLight: `delta`). Written out arm by arm rather than left implicit
+// because this is the line a new kind of light has to get right: a `path`
+// integrator that took a point light for an area light would quietly halve
+// the light's contribution.
 func light_is_delta(light : Light) -> bool {
     match light {
-        DiffuseArea(area, shape) => return false;
+        DiffuseArea(area, shape) => return area.delta;
         // pbrt: LightType::Infinite, which IsDeltaLight does not include. It
         // arrives from every direction, so a BSDF sample can find it.
         UniformInfinite(sky) => return false;

@@ -2719,10 +2719,40 @@ int main(int argc, char **argv) {
                         &out_light.emission);
         out_light.two_sided = l.two_sided != 0;
         // The alpha mask is the emitting shape's, not the emission's: set
-        // where each light is made below.
+        // where each light is made below (mask_light), with whether the
+        // light is the invisible kind.
         out_light.alpha = -1;
+        out_light.delta = false;
         emission.push_back(out_light);
     }
+
+    // pbrt: DiffuseAreaLight's constructor (lights.cpp) -- the shape's alpha
+    // texture masks the light it carries (AlphaMasked, in L and SampleLi),
+    // except when the texture is a constant zero: "Special case handling for
+    // area lights with constant zero-valued alpha textures to allow invisible
+    // area lights". Such a light keeps no alpha -- it is fully emissive -- and
+    // since no ray ever intersects its shape (the primitive keeps the alpha,
+    // and the alpha test rejects every hit on it), it is typed DeltaPosition,
+    // so that direct lighting weighs its sample against no BSDF density:
+    // light sampling is the one strategy that reaches it. The test is pbrt's,
+    // a FloatConstantTexture evaluating to exactly zero; a float `alpha` of
+    // zero on the shape is one (scene.cpp, getAlphaTexture), as is a named
+    // constant texture of zero. kroken's sun is such a light (lights.pbrt:
+    // `Shape "sphere" "float radius" 90 "float alpha" 0` under an
+    // AreaLightSource), and masking it as the texture said darkened the scene
+    // by 13% from 10-17 to 10-18 (PLAN.md, "kroken's invisible sun").
+    const auto mask_light = [&](AreaLight &area, int32_t alpha) {
+        if (alpha >= 0) {
+            const bonsai_scene::Texture &t = loaded.textures[size_t(alpha)];
+            if (t.kind == bonsai_scene::TextureKind::Constant && t.value == 0.f) {
+                area.alpha = -1;
+                area.delta = true;
+                return;
+            }
+        }
+        area.alpha = alpha;
+        area.delta = false;
+    };
 
     // One `Light` per emissive *shape*, which is what pbrt builds: a light has
     // to know the geometry it sits on, because sampling one is sampling that
@@ -2752,9 +2782,10 @@ int main(int argc, char **argv) {
             continue;
         }
         // pbrt: Light::CreateArea(..., alphaTex, ...) -- the shape's alpha
-        // texture masks the light it carries (DiffuseAreaLight::AlphaMasked).
+        // texture masks the light it carries (DiffuseAreaLight::AlphaMasked),
+        // or makes it the invisible light (mask_light above).
         AreaLight area = emission[size_t(ordinal_to_emission[size_t(prim.light)])];
-        area.alpha = prim.alpha;
+        mask_light(area, prim.alpha);
         Light light;
         Light_DiffuseArea(light, area, prim.shape);
         lights[size_t(prim.light)] = light;
@@ -2772,9 +2803,9 @@ int main(int argc, char **argv) {
             Shape shape;
             Shape_Tri(shape, Triangle{mp.mesh, k});
             // The mesh's alpha texture masks every triangle's light, as the
-            // shape's does above.
+            // shape's does above (or makes each the invisible light).
             AreaLight area = emission[size_t(ordinal_to_emission.at(ordinal))];
-            area.alpha = m.alpha;
+            mask_light(area, m.alpha);
             Light light;
             Light_DiffuseArea(light, area, shape);
             lights.at(ordinal) = light;
