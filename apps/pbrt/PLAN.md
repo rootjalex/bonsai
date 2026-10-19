@@ -15270,3 +15270,496 @@ distance from one against theirs. On heatmap5's pavilion-day at 16 spp
 ours is 2,058 lit pixels from pbrt --gpu where pbrt's CPU render is 5,529
 from it, and the cell reads `ok: within pbrt's own disagreement`. Seven
 seconds of wall per failing cell, three minutes of CPU.
+
+## The probe walk's material handed undefined: every subsurface scene hung, every media scene's shadow rays on undefined wavelengths, since 10-11 (10-18)
+
+**Found.** The 30-scene heatmap of 10-18 hung at its eleventh scene,
+`head` at 16 spp: the renderer at 100% of the GPU for twenty minutes
+where heatmap5's binary (10-11, 10:27) renders the cell in 0.096 s. The
+binaries kept from the days between date it without a build: every
+wavefront binary from compare-out-step1 (10-11, 15:31) on has a
+`__raygen__probes` of 98 PTX lines where heatmap5's is 9,190, so the
+regression is 28bd4aac or e07e53b4, the two commits between those builds,
+and no later one. The 98-line raygen reads the probe's two points off the
+queue, builds the segment once, and then `optixTrace; if hit, trace again`
+with the same origin and direction in the same registers -- the walk's hit
+handling, its reservoir and its loop-carried state are gone, so a probe
+that hits anything traces forever. It is not the hit-continuation split
+(`BONSAI_EXPLAIN_HIT_CONTINUATIONS=1`: "the raygen over `probes!False`
+keeps its continuation: two calls on the way to the trace, `vol_probe!
+False`'s and `trace`'s, go on after they return", and the closest-hit
+programs beside the raygen are the 46-line generic ones in both binaries),
+and the final SSA of `vol_probe_step` is right: the loop header
+`vol_probe_step!loop(o, o_error, o_n, n_hits, steps, kept)` carries its
+six changing values and the back edge passes `surf.p`, the error, the
+normal, the count, `steps + 1` and the reservoir's pick.
+
+**The cause.** The probes drain's call reads, in the final SSA,
+
+    call vol_probe!False(p0, p1, bssrdf, medium, camera, spp_scale, prim, (i32)undef, entry, ...)
+
+The eighth argument is `mat`, the material the walk compares every hit
+against (`hit_prim.material == mat`, `vol_probe_step`). e07e53b4 made a
+drain hand `undef` for what its callee never reads, as the entry stores
+nothing for it, and the read analysis (SSA/Analysis.cpp, read_paths)
+reported `mat` unread: `vol_probe` hands it to `vol_probe_step` and reads
+it nowhere else, and inside `vol_probe_step` -- a loop since
+`vol_probe_step.loopify()` -- `mat` is one of the parameters the loop does
+not carry (`p1`, `mat`, `rng` are the same at every step), which the loop
+header names without taking it as an argument and the loop's blocks pass
+on under the name. The analysis keyed a reference to an argument by the
+block it appears in, and no block of the loop declares `mat`, so the reads
+of the name stopped at the loop's blocks and never reached the entry's
+parameter. LLVM is then free to take `icmp eq %material, undef` and the
+branch on it as it likes, and it took the hit path for unreachable: the
+whole continuation after the trace went, the header's phis folded to their
+initial values, and what remained is the raygen above. The same blind spot
+was met and fixed for the contention analysis on 10-15 (43d8905a,
+Origins::binding_block: "a loop header made by loopify() names the
+function's parameters it does not carry without taking them as
+arguments"); the read analysis had it too.
+
+**Not the only victim.** Every `undef` the broken renderer's drains hand,
+read off its final SSA against the callees' parameters: `mat` to
+vol_probe and vol_subsurface; `lambda` to shadow_contribution and
+exit_shadow_contribution -- the wavelengths the transmittance walk
+(`vol_shadow_track`, loopified, `lambda` uncarried) reads at every step in
+a scene with media, so the shadow rays of every media scene have been
+traced on undefined wavelengths since 10-11 as well, in whatever way
+LLVM chose to read that; `r_l`, `specular_bounce` and `prev_ctx` to the
+material kernels and `uc`, `visible` and `path_lambda` down the
+subsurface chain, which those callees indeed never read and which stay
+unstored. The scenes without a subsurface material or a medium -- the
+protocol's three, the bistros, the probe scenes, everything compared
+since 10-11 -- were never exposed, which is how it lived a week.
+
+**The fix (b6b09dc9).** read_paths keys a reference to a name the block
+does not take by the nearest block above that takes it, up the dominator
+tree -- the entry's parameter in the end -- as the contention analysis
+resolves such a name. Tests: ssa/entry-reads-loop-named (a recursion made
+a loop whose header does not carry `k`, handed by the drained function and
+read inside the loop alone: the hits queue stores `hits_k` and the drain
+hands it, `@30 = hits_k[hits]`, where it handed `undef`) and
+correctness/llvm/entry-reads-loop-named (each pixel decays its hit by its
+own k three times a bounce; 1.375 for pixel 0 is 0.125 + 0.375 + 0.875).
+No other golden moves: nothing else in the suite had the shape. The
+renderer's probe raygen is 9,117 PTX lines again and the shadow raygens
+of a media scene 22,235 against the broken binary's 19,899
+(apps/pbrt/scratch/probe-fix-1018). On the card, the evening of 10-18,
+with that binary at 16 spp: head renders -- in a tenth of a second where
+the broken renderer never returned -- and its image matches pbrt's,
+dragon_10's matches, and explosion's, the media scene whose shadow rays
+had the undefined wavelengths, matches (the three verdicts `ok: the image
+matches pbrt`, same directory). The timings of the three are the
+30-scene heatmap's, rerun with this compiler (REPORT.md), not this
+check's one render each.
+
+**What it says about the gate.** The 30-scene heatmap is the gate
+(REPORT.md), and it is the run that found this; the compares in between
+ran on scenes that could not. A compiler change to the deferral -- what
+an entry stores, what a drain hands -- wants the heatmap, or at least
+head and a media scene, before it is called measured.
+
+## A pixel that is not a number passed the image check: kroken and watercolor at 128 spp, since 10-07 (10-18)
+
+**Found.** The 128-spp row of kroken/camera-1 in the 10-18 heatmap reads
+`mean 0.355477 vs nan (nanx)` and the verdict `ok: the image matches
+pbrt`. It read so in heatmap2 (10-07), heatmap3, heatmap4 and heatmap5
+too, and so did watercolor/camera-1's: three pixels, the same three in
+every run -- kroken (592, 374), watercolor (473, 287) and (473, 415) --
+are NaN in all three channels at 128 spp and finite at 16 and 64, so one
+sample of each pixel between the 65th and the 128th is where a NaN is
+made (the three are deterministic: the same sampler streams every run).
+pbrt's pixels there are ordinary (0.54, 0.41, 0.23), and pbrt's film
+`CHECK(!L.HasNaNs())`s what reaches it (film.cpp), so pbrt makes no such
+sample: the NaN is ours.
+
+**Why the check let it through.** compare_gbuffer.py summed every pixel
+into the mean, one NaN made the mean NaN, and NaN is within every
+tolerance because it compares false against all of them: `abs(ratio -
+1) > 0.02` is False for NaN. The lit-pixel count did not see it either
+(`v > 0` is False for NaN, so the pixel counted as unlit on our side,
+one pixel of a 2,210-pixel allowance).
+
+**The harness now (compare_gbuffer.py, README.md).** A pixel that is not
+finite on either side is counted apart and left out of the totals, so
+the mean is the mean of the finite pixels; one of ours fails the cell
+(`FAILED: 1 pixels here are not finite (NaN or infinite), the first at
+(592, 374); pbrt's film admits none`), and no disagreement of pbrt's
+with itself covers it under the spread rule. The 10-18 heatmap's kroken
+row at 128 spp is a failure under this rule (its mean, over the finite
+pixels, is 0.871x: the regression of the section below), and
+watercolor's 128-spp cell is too (its mean is right).
+
+**The NaN itself: open.** What the two scenes share is their author and
+their lighting: an `infinite` light through a `portal` (kroken's one
+window, lights.pbrt; watercolor's two, lights-with-windowglass.pbrt),
+textured interiors, `volpath` at a depth of 15, and no other scene of
+the thirty has a portal. The portal light's direction from a uv
+(render.bonsai, `PortalUV`: `tan(alpha)`, `tan(beta)` at the edges of a
+portal, where pbrt clamps) and the equal-area square-to-sphere mapping
+are where a direction can come out non-finite, and the pixel's 128
+samples can be replayed one at a time once the renderer has a
+`--pixel` switch (it has none; scene_dump's pbrt side renders a crop by
+`--cropwindow`). To do, after the regression below.
+
+## kroken's invisible sun: the alpha mask of 10-17 silenced a light pbrt keeps (10-18)
+
+**Found.** The 10-18 heatmap's kroken/camera-1 is 0.871x pbrt's mean at
+16 and 64 spp and lights 6,295 fewer pixels at 16, where it matched in
+every heatmap before (0.9968x in heatmap3, 4 and 5); pbrt's own spread
+covers none of it (pbrt's CPU render is 1.003x its GPU one). The
+darkening is everywhere and strongest low in the frame -- 0.80 of pbrt
+in the floor's quarter, 0.97 in the ceiling's. Rendered at 16 spp with
+the binaries kept since (apps/pbrt/scratch/kroken-1018): 10-11 15:31
+matches (0.99683x); 10-17 22:06, the alpha-mask build, is 0.87142x, and
+the two 10-18 binaries are 0.87142x to the digit. The one change to the
+lights between is b911a8a0, the area light masked by its shape's alpha.
+
+**The cause.** kroken's sun (lights.pbrt) is
+
+    AreaLightSource "diffuse" "blackbody L" 6500 "float scale" 50
+    Shape "sphere" "float radius" 90 "float alpha" 0
+
+a sphere light whose shape has a constant alpha of zero, and pbrt makes a
+special case of exactly that (DiffuseAreaLight's constructor, lights.cpp):
+"Special case handling for area lights with constant zero-valued alpha
+textures to allow invisible area lights: we will null out the alpha
+texture below so that as far as the DiffuseAreaLight is concerned, there
+is no alpha texture and the light is fully emissive. However, such lights
+will never be intersected by rays (because their associated primitives
+still have the alpha texture), so we mark them as DeltaPosition lights
+here so that MIS isn't used for direct illumination." The constructor
+types the light DeltaPosition when the alpha is a FloatConstantTexture
+evaluating to zero and keeps the alpha only for a light typed Area; the
+wavefront then zeroes the BSDF density for such a light's sample
+(surfscatter.cpp `IsDeltaLight(light.Type()) ? 0.f : bsdf.PDF(...)`,
+media.cpp, subsurface.cpp). The 10-17 change applied the mask as the
+texture said, as pbrt does for every alpha but this one -- Bistro's
+zero-everywhere *image* alpha is masked by both -- and kroken's sun went
+out: 13% of the picture, the sunlit floor most of all. The 0.3% it was
+under pbrt before 10-17 is the other half of the special case: the sun's
+sample was weighed against the BSDF's density by the power heuristic
+when no BSDF sample can reach an invisible light, so a sliver of its
+light was lost to a strategy that never pays it back.
+
+**The fix.** `AreaLight` carries `delta` beside `alpha` (render.bonsai);
+`light_is_delta` answers it for a DiffuseArea light, so the NEE of the
+surface and medium kernels divides by the light density alone, as for a
+point light; and the host (render_hook.cpp, mask_light) gives a light
+whose shape's alpha is a constant texture of exactly zero no alpha and
+`delta` true, every other light its texture and `delta` false. The
+shape's own alpha test is untouched: the sphere stays invisible to every
+ray, as pbrt's does. A probe for the case, probes/invisible_light_d1 (a
+sphere of alpha zero between the camera and a diffuse floor, direct
+lighting only, 16 spp), matches pbrt's image -- every pixel lit on both
+sides, the mean 0.981x of pbrt's, within the rule, 66% of the pixels
+within a thousandth (killeroo-simple's share) -- where the unfixed
+renderer rendered a black floor. kroken at 16 spp after the fix
+(apps/pbrt/scratch/kroken-fix-1018): 0.99985x pbrt's mean, the lit
+pixels as before, `ok: the image matches pbrt`; killeroo-simple, whose
+sphere light is a visible one, unchanged (0.99998x). The 30-scene
+heatmap is rerun with this renderer, at 256 spp as well
+(compare-out-heatmap6; the run with the dark kroken is kept as
+compare-out-heatmap6-dark). The rerun (21:13 to 00:35): 117 of 120
+cells match pbrt's image, kroken at 0.9998x of pbrt's mean at every
+count, pavilion-day at 16 spp by the spread rule; the three that fail
+are the NaN pixels of the section above, which no earlier heatmap could
+see (kroken at 128 spp, watercolor at 128 and at 256 spp, where ten
+pixels are NaN). Wall speedups: 2.01x mean at 16 spp, 1.75x at 64,
+1.69x at 128, 1.65x at 256; kernel 1.65x to 1.68x; the least view-0
+(1.18x to 1.29x), the most killeroo-simple at 16 spp (3.13x) and
+watercolor above (2.40x to 2.43x). REPORT.md, "Where it stands
+(2026-10-19, 07:00)".
+
+**Open: the probe's 1.9%.** The probe passes, but its 0.981x is not
+noise, and it is worth knowing what it is before the next light-sampling
+change. Mapped (scratchpad probe_map.py, kept here in words): the floor
+seen *through* the sphere -- the pixels whose camera ray crosses it,
+radius 0.35 half-heights about the centre -- is exact to a millionth in
+99% of its pixels; a ring from 0.4 to 1.2 half-heights is where the mean
+drops, to 0.955 at 0.75, and it recovers to 0.999 at the frame's edge.
+In the ring the pixel's deficit is quantized: a histogram of (pbrt -
+ours) in sixteenths of the pixel peaks at one and again at two, so whole
+samples of the sixteen are zero in ours where pbrt's are not; and 35k
+pixels go the other way by the same one sixteenth (140k go ours' way),
+so pbrt loses whole samples too, at a quarter of our rate. A sample lost
+is a shadow ray occluded or a light sample refused; the sphere cannot
+occlude in either renderer (its alpha rejects every hit; pbrt tests
+quadrics in `__intersection__quadric`, optix.cu, shadow rays included,
+and ours in `trace_any`'s conjunct), the floor is the only other thing
+a shadow ray can meet, and the light sampler, the cone sample and the
+facing test refuse nothing for a cap sample. The 10-17 probe
+(masked_light_d1) showed a cousin of it at 1 spp: ratios of exactly 2
+and 1/2 on 8% of the pixels both lit. To find it: the probe at 1 spp,
+where a pixel is a sample, and two variants -- the same sphere visible
+(`alpha` 1), and the invisible sphere above the camera so no camera
+ray crosses it -- which say whether the loss is the alpha path's, the
+camera ray's or the sphere light's in general (killeroo-simple's sphere
+is far and small, and matches to 0.99998x). Deferred past the heatmap,
+which holds the card.
+
+## The entry stores what it is handed: the recipes extended (10-19)
+
+**The question.** The user's, 10-18: the deferral's entry should store
+the least that reaches the drain, and bssrdfs stores 345 bytes against
+pbrt's 168, the subsurface material by value among them. How does the
+analysis fail, and why by value rather than by index?
+
+**What the analysis does.** A deferral stores the callee's arguments,
+less three things. The read analysis drops the leaves the callee's chain
+never reads and hands `undef` for them. A field that is an address into
+the record is not stored but rebuilt from the slot index. And a field
+that is a pure function of other fields, of values in scope at the drain
+or of constants is recomputed at the drain -- a `Recipe` (SSA/Defer.cpp):
+rematerialization in Briggs, Cooper and Torczon's sense (PLDI 1992), the
+entry for the register file -- with one exception for memory, a value the
+pusher's own drain loaded from a record array at the slot, loaded again.
+
+**How it failed, read off `BONSAI_EXPLAIN_DEFER=1` on the renderer.**
+
+- *A read of memory was never a recipe.* `ss` is `materials[mat]`'s arm
+  taken apart in the pusher; the recipe rule refused any read of memory,
+  so its eleven scalars were stored by value, and `mat` -- also an
+  argument -- was dropped as unread, since the chain reads `ss` and never
+  `mat`. The analysis had no notion that the two carry the same
+  information. The materials array is a parameter the owner cannot write
+  (no `mut`: the type says so), so a read of it at an index the entry
+  holds is as recomputable as an add -- what Chaitin et al. (1981) called
+  a never-killed value and Briggs et al. rematerialize rather than spill.
+  The semantics (docs/schedule-semantics.md, 4.2) had promised exactly
+  this -- "a value selected from a read-only array by an index is stored
+  as the index" -- and the code did not do it.
+- *The slot was not a leaf.* The index field has no parameter, so the
+  recipe rule's "another field's value at this push" never matched it: a
+  pure function of the slot -- the pixel's column and row from the
+  sample's index, which pbrt's kernels compute from pixelIndex -- was
+  stored, in rays and in every queue after it (explain: "pixel_x: stored:
+  one value down the chain, but computed inside the producer's
+  iteration").
+- *Origins stopped at a drain's call.* A value that reaches the push as
+  a parameter of the pushing function was followed to the owner's calls
+  (routes_to) only for the reload shape; a round-uniform or a slot
+  function arriving that way was "a value only the pusher has". And with
+  a queue split by material, the 22 material kernels are 22 drain loops,
+  each handing the pusher its own reload of the same hits field: "differs
+  between calls (@4385 of hits!False!Basic!CoatedConductor!run at one
+  call and @6218 of hits!False!Universal!ThinDielectric!run at the call
+  in ...)" for `medium`, `prim`, `mat`, `wave`, `depth`, `pixel_x`,
+  `pixel_y`, `r_u`, `surf`. Twenty-two loads of one field are one value
+  by any sensible account, and the analysis demanded one definition.
+- *A budget stood for a cost model.* `budget = 16` instructions a recipe
+  might take, which would have refused the material's rebuild (a struct
+  of eleven from a load) had the rule above admitted it.
+- *The program handed a placeholder.* The probe walk's reservoir
+  started as the entry's own surface, eleven vectors carried through
+  bssrdfs and probes to be the value of `kept` before the first hit,
+  where pbrt's WeightedReservoirSampler starts empty.
+
+**The fix (SSA/Defer.cpp, render.bonsai).** One recipe rule at both
+levels, the pusher's and the owner's: a leaf is a constant, a stored
+field, *the slot* (slot_at: the index the owner's call hands, by site), a
+value the drain has in scope (materialize), a cut's stable record array
+at the slot (as before), or a read of memory rooted through address
+arithmetic alone at a parameter the owner cannot write (read_only_rooted;
+GEP and FieldPtr admitted as address ops); an argument of the pusher is
+followed to the owner's calls (routes_to) and the recipe built there,
+each call's value cooked on its own and all required to agree -- so the
+22 drains' loads of hits' slot are each that drain's `slot_at` and agree
+as the index field, and a function of the slot or a uniform survives any
+number of hops. The `reloads == 0` guard that sent anything without a
+reload back to the pusher's rule is gone; the budget is gone, with the
+cost argument written in its place: every leaf is free (stored anyway,
+the index, in scope, constant, or memory nothing writes), so a recipe
+always stores less than the field it replaces, and the register
+operations it costs the drain are cheaper than the store and the load
+they stand in for; a cap of 1024 nodes is against a runaway expression,
+not a cost. The slot group counts a recipe's reference as a read of it.
+In the program, `ProbeResult.kept` is an `option`, the walk starts from
+none, and `vol_probe` takes no entry surface. Tests: ssa and
+correctness/llvm `defer-remat-readonly` (a row of a read-only array
+stored as its index), `defer-remat-slot` (the pixel from the slot) and
+`defer-remat-through-queues` (the slot function through two queues).
+Built and run 10-19, 08:00: the three tests pass at both levels, and
+eleven goldens moved, each read before it was blessed -- a read of a
+read-only array at the slot reloaded at the drain in the two
+demote-atomics-spawn tests, defer-spawn-join and spawn-then-spawn (through
+two queues) and their LLVM and PTX twins; `values[7 - slot]` in
+defer-split-unread; the slot-derived bools of defer-bools and the `k` of
+entry-reads-loop-named recomputed. Three tests had been written on the
+very field they lost and were rewritten to keep their point: defer-bools
+and defer-split-unread read their per-iteration value off a `mut` array
+(memory the type says may be written before the drain, which no recipe
+reads), entry-reads-loop-named reads for the recomputed `k` where it read
+for a stored one; and defer-remat-slot gained `drift`, a recursion handing
+`x + 1`, whose entry stores `x` (routes_to refuses a caller handing
+anything but its own parameter). The renderer's entries, counted array by
+array off the drains' signatures (the convention of the hand counts above,
+a vec3 as 12): bssrdfs 349 -> 225 bytes with the recipes alone -- pixel_x
+and pixel_y out of every queue of the family, the probe's placeholder
+surface (116 bytes) out of bssrdfs and probes -- probes 320 -> 184, hits
+255 -> 247, exits 228 -> 220, medium_samples 223 -> 215, medium_scatters
+120 -> 112; and `ss` still stored by value, for the reasons of the next
+section, which takes bssrdfs to 180.
+
+**Not yet: the cross-queue reload by position.** The hit-derived copies
+every later queue carries -- wave, depth, medium, the primitive's media,
+r_u -- are stored because the earlier queue's arrays are the only place
+they live, and nothing says those arrays hold still until the later drain
+runs. They do, within a round: hits is pushed by the trace and the medium
+kernel, drained by the material kernels, and nothing pushes it again
+until the next round's trace, after bssrdfs, probes and exits have
+drained. With that argument made in the pass (the round structure is in
+OwnedQueue: `rounds`, `round_header`, `second_pass`), a later entry can
+store the earlier entry's position -- the subqueue and index, eight bytes,
+or four for an unsplit queue -- and reload every hit-derived field through
+the queue's array handles at the drain, as pbrt reads pixelSampleState by
+pixelIndex: store-to-load forwarding through the queue, the push's store
+and the drain's load of one slot (the memory-SSA form of GVN's load
+elimination). It would take bssrdfs under 100 bytes.
+
+## The material by index: a dispatch on a threaded constant, and a name reached from above (10-19)
+
+**What still stored `ss`.** With the recipes extended, BONSAI_EXPLAIN_DEFER
+still said of `ss`: "stored: differs between calls (handed @2464 ..., a
+value of that function's own (defined in !then_186) that cannot be computed
+before the producer loop)". Read in the kernel's SSA, @2464 is
+`load_field(material_subsurface$r1341, 0)`: the material read off an
+*option* -- the result of `material_subsurface(materials[mat])`, a match on
+the material's tag folded into the kernel -- in a block that refers to the
+option by name without taking it as an argument, the option itself a merge
+of eleven arms: `make_struct<_option>(ss, true)` from the Subsurface arm,
+the empty option from the ten others. Two things kept the recipe builder
+from seeing through it, both general.
+
+- *A dispatch on a constant that is an argument does not fold.* In the
+  CoatedConductor kernel the tag the match dispatches on, `_t29497`, is the
+  constant 2 -- the copy's own tag, which the first match's folded dispatch
+  handed its arm as the constant it chose -- carried as an argument of 128
+  blocks. fold_constant_dispatches asks `constant_of` of the value and sees
+  an argument. So every one of the 22 material kernels compiled the
+  subsurface push, each a producer of bssrdfs, and in each the option merge
+  had eleven arms. pbrt's material kernels never had it:
+  `HasSubsurfaceScattering` is a compile-time property of the concrete
+  material.
+- *A name reached from above was "unknown here".* The definitions analysis
+  (SSA/Definitions.h), asked leniently about a name a block refers to
+  without taking it, answered "defined here" -- by design for the rewrites
+  (destination passing captures such a name for the continuation it hands
+  it to) -- and the recipe builder took that for a value only the pusher
+  has. The read analysis (b6b09dc9) and the contention analysis (43d8905a)
+  had each met the same blind spot and each built a walk to the binding
+  block of its own.
+
+**The fixes (SSA/Simplify.cpp, SSA/Definitions.cpp, SSA/CodeGen_Stmt.cpp).**
+(1) substitute_threaded_arguments: an argument every predecessor hands,
+through however many blocks, one constant is that constant, at every use --
+the trivial phi of Braun et al., "Simple and Efficient Construction of SSA
+Form" (CC 2013, 3.1), which the minimal SSA of Cytron et al. (TOPLAS 1991)
+never builds and this form's threading makes freely -- and simplify()
+repeats rules, substitution, dispatch folding and edge threading while any
+of them moved. (2) Definitions gains a `bound` mode: with `lenient`, a name
+reached from above resolves at the nearest block above that binds it (the
+walk the two analyses had made their own, now the analysis's), for the
+readers that want the value behind a name wherever it is read -- the
+simplifier's common-subexpression key and the rule above, the deferral's
+recipe builder -- while the rewrites keep "unknown here". Making it brought
+out a latent flaw: resolving a loop header's argument reaches, through the
+body, a merge of that argument with a constant; the edge back to the header
+was skipped as "carried round unchanged", the merge answered with the
+constant alone -- an answer good only inside that question -- and the
+answer was memoized. tests/bonsai/ssa/cse-rebound-argument, the test
+written for the rebinding, caught it the moment the walk exposed it (`walk`
+returned 0). Now an answer reached by skipping an edge to an argument not
+this one is provisional, never memoized, and the walk's answer is as
+provisional as the binding's. (3) The SSA printer names a value computed
+before a loop in the loop's condition where it inlined its whole expression
+(inline_expr, as its own comment had promised).
+
+**What moved.** 5 goldens for the constant rule: merge-variant-fold, whose
+fold the test had always asked for and never got (the tag was carried as an
+argument of its own; a run-level twin added), vectorize-switch-constant-
+merge, whose branch now folds before the gang is linearized, and two mask
+stores of a `let`-bound false. 32 for the bound key, read with temporaries
+normalized: common subexpressions the key had missed -- a tree row's
+address computed twice, a 75-line slab test computed twice in
+arena-rows-vectorized -- and the renumbering that follows; the LLVM
+goldens' instruction mixes identical or smaller, every prefetch count
+unchanged. 1626 tests pass. In the renderer, bssrdfs has 2 producers, the
+two Subsurface kernels, and `ss` is "recomputed at the drain from mat":
+bssrdfs 349 -> 180 bytes in 22 arrays against pbrt's 168, probes 184
+against pbrt's 332.
+
+**Two things tried and withdrawn, for the record.** Pointing every argument
+at the instruction or parameter it is threaded from -- the whole trivial
+phi -- first miscompiled: a call's continuation read a value of the
+producer loop's by name, and the deferral's drain is a function of its own.
+In this form the arguments are also the scopes, so an instruction is in
+scope only where every path back runs over jumps and dispatches; restricted
+so, it still moved 88 goldens and lost the any-hit traversal's arm
+prefetches (73 to 33 in the LLVM golden), since the mirror-loads and
+linearize passes key on the threaded form, a loaded value carried by
+argument being one read of memory. And resolving names at their binding for
+every lenient reader turned destination passing more eager in
+demote-atomics-loopify -- `series` was handed `&out[i]` for its `acc` --
+and the atomic the test is about stayed (PTX atomics 3 -> 6). Hence the
+constant alone, and the mode.
+
+**Open.** The hit-derived copies (medium, prim's media, mat, surf.p,
+hit.ns, ctx, beta, r_u, depth, wave, eta_scale, lam) stay stored: the
+cross-queue reload by position of the section above. The 20 kernels that
+no longer push to bssrdfs are smaller for it. The GPU check of head,
+dragon_10 and killeroo-simple at 16 spp follows in nacho-9b's window.
+
+## The triangle range as a set the type describes (10-19, a proposal)
+
+**What the compiler knows and does not.** The hit program is one program
+for every record of a tree, a function of the record and the primitive
+index, and the record holds `base` and `holder`. For a held tree -- a
+Mesh element's `tris` -- the holder is one Mesh for every record, so
+everything the hit program derives from the holder alone is a constant of
+the record: the arm's tag, the mesh index, the mesh row's first index and
+vertex, material, alpha, media, first light. Hoisting that into the record
+is partial evaluation of the hit program with the record static and the
+primitive index dynamic (Jones, Gomard and Sestoft 1993; the driver fills
+the derived record where it fills `base` today) and needs nothing new
+from the program: it removes `prims[top]` and the mesh row from the
+chain, and folds the arm's switch. It is what pbrt's TriangleMeshRecord
+is, derived rather than written.
+
+The `tris` row is the other kind. That row i of a mesh's `tris` is
+`Triangle{mesh, i}` is a fact of render_hook.cpp's fill loop, in C++, and
+no analysis of the program can recover what the program never states. The
+10-11 proposal was a layout clause, `Mesh.tris : OptixTree by |i|
+Triangle{mesh, i}`, and the user's objection stands: a language feature
+for one optimization, telling the compiler in the layout what the program
+should have said.
+
+**The proposal: say it in the program, in the type.** A mesh's triangles
+*are* the integers 0 to count; pbrt's Triangle is (mesh, index) and
+nothing else. The program says so with a set whose elements are its own
+indices, a *range*:
+
+    | Mesh(mesh : u32, count : u32)
+    ...
+    Mesh(mesh, count) => map(|i : u32| triangle_geometric(Triangle{mesh, i}), 0:count),
+
+`0:count` the value of type `set[u32]` that a `for` already ranges over,
+and `map` over it the mapped set the traversal already takes
+(`maps_elements`). The layout then says what it says now -- `Mesh.geometry
+: OptixTree from ...`, the build input the mesh's own index buffer -- and
+the compiler knows from the *types* that the tree's element i is
+`triangle_geometric(Triangle{mesh, i})`: a range set has no rows, so
+`stored(tris, idx)` is `Triangle{mesh, idx - base}`, arithmetic, and the
+8-byte row per triangle (2.3 GB on kroken) is not stored at all. This is
+how the rest of the program already speaks to the compiler: `mut` says
+what may be written, `reduce(+)` what is accumulated, `option` what may
+be absent, `[[packed]]` and `inline`/`tagged_index` how a thing is laid
+out -- a fact in a type, read by every pass, not a hint beside one
+optimization. A range is the oldest set there is (APL's iota, Halide's
+RDom, ISPC's foreach), and it belongs in the language whether or not the
+hit chain existed. What the compiler would need: a range as a set value
+in the frontend and IR (the loop form has the parser's syntax already),
+`take_apart`/`bind_elements` (Lower/Trees.cpp) accepting a mapped range
+as a tree's element set, and the derived record above. Asked for here;
+nothing of it is built.
