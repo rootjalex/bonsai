@@ -15708,8 +15708,93 @@ constant alone, and the mode.
 **Open.** The hit-derived copies (medium, prim's media, mat, surf.p,
 hit.ns, ctx, beta, r_u, depth, wave, eta_scale, lam) stay stored: the
 cross-queue reload by position of the section above. The 20 kernels that
-no longer push to bssrdfs are smaller for it. The GPU check of head,
-dragon_10 and killeroo-simple at 16 spp follows in nacho-9b's window.
+no longer push to bssrdfs are smaller for it.
+
+## The constant rule's first day: a provisional answer memoized, and every coated-diffuse surface black (10-19, 11:25-13:35)
+
+**What the card said.** The GPU check of the three scenes at 16 spp, in
+nacho-9b's window at 11:22: head matches (0.99951x, as heatmap6 had it);
+dragon_10 is 0.288x pbrt's mean; killeroo-simple has 13,915 pixels lit by
+pbrt and unlit here, a gap where 488 is allowed, with the mean still 0.996x.
+The images say what the numbers do not: in killeroo-simple the floor and
+the sphere light match and both killeroos render black with the coat's
+highlight on them; in dragon_10 the subsurface dragon is right and the
+floor and background are dark. The dark surfaces are the coateddiffuse
+ones, both scenes, and head has none. The layered BxDF's walk contributed
+nothing; only the entrance interface's reflection, which needs no walk,
+survived. The 16 spp heatmap row was not run. All 76 GPU tests pass (the
+first run showed seven failures, every one `clang++: not found`: ctest was
+run outside the conda env; inside it they pass).
+
+**Where the compilers agreed.** The renderer's SSA was dumped by the old
+compiler (c9025e99, built in a worktree) and the new one, post-schedule
+and final, and compared function by function with temporaries normalized,
+with a renaming-aware canonical form, and with a structural hash of every
+operand (the scratchpad's extract_func, canon_func, semdiff): the
+CoatedDiffuse kernel differed from the Diffuse one in nothing that the
+intended changes do not explain, the router pushed the same entry, the
+drain read the same fields, the light sampler was identical, and the walk
+functions themselves -- called with continuations, so printed in no dump
+-- compile to the same answers on `-b llvm` (correctness/llvm/coated-
+diffuse with --fast-math: identical output from both compilers). Every
+comparison said the compilers agree. One of them had to be too coarse, and
+reading harder would not have said which.
+
+**Where they disagreed.** The scalar schedule on the CPU reproduces it:
+killeroo-simple at 4 spp against heatmap6's pbrt, the old compiler leaves
+sampling noise (18,435 unlit pixels, 327 of them with every neighbour
+unlit), the new one a region (34,290 and 10,122), the killeroos black in
+the image. No queues, no deferral, the same render.bonsai: the compiler,
+and not the recipes. Four variant compilers, each a worktree, each run on
+that reproduction in under two minutes: the old compiler with only the new
+CodeGen_Stmt.cpp is fine, the new compiler with the old one is broken; the
+new compiler with the bound key reverted is broken; the new compiler with
+substitute_threaded_arguments returning false is fine. The constant rule.
+
+**The flaw, read off the one function that showed it.** Of the 163
+functions in the scalar dump, three differ; one difference is an argument
+turned constant, and it is in `bvh_descend`, the light tree's descent: the
+latch hands the header `(bool)1` for `done` where it handed `done`. The
+descent sets `done` in the leaf arm and, inside the interior arm, in the
+arm of zero importance, and leaves it as the header had it on the third
+path; after promotion the merge before the latch takes `done` from the leaf
+arm's edge, `true`, and from the interior arm's own merge of `true` with
+the header's carried `done`. The definitions analysis, asked first about a
+block inside the interior arm, followed the name to the header, round the
+latch to the outer merge, into the inner merge, and skipped the inner
+merge's edge back to the header's own `done` as carried round unchanged --
+answering `true`, provisionally, as the 09:00 fix had taught it. The outer
+merge then saw `true` from both of its edges. The skip was one level below
+it; `via_other` marked only skips at the current level; so the outer
+merge's `true` was memoized, and when the rule came to ask about the
+latch's own argument it read the memo and wrote the constant. With one
+light in the scene the tree is one leaf and nothing shows; with two the
+descent would stop at the root. In the walk the same shape -- `dead`,
+`escaped`, `valid` set in nested arms and carried round otherwise -- is
+what went black, by the same mechanism; its functions are in no dump, and
+the scalar reproduction stands as its witness.
+
+**The fix** (SSA/Definitions.cpp, of_argument): an answer built on a
+provisional one is as provisional as it is -- after an edge's definition is
+fetched, if what the edge passes is an argument whose answer is in
+`provisional`, this level's answer is provisional too. The binding walk had
+already done this for its own recursion; the predecessor loop had not.
+With it the scalar reproduction is the old compiler's to the pixel
+(18,435 and 327), and the suite is 1626 of 1626 with no golden moved: the
+flaw lived in no test.
+
+**Why no test caught it, and the tests now.** The suite's layered BxDF
+test runs on the LLVM backend, whose direct lowering asks the analysis in
+another order and never met the flaw; the renderer compiles through the
+C++ backend's statement lowering, which asks in the order that does. So
+the shape has three tests: tests/bonsai/ssa/constant-argument-provisional
+reads the latch's jump in the printed form (it showed `done = true` at the
+latch under the unfixed compiler); correctness/llvm/constant-argument-
+provisional runs it ({5, -1, 0, 7}); and correctness/cpp/
+constant_argument_provisional runs it through the C++ backend from a C++
+main, on the path the renderer takes, and WRONG under the unfixed
+compiler. The GPU verification of the three scenes follows in nacho-9b's
+next pause; the 16 spp heatmap row after it.
 
 ## The triangle range as a set the type describes (10-19, a proposal)
 

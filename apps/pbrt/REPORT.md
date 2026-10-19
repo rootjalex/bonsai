@@ -19,6 +19,32 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-19, 13:40)
+
+**The GPU check of the 09:15 compiler failed two of three scenes, the
+cause is found and fixed, and the verification waits on the card** (PLAN.md,
+"The constant rule's first day"). head matched (0.99951x); dragon_10 came
+out 0.288x pbrt and killeroo-simple 13,915 lit pixels short: every
+coateddiffuse surface rendered black with the coat's highlight on it, the
+layered BxDF's walk contributing nothing. The subsurface path itself,
+which the morning's work was about, is right (head; the dragon in
+dragon_10). The compiler, not the renderer: the scalar schedule on the CPU
+reproduces it, and four variant compilers on that reproduction put it on
+the simplifier's new constant rule. Its definitions analysis memoized an
+answer built on a provisional one -- a loop flag set to `true` in two
+arms, one nested, and carried round otherwise, read as the constant -- so
+the light tree's descent handed its header `done = true` (harmless with
+one light, the root alone with more) and the walk's `dead`, `escaped`
+and `valid` went the same way. The fix is three lines in
+SSA/Definitions.cpp; the suite is 1626 of 1626 with no golden moved, since
+the flaw lived in no test: the layered BxDF test runs on the LLVM
+backend, which asks the analysis in an order that never met it, and the
+renderer compiles through the C++ backend, which does. Three tests now
+hold the shape, one of them through the C++ backend from a C++ main. The
+CPU reproduction is the old compiler's to the pixel. The three scenes are
+re-rendered on the GPU in nacho-9b's next pause, the 16 spp heatmap row
+after them; no heatmap of the 10-19 compiler exists yet.
+
 ## Where it stands (2026-10-19, 09:15)
 
 **The subsurface entry is 180 bytes against pbrt's 168, from 349; the
