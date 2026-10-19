@@ -3576,7 +3576,7 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
     }
     probe = *seg;
     vol_probe(probe.p0, probe.p1, bssrdf, medium, camera, spp_scale, prim, mat,
-              surf, beta, r_u, depth, wave, eta_scale, lam, sampler, pixel_x,
+              beta, r_u, depth, wave, eta_scale, lam, sampler, pixel_x,
               pixel_y, sample_index,
               direct_uc, direct_u, uc, u, u_rr, ls, set, have_media, seed,
               max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
@@ -3585,9 +3585,15 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
 
 // What the probe walk found: how many hits on the entry's material it met
 // and the one it kept.
+//
+// `kept` is empty until the first hit on the material is drawn, as pbrt's
+// WeightedReservoirSampler starts empty: a walk that starts from the entry's
+// own surface would have to carry that surface -- eleven vectors -- through
+// two queues to be a placeholder nothing reads (PLAN.md, "The entry stores
+// what it is handed").
 element ProbeResult {
     count : i32;
-    kept : SurfaceGeometry;
+    kept : option[SurfaceGeometry];
 }
 
 // pbrt: IntersectOneRandom -- __raygen__randomHit and the CPU's
@@ -3606,7 +3612,7 @@ element ProbeResult {
 // clear of as everywhere else (hit_refused).
 func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
                camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
-               mat : i32, entry : SurfaceGeometry, beta : vec4f, r_u : vec4f,
+               mat : i32, beta : vec4f, r_u : vec4f,
                depth : i32, wave : i32, eta_scale : Float,
                lam : SampledWavelengths, sampler : Sampler,
                pixel_x : i32, pixel_y : i32, sample_index : u32,
@@ -3618,11 +3624,14 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
     key = hash_vec3_vec3(p0, p1);
     rng : mut RNG = set_sequence(key, mix_bits(key));
     zero3 = vec3f{0.0, 0.0, 0.0};
-    found = vol_probe_step(p0, zero3, zero3, p1, mat, rng, 0, 0, entry);
-    if found.count == 0 {
+    nothing_kept : option[SurfaceGeometry] = {};
+    found = vol_probe_step(p0, zero3, zero3, p1, mat, rng, 0, 0, nothing_kept);
+    // An empty reservoir is a walk that met no hit on the material -- the
+    // first such hit is always drawn -- pbrt's `if (!reservoir.HasSample())`.
+    if !found.kept {
         return;
     }
-    vol_exit(found.kept, 1.0 / cast[[Float]](found.count), bssrdf, medium,
+    vol_exit(*found.kept, 1.0 / cast[[Float]](found.count), bssrdf, medium,
              camera, spp_scale, prim, beta, r_u, depth, wave, eta_scale, lam,
              sampler, pixel_x, pixel_y, sample_index, direct_uc, direct_u, uc, u,
              u_rr, ls, set,
@@ -3631,12 +3640,25 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
     return;
 }
 
+// The reservoir's draw (pbrt's WeightedReservoirSampler::Add with unit
+// weights): the `hits`th hit on the material replaces the kept one with
+// probability 1 / hits, so each is kept with probability 1 / hits at the
+// end. Returned as the option the walk carries: a value becomes an option
+// on return.
+func vol_probe_draw(surf : SurfaceGeometry, kept : option[SurfaceGeometry],
+                    hits : i32, rng : mut RNG) -> option[SurfaceGeometry] {
+    if next_float(rng) < 1.0 / cast[[Float]](hits) {
+        return surf;
+    }
+    return kept;
+}
+
 // One step of the walk: the ray from `o` to `p1`, its nearest hit, the
 // reservoir's draw if the hit is on the material, and the next step from
 // the hit. `steps` counts the traces made.
 func vol_probe_step(o : vec3f, o_error : vec3f, o_n : vec3f, p1 : vec3f,
                     mat : i32, rng : mut RNG, n_hits : i32, steps : i32,
-                    kept : SurfaceGeometry) -> ProbeResult {
+                    kept : option[SurfaceGeometry]) -> ProbeResult {
     done : ProbeResult = {n_hits, kept};
     r = spawn_ray_to_point(o, o_error, o_n, p1);
     if !any(r.d != 0.0) || (steps >= 99) {
@@ -3653,12 +3675,10 @@ func vol_probe_step(o : vec3f, o_error : vec3f, o_n : vec3f, p1 : vec3f,
     surf = transform(via,
                      hit_geometry(hit_prim.shape, untransform(via, r), hrec));
     next_count : mut i32 = n_hits;
-    next_kept : mut SurfaceGeometry = kept;
+    next_kept : mut option[SurfaceGeometry] = kept;
     if hit_prim.material == mat {
         next_count = n_hits + 1;
-        if next_float(rng) < 1.0 / cast[[Float]](next_count) {
-            next_kept = surf;
-        }
+        next_kept = vol_probe_draw(surf, kept, next_count, rng);
     }
     refused = hit_refused(hit_prim.shape, untransform(via, r));
     return vol_probe_step(surf.p,
