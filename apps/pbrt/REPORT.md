@@ -19,6 +19,37 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-19, 16:00)
+
+**The 16 spp row of the 30-scene heatmap under the fixed compiler
+(a226d936): every scene matches pbrt's image, every scene is faster by wall
+and by kernel** (compare-out-heatmap7, heatmap-gpu-optix.png; the renderer
+of 22705c1a). The GPU check of the three scenes passed first -- head
+0.99951x, dragon_10 0.99995x, killeroo-simple 0.99998x, heatmap6's ratios
+to the digit, where the unfixed compiler had dragon_10 at 0.288x and
+killeroo-simple 13,915 lit pixels short. The row against heatmap6's, least
+of three on each side, unlocked clock:
+
+| 16 spp | heatmap6 (b6b09dc9) | heatmap7 (a226d936) |
+|---|---|---|
+| matching pbrt | 30 of 30 | 30 of 30 |
+| wall speedup, mean | 2.01x | 2.05x |
+| least | 1.29x view-0 | 1.30x view-0 |
+| most | 3.13x killeroo-simple | 3.23x killeroo-simple |
+| kernel speedup, mean | 1.68x | 1.70x |
+| head, kernel | 1.45x (31.1 ms) | 1.60x (28.4 ms) |
+| dragon_10, kernel | 1.42x (147.7 ms) | 1.49x (141.2 ms) |
+
+The two subsurface scenes are the two whose kernel speedup moved by more
+than 3%, which is where the smaller bssrdfs and probes entries were to
+pay; every other scene is within noise of heatmap6 (kroken's kernel ratio
+reads 2.57x to 2.34x on pbrt's side alone, its 16 spp kernel carrying the
+cold-texture cost noted on 10-09). The zero-day frames are absent from
+every heatmap because `pbrt --gpu` itself segfaults on them (32 scenes
+listed, 30 rendered). The 64, 128 and 256 spp rows were not rerun; the
+reason the wall speedup falls with the count is unchanged ("Why the
+speedup moves with the sample count", below).
+
 ## Where it stands (2026-10-19, 13:40)
 
 **The GPU check of the 09:15 compiler failed two of three scenes, the
