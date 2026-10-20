@@ -1,0 +1,96 @@
+//! flags: -p ssa -b llvm -e
+
+// The programs of ssa/vectorize-masked-uniform-loop.bonsai run: pbrt's
+// FindInterval called under a mask, once with the sample one value for the
+// gang (`shared`: the loop stays uniform and scalar) and once with each
+// lane's own (`own`: the loop is uniformized). `plain_*` are the same with
+// nothing scheduled; the paired lines have to match. The table is the ten
+// tenths; the samples sit between its entries, on two of them (0.0 and
+// 0.5, which the `<=` admits), past the end (1.5, clamped to n - 2), and
+// four lanes are negative and masked off. Every value in the golden was
+// computed in Python from pbrt's loop, not by running this.
+func find_interval(n : i32, cdf : array[f32], base : i32, u : f32) -> i32 {
+    size : mut i32 = n - 2;
+    first : mut i32 = 1;
+    while size > 0 {
+        half = size >> 1;
+        middle = first + half;
+        found = cdf[base + middle] <= u;
+        first = select(found, middle + 1, first);
+        size = select(found, size - (half + 1), half);
+    }
+    return min(max(first - 1, 0), n - 2);
+}
+
+func gang_shared(cdf : array[f32], us : array[f32],
+                 out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[0];
+        if us[i] >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+func plain_shared(cdf : array[f32], us : array[f32],
+                  out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[0];
+        if us[i] >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+func gang_own(cdf : array[f32], us : array[f32],
+              out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[i];
+        if u >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+func plain_own(cdf : array[f32], us : array[f32],
+               out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[i];
+        if u >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    cdf : array[f32, 10] = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
+    us : array[f32, 16] = {0.55, -1.0, 0.05, 0.15, 0.25, 0.35, 0.45, 0.5,
+                           -0.5, 0.65, 0.75, 0.85, 0.95, 1.5, 0.0, -2.0};
+    out : mut array[i32, 16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    gang_shared(cdf, us, out);
+    print(out);
+    plain_shared(cdf, us, out);
+    print(out);
+    gang_own(cdf, us, out);
+    print(out);
+    plain_own(cdf, us, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    gang_shared.vectorize(i);
+    gang_own.vectorize(i);
+}

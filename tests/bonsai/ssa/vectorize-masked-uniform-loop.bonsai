@@ -1,0 +1,71 @@
+//! flags: -p ssa
+
+// A uniform loop in a masked variant keeps its uniform carried values
+// scalar. pbrt's FindInterval (apps/pbrt/sampling.bonsai's find_interval),
+// a binary search whose `size` and `first` are halved and stepped together,
+// is called under a mask twice: in `shared` with arguments the gang agrees
+// on -- the table, the row and the sample are one value for every lane,
+// only the mask varies -- and in `own` with each lane's own sample.
+//
+// In `shared`'s variant the loop is uniform: every lane goes round the same
+// number of times, and the values it carries are the same for a lane that
+// is on and for one that is off. The linearizer's freeze of a carried value
+// at the latch of a uniform loop under a partial mask -- `select(mask, next,
+// current)`, so that a lane that is off comes out of the loop unchanged
+// (SSA/Linearize.cpp, after the stores are predicated) -- has nothing to
+// keep for such a value, and used to apply all the same: `first` came round
+// as a blend on the mask, which is varying, so `middle`, the table read,
+// `found` and `size` turned varying with it, and the loop's test with them
+// -- a divergent loop made of a uniform one after the uniformizer had run,
+// and "Linearization left a divergent branch" when the gang came to
+// widening. ispc never masks an assignment to a `uniform` variable, and
+// neither does this now.
+//
+// What to look for: in `shared`'s variant of find_interval the loop is a
+// scalar `while (0 < size)` over `i32` values with no live mask, and the
+// return is one `i32` broadcast at the caller; in `own`'s the loop is
+// uniformized -- `reduce<any>(!live)` -- with `first` frozen per lane and
+// the return an `i32x16`.
+func find_interval(n : i32, cdf : array[f32], base : i32, u : f32) -> i32 {
+    size : mut i32 = n - 2;
+    first : mut i32 = 1;
+    while size > 0 {
+        half = size >> 1;
+        middle = first + half;
+        found = cdf[base + middle] <= u;
+        first = select(found, middle + 1, first);
+        size = select(found, size - (half + 1), half);
+    }
+    return min(max(first - 1, 0), n - 2);
+}
+
+func [[export]] shared(cdf : array[f32], us : array[f32],
+                       out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[0];
+        if us[i] >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+func [[export]] own(cdf : array[f32], us : array[f32],
+                    out : mut array[i32, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[i];
+        if u >= 0.0 {
+            out[i] = find_interval(10, cdf, 0, u);
+        } else {
+            out[i] = -1;
+        }
+    }
+    return;
+}
+
+schedule {
+    shared.vectorize(i);
+    own.vectorize(i);
+}

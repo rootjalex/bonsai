@@ -2514,6 +2514,28 @@ BlockMasks linearize(Function &func, const string &entry_name,
                         if (!read_outside_loop(cfg, loop.blocks, arg.name)) {
                             continue; // the loop's own
                         }
+                        // A value the lanes agree on is one scalar, held
+                        // alike by a lane that is on and by one that is
+                        // off: there is nothing of a lane's own in it to
+                        // keep, so it is not frozen -- as ispc never masks
+                        // an assignment to a `uniform` variable (Pharr &
+                        // Mark, "ispc: A SPMD Compiler for High-Performance
+                        // CPU Programming", InPar 2012). A blend on the mask
+                        // would only make a vector of it, and where the
+                        // loop's own test reads it -- a binary search over
+                        // a table, `while size > 0` with `size` and `first`
+                        // halved and stepped together, called under a mask
+                        // with arguments uniform across the gang
+                        // (apps/pbrt's find_interval) -- a divergent loop of
+                        // a uniform one, behind the back of the uniformizer,
+                        // which has already run. The analysis is the one
+                        // linearization was handed, which saw every value
+                        // here as it was before the blends.
+                        if (!divergence.is_varying(cfg.name(latch), *next) &&
+                            !divergence.is_varying(cfg.name(loop.header),
+                                                   *current)) {
+                            continue; // uniform: the same for every lane
+                        }
                         jump->args[k] = append(func, cfg.block(latch), arg.type,
                                                Instruction::Op::Select,
                                                {*mask, next, current});

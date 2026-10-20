@@ -46,6 +46,7 @@ add_bonsai_tests(
     vectorize-nested-vector.bonsai
     vectorize-gather-nested-vector.bonsai
     vectorize-uniform-counter.bonsai
+    vectorize-masked-uniform-loop.bonsai
     vectorize-uniform-around-return.bonsai
     vectorize-uniform-division.bonsai
     vectorize-vector-index.bonsai

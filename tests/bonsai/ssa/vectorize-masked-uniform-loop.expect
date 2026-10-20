@@ -1,0 +1,157 @@
+func find_interval(n : i32, cdf : f32[], base : i32, u : f32) -> i32 {
+  size : mut i32
+  first : mut i32
+  let _t0 = n - 2 in
+  size = _t0
+  first = 1
+  while (0 < (*size)) {
+    let half = (*size) >> 1 in
+    let middle = (*first) + half in
+    let @7 = base + middle in
+    let @8 = cdf[@7] in
+    let found = @8 <= u in
+    let @10 = middle + 1 in
+    let @12 = select(found, @10, (*first)) in
+    let @14 = half + 1 in
+    let @15 = (*size) - @14 in
+    let @16 = select(found, @15, half) in
+    size = @16
+    first = @12
+  }
+  let @18 = (*first) - 1 in
+  let @19 = max(@18, 0) in
+  let @20 = min(@19, _t0) in
+  return @20
+}
+
+func find_interval$gang16$masked(n : i32, cdf : f32[], base : i32, u : f32, !mask : boolx16) -> i32 {
+  size : mut i32
+  first : mut i32
+  let _t0 = n - 2 in
+  size = _t0
+  first = 1
+  while (0 < (*size)) {
+    let half = (*size) >> 1 in
+    let middle = (*first) + half in
+    let @7 = base + middle in
+    let @8 = cdf[@7] in
+    let found = @8 <= u in
+    let @10 = middle + 1 in
+    let @12 = select(found, @10, (*first)) in
+    let @14 = half + 1 in
+    let @15 = (*size) - @14 in
+    let @16 = select(found, @15, half) in
+    size = @16
+    first = @12
+  }
+  let @18 = (*first) - 1 in
+  let @19 = max(@18, 0) in
+  let @20 = min(@19, _t0) in
+  return @20
+}
+
+func find_interval$gang16_v3$masked(n : i32, cdf : f32[], base : i32, u : f32x16, !mask : boolx16) -> i32x16 {
+  size!loop : mut i32x16
+  first!loop : mut i32x16
+  !live : mut boolx16
+  !exit.while_end_2 : mut boolx16
+  !track.while_end_2.1 : mut i32x16
+  size!loop!skip : mut i32x16
+  first!loop!skip : mut i32x16
+  let _t0 = n - 2 in
+  let @43 = i32x16(_t0) in
+  let @44 = i32x16(1) in
+  let @45 = boolx16(false) in
+  size!loop = @43
+  first!loop = @44
+  !live = !mask
+  !exit.while_end_2 = @45
+  !track.while_end_2.1 = undef
+  while (reduce<any>((*!live))) {
+    let @31 = i32x16(0) in
+    let @2 = @31 < (*size!loop) in
+    let @33 = boolx16(true) in
+    let @46 = !@2 in
+    let @23 = (*!live) && @46 in
+    let @24 = (*!live) && @2 in
+    let @25 = reduce<any>(@24) in
+    if (@25) {
+      let half = (*size!loop) >> @44 in
+      let middle = (*first!loop) + half in
+      let @35 = i32x16(base) in
+      let @7 = @35 + middle in
+      let @8 = masked_extract(cdf[@7], @24) in
+      let found = @8 <= u in
+      let @10 = middle + @44 in
+      let @12 = select(found, @10, (*first!loop)) in
+      let @14 = half + @44 in
+      let @15 = (*size!loop) - @14 in
+      let @16 = select(found, @15, half) in
+      let @26 = select(@24, @12, (*first!loop)) in
+      size!loop!skip = @16
+      first!loop!skip = @26
+    } else {
+      size!loop!skip = undef
+      first!loop!skip = (*first!loop)
+    }
+    let @27 = select(@23, (*first!loop), (*first!loop!skip)) in
+    let @28 = select(@23, @45, (*!live)) in
+    let @29 = select(@23, @33, (*!exit.while_end_2)) in
+    let @30 = select(@23, (*first!loop), (*!track.while_end_2.1)) in
+    size!loop = (*size!loop!skip)
+    first!loop = @27
+    !live = @28
+    !exit.while_end_2 = @29
+    !track.while_end_2.1 = @30
+  }
+  let @18 = (*!track.while_end_2.1) - @44 in
+  let @41 = i32x16(0) in
+  let @19 = max(@18, @41) in
+  let @20 = min(@19, @43) in
+  return @20
+}
+
+func [[export]] own(cdf : f32[], us : f32[], out : mut i32[16]) -> void {
+  let u = us[ramp(0, 1, 16)] in
+  let @9 = f32x16(0f) in
+  let @1 = @9 <= u in
+  let @13 = !@1 in
+  let @7 = reduce<any>(@1) in
+  if (@7) {
+    let @2 = find_interval$gang16_v3$masked(10, cdf, 0, u, @1) in
+    masked_store(out[ramp(0, 1, 16)], @2, @1)
+  }
+  let @6 = reduce<any>(@13) in
+  if (@6) {
+    let @12 = i32x16(-1) in
+    masked_store(out[ramp(0, 1, 16)], @12, @13)
+  }
+  return
+}
+
+func [[export]] shared(cdf : f32[], us : f32[], out : mut i32[16]) -> void {
+  let @0 = us[ramp(0, 1, 16)] in
+  let @10 = f32x16(0f) in
+  let @1 = @10 <= @0 in
+  let @15 = !@1 in
+  let @8 = reduce<any>(@1) in
+  if (@8) {
+    let u = us[0] in
+    let @3 = find_interval$gang16$masked(10, cdf, 0, u, @1) in
+    let @13 = i32x16(@3) in
+    masked_store(out[ramp(0, 1, 16)], @13, @1)
+  }
+  let @7 = reduce<any>(@15) in
+  if (@7) {
+    let @14 = i32x16(-1) in
+    masked_store(out[ramp(0, 1, 16)], @14, @15)
+  }
+  return
+}
+
+
+schedule {
+    own.vectorize(i)
+    shared.vectorize(i)
+
+}
