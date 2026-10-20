@@ -2126,13 +2126,31 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     broadcast_call_arguments(funcs, *variant, region, key.lanes);
 
     // The return type follows whatever the exit ends up carrying, which is a
-    // vector if the returned value turned out to be varying.
+    // vector if the returned value turned out to be varying -- and is made
+    // one where the caller takes it so. A call on a lane's arguments may
+    // return anything, the caller's analysis says (call_effects in
+    // SSA/AnalyzeDivergence.cpp), and its continuation takes the result
+    // widened; the key records those arguments as the shapes that are not
+    // uniform. A variant made for such a call whose return came out uniform
+    // all the same -- material_bxdf's copy for the mixed material returns a
+    // constant whatever it is handed -- hands back the widened value, the
+    // uniform one broadcast before the return, so that what the callee
+    // returns and what the continuation takes agree by construction (the
+    // LLVM backend met an i8 where the continuation's phi wanted <16 x i8>).
+    const bool varying_result =
+        std::any_of(key.shapes.begin(), key.shapes.end(),
+                    [](Shape s) { return s != Shape::Uniform; });
     for (const auto &block : variant->blocks) {
-        if (const auto *ret =
-                std::get_if<Terminator::Return>(&block->terminator.data);
-            ret != nullptr && ret->value) {
-            variant->ret_type = ret->value->get_type();
+        auto *ret = std::get_if<Terminator::Return>(&block->terminator.data);
+        if (ret == nullptr || !ret->value) {
+            continue;
         }
+        if (varying_result && !is_gang_wide(ret->value->get_type(), key.lanes)) {
+            vector<shared_ptr<Instruction>> sink;
+            ret->value = broadcast(*variant, block, ret->value, key.lanes, sink);
+            block->instrs.insert(block->instrs.end(), sink.begin(), sink.end());
+        }
+        variant->ret_type = ret->value->get_type();
     }
 
     // A variant is a gang's code as much as the body it was specialized for,

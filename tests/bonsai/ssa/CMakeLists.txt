@@ -143,6 +143,7 @@ add_bonsai_tests(
     vectorize-masked-uniform-loop.bonsai
     vectorize-split-parameter-contracted.bonsai
     vectorize-shadowed-local-after-loop.bonsai
+    vectorize-uniform-return-varying-call.bonsai
     vectorize-pure-call.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai

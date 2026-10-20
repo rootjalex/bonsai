@@ -1,0 +1,86 @@
+type A = struct A{ x : f32 }
+type B = struct B{ y : f32; z : f32 }
+type Float = f32
+type Half = f16
+type Thing = struct Thing{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x2 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] pick(u : f32) -> Thing {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(0.5f) in
+  let @2 = build<[[packed]] u32x2>(@1, 0u) in
+  let @3 = build<Thing>(0u, @0, @2) in
+  return @3
+}
+
+func [[noinline]] pick$gang16_v0$masked(u : f32x16, !mask : boolx16) -> Thing$v16 {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(0.5f) in
+  let @2 = build<[[packed]] u32x2>(@1, 0u) in
+  let @5 = u8x16(0u) in
+  let @7 = @0[0u] in
+  let @8 = u8x16(@7) in
+  let @9 = @0[1u] in
+  let @10 = u8x16(@9) in
+  let @11 = @0[2u] in
+  let @12 = u8x16(@11) in
+  let @13 = build<[[packed]] u8x3$v16>(@8, @10, @12) in
+  let @15 = @2[0u] in
+  let @16 = u32x16(@15) in
+  let @17 = @2[1u] in
+  let @18 = u32x16(@17) in
+  let @19 = build<[[packed]] u32x2$v16>(@16, @18) in
+  let @20 = build<Thing$v16>(@5, @13, @19) in
+  return @20
+}
+
+func [[export]] run(us : f32[16], out : mut f32[16]) -> void {
+  let _t29 = us[ramp(0, 1, 16)] in
+  let @27 = f32x16(0f) in
+  let @1 = @27 < _t29 in
+  let @33 = !@1 in
+  let @23 = reduce<any>(@1) in
+  if (@23) {
+    let @2 = pick$gang16_v0$masked(_t29, @1) in
+    let t = @2 in
+    let @3 = t.tag in
+    let @30 = u8x16(0u) in
+    let @18 = @3 == @30 in
+    let @19 = @1 && @18 in
+    let @20 = @3 != @30 in
+    let @21 = @1 && @20 in
+    let @25 = reduce<any>(@21) in
+    if (@25) {
+      let _t26 = t.payload in
+      let @10 = _t26.!0 in
+      let y = reinterpret_cast<f32x16>(@10) in
+      let @12 = _t26.!1 in
+      let z = reinterpret_cast<f32x16>(@12) in
+      let @14 = y + z in
+      masked_store(out[ramp(0, 1, 16)], @14, @21)
+    }
+    let @24 = reduce<any>(@19) in
+    if (@24) {
+      let @4 = t.payload in
+      let @5 = @4.!0 in
+      let x = reinterpret_cast<f32x16>(@5) in
+      let @7 = x + _t29 in
+      masked_store(out[ramp(0, 1, 16)], @7, @19)
+    }
+  }
+  let @22 = reduce<any>(@33) in
+  if (@22) {
+    let @32 = f32x16(-1f) in
+    masked_store(out[ramp(0, 1, 16)], @32, @33)
+  }
+  return
+}
+
+
+schedule {
+    run.vectorize(i)
+
+}

@@ -1,0 +1,46 @@
+//! flags: -p ssa
+
+// A gang calls, with per-lane arguments, a function whose return comes out
+// uniform: `pick` returns a constant variant whatever it is handed, as
+// material_bxdf's copy for the mixed material does. The caller's analysis
+// takes the result of a call on per-lane arguments as per lane -- the call
+// may return anything (SSA/AnalyzeDivergence.cpp, call_effects) -- and its
+// continuation takes the widened `Thing$v16`; the callee's variant, with
+// nothing varying in its return, used to return the scalar `Thing`, and the
+// LLVM backend met an i8 where the continuation's phi wanted <16 x i8>. The
+// variant now hands back the gang's shape: a return that is not gang-wide
+// is broadcast where the call's arguments were per lane (SSA/Vectorize.cpp,
+// specialize), so what the callee returns and what the continuation takes
+// agree by construction.
+//
+// What to look for: `pick`'s variant returns `Thing$v16`, its constant
+// variant broadcast field by field before the return; `run`'s continuation
+// takes it as the widened variant and reads the payload per lane.
+import stdlib/numerics;
+
+element Thing =
+    | A(x : Float)
+    | B(y : Float, z : Float);
+
+func [[noinline]] pick(u : Float) -> Thing {
+    return A(0.5);
+}
+
+func [[export]] run(us : array[Float, 16], out : mut array[Float, 16]) -> void {
+    parfor i in 0:16 {
+        if us[i] > 0.0 {
+            t = pick(us[i]);
+            match t {
+                A(x) => { out[i] = x + us[i]; }
+                B(y, z) => { out[i] = y + z; }
+            }
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

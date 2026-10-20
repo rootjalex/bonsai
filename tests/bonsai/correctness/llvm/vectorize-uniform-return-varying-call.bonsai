@@ -1,0 +1,63 @@
+//! flags: -p ssa -b llvm -e
+
+// The program of ssa/vectorize-uniform-return-varying-call.bonsai run: a
+// gang calls, with per-lane arguments, a function that returns a constant
+// variant, and reads the result per lane. `plain_run` is the same with
+// nothing scheduled; the two lines have to match. Four lanes are negative
+// and masked off; the others are the constant's half plus the lane's own
+// value, computed by hand.
+import stdlib/numerics;
+
+element Thing =
+    | A(x : Float)
+    | B(y : Float, z : Float);
+
+func [[noinline]] pick(u : Float) -> Thing {
+    return A(0.5);
+}
+
+func gang_run(us : array[Float, 16], out : mut array[Float, 16]) -> void {
+    parfor i in 0:16 {
+        if us[i] > 0.0 {
+            t = pick(us[i]);
+            match t {
+                A(x) => { out[i] = x + us[i]; }
+                B(y, z) => { out[i] = y + z; }
+            }
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func plain_run(us : array[Float, 16], out : mut array[Float, 16]) -> void {
+    parfor i in 0:16 {
+        if us[i] > 0.0 {
+            t = pick(us[i]);
+            match t {
+                A(x) => { out[i] = x + us[i]; }
+                B(y, z) => { out[i] = y + z; }
+            }
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    us : array[Float, 16] = {1.0, -1.0, 2.0, 3.0, -2.0, 4.0, 5.0, 6.0,
+                             7.0, -3.0, 8.0, 9.0, 10.0, 11.0, -4.0, 12.0};
+    out : mut array[Float, 16] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    gang_run(us, out);
+    print(out);
+    plain_run(us, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    gang_run.vectorize(i);
+}
