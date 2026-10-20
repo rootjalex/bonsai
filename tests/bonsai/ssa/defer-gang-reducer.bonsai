@@ -1,0 +1,46 @@
+//! flags: -p ssa
+
+// A reducer through a deferred recursion whose drain is a gang: the slot
+// per producer iteration beside the queue (defer-reducer), accumulated
+// into by sixteen entries at once (defer-gang). The reducer is a
+// four-vector, the renderer's radiance `l`, so its storage is split into
+// one array per component -- a gang touches it (SSA/InducedStorage.h) --
+// and the split has to follow the gang's shapes: the drain's slot address
+// is a vector of sixteen pointers, one slot per lane, and so is the
+// parameter of `step`'s gang variant that receives it, which used to stop
+// the split ("takes total as a (f32x4*)x16 where it is handed the address
+// of a f32x4").
+//
+// What to look for: four arrays `rays_total_{x,y,z,w}_slots`; in `run`'s
+// gang drain the call hands `step`'s variant `(&rays_total_x_slots[@slots])`
+// and the three others, each a vector of pointers; the variant takes
+// `total_x : mut (f32*)x16` and the three others, and its accumulate is a
+// gather, an add and a scatter per component under the mask; the rest
+// pass reads the four slots of one entry. The scalar `step` keeps its one
+// `total : mut (f32x4*)` -- it is never called.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) vec4f) -> void {
+    total += vec4f{x * 0.5, x * 0.25, x, 1.0};
+    if n == 0 {
+        return;
+    }
+    step(x * 0.5, n - 1, total);
+    return;
+}
+
+func [[export]] run(values : array[Float, 40], out : mut array[vec4f, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+        step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.split(rays, rays_gang, rays_lane, 16, true).vectorize(rays_lane);
+}

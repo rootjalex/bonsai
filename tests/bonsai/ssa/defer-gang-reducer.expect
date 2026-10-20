@@ -1,0 +1,155 @@
+type Entry_rays = struct Entry_rays{ x : f32; n : i32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(values : f32[40], out : mut f32x4[40]) -> void {
+  rays!round : mut u32
+  rays_total_w_slots : mut f32[40]
+  rays_total_z_slots : mut f32[40]
+  rays_total_y_slots : mut f32[40]
+  rays_total_x_slots : mut f32[40]
+  rays_x_0 : mut f32[40]
+  rays_n_0 : mut i32[40]
+  rays__slot_0 : mut i32[40]
+  rays_x_1 : mut f32[40]
+  rays_n_1 : mut i32[40]
+  rays__slot_1 : mut i32[40]
+  rays_queue : mut Queue_rays[2]
+  let @6 = build<Queue_rays>(0u, rays_x_0, rays_n_0, rays__slot_0) in
+  rays_queue[0u] = @6
+  let @8 = build<Queue_rays>(0u, rays_x_1, rays_n_1, rays__slot_1) in
+  rays_queue[1u] = @8
+  parfor i in [0:40:1] {
+    rays_total_x_slots[i] = 0f
+    rays_total_y_slots[i] = 0f
+    rays_total_z_slots[i] = 0f
+    rays_total_w_slots[i] = 0f
+    let @1 = values[i] in
+    let @37 = i >> 31 in
+    let @38 = reinterpret_cast<u32>(@37) in
+    let @39 = @38 >> 30u in
+    let @40 = reinterpret_cast<i32>(@39) in
+    let @41 = i + @40 in
+    let @42 = @41 >> 2 in
+    let @43 = @42 * 4 in
+    let @2 = i - @43 in
+    let @11 = build<Entry_rays>(@1, @2, i) in
+    let @70 = atomic_add((&rays_queue[0u].count), 1u) in
+    let @72 = rays_queue[0u].x in
+    @72[@70] = @1
+    let @75 = rays_queue[0u].n in
+    @75[@70] = @2
+    let @78 = rays_queue[0u]._slot in
+    @78[@70] = i
+    continue
+  }
+  rays!round = 0u
+  while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
+    let @15 = (*rays!round) & 1u in
+    let @17 = rays_queue[(*rays!round) & 1u].count in
+    let @19 = @15 ^ 1u in
+    rays_queue[@19].count = 0u
+    parfor rays_gang in [0u:@17:16u] {
+      let @20 = (&rays_queue[@19]) in
+      let @34 = rays_queue[(*rays!round) & 1u].count in
+      let @48 = u32x16(@34) in
+      let @36 = ramp(rays_gang, 1u, 16) < @48 in
+      let @45 = reduce<any>(@36) in
+      if (@45) {
+        let @24 = rays_queue[@15].x in
+        let @25 = masked_extract(@24[ramp(rays_gang, 1u, 16)], @36) in
+        let @27 = rays_queue[@15].n in
+        let @28 = masked_extract(@27[ramp(rays_gang, 1u, 16)], @36) in
+        let @30 = rays_queue[@15]._slot in
+        let @31 = masked_extract(@30[ramp(rays_gang, 1u, 16)], @36) in
+        step$gang16_v0_v1_v2_v4$masked(@25, @28, (&rays_total_x_slots[@31]), (&rays_total_y_slots[@31]), (&rays_total_z_slots[@31]), (&rays_total_w_slots[@31]), @20, @31, @36)
+      }
+      continue
+    }
+    let @14 = (*rays!round) + 1u in
+    rays!round = @14
+  }
+  parfor rays_rest in [0:40:1] {
+    let i = rays_rest in
+    let @59 = (&rays_total_x_slots[rays_rest]) in
+    let @60 = (&rays_total_y_slots[rays_rest]) in
+    let @61 = (&rays_total_z_slots[rays_rest]) in
+    let @62 = (&rays_total_w_slots[rays_rest]) in
+    let @63 = (*@59) in
+    let @64 = (*@60) in
+    let @65 = (*@61) in
+    let @66 = (*@62) in
+    let @67 = build<f32x4>(@63, @64, @65, @66) in
+    out[i] = @67
+    continue
+  }
+  return
+}
+
+func step(x : f32, n : i32, total : mut (f32x4*), _queue_rays : mut (Queue_rays*), _slot_rays : i32) -> void {
+  let _t22 = x * 0.5f in
+  let @1 = x * 0.25f in
+  let @2 = build<f32x4>(_t22, @1, x, 1f) in
+  total += @2
+  let @3 = n == 0 in
+  if (@3) {
+    return
+  } else {
+    let @4 = n - 1 in
+    let @5 = build<Entry_rays>(_t22, @4, _slot_rays) in
+    let @8 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @10 = (*_queue_rays).x in
+    @10[@8] = _t22
+    let @13 = (*_queue_rays).n in
+    @13[@8] = @4
+    let @16 = (*_queue_rays)._slot in
+    @16[@8] = _slot_rays
+    return
+  }
+}
+
+func step$gang16_v0_v1_v2_v4$masked(x : f32x16, n : i32x16, total_x : mut (f32*)x16, total_y : mut (f32*)x16, total_z : mut (f32*)x16, total_w : mut (f32*)x16, _queue_rays : mut (Queue_rays*), _slot_rays : i32x16, !mask : boolx16) -> void {
+  let @12 = f32x16(0.5f) in
+  let _t22 = x * @12 in
+  let @13 = f32x16(0.25f) in
+  let @1 = x * @13 in
+  let @14 = f32x16(1f) in
+  masked_store(total_x, masked_load(total_x, !mask) + _t22, !mask)
+  masked_store(total_y, masked_load(total_y, !mask) + @1, !mask)
+  masked_store(total_z, masked_load(total_z, !mask) + x, !mask)
+  masked_store(total_w, masked_load(total_w, !mask) + @14, !mask)
+  let @15 = i32x16(0) in
+  let @3 = n == @15 in
+  let @19 = !@3 in
+  let @8 = !mask && @19 in
+  let @10 = reduce<any>(@8) in
+  if (@10) {
+    let @18 = i32x16(1) in
+    let @4 = n - @18 in
+    let @5 = build<Entry_rays$v16>(_t22, @4, _slot_rays) in
+    let @21 = reduce<+>(cast<u32x16>(@8)) in
+    let @22 = atomic_add((&(*_queue_rays).count), @21) in
+    let @24 = (*_queue_rays).x in
+    compress_store(@24[@22], _t22, @8)
+    let @27 = (*_queue_rays).n in
+    compress_store(@27[@22], @4, @8)
+    let @30 = (*_queue_rays)._slot in
+    compress_store(@30[@22], _slot_rays, @8)
+  }
+  return
+}
+
+
+schedule {
+    rays = run.queue(root);
+    run.defer(step, rays)
+       .split(rays, rays_gang, rays_lane, (i32)16, 1)
+       .vectorize(rays_lane)
+    step.defer(step, rays)
+
+}

@@ -26,6 +26,7 @@ add_bonsai_tests(
     defer-gang-frame.bonsai
     defer-gang-mut-local.bonsai
     defer-gang-runtime-size.bonsai
+    defer-gang-reducer.bonsai
     defer-loop-owned.bonsai
     defer-stage-cycle.bonsai
     defer-stage-entry.bonsai

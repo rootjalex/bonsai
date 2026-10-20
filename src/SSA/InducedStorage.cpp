@@ -68,6 +68,49 @@ optional<uint64_t> constant_index(const shared_ptr<Value> &v) {
     return std::nullopt;
 }
 
+// An address into a storage has one of two shapes: a pointer, or a vector
+// of pointers, one per lane of a gang -- the slot addresses of sixteen
+// entries a gang drain runs at once, ispc's varying pointer, which the
+// vectorizer made of the drain's slot address and of every chain function's
+// parameter that receives it. The split follows the shape: a leaf's address
+// is a vector of pointers where the slot's was, and what moves through it
+// is a gang-wide value per leaf (widen, IR/Type.h), as take_apart() and the
+// queue's own gang reads already have it.
+uint32_t lanes_of_address(const Type &type) {
+    if (const auto *v = type.as<Vector_t>(); v != nullptr && v->etype.is<Ptr_t>()) {
+        return v->lanes;
+    }
+    return 1;
+}
+
+// What an address of either shape points at, or null for no address
+// (ir::pointee_of, IR/Type.h, is the pointer's alone).
+const Type *address_pointee(const Type &type) {
+    if (const auto *p = type.as<Ptr_t>()) {
+        return &p->etype;
+    }
+    if (const auto *v = type.as<Vector_t>(); v != nullptr && v->etype.is<Ptr_t>()) {
+        return &v->etype.as<Ptr_t>()->etype;
+    }
+    return nullptr;
+}
+
+// An address of `pointee` of the shape of `like`: a pointer, or a vector of
+// as many pointers.
+Type address_like(const Type &like, const Type &pointee) {
+    if (const auto *v = like.as<Vector_t>(); v != nullptr && v->etype.is<Ptr_t>()) {
+        return Vector_t::make(Ptr_t::make(pointee, v->etype.as<Ptr_t>()->readonly),
+                              v->lanes);
+    }
+    const auto *p = like.as<Ptr_t>();
+    return Ptr_t::make(pointee, p != nullptr && p->readonly);
+}
+
+// A value of `type` as a gang of `lanes` holds it: itself for one lane.
+Type held_by(const Type &type, uint32_t lanes) {
+    return lanes > 1 ? widen(type, lanes) : type;
+}
+
 // Every jump out of `block`, paired with the index its first argument binds
 // to in the target's argument list (1 for a parfor body, whose first
 // argument is the index, and for a call continuation handed the returned
@@ -475,7 +518,10 @@ class Splitter {
                     if (!split.parts[k]) {
                         continue;
                     }
-                    element.parts[k] = emit_at(f, block, at, Ptr_t::make(leaves[k].type), Op::GEP,
+                    // Of the shape of the slot's address: a pointer, or a
+                    // gang drain's vector of pointers (lanes_of_address).
+                    element.parts[k] = emit_at(f, block, at,
+                                               address_like(in->type, leaves[k].type), Op::GEP,
                                                {part_at(k), in->operands[1]});
                     const auto &made = std::get<shared_ptr<Instruction>>(element.parts[k]->data);
                     track.emitted[k].push_back(made);
@@ -528,7 +574,15 @@ class Splitter {
                 << track.handle << ": " << describe(fname, *block, *in)
                 << (split.array ? " loads the whole storage" : " indexes a slot's address");
             const vector<shared_ptr<Value>> extra(in->operands.begin() + 1, in->operands.end());
-            materialize(f, fname, in, split, in->op, extra);
+            // A gang's read: through a vector of pointers, or of the storage
+            // itself at a vector of indices, one per lane.
+            uint32_t lanes = lanes_of_address(in->operands[0]->get_type());
+            if (indexed && !extra.empty()) {
+                if (const auto *v = extra[0]->get_type().as<Vector_t>()) {
+                    lanes = v->lanes;
+                }
+            }
+            materialize(f, fname, in, split, in->op, extra, lanes);
             return i;
         }
         case Op::Store: {
@@ -548,8 +602,10 @@ class Splitter {
                 return emit_at(f, block, at, t, op, std::move(ops));
             };
             vector<shared_ptr<Value>> parts;
-            take_apart(in->operands[1], leaves_from(leaves, split.last), l, /*lanes=*/1, emit,
-                       parts);
+            // A gang's store through a vector of pointers writes a gang-wide
+            // value per leaf (take_apart knows the widened shapes).
+            take_apart(in->operands[1], leaves_from(leaves, split.last), l,
+                       lanes_of_address(in->operands[0]->get_type()), emit, parts);
             internal_assert(l == split.last && parts.size() == split.last - split.first)
                 << track.handle << ": " << describe(fname, *block, *in) << " stores a "
                 << split.type << " of " << parts.size() << " scalars where the storage has "
@@ -598,7 +654,8 @@ class Splitter {
                 return emit_at(f, block, at, t, op, std::move(ops));
             };
             vector<shared_ptr<Value>> parts;
-            take_apart(in->operands[1], leaves_from(leaves, split.last), l, 1, emit, parts);
+            take_apart(in->operands[1], leaves_from(leaves, split.last), l,
+                       lanes_of_address(in->operands[0]->get_type()), emit, parts);
             internal_assert(l == split.last) << track.handle;
             for (size_t k = split.first; k < split.last; k++) {
                 const shared_ptr<Value> &part = parts[k - split.first];
@@ -630,8 +687,12 @@ class Splitter {
     // each pick gets the leaves of its field alone, so that a leaf nothing
     // reads is loaded nowhere and the unread rule can drop it. Ends with
     // `in` gone: replaced by the value, or removed when nothing read it.
+    // `lanes` is the gang's where the read is a gang's -- through a vector
+    // of pointers, or at a vector of indices -- and the value read is then
+    // the widened one, leaf by gang-wide leaf; one otherwise.
     void materialize(Function &f, const string &fname, const shared_ptr<Instruction> &in,
-                     const Split &split, Op op, const vector<shared_ptr<Value>> &extra) {
+                     const Split &split, Op op, const vector<shared_ptr<Value>> &extra,
+                     uint32_t lanes) {
         Tracking &track = *split.track;
         const vector<Leaf> &leaves = track.leaves;
         vector<shared_ptr<Instruction>> picks;
@@ -679,7 +740,7 @@ class Splitter {
                 internal_assert(field.first < field.last)
                     << track.handle << ": " << fname << " picks field " << s->fields[k].name
                     << ", which has no leaf";
-                materialize(f, fname, pick, field, Op::Load, {});
+                materialize(f, fname, pick, field, Op::Load, {}, lanes);
             }
             erase_instruction(in);
             return;
@@ -697,8 +758,13 @@ class Splitter {
         const Emit emit = [&](const Type &t, Op o, vector<shared_ptr<Value>> ops) {
             return emit_at(f, block, at, t, o, std::move(ops));
         };
+        // A gang reads a leaf as one gang-wide vector, and a value as the
+        // struct of those (widen): the next leaf is kept whole where the
+        // type asked for is the widened leaf.
         const auto stored_whole = [&](const Type &t) {
-            return l < split.last && keeps_whole(leaves[l], t);
+            return l < split.last &&
+                   (keeps_whole(leaves[l], t) ||
+                    (lanes > 1 && equals(held_by(leaves[l].type, lanes), t)));
         };
         const auto next_leaf = [&](const Type &t) -> shared_ptr<Value> {
             internal_assert(l < split.last)
@@ -713,16 +779,18 @@ class Splitter {
             track.read[k] = true;
             vector<shared_ptr<Value>> ops{reach(block, split.parts[k])};
             ops.insert(ops.end(), extra.begin(), extra.end());
-            auto v = emit(leaf.type, op, std::move(ops));
-            if (packs(leaf, t)) {
+            const Type held = held_by(leaf.type, lanes);
+            auto v = emit(held, op, std::move(ops));
+            if (lanes == 1 && packs(leaf, t)) {
                 return emit(t, Op::Cast, {v});
             }
-            internal_assert(equals(leaf.type, t))
-                << track.handle << ": leaf " << leaf.name << " is a " << leaf.type
+            internal_assert(equals(held, t))
+                << track.handle << ": leaf " << leaf.name << " is a " << held
                 << " where the program reads a " << t;
             return v;
         };
-        shared_ptr<Value> value = rebuild(split.type, emit, next_leaf, stored_whole);
+        shared_ptr<Value> value =
+            rebuild(held_by(split.type, lanes), emit, next_leaf, stored_whole);
         internal_assert(l == split.last)
             << track.handle << ": " << describe(fname, *block, *in) << " reads a "
             << split.type << " of fewer scalars than the storage has";
@@ -985,9 +1053,12 @@ class Splitter {
                 return it->second;
             }
         }
-        const auto *ptr = old.type.as<Ptr_t>();
+        // The parameter is the slot's address, in the shape the vectorizer
+        // left it: a pointer, or in a gang's variant a vector of pointers,
+        // one slot per lane (lanes_of_address); each leaf's is the same.
+        const Type *pointee = address_pointee(old.type);
         const auto *arr = old.type.as<Array_t>();
-        internal_assert((ptr != nullptr && !like.array && equals(ptr->etype, like.type)) ||
+        internal_assert((pointee != nullptr && !like.array && equals(*pointee, like.type)) ||
                         (arr != nullptr && like.array && equals(arr->etype, like.type)))
             << like.track->handle << ": " << callee << " takes " << old.name << " as a "
             << old.type << " where it is handed the address of a " << like.type;
@@ -1003,7 +1074,7 @@ class Splitter {
             Argument a = old;
             a.name = fresh(g, old.name + tail_of(*like.track, local, k));
             a.type = like.array ? Array_t::make(leaf.type, arr->size, arr->readonly)
-                                : Ptr_t::make(leaf.type);
+                                : address_like(old.type, leaf.type);
             made.push_back(a);
             like.track->params[k].push_back({callee, a.name});
         }
