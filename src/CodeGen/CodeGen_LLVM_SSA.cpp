@@ -374,6 +374,19 @@ struct CodeGen_LLVM::SSALowering {
             const auto lanes = get_constant_value<int64_t>(args[1]);
             internal_assert(lanes.has_value() && *lanes > 0)
                 << "broadcast needs a constant width";
+            // As in SSA/CodeGen_Stmt.cpp: a wider value is a pass's mistake
+            // upstream, named with where it is.
+            if (!args[0].type().is_scalar()) {
+                const auto block = instr.owner.lock();
+                const auto func = block ? block->owner.lock() : nullptr;
+                internal_error << (func && !func->blocks.empty()
+                                       ? func->blocks.front()->name
+                                       : std::string("?"))
+                               << ", block " << (block ? block->name : std::string("?"))
+                               << ": " << instr.name << " broadcasts a "
+                               << args[0].type() << " to " << instr.type
+                               << ", and only a scalar can be broadcast";
+            }
             return Broadcast::make(uint32_t(*lanes), std::move(args[0]));
         }
         case Instruction::Op::Ramp:

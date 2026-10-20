@@ -699,6 +699,20 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
     case Instruction::Op::Bc: {
         internal_assert(args.size() == 2) << args.size();
         const uint64_t lanes = get_const_u64(args[1]);
+        // Only a scalar broadcasts (ir::Broadcast); a wider value here is a
+        // pass's mistake upstream, named with the function it is in so that
+        // it can be found in the SSA dump.
+        if (!args[0].type().is_scalar()) {
+            const auto block = instr.owner.lock();
+            const auto func = block ? block->owner.lock() : nullptr;
+            internal_error << (func && !func->blocks.empty()
+                                   ? func->blocks.front()->name
+                                   : std::string("?"))
+                           << ", block " << (block ? block->name : std::string("?"))
+                           << ": " << instr.name << " broadcasts a "
+                           << args[0].type() << " to " << instr.type
+                           << ", and only a scalar can be broadcast";
+        }
         value = Broadcast::make(lanes, std::move(args[0]));
         break;
     }
