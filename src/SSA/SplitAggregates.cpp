@@ -341,6 +341,14 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 rebuilt.push_back(part);
                 components.push_back(std::make_shared<Value>(part));
                 result.parameters.insert(part.name);
+                // Under its name in the entry's table, as every parameter
+                // is: a block that reads a component after a branch -- the
+                // hair BxDF's `f` reads `wi` after its Ap's `if` -- and has
+                // the name threaded down to it by a later pass
+                // (Block::get_value, through the blocks between) must find
+                // it where the parameters are, or the threading reaches
+                // the entry and finds nothing.
+                entry_block->lookups[part.name] = components.back();
             }
             entry_block->lookups.erase(arg.name);
             splitter.args[arg.name] = std::move(components);

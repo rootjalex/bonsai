@@ -1,0 +1,99 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] f(b : f32, wo : f32x3, wi : f32x3) -> f32x4 {
+  t : mut f32
+  let @0 = wo[0u] in
+  let s = @0 * @0 in
+  let @3 = 0.5f < b in
+  if (@3) {
+    let @5 = s + 1f in
+    t = @5
+  } else {
+    let @7 = s - 1f in
+    t = @7
+  }
+  let _t12 = wi[0u] in
+  let @10 = g((*t), _t12) in
+  let r = @10 in
+  let @16 = -0f - _t12 in
+  let @12 = fma(@16, _t12, 1f) in
+  let @13 = wi[1u] in
+  let @14 = wi[2u] in
+  let @15 = build<f32x4>(r, @12, @13, @14) in
+  return @15
+}
+
+func [[noinline]] f$gang16_v0_v1_v2$masked(b : f32x16, wo!0 : f32x16, wo!1 : f32x16, wo!2 : f32x16, wi!0 : f32x16, wi!1 : f32x16, wi!2 : f32x16, !mask : boolx16) -> f32x4$v16 {
+  let s = wo!0 * wo!0 in
+  let @21 = f32x16(0.5f) in
+  let @3 = @21 < b in
+  let @27 = !@3 in
+  let @17 = !mask && @27 in
+  let @24 = f32x16(1f) in
+  let @5 = s + @24 in
+  let @7 = s - @24 in
+  let @19 = select(@17, @7, @5) in
+  let @10 = g$gang16_v0_v1$masked(@19, wi!0, !mask) in
+  let r = @10 in
+  let @26 = f32x16(1f) in
+  let @28 = f32x16(-0f) in
+  let @29 = @28 - wi!0 in
+  let @12 = fma(@29, wi!0, @26) in
+  let @20 = build<f32x4$v16>(r, @12, wi!1, wi!2) in
+  return @20
+}
+
+func [[noinline]] g(a : f32, c : f32) -> f32 {
+  let @1 = fma(a, c, 0.5f) in
+  return @1
+}
+
+func [[noinline]] g$gang16_v0_v1$masked(a : f32x16, c : f32x16, !mask : boolx16) -> f32x16 {
+  let @2 = f32x16(0.5f) in
+  let @1 = fma(a, c, @2) in
+  return @1
+}
+
+func [[export]] run(us : f32[], out : mut f32[16]) -> void {
+  let u = us[ramp(0, 1, 16)] in
+  let @27 = f32x16(0f) in
+  let @1 = @27 <= u in
+  let @36 = !@1 in
+  let @21 = reduce<any>(@1) in
+  if (@21) {
+    let @30 = f32x16(2f) in
+    let @2 = @30 * u in
+    let @31 = f32x16(3f) in
+    let @3 = @31 * u in
+    let @32 = f32x16(1f) in
+    let @5 = u + @32 in
+    let @6 = u + @30 in
+    let @7 = u + @31 in
+    let @9 = f$gang16_v0_v1_v2$masked(u, u, @2, @3, @5, @6, @7, @1) in
+    let @23 = @9.!0 in
+    let @24 = @9.!1 in
+    let @25 = @9.!2 in
+    let @26 = @9.!3 in
+    let @12 = @23 + @24 in
+    let @14 = @12 + @25 in
+    let @16 = @14 + @26 in
+    masked_store(out[ramp(0, 1, 16)], @16, @1)
+  }
+  let @20 = reduce<any>(@36) in
+  if (@20) {
+    let @35 = f32x16(-1f) in
+    masked_store(out[ramp(0, 1, 16)], @35, @36)
+  }
+  return
+}
+
+
+schedule {
+    run.vectorize(i)
+
+}

@@ -1,0 +1,53 @@
+//! flags: -p ssa --ffp-contract
+
+// A per-lane short vector parameter of a masked variant, read after a
+// branch inside the callee, in a subtraction the contraction fuses. The
+// aggregate split (SSA/SplitAggregates.h) makes one parameter per
+// component of `wi` -- `wi!0`, `wi!1`, `wi!2` -- and the contraction
+// (SSA/Contract.h, `--ffp-contract`) then makes `1 - wi.x * wi.x` into
+// `fma(-wi!0, wi!0, 1)`, the negation a new instruction in the block after
+// the call, whose operand `wi!0` is threaded to that block by name
+// (Block::get_value) through the blocks between, down to the entry. The
+// entry has to know the component parameters by name: it did not -- the
+// split put them in the parameter list and not in the entry's table of
+// names -- and the threading reached the entry and found nothing ("Var:
+// wi!0 not in current block, and current block is entry!"), as the hair
+// BxDF's `f` showed, which reads `wi` after its Ap's `if` into
+// `safe_sqrt(1 - sqr(sin_i))`.
+//
+// What to look for: in `f`'s variant, `-0f - wi!0` and `fma(.., wi!0, ..)`
+// in the body after the call of `g`'s variant, the `wi!0` the parameter.
+import stdlib/numerics;
+
+func [[noinline]] g(a : Float, c : Float) -> Float {
+    return a * c + 0.5;
+}
+
+func [[noinline]] f(b : Float, wo : vec3f, wi : vec3f) -> vec4f {
+    s = wo.x * wo.x;
+    t : mut Float = s;
+    if b > 0.5 {
+        t = t + 1.0;
+    } else {
+        t = t - 1.0;
+    }
+    r = g(t, wi.x);
+    return vec4f{r, 1.0 - wi.x * wi.x, wi.y, wi.z};
+}
+
+func [[export]] run(us : array[Float], out : mut array[Float, 16]) -> void {
+    parfor i in 0:16 {
+        u = us[i];
+        if u >= 0.0 {
+            v = f(u, vec3f{u, 2.0 * u, 3.0 * u}, vec3f{u + 1.0, u + 2.0, u + 3.0});
+            out[i] = v.x + v.y + v.z + v.w;
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

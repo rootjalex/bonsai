@@ -140,6 +140,7 @@ add_bonsai_tests(
     vectorize-nested-parfor.bonsai
     vectorize-uniform-counter.bonsai
     vectorize-masked-uniform-loop.bonsai
+    vectorize-split-parameter-contracted.bonsai
     vectorize-pure-call.bonsai
     vectorize-calls.bonsai
     vectorize-ir.bonsai
