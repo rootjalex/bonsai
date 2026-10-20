@@ -4844,8 +4844,11 @@ void CodeGen_LLVM::visit(const Access *node) {
     llvm::errs() << *field << " : " << *field->getType() << "\n";
     llvm::errs().flush();
     internal_error
-        << "Lowering of an ir::Access's value did not result in a struct type: "
-        << Expr(node);
+        << (current_function ? std::string(current_function->getName())
+                             : std::string("?"))
+        << ": lowering of an ir::Access's value did not result in a struct "
+        << "type: " << Expr(node) << " (the value " << value_e << " of type "
+        << value_e.type() << ")";
 }
 
 void CodeGen_LLVM::visit(const Unwrap *node) {

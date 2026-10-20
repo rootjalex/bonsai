@@ -905,19 +905,23 @@ struct CodeGen_LLVM::SSALowering {
         const auto &target = found->second;
         // Said here, with the block and the argument named, rather than by
         // LLVM's assertion that a phi's operands must be of its type.
-        auto matching = [&](llvm::PHINode *phi, llvm::Value *value, size_t i,
-                            const std::string &what) {
-            if (phi->getType() == value->getType()) {
+        auto matching = [&](llvm::PHINode *phi, llvm::Value *leaf, size_t i,
+                            const std::string &what, llvm::Value *whole) {
+            if (phi->getType() == leaf->getType()) {
                 return;
             }
-            std::string want, got;
-            llvm::raw_string_ostream want_os(want), got_os(got);
+            std::string want, got, whole_t;
+            llvm::raw_string_ostream want_os(want), got_os(got),
+                whole_os(whole_t);
             phi->getType()->print(want_os);
-            value->getType()->print(got_os);
-            internal_error << "Argument " << i << " of " << jump.name
-                           << " is " << want_os.str() << " but " << what
-                           << " from " << from->getName().str() << " is "
-                           << got_os.str();
+            leaf->getType()->print(got_os);
+            whole->getType()->print(whole_os);
+            internal_error << function->getName().str() << ": argument " << i
+                           << " of " << jump.name << " is " << want_os.str()
+                           << " but " << what << " from "
+                           << from->getName().str() << " is " << got_os.str()
+                           << " (a leaf of a value of type " << whole_os.str()
+                           << ")";
         };
         // Each leaf of the value to the leaf's phi, extracted here in the
         // block the edge leaves from.
@@ -927,7 +931,7 @@ struct CodeGen_LLVM::SSALowering {
                 llvm::Value *leaf =
                     path.empty() ? value
                                  : cg.builder->CreateExtractValue(value, path);
-                matching(phi, leaf, i, what);
+                matching(phi, leaf, i, what, value);
                 phi->addIncoming(leaf, from);
             }
         };
