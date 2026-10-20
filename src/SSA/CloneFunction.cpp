@@ -75,6 +75,16 @@ shared_ptr<Function> clone_function(const Function &func) {
         copy->args = block->args;
         copy->provenance = block->provenance;
         copy->owner = clone;
+        // An argument may carry an instruction's name -- a value threaded
+        // into the block by Block::get_value is an argument named after it
+        // -- and may outlive the instruction, which a rewrite deleted or
+        // replaced; the counter has to know those names too, or a name
+        // handed out later is also a block's argument, and the backends
+        // bind one over the other (the escaped-ray kernel's gang variant:
+        // a leaf read named @0 of a value whose argument was @0).
+        for (const Argument &arg : copy->args) {
+            clone->reserve_name(arg.name);
+        }
 
         for (const auto &instr : block->instrs) {
             auto instr_copy = std::make_shared<Instruction>(

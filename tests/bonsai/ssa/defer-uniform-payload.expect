@@ -143,14 +143,14 @@ func tally!Shallow(n : i32, acc : i32, max_depth : i32, _queue_sums!Shallow : mu
   } else {
     let @1 = n + 1 in
     let @2 = acc + n in
-    let @3 = build<Entry_sums!Shallow>(@1, @2, _slot_sums!Shallow) in
-    let @6 = atomic_add((&(*_queue_sums!Shallow).count), 1u) in
-    let @8 = (*_queue_sums!Shallow).n in
-    @8[@6] = @1
-    let @11 = (*_queue_sums!Shallow).acc in
-    @11[@6] = @2
-    let @14 = (*_queue_sums!Shallow)._slot in
-    @14[@6] = _slot_sums!Shallow
+    let @4 = build<Entry_sums!Shallow>(@1, @2, _slot_sums!Shallow) in
+    let @7 = atomic_add((&(*_queue_sums!Shallow).count), 1u) in
+    let @9 = (*_queue_sums!Shallow).n in
+    @9[@7] = @1
+    let @12 = (*_queue_sums!Shallow).acc in
+    @12[@7] = @2
+    let @15 = (*_queue_sums!Shallow)._slot in
+    @15[@7] = _slot_sums!Shallow
     return
   }
 }

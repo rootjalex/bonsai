@@ -1,0 +1,105 @@
+//! flags: -p ssa -b llvm -e
+
+// The program of ssa/clone-argument-names.bonsai run: a four-vector
+// reducer accumulated, in a gang drain, with a call's result whose
+// continuation argument is `@0`. `plain_run` is the same with nothing
+// scheduled and a step of its own; the paired lines have to match. Lane
+// `i` sums `{x, 2x, 3x, 4x}` over `x = v, v/2, .., v/2^(i%4)` for `v` 8
+// in the first twenty lanes and 16 in the last twenty; every value in the
+// golden was computed by hand.
+import stdlib/numerics;
+
+func [[noinline]] radiance(x : Float) -> vec4f {
+    return vec4f{x, 2.0 * x, 3.0 * x, 4.0 * x};
+}
+
+func contribution(x : Float, l : reduce(+) vec4f) -> void {
+    l += radiance(x);
+    return;
+}
+
+func step(x : Float, n : i32, total : reduce(+) vec4f) -> void {
+    contribution(x, total);
+    if n == 0 {
+        return;
+    }
+    step(x * 0.5, n - 1, total);
+    return;
+}
+
+func gang_run(values : array[Float, 40], out : mut array[vec4f, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+        step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func plain_contribution(x : Float, l : reduce(+) vec4f) -> void {
+    l += radiance(x);
+    return;
+}
+
+func plain_step(x : Float, n : i32, total : reduce(+) vec4f) -> void {
+    plain_contribution(x, total);
+    if n == 0 {
+        return;
+    }
+    plain_step(x * 0.5, n - 1, total);
+    return;
+}
+
+func plain_run(values : array[Float, 40], out : mut array[vec4f, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+        plain_step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func show(out : array[vec4f, 40]) -> void {
+    xs : mut array[Float, 40] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    ys : mut array[Float, 40] = xs;
+    zs : mut array[Float, 40] = xs;
+    ws : mut array[Float, 40] = xs;
+    for i in 0:40 {
+        xs[i] = out[i].x;
+        ys[i] = out[i].y;
+        zs[i] = out[i].z;
+        ws[i] = out[i].w;
+    }
+    print(xs);
+    print(ys);
+    print(zs);
+    print(ws);
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 40] = {8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0,
+                                     8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0,
+                                     16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0,
+                                     16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0, 16.0};
+    zero = vec4f{0.0, 0.0, 0.0, 0.0};
+    out : mut array[vec4f, 40] = {zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
+                                  zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
+                                  zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
+                                  zero, zero, zero, zero, zero, zero, zero, zero, zero, zero};
+    gang_run(values, out);
+    show(out);
+    plain_run(values, out);
+    show(out);
+    return 0;
+}
+
+schedule {
+    rays = gang_run.queue(root);
+    gang_run.defer(step, rays);
+    step.defer(step, rays);
+    gang_run.split(rays, rays_gang, rays_lane, 16, true).vectorize(rays_lane);
+}

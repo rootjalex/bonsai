@@ -1,0 +1,54 @@
+//! flags: -p ssa
+
+// A copy of a function reserves the names of its arguments as well as of
+// its instructions (SSA/CloneFunction.cpp). A value threaded into a block
+// by Block::get_value is an argument named after the instruction it
+// carries, and a call continuation's result is an argument named by the
+// function's counter -- `@0` for the first unnamed value a function makes
+// -- which may be the only `@`-name the function has once its temporaries
+// are promoted and folded. The gang variant the vectorizer makes is a copy;
+// with the copy's counter told only of instruction names, the first name a
+// pass drew on the variant was `@0` again: the struct-of-arrays split,
+// reading the leaves of the call's result into the reducer's four slots,
+// named the first leaf read `@0`, and the second leaf read was then a read
+// of the first leaf (`let @0 = @0.!0 in let @1 = @0.!1`), which the LLVM
+// backend refused as a field of a vector.
+//
+// What to look for: in `contribution`'s variant the call's result is `@0`
+// and the four leaf reads of it have names of their own -- `let @1 = @0.!0
+// in let @2 = @0.!1 in ...`, each a read of `@0`.
+import stdlib/numerics;
+
+func [[noinline]] radiance(x : Float) -> vec4f {
+    return vec4f{x, 2.0 * x, 3.0 * x, 4.0 * x};
+}
+
+func contribution(x : Float, l : reduce(+) vec4f) -> void {
+    l += radiance(x);
+    return;
+}
+
+func step(x : Float, n : i32, total : reduce(+) vec4f) -> void {
+    contribution(x, total);
+    if n == 0 {
+        return;
+    }
+    step(x * 0.5, n - 1, total);
+    return;
+}
+
+func [[export]] run(values : array[Float, 40], out : mut array[vec4f, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+        step(values[i], i % 4, total);
+        out[i] = total;
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.split(rays, rays_gang, rays_lane, 16, true).vectorize(rays_lane);
+}
