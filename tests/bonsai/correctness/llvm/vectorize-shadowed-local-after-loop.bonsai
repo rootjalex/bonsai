@@ -1,0 +1,71 @@
+//! flags: -p ssa -b llvm -e
+
+// The program of ssa/vectorize-shadowed-local-after-loop.bonsai run, at
+// each of the three modes: a `mut` local carried through a divergent loop
+// and reassigned after it in an arm that reads it, the reassignment inlined
+// into the arm's block. `plain_run` is the same with nothing scheduled; the
+// paired lines have to match. Three lanes are zero and masked off. Every
+// value in the golden was computed in Python with 32-bit wrapping.
+import stdlib/numerics;
+
+func scr(v : u32, h : u32) -> u32 =
+    v ^ (h * 2654435761u);
+
+func [[noinline]] sample(a : u32, mode : i32, hash : u32) -> u32 {
+    v : mut u32 = 0u;
+    bits : mut u32 = a;
+    while bits != 0u {
+        if (bits & 1u) != 0u {
+            v = v ^ (bits * 2654435761u);
+        }
+        bits = bits >> 1u;
+    }
+    if mode == 1 {
+        v = scr(v, hash);
+    }
+    if mode == 2 {
+        v = scr(v ^ 255u, hash);
+    }
+    return v;
+}
+
+func gang_run(as : array[u32, 16], hs : array[u32, 16], mode : i32,
+              out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        if as[i] != 0u {
+            out[i] = sample(as[i], mode, hs[i]);
+        } else {
+            out[i] = 0u;
+        }
+    }
+    return;
+}
+
+func plain_run(as : array[u32, 16], hs : array[u32, 16], mode : i32,
+               out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        if as[i] != 0u {
+            out[i] = sample(as[i], mode, hs[i]);
+        } else {
+            out[i] = 0u;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    as : array[u32, 16] = {1u, 2u, 3u, 0u, 5u, 6u, 7u, 8u, 0u, 10u, 11u, 12u, 13u, 0u, 15u, 16u};
+    hs : array[u32, 16] = {7u, 11u, 13u, 17u, 19u, 23u, 29u, 31u, 37u, 41u, 43u, 47u, 53u, 59u, 61u, 67u};
+    out : mut array[u32, 16] = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    for mode in 0:3 {
+        gang_run(as, hs, mode, out);
+        print(out);
+        plain_run(as, hs, mode, out);
+        print(out);
+    }
+    return 0;
+}
+
+schedule {
+    gang_run.vectorize(i);
+}

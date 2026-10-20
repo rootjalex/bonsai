@@ -504,6 +504,47 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                         return;
                     }
                     const string wanted = *n;
+                    // The block's own argument of that name is the value
+                    // already; the jumps that feed it are threaded where
+                    // they stand.
+                    for (const Argument &arg : block.args) {
+                        if (arg.name == wanted) {
+                            return;
+                        }
+                    }
+                    // What the block's table says the name means here is
+                    // the answer -- the promotion's alias of a load to the
+                    // value that reached it (SSA/PromoteAllocas.cpp), or an
+                    // argument of the name -- unless the use names a value
+                    // from above, an argument of a block that dominates
+                    // this one, and the table's entry is a definition of
+                    // this block's own: a `mut` local reassigned here below
+                    // the use, its new value entered under the local's
+                    // name. Looked up by name, such a use would be handed
+                    // the very value it is an operand of (`v = permutation
+                    // ^ v` with the xor inlined into the arm, sobol_sample's
+                    // scrambles, which came out `@16 = xor(hash, @16)`). The
+                    // value from above is threaded in as an argument of the
+                    // name -- the shape every block has for a local it
+                    // reassigns -- and the redefinition stays what the name
+                    // means at the block's end, which is what a successor
+                    // asking for it gets.
+                    const auto found = block.lookups.find(wanted);
+                    if (found != block.lookups.end()) {
+                        const bool shadowed =
+                            std::holds_alternative<Argument>(v->data) &&
+                            std::holds_alternative<shared_ptr<Instruction>>(
+                                found->second->data);
+                        if (!shadowed) {
+                            v = found->second;
+                            return;
+                        }
+                        const shared_ptr<Value> later = found->second;
+                        block.lookups.erase(found);
+                        v = block.get_value(wanted, type);
+                        block.lookups[wanted] = later;
+                        return;
+                    }
                     v = block.get_value(wanted, type);
                 };
                 for (const auto &instr : block.instrs) {

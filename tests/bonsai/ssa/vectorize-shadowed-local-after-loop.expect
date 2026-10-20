@@ -1,0 +1,132 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(as : u32[], hs : u32[], mode : i32, out : mut u32[16]) -> void {
+  let _t23 = as[ramp(0, 1, 16)] in
+  let @10 = u32x16(0u) in
+  let @1 = _t23 != @10 in
+  let @14 = !@1 in
+  let @8 = reduce<any>(@1) in
+  if (@8) {
+    let @2 = masked_extract(hs[ramp(0, 1, 16)], @1) in
+    let @3 = sample$gang16_v0_v2$masked(_t23, mode, @2, @1) in
+    masked_store(out[ramp(0, 1, 16)], @3, @1)
+  }
+  let @7 = reduce<any>(@14) in
+  if (@7) {
+    masked_store(out[ramp(0, 1, 16)], @10, @14)
+  }
+  return
+}
+
+func [[noinline]] sample(a : u32, mode : i32, hash : u32) -> u32 {
+  v : mut u32
+  @21!mirror : mut bool
+  bits : mut u32
+  let @23 = a & 1u in
+  let @24 = @23 != 0u in
+  v = 0u
+  @21!mirror = @24
+  bits = a
+  while ((*bits) != 0u) {
+    if ((*@21!mirror)) {
+      let @7 = (*bits) * 2654435761u in
+      let @8 = (*v) ^ @7 in
+      v = @8
+    }
+    let @10 = (*bits) >> 1u in
+    let @26 = @10 & 1u in
+    let @27 = @26 != 0u in
+    @21!mirror = @27
+    bits = @10
+  }
+  let @11 = mode == 1 in
+  if (@11) {
+    let @13 = hash * 2654435761u in
+    let @14 = (*v) ^ @13 in
+    v = @14
+  }
+  let @15 = mode == 2 in
+  if (@15) {
+    let @17 = (*v) ^ 255u in
+    let @18 = hash * 2654435761u in
+    let @19 = @17 ^ @18 in
+    v = @19
+  }
+  return (*v)
+}
+
+func [[noinline]] sample$gang16_v0_v2$masked(a : u32x16, mode : i32, hash : u32x16, !mask : boolx16) -> u32x16 {
+  v!loop : mut u32x16
+  bits!loop : mut u32x16
+  !live : mut boolx16
+  !exit.while_end_2 : mut boolx16
+  !track.while_end_2.2 : mut u32x16
+  let @48 = u32x16(0u) in
+  let @49 = boolx16(false) in
+  v!loop = @48
+  bits!loop = a
+  !live = !mask
+  !exit.while_end_2 = @49
+  !track.while_end_2.2 = undef
+  while (reduce<any>((*!live))) {
+    let @1 = (*bits!loop) != @48 in
+    let @36 = boolx16(true) in
+    let @50 = !@1 in
+    let @23 = (*!live) && @50 in
+    let @24 = (*!live) && @1 in
+    let @37 = u32x16(1u) in
+    let @3 = (*bits!loop) & @37 in
+    let @4 = @3 != @48 in
+    let @41 = u32x16(2654435761u) in
+    let @7 = (*bits!loop) * @41 in
+    let @8 = (*v!loop) ^ @7 in
+    let @10 = (*bits!loop) >> @37 in
+    let @54 = select(@4, @8, (*v!loop)) in
+    let @55 = select(@24, @54, (*v!loop)) in
+    let @30 = select(@23, (*v!loop), @55) in
+    let @31 = select(@23, @49, (*!live)) in
+    let @32 = select(@23, @36, (*!exit.while_end_2)) in
+    let @33 = select(@23, (*v!loop), (*!track.while_end_2.2)) in
+    v!loop = @30
+    bits!loop = @10
+    !live = @31
+    !exit.while_end_2 = @32
+    !track.while_end_2.2 = @33
+  }
+  let @11 = mode == 1 in
+  if (@11) {
+    let @45 = u32x16(2654435761u) in
+    let @13 = hash * @45 in
+    let @14 = (*!track.while_end_2.2) ^ @13 in
+    v!loop = @14
+  } else {
+    v!loop = (*!track.while_end_2.2)
+  }
+  let @15 = mode == 2 in
+  if (@15) {
+    let @46 = u32x16(255u) in
+    let @17 = (*v!loop) ^ @46 in
+    let @47 = u32x16(2654435761u) in
+    let @18 = hash * @47 in
+    let @19 = @17 ^ @18 in
+    v!loop = @19
+  }
+  return (*v!loop)
+}
+
+func scr(v : u32, h : u32) -> u32 {
+  let @0 = h * 2654435761u in
+  let @1 = v ^ @0 in
+  return @1
+}
+
+
+schedule {
+    run.vectorize(i)
+
+}

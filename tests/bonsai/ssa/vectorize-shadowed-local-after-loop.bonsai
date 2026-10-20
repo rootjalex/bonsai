@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// A `mut` local carried through a divergent loop and reassigned, after the
+// loop, in the arm of a uniform branch that also reads it -- the Sobol
+// sampler's `v`, scrambled by `v = permutation ^ v` with the scramble an
+// expression function, inlined, so that the xor sits in the arm's own
+// block. Uniformizing the loop (SSA/UniformizeLoops.h) rethreads every
+// value read after the loop that the loop defines, so that it leaves the
+// loop through a tracker; the read of `v` in the arm is one. The arm's
+// block redefines `v` below the read -- the promotion entered the xor
+// under the local's name -- so a lookup by name there handed the read its
+// own result, `@16 = xor(hash, @16)`, which widening then broadcast as a
+// value already gang-wide. The value from above is now threaded in as the
+// arm's argument of that name, the block's redefinition kept for its
+// successors.
+//
+// What to look for: in `sample`'s variant the arms of `mode == 1` and
+// `mode == 2` take `v!loop` as an argument and read it; no `bc` of a
+// gang-wide value; the scalar `sample` untouched.
+import stdlib/numerics;
+
+func scr(v : u32, h : u32) -> u32 =
+    v ^ (h * 2654435761u);
+
+func [[noinline]] sample(a : u32, mode : i32, hash : u32) -> u32 {
+    v : mut u32 = 0u;
+    bits : mut u32 = a;
+    while bits != 0u {
+        if (bits & 1u) != 0u {
+            v = v ^ (bits * 2654435761u);
+        }
+        bits = bits >> 1u;
+    }
+    if mode == 1 {
+        v = scr(v, hash);
+    }
+    if mode == 2 {
+        v = scr(v ^ 255u, hash);
+    }
+    return v;
+}
+
+func [[export]] run(as : array[u32], hs : array[u32], mode : i32,
+                    out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        if as[i] != 0u {
+            out[i] = sample(as[i], mode, hs[i]);
+        } else {
+            out[i] = 0u;
+        }
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}
