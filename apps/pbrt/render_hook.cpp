@@ -2529,7 +2529,20 @@ int main(int argc, char **argv) {
     const auto has_shapes = [&](uint32_t instance) {
         return def_runs[loaded.instances[instance].definition].count > 0;
     };
+    // The box around the scene, for the ray sort key of a schedule that
+    // reorders the trace queue (render.bonsai, ray_sort_key): the top-level
+    // primitives' boxes merged, below. Under OptiX the hardware builds the
+    // tree and no primitive's box is computed here, so the box is the
+    // scene's own shapes' and every mesh vertex's instead -- an instance's
+    // placement is left out, which only loosens the key's quantization.
+    Bounds3f scene_bounds;
 #ifdef BONSAI_HAS_OPTIX
+    for (uint32_t i = 0; i < shapes.size(); i++) {
+        scene_bounds = merge(scene_bounds, bounds_of(shapes[i], pool, shape_pools));
+    }
+    for (const auto &p : pool.positions) {
+        scene_bounds = merge(scene_bounds, Meshes::widen(p));
+    }
     // The hardware's structure is built over the primitives in this order:
     // the scene's own shapes as rt_order left them, its meshes, the placed
     // meshes (an instance's together, in its definition's order), then the
@@ -2614,6 +2627,9 @@ int main(int argc, char **argv) {
                 top.push_back(TopLevel{TopLevel::Instance, i,
                                        instance_bounds(loaded.instances[i])});
             }
+        }
+        for (const TopLevel &t : top) {
+            scene_bounds = merge(scene_bounds, t.bounds);
         }
         build_bvh(
             top.data(), top.size(), 0,
@@ -3278,9 +3294,15 @@ int main(int argc, char **argv) {
             // `volpath` takes the same three parameters as `path`, and pbrt's
             // VolPathIntegrator::Create reads them the same way.
             if (loaded.integrator == bonsai_scene::IntegratorTag::VolPath) {
+                // The scene's box, for the ray sort key (render.bonsai,
+                // ray_sort_key); a scene with nothing in it keeps the
+                // empty box, which the key clamps against harmlessly.
+                AABB box;
+                box.low = scene_bounds.pMin;
+                box.high = scene_bounds.pMax;
                 Integrator_VolPath(integrator, max_depth, light_sampler,
                                    light_set, loaded.regularize != 0,
-                                   have_subsurface);
+                                   have_subsurface, box);
             } else {
                 Integrator_Path(integrator, max_depth, light_sampler,
                                 light_set, loaded.regularize != 0);

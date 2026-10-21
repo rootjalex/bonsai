@@ -1233,6 +1233,56 @@ func transform_bounds(t : Transform, b : AABB) -> AABB {
     return out;
 }
 
+// A 10-bit coordinate spread to every sixth bit of a 64-bit word, so that
+// six such coordinates interleave into one Morton code (bit k of the input
+// lands at bit 6k).
+func spread_bits_6(v : u32) -> u64 {
+    x : mut u64 = cast[[u64]](v & 1023u);
+    x = (x | (x << 32u)) & 0x1f00000000ff;
+    x = (x | (x << 16u)) & 0x1f0000ff0000ff;
+    x = (x | (x << 8u)) & 0x100f00f00f00f00f;
+    x = (x | (x << 4u)) & 0x10c30c30c30c30c3;
+    x = (x | (x << 2u)) & 0x1249249249249249;
+    return x;
+}
+
+// A point of the scene's box quantized to ten bits per axis: 0 at the low
+// corner, 1023 at the high, clamped, so that a point the estimate puts
+// outside the box sorts with the face it left through. As floats, each
+// component an integer in 0..1023, for the caller to cast.
+func quantize_in_box(p : vec3f, b : AABB) -> vec3f {
+    extent = max(b.high - b.low, vec3f{1e-30, 1e-30, 1e-30});
+    t = min(max((p - b.low) / extent, vec3f{0.0, 0.0, 0.0}),
+            vec3f{1.0, 1.0, 1.0});
+    return t * 1023.0;
+}
+
+// The key a schedule sorts the trace queue by: the "two point" key of
+// Meister, Boksansky, Guthe and Bittner, "On Ray Reordering Techniques for
+// Faster GPU Ray Tracing" (2025), their best practical key -- the ray's
+// origin and its estimated termination point, each quantized to ten bits
+// per axis inside the scene's box, interleaved bit by bit into one 60-bit
+// Morton code with the origin's bits ahead of the end point's at every
+// level, since the origin is known exactly and the end only estimated.
+// Rays whose keys are close start near each other and head the same way,
+// which is what a packet traversal wants of sixteen consecutive entries.
+// The estimate is the paper's fixed-length one: the end lies a quarter of
+// the box's largest extent along the ray (their adaptive estimate, from a
+// hash of the lengths seen in earlier passes, is the next step if this
+// one pays). Pure arithmetic on the ray: computed where the ray is pushed.
+func ray_sort_key(ray : Ray, b : AABB) -> u64 {
+    extent = b.high - b.low;
+    t_est = 0.25 * max(extent.x, max(extent.y, extent.z));
+    o = quantize_in_box(ray.o, b);
+    e = quantize_in_box(ray.o + t_est * ray.d, b);
+    return (spread_bits_6(cast[[u32]](o.x)) << 5u) |
+           (spread_bits_6(cast[[u32]](o.y)) << 4u) |
+           (spread_bits_6(cast[[u32]](o.z)) << 3u) |
+           (spread_bits_6(cast[[u32]](e.x)) << 2u) |
+           (spread_bits_6(cast[[u32]](e.y)) << 1u) |
+           spread_bits_6(cast[[u32]](e.z));
+}
+
 // `pull_ray` and `push_surface` -- pbrt's ApplyInverse of a ray and its
 // transform of a SurfaceInteraction, the top and bottom of
 // TransformedPrimitive::Intersect -- are in shapes.bonsai, since a disk lives
@@ -1603,7 +1653,14 @@ element Integrator =
     // the scene scatters beneath its surface, which decides how many sampler
     // dimensions every bounce of every path draws (vol_path_step).
     | VolPath(max_depth : i32, sampler : LightSampler, set : LightSet,
-              regularize : bool, have_subsurface : bool);
+              regularize : bool, have_subsurface : bool,
+              // The box around every primitive of the scene, read off the
+              // top-level tree by the driver. Not pbrt's: a ray's sort key
+              // for a schedule that reorders the trace queue (`ray_sort_key`,
+              // the two-point Morton key of Meister et al. 2025) quantizes
+              // the ray's origin and estimated end against it. Carried down
+              // the volpath chain beside max_depth; unread otherwise.
+              scene_bounds : AABB);
 
 // pbrt: RandomWalkIntegrator::LiRandomWalk, the radiance arriving along a ray.
 //
@@ -2933,7 +2990,7 @@ func vol_path_step(ray : Ray, medium : i32,
                    sampler : Sampler, pixel_x : i32, pixel_y : i32,
                    sample_index : u32,
                    ls : LightSampler, set : LightSet, have_media : bool,
-                   seed : i32, max_depth : i32, regularize : bool,
+                   seed : i32, scene_bounds : AABB, max_depth : i32, regularize : bool,
                    have_subsurface : bool,
                    want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                    l : reduce(+) vec4f) -> void {
@@ -2982,7 +3039,7 @@ func vol_path_step(ray : Ray, medium : i32,
                           specular_bounce, any_non_specular, eta_scale,
                           prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                           rs, ls, set,
-                          have_media, seed, max_depth, regularize,
+                          have_media, seed, scene_bounds, max_depth, regularize,
                           have_subsurface, want_visible, visible, path_lambda, l);
         return;
     }
@@ -2991,7 +3048,7 @@ func vol_path_step(ray : Ray, medium : i32,
               eta_scale, prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
               rs, ls, set,
               have_media,
-              seed, max_depth, regularize, have_subsurface, want_visible,
+              seed, scene_bounds, max_depth, regularize, have_subsurface, want_visible,
               visible, path_lambda, l);
     return;
 }
@@ -3019,7 +3076,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                        rs : RaySamples,
                        ls : LightSampler,
                        set : LightSet, have_media : bool, seed : i32,
-                       max_depth : i32, regularize : bool,
+                       scene_bounds : AABB, max_depth : i32, regularize : bool,
                        have_subsurface : bool, want_visible : bool,
                        visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                        l : reduce(+) vec4f) -> void {
@@ -3070,7 +3127,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
         vol_medium_scatter(event, ray, medium, camera, spp_scale,
                            eta_scale, wave, lambda, sampler, pixel_x, pixel_y,
                            sample_index, rs, ls,
-                           set, have_media, seed, max_depth, regularize,
+                           set, have_media, seed, scene_bounds, max_depth, regularize,
                            have_subsurface, want_visible, visible, path_lambda, l);
         return;
     }
@@ -3092,7 +3149,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
               depth, wave, specular_bounce, any_non_specular, eta_scale,
               prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index, rs, ls, set,
               have_media, seed,
-              max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
+              scene_bounds, max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3114,7 +3171,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                         rs : RaySamples,
                         ls : LightSampler,
                         set : LightSet, have_media : bool, seed : i32,
-                        max_depth : i32, regularize : bool,
+                        scene_bounds : AABB, max_depth : i32, regularize : bool,
                         have_subsurface : bool, want_visible : bool,
                         visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                         l : reduce(+) vec4f) -> void {
@@ -3159,7 +3216,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
                   event.r_u / ps.pdf, event.depth, wave + 1, false, true,
                   eta_scale, ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                   ls, set, have_media,
-                  seed, max_depth, regularize, have_subsurface, want_visible,
+                  seed, scene_bounds, max_depth, regularize, have_subsurface, want_visible,
                   visible, path_lambda, l);
     return;
 }
@@ -3184,7 +3241,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                pixel_x : i32, pixel_y : i32, sample_index : u32,
                rs : RaySamples, ls : LightSampler,
                set : LightSet,
-               have_media : bool, seed : i32, max_depth : i32,
+               have_media : bool, seed : i32, scene_bounds : AABB, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
                visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     if !isect {
@@ -3243,7 +3300,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
             spp_scale, beta, r_u, r_l, depth, wave + 1, specular_bounce,
             any_non_specular, eta_scale, prev_ctx, lambda, sampler, pixel_x,
             pixel_y, sample_index, ls,
-            set, have_media, seed, max_depth, regularize, have_subsurface,
+            set, have_media, seed, scene_bounds, max_depth, regularize, have_subsurface,
             want_visible, visible, path_lambda, l);
         return;
     }
@@ -3276,7 +3333,7 @@ func vol_route(isect : option[(Primitive, Geometric, Hit)],
                 beta, r_u, r_l, depth, wave, specular_bounce, any_non_specular,
                 eta_scale, prev_ctx, lambda, sampler, pixel_x, pixel_y, sample_index,
                 rs, ls, set,
-                have_media, seed, max_depth, regularize, have_subsurface,
+                have_media, seed, scene_bounds, max_depth, regularize, have_subsurface,
                 want_visible, visible, path_lambda, l);
     return;
 }
@@ -3382,7 +3439,7 @@ func vol_surface(ray : Ray, medium : i32,
                  sampler : Sampler, pixel_x : i32, pixel_y : i32, sample_index : u32,
                  rs : RaySamples,
                  ls : LightSampler,
-                 set : LightSet, have_media : bool, seed : i32, max_depth : i32,
+                 set : LightSet, have_media : bool, seed : i32, scene_bounds : AABB, max_depth : i32,
                  regularize : bool, have_subsurface : bool, want_visible : bool,
                  visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     // pbrt's wavefront: the material kernel's `wo` is the work item's, which
@@ -3514,7 +3571,7 @@ func vol_surface(ray : Ray, medium : i32,
                            depth, wave, next_eta_scale, lam, sampler, pixel_x,
                            pixel_y, sample_index, rs,
                            direct_uc, direct_u, uc, u, u_rr, ls, set, have_media,
-                           seed, max_depth, regularize, have_subsurface,
+                           seed, scene_bounds, max_depth, regularize, have_subsurface,
                            want_visible, visible, path_lambda, l);
             return;
         }
@@ -3525,7 +3582,7 @@ func vol_surface(ray : Ray, medium : i32,
                   next_any_ns,
                   next_eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y,
                   sample_index, ls, set,
-                  have_media, seed, max_depth, regularize, have_subsurface,
+                  have_media, seed, scene_bounds, max_depth, regularize, have_subsurface,
                   want_visible, visible, path_lambda, l);
     return;
 }
@@ -3555,7 +3612,7 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
                     rs : RaySamples,
                     direct_uc : Float, direct_u : vec2f, uc : Float, u : vec2f,
                     u_rr : Float, ls : LightSampler, set : LightSet,
-                    have_media : bool, seed : i32, max_depth : i32,
+                    have_media : bool, seed : i32, scene_bounds : AABB, max_depth : i32,
                     regularize : bool, have_subsurface : bool,
                     want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                     l : reduce(+) vec4f) -> void {
@@ -3579,7 +3636,7 @@ func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
               beta, r_u, depth, wave, eta_scale, lam, sampler, pixel_x,
               pixel_y, sample_index,
               direct_uc, direct_u, uc, u, u_rr, ls, set, have_media, seed,
-              max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
+              scene_bounds, max_depth, regularize, have_subsurface, want_visible, visible, path_lambda, l);
     return;
 }
 
@@ -3618,7 +3675,7 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
                pixel_x : i32, pixel_y : i32, sample_index : u32,
                direct_uc : Float, direct_u : vec2f,
                uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
-               set : LightSet, have_media : bool, seed : i32, max_depth : i32,
+               set : LightSet, have_media : bool, seed : i32, scene_bounds : AABB, max_depth : i32,
                regularize : bool, have_subsurface : bool, want_visible : bool,
                visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     key = hash_vec3_vec3(p0, p1);
@@ -3635,7 +3692,7 @@ func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
              camera, spp_scale, prim, beta, r_u, depth, wave, eta_scale, lam,
              sampler, pixel_x, pixel_y, sample_index, direct_uc, direct_u, uc, u,
              u_rr, ls, set,
-             have_media, seed, max_depth, regularize, have_subsurface,
+             have_media, seed, scene_bounds, max_depth, regularize, have_subsurface,
              want_visible, visible, path_lambda, l);
     return;
 }
@@ -3706,7 +3763,7 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
               pixel_x : i32, pixel_y : i32, sample_index : u32,
               direct_uc : Float, direct_u : vec2f,
               uc : Float, u : vec2f, u_rr : Float, ls : LightSampler,
-              set : LightSet, have_media : bool, seed : i32, max_depth : i32,
+              set : LightSet, have_media : bool, seed : i32, scene_bounds : AABB, max_depth : i32,
               regularize : bool, have_subsurface : bool, want_visible : bool,
               visible : mut VisibleSurface, path_lambda : mut SampledWavelengths, l : reduce(+) vec4f) -> void {
     zero = vec4f{0.0, 0.0, 0.0, 0.0};
@@ -3772,7 +3829,7 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
                   r_l, depth + 1, wave + 1, is_specular(sample.flags), true,
                   eta_scale, next_ctx, lam, sampler, pixel_x, pixel_y, sample_index,
                   ls, set, have_media,
-                  seed, max_depth, regularize, have_subsurface, want_visible,
+                  seed, scene_bounds, max_depth, regularize, have_subsurface, want_visible,
                   visible, path_lambda, l);
     return;
 }
@@ -3784,7 +3841,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
                  lambda : SampledWavelengths, sampler : Sampler,
                  pixel_x : i32, pixel_y : i32, sample_index : u32,
                  ls : LightSampler, set : LightSet,
-                 seed : i32, max_depth : i32, regularize : bool,
+                 seed : i32, scene_bounds : AABB, max_depth : i32, regularize : bool,
                  have_subsurface : bool,
                  want_visible : bool, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths,
                  l : reduce(+) vec4f) -> void {
@@ -3794,7 +3851,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
     vol_path_step(r0, medium0, camera, spp_scale, ones, ones, ones, 0, 0,
                   false, false, 1.0, origin, lambda, sampler, pixel_x, pixel_y,
                   sample_index, ls, set,
-                  have_media, seed, max_depth, regularize, have_subsurface,
+                  have_media, seed, scene_bounds, max_depth, regularize, have_subsurface,
                   want_visible, visible, path_lambda, l);
     return;
 }
@@ -3842,10 +3899,10 @@ func integrator_li(integrator : Integrator, r : Ray, medium : i32,
                          visible, path_lambda);
             return;
         }
-        VolPath(max_depth, ls, set, regularize, have_subsurface) => {
+        VolPath(max_depth, ls, set, regularize, have_subsurface, scene_bounds) => {
             li_vol_path(r, medium, have_media, camera, spp_scale, lambda,
                         sampler, pixel_x, pixel_y, sample_index, ls, set, seed,
-                        max_depth, regularize,
+                        scene_bounds, max_depth, regularize,
                         have_subsurface, want_visible, visible, path_lambda, l);
             return;
         }
