@@ -1,0 +1,289 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct._pfctx0 = type { ptr, ptr, ptr, ptr }
+%struct.Queue_rays = type { i32, ptr, ptr }
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %values_buffer, ptr noundef %counts_buffer, ptr noundef %out_buffer, ptr noundef %done_buffer) local_unnamed_addr #0 {
+run:
+  %_pfctx = alloca %struct._pfctx0, align 16
+  %values = tail call ptr @bonsai_buffer_require(ptr %values_buffer, i32 1)
+  %counts = tail call ptr @bonsai_buffer_require(ptr %counts_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %done = tail call ptr @bonsai_buffer_require(ptr %done_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %done_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store ptr %counts, ptr %_pfctx, align 16
+  %0 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 8
+  store ptr %values, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 16
+  store ptr %out, ptr %1, align 16
+  %2 = getelementptr inbounds nuw i8, ptr %_pfctx, i64 24
+  store ptr %done, ptr %2, align 8
+  call void @bonsai_parallel_for(i64 4, ptr nonnull %_pfctx, ptr nonnull @_pfkernel1)
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress
+define internal void @_pfkernel1(ptr nofree readonly captures(none) %0, i64 %1, i64 %2) #1 {
+entry:
+  %rays_queue2765 = alloca [2 x %struct.Queue_rays], align 16
+  %3 = load ptr, ptr %0, align 8
+  %4 = getelementptr inbounds nuw i8, ptr %0, i64 8
+  %5 = load ptr, ptr %4, align 8
+  %6 = getelementptr inbounds nuw i8, ptr %0, i64 16
+  %7 = load ptr, ptr %6, align 8
+  %8 = getelementptr inbounds nuw i8, ptr %0, i64 24
+  %9 = load ptr, ptr %8, align 8
+  %10 = icmp slt i64 %1, %2
+  br i1 %10, label %"!par_body_0.lr.ph", label %done, !prof !0
+
+"!par_body_0.lr.ph":                              ; preds = %entry
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %rays_queue2765, i64 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %rays_queue2765, i64 16
+  %rays_queue29 = getelementptr inbounds nuw i8, ptr %rays_queue2765, i64 24
+  %.fca.1.gep69 = getelementptr inbounds nuw i8, ptr %rays_queue2765, i64 32
+  %.fca.2.gep71 = getelementptr inbounds nuw i8, ptr %rays_queue2765, i64 40
+  br label %"!par_body_0"
+
+"!par_body_0":                                    ; preds = %"!par_body_0.lr.ph", %rays_rest4_pf_exit
+  %n79 = phi i64 [ %1, %"!par_body_0.lr.ph" ], [ %38, %rays_rest4_pf_exit ]
+  %arena = call i64 @bonsai_arena_mark()
+  %extract = load i32, ptr %3, align 4
+  %11 = zext i32 %extract to i64
+  %rays_x_0_bytes = shl nuw nsw i64 %11, 2
+  %rays_x_0 = call ptr @bonsai_arena_alloc(i64 %rays_x_0_bytes)
+  %rays_n_0 = call ptr @bonsai_arena_alloc(i64 %rays_x_0_bytes)
+  %rays_x_1 = call ptr @bonsai_arena_alloc(i64 %rays_x_0_bytes)
+  %rays_n_1 = call ptr @bonsai_arena_alloc(i64 %rays_x_0_bytes)
+  store i32 0, ptr %rays_queue2765, align 16
+  store ptr %rays_x_0, ptr %.fca.1.gep, align 8
+  store ptr %rays_n_0, ptr %.fca.2.gep, align 16
+  store i32 0, ptr %rays_queue29, align 8
+  store ptr %rays_x_1, ptr %.fca.1.gep69, align 16
+  store ptr %rays_n_1, ptr %.fca.2.gep71, align 8
+  %.not = icmp eq i32 %extract, 0
+  br i1 %.not, label %rays_rest4_pf_exit, label %"!par_body_2.lr.ph", !prof !1
+
+"!par_body_2.lr.ph":                              ; preds = %"!par_body_0"
+  %12 = mul i64 %n79, 3
+  %xtraiter = and i64 %11, 1
+  %13 = icmp eq i32 %extract, 1
+  br i1 %13, label %"!par_body_2.epil.preheader", label %"!par_body_2.lr.ph.new", !prof !2
+
+"!par_body_2.lr.ph.new":                          ; preds = %"!par_body_2.lr.ph"
+  %unroll_iter = and i64 %11, 4294967294
+  br label %"!par_body_2"
+
+done:                                             ; preds = %rays_rest4_pf_exit, %entry
+  ret void
+
+"!step_call_cont_4.lr.ph":                        ; preds = %rays3_pf_exit, %"rays!round.preheader"
+  %i60_wide = and i64 %n79, 4294967295
+  %extract_ptr61 = getelementptr inbounds nuw [4 x i8], ptr %9, i64 %i60_wide
+  %extract_ptr61.promoted = load float, ptr %extract_ptr61, align 4
+  %xtraiter95 = and i32 %extract, 7
+  %14 = icmp ult i32 %extract, 8
+  br i1 %14, label %"!step_call_cont_4.epil.preheader", label %"!step_call_cont_4.lr.ph.new", !prof !2
+
+"!step_call_cont_4.lr.ph.new":                    ; preds = %"!step_call_cont_4.lr.ph"
+  %unroll_iter99 = and i32 %extract, -8
+  br label %"!step_call_cont_4"
+
+"rays!batch":                                     ; preds = %"rays!batch.lr.ph", %rays3_pf_exit
+  %"@19.count77" = phi i32 [ %"@19.count74.pre", %"rays!batch.lr.ph" ], [ %"@19.count", %rays3_pf_exit ]
+  %extract_ptr4076 = phi ptr [ %rays_queue2765, %"rays!batch.lr.ph" ], [ %extract_ptr40, %rays3_pf_exit ]
+  %15 = phi i32 [ 0, %"rays!batch.lr.ph" ], [ %34, %rays3_pf_exit ]
+  %"rays!round375" = phi i32 [ 0, %"rays!batch.lr.ph" ], [ %33, %rays3_pf_exit ]
+  %16 = xor i32 %15, 1
+  %_wide42 = zext nneg i32 %16 to i64
+  %rays_queue43 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue2765, i64 %_wide42
+  store i32 0, ptr %rays_queue43, align 8, !tbaa !3
+  %extract47.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr4076, i64 8
+  %extract47.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr4076, i64 16
+  %17 = getelementptr inbounds nuw i8, ptr %rays_queue43, i64 8
+  %18 = getelementptr inbounds nuw i8, ptr %rays_queue43, i64 16
+  %wide.trip.count85 = zext i32 %"@19.count77" to i64
+  br label %"rays!run"
+
+"rays!round.preheader.unr-lcssa":                 ; preds = %"!par_body_2"
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"rays!round.preheader", label %"!par_body_2.epil.preheader", !prof !2
+
+"!par_body_2.epil.preheader":                     ; preds = %"rays!round.preheader.unr-lcssa", %"!par_body_2.lr.ph"
+  %indvars.iv.epil.init = phi i64 [ 0, %"!par_body_2.lr.ph" ], [ %indvars.iv.next.1, %"rays!round.preheader.unr-lcssa" ]
+  %lcmp.mod94 = trunc i32 %extract to i1
+  call void @llvm.assume(i1 %lcmp.mod94)
+  %19 = trunc nuw i64 %indvars.iv.epil.init to i32
+  %20 = add i64 %12, %indvars.iv.epil.init
+  %_wide.epil = and i64 %20, 4294967295
+  %extract_ptr30.epil = getelementptr inbounds nuw [4 x i8], ptr %5, i64 %_wide.epil
+  %extract31.epil = load float, ptr %extract_ptr30.epil, align 4
+  %21 = atomicrmw add ptr %rays_queue2765, i32 1 monotonic, align 4
+  %_wide34.epil = zext i32 %21 to i64
+  %"@35.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0, i64 %_wide34.epil
+  store float %extract31.epil, ptr %"@35.epil", align 4, !tbaa !6
+  %"@38.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0, i64 %_wide34.epil
+  store i32 %19, ptr %"@38.epil", align 4, !tbaa !8
+  br label %"rays!round.preheader"
+
+"rays!round.preheader":                           ; preds = %"rays!round.preheader.unr-lcssa", %"!par_body_2.epil.preheader"
+  %"@19.count74.pre" = load i32, ptr %rays_queue2765, align 16
+  %22 = icmp eq i32 %"@19.count74.pre", 0
+  br i1 %22, label %"!step_call_cont_4.lr.ph", label %"rays!batch.lr.ph"
+
+"rays!batch.lr.ph":                               ; preds = %"rays!round.preheader"
+  %i_wide.i = and i64 %n79, 4294967295
+  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %7, i64 %i_wide.i
+  br label %"rays!batch"
+
+"!par_body_2":                                    ; preds = %"!par_body_2", %"!par_body_2.lr.ph.new"
+  %indvars.iv = phi i64 [ 0, %"!par_body_2.lr.ph.new" ], [ %indvars.iv.next.1, %"!par_body_2" ]
+  %niter = phi i64 [ 0, %"!par_body_2.lr.ph.new" ], [ %niter.next.1, %"!par_body_2" ]
+  %23 = trunc nuw i64 %indvars.iv to i32
+  %24 = add i64 %12, %indvars.iv
+  %_wide = and i64 %24, 4294967295
+  %extract_ptr30 = getelementptr inbounds nuw [4 x i8], ptr %5, i64 %_wide
+  %extract31 = load float, ptr %extract_ptr30, align 4
+  %25 = atomicrmw add ptr %rays_queue2765, i32 1 monotonic, align 4
+  %_wide34 = zext i32 %25 to i64
+  %"@35" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0, i64 %_wide34
+  store float %extract31, ptr %"@35", align 4, !tbaa !6
+  %"@38" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0, i64 %_wide34
+  store i32 %23, ptr %"@38", align 4, !tbaa !8
+  %indvars.iv.next = or disjoint i64 %indvars.iv, 1
+  %26 = trunc nuw i64 %indvars.iv.next to i32
+  %27 = add i64 %12, %indvars.iv.next
+  %_wide.1 = and i64 %27, 4294967295
+  %extract_ptr30.1 = getelementptr inbounds nuw [4 x i8], ptr %5, i64 %_wide.1
+  %extract31.1 = load float, ptr %extract_ptr30.1, align 4
+  %28 = atomicrmw add ptr %rays_queue2765, i32 1 monotonic, align 4
+  %_wide34.1 = zext i32 %28 to i64
+  %"@35.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0, i64 %_wide34.1
+  store float %extract31.1, ptr %"@35.1", align 4, !tbaa !6
+  %"@38.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0, i64 %_wide34.1
+  store i32 %26, ptr %"@38.1", align 4, !tbaa !8
+  %indvars.iv.next.1 = add nuw nsw i64 %indvars.iv, 2
+  %niter.next.1 = add i64 %niter, 2
+  %niter.ncmp.1 = icmp eq i64 %niter.next.1, %unroll_iter
+  br i1 %niter.ncmp.1, label %"rays!round.preheader.unr-lcssa", label %"!par_body_2", !prof !2
+
+"rays!run":                                       ; preds = %"rays!batch", %step.exit
+  %indvars.iv82 = phi i64 [ 0, %"rays!batch" ], [ %indvars.iv.next83, %step.exit ]
+  %extract47.fca.1.load = load ptr, ptr %extract47.fca.1.gep, align 8
+  %extract47.fca.2.load = load ptr, ptr %extract47.fca.2.gep, align 8
+  %extract_ptr49 = getelementptr inbounds nuw [4 x i8], ptr %extract47.fca.1.load, i64 %indvars.iv82
+  %extract50 = load float, ptr %extract_ptr49, align 4
+  %extract_ptr56 = getelementptr inbounds nuw [4 x i8], ptr %extract47.fca.2.load, i64 %indvars.iv82
+  %extract57 = load i32, ptr %extract_ptr56, align 4
+  %extract.i = load float, ptr %extract_ptr.i, align 4
+  %29 = fadd float %extract50, %extract.i
+  store float %29, ptr %extract_ptr.i, align 4, !tbaa !6
+  %30 = icmp eq i32 %extract57, 0
+  br i1 %30, label %step.exit, label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %"rays!run"
+  %31 = add i32 %extract57, -1
+  %32 = atomicrmw add ptr %rays_queue43, i32 1 monotonic, align 4
+  %x8.i = load ptr, ptr %17, align 8
+  %_wide.i = zext i32 %32 to i64
+  %"@10.i" = getelementptr inbounds nuw [4 x i8], ptr %x8.i, i64 %_wide.i
+  store float %extract50, ptr %"@10.i", align 4, !tbaa !6
+  %n10.i = load ptr, ptr %18, align 8
+  %"@13.i" = getelementptr inbounds nuw [4 x i8], ptr %n10.i, i64 %_wide.i
+  store i32 %31, ptr %"@13.i", align 4, !tbaa !8
+  br label %step.exit
+
+step.exit:                                        ; preds = %"rays!run", %"!merge_1.i"
+  %indvars.iv.next83 = add nuw nsw i64 %indvars.iv82, 1
+  %exitcond86.not = icmp eq i64 %indvars.iv.next83, %wide.trip.count85
+  br i1 %exitcond86.not, label %rays3_pf_exit, label %"rays!run", !prof !10
+
+rays3_pf_exit:                                    ; preds = %step.exit
+  %33 = add i32 %"rays!round375", 1
+  %34 = and i32 %33, 1
+  %_wide39 = zext nneg i32 %34 to i64
+  %extract_ptr40 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue2765, i64 %_wide39
+  %"@19.count" = load i32, ptr %extract_ptr40, align 8
+  %35 = icmp eq i32 %"@19.count", 0
+  br i1 %35, label %"!step_call_cont_4.lr.ph", label %"rays!batch"
+
+rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa: ; preds = %"!step_call_cont_4"
+  %lcmp.mod96.not = icmp eq i32 %xtraiter95, 0
+  br i1 %lcmp.mod96.not, label %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge, label %"!step_call_cont_4.epil.preheader", !prof !2
+
+"!step_call_cont_4.epil.preheader":               ; preds = %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa, %"!step_call_cont_4.lr.ph"
+  %.epil.init = phi float [ %extract_ptr61.promoted, %"!step_call_cont_4.lr.ph" ], [ %47, %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa ]
+  %lcmp.mod98 = icmp ne i32 %xtraiter95, 0
+  call void @llvm.assume(i1 %lcmp.mod98)
+  br label %"!step_call_cont_4.epil"
+
+"!step_call_cont_4.epil":                         ; preds = %"!step_call_cont_4.epil", %"!step_call_cont_4.epil.preheader"
+  %36 = phi float [ %.epil.init, %"!step_call_cont_4.epil.preheader" ], [ %37, %"!step_call_cont_4.epil" ]
+  %epil.iter = phi i32 [ 0, %"!step_call_cont_4.epil.preheader" ], [ %epil.iter.next, %"!step_call_cont_4.epil" ]
+  %37 = fadd float %36, 1.000000e+00
+  %epil.iter.next = add i32 %epil.iter, 1
+  %epil.iter.cmp.not = icmp eq i32 %epil.iter.next, %xtraiter95
+  br i1 %epil.iter.cmp.not, label %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge, label %"!step_call_cont_4.epil", !prof !11, !llvm.loop !12
+
+rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge:  ; preds = %"!step_call_cont_4.epil", %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa
+  %.lcssa = phi float [ %47, %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa ], [ %37, %"!step_call_cont_4.epil" ]
+  store float %.lcssa, ptr %extract_ptr61, align 4
+  br label %rays_rest4_pf_exit
+
+rays_rest4_pf_exit:                               ; preds = %"!par_body_0", %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge
+  call void @bonsai_arena_release(i64 %arena)
+  %38 = add nsw i64 %n79, 1
+  %exitcond88.not = icmp eq i64 %38, %2
+  br i1 %exitcond88.not, label %done, label %"!par_body_0", !prof !10
+
+"!step_call_cont_4":                              ; preds = %"!step_call_cont_4", %"!step_call_cont_4.lr.ph.new"
+  %39 = phi float [ %extract_ptr61.promoted, %"!step_call_cont_4.lr.ph.new" ], [ %47, %"!step_call_cont_4" ]
+  %niter100 = phi i32 [ 0, %"!step_call_cont_4.lr.ph.new" ], [ %niter100.next.7, %"!step_call_cont_4" ]
+  %40 = fadd float %39, 1.000000e+00
+  %41 = fadd float %40, 1.000000e+00
+  %42 = fadd float %41, 1.000000e+00
+  %43 = fadd float %42, 1.000000e+00
+  %44 = fadd float %43, 1.000000e+00
+  %45 = fadd float %44, 1.000000e+00
+  %46 = fadd float %45, 1.000000e+00
+  %47 = fadd float %46, 1.000000e+00
+  %niter100.next.7 = add i32 %niter100, 8
+  %niter100.ncmp.7 = icmp eq i32 %niter100.next.7, %unroll_iter99
+  br i1 %niter100.ncmp.7, label %rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa, label %"!step_call_cont_4", !prof !2
+}
+
+declare i64 @bonsai_arena_mark() local_unnamed_addr
+
+declare ptr @bonsai_arena_alloc(i64) local_unnamed_addr
+
+declare void @bonsai_arena_release(i64) local_unnamed_addr
+
+declare void @bonsai_parallel_for(i64, ptr, ptr) local_unnamed_addr
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
+declare void @llvm.assume(i1 noundef) #2
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress "frame-pointer"="all" }
+attributes #2 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+
+!0 = !{!"branch_weights", i32 1, i32 0}
+!1 = !{!"branch_weights", i32 0, i32 1}
+!2 = !{!"branch_weights", i32 0, i32 -2147483648}
+!3 = !{!4, !4, i64 0}
+!4 = !{!"u32", !5, i64 0}
+!5 = !{!"bonsai"}
+!6 = !{!7, !7, i64 0}
+!7 = !{!"f32", !5, i64 0}
+!8 = !{!9, !9, i64 0}
+!9 = !{!"i32", !5, i64 0}
+!10 = !{!"branch_weights", i32 0, i32 1073741824}
+!11 = !{!"branch_weights", i32 306783378, i32 1840700270}
+!12 = distinct !{!12, !13}
+!13 = !{!"llvm.loop.unroll.disable"}

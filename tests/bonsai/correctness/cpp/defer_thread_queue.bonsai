@@ -1,0 +1,44 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/defer_thread_queue
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_defer_thread_queue.cpp -I. -o tests/bonsai/correctness/cpp/main_defer_thread_queue.o, clang++ tests/bonsai/correctness/cpp/main_defer_thread_queue.o tests/bonsai/correctness/cpp/defer_thread_queue.o -o tests/bonsai/correctness/cpp/defer_thread_queue, ./tests/bonsai/correctness/cpp/defer_thread_queue, rm tests/bonsai/correctness/cpp/defer_thread_queue, rm tests/bonsai/correctness/cpp/main_defer_thread_queue.o, rm tests/bonsai/correctness/cpp/defer_thread_queue.h, rm tests/bonsai/correctness/cpp/defer_thread_queue.o
+
+// A queue on a loop bound to CPUThread, sized at run time: the per-thread
+// wavefront's shape (apps/pbrt/schedules/wavefront-thread-packet.bonsai),
+// each iteration of `i` a thread's chunk that owns its queue, its drain and
+// the pass over its record, the queue holding `m` entries where `m` is read
+// inside the iteration. Such storage is the thread's for the iteration and
+// comes from the runtime's arena (runtime/bonsai_parallel.h, "The arena";
+// CodeGen_LLVM::in_cpu_kernel), marked before the iteration and released
+// after it, rather than from the iteration's stack frame, which a chunk's
+// queues would overflow. Compiled and linked against the runtime, so the
+// arena itself runs, on the runtime's threads. Each `i` is written by its
+// own thread only: `out[i]` by the drained steps, `done[i]` by the
+// continuation, so the result does not depend on which thread ran what.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, i : u32, out : mut array[Float, 4]) -> void {
+    out[i] = out[i] + x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, i, out);
+    return;
+}
+
+func [[export]] run(values : array[Float, 12], counts : array[u32, 1],
+                    out : mut array[Float, 4], done : mut array[Float, 4]) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            step(values[i * 3u + j], cast[[i32]](j), i, out);
+            done[i] = done[i] + 1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(i);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, CPUThread);
+}

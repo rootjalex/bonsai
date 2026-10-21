@@ -25,6 +25,7 @@ add_bonsai_tests(
     bvh4_tiled_elements_prefetch.bonsai
     destination_passing.bonsai
     defer_sorted_queue.bonsai
+    defer_thread_queue.bonsai
     bvh4_fcpw_slabs.bonsai
     bvh4_fcpw_rows.bonsai
     bvh4_arena.bonsai

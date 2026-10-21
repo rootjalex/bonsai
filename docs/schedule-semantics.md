@@ -438,7 +438,11 @@ is and which calls push one is said by the `defer` and `stage` directives
 that name `q`. The storage is made at the start of the iteration and is
 dead at its end; the compiler makes it once and shares it across
 iterations that never overlap in time. A queue declared at a loop bound
-to `CPUThread` is that thread's queue.
+to `CPUThread` is that thread's queue: its storage comes from the thread's
+arena, taken as the iteration starts and given back as it ends, so that a
+thread allocates nothing after its first iteration and a queue of a chunk
+of pixels times the sample count costs no stack (runtime/bonsai_parallel.h,
+"The arena").
 
 The capacity is the number of entries an iteration of `l` can push. For a
 linear deferral each entry's run pushes at most one successor, so the

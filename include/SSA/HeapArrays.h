@@ -25,9 +25,11 @@ namespace ssa {
 // This pass is Halide's rule: an array whose size is a run-time value, in a
 // block of the function's top region that runs once per call, becomes an
 // `Alloc`, and a `Free` of it goes before every `Return` the block
-// dominates. What stays on the stack: every allocation inside a loop or a
-// bound loop's body (the code generators place those in the frame that runs
-// them), every constant-sized one, and every pointer-typed slot.
+// dominates. What this pass leaves alone: every allocation inside a loop or
+// a bound loop's body (the code generators place those in the frame that
+// runs them -- or, for a run-time-sized one in a loop bound to CPUThread,
+// in the thread's arena, runtime/bonsai_parallel.h), every constant-sized
+// one, and every pointer-typed slot.
 //
 // The two conditions for the switch, checked per array: the allocation's
 // block dominates every return of the function, so that each is freed on

@@ -2483,12 +2483,19 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
         builder->CreateCondBr(builder->CreateICmpSLT(n, kern->getArg(2)),
                               body_bb, exit, very_likely_branch);
 
-        // An iteration that makes a stack allocation of a run-time size in
-        // place (alloca_where_defined: the blocks of the body outside its
-        // loops are once per iteration) has the stack pointer saved before
-        // it and restored after it, as a C compiler does around a variable-
-        // length array in a loop, so that the frame does not grow by an
-        // iteration's allocations every time round the range.
+        // An iteration that makes a stack allocation of a run-time size (the
+        // blocks of the body outside its loops are once per iteration) takes
+        // it from the thread's arena (CodeGen_LLVM::in_cpu_kernel; runtime/
+        // bonsai_parallel.h): the arena's position is marked before the
+        // iteration and restored after it, as a C compiler saves and
+        // restores the stack pointer around a variable-length array in a
+        // loop, so that an iteration's storage is given back when it ends
+        // and the next iteration on the thread reuses the same bytes. The
+        // stack would do the same for a pixel's queues, a few hundred
+        // kilobytes; a chunk's, pixels times samples times every field of
+        // every entry, is tens of megabytes an iteration and no worker's
+        // stack holds that, while a heap allocation per iteration is what
+        // --no-heap exists to refuse.
         bool dynamic_allocas = false;
         const ir::ssa::Cfg body_cfg(loop.func, p.body.name);
         for (const auto &block : body_cfg.blocks()) {
@@ -2501,15 +2508,26 @@ void CodeGen_LLVM::emit_cpu_parfor(BoundLoop &loop) {
             }
         }
         builder->SetInsertPoint(body_bb);
-        llvm::Value *stack = dynamic_allocas ? builder->CreateStackSave("stack") : nullptr;
+        llvm::FunctionType *mark_ty = llvm::FunctionType::get(i64_t, {}, false);
+        llvm::FunctionType *release_ty = llvm::FunctionType::get(void_t, {i64_t}, false);
+        llvm::Value *mark =
+            dynamic_allocas
+                ? builder->CreateCall(
+                      module->getOrInsertFunction("bonsai_arena_mark", mark_ty), {},
+                      "arena")
+                : nullptr;
         if (seeds_rng(body_head)) {
             emit_rng_setup(index, /*outer_state=*/nullptr);
         }
+        const bool was_in_cpu_kernel = in_cpu_kernel;
+        in_cpu_kernel = true;
         loop.emit_body(body_bb, latch);
+        in_cpu_kernel = was_in_cpu_kernel;
 
         builder->SetInsertPoint(latch);
-        if (stack != nullptr) {
-            builder->CreateStackRestore(stack);
+        if (mark != nullptr) {
+            builder->CreateCall(
+                module->getOrInsertFunction("bonsai_arena_release", release_ty), {mark});
         }
         n->addIncoming(builder->CreateAdd(n, llvm::ConstantInt::get(i64_t, 1)),
                        latch);

@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_defer_thread_queue.cpp -I. -o tests/bonsai/correctness/cpp/main_defer_thread_queue.o
+[test] clang++ tests/bonsai/correctness/cpp/main_defer_thread_queue.o tests/bonsai/correctness/cpp/defer_thread_queue.o -o tests/bonsai/correctness/cpp/defer_thread_queue
+[test] ./tests/bonsai/correctness/cpp/defer_thread_queue
+out: 14 140 1400 14000
+done: 3 3 3 3
+out: 14 140 1400 14000
+done: 3 3 3 3

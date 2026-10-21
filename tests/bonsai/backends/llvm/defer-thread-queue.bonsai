@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm
+
+// A queue on a loop bound to CPUThread, sized at run time (ssa/defer-
+// thread-queue says the shape): the kernel of the bound loop takes the
+// queue's arrays and the record's slots from the runtime's per-thread arena
+// -- `bonsai_arena_mark` as the iteration starts, one `bonsai_arena_alloc`
+// per array with the iteration's byte count, `bonsai_arena_release` to the
+// mark as it ends -- in place of stack allocations of a run-time size in
+// the kernel's frame (CodeGen_LLVM::in_cpu_kernel; runtime/
+// bonsai_parallel.h, "The arena"). The runtime twin is
+// correctness/cpp/defer_thread_queue.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, i : u32, out : mut array[Float, 4]) -> void {
+    out[i] = out[i] + x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, i, out);
+    return;
+}
+
+func [[export]] run(values : array[Float, 12], counts : array[u32, 1],
+                    out : mut array[Float, 4], done : mut array[Float, 4]) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            step(values[i * 3u + j], cast[[i32]](j), i, out);
+            done[i] = done[i] + 1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(i);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, CPUThread);
+}

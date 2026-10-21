@@ -55,9 +55,13 @@ namespace ssa {
 //     generators run as a counted loop. A bound parfor is never crossed --
 //     its iterations are threads, and one allocation shared between them is
 //     Halide's "stored outside the parallel loop but computed within it,
-//     a potential race" (src/ScheduleFunctions.cpp), refused there too. Per-
-//     thread storage across a bound loop is a different construct: the
-//     deferral's record, Halide's `ring_buffer`.
+//     a potential race" (src/ScheduleFunctions.cpp), refused there too. An
+//     allocation that stops at a bound loop's body is the thread's for the
+//     iteration: the CPU backend takes a run-time-sized one from the
+//     runtime's per-thread arena and gives it back when the iteration ends
+//     (runtime/bonsai_parallel.h, "The arena"; CodeGen_LLVM::in_cpu_kernel),
+//     so a chunk's queues cost no stack and no allocation after the thread's
+//     first iteration.
 //
 // The target for a natural loop is its header's immediate dominator, the
 // block every path into the loop passes through last -- the preheader's

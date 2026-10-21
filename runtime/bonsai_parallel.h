@@ -194,6 +194,115 @@ BONSAI_PARALLEL_DEFN {
 
 #endif // BONSAI_PARALLEL_EXTERNAL
 
+// The arena: a thread's storage for the iteration it is running.
+//
+// A loop bound to CPUThread runs its body as a kernel on the runtime's
+// threads, and storage the body makes with a run-time size -- the queues of
+// a wavefront schedule that puts them on the bound loop, sized by a chunk
+// of pixels times the sample count, and the record slots beside them -- is
+// the iteration's: made when it starts, dead when it ends (docs/schedule-
+// semantics.md, "queue"). The stack was that storage, and is right for a
+// pixel's queues of a few hundred kilobytes; a chunk's run to tens of
+// megabytes an iteration, which no worker's stack holds, and a heap
+// allocation per iteration is what --no-heap exists to refuse. So the
+// generated kernel takes such storage from here: `bonsai_arena_mark` before
+// the iteration, `bonsai_arena_alloc` for each array, `bonsai_arena_release`
+// to the mark after it (CodeGen_LLVM_SSA.cpp, the parfor kernel; CodeGen_
+// LLVM::in_cpu_kernel) -- a bump allocator per thread, whose blocks are
+// kept for the thread's life, so that once a thread has run one iteration
+// of a loop its later iterations allocate nothing. MoonRay's per-thread
+// queues are this, allocated once per thread and reused; Halide's
+// `halide_malloc` inside a parallel loop is the per-iteration heap
+// allocation this avoids.
+//
+// Marks nest: a thread that waits inside a nested bound loop may be handed
+// another iteration of the outer loop by the scheduler's work stealing, and
+// that iteration marks above the suspended one's storage and releases back
+// to its own mark, so the suspended iteration's storage is untouched. The
+// blocks are sixty-four-byte aligned for the vector stores of a gang, and a
+// block never moves once made, so a pointer handed out stays good until its
+// mark is released.
+#include <algorithm>
+#include <cstdlib>
+#include <new>
+#include <vector>
+
+namespace bonsai_arena_detail {
+
+struct Arena {
+    struct Block {
+        char *base;
+        uint64_t size;
+    };
+    std::vector<Block> blocks;
+    size_t current = 0;  // the block allocations come from
+    uint64_t offset = 0; // the bytes of it used
+    ~Arena() {
+        for (Block &b : blocks) {
+            std::free(b.base);
+        }
+    }
+};
+
+inline Arena &arena() {
+    static thread_local Arena a;
+    return a;
+}
+
+constexpr uint64_t kArenaAlign = 64;
+constexpr uint64_t kArenaFirstBlock = uint64_t{1} << 20;
+
+}  // namespace bonsai_arena_detail
+
+// The arena's position, to release to.
+extern "C" __attribute__((used)) inline uint64_t bonsai_arena_mark() {
+    const bonsai_arena_detail::Arena &a = bonsai_arena_detail::arena();
+    return (static_cast<uint64_t>(a.current) << 48) | a.offset;
+}
+
+// `bytes` of storage, sixty-four-byte aligned, good until the mark taken
+// before it is released.
+extern "C" __attribute__((used)) inline void *bonsai_arena_alloc(uint64_t bytes) {
+    using namespace bonsai_arena_detail;
+    Arena &a = arena();
+    bytes = std::max<uint64_t>((bytes + kArenaAlign - 1) & ~(kArenaAlign - 1), kArenaAlign);
+    while (true) {
+        if (a.current < a.blocks.size()) {
+            Arena::Block &b = a.blocks[a.current];
+            if (b.size - a.offset >= bytes) {
+                void *p = b.base + a.offset;
+                a.offset += bytes;
+                return p;
+            }
+            if (a.current + 1 < a.blocks.size()) {
+                // A block kept from before; what is left of this one waits
+                // for the release.
+                a.current++;
+                a.offset = 0;
+                continue;
+            }
+        }
+        // A new block: room for this allocation, and at least twice the
+        // last block, so that the blocks are few.
+        const uint64_t last = a.blocks.empty() ? 0 : a.blocks.back().size;
+        const uint64_t size = std::max<uint64_t>({bytes, 2 * last, kArenaFirstBlock});
+        void *base = std::aligned_alloc(kArenaAlign, size);
+        if (base == nullptr) {
+            throw std::bad_alloc();
+        }
+        a.blocks.push_back(Arena::Block{static_cast<char *>(base), size});
+        a.current = a.blocks.size() - 1;
+        a.offset = 0;
+    }
+}
+
+// Back to a mark: everything allocated since is given up.
+extern "C" __attribute__((used)) inline void bonsai_arena_release(uint64_t mark) {
+    bonsai_arena_detail::Arena &a = bonsai_arena_detail::arena();
+    a.current = static_cast<size_t>(mark >> 48);
+    a.offset = mark & ((uint64_t{1} << 48) - 1);
+}
+
 // The sort a queue's drain runs its entries in, for a schedule that sorts
 // a deferred call by a key (`f.sort(g, |args| key)`, SSA/Defer.cpp): the
 // generated code makes one call, `bonsai_sort_indices(keys, perm, n)`,

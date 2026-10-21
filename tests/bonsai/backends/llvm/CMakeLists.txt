@@ -31,6 +31,9 @@ add_bonsai_tests(
     defer.bonsai
     defer-gang.bonsai
     defer-nest-inner-bound.bonsai
+    defer-nest-guard.bonsai
+    defer-thread-queue.bonsai
+    reorder-split-guard.bonsai
     defer-gang-bools.bonsai
     defer-record-soa.bonsai
     defer-under-specialize.bonsai

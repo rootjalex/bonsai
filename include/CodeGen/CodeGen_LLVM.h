@@ -1130,6 +1130,17 @@ struct CodeGen_LLVM : public ir::Visitor {
     // outside every loop of a function-level region, since only it knows
     // the loops (CodeGen_LLVM_SSA.cpp, SSALowering::once_blocks).
     bool alloca_where_defined = false;
+    // Whether the code being emitted is the body of a loop bound to
+    // CPUThread -- a parfor kernel the runtime's parallel loop runs. A stack
+    // allocation of a run-time size there is the thread's: it is taken from
+    // the runtime's per-thread arena (bonsai_arena_alloc) rather than the
+    // iteration's stack frame, and given back when the iteration ends, so
+    // that a queue family sized by a chunk of pixels times the sample count
+    // -- megabytes an iteration -- neither overflows a worker's stack nor is
+    // allocated afresh each time round (runtime/bonsai_parallel.h, "The
+    // arena"). Set by the SSA lowering around the kernel's body
+    // (CodeGen_LLVM_SSA.cpp, the parfor kernel).
+    bool in_cpu_kernel = false;
     // Whether the heap allocation being emitted is made once per call of the
     // program: it sits in a block outside every loop of its function's top
     // region, and its function is not one a loop calls (see

@@ -1,0 +1,40 @@
+//! flags: -p ssa
+
+// A queue on a loop bound to CPUThread, sized at run time: the per-thread
+// wavefront's shape (apps/pbrt/schedules/wavefront-thread-packet.bonsai),
+// each iteration of `i` a thread's chunk that owns its queue, its drain and
+// the pass over its record, the queue holding `m` entries where `m` is read
+// inside the iteration. The SSA shows the queue's storage made inside the
+// bound body, sized by `m`, and freed by nothing: it is the iteration's,
+// and where it lives is the backend's business (backends/llvm/defer-thread-
+// queue: the runtime's per-thread arena). The runtime twin is
+// correctness/cpp/defer_thread_queue.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, i : u32, out : mut array[Float, 4]) -> void {
+    out[i] = out[i] + x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, i, out);
+    return;
+}
+
+func run(values : array[Float, 12], counts : array[u32, 1],
+         out : mut array[Float, 4], done : mut array[Float, 4]) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            step(values[i * 3u + j], cast[[i32]](j), i, out);
+            done[i] = done[i] + 1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(i);
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, CPUThread);
+}
