@@ -1,0 +1,113 @@
+// pbrt's wavefront for volpath on the CPU, its drains run as gangs: the
+// queue-per-kernel structure of wavefront-volpath.bonsai (see there for
+// what each queue is and which pbrt kernel it stands for), with every
+// drain that can be split to the gang width with a tail and vectorized,
+// so that sixteen paths at the same kernel of the same bounce run as one
+// gang on the machine's AVX-512 register -- MoonRay's shape, a gang on a
+// queue -- and the traversals under those gangs are packets, vectorized
+// before they are put on their stacks (packet.bonsai says why that order
+// is a packet traversal). The push of the paths that continue compacts
+// the gang's live lanes into the next queue, so a round's gangs are as
+// full as the paths left allow.
+//
+// Three drains stay scalar for now: medium_samples, shadow and
+// exit_shadow. Their kernels walk a medium -- the majorant walk and the
+// shadow ray's ratio tracking -- and a `nanovdb` medium's density there
+// is a foreign call (media.bonsai, `extern func nanovdb_sample`), one
+// scalar call with the C calling convention, which the vectorizer refuses
+// to hand a lane's arguments (docs/foreign-functions.md, "What a foreign
+// call is to the compiler"), as ispc refuses an external call with
+// varying arguments. The rule is the compiler's and documented; a per-lane
+// replication of such a call -- what LLVM's loop vectorizer does with a
+// call that has no vector variant, and ispc's `foreach_active` written by
+// hand -- is the change that would let these three drains join the gang,
+// and it is a decision for the user (PLAN.md).
+//
+// The order a pixel's samples are summed in is by bounce rather than by
+// sample, as in every wavefront schedule here, so the film differs from
+// the scalar schedule's by float reassociation and no more.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+
+    render.specialize(integrator);
+
+    rays = render[VolPath].queue(p);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+
+    medium_samples = render[VolPath].queue(p);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(p);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    probes = render[VolPath].queue(p);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+
+    // The gangs: each drain sixteen entries at a time, with the tail, since
+    // a round holds however many paths are still alive. Before the
+    // traversals below are put on their stacks, so that the trace in the
+    // rays drain and in the probes drain is a packet.
+    render.split(rays, rays_gang, rays_lane, 16, true)
+          .vectorize(rays_lane);
+    render.split(hits, hits_gang, hits_lane, 16, true)
+          .vectorize(hits_lane);
+    render.split(escaped, escaped_gang, escaped_lane, 16, true)
+          .vectorize(escaped_lane);
+    render.split(emissive, emissive_gang, emissive_lane, 16, true)
+          .vectorize(emissive_lane);
+    render.split(medium_scatters, medium_scatters_gang, medium_scatters_lane, 16, true)
+          .vectorize(medium_scatters_lane);
+    render.split(probes, probes_gang, probes_lane, 16, true)
+          .vectorize(probes_lane);
+    render.split(exits, exits_gang, exits_lane, 16, true)
+          .vectorize(exits_lane);
+
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    // pbrt's IntersectP walks the near child first exactly as Intersect
+    // does (BVHAggregate::IntersectP, dirIsNeg), so the any-hit traversal
+    // takes the same order.
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+
+    render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
+}
