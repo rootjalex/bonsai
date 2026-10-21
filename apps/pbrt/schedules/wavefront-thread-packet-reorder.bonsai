@@ -1,0 +1,79 @@
+// wavefront-thread-packet with the sample index outside the chunk's
+// pixels: `reorder(p_in, s)` after the split, so a chunk's queue is pushed
+// one sample of every pixel, then the next sample -- pbrt's order within
+// a band -- and sixteen consecutive entries of a gang are sixteen
+// neighbouring pixels at the same sample rather than one pixel's samples.
+// Nothing else differs from wavefront-thread-packet.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].split(p, p_thread, p_in, 1024, true);
+    render[VolPath].reorder(p_in, s);
+    rays = render[VolPath].queue(p_thread);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    medium_samples = render[VolPath].queue(p_thread);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_thread);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+    escaped = render[VolPath].queue(p_thread);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_thread);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_thread);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p_thread);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    probes = render[VolPath].queue(p_thread);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_thread);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_thread);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+    render.split(rays, rays_gang, rays_lane, 16, true)
+          .vectorize(rays_lane);
+    render.split(hits, hits_gang, hits_lane, 16, true)
+          .vectorize(hits_lane);
+    render.split(escaped, escaped_gang, escaped_lane, 16, true)
+          .vectorize(escaped_lane);
+    render.split(emissive, emissive_gang, emissive_lane, 16, true)
+          .vectorize(emissive_lane);
+    render.split(medium_scatters, medium_scatters_gang, medium_scatters_lane, 16, true)
+          .vectorize(medium_scatters_lane);
+    render.split(probes, probes_gang, probes_lane, 16, true)
+          .vectorize(probes_lane);
+    render.split(exits, exits_gang, exits_lane, 16, true)
+          .vectorize(exits_lane);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.bind(p_thread, CPUThread);
+    render.bind(q, CPUThread);
+}
