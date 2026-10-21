@@ -19,6 +19,79 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-21, 14:40): vectorization on pbrt's own wavefront structure
+
+**On the schedule that matches pbrt's CPU wavefront (`wavefront-frame`:
+a sample index outer, the pixels in bands, every queue on the band),
+vectorizing the drains and nothing else wins 15% on killeroo-simple, 1%
+on book and loses 9% on ganesha, the same at 16 and 64 spp; sorting the
+rays queue by the two-point key of arXiv 2506.11273 before each trace
+pass loses a further 2% to 10%; every one of the 18 images matches
+pbrt's.** The user's ruling of 10-21 (00:05) moved the study here from
+the per-pixel queues of the 23:30 entry, so that the two schedules
+differ only in the vectorize lines (`wavefront-frame-packet`, 7c5907da;
+`wavefront-frame-packet-reorder` adds the sort). Timed 12:12-14:33 with
+compare.sh, best of three each side, the machine otherwise idle; the
+five-bar speedup plot the user asked for is published from
+`scratchpad/plot/cpu-wavefront-speedups.html`. Render seconds, speedups
+over pbrt's CPU wavefront (5.51 / 22.01 / 20.01 / 80.52 / 19.51 /
+78.52 s):
+
+| scene, spp | pbrt volpath (CPU) | our `scalar` | wavefront-frame (scalar drains) | wavefront-frame-packet (gangs) | + rays sorted |
+|---|---|---|---|---|---|
+| killeroo-simple, 16 | 0.92 s (5.99x) | 0.671 s (8.21x) | 3.577 s (1.54x) | 3.105 s (1.77x) | 3.173 s (1.74x) |
+| killeroo-simple, 64 | 3.59 s (6.13x) | 2.715 s (8.11x) | 14.237 s (1.55x) | 12.407 s (1.77x) | 12.665 s (1.74x) |
+| book, 16 | 5.27 s (3.80x) | 3.701 s (5.41x) | 13.305 s (1.50x) | 13.120 s (1.53x) | 13.754 s (1.45x) |
+| book, 64 | 21.11 s (3.81x) | 14.840 s (5.43x) | 53.195 s (1.51x) | 52.744 s (1.53x) | 55.167 s (1.46x) |
+| ganesha, 16 | 4.14 s (4.71x) | 3.567 s (5.47x) | 13.497 s (1.45x) | 14.753 s (1.32x) | 16.244 s (1.20x) |
+| ganesha, 64 | 16.21 s (4.84x) | 13.801 s (5.69x) | 53.839 s (1.46x) | 59.046 s (1.33x) | 62.665 s (1.25x) |
+
+Three readings (PLAN.md, "The study moved onto pbrt's own structure"):
+the gain no longer grows with spp, which confirms the 23:30 entry's fixed
+cost was half-empty gangs over per-pixel queues of spp entries; the ray
+sort does not pay on the CPU, where the paper found it did not pay on
+the GPU either; and pbrt's band structure is itself 4-5x slower on the
+CPU than a path per sample or per-pixel queues, whatever the drains do.
+The ganesha loss under vectorization is unexplained and is measured
+next. Then, in the user's order (13:10): a sequential sort in the
+runtime for queues drained inside a thread, and the per-thread
+wavefront (each thread its own queues and round loop).
+
+## Where it stands (2026-10-20, 23:30): the CPU wavefront with vectorized drains
+
+**The CPU wavefront's drains run as sixteen-wide gangs now
+(`schedules/wavefront-volpath-packet.bonsai`, 75da79d5), and that build
+beats the scalar-drain wavefront on five of six protocol cells, by 1.15x
+to 1.39x, losing killeroo-simple at 16 spp by 4%; every image matches
+pbrt's.** Seven compiler bugs stood in the way, the last (78cf4c87) a
+drain gate read off a gang kernel's widened key, which left the shadow
+drain gated on `have_media` and every surface black; the seven and the
+method are in PLAN.md, "The CPU wavefront with vectorized drains". This
+is CPU work, timed with compare.sh on the idle machine (best of three
+each side, 21:12-23:26), so it sits beside the GPU tables rather than in
+them. Two pbrt references: its own wavefront on the CPU (the same
+algorithm, six to twelve times slower than ours on every cell) and its
+ordinary CPU volpath, against which our `scalar` schedule is the
+like-for-like pattern:
+
+| scene, spp | pbrt `--wavefront` (CPU) | vectorized drains | scalar drains | vectorized over scalar drains | pbrt volpath (CPU) | our `scalar` | vectorized over pbrt volpath |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple, 16 | 5.50 s | 0.623 s (8.83x) | 0.600 s (9.17x) | 0.96x | 0.92 s | 0.679 s (1.35x) | 1.48x |
+| killeroo-simple, 64 | 22.01 s | 1.900 s (11.58x) | 2.334 s (9.43x) | 1.23x | 3.59 s | 2.691 s (1.33x) | 1.89x |
+| book, 16 | 20.01 s | 2.571 s (7.78x) | 3.193 s (6.27x) | 1.24x | 5.27 s | 3.703 s (1.42x) | 2.05x |
+| book, 64 | 80.53 s | 9.125 s (8.83x) | 12.646 s (6.37x) | 1.39x | 21.11 s | 14.754 s (1.43x) | 2.31x |
+| ganesha, 16 | 19.51 s | 2.877 s (6.78x) | 3.297 s (5.92x) | 1.15x | 4.14 s | 3.549 s (1.17x) | 1.44x |
+| ganesha, 64 | 78.53 s | 9.516 s (8.25x) | 12.588 s (6.24x) | 1.32x | 16.21 s | 13.742 s (1.18x) | 1.70x |
+
+The vectorized build's win grows with the sample count on every scene,
+which a fit of T = a + b * spp puts in a fixed per-frame cost of 0.2 to
+0.7 s that the scalar-drain build does not pay, over a per-sample cost
+26-30% lower; the fixed cost is being measured (PLAN.md, same section).
+The audit of the gang code found 912 scalar `sinf`/`cosf`/`tanf` calls,
+about 57 trigonometric sites lowered per lane, the first per-sample item
+after the sort of the rays queue the user asked for (10-20, 21:15; arXiv
+2506.11273's two-point key; design in PLAN.md).
+
 ## Where it stands (2026-10-20, 02:10)
 
 **The whole 30-scene heatmap under the fixed compiler (a226d936): 117 of
@@ -59,12 +132,14 @@ amortized. The stage tables below are regenerated from this run.
 
 0. **The CPU packet schedule** (the user, 10-19 23:15: "try to get the
    CPU packet schedule to work, at the very least by making a vectorized
-   CPU wavefront that beats the regular CPU wavefront schedule"). First
-   which CPU schedules compile today and what the vectorizer says of
-   volpath's code; the deliverable is pbrt --wavefront against
-   wavefront-volpath (scalar drains), the same with its drains vectorized,
-   scalar, and packet where it compiles, on killeroo-simple, book and
-   ganesha at 16 and 64 spp, images checked. In flight.
+   CPU wavefront that beats the regular CPU wavefront schedule"). The
+   vectorized wavefront is built, checked and timed on pbrt's own
+   structure (the 10-21 entry above), and the rays-queue sort the user
+   asked for on 10-20 (arXiv 2506.11273) is built and measured: it loses
+   on the CPU. Left: the ganesha loss under vectorization, the sequential
+   sort in the runtime, the per-thread wavefront (the user, 10-21 13:10),
+   `skip` on the bxdf arms, the per-lane trigonometric calls, and
+   `packet.bonsai` itself.
 1. The cross-queue reload by position (item 1 of 07:00, unchanged).
 2. The hit chain (item 2 of 07:00, unchanged; the range set for the
    user's approval).

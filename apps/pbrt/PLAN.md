@@ -15848,3 +15848,239 @@ in the frontend and IR (the loop form has the parser's syntax already),
 `take_apart`/`bind_elements` (Lower/Trees.cpp) accepting a mapped range
 as a tree's element set, and the derived record above. Asked for here;
 nothing of it is built.
+
+## The CPU wavefront with vectorized drains (10-20)
+
+The ask (10-19, 23:15): get the CPU packet schedule to work, or at the
+least make a vectorized CPU wavefront that beats the regular CPU
+wavefront schedule. The regular one is `schedules/wavefront-volpath.bonsai`:
+pbrt's wavefront for volpath on the CPU, a queue per kernel (camera rays,
+the hits split by material, shadow rays, escaped rays, emissive hits,
+medium samples and scatters), each drained after the other every bounce,
+the drains running one entry at a time on every CPU thread. The new one
+is `schedules/wavefront-volpath-packet.bonsai`: the same queues in the
+same order, with each drain's loop split by sixteen and vectorized, so
+that sixteen consecutive entries run as one gang on the AVX-512 lanes and
+the trace drain's traversal is a sixteen-ray packet (`sort` then
+`loopify(64)`, the packet order of item 6). The medium-sample and shadow
+drains stay scalar: they call the foreign NanoVDB code, which has no gang
+form. Nothing else differs between the two files, so the table below is
+the drains' vectorization and nothing else.
+
+**Seven compiler bugs stood between that file and an image**, each found
+by the next compile or render of the renderer, each fixed at its cause
+with an IR test, an LLVM test and an execution test against an
+unscheduled twin:
+
+1. The linearizer froze a uniform carried value of a uniform loop under a
+   partial mask as if it were per lane (13da8c11, SSA/Linearize.cpp).
+2. The induced storage of a queue read a gang's leaves with the scalar's
+   shapes (c1d42be5, SSA/InducedStorage.cpp).
+3. A split parameter's components were not found at the entry by name
+   (15f1d9b0, SSA/SplitAggregates.cpp).
+4. The uniformizer handed a use of a loop-defined value the block's own
+   later redefinition of its name (e37a5e5a, SSA/UniformizeLoops.cpp): the
+   Sobol scramble came out `v = hash ^ v` with both `v` the same value.
+5. A copy of a function reused the names of its arguments (4175c22e,
+   SSA/CloneFunction.cpp).
+6. A gang variant of a function whose return does not depend on its
+   arguments returned the scalar where the caller's continuation wanted
+   the gang's shape (6e9d35bf, SSA/Vectorize.cpp).
+7. The drain-gating pass read the material split's key off the drained
+   kernel, which for a vectorized drain is the gang variant whose key has
+   the widened type `Material$v16`; that matched no ADT storage, the
+   split built no arm mask, the hits queue came out unfeedable, and the
+   shadow queue kept only the medium kernel's push -- so the shadow drain
+   was gated on `have_media` and, in a scene without media, never ran.
+   Surfaces rendered black with the lights and the BSDF-sampled speckles
+   left (78cf4c87, SSA/GateDrains.cpp; the key is read through the
+   widening, tests ssa/gate-drains-gang and correctness/llvm/
+   gate-drains-gang). Found by bisecting the schedule one gang drain at a
+   time (only the hits drain's gang failed), then by a constant added to
+   the reducer at each step of the material kernel (the kernel ran and its
+   own write reached the film; what it spawned contributed nothing), then
+   in the final SSA: `shadow!drain: dispatch have_media [exit, launch]`.
+   `BONSAI_DEBUG_GATES=1` prints the pushes and the gates; the dump for
+   the gang build said `0 masks` where the scalar build's said `1 masks,
+   11 mask_alts`.
+
+With the seventh fixed, the shadow probe and all five protocol scenes at
+16 spp match pbrt under the full schedule (means within 0.15%), and the
+gates of the vectorized build are the scalar build's to the bit.
+
+**The table** (10-20, 21:12-23:26; compare.sh, both sides the best of
+three, the machine otherwise idle, every one of the 24 images matching
+pbrt's; render seconds, speedups over the pbrt column named):
+
+| scene, spp | pbrt `--wavefront` (CPU) | vectorized drains | scalar drains | vectorized over scalar drains | pbrt volpath (CPU) | our `scalar` | vectorized over pbrt volpath |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple, 16 | 5.50 s | 0.623 s (8.83x) | 0.600 s (9.17x) | 0.96x | 0.92 s | 0.679 s (1.35x) | 1.48x |
+| killeroo-simple, 64 | 22.01 s | 1.900 s (11.58x) | 2.334 s (9.43x) | 1.23x | 3.59 s | 2.691 s (1.33x) | 1.89x |
+| book, 16 | 20.01 s | 2.571 s (7.78x) | 3.193 s (6.27x) | 1.24x | 5.27 s | 3.703 s (1.42x) | 2.05x |
+| book, 64 | 80.53 s | 9.125 s (8.83x) | 12.646 s (6.37x) | 1.39x | 21.11 s | 14.754 s (1.43x) | 2.31x |
+| ganesha, 16 | 19.51 s | 2.877 s (6.78x) | 3.297 s (5.92x) | 1.15x | 4.14 s | 3.549 s (1.17x) | 1.44x |
+| ganesha, 64 | 78.53 s | 9.516 s (8.25x) | 12.588 s (6.24x) | 1.32x | 16.21 s | 13.742 s (1.18x) | 1.70x |
+
+Two pbrt references, because pbrt's CPU wavefront is its GPU design run
+on the CPU, kernel by kernel over whole queues, and is six to twelve
+times slower than our wavefronts on every cell; it is the like-for-like
+algorithm the protocol asks for, and the images are checked against it,
+but pbrt's ordinary CPU volpath (`VolPathIntegrator::Li`, a path to its
+end per sample) is what a CPU renderer is measured against. Our `scalar`
+schedule is that pattern, and beats it by 1.17x to 1.43x; the vectorized
+wavefront beats it by 1.44x to 2.31x.
+
+How to read the vectorized-over-scalar-drains column: the vectorized
+drains win five cells of six, by 1.15x to 1.39x, and lose killeroo-simple
+at 16 spp by 4%; on every scene the win grows with the sample count (0.96x
+to 1.23x, 1.24x to 1.39x, 1.15x to 1.32x). A fit of T = a + b * spp to the
+two counts of each scene puts the difference in a fixed per-frame cost:
+a = 0.20 s (killeroo-simple), 0.39 s (book), 0.66 s (ganesha) for the
+vectorized build against 0.02, 0.04 and 0.20 s for the scalar drains,
+while the per-sample cost b is 26% to 30% lower with the gangs. The
+per-sample win is the vectorization; the fixed cost is something the
+vectorized build does once a frame, and is measured below.
+
+**The audit** of the gang code (audit_gang.py over the `-b llvm` module of
+the schedule, before timing): 76 gang functions, no vector integer
+division, 16 i128 operations (the Sobol sampler's 64-bit multiply, per
+lane), and 912 scalar libm calls -- 528 `sinf`, 352 `cosf`, 32 `tanf`,
+about 57 trigonometric sites each lowered as sixteen per-lane calls, most
+of them in light sampling (`light_sample_li`, 16 sites), the BSDF rho
+estimate, the hit and surface geometry and the measured BSDF. A vector
+lowering of the trigonometric functions (libmvec's `_ZGVeN16v_sinf`, or a
+polynomial of our own as ISPC's stdlib has) is the first per-sample item
+after the sort.
+
+**Next**, in order: (1) the fixed per-frame cost of the vectorized build,
+measured and removed; (2) the user's ask of 10-20 (21:15), a sort of the
+rays queue before the packet traversal with the two-point key of Meister,
+Boksansky, Guthe and Bittner (arXiv 2506.11273): the existing
+`f.sort(g, |args| key)` on a call that `defer` sends to a queue sorts that
+queue by the key before each drain -- the key computed at the push as an
+extra argument of the deferred callee, so that it is a leaf of the entry,
+the drain reading its entries through the sort's permutation -- with the
+scene bounds the key quantizes against handed to `render` by the driver;
+measured sorted against unsorted on this table, the sort's own time
+inside the render time; (3) the trigonometric calls above; (4)
+`packet.bonsai` itself, not retried since 09-22, and `wavefront.bonsai`,
+which still fails to compile.
+
+### The study moved onto pbrt's own structure (10-21)
+
+The user's ruling (10-21, 00:05), told that the table above was built on
+per-pixel queues: "please match PBRT's wavefront and then vectorize it,
+and use that as a guiding schedule because I want to just investigate the
+impact of vectorization on the same schedule"; `wavefront-volpath.bonsai`
+and its packet form stay for schedule tuning. The base is therefore
+`schedules/wavefront-frame.bonsai`, pbrt's `WavefrontPathIntegrator` on
+the CPU: `reorder(p, s)` (a sample index outer, the pixels inner), the
+pixels split into bands of `pass_pixels`, every queue on the band, the
+drains run in pbrt's kernel order once per bounce over the whole band.
+`schedules/wavefront-frame-packet.bonsai` (7c5907da) is that file with
+each drain's loop split by sixteen and vectorized (the medium-sample,
+shadow and exit-shadow drains stay scalar: NanoVDB), the binds naming the
+gang loops; nothing else differs. `schedules/wavefront-frame-packet-
+reorder.bonsai` is the packet form with the rays queue sorted before every
+pass of its drain:
+
+    li_vol_path.sort(vol_path_step,
+                     |ray : Ray, scene_bounds : AABB| ray_sort_key(ray, scene_bounds));
+
+the two-point key of Meister, Boksansky, Guthe and Bittner (arXiv
+2506.11273): a Morton code of the ray's origin and of its estimated end,
+origin first, both quantized in the scene's box, the end at a fixed
+quarter of the box's largest extent along the ray. The key is computed
+where the ray is pushed and rides in the entry (`_sort_key : u64`, a
+leaf the recipe search leaves alone), `bonsai_sort_indices` builds the
+permutation before each pass (Defer.cpp emits the sort in the round's
+`pre`), and the drain reads its entries through it. `render.bonsai` gained
+`ray_sort_key`, `spread_bits_6`, `quantize_in_box` and a `scene_bounds :
+AABB` field on the VolPath integrator that every step passes along; the
+driver computes the bounds from the top-level primitives on the CPU and
+from every shape's bounds and the instance positions under OptiX. This is
+the `sort` directive on a deferred call (30c36ffc, Lower/Sorts.cpp
+`apply_queue_sort`, Defer.cpp; tests ssa/defer-sorted-queue and
+correctness/llvm/defer-sorted-queue), with two stated limits: a split
+(double-buffered) queue and a non-round drain are refused with an
+assertion.
+
+**The table** (10-21, 12:12-14:33; compare.sh, both sides the best of
+three, machine otherwise idle under /tmp/benchmark.lock, all 18 images
+matching pbrt's; render seconds, the speedups over pbrt's CPU wavefront;
+pbrt's time is the least of its runs in the scene's six cells, 5.51 /
+22.01 / 20.01 / 80.52 / 19.51 / 78.52 s). The two reference columns are
+the 10-20 table's:
+
+| scene, spp | pbrt volpath (CPU) | our `scalar` | wavefront-frame (scalar drains) | wavefront-frame-packet (gangs) | + rays sorted | gangs over scalar drains | sort over unsorted |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple, 16 | 0.92 s (5.99x) | 0.671 s (8.21x) | 3.577 s (1.54x) | 3.105 s (1.77x) | 3.173 s (1.74x) | 1.15x | 0.98x |
+| killeroo-simple, 64 | 3.59 s (6.13x) | 2.715 s (8.11x) | 14.237 s (1.55x) | 12.407 s (1.77x) | 12.665 s (1.74x) | 1.15x | 0.98x |
+| book, 16 | 5.27 s (3.80x) | 3.701 s (5.41x) | 13.305 s (1.50x) | 13.120 s (1.53x) | 13.754 s (1.45x) | 1.01x | 0.95x |
+| book, 64 | 21.11 s (3.81x) | 14.840 s (5.43x) | 53.195 s (1.51x) | 52.744 s (1.53x) | 55.167 s (1.46x) | 1.01x | 0.96x |
+| ganesha, 16 | 4.14 s (4.71x) | 3.567 s (5.47x) | 13.497 s (1.45x) | 14.753 s (1.32x) | 16.244 s (1.20x) | 0.91x | 0.91x |
+| ganesha, 64 | 16.21 s (4.84x) | 13.801 s (5.69x) | 53.839 s (1.46x) | 59.046 s (1.33x) | 62.665 s (1.25x) | 0.91x | 0.94x |
+
+The plot the user asked for (five bars per scene and sample count,
+normalized to pbrt's CPU wavefront) is published from
+`scratchpad/plot/cpu-wavefront-speedups.html`.
+
+What the table says:
+
+- **Vectorizing the drains on pbrt's structure wins 15% on
+  killeroo-simple, 1% on book, and loses 9% on ganesha**, the same ratio
+  at 16 and at 64 spp on every scene. The 10-20 table's growth of the win
+  with the sample count is gone, which confirms its cause: the per-pixel
+  queues held only spp entries, so the gangs ran half-empty at 16 spp; a
+  band's queue holds `pass_pixels` entries and the gangs are full at any
+  spp. The ganesha loss is unexplained and is the first thing to measure
+  when the machine is next free (perf stat of the frame and frame-packet
+  builds at 16 spp, as fixed_cost.sh did on 10-20): ganesha is a single
+  million-triangle mesh, and the candidates are the sixteen-ray packet
+  traversal doing the union of the lanes' node visits on incoherent
+  secondary rays, and the gather of sixteen entries from a band-sized
+  queue that no longer sits in a core's cache.
+- **The ray sort loses on the CPU, 2% to 10%**, and loses most where the
+  trace is the largest share (ganesha). The paper's GPU finding was a
+  1.3-2.0x faster trace that the sort's cost did not recover; here the
+  packet traversal's gain from coherent lanes does not show at all
+  against the sort (`tbb::parallel_sort` of (key, index) pairs per pass)
+  plus the drain's indirect reads through the permutation. The sort stays
+  available as a directive; the reorder schedule is kept as the
+  measurement.
+- **pbrt's band structure is itself the cost on the CPU**: our `scalar`
+  schedule (a path to its end per sample, pbrt's CPU volpath pattern) is
+  5.4x to 8.2x faster than pbrt's CPU wavefront and 1.17x to 1.43x faster
+  than pbrt's CPU volpath; the band wavefront, scalar or vectorized, is
+  1.3x to 1.8x faster than pbrt's; the per-pixel wavefront of the 10-20
+  table is 6.8x to 11.6x. The queues of a band of `pass_pixels` entries
+  stream through memory once per kernel per bounce; a pixel's queues
+  stay in the core's cache.
+
+**Next**, in the user's order (10-21, 13:10: "After the matrix, try the
+per-thread wavefront next. And single-thread sorting should probably not
+use TBB's parallel-for"): (1) DONE 10-21 15:10: `bonsai_sort_indices`
+(runtime/bonsai_parallel.h) sorts sequentially below a million entries --
+Intel's x86-simd-sort key-value quicksort where its header is installed
+and the driver is compiled `-march=native` (compare.sh and render.sh now
+are, as pbrt's build is), else an LSD radix sort of the (key, index)
+pairs above a thousand entries and `std::sort` below -- and by TBB's
+parallel sort from a million up. Measured on one thread, 60-bit random
+keys, the least of seven: at 16K entries std::sort 495 us, the parallel
+sort 155, the radix sort 117, x86-simd-sort 84; at 1M the parallel sort
+8.6 ms, x86-simd-sort 8.9, the radix sort 16.2 (the table is in the
+header). The machine, for the record, is an AMD Ryzen 9 9950X3D (Zen 5,
+AVX-512), not an Intel part; x86-simd-sort dispatches on the ISA and
+runs there. Test: correctness/cpp/defer_sorted_queue (the sorted-queue
+program compiled and linked against the runtime, plus every sort checked
+by name against a stable sort with runs of equal keys). (2) the
+per-thread wavefront: `split(p, p_thread,
+p_in, chunk)`, `bind(p_thread, CPUThread)`, every queue on `p_thread`, so
+that each thread owns its queues and round loop, measured with and
+without `reorder(p_in, s)`, with the gang fullness per kernel per round
+counted before any launch-policy directive is proposed to the user (the
+"launch only when a full vector or nothing else" policy is not
+expressible today; the scalar tail is, by `specialize(count(lane) > k)`);
+(3) the ganesha loss above; (4) `skip` on the `bxdf_*` arms the profile
+showed running hair and conductor code in killeroo; (5) the trigonometric
+calls; (6) `packet.bonsai`.
