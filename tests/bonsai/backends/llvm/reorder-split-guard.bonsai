@@ -1,0 +1,24 @@
+//! flags: -p ssa -b llvm
+
+// reorder() through a split's tail guard (ssa/reorder-split-guard says what
+// the interchange does with it): the LLVM of the interchanged nest, the
+// guard's comparison recomputed in the new inner body and branched on
+// before the old body's code, and the prologue loop's guarded block. The
+// execution twin is correctness/llvm/reorder-split-guard.
+import stdlib/numerics;
+
+func [[export]] run(values : array[i32, 10], out : mut array[i32, 10]) -> void {
+    parfor i in 0u:10u {
+        base = values[i] * 2;
+        out[i] = 0;
+        parfor j in 0u:3u {
+            out[i] = out[i] + base + cast[[i32]](j);
+        }
+    }
+    return;
+}
+
+schedule {
+    run.split(i, io, ii, 4, true);
+    run.reorder(ii, j);
+}

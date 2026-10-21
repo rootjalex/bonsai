@@ -126,13 +126,102 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
     // inner loop, so it is the outer one now: `p` of the pixel nest, `s` the
     // sample loop inside it.
     const shared_ptr<Block> hp = loop_block(*f, inner);
-    const shared_ptr<Block> hs = loop_block(*f, outer);
+    shared_ptr<Block> hs = loop_block(*f, outer); // reseated if a guard is folded
     internal_assert(hp) << what << ": no parfor named " << inner
                         << ". Only a parfor can be reordered -- a sequential "
                            "loop has an order to keep.";
     internal_assert(hs) << what << ": no parfor named " << outer
                         << ". Only a parfor can be reordered -- a sequential "
                            "loop has an order to keep.";
+
+    // A tail guard between the two loops -- the body of a `split(..., true)`
+    // is `if index < extent` around the iteration (SSA/Rewrite.cpp), so the
+    // inner loop sits one block in -- is folded into the prologue and
+    // follows the body inward, as Halide's GuardWithIf does under reorder:
+    // the guard's block and the prologue proper become one block, the
+    // guard's condition one of its values, and each place the rewrite
+    // sends the prologue's values -- the new inner body, the epilogue loop,
+    // the prologue loop if one stays -- runs its part under a copy of the
+    // condition and skips the iteration otherwise. Recognized exactly as
+    // the split writes it: the outer body is pure arithmetic ending in a
+    // dispatch between a block that only yields (the tail) and the block
+    // that holds the inner loop, reached from nowhere else.
+    shared_ptr<Value> guard_cond;
+    shared_ptr<Block> guard_tail;
+    size_t guard_go = 1; // which of the dispatch's targets runs the body
+    {
+        refresh_preds(*f);
+        const BlockMap before = make_block_map(*f);
+        const auto &p_now = std::get<Terminator::ParFor>(hp->terminator.data);
+        const shared_ptr<Block> body0 = before.at(p_now.body.name);
+        const auto *d = body0 != hs
+                            ? std::get_if<Terminator::Dispatch>(&body0->terminator.data)
+                            : nullptr;
+        size_t go = 2;
+        if (d != nullptr && d->targets.size() == 2 && hs->preds.size() == 1) {
+            for (size_t t = 0; t < 2; t++) {
+                const shared_ptr<Block> taken = before.at(d->targets[t].name);
+                const shared_ptr<Block> other = before.at(d->targets[1 - t].name);
+                if (taken == hs && other->instrs.empty() &&
+                    std::holds_alternative<Terminator::Yield>(other->terminator.data) &&
+                    std::all_of(body0->instrs.begin(), body0->instrs.end(),
+                                [](const shared_ptr<Instruction> &in) {
+                                    return recomputable(*in);
+                                })) {
+                    go = t;
+                }
+            }
+        }
+        if (go != 2) {
+            const Terminator::Jump passed = d->targets[go];
+            guard_tail = before.at(d->targets[1 - go].name);
+            guard_cond = d->cond;
+            guard_go = go;
+            internal_assert(passed.args.size() == hs->args.size())
+                << what << ": " << body0->name << " passes " << passed.args.size()
+                << " values to " << hs->name << ", which takes " << hs->args.size();
+            // The prologue's arguments are the guard's values from here on.
+            map<string, shared_ptr<Value>> by_name;
+            for (size_t k = 0; k < hs->args.size(); k++) {
+                by_name[hs->args[k].name] = passed.args[k];
+            }
+            const auto substitute = [&](shared_ptr<Value> &v) {
+                const auto *a = std::get_if<Argument>(&v->data);
+                if (a == nullptr) {
+                    return;
+                }
+                const auto it = by_name.find(a->name);
+                if (it != by_name.end()) {
+                    v = it->second;
+                }
+            };
+            for (const auto &instr : hs->instrs) {
+                for (auto &operand : instr->operands) {
+                    substitute(operand);
+                }
+            }
+            for_each_value(hs->terminator, substitute);
+            for (const auto &instr : hs->instrs) {
+                instr->owner = body0;
+                body0->instrs.push_back(instr);
+                if (!instr->name.empty()) {
+                    body0->lookups[instr->name] = hs->lookups.at(instr->name);
+                }
+            }
+            body0->terminator = std::move(hs->terminator);
+            hs->instrs.clear();
+            hs->terminator.data = Terminator::Yield{};
+            std::erase(f->blocks, hs);
+            hs = body0;
+            refresh_preds(*f);
+            if (std::getenv("BONSAI_EXPLAIN_REORDER") != nullptr) {
+                std::cerr << "; " << what << ": the tail guard of " << inner << " (";
+                guard_cond->dump(std::cerr);
+                std::cerr << ") follows the body inward\n";
+            }
+        }
+    }
+
     // The loops as they are: read through references while the prologue is
     // rewritten below, which threads values into the outer body and so adds
     // to its loop's arguments, and copied once that is done.
@@ -818,6 +907,11 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
             }
         }
     }
+    // A folded guard's condition is read by the prologue loop too, which
+    // runs what stays under it.
+    if (guard_cond) {
+        pro_roots.push_back(guard_cond);
+    }
     const set<const Instruction *> needed_pro = closure(pro_roots);
     // The values expanded: made some other way than arithmetic, and read
     // across the cut.
@@ -839,7 +933,13 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
             stays.push_back(instr);
         }
     }
-    const bool prologue_loop = !stays.empty();
+    // A prologue loop runs when something stays that is not only the guard's
+    // own arithmetic: the condition's chain stays whenever there is a guard,
+    // and a loop that only computed it would do nothing.
+    const bool prologue_loop =
+        std::any_of(stays.begin(), stays.end(), [&](const shared_ptr<Instruction> &in) {
+            return !guard_cond || fate.at(in.get()) != Fate::Recompute;
+        });
     const bool epilogue_loop =
         !(Cs->instrs.empty() && Cs->args.empty() &&
           std::holds_alternative<Terminator::Yield>(Cs->terminator.data));
@@ -890,14 +990,51 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
         }
         B0->instrs = stays;
     }
+    // With a folded guard, the prologue loop's body is two blocks: the
+    // guard's chain in B0, which dispatches on the condition to the tail or
+    // to B0g, holding everything else that stays -- the effects and the
+    // expanded values, under the guard as the program had them.
+    shared_ptr<Block> B0g;
+    if (prologue_loop && guard_cond) {
+        const set<const Instruction *> chain = closure({guard_cond});
+        B0g = fresh_block(f, B0->name + "!reorder_guarded");
+        vector<shared_ptr<Instruction>> head;
+        for (const auto &instr : B0->instrs) {
+            if (chain.contains(instr.get())) {
+                head.push_back(instr);
+                continue;
+            }
+            instr->owner = B0g;
+            B0g->instrs.push_back(instr);
+            if (!instr->name.empty()) {
+                B0g->lookups[instr->name] = B0->lookups.at(instr->name);
+                B0->lookups.erase(instr->name);
+            }
+        }
+        B0->instrs = head;
+        // B0 dispatches on the guard now, so that what is threaded into B0g
+        // below finds its one predecessor; the old inner loop's terminator
+        // was copied into S above and is not read from B0 again.
+        {
+            vector<Terminator::Jump> targets(2);
+            targets[guard_go] = Terminator::Jump{B0g->name, {}};
+            targets[1 - guard_go] = Terminator::Jump{guard_tail->name, {}};
+            B0->terminator.data = Terminator::Dispatch{guard_cond, std::move(targets)};
+            B0g->terminator.data = Terminator::Yield{};
+        }
+        B0g->preds = {B0};
+        f->blocks.push_back(B0g);
+    }
+    const shared_ptr<Block> stays_block = B0g ? B0g : B0;
     if (prologue_loop) {
         // What stays reads the hoisted values through the loop's edge now.
-        for (const auto &instr : B0->instrs) {
+        for (const auto &instr : stays) {
+            const shared_ptr<Block> home = instr->owner.lock();
             for (auto &operand : instr->operands) {
                 const auto *held = std::get_if<shared_ptr<Instruction>>(&operand->data);
                 if (held != nullptr && fate.contains(held->get()) &&
                     fate.at(held->get()) == Fate::Hoist) {
-                    operand = reach(B0, operand);
+                    operand = reach(home, operand);
                 }
             }
         }
@@ -907,14 +1044,15 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
                 continue;
             }
             if (!index) {
-                index = normalized_index(*B0, ptype, std::make_shared<Value>(p_arg),
-                                         reach(B0, P.start), reach(B0, P.stride));
+                index = normalized_index(*stays_block, ptype, std::make_shared<Value>(p_arg),
+                                         reach(stays_block, P.start),
+                                         reach(stays_block, P.stride));
             }
-            auto slot = B0->make_instruction(
+            auto slot = stays_block->make_instruction(
                 Ptr_t::make(instr->type), Instruction::Op::GEP,
-                {reach(B0, arrays.at(instr.get())), index});
-            B0->make_side_effect(Instruction::Op::Store,
-                                 {slot, std::make_shared<Value>(instr)});
+                {reach(stays_block, arrays.at(instr.get())), index});
+            stays_block->make_side_effect(Instruction::Op::Store,
+                                          {slot, std::make_shared<Value>(instr)});
         }
     }
 
@@ -930,6 +1068,21 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
     const shared_ptr<Block> Y = fresh_block(f, stem + "_yield");
     const shared_ptr<Block> HE = epilogue_loop ? fresh_block(f, stem + "_epilogue") : nullptr;
     const shared_ptr<Block> E0 = epilogue_loop ? fresh_block(f, stem + "_epilogue_body") : nullptr;
+    // With a folded guard: where an iteration the guard refuses goes, in
+    // the new inner body and in the epilogue loop's body.
+    const shared_ptr<Block> SKIP = guard_cond ? fresh_block(f, stem + "_skip") : nullptr;
+    const shared_ptr<Block> SKIP_E =
+        guard_cond && epilogue_loop ? fresh_block(f, stem + "_epilogue_skip") : nullptr;
+    // A dispatch on the guard, the body's jump at the target the original
+    // took when the guard held, the skip at the other.
+    const auto guarded = [&](const Terminator::Jump &go, const shared_ptr<Block> &skip) {
+        vector<Terminator::Jump> targets(2);
+        targets[guard_go] = go;
+        targets[1 - guard_go] = Terminator::Jump{skip->name, {}};
+        // The condition is a placeholder until the body's values are carried
+        // in below; it is never read as it stands.
+        return Terminator::Dispatch{guard_cond, std::move(targets)};
+    };
 
     auto v_s = LP->add_argument(s_arg);
     auto v_p1 = B1->add_argument(p_arg);
@@ -951,18 +1104,32 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
         auto &prologue = std::get<Terminator::ParFor>(hp->terminator.data);
         prologue.index = P.index + "!prologue";
         prologue.cont = Terminator::Jump{HS->name, {}};
-        B0->terminator.data = Terminator::Yield{};
+        // With a guard, B0 already dispatches between the tail and B0g (set
+        // where B0g was made); without one, the body ends here.
+        if (!B0g) {
+            B0->terminator.data = Terminator::Yield{};
+        }
     }
     if (epilogue_loop) {
         HE->terminator.data = Terminator::ParFor{
             P.index + "!epilogue", nullptr, nullptr, nullptr,
             Terminator::Jump{E0->name, {}}, Terminator::Jump{CP->name, {}},
             P.binding};
-        E0->terminator.data = Terminator::Jump{Cs->name, {}};
+        if (guard_cond) {
+            E0->terminator.data = guarded(Terminator::Jump{Cs->name, {}}, SKIP_E);
+            SKIP_E->terminator.data = Terminator::Yield{};
+        } else {
+            E0->terminator.data = Terminator::Jump{Cs->name, {}};
+        }
     }
-    B1->terminator.data = Terminator::Jump{Bs0->name, {}};
+    if (guard_cond) {
+        B1->terminator.data = guarded(Terminator::Jump{Bs0->name, {}}, SKIP);
+        SKIP->terminator.data = Terminator::Yield{};
+    } else {
+        B1->terminator.data = Terminator::Jump{Bs0->name, {}};
+    }
 
-    for (const auto &block : {HS, LP, B1, Y, HE, E0}) {
+    for (const auto &block : {HS, LP, B1, Y, HE, E0, SKIP, SKIP_E}) {
         if (block && block != hp) {
             f->blocks.push_back(block);
         }
@@ -1088,13 +1255,26 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
         return nullptr;
     };
 
-    // Into the old inner body: its index, then what its loop passed it.
+    // The jump a block's terminator makes into the old body or continuation:
+    // the jump itself, or the guarded target of its dispatch.
+    const auto body_jump = [&](const shared_ptr<Block> &T) -> Terminator::Jump & {
+        if (auto *d = std::get_if<Terminator::Dispatch>(&T->terminator.data)) {
+            return d->targets[guard_go];
+        }
+        return std::get<Terminator::Jump>(T->terminator.data);
+    };
+    // Into the old inner body: its index, then what its loop passed it; the
+    // guard's condition, recomputed here, decides whether to go.
     {
         vector<shared_ptr<Value>> args = {reach(B1, v_s)};
         for (const auto &capture : S.body.args) {
             args.push_back(carry(B1, capture, v_p1));
         }
-        std::get<Terminator::Jump>(B1->terminator.data).args = std::move(args);
+        body_jump(B1).args = std::move(args);
+        if (guard_cond) {
+            std::get<Terminator::Dispatch>(B1->terminator.data).cond =
+                carry(B1, guard_cond, v_p1);
+        }
     }
     // Into the old continuation, from the epilogue loop's body.
     if (epilogue_loop) {
@@ -1102,7 +1282,11 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
         for (const auto &passed : S.cont.args) {
             args.push_back(carry(E0, passed, v_p_epi));
         }
-        std::get<Terminator::Jump>(E0->terminator.data).args = std::move(args);
+        body_jump(E0).args = std::move(args);
+        if (guard_cond) {
+            std::get<Terminator::Dispatch>(E0->terminator.data).cond =
+                carry(E0, guard_cond, v_p_epi);
+        }
     }
     // Onwards after the nest: what the outer loop's header passed on, as the
     // block that now leaves the nest knows it.

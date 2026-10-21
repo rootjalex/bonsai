@@ -1,0 +1,52 @@
+//! flags: -p ssa -b llvm -e
+
+// reorder() through a split's tail guard. `split(i, io, ii, 4, true)` cuts
+// the ten iterations of `i` into chunks of four with `if i < 10` around the
+// body, so the `j` loop sits one block inside `ii`'s body; `reorder(ii, j)`
+// then puts `j` outside `ii`, and the guard follows the body inward
+// (SSA/ReorderLoops.cpp, "A tail guard between the two loops"): the new
+// inner body recomputes the condition and skips an `i` past the end, the
+// prologue loop (the store `out[i] = 0` and the expanded `base`) runs under
+// it as before, and nothing is read or written past the arrays' ends --
+// which the run would show, as a wrong sum or a fault. Expected: out[i] =
+// 3 * (2 * values[i]) + 0 + 1 + 2, the same as `plain_run` with nothing
+// scheduled.
+import stdlib/numerics;
+
+func run(values : array[i32, 10], out : mut array[i32, 10]) -> void {
+    parfor i in 0u:10u {
+        base = values[i] * 2;
+        out[i] = 0;
+        parfor j in 0u:3u {
+            out[i] = out[i] + base + cast[[i32]](j);
+        }
+    }
+    return;
+}
+
+func plain_run(values : array[i32, 10], out : mut array[i32, 10]) -> void {
+    parfor i in 0u:10u {
+        base = values[i] * 2;
+        out[i] = 0;
+        parfor j in 0u:3u {
+            out[i] = out[i] + base + cast[[i32]](j);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[i32, 10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    out : mut array[i32, 10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    run(values, out);
+    print(out);
+    plain_out : mut array[i32, 10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    plain_run(values, plain_out);
+    print(plain_out);
+    return 0;
+}
+
+schedule {
+    run.split(i, io, ii, 4, true);
+    run.reorder(ii, j);
+}

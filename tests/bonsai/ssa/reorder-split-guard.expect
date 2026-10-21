@@ -1,0 +1,54 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : i32[10], out : mut i32[10]) -> void {
+  @1!expanded : mut i32[4]
+  parfor io in [0u:10u:4u] {
+    parfor ii!prologue in [0u:4u:1u] {
+      let @8 = io + ii in
+      let @9 = @8 < 10u in
+      if (@9) {
+        let ii = ii in
+        out[@8] = 0
+        let @1 = values[@8] in
+        @1!expanded[ii] = @1
+        continue
+      } else {
+        continue
+      }
+    }
+    parfor j in [0u:3u:1u] {
+      parfor ii in [0u:4u:1u] {
+        let @11 = io + ii in
+        let @13 = @1!expanded[ii] in
+        let base = @13 << 1 in
+        let @14 = @11 < 10u in
+        if (@14) {
+          let i = @11 in
+          let @3 = out[i] in
+          let @4 = @3 + base in
+          let @5 = cast<i32>(j) in
+          let @6 = @4 + @5 in
+          out[i] = @6
+          continue
+        } else {
+          continue
+        }
+      }
+      continue
+    }
+    continue
+  }
+  return
+}
+
+
+schedule {
+    run.split(i, io, ii, (i32)4, 1)
+       .reorder(ii, j)
+
+}

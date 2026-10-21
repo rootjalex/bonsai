@@ -1,0 +1,103 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %values_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+ii3_pf_latch.3.2.2:
+  %values = tail call ptr @bonsai_buffer_require(ptr %values_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store i32 0, ptr %out, align 4, !tbaa !0
+  %out6.1 = getelementptr inbounds nuw i8, ptr %out, i64 4
+  %extract_ptr.1 = getelementptr inbounds nuw i8, ptr %values, i64 4
+  %out6.2 = getelementptr inbounds nuw i8, ptr %out, i64 8
+  %extract_ptr.2 = getelementptr inbounds nuw i8, ptr %values, i64 8
+  %out6.3 = getelementptr inbounds nuw i8, ptr %out, i64 12
+  %extract_ptr.3 = getelementptr inbounds nuw i8, ptr %values, i64 12
+  %extract = load i32, ptr %values, align 4
+  store i32 0, ptr %out6.1, align 4, !tbaa !0
+  %extract.1 = load i32, ptr %extract_ptr.1, align 4
+  store i32 0, ptr %out6.2, align 4, !tbaa !0
+  %extract.2 = load i32, ptr %extract_ptr.2, align 4
+  store i32 0, ptr %out6.3, align 4, !tbaa !0
+  %extract.3 = load i32, ptr %extract_ptr.3, align 4
+  %0 = insertelement <4 x i32> poison, i32 %extract, i64 0
+  %1 = insertelement <4 x i32> %0, i32 %extract.1, i64 1
+  %2 = insertelement <4 x i32> %1, i32 %extract.2, i64 2
+  %3 = insertelement <4 x i32> %2, i32 %extract.3, i64 3
+  %4 = shl <4 x i32> %3, splat (i32 1)
+  %5 = load <4 x i32>, ptr %out, align 4
+  %6 = add <4 x i32> %4, %5
+  %7 = shl <4 x i32> %3, splat (i32 1)
+  %8 = or disjoint <4 x i32> %7, splat (i32 1)
+  %9 = add <4 x i32> %8, %6
+  %10 = shl <4 x i32> %3, splat (i32 1)
+  %11 = add <4 x i32> %10, splat (i32 2)
+  %12 = add <4 x i32> %11, %9
+  store <4 x i32> %12, ptr %out, align 4, !tbaa !0
+  %out6.137 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  store i32 0, ptr %out6.137, align 4, !tbaa !0
+  %extract_ptr.138 = getelementptr inbounds nuw i8, ptr %values, i64 16
+  %out6.1.1 = getelementptr inbounds nuw i8, ptr %out, i64 20
+  %extract_ptr.1.1 = getelementptr inbounds nuw i8, ptr %values, i64 20
+  %out6.2.1 = getelementptr inbounds nuw i8, ptr %out, i64 24
+  %extract_ptr.2.1 = getelementptr inbounds nuw i8, ptr %values, i64 24
+  %out6.3.1 = getelementptr inbounds nuw i8, ptr %out, i64 28
+  %extract_ptr.3.1 = getelementptr inbounds nuw i8, ptr %values, i64 28
+  %extract_ptr14.144 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  %extract_ptr14.232.1 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  %extract.139 = load i32, ptr %extract_ptr.138, align 4
+  store i32 0, ptr %out6.1.1, align 4, !tbaa !0
+  %extract.1.1 = load i32, ptr %extract_ptr.1.1, align 4
+  store i32 0, ptr %out6.2.1, align 4, !tbaa !0
+  %extract.2.1 = load i32, ptr %extract_ptr.2.1, align 4
+  store i32 0, ptr %out6.3.1, align 4, !tbaa !0
+  %extract.3.1 = load i32, ptr %extract_ptr.3.1, align 4
+  %13 = insertelement <4 x i32> poison, i32 %extract.139, i64 0
+  %14 = insertelement <4 x i32> %13, i32 %extract.1.1, i64 1
+  %15 = insertelement <4 x i32> %14, i32 %extract.2.1, i64 2
+  %16 = insertelement <4 x i32> %15, i32 %extract.3.1, i64 3
+  %17 = shl <4 x i32> %16, splat (i32 1)
+  %18 = load <4 x i32>, ptr %extract_ptr14.144, align 4
+  %19 = add <4 x i32> %17, %18
+  %20 = shl <4 x i32> %16, splat (i32 1)
+  %21 = or disjoint <4 x i32> %20, splat (i32 1)
+  %22 = add <4 x i32> %21, %19
+  %23 = shl <4 x i32> %16, splat (i32 1)
+  %24 = add <4 x i32> %23, splat (i32 2)
+  %25 = add <4 x i32> %24, %22
+  store <4 x i32> %25, ptr %extract_ptr14.232.1, align 4, !tbaa !0
+  %out6.266 = getelementptr inbounds nuw i8, ptr %out, i64 32
+  store i32 0, ptr %out6.266, align 4, !tbaa !0
+  %extract_ptr.267 = getelementptr inbounds nuw i8, ptr %values, i64 32
+  %out6.1.2 = getelementptr inbounds nuw i8, ptr %out, i64 36
+  %extract_ptr.1.2 = getelementptr inbounds nuw i8, ptr %values, i64 36
+  %extract_ptr14.273 = getelementptr inbounds nuw i8, ptr %out, i64 32
+  %extract_ptr14.232.2 = getelementptr inbounds nuw i8, ptr %out, i64 32
+  %extract.268 = load i32, ptr %extract_ptr.267, align 4
+  store i32 0, ptr %out6.1.2, align 4, !tbaa !0
+  %extract.1.2 = load i32, ptr %extract_ptr.1.2, align 4
+  %26 = insertelement <2 x i32> poison, i32 %extract.268, i64 0
+  %27 = insertelement <2 x i32> %26, i32 %extract.1.2, i64 1
+  %28 = shl <2 x i32> %27, splat (i32 1)
+  %29 = load <2 x i32>, ptr %extract_ptr14.273, align 4
+  %30 = add <2 x i32> %28, %29
+  %31 = shl <2 x i32> %27, splat (i32 1)
+  %32 = or disjoint <2 x i32> %31, splat (i32 1)
+  %33 = add <2 x i32> %32, %30
+  %34 = shl <2 x i32> %27, splat (i32 1)
+  %35 = add <2 x i32> %34, splat (i32 2)
+  %36 = add <2 x i32> %35, %33
+  store <2 x i32> %36, ptr %extract_ptr14.232.2, align 4, !tbaa !0
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"i32", !2, i64 0}
+!2 = !{!"bonsai"}

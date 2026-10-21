@@ -91,10 +91,21 @@ namespace ssa {
 // body's yields, moved whole into the epilogue loop's body; what it reads of
 // the prologue follows the rules above. Empty -- a bare yield -- means no
 // epilogue loop. The prologue is required to be the one block that ends at
-// the inner parfor: a prologue with control flow of its own -- a branch, or
-// a call to a function that is not inlined, which ends a block in this form
-// -- would have to be replicated as guards in the inner body (a conditional
-// inner loop) and is refused rather than guessed at. The bounds of `s` have
+// the inner parfor, with one exception: a prologue with control flow of its
+// own -- a branch, or a call to a function that is not inlined, which ends a
+// block in this form -- would have to be replicated as guards in the inner
+// body (a conditional inner loop) and is refused rather than guessed at,
+// except for the one branch whose meaning is known, the tail guard of a
+// `split(..., true)`: `if p < extent` around the body, pure arithmetic
+// ending in a dispatch between a block that only yields and the block that
+// holds `s`. That guard is folded into the prologue and follows the body
+// inward, as Halide's GuardWithIf does under reorder: its condition is a
+// prologue value like any other, recomputed in the new inner body, which
+// skips the iteration when it fails, and in the epilogue loop, and the
+// prologue loop, if one stays, dispatches on it as the program did. The
+// bounds of `s` are evaluated whether or not the guard holds for a given
+// `p`, which the hoisting rule below already guarantees is safe: nothing
+// that could fault or vary with `p` is hoisted. The bounds of `s` have
 // to be there before `p` starts, since the interchanged nest evaluates them
 // before either loop runs: constants, values `p`'s header hands its body,
 // or what the prologue works out from those and from unwritten slots by
