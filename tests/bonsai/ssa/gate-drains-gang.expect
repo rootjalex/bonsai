@@ -1,0 +1,312 @@
+type Entry_hits = struct Entry_hits{ s : struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }; _slot : i32 }
+type Entry_mists = struct Entry_mists{ _slot : i32 }
+type Entry_soaks = struct Entry_soaks{ x : f32; _slot : i32 }
+type Float = f32
+type Fuzz = struct Fuzz{ a : f32 }
+type Half = f16
+type Matte = struct Matte{ a : f32 }
+type Queue_hits = struct Queue_hits{ count : u32; s_tag : u8[]; s_payload_x : u32[]; _slot : i32[] }
+type Queue_mists = struct Queue_mists{ count : u32; _slot : i32[] }
+type Queue_soaks = struct Queue_soaks{ count : u32; x : f32[]; _slot : i32[] }
+type Surface = struct Surface{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x1 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func classify(x : f32) -> Surface {
+  let @0 = x < 10f in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(x) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Surface>(0u, @1, @3) in
+    return @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(x) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Surface>(1u, @5, @7) in
+    return @8
+  }
+}
+
+func main() -> i32 {
+  alloc out : mut f32[40]
+  let @0 = build<f32[40]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  out = @0
+  let @1 = build<f32[40]>(1f, 20f, 2f, 30f, 3f, 40f, 4f, 50f, 5f, 60f, 6f, 70f, 7f, 80f, 8f, 90f, 9f, 11f, 1.5f, 12f, 2.5f, 13f, 3.5f, 14f, 4.5f, 15f, 5.5f, 16f, 6.5f, 17f, 7.5f, 18f, 8.5f, 19f, 9.5f, 21f, 0.5f, 22f, 0.25f, 23f) in
+  run(@1, false, out, 3u)
+  print(out)
+  return 0
+}
+
+func mist(x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32) -> void {
+  total += 1000f
+  let @0 = x * 2f in
+  wetten(@0, total, _queue_soaks, _slot_soaks)
+  return
+}
+
+func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) -> void {
+  hits_total_slots : mut f32[40]
+  hits!Matte_s_payload_x : mut u32[40]
+  hits!Matte__slot : mut i32[40]
+  hits!Fuzz_s_payload_x : mut u32[40]
+  hits!Fuzz__slot : mut i32[40]
+  hits_queue : mut Queue_hits[2]
+  let @4 = build<Queue_hits>(0u, undef, hits!Matte_s_payload_x, hits!Matte__slot) in
+  hits_queue[0u] = @4
+  let @6 = build<Queue_hits>(0u, undef, hits!Fuzz_s_payload_x, hits!Fuzz__slot) in
+  hits_queue[1u] = @6
+  mists__slot : mut i32[40]
+  mists_queue : mut Queue_mists
+  let @43 = build<Queue_mists>(0u, mists__slot) in
+  mists_queue = @43
+  soaks_x : mut f32[40]
+  soaks__slot : mut i32[40]
+  soaks_queue : mut Queue_soaks
+  parfor i in [0:40:1] {
+    hits_total_slots[i] = 0f
+    let @0 = values[i] in
+    step(@0, wet, (&hits_total_slots[i]), hits_queue, i, mists_queue, i)
+    continue
+  }
+  let @9 = hits_queue[0u] in
+  let @10 = @9.count in
+  let @52 = build<Queue_soaks>(0u, soaks_x, soaks__slot) in
+  soaks_queue = @52
+  let @95 = surface_arms >> 0u in
+  let @96 = @95 & 1u in
+  let @97 = @96 != 0u in
+  if (@97) {
+    parfor hits_gang!Matte in [0u:@10:16u] {
+      let @62 = @10 in
+      let @85 = u32x16(@62) in
+      let @64 = ramp(hits_gang!Matte, 1u, 16) < @85 in
+      let @81 = reduce<any>(@64) in
+      if (@81) {
+        let @12 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+        let @14 = hits_queue[0u].s_payload_x in
+        let @15 = masked_extract(@14[ramp(hits_gang!Matte, 1u, 16)], @64) in
+        let @83 = build<[[packed]] u32x1$v16>(@15) in
+        let @88 = @12[0u] in
+        let @89 = u8x16(@88) in
+        let @90 = @12[1u] in
+        let @91 = u8x16(@90) in
+        let @92 = @12[2u] in
+        let @93 = u8x16(@92) in
+        let @94 = build<[[packed]] u8x3$v16>(@89, @91, @93) in
+        let @17 = build<Surface$v16>(undef, @94, @83) in
+        let @19 = hits_queue[0u]._slot in
+        let @20 = masked_extract(@19[ramp(hits_gang!Matte, 1u, 16)], @64) in
+        let @21 = masked_extract(values[@20], @64) in
+        shade!Matte$gang16_v0_v1_v2_v4$masked(@17, @21, (&hits_total_slots[@20]), soaks_queue, @20, @64)
+      }
+      continue
+    }
+  }
+  let @24 = hits_queue[1u] in
+  let @25 = @24.count in
+  let @98 = surface_arms >> 1u in
+  let @99 = @98 & 1u in
+  let @100 = @99 != 0u in
+  if (@100) {
+    parfor hits_gang!Fuzz in [0u:@25:16u] {
+      let @59 = @25 in
+      let @70 = u32x16(@59) in
+      let @61 = ramp(hits_gang!Fuzz, 1u, 16) < @70 in
+      let @66 = reduce<any>(@61) in
+      if (@66) {
+        let @27 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+        let @29 = hits_queue[1u].s_payload_x in
+        let @30 = masked_extract(@29[ramp(hits_gang!Fuzz, 1u, 16)], @61) in
+        let @68 = build<[[packed]] u32x1$v16>(@30) in
+        let @73 = @27[0u] in
+        let @74 = u8x16(@73) in
+        let @75 = @27[1u] in
+        let @76 = u8x16(@75) in
+        let @77 = @27[2u] in
+        let @78 = u8x16(@77) in
+        let @79 = build<[[packed]] u8x3$v16>(@74, @76, @78) in
+        let @32 = build<Surface$v16>(undef, @79, @68) in
+        let @34 = hits_queue[1u]._slot in
+        let @35 = masked_extract(@34[ramp(hits_gang!Fuzz, 1u, 16)], @61) in
+        let @36 = masked_extract(values[@35], @61) in
+        shade!Fuzz$gang16_v0_v1_v2_v4$masked(@32, @36, (&hits_total_slots[@35]), soaks_queue, @35, @61)
+      }
+      continue
+    }
+  }
+  hits_queue[0u].count = 0u
+  hits_queue[1u].count = 0u
+  let @44 = (*mists_queue) in
+  let @45 = @44.count in
+  if (wet) {
+    parfor mists in [0u:@45:1u] {
+      let @46 = mists__slot[mists] in
+      let @47 = values[@46] in
+      mist(@47, (&hits_total_slots[@46]), soaks_queue, @46)
+      continue
+    }
+  }
+  let @53 = (*soaks_queue) in
+  let @54 = @53.count in
+  let @104 = wet || @100 in
+  let @108 = @104 || @97 in
+  if (@108) {
+    parfor soaks in [0u:@54:1u] {
+      let @55 = soaks_x[soaks] in
+      let @56 = soaks__slot[soaks] in
+      soak(@55, (&hits_total_slots[@56]))
+      continue
+    }
+  }
+  soaks_queue.count = 0u
+  mists_queue.count = 0u
+  parfor hits_rest in [0:40:1] {
+    let total = (&hits_total_slots[hits_rest]) in
+    let i = hits_rest in
+    let @1 = (*total) in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func shade!Fuzz(s : Surface, x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let s!Fuzz = build<Surface>(1u, @7, @8) in
+  let @6 = @8[0u] in
+  let a$1 = reinterpret_cast<f32>(@6) in
+  total += a$1
+  wetten(x, total, _queue_soaks, _slot_soaks)
+  return
+}
+
+func shade!Fuzz$gang16_v0_v1_v2_v4$masked(s : Surface$v16, x : f32x16, total : mut (f32*)x16, _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32x16, !mask : boolx16) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let @9 = u8x16(1u) in
+  let s!Fuzz = build<Surface$v16>(@9, @7, @8) in
+  let @6 = @8.!0 in
+  let a$1 = reinterpret_cast<f32x16>(@6) in
+  masked_store(total, masked_load(total, !mask) + a$1, !mask)
+  wetten$gang16_v0_v1_v3$masked(x, total, _queue_soaks, _slot_soaks, !mask)
+  return
+}
+
+func shade!Matte(s : Surface, x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let s!Matte = build<Surface>(0u, @7, @8) in
+  let @2 = @8[0u] in
+  let a = reinterpret_cast<f32>(@2) in
+  let @4 = a * x in
+  total += @4
+  wetten(x, total, _queue_soaks, _slot_soaks)
+  return
+}
+
+func shade!Matte$gang16_v0_v1_v2_v4$masked(s : Surface$v16, x : f32x16, total : mut (f32*)x16, _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32x16, !mask : boolx16) -> void {
+  let @7 = s._pad in
+  let @8 = s.payload in
+  let @9 = u8x16(0u) in
+  let s!Matte = build<Surface$v16>(@9, @7, @8) in
+  let @2 = @8.!0 in
+  let a = reinterpret_cast<f32x16>(@2) in
+  let @4 = a * x in
+  masked_store(total, masked_load(total, !mask) + @4, !mask)
+  wetten$gang16_v0_v1_v3$masked(x, total, _queue_soaks, _slot_soaks, !mask)
+  return
+}
+
+func soak(x : f32, total : mut (f32*)) -> void {
+  let @0 = x * 0.5f in
+  total += @0
+  return
+}
+
+func step(x : f32, wet : bool, total : mut (f32*), _queue_hits : mut Queue_hits[2], _slot_hits : i32, _queue_mists : mut (Queue_mists*), _slot_mists : i32) -> void {
+  classify$r6 : mut Surface
+  if (wet) {
+    let @19 = atomic_add((&(*_queue_mists).count), 1u) in
+    let @21 = (*_queue_mists)._slot in
+    @21[@19] = _slot_mists
+    return
+  } else {
+    let @0 = x < 10f in
+    if (@0) {
+      let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @2 = reinterpret_cast<u32>(x) in
+      let @3 = build<[[packed]] u32x1>(@2) in
+      let @4 = build<Surface>(0u, @1, @3) in
+      classify$r6 = @4
+    } else {
+      let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+      let @6 = reinterpret_cast<u32>(x) in
+      let @7 = build<[[packed]] u32x1>(@6) in
+      let @8 = build<Surface>(1u, @5, @7) in
+      classify$r6 = @8
+    }
+    let @10 = build<Entry_hits>((*classify$r6), _slot_hits) in
+    let @11 = (*classify$r6).tag in
+    switch (@11) {
+    case 0: {
+      let @24 = atomic_add((&_queue_hits[0u].count), 1u) in
+      let @31 = (*classify$r6).payload in
+      let @32 = @31[0u] in
+      let @35 = _queue_hits[0u].s_payload_x in
+      @35[@24] = @32
+      let @38 = _queue_hits[0u]._slot in
+      @38[@24] = _slot_hits
+      return
+    } break;
+    default: {
+      let @41 = atomic_add((&_queue_hits[1u].count), 1u) in
+      let @48 = (*classify$r6).payload in
+      let @49 = @48[0u] in
+      let @52 = _queue_hits[1u].s_payload_x in
+      @52[@41] = @49
+      let @55 = _queue_hits[1u]._slot in
+      @55[@41] = _slot_hits
+      return
+    }
+    }
+  }
+}
+
+func wetten(x : f32, total : mut (f32*), _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32) -> void {
+  let @0 = build<Entry_soaks>(x, _slot_soaks) in
+  let @3 = atomic_add((&(*_queue_soaks).count), 1u) in
+  let @5 = (*_queue_soaks).x in
+  @5[@3] = x
+  let @8 = (*_queue_soaks)._slot in
+  @8[@3] = _slot_soaks
+  return
+}
+
+func wetten$gang16_v0_v1_v3$masked(x : f32x16, total : mut (f32*)x16, _queue_soaks : mut (Queue_soaks*), _slot_soaks : i32x16, !mask : boolx16) -> void {
+  let @0 = build<Entry_soaks$v16>(x, _slot_soaks) in
+  let @3 = reduce<+>(cast<u32x16>(!mask)) in
+  let @4 = atomic_add((&(*_queue_soaks).count), @3) in
+  let @6 = (*_queue_soaks).x in
+  compress_store(@6[@4], x, !mask)
+  let @9 = (*_queue_soaks)._slot in
+  compress_store(@9[@4], _slot_soaks, !mask)
+  return
+}
+
+
+schedule {
+    hits = run.queue(root);
+    mists = run.queue(root);
+    soaks = run.queue(root);
+    run.split(hits, hits_gang, hits_lane, (i32)16, 1)
+       .vectorize(hits_lane)
+    step.defer(shade, hits)
+        .defer(mist, mists)
+    wetten.defer(soak, soaks)
+
+}

@@ -519,7 +519,20 @@ gate_drains(FuncMap &fmap,
         if (key == nullptr) {
             continue;
         }
-        const Type key_type = key->get_type();
+        // The key as one lane holds it: a drain the schedule vectorized
+        // runs a gang variant of the kernel, whose key is gang-wide -- a
+        // struct of per-lane vectors named `Material$v16` (ir::widen) --
+        // while the ADT it is split on, whose storage names the variants,
+        // is the narrow type. Read through the widening, or the split
+        // builds no mask: its drains then keep the family's name, a push
+        // into one of its leaves resolves to no queue, and whatever is fed
+        // only through its kernels comes out unfeedable -- the shadow queue
+        // gated on have_media alone, the medium kernel its only pusher left,
+        // and never drained in a scene without media.
+        Type key_type = key->get_type();
+        if (const auto lanes = widened_lanes(key_type)) {
+            key_type = narrow(key_type, *lanes);
+        }
         const Struct_t *key_struct = key_type.as<Struct_t>();
         if (key_struct == nullptr || !storages.contains(key_struct->name)) {
             continue; // a bool or an option: two queues, no mask to index

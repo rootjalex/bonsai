@@ -1,0 +1,154 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue split by its entries' variant (`hits.specialize(s)`) whose
+// drains are gangs, feeding a queue that a scalar drain under a scene flag
+// feeds too: the renderer's shadow queue, pushed by the material kernels
+// (gangs over the hits leaves) and by the medium-scatter kernel (under
+// have_media). The gate of `soaks` has to admit the gang kernels' pushes --
+// the `surface_arms` bits beside `wet` -- or, with `wet` false, the soaks
+// the gangs spawned are never drained and every total comes out short by
+// its soak. `plain_run` is the same with nothing scheduled; the lines have
+// to match.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float, total : reduce(+) Float) -> void {
+    total += x * 0.5;
+    return;
+}
+
+func wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn soak(x, total);
+    return;
+}
+
+func shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            total += a;
+        }
+    }
+    wetten(x, total);
+    return;
+}
+
+func mist(x : Float, total : reduce(+) Float) -> void {
+    total += 1000.0;
+    wetten(x * 2.0, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, total : reduce(+) Float) -> void {
+    if wet {
+        mist(x, total);
+        return;
+    }
+    s = classify(x);
+    shade(s, x, total);
+    return;
+}
+
+func run(values : array[Float, 40], wet : bool,
+         out : mut array[Float, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], wet, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func plain_soak(x : Float, total : reduce(+) Float) -> void {
+    total += x * 0.5;
+    return;
+}
+
+func plain_wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn plain_soak(x, total);
+    return;
+}
+
+func plain_shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            total += a;
+        }
+    }
+    plain_wetten(x, total);
+    return;
+}
+
+func plain_mist(x : Float, total : reduce(+) Float) -> void {
+    total += 1000.0;
+    plain_wetten(x * 2.0, total);
+    return;
+}
+
+func plain_step(x : Float, wet : bool, total : reduce(+) Float) -> void {
+    if wet {
+        plain_mist(x, total);
+        return;
+    }
+    s = classify(x);
+    plain_shade(s, x, total);
+    return;
+}
+
+func plain_run(values : array[Float, 40], wet : bool,
+               out : mut array[Float, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) Float = 0.0;
+        plain_step(values[i], wet, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 40] = {1.0, 20.0, 2.0, 30.0, 3.0, 40.0, 4.0, 50.0, 5.0, 60.0,
+                                 6.0, 70.0, 7.0, 80.0, 8.0, 90.0, 9.0, 11.0, 1.5, 12.0,
+                                 2.5, 13.0, 3.5, 14.0, 4.5, 15.0, 5.5, 16.0, 6.5, 17.0,
+                                 7.5, 18.0, 8.5, 19.0, 9.5, 21.0, 0.5, 22.0, 0.25, 23.0};
+    out : mut array[Float, 40] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    // Dry: a Matte value squared, a Fuzz value as it is, and half of it
+    // soaked either way. Wet: a thousand and the value, through the mist.
+    run(values, false, out);
+    print(out);
+    run(values, true, out);
+    print(out);
+    plain_run(values, false, out);
+    print(out);
+    plain_run(values, true, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    mists = run.queue(root);
+    step.defer(mist, mists);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+    run.split(hits, hits_gang, hits_lane, 16, true).vectorize(hits_lane);
+}

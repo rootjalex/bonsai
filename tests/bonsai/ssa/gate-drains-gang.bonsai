@@ -1,0 +1,105 @@
+//! flags: -p ssa
+
+// Launch gates on drains the schedule vectorized (SSA/GateDrains.h): the
+// hits queue is split by its entries' variant (`hits.specialize(s)`) and
+// its leaves' drains run as gangs, so the kernel a leaf's drain calls is a
+// gang variant of `shade` whose key `s` is gang-wide -- `Surface$v16`, a
+// struct of per-lane vectors. The split's mask has to be read off the key
+// as one lane holds it. Three gates to read for in `run`:
+//
+// 1. `run` takes `surface_arms`, and each leaf's gang drain -- `hits!Matte`,
+//    `hits!Fuzz` -- sits behind a test of its variant's bit.
+// 2. `mists` is pushed only under `wet`, so its drain is gated on `wet`.
+// 3. `soaks` is pushed by `wetten` from the gang kernels and from `mist`:
+//    its gate is `wet` OR the surface bits, so that with `wet` false the
+//    soaks the gangs spawned are still drained. Read with the key's
+//    gang-wide type, the split built no mask: the leaves' pushes resolved
+//    to no queue, `hits` came out unfeedable, and `soaks` was gated on
+//    `wet` alone -- the renderer's shadow queue gated on have_media, and
+//    never drained in a scene without media.
+import stdlib/numerics;
+
+element Surface =
+    | Matte(a : Float)
+    | Fuzz(a : Float);
+
+func soak(x : Float, total : reduce(+) Float) -> void {
+    total += x * 0.5;
+    return;
+}
+
+func wetten(x : Float, total : reduce(+) Float) -> void {
+    spawn soak(x, total);
+    return;
+}
+
+func shade(s : Surface, x : Float, total : reduce(+) Float) -> void {
+    match s {
+        Matte(a) => {
+            total += a * x;
+        }
+        Fuzz(a) => {
+            total += a;
+        }
+    }
+    wetten(x, total);
+    return;
+}
+
+func mist(x : Float, total : reduce(+) Float) -> void {
+    total += 1000.0;
+    wetten(x * 2.0, total);
+    return;
+}
+
+func classify(x : Float) -> Surface {
+    if x < 10.0 {
+        return Matte(x);
+    }
+    return Fuzz(x);
+}
+
+func step(x : Float, wet : bool, total : reduce(+) Float) -> void {
+    if wet {
+        mist(x, total);
+        return;
+    }
+    s = classify(x);
+    shade(s, x, total);
+    return;
+}
+
+func run(values : array[Float, 40], wet : bool,
+         out : mut array[Float, 40]) -> void {
+    parfor i in 0:40 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], wet, total);
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 40] = {1.0, 20.0, 2.0, 30.0, 3.0, 40.0, 4.0, 50.0, 5.0, 60.0,
+                                 6.0, 70.0, 7.0, 80.0, 8.0, 90.0, 9.0, 11.0, 1.5, 12.0,
+                                 2.5, 13.0, 3.5, 14.0, 4.5, 15.0, 5.5, 16.0, 6.5, 17.0,
+                                 7.5, 18.0, 8.5, 19.0, 9.5, 21.0, 0.5, 22.0, 0.25, 23.0};
+    out : mut array[Float, 40] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, false, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    hits = run.queue(root);
+    step.defer(shade, hits);
+    mists = run.queue(root);
+    step.defer(mist, mists);
+    soaks = run.queue(root);
+    wetten.defer(soak, soaks);
+    hits.specialize(s);
+    run.split(hits, hits_gang, hits_lane, 16, true).vectorize(hits_lane);
+}
