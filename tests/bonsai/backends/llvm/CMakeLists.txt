@@ -30,6 +30,7 @@ add_bonsai_tests(
     stored-lane.bonsai
     defer.bonsai
     defer-gang.bonsai
+    defer-nest-inner-bound.bonsai
     defer-gang-bools.bonsai
     defer-record-soa.bonsai
     defer-under-specialize.bonsai

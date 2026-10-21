@@ -1,0 +1,80 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call under a nest of two producer loops whose inner bound is
+// read inside the outer loop's body: `m = counts[0]` is a value of the
+// iteration of `i`, and the queue, owned by the function, is sized before
+// `i` by a copy of that read settled there (SSA/Defer.cpp, materialize).
+// The pass over the record after the drain -- the continuation `out[i] =
+// out[i] + 1.0`, run once per slot -- gets `i` back from the slot by
+// dividing by the inner loop's trip count, and has to divide by that
+// settled copy: the loop's own bound is out of scope where the pass runs.
+// The renderer's per-thread wavefront is this shape, the pixels of a chunk
+// outside the samples whose count is read per pixel
+// (schedules/wavefront-thread-packet.bonsai). `plain_run` is the same with
+// nothing scheduled and prints the same.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 12], counts : array[u32, 1],
+         out : mut array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            step(values[i * 3u + j], cast[[i32]](j), total);
+            out[i] = out[i] + 1.0;
+        }
+    }
+    return;
+}
+
+func plain_step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    plain_step(x, n - 1, total);
+    return;
+}
+
+func plain_run(values : array[Float, 12], counts : array[u32, 1],
+               out : mut array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            plain_step(values[i * 3u + j], cast[[i32]](j), total);
+            out[i] = out[i] + 1.0;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 12] = {1.0, 2.0, 3.0, 10.0, 20.0, 30.0,
+                                 100.0, 200.0, 300.0, 1000.0, 2000.0, 3000.0};
+    counts : array[u32, 1] = {3u};
+    out : mut array[Float, 4] = {0.0, 0.0, 0.0, 0.0};
+    total : reduce(+) Float = 0.0;
+    run(values, counts, out, total);
+    print(out);
+    print(total);
+    plain_out : mut array[Float, 4] = {0.0, 0.0, 0.0, 0.0};
+    plain_total : reduce(+) Float = 0.0;
+    plain_run(values, counts, plain_out, plain_total);
+    print(plain_out);
+    print(plain_total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

@@ -2524,6 +2524,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // One entry per producer iteration: the producer loop's trip count, or one
     // for a lone call. Computed in the block the loop is in, before it runs.
     shared_ptr<Value> count;
+    // The trip count of each inner loop of a producer nest, computed before
+    // the outermost loop from bounds settled there (below): what the pass
+    // over the record after the drain divides a slot by to get the loops'
+    // indices back, since the loops' own bounds may be values of the
+    // iteration -- the samples per pixel read inside the pixel loop -- and
+    // are not in scope where that pass runs.
+    vector<shared_ptr<Value>> settled_inner_counts(nest.size());
     // Where the queue's storage is made: before the producer loop, or --
     // when that loop is another queue's drain, inside its rounds -- where
     // the drained queue's storage was made, before the rounds.
@@ -2672,6 +2679,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 for (size_t k = 1; k < nest.size(); k++) {
                     const auto &q = std::get<Terminator::ParFor>(nest[k]->terminator.data);
                     shared_ptr<Value> inner = settled_trip_count(q, nest[k]->name);
+                    settled_inner_counts[k] = inner;
                     internal_assert(equals(inner->get_type(), count->get_type()))
                         << what << ": the loops " << producer_loop->index << " and "
                         << q.index << " of " << queue.owner << " have indices of "
@@ -5301,20 +5309,30 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // A producer loop's index from the pass's: the inverse of the
             // linearization slot_index_at makes -- divided by the trip counts
             // of the loops inside it, the remainder by its own, scaled and
-            // offset by its stride and start.
+            // offset by its stride and start. An inner loop's trip count is
+            // the one settled before the nest (settled_inner_counts), not
+            // one from the loop's own bounds: those may be values of the
+            // iteration, out of scope here, where the settled copy is in
+            // scope -- made before the producer loop, which this pass
+            // follows.
             const auto nest_index_at = [&](size_t k) -> shared_ptr<Value> {
-                shared_ptr<Value> own = i;
-                for (size_t j = nest.size(); j-- > k + 1;) {
+                const auto inner_count_at = [&](size_t j) -> shared_ptr<Value> {
+                    if (settled_inner_counts[j]) {
+                        return reach(run, settled_inner_counts[j]);
+                    }
                     const auto &q = std::get<Terminator::ParFor>(nest[j]->terminator.data);
                     size_t at = run->instrs.size();
-                    auto inner = trip_count_at(q, run, at);
-                    own = run->make_instruction(itype, Instruction::Op::Div, {own, inner});
+                    return trip_count_at(q, run, at);
+                };
+                shared_ptr<Value> own = i;
+                for (size_t j = nest.size(); j-- > k + 1;) {
+                    own = run->make_instruction(itype, Instruction::Op::Div,
+                                                {own, inner_count_at(j)});
                 }
                 const auto &p = std::get<Terminator::ParFor>(nest[k]->terminator.data);
                 if (k > 0) {
-                    size_t at = run->instrs.size();
-                    auto trip = trip_count_at(p, run, at);
-                    own = run->make_instruction(itype, Instruction::Op::Mod, {own, trip});
+                    own = run->make_instruction(itype, Instruction::Op::Mod,
+                                                {own, inner_count_at(k)});
                 }
                 const auto stride = constant_of(p.stride);
                 if (!(stride.has_value() && *stride == 1)) {

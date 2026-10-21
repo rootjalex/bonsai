@@ -1,0 +1,36 @@
+//! flags: -p ssa -b llvm
+
+// A deferred call under a nest of two producer loops whose inner bound is
+// read inside the outer loop's body (ssa/defer-nest-inner-bound says what
+// the deferral has to do about it): the LLVM of the queue's size computed
+// before the outer loop from the settled copy of the read, and of the pass
+// over the record dividing a slot by that copy. The execution twin is
+// correctness/llvm/defer-nest-inner-bound.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 12], counts : array[u32, 1],
+         out : mut array[Float, 4], total : reduce(+) Float) -> void {
+    parfor i in 0u:4u {
+        m = counts[0];
+        parfor j in 0u:m {
+            step(values[i * 3u + j], cast[[i32]](j), total);
+            out[i] = out[i] + 1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.defer(step, rays);
+    step.defer(step, rays);
+}
