@@ -1286,6 +1286,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_traversable";
     case Intrinsic::rt_reorder:
         return "rt_reorder";
+    case Intrinsic::sort_indices:
+        return "sort_indices";
     case Intrinsic::block_reduce_add:
         return "block_reduce_add";
     case Intrinsic::block_reduce_max:

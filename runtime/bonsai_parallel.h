@@ -193,3 +193,49 @@ BONSAI_PARALLEL_DEFN {
 #undef BONSAI_PARALLEL_DEFN
 
 #endif // BONSAI_PARALLEL_EXTERNAL
+
+// The sort a queue's drain runs its entries in, for a schedule that sorts
+// a deferred call by a key (`f.sort(g, |args| key)`, SSA/Defer.cpp): the
+// generated code makes one call, `bonsai_sort_indices(keys, perm, n)`,
+// meaning: fill perm[0..n) with the indices 0..n-1 ordered by ascending
+// keys[index], ties in index order (a stable sort, so that a run of equal
+// keys keeps the push order). Which sort runs is this header's business, as
+// the loop's is: with TBB installed, its parallel sort over key-index
+// pairs; without, the standard library's. Ray reordering keys are 64-bit
+// Morton codes (Meister, Boksansky, Guthe, Bittner 2025), hence the width.
+// The pairs are gathered first so that the sort moves 12-byte records and
+// the keys array, a queue's own storage, is read once and left as it was.
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+#if defined(BONSAI_PARALLEL_TBB)
+#include <tbb/parallel_sort.h>
+#endif
+
+extern "C" __attribute__((used)) inline void
+bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    if (n <= 0) {
+        return;
+    }
+    struct Pair {
+        uint64_t key;
+        uint32_t index;
+    };
+    std::vector<Pair> pairs(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; i++) {
+        pairs[static_cast<size_t>(i)] = Pair{keys[i], static_cast<uint32_t>(i)};
+    }
+    // The index breaks ties, so an unstable sort of (key, index) is a
+    // stable sort of the keys.
+    const auto before = [](const Pair &a, const Pair &b) {
+        return a.key < b.key || (a.key == b.key && a.index < b.index);
+    };
+#if defined(BONSAI_PARALLEL_TBB)
+    tbb::parallel_sort(pairs.begin(), pairs.end(), before);
+#else
+    std::sort(pairs.begin(), pairs.end(), before);
+#endif
+    for (int64_t i = 0; i < n; i++) {
+        perm[i] = pairs[static_cast<size_t>(i)].index;
+    }
+}

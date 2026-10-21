@@ -1577,6 +1577,13 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = UInt_t::make(32);
             break;
         }
+        case Intrinsic::sort_indices: {
+            internal_assert(args.size() == 3 && args[2].type().is_uint())
+                << "sort_indices takes the keys, the permutation to fill and "
+                << "the count, an unsigned";
+            node->type = UInt_t::make(32);
+            break;
+        }
         case Intrinsic::rand: {
             internal_assert(args.size() <= 1);
             if (args.size() == 0) {
@@ -2212,6 +2219,7 @@ bool Intrinsic::has_effects(OpType op) {
     case Intrinsic::rt_ignore_hit:
     case Intrinsic::rt_set_payload:
     case Intrinsic::rt_reorder:
+    case Intrinsic::sort_indices:
         return true;
     default:
         return false;

@@ -231,6 +231,18 @@ struct QueueSpec {
         std::map<std::string, Split> under;
     };
     std::optional<Split> split;
+    // The queue sorted before each of its drain's passes: the name of the
+    // drained function's parameter whose value is the key -- `_sort_key`,
+    // the u64 the Stmt-level sort gave the callee for `f.sort(callee,
+    // |args| key)` on a call that `defer` sends here (Lower/Sorts.cpp) --
+    // so that the key is a leaf of the entry, written by the push like any
+    // argument. The drain's pass then runs the entries in ascending key
+    // order: a permutation of the entry indices, filled by the runtime's
+    // sort (ir::Intrinsic::sort_indices) from the key leaf and the count
+    // before the pass, and read by every entry load of the pass in place of
+    // the loop's index. The paper's ray reordering (Meister, Boksansky,
+    // Guthe, Bittner 2025) as a schedule directive. Empty for no sort.
+    std::string sort_key;
     // How the program's variant types are stored, for the split's keys and
     // for the padding the entry leaves out.
     const std::map<std::string, ir::Program::AdtStorage> *adt_storages = nullptr;

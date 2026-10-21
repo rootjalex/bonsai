@@ -750,6 +750,16 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // of `g`. An effect with no result; a hint, so where there is no
         // reordering hardware -- the host, a CUDA kernel -- it is nothing.
         rt_reorder,
+        // The order a queue's entries are drained in, by a key each entry
+        // carries: `sort_indices(keys : u64[], perm : u32[], count : u32)
+        // -> u32` writes into `perm` the indices 0..count-1 ordered by
+        // ascending `keys[index]`, a stable sort, so that a drain reading
+        // its entries through `perm` runs them in key order (SSA/Defer.cpp,
+        // for `f.sort(g, |args| key)` on a call that `defer` sends to a
+        // queue; the paper's ray reordering, Meister et al. 2025). An effect
+        // on `perm` with a dummy result; the host runtime's
+        // bonsai_sort_indices (runtime/bonsai_parallel.h) does the sort.
+        sort_indices,
         // A value reduced across the threads of a GPU block -- the fold of
         // every thread's argument under the operation, in every thread:
         // `block_reduce_add(v)`, `_mul`, `_min`, `_max`, over a 32-bit float

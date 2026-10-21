@@ -1,0 +1,84 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call sorted by a key: `run.sort(step, |x| key)` beside
+// `step.defer(step, rays)` drains the queue in ascending key order before
+// every round's pass -- the paper's ray reordering (Meister, Boksansky,
+// Guthe, Bittner 2025) as a schedule directive. The drained function logs
+// its key at the next free slot of an order log the owner hands down, so
+// the log reads in drain order: the keys 0..39, pushed in a scrambled
+// order, come out sorted in the first round, and the twenty the odd
+// iterations push again come out sorted in the second. `plain_run` is the
+// same with nothing scheduled and prints the same total, since the order
+// changes nothing a step computes; its log is the push order and is not
+// printed.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, counter : mut array[i32, 1],
+          order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    at = counter[0];
+    order[at] = cast[[i32]](x * 4.0);
+    counter[0] = at + 1;
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, counter, order, total);
+    return;
+}
+
+func run(values : array[Float, 40], counter : mut array[i32, 1],
+         order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, counter, order, total);
+    }
+    return;
+}
+
+func plain_step(x : Float, n : i32, counter : mut array[i32, 1],
+                order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    at = counter[0];
+    order[at] = cast[[i32]](x * 4.0);
+    counter[0] = at + 1;
+    total += x;
+    if n == 0 {
+        return;
+    }
+    plain_step(x, n - 1, counter, order, total);
+    return;
+}
+
+func plain_run(values : array[Float, 40], counter : mut array[i32, 1],
+               order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        plain_step(values[i], i % 2, counter, order, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    // The keys 0..39 scrambled: x * 4 is the key.
+    values : array[Float, 40] = {7.25, 0.0, 9.5, 3.75, 1.0, 8.0, 2.5, 6.0, 4.25, 9.75,
+                                 0.5, 5.75, 1.5, 7.0, 3.0, 8.75, 2.0, 6.25, 4.5, 9.0,
+                                 0.25, 5.5, 1.75, 7.5, 3.25, 8.25, 2.75, 6.5, 4.0, 9.25,
+                                 0.75, 5.0, 1.25, 7.75, 3.5, 8.5, 2.25, 6.75, 4.75, 5.25};
+    counter : mut array[i32, 1] = {0};
+    order : mut array[i32, 60] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    total : reduce(+) Float = 0.0;
+    run(values, counter, order, total);
+    print(order);
+    print(total);
+    counter[0] = 0;
+    plain_total : reduce(+) Float = 0.0;
+    plain_run(values, counter, order, plain_total);
+    print(plain_total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

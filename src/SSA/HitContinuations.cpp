@@ -229,6 +229,7 @@ bool effectful_intrinsic(Intrinsic::OpType op) {
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:
     case Intrinsic::rt_reorder:
+    case Intrinsic::sort_indices:
     case Intrinsic::rand:
         return true;
     default:

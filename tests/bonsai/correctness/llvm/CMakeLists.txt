@@ -64,6 +64,7 @@ add_bonsai_tests(
     defer-callee-copied.bonsai
     gate-drains-under-specialize.bonsai
     gate-drains-gang.bonsai
+    defer-sorted-queue.bonsai
     defer-remat.bonsai
     defer-remat-readonly.bonsai
     defer-remat-slot.bonsai

@@ -3554,6 +3554,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (!is_leaf(fields[f])) {
                 continue;
             }
+            // The sort's key is stored whatever it is computed from: the
+            // drain sorts the pass by the key leaf before any entry is
+            // read, where a recipe has nothing to cook from
+            // (QueueSpec::sort_key).
+            if (!queue.sort_key.empty() && fields[f].param.has_value() &&
+                centry.args[*fields[f].param].name == queue.sort_key) {
+                continue;
+            }
             optional<Recipe> agreed;
             bool ok = true;
             for (const PushSite &ps : push_sites) {
@@ -3966,6 +3974,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // the slots rebuilt from it: unread when every field it stands for is,
     // and the callee is not handed it (a chain callee is). The reducer and
     // the result slot are the drain's own.
+    // The leaf the drain sorts its pass by, when the schedule sorts the
+    // queue (QueueSpec::sort_key; found below with the reads).
+    std::optional<size_t> sort_leaf;
     vector<vector<bool>> dead_field(subqueues.size(), vector<bool>(fields.size(), false));
     vector<vector<bool>> unread_leaves(subqueues.size(),
                                        vector<bool>(leaves.size(), false));
@@ -3991,14 +4002,26 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     continue; // the reducer, the result slot, an index
                 }
                 const auto it = reads.find(centry.args[*field.param].name);
-                for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
-                    unread[l] = it == reads.end() ||
-                                std::none_of(it->second.begin(), it->second.end(),
-                                             [&](const vector<unsigned> &read) {
-                                                 return covers(read, leaves[l].path);
-                                             });
+                // The sort's key is read by the drain itself, before the
+                // pass, whether or not the callee reads it (QueueSpec::
+                // sort_key): one leaf, kept.
+                const bool sorts_by = !queue.sort_key.empty() &&
+                                      centry.args[*field.param].name == queue.sort_key;
+                if (sorts_by) {
+                    internal_assert(field_leaves[f].second == field_leaves[f].first + 1)
+                        << what << ": the sort key " << queue.sort_key
+                        << " is one scalar";
+                    sort_leaf = field_leaves[f].first;
                 }
-                dead_field[q][f] = it == reads.end();
+                for (size_t l = field_leaves[f].first; l < field_leaves[f].second; l++) {
+                    unread[l] = !sorts_by &&
+                                (it == reads.end() ||
+                                 std::none_of(it->second.begin(), it->second.end(),
+                                              [&](const vector<unsigned> &read) {
+                                                  return covers(read, leaves[l].path);
+                                              }));
+                }
+                dead_field[q][f] = !sorts_by && it == reads.end();
                 if (it != reads.end()) {
                     field_reads[q][f] = it->second;
                 }
@@ -4437,6 +4460,25 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         (double_buffered ? "_" + std::to_string(i) : "")))));
         }
     }
+    // The sort's permutation, one index per entry, filled before each pass
+    // from the key leaf (QueueSpec::sort_key) and read by the pass's entry
+    // loads in place of the loop's index. One array serves a
+    // double-buffered queue's two buffers, since one of them is drained at
+    // a time; a queue split by a key would want one per leaf queue, and is
+    // refused until it is wanted.
+    shared_ptr<Value> perm_array;
+    if (!queue.sort_key.empty()) {
+        internal_assert(sort_leaf.has_value())
+            << what << ": the sort key " << queue.sort_key << " is not a parameter of "
+            << callee_name;
+        internal_assert(!many || double_buffered)
+            << "[unimplemented] " << what << ": a sort of a queue split by a key ("
+            << queue.name << ")";
+        perm_array = stored_in(
+            queue.storage,
+            scratch(make_alloca(*O, alloc_point, Array_t::make(u32(), as_expr(size)),
+                                queue.name + "__perm")));
+    }
     // The header too, in the same memory -- except that an Extern queue's
     // header stays the function's own, in the memory the Extern names: the
     // arrays are what the caller provides, sized by the capacity; the header
@@ -4735,6 +4777,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     }
     shared_ptr<Value> cur, nxt; // which queue is read, and which pushed to
     shared_ptr<Value> next_queue; // the address of the one pushed to
+    internal_assert(!perm_array || rounds)
+        << "[unimplemented] " << what << ": a sort of a queue drained in one pass ("
+        << queue.name << "); the sort is made before each round's pass";
     if (rounds) {
         drain_entry->terminator.data =
             Terminator::Jump{header->name, {constant_u32(0)}};
@@ -4824,6 +4869,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             drain.queue_base = reach(pre, queues);
             drain.queue_slot = many ? reach(pre, cur) : nullptr;
         }
+        if (perm_array) {
+            // The pass's order: the entry indices sorted by the key leaf,
+            // written into the permutation by the runtime before the pass
+            // (ir::Intrinsic::sort_indices), the count being this round's.
+            auto keys = storage_of(pre, cur)(*sort_leaf);
+            auto sorted = pre->make_instruction(
+                u32(), Instruction::Op::Intrinsic,
+                {keys, reach(pre, perm_array), reach(pre, pending)});
+            std::get<shared_ptr<Instruction>>(sorted->data)->intrinsic =
+                ir::Intrinsic::sort_indices;
+        }
         bodies[0]->preds = {pre};
     }
 
@@ -4840,6 +4896,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // whichever block of the iteration asks: every block of it follows
         // `run`, and a value is threaded to where it is used.
         auto index = body->add_argument(Argument{u32(), qpath});
+        // The entry this iteration runs: the loop's index, or, for a sorted
+        // queue, the index the sort put at it (QueueSpec::sort_key).
+        shared_ptr<Value> entry = index;
+        if (perm_array) {
+            entry = body->make_instruction(u32(), Instruction::Op::ExtractIdx,
+                                           {reach(body, perm_array), index});
+        }
         const auto run_storage = storage_of(
             body, double_buffered ? reach(body, cur) : constant_u32(q));
         map<size_t, shared_ptr<Value>> field_values;
@@ -4944,7 +5007,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                      .emplace(leaf.word,
                                               body->make_instruction(
                                                   u8(), Instruction::Op::ExtractIdx,
-                                                  {run_storage(leaf.word), index}))
+                                                  {run_storage(leaf.word), entry}))
                                      .first;
                         }
                         return unpack_bit(wv->second, leaf, t, emit);
@@ -4957,12 +5020,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         // vector it computes with.
                         auto stored = body->make_instruction(
                             leaf.type, Instruction::Op::ExtractIdx,
-                            {run_storage(l - 1), index});
+                            {run_storage(l - 1), entry});
                         return body->make_instruction(t, Instruction::Op::Cast,
                                                       {stored});
                     }
                     return body->make_instruction(t, Instruction::Op::ExtractIdx,
-                                                  {run_storage(l - 1), index});
+                                                  {run_storage(l - 1), entry});
                 }, stored_whole);
                 internal_assert(l == field_leaves[f].second)
                     << what << ": " << fields[f].name << " has fewer scalars "

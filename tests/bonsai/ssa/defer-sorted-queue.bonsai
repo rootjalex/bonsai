@@ -1,0 +1,58 @@
+//! flags: -p ssa
+
+// A deferred call sorted by a key (Lower/Sorts.cpp apply_queue_sort,
+// SSA/Defer.cpp QueueSpec::sort_key): `run.sort(step, |x| key)` beside
+// `step.defer(step, rays)`. What to look for in `run`: `step` takes one
+// more parameter, `_sort_key : u64`, and every push -- the owner's initial
+// one and the step's own -- stores the key the lambda computes from the
+// call's own argument as a leaf of the entry (`rays__sort_key`); before
+// each round's pass, `sort_indices(keys, perm, count)` fills the
+// permutation array `rays__perm` from that leaf; the pass's entry loads
+// index the leaf arrays by `perm[i]` rather than by `i`. The paper's ray
+// reordering (Meister, Boksansky, Guthe, Bittner 2025) as a directive. The
+// same program runs in correctness/llvm/defer-sorted-queue.bonsai.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, counter : mut array[i32, 1],
+          order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    at = counter[0];
+    order[at] = cast[[i32]](x * 4.0);
+    counter[0] = at + 1;
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, counter, order, total);
+    return;
+}
+
+func run(values : array[Float, 40], counter : mut array[i32, 1],
+         order : mut array[i32, 60], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, counter, order, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 40] = {7.25, 0.0, 9.5, 3.75, 1.0, 8.0, 2.5, 6.0, 4.25, 9.75,
+                                 0.5, 5.75, 1.5, 7.0, 3.0, 8.75, 2.0, 6.25, 4.5, 9.0,
+                                 0.25, 5.5, 1.75, 7.5, 3.25, 8.25, 2.75, 6.5, 4.0, 9.25,
+                                 0.75, 5.0, 1.25, 7.75, 3.5, 8.5, 2.25, 6.75, 4.75, 5.25};
+    counter : mut array[i32, 1] = {0};
+    order : mut array[i32, 60] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    total : reduce(+) Float = 0.0;
+    run(values, counter, order, total);
+    print(order);
+    print(total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

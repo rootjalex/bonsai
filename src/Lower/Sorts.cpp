@@ -512,6 +512,152 @@ Stmt apply_reorder(const std::string &caller, const std::string &callee,
     return body;
 }
 
+// Whether some directive defers the calls of `callee` onto a queue
+// (`f.defer(callee, q)`): a sort on the call of such a callee is a sort of
+// that queue, not a reordering hint (apply_queue_sort below).
+bool deferred_callee(const TransformMap &transforms, const std::string &callee) {
+    for (const auto &[f, ts] : transforms) {
+        for (const Transform &t : ts) {
+            const auto *d = std::get_if<Defer>(&t);
+            if (d != nullptr && !d->callee.names.empty() &&
+                d->callee.names.back() == callee && d->loop.empty()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// `f.sort(g, |args| key)` where `g`'s calls are deferred onto a queue: the
+// queue is drained in ascending order of the key, which is the paper's ray
+// reordering (Meister, Boksansky, Guthe, Bittner, "On Ray Reordering
+// Techniques for Faster GPU Ray Tracing", 2025) as a schedule directive --
+// the same word as the reordering hint on a call that is made in place,
+// since both say in what order what comes next runs, and nothing an
+// iteration computes changes. The key is computed where the push is, from
+// the call's own arguments, and travels in the entry: `g` takes it as one
+// more parameter, `_sort_key : u64`, and every call of `g` in the program
+// passes the lambda's value, cast to 64 bits, so that the deferral stores it
+// as a leaf of the entry like any argument (SSA/Defer.cpp reads it back
+// before each pass and sorts the pass by it: QueueSpec::sort_key). The
+// lambda's parameters name parameters of `g`, as the hint's do; the key is
+// an integer, unsigned or signed, of at most 64 bits -- a Morton code of
+// where a ray starts and where it is expected to end, say.
+void apply_queue_sort(const std::string &caller, const std::string &callee,
+                      const Expr &lambda_expr, Program &program) {
+    const Lambda *lambda = lambda_expr.as<Lambda>();
+    internal_assert(lambda != nullptr)
+        << caller << ".sort(" << callee << ", ...) expects a lambda for the key";
+    const auto g = program.funcs.find(callee);
+    internal_assert(g != program.funcs.end());
+    const std::string key_name = "_sort_key";
+    for (const auto &arg : g->second->args) {
+        internal_assert(arg.name != key_name)
+            << caller << ".sort(" << callee << ", ...): " << callee
+            << " is sorted twice; one key per deferred call";
+    }
+    // Which parameter of the callee each lambda parameter stands for.
+    std::vector<size_t> positions;
+    for (const TypedVar &arg : lambda->args) {
+        size_t at = g->second->args.size();
+        for (size_t i = 0; i < g->second->args.size(); i++) {
+            if (g->second->args[i].name == arg.name) {
+                at = i;
+            }
+        }
+        internal_assert(at < g->second->args.size())
+            << caller << ".sort(" << callee << ", ...): the key's lambda takes `"
+            << arg.name << "`, which is not a parameter of " << callee
+            << "; the lambda's parameters name the callee's, and the key is "
+            << "computed from what the call passes for them.";
+        internal_assert(equals(arg.type, g->second->args[at].type))
+            << caller << ".sort(" << callee << ", ...): the key's lambda takes `"
+            << arg.name << "` as " << arg.type << ", where " << callee
+            << " takes it as " << g->second->args[at].type;
+        positions.push_back(at);
+    }
+    const Type u64 = UInt_t::make(64);
+    struct ReplaceVars : public Mutator {
+        const std::map<std::string, Expr> &repls;
+        explicit ReplaceVars(const std::map<std::string, Expr> &repls)
+            : repls(repls) {}
+        using Mutator::visit;
+        Expr visit(const Var *node) override {
+            const auto found = repls.find(node->name);
+            return found != repls.end() ? found->second : Expr(node);
+        }
+    };
+    // The key of one call, from its arguments as they are passed.
+    const auto key_of = [&](const std::vector<Expr> &args) -> Expr {
+        std::map<std::string, Expr> repls;
+        for (size_t i = 0; i < lambda->args.size(); i++) {
+            internal_assert(positions[i] < args.size())
+                << "a call of " << callee << " passes " << args.size() << " arguments";
+            repls[lambda->args[i].name] = args[positions[i]];
+        }
+        Expr key = ReplaceVars(repls).mutate(lambda->value);
+        internal_assert(key.type().is_int() || key.type().is_uint())
+            << caller << ".sort(" << callee << ", ...): the key is " << key
+            << " of type " << key.type()
+            << "; a queue's sort key is an integer of at most 64 bits.";
+        internal_assert(key.type().bits() <= 64)
+            << caller << ".sort(" << callee << ", ...): the key " << key
+            << " is wider than the 64 bits a queue's sort compares";
+        return equals(key.type(), u64) ? key : cast(u64, key);
+    };
+    // Every call of the callee, in every function, passes the key last;
+    // the callee's type at the call grows by the parameter.
+    struct AddKey : public Mutator {
+        const std::string &callee;
+        const std::function<Expr(const std::vector<Expr> &)> &key_of;
+        size_t placed = 0;
+        AddKey(const std::string &callee,
+               const std::function<Expr(const std::vector<Expr> &)> &key_of)
+            : callee(callee), key_of(key_of) {}
+        using Mutator::visit;
+        std::pair<Expr, std::vector<Expr>> handle(const Expr &func,
+                                                   const std::vector<Expr> &args) {
+            std::vector<Expr> new_args;
+            new_args.reserve(args.size() + 1);
+            for (const Expr &a : args) {
+                new_args.push_back(mutate(a));
+            }
+            const Var *var = func.as<Var>();
+            if (var == nullptr || var->name != callee) {
+                return {Expr(), std::move(new_args)};
+            }
+            new_args.push_back(key_of(args));
+            const Function_t *func_t = var->type.as<Function_t>();
+            internal_assert(func_t) << "a call of " << callee << " through " << func;
+            std::vector<Function_t::ArgSig> arg_types = func_t->arg_types;
+            arg_types.push_back({UInt_t::make(64), /*is_mutable=*/false});
+            placed++;
+            return {Var::make(Function_t::make(func_t->ret_type, std::move(arg_types)),
+                              var->name),
+                    std::move(new_args)};
+        }
+        Expr visit(const Call *node) override {
+            auto [func, args] = handle(node->func, node->args);
+            return Call::make(func.defined() ? func : node->func, std::move(args));
+        }
+        Stmt visit(const CallStmt *node) override {
+            auto [func, args] = handle(node->func, node->args);
+            return CallStmt::make(func.defined() ? func : node->func, std::move(args),
+                                  node->spawned);
+        }
+    };
+    const std::function<Expr(const std::vector<Expr> &)> key_fn = key_of;
+    AddKey adder(callee, key_fn);
+    for (auto &[fname, f] : program.funcs) {
+        if (f->body.defined()) {
+            f->body = adder.mutate(f->body);
+        }
+    }
+    internal_assert(adder.placed > 0)
+        << caller << ".sort(" << callee << ", ...): nothing calls " << callee;
+    g->second->args.emplace_back(key_name, u64);
+}
+
 Program LowerSorts::run(Program program, const CompilerOptions &options) const {
     TransformMap &transforms = program.schedule.func_transforms;
 
@@ -543,6 +689,16 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
                 // program defines: `f.sort(g, |args| key)`.
                 if (sort.loc.names.size() == 1 &&
                     program.funcs.contains(sort.loc.names[0])) {
+                    if (deferred_callee(transforms, sort.loc.names[0])) {
+                        // A sort of the queue the call is deferred onto:
+                        // every function's calls change, this one's
+                        // included, so its body goes back for the walk.
+                        func->body = std::move(body);
+                        apply_queue_sort(name, sort.loc.names[0], sort.lambda,
+                                         program);
+                        body = std::move(func->body);
+                        continue;
+                    }
                     body = apply_reorder(name, sort.loc.names[0], sort.lambda,
                                          std::move(body), program.funcs);
                     continue;

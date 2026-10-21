@@ -7,6 +7,30 @@
 #include "bonsai_cuda.h"
 #include "bonsai_optix.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
+namespace {
+// The sort of a queue's entry indices by their keys for a program run under
+// the JIT (ir::Intrinsic::sort_indices): what runtime/bonsai_parallel.h's
+// bonsai_sort_indices does, by the standard library, since that header's
+// sort runs on TBB wherever TBB is installed and the compiler links no TBB.
+// Same meaning: perm[0..n) holds 0..n-1 by ascending keys[index], ties in
+// index order.
+void jit_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    std::vector<uint32_t> order(static_cast<size_t>(std::max<int64_t>(n, 0)));
+    for (int64_t i = 0; i < n; i++) {
+        order[static_cast<size_t>(i)] = static_cast<uint32_t>(i);
+    }
+    std::stable_sort(order.begin(), order.end(),
+                     [&](uint32_t a, uint32_t b) { return keys[a] < keys[b]; });
+    for (int64_t i = 0; i < n; i++) {
+        perm[i] = order[static_cast<size_t>(i)];
+    }
+}
+} // namespace
+
 #include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
@@ -85,6 +109,8 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         // entry is in the module and has to link.
         define("bonsai_buffer_require", &bonsai_buffer_require);
         define("bonsai_buffer_mark_dirty", &bonsai_buffer_mark_dirty);
+        // A sorted queue's permutation (ir::Intrinsic::sort_indices).
+        define("bonsai_sort_indices", &jit_sort_indices);
         llvm::cantFail(JIT->getMainJITDylib().define(
             llvm::orc::absoluteSymbols(std::move(runtime))));
     }

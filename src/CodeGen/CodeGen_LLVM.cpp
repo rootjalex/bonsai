@@ -3975,6 +3975,30 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = codegen_rt_intrinsic(node);
         return;
     }
+    case Intrinsic::sort_indices: {
+        // The host runtime's sort of a queue's entry indices by their keys
+        // (runtime/bonsai_parallel.h, bonsai_sort_indices): one call, as
+        // the parallel loop is one call, so that the runtime decides how
+        // to sort. The keys and the permutation are arrays, pointers here;
+        // the count is widened to the runtime's 64 bits.
+        internal_assert(node->args.size() == 3) << "sort_indices takes three";
+        llvm::Value *keys = codegen_expr(node->args[0]);
+        llvm::Value *perm = codegen_expr(node->args[1]);
+        llvm::Value *count = codegen_expr(node->args[2]);
+        llvm::Type *i64_t = llvm::Type::getInt64Ty(*context);
+        llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
+        count = builder->CreateZExtOrTrunc(count, i64_t, "sort_count");
+        llvm::FunctionType *sort_ty = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context), {ptr_t, ptr_t, i64_t}, false);
+        llvm::Function *sort = module->getFunction("bonsai_sort_indices");
+        if (!sort) {
+            sort = llvm::Function::Create(sort_ty, llvm::Function::ExternalLinkage,
+                                          "bonsai_sort_indices", module.get());
+        }
+        builder->CreateCall(sort, {keys, perm, count});
+        value = llvm::ConstantInt::get(codegen_type(node->type), 0);
+        return;
+    }
     case Intrinsic::block_reduce_add:
     case Intrinsic::block_reduce_max:
     case Intrinsic::block_reduce_min:

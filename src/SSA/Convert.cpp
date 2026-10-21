@@ -3022,6 +3022,22 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         spec.owner = q->second.owner;
                         spec.layouts = &layouts;
                         attach_splits(spec, queue_splits, adt_storages, d.queue);
+                        // `f.sort(callee, |args| key)` on the deferred
+                        // call: the queue is drained in key order. The
+                        // Stmt-level lowering gave the callee the key as
+                        // its last parameter (Lower/Sorts.cpp,
+                        // apply_queue_sort); the deferral stores it as a
+                        // leaf of the entry and sorts the pass by it
+                        // (QueueSpec::sort_key).
+                        for (const auto &[sorter, sts] : transforms) {
+                            for (const ir::Transform &t : sts) {
+                                const auto *sort = std::get_if<ir::Sort>(&t);
+                                if (sort != nullptr && sort->loc.names.size() == 1 &&
+                                    sort->loc.names[0] == callee) {
+                                    spec.sort_key = "_sort_key";
+                                }
+                            }
+                        }
                         spec.initial_push = directive_on(q->second.owner);
                         {
                             std::vector<std::string> chain = {spec.owner, name, callee};
