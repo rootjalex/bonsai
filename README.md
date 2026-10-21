@@ -13,6 +13,16 @@ DSL for Recursive Geometric Queries
 2. There is a dependency on LLVM; this currently
    uses [version 23.1.1](https://github.com/llvm/llvm-project/releases/tag/llvmorg-23.1.1).
    On macOS, `brew install llvm@23` is sufficient.
+3. Two optional, header-detected dependencies of the generated code's
+   runtime (`runtime/bonsai_parallel.h`), looked for beside the C++
+   compiler, which is where a conda environment puts them: Intel TBB
+   (`conda install tbb-devel`), for the parallel loop and the parallel
+   sort; and Intel's header-only
+   [x86-simd-sort](https://github.com/intel/x86-simd-sort) (BSD-3), for the
+   sort of a sorted queue, installed by copying its `src/` to
+   `$CONDA_PREFIX/include/x86simdsort` and taken only when the driver is
+   compiled with `-march=native`. Without them the runtime uses
+   `std::thread` and its own radix sort.
 
 If you have a custom version installed somewhere, set the following environment
 variable:

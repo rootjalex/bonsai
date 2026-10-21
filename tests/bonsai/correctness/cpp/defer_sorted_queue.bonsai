@@ -1,0 +1,45 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/defer_sorted_queue
+//! commands: clang++ -std=c++20 -O3 -march=native -c tests/bonsai/correctness/cpp/main_defer_sorted_queue.cpp -I. -o tests/bonsai/correctness/cpp/main_defer_sorted_queue.o, clang++ tests/bonsai/correctness/cpp/main_defer_sorted_queue.o tests/bonsai/correctness/cpp/defer_sorted_queue.o -o tests/bonsai/correctness/cpp/defer_sorted_queue, ./tests/bonsai/correctness/cpp/defer_sorted_queue, rm tests/bonsai/correctness/cpp/defer_sorted_queue, rm tests/bonsai/correctness/cpp/main_defer_sorted_queue.o, rm tests/bonsai/correctness/cpp/defer_sorted_queue.h, rm tests/bonsai/correctness/cpp/defer_sorted_queue.o
+
+// A deferred call sorted by a key, compiled and linked against the runtime:
+// the sort the generated code calls is runtime/bonsai_parallel.h's
+// `bonsai_sort_indices`, not the JIT's standard-library stand-in that the
+// `-e` twin of this test (correctness/llvm/defer-sorted-queue) runs on. The
+// program is that twin's without its main: `step` logs its key at the next
+// free slot of an order log, so the log reads in drain order, and the keys
+// 0..39 pushed scrambled come out sorted in the first round, the twenty the
+// odd iterations push again sorted in the second. The driver
+// (main_defer_sorted_queue.cpp) also calls the runtime's sort directly at
+// the sizes that pick each of its sorts -- the standard library's or the
+// vectorized one under a thousand entries, the radix sort or the vectorized
+// one up to a million, TBB's parallel sort beyond -- with runs of equal
+// keys, against a stable sort of the same keys.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, counter : mut array[i32, 1],
+          order : mut array[i32, 60], total : mut array[Float, 1]) -> void {
+    at = counter[0];
+    order[at] = cast[[i32]](x * 4.0);
+    counter[0] = at + 1;
+    total[0] = total[0] + x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, counter, order, total);
+    return;
+}
+
+func [[export]] run(values : array[Float, 40], counter : mut array[i32, 1],
+                    order : mut array[i32, 60], total : mut array[Float, 1]) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, counter, order, total);
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

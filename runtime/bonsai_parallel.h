@@ -200,42 +200,192 @@ BONSAI_PARALLEL_DEFN {
 // meaning: fill perm[0..n) with the indices 0..n-1 ordered by ascending
 // keys[index], ties in index order (a stable sort, so that a run of equal
 // keys keeps the push order). Which sort runs is this header's business, as
-// the loop's is: with TBB installed, its parallel sort over key-index
-// pairs; without, the standard library's. Ray reordering keys are 64-bit
-// Morton codes (Meister, Boksansky, Guthe, Bittner 2025), hence the width.
-// The pairs are gathered first so that the sort moves 12-byte records and
-// the keys array, a queue's own storage, is read once and left as it was.
+// the loop's is. Ray reordering keys are 64-bit Morton codes (Meister,
+// Boksansky, Guthe, Bittner 2025), hence the width.
+//
+// The call comes from wherever the drain is: once per pass over a queue the
+// size of a band of the frame, or, when the queue is a thread's own, from
+// every thread at once over a few thousand entries. A sort that forks tasks
+// is right for the first and wrong for the second -- the threads are all
+// busy already -- so the choice is by size. Measured on the (key, index)
+// pairs of 60-bit random keys, one thread of a Zen 5 with AVX-512, the
+// least of seven (microseconds; scratch bench of 2026-10-21):
+//
+//      n      std::sort   tbb::parallel_sort   radix (11-bit)   x86-simd-sort
+//    1024          4.7            4.8                6.8              3.9
+//    4096         91.1           30.2               20.5             17.5
+//   16384        495.1          154.7              116.5             83.5
+//   65536       2378.3          550.9              536.0            402.8
+//  262144      10635.8         2271.7             2264.3           2002.0
+// 1048576      46987.2         8649.6            16170.2           8873.4
+//
+// So: Intel's x86-simd-sort (a vectorized quicksort with bitonic networks
+// at the leaves, the key-value form sorting the indices alongside the keys)
+// where its header is installed and this translation unit is compiled for
+// an AVX-512 or AVX2 target, the fastest at every size up to a million;
+// else an LSD radix sort of the pairs, 11-bit digits, which beats
+// std::sort from a few thousand entries up and is stable by construction;
+// std::sort under a thousand entries, where the radix sort's histograms cost
+// more than the sort. Above a million entries TBB's parallel sort, where it
+// is linked -- a tie at a million on this machine and ahead beyond it.
+//
+// x86-simd-sort is header-only (BSD-3, github.com/intel/x86-simd-sort); it
+// is found as <x86simdsort/x86simdsort-static-incl.h>, so installing it is
+// copying its src/ to <prefix>/include/x86simdsort, beside TBB's headers in a
+// conda environment. Its sort is not stable; the stable order is restored
+// afterwards by sorting the indices within each run of equal keys, which
+// costs one pass when, as for Morton keys, the runs are short.
+//
+// The pairs are gathered first so that the sort moves sixteen-byte records
+// and the keys array, a queue's own storage, is read once and left as it was.
 #include <algorithm>
 #include <cstdint>
 #include <vector>
 #if defined(BONSAI_PARALLEL_TBB)
 #include <tbb/parallel_sort.h>
 #endif
+#if defined(__has_include)
+#if __has_include(<x86simdsort/x86simdsort-static-incl.h>) &&                 \
+    ((defined(__AVX512DQ__) && defined(__AVX512VL__)) || defined(__AVX2__))
+#define BONSAI_SORT_X86_SIMD_SORT
+#include <x86simdsort/x86simdsort-static-incl.h>
+#endif
+#endif
 
-extern "C" __attribute__((used)) inline void
-bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
-    if (n <= 0) {
-        return;
-    }
-    struct Pair {
-        uint64_t key;
-        uint32_t index;
-    };
-    std::vector<Pair> pairs(static_cast<size_t>(n));
+namespace bonsai_sort_detail {
+
+struct Pair {
+    uint64_t key;
+    uint32_t index;
+};
+
+inline void gather(const uint64_t *keys, int64_t n, std::vector<Pair> &pairs) {
+    pairs.resize(static_cast<size_t>(n));
     for (int64_t i = 0; i < n; i++) {
         pairs[static_cast<size_t>(i)] = Pair{keys[i], static_cast<uint32_t>(i)};
     }
-    // The index breaks ties, so an unstable sort of (key, index) is a
-    // stable sort of the keys.
-    const auto before = [](const Pair &a, const Pair &b) {
-        return a.key < b.key || (a.key == b.key && a.index < b.index);
-    };
-#if defined(BONSAI_PARALLEL_TBB)
-    tbb::parallel_sort(pairs.begin(), pairs.end(), before);
-#else
-    std::sort(pairs.begin(), pairs.end(), before);
-#endif
+}
+
+inline void scatter(const std::vector<Pair> &pairs, uint32_t *perm, int64_t n) {
     for (int64_t i = 0; i < n; i++) {
         perm[i] = pairs[static_cast<size_t>(i)].index;
     }
+}
+
+// The index breaks ties, so an unstable sort of (key, index) is a stable
+// sort of the keys.
+inline bool before(const Pair &a, const Pair &b) {
+    return a.key < b.key || (a.key == b.key && a.index < b.index);
+}
+
+inline void sort_std(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    std::vector<Pair> pairs;
+    gather(keys, n, pairs);
+    std::sort(pairs.begin(), pairs.end(), before);
+    scatter(pairs, perm, n);
+}
+
+// LSD radix sort: six passes of eleven bits cover the 64-bit key, every
+// pass's histogram taken in the one read that gathers the pairs, and a pass
+// whose digit is the same in every key -- the top passes of a Morton key
+// that uses sixty bits, say -- skipped.
+inline void sort_radix(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    constexpr int kBits = 11;
+    constexpr int kPasses = 6;
+    constexpr int kBuckets = 1 << kBits;
+    std::vector<Pair> a(static_cast<size_t>(n)), b(static_cast<size_t>(n));
+    std::vector<uint32_t> hist(static_cast<size_t>(kPasses * kBuckets), 0);
+    for (int64_t i = 0; i < n; i++) {
+        const uint64_t k = keys[i];
+        a[static_cast<size_t>(i)] = Pair{k, static_cast<uint32_t>(i)};
+        for (int p = 0; p < kPasses; p++) {
+            hist[static_cast<size_t>(p * kBuckets) +
+                 ((k >> (p * kBits)) & (kBuckets - 1))]++;
+        }
+    }
+    Pair *src = a.data();
+    Pair *dst = b.data();
+    for (int p = 0; p < kPasses; p++) {
+        uint32_t *h = hist.data() + p * kBuckets;
+        bool constant_digit = false;
+        for (int bucket = 0; bucket < kBuckets; bucket++) {
+            if (h[bucket] == static_cast<uint32_t>(n)) {
+                constant_digit = true;
+                break;
+            }
+        }
+        if (constant_digit) {
+            continue;
+        }
+        uint32_t sum = 0;
+        for (int bucket = 0; bucket < kBuckets; bucket++) {
+            const uint32_t count = h[bucket];
+            h[bucket] = sum;
+            sum += count;
+        }
+        const int shift = p * kBits;
+        for (int64_t i = 0; i < n; i++) {
+            const Pair &e = src[i];
+            dst[h[(e.key >> shift) & (kBuckets - 1)]++] = e;
+        }
+        std::swap(src, dst);
+    }
+    for (int64_t i = 0; i < n; i++) {
+        perm[i] = src[i].index;
+    }
+}
+
+#if defined(BONSAI_SORT_X86_SIMD_SORT)
+inline void sort_simd(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    std::vector<uint64_t> sorted(keys, keys + n);
+    for (int64_t i = 0; i < n; i++) {
+        perm[i] = static_cast<uint32_t>(i);
+    }
+    x86simdsortStatic::keyvalue_qsort(sorted.data(), perm, static_cast<size_t>(n));
+    // Stability: within a run of equal keys, the indices in ascending order.
+    for (int64_t i = 0; i < n;) {
+        int64_t j = i + 1;
+        while (j < n && sorted[static_cast<size_t>(j)] == sorted[static_cast<size_t>(i)]) {
+            j++;
+        }
+        if (j - i > 1) {
+            std::sort(perm + i, perm + j);
+        }
+        i = j;
+    }
+}
+#endif
+
+#if defined(BONSAI_PARALLEL_TBB)
+inline void sort_parallel(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    std::vector<Pair> pairs;
+    gather(keys, n, pairs);
+    tbb::parallel_sort(pairs.begin(), pairs.end(), before);
+    scatter(pairs, perm, n);
+}
+#endif
+
+}  // namespace bonsai_sort_detail
+
+extern "C" __attribute__((used)) inline void
+bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    using namespace bonsai_sort_detail;
+    if (n <= 0) {
+        return;
+    }
+#if defined(BONSAI_PARALLEL_TBB)
+    if (n >= (int64_t{1} << 20)) {
+        sort_parallel(keys, perm, n);
+        return;
+    }
+#endif
+#if defined(BONSAI_SORT_X86_SIMD_SORT)
+    sort_simd(keys, perm, n);
+#else
+    if (n < 1024) {
+        sort_std(keys, perm, n);
+    } else {
+        sort_radix(keys, perm, n);
+    }
+#endif
 }
