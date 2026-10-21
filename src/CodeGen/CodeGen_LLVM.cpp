@@ -3999,6 +3999,18 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = llvm::ConstantInt::get(codegen_type(node->type), 0);
         return;
     }
+    case Intrinsic::fill_bytes: {
+        // A memset: LLVM's intrinsic, which every target lowers.
+        internal_assert(node->args.size() == 3) << "fill_bytes takes three";
+        llvm::Value *dst = codegen_expr(node->args[0]);
+        llvm::Value *byte = codegen_expr(node->args[1]);
+        llvm::Value *count = codegen_expr(node->args[2]);
+        llvm::Type *i64_t = llvm::Type::getInt64Ty(*context);
+        count = builder->CreateZExtOrTrunc(count, i64_t, "fill_count");
+        builder->CreateMemSet(dst, byte, count, llvm::MaybeAlign(1));
+        value = llvm::ConstantInt::get(codegen_type(node->type), 0);
+        return;
+    }
     case Intrinsic::block_reduce_add:
     case Intrinsic::block_reduce_max:
     case Intrinsic::block_reduce_min:
@@ -5402,6 +5414,21 @@ void CodeGen_LLVM::visit(const Allocate *node) {
                     : "bonsai_cuda_malloc",
                 llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
             rhs = builder->CreateCall(device_malloc, {bytes}, name);
+        } else if (node->memory == Allocate::Memory::Stack && in_cpu_kernel &&
+                   !llvm::isa<llvm::ConstantInt>(size)) {
+            // The thread's, from the runtime's arena (in_cpu_kernel): the
+            // iteration's bytes, given back at its end by the kernel.
+            llvm::Type *i64 = llvm::Type::getInt64Ty(*context);
+            llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+            llvm::Value *bytes = builder->CreateMul(
+                builder->CreateIntCast(size, i64, array_t->size.type().is_int()),
+                llvm::ConstantInt::get(
+                    i64, module->getDataLayout().getTypeAllocSize(etype)),
+                name + "_bytes");
+            llvm::FunctionCallee arena_alloc = module->getOrInsertFunction(
+                "bonsai_arena_alloc",
+                llvm::FunctionType::get(ptr, {i64}, /*isVarArg=*/false));
+            rhs = builder->CreateCall(arena_alloc, {bytes}, name);
         } else {
             rhs = node->memory == Allocate::Memory::Stack
                       ? create_alloca_at_entry(etype, name, size)

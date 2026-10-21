@@ -1,0 +1,42 @@
+//! flags: -p ssa
+
+// A queue owned by the outer loop of a split with a tail guard: `split(i,
+// io, ii, 4, true)` makes chunks of four over ten iterations, the last
+// chunk half empty, and `queue(io)` gives each chunk a record of 4 x 3
+// slots. The guard yields one level out from the call, before the `j`
+// loop, so a skipped `i` never visits its slots. The golden shows what
+// the deferral does about it (SSA/Defer.cpp, call_on_every_iteration): a
+// byte per slot (`rays_ran`), the whole record cleared by `fill_bytes`
+// where the chunk initializes its queue, the byte set at the call, and
+// the pass over the record (`rays_rest`) skipping a slot whose byte is
+// clear. The execution twin is correctness/llvm/defer-nest-guard.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 10], counts : array[u32, 1], out : mut array[Float, 16],
+         total : reduce(+) Float) -> void {
+    // The extent is read at run time, so that nothing about the guard is
+    // settled at compile time.
+    parfor i in 0u:counts[0] {
+        parfor j in 0u:3u {
+            step(values[i], cast[[i32]](j), total);
+            out[i] = out[i] + 1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    run.split(i, io, ii, 4, true);
+    rays = run.queue(io);
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

@@ -20,6 +20,7 @@ func run(out : mut i32[], n : u32) -> void {
     sums!round : mut u32
     let @9 = n in
     let @8 = band in
+    let @12 = fill_bytes(sums_ran, 0u, @8) in
     let @14 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
     sums_queue[0u] = @14
     let @16 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
@@ -27,7 +28,6 @@ func run(out : mut i32[], n : u32) -> void {
     parfor i_in in [0u:@8:1u] {
       let @10 = i_band + i_in in
       let @11 = @10 < @9 in
-      sums_ran[i_in] = 0u
       if (@11) {
         let i = @10 in
         let @5 = cast<i32>(i) in

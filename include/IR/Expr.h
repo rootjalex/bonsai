@@ -760,6 +760,12 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // on `perm` with a dummy result; the host runtime's
         // bonsai_sort_indices (runtime/bonsai_parallel.h) does the sort.
         sort_indices,
+        // `fill_bytes(dst : u8[], value : u8, count : u32) -> u32` sets the
+        // first `count` bytes of `dst` to `value`: a memset, one instruction
+        // where a loop of byte stores would say less and cost more (SSA/
+        // Defer.cpp clears a record's per-slot flags with it as the owner's
+        // iteration starts). An effect on `dst` with a dummy result.
+        fill_bytes,
         // A value reduced across the threads of a GPU block -- the fold of
         // every thread's argument under the operation, in every thread:
         // `block_reduce_add(v)`, `_mul`, `_min`, `_max`, over a 32-bit float

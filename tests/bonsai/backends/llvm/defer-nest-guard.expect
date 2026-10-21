@@ -1,0 +1,320 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Queue_rays = type { i32, ptr, ptr }
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %values_buffer, ptr noundef %counts_buffer, ptr noundef %out_buffer, ptr nofree noundef nonnull captures(none) %total) local_unnamed_addr #0 {
+run:
+  %rays_n_180 = alloca [12 x i32], align 4
+  %rays_x_181 = alloca [12 x float], align 4
+  %rays_n_082 = alloca [12 x i32], align 4
+  %rays_x_083 = alloca [12 x float], align 4
+  %rays_queue85 = alloca [2 x %struct.Queue_rays], align 16
+  %values = tail call ptr @bonsai_buffer_require(ptr %values_buffer, i32 1)
+  %counts = tail call ptr @bonsai_buffer_require(ptr %counts_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %extract = load i32, ptr %counts, align 4
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %.not = icmp eq i32 %extract, 0
+  br i1 %.not, label %io0_pf_exit, label %"!par_body_0_split_io.lr.ph", !prof !0
+
+"!par_body_0_split_io.lr.ph":                     ; preds = %run
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %rays_queue85, i64 8
+  store ptr %rays_x_083, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %rays_queue85, i64 16
+  store ptr %rays_n_082, ptr %.fca.2.gep, align 16
+  %rays_queue36 = getelementptr inbounds nuw i8, ptr %rays_queue85, i64 24
+  %.fca.1.gep89 = getelementptr inbounds nuw i8, ptr %rays_queue85, i64 32
+  store ptr %rays_x_181, ptr %.fca.1.gep89, align 16
+  %.fca.2.gep91 = getelementptr inbounds nuw i8, ptr %rays_queue85, i64 40
+  store ptr %rays_n_180, ptr %.fca.2.gep91, align 8
+  %0 = zext i32 %extract to i64
+  br label %"!par_body_0_split_io"
+
+"!par_body_0_split_io":                           ; preds = %"!par_body_0_split_io.lr.ph", %rays_rest4_pf_latch.11
+  %io100 = phi i32 [ 0, %"!par_body_0_split_io.lr.ph" ], [ %50, %rays_rest4_pf_latch.11 ]
+  store i32 0, ptr %rays_queue85, align 16
+  store i32 0, ptr %rays_queue36, align 8
+  %1 = zext i32 %io100 to i64
+  %.not120 = icmp ult i32 %io100, %extract
+  br i1 %.not120, label %j2_pf_head.preheader, label %ii1_pf_latch
+
+io0_pf_exit:                                      ; preds = %rays_rest4_pf_latch.11, %run
+  ret void
+
+rays_rest4_pf_head.preheader:                     ; preds = %rays3_pf_exit, %ii1_pf_latch.3
+  br i1 %.not120, label %"!step_call_cont_4.2", label %rays_rest4_pf_latch.2
+
+"rays!batch":                                     ; preds = %ii1_pf_latch.3, %rays3_pf_exit
+  %"@24.count98" = phi i32 [ %"@24.count", %rays3_pf_exit ], [ %"@24.count95", %ii1_pf_latch.3 ]
+  %extract_ptr5397 = phi ptr [ %extract_ptr53, %rays3_pf_exit ], [ %rays_queue85, %ii1_pf_latch.3 ]
+  %2 = phi i32 [ %27, %rays3_pf_exit ], [ 0, %ii1_pf_latch.3 ]
+  %"rays!round596" = phi i32 [ %26, %rays3_pf_exit ], [ 0, %ii1_pf_latch.3 ]
+  %3 = xor i32 %2, 1
+  %_wide55 = zext nneg i32 %3 to i64
+  %rays_queue56 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue85, i64 %_wide55
+  store i32 0, ptr %rays_queue56, align 8, !tbaa !1
+  %extract60.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr5397, i64 8
+  %extract60.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr5397, i64 16
+  %4 = getelementptr inbounds nuw i8, ptr %rays_queue56, i64 8
+  %5 = getelementptr inbounds nuw i8, ptr %rays_queue56, i64 16
+  %wide.trip.count = zext i32 %"@24.count98" to i64
+  br label %"rays!run"
+
+j2_pf_head.preheader:                             ; preds = %"!par_body_0_split_io"
+  %extract_ptr43 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %1
+  %extract44 = load float, ptr %extract_ptr43, align 4
+  %6 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48 = zext i32 %6 to i64
+  %"@45" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48
+  store float %extract44, ptr %"@45", align 4, !tbaa !4
+  %"@48" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48
+  store i32 0, ptr %"@48", align 4, !tbaa !6
+  %7 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.1 = zext i32 %7 to i64
+  %"@45.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.1
+  store float %extract44, ptr %"@45.1", align 4, !tbaa !4
+  %"@48.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.1
+  store i32 1, ptr %"@48.1", align 4, !tbaa !6
+  %8 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.2 = zext i32 %8 to i64
+  %"@45.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.2
+  store float %extract44, ptr %"@45.2", align 4, !tbaa !4
+  %"@48.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.2
+  store i32 2, ptr %"@48.2", align 4, !tbaa !6
+  br label %ii1_pf_latch
+
+ii1_pf_latch:                                     ; preds = %j2_pf_head.preheader, %"!par_body_0_split_io"
+  %9 = or disjoint i64 %1, 1
+  %.not121 = icmp samesign ult i64 %9, %0
+  br i1 %.not121, label %j2_pf_head.preheader.1, label %ii1_pf_latch.1
+
+j2_pf_head.preheader.1:                           ; preds = %ii1_pf_latch
+  %extract_ptr43.1 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %9
+  %extract44.1103 = load float, ptr %extract_ptr43.1, align 4
+  %10 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.1104 = zext i32 %10 to i64
+  %"@45.1105" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.1104
+  store float %extract44.1103, ptr %"@45.1105", align 4, !tbaa !4
+  %"@48.1106" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.1104
+  store i32 0, ptr %"@48.1106", align 4, !tbaa !6
+  %11 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.1.1 = zext i32 %11 to i64
+  %"@45.1.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.1.1
+  store float %extract44.1103, ptr %"@45.1.1", align 4, !tbaa !4
+  %"@48.1.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.1.1
+  store i32 1, ptr %"@48.1.1", align 4, !tbaa !6
+  %12 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.2.1 = zext i32 %12 to i64
+  %"@45.2.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.2.1
+  store float %extract44.1103, ptr %"@45.2.1", align 4, !tbaa !4
+  %"@48.2.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.2.1
+  store i32 2, ptr %"@48.2.1", align 4, !tbaa !6
+  br label %ii1_pf_latch.1
+
+ii1_pf_latch.1:                                   ; preds = %j2_pf_head.preheader.1, %ii1_pf_latch
+  %13 = or disjoint i64 %1, 2
+  %.not122 = icmp samesign ult i64 %13, %0
+  br i1 %.not122, label %j2_pf_head.preheader.2, label %ii1_pf_latch.2
+
+j2_pf_head.preheader.2:                           ; preds = %ii1_pf_latch.1
+  %extract_ptr43.2 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %13
+  %extract44.2107 = load float, ptr %extract_ptr43.2, align 4
+  %14 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.2108 = zext i32 %14 to i64
+  %"@45.2109" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.2108
+  store float %extract44.2107, ptr %"@45.2109", align 4, !tbaa !4
+  %"@48.2110" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.2108
+  store i32 0, ptr %"@48.2110", align 4, !tbaa !6
+  %15 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.1.2 = zext i32 %15 to i64
+  %"@45.1.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.1.2
+  store float %extract44.2107, ptr %"@45.1.2", align 4, !tbaa !4
+  %"@48.1.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.1.2
+  store i32 1, ptr %"@48.1.2", align 4, !tbaa !6
+  %16 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.2.2 = zext i32 %16 to i64
+  %"@45.2.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.2.2
+  store float %extract44.2107, ptr %"@45.2.2", align 4, !tbaa !4
+  %"@48.2.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.2.2
+  store i32 2, ptr %"@48.2.2", align 4, !tbaa !6
+  br label %ii1_pf_latch.2
+
+ii1_pf_latch.2:                                   ; preds = %j2_pf_head.preheader.2, %ii1_pf_latch.1
+  %17 = or disjoint i64 %1, 3
+  %.not123 = icmp samesign ult i64 %17, %0
+  br i1 %.not123, label %j2_pf_head.preheader.3, label %ii1_pf_latch.3
+
+j2_pf_head.preheader.3:                           ; preds = %ii1_pf_latch.2
+  %extract_ptr43.3 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %17
+  %extract44.3 = load float, ptr %extract_ptr43.3, align 4
+  %18 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.3 = zext i32 %18 to i64
+  %"@45.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.3
+  store float %extract44.3, ptr %"@45.3", align 4, !tbaa !4
+  %"@48.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.3
+  store i32 0, ptr %"@48.3", align 4, !tbaa !6
+  %19 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.1.3 = zext i32 %19 to i64
+  %"@45.1.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.1.3
+  store float %extract44.3, ptr %"@45.1.3", align 4, !tbaa !4
+  %"@48.1.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.1.3
+  store i32 1, ptr %"@48.1.3", align 4, !tbaa !6
+  %20 = atomicrmw add ptr %rays_queue85, i32 1 monotonic, align 4
+  %_wide48.2.3 = zext i32 %20 to i64
+  %"@45.2.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_083, i64 %_wide48.2.3
+  store float %extract44.3, ptr %"@45.2.3", align 4, !tbaa !4
+  %"@48.2.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_082, i64 %_wide48.2.3
+  store i32 2, ptr %"@48.2.3", align 4, !tbaa !6
+  br label %ii1_pf_latch.3
+
+ii1_pf_latch.3:                                   ; preds = %j2_pf_head.preheader.3, %ii1_pf_latch.2
+  %"@24.count95" = load i32, ptr %rays_queue85, align 16
+  %21 = icmp eq i32 %"@24.count95", 0
+  br i1 %21, label %rays_rest4_pf_head.preheader, label %"rays!batch"
+
+"rays!run":                                       ; preds = %"rays!batch", %step.exit
+  %indvars.iv = phi i64 [ 0, %"rays!batch" ], [ %indvars.iv.next, %step.exit ]
+  %extract60.fca.1.load = load ptr, ptr %extract60.fca.1.gep, align 8
+  %extract60.fca.2.load = load ptr, ptr %extract60.fca.2.gep, align 8
+  %extract_ptr62 = getelementptr inbounds nuw [4 x i8], ptr %extract60.fca.1.load, i64 %indvars.iv
+  %extract63 = load float, ptr %extract_ptr62, align 4
+  %extract_ptr69 = getelementptr inbounds nuw [4 x i8], ptr %extract60.fca.2.load, i64 %indvars.iv
+  %extract70 = load i32, ptr %extract_ptr69, align 4
+  %acc_base.i = load float, ptr %total, align 4
+  %22 = fadd float %extract63, %acc_base.i
+  store float %22, ptr %total, align 4
+  %23 = icmp eq i32 %extract70, 0
+  br i1 %23, label %step.exit, label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %"rays!run"
+  %24 = add i32 %extract70, -1
+  %25 = atomicrmw add ptr %rays_queue56, i32 1 monotonic, align 4
+  %x5.i = load ptr, ptr %4, align 8
+  %_wide.i = zext i32 %25 to i64
+  %"@7.i" = getelementptr inbounds nuw [4 x i8], ptr %x5.i, i64 %_wide.i
+  store float %extract63, ptr %"@7.i", align 4, !tbaa !4
+  %n7.i = load ptr, ptr %5, align 8
+  %"@10.i" = getelementptr inbounds nuw [4 x i8], ptr %n7.i, i64 %_wide.i
+  store i32 %24, ptr %"@10.i", align 4, !tbaa !6
+  br label %step.exit
+
+step.exit:                                        ; preds = %"rays!run", %"!merge_1.i"
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %rays3_pf_exit, label %"rays!run", !prof !8
+
+rays3_pf_exit:                                    ; preds = %step.exit
+  %26 = add i32 %"rays!round596", 1
+  %27 = and i32 %26, 1
+  %_wide52 = zext nneg i32 %27 to i64
+  %extract_ptr53 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue85, i64 %_wide52
+  %"@24.count" = load i32, ptr %extract_ptr53, align 8
+  %28 = icmp eq i32 %"@24.count", 0
+  br i1 %28, label %rays_rest4_pf_head.preheader, label %"rays!batch"
+
+"!step_call_cont_4.2":                            ; preds = %rays_rest4_pf_head.preheader
+  %extract_ptr76 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %1
+  %extract77 = load float, ptr %extract_ptr76, align 4
+  %29 = fadd float %extract77, 1.000000e+00
+  %30 = fadd float %29, 1.000000e+00
+  %extract_ptr76.2 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %1
+  %31 = fadd float %30, 1.000000e+00
+  store float %31, ptr %extract_ptr76.2, align 4, !tbaa !4
+  br label %rays_rest4_pf_latch.2
+
+rays_rest4_pf_latch.2:                            ; preds = %rays_rest4_pf_head.preheader, %"!step_call_cont_4.2"
+  br i1 %.not121, label %"!step_call_cont_4.5", label %rays_rest4_pf_latch.5
+
+"!step_call_cont_4.5":                            ; preds = %rays_rest4_pf_latch.2
+  %32 = or disjoint i32 %io100, 1
+  %i73_wide.3 = zext i32 %32 to i64
+  %extract_ptr76.3 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.3
+  %extract77.3 = load float, ptr %extract_ptr76.3, align 4
+  %33 = fadd float %extract77.3, 1.000000e+00
+  store float %33, ptr %extract_ptr76.3, align 4, !tbaa !4
+  %34 = or disjoint i32 %io100, 1
+  %i73_wide.4 = zext i32 %34 to i64
+  %extract_ptr76.4 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.4
+  %extract77.4 = load float, ptr %extract_ptr76.4, align 4
+  %35 = fadd float %extract77.4, 1.000000e+00
+  store float %35, ptr %extract_ptr76.4, align 4, !tbaa !4
+  %36 = or disjoint i32 %io100, 1
+  %i73_wide.5 = zext i32 %36 to i64
+  %extract_ptr76.5 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.5
+  %extract77.5 = load float, ptr %extract_ptr76.5, align 4
+  %37 = fadd float %extract77.5, 1.000000e+00
+  store float %37, ptr %extract_ptr76.5, align 4, !tbaa !4
+  br label %rays_rest4_pf_latch.5
+
+rays_rest4_pf_latch.5:                            ; preds = %rays_rest4_pf_latch.2, %"!step_call_cont_4.5"
+  br i1 %.not122, label %"!step_call_cont_4.8", label %rays_rest4_pf_latch.8
+
+"!step_call_cont_4.8":                            ; preds = %rays_rest4_pf_latch.5
+  %38 = or disjoint i32 %io100, 2
+  %i73_wide.6 = zext i32 %38 to i64
+  %extract_ptr76.6 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.6
+  %extract77.6 = load float, ptr %extract_ptr76.6, align 4
+  %39 = fadd float %extract77.6, 1.000000e+00
+  store float %39, ptr %extract_ptr76.6, align 4, !tbaa !4
+  %40 = or disjoint i32 %io100, 2
+  %i73_wide.7 = zext i32 %40 to i64
+  %extract_ptr76.7 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.7
+  %extract77.7 = load float, ptr %extract_ptr76.7, align 4
+  %41 = fadd float %extract77.7, 1.000000e+00
+  store float %41, ptr %extract_ptr76.7, align 4, !tbaa !4
+  %42 = or disjoint i32 %io100, 2
+  %i73_wide.8 = zext i32 %42 to i64
+  %extract_ptr76.8 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.8
+  %extract77.8 = load float, ptr %extract_ptr76.8, align 4
+  %43 = fadd float %extract77.8, 1.000000e+00
+  store float %43, ptr %extract_ptr76.8, align 4, !tbaa !4
+  br label %rays_rest4_pf_latch.8
+
+rays_rest4_pf_latch.8:                            ; preds = %rays_rest4_pf_latch.5, %"!step_call_cont_4.8"
+  br i1 %.not123, label %"!step_call_cont_4.11", label %rays_rest4_pf_latch.11
+
+"!step_call_cont_4.11":                           ; preds = %rays_rest4_pf_latch.8
+  %44 = or disjoint i32 %io100, 3
+  %i73_wide.9 = zext i32 %44 to i64
+  %extract_ptr76.9 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.9
+  %extract77.9 = load float, ptr %extract_ptr76.9, align 4
+  %45 = fadd float %extract77.9, 1.000000e+00
+  store float %45, ptr %extract_ptr76.9, align 4, !tbaa !4
+  %46 = or disjoint i32 %io100, 3
+  %i73_wide.10 = zext i32 %46 to i64
+  %extract_ptr76.10 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.10
+  %extract77.10 = load float, ptr %extract_ptr76.10, align 4
+  %47 = fadd float %extract77.10, 1.000000e+00
+  store float %47, ptr %extract_ptr76.10, align 4, !tbaa !4
+  %48 = or disjoint i32 %io100, 3
+  %i73_wide.11 = zext i32 %48 to i64
+  %extract_ptr76.11 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i73_wide.11
+  %extract77.11 = load float, ptr %extract_ptr76.11, align 4
+  %49 = fadd float %extract77.11, 1.000000e+00
+  store float %49, ptr %extract_ptr76.11, align 4, !tbaa !4
+  br label %rays_rest4_pf_latch.11
+
+rays_rest4_pf_latch.11:                           ; preds = %rays_rest4_pf_latch.8, %"!step_call_cont_4.11"
+  %50 = add i32 %io100, 4
+  %51 = icmp ult i32 %50, %extract
+  br i1 %51, label %"!par_body_0_split_io", label %io0_pf_exit, !prof !9
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+
+!0 = !{!"branch_weights", i32 0, i32 1}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!5, !5, i64 0}
+!5 = !{!"f32", !3, i64 0}
+!6 = !{!7, !7, i64 0}
+!7 = !{!"i32", !3, i64 0}
+!8 = !{!"branch_weights", i32 0, i32 1073741824}
+!9 = !{!"branch_weights", i32 1073741824, i32 0}

@@ -1,2 +1,396 @@
 ; ModuleID = 'bonsai_module'
 source_filename = "bonsai_module"
+
+%struct.Queue_rays = type { i32, ptr, ptr }
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %values_buffer, ptr noundef %counts_buffer, ptr noundef %out_buffer, ptr nofree noundef nonnull captures(none) %total) local_unnamed_addr #0 {
+run:
+  %rays_queue3372 = alloca [2 x %struct.Queue_rays], align 16
+  %values = tail call ptr @bonsai_buffer_require(ptr %values_buffer, i32 1)
+  %counts = tail call ptr @bonsai_buffer_require(ptr %counts_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %extract = load i32, ptr %counts, align 4
+  %0 = shl i32 %extract, 2
+  %size64 = zext i32 %0 to i64
+  %mallocsize = shl nuw nsw i64 %size64, 2
+  %rays_x_0_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %rays_n_0_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %rays_x_1_untyped = tail call ptr @malloc(i64 %mallocsize)
+  %rays_n_1_untyped = tail call ptr @malloc(i64 %mallocsize)
+  store i32 0, ptr %rays_queue3372, align 16
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %rays_queue3372, i64 8
+  store ptr %rays_x_0_untyped, ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %rays_queue3372, i64 16
+  store ptr %rays_n_0_untyped, ptr %.fca.2.gep, align 16
+  %rays_queue35 = getelementptr inbounds nuw i8, ptr %rays_queue3372, i64 24
+  store i32 0, ptr %rays_queue35, align 8
+  %.fca.1.gep76 = getelementptr inbounds nuw i8, ptr %rays_queue3372, i64 32
+  store ptr %rays_x_1_untyped, ptr %.fca.1.gep76, align 16
+  %.fca.2.gep78 = getelementptr inbounds nuw i8, ptr %rays_queue3372, i64 40
+  store ptr %rays_n_1_untyped, ptr %.fca.2.gep78, align 8
+  %1 = load i32, ptr %counts, align 4
+  %.not = icmp eq i32 %1, 0
+  br i1 %.not, label %rays_rest, label %"!par_body_2.lr.ph", !prof !0
+
+rays_rest:                                        ; preds = %rays2_pf_exit, %run, %"rays!round.preheader"
+  call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %.not88 = icmp eq i32 %0, 0
+  br i1 %.not88, label %rays_rest3_pf_exit, label %"rays_rest!run", !prof !0
+
+"rays!batch":                                     ; preds = %"rays!round.preheader", %rays2_pf_exit
+  %"@22.count85" = phi i32 [ %"@22.count", %rays2_pf_exit ], [ %"@22.count82.pre", %"rays!round.preheader" ]
+  %extract_ptr4784 = phi ptr [ %extract_ptr47, %rays2_pf_exit ], [ %rays_queue3372, %"rays!round.preheader" ]
+  %2 = phi i32 [ %53, %rays2_pf_exit ], [ 0, %"rays!round.preheader" ]
+  %"rays!round383" = phi i32 [ %52, %rays2_pf_exit ], [ 0, %"rays!round.preheader" ]
+  %3 = xor i32 %2, 1
+  %_wide49 = zext nneg i32 %3 to i64
+  %rays_queue50 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue3372, i64 %_wide49
+  store i32 0, ptr %rays_queue50, align 8, !tbaa !1
+  %extract54.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr4784, i64 8
+  %extract54.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr4784, i64 16
+  %4 = getelementptr inbounds nuw i8, ptr %rays_queue50, i64 8
+  %5 = getelementptr inbounds nuw i8, ptr %rays_queue50, i64 16
+  %wide.trip.count95 = zext i32 %"@22.count85" to i64
+  br label %"rays!run"
+
+"rays!round.preheader.unr-lcssa":                 ; preds = %"!par_body_2.3"
+  %lcmp.mod121.not = icmp eq i64 %xtraiter120, 0
+  br i1 %lcmp.mod121.not, label %"rays!round.preheader", label %"!par_body_2.3.epil.preheader", !prof !4
+
+"!par_body_2.3.epil.preheader":                   ; preds = %"rays!round.preheader.unr-lcssa", %"!par_body_2.lr.ph.3"
+  %indvars.iv.3.epil.init = phi i64 [ 0, %"!par_body_2.lr.ph.3" ], [ %indvars.iv.next.3.1, %"rays!round.preheader.unr-lcssa" ]
+  %lcmp.mod122 = trunc i32 %1 to i1
+  call void @llvm.assume(i1 %lcmp.mod122)
+  %6 = trunc nuw i64 %indvars.iv.3.epil.init to i32
+  %7 = add nuw i64 %indvars.iv.3.epil.init, 9
+  %_wide.3.epil = and i64 %7, 4294967295
+  %extract_ptr38.3.epil = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.3.epil
+  %extract39.3.epil = load float, ptr %extract_ptr38.3.epil, align 4
+  %8 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.3.epil = zext i32 %8 to i64
+  %"@39.3.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.3.epil
+  store float %extract39.3.epil, ptr %"@39.3.epil", align 4, !tbaa !5
+  %"@42.3.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.3.epil
+  store i32 %6, ptr %"@42.3.epil", align 4, !tbaa !7
+  br label %"rays!round.preheader"
+
+"rays!round.preheader":                           ; preds = %"rays!round.preheader.unr-lcssa", %"!par_body_2.3.epil.preheader"
+  %"@22.count82.pre" = load i32, ptr %rays_queue3372, align 16
+  %9 = icmp eq i32 %"@22.count82.pre", 0
+  br i1 %9, label %rays_rest, label %"rays!batch"
+
+"!par_body_2.lr.ph":                              ; preds = %run
+  %wide.trip.count = zext i32 %1 to i64
+  %10 = add nsw i64 %wide.trip.count, -1
+  %xtraiter = and i64 %wide.trip.count, 1
+  %11 = icmp eq i64 %10, 0
+  br i1 %11, label %"!par_body_2.epil.preheader", label %"!par_body_2.lr.ph.new", !prof !4
+
+"!par_body_2.lr.ph.new":                          ; preds = %"!par_body_2.lr.ph"
+  %unroll_iter = and i64 %wide.trip.count, 4294967294
+  br label %"!par_body_2"
+
+"!par_body_2":                                    ; preds = %"!par_body_2", %"!par_body_2.lr.ph.new"
+  %indvars.iv = phi i64 [ 0, %"!par_body_2.lr.ph.new" ], [ %indvars.iv.next.1108, %"!par_body_2" ]
+  %niter = phi i64 [ 0, %"!par_body_2.lr.ph.new" ], [ %niter.next.1, %"!par_body_2" ]
+  %extract_ptr38 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %indvars.iv
+  %extract39 = load float, ptr %extract_ptr38, align 4
+  %12 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42 = zext i32 %12 to i64
+  %"@39" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42
+  store float %extract39, ptr %"@39", align 4, !tbaa !5
+  %"@42" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42
+  %13 = trunc nuw i64 %indvars.iv to i32
+  store i32 %13, ptr %"@42", align 4, !tbaa !7
+  %indvars.iv.next = or disjoint i64 %indvars.iv, 1
+  %extract_ptr38.1103 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %indvars.iv.next
+  %extract39.1104 = load float, ptr %extract_ptr38.1103, align 4
+  %14 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.1105 = zext i32 %14 to i64
+  %"@39.1106" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.1105
+  store float %extract39.1104, ptr %"@39.1106", align 4, !tbaa !5
+  %"@42.1107" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.1105
+  %15 = trunc nuw i64 %indvars.iv.next to i32
+  store i32 %15, ptr %"@42.1107", align 4, !tbaa !7
+  %indvars.iv.next.1108 = add nuw nsw i64 %indvars.iv, 2
+  %niter.next.1 = add i64 %niter, 2
+  %niter.ncmp.1 = icmp eq i64 %niter.next.1, %unroll_iter
+  br i1 %niter.ncmp.1, label %"!par_body_2.lr.ph.1.unr-lcssa", label %"!par_body_2", !prof !4
+
+"!par_body_2.lr.ph.1.unr-lcssa":                  ; preds = %"!par_body_2"
+  %lcmp.mod.not = icmp eq i64 %xtraiter, 0
+  br i1 %lcmp.mod.not, label %"!par_body_2.lr.ph.1", label %"!par_body_2.epil.preheader", !prof !4
+
+"!par_body_2.epil.preheader":                     ; preds = %"!par_body_2.lr.ph.1.unr-lcssa", %"!par_body_2.lr.ph"
+  %indvars.iv.epil.init = phi i64 [ 0, %"!par_body_2.lr.ph" ], [ %indvars.iv.next.1108, %"!par_body_2.lr.ph.1.unr-lcssa" ]
+  %lcmp.mod101 = trunc i32 %1 to i1
+  call void @llvm.assume(i1 %lcmp.mod101)
+  %extract_ptr38.epil = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %indvars.iv.epil.init
+  %extract39.epil = load float, ptr %extract_ptr38.epil, align 4
+  %16 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.epil = zext i32 %16 to i64
+  %"@39.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.epil
+  store float %extract39.epil, ptr %"@39.epil", align 4, !tbaa !5
+  %"@42.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.epil
+  %17 = trunc nuw i64 %indvars.iv.epil.init to i32
+  store i32 %17, ptr %"@42.epil", align 4, !tbaa !7
+  br label %"!par_body_2.lr.ph.1"
+
+"!par_body_2.lr.ph.1":                            ; preds = %"!par_body_2.lr.ph.1.unr-lcssa", %"!par_body_2.epil.preheader"
+  %xtraiter110 = and i64 %wide.trip.count, 1
+  %18 = icmp eq i64 %10, 0
+  br i1 %18, label %"!par_body_2.1.epil.preheader", label %"!par_body_2.lr.ph.1.new", !prof !4
+
+"!par_body_2.lr.ph.1.new":                        ; preds = %"!par_body_2.lr.ph.1"
+  %unroll_iter113 = and i64 %wide.trip.count, 4294967294
+  br label %"!par_body_2.1"
+
+"!par_body_2.1":                                  ; preds = %"!par_body_2.1", %"!par_body_2.lr.ph.1.new"
+  %indvars.iv.1 = phi i64 [ 0, %"!par_body_2.lr.ph.1.new" ], [ %indvars.iv.next.1.1, %"!par_body_2.1" ]
+  %niter114 = phi i64 [ 0, %"!par_body_2.lr.ph.1.new" ], [ %niter114.next.1, %"!par_body_2.1" ]
+  %19 = trunc nuw i64 %indvars.iv.1 to i32
+  %20 = add nuw i64 %indvars.iv.1, 3
+  %_wide.1 = and i64 %20, 4294967295
+  %extract_ptr38.1 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.1
+  %extract39.1 = load float, ptr %extract_ptr38.1, align 4
+  %21 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.1 = zext i32 %21 to i64
+  %"@39.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.1
+  store float %extract39.1, ptr %"@39.1", align 4, !tbaa !5
+  %"@42.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.1
+  store i32 %19, ptr %"@42.1", align 4, !tbaa !7
+  %22 = trunc i64 %indvars.iv.1 to i32
+  %23 = or disjoint i32 %22, 1
+  %24 = add nuw i64 %indvars.iv.1, 4
+  %_wide.1.1 = and i64 %24, 4294967294
+  %extract_ptr38.1.1 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.1.1
+  %extract39.1.1 = load float, ptr %extract_ptr38.1.1, align 4
+  %25 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.1.1 = zext i32 %25 to i64
+  %"@39.1.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.1.1
+  store float %extract39.1.1, ptr %"@39.1.1", align 4, !tbaa !5
+  %"@42.1.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.1.1
+  store i32 %23, ptr %"@42.1.1", align 4, !tbaa !7
+  %indvars.iv.next.1.1 = add nuw nsw i64 %indvars.iv.1, 2
+  %niter114.next.1 = add nuw i64 %niter114, 2
+  %niter114.ncmp.1 = icmp eq i64 %niter114.next.1, %unroll_iter113
+  br i1 %niter114.ncmp.1, label %"!par_body_2.lr.ph.2.unr-lcssa", label %"!par_body_2.1", !prof !4
+
+"!par_body_2.lr.ph.2.unr-lcssa":                  ; preds = %"!par_body_2.1"
+  %lcmp.mod111.not = icmp eq i64 %xtraiter110, 0
+  br i1 %lcmp.mod111.not, label %"!par_body_2.lr.ph.2", label %"!par_body_2.1.epil.preheader", !prof !4
+
+"!par_body_2.1.epil.preheader":                   ; preds = %"!par_body_2.lr.ph.2.unr-lcssa", %"!par_body_2.lr.ph.1"
+  %indvars.iv.1.epil.init = phi i64 [ 0, %"!par_body_2.lr.ph.1" ], [ %indvars.iv.next.1.1, %"!par_body_2.lr.ph.2.unr-lcssa" ]
+  %lcmp.mod112 = trunc i32 %1 to i1
+  call void @llvm.assume(i1 %lcmp.mod112)
+  %26 = trunc nuw i64 %indvars.iv.1.epil.init to i32
+  %27 = add nuw i64 %indvars.iv.1.epil.init, 3
+  %_wide.1.epil = and i64 %27, 4294967295
+  %extract_ptr38.1.epil = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.1.epil
+  %extract39.1.epil = load float, ptr %extract_ptr38.1.epil, align 4
+  %28 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.1.epil = zext i32 %28 to i64
+  %"@39.1.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.1.epil
+  store float %extract39.1.epil, ptr %"@39.1.epil", align 4, !tbaa !5
+  %"@42.1.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.1.epil
+  store i32 %26, ptr %"@42.1.epil", align 4, !tbaa !7
+  br label %"!par_body_2.lr.ph.2"
+
+"!par_body_2.lr.ph.2":                            ; preds = %"!par_body_2.lr.ph.2.unr-lcssa", %"!par_body_2.1.epil.preheader"
+  %xtraiter115 = and i64 %wide.trip.count, 1
+  %29 = icmp eq i64 %10, 0
+  br i1 %29, label %"!par_body_2.2.epil.preheader", label %"!par_body_2.lr.ph.2.new", !prof !4
+
+"!par_body_2.lr.ph.2.new":                        ; preds = %"!par_body_2.lr.ph.2"
+  %unroll_iter118 = and i64 %wide.trip.count, 4294967294
+  br label %"!par_body_2.2"
+
+"!par_body_2.2":                                  ; preds = %"!par_body_2.2", %"!par_body_2.lr.ph.2.new"
+  %indvars.iv.2 = phi i64 [ 0, %"!par_body_2.lr.ph.2.new" ], [ %indvars.iv.next.2.1, %"!par_body_2.2" ]
+  %niter119 = phi i64 [ 0, %"!par_body_2.lr.ph.2.new" ], [ %niter119.next.1, %"!par_body_2.2" ]
+  %30 = trunc nuw i64 %indvars.iv.2 to i32
+  %31 = add nuw i64 %indvars.iv.2, 6
+  %_wide.2 = and i64 %31, 4294967294
+  %extract_ptr38.2 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.2
+  %extract39.2 = load float, ptr %extract_ptr38.2, align 4
+  %32 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.2 = zext i32 %32 to i64
+  %"@39.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.2
+  store float %extract39.2, ptr %"@39.2", align 4, !tbaa !5
+  %"@42.2" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.2
+  store i32 %30, ptr %"@42.2", align 4, !tbaa !7
+  %33 = trunc i64 %indvars.iv.2 to i32
+  %34 = or disjoint i32 %33, 1
+  %35 = add nuw i64 %indvars.iv.2, 7
+  %_wide.2.1 = and i64 %35, 4294967295
+  %extract_ptr38.2.1 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.2.1
+  %extract39.2.1 = load float, ptr %extract_ptr38.2.1, align 4
+  %36 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.2.1 = zext i32 %36 to i64
+  %"@39.2.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.2.1
+  store float %extract39.2.1, ptr %"@39.2.1", align 4, !tbaa !5
+  %"@42.2.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.2.1
+  store i32 %34, ptr %"@42.2.1", align 4, !tbaa !7
+  %indvars.iv.next.2.1 = add nuw nsw i64 %indvars.iv.2, 2
+  %niter119.next.1 = add i64 %niter119, 2
+  %niter119.ncmp.1 = icmp eq i64 %niter119.next.1, %unroll_iter118
+  br i1 %niter119.ncmp.1, label %"!par_body_2.lr.ph.3.unr-lcssa", label %"!par_body_2.2", !prof !4
+
+"!par_body_2.lr.ph.3.unr-lcssa":                  ; preds = %"!par_body_2.2"
+  %lcmp.mod116.not = icmp eq i64 %xtraiter115, 0
+  br i1 %lcmp.mod116.not, label %"!par_body_2.lr.ph.3", label %"!par_body_2.2.epil.preheader", !prof !4
+
+"!par_body_2.2.epil.preheader":                   ; preds = %"!par_body_2.lr.ph.3.unr-lcssa", %"!par_body_2.lr.ph.2"
+  %indvars.iv.2.epil.init = phi i64 [ 0, %"!par_body_2.lr.ph.2" ], [ %indvars.iv.next.2.1, %"!par_body_2.lr.ph.3.unr-lcssa" ]
+  %lcmp.mod117 = trunc i32 %1 to i1
+  call void @llvm.assume(i1 %lcmp.mod117)
+  %37 = trunc nuw i64 %indvars.iv.2.epil.init to i32
+  %38 = add nuw i64 %indvars.iv.2.epil.init, 6
+  %_wide.2.epil = and i64 %38, 4294967295
+  %extract_ptr38.2.epil = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.2.epil
+  %extract39.2.epil = load float, ptr %extract_ptr38.2.epil, align 4
+  %39 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.2.epil = zext i32 %39 to i64
+  %"@39.2.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.2.epil
+  store float %extract39.2.epil, ptr %"@39.2.epil", align 4, !tbaa !5
+  %"@42.2.epil" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.2.epil
+  store i32 %37, ptr %"@42.2.epil", align 4, !tbaa !7
+  br label %"!par_body_2.lr.ph.3"
+
+"!par_body_2.lr.ph.3":                            ; preds = %"!par_body_2.lr.ph.3.unr-lcssa", %"!par_body_2.2.epil.preheader"
+  %xtraiter120 = and i64 %wide.trip.count, 1
+  %40 = icmp eq i64 %10, 0
+  br i1 %40, label %"!par_body_2.3.epil.preheader", label %"!par_body_2.lr.ph.3.new", !prof !4
+
+"!par_body_2.lr.ph.3.new":                        ; preds = %"!par_body_2.lr.ph.3"
+  %unroll_iter123 = and i64 %wide.trip.count, 4294967294
+  br label %"!par_body_2.3"
+
+"!par_body_2.3":                                  ; preds = %"!par_body_2.3", %"!par_body_2.lr.ph.3.new"
+  %indvars.iv.3 = phi i64 [ 0, %"!par_body_2.lr.ph.3.new" ], [ %indvars.iv.next.3.1, %"!par_body_2.3" ]
+  %niter124 = phi i64 [ 0, %"!par_body_2.lr.ph.3.new" ], [ %niter124.next.1, %"!par_body_2.3" ]
+  %41 = trunc nuw i64 %indvars.iv.3 to i32
+  %42 = add nuw i64 %indvars.iv.3, 9
+  %_wide.3 = and i64 %42, 4294967295
+  %extract_ptr38.3 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.3
+  %extract39.3 = load float, ptr %extract_ptr38.3, align 4
+  %43 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.3 = zext i32 %43 to i64
+  %"@39.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.3
+  store float %extract39.3, ptr %"@39.3", align 4, !tbaa !5
+  %"@42.3" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.3
+  store i32 %41, ptr %"@42.3", align 4, !tbaa !7
+  %44 = trunc i64 %indvars.iv.3 to i32
+  %45 = or disjoint i32 %44, 1
+  %46 = add nuw i64 %indvars.iv.3, 10
+  %_wide.3.1 = and i64 %46, 4294967294
+  %extract_ptr38.3.1 = getelementptr inbounds nuw [4 x i8], ptr %values, i64 %_wide.3.1
+  %extract39.3.1 = load float, ptr %extract_ptr38.3.1, align 4
+  %47 = atomicrmw add ptr %rays_queue3372, i32 1 monotonic, align 4
+  %_wide42.3.1 = zext i32 %47 to i64
+  %"@39.3.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_x_0_untyped, i64 %_wide42.3.1
+  store float %extract39.3.1, ptr %"@39.3.1", align 4, !tbaa !5
+  %"@42.3.1" = getelementptr inbounds nuw [4 x i8], ptr %rays_n_0_untyped, i64 %_wide42.3.1
+  store i32 %45, ptr %"@42.3.1", align 4, !tbaa !7
+  %indvars.iv.next.3.1 = add nuw nsw i64 %indvars.iv.3, 2
+  %niter124.next.1 = add i64 %niter124, 2
+  %niter124.ncmp.1 = icmp eq i64 %niter124.next.1, %unroll_iter123
+  br i1 %niter124.ncmp.1, label %"rays!round.preheader.unr-lcssa", label %"!par_body_2.3", !prof !4
+
+"rays!run":                                       ; preds = %"rays!batch", %step.exit
+  %indvars.iv92 = phi i64 [ 0, %"rays!batch" ], [ %indvars.iv.next93, %step.exit ]
+  %extract54.fca.1.load = load ptr, ptr %extract54.fca.1.gep, align 8
+  %extract54.fca.2.load = load ptr, ptr %extract54.fca.2.gep, align 8
+  %extract_ptr56 = getelementptr inbounds nuw [4 x i8], ptr %extract54.fca.1.load, i64 %indvars.iv92
+  %extract57 = load float, ptr %extract_ptr56, align 4
+  %extract_ptr63 = getelementptr inbounds nuw [4 x i8], ptr %extract54.fca.2.load, i64 %indvars.iv92
+  %extract64 = load i32, ptr %extract_ptr63, align 4
+  %acc_base.i = load float, ptr %total, align 4
+  %48 = fadd float %extract57, %acc_base.i
+  store float %48, ptr %total, align 4
+  %49 = icmp eq i32 %extract64, 0
+  br i1 %49, label %step.exit, label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %"rays!run"
+  %50 = add i32 %extract64, -1
+  %51 = atomicrmw add ptr %rays_queue50, i32 1 monotonic, align 4
+  %x5.i = load ptr, ptr %4, align 8
+  %_wide.i = zext i32 %51 to i64
+  %"@7.i" = getelementptr inbounds nuw [4 x i8], ptr %x5.i, i64 %_wide.i
+  store float %extract57, ptr %"@7.i", align 4, !tbaa !5
+  %n7.i = load ptr, ptr %5, align 8
+  %"@10.i" = getelementptr inbounds nuw [4 x i8], ptr %n7.i, i64 %_wide.i
+  store i32 %50, ptr %"@10.i", align 4, !tbaa !7
+  br label %step.exit
+
+step.exit:                                        ; preds = %"rays!run", %"!merge_1.i"
+  %indvars.iv.next93 = add nuw nsw i64 %indvars.iv92, 1
+  %exitcond96.not = icmp eq i64 %indvars.iv.next93, %wide.trip.count95
+  br i1 %exitcond96.not, label %rays2_pf_exit, label %"rays!run", !prof !9
+
+rays2_pf_exit:                                    ; preds = %step.exit
+  %52 = add i32 %"rays!round383", 1
+  %53 = and i32 %52, 1
+  %_wide46 = zext nneg i32 %53 to i64
+  %extract_ptr47 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue3372, i64 %_wide46
+  %"@22.count" = load i32, ptr %extract_ptr47, align 8
+  %54 = icmp eq i32 %"@22.count", 0
+  br i1 %54, label %rays_rest, label %"rays!batch"
+
+"rays_rest!run":                                  ; preds = %rays_rest, %"rays_rest!run"
+  %rays_rest6586 = phi i32 [ %60, %"rays_rest!run" ], [ 0, %rays_rest ]
+  %55 = udiv i32 %rays_rest6586, %extract
+  %i67_wide = zext i32 %55 to i64
+  %extract_ptr68 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i67_wide
+  %extract69 = load float, ptr %extract_ptr68, align 4
+  %56 = fadd float %extract69, 1.000000e+00
+  store float %56, ptr %extract_ptr68, align 4, !tbaa !5
+  %57 = or disjoint i32 %rays_rest6586, 1
+  %58 = udiv i32 %57, %extract
+  %i67_wide.1 = zext i32 %58 to i64
+  %extract_ptr68.1 = getelementptr inbounds nuw [4 x i8], ptr %out, i64 %i67_wide.1
+  %extract69.1 = load float, ptr %extract_ptr68.1, align 4
+  %59 = fadd float %extract69.1, 1.000000e+00
+  store float %59, ptr %extract_ptr68.1, align 4, !tbaa !5
+  %60 = add nuw i32 %rays_rest6586, 2
+  %exitcond97.not.1 = icmp eq i32 %60, %0
+  br i1 %exitcond97.not.1, label %rays_rest3_pf_exit, label %"rays_rest!run", !prof !9
+
+rays_rest3_pf_exit:                               ; preds = %"rays_rest!run", %rays_rest
+  tail call void @free(ptr %rays_x_0_untyped)
+  tail call void @free(ptr %rays_n_0_untyped)
+  tail call void @free(ptr %rays_x_1_untyped)
+  tail call void @free(ptr %rays_n_1_untyped)
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write)
+declare noalias noundef ptr @malloc(i64 noundef) local_unnamed_addr #1
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nounwind willreturn allockind("free") memory(argmem: readwrite, inaccessiblemem: readwrite)
+declare void @free(ptr allocptr noundef captures(none)) local_unnamed_addr #2
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write)
+declare void @llvm.assume(i1 noundef) #3
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree nounwind willreturn allockind("alloc,uninitialized") allocsize(0) memory(inaccessiblemem: readwrite, errnomem: write) "alloc-family"="malloc" }
+attributes #2 = { mustprogress nounwind willreturn allockind("free") memory(argmem: readwrite, inaccessiblemem: readwrite) "alloc-family"="malloc" }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
+
+!0 = !{!"branch_weights", i32 0, i32 1}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"u32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!"branch_weights", i32 0, i32 -2147483648}
+!5 = !{!6, !6, i64 0}
+!6 = !{!"f32", !3, i64 0}
+!7 = !{!8, !8, i64 0}
+!8 = !{!"i32", !3, i64 0}
+!9 = !{!"branch_weights", i32 0, i32 1073741824}

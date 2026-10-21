@@ -1584,6 +1584,17 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             node->type = UInt_t::make(32);
             break;
         }
+        case Intrinsic::fill_bytes: {
+            // The count is in the index type of whatever sized the array,
+            // signed or not.
+            internal_assert(args.size() == 3 && args[1].type().is_uint() &&
+                            args[1].type().bits() == 8 &&
+                            (args[2].type().is_uint() || args[2].type().is_int()))
+                << "fill_bytes takes the bytes to fill, the byte value and the "
+                << "count, an integer";
+            node->type = UInt_t::make(32);
+            break;
+        }
         case Intrinsic::rand: {
             internal_assert(args.size() <= 1);
             if (args.size() == 0) {
@@ -2220,6 +2231,7 @@ bool Intrinsic::has_effects(OpType op) {
     case Intrinsic::rt_set_payload:
     case Intrinsic::rt_reorder:
     case Intrinsic::sort_indices:
+    case Intrinsic::fill_bytes:
         return true;
     default:
         return false;

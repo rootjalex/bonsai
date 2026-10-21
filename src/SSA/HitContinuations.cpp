@@ -230,6 +230,7 @@ bool effectful_intrinsic(Intrinsic::OpType op) {
     case Intrinsic::rt_ignore_hit:
     case Intrinsic::rt_reorder:
     case Intrinsic::sort_indices:
+    case Intrinsic::fill_bytes:
     case Intrinsic::rand:
         return true;
     default:

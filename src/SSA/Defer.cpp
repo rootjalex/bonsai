@@ -1708,9 +1708,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // predecessor, checked above, so a path around the call ends the
     // iteration), and the pass must not run their slots: what it would
     // read there is another band's, or nothing. Then each slot gets a byte
-    // (`<q>_ran`), cleared as its iteration starts and set at the call, and
-    // the pass tests it. The test is dominance in the loop's body: the
-    // call's block over every block that ends an iteration.
+    // (`<q>_ran`), cleared for the whole record as the owner's iteration
+    // starts and set at the call, and the pass tests it. The test is made
+    // at every level of the producer nest, outermost in: the blocks of the
+    // level's body reachable without passing the gate -- the next loop's
+    // header, or at the innermost level the call's block -- include one
+    // that ends an iteration. A split's tail guard yields before the inner
+    // loop, one level out from the call, and skips every slot of its
+    // iteration; a test around the call itself skips one slot.
     const bool rest_pass =
         k0_entry &&
         !(k0.size() == 1 && k0_entry->instrs.empty() &&
@@ -1719,12 +1724,27 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             std::get<Terminator::Return>(k0_entry->terminator.data).value == nullptr)));
     bool call_on_every_iteration = true;
     if (rest_pass && producer_loop_block) {
-        const auto &innermost = std::get<Terminator::ParFor>(nest.back()->terminator.data);
         const BlockId call_id = ocfg.id(producer.block->name);
-        for (const shared_ptr<Block> &b : region_from(*O, innermost.body.name)) {
-            if (std::holds_alternative<Terminator::Yield>(b->terminator.data) &&
-                !odom.dominates(call_id, ocfg.id(b->name))) {
-                call_on_every_iteration = false;
+        for (size_t k = 0; k < nest.size() && call_on_every_iteration; k++) {
+            const auto &level = std::get<Terminator::ParFor>(nest[k]->terminator.data);
+            const BlockId gate =
+                k + 1 < nest.size() ? ocfg.id(nest[k + 1]->name) : call_id;
+            vector<BlockId> work{ocfg.id(level.body.name)};
+            BlockSet seen(ocfg.size());
+            while (!work.empty()) {
+                const BlockId b = work.back();
+                work.pop_back();
+                if (b == NO_BLOCK || b == gate || seen.contains(b)) {
+                    continue;
+                }
+                seen.insert(b);
+                if (std::holds_alternative<Terminator::Yield>(ocfg[b].terminator.data)) {
+                    call_on_every_iteration = false;
+                    break;
+                }
+                for (BlockId s : ocfg.succs[b]) {
+                    work.push_back(s);
+                }
             }
         }
     }
@@ -2897,9 +2917,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                  queue.adt_storages, {rv.array}, {}, /*split=*/false});
     }
     // Whether each slot's iteration reached the call (see
-    // call_on_every_iteration): a byte per slot, cleared where the innermost
-    // producer loop's iteration begins and set beside the record's stores at
-    // the call.
+    // call_on_every_iteration): a byte per slot, cleared for the whole
+    // record where the owner's iteration initializes the queue (init_point,
+    // before the first producer loop) and set beside the record's stores at
+    // the call. The whole record, by one fill, rather than a store as each
+    // innermost iteration begins: an iteration a guard skips one level out
+    // never begins the innermost iterations of its slots, and their bytes
+    // would hold what the last owner iteration left.
     shared_ptr<Value> ran_array;
     if (rest_pass && !call_on_every_iteration) {
         ran_array = scratch(make_alloca(*O, alloc_point,
@@ -2909,14 +2933,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                  queue.name + ".ran", "ran", queue.name + "_", "", u8(),
                                  queue.vector_leaves, queue.adt_storages, {ran_array}, {},
                                  /*split=*/false});
-        const auto &innermost = std::get<Terminator::ParFor>(nest.back()->terminator.data);
-        const shared_ptr<Block> body = omap.at(innermost.body.name);
-        size_t at = body->instrs.size();
-        const shared_ptr<Value> index = slot_index_at(body, at);
-        auto place = body->make_instruction(Ptr_t::make(u8()), Instruction::Op::GEP,
-                                            {reach(body, ran_array), index});
-        body->make_side_effect(Instruction::Op::Store,
-                               {place, index_constant(u8(), 0)});
+        auto cleared = init_point->make_instruction(
+            u32(), Instruction::Op::Intrinsic,
+            {reach(init_point, ran_array), index_constant(u8(), 0),
+             reach(init_point, size)});
+        std::get<shared_ptr<Instruction>>(cleared->data)->intrinsic =
+            ir::Intrinsic::fill_bytes;
     }
     // The iteration's index into the record, at the producer's call, and the
     // path's result slot there: the value the producer's continuation reads

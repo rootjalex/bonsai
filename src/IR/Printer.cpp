@@ -1288,6 +1288,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_reorder";
     case Intrinsic::sort_indices:
         return "sort_indices";
+    case Intrinsic::fill_bytes:
+        return "fill_bytes";
     case Intrinsic::block_reduce_add:
         return "block_reduce_add";
     case Intrinsic::block_reduce_max:

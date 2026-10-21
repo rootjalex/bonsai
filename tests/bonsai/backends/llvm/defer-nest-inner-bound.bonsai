@@ -17,8 +17,8 @@ func step(x : Float, n : i32, total : reduce(+) Float) -> void {
     return;
 }
 
-func run(values : array[Float, 12], counts : array[u32, 1],
-         out : mut array[Float, 4], total : reduce(+) Float) -> void {
+func [[export]] run(values : array[Float, 12], counts : array[u32, 1],
+                    out : mut array[Float, 4], total : reduce(+) Float) -> void {
     parfor i in 0u:4u {
         m = counts[0];
         parfor j in 0u:m {
