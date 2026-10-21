@@ -497,7 +497,10 @@ if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
   fi
   OPTIX_FLAGS=(-isystem "$OPTIX_SDK/include" -isystem "$CUDA_DIR/include")
 fi
-"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+# -march=native as pbrt's own build has it: the driver is host code, and
+# runtime/bonsai_parallel.h's sort of a sorted queue takes its vectorized
+# form only when the translation unit is compiled for the host's vectors.
+"$BONSAI_CXX" -g -std=c++20 -O3 -march=native -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
     $PREFIX/render_hook.cpp \
     -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$WORK/render.out"

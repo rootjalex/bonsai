@@ -152,7 +152,10 @@ mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
 "./$BONSAI_BUILD_DIR/compiler" "${FLAGS[@]}" "${LINK_FLAGS[@]}" "${INPUTS[@]}" -b cpp -o $PREFIX/render
 
 # -I. so that the generated header can find the runtime it includes.
-"$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+# -march=native as pbrt's own build has it: the driver is host code, and
+# runtime/bonsai_parallel.h's sort of a sorted queue takes its vectorized
+# form only when the translation unit is compiled for the host's vectors.
+"$BONSAI_CXX" -g -std=c++20 -O3 -march=native -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
     $PREFIX/render_hook.cpp \
     -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
     $PREFIX/render.o "${TBB_FLAGS[@]}" -o $PREFIX/render.out
