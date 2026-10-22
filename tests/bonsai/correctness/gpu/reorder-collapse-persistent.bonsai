@@ -1,0 +1,42 @@
+//! flags: -p ssa -b llvm -e
+
+// The nest of tests/bonsai/ssa/reorder-collapse.bonsai on the GPU, the way
+// apps/wosx's schedule matching WoSX's GPU solver runs its walks
+// (apps/wosx/schedules/fcpwb2-gpu.bonsai): the reorder's perfect nest
+// collapsed into one loop of twelve points, handed to five persistent
+// workers claiming from the counter, the workers split into pairs bound to
+// GPUBlock and GPUThread -- three blocks of two, the last with a thread
+// past the count that claims nothing. The row's privatized sums and the
+// counter are captures the kernel writes, copied over and back by the
+// launch; the distributed prologue and epilogue loops run on the host
+// around it. out[4y + x] = 100y + x and sums[y] = 6, as on the CPU.
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+            atomic total += x;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sums : mut array[i32, 3] = {-1, -1, -1};
+    grid(out, sums);
+    print(out);
+    print(sums);
+    return 0;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.collapse(x, y, k);
+    grid.persistent(k, t, 5);
+    grid.split(t, t_blk, t_thr, 2, true);
+    grid.bind(t_blk, GPUBlock);
+    grid.bind(t_thr, GPUThread);
+}

@@ -55,6 +55,7 @@ add_bonsai_tests(
     rand.bonsai
     raygen.bonsai
     reorder.bonsai
+    reorder-collapse-persistent.bonsai
     round-reset.bonsai
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai

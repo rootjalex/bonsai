@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// reorder() then collapse(): the nest a reorder leaves is perfect, and
+// collapse() makes one loop of it. `grid` has a prologue (the row's sum
+// started) and an epilogue (the sum stored) around its inner loop, so a
+// collapse of the pair as written would repeat the row's effects once a
+// point and is refused (SSA/CollapseLoops.cpp); `grid.reorder(y, x)`
+// distributes them into `y!prologue` and `y!epilogue` and privatizes the
+// row's `mut` sum into a slot per row (SSA/ReorderLoops.h), and the nest
+// that remains -- `x` around `y`, the body alone -- is what
+// `grid.collapse(x, y, k)` collapses: `k` over the twelve (column, row)
+// pairs, the row fastest. After the reorder the schedule's `y` names three
+// loops, the nest's and the two distributed ones; collapse() takes the one
+// inside `x` (SSA/Convert.cpp, resolve_loop_beside). `again` interchanges
+// twice -- the second reorder names `y` as the outer loop with the same
+// three candidates and takes the one nested with `x` -- and collapses the
+// nest in the program's order, the column fastest.
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+            atomic total += x;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func again(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+            atomic total += x;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.collapse(x, y, k);
+    again.reorder(y, x);
+    again.reorder(x, y);
+    again.collapse(y, x, k);
+}

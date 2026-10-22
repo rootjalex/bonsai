@@ -38,6 +38,7 @@ add_bonsai_tests(
     float-zero-folds.bonsai
     rcp-step-edges.bonsai
     reorder.bonsai
+    reorder-collapse.bonsai
     rounds-inner-queue.bonsai
     vector-math.bonsai
     vectorize-bounded-division.bonsai

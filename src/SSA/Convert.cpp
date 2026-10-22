@@ -1807,6 +1807,86 @@ LoopSite resolve_loop(const FuncMap &fmap, const std::string &start,
     return sites.front();
 }
 
+// The loop a directive on a nested pair means by its second name: the one
+// nested with the loop its first name found, `anchor`. `collapse(w, i, k)`
+// names the `i` inside `w`, and `reorder(i, w)` the `w` around `i` -- or
+// inside it, once an earlier reorder has turned the nest round
+// (`either_way`). The name is looked for in the anchor's function with the
+// anchor's variant suffix first (a specialized function's `s!VolPath`
+// beside its `p!VolPath`) and bare second, since a loop can have one copy
+// where its partner has several: after `reorder(i, w)` a schedule's `i` is
+// the nest's `i`, `i!prologue` and `i!epilogue` (SSA/ReorderLoops.h), three
+// variants in the sense of loop_matches beside the one `w`, and only the
+// nest's `i` is nested with it. Position settles what the name leaves
+// open: of the loops the name matches, the one whose header lies in the
+// anchor's body or, either way round, whose body holds the anchor's header.
+// None -- the anchor is a variant with no such partner, as the distributed
+// loops are -- answers nothing, and the directive passes that anchor over;
+// more than one is refused.
+std::optional<LoopSite> nested_loop(const FuncMap &fmap, const LoopSite &anchor,
+                                    const std::string &wanted, const std::string &suffix,
+                                    const std::string &transform, bool either_way) {
+    const auto found = parfors_reachable_from(fmap, anchor.func);
+    const auto here = found.find(anchor.func);
+    if (here == found.end()) {
+        return std::nullopt;
+    }
+    std::vector<std::string> candidates;
+    for (const std::string &name :
+         {wanted + suffix, "_" + wanted + suffix, wanted, "_" + wanted}) {
+        for (const std::string &loop : here->second) {
+            if (loop_matches(loop, name)) {
+                candidates.push_back(loop);
+            }
+        }
+        if (!candidates.empty()) {
+            break;
+        }
+    }
+    if (candidates.empty()) {
+        return std::nullopt;
+    }
+    const Function &f = *fmap.at(anchor.func);
+    // A parfor's header block and its body's name, by the index it goes by.
+    const auto loop_of = [&](const std::string &index) {
+        std::pair<const Block *, std::string> found_loop{nullptr, ""};
+        for (const auto &block : f.blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p != nullptr && p->index == index) {
+                found_loop = {block.get(), p->body.name};
+            }
+        }
+        return found_loop;
+    };
+    const auto [anchor_header, anchor_body] = loop_of(anchor.index);
+    internal_assert(anchor_header != nullptr)
+        << transform << "() on " << anchor.func << ": no parfor named " << anchor.index;
+    std::vector<std::string> nested;
+    for (const std::string &candidate : candidates) {
+        if (candidate == anchor.index) {
+            continue;
+        }
+        const auto [header, body] = loop_of(candidate);
+        if (header == nullptr) {
+            continue;
+        }
+        const bool inside = Cfg(f, anchor_body).contains(*header);
+        const bool around = either_way && Cfg(f, body).contains(*anchor_header);
+        if (inside || around) {
+            nested.push_back(candidate);
+        }
+    }
+    internal_assert(nested.size() <= 1)
+        << transform << "() on " << anchor.func << ": " << wanted << " names "
+        << nested.size() << " loops nested with " << anchor.index
+        << "; this directive takes one. Name it: `" << anchor.func << "[<Variant>]."
+        << transform << "(" << wanted << ", ...)`.";
+    if (nested.empty()) {
+        return std::nullopt;
+    }
+    return LoopSite{anchor.func, nested.front()};
+}
+
 // The name a schedule knows a function by: `vol_route` of `vol_route!True`
 // and of `vol_route!after!hit`, the copies and continuations a directive made.
 std::string base_of(const std::string &name) {
@@ -3331,46 +3411,64 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                         !c.ii.names.empty() &&
                                         !c.i.names.empty())
                             << "collapse() requires loop names for: " << name;
+                        // Every variant's pair: the outer loop names the
+                        // variants, the inner is the one inside each. An
+                        // outer with none inside it -- the loops a reorder
+                        // distributed beside its nest, which share the
+                        // nest's name -- is no nest and is passed over; a
+                        // directive that finds no pair at all is wrong.
+                        size_t pairs = 0;
                         for (const LoopSite &at : resolve_loops(
                                  fmap, name, c.io.names.back(), "collapse")) {
                             const std::string suffix =
                                 variant_suffix(c.io.names.back(), at.index);
-                            const LoopSite in = resolve_loop(
-                                fmap, at.func, c.ii.names.back() + suffix,
-                                "collapse");
-                            internal_assert(in.func == at.func)
-                                << "collapse(" << c.io.names.back() << ", "
-                                << c.ii.names.back() << ") on " << name
-                                << ": those loops are in different "
-                                << "functions (" << at.func << " and "
-                                << in.func << "), so they are not nested";
-                            collapse(fmap, at.func, at.index, in.index,
+                            const std::optional<LoopSite> in = nested_loop(
+                                fmap, at, c.ii.names.back(), suffix, "collapse",
+                                /*either_way=*/false);
+                            if (!in.has_value()) {
+                                continue;
+                            }
+                            collapse(fmap, at.func, at.index, in->index,
                                      c.i.names.back() + suffix);
+                            pairs++;
                         }
+                        internal_assert(pairs > 0)
+                            << "collapse(" << c.io.names.back() << ", "
+                            << c.ii.names.back() << ") on " << name
+                            << ": no parfor named " << c.ii.names.back()
+                            << " is nested in a parfor named " << c.io.names.back()
+                            << ", so there is no nest to collapse.";
                     },
                     [&](const ir::Reorder &r) {
                         internal_assert(!r.inner.names.empty() &&
                                         !r.outer.names.empty())
                             << "reorder() requires loop names for: " << name;
                         // Every variant's pair, as collapse: the loop to be
-                        // inner names the variants, the other is found beside
-                        // each.
+                        // inner names the variants, the other is the loop
+                        // nested with each, either way round (a second
+                        // reorder of a nest names the distributed loops'
+                        // name too, and those have no partner: passed over).
+                        size_t pairs = 0;
                         for (const LoopSite &at : resolve_loops(
                                  fmap, name, r.inner.names.back(), "reorder")) {
                             const std::string suffix =
                                 variant_suffix(r.inner.names.back(), at.index);
-                            const LoopSite other = resolve_loop(
-                                fmap, at.func, r.outer.names.back() + suffix,
-                                "reorder");
-                            internal_assert(other.func == at.func)
-                                << "reorder(" << r.inner.names.back() << ", "
-                                << r.outer.names.back() << ") on " << name
-                                << ": those loops are in different "
-                                << "functions (" << at.func << " and "
-                                << other.func << "), so they are not nested";
-                            reorder(fmap, at.func, at.index, other.index,
+                            const std::optional<LoopSite> other = nested_loop(
+                                fmap, at, r.outer.names.back(), suffix, "reorder",
+                                /*either_way=*/true);
+                            if (!other.has_value()) {
+                                continue;
+                            }
+                            reorder(fmap, at.func, at.index, other->index,
                                     /*vector_leaves=*/!vectorizes({at.func}));
+                            pairs++;
                         }
+                        internal_assert(pairs > 0)
+                            << "reorder(" << r.inner.names.back() << ", "
+                            << r.outer.names.back() << ") on " << name
+                            << ": no parfor named " << r.outer.names.back()
+                            << " is nested with a parfor named " << r.inner.names.back()
+                            << ", so there is no nest to interchange.";
                     },
                     [&](const ir::Bind &b) {
                         if (b.lambda.defined()) {

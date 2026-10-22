@@ -1,0 +1,81 @@
+func again(out : mut i32[12], sums : mut i32[3]) -> void {
+  total!expanded : mut i32[3]
+  parfor y!prologue in [0:3:1] {
+    total!expanded[y] = 0
+    continue
+  }
+  parfor k in [0:12:1] {
+    let @12 = k >> 31 in
+    let @13 = reinterpret_cast<u32>(@12) in
+    let @14 = @13 >> 30u in
+    let @15 = reinterpret_cast<i32>(@14) in
+    let @16 = k + @15 in
+    let @10 = @16 >> 2 in
+    let @23 = @10 * 4 in
+    let @11 = k - @23 in
+    let y = @10 in
+    let x = @11 in
+    let total = (&total!expanded[y]) in
+    let @0 = y * 100 in
+    let @1 = @0 + x in
+    let @2 = y << 2 in
+    let @3 = @2 + x in
+    out[@3] = @1
+    total += x
+    continue
+  }
+  parfor y!epilogue in [0:3:1] {
+    let total = (&total!expanded[y]) in
+    let y = y in
+    let @5 = (*total) in
+    sums[y] = @5
+    continue
+  }
+  return
+}
+
+func grid(out : mut i32[12], sums : mut i32[3]) -> void {
+  total!expanded : mut i32[3]
+  parfor y!prologue in [0:3:1] {
+    total!expanded[y] = 0
+    continue
+  }
+  parfor k in [0:12:1] {
+    let @12 = mulhi(k, 1431655766) in
+    let @13 = @12 >> 31 in
+    let @14 = reinterpret_cast<u32>(@13) in
+    let @15 = @14 >> 31u in
+    let @16 = reinterpret_cast<i32>(@15) in
+    let @10 = @12 + @16 in
+    let @23 = @10 * 3 in
+    let @11 = k - @23 in
+    let x = @10 in
+    let y = @11 in
+    let total = (&total!expanded[y]) in
+    let @0 = y * 100 in
+    let @1 = @0 + x in
+    let @2 = y << 2 in
+    let @3 = @2 + x in
+    out[@3] = @1
+    total += x
+    continue
+  }
+  parfor y!epilogue in [0:3:1] {
+    let total = (&total!expanded[y]) in
+    let y = y in
+    let @5 = (*total) in
+    sums[y] = @5
+    continue
+  }
+  return
+}
+
+
+schedule {
+    again.reorder(y, x)
+         .reorder(x, y)
+         .collapse(y, x, k)
+    grid.reorder(y, x)
+        .collapse(x, y, k)
+
+}

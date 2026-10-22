@@ -1,0 +1,56 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/reorder-collapse.bonsai run: a reorder's perfect nest
+// collapsed into one loop -- the row fastest (`grid`), and the column
+// fastest after a second interchange puts the loops back in the program's
+// order (`again`). Either way out[4y + x] = 100y + x and sums[y] = 0 + 1 +
+// 2 + 3 = 6, what the nest as written computes: the row's `mut` sum is a
+// slot per row after the reorder, the collapsed loop's points add into
+// their row's slot, and the epilogue loop stores each.
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+            atomic total += x;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func again(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            out[y * 4 + x] = y * 100 + x;
+            atomic total += x;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sums : mut array[i32, 3] = {-1, -1, -1};
+    grid(out, sums);
+    print(out);
+    print(sums);
+
+    out2 : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sums2 : mut array[i32, 3] = {-1, -1, -1};
+    again(out2, sums2);
+    print(out2);
+    print(sums2);
+    return 0;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.collapse(x, y, k);
+    again.reorder(y, x);
+    again.reorder(x, y);
+    again.collapse(y, x, k);
+}

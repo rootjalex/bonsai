@@ -106,6 +106,7 @@ add_bonsai_tests(
     quantifier-early-exit.bonsai
     ray-any-early-exit.bonsai
     reorder.bonsai
+    reorder-collapse.bonsai
     short-circuit.bonsai
     sort-key-nonnegative.bonsai
     sort-key-through-bits.bonsai
