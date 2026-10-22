@@ -16084,3 +16084,112 @@ expressible today; the scalar tail is, by `specialize(count(lane) > k)`);
 (3) the ganesha loss above; (4) `skip` on the `bxdf_*` arms the profile
 showed running hair and conductor code in killeroo; (5) the trigonometric
 calls; (6) `packet.bonsai`.
+
+### The per-thread wavefront (10-21, afternoon)
+
+`schedules/wavefront-thread-packet.bonsai`: `split(p, p_thread, p_in,
+1024, true)`, every queue on `p_thread`, the drains as gangs, `bind(p_thread,
+CPUThread)` -- each thread takes a chunk of 1024 pixels, owns the chunk's
+queues (1024 x spp entries) and round loop, and drains them itself.
+`wavefront-thread-packet-reorder.bonsai` adds `reorder(p_in, s)` after the
+split, so a chunk is pushed sample-major (sixteen neighbouring pixels at one
+sample per gang, pbrt's order within a band) rather than pixel-major. Four
+compiler changes stood between the two files and an image, each fixed at
+its cause with tests at the three levels:
+
+1. **The record pass divided by a bound out of scope** (bd01d69a,
+   SSA/Defer.cpp). The pass over a queue's record after the drain rebuilt
+   the producer loops' indices from the slot by dividing by the inner
+   loop's own bound -- `spp`, read inside the pixel loop -- which is not in
+   scope at the chunk level where the pass runs; the count had already
+   been settled before the nest for the queue's size, and the pass now
+   divides by that settled copy (tests defer-nest-inner-bound).
+2. **A chunk's queues overflowed the worker's stack** (ccd00344). A
+   run-time-sized array inside a bound loop's body was a stack allocation
+   of the kernel's frame -- right for a pixel's queues of a few hundred
+   kilobytes, 80 MB an iteration for a chunk's, and the first `push`
+   faulted. Now the CPU kernel takes such storage from a per-thread arena
+   in the runtime (`bonsai_arena_mark`/`alloc`/`release`,
+   runtime/bonsai_parallel.h; CodeGen_LLVM::in_cpu_kernel): a bump
+   allocator whose blocks live for the thread, marked before the iteration
+   and released after it, so that a thread allocates nothing after its
+   first iteration -- MoonRay's per-thread queues, and what docs/
+   schedule-semantics.md promised of a queue on a loop bound to CPUThread
+   (tests defer-thread-queue: ssa, backends/llvm, and correctness/cpp,
+   which runs the arena on the runtime's threads).
+3. **The record pass ran the continuation for pixels past the frame's
+   end** (0cd057bc, SSA/Defer.cpp). The deferral keeps a byte per slot
+   when the call is not reached on every iteration, but tested that only
+   over the innermost loop's body; a split's tail guard yields one level
+   out, so the last chunk's skipped pixels had their film writes run on
+   garbage records, past the film's end -- heap corruption on every scene
+   whose pixel count 1024 does not divide (killeroo-simple, head,
+   killeroo-gold; book and ganesha are 1920 x 1080 = 1024 x 2025 and
+   passed). The test now walks every level of the nest for an exit that
+   bypasses the inner loop or the call, and the bytes are cleared for the
+   whole record by one `fill_bytes` (a new intrinsic, LLVM's memset) where
+   the chunk initializes its queue, since a skipped iteration never begins
+   the innermost iterations that cleared them before (tests
+   defer-nest-guard). The band schedule had the same latent bug for a last
+   band that `pass_pixels` does not fill.
+4. **`reorder` through a split's tail guard** (7cc6f173,
+   SSA/ReorderLoops.cpp). The interchange required the prologue to be one
+   block ending at the inner loop; the guard put the inner loop one block
+   in. The guard of a `split(..., true)` is now folded into the prologue
+   and follows the body inward, as Halide's GuardWithIf does under
+   reorder: its condition is a prologue value, recomputed in the new inner
+   body (which skips the iteration), in the epilogue loop, and dispatched
+   on by the prologue loop (tests reorder-split-guard).
+
+Both schedules then compile (257 s each) and build; all five protocol
+scenes at 16 spp match pbrt (killeroo-simple, book, ganesha, head,
+killeroo-gold), and the twelve matrix images match. Timed 15:45-17:09 with
+compare.sh (REPEATS=3, best of three each side, the machine otherwise
+idle, lock held). Render seconds, speedup over pbrt's CPU wavefront, and
+the ratio to the three builds already measured (the band matrix above, the
+`scalar` schedule, and the per-pixel-queue `wavefront-volpath-packet` of
+10-20, whose numbers are from the 10-20 compiler but whose `scalar`
+control reads the same to 1%):
+
+| scene, spp | pbrt wavefront | per-thread, pixel-major | per-thread, sample-major (`reorder(p_in, s)`) | over band gangs (`wavefront-frame-packet`) | over `scalar` | over per-pixel gangs (`wavefront-volpath-packet`, 10-20) |
+|---|---|---|---|---|---|---|
+| killeroo-simple, 16 | 5.50 s | 0.663 s (8.30x) | 0.678 s (8.12x) | 4.68x | 1.01x | 0.94x (0.623 s) |
+| killeroo-simple, 64 | 22.01 s | 2.988 s (7.37x) | 3.049 s (7.22x) | 4.15x | 0.91x | 0.64x (1.900 s) |
+| book, 16 | 20.01 s | 2.837 s (7.05x) | 2.812 s (7.12x) | 4.62x | 1.30x | 0.91x (2.571 s) |
+| book, 64 | 80.53 s | 12.029 s (6.69x) | 11.946 s (6.66x) | 4.38x | 1.23x | 0.76x (9.125 s) |
+| ganesha, 16 | 19.51 s | 3.520 s (5.54x) | 3.878 s (5.03x) | 4.19x | 1.01x | 0.82x (2.877 s) |
+| ganesha, 64 | 78.53 s | 13.769 s (5.70x) | 15.292 s (5.14x) | 4.29x | 1.00x | 0.69x (9.516 s) |
+
+Readings:
+
+- **The band structure's 4-5x is the band, not the drains.** Per-thread
+  queues over the same program, the same gangs and the same chunk-sized
+  rounds run 4.2-4.7x faster than pbrt's band-pass structure at every
+  cell: the band's cost was the pass over a band of 1920 x N pixels per
+  round, shared by every thread through the global queues, with the
+  record and the film touched once per round per pixel; a thread's chunk
+  of 1024 pixels keeps its queues and record to itself.
+- **Against the path-per-sample `scalar` schedule it is even on killeroo
+  and ganesha and 23-30% ahead on book**, the scene with the most
+  material variety (the gangs' sort by BxDF buys most where the scalar
+  path's branch mix is widest), and 9% behind on killeroo at 64 spp.
+- **Per-pixel queues (10-20) remain the fastest CPU wavefront**, by 6%
+  to 56%, growing with spp. A pixel's queues of spp entries live in L1/L2;
+  a chunk's queues of 1024 x spp entries are 20-80 MB and stream through
+  L3 each round, so every drain re-reads its records from memory. The
+  chunk size is the lever (256 pixels would be 5-20 MB; the to-do below
+  sweeps it), and the gang fullness per kernel per round the measurement
+  that says how small a chunk may go before the gangs empty -- the user's
+  question of 13:10, to be answered before a `launch(count(q) >= 16)`
+  directive is proposed.
+- **Sample-major order within the chunk (`reorder(p_in, s)`) is a wash
+  on book (1%), a 2% loss on killeroo and a 10% loss on ganesha**: the
+  sixteen neighbouring pixels at one sample are more coherent for the
+  camera rays but the sort by BxDF rebuilds the gangs after the first
+  bounce anyway, and the pixel-major order keeps a pixel's spp records
+  adjacent for the film write. The ganesha loss is of the same size as
+  the band gangs' loss on ganesha (9%), and both are measured next with
+  `perf stat`.
+
+The plot (scratchpad/plot/cpu-wavefront-speedups.html, published) carries
+the two per-thread builds as its sixth and seventh bars.

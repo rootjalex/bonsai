@@ -19,6 +19,49 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-21, 17:30): the per-thread wavefront
+
+**A wavefront whose queues belong to the thread (`wavefront-thread-packet`:
+a chunk of 1024 pixels per thread, every queue and the round loop on the
+chunk, sixteen-wide gang drains) is 4.2-4.7x faster than the same drains
+over pbrt's band structure on every protocol cell, 5.0-8.3x faster than
+pbrt's CPU wavefront, even with our path-per-sample `scalar` schedule on
+killeroo-simple and ganesha and 23-30% ahead of it on book; all twelve
+images match pbrt's.** Pushing the chunk sample-major instead
+(`wavefront-thread-packet-reorder`, `reorder(p_in, s)`) changes nothing on
+book and loses 2% on killeroo and 10% on ganesha. Four compiler changes
+were needed, each at its cause with tests at the three levels: the record
+pass divides by the inner count settled before the nest (bd01d69a); a
+bound loop's run-time-sized storage comes from a per-thread arena in the
+runtime instead of the worker's stack, which 80 MB of chunk queues
+overflowed (ccd00344); the deferral's skipped-slot test walks every level
+of the nest, with the slot bytes cleared by one `fill_bytes` (0cd057bc:
+the last chunk's pixels past the frame had written the film out of
+bounds); and `reorder` folds a split's tail guard inward (7cc6f173). The
+runtime's queue sort is sequential below a million entries now
+(8f877665: x86-simd-sort's AVX-512 key-value sort, a radix fallback). Timed
+15:45-17:09, best of three each side, the machine otherwise idle; the plot
+carries the two builds as its sixth and seventh bars. Render seconds,
+speedups over pbrt's CPU wavefront (5.50 / 22.01 / 20.01 / 80.53 / 19.51 /
+78.53 s):
+
+| scene, spp | band gangs (`wavefront-frame-packet`) | our `scalar` | per-thread, pixel-major | per-thread, sample-major |
+|---|---|---|---|---|
+| killeroo-simple, 16 | 3.105 s (1.77x) | 0.671 s (8.21x) | 0.663 s (8.30x) | 0.678 s (8.12x) |
+| killeroo-simple, 64 | 12.407 s (1.77x) | 2.715 s (8.11x) | 2.988 s (7.37x) | 3.049 s (7.22x) |
+| book, 16 | 13.120 s (1.53x) | 3.701 s (5.41x) | 2.837 s (7.05x) | 2.812 s (7.12x) |
+| book, 64 | 52.744 s (1.53x) | 14.840 s (5.43x) | 12.029 s (6.69x) | 11.946 s (6.66x) |
+| ganesha, 16 | 14.753 s (1.32x) | 3.567 s (5.47x) | 3.520 s (5.54x) | 3.878 s (5.03x) |
+| ganesha, 64 | 59.046 s (1.33x) | 13.801 s (5.69x) | 13.769 s (5.70x) | 15.292 s (5.14x) |
+
+The per-pixel-queue build of 10-20 (`wavefront-volpath-packet`, 0.623 /
+1.900 / 2.571 / 9.125 / 2.877 / 9.516 s) is still the fastest CPU
+wavefront, by 6% to 56% growing with spp: a pixel's queues fit in a core's
+cache and a chunk's 20-80 MB do not. The chunk size is the lever, and the
+gang fullness per kernel per round is the measurement that bounds it
+(PLAN.md, "The per-thread wavefront"); both are next, then the ganesha
+losses under `perf stat`.
+
 ## Where it stands (2026-10-21, 14:40): vectorization on pbrt's own wavefront structure
 
 **On the schedule that matches pbrt's CPU wavefront (`wavefront-frame`:
@@ -136,10 +179,12 @@ amortized. The stage tables below are regenerated from this run.
    vectorized wavefront is built, checked and timed on pbrt's own
    structure (the 10-21 entry above), and the rays-queue sort the user
    asked for on 10-20 (arXiv 2506.11273) is built and measured: it loses
-   on the CPU. Left: the ganesha loss under vectorization, the sequential
-   sort in the runtime, the per-thread wavefront (the user, 10-21 13:10),
-   `skip` on the bxdf arms, the per-lane trigonometric calls, and
-   `packet.bonsai` itself.
+   on the CPU. The sequential sort and the per-thread wavefront (the
+   user, 10-21 13:10) are built and measured (the 17:30 entry). Left: the
+   chunk-size sweep and gang fullness per kernel per round of the
+   per-thread wavefront, the ganesha losses under `perf stat`, `skip` on
+   the bxdf arms, the per-lane trigonometric calls, and `packet.bonsai`
+   itself.
 1. The cross-queue reload by position (item 1 of 07:00, unchanged).
 2. The hit chain (item 2 of 07:00, unchanged; the range set for the
    user's approval).
