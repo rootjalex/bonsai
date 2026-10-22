@@ -16191,5 +16191,7 @@ Readings:
   the band gangs' loss on ganesha (9%), and both are measured next with
   `perf stat`.
 
-The plot (scratchpad/plot/cpu-wavefront-speedups.html, published) carries
-the two per-thread builds as its sixth and seventh bars.
+The figure the user asked for is drawn by `plot_cpu_wavefront.py` from
+`results/cpu-wavefront.csv` (every cell of the two matrices, one row each)
+into `plots/cpu-wavefront-speedups.pdf`; the two per-thread builds are its
+sixth and seventh bars, and `--sides` draws the five-bar form.

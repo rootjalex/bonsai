@@ -79,6 +79,17 @@ before it.
   holds the run between timed runs for as long as it exists, which is how
   to borrow the machine for a measurement of one's own. `--spp` takes one
   count or several (`--spp "16 64 256"`): every scene at each, one table.
+- `plot_cpu_wavefront.py results/cpu-wavefront.csv -o OUT.pdf [--sides
+  a,b,...] [--log] [--no-values] [--width W --height H]`: the CPU
+  wavefront study (REPORT.md, 10-21) as one figure -- every schedule's
+  speedup over pbrt's CPU wavefront, a group of bars per scene and a
+  subgroup per sample count, pbrt's own volpath first, then `scalar`, the
+  band wavefront, its vectorized and ray-sorted forms and the per-thread
+  wavefront in both orders (Okabe-Ito colours, values on the bars, a
+  hatched bar for an image that did not match). The CSV is the hand-folded
+  table of compare.sh's results, one row per cell (scene, spp, side,
+  render seconds, verdict, date); `plots/` holds the drawn figures and is
+  not committed.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
