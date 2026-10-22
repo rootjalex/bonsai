@@ -66,6 +66,9 @@ add_bonsai_tests(
     gate-drains-under-specialize.bonsai
     gate-drains-gang.bonsai
     defer-sorted-queue.bonsai
+    defer-nest-inner-bound.bonsai
+    defer-nest-guard.bonsai
+    reorder-split-guard.bonsai
     defer-remat.bonsai
     defer-remat-readonly.bonsai
     defer-remat-slot.bonsai
