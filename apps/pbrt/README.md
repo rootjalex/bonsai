@@ -97,10 +97,10 @@ before it.
 - `plot_cpu_wavefront.py DIR/cpu-results.csv -o OUT.pdf [--sides a,b,...]
   [--log] [--values] [--width W --height H]`: that CSV as one figure --
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
-  group of bars per scene and a subgroup per sample count; each side its
-  own colour from ColorBrewer's nine-class YlGnBu ramp laid over the
-  drawing order (pale yellow for PBRT mk to deep blue for the last
-  wavefront), colour-blind safe and print-friendly. The image checks are not marked
+  group of bars per scene and a subgroup per sample count; PBRT mk black,
+  each Bonsai side its own colour from ColorBrewer's nine-class YlGnBu
+  ramp laid over the drawing order (pale yellow for mk-b-s-ps to deep blue
+  for the last wavefront), colour-blind safe and print-friendly. The image checks are not marked
   on the figure (the CSV's verdict column has them). The axis reads
   "Speedup over PBRT wf";
   pbrt's bars are "PBRT mk" (its megakernel, the CPU volpath) and the

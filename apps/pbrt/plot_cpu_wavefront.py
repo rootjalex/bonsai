@@ -18,9 +18,10 @@ per-thread vectorized wavefront). `--sides` names a subset (comma-separated
 side names) and keeps that order, so the five-bar figure of the first study is
 `--sides pbrt-volpath,scalar,wavefront-frame,wavefront-frame-packet,wavefront-frame-packet-reorder`.
 
-Each side has its own colour from ColorBrewer's nine-class YlGnBu ramp
-(the user's choice, 10-23, after the hatched one-blue figure proved hard to
-read): a sequential ramp, pale yellow to deep blue, laid over the sides in
+pbrt's bar is black and each Bonsai side has its own colour from
+ColorBrewer's nine-class YlGnBu ramp, the first eight classes (the user's
+choice, 10-23, after the hatched one-blue figure proved hard to read): a
+sequential ramp, pale yellow to deep blue, laid over the Bonsai sides in
 their drawing order, so neighbouring bars differ in lightness as well as
 hue and the figure reads in greyscale and under the common colour
 deficiencies (ColorBrewer marks the ramp colour-blind safe and
@@ -70,16 +71,17 @@ YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
 # (samples outer, pixels inner: `reorder(p, s)` or `reorder(p_in, s)`);
 # `-sort` when the rays queue is sorted by the two-point Morton key before
 # each trace pass. The code is read from the schedule file's directives.
+PBRT_COLOUR = "#000000"      # pbrt's bar is black; the ramp is Bonsai's (the user, 10-23)
 SIDES = [
-    ("pbrt-volpath", "PBRT mk", YLGNBU[0]),
-    ("scalar", "Bonsai mk-b-s-ps", YLGNBU[1]),
-    ("wavefront-frame", "Bonsai wf-b-s-sp", YLGNBU[2]),
-    ("wavefront-frame-packet", "Bonsai wf-b-v-sp", YLGNBU[3]),
-    ("wavefront-frame-packet-reorder", "Bonsai wf-b-v-sp-sort", YLGNBU[4]),
-    ("wavefront-thread", "Bonsai wf-t-s-ps", YLGNBU[5]),
-    ("wavefront-thread-packet", "Bonsai wf-t-v-ps", YLGNBU[6]),
-    ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", YLGNBU[7]),
-    ("wavefront-thread-packet-sort", "Bonsai wf-t-v-ps-sort", YLGNBU[8]),
+    ("pbrt-volpath", "PBRT mk", PBRT_COLOUR),
+    ("scalar", "Bonsai mk-b-s-ps", YLGNBU[0]),
+    ("wavefront-frame", "Bonsai wf-b-s-sp", YLGNBU[1]),
+    ("wavefront-frame-packet", "Bonsai wf-b-v-sp", YLGNBU[2]),
+    ("wavefront-frame-packet-reorder", "Bonsai wf-b-v-sp-sort", YLGNBU[3]),
+    ("wavefront-thread", "Bonsai wf-t-s-ps", YLGNBU[4]),
+    ("wavefront-thread-packet", "Bonsai wf-t-v-ps", YLGNBU[5]),
+    ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", YLGNBU[6]),
+    ("wavefront-thread-packet-sort", "Bonsai wf-t-v-ps-sort", YLGNBU[7]),
 ]
 
 
