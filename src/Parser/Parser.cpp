@@ -2365,6 +2365,28 @@ struct Parser {
                     ir::Type volume = program.types[field];
                     base = ir::Access::make(std::move(field), std::move(base),
                                             std::move(volume));
+                } else if (!base.type().defined() && reads(base, {"this"})) {
+                    // A layout arm reading a field of another row of its own
+                    // group, `this[left].low` (Lower/Layouts.cpp binds `this`
+                    // to the group when it fills the arm). `this` has no type
+                    // -- a group is not a value -- but the field has the type
+                    // the group declared under that name, which is in scope
+                    // here, the group's stored and derived fields having been
+                    // added to the frame as they were parsed. Typed here, the
+                    // read gives the arm a path the layout validator can match
+                    // (IR/ValidateLayout.cpp) and its components type as the
+                    // vector's (`this[left].low.x`).
+                    const std::optional<FunctionVariable> declared =
+                        frames.find_if([&](const std::string &name,
+                                           const FunctionVariable &) {
+                            return name == field;
+                        });
+                    if (declared.has_value() && declared->type.defined()) {
+                        base = ir::Access::make(std::move(field), std::move(base),
+                                                declared->type);
+                    } else {
+                        base = ir::Access::make(std::move(field), std::move(base));
+                    }
                 } else {
                     base = ir::Access::make(std::move(field), std::move(base));
                 }

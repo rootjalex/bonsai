@@ -1,0 +1,74 @@
+//! flags: -p ssa
+
+// A group of elements in tiles of ONE: each row one triangle, stored as
+// FCPW's GPU triangle is (fcpw/gpu/bvh_interop_structures.h, GPUTriangle:
+// the three corners and an index, 40 bytes) with the element's fields
+// derived from the row's -- here stdlib's triangle, whose fields are the
+// corners under other names. A tile of one is the structure of arrays
+// degenerating to an array of structures (IR/Layout.cpp, tile_width: one
+// or more); the leaf's `range(prims, offset, count)` reads element k as
+// lane 0 of tile k (Lower/TiledArrays.cpp). What to read for: a leaf's
+// element read as one row of the tile array and its corners as that row's
+// fields, no lane arithmetic left behind.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] closest(p : Point) = argmin(|t : Triangle| distmin(p, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH2 =
+    | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH2;
+
+    layout tris {
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[1] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : u32;
+                p0 = pa;
+                p1 = pb;
+                p2 = pc;
+            };
+        };
+        nCount : u32;
+        group[nCount] index : u32 {
+            boxMin_x : vector[f32, 2];
+            boxMin_y : vector[f32, 2];
+            boxMin_z : vector[f32, 2];
+            boxMax_x : vector[f32, 2];
+            boxMax_y : vector[f32, 2];
+            boxMax_z : vector[f32, 2];
+            child0 : i32;
+            child1 : i32;
+            kind = child0[31:31];
+            switch kind {
+                0 => Interior {
+                    children = vector[u32, 2]{cast[[u32]](child0), cast[[u32]](child1)};
+                    lo = vector[vec3f, 2]{boxMin_x, boxMin_y, boxMin_z};
+                    hi = vector[vec3f, 2]{boxMax_x, boxMax_y, boxMax_z};
+                };
+                _ => Leaf {
+                    data = range(prims, cast[[u32]](0 - child0 - 1), cast[[u32]](child1));
+                };
+            };
+        };
+    };
+
+    closest.sort(tris.Interior,
+                 |i : u32, p : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                 distmin(p, AABB{lo[i], hi[i]}))
+           .loopify(64);
+}

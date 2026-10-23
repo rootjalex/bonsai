@@ -1,0 +1,70 @@
+//! flags: -p ssa
+
+// A layout arm reading a field of another row of its own group,
+// `this[left].low`: the parent of a binary tree holds its children's boxes
+// logically -- four fields of the Interior arm -- while its stored row is
+// the node's own box, an offset and a count (FCPW's BvhNode, 32 bytes),
+// and the schedule orders the children by them. The device of the PLDI
+// 2026 paper's closest-point benchmark (apps/queries/cp/cp.bonsai on the
+// branch ajr/pldi-benchmarks). Two things are checked. The read is typed
+// as the field the group declared under that name, which is in scope where
+// the arm reads it (Parser.cpp, parse_fields_expr), so the arm has a path
+// the layout validator matches against the tree's Interior
+// (IR/ValidateLayout.cpp) and a component of the read types as a float.
+// And a component -- `this[left].low.x`, the left child's box built here
+// component by component where the right child's is read whole -- lowers
+// to an extract of the lane (Lower/Layouts.cpp, fill), as `p.x` in a
+// function body does through Lower/Canonicalize.cpp, and the stored
+// vector, packed in the row, comes out as the vector a value is. The
+// simplifier then puts the three lanes back together into the vector they
+// came from, so what to read for is the left child's `low` and `high`
+// read whole, exactly as the right child's are, both going into the key's
+// box: a component read that did not parse, type or lower would have
+// stopped the compile instead.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] closest(p : Point) = argmin(|t : Triangle| distmin(p, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH2(low high : vec3f) with AABB(low, high) =
+    | Interior(left : BVH2, right : BVH2, ll lr hl hr : vec3f)
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH2;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        group[nCount] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            offset : u32;
+            nPrims : u32;
+            switch nPrims {
+                0 => Interior {
+                    left = index + 1u;
+                    right = index + offset;
+                    ll = vec3f{this[left].low.x, this[left].low.y, this[left].low.z};
+                    hl = vec3f{this[left].high.x, this[left].high.y, this[left].high.z};
+                    lr = this[right].low;
+                    hr = this[right].high;
+                };
+                _ => Leaf { data = range(prims, offset, nPrims); };
+            };
+        };
+    };
+
+    closest.sort(tris.Interior,
+                 |i : u8, p : Point, ll : vec3f, lr : vec3f, hl : vec3f, hr : vec3f|
+                 distmin(p, AABB{select(i == 0, ll, lr), select(i == 0, hl, hr)}))
+           .loopify(64);
+}

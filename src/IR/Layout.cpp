@@ -243,10 +243,17 @@ const Group *tile_of(const Layout &inner) {
     return group;
 }
 
+// A tile of one element is a row of one element with the fields stored as
+// the element's are, or derived from others -- FCPW's GPU triangle, its
+// three corners and an index with the program's edges derived from the
+// corners (apps/wosx/schedules/layouts/fcpwb.bonsai) -- the structure of
+// arrays degenerating to an array of structures; nothing in the tile's
+// lowering (Lower/TiledArrays.cpp: element k is lane k % width of tile
+// k / width) needs the width to be more than one.
 uint32_t tile_width(const Group &tile) {
     const std::optional<uint64_t> width = get_constant_value(tile.size);
-    internal_assert(width.has_value() && *width > 1 && *width <= 1024)
-        << "A tile holds a constant number of elements, more than one: "
+    internal_assert(width.has_value() && *width >= 1 && *width <= 1024)
+        << "A tile holds a constant number of elements, one or more: "
         << Layout(&tile);
     return static_cast<uint32_t>(*width);
 }

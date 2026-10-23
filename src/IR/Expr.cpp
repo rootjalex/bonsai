@@ -2279,7 +2279,9 @@ Expr TiledArray::make(Expr tiles, uint32_t width, Type element,
     internal_assert(array->etype.is<Struct_t>())
         << "A tile is a struct of the element's fields as vectors, not "
         << array->etype;
-    internal_assert(width > 1) << "A tile holds more than one element";
+    // One or more: a tile of one is a row of one element with the element's
+    // fields derived from the row's (IR/Layout.cpp, tile_width).
+    internal_assert(width >= 1) << "A tile holds one element or more";
     internal_assert(element.defined() && element.is<Struct_t>())
         << "TiledArray::make takes the element struct the tiles hold, not "
         << element;

@@ -391,6 +391,38 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
                 << "Materialization fill cannot find: " << var->name;
             return *expr;
         }
+
+        // A component of a vector read through another row, `this[left]
+        // .low.x`: the parser writes a field access, since a function body's
+        // `p.x` is one too, and Lower/Canonicalize.cpp turns a body's into an
+        // extract of the lane before anything lowers it. A layout's
+        // materializations never pass through that pass -- they are filled
+        // here, at the arm -- so the same rewrite is made here, once the
+        // read has its vector type: the lane the component names, by
+        // vector_field_lane, as there.
+        ir::Expr visit(const ir::Access *node) override {
+            ir::Expr value = mutate(node->value);
+            if (value.type().defined() && value.type().is_vector() &&
+                !value.type().element_of().is<ir::Struct_t>()) {
+                return ir::Extract::make(
+                    std::move(value),
+                    make_const(ir::UInt_t::make(32), vector_field_lane(node->field)));
+            }
+            ir::Expr read = value.same_as(node->value)
+                                ? ir::Expr(node)
+                                : ir::Access::make(node->field, std::move(value));
+            // A field read out of another row is storage, a packed vector
+            // where the field is one; the row's own fields are converted to
+            // the unpacked kind as they are read (the Name case of
+            // field_in_layout, below), and so is this, so that the value
+            // goes into an element (`AABB{ll, hl}`) as any vector does.
+            if (const auto *vector = read.type().as<ir::Vector_t>();
+                vector != nullptr && vector->packed) {
+                return ir::Cast::make(ir::Vector_t::make(vector->etype, vector->lanes),
+                                      std::move(read), ir::Cast::Mode::Convert);
+            }
+            return read;
+        }
     };
     return Rewrite(frames).mutate(expr);
 }

@@ -1,0 +1,307 @@
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH2 = (const BVH2&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : u32 } }
+type __tuple_2 = struct __tuple_2{ _field0 : u32; _field1 : f32 }
+type __tuple_3 = struct __tuple_3{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option1 = struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ pa : [[packed]] f32x3x1; pb : [[packed]] f32x3x1; pc : [[packed]] f32x3x1; primitiveIndex : [[packed]] u32x1 }[(pCount + (u32)0) / (u32)1]; nCount : u32; group1_index : const [[packed]] struct _tree_layout2{ boxMin_x : [[packed]] f32x2; boxMin_y : [[packed]] f32x2; boxMin_z : [[packed]] f32x2; boxMax_x : [[packed]] f32x2; boxMax_y : [[packed]] f32x2; boxMax_z : [[packed]] f32x2; child0 : i32; child1 : i32 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ pa : [[packed]] f32x3x1; pb : [[packed]] f32x3x1; pc : [[packed]] f32x3x1; primitiveIndex : [[packed]] u32x1 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{ boxMin_x : [[packed]] f32x2; boxMin_y : [[packed]] f32x2; boxMin_z : [[packed]] f32x2; boxMax_x : [[packed]] f32x2; boxMax_y : [[packed]] f32x2; boxMax_z : [[packed]] f32x2; child0 : i32; child1 : i32 }
+type _tree_layout3 = [[packed]] struct _tree_layout3{  }
+type _tree_layout4 = [[packed]] struct _tree_layout4{  }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; group0_prims : const [[packed]] struct _tree_layout1{ pa : [[packed]] f32x3x1; pb : [[packed]] f32x3x1; pc : [[packed]] f32x3x1; primitiveIndex : [[packed]] u32x1 }[(pCount + (u32)0) / (u32)1]; nCount : u32; group1_index : const [[packed]] struct _tree_layout2{ boxMin_x : [[packed]] f32x2; boxMin_y : [[packed]] f32x2; boxMin_z : [[packed]] f32x2; boxMax_x : [[packed]] f32x2; boxMax_y : [[packed]] f32x2; boxMax_z : [[packed]] f32x2; child0 : i32; child1 : i32 }[nCount] }
+
+func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), tris : _tree_layout0, p : Point) -> void {
+  tris_index!top : mut u32
+  _bound0!top : mut f32
+  !count : mut u32
+  data : mut u32
+  !stack : mut u32[64]
+  !stack0 : mut f32[64]
+  @195 : mut i32[2]
+  @196 : mut i32[2]
+  tris_index!top = tris_index
+  _bound0!top = _bound0
+  !count = 0u
+  do {
+    let @0 = (*_best0) in
+    let @1 = @0._field0 in
+    let @2 = (*_bound0!top) < @1 in
+    if (@2) {
+      do {
+        let @3 = tris.group1_index in
+        let _t258 = @3[(*tris_index!top)] in
+        let _t259 = _t258.child0 in
+        let @6 = _t259 >> 31 in
+        let @7 = @6 & 1 in
+        let @8 = @7 == 0 in
+        if (@8) {
+          _mask0 : mut bool[2]
+          _carry0 : mut f32[2]
+          _keys0 : mut f32[2]
+          parfor children in [0u:2u:1u] {
+            let @9 = _t258.boxMin_x in
+            let @10 = cast<f32x2>(@9) in
+            let @11 = _t258.boxMin_y in
+            let @12 = cast<f32x2>(@11) in
+            let @13 = _t258.boxMin_z in
+            let @14 = cast<f32x2>(@13) in
+            let @175 = @10[children] in
+            let @176 = @12[children] in
+            let @177 = @14[children] in
+            let _t0$i26 = build<f32x3>(@175, @176, @177) in
+            let @17 = _t258.boxMax_x in
+            let @18 = cast<f32x2>(@17) in
+            let @19 = _t258.boxMax_y in
+            let @20 = cast<f32x2>(@19) in
+            let @21 = _t258.boxMax_z in
+            let @22 = cast<f32x2>(@21) in
+            let @179 = @18[children] in
+            let @180 = @20[children] in
+            let @181 = @22[children] in
+            let _t5$i26 = build<f32x3>(@179, @180, @181) in
+            let v$i26 = p.vec in
+            let _t1$i26 = _t0$i26 - v$i26 in
+            let sqLow$i26 = _t1$i26 * _t1$i26 in
+            let @30 = v$i26 < _t0$i26 in
+            let @31 = f32x3(0f) in
+            let low$i26 = select(@30, sqLow$i26, @31) in
+            let _t6$i26 = v$i26 - _t5$i26 in
+            let sqHigh$i26 = _t6$i26 * _t6$i26 in
+            let @36 = _t5$i26 < v$i26 in
+            let high$i26 = select(@36, sqHigh$i26, @31) in
+            let @39 = low$i26 + high$i26 in
+            let @40 = reduce<+>(@39) in
+            let _t39 = sqrt(@40) in
+            let @43 = (*_best0) in
+            let @44 = @43._field0 in
+            let @45 = _t39 < @44 in
+            _mask0[children] = @45
+            _carry0[children] = _t39
+            let @48 = (*_best0) in
+            let @49 = @48._field0 in
+            let @50 = _t39 < @49 in
+            if (@50) {
+              let @51 = v$i26 - _t0$i26 in
+              let @52 = abs(@51) in
+              let @53 = abs(_t6$i26) in
+              let span$i0 = max(@52, @53) in
+              let @55 = span$i0[0] in
+              let @57 = @55 * @55 in
+              let @58 = span$i0[1] in
+              let @60 = @58 * @58 in
+              let @61 = @57 + @60 in
+              let @62 = span$i0[2] in
+              let @64 = @62 * @62 in
+              let @65 = @61 + @64 in
+              let @66 = sqrt(@65) in
+              _best0._field0 min= @66
+            }
+            _keys0[children] = _t39
+            continue
+          }
+          let @70 = cast<u32>(_t259) in
+          let @71 = _t258.child1 in
+          let @72 = cast<u32>(@71) in
+          let _t167 = build<u32x2>(@70, @72) in
+          let @184 = _mask0[ramp(0u, 1u, 2)] in
+          let @186 = _keys0[ramp(0u, 1u, 2)] in
+          let @188 = _carry0[ramp(0u, 1u, 2)] in
+          let @189 = reinterpret_cast<i32x2>(@186) in
+          let @197 = reduce<any>(@184) in
+          if (@197) {
+            let @198 = u32x2(2u) in
+            let @200 = select(@184, ramp(0u, 1u, 2), @198) in
+            let @201 = reduce<min>(@200) in
+            let @202 = _t167[@201] in
+            let @203 = @188[@201] in
+            let @204 = u32x2(@201) in
+            let @205 = ramp(0u, 1u, 2) != @204 in
+            let @206 = @184 && @205 in
+            let @207 = reduce<any>(@206) in
+            if (@207) {
+              let @210 = select(@206, ramp(0u, 1u, 2), @198) in
+              let @211 = reduce<min>(@210) in
+              let @214 = i32x2(0) in
+              let @215 = select(@184, @189, @214) in
+              @195[ramp(0u, 1u, 2)] = @215
+              let @217 = reinterpret_cast<i32x2>(@188) in
+              let @219 = select(@184, @217, @214) in
+              @196[ramp(0u, 1u, 2)] = @219
+              let @222 = @195[@201] in
+              let @223 = @222 >> 31 in
+              let @224 = @223 & 2147483647 in
+              let @225 = @222 ^ @224 in
+              let @227 = @196[@201] in
+              let @229 = @195[@211] in
+              let @230 = @229 >> 31 in
+              let @231 = @230 & 2147483647 in
+              let @232 = @229 ^ @231 in
+              let @233 = _t167[@211] in
+              let @235 = @196[@211] in
+              let @236 = @225 < @232 in
+              let @239 = select(@236, @202, @233) in
+              let @240 = select(@236, @233, @202) in
+              let @241 = select(@236, @227, @235) in
+              let @242 = select(@236, @235, @227) in
+              let @243 = reinterpret_cast<f32>(@241) in
+              let @244 = reinterpret_cast<f32>(@242) in
+              !stack[(*!count)] = @240
+              !stack0[(*!count)] = @244
+              let @253 = (*!count) + 1u in
+              tris_index!top = @239
+              _bound0!top = @243
+              !count = @253
+              continue
+            } else {
+              tris_index!top = @202
+              _bound0!top = @203
+              continue
+            }
+          }
+        } else {
+          let @82 = _t258.child1 in
+          let @83 = cast<u32>(@82) in
+          data = 0u
+          while ((*data) < @83) {
+            let @85 = 0 - _t259 in
+            let @86 = @85 - 1 in
+            let @87 = cast<u32>(@86) in
+            let _t386 = @87 + (*data) in
+            let @89 = tris.group0_prims in
+            let @90 = @89[_t386] in
+            let _t387$pa0 = @90.pa in
+            let _t387$pb1 = @90.pb in
+            let _t387$pc2 = @90.pc in
+            let @98 = cast<f32x3x1>(_t387$pa0) in
+            let @99 = @98[0u] in
+            let @100 = cast<f32x3x1>(_t387$pb1) in
+            let @101 = @100[0u] in
+            let @102 = cast<f32x3x1>(_t387$pc2) in
+            let @103 = @102[0u] in
+            let tri$i1 = build<Triangle>(@99, @101, @103) in
+            let @105 = closestPointonTriangle(p, tri$i1) in
+            let pts$i1 = @105 in
+            let _t405 = p.vec in
+            let @107 = pts$i1._field0 in
+            let @108 = @107.vec in
+            let @109 = _t405 - @108 in
+            let @110 = @109[0] in
+            let @115 = @110 * @110 in
+            let @119 = @109[1] in
+            let @124 = @119 * @119 in
+            let @125 = @115 + @124 in
+            let @129 = @109[2] in
+            let @134 = @129 * @129 in
+            let @135 = @125 + @134 in
+            let @136 = sqrt(@135) in
+            let @138 = (*_best0) in
+            let @139 = @138._field0 in
+            let @140 = @136 < @139 in
+            if (@140) {
+              let @172 = build<__tuple_0>(_t386) in
+              let @173 = build<__tuple_1>(@136, @172) in
+              _best0 argmin= @173
+            }
+            let @174 = (*data) + 1u in
+            data = @174
+          }
+        }
+        break
+      } while (true)
+    }
+    let @246 = (*!count) != 0u in
+    if (@246) {
+      let @247 = (*!count) - 1u in
+      let @248 = !stack[@247] in
+      let @249 = !stack0[@247] in
+      tris_index!top = @248
+      _bound0!top = @249
+      !count = @247
+      continue
+    } else {
+      return
+    }
+  } while (true)
+}
+
+func _traverse_tree0(p : Point, tris : _tree_layout0) -> Triangle {
+  _best0 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best0 = @2
+  let @4 = -0f - @0 in
+  _recloop_func0(0u, @4, _best0, tris, p)
+  let _t260 = tris.group0_prims in
+  let @6 = (*_best0) in
+  let @7 = @6._field1 in
+  let @8 = @7._field0 in
+  let @9 = _t260[@8] in
+  let @10 = @9.pa in
+  let @11 = cast<f32x3x1>(@10) in
+  let @12 = @11[0u] in
+  let @17 = @9.pb in
+  let @18 = cast<f32x3x1>(@17) in
+  let @19 = @18[0u] in
+  let @24 = @9.pc in
+  let @25 = cast<f32x3x1>(@24) in
+  let @26 = @25[0u] in
+  let @27 = build<Triangle>(@12, @19, @26) in
+  return @27
+}
+
+func [[export]] closest(_ret0 : mut (Triangle*), p : (Point*), tris : (_tree_layout0*)) -> void {
+  _best0$i3 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best0$i3 = @2
+  let @4 = -0f - @0 in
+  let @5 = (*tris) in
+  let @6 = (*p) in
+  _recloop_func0(0u, @4, _best0$i3, @5, @6)
+  let @7 = (*tris) in
+  let _t260$i3 = @7.group0_prims in
+  let @9 = (*_best0$i3) in
+  let @10 = @9._field1 in
+  let @11 = @10._field0 in
+  let @12 = _t260$i3[@11] in
+  let @13 = @12.pa in
+  let @14 = cast<f32x3x1>(@13) in
+  let @15 = @14[0u] in
+  let @20 = @12.pb in
+  let @21 = cast<f32x3x1>(@20) in
+  let @22 = @21[0u] in
+  let @27 = @12.pc in
+  let @28 = cast<f32x3x1>(@27) in
+  let @29 = @28[0u] in
+  let @30 = build<Triangle>(@15, @22, @29) in
+  _ret0 = @30
+  return
+}
+
+
+schedule {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH2
+  | Interior(children : (const BVH2&)[2], lo : f32x3x2, hi : f32x3x2) with AABB(lo, hi) on children
+  | Leaf(data : Triangle[]) with data = data
+    closest.sort(tris.Interior, |i : u32, p : struct Point{ vec : f32x3 }, lo : f32x3x2, hi : f32x3x2| distmin(p, build<struct AABB{ low : f32x3; high : f32x3 }>(lo[i], hi[i])))
+           .loopify((i32)64)
+
+}
