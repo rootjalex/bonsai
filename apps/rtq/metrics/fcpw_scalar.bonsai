@@ -1,0 +1,285 @@
+// apps/rtq's geometry as FCPW's SCALAR code computes it: the build WoSX
+// ships (its CMake forces FCPW_USE_ENOKI off; the Bvh over Eigen,
+// fcpw/geometry/triangles.inl and fcpw/core/bounding_volumes.h) and FCPW's
+// GPU kernels (fcpw/gpu/geometry.slang, bounding-volumes.slang), which are
+// the same arithmetic line for line. metrics/fcpw.bonsai is the vectorized
+// build's (fcpw/core/wide_query_operations.h), whose divisions are enoki's
+// `rcp` -- the machine's estimate with one Newton step -- and whose closest
+// point takes one root per packet after the regions are settled; the
+// scalar code divides, `d1 / (d1 - d3)`, `1.0f / det`, `1.0f / (va + vb +
+// vc)`, and returns `(x - pt).norm()` from each region, which is the one
+// root of the point the region settled on. Everything else -- the slab
+// test, Moeller-Trumbore's shape and its `epsilon`, Ericson's regions in
+// FCPW's order, the far-corner distance that lowers the radius -- is the
+// same in both builds and written the same here. Compiled beside
+// elements.bonsai and before queries.bonsai for every comparison on FCPW's
+// binary tree (apps/wosx/compare.sh, the schedules named fcpwb*); the
+// Sphere forms are the query as FCPW asks it, a center and a squared
+// radius, with a box or a triangle past the radius an infinite key.
+
+element FInterval {
+    low, high : Float;
+}
+
+// FCPW: BoundingBox::intersect -- the slab test with the ray's reciprocal
+// direction taken once per ray by true division (Ray's `invD`), the near
+// and far slab distances per axis as min and max of the two, the entry
+// distance the largest of the three nears and zero (FCPW's ray begins at
+// zero), the exit the least of the three fars and tMax, and a hit where
+// entry <= exit. The scalar node's box is its own and never the inverted
+// empty slot of the wide node, but the mark costs one compare and is kept
+// so that the two metrics answer the same question of the same box.
+func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
+    proper = b.low.x <= b.high.x;
+    rinvD = vec3f{1.0, 1.0, 1.0} / r.d;
+    t0 = (b.low - r.o) * rinvD;
+    t1 = (b.high - r.o) * rinvD;
+    tNear = min(t0, t1);
+    tFar = max(t0, t1);
+    tMin = max(0.0, max(max(tNear.x, tNear.y), tNear.z));
+    tMax = min(r.tfar, min(min(tFar.x, tFar.y), tFar.z));
+    if tMin <= tMax && proper {
+        return FInterval{tMin, tMax};
+    }
+    return {};
+}
+
+func intersects(r : Ray, b : AABB) -> bool = cast[[bool]](intersectsp_ray_aabb(r, b));
+
+// FCPW: the distance a child is pushed with (the slab entry), infinite where
+// the ray misses, so that a missed child sorts last.
+func distmin(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.high;
+    }
+    return inf;
+}
+
+func contains(r : Ray, b : AABB) -> bool = false;
+
+element TriangleHit {
+    t, u, v : Float;
+}
+
+// FCPW: Triangle::intersect (triangles.inl) -- Moeller-Trumbore in its
+// textbook form over the two edges from the first vertex (`v1 = pb - pa`,
+// the stored `e1 = pa - pb` negated; `v2 = pc - pa`, the stored `e2`): the
+// determinant rejected within `epsilon` of zero (`fabs(det) <= epsilon`),
+// its reciprocal by true division (`invDet = 1.0f / det`), the two
+// barycentrics and the distance each scaled by it, the distance accepted
+// from zero up to tMax.
+func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
+    epsilon : Float = 1.1920929e-7;
+    v1 = -tri.e1;
+    v2 = tri.e2;
+    p = cross(r.d, v2);
+    det = dot(v1, p);
+    if !(abs(det) > epsilon) {
+        return {};
+    }
+    invDet = 1.0 / det;
+    s = r.o - tri.v0;
+    v = dot(s, p) * invDet;
+    if !(v >= 0.0 && v <= 1.0) {
+        return {};
+    }
+    q = cross(s, v1);
+    w = dot(r.d, q) * invDet;
+    if !(w >= 0.0 && v + w <= 1.0) {
+        return {};
+    }
+    d = dot(v2, q) * invDet;
+    if !(d >= 0.0 && d <= r.tfar) {
+        return {};
+    }
+    return TriangleHit{d, v, w};
+}
+
+func intersects(r : Ray, tri : Triangle) -> bool = cast[[bool]](intersectsp_ray_tri(r, tri));
+
+func distmin(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return inf;
+}
+
+func distmax(r : Ray, tri : Triangle) -> Float {
+    hit = intersectsp_ray_tri(r, tri);
+    if hit {
+        extract = *hit;
+        return extract.t;
+    }
+    return -inf;
+}
+
+// FCPW: BoundingBox::overlap (bounding_volumes.h; bounding-volumes.slang on
+// the GPU) -- `u = pMin - c; v = c - pMax`, the squared distance to the box
+// the squared length of `max(max(u, v), 0)` (d2Min, the sort key and the
+// test against the radius squared) and the farthest squared distance to it
+// the squared length of `min(u, v)` (d2Max, what FCPW lowers its radius to
+// at every child it tests).
+func distmin(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = max(max(u, v), 0.0);
+    return dot(m, m);
+}
+
+func distmax(q : Point, b : AABB) -> Float {
+    u = b.low - q.p;
+    v = q.p - b.high;
+    m = min(u, v);
+    return dot(m, m);
+}
+
+// FCPW: the same query asked with a BoundingSphere -- `overlap(s, d2Min,
+// d2Max)` is `d2Min <= s.r2`, a box beyond the radius is not entered, and
+// here its key is infinite, which never beats the running best, so the
+// traversal does not enter it either; the far distance tightens the best
+// as the point's does. The leaf's test is FCPW's `d * d <= s.r2`.
+func distmin(s : Sphere, b : AABB) -> Float {
+    d2 = distmin(Point{s.c}, b);
+    return select(d2 <= s.r2, d2, inf);
+}
+
+func distmax(s : Sphere, b : AABB) -> Float = distmax(Point{s.c}, b);
+
+// FCPW: findClosestPointTriangle (triangles.inl; geometry.slang on the GPU)
+// -- Ericson's Voronoi-region test over `ab = pb - pa`, `ac = pc - pa`,
+// `ax = x - pa` (the stored edges, the first negated: `-(pa - pb)` is
+// `pb - pa` to the bit), the regions in FCPW's order (the three vertices,
+// the edges ab, ac, bc, the face), each returning its point and FCPW's
+// barycentric pair, the edges' parameters by true division (`v = d1 /
+// (d1 - d3)`) and the face's by one reciprocal (`denom = 1.0f / (va + vb
+// + vc)`) scaling two numerators, as FCPW writes them. FCPW returns
+// `(x - pt).norm()` from each region; distmin takes `x - pt` of the point
+// returned, the one root, and squares it, which is the same root of the
+// same point, and the leaf compares the square with the radius squared as
+// FCPW's does (`d * d <= s.r2`). The early returns are the schedule's
+// `skip(closest_point_fcpw)` exits, FCPW's own.
+element ClosestPoint {
+    p : vec3f;
+    u, v : Float;
+}
+
+func closest_point_fcpw(q : Point, tri : Triangle) -> ClosestPoint {
+    pa = tri.v0;
+    ab = -tri.e1;
+    ac = tri.e2;
+    ax = q.p - pa;
+    d1 = dot(ab, ax);
+    d2 = dot(ac, ax);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return ClosestPoint{pa, 1.0, 0.0};
+    }
+    pb = pa + ab;
+    bx = q.p - pb;
+    d3 = dot(ab, bx);
+    d4 = dot(ac, bx);
+    if d3 >= 0.0 && d4 <= d3 {
+        return ClosestPoint{pb, 0.0, 1.0};
+    }
+    pc = pa + ac;
+    cx = q.p - pc;
+    d5 = dot(ab, cx);
+    d6 = dot(ac, cx);
+    if d6 >= 0.0 && d5 <= d6 {
+        return ClosestPoint{pc, 0.0, 0.0};
+    }
+    vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        v_ab = d1 / (d1 - d3);
+        return ClosestPoint{pa + ab * v_ab, 1.0 - v_ab, v_ab};
+    }
+    vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        w_ac = d2 / (d2 - d6);
+        return ClosestPoint{pa + ac * w_ac, 1.0 - w_ac, 0.0};
+    }
+    va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        w_bc = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return ClosestPoint{pb + (pc - pb) * w_bc, 0.0, 1.0 - w_bc};
+    }
+    denom = 1.0 / (va + vb + vc);
+    v = vb * denom;
+    w = vc * denom;
+    return ClosestPoint{pa + ab * v + ac * w, 1.0 - v - w, v};
+}
+
+func distmin(q : Point, tri : Triangle) -> Float {
+    cp = closest_point_fcpw(q, tri);
+    diff = q.p - cp.p;
+    d = sqrt(dot(diff, diff));
+    return d * d;
+}
+
+// FCPW: Triangle::findClosestPoint's `d * d <= s.r2` -- a triangle past the
+// sphere's radius is no answer, and its key is infinite here.
+func distmin(s : Sphere, tri : Triangle) -> Float {
+    d2 = distmin(Point{s.c}, tri);
+    return select(d2 <= s.r2, d2, inf);
+}
+
+// FCPW: what Scene::intersect leaves in its Interaction for the nearest hit
+// -- `d` the distance, `p` the hit point (`pa + v1 v + v2 w`), `n` the unit
+// normal (Eigen's `normalized()`, a true division by the norm), `uv` the
+// pair `(1 - v - w, v)`, and `primitiveIndex`. Made once per ray here, for
+// the triangle the argmin settled on, by the same test run once more.
+element Hit {
+    primID : u32;
+    d : Float;
+    p : vec3f;
+    n : vec3f;
+    u, v : Float;
+}
+
+func hit_record(r : Ray, tri : Triangle) -> Hit {
+    h = intersectsp_ray_tri(r, tri);
+    if h {
+        e = *h;
+        v1 = -tri.e1;
+        v2 = tri.e2;
+        p = tri.v0 + v1 * e.u + v2 * e.v;
+        ng = cross(v1, v2);
+        n = ng * (1.0 / sqrt(dot(ng, ng)));
+        return Hit{tri.primID, e.t, p, n, 1.0 - e.u - e.v, e.u};
+    }
+    return no_hit();
+}
+
+// FCPW: a miss leaves the Interaction as constructed, `d` the largest
+// float and the rest zero.
+func no_hit() -> Hit = Hit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};
+
+// FCPW: what findClosestPoint leaves in its Interaction -- `d` the
+// distance, `p` the closest point, `uv` the barycentric pair of the region
+// it lies in, and `primitiveIndex`; made once, for the argmin's triangle.
+element ClosestHit {
+    primID : u32;
+    d : Float;
+    p : vec3f;
+    u, v : Float;
+}
+
+func closest_record(q : Point, tri : Triangle) -> ClosestHit {
+    cp = closest_point_fcpw(q, tri);
+    diff = q.p - cp.p;
+    return ClosestHit{tri.primID, sqrt(dot(diff, diff)), cp.p, cp.u, cp.v};
+}
+
+func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};

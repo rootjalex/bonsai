@@ -171,6 +171,19 @@ func distmax(q : Point, b : AABB) -> Float {
     return dot(m, m);
 }
 
+// FCPW: the same query asked with a BoundingSphere -- `overlap(s, d2Min,
+// d2Max)` is `d2Min <= s.r2`, a box beyond the radius is not entered, and
+// here its key is infinite, which never beats the running best (the
+// traversal enters a child whose key beats the best), so the traversal
+// does not enter it either; the far distance tightens the best as the
+// point's does. The leaf's test is FCPW's `d * d <= s.r2`, infinite past it.
+func distmin(s : Sphere, b : AABB) -> Float {
+    d2 = distmin(Point{s.c}, b);
+    return select(d2 <= s.r2, d2, inf);
+}
+
+func distmax(s : Sphere, b : AABB) -> Float = distmax(Point{s.c}, b);
+
 // FCPW: findClosestPointWideTriangle -- Ericson's Voronoi-region test over
 // `ab = pb - pa`, `ac = pc - pa`, `ax = x - pa` (the stored edges, the first
 // negated), the regions in FCPW's order (the three vertices, the edges ab,
@@ -248,6 +261,13 @@ func distmin(q : Point, tri : Triangle) -> Float {
     diff = q.p - cp.p;
     d = sqrt(dot(diff, diff));
     return d * d;
+}
+
+// FCPW: Triangle::findClosestPoint's `d * d <= s.r2` -- a triangle past the
+// sphere's radius is no answer, and its key is infinite here.
+func distmin(s : Sphere, tri : Triangle) -> Float {
+    d2 = distmin(Point{s.c}, tri);
+    return select(d2 <= s.r2, d2, inf);
 }
 
 // FCPW: what Scene::intersect leaves in its Interaction for the nearest hit

@@ -50,4 +50,15 @@ element Point {
     p : vec3f;
 }
 
+// FCPW: BoundingSphere -- the point query as FCPW asks it, a center and a
+// squared radius the search begins at (`findClosestPoint(BoundingSphere(x,
+// r), ...)`, `s.r2`), shrunk to each closer triangle found. The radius is
+// a bound the caller knows: WoSX's GPU walk bounds each step's query by
+// twice the step just taken, its CPU walk by nothing (maxFloat). A query
+// with an infinite radius is `closest(Point)` above.
+element Sphere {
+    c : vec3f;
+    r2 : Float;
+}
+
 extern triangles : set[Triangle];
