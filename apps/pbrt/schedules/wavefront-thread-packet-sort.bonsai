@@ -1,0 +1,97 @@
+// wavefront-thread-packet.bonsai with each thread's trace queue sorted:
+// before every pass of a chunk's rays drain, the pass's entries are
+// ordered by the two-point key of Meister, Boksansky, Guthe and Bittner,
+// "On Ray Reordering Techniques for Faster GPU Ray Tracing" (2025) -- a
+// Morton code of the ray's origin and its estimated end inside the scene's
+// box (render.bonsai, ray_sort_key) -- so that the sixteen consecutive
+// entries a gang traces as one packet start near each other and head the
+// same way. The sort is the `sort` directive on the call `defer` sends to
+// the rays queue, as in wavefront-frame-packet-reorder.bonsai; here the
+// queue is a thread's (queue(p_thread)), so the sort is a thread's own,
+// over a chunk x spp entries that already sit in its cache, and runs on
+// its core with the rest of the round. Nothing else differs from
+// wavefront-thread-packet.bonsai. The user's ask of 10-23: a per-thread
+// vectorized wavefront that sorts the per-thread trace queues, beside the
+// band one that sorts the frame's.
+//
+// The sort is written first: a function's sorts come before its other
+// directives (Lower/Sorts.cpp), and `li_vol_path` also defers the call.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    li_vol_path.sort(vol_path_step,
+                     |ray : Ray, scene_bounds : AABB| ray_sort_key(ray, scene_bounds));
+
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].split(p, p_thread, p_in, 1024, true);
+    rays = render[VolPath].queue(p_thread);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    medium_samples = render[VolPath].queue(p_thread);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_thread);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+    escaped = render[VolPath].queue(p_thread);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_thread);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_thread);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p_thread);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    probes = render[VolPath].queue(p_thread);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_thread);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_thread);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+    // The drains as gangs: sixteen consecutive entries per gang, the tail
+    // guarded. The medium-sample, shadow and exit-shadow drains are left
+    // scalar (NanoVDB).
+    render.split(rays, rays_gang, rays_lane, 16, true)
+          .vectorize(rays_lane);
+    render.split(hits, hits_gang, hits_lane, 16, true)
+          .vectorize(hits_lane);
+    render.split(escaped, escaped_gang, escaped_lane, 16, true)
+          .vectorize(escaped_lane);
+    render.split(emissive, emissive_gang, emissive_lane, 16, true)
+          .vectorize(emissive_lane);
+    render.split(medium_scatters, medium_scatters_gang, medium_scatters_lane, 16, true)
+          .vectorize(medium_scatters_lane);
+    render.split(probes, probes_gang, probes_lane, 16, true)
+          .vectorize(probes_lane);
+    render.split(exits, exits_gang, exits_lane, 16, true)
+          .vectorize(exits_lane);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    // The threads take chunks; everything inside a chunk is the thread's.
+    render.bind(p_thread, CPUThread);
+    render.bind(q, CPUThread);
+}

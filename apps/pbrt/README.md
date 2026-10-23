@@ -100,13 +100,16 @@ before it.
   group of bars per scene and a subgroup per sample count; pbrt's bar
   grey, every Bonsai bar one blue with a hatch per schedule, so it reads
   in print and under colour deficiencies; a bar whose image did not match
-  pbrt's has a vermilion edge. pbrt's bars are "pbrt megakernel" and the
-  reference "pbrt wavefront"; a Bonsai schedule is named
+  pbrt's has a vermilion edge. The axis reads "Speedup over PBRT wf";
+  pbrt's bars are "PBRT mk" (its megakernel, the CPU volpath) and the
+  reference line "PBRT wf"; the bars run PBRT mk, mk-b-s-ps, then the
+  wavefronts; a Bonsai schedule is named
   type-parallelism-SIMD-order[-sort] -- `wf`/`mk` (wavefront, megakernel),
   `b`/`t` (bulk, per-thread), `s`/`v` (scalar, vectorized drains),
   `ps`/`sp` (pixels outer or samples outer), `-sort` when the rays are
-  sorted before the trace -- so `scalar` is mk-b-s-ps and
-  `wavefront-thread-packet` is wf-t-v-ps (the table is in the script).
+  sorted before the trace -- so `scalar` is mk-b-s-ps,
+  `wavefront-thread-packet` is wf-t-v-ps and `wavefront-thread-packet-sort`
+  is wf-t-v-ps-sort (the table is in the script).
   `plots/` holds the drawn figures and is not committed.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every

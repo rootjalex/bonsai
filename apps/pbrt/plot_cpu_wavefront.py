@@ -43,7 +43,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 REFERENCE = "pbrt-wavefront"
-REFERENCE_LABEL = "pbrt wavefront"
+REFERENCE_LABEL = "PBRT wf"
+Y_LABEL = "Speedup over PBRT wf"   # the user's wording (10-23)
 PBRT_COLOUR = "#7F7F7F"      # a mid grey
 BONSAI_COLOUR = "#0072B2"    # Okabe-Ito blue
 BAD_EDGE = "#D55E00"         # Okabe-Ito vermilion, for an image that did not match
@@ -62,7 +63,7 @@ BAD_EDGE = "#D55E00"         # Okabe-Ito vermilion, for an image that did not ma
 # `-sort` when the rays queue is sorted by the two-point Morton key before
 # each trace pass. The code is read from the schedule file's directives.
 SIDES = [
-    ("pbrt-volpath", "pbrt megakernel", PBRT_COLOUR, ""),
+    ("pbrt-volpath", "PBRT mk", PBRT_COLOUR, ""),
     ("scalar", "Bonsai mk-b-s-ps", BONSAI_COLOUR, ""),
     ("wavefront-frame", "Bonsai wf-b-s-sp", BONSAI_COLOUR, "////"),
     ("wavefront-frame-packet", "Bonsai wf-b-v-sp", BONSAI_COLOUR, "xxxx"),
@@ -70,6 +71,7 @@ SIDES = [
     ("wavefront-thread", "Bonsai wf-t-s-ps", BONSAI_COLOUR, "\\\\\\\\"),
     ("wavefront-thread-packet", "Bonsai wf-t-v-ps", BONSAI_COLOUR, "++++"),
     ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", BONSAI_COLOUR, "oooo"),
+    ("wavefront-thread-packet-sort", "Bonsai wf-t-v-ps-sort", BONSAI_COLOUR, "**"),
 ]
 
 
@@ -157,7 +159,9 @@ def main(argv):
                 c = cell(scene, spp, side)
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
-                    ok = c["verdict"].startswith("ok")
+                    # pbrt's own rows carry "-" for a verdict: nothing checks
+                    # pbrt against itself, so they are not failures.
+                    ok = c["verdict"].startswith("ok") or c["verdict"].strip() == "-"
                     any_bad = any_bad or not ok
                     ax.bar(x, speedup, bar * 0.9, color=colour, hatch=hatch,
                            edgecolor="white" if ok else BAD_EDGE,
@@ -182,7 +186,7 @@ def main(argv):
     for centre, scene in zip(scene_centres, scenes):
         ax.text(centre, -0.16, scene, ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=8)
-    ax.set_ylabel(f"speedup over {REFERENCE_LABEL}")
+    ax.set_ylabel(Y_LABEL)
     if args.log:
         ax.set_yscale("log")
     else:
@@ -201,7 +205,7 @@ def main(argv):
     if any_bad:
         handles.append(Patch(facecolor="white", edgecolor=BAD_EDGE, linewidth=1.4,
                              label="image differs from pbrt's"))
-    ncol = 2 if len(handles) > 4 else len(handles)
+    ncol = 3 if len(handles) > 6 else 2 if len(handles) > 4 else len(handles)
     legend_rows = (len(handles) + ncol - 1) // ncol
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
               bbox_to_anchor=(0.5, 1.0 + 0.02), handlelength=2.2, handleheight=1.2,
