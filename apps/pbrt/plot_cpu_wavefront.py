@@ -23,8 +23,9 @@ pbrt's bar is grey, every Bonsai bar is one blue, and each Bonsai schedule
 has its own hatch, so the figure reads the same in print, in greyscale and
 under the common colour deficiencies (the two colours are from the
 Okabe-Ito palette). A bar whose image did not match pbrt's has a thick
-vermilion edge; the legend says so when any does. Every bar carries its
-speedup (`--no-values` drops them). `--width` and `--height` are the figure
+vermilion edge; the legend says so when any does. The bars carry no
+numbers (the user, 10-22: they made the figure noisy; the CSV has them;
+`--values` puts them back). `--width` and `--height` are the figure
 size in inches (the defaults fit a two-column page's full width); `--log`
 puts the speedup axis on a log scale, where the line at 1 sits mid-axis.
 The output format follows the extension (.pdf for the paper, .png to look
@@ -95,7 +96,7 @@ def main(argv):
     ap.add_argument("--width", type=float, default=7.0)
     ap.add_argument("--height", type=float, default=3.4)
     ap.add_argument("--log", action="store_true", help="log-scale speedup axis")
-    ap.add_argument("--no-values", action="store_true", help="no number on the bars")
+    ap.add_argument("--values", action="store_true", help="the speedup written on each bar")
     ap.add_argument("--title", default=None)
     args = ap.parse_args(argv[1:])
 
@@ -152,7 +153,7 @@ def main(argv):
                     ax.bar(x, speedup, bar * 0.9, color=colour, hatch=hatch,
                            edgecolor="white" if ok else BAD_EDGE,
                            linewidth=0.5 if ok else 1.4, zorder=2)
-                    if not args.no_values:
+                    if args.values:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
                                 fontsize=5.5, rotation=90, zorder=4)
                 x += bar
@@ -172,12 +173,12 @@ def main(argv):
     for centre, scene in zip(scene_centres, scenes):
         ax.text(centre, -0.16, scene, ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=8)
-    ax.set_ylabel(f"speedup over {REFERENCE_LABEL} (CPU)")
+    ax.set_ylabel(f"speedup over {REFERENCE_LABEL}")
     if args.log:
         ax.set_yscale("log")
     else:
         top = ax.get_ylim()[1]
-        ax.set_ylim(0, top * 1.12)       # room for the values
+        ax.set_ylim(0, top * (1.12 if args.values else 1.04))
     ax.set_xlim(-bar, right + 0.3)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)

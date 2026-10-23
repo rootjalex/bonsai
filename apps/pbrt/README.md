@@ -91,7 +91,7 @@ before it.
   images; `--resume` skips rows already in the CSV. Every number in the
   CSV comes from a log beside it.
 - `plot_cpu_wavefront.py DIR/cpu-results.csv -o OUT.pdf [--sides a,b,...]
-  [--log] [--no-values] [--width W --height H]`: that CSV as one figure --
+  [--log] [--values] [--width W --height H]`: that CSV as one figure --
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
   group of bars per scene and a subgroup per sample count; pbrt's bar
   grey, every Bonsai bar one blue with a hatch per schedule, so it reads
